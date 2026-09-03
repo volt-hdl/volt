@@ -1,0 +1,19 @@
+{
+  "tarih": "2026-09-03",
+  "girdi": "10625 satırlık sentetik Volt dosyası (generate_large_module, 144155 bayt)",
+  "not": "Referans makine ölçümü — CI'da koşulmaz. Birimler nanosaniye.",
+  "sonuclar": {
+    "lexer/tokenize_10625_satir": {
+      "mean_ns": 501204.7,
+      "median_ns": 498081.8,
+      "std_dev_ns": 50258.5,
+      "throughput_mib_s": 277.4
+    },
+    "parser/parse_10625_satir": {
+      "mean_ns": 1884273.5,
+      "median_ns": 1799347.8,
+      "std_dev_ns": 198161.6,
+      "throughput_mib_s": 73.0
+    }
+  }
+}

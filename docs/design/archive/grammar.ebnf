@@ -1,0 +1,198 @@
+(* UYARI: Bu belge geçersizdir. Güncel sürüm: docs/design/ altında. *)
+
+(* ═══════════════════════════════════════════════════════════
+   Volt HDL — Gramer Spesifikasyonu
+   Kapsam: F0-F2 alt kümesi
+   Sınıf:  LL(2) — geri izleme YOK
+   Durum:  BAĞLAYICI — değişiklik ADR gerektirir
+   ═══════════════════════════════════════════════════════════ *)
+
+(* ─── PROGRAM ─────────────────────────────────────────────── *)
+
+Program        = { Item } EOF ;
+
+Item           = ModuleDecl
+               | DomainDecl ;
+
+(* ─── DOMAIN ──────────────────────────────────────────────── *)
+
+DomainDecl     = "domain" Ident "{" { DomainField } "}" ;
+
+DomainField    = "clock"  "=" ClockEdge  [ "," ]
+               | "reset"  "=" ResetSpec  [ "," ] ;
+
+ClockEdge      = "posedge" | "negedge" | "none" ;
+
+ResetSpec      = ResetSync ResetPolarity
+               | "none" ;
+
+ResetSync      = "sync" | "async" ;
+
+ResetPolarity  = "active_high" | "active_low" ;
+
+(* ─── MODÜL ───────────────────────────────────────────────── *)
+
+ModuleDecl     = [ DocComment ] "module" Ident
+                 "{" { Port } { Stmt } "}" ;
+
+Port           = [ DocComment ] PortDir Ident ":" Type
+                 [ "@" Ident ] [ "," ] ;
+
+PortDir        = "in" | "out" ;
+
+(* ─── TİPLER ──────────────────────────────────────────────── *)
+
+Type           = "bool"
+               | "clock"
+               | "reset" [ "(" ResetSync "," ResetPolarity ")" ]
+               | UIntType
+               | SIntType
+               | "bits" "<" Expr ">"
+               | ArrayType
+               | Ident ;
+
+UIntType       = "u8" | "u16" | "u32" | "u64" ;
+SIntType       = "i8" | "i16" | "i32" | "i64" ;
+ArrayType      = "[" Type ";" Expr "]" ;
+
+(* ─── DEYİMLER ────────────────────────────────────────────── *)
+
+Stmt           = RegDecl
+               | LetDecl
+               | OnBlock
+               | AssignStmt ;
+
+RegDecl        = "reg" Ident [ ":" Type ] "=" Expr [ ";" ] ;
+
+LetDecl        = "let" Ident [ ":" Type ] "=" Expr [ ";" ] ;
+
+OnBlock        = "on" Ident "{" { SeqStmt } "}" ;
+
+AssignStmt     = LValue "=" Expr [ ";" ] ;
+
+(* Sıralı blok içindeki deyimler *)
+SeqStmt        = NonBlockAssign
+               | IfSeq ;
+
+NonBlockAssign = LValue "<=" Expr [ ";" ] ;
+
+IfSeq          = "if" Expr Block [ "else" ( IfSeq | Block ) ] ;
+
+Block          = "{" { SeqStmt } "}" ;
+
+LValue         = Ident { LValueSuffix } ;
+
+LValueSuffix   = "[" Expr [ ":" Expr ] "]"
+               | "." Ident ;
+
+(* ─── İFADELER ────────────────────────────────────────────── *)
+(* Öncelik: docs/spec/operator-precedence.md
+   Pratt parser ile ayrıştırılır, gramerde düzleştirilmiştir *)
+
+Expr           = OrExpr ;
+
+OrExpr         = AndExpr { "||" AndExpr } ;
+
+AndExpr        = EqExpr { "&&" EqExpr } ;
+
+(* DİKKAT: eşitlik ve karşılaştırma BİRLEŞMEZ.
+   Parser aynı seviyede ikinci operatör görürse E0010 üretir. *)
+EqExpr         = CmpExpr [ ( "==" | "!=" ) CmpExpr ] ;
+
+CmpExpr        = BitOrExpr [ ( "<" | ">" | "<=" | ">=" ) BitOrExpr ] ;
+
+BitOrExpr      = BitXorExpr { "|" BitXorExpr } ;
+
+BitXorExpr     = BitAndExpr { "^" BitAndExpr } ;
+
+BitAndExpr     = ShiftExpr { "&" ShiftExpr } ;
+
+ShiftExpr      = AddExpr { ( "<<" | ">>" ) AddExpr } ;
+
+AddExpr        = MulExpr { ( "+" | "-" ) MulExpr } ;
+
+MulExpr        = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+
+UnaryExpr      = ( "!" | "~" | "-" ) UnaryExpr
+               | PostfixExpr ;
+
+PostfixExpr    = PrimaryExpr { PostfixSuffix } ;
+
+PostfixSuffix  = "[" Expr [ ":" Expr ] "]"     (* bit/aralık *)
+               | "." Ident                      (* alan erişimi *)
+               | "(" [ ArgList ] ")"            (* çağrı *)
+               | "as" Type ;                    (* tip dönüşümü *)
+
+PrimaryExpr    = Literal
+               | Ident
+               | IfExpr
+               | "(" Expr ")" ;
+
+IfExpr         = "if" Expr "{" Expr "}"
+                 "else" ( IfExpr | "{" Expr "}" ) ;
+
+ArgList        = Expr { "," Expr } [ "," ] ;
+
+(* ─── LİTERALLER ──────────────────────────────────────────── *)
+
+Literal        = IntLiteral
+               | BoolLiteral ;
+
+IntLiteral     = DecLiteral
+               | HexLiteral
+               | BinLiteral
+               | OctLiteral ;
+
+DecLiteral     = Digit { Digit | "_" } ;
+HexLiteral     = "0x" HexDigit { HexDigit | "_" } ;
+BinLiteral     = "0b" BinDigit { BinDigit | "_" } ;
+OctLiteral     = "0o" OctDigit { OctDigit | "_" } ;
+
+BoolLiteral    = "true" | "false" ;
+
+(* ─── TEMEL ÖĞELER ────────────────────────────────────────── *)
+
+Ident          = ( Letter | "_" ) { Letter | Digit | "_" } ;
+
+DocComment     = "///" { AnyCharExceptNewline } NEWLINE ;
+
+Letter         = "a".."z" | "A".."Z" ;
+Digit          = "0".."9" ;
+HexDigit       = Digit | "a".."f" | "A".."F" ;
+BinDigit       = "0" | "1" ;
+OctDigit       = "0".."7" ;
+
+(* ─── YOK SAYILANLAR ──────────────────────────────────────── *)
+
+Whitespace     = " " | "\t" | "\r" | "\n" ;
+LineComment    = "//" { AnyCharExceptNewline } NEWLINE ;
+BlockComment   = "/*" { AnyChar } "*/" ;
+
+(* ═══════════════════════════════════════════════════════════
+   F0-F2 KAPSAMI DIŞINDA (F3+ için ayrılmış anahtar kelimeler)
+   ═══════════════════════════════════════════════════════════
+
+   fn pipeline fsm arbiter fifo ram regfile
+   struct enum trait impl match
+   requires ensures invariant cover
+   pub package import use extern
+   Trit Option Some None
+   todo! hook stage stall flush
+   const type where self Self
+
+   Bu kelimeler lexer tarafından ANAHTAR KELİME olarak
+   tanınır ama parser E0003 "henüz desteklenmiyor" üretir.
+   Gerekçe: kullanıcı bunları tanımlayıcı olarak kullanmasın.
+   ═══════════════════════════════════════════════════════════ *)
+
+(* ─── SÖZDİZİM HATA KODLARI ───────────────────────────────── *)
+(*
+   E0001  Beklenmeyen token
+   E0002  Eksik kapanış (} ) ])
+   E0003  Anahtar kelime henüz desteklenmiyor
+   E0004  Blok sonlandırma ismi uyuşmuyor
+   E0005  Geçersiz sayısal literal
+   E0006  'on' bloğunda '=' kullanıldı ('<=' olmalı)
+   E0007  Kombinasyonel bağlamda '<=' kullanıldı ('=' olmalı)
+   E0010  Karşılaştırma operatörleri zincirlenemez
+*)

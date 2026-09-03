@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/volt-span",
+    "crates/volt-diagnostics",
+    "crates/volt-syntax",
+    "crates/volt-ast",
+    "crates/volt-hir",
+    "crates/volt-lower",
+    "crates/volt-sv-emit",
+    "crates/volt-driver",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Volt HDL Contributors"]
+repository = "https://github.com/volthdl/volthdl"
+
+[workspace.dependencies]
+logos = "0.14"
+cstree = "0.12"
+codespan-reporting = "0.11"
+thiserror = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+criterion = "0.5"

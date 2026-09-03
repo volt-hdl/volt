@@ -1,0 +1,13 @@
+[package]
+name = "volt-sv-emit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+volt-ast = { path = "../volt-ast" }
+volt-span = { path = "../volt-span" }
+volt-diagnostics = { path = "../volt-diagnostics" }
+
+[dev-dependencies]
+volt-syntax = { path = "../volt-syntax" }

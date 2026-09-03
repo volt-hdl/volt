@@ -1,0 +1,17 @@
+[package]
+name = "volt-driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "volt"
+path = "src/main.rs"
+
+[dependencies]
+volt-lower = { path = "../volt-lower" }
+volt-span = { path = "../volt-span" }
+volt-syntax = { path = "../volt-syntax" }
+volt-sv-emit = { path = "../volt-sv-emit" }
+volt-diagnostics = { path = "../volt-diagnostics" }
+clap.workspace = true

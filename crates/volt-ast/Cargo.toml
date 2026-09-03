@@ -1,0 +1,8 @@
+[package]
+name = "volt-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+volt-span = { path = "../volt-span" }

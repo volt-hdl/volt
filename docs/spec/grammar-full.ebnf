@@ -1,0 +1,542 @@
+(* ═══════════════════════════════════════════════════════════════
+   Volt HDL — Tam Gramer Spesifikasyonu
+   
+   Sürüm:  1.0
+   Kapsam: F0-F5 (MVP) + V1 hazırlığı
+   Sınıf:  LL(2) — geri izleme YOK, belirsizlik YOK
+   Durum:  BAĞLAYICI — değişiklik ADR gerektirir
+   
+   Notasyon:
+     =       tanım
+     |       seçenek
+     { }     sıfır veya daha fazla tekrar
+     [ ]     opsiyonel
+     ( )     gruplama
+     " "     terminal (anahtar kelime / sembol)
+     (* *)   yorum
+   
+   Aşama etiketleri:
+     [F0]  Kavram kanıtı
+     [F1]  Parser tamamlanması
+     [F2]  Tip sistemi
+     [F3]  CIRCT lowering
+     [F4]  Formal + simülasyon
+     [F5]  MVP tamamlanması
+     [V1]  Sürüm 1 (MVP sonrası)
+   ═══════════════════════════════════════════════════════════════ *)
+
+
+(* ═══ 1. PROGRAM YAPISI ═══════════════════════════════════════ *)
+
+Program         = [ PackageDecl ] { UseDecl } { Item } EOF ;
+
+PackageDecl     = "package" Path ";" ;                      (* [F5] *)
+
+UseDecl         = "use" Path [ "::" UseTree ] ";" ;          (* [F5] *)
+
+UseTree         = "*"
+                | "{" Path { "," Path } [ "," ] "}"
+                | Ident [ "as" Ident ] ;
+
+Path            = Ident { "::" Ident } ;
+
+Item            = [ Attributes ] [ DocComment ] [ "pub" ] ItemKind ;
+
+ItemKind        = ModuleDecl                                (* [F0] *)
+                | DomainDecl                                (* [F1] *)
+                | FnDecl                                    (* [F2] *)
+                | StructDecl                                (* [F3] *)
+                | EnumDecl                                  (* [F3] *)
+                | ConstDecl                                 (* [F2] *)
+                | TypeAlias                                 (* [F3] *)
+                | ExternDecl ;                              (* [F3] *)
+
+
+(* ═══ 2. NİTELİKLER (ATTRIBUTES) ══════════════════════════════ *)
+
+Attributes      = { Attribute } ;
+
+Attribute       = "@" Ident [ "(" [ AttrArgs ] ")" ] ;
+
+AttrArgs        = AttrArg { "," AttrArg } [ "," ] ;
+
+AttrArg         = Ident "=" Expr
+                | Expr ;
+
+(* Tanınan nitelikler — bilinmeyen nitelik W0020 uyarısı üretir
+   [F2] @domain
+   [F3] @mmio @reg @offset @access @reserved
+   [F4] @budget @timing @false_path @multicycle
+   [F5] @version @abi_version
+   [V1] @dft @debug_visible @debug_trace @synthesis_target
+*)
+
+
+(* ═══ 3. DOMAIN BİLDİRİMİ ═════════════════════════════════════ *)
+
+DomainDecl      = "domain" Ident "{" { DomainField } "}" ;    (* [F1] *)
+
+DomainField     = DomainKey "=" DomainValue [ "," ] ;
+
+DomainKey       = (* saat *)
+                  "clock" | "frequency"
+                  (* sıfırlama *)
+                | "reset" | "reset_cycles" | "reset_sequence"
+                  (* güç — [V1] *)
+                | "voltage" | "always_on" | "retention" | "isolation"
+                  (* güvenlik — [V1] *)
+                | "trust_level" ;
+
+DomainValue     = ClockEdge
+                | ResetSpec
+                | TrustLevel
+                | IsolationKind
+                | Literal
+                | BoolLiteral ;
+
+ClockEdge       = "posedge" | "negedge" | "none" ;
+
+ResetSpec       = ResetSync ResetPolarity | "none" ;
+ResetSync       = "sync" | "async" ;
+ResetPolarity   = "active_high" | "active_low" ;
+
+TrustLevel      = "secret" | "confidential" | "public" ;      (* [V1] *)
+IsolationKind   = "clamp_low" | "clamp_high" | "latch" ;      (* [V1] *)
+
+
+(* ═══ 4. MODÜL BİLDİRİMİ ══════════════════════════════════════ *)
+
+ModuleDecl      = "module" Ident [ GenericParams ]
+                  "{" ModuleBody "}" [ "module" Ident ] ;
+
+(* Sonlandırıcıdaki isim opsiyonel; verilirse eşleşmeli (E0004) *)
+
+ModuleBody      = { Port } { Contract } { Stmt } ;
+
+Port            = [ Attributes ] [ DocComment ]
+                  PortDir Ident ":" Type [ DomainAnnot ] [ "," ] ;
+
+PortDir         = "in" | "out" | "inout" ;                    (* [F3] *)
+
+DomainAnnot     = "@" Ident ;                                 (* [F2] *)
+
+GenericParams   = "<" GenericParam { "," GenericParam } [ "," ] ">" ;
+
+GenericParam    = "const" Ident ":" Type                      (* [F3] *)
+                | Ident [ ":" TypeBound ] ;                   (* [F3] *)
+
+TypeBound       = Path { "+" Path } ;
+
+
+(* ═══ 5. KONTRATLAR ═══════════════════════════════════════════ *)
+(* [F4] — davranışsal kontratlar *)
+
+Contract        = ContractKind ":" Expr [ ";" ] ;
+
+ContractKind    = "requires"                (* ön koşul *)
+                | "ensures"                 (* son koşul *)
+                | "invariant"               (* değişmez *)
+                | "cover"                   (* kapsam hedefi *)
+                | "assert"                  (* iddia *)
+                | "assume" ;                (* varsayım *)
+
+
+(* ═══ 6. TİPLER ═══════════════════════════════════════════════ *)
+
+Type            = PrimitiveType
+                | ArrayType
+                | TupleType
+                | RefType
+                | PathType ;
+
+PrimitiveType   = "bool"                                      (* [F0] *)
+                | "clock"                                     (* [F0] *)
+                | ResetType                                   (* [F1] *)
+                | UIntType | SIntType                         (* [F0] *)
+                | "bits" "<" Expr ">"                         (* [F1] *)
+                | "Trit" ;                                    (* [F2] *)
+
+ResetType       = "reset" [ "(" ResetSync "," ResetPolarity ")" ] ;
+
+UIntType        = "u8" | "u16" | "u32" | "u64" ;
+SIntType        = "i8" | "i16" | "i32" | "i64" ;
+
+ArrayType       = "[" Type ";" Expr "]" ;                     (* [F2] *)
+
+TupleType       = "(" [ Type { "," Type } [ "," ] ] ")" ;     (* [F3] *)
+
+RefType         = "&" [ "inv" ] Type ;                        (* [V1] lineer *)
+
+PathType        = Path [ GenericArgs ] ;                      (* [F3] *)
+
+GenericArgs     = "<" GenericArg { "," GenericArg } [ "," ] ">" ;
+
+GenericArg      = Type | Expr ;
+
+
+(* ═══ 7. STRUCT / ENUM ════════════════════════════════════════ *)
+(* [F3] *)
+
+StructDecl      = "struct" [ "port" ] Ident [ GenericParams ]
+                  "{" { StructField } "}" ;
+
+StructField     = [ Attributes ] [ DocComment ]
+                  Ident ":" Type [ "," ] ;
+
+EnumDecl        = "enum" Ident [ GenericParams ]
+                  [ ":" Type ]
+                  "{" { EnumVariant } "}" ;
+
+EnumVariant     = [ DocComment ] Ident
+                  [ "(" Type { "," Type } ")"        (* tuple varyant *)
+                  | "{" { StructField } "}"            (* struct varyant *)
+                  | "=" Expr ]                          (* açık değer *)
+                  [ "," ] ;
+
+
+(* ═══ 8. FONKSİYON ════════════════════════════════════════════ *)
+(* [F2] — kombinasyonel mantık *)
+
+FnDecl          = "fn" Ident [ GenericParams ]
+                  "(" [ ParamList ] ")"
+                  [ "->" Type ]
+                  { Contract }
+                  FnBlock ;
+
+ParamList       = Param { "," Param } [ "," ] ;
+
+Param           = Ident ":" Type ;
+
+FnBlock         = "{" { Stmt } [ Expr ] "}" ;
+(* Son ifade dönüş değeridir (Rust semantiği) *)
+
+
+(* ═══ 9. DİĞER BİLDİRİMLER ════════════════════════════════════ *)
+
+ConstDecl       = "const" Ident ":" Type "=" Expr ";" ;       (* [F2] *)
+
+TypeAlias       = "type" Ident [ GenericParams ] "=" Type ";" ; (* [F3] *)
+
+ExternDecl      = "extern" "module" Ident                     (* [F3] *)
+                  [ GenericParams ]
+                  "{" { Port } "}" ;
+(* Harici SV modülü sarmalar — Volt gövde üretmez *)
+
+
+(* ═══ 10. DEYİMLER ════════════════════════════════════════════ *)
+
+Stmt            = [ Attributes ] StmtKind ;
+
+StmtKind        = RegDecl                                     (* [F0] *)
+                | LetDecl                                     (* [F1] *)
+                | WireDecl                                    (* [F2] *)
+                | OnBlock                                     (* [F0] *)
+                | AlwaysCombBlock                             (* [F2] *)
+                | InstanceDecl                                (* [F3] *)
+                | AssignStmt                                  (* [F0] *)
+                | ForStmt                                     (* [F3] *)
+                | ExprStmt ;
+
+RegDecl         = "reg" [ "(" Ident ")" ] Ident
+                  [ ":" Type ] "=" Expr [ ";" ] ;
+(* reg(clk) veya reg — tek saat varsa domain çıkarılır *)
+
+LetDecl         = "let" Ident [ ":" Type ] "=" Expr [ ";" ] ;
+
+WireDecl        = "wire" Ident ":" Type [ ";" ] ;
+(* Bildirim; atama ayrı AssignStmt ile yapılır *)
+
+InstanceDecl    = "let" Ident "=" Path
+                  [ GenericArgs ]
+                  "{" [ PortBindList ] "}" [ ";" ] ;
+
+PortBindList    = PortBind { "," PortBind } [ "," ] ;
+
+PortBind        = Ident ":" Expr
+                | Ident ;                    (* kısayol: isim eşleşmesi *)
+
+ForStmt         = "for" Ident "in" Expr ".." Expr Block ;     (* [F3] *)
+(* Yalnızca derleme zamanı: generate döngüsü *)
+
+AssignStmt      = LValue "=" Expr [ ";" ] ;
+
+ExprStmt        = Expr [ ";" ] ;
+
+
+(* ═══ 11. SIRALI VE KOMBİNASYONEL BLOKLAR ═════════════════════ *)
+
+OnBlock         = "on" OnTrigger Block ;
+
+OnTrigger       = Ident                       (* saat adı *)
+                | Ident "." "reset"            (* [F2] reset olayı *)
+                | "spike" "(" Ident ")" ;      (* [V2] nöromorfik *)
+
+AlwaysCombBlock = "comb" Block ;                              (* [F2] *)
+
+Block           = "{" { BlockStmt } "}" ;
+
+BlockStmt       = NonBlockAssign
+                | BlockAssign
+                | IfStmt
+                | MatchStmt
+                | LetDecl
+                | ForStmt ;
+
+NonBlockAssign  = LValue "<=" Expr [ ";" ] ;   (* sıralı blokta *)
+BlockAssign     = LValue "=" Expr [ ";" ] ;    (* comb blokta *)
+
+(* Parser bağlamı bilir:
+     on ... { } içinde "=" → E0006
+     comb { } içinde "<=" → E0007 *)
+
+IfStmt          = "if" Expr Block
+                  [ "else" ( IfStmt | Block ) ] ;
+
+MatchStmt       = "match" Expr "{" { MatchArm } "}" ;         (* [F3] *)
+
+MatchArm        = Pattern [ "if" Expr ] "=>"
+                  ( Block | Expr [ "," ] ) ;
+
+LValue          = Ident { LValueSuffix } ;
+
+LValueSuffix    = "[" Expr [ ":" Expr ] "]"    (* bit / aralık *)
+                | "." Ident ;                   (* alan *)
+
+
+(* ═══ 12. DESENLER (PATTERNS) ═════════════════════════════════ *)
+(* [F3] *)
+
+Pattern         = "_"                          (* joker *)
+                | Literal
+                | Ident                         (* bağlama *)
+                | Path [ PatternArgs ]          (* enum varyantı *)
+                | "(" Pattern { "," Pattern } ")"
+                | Pattern "|" Pattern ;         (* alternatif *)
+
+PatternArgs     = "(" [ Pattern { "," Pattern } ] ")"
+                | "{" [ FieldPattern { "," FieldPattern } ] "}" ;
+
+FieldPattern    = Ident [ ":" Pattern ] ;
+
+
+(* ═══ 13. İFADELER ════════════════════════════════════════════ *)
+(*
+   Öncelik ve birleşme: docs/spec/operator-precedence.md
+   Uygulama: Pratt parser (binding power tablosu orada)
+   Aşağıdaki hiyerarşi referans amaçlıdır.
+*)
+
+Expr            = OrExpr ;
+
+OrExpr          = AndExpr { "||" AndExpr } ;
+
+AndExpr         = EqExpr { "&&" EqExpr } ;
+
+EqExpr          = CmpExpr [ ( "==" | "!=" ) CmpExpr ] ;
+(* BİRLEŞMEZ — ikinci operatör E0010 *)
+
+CmpExpr         = BitOrExpr [ CmpOp BitOrExpr ] ;
+CmpOp           = "<" | ">" | "<=" | ">=" ;
+(* BİRLEŞMEZ — E0010 *)
+
+BitOrExpr       = BitXorExpr { "|" BitXorExpr } ;
+BitXorExpr      = BitAndExpr { "^" BitAndExpr } ;
+BitAndExpr      = ShiftExpr { "&" ShiftExpr } ;
+ShiftExpr       = AddExpr { ( "<<" | ">>" ) AddExpr } ;
+AddExpr         = MulExpr { ( "+" | "-" ) MulExpr } ;
+MulExpr         = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+
+UnaryExpr       = ( "!" | "~" | "-" ) UnaryExpr
+                | PostfixExpr ;
+
+PostfixExpr     = PrimaryExpr { PostfixSuffix } ;
+
+PostfixSuffix   = "[" Expr [ ":" Expr ] "]"    (* indeks / dilim *)
+                | "." Ident                     (* alan erişimi *)
+                | "(" [ ArgList ] ")"           (* çağrı *)
+                | "as" Type ;                   (* tip dönüşümü *)
+
+PrimaryExpr     = Literal
+                | Path
+                | IfExpr
+                | MatchExpr                                   (* [F3] *)
+                | StructLit                                   (* [F3] *)
+                | ArrayLit                                    (* [F3] *)
+                | TupleLit                                    (* [F3] *)
+                | TodoExpr                                    (* [F1] *)
+                | "(" Expr ")" ;
+
+IfExpr          = "if" Expr "{" Expr "}"
+                  "else" ( IfExpr | "{" Expr "}" ) ;
+(* else ZORUNLU — donanımda dalsız koşul latch üretir *)
+
+MatchExpr       = "match" Expr "{" { MatchArmExpr } "}" ;
+MatchArmExpr    = Pattern [ "if" Expr ] "=>" Expr [ "," ] ;
+
+StructLit       = Path "{" [ FieldInit { "," FieldInit } [ "," ] ] "}" ;
+FieldInit       = Ident ":" Expr | Ident ;
+
+ArrayLit        = "[" [ Expr { "," Expr } [ "," ] ] "]"
+                | "[" Expr ";" Expr "]" ;      (* [değer; adet] *)
+
+TupleLit        = "(" Expr "," [ Expr { "," Expr } ] [ "," ] ")" ;
+
+TodoExpr        = "todo" "!" [ "(" StringLit ")" ] ;          (* [F1] *)
+
+ArgList         = Expr { "," Expr } [ "," ] ;
+
+
+(* ═══ 14. LİTERALLER ══════════════════════════════════════════ *)
+
+Literal         = IntLiteral
+                | BoolLiteral
+                | StringLit
+                | UnitLiteral ;
+
+IntLiteral      = DecLiteral | HexLiteral | BinLiteral | OctLiteral ;
+
+DecLiteral      = Digit { Digit | "_" } [ IntSuffix ] ;
+HexLiteral      = "0x" HexDigit { HexDigit | "_" } [ IntSuffix ] ;
+BinLiteral      = "0b" BinDigit { BinDigit | "_" } [ IntSuffix ] ;
+OctLiteral      = "0o" OctDigit { OctDigit | "_" } [ IntSuffix ] ;
+
+IntSuffix       = "u8" | "u16" | "u32" | "u64"
+                | "i8" | "i16" | "i32" | "i64" ;
+
+BoolLiteral     = "true" | "false" ;
+
+StringLit       = '"' { StringChar } '"' ;
+StringChar      = AnyCharExcept('"', '\\') | EscapeSeq ;
+EscapeSeq       = "\\" ( '"' | "\\" | "n" | "t" | "r" | "0" ) ;
+
+UnitLiteral     = IntLiteral UnitSuffix ;                     (* [F4] *)
+UnitSuffix      = (* frekans *) "hz" | "khz" | "mhz" | "ghz"
+                | (* zaman   *) "ps" | "ns" | "us" | "ms" | "s"
+                | (* enerji  *) "fJ" | "pJ" | "nJ" | "uJ"
+                | (* güç     *) "uW" | "mW" | "W"
+                | (* alan    *) "um2" | "mm2"
+                | (* gerilim *) "V" | "mV" ;
+
+
+(* ═══ 15. SÖZCÜKSEL ÖĞELER ════════════════════════════════════ *)
+
+Ident           = ( Letter | "_" ) { Letter | Digit | "_" } ;
+(* Anahtar kelimeler Ident olamaz — lexer ayırır *)
+
+DocComment      = "///" { AnyCharExceptNewline } NEWLINE ;
+InnerDoc        = "//!" { AnyCharExceptNewline } NEWLINE ;
+
+Letter          = "a".."z" | "A".."Z" ;
+Digit           = "0".."9" ;
+HexDigit        = Digit | "a".."f" | "A".."F" ;
+BinDigit        = "0" | "1" ;
+OctDigit        = "0".."7" ;
+
+
+(* ═══ 16. YOK SAYILANLAR ══════════════════════════════════════ *)
+
+Whitespace      = " " | "\t" | "\r" | "\n" ;
+LineComment     = "//" ( AnyCharExcept("/", "!") )
+                       { AnyCharExceptNewline } NEWLINE ;
+BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
+(* İç içe blok yorum DESTEKLENİR *)
+
+
+(* ═══ 17. ANAHTAR KELİME LİSTESİ ══════════════════════════════ *)
+(*
+   AKTİF (F0-F5):
+     module in out inout reg let wire on comb domain
+     if else match for in as
+     fn const type struct enum extern package use pub
+     bool clock reset bits Trit
+     u8 u16 u32 u64 i8 i16 i32 i64
+     true false todo
+     requires ensures invariant cover assert assume
+     posedge negedge none sync async active_high active_low
+
+   (* 'sync' ve 'async' bağlamsal anahtar kelimedir — yalnız
+      "reset =" değer konumunda anahtar kelime, diğer her yerde
+      Ident (sync() CDC çağrısı dahil). Bkz. ADR-0023. *)
+
+   AYRILMIŞ (V1+, kullanılırsa E0003):
+     pipeline fsm arbiter fifo ram regfile
+     stage stall flush hook impl trait where
+     Spike PTrit Option Some None Result Ok Err
+     spike self Self mut ref move
+     secret confidential public
+     clamp_low clamp_high latch
+     retention isolation always_on voltage
+     
+   Gerekçe: kullanıcı bunları tanımlayıcı olarak kullanırsa,
+   V1'de dil genişlediğinde kodu kırılır. Şimdiden rezerve.
+*)
+
+
+(* ═══ 18. SÖZDİZİMİ HATA KODLARI ══════════════════════════════ *)
+(*
+   E0001  Beklenmeyen token
+   E0002  Eksik kapanış: } ) ]
+   E0003  Anahtar kelime ayrılmış, henüz desteklenmiyor
+   E0004  Blok sonlandırma ismi uyuşmuyor
+   E0005  Geçersiz sayısal literal
+   E0006  Sıralı blokta '=' kullanıldı ('<=' olmalı)
+   E0007  Kombinasyonel blokta '<=' kullanıldı ('=' olmalı)
+   E0008  'if' ifadesinde 'else' eksik (latch riski)
+   E0009  Geçersiz nitelik (attribute) argümanı
+   E0010  Karşılaştırma operatörleri zincirlenemez
+   E0011  Beklenmeyen dosya sonu
+   E0012  Geçersiz escape dizisi
+   E0013  Kapanmamış blok yorumu
+   
+   W0010  Belirsiz operatör önceliği, parantez önerilir
+   W0020  Bilinmeyen nitelik (attribute)
+   W0021  Kullanılmayan doc yorumu
+*)
+
+
+(* ═══ 19. LL(2) DOĞRULAMA NOTLARI ═════════════════════════════ *)
+(*
+   Bu gramerin LL(2) olması için kritik noktalar:
+
+   [N1] Item ayrımı — 1 token yeterli
+        "module" | "domain" | "fn" | "struct" | "enum"
+        | "const" | "type" | "extern" | "pub" | "@" | "///"
+
+   [N2] Stmt ayrımı — 1 token yeterli
+        "reg" | "let" | "wire" | "on" | "comb" | "for" | "@"
+        Aksi halde → LValue veya Expr (ilk token Ident/Literal)
+
+   [N3] LetDecl vs InstanceDecl — 2 TOKEN GEREKLİ
+        "let" Ident "=" Path "{"    → InstanceDecl
+        "let" Ident "=" ...          → LetDecl
+        Ayrım: '=' sonrası Path'i takip eden '{' var mı?
+        → Bu LL(2) gerektiren tek yer.
+        
+        Uygulama notu: parser '=' sonrası ifadeyi ayrıştırır,
+        sonuç Path ise ve sonraki token '{' ise InstanceDecl'e
+        dönüştürür. Geri izleme değil, sonradan yeniden
+        sınıflandırma (reinterpretation).
+
+   [N4] Type vs Expr — bağlamdan belli
+        ':' sonrası → Type
+        '=' sonrası → Expr
+        Belirsizlik yok.
+
+   [N5] Pattern vs Expr — bağlamdan belli
+        'match' arm başında → Pattern
+        '=>' sonrası → Expr
+
+   [N6] Tekli '-' vs ikili '-'
+        Önceki token operand ise → ikili
+        Aksi halde → tekli
+        Lexer aynı token üretir, parser bağlamdan ayırır.
+
+   [N7] "in" iki bağlamda
+        Port yönü: "in" Ident ":" Type
+        For döngüsü: "for" Ident "in" Expr
+        Ayrım: bir önceki token 'for' + Ident mi?
+        → LL(2) içinde çözülüyor.
+
+   SONUÇ: Gramer LL(2)'dir. Tek geri izleme noktası [N3],
+   o da yeniden sınıflandırma ile çözülüyor.
+*)

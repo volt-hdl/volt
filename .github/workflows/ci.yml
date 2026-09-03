@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Biçim + Lint + Testler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Biçim denetimi
+        run: cargo fmt --all --check
+      - name: Clippy (uyarılar hata)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Testler
+        run: cargo test --all
+
+  integration:
+    name: Verilator lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verilator kur
+        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: counter.volt derle
+        run: cargo run --bin volt -- build tests/fixtures/counter.volt
+      # DECLFILENAME beklenen bir istisna: cli-contract.md §5 çıktı adını
+      # kaynak dosyadan (counter.sv), sv-mapping.md İ1 modül adını Volt
+      # kaynağından (Counter) türetir — büyük/küçük harf farkı kaçınılmaz.
+      # Onun dışında SIFIR uyarı bekleniyor.
+      - name: Verilator lint — SIFIR uyarı bekleniyor
+        run: verilator --lint-only -Wall -Wno-DECLFILENAME build/rtl/counter.sv
+
+  consistency:
+    name: Spec-kod tutarlılık
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - name: Tutarlılık denetimi
+        run: just consistency
+
+  coverage:
+    name: Kapsam (bilgi amaçlı)
+    runs-on: ubuntu-latest
+    # Bilgi amaçlı: eşik henüz yok, başarısızlık CI'yı kırmaz.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: extractions/setup-just@v2
+      - uses: Swatinem/rust-cache@v2
+      - name: Kapsam raporu
+        run: just coverage
+      - name: HTML raporu yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html/
+
+  fuzz:
+    name: Fuzz (5 dk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            fuzz
+      - name: cargo-fuzz kur
+        run: cargo install cargo-fuzz --locked
+      - name: parse_never_panics (300 s)
+        run: cargo +nightly fuzz run parse_never_panics -- -max_total_time=300
