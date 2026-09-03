@@ -1,0 +1,18 @@
+﻿* text=auto eol=lf
+
+*.volt text eol=lf
+*.sv   text eol=lf
+*.ebnf text eol=lf
+*.rs   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.lock text eol=lf
+
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.sh   text eol=lf
+
+*.png  binary
+*.zip  binary
