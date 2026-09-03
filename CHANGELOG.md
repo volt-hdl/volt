@@ -5,6 +5,43 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — F2c: Domain çıkarımı ve CDC kontrolü (2026-09-03)
+
+- **Domain gösterimi** (`volt-hir/src/domain.rs`, domain-inference.md §1):
+  `DomainId` (Explicit/Timeless/Unresolved/Error), `DomainInfo`
+  (isim + ClockSpec + ResetSpec + tanım span'i); açık `domain`
+  bildirimleri ve anotasyonsuz clock portlarının örtük alanları tek
+  tabloda. `Timeless` sabitler ve saf kombinasyonel için her alanla
+  birleşir.
+- **Tek saat kuralı** (K2, UX Anayasası): tek clock'lu modülde
+  anotasyonsuz her sinyal o alana atanır — kullanıcı 'domain' kelimesini
+  hiç görmez; sıfır clock → Timeless; çoklu clock → anotasyon zorunlu.
+- **Çıkarım kuralları**: K1 açık anotasyon kazanır; K3 çoklu saatte
+  anotasyonsuz sinyal E3010 (aday saatlere ikincil span'ler); K4
+  register domain'i 'on' yazıcılarından (0 yazıcı → W3001+Timeless,
+  çok alan → E3011); K5 ifade ağacında aşağıdan yukarı `join_domains`
+  — kombinasyonel karışım E3001 (glitch); K6 atama uyumu E3001
+  (Timeless muaf); K7 'on' bloğunda yabancı okuma E3012; K8 örnekleme
+  saat bağlantısı haritasıyla port denetimi; K9 `sync()/sync3()`
+  çıkışı hedef alanda — aynı alan W3002, çok bitli W3003.
+- **E3002 iyileştirmesi** (`resolve.rs`): domain konumunda çözülemeyen
+  isim artık E1001 değil "tanımsız saat alanı" E3002 üretir
+  (Levenshtein önerili); clock tipinde olmayan anotasyon hedefi de
+  E3002.
+- **E3001/E3010/E3011 mesajları** 5 parçalı: iki span (kaynak + hedef)
+  ve domain tanım satırlarına ikincil etiketler, `= neden:`
+  (glitch/metastabilite), `= çözüm:` (sync() örneği).
+- **Determinizm düzeltmesi** (`consteval.rs`): const değerlendirme
+  sırası DefId'ye göre sabitlendi — E2020 döngü tanısının konumu
+  koşudan koşuya değişmiyor.
+- **UI harness sıkılaştırması** (`ui_semantic_tests.rs`,
+  error-recovery.md §8.1): fixture'ların yalnız hata kodu değil
+  `//~^ ERROR` satır numarası da doğrulanıyor.
+- Test: +78 (687 baseline; domain testleri 71 + 7 ui); ui/fail 01→E3001,
+  07→E3002, 13→E3010, 14→E3001, 15→E3011 doğru kod VE satırda; ui/pass
+  13 sync() köprüsüyle, 14 domain sözcüğü geçmeden temiz; 21/21 korunuyor;
+  kapsam %84,8 (domain %85,1).
+
 ### Eklendi — F2b: İkili operatörler ve genişleme kuralları (2026-09-03)
 
 - **Aritmetik taşma genişlemesi** (`volt-hir/src/typeck.rs`,

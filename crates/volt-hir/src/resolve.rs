@@ -621,7 +621,49 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_domain_ref(&mut self, name: &Name, scope: ScopeId) {
-        let def = self.resolve_simple(name, scope, true);
+        // Domain konumunda çözülemeyen isim E1001 değil E3002 üretir:
+        // kullanıcı bir saat alanı bekliyordu, genel "tanımsız isim"
+        // mesajı yanlış yöne götürür (domain-inference.md §5).
+        let mut found = None;
+        let mut current = Some(scope);
+        while let Some(s) = current {
+            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(&name.text) {
+                found = Some(def);
+                break;
+            }
+            current = self.scopes[s.0 as usize].parent;
+        }
+        let Some(def) = found else {
+            let candidates: Vec<String> = self
+                .defs
+                .iter()
+                .filter(|d| matches!(d.kind, DefKind::Domain))
+                .map(|d| d.name.clone())
+                .collect();
+            self.diagnostics.push(
+                Diagnostic::error(
+                    ErrorCode::E3002,
+                    format!("tanımsız saat alanı: '{}'", name.text),
+                    LabeledSpan::primary(name.span, "bu isimde bir domain yok"),
+                    match closest_match(&name.text, &candidates) {
+                        Some(s) => format!("'@{s}' mi demek istediniz?"),
+                        None => format!(
+                            "domain {} {{ clock = posedge ... }} ile tanımlayın",
+                            name.text
+                        ),
+                    },
+                )
+                .with_note(
+                    NoteKind::Reason,
+                    "@ anotasyonu yalnız tanımlı bir saat alanına \
+                     ya da clock portuna işaret edebilir",
+                ),
+            );
+            return;
+        };
+
+        self.reads.insert(def);
+        self.use_spans.insert(name.span, def);
         let kind = self.defs[def.0 as usize].kind;
         if !matches!(
             kind,

@@ -4,6 +4,7 @@
 //! ve const eval'in ui/fail beklentileri denetlenir.
 
 use volt_hir::analyze;
+use volt_span::SourceMap;
 use volt_syntax::{parse, FileId};
 
 fn analyze_file(rel: &str) -> volt_hir::AnalysisResult {
@@ -16,6 +17,57 @@ fn analyze_file(rel: &str) -> volt_hir::AnalysisResult {
         parsed.error_codes()
     );
     analyze(&parsed.ast)
+}
+
+/// Fixture anotasyonlarını doğrular — error-recovery.md §8.1 kural 4:
+/// yalnız hata KODU değil, hatanın SATIRI da eşleşmeli.
+///
+/// Kalıp: satır 1 `//~ EXXXX` beklenen kodu verir; `//~^ ERROR ...`
+/// satırı bir üstündeki satırda o kodun raporlanmasını bekler.
+fn assert_ui_fail(rel: &str) {
+    let path = format!("{}/../../tests/ui/{rel}", env!("CARGO_MANIFEST_DIR"));
+    let src = std::fs::read_to_string(&path).expect("ui dosyası okunmalı");
+
+    let expected_code = src
+        .lines()
+        .next()
+        .and_then(|l| l.trim().strip_prefix("//~ "))
+        .map(str::trim)
+        .expect("fixture ilk satırı '//~ EXXXX' olmalı")
+        .to_string();
+    let expected_line = src
+        .lines()
+        .position(|l| l.trim_start().starts_with("//~^ ERROR"))
+        .map(|i| i as u32) // position 0-tabanlı → bir üst satır = i (1-tabanlı)
+        .expect("fixture '//~^ ERROR' anotasyonu içermeli");
+
+    let parsed = parse(FileId(0), &src);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "{rel} ayrışmalı: {:?}",
+        parsed.error_codes()
+    );
+    let result = analyze(&parsed.ast);
+
+    let mut map = SourceMap::new();
+    map.add_file(rel, src.clone());
+    let found: Vec<(u32, u32)> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == expected_code)
+        .filter_map(|d| d.primary_span())
+        .map(|s| map.line_col_utf8(s.span))
+        .collect();
+    assert!(
+        !found.is_empty(),
+        "{rel}: {expected_code} bekleniyor, bulunan: {:?}",
+        result.error_codes()
+    );
+    assert!(
+        found.iter().any(|&(line, _)| line == expected_line),
+        "{rel}: {expected_code} satır {expected_line} bekleniyor, \
+         raporlanan konumlar: {found:?}"
+    );
 }
 
 #[test]
@@ -31,40 +83,30 @@ fn ui_fail_19_undefined_name_e1001_with_help() {
         !diag.help.as_deref().unwrap_or("").is_empty(),
         "E1001 yardım metni taşımalı"
     );
+    assert_ui_fail("fail/19_undefined_name.volt");
 }
 
 #[test]
 fn ui_fail_21_cyclic_const_e2020() {
-    let result = analyze_file("fail/21_cyclic_const.volt");
-    assert!(
-        result.error_codes().contains(&"E2020"),
-        "E2020 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/21_cyclic_const.volt");
 }
 
 #[test]
 fn ui_fail_22_runtime_in_type_e2021() {
-    let result = analyze_file("fail/22_runtime_in_type.volt");
-    assert!(
-        result.error_codes().contains(&"E2021"),
-        "E2021 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/22_runtime_in_type.volt");
 }
 
 #[test]
 fn ui_fail_03_double_driver_e4001() {
-    let result = analyze_file("fail/03_double_driver.volt");
-    assert!(
-        result.error_codes().contains(&"E4001"),
-        "E4001 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/03_double_driver.volt");
 }
 
 #[test]
 fn ui_fail_04_undriven_output_e4002() {
+    // Satır kontrolü BİLEREK yok: fixture'daki `//~^` kapanış parantezini
+    // (satır 11) işaret ediyor; tanı ise doğru olarak port bildirimini
+    // (satır 7) gösteriyor. Fixture anotasyonu taşınana kadar yalnız kod
+    // denetlenir — tests/ui bu turda salt okunur.
     let result = analyze_file("fail/04_undriven_output.volt");
     assert!(
         result.error_codes().contains(&"E4002"),
@@ -75,80 +117,95 @@ fn ui_fail_04_undriven_output_e4002() {
 
 #[test]
 fn ui_fail_02_width_mismatch_e2001() {
-    let result = analyze_file("fail/02_width_mismatch.volt");
-    assert!(
-        result.error_codes().contains(&"E2001"),
-        "E2001 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/02_width_mismatch.volt");
 }
 
 #[test]
 fn ui_fail_08_signedness_mismatch_e2002() {
-    let result = analyze_file("fail/08_signedness_mismatch.volt");
-    assert!(
-        result.error_codes().contains(&"E2002"),
-        "E2002 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/08_signedness_mismatch.volt");
 }
 
 #[test]
 fn ui_fail_09_bits_arithmetic_e2004() {
-    let result = analyze_file("fail/09_bits_arithmetic.volt");
-    assert!(
-        result.error_codes().contains(&"E2004"),
-        "E2004 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/09_bits_arithmetic.volt");
 }
 
 #[test]
 fn ui_fail_10_index_out_of_bounds_e2006() {
-    let result = analyze_file("fail/10_index_out_of_bounds.volt");
-    assert!(
-        result.error_codes().contains(&"E2006"),
-        "E2006 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/10_index_out_of_bounds.volt");
 }
 
 #[test]
 fn ui_fail_11_reversed_range_e2007() {
-    let result = analyze_file("fail/11_reversed_range.volt");
-    assert!(
-        result.error_codes().contains(&"E2007"),
-        "E2007 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/11_reversed_range.volt");
 }
 
 #[test]
 fn ui_fail_12_invalid_cast_to_trit_e2009() {
-    let result = analyze_file("fail/12_invalid_cast_to_trit.volt");
-    assert!(
-        result.error_codes().contains(&"E2009"),
-        "E2009 bekleniyor: {:?}",
-        result.error_codes()
-    );
+    assert_ui_fail("fail/12_invalid_cast_to_trit.volt");
 }
 
 #[test]
 fn ui_fail_17_literal_overflow_e2010() {
-    let result = analyze_file("fail/17_literal_overflow.volt");
+    assert_ui_fail("fail/17_literal_overflow.volt");
+}
+
+#[test]
+fn ui_fail_20_reg_type_ambiguous_e2012() {
+    assert_ui_fail("fail/20_reg_type_ambiguous.volt");
+}
+
+// ═══ Domain çıkarımı ve CDC (F2c, domain-inference.md) ════════════
+
+#[test]
+fn ui_fail_01_cdc_violation_e3001() {
+    // VOLT'UN VAADİ: CDC hatası derlenmemeli.
+    assert_ui_fail("fail/01_cdc_violation.volt");
+}
+
+#[test]
+fn ui_fail_07_unknown_domain_e3002() {
+    assert_ui_fail("fail/07_unknown_domain.volt");
+}
+
+#[test]
+fn ui_fail_13_ambiguous_domain_e3010() {
+    assert_ui_fail("fail/13_ambiguous_domain.volt");
+}
+
+#[test]
+fn ui_fail_14_combinational_cdc_e3001() {
+    assert_ui_fail("fail/14_combinational_cdc.volt");
+}
+
+#[test]
+fn ui_fail_15_register_two_domains_e3011() {
+    assert_ui_fail("fail/15_register_two_domains.volt");
+}
+
+#[test]
+fn ui_pass_13_cdc_bridge_clean_with_sync() {
+    // sync() köprüsü hatasız geçmeli; hiçbir domain tanısı (E3xxx/W3xxx)
+    // üretilmemeli (K9). W1001 (kullanılmayan fast_clk) domain dışıdır.
+    let result = analyze_file("pass/13_cdc_correct_bridge.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
     assert!(
-        result.error_codes().contains(&"E2010"),
-        "E2010 bekleniyor: {:?}",
+        !result
+            .error_codes()
+            .iter()
+            .any(|c| c.starts_with("E3") || c.starts_with("W3")),
+        "domain tanısı olmamalı: {:?}",
         result.error_codes()
     );
 }
 
 #[test]
-fn ui_fail_20_reg_type_ambiguous_e2012() {
-    let result = analyze_file("fail/20_reg_type_ambiguous.volt");
+fn ui_pass_14_single_clock_no_domain_word() {
+    // UX Anayasası: tek saatli tasarımda 'domain' hiç görünmez (K2).
+    let result = analyze_file("pass/14_single_clock_no_domain.volt");
     assert!(
-        result.error_codes().contains(&"E2012"),
-        "E2012 bekleniyor: {:?}",
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
         result.error_codes()
     );
 }

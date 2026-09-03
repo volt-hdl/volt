@@ -59,7 +59,10 @@ impl<'a> ConstEvaluator<'a> {
 
     /// Dosyadaki tüm const bildirimlerini değerlendirir (E2020 vb.).
     pub fn eval_all_consts(&mut self) {
-        let const_defs: Vec<DefId> = self.res.const_inits.keys().copied().collect();
+        // Bildirim sırası: HashMap sırası rastgele olduğundan E2020 gibi
+        // döngü tanılarının konumu koşudan koşuya değişirdi.
+        let mut const_defs: Vec<DefId> = self.res.const_inits.keys().copied().collect();
+        const_defs.sort_by_key(|d| d.0);
         for def in const_defs {
             let _ = self.eval_const_def(def);
         }
