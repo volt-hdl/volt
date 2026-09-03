@@ -5,6 +5,30 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — F2c-CLI: CDC kontrolü komut satırında (2026-09-03)
+
+- **Aşamalı boru hattı** (`volt-driver/src/main.rs`): `check` ve `build`
+  artık tam anlamsal analiz koşuyor — parse (E0xxx) → resolve (E1xxx) →
+  const+typeck (E2xxx/E4xxx) → domain (E3xxx) → emit. Bir aşamada hata
+  varsa sonrakine geçilmez (kaskad tanı önlemi). CDC ihlali komut
+  satırında E3001 + `= çözüm: sync(...)` satırıyla görünüyor.
+- **Hatalı tasarım SV üretmez**: `build` herhangi bir aşama hata
+  verdiğinde `build/rtl/` altına dosya yazmaz, çıkış kodu 1.
+- **`--format=human|json|short`** (cli-contract.md §3/§5): JSON zarfı
+  (`version/command/success/diagnostics/summary/artifacts/duration_ms`)
+  stdout'a; human/short tanıları stderr'e. JSON'da hatalar önce
+  sıralanır — CI `diagnostics[0]`'da engelleyiciyi görür.
+- **`check` emit koşmaz** (§6): sv-emit'in F0 sınırları (örn. `sync()`
+  çağrısı E0003) anlamsal doğrulamayı engellemiyor —
+  `13_cdc_correct_bridge` `check` ile temiz geçiyor.
+- **Fixture düzeltmesi**: `04_undriven_output.volt` `//~^` anotasyonu
+  kapanış parantezinden port bildirimine (satır 7) taşındı — tanının
+  gösterdiği doğru konum.
+- **Demo yenilendi** (`scripts/demo.ps1|.sh`): sayaç derlemesi → CDC
+  ihlali E3001 ile reddediliyor → sync() köprüsü temiz geçiyor.
+- Test: +10 CLI testi (15 toplam, 697 baseline); `volt check
+  tests/ui/fail/01_cdc_violation.volt` terminalde E3001 gösteriyor.
+
 ### Eklendi — F2c: Domain çıkarımı ve CDC kontrolü (2026-09-03)
 
 - **Domain gösterimi** (`volt-hir/src/domain.rs`, domain-inference.md §1):

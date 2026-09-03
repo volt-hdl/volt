@@ -5,8 +5,8 @@ module UndrivenOutput {
     in  a : u8
     out y : u8
     out z : u8
+    //~^ ERROR 'z' çıkış portu sürülmüyor
 
     y = a
     // z hiç atanmadı
 }
-//~^ ERROR 'z' çıkış portu sürülmüyor

@@ -679,7 +679,9 @@ name = "volt-driver"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
  "volt-diagnostics",
+ "volt-hir",
  "volt-lower",
  "volt-span",
  "volt-sv-emit",

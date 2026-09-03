@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Volt F0 demosu — kaynak → derleme → SV çıktısı → hata örneği.
+# Volt demosu — derleme, CDC ihlali yakalama ve sync() köprüsü.
 # Kullanım: ./scripts/demo.sh          (depo kökünden)
-# Kayıt:    asciinema rec -c ./scripts/demo.sh volt-f0-demo.cast
+# Kayıt:    asciinema rec -c ./scripts/demo.sh volt-f2c-demo.cast
+#
+# Anlatı (F2c): Volt'un vaadi "CDC hatası derlenmemeli".
+#   1. Tek saatli sayaç sorunsuz derlenir, SV üretilir.
+#   2. İki saat alanını doğrudan bağlayan tasarım E3001 ile REDDEDİLİR
+#      — SV üretilmez, çözüm önerisi ekranda.
+#   3. Aynı geçiş sync() köprüsüyle yazılınca analiz temiz geçer.
 
 set -u
 cd "$(dirname "$0")/.."
@@ -13,16 +19,28 @@ step() {
 cargo build --release -p volt-driver >/dev/null 2>&1
 VOLT=target/release/volt
 
-step '1. Kaynak: tests/fixtures/counter.volt'
+step '1a. Kaynak: tests/fixtures/counter.volt'
 cat tests/fixtures/counter.volt
 
-step '2. Derleme: volt build'
+step '1b. Derleme: volt build counter.volt'
 "$VOLT" build tests/fixtures/counter.volt
 
-step '3. Üretilen SystemVerilog: build/rtl/counter.sv'
+step '1c. Üretilen SystemVerilog: build/rtl/counter.sv'
 cat build/rtl/counter.sv
 
-step '4. Hata örneği: tests/ui/fail/01_cdc_violation.volt'
+step '2a. CDC ihlali: tests/ui/fail/01_cdc_violation.volt'
+cat tests/ui/fail/01_cdc_violation.volt
+
+step '2b. Derleme: volt build 01_cdc_violation.volt → E3001'
 "$VOLT" build tests/ui/fail/01_cdc_violation.volt
 echo
-echo "çıkış kodu: $? (1 = derleme hatası, cli-contract.md §2)"
+echo "çıkış kodu: $? (1 = derleme hatası; SV ÜRETİLMEDİ)"
+
+step '3a. Doğru köprü: tests/ui/pass/13_cdc_correct_bridge.volt'
+cat tests/ui/pass/13_cdc_correct_bridge.volt
+
+step '3b. Kontrol: volt check 13_cdc_correct_bridge.volt → temiz'
+# sync() SV üretimi F1+ işi (E0003); analiz `check` ile doğrulanır.
+"$VOLT" check tests/ui/pass/13_cdc_correct_bridge.volt
+echo
+echo "çıkış kodu: $? (0 = sync() köprüsü CDC kontrolünden geçti)"

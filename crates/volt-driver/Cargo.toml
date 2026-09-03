@@ -9,9 +9,14 @@ name = "volt"
 path = "src/main.rs"
 
 [dependencies]
+volt-hir = { path = "../volt-hir" }
 volt-lower = { path = "../volt-lower" }
 volt-span = { path = "../volt-span" }
 volt-syntax = { path = "../volt-syntax" }
 volt-sv-emit = { path = "../volt-sv-emit" }
 volt-diagnostics = { path = "../volt-diagnostics" }
 clap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
