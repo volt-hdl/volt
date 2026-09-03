@@ -43,3 +43,8 @@ weekly: coverage consistency bench fuzz
 
 # CI'nın çalıştırdığı küme
 ci: check consistency
+
+# Hizli kapi (pre-commit hook icin): bicim + lint, test yok
+check-fast:
+    cargo fmt --all --check
+    cargo clippy --all-targets --all-features -- -D warnings
