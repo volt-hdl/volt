@@ -131,6 +131,7 @@ error_codes! {
     W2010 => "Daraltıcı dönüşüm (bilgi kaybı)",
     W2011 => "Kullanılmayan tip parametresi",
     W2012 => "Tip belirtilmedi, varsayılan kullanıldı",
+    W2013 => "Kaydırma miktarı genişliği aşıyor (sonuç hep 0)",
     W2020 => "Sabit koşul — dal her zaman aynı sonuç veriyor",
     W2021 => "Kullanılmayan const bildirimi",
     W3001 => "Register hiç yazılmıyor",

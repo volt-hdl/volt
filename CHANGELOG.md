@@ -5,6 +5,39 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — F2b: İkili operatörler ve genişleme kuralları (2026-09-03)
+
+- **Aritmetik taşma genişlemesi** (`volt-hir/src/typeck.rs`,
+  type-inference.md §3.3): `+`/`-` bir bit, `*` genişlik kadar genişler;
+  `/`/`%` genişlemez; sonuç `MAX_WIDTH` ile sınırlı. Operand genişliği
+  uyuşmazsa E2001, işaret karışırsa E2002, `bits<N>` aritmetiğinde E2004.
+  Literal operand somut tarafa uyarlanır (taşmada E2010); literal+literal
+  literal kalır; `Ty::Error` sessiz yayılır.
+- **Esnek genişlik aralığı** (ADR-0025, `Ty::UIntFlex`/`SIntFlex`):
+  aritmetik sonuç `[işlem, doğal]` genişlik aralığı taşır — `u8 + u8`
+  kullanıcıya `u9` görünür ama sayaç deseni (`count <= count + 1`) taşma
+  bitini atarak operand genişliğine uyar; aralık dışı hedef E2001.
+  Operand uyumu aralık kesişimiyle kurulur; `as` ve `reg` çıkarımı doğal
+  genişliğe sabitler.
+- **Trit kuralları**: `Trit * Trit → Trit` (kapalı küme),
+  `Trit ± Trit → i3` (taşma), `Trit * iN → iN` (ternary MAC, iki yönde);
+  kalan kombinasyonlar E2003.
+- **Bit düzeyi** (`&`, `|`, `^`): genişlemez; `bool&bool → bool`, aynı
+  genişlik `uN/iN/bits<N>` korunur; genişlik farkı E2001, işaret karışımı
+  E2002, uyumsuz tipler E2003.
+- **Kaydırma** (`<<`, `>>`): sonuç sol operandın tipi; sağ operand
+  sayısal değilse E2003; sabit miktar sol genişliği aşarsa yeni W2013
+  uyarısı (kod ADR-0025 ile tanımlı, tutarlılık taraması artık
+  `docs/adr/` da okuyor).
+- **Karşılaştırma**: her zaman `bool`; operandlar `unify_for_comparison`
+  ile aynı tipe birleştirilir, uyumsuzluk iki tipi de gösteren E2003.
+- **Mantıksal** (`&&`, `||`): iki operand da `bool`, sonuç `bool`.
+- **Koşullu ifade** (§3.7): sentez konumunda dallar birleştirilir;
+  uyumsuz dallar iki tipi de gösteren E2003; esnek aralıklar kesişimle
+  birleşir; literal dal somut dala uyarlanır.
+- Test: +93 (566 toplam; ikili operatör testleri 85); ui/fail 02→E2001,
+  08→E2002, 09→E2004 artık doğru kodu üretiyor; ui/pass 21/21 temiz.
+
 ### Eklendi — F2a: Tip sistemi temeli (2026-09-03)
 
 - **Tip gösterimi** (`volt-hir/src/ty.rs`): `Ty` enum'u (Bool, UInt,

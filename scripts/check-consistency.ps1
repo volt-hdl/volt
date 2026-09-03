@@ -28,8 +28,12 @@ $rsFiles = Get-ChildItem (Join-Path $root 'crates') -Recurse -Filter *.rs |
 
 # ── 1 + 2: spec ↔ ErrorCode enum ──────────────────────────────────────
 # docs/spec/tr/ çeviridir, kanonik İngilizce set esas alınır.
-$specFiles = Get-ChildItem (Join-Path $root 'docs\spec') -File -Recurse |
-    Where-Object { $_.FullName -notmatch '\\tr\\' }
+# docs/adr/ da tanım kaynağıdır: spec salt okunur olduğundan yeni kodlar
+# ADR ile tanımlanır (ör. W2013, ADR-0025).
+$specFiles = @(
+    Get-ChildItem (Join-Path $root 'docs\spec') -File -Recurse |
+        Where-Object { $_.FullName -notmatch '\\tr\\' }
+) + @(Get-ChildItem (Join-Path $root 'docs\adr') -File)
 $specCodes = $specFiles | Select-String -Pattern '\b[EW]\d{4}\b' -AllMatches |
     ForEach-Object { $_.Matches } | ForEach-Object { $_.Value } |
     Sort-Object -Unique |

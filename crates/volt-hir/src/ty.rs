@@ -89,6 +89,13 @@ pub enum Ty {
     Instance(ModuleId),
     /// Boyutlandırılmamış tamsayı literali — bağlamdan belirlenir.
     IntLit,
+    /// Aritmetik genişleme sonucu (ADR-0025): `[lo, hi]` aralığındaki her
+    /// genişliğe uyarlanabilir işaretsiz değer. `hi` doğal (genişlemiş)
+    /// genişliktir, `lo` işlem genişliğidir; taşma bitleri hedefe göre
+    /// atılabilir (sayaç deseni: `count <= count + 1`).
+    UIntFlex { lo: u16, hi: u16 },
+    /// `UIntFlex`'in işaretli eşleniği.
+    SIntFlex { lo: u16, hi: u16 },
     /// Hata kurtarma — her tiple uyumlu, kaskad bastırır.
     Error,
 }
@@ -139,10 +146,50 @@ impl TypeArena {
         matches!(self.ty(id), Ty::IntLit)
     }
 
-    /// Bit seçimi/aralık için taban genişlik (UInt/SInt/Bits).
+    /// Dejenere aralık (`lo == hi`) somut tipe düşürülür.
+    pub fn uint_flex(&mut self, lo: u16, hi: u16) -> TypeId {
+        if lo == hi {
+            self.intern(Ty::UInt { width: lo })
+        } else {
+            self.intern(Ty::UIntFlex { lo, hi })
+        }
+    }
+
+    pub fn sint_flex(&mut self, lo: u16, hi: u16) -> TypeId {
+        if lo == hi {
+            self.intern(Ty::SInt { width: lo })
+        } else {
+            self.intern(Ty::SIntFlex { lo, hi })
+        }
+    }
+
+    /// Tam sayı ailesi görünümü: (işaretli mi, lo, hi). Somut tiplerde
+    /// `lo == hi`; genişlik uyumu bu aralıkların kesişimiyle kurulur.
+    pub fn int_range(&self, id: TypeId) -> Option<(bool, u16, u16)> {
+        match *self.ty(id) {
+            Ty::UInt { width } => Some((false, width, width)),
+            Ty::SInt { width } => Some((true, width, width)),
+            Ty::UIntFlex { lo, hi } => Some((false, lo, hi)),
+            Ty::SIntFlex { lo, hi } => Some((true, lo, hi)),
+            _ => None,
+        }
+    }
+
+    /// Esnek aralığı doğal genişlikteki somut tipe indirger.
+    pub fn concrete(&mut self, id: TypeId) -> TypeId {
+        match *self.ty(id) {
+            Ty::UIntFlex { hi, .. } => self.intern(Ty::UInt { width: hi }),
+            Ty::SIntFlex { hi, .. } => self.intern(Ty::SInt { width: hi }),
+            _ => id,
+        }
+    }
+
+    /// Bit seçimi/aralık için taban genişlik (UInt/SInt/Bits; esnek
+    /// aralıkta doğal genişlik).
     pub fn width_of(&self, id: TypeId) -> Option<u16> {
         match self.ty(id) {
             Ty::UInt { width } | Ty::SInt { width } | Ty::Bits { width } => Some(*width),
+            Ty::UIntFlex { hi, .. } | Ty::SIntFlex { hi, .. } => Some(*hi),
             _ => None,
         }
     }
@@ -169,6 +216,9 @@ impl TypeArena {
             Ty::Enum(_) => "enum".to_string(),
             Ty::Instance(_) => "modül örneği".to_string(),
             Ty::IntLit => "tamsayı literali".to_string(),
+            // Kullanıcı yüzünde doğal genişlik gösterilir (§10 vektörleri).
+            Ty::UIntFlex { hi, .. } => format!("u{hi}"),
+            Ty::SIntFlex { hi, .. } => format!("i{hi}"),
             Ty::Error => "<hata>".to_string(),
         }
     }
@@ -239,6 +289,52 @@ mod tests {
         assert!(arena.is_error(e));
         assert!(arena.is_int_lit(l));
         assert!(!arena.is_error(l));
+    }
+
+    #[test]
+    fn flex_display_shows_natural_width() {
+        let mut arena = TypeArena::new();
+        let u = arena.uint_flex(8, 9);
+        let s = arena.sint_flex(16, 17);
+        assert_eq!(arena.display(u), "u9");
+        assert_eq!(arena.display(s), "i17");
+    }
+
+    #[test]
+    fn flex_degenerate_range_becomes_concrete() {
+        let mut arena = TypeArena::new();
+        let u = arena.uint_flex(8, 8);
+        let s = arena.sint_flex(4, 4);
+        assert_eq!(*arena.ty(u), Ty::UInt { width: 8 });
+        assert_eq!(*arena.ty(s), Ty::SInt { width: 4 });
+    }
+
+    #[test]
+    fn int_range_covers_concrete_and_flex() {
+        let mut arena = TypeArena::new();
+        let u8_ty = arena.intern(Ty::UInt { width: 8 });
+        let flex = arena.sint_flex(8, 16);
+        let b = arena.bool_ty();
+        assert_eq!(arena.int_range(u8_ty), Some((false, 8, 8)));
+        assert_eq!(arena.int_range(flex), Some((true, 8, 16)));
+        assert_eq!(arena.int_range(b), None);
+    }
+
+    #[test]
+    fn concrete_lowers_flex_to_natural_width() {
+        let mut arena = TypeArena::new();
+        let flex = arena.uint_flex(8, 9);
+        let c = arena.concrete(flex);
+        assert_eq!(*arena.ty(c), Ty::UInt { width: 9 });
+        let bits = arena.intern(Ty::Bits { width: 4 });
+        assert_eq!(arena.concrete(bits), bits);
+    }
+
+    #[test]
+    fn width_of_flex_is_natural_width() {
+        let mut arena = TypeArena::new();
+        let flex = arena.uint_flex(8, 9);
+        assert_eq!(arena.width_of(flex), Some(9));
     }
 
     #[test]

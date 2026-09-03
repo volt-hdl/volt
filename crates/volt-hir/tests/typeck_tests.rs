@@ -355,21 +355,21 @@ fn reg_without_type_infers_from_non_literal_init() {
     assert_eq!(def_ty(&result, "r"), "u8");
 }
 
-// ═══ F2b kapsamı dışı: ikili operatörler sessiz ═══════════════════
+// ═══ F2b: ikili operatörler artık denetleniyor ════════════════════
 
 #[test]
-fn binary_arith_width_mismatch_silent_in_f2a() {
-    // fail/02 senaryosu — F2b'de E2001 verecek, F2a'da hata YOK.
-    let result = check("module M {\n    in  small : u8\n    in  large : u16\n    out sum   : u16\n\n    sum = small + large\n}\n");
-    assert!(!result.has_errors(), "{:?}", result.error_codes());
+fn binary_arith_width_mismatch_e2001_in_f2b() {
+    // fail/02 senaryosu — F2a'da sessizdi, F2b'de E2001.
+    let c = codes("module M {\n    in  small : u8\n    in  large : u16\n    out sum   : u16\n\n    sum = small + large\n}\n");
+    assert!(c.contains(&"E2001"), "{c:?}");
 }
 
 #[test]
-fn comparison_of_mismatched_types_silent_in_f2a() {
-    let result = check(
+fn comparison_of_mismatched_types_e2003_in_f2b() {
+    let c = codes(
         "module M {\n    in  a : u8\n    in  b : u16\n    out y : bool\n\n    y = a == b\n}\n",
     );
-    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert!(c.contains(&"E2003"), "{c:?}");
 }
 
 // ═══ Sürücü analizi (§11) ═════════════════════════════════════════
@@ -565,8 +565,8 @@ fn match_stmt_in_on_block_checked() {
 }
 
 #[test]
-fn cast_error_source_stays_silent_in_expr() {
-    // İkili operatör sonucu (F2a'da Error) cast edilebilir olmalı.
+fn cast_of_widened_arith_result_ok() {
+    // İkili operatör sonucu (u9) açık dönüşümle genişletilebilir.
     let result = check("module M {\n    in  a : u8\n    in  b : u8\n    out y : u16\n\n    y = (a + b) as u16\n}\n");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
 }

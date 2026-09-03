@@ -74,6 +74,36 @@ fn ui_fail_04_undriven_output_e4002() {
 }
 
 #[test]
+fn ui_fail_02_width_mismatch_e2001() {
+    let result = analyze_file("fail/02_width_mismatch.volt");
+    assert!(
+        result.error_codes().contains(&"E2001"),
+        "E2001 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_08_signedness_mismatch_e2002() {
+    let result = analyze_file("fail/08_signedness_mismatch.volt");
+    assert!(
+        result.error_codes().contains(&"E2002"),
+        "E2002 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_09_bits_arithmetic_e2004() {
+    let result = analyze_file("fail/09_bits_arithmetic.volt");
+    assert!(
+        result.error_codes().contains(&"E2004"),
+        "E2004 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
 fn ui_fail_10_index_out_of_bounds_e2006() {
     let result = analyze_file("fail/10_index_out_of_bounds.volt");
     assert!(

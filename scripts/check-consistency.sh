@@ -20,7 +20,9 @@ violation() {
 
 # ── 1 + 2: spec ↔ ErrorCode enum ──────────────────────────────────────
 # docs/spec/tr/ çeviridir; E9999 cli-contract.md'de kasıtlı "bilinmeyen kod" örneği.
-spec_codes=$(grep -rhoE '\b[EW][0-9]{4}\b' "$ROOT/docs/spec" --exclude-dir=tr | sort -u | grep -v '^E9999$')
+# docs/adr/ da tanım kaynağıdır: spec salt okunur olduğundan yeni kodlar
+# ADR ile tanımlanır (ör. W2013, ADR-0025).
+spec_codes=$(grep -rhoE '\b[EW][0-9]{4}\b' "$ROOT/docs/spec" "$ROOT/docs/adr" --exclude-dir=tr | sort -u | grep -v '^E9999$')
 enum_codes=$(grep -oE '^\s*[EW][0-9]{4}\s*=>' "$CODE_RS" | grep -oE '[EW][0-9]{4}' | sort -u)
 
 for c in $spec_codes; do

@@ -1,25 +1,26 @@
-//! Çift yönlü tip kontrolü (docs/spec/type-inference.md §2-§6) — F2a.
+//! Çift yönlü tip kontrolü (docs/spec/type-inference.md §2-§6) — F2a+F2b.
 //!
 //! `synth` (↑ "bu ifadenin tipi ne?") ve `check` (↓ "bu ifade T tipinde
 //! mi?") bağlama göre seçilir: beklenen tip biliniyorsa check, değilse
 //! synth. `Ty::Error` sessizce yayılır — kaskad hata üretilmez.
 //!
-//! F2a kapsam sınırı: İKİLİ operatörler (aritmetik, bit düzeyi,
-//! karşılaştırma, mantıksal, kaydırma) F2b işidir; burada operandlar
-//! gezilir ama sonuç hatasız `Ty::Error` döner. Fonksiyon gövdeleri ve
-//! kontratlar da F2b'ye ertelendi.
+//! F2b: ikili operatörler (§3.3). Aritmetik sonuçlar esnek genişlik
+//! aralığı taşır (`Ty::UIntFlex`/`SIntFlex`, ADR-0025): `u8 + u8`
+//! doğal olarak `u9`'dur ama sayaç deseni (`count <= count + 1`) taşma
+//! bitini atarak operand genişliğine de uyarlanabilir. Yerleşik çağrı
+//! tipleri (sync/zext/concat...) ve kontratlar sonraki fazın işidir.
 
 use std::collections::HashMap;
 
 use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, IntSuffix, ItemKind,
-    LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, Name, RegDecl, SourceFile,
-    Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
+    ArrayLitKind, BinOp, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, IntSuffix,
+    ItemKind, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, Name, RegDecl,
+    SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
 use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use crate::consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN};
+use crate::consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 use crate::drivers::DriverTable;
 use crate::resolve::{is_widened_int_type, DefId, DefKind, ResolveResult};
 use crate::ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
@@ -174,7 +175,9 @@ impl<'a> TypeChecker<'a, '_> {
                     ));
                     self.types.error()
                 } else {
-                    inferred
+                    // Register depolaması somut genişlik ister — esnek
+                    // aritmetik sonucu doğal genişliğe sabitlenir.
+                    self.types.concrete(inferred)
                 }
             }
         };
@@ -507,13 +510,7 @@ impl<'a> TypeChecker<'a, '_> {
                 // Çözülemeyen isim E1001'i zaten aldı.
                 None => self.types.error(),
             },
-            // F2a: ikili operatörler F2b'de — operandlar gezilir,
-            // sonuç hatasız Error (kaskad bastırma sayesinde sessiz).
-            ExprKind::Binary { lhs, rhs, .. } => {
-                self.synth(*lhs);
-                self.synth(*rhs);
-                self.types.error()
-            }
+            ExprKind::Binary { op, lhs, rhs } => self.synth_binary(*op, *lhs, *rhs, span),
             ExprKind::Unary { op, operand } => self.synth_unary(*op, *operand, span),
             ExprKind::Index { base, index } => {
                 let base_ty = self.synth(*base);
@@ -546,7 +543,7 @@ impl<'a> TypeChecker<'a, '_> {
                 cond,
                 then_expr,
                 else_expr,
-            } => self.synth_if(*cond, *then_expr, *else_expr),
+            } => self.synth_if(*cond, *then_expr, *else_expr, span),
             ExprKind::Match { scrutinee, arms } => {
                 self.synth(*scrutinee);
                 for arm in arms {
@@ -608,12 +605,14 @@ impl<'a> TypeChecker<'a, '_> {
             // Bit tersleme genişliği korur.
             UnOp::BitNot => ot,
             UnOp::Neg => match *self.types.ty(ot) {
-                Ty::SInt { width } => self.types.intern(Ty::SInt {
-                    width: width.saturating_add(1),
-                }),
+                Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } => {
+                    self.types.intern(Ty::SInt {
+                        width: width.saturating_add(1),
+                    })
+                }
                 Ty::Trit => self.types.intern(Ty::Trit),
                 Ty::IntLit => self.types.int_lit(),
-                Ty::UInt { .. } => {
+                Ty::UInt { .. } | Ty::UIntFlex { .. } => {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2002,
                         "işaretsiz değer negatiflenemez",
@@ -627,20 +626,422 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// §3.7 — koşullu ifade; literal dallar somut dala uyarlanır.
-    fn synth_if(&mut self, cond: Idx<Expr>, then_expr: Idx<Expr>, else_expr: Idx<Expr>) -> TypeId {
+    // ═══ İkili operatörler (§3.3) ═════════════════════════════════
+
+    fn synth_binary(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        use BinOp::{
+            Add, And, BitAnd, BitOr, BitXor, Div, Eq, Ge, Gt, Le, Lt, Mul, Ne, Or, Rem, Shl, Shr,
+            Sub,
+        };
+        match op {
+            Add | Sub | Mul | Div | Rem => self.synth_arith(op, lhs, rhs, span),
+            BitAnd | BitOr | BitXor => self.synth_bitwise(lhs, rhs, span),
+            Shl | Shr => self.synth_shift(lhs, rhs, span),
+            Eq | Ne | Lt | Gt | Le | Ge => self.synth_comparison(lhs, rhs, span),
+            And | Or => self.synth_logical(lhs, rhs),
+        }
+    }
+
+    /// Aritmetik (§3.3): taşma genişlemesi. Sonuç, operand genişliği ile
+    /// genişlemiş doğal genişlik arasında esnektir (ADR-0025); sayaç
+    /// deseni (`count <= count + 1`) böylece taşma bitini atabilir.
+    fn synth_arith(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        if self.types.is_error(lt) || self.types.is_error(rt) {
+            return self.types.error();
+        }
+        // bits<N> aritmetiği her kombinasyonda yasak — literalden önce.
+        if self.is_bits(lt) || self.is_bits(rt) {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E2004,
+                "bits<N> tipinde aritmetik yapılamaz",
+                LabeledSpan::primary(span, "bits ham bit vektörüdür, sayısal değil"),
+                "u8/i8 gibi sayısal tipe dönüştürün",
+            ));
+            return self.types.error();
+        }
+        match (self.types.is_int_lit(lt), self.types.is_int_lit(rt)) {
+            (true, true) => return self.types.int_lit(),
+            // Literal somut tarafa uyarlanır (sınır denetimiyle).
+            (true, false) => {
+                if !self.adapt_literal_operand(lhs, rt) {
+                    return self.err_arith_incompatible(lt, rt, span);
+                }
+                return self.arith_result(op, rt, rt, span);
+            }
+            (false, true) => {
+                if !self.adapt_literal_operand(rhs, lt) {
+                    return self.err_arith_incompatible(lt, rt, span);
+                }
+                return self.arith_result(op, lt, lt, span);
+            }
+            (false, false) => {}
+        }
+        self.arith_result(op, lt, rt, span)
+    }
+
+    fn arith_result(&mut self, op: BinOp, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
+        if let (Some((ls, llo, lhi)), Some((rs, rlo, rhi))) =
+            (self.types.int_range(lt), self.types.int_range(rt))
+        {
+            if ls != rs {
+                self.err_sign_mismatch(span);
+                return self.types.error();
+            }
+            let lo = llo.max(rlo);
+            let hi = lhi.min(rhi);
+            if lo > hi {
+                self.operand_width_mismatch(lhi, rhi, if ls { "i" } else { "u" }, span);
+                return self.types.error();
+            }
+            // Toplama/çıkarma 1 bit, çarpma genişlik kadar genişler;
+            // bölme/mod genişlemez. Sonuç MAX_WIDTH ile sınırlı.
+            let natural = match op {
+                BinOp::Add | BinOp::Sub => clamp_width(u32::from(hi) + 1),
+                BinOp::Mul => clamp_width(u32::from(hi) * 2),
+                _ => hi,
+            };
+            return if ls {
+                self.types.sint_flex(lo, natural)
+            } else {
+                self.types.uint_flex(lo, natural)
+            };
+        }
+        self.trit_arith_result(op, lt, rt, span)
+    }
+
+    /// Trit kuralları (§3.3): çarpım kapalı ({-1,0,1} içinde kalır),
+    /// toplam/fark i3'e taşar, ternary MAC deseninde işaretli genişlik
+    /// korunur; kalan kombinasyonlar E2003.
+    fn trit_arith_result(&mut self, op: BinOp, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
+        let l_trit = matches!(self.types.ty(lt), Ty::Trit);
+        let r_trit = matches!(self.types.ty(rt), Ty::Trit);
+        match (l_trit, r_trit) {
+            (true, true) => match op {
+                BinOp::Mul => self.types.intern(Ty::Trit),
+                // +1 + +1 = +2 kümeden çıkar → i3'e genişle.
+                BinOp::Add | BinOp::Sub => self.types.intern(Ty::SInt { width: 3 }),
+                _ => {
+                    self.err_type_mismatch_msg(
+                        span,
+                        "bu operatör Trit tipinde tanımlı değil",
+                        "Trit yalnız *, + ve - destekler",
+                    );
+                    self.types.error()
+                }
+            },
+            (true, false) | (false, true) => {
+                let other = if l_trit { rt } else { lt };
+                if op == BinOp::Mul {
+                    if let Some((true, _, _)) = self.types.int_range(other) {
+                        return other;
+                    }
+                }
+                let shown = self.types.display(other);
+                self.err_type_mismatch_msg(
+                    span,
+                    &format!("Trit ile '{shown}' arasında bu işlem tanımlı değil"),
+                    "Trit yalnız işaretli tiple (iN) çarpılabilir; gerekirse as ile dönüştürün",
+                );
+                self.types.error()
+            }
+            (false, false) => self.err_arith_incompatible(lt, rt, span),
+        }
+    }
+
+    /// Bit düzeyi (§3.3): genişlemez; aynı genişlik zorunlu.
+    fn synth_bitwise(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        if self.types.is_error(lt) || self.types.is_error(rt) {
+            return self.types.error();
+        }
+        match (self.types.is_int_lit(lt), self.types.is_int_lit(rt)) {
+            (true, true) => return self.types.int_lit(),
+            (true, false) => {
+                return if self.types.int_range(rt).is_some() {
+                    self.check(lhs, rt);
+                    rt
+                } else {
+                    self.err_bitwise_incompatible(lt, rt, span)
+                };
+            }
+            (false, true) => {
+                return if self.types.int_range(lt).is_some() {
+                    self.check(rhs, lt);
+                    lt
+                } else {
+                    self.err_bitwise_incompatible(lt, rt, span)
+                };
+            }
+            (false, false) => {}
+        }
+        match (self.types.ty(lt), self.types.ty(rt)) {
+            (Ty::Bool, Ty::Bool) => self.types.bool_ty(),
+            (&Ty::Bits { width: a }, &Ty::Bits { width: b }) => {
+                if a == b {
+                    lt
+                } else {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2001,
+                        format!("bit genişliği uyumsuzluğu: bits<{a}> ve bits<{b}>"),
+                        LabeledSpan::primary(span, "operand genişlikleri farklı"),
+                        "operand genişliklerini eşitleyin",
+                    ));
+                    self.types.error()
+                }
+            }
+            _ => {
+                if let (Some((ls, llo, lhi)), Some((rs, rlo, rhi))) =
+                    (self.types.int_range(lt), self.types.int_range(rt))
+                {
+                    if ls != rs {
+                        self.err_sign_mismatch(span);
+                        return self.types.error();
+                    }
+                    let lo = llo.max(rlo);
+                    let hi = lhi.min(rhi);
+                    if lo > hi {
+                        self.operand_width_mismatch(lhi, rhi, if ls { "i" } else { "u" }, span);
+                        return self.types.error();
+                    }
+                    // GENİŞLEMEZ: ortak aralık aynen korunur.
+                    return if ls {
+                        self.types.sint_flex(lo, hi)
+                    } else {
+                        self.types.uint_flex(lo, hi)
+                    };
+                }
+                self.err_bitwise_incompatible(lt, rt, span)
+            }
+        }
+    }
+
+    /// Kaydırma (§3.3): sonuç sol operandın tipi, genişlemez. Sabit
+    /// miktar sol genişliğe eşit ya da büyükse W2013.
+    fn synth_shift(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        if self.types.is_error(lt) {
+            return self.types.error();
+        }
+        let lhs_ok = self.types.int_range(lt).is_some()
+            || matches!(self.types.ty(lt), Ty::Bits { .. } | Ty::IntLit);
+        if !lhs_ok {
+            let shown = self.types.display(lt);
+            self.err_type_mismatch_msg(
+                span,
+                &format!("'{shown}' tipi kaydırılamaz"),
+                "kaydırma yalnız uN, iN ve bits<N> tiplerinde tanımlı",
+            );
+            return self.types.error();
+        }
+        let rhs_ok = self.types.is_error(rt)
+            || self.types.is_int_lit(rt)
+            || self.types.int_range(rt).is_some();
+        if !rhs_ok {
+            let shown = self.types.display(rt);
+            self.err_type_mismatch_msg(
+                span,
+                &format!("kaydırma miktarı sayısal olmalı, '{shown}' bulundu"),
+                "miktarı uN/iN tipinde ya da sabit olarak verin",
+            );
+            // Spec: sonuç yine sol operandın tipidir.
+            return lt;
+        }
+        if let (Some(width), Some(amount)) = (self.types.width_of(lt), self.try_const_eval(rhs)) {
+            if amount >= i128::from(width) {
+                self.diagnostics.push(Diagnostic::warning(
+                    ErrorCode::W2013,
+                    format!("kaydırma miktarı {amount}, {width} bit genişliği aşıyor"),
+                    LabeledSpan::primary(span, "tüm bitler dışarı kayar, sonuç hep 0"),
+                    format!("miktarı 0..{width} aralığında tutun"),
+                ));
+            }
+        }
+        lt
+    }
+
+    /// Karşılaştırma (§3.3): sonuç her zaman Bool; operandlar aynı tipe
+    /// birleştirilmeli, uyumsuzluk E2003.
+    fn synth_comparison(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        self.unify_for_comparison(lhs, rhs, lt, rt, span);
+        self.types.bool_ty()
+    }
+
+    fn unify_for_comparison(
+        &mut self,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        lt: TypeId,
+        rt: TypeId,
+        span: Span,
+    ) {
+        if lt == rt || self.types.is_error(lt) || self.types.is_error(rt) {
+            return;
+        }
+        // Literal karşı tarafın tipine uyarlanır.
+        if self.types.is_int_lit(lt) && self.is_literal_adaptable(rt) {
+            self.check(lhs, rt);
+            return;
+        }
+        if self.types.is_int_lit(rt) && self.is_literal_adaptable(lt) {
+            self.check(rhs, lt);
+            return;
+        }
+        if let (Some((ls, llo, lhi)), Some((rs, rlo, rhi))) =
+            (self.types.int_range(lt), self.types.int_range(rt))
+        {
+            if ls == rs && llo.max(rlo) <= lhi.min(rhi) {
+                return;
+            }
+        }
+        let l = self.types.display(lt);
+        let r = self.types.display(rt);
+        self.err_type_mismatch_msg(
+            span,
+            &format!("karşılaştırma operandları aynı tipte olmalı: '{l}' ile '{r}'"),
+            "operandları as ile aynı tipe getirin",
+        );
+    }
+
+    /// Mantıksal (§3.3): iki operand da Bool, sonuç Bool.
+    fn synth_logical(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>) -> TypeId {
+        let bool_ty = self.types.bool_ty();
+        self.check(lhs, bool_ty);
+        self.check(rhs, bool_ty);
+        bool_ty
+    }
+
+    // ═══ İkili operatör yardımcıları ══════════════════════════════
+
+    fn is_bits(&self, ty: TypeId) -> bool {
+        matches!(self.types.ty(ty), Ty::Bits { .. })
+    }
+
+    /// Soneksiz literal bu tipe uyarlanabilir mi? (uN/iN/esnek/Trit)
+    fn is_literal_adaptable(&self, ty: TypeId) -> bool {
+        self.types.int_range(ty).is_some() || matches!(self.types.ty(ty), Ty::Trit)
+    }
+
+    /// Literal operandı somut sayısal tipe uyarlar; hedef sayısal
+    /// değilse false döner (çağıran uyumsuzluk hatası verir).
+    fn adapt_literal_operand(&mut self, expr: Idx<Expr>, target: TypeId) -> bool {
+        let ok = self.is_literal_adaptable(target);
+        if ok {
+            self.check(expr, target);
+        }
+        ok
+    }
+
+    fn err_arith_incompatible(&mut self, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
+        let l = self.types.display(lt);
+        let r = self.types.display(rt);
+        self.err_type_mismatch_msg(
+            span,
+            &format!("aritmetik operandları uyumsuz: '{l}' ile '{r}'"),
+            "operandları aynı sayısal tipe getirin",
+        );
+        self.types.error()
+    }
+
+    fn err_bitwise_incompatible(&mut self, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
+        let l = self.types.display(lt);
+        let r = self.types.display(rt);
+        self.err_type_mismatch_msg(
+            span,
+            &format!("bit düzeyi operatör '{l}' ile '{r}' tipinde tanımlı değil"),
+            "bit düzeyi işlemler bool, uN, iN ve bits<N> ister",
+        );
+        self.types.error()
+    }
+
+    fn err_sign_mismatch(&mut self, span: Span) {
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2002,
+            "işaretli ve işaretsiz karıştırılamaz",
+            LabeledSpan::primary(span, "işaretler farklı"),
+            "as ile açık dönüşüm yapın",
+        ));
+    }
+
+    /// E2001 — operand genişlikleri örtük birleştirilemez (§3.3, §8).
+    fn operand_width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2001,
+                format!("bit genişliği uyumsuzluğu: {prefix}{a} ve {prefix}{b}"),
+                LabeledSpan::primary(span, "operand genişlikleri farklı"),
+                format!("dar operandı genişletin: (ifade) as {prefix}{}", a.max(b)),
+            )
+            .with_note(
+                NoteKind::Reason,
+                "farklı genişlikler örtük birleştirilemez; genişletme donanımda ek tel ve mantık gerektirir",
+            ),
+        );
+    }
+
+    /// §3.7 — koşullu ifade; literal dallar somut dala uyarlanır, kalan
+    /// dallar aynı tipte olmalı (E2003, iki tip de mesajda gösterilir).
+    fn synth_if(
+        &mut self,
+        cond: Idx<Expr>,
+        then_expr: Idx<Expr>,
+        else_expr: Idx<Expr>,
+        span: Span,
+    ) -> TypeId {
         let bool_ty = self.types.bool_ty();
         self.check(cond, bool_ty);
         let then_ty = self.synth(then_expr);
-        if self.types.is_int_lit(then_ty) {
-            let else_ty = self.synth(else_expr);
-            if !self.types.is_int_lit(else_ty) {
+        let else_ty = self.synth(else_expr);
+        if self.types.is_error(then_ty) || self.types.is_error(else_ty) {
+            return self.types.error();
+        }
+        match (
+            self.types.is_int_lit(then_ty),
+            self.types.is_int_lit(else_ty),
+        ) {
+            (true, true) => return then_ty,
+            (true, false) => {
+                self.check(then_expr, else_ty);
                 return else_ty;
             }
+            (false, true) => {
+                self.check(else_expr, then_ty);
+                return then_ty;
+            }
+            (false, false) => {}
+        }
+        if then_ty == else_ty {
             return then_ty;
         }
-        self.check(else_expr, then_ty);
-        then_ty
+        // Esnek aralıklar kesişiyorsa ortak aralık dalların birleşimidir.
+        if let (Some((ts, tlo, thi)), Some((es, elo, ehi))) =
+            (self.types.int_range(then_ty), self.types.int_range(else_ty))
+        {
+            if ts == es {
+                let lo = tlo.max(elo);
+                let hi = thi.min(ehi);
+                if lo <= hi {
+                    return if ts {
+                        self.types.sint_flex(lo, hi)
+                    } else {
+                        self.types.uint_flex(lo, hi)
+                    };
+                }
+            }
+        }
+        let t = self.types.display(then_ty);
+        let e = self.types.display(else_ty);
+        self.err_type_mismatch_msg(
+            span,
+            &format!("if/else dalları farklı tipte: '{t}' ile '{e}'"),
+            "dalları aynı tipe getirin; gerekirse as ile dönüştürün",
+        );
+        self.types.error()
     }
 
     fn synth_struct_lit(
@@ -684,7 +1085,11 @@ impl<'a> TypeChecker<'a, '_> {
                 }
                 elem
             }
-            Ty::UInt { width } | Ty::SInt { width } | Ty::Bits { width } => {
+            Ty::UInt { width }
+            | Ty::SInt { width }
+            | Ty::Bits { width }
+            | Ty::UIntFlex { hi: width, .. }
+            | Ty::SIntFlex { hi: width, .. } => {
                 if let Some(i) = self.try_const_eval(index) {
                     if i < 0 || i >= i128::from(width) {
                         self.index_out_of_bounds(i, u64::from(width), span);
@@ -862,12 +1267,12 @@ impl<'a> TypeChecker<'a, '_> {
     /// Soneksiz literali beklenen tipe uyarla (§4).
     fn check_int_lit(&mut self, value: u128, expected: TypeId, span: Span) {
         match *self.types.ty(expected) {
-            Ty::UInt { width } => {
+            Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } => {
                 if !uint_fits(value, width) {
                     self.literal_overflow(value, expected, span);
                 }
             }
-            Ty::SInt { width } => {
+            Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } => {
                 if !sint_fits(value, width) {
                     self.literal_overflow(value, expected, span);
                 }
@@ -897,24 +1302,36 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// §5 — atanabilirlik: örtük daraltma DA genişleme DE yasak.
+    /// §5 — atanabilirlik: örtük daraltma DA genişleme DE yasak. Esnek
+    /// aritmetik sonucu (ADR-0025) hedef genişliği aralığındaysa uyar.
     fn expect_assignable(&mut self, actual: TypeId, expected: TypeId, span: Span) {
         if actual == expected || self.types.is_error(actual) || self.types.is_error(expected) {
             return;
         }
-        match (
-            self.types.ty(actual).clone(),
-            self.types.ty(expected).clone(),
-        ) {
-            // Literal her sayısal tipe uyar (sınır kontrolü yapıldı).
-            (Ty::IntLit, Ty::UInt { .. } | Ty::SInt { .. } | Ty::Trit) => {}
-            (Ty::UInt { width: a }, Ty::UInt { width: b }) => {
-                self.width_mismatch(a, b, "u", span);
+        // Literal her sayısal tipe uyar (sınır kontrolü yapıldı).
+        if self.types.is_int_lit(actual) && self.is_literal_adaptable(expected) {
+            return;
+        }
+        if let (Some((sa, alo, ahi)), Some((se, elo, ehi))) =
+            (self.types.int_range(actual), self.types.int_range(expected))
+        {
+            if sa != se {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E2002,
+                    "işaret uyumsuzluğu",
+                    LabeledSpan::primary(span, "işaretli ve işaretsiz karışıyor"),
+                    "as ile açık dönüşüm yapın",
+                ));
+                return;
             }
-            (Ty::SInt { width: a }, Ty::SInt { width: b }) => {
-                self.width_mismatch(a, b, "i", span);
+            if alo.max(elo) <= ahi.min(ehi) {
+                return;
             }
-            (Ty::Bits { width: a }, Ty::Bits { width: b }) => {
+            self.width_mismatch(ahi, ehi, if sa { "i" } else { "u" }, span);
+            return;
+        }
+        match (self.types.ty(actual), self.types.ty(expected)) {
+            (&Ty::Bits { width: a }, &Ty::Bits { width: b }) => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2001,
                     format!(
@@ -922,14 +1339,6 @@ impl<'a> TypeChecker<'a, '_> {
                     ),
                     LabeledSpan::primary(span, "genişlikler farklı"),
                     "kaynak ve hedef genişliklerini eşitleyin",
-                ));
-            }
-            (Ty::UInt { .. }, Ty::SInt { .. }) | (Ty::SInt { .. }, Ty::UInt { .. }) => {
-                self.diagnostics.push(Diagnostic::error(
-                    ErrorCode::E2002,
-                    "işaret uyumsuzluğu",
-                    LabeledSpan::primary(span, "işaretli ve işaretsiz karışıyor"),
-                    "as ile açık dönüşüm yapın",
                 ));
             }
             _ => self.err_type_mismatch(expected, actual, span),
@@ -967,6 +1376,8 @@ impl<'a> TypeChecker<'a, '_> {
     // ═══ Tip dönüşümü (§3.6) ══════════════════════════════════════
 
     fn check_cast_legal(&mut self, src: TypeId, dst: TypeId, span: Span) {
+        // Esnek aritmetik sonucu doğal genişliğiyle dönüştürülür.
+        let src = self.types.concrete(src);
         if src == dst || self.types.is_error(src) || self.types.is_error(dst) {
             return;
         }
@@ -1042,8 +1453,12 @@ impl<'a> TypeChecker<'a, '_> {
     fn literal_overflow(&mut self, value: u128, ty: TypeId, span: Span) {
         let shown = self.types.display(ty);
         let max = match *self.types.ty(ty) {
-            Ty::UInt { width } if width < 128 => (1u128 << width) - 1,
-            Ty::SInt { width } if width > 0 && width <= 128 => (1u128 << (width - 1)) - 1,
+            Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } if width < 128 => {
+                (1u128 << width) - 1
+            }
+            Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } if width > 0 && width <= 128 => {
+                (1u128 << (width - 1)) - 1
+            }
             _ => u128::MAX,
         };
         self.diagnostics.push(Diagnostic::error(
@@ -1104,6 +1519,11 @@ impl<'a> TypeChecker<'a, '_> {
             help,
         ));
     }
+}
+
+/// Genişlemiş sonuç genişliği MAX_WIDTH ve u16 gösterim sınırıyla kırpılır.
+fn clamp_width(w: u32) -> u16 {
+    w.min(MAX_WIDTH).min(u32::from(u16::MAX)) as u16
 }
 
 /// `value` işaretsiz `width` bite sığıyor mu?
