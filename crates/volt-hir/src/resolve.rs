@@ -117,6 +117,18 @@ pub struct ResolveResult {
     pub const_inits: HashMap<DefId, Idx<Expr>>,
     /// Enum varyantı → (sıra, açık discriminant ifadesi).
     pub variant_info: HashMap<DefId, (usize, Option<Idx<Expr>>)>,
+    /// Bildirim isminin span'ı → tanım (tip denetçisi bildirimleri bulur).
+    pub decl_spans: HashMap<Span, DefId>,
+    /// Kullanım isminin span'ı → tanım (lvalue tabanları için).
+    pub use_spans: HashMap<Span, DefId>,
+    /// Tip konumundaki Path → tanım (struct/enum/alias tipleri).
+    pub type_resolutions: HashMap<Idx<TypeRef>, DefId>,
+    /// Okunan tanımlar (W4001/W4002 sürücü analizi için).
+    pub reads: HashSet<DefId>,
+    /// Instance tanımı → hedef modül tanımı.
+    pub instance_module: HashMap<DefId, DefId>,
+    /// Öğe tanımı → AST öğesi (port/alan tip araması için).
+    pub item_of_def: HashMap<DefId, Idx<Item>>,
 }
 
 impl ResolveResult {
@@ -155,6 +167,9 @@ struct Resolver<'a> {
     resolutions: HashMap<Idx<Expr>, DefId>,
     const_inits: HashMap<DefId, Idx<Expr>>,
     variant_info: HashMap<DefId, (usize, Option<Idx<Expr>>)>,
+    decl_spans: HashMap<Span, DefId>,
+    use_spans: HashMap<Span, DefId>,
+    type_resolutions: HashMap<Idx<TypeRef>, DefId>,
 
     prelude: ScopeId,
     root: ScopeId,
@@ -186,6 +201,9 @@ impl<'a> Resolver<'a> {
             resolutions: HashMap::new(),
             const_inits: HashMap::new(),
             variant_info: HashMap::new(),
+            decl_spans: HashMap::new(),
+            use_spans: HashMap::new(),
+            type_resolutions: HashMap::new(),
             prelude: ScopeId(0),
             root: ScopeId(0),
             error_def: DefId(0),
@@ -226,6 +244,12 @@ impl<'a> Resolver<'a> {
             resolutions: self.resolutions,
             const_inits: self.const_inits,
             variant_info: self.variant_info,
+            decl_spans: self.decl_spans,
+            use_spans: self.use_spans,
+            type_resolutions: self.type_resolutions,
+            reads: self.reads,
+            instance_module: self.instance_module,
+            item_of_def: self.item_of_def,
         }
     }
 
@@ -265,6 +289,7 @@ impl<'a> Resolver<'a> {
         self.scopes[scope.0 as usize]
             .bindings
             .insert(name.text.clone(), def);
+        self.decl_spans.insert(name.span, def);
         def
     }
 
@@ -912,7 +937,8 @@ impl<'a> Resolver<'a> {
                 if path.segments.len() == 1 && is_widened_int_type(&path.segments[0].text) {
                     return;
                 }
-                self.resolve_path(&path.clone(), scope);
+                let def = self.resolve_path(&path.clone(), scope);
+                self.type_resolutions.insert(ty_idx, def);
                 for arg in args {
                     match arg {
                         GenericArg::Type(t) => self.resolve_type(*t, scope),
@@ -985,6 +1011,7 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::StructLit { path, fields } => {
                 let def = self.resolve_path(&path.clone(), scope);
+                self.resolutions.insert(expr_idx, def);
                 self.check_struct_fields(def, fields);
                 for f in fields.iter() {
                     match f.value {
@@ -1112,6 +1139,7 @@ impl<'a> Resolver<'a> {
                 } else {
                     self.writes.insert(def);
                 }
+                self.use_spans.insert(name.span, def);
                 return def;
             }
             current = self.scopes[s.0 as usize].parent;
@@ -1311,7 +1339,7 @@ fn synthetic_span() -> Span {
 }
 
 /// `u9`, `i128` gibi genişlik-sonekli yerleşik tam sayı tipleri.
-fn is_widened_int_type(name: &str) -> bool {
+pub(crate) fn is_widened_int_type(name: &str) -> bool {
     let Some(rest) = name.strip_prefix(['u', 'i']) else {
         return false;
     };

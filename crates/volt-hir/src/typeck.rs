@@ -1,0 +1,1120 @@
+//! Çift yönlü tip kontrolü (docs/spec/type-inference.md §2-§6) — F2a.
+//!
+//! `synth` (↑ "bu ifadenin tipi ne?") ve `check` (↓ "bu ifade T tipinde
+//! mi?") bağlama göre seçilir: beklenen tip biliniyorsa check, değilse
+//! synth. `Ty::Error` sessizce yayılır — kaskad hata üretilmez.
+//!
+//! F2a kapsam sınırı: İKİLİ operatörler (aritmetik, bit düzeyi,
+//! karşılaştırma, mantıksal, kaydırma) F2b işidir; burada operandlar
+//! gezilir ama sonuç hatasız `Ty::Error` döner. Fonksiyon gövdeleri ve
+//! kontratlar da F2b'ye ertelendi.
+
+use std::collections::HashMap;
+
+use volt_ast::{
+    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, IntSuffix, ItemKind,
+    LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, Name, RegDecl, SourceFile,
+    Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
+};
+use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_span::Span;
+
+use crate::consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN};
+use crate::drivers::DriverTable;
+use crate::resolve::{is_widened_int_type, DefId, DefKind, ResolveResult};
+use crate::ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
+
+/// Tip kontrolü çıktısı.
+#[derive(Debug)]
+pub struct TypeckResult {
+    pub types: TypeArena,
+    /// Tanım → çıkarılan/bildirilen tip.
+    pub def_types: HashMap<DefId, TypeId>,
+    /// İfade → tip (sonraki aşamalar ve araçlar için).
+    pub expr_types: HashMap<Idx<Expr>, TypeId>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Dosyadaki modülleri ve const öğelerini tip denetiminden geçirir.
+pub fn typecheck<'a>(
+    ast: &'a SourceFile,
+    res: &'a ResolveResult,
+    ev: &mut ConstEvaluator<'a>,
+) -> TypeckResult {
+    let mut checker = TypeChecker {
+        ast,
+        res,
+        ev,
+        types: TypeArena::new(),
+        def_types: HashMap::new(),
+        expr_types: HashMap::new(),
+        type_ref_cache: HashMap::new(),
+        alias_stack: Vec::new(),
+        diagnostics: Vec::new(),
+        drivers: DriverTable::default(),
+        current_group: None,
+        next_group: 0,
+    };
+    checker.run();
+    TypeckResult {
+        types: checker.types,
+        def_types: checker.def_types,
+        expr_types: checker.expr_types,
+        diagnostics: checker.diagnostics,
+    }
+}
+
+struct TypeChecker<'a, 'ev> {
+    ast: &'a SourceFile,
+    res: &'a ResolveResult,
+    /// Sınır/genişlik sabitleri için sessiz değerlendirme (bkz.
+    /// `try_const_eval` — tanılar geri alınır).
+    ev: &'ev mut ConstEvaluator<'a>,
+    types: TypeArena,
+    def_types: HashMap<DefId, TypeId>,
+    expr_types: HashMap<Idx<Expr>, TypeId>,
+    type_ref_cache: HashMap<Idx<TypeRef>, TypeId>,
+    /// Tip takma adı döngüsü koruması.
+    alias_stack: Vec<DefId>,
+    diagnostics: Vec<Diagnostic>,
+    drivers: DriverTable,
+    /// İçinde bulunulan on/comb bloğunun sürücü grubu.
+    current_group: Option<u32>,
+    next_group: u32,
+}
+
+impl<'a> TypeChecker<'a, '_> {
+    fn run(&mut self) {
+        let ast = self.ast;
+        for &item_idx in &ast.items {
+            if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
+                let ty = self.resolve_type_ref(c.ty);
+                if let Some(&def) = self.res.decl_spans.get(&c.name.span) {
+                    self.def_types.insert(def, ty);
+                }
+                self.check(c.value, ty);
+            }
+        }
+        for &item_idx in &ast.items {
+            if let ItemKind::Module(m) = &ast.items_arena[item_idx].kind {
+                self.check_module(m);
+            }
+        }
+        let mut diags = Vec::new();
+        self.drivers.check_multiple_drivers(self.res, &mut diags);
+        self.drivers.check_write_only(self.res, &mut diags);
+        self.diagnostics.extend(diags);
+    }
+
+    // ═══ Modül ve deyimler (§6) ═══════════════════════════════════
+
+    fn check_module(&mut self, m: &ModuleDecl) {
+        for p in &m.ports {
+            let ty = self.resolve_type_ref(p.ty);
+            if let Some(&def) = self.res.decl_spans.get(&p.name.span) {
+                self.def_types.insert(def, ty);
+            }
+        }
+        for &stmt in &m.body {
+            self.check_stmt(stmt);
+        }
+        let mut diags = Vec::new();
+        self.drivers.check_undriven_outputs(m, self.res, &mut diags);
+        self.diagnostics.extend(diags);
+    }
+
+    fn check_stmt(&mut self, stmt_idx: Idx<Stmt>) {
+        let ast = self.ast;
+        match &ast.stmts[stmt_idx].kind {
+            StmtKind::Reg(r) => self.handle_reg(r),
+            StmtKind::Let(l) => self.handle_let(l),
+            StmtKind::Wire(w) => {
+                let ty = self.resolve_type_ref(w.ty);
+                self.record_def_type(&w.name, ty);
+            }
+            StmtKind::Instance(inst) => self.handle_instance(inst),
+            StmtKind::On(on) => {
+                let group = self.new_group();
+                let prev = self.current_group.replace(group);
+                self.check_block(on.body);
+                self.current_group = prev;
+            }
+            StmtKind::Comb(block) => {
+                let group = self.new_group();
+                let prev = self.current_group.replace(group);
+                self.check_block(*block);
+                self.current_group = prev;
+            }
+            StmtKind::Assign(a) => self.check_assign(&a.lhs, a.rhs),
+            StmtKind::For(f) => self.check_for(f),
+            StmtKind::Expr(e) => {
+                self.synth(*e);
+            }
+            StmtKind::Error => {}
+        }
+    }
+
+    /// §6: `reg` tipi ya bildirilir ya init'ten çıkarılır; salt literal
+    /// init belirsizdir (E2012).
+    fn handle_reg(&mut self, r: &RegDecl) {
+        let ty = match r.ty {
+            Some(t) => {
+                let ty = self.resolve_type_ref(t);
+                self.check(r.init, ty);
+                ty
+            }
+            None => {
+                let inferred = self.synth(r.init);
+                if self.types.is_int_lit(inferred) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2012,
+                        "register tipi belirlenemiyor",
+                        LabeledSpan::primary(r.name.span, "literal başlangıç tipi belirsiz"),
+                        format!("reg {} : u8 = ... şeklinde tip yazın", r.name.text),
+                    ));
+                    self.types.error()
+                } else {
+                    inferred
+                }
+            }
+        };
+        self.record_def_type(&r.name, ty);
+    }
+
+    /// §6: `let` tipi bildirilmişse check, değilse synth; soneksiz
+    /// literal i32 varsayılır (W2012).
+    fn handle_let(&mut self, l: &LetDecl) {
+        let ty = match l.ty {
+            Some(t) => {
+                let ty = self.resolve_type_ref(t);
+                self.check(l.value, ty);
+                ty
+            }
+            None => {
+                let ty = self.synth(l.value);
+                if self.types.is_int_lit(ty) {
+                    self.diagnostics.push(Diagnostic::warning(
+                        ErrorCode::W2012,
+                        "tip belirtilmedi, i32 varsayıldı",
+                        LabeledSpan::primary(l.name.span, "literal tipi bağlamdan çözülemedi"),
+                        format!("let {} : i32 = ... yazarak açık belirtin", l.name.text),
+                    ));
+                    self.types.intern(Ty::SInt { width: 32 })
+                } else {
+                    ty
+                }
+            }
+        };
+        self.record_def_type(&l.name, ty);
+    }
+
+    fn handle_instance(&mut self, inst: &volt_ast::InstanceDecl) {
+        let def = self.res.decl_spans.get(&inst.name.span).copied();
+        let target = def.and_then(|d| self.res.instance_module.get(&d).copied());
+        let ty = match target {
+            Some(module) => self.types.intern(Ty::Instance(ModuleId(module.0))),
+            None => self.types.error(),
+        };
+        if let Some(def) = def {
+            self.def_types.insert(def, ty);
+        }
+        for b in &inst.bindings {
+            let Some(value) = b.value else { continue };
+            match target.and_then(|t| self.port_type_of(t, &b.port_name.text)) {
+                Some(port_ty) => self.check(value, port_ty),
+                None => {
+                    self.synth(value);
+                }
+            }
+        }
+    }
+
+    fn check_for(&mut self, f: &volt_ast::ForStmt) {
+        self.synth(f.start);
+        self.synth(f.end);
+        // Döngü değişkeni derleme zamanı tamsayısıdır (const-eval.md §8).
+        let ty = self.types.int_lit();
+        self.record_def_type(&f.var, ty);
+        self.check_block(f.body);
+    }
+
+    fn check_block(&mut self, block_idx: Idx<Block>) {
+        let ast = self.ast;
+        let block = &ast.blocks[block_idx];
+        for stmt in &block.stmts {
+            self.check_block_stmt(stmt);
+        }
+        if let Some(tail) = block.tail {
+            self.synth(tail);
+        }
+    }
+
+    fn check_block_stmt(&mut self, stmt: &BlockStmt) {
+        match stmt {
+            BlockStmt::NonBlockAssign { lhs, rhs, .. }
+            | BlockStmt::BlockAssign { lhs, rhs, .. } => self.check_assign(lhs, *rhs),
+            BlockStmt::If(if_stmt) => self.check_if(if_stmt),
+            BlockStmt::Match(m) => {
+                self.synth(m.scrutinee);
+                for arm in &m.arms {
+                    self.check_arm(arm);
+                }
+            }
+            BlockStmt::Let(l) => self.handle_let(l),
+            BlockStmt::For(f) => self.check_for(f),
+            BlockStmt::Error => {}
+        }
+    }
+
+    fn check_if(&mut self, if_stmt: &IfStmt) {
+        let bool_ty = self.types.bool_ty();
+        self.check(if_stmt.cond, bool_ty);
+        self.check_block(if_stmt.then_block);
+        match &if_stmt.else_branch {
+            Some(ElseBranch::Block(b)) => self.check_block(*b),
+            Some(ElseBranch::If(nested)) => self.check_if(nested),
+            None => {}
+        }
+    }
+
+    fn check_arm(&mut self, arm: &MatchArm) {
+        if let Some(guard) = arm.guard {
+            let bool_ty = self.types.bool_ty();
+            self.check(guard, bool_ty);
+        }
+        match &arm.body {
+            MatchArmBody::Block(b) => self.check_block(*b),
+            MatchArmBody::Expr(e) => {
+                self.synth(*e);
+            }
+        }
+    }
+
+    // ═══ Atama ve sürücü kaydı (§6, §11) ══════════════════════════
+
+    fn check_assign(&mut self, lhs: &LValue, rhs: Idx<Expr>) {
+        let (target, lhs_ty) = self.lvalue_type(lhs);
+        self.check(rhs, lhs_ty);
+        let Some(def) = target else { return };
+        if !matches!(
+            self.res.def_kind(def),
+            DefKind::Port { .. } | DefKind::Register | DefKind::Wire | DefKind::LocalBinding
+        ) {
+            return;
+        }
+        let group = match self.current_group {
+            Some(g) => g,
+            None => self.new_group(),
+        };
+        self.drivers
+            .record(def, lhs.span, group, !lhs.suffixes.is_empty());
+    }
+
+    fn lvalue_type(&mut self, lv: &LValue) -> (Option<DefId>, TypeId) {
+        let def = self.res.use_spans.get(&lv.base.span).copied();
+        let mut ty = match def {
+            Some(d) => self.def_type(d),
+            None => self.types.error(),
+        };
+        for suffix in &lv.suffixes {
+            ty = match suffix {
+                LValueSuffix::Index(e) => {
+                    self.synth(*e);
+                    self.index_result(ty, *e, lv.span)
+                }
+                LValueSuffix::Range { hi, lo } => self.range_result(ty, *hi, *lo, lv.span),
+                LValueSuffix::Field(name) => self.field_result(ty, &name.clone(), lv.span),
+            };
+        }
+        (def, ty)
+    }
+
+    fn new_group(&mut self) -> u32 {
+        self.next_group += 1;
+        self.next_group
+    }
+
+    // ═══ Tanım ve tip referansı çözümleme ═════════════════════════
+
+    fn record_def_type(&mut self, name: &Name, ty: TypeId) {
+        if let Some(&def) = self.res.decl_spans.get(&name.span) {
+            self.def_types.insert(def, ty);
+        }
+    }
+
+    fn def_type(&mut self, def: DefId) -> TypeId {
+        if let Some(&ty) = self.def_types.get(&def) {
+            return ty;
+        }
+        let ty = self.compute_def_type(def);
+        self.def_types.insert(def, ty);
+        ty
+    }
+
+    fn compute_def_type(&mut self, def: DefId) -> TypeId {
+        let ast = self.ast;
+        match self.res.def_kind(def) {
+            DefKind::Const => match self.res.item_of_def.get(&def) {
+                Some(&item_idx) => match &ast.items_arena[item_idx].kind {
+                    ItemKind::Const(c) => self.resolve_type_ref(c.ty),
+                    _ => self.types.error(),
+                },
+                None => self.types.error(),
+            },
+            DefKind::EnumVariant { parent } => self.types.intern(Ty::Enum(EnumId(parent.0))),
+            DefKind::Instance => match self.res.instance_module.get(&def) {
+                Some(target) => self.types.intern(Ty::Instance(ModuleId(target.0))),
+                None => self.types.error(),
+            },
+            DefKind::LoopVar => self.types.int_lit(),
+            // Portlar/register'lar modül gezilirken kaydedilir; buraya
+            // düşen her şey F2a'da tiplenmez (fn, builtin, generic...).
+            _ => self.types.error(),
+        }
+    }
+
+    /// AST tip referansı → arena tipi. Genişlikler sessizce sabitlenir;
+    /// geçersiz genişlik tanıları check_type_positions'ta zaten verildi.
+    fn resolve_type_ref(&mut self, ty_idx: Idx<TypeRef>) -> TypeId {
+        if let Some(&cached) = self.type_ref_cache.get(&ty_idx) {
+            return cached;
+        }
+        let ty = self.resolve_type_ref_uncached(ty_idx);
+        self.type_ref_cache.insert(ty_idx, ty);
+        ty
+    }
+
+    fn resolve_type_ref_uncached(&mut self, ty_idx: Idx<TypeRef>) -> TypeId {
+        let ast = self.ast;
+        match &ast.types[ty_idx].kind {
+            TypeRefKind::Bool => self.types.bool_ty(),
+            TypeRefKind::Clock => self.types.intern(Ty::Clock),
+            TypeRefKind::Reset(spec) => {
+                let spec = spec.map(Into::into);
+                self.types.intern(Ty::Reset { spec })
+            }
+            TypeRefKind::UInt(w) => self.types.intern(Ty::UInt {
+                width: u16::from(*w),
+            }),
+            TypeRefKind::SInt(w) => self.types.intern(Ty::SInt {
+                width: u16::from(*w),
+            }),
+            TypeRefKind::Trit => self.types.intern(Ty::Trit),
+            TypeRefKind::Bits(e) => match self.try_const_eval(*e) {
+                Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => {
+                    self.types.intern(Ty::Bits { width: n as u16 })
+                }
+                _ => self.types.error(),
+            },
+            TypeRefKind::Array { elem, len } => {
+                let elem_ty = self.resolve_type_ref(*elem);
+                match self.try_const_eval(*len) {
+                    Some(n) if (0..=MAX_ARRAY_LEN as i128).contains(&n) => {
+                        self.types.intern(Ty::Array {
+                            elem: elem_ty,
+                            len: n as u32,
+                        })
+                    }
+                    _ => self.types.error(),
+                }
+            }
+            TypeRefKind::Tuple(items) => {
+                let tys: Vec<TypeId> = items
+                    .clone()
+                    .iter()
+                    .map(|&t| self.resolve_type_ref(t))
+                    .collect();
+                self.types.intern(Ty::Tuple(tys))
+            }
+            TypeRefKind::Path { path, .. } => {
+                if path.segments.len() == 1 {
+                    if let Some(ty) = self.widened_int(&path.segments[0].text) {
+                        return ty;
+                    }
+                }
+                self.resolve_named_type(ty_idx)
+            }
+            TypeRefKind::Error => self.types.error(),
+        }
+    }
+
+    /// `u9`, `i33` gibi genişletilmiş tam sayı aileleri (parser Path verir).
+    fn widened_int(&mut self, name: &str) -> Option<TypeId> {
+        if !is_widened_int_type(name) {
+            return None;
+        }
+        let (head, digits) = name.split_at(1);
+        let width: u16 = match digits.parse::<u32>() {
+            Ok(w) if (1..=u32::from(u16::MAX)).contains(&w) => w as u16,
+            _ => return Some(self.types.error()),
+        };
+        Some(match head {
+            "u" => self.types.intern(Ty::UInt { width }),
+            _ => self.types.intern(Ty::SInt { width }),
+        })
+    }
+
+    fn resolve_named_type(&mut self, ty_idx: Idx<TypeRef>) -> TypeId {
+        let ast = self.ast;
+        let Some(&def) = self.res.type_resolutions.get(&ty_idx) else {
+            return self.types.error();
+        };
+        match self.res.def_kind(def) {
+            DefKind::Struct => self.types.intern(Ty::Struct(StructId(def.0))),
+            DefKind::Enum => self.types.intern(Ty::Enum(EnumId(def.0))),
+            DefKind::TypeAlias => {
+                if self.alias_stack.contains(&def) {
+                    return self.types.error();
+                }
+                let Some(&item_idx) = self.res.item_of_def.get(&def) else {
+                    return self.types.error();
+                };
+                let ItemKind::TypeAlias(alias) = &ast.items_arena[item_idx].kind else {
+                    return self.types.error();
+                };
+                self.alias_stack.push(def);
+                let ty = self.resolve_type_ref(alias.target);
+                self.alias_stack.pop();
+                ty
+            }
+            _ => self.types.error(),
+        }
+    }
+
+    // ═══ Sentez (§3) ══════════════════════════════════════════════
+
+    fn synth(&mut self, expr: Idx<Expr>) -> TypeId {
+        let ty = self.synth_uncached(expr);
+        self.expr_types.insert(expr, ty);
+        ty
+    }
+
+    fn synth_uncached(&mut self, expr: Idx<Expr>) -> TypeId {
+        let ast = self.ast;
+        let span = ast.exprs[expr].span;
+        match &ast.exprs[expr].kind {
+            ExprKind::IntLit { value, suffix, .. } => match suffix {
+                Some(s) => {
+                    let ty = self.suffix_ty(*s);
+                    self.check_literal_fits(*value, ty, span);
+                    ty
+                }
+                None => self.types.int_lit(),
+            },
+            ExprKind::BoolLit(_) => self.types.bool_ty(),
+            ExprKind::Path(_) => match self.res.resolutions.get(&expr) {
+                Some(&def) => self.def_type(def),
+                // Çözülemeyen isim E1001'i zaten aldı.
+                None => self.types.error(),
+            },
+            // F2a: ikili operatörler F2b'de — operandlar gezilir,
+            // sonuç hatasız Error (kaskad bastırma sayesinde sessiz).
+            ExprKind::Binary { lhs, rhs, .. } => {
+                self.synth(*lhs);
+                self.synth(*rhs);
+                self.types.error()
+            }
+            ExprKind::Unary { op, operand } => self.synth_unary(*op, *operand, span),
+            ExprKind::Index { base, index } => {
+                let base_ty = self.synth(*base);
+                self.synth(*index);
+                self.index_result(base_ty, *index, span)
+            }
+            ExprKind::Range { base, hi, lo } => {
+                let base_ty = self.synth(*base);
+                self.range_result(base_ty, *hi, *lo, span)
+            }
+            ExprKind::Field { base, field } => {
+                let (base, field) = (*base, field.clone());
+                let base_ty = self.synth(base);
+                self.field_result(base_ty, &field, span)
+            }
+            ExprKind::Call { args, .. } => {
+                // Yerleşik çağrı tipleri F2b (sync/zext/concat...).
+                for &a in args.clone().iter() {
+                    self.synth(a);
+                }
+                self.types.error()
+            }
+            ExprKind::Cast { expr: inner, ty } => {
+                let src = self.synth(*inner);
+                let dst = self.resolve_type_ref(*ty);
+                self.check_cast_legal(src, dst, span);
+                dst
+            }
+            ExprKind::If {
+                cond,
+                then_expr,
+                else_expr,
+            } => self.synth_if(*cond, *then_expr, *else_expr),
+            ExprKind::Match { scrutinee, arms } => {
+                self.synth(*scrutinee);
+                for arm in arms {
+                    self.check_arm(arm);
+                }
+                self.types.error()
+            }
+            ExprKind::StructLit { fields, .. } => {
+                let fields: Vec<_> = fields
+                    .iter()
+                    .map(|f| (f.name.text.clone(), f.value))
+                    .collect();
+                self.synth_struct_lit(expr, &fields)
+            }
+            ExprKind::ArrayLit(ArrayLitKind::List(items)) => {
+                let items = items.clone();
+                let Some((&first, rest)) = items.split_first() else {
+                    return self.types.error();
+                };
+                let elem = self.synth(first);
+                for &i in rest {
+                    self.check(i, elem);
+                }
+                self.types.intern(Ty::Array {
+                    elem,
+                    len: items.len() as u32,
+                })
+            }
+            ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => {
+                let (value, count) = (*value, *count);
+                let elem = self.synth(value);
+                match self.try_const_eval(count) {
+                    Some(n) if (0..=MAX_ARRAY_LEN as i128).contains(&n) => {
+                        self.types.intern(Ty::Array {
+                            elem,
+                            len: n as u32,
+                        })
+                    }
+                    _ => self.types.error(),
+                }
+            }
+            ExprKind::TupleLit(items) => {
+                let tys: Vec<TypeId> = items.clone().iter().map(|&i| self.synth(i)).collect();
+                self.types.intern(Ty::Tuple(tys))
+            }
+            // todo! her tiple uyumludur; string F2a'da tiplenmez.
+            ExprKind::Todo { .. } | ExprKind::StringLit(_) | ExprKind::Error => self.types.error(),
+        }
+    }
+
+    /// §3.4 — tekli operatörler.
+    fn synth_unary(&mut self, op: UnOp, operand: Idx<Expr>, span: Span) -> TypeId {
+        let ot = self.synth(operand);
+        match op {
+            UnOp::Not => {
+                self.check_is_bool(ot, span);
+                self.types.bool_ty()
+            }
+            // Bit tersleme genişliği korur.
+            UnOp::BitNot => ot,
+            UnOp::Neg => match *self.types.ty(ot) {
+                Ty::SInt { width } => self.types.intern(Ty::SInt {
+                    width: width.saturating_add(1),
+                }),
+                Ty::Trit => self.types.intern(Ty::Trit),
+                Ty::IntLit => self.types.int_lit(),
+                Ty::UInt { .. } => {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2002,
+                        "işaretsiz değer negatiflenemez",
+                        LabeledSpan::primary(span, "işaretli tip gerekli"),
+                        "önce i8/i16 gibi işaretli tipe dönüştürün",
+                    ));
+                    self.types.error()
+                }
+                _ => self.types.error(),
+            },
+        }
+    }
+
+    /// §3.7 — koşullu ifade; literal dallar somut dala uyarlanır.
+    fn synth_if(&mut self, cond: Idx<Expr>, then_expr: Idx<Expr>, else_expr: Idx<Expr>) -> TypeId {
+        let bool_ty = self.types.bool_ty();
+        self.check(cond, bool_ty);
+        let then_ty = self.synth(then_expr);
+        if self.types.is_int_lit(then_ty) {
+            let else_ty = self.synth(else_expr);
+            if !self.types.is_int_lit(else_ty) {
+                return else_ty;
+            }
+            return then_ty;
+        }
+        self.check(else_expr, then_ty);
+        then_ty
+    }
+
+    fn synth_struct_lit(
+        &mut self,
+        expr: Idx<Expr>,
+        fields: &[(String, Option<Idx<Expr>>)],
+    ) -> TypeId {
+        let ast = self.ast;
+        let Some(&def) = self.res.resolutions.get(&expr) else {
+            return self.types.error();
+        };
+        if self.res.def_kind(def) != DefKind::Struct {
+            return self.types.error();
+        }
+        if let Some(&item_idx) = self.res.item_of_def.get(&def) {
+            if let ItemKind::Struct(s) = &ast.items_arena[item_idx].kind {
+                for (name, value) in fields {
+                    let Some(value) = value else { continue };
+                    if let Some(f) = s.fields.iter().find(|f| f.name.text == *name) {
+                        let ty = self.resolve_type_ref(f.ty);
+                        self.check(*value, ty);
+                    } else {
+                        self.synth(*value);
+                    }
+                }
+            }
+        }
+        self.types.intern(Ty::Struct(StructId(def.0)))
+    }
+
+    /// §3.5 — bit/dizi indeksi. Sabit indekste sınır denetimi yapılır.
+    fn index_result(&mut self, base_ty: TypeId, index: Idx<Expr>, span: Span) -> TypeId {
+        match *self.types.ty(base_ty) {
+            Ty::Error => self.types.error(),
+            Ty::Array { elem, len } => {
+                if let Some(i) = self.try_const_eval(index) {
+                    if i < 0 || i >= i128::from(len) {
+                        self.index_out_of_bounds(i, u64::from(len), span);
+                        return self.types.error();
+                    }
+                }
+                elem
+            }
+            Ty::UInt { width } | Ty::SInt { width } | Ty::Bits { width } => {
+                if let Some(i) = self.try_const_eval(index) {
+                    if i < 0 || i >= i128::from(width) {
+                        self.index_out_of_bounds(i, u64::from(width), span);
+                        return self.types.error();
+                    }
+                }
+                self.types.bool_ty()
+            }
+            _ => {
+                self.err_type_mismatch_msg(
+                    span,
+                    "bit seçimi yalnız sayısal, bits veya dizi tipinde yapılır",
+                    "önce değeri uygun bir tipe dönüştürün",
+                );
+                self.types.error()
+            }
+        }
+    }
+
+    /// §3.5 — aralık seçimi; sınırlar derleme zamanı sabiti olmalı.
+    fn range_result(
+        &mut self,
+        base_ty: TypeId,
+        hi: Idx<Expr>,
+        lo: Idx<Expr>,
+        span: Span,
+    ) -> TypeId {
+        if self.types.is_error(base_ty) {
+            return self.types.error();
+        }
+        let Some(width) = self.types.width_of(base_ty) else {
+            self.err_type_mismatch_msg(
+                span,
+                "aralık seçimi yalnız sayısal veya bits tipinde yapılır",
+                "önce değeri uygun bir tipe dönüştürün",
+            );
+            return self.types.error();
+        };
+        match (self.try_const_eval(hi), self.try_const_eval(lo)) {
+            (Some(h), Some(l)) => {
+                if h < l {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2007,
+                        "aralık ters (hi < lo)",
+                        LabeledSpan::primary(span, "yüksek bit önce yazılmalı"),
+                        format!("[{l}:{h}] yazın"),
+                    ));
+                    return self.types.error();
+                }
+                if l < 0 || h >= i128::from(width) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2006,
+                        format!("aralık sınır dışı (genişlik {width})"),
+                        LabeledSpan::primary(span, "aralık taban genişliği aşıyor"),
+                        format!("geçerli en yüksek bit: {}", width - 1),
+                    ));
+                    return self.types.error();
+                }
+                self.types.intern(Ty::Bits {
+                    width: (h - l + 1) as u16,
+                })
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E2008,
+                    "aralık sınırları derleme zamanı sabiti olmalı",
+                    LabeledSpan::primary(span, "değişken sınır"),
+                    "değişken indeks için x[i] +: WIDTH kullanın",
+                ));
+                self.types.error()
+            }
+        }
+    }
+
+    /// Alan erişimi: modül örneği portu, struct alanı veya demet indeksi.
+    fn field_result(&mut self, base_ty: TypeId, field: &Name, span: Span) -> TypeId {
+        let ast = self.ast;
+        match self.types.ty(base_ty).clone() {
+            Ty::Error => self.types.error(),
+            // Port bulunamazsa E1009'u isim çözümleme verdi — sessiz.
+            Ty::Instance(m) => self
+                .port_type_of(DefId(m.0), &field.text)
+                .unwrap_or_else(|| self.types.error()),
+            Ty::Struct(s) => {
+                let field_ty =
+                    self.res.item_of_def.get(&DefId(s.0)).and_then(|&item_idx| {
+                        match &ast.items_arena[item_idx].kind {
+                            ItemKind::Struct(decl) => decl
+                                .fields
+                                .iter()
+                                .find(|f| f.name.text == field.text)
+                                .map(|f| f.ty),
+                            _ => None,
+                        }
+                    });
+                match field_ty {
+                    Some(t) => self.resolve_type_ref(t),
+                    None => self.types.error(),
+                }
+            }
+            Ty::Tuple(items) => match field.text.parse::<usize>() {
+                Ok(i) if i < items.len() => items[i],
+                _ => {
+                    self.err_type_mismatch_msg(
+                        span,
+                        "demet indeksi eleman sayısını aşıyor",
+                        "geçerli bir demet indeksi kullanın",
+                    );
+                    self.types.error()
+                }
+            },
+            _ => {
+                let shown = self.types.display(base_ty);
+                self.err_type_mismatch_msg(
+                    span,
+                    &format!("'{shown}' tipinde alan erişimi yok"),
+                    "alan erişimi struct ve modül örneklerinde geçerlidir",
+                );
+                self.types.error()
+            }
+        }
+    }
+
+    /// Hedef modülün port tipi (modüller arası akış için).
+    fn port_type_of(&mut self, module_def: DefId, port: &str) -> Option<TypeId> {
+        let ast = self.ast;
+        let &item_idx = self.res.item_of_def.get(&module_def)?;
+        let ports = match &ast.items_arena[item_idx].kind {
+            ItemKind::Module(m) => &m.ports,
+            ItemKind::Extern(x) => &x.ports,
+            _ => return None,
+        };
+        let ty_idx = ports.iter().find(|p| p.name.text == port)?.ty;
+        Some(self.resolve_type_ref(ty_idx))
+    }
+
+    // ═══ Kontrol modu (§4) ════════════════════════════════════════
+
+    fn check(&mut self, expr: Idx<Expr>, expected: TypeId) {
+        // Error her tiple uyumlu — ama alt ifadeler yine denetlenir.
+        if self.types.is_error(expected) {
+            self.synth(expr);
+            return;
+        }
+        let ast = self.ast;
+        let span = ast.exprs[expr].span;
+        match &ast.exprs[expr].kind {
+            ExprKind::IntLit {
+                value,
+                suffix: None,
+                ..
+            } => {
+                self.check_int_lit(*value, expected, span);
+                self.expr_types.insert(expr, expected);
+            }
+            ExprKind::If {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                let (cond, then_expr, else_expr) = (*cond, *then_expr, *else_expr);
+                let bool_ty = self.types.bool_ty();
+                self.check(cond, bool_ty);
+                self.check(then_expr, expected);
+                self.check(else_expr, expected);
+                self.expr_types.insert(expr, expected);
+            }
+            _ => {
+                let actual = self.synth(expr);
+                self.expect_assignable(actual, expected, span);
+            }
+        }
+    }
+
+    /// Soneksiz literali beklenen tipe uyarla (§4).
+    fn check_int_lit(&mut self, value: u128, expected: TypeId, span: Span) {
+        match *self.types.ty(expected) {
+            Ty::UInt { width } => {
+                if !uint_fits(value, width) {
+                    self.literal_overflow(value, expected, span);
+                }
+            }
+            Ty::SInt { width } => {
+                if !sint_fits(value, width) {
+                    self.literal_overflow(value, expected, span);
+                }
+            }
+            Ty::Trit => {
+                if !matches!(value, 0 | 1) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ErrorCode::E2011,
+                        "Trit literali {-1, 0, +1} olmalı",
+                        LabeledSpan::primary(span, format!("{value} bu kümede değil")),
+                        "değeri -1, 0 veya 1 yapın",
+                    ));
+                }
+            }
+            Ty::Bool => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E2003,
+                    "sayısal literal bool bağlamında",
+                    LabeledSpan::primary(span, "bool bekleniyor"),
+                    "true veya false yazın",
+                ));
+            }
+            _ => {
+                let lit = self.types.int_lit();
+                self.err_type_mismatch(expected, lit, span);
+            }
+        }
+    }
+
+    /// §5 — atanabilirlik: örtük daraltma DA genişleme DE yasak.
+    fn expect_assignable(&mut self, actual: TypeId, expected: TypeId, span: Span) {
+        if actual == expected || self.types.is_error(actual) || self.types.is_error(expected) {
+            return;
+        }
+        match (
+            self.types.ty(actual).clone(),
+            self.types.ty(expected).clone(),
+        ) {
+            // Literal her sayısal tipe uyar (sınır kontrolü yapıldı).
+            (Ty::IntLit, Ty::UInt { .. } | Ty::SInt { .. } | Ty::Trit) => {}
+            (Ty::UInt { width: a }, Ty::UInt { width: b }) => {
+                self.width_mismatch(a, b, "u", span);
+            }
+            (Ty::SInt { width: a }, Ty::SInt { width: b }) => {
+                self.width_mismatch(a, b, "i", span);
+            }
+            (Ty::Bits { width: a }, Ty::Bits { width: b }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E2001,
+                    format!(
+                        "bit genişliği uyumsuzluğu: bits<{a}> değeri bits<{b}> hedefe atanamaz"
+                    ),
+                    LabeledSpan::primary(span, "genişlikler farklı"),
+                    "kaynak ve hedef genişliklerini eşitleyin",
+                ));
+            }
+            (Ty::UInt { .. }, Ty::SInt { .. }) | (Ty::SInt { .. }, Ty::UInt { .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E2002,
+                    "işaret uyumsuzluğu",
+                    LabeledSpan::primary(span, "işaretli ve işaretsiz karışıyor"),
+                    "as ile açık dönüşüm yapın",
+                ));
+            }
+            _ => self.err_type_mismatch(expected, actual, span),
+        }
+    }
+
+    /// E2001 — donanımda genişleme bedava değildir; her iki yön de açık
+    /// dönüşüm ister (§5 tasarım kararı).
+    fn width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
+        let (msg, label) = if a > b {
+            (
+                format!("{a} bit değer {b} bit hedefe sığmaz"),
+                "örtük daraltma yasak",
+            )
+        } else {
+            (
+                format!("{a} bit değer {b} bit hedefe örtük genişlemez"),
+                "örtük genişleme yasak",
+            )
+        };
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2001,
+                msg,
+                LabeledSpan::primary(span, label),
+                format!("açık dönüşüm: (ifade) as {prefix}{b}"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                "genişletme donanımda ek tel ve mantık gerektirir; görünür olmalı",
+            ),
+        );
+    }
+
+    // ═══ Tip dönüşümü (§3.6) ══════════════════════════════════════
+
+    fn check_cast_legal(&mut self, src: TypeId, dst: TypeId, span: Span) {
+        if src == dst || self.types.is_error(src) || self.types.is_error(dst) {
+            return;
+        }
+        let legal = match (self.types.ty(src).clone(), self.types.ty(dst).clone()) {
+            // Literal açık dönüşümle her sayısal tipe gider.
+            (Ty::IntLit, Ty::UInt { .. } | Ty::SInt { .. } | Ty::Bits { .. }) => true,
+            // Genişletme — her zaman güvenli.
+            (Ty::UInt { width: a }, Ty::UInt { width: b }) if b >= a => true,
+            (Ty::SInt { width: a }, Ty::SInt { width: b }) if b >= a => true,
+            // Daraltma — izinli ama uyarı (W2010).
+            (Ty::UInt { width: a }, Ty::UInt { width: b })
+            | (Ty::SInt { width: a }, Ty::SInt { width: b }) => {
+                self.diagnostics.push(Diagnostic::warning(
+                    ErrorCode::W2010,
+                    format!("{a} bit → {b} bit daraltma, üst bitler kesilir"),
+                    LabeledSpan::primary(span, "bilgi kaybı olabilir"),
+                    "bilinçli daraltma ise sorun yok; değilse önce maskeleme yapın",
+                ));
+                true
+            }
+            // Bool ↔ 1-bit.
+            (Ty::Bool, Ty::UInt { width: 1 }) | (Ty::UInt { width: 1 }, Ty::Bool) => true,
+            // İşaret değişimi — açık cast ile serbest.
+            (Ty::UInt { .. }, Ty::SInt { .. }) | (Ty::SInt { .. }, Ty::UInt { .. }) => true,
+            // bits<N> ↔ sayısal, aynı genişlikte.
+            (Ty::Bits { width: a }, Ty::UInt { width: b })
+            | (Ty::UInt { width: a }, Ty::Bits { width: b })
+            | (Ty::Bits { width: a }, Ty::SInt { width: b }) => a == b,
+            // Trit → işaretli (genişleme, en az 2 bit).
+            (Ty::Trit, Ty::SInt { width }) => width >= 2,
+            // Sayısal → Trit YASAK: sessiz kırpma olur.
+            _ => false,
+        };
+        if !legal {
+            let src_s = self.types.display(src);
+            let dst_s = self.types.display(dst);
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E2009,
+                format!("'{src_s}' → '{dst_s}' dönüşümü geçersiz"),
+                LabeledSpan::primary(span, "bu dönüşüm tanımlı değil"),
+                "ara dönüşüm gerekebilir",
+            ));
+        }
+    }
+
+    // ═══ Literal sınırları ════════════════════════════════════════
+
+    fn suffix_ty(&mut self, suffix: IntSuffix) -> TypeId {
+        let ty = match suffix {
+            IntSuffix::U8 => Ty::UInt { width: 8 },
+            IntSuffix::U16 => Ty::UInt { width: 16 },
+            IntSuffix::U32 => Ty::UInt { width: 32 },
+            IntSuffix::U64 => Ty::UInt { width: 64 },
+            IntSuffix::I8 => Ty::SInt { width: 8 },
+            IntSuffix::I16 => Ty::SInt { width: 16 },
+            IntSuffix::I32 => Ty::SInt { width: 32 },
+            IntSuffix::I64 => Ty::SInt { width: 64 },
+        };
+        self.types.intern(ty)
+    }
+
+    fn check_literal_fits(&mut self, value: u128, ty: TypeId, span: Span) {
+        let fits = match *self.types.ty(ty) {
+            Ty::UInt { width } => uint_fits(value, width),
+            Ty::SInt { width } => sint_fits(value, width),
+            _ => true,
+        };
+        if !fits {
+            self.literal_overflow(value, ty, span);
+        }
+    }
+
+    fn literal_overflow(&mut self, value: u128, ty: TypeId, span: Span) {
+        let shown = self.types.display(ty);
+        let max = match *self.types.ty(ty) {
+            Ty::UInt { width } if width < 128 => (1u128 << width) - 1,
+            Ty::SInt { width } if width > 0 && width <= 128 => (1u128 << (width - 1)) - 1,
+            _ => u128::MAX,
+        };
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2010,
+            format!("literal {value}, {shown} tipine sığmıyor (maksimum {max})"),
+            LabeledSpan::primary(span, "değer tip aralığının dışında"),
+            "daha geniş bir tip kullanın veya değeri küçültün",
+        ));
+    }
+
+    // ═══ Yardımcılar ══════════════════════════════════════════════
+
+    /// Sınır/genişlik denetimi için SESSİZ sabit değerlendirme:
+    /// çalışma zamanı değeri sabit değilse tanı üretmeden vazgeçilir
+    /// (örn. `x[i]` döngü değişkeniyle — E2021 kaskadı istenmez).
+    fn try_const_eval(&mut self, expr: Idx<Expr>) -> Option<i128> {
+        let before = self.ev.diagnostics.len();
+        let value = self.ev.const_eval(expr);
+        self.ev.diagnostics.truncate(before);
+        match value {
+            ConstValue::Int(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    fn check_is_bool(&mut self, ty: TypeId, span: Span) {
+        if self.types.is_error(ty) || matches!(self.types.ty(ty), Ty::Bool) {
+            return;
+        }
+        let bool_ty = self.types.bool_ty();
+        self.err_type_mismatch(bool_ty, ty, span);
+    }
+
+    fn index_out_of_bounds(&mut self, index: i128, width: u64, span: Span) {
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2006,
+            format!("indeks {index} sınır dışı (genişlik {width})"),
+            LabeledSpan::primary(span, "geçersiz bit indeksi"),
+            format!("geçerli aralık: 0..{}", width.saturating_sub(1)),
+        ));
+    }
+
+    fn err_type_mismatch(&mut self, expected: TypeId, actual: TypeId, span: Span) {
+        let exp = self.types.display(expected);
+        let act = self.types.display(actual);
+        self.err_type_mismatch_msg(
+            span,
+            &format!("tip uyumsuzluğu: '{exp}' bekleniyor, '{act}' bulundu"),
+            "değeri hedef tipe uyarlayın; gerekiyorsa 'as' ile açık dönüşüm yapın",
+        );
+    }
+
+    fn err_type_mismatch_msg(&mut self, span: Span, msg: &str, help: &str) {
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2003,
+            msg,
+            LabeledSpan::primary(span, "uyumsuz tip"),
+            help,
+        ));
+    }
+}
+
+/// `value` işaretsiz `width` bite sığıyor mu?
+fn uint_fits(value: u128, width: u16) -> bool {
+    width >= 128 || value >> width == 0
+}
+
+/// `value` işaretli `width` bite (işaret dahil) sığıyor mu?
+fn sint_fits(value: u128, width: u16) -> bool {
+    if width == 0 {
+        return false;
+    }
+    width > 128 || value < 1u128 << (width - 1).min(127)
+}

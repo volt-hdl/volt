@@ -54,6 +54,76 @@ fn ui_fail_22_runtime_in_type_e2021() {
 }
 
 #[test]
+fn ui_fail_03_double_driver_e4001() {
+    let result = analyze_file("fail/03_double_driver.volt");
+    assert!(
+        result.error_codes().contains(&"E4001"),
+        "E4001 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_04_undriven_output_e4002() {
+    let result = analyze_file("fail/04_undriven_output.volt");
+    assert!(
+        result.error_codes().contains(&"E4002"),
+        "E4002 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_10_index_out_of_bounds_e2006() {
+    let result = analyze_file("fail/10_index_out_of_bounds.volt");
+    assert!(
+        result.error_codes().contains(&"E2006"),
+        "E2006 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_11_reversed_range_e2007() {
+    let result = analyze_file("fail/11_reversed_range.volt");
+    assert!(
+        result.error_codes().contains(&"E2007"),
+        "E2007 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_12_invalid_cast_to_trit_e2009() {
+    let result = analyze_file("fail/12_invalid_cast_to_trit.volt");
+    assert!(
+        result.error_codes().contains(&"E2009"),
+        "E2009 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_17_literal_overflow_e2010() {
+    let result = analyze_file("fail/17_literal_overflow.volt");
+    assert!(
+        result.error_codes().contains(&"E2010"),
+        "E2010 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_20_reg_type_ambiguous_e2012() {
+    let result = analyze_file("fail/20_reg_type_ambiguous.volt");
+    assert!(
+        result.error_codes().contains(&"E2012"),
+        "E2012 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
 fn ui_pass_files_have_no_semantic_errors() {
     // Uyarılar serbest; hatalar regresyondur.
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
