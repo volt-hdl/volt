@@ -5,5 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+volt-span = { path = "../volt-span" }
+volt-diagnostics = { path = "../volt-diagnostics" }
 volt-ast = { path = "../volt-ast" }
+
+[dev-dependencies]
 volt-syntax = { path = "../volt-syntax" }

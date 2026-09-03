@@ -691,6 +691,8 @@ name = "volt-hir"
 version = "0.1.0"
 dependencies = [
  "volt-ast",
+ "volt-diagnostics",
+ "volt-span",
  "volt-syntax",
 ]
 

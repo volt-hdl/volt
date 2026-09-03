@@ -1,4 +1,7 @@
 //! Tip-güvenli arena ve indeks tipleri (ast-nodes.md §1).
+//!
+//! F1b temizliği: hiç çağrılmayan pub metodlar (new, raw, len,
+//! is_empty, iter) silindi — F2'de gerekirse geri eklenir.
 
 use std::marker::PhantomData;
 
@@ -6,12 +9,6 @@ use std::marker::PhantomData;
 pub struct Idx<T> {
     raw: u32,
     _marker: PhantomData<fn() -> T>,
-}
-
-impl<T> Idx<T> {
-    pub fn raw(self) -> u32 {
-        self.raw
-    }
 }
 
 // Manuel impl: T: Clone gerektirmemek için (ast-nodes.md §1)
@@ -51,10 +48,6 @@ impl<T> Default for Arena<T> {
 }
 
 impl<T> Arena<T> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn alloc(&mut self, value: T) -> Idx<T> {
         let idx = self.items.len() as u32;
         self.items.push(value);
@@ -62,26 +55,6 @@ impl<T> Arena<T> {
             raw: idx,
             _marker: PhantomData,
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (Idx<T>, &T)> {
-        self.items.iter().enumerate().map(|(i, item)| {
-            (
-                Idx {
-                    raw: i as u32,
-                    _marker: PhantomData,
-                },
-                item,
-            )
-        })
     }
 }
 

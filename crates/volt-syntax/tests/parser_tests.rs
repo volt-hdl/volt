@@ -1666,7 +1666,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_at_least_16_of_21_parse_clean() {
+fn ui_pass_all_21_of_21_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1690,12 +1690,12 @@ fn ui_pass_at_least_16_of_21_parse_clean() {
         }
     }
     assert_eq!(total, 21, "ui/pass 21 dosya içermeli");
-    // Bilinen 2 sorunlu dosya (02, 19): 'out out : u8' — port adı olarak
-    // 'out' anahtar kelimesi. Gramer Port = PortDir Ident der (§4);
-    // çözüm ayrı bir ADR gerektirir. 19/21 temiz ayrışıyor.
-    assert!(
-        clean >= 16,
-        "en az 16/21 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+    // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
+    // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
+    // artık tamamı temiz ayrışmalı.
+    assert_eq!(
+        clean, 21,
+        "21/21 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
