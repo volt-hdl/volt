@@ -3,7 +3,7 @@
 An HDL where clock domain crossing bugs won't compile.
 
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
-![tests](https://img.shields.io/badge/tests-719-brightgreen)
+![tests](https://img.shields.io/badge/tests-834-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-84%25-green)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
 
@@ -122,19 +122,98 @@ The reset port and reset block are generated automatically; bare `always`,
 `reg`, `initial` and `#` delays are never emitted. CI lints this output
 with `verilator --lint-only -Wall` and requires zero warnings.
 
+## Formal verification
+
+Contracts are part of the language, not a separate assertion file. A module
+can declare `requires` (input assumption), `ensures` (output guarantee),
+`invariant` (always-true state property) and `cover` (reachability goal):
+
+```text
+module Counter {
+    invariant: count_r < 5
+}
+```
+
+`volt verify` compiles the design, generates a Yosys-compatible model plus
+an `.sby` script, runs SymbiYosys and maps the result back to the contract.
+On `tests/ui/pass/23_provable_invariant.volt` (a counter that wraps at 10,
+with `invariant: count_r <= 10`) the property holds:
+
+```console
+$ volt verify tests/ui/pass/23_provable_invariant.volt
+   Verifying tests/ui/pass/23_provable_invariant.volt
+    Finished 0.55s
+      Result 1 property verified (bmc, depth 20)
+```
+
+`tests/ui/fail/24_violated_invariant.volt` claims `count_r < 5` for the
+same counter. The solver finds a counterexample; `volt verify` exits with
+code 6 and points at the violated contract line, not at generated code:
+
+```console
+$ volt verify tests/ui/fail/24_violated_invariant.volt
+error[E5001]: contract violated
+   ┌─ tests/ui/fail/24_violated_invariant.volt:12:16
+   │
+12 │     invariant: count_r < 5
+   │                ^^^^^^^^^^^ violated at cycle 7
+   │
+   = reason: the 'invariant' contract of module 'LeakyCounter' does not hold for every reachable state
+   = counterexample: build/formal/leakycounter_cex.vcd
+   = help: open the counterexample with 'gtkwave' or 'surfer'
+   = for more: volt explain E5001
+```
+
+Contracts reach SystemVerilog assertions in two modes: `volt build
+--emit=sva` writes a separate `.sva` file with named `property` blocks for
+commercial tools, while `volt verify` embeds immediate `assert` statements
+that the Yosys Verilog front end accepts. Only `volt verify` needs
+SymbiYosys installed — `volt build` and `volt check` never do.
+
+## Error explanations
+
+Every diagnostic code has a long-form explanation built into the compiler.
+First 15 lines of `volt explain E3001`, copied verbatim:
+
+```console
+$ volt explain E3001
+E3001: Clock Domain Crossing (CDC) violation
+
+Signals in two different clock domains cannot be connected directly.
+
+WHY THIS IS A PROBLEM
+
+If the destination flip-flop captures the source signal inside its setup or hold
+window, it goes metastable: the output stays unstable for a while and then
+settles to a random 0 or 1.
+
+This compiles silently in Verilog and typically surfaces in silicon — the most
+expensive place to debug. Volt makes the crossing a compile error instead.
+
+EXAMPLE
+```
+
+Explanations exist for all 90 diagnostic codes, in English and Turkish
+(`--lang=tr`). Topic pages work too: `volt explain verify-setup` prints
+the SymbiYosys installation guide.
+
 ## Status
 
 Pre-1.0, under active development. Syntax may change without notice.
 
 | Works today | Not yet |
 |---|---|
-| Full-grammar parser with error recovery, fuzzed | Formal verification (F4) |
-| Name resolution and const evaluation | Language server / LSP (F5) |
-| Type system with overflow widening on arithmetic | Reset-domain (RDC) checks — error codes reserved, not enforced |
+| Full-grammar parser with error recovery, fuzzed | Language server / LSP (F5) |
+| Name resolution and const evaluation | Reset-domain (RDC) checks — error codes reserved, not enforced |
+| Type system with overflow widening on arithmetic | Simulation driver (`volt run` / `volt test`) — specced, not implemented |
 | Domain inference and CDC checking (E3001, ambiguous-domain, multi-domain writes) | Standard library is thin |
-| `sync()` / `sync3()` generation — source-capture register plus two/three-stage synchronizer in the target domain | Simulation on Windows needs WSL or Docker |
+| `sync()` / `sync3()` generation — source-capture register plus two/three-stage synchronizer in the target domain | |
+| Contract system: `requires` / `ensures` / `invariant` / `cover` | |
+| SVA generation (`--emit=sva`, separate or inline) | |
+| Formal verification via SymbiYosys (`volt verify`: bmc / prove / cover, counterexample VCD) | |
 | SystemVerilog output, single- and multi-clock modules, Verilator-lint-clean | |
-| CLI: `volt build` / `volt check`, contracted exit codes, `--lang en\|tr`, JSON output | |
+| `volt explain` — 90 codes, English and Turkish | |
+| CLI: `volt build` / `check` / `verify` / `explain`, contracted exit codes, `--lang en\|tr`, JSON output | |
 
 ## Installation
 
@@ -145,19 +224,28 @@ $ cargo build --release
 $ ./target/release/volt build tests/fixtures/counter.volt
 ```
 
-Requires stable Rust; no other dependencies.
+Requires stable Rust; no other dependencies for `volt build` / `volt check`.
+
+Optional tools:
+
+- **SymbiYosys** (with Yosys and an SMT solver such as z3) — required by
+  `volt verify` only
+- **Verilator** — used by CI to lint the generated SystemVerilog; also the
+  planned backend for `volt test`, which is specced but not implemented yet
+- **Windows** — both tools are Linux-first; use WSL or Docker
+  (`docker pull hdlc/formal` covers the SymbiYosys stack)
 
 ## Why not an existing HDL?
 
 - **Clash** has encoded clock domains in its type system for 16 years and
-  does it rigorously — if you are at home in Haskell, use it.
+  does it rigorously, and its Haskell ecosystem connects to formal tools —
+  if you are at home in Haskell, use it.
 - **Spade** is a solid standalone HDL with excellent tooling; CDC safety
-  is on its roadmap rather than in its type system today.
+  and formal verification are on its roadmap rather than shipped today.
 - **Veryl** makes SystemVerilog substantially nicer to write, by design
-  without adding new semantics.
-- **Arch** also checks CDC at compile time; CIRCT lowering and formal
-  verification are absent there, and on Volt's roadmap (F3/F4) —
-  admittedly not built yet here either.
+  without adding new semantics — so no compile-time CDC or contracts.
+- **Arch** also checks CDC at compile time; formal verification is listed
+  as future work there, while Volt ships it today through SymbiYosys.
 
 ## Documentation
 
