@@ -22,7 +22,8 @@ function Add-Violation([string]$msg) {
     Write-Host "İHLAL: $msg" -ForegroundColor Red
 }
 
-$codeRs = Join-Path $root 'crates\volt-diagnostics\src\code.rs'
+# i18n sonrası 'EXXXX =>' tablosu messages/en.rs'te yaşar (code.rs makroya geçti)
+$codeRs = Join-Path $root 'crates\volt-diagnostics\src\messages\en.rs'
 $rsFiles = Get-ChildItem (Join-Path $root 'crates') -Recurse -Filter *.rs |
     Where-Object { $_.FullName -notmatch '\\target\\' }
 

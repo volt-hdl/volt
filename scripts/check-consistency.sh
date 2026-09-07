@@ -10,7 +10,8 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CODE_RS="$ROOT/crates/volt-diagnostics/src/code.rs"
+# i18n sonrası 'EXXXX =>' tablosu messages/en.rs'te yaşar (code.rs makroya geçti)
+CODE_RS="$ROOT/crates/volt-diagnostics/src/messages/en.rs"
 VIOLATIONS=0
 
 violation() {

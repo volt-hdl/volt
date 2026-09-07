@@ -2,7 +2,7 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
-![tests](https://img.shields.io/badge/tests-706-brightgreen)
+![tests](https://img.shields.io/badge/tests-719-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-84%25-green)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
 
@@ -50,7 +50,9 @@ error[E3001]: direct assignment between clock domains
 ```
 
 The build exits with code 1 and no SystemVerilog is produced. The accepted
-fix is an explicit bridge: `slow_data = sync(fast_data, slow_clk)`.
+fix is an explicit bridge — `slow_data = sync(fast_data, slow_clk)` — which
+compiles to a source-capture register plus a two-flop synchronizer clocked
+in the target domain.
 
 ## Single-clock designs stay simple
 
@@ -127,10 +129,10 @@ Pre-1.0, under active development. Syntax may change without notice.
 |---|---|
 | Full-grammar parser with error recovery, fuzzed | Formal verification (F4) |
 | Name resolution and const evaluation | Language server / LSP (F5) |
-| Type system with overflow widening on arithmetic | SV emission for `sync()` — the checker accepts it, codegen still rejects function calls (E0003) |
-| Domain inference and CDC checking (E3001, ambiguous-domain, multi-domain writes) | Reset-domain (RDC) checks — error codes reserved, not enforced |
-| `sync()` accepted and verified as a CDC bridge in `volt check` | Standard library is thin |
-| SystemVerilog output for single-clock designs, Verilator-lint-clean | Simulation on Windows needs WSL or Docker |
+| Type system with overflow widening on arithmetic | Reset-domain (RDC) checks — error codes reserved, not enforced |
+| Domain inference and CDC checking (E3001, ambiguous-domain, multi-domain writes) | Standard library is thin |
+| `sync()` / `sync3()` generation — source-capture register plus two/three-stage synchronizer in the target domain | Simulation on Windows needs WSL or Docker |
+| SystemVerilog output, single- and multi-clock modules, Verilator-lint-clean | |
 | CLI: `volt build` / `volt check`, contracted exit codes, `--lang en\|tr`, JSON output | |
 
 ## Installation

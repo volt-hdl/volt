@@ -386,6 +386,157 @@ fn call_expr_is_e0003() {
     assert!(emit_codes("module M { in a : u8 out y : u8 y = stretch(a) }").contains(&"E0003"));
 }
 
+// ═══ CDC köprüsü (§8) ═════════════════════════════════════════════
+
+const BRIDGE_SRC: &str = "domain Fast { clock = posedge, reset = sync active_high }\n\
+     domain Slow { clock = posedge, reset = sync active_high }\n\
+     module CdcBridge { in fast_clk : clock @Fast in slow_clk : clock @Slow \
+     in fast_flag : bool @Fast out slow_flag : bool @Slow \
+     slow_flag = sync(fast_flag, slow_clk) }";
+
+#[test]
+fn sync_bridge_emits_without_errors() {
+    let out = sv(BRIDGE_SRC);
+    assert!(out.contains("module CdcBridge ("), "çıktı:\n{out}");
+}
+
+#[test]
+fn sync_bridge_has_sdc_hint_comment() {
+    let out = sv(BRIDGE_SRC);
+    assert!(
+        out.contains("// CDC synchronizer: fast_clk -> slow_clk"),
+        "çıktı:\n{out}"
+    );
+}
+
+#[test]
+fn sync_bridge_two_always_ff_blocks() {
+    // Kaynak alanda yakalama + hedef alanda iki aşama = iki always_ff
+    let out = sv(BRIDGE_SRC);
+    assert_eq!(out.matches("always_ff").count(), 2, "çıktı:\n{out}");
+    assert!(out.contains("always_ff @(posedge fast_clk) begin"));
+    assert!(out.contains("always_ff @(posedge slow_clk) begin"));
+}
+
+#[test]
+fn sync_bridge_stage_naming_and_chain() {
+    let out = sv(BRIDGE_SRC);
+    assert!(out.contains("logic sync_fast_flag_src;"), "çıktı:\n{out}");
+    assert!(out.contains("logic sync_fast_flag_stage0;"));
+    assert!(out.contains("logic sync_fast_flag_stage1;"));
+    assert!(out.contains("sync_fast_flag_src <= fast_flag;"));
+    assert!(out.contains("sync_fast_flag_stage0 <= sync_fast_flag_src;"));
+    assert!(out.contains("sync_fast_flag_stage1 <= sync_fast_flag_stage0;"));
+    assert!(out.contains("assign slow_flag = sync_fast_flag_stage1;"));
+}
+
+#[test]
+fn sync_bridge_resets_stages_to_zero() {
+    let out = sv(BRIDGE_SRC);
+    assert!(out.contains("sync_fast_flag_src <= 1'b0;"), "çıktı:\n{out}");
+    assert!(out.contains("sync_fast_flag_stage0 <= 1'b0;"));
+    assert!(out.contains("sync_fast_flag_stage1 <= 1'b0;"));
+}
+
+#[test]
+fn sync_bridge_no_forbidden_constructs() {
+    assert_no_forbidden(&sv(BRIDGE_SRC));
+}
+
+#[test]
+fn sync3_bridge_three_dest_stages() {
+    let src = "domain Fast { clock = posedge, reset = sync active_high }\n\
+         domain Slow { clock = posedge, reset = sync active_high }\n\
+         module M { in fast_clk : clock @Fast in slow_clk : clock @Slow \
+         in f : bool @Fast out s : bool @Slow s = sync3(f, slow_clk) }";
+    let out = sv(src);
+    assert!(out.contains("logic sync_f_stage2;"), "çıktı:\n{out}");
+    assert!(out.contains("sync_f_stage2 <= sync_f_stage1;"));
+    assert!(out.contains("assign s = sync_f_stage2;"));
+}
+
+#[test]
+fn sync_bridge_multi_bit_width() {
+    let src = "domain Fast { clock = posedge, reset = sync active_high }\n\
+         domain Slow { clock = posedge, reset = sync active_high }\n\
+         module M { in fast_clk : clock @Fast in slow_clk : clock @Slow \
+         in d : u8 @Fast out q : u8 @Slow q = sync(d, slow_clk) }";
+    let out = sv(src);
+    assert!(out.contains("logic [7:0] sync_d_stage0;"), "çıktı:\n{out}");
+    assert!(out.contains("sync_d_stage0 <= 8'd0;"));
+}
+
+#[test]
+fn sync_bridge_dest_reset_none() {
+    let src = "domain Fast { clock = posedge, reset = sync active_high }\n\
+         domain Free { clock = posedge, reset = none }\n\
+         module M { in fast_clk : clock @Fast in free_clk : clock @Free \
+         in f : bool @Fast out s : bool @Free s = sync(f, free_clk) }";
+    let out = sv(src);
+    // Hedef alanda reset yok → hedef bloğunda if yok, aşamalar doğrudan
+    assert!(
+        out.contains(
+            "    always_ff @(posedge free_clk) begin\n        \
+             sync_f_stage0 <= sync_f_src;\n        \
+             sync_f_stage1 <= sync_f_stage0;\n    end"
+        ),
+        "çıktı:\n{out}"
+    );
+}
+
+#[test]
+fn sync_unknown_clock_is_error() {
+    let src = "module M { in clk : clock in f : bool out s : bool s = sync(f, nope) }";
+    assert!(emit_codes(src).contains(&"E0003"));
+}
+
+// ═══ Çoklu saat alanı (§7 genişletmesi) ═══════════════════════════
+
+#[test]
+fn multi_domain_shared_reset_port_emitted_once() {
+    // İki alan da sync active_high → tek 'rst' portu
+    let out = sv(BRIDGE_SRC);
+    assert_eq!(out.matches("input  logic rst").count(), 1, "çıktı:\n{out}");
+}
+
+#[test]
+fn multi_domain_distinct_reset_ports_in_clock_order() {
+    let src = "domain Fast { clock = posedge, reset = sync active_high }\n\
+         domain Usb { clock = negedge, reset = async active_low }\n\
+         module M { in fclk : clock @Fast in uclk : clock @Usb \
+         in a : bool @Fast in b : u8 @Usb out x : bool @Fast out y : u8 @Usb \
+         reg ra : bool = false reg rb : u8 = 0 \
+         on fclk { ra <= a } on uclk { rb <= b } x = ra y = rb }";
+    let out = sv(src);
+    let fclk = out.find(" fclk,").unwrap();
+    let uclk = out.find(" uclk,").unwrap();
+    let rst = out.find(" rst,").unwrap();
+    let rst_n = out.find(" rst_n,").unwrap();
+    let a = out.find(" a,").unwrap();
+    assert!(
+        fclk < uclk && uclk < rst && rst < rst_n && rst_n < a,
+        "sıra: clock'lar → reset'ler → in:\n{out}"
+    );
+}
+
+#[test]
+fn on_block_uses_its_own_clock_domain() {
+    let src = "domain Fast { clock = posedge, reset = sync active_high }\n\
+         domain Usb { clock = negedge, reset = async active_low }\n\
+         module M { in fclk : clock @Fast in uclk : clock @Usb \
+         in a : bool @Fast in b : u8 @Usb out x : bool @Fast out y : u8 @Usb \
+         reg ra : bool = false reg rb : u8 = 0 \
+         on fclk { ra <= a } on uclk { rb <= b } x = ra y = rb }";
+    let out = sv(src);
+    assert!(
+        out.contains("always_ff @(posedge fclk) begin"),
+        "çıktı:\n{out}"
+    );
+    assert!(out.contains("        if (rst) begin"));
+    assert!(out.contains("always_ff @(negedge uclk or negedge rst_n) begin"));
+    assert!(out.contains("        if (!rst_n) begin"));
+}
+
 // ═══ ui/pass taraması ═════════════════════════════════════════════
 
 #[test]
@@ -400,6 +551,7 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "06_let_binding.volt",
         "09_bitwise_no_widening.volt",
         "11_bit_and_range_select.volt",
+        "13_cdc_correct_bridge.volt",
         "14_single_clock_no_domain.volt",
         "15_nested_conditionals.volt",
     ];

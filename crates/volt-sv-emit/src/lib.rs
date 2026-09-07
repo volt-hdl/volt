@@ -9,9 +9,9 @@ mod expr;
 use std::collections::HashMap;
 
 use volt_ast::{
-    Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Idx, IfStmt, ItemKind, LValue,
-    LValueSuffix, ModuleDecl, OnBlock, OnTrigger, Port, PortDir, ResetPolarity, ResetSync,
-    SourceFile, StmtKind, TypeRef, TypeRefKind,
+    AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
+    Idx, IfStmt, ItemKind, LValue, LValueSuffix, ModuleDecl, OnBlock, OnTrigger, PortDir,
+    ResetPolarity, ResetSync, SourceFile, StmtKind, TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
@@ -84,6 +84,91 @@ const DEFAULT_DOMAIN: DomainInfo = DomainInfo {
     edge: ClockEdge::Posedge,
     reset: ResetCfg::DEFAULT,
 };
+
+/// Modülün bir saat portu: adı, `@Domain` anotasyonu ve alan bilgisi.
+#[derive(Debug, Clone)]
+struct ClockPort {
+    name: String,
+    domain: Option<String>,
+    info: DomainInfo,
+}
+
+/// Benzersiz reset portları, saat portu sırası korunarak (ada göre teklenir).
+fn reset_port_set(clocks: &[ClockPort]) -> Vec<ResetCfg> {
+    let mut out: Vec<ResetCfg> = Vec::new();
+    for clock in clocks {
+        let cfg = clock.info.reset;
+        if cfg.is_none() {
+            continue;
+        }
+        if !out.iter().any(|c| c.port_name() == cfg.port_name()) {
+            out.push(cfg);
+        }
+    }
+    out
+}
+
+/// `on <clk>` bloğunun alanı: tetikleyen saat portundan; bulunamazsa
+/// ilk saat portu, o da yoksa varsayılan alan.
+fn domain_of_trigger(clocks: &[ClockPort], on: &OnBlock) -> DomainInfo {
+    let name = match &on.trigger {
+        OnTrigger::Clock(n) | OnTrigger::Reset(n) => Some(n.text.as_str()),
+        OnTrigger::Error => None,
+    };
+    name.and_then(|n| clocks.iter().find(|c| c.name == n))
+        .or_else(|| clocks.first())
+        .map(|c| c.info)
+        .unwrap_or(DEFAULT_DOMAIN)
+}
+
+/// Tek segmentli Path ifadesinin metni.
+fn path_single(ast: &SourceFile, idx: Idx<Expr>) -> Option<&str> {
+    match &ast.exprs[idx].kind {
+        ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
+        _ => None,
+    }
+}
+
+/// Reset değeri olarak sıfır literali (§10 boyutlandırması).
+fn zero_of(sig: Sig) -> String {
+    match (sig.width, sig.signed) {
+        (1, _) => "1'b0".to_string(),
+        (w, false) => format!("{w}'d0"),
+        (w, true) => format!("{w}'sd0"),
+    }
+}
+
+/// Senkronizatör aşamaları için always_ff bloğu (§4 reset varyantları).
+fn sync_always_ff(clk: &str, info: DomainInfo, chain: &[(String, String)], zero: &str) -> String {
+    let edge = match info.edge {
+        ClockEdge::Negedge => "negedge",
+        _ => "posedge",
+    };
+    let cfg = info.reset;
+    let mut out = String::new();
+    if cfg.is_none() {
+        out.push_str(&format!("    always_ff @({edge} {clk}) begin\n"));
+        for (lhs, rhs) in chain {
+            out.push_str(&format!("        {lhs} <= {rhs};\n"));
+        }
+        out.push_str("    end");
+    } else {
+        out.push_str(&format!(
+            "    always_ff @({edge} {clk}{}) begin\n",
+            cfg.async_sensitivity()
+        ));
+        out.push_str(&format!("        if ({}) begin\n", cfg.condition()));
+        for (lhs, _) in chain {
+            out.push_str(&format!("            {lhs} <= {zero};\n"));
+        }
+        out.push_str("        end else begin\n");
+        for (lhs, rhs) in chain {
+            out.push_str(&format!("            {lhs} <= {rhs};\n"));
+        }
+        out.push_str("        end\n    end");
+    }
+    out
+}
 
 /// Dosyadaki tüm modülleri tek SV dosyasına üretir.
 pub fn emit(ast: &SourceFile, source_name: &str) -> EmitResult {
@@ -189,6 +274,27 @@ impl<'a> Emitter<'a> {
         );
     }
 
+    /// Saat portları, port sırasıyla; `@Domain` yoksa varsayılan alan.
+    fn collect_clock_ports(&self, module: &ModuleDecl) -> Vec<ClockPort> {
+        module
+            .ports
+            .iter()
+            .filter(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
+            .map(|p| {
+                let domain = p.domain.as_ref().map(|d| d.text.clone());
+                let info = domain
+                    .as_ref()
+                    .and_then(|d| self.domains.get(d).copied())
+                    .unwrap_or(DEFAULT_DOMAIN);
+                ClockPort {
+                    name: p.name.text.clone(),
+                    domain,
+                    info,
+                }
+            })
+            .collect()
+    }
+
     // ═══ Modül ════════════════════════════════════════════════════
 
     fn emit_module(&mut self, module: &'a ModuleDecl, doc: Option<&str>) -> String {
@@ -226,23 +332,10 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        // Saat portları ve reset yapılandırması (§7)
-        let clock_ports: Vec<&Port> = module
-            .ports
-            .iter()
-            .filter(|p| matches!(ast.types[p.ty].kind, TypeRefKind::Clock))
-            .collect();
-        let domain_info = clock_ports
-            .first()
-            .and_then(|p| p.domain.as_ref())
-            .and_then(|d| self.domains.get(&d.text).copied())
-            .unwrap_or(DEFAULT_DOMAIN);
-        let reset = if clock_ports.is_empty() || domain_info.reset.is_none() {
-            None
-        } else {
-            Some(domain_info.reset)
-        };
-        if let Some(cfg) = reset {
+        // Saat portları ve alan başına reset yapılandırması (§7)
+        let clocks = self.collect_clock_ports(module);
+        let resets = reset_port_set(&clocks);
+        for cfg in &resets {
             self.symbols.insert(
                 cfg.port_name().to_string(),
                 Sig {
@@ -252,8 +345,8 @@ impl<'a> Emitter<'a> {
             );
         }
 
-        let ports_block = self.emit_ports(module, reset);
-        let body_chunks = self.emit_body(module, domain_info, reset);
+        let ports_block = self.emit_ports(module, &resets);
+        let body_chunks = self.emit_body(module, &clocks);
 
         let mut out = String::new();
         if let Some(doc) = doc {
@@ -275,16 +368,16 @@ impl<'a> Emitter<'a> {
         out
     }
 
-    /// Port sırası (§1): clock → reset → in → inout → out.
-    fn emit_ports(&mut self, module: &'a ModuleDecl, reset: Option<ResetCfg>) -> String {
+    /// Port sırası (§1): clock'lar → reset'ler → in → inout → out.
+    fn emit_ports(&mut self, module: &'a ModuleDecl, resets: &[ResetCfg]) -> String {
         let ast = self.ast;
-        let is_clock = |p: &Port| matches!(ast.types[p.ty].kind, TypeRefKind::Clock);
+        let is_clock = |p: &volt_ast::Port| matches!(ast.types[p.ty].kind, TypeRefKind::Clock);
 
         let mut lines: Vec<(&'static str, String, String)> = Vec::new();
         for port in module.ports.iter().filter(|p| is_clock(p)) {
             lines.push(("input", "logic".into(), port.name.text.clone()));
         }
-        if let Some(cfg) = reset {
+        for cfg in resets {
             lines.push(("input", "logic".into(), cfg.port_name().into()));
         }
         for pass in [PortDir::In, PortDir::InOut, PortDir::Out] {
@@ -317,12 +410,7 @@ impl<'a> Emitter<'a> {
 
     /// Gövde: ardışık aynı-tür tek satırlık bildirimler tek chunk'ta
     /// gruplanır; chunk'lar boş satırla ayrılır.
-    fn emit_body(
-        &mut self,
-        module: &'a ModuleDecl,
-        domain: DomainInfo,
-        reset: Option<ResetCfg>,
-    ) -> Vec<String> {
+    fn emit_body(&mut self, module: &'a ModuleDecl, clocks: &[ClockPort]) -> Vec<String> {
         #[derive(PartialEq, Clone, Copy)]
         enum Kind {
             Decl,
@@ -377,15 +465,28 @@ impl<'a> Emitter<'a> {
                         }
                     }
                 }
-                StmtKind::On(on) => Some((
-                    Kind::Always,
-                    self.emit_on_block(module, on, domain, reset, stmt.span),
-                )),
+                StmtKind::On(on) => {
+                    let info = domain_of_trigger(clocks, on);
+                    let reset = if clocks.is_empty() || info.reset.is_none() {
+                        None
+                    } else {
+                        Some(info.reset)
+                    };
+                    Some((
+                        Kind::Always,
+                        self.emit_on_block(module, on, info, reset, stmt.span),
+                    ))
+                }
                 StmtKind::Assign(assign) => {
-                    let lhs_sig = self.lvalue_sig(&assign.lhs);
-                    let lhs = self.emit_lvalue(&assign.lhs);
-                    let rhs = self.emit_expr(assign.rhs, lhs_sig);
-                    Some((Kind::Assign, format!("    assign {lhs} = {rhs};")))
+                    match self.try_emit_sync_bridge(module, clocks, assign, stmt.span) {
+                        Some(chunk) => Some((Kind::Always, chunk)),
+                        None => {
+                            let lhs_sig = self.lvalue_sig(&assign.lhs);
+                            let lhs = self.emit_lvalue(&assign.lhs);
+                            let rhs = self.emit_expr(assign.rhs, lhs_sig);
+                            Some((Kind::Assign, format!("    assign {lhs} = {rhs};")))
+                        }
+                    }
                 }
                 StmtKind::Expr(_) | StmtKind::Error => None, // parse tanısı zaten var
                 // F1 parser yapıları — SV üretimi sonraki aşamalarda
@@ -441,7 +542,160 @@ impl<'a> Emitter<'a> {
                 }
             }
         }
-        chunks.into_iter().map(|(_, text)| text).collect()
+        chunks
+            .into_iter()
+            .map(|(_, text)| text)
+            .filter(|text| !text.is_empty())
+            .collect()
+    }
+
+    /// sv-mapping.md §8 — `dest = sync(src, dst_clk)` / `sync3(...)` köprüsü.
+    ///
+    /// Kaynak alanda bir yakalama register'ı, hedef alanda N aşama üretir;
+    /// yakalama, senkronizatöre kombinasyonel yol girmesini engeller ve
+    /// kaynak saat portunu üretilen SV'de kullanılır kılar. RHS sync
+    /// çağrısı değilse None döner (normal assign yolu); çağrı desteklenen
+    /// biçimde değilse tanı üretilir ve boş chunk döner.
+    fn try_emit_sync_bridge(
+        &mut self,
+        module: &'a ModuleDecl,
+        clocks: &[ClockPort],
+        assign: &'a AssignStmt,
+        span: Span,
+    ) -> Option<String> {
+        let ast = self.ast;
+        let ExprKind::Call { callee, args } = &ast.exprs[assign.rhs].kind else {
+            return None;
+        };
+        let stages: usize = match path_single(ast, *callee) {
+            Some("sync") => 2,
+            Some("sync3") => 3,
+            _ => return None,
+        };
+
+        if !assign.lhs.suffixes.is_empty() {
+            self.future(
+                span,
+                &lstr!(
+                    en: "sync() into an indexed or sliced target";
+                    tr: "indeksli/dilimli hedefe sync()"
+                ),
+            );
+            return Some(String::new());
+        }
+        let dest = assign.lhs.base.text.clone();
+
+        if args.len() != 2 {
+            self.future(
+                span,
+                &lstr!(
+                    en: "sync() with {} argument(s) — expected sync(src, dst_clock)", args.len();
+                    tr: "{} argümanlı sync() — beklenen sync(kaynak, hedef_saat)", args.len()
+                ),
+            );
+            return Some(String::new());
+        }
+        let (src_arg, clk_arg) = (args[0], args[1]);
+        let Some(src) = path_single(ast, src_arg).map(str::to_owned) else {
+            self.future(
+                span,
+                &lstr!(
+                    en: "sync() with a compound source expression — bind it with let first";
+                    tr: "bileşik kaynak ifadeli sync() — önce let ile bağlayın"
+                ),
+            );
+            return Some(String::new());
+        };
+        let Some(dst_clk) = path_single(ast, clk_arg).map(str::to_owned) else {
+            self.future(
+                span,
+                &lstr!(
+                    en: "sync() whose clock argument is not a simple clock port name";
+                    tr: "saat argümanı basit bir saat portu adı olmayan sync()"
+                ),
+            );
+            return Some(String::new());
+        };
+        let Some(dst) = clocks.iter().find(|c| c.name == dst_clk).cloned() else {
+            self.future(
+                span,
+                &lstr!(
+                    en: "sync() whose clock argument '{dst_clk}' is not a clock port of this module";
+                    tr: "saat argümanı '{dst_clk}' bu modülün saat portu olmayan sync()"
+                ),
+            );
+            return Some(String::new());
+        };
+
+        let sig = self
+            .symbols
+            .get(&src)
+            .copied()
+            .or_else(|| self.symbols.get(&dest).copied());
+        let Some(sig) = sig else {
+            self.error(
+                ErrorCode::E2005,
+                lstr!(
+                    en: "cannot determine the width of the sync() source '{src}'";
+                    tr: "sync() kaynağı '{src}' genişliği belirlenemiyor"
+                ),
+                span,
+                &lstr!(
+                    en: "declare '{src}' as a port or register with an explicit type";
+                    tr: "'{src}' portunu/register'ını açık tiple bildirin"
+                ),
+            );
+            return Some(String::new());
+        };
+
+        // Kaynağın alanı → o alanın saat portu (yakalama aşaması için)
+        let src_clock = module
+            .ports
+            .iter()
+            .find(|p| p.name.text == src)
+            .and_then(|p| p.domain.as_ref())
+            .and_then(|d| clocks.iter().find(|c| c.domain.as_deref() == Some(&d.text)))
+            .filter(|c| c.name != dst.name)
+            .cloned();
+
+        let base = format!("sync_{src}");
+        let ty = sig.decl_type();
+        let zero = zero_of(sig);
+        let src_label = src_clock.as_ref().map_or(src.as_str(), |c| c.name.as_str());
+
+        let mut out = format!("    // CDC synchronizer: {src_label} -> {}\n", dst.name);
+        if src_clock.is_some() {
+            out.push_str(&format!("    {ty} {base}_src;\n"));
+        }
+        for i in 0..stages {
+            out.push_str(&format!("    {ty} {base}_stage{i};\n"));
+        }
+        out.push('\n');
+
+        if let Some(cap) = &src_clock {
+            out.push_str(&sync_always_ff(
+                &cap.name,
+                cap.info,
+                &[(format!("{base}_src"), src.clone())],
+                &zero,
+            ));
+            out.push_str("\n\n");
+        }
+
+        let mut prev = match src_clock {
+            Some(_) => format!("{base}_src"),
+            None => src,
+        };
+        let mut chain = Vec::with_capacity(stages);
+        for i in 0..stages {
+            let cur = format!("{base}_stage{i}");
+            chain.push((cur.clone(), prev));
+            prev = cur;
+        }
+        out.push_str(&sync_always_ff(&dst.name, dst.info, &chain, &zero));
+        out.push_str("\n\n");
+        out.push_str(&format!("    assign {dest} = {prev};"));
+        Some(out)
     }
 
     /// sv-mapping.md §4: always_ff + otomatik reset bloğu.
