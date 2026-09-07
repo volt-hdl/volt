@@ -465,6 +465,17 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         .with_note("Lineer tipler V1 özelliğidir; bu denetim F-serisi sürümlerde etkin değildir."),
 
         // ─── Davranışsal kontratlar ───
+        E5001 => Explanation::new(
+            "Kontrat ihlal edildi",
+            "Formal doğrulama, bu modülün bir kontratını bozan bir yürütme buldu.",
+            "Bir kontrat (invariant/ensures/assert) tasarımın erişilebilir her durumu için verilmiş bir sözdür. 'volt verify' bunu SymbiYosys'e kanıtlatmak istedi; çözücü ise kontratın yanlış olduğu bir duruma tasarımı sürükleyen somut bir girdi dizisi — bir karşı örnek — kurdu. Bu bir araç yanılsaması değildir: yazılmış RTL o duruma gerçekten ulaşabilir.\n\nDöngü döngü izlenen yolu görmek için karşı örnek dalga formunu (.vcd) inceleyin; ardından ya mantığı düzeltin ya da senaryo gerçek ortamda sahiden imkânsızsa girişleri 'requires'/'assume' kontratıyla kısıtlayın.",
+            "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: 7. döngüde ihlal\n}",
+            "// 1) busy ve done'ın aynı anda yükselmediği mantığı kurun, ya da\n// 2) ortamı kısıtlayın:\nrequires: !(start && abort)",
+        )
+        .with_note(
+            "Karşı örnek .vcd dosyası build/formal/ altına, .sby dosyasının yanına yazılır. 'gtkwave' ya da 'surfer' ile açın. BMC yalnızca --depth döngüye kadar arar; N derinlikte geçmek tam kanıt değildir — sınırsız tümevarım için --mode prove kullanın.",
+        )
+        .with_docs(&["https://volthdl.org/guide/verify"]),
         E5004 => Explanation::new(
             "Kontrat ifadesi Bool değil",
             "requires/ensures/invariant/cover/assert/assume koşulları Bool tipinde olmalıdır.",

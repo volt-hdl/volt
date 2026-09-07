@@ -84,6 +84,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4004 => "Lineer port tüketilmedi [V1]",
 
         // ─── Davranışsal kontratlar ───
+        E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",
         E5004 => "Kontrat ifadesi Bool değil",
 
         // ─── Bütçe ve zamanlama kontratları ───

@@ -57,6 +57,8 @@ pub enum NoteKind {
     Reason,
     /// İnsan çıktısında "= not:" satırı.
     Note,
+    /// İnsan çıktısında "= karşı örnek:" satırı (F4b, `volt verify`).
+    Counterexample,
 }
 
 impl NoteKind {
@@ -64,6 +66,7 @@ impl NoteKind {
         match self {
             NoteKind::Reason => "reason",
             NoteKind::Note => "note",
+            NoteKind::Counterexample => "counterexample",
         }
     }
 }

@@ -5,6 +5,45 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — F4b: SymbiYosys entegrasyonu ve `volt verify` (2026-09-07)
+
+- **`volt verify` komutu** (`volt-driver/src/verify.rs`): derle →
+  `build/formal/<modul>.sv` + `.sby` üret → `sby -f` koştur → sonucu
+  yorumla. Bayraklar: `--depth N` (varsayılan 20), `--engine
+  z3|boolector|yices`, `--mode bmc|prove|cover`, `--target-dir`,
+  `--format`. Çıkış kodları (cli-contract.md §2): 0 doğrulandı,
+  1 derleme hatası, 3 sby yok/araç hatası, 6 karşı örnek.
+- **Yosys-uyumlu üretim** (`SvaMode::Immediate`): Yosys'in Verilog ön
+  ucu adlandırılmış `property/endproperty` bloklarını ayrıştıramıyor
+  (TOK_PROPERTY — hdlc/formal imajıyla doğrulandı); verify akışı bu
+  yüzden `always @(edge) if (!rst) assert (ifade); // volt:<ad>`
+  immediate kalıbını gömer. `--emit=sva` çıktısı (property blokları)
+  ticari araçlar için değişmedi. BMC'nin kısıtsız başlangıç durumuna
+  karşı `initial assume (rst);` varsayımı eklendi.
+- **E5001 karşı örnek tanısı**: sby FAIL logundaki `dosya.sv:satır`
+  konumu `// volt:<ad>` işaretiyle Volt kontratına geri eşlenir; tanı
+  ihlal döngüsünü (`violated at cycle N`), kopyalanan
+  `<modul>_cex.vcd` yolunu (`= counterexample:`) ve `gtkwave`/`surfer`
+  önerisini taşır. Yeni `NoteKind::Counterexample` satırı iki dilde.
+- **Kurulum yardımı**: sby bulunamayınca UX Anayasası biçiminde
+  Linux/Docker/Windows kurulum seçenekleri basılır (çıkış 3);
+  `VOLT_SBY` ortam değişkeni özel sby konumunu gösterebilir.
+- **`volt explain verify-setup`**: konu bazlı açıklama altyapısı
+  (`explain/topics.rs`) — kod olmayan girdiler önce konu tablosunda
+  aranır; `verify-setup` iki dilde kurulum sayfası döndürür.
+- **Fixture'lar**: `tests/ui/pass/23_provable_invariant.volt`
+  (BoundedCounter, gerçek sby'de PASS) ve
+  `tests/ui/fail/24_violated_invariant.volt` (LeakyCounter, gerçek
+  sby'de 7. döngüde FAIL). Docker'da (hdlc/formal) uçtan uca
+  doğrulandı: çıkış 0 / çıkış 6.
+- **CI**: opsiyonel `verify` job'u (`continue-on-error: true`,
+  YosysHQ/setup-oss-cad-suite) iki fixture'ı gerçek sby ile koşar;
+  lokal testlerde sby yoksa gerçek-araç testleri SKIP eder, sahte sby
+  betiğiyle FAIL/PASS yolları sby'siz de test edilir.
+- Test: +36 (829 baseline) — 15+ sby'siz verify/explain CLI testi,
+  sby log yorumlama birim testleri, `.sby` üretimi ve
+  `SvaMode::Immediate` testleri.
+
 ### Eklendi — F2c-CLI: CDC kontrolü komut satırında (2026-09-03)
 
 - **Aşamalı boru hattı** (`volt-driver/src/main.rs`): `check` ve `build`

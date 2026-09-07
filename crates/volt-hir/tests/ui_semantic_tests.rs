@@ -232,7 +232,7 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 22);
+    assert_eq!(checked, 23);
 }
 
 // ═══ Kontratlar (F4a) ═════════════════════════════════════════════

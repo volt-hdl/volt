@@ -9,6 +9,7 @@ use crate::code::ErrorCode;
 use crate::messages::{self, Lang};
 
 pub mod en;
+pub mod topics;
 pub mod tr;
 
 /// cli-contract.md §9 şablonundaki tek kod açıklaması.

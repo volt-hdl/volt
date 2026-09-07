@@ -53,7 +53,7 @@ error_codes! {
     E4001, E4002, E4003, E4004,
 
     // ─── Davranışsal kontratlar (contracts) ───
-    E5004,
+    E5001, E5004,
 
     // ─── Bütçe ve zamanlama kontratları ───
     E6001, E6003, E6004,

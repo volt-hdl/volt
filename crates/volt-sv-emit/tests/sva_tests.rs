@@ -220,6 +220,105 @@ fn inline_mode_embeds_properties_in_module_body() {
     assert!(prop < end, "SVA bloğu endmodule'den önce olmalı");
 }
 
+// ═══ F4b: formal başlangıç varsayımı ve property kimlikleri ═══════
+
+#[test]
+fn reset_domain_gets_initial_reset_assumption() {
+    // BMC başlangıç durumu kısıtsızdır; ilk döngüde reset varsayılmazsa
+    // çözücü sıfırlanmamış register'lı sahte karşı örnek üretir.
+    let sva = single_sva(&uart("    invariant: !(start && busy)\n"));
+    assert!(sva.contains("initial assume (rst);"), "{sva}");
+}
+
+#[test]
+fn no_reset_domain_omits_initial_assumption() {
+    let src = "domain Free { clock = posedge, reset = none }\n\n\
+               module M {\n    in  clk : clock @Free\n    in  a : bool\n    out q : bool\n\n    \
+               invariant: !(a && q)\n\n    q = a\n}\n";
+    let sva = single_sva(src);
+    assert!(!sva.contains("initial assume"), "{sva}");
+}
+
+#[test]
+fn inline_mode_also_assumes_reset_initially() {
+    let out = full(&uart("    invariant: !(start && busy)\n"), SvaMode::Inline);
+    assert!(out.sv.contains("initial assume (rst);"), "{}", out.sv);
+}
+
+#[test]
+fn immediate_mode_uses_yosys_compatible_assertions() {
+    // Yosys read_verilog 'property/endproperty' bloklarını ayrıştıramaz
+    // (TOK_PROPERTY) — verify akışı immediate assertion üretir.
+    let out = full(
+        &uart("    invariant: !(start && busy)\n"),
+        SvaMode::Immediate,
+    );
+    assert!(out.sva_files.is_empty(), "immediate modda ayrı dosya yok");
+    assert!(out.sv.contains("always @(posedge clk)"), "{}", out.sv);
+    assert!(out.sv.contains("// volt:inv_0"), "{}", out.sv);
+    assert!(out.sv.contains("if (!(rst)) assert ("), "{}", out.sv);
+    assert!(out.sv.contains("initial assume (rst);"), "{}", out.sv);
+    assert!(
+        !out.sv.contains("property"),
+        "immediate modda property bloğu olmamalı: {}",
+        out.sv
+    );
+}
+
+#[test]
+fn immediate_mode_ensures_stays_boolean_implication() {
+    // Tek döngülük 'a |-> b' ile '!a || b' eşdeğer; Yosys '|->' bilmez.
+    let out = full(&uart("    ensures: !start || busy\n"), SvaMode::Immediate);
+    assert!(out.sv.contains("// volt:ens_0"), "{}", out.sv);
+    assert!(out.sv.contains("!start || busy"), "{}", out.sv);
+    assert!(!out.sv.contains("|->"), "{}", out.sv);
+}
+
+#[test]
+fn immediate_mode_no_reset_domain_asserts_unconditionally() {
+    let src = "domain Free { clock = posedge, reset = none }\n\n\
+               module M {\n    in  clk : clock @Free\n    in  a : bool\n    out q : bool\n\n    \
+               invariant: !(a && q)\n\n    q = a\n}\n";
+    let out = full(src, SvaMode::Immediate);
+    assert!(!out.sv.contains("initial assume"), "{}", out.sv);
+    assert!(!out.sv.contains("if (!("), "{}", out.sv);
+    assert!(out.sv.contains("assert ("), "{}", out.sv);
+}
+
+#[test]
+fn immediate_mode_records_sva_props() {
+    let out = full(
+        &uart("    invariant: !(start && busy)\n"),
+        SvaMode::Immediate,
+    );
+    assert_eq!(out.sva_props.len(), 1);
+    assert_eq!(out.sva_props[0].name, "inv_0");
+}
+
+#[test]
+fn sva_props_map_property_names_to_contracts() {
+    let out = full(
+        &uart("    requires: speed <= 2\n    invariant: !(start && busy)\n"),
+        SvaMode::Inline,
+    );
+    assert_eq!(out.sva_props.len(), 2, "{:?}", out.sva_props);
+    let req = &out.sva_props[0];
+    assert_eq!(req.module_name, "Uart");
+    assert_eq!(req.name, "req_0");
+    assert_eq!(req.keyword, "requires");
+    let inv = &out.sva_props[1];
+    assert_eq!(inv.name, "inv_0");
+    assert_eq!(inv.keyword, "invariant");
+    // Span kontrat İFADESİNİ göstermeli (E5001 tanısının konumu).
+    assert!(inv.span.end > inv.span.start);
+}
+
+#[test]
+fn sva_props_empty_when_mode_is_none() {
+    let out = full(&uart("    invariant: !(start && busy)\n"), SvaMode::None);
+    assert!(out.sva_props.is_empty());
+}
+
 #[test]
 fn plain_emit_output_is_unchanged() {
     let parsed = volt_syntax::parser::parse(FileId(0), &uart("    invariant: !(start && busy)\n"));

@@ -8,6 +8,8 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod verify;
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -17,7 +19,7 @@ use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
 use volt_span::SourceMap;
-use volt_sv_emit::{SvaFile, SvaMode};
+use volt_sv_emit::{SbyEngine, SbyMode, SbyOptions, SvaFile, SvaMode, SvaProp};
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
@@ -111,7 +113,27 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
-    /// Explain a diagnostic code in detail (cli-contract.md §9)
+    /// Formally verify contracts with SymbiYosys (F4b; exit 6 on counterexample)
+    Verify {
+        /// Input .volt file
+        file: PathBuf,
+        /// Search depth in cycles (BMC bound / induction length)
+        #[arg(long, default_value_t = 20)]
+        depth: u32,
+        /// SMT engine: z3 | boolector | yices
+        #[arg(long, value_enum, default_value_t = EngineArg::Z3)]
+        engine: EngineArg,
+        /// Verification mode: bmc | prove | cover
+        #[arg(long, value_enum, default_value_t = VerifyModeArg::Bmc)]
+        mode: VerifyModeArg,
+        /// Output directory (default: build/)
+        #[arg(long, default_value = "build")]
+        target_dir: PathBuf,
+        /// Output format: human | json | short
+        #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+        format: OutputFormat,
+    },
+    /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
     Explain {
         /// Diagnostic code, e.g. E3001 (case-insensitive)
         #[arg(required_unless_present = "list")]
@@ -146,6 +168,42 @@ enum SvaArg {
     Inline,
 }
 
+/// `volt verify --engine` (F4b) — sby'ye geçen SMT çözücüsü.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum EngineArg {
+    Z3,
+    Boolector,
+    Yices,
+}
+
+impl From<EngineArg> for SbyEngine {
+    fn from(a: EngineArg) -> Self {
+        match a {
+            EngineArg::Z3 => SbyEngine::Z3,
+            EngineArg::Boolector => SbyEngine::Boolector,
+            EngineArg::Yices => SbyEngine::Yices,
+        }
+    }
+}
+
+/// `volt verify --mode` (F4b) — sby doğrulama kipi.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum VerifyModeArg {
+    Bmc,
+    Prove,
+    Cover,
+}
+
+impl From<VerifyModeArg> for SbyMode {
+    fn from(a: VerifyModeArg) -> Self {
+        match a {
+            VerifyModeArg::Bmc => SbyMode::Bmc,
+            VerifyModeArg::Prove => SbyMode::Prove,
+            VerifyModeArg::Cover => SbyMode::Cover,
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
@@ -168,6 +226,23 @@ fn main() -> ExitCode {
             build(&file, &target_dir, format, mode)
         }
         Command::Check { file, format } => check(&file, format),
+        Command::Verify {
+            file,
+            depth,
+            engine,
+            mode,
+            target_dir,
+            format,
+        } => verify::verify(
+            &file,
+            &target_dir,
+            format,
+            SbyOptions {
+                mode: mode.into(),
+                depth,
+                engine: engine.into(),
+            },
+        ),
         Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
     }
 }
@@ -182,6 +257,13 @@ fn explain_cmd(code: Option<&str>, list: bool, color: Option<ColorArg>) -> ExitC
     }
     let input = code.expect("clap: code veya --list zorunlu");
     let Some(parsed) = ErrorCode::parse(input) else {
+        // F4b: kod değilse konu dene ('volt explain verify-setup').
+        if let Some(page) =
+            explain::topics::render_topic(input, lang, terminal_width(), use_color(color))
+        {
+            print!("{page}");
+            return ExitCode::SUCCESS;
+        }
         eprintln!(
             "{}",
             lstr!(
@@ -250,6 +332,8 @@ struct Compiled {
     sv: Option<String>,
     /// `--emit=sva` ayrı modunda kontratlı modüllerin .sva içerikleri.
     sva_files: Vec<SvaFile>,
+    /// Üretilen property kimlikleri (F4b `verify` — sby FAIL eşlemesi).
+    sva_props: Vec<SvaProp>,
 }
 
 impl Compiled {
@@ -305,6 +389,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
             diagnostics,
             sv: None,
             sva_files: Vec::new(),
+            sva_props: Vec::new(),
         });
     }
 
@@ -315,6 +400,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
             diagnostics,
             sv: None,
             sva_files: Vec::new(),
+            sva_props: Vec::new(),
         });
     }
 
@@ -325,10 +411,10 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         .unwrap_or_else(|| file.display().to_string());
     let emitted = volt_sv_emit::emit_full(&parsed.ast, &source_name, &source, sva_mode);
     diagnostics.extend(emitted.diagnostics);
-    let (sv, sva_files) = if count_errors(&diagnostics) == 0 {
-        (Some(emitted.sv), emitted.sva_files)
+    let (sv, sva_files, sva_props) = if count_errors(&diagnostics) == 0 {
+        (Some(emitted.sv), emitted.sva_files, emitted.sva_props)
     } else {
-        (None, Vec::new())
+        (None, Vec::new(), Vec::new())
     };
 
     Ok(Compiled {
@@ -336,6 +422,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         diagnostics,
         sv,
         sva_files,
+        sva_props,
     })
 }
 

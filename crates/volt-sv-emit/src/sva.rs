@@ -24,6 +24,15 @@ pub enum SvaMode {
     Separate,
     /// Özellikler SV modül gövdesine gömülür.
     Inline,
+    /// Yosys-uyumlu gömülü immediate assertion'lar (`volt verify`).
+    ///
+    /// Yosys'in Verilog ön ucu adlandırılmış `property/endproperty`
+    /// bloklarını AYRIŞTIRAMAZ (TOK_PROPERTY sözdizimi hatası) —
+    /// hdlc/formal imajıyla doğrulandı. Bu mod aynı kontratları
+    /// `always @(edge) if (!reset) assert (ifade); // volt:<ad>`
+    /// kalıbına indirger; satır sonu işareti sby FAIL logunu Volt
+    /// kontratına geri eşlemek için kullanılır.
+    Immediate,
 }
 
 /// Ayrı modda tek modülün SVA dosyası.
@@ -34,6 +43,23 @@ pub struct SvaFile {
     /// Kontrol modülünün adı (ör. "uart_sva").
     pub checker_name: String,
     pub content: String,
+}
+
+/// Üretilen tek bir SVA property'sinin kimliği (F4b, `volt verify`).
+///
+/// sby FAIL logundaki `assert property (inv_0);` satırını Volt
+/// kaynağındaki kontrata geri bağlamak için kullanılır: property adı →
+/// kontratın anahtar kelimesi + kaynak konumu.
+#[derive(Debug, Clone)]
+pub struct SvaProp {
+    /// Kontratın ait olduğu Volt modülü (ör. "Counter").
+    pub module_name: String,
+    /// Property adı (ör. "inv_0").
+    pub name: String,
+    /// Kontrat anahtar kelimesi ("invariant", "ensures", ...).
+    pub keyword: &'static str,
+    /// Kontrat ifadesinin Volt kaynağındaki konumu.
+    pub span: volt_span::Span,
 }
 
 /// `1'b0/1'b1` bağlamı: kontrat ifadeleri 1-bit boolean'dır.
@@ -73,11 +99,29 @@ impl<'a> Emitter<'a> {
 
         let mut counters = [0u32; 6];
         let mut blocks = Vec::new();
+        // F4b: BMC başlangıç durumu kısıtsızdır — reset'i ilk döngüde
+        // varsaymak standart formal kalıbıdır; yoksa çözücü sıfırlanmamış
+        // register'lı sahte bir 0. adım karşı örneği üretir. Reset'siz
+        // alanlarda varsayım da üretilmez (başlangıç tasarımın sorunudur).
+        if !clock.info.reset.is_none() {
+            blocks.push(format!(
+                "{ind}// formal: assume reset in the first cycle (BMC init)\n\
+                 {ind}initial assume ({});",
+                clock.info.reset.condition()
+            ));
+        }
         for c in &module.contracts {
             let (prefix, verb) = sva_construct(c.kind);
             let slot = kind_slot(c.kind);
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
+            // F4b: property adı → kontrat eşlemesi (sby FAIL yorumu).
+            self.sva_props.push(SvaProp {
+                module_name: module.name.text.clone(),
+                name: name.clone(),
+                keyword: contract_keyword(c.kind),
+                span: self.ast.exprs[c.expr].span,
+            });
             let line = line_of(self.source, self.ast.exprs[c.expr].span.start);
             let expr = self.sva_expr(c);
             blocks.push(format!(
@@ -87,6 +131,72 @@ impl<'a> Emitter<'a> {
                  {ind}    {expr};\n\
                  {ind}endproperty\n\
                  {ind}{verb} property ({name});",
+                kw = contract_keyword(c.kind),
+            ));
+        }
+        Some(blocks.join("\n\n"))
+    }
+
+    /// Immediate assertion bloğu (SvaMode::Immediate, F4b).
+    ///
+    /// Kontrat başına bir `always` üretilir; assertion satırı
+    /// `// volt:<ad>` işareti taşır (sby konum → kontrat eşlemesi).
+    /// `ensures`'ün `!a || b` deseni tek döngülük örtüşmeli gerektirme
+    /// ile eşdeğer olduğundan burada dönüştürülmeden bırakılır.
+    pub(crate) fn sva_immediate(
+        &mut self,
+        module: &'a ModuleDecl,
+        clocks: &[ClockPort],
+        indent: usize,
+    ) -> Option<String> {
+        if module.contracts.is_empty() {
+            return None;
+        }
+        let clock = clocks.first()?.clone();
+        let source_name = self.source_name;
+        let ind = " ".repeat(indent);
+        let edge = match clock.info.edge {
+            ClockEdge::Negedge => "negedge",
+            _ => "posedge",
+        };
+
+        let mut counters = [0u32; 6];
+        let mut blocks = Vec::new();
+        // BMC başlangıç durumu kısıtsız — ilk döngüde reset varsayılır
+        // (sva_properties ile aynı gerekçe).
+        if !clock.info.reset.is_none() {
+            blocks.push(format!(
+                "{ind}// formal: assume reset in the first cycle (BMC init)\n\
+                 {ind}initial assume ({});",
+                clock.info.reset.condition()
+            ));
+        }
+        for c in &module.contracts {
+            let (prefix, verb) = sva_construct(c.kind);
+            let slot = kind_slot(c.kind);
+            let name = format!("{prefix}_{}", counters[slot]);
+            counters[slot] += 1;
+            self.sva_props.push(SvaProp {
+                module_name: module.name.text.clone(),
+                name: name.clone(),
+                keyword: contract_keyword(c.kind),
+                span: self.ast.exprs[c.expr].span,
+            });
+            let line = line_of(self.source, self.ast.exprs[c.expr].span.start);
+            let expr = self.emit_expr(c.expr, ONE_BIT);
+            let stmt = if clock.info.reset.is_none() {
+                format!("{verb} ({expr}); // volt:{name}")
+            } else {
+                format!(
+                    "if (!({})) {verb} ({expr}); // volt:{name}",
+                    clock.info.reset.condition()
+                )
+            };
+            blocks.push(format!(
+                "{ind}// {kw} from {source_name}:{line}\n\
+                 {ind}always @({edge} {})\n\
+                 {ind}    {stmt}",
+                clock.name,
                 kw = contract_keyword(c.kind),
             ));
         }

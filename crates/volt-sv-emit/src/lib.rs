@@ -5,6 +5,7 @@
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
 mod expr;
+mod sby;
 mod sva;
 
 use std::collections::HashMap;
@@ -18,7 +19,8 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
 
 pub use expr::Sig;
-pub use sva::{SvaFile, SvaMode};
+pub use sby::{sby_config, SbyEngine, SbyMode, SbyOptions};
+pub use sva::{SvaFile, SvaMode, SvaProp};
 
 pub const VOLT_VERSION: &str = "0.1.0";
 
@@ -188,6 +190,8 @@ pub struct EmitOutput {
     pub sv: String,
     /// Ayrı modda kontratlı her modül için bir .sva içeriği.
     pub sva_files: Vec<SvaFile>,
+    /// Üretilen her property'nin kimliği (F4b — sby FAIL eşlemesi).
+    pub sva_props: Vec<SvaProp>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -202,6 +206,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         source_name,
         sva_mode: mode,
         sva_files: Vec::new(),
+        sva_props: Vec::new(),
     };
 
     let mut modules = Vec::new();
@@ -221,6 +226,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
     EmitOutput {
         sv,
         sva_files: emitter.sva_files,
+        sva_props: emitter.sva_props,
         diagnostics: emitter.diagnostics,
     }
 }
@@ -278,6 +284,7 @@ pub(crate) struct Emitter<'a> {
     pub(crate) source_name: &'a str,
     pub(crate) sva_mode: SvaMode,
     pub(crate) sva_files: Vec<SvaFile>,
+    pub(crate) sva_props: Vec<SvaProp>,
 }
 
 impl<'a> Emitter<'a> {
@@ -384,6 +391,11 @@ impl<'a> Emitter<'a> {
             SvaMode::None => {}
             SvaMode::Inline => {
                 if let Some(block) = self.sva_properties(module, &clocks, 4) {
+                    body_chunks.push(block);
+                }
+            }
+            SvaMode::Immediate => {
+                if let Some(block) = self.sva_immediate(module, &clocks, 4) {
                     body_chunks.push(block);
                 }
             }

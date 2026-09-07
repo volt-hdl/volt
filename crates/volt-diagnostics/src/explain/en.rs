@@ -465,6 +465,17 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         .with_note("Linear types are a V1 feature; this check is inactive in F-series versions."),
 
         // ─── Behavioral contracts ───
+        E5001 => Explanation::new(
+            "Contract violated",
+            "Formal verification found an execution that breaks a contract of this module.",
+            "A contract (invariant/ensures/assert) is a promise about every reachable state of the design. 'volt verify' asked SymbiYosys to prove it; instead the solver constructed a concrete input sequence — a counterexample — that drives the design into a state where the contract is false. This is not a tool artifact: the RTL as written really can reach that state.\n\nInspect the counterexample waveform (.vcd) to see the exact cycle-by-cycle path, then either fix the logic or, if the scenario is genuinely impossible in the real environment, exclude it with a 'requires'/'assume' contract on the inputs.",
+            "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: violated at cycle 7\n}",
+            "// 1) Fix the logic so busy and done are never high together, or\n// 2) constrain the environment:\nrequires: !(start && abort)",
+        )
+        .with_note(
+            "The counterexample .vcd is written next to the .sby file under build/formal/. Open it with 'gtkwave' or 'surfer'. BMC only explores up to --depth cycles; a pass at depth N is not a full proof — use --mode prove for unbounded induction.",
+        )
+        .with_docs(&["https://volthdl.org/guide/verify"]),
         E5004 => Explanation::new(
             "Contract expression is not Bool",
             "requires/ensures/invariant/cover/assert/assume conditions must be Bool expressions.",

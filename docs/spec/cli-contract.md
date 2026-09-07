@@ -585,6 +585,7 @@ NO_COLOR=1 volt build                   → ANSI kodu yok
 
 ```
 E5xxx  Davranışsal Kontratlar
+  E5001  Kontrat ihlali — formal doğrulama karşı örnek buldu (çıkış kodu 6)
   E5004  Kontrat ifadesi Bool değil
 
 E6xxx  Bütçe ve Zamanlama

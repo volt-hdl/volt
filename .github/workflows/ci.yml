@@ -52,6 +52,28 @@ jobs:
       - name: Tutarlılık denetimi
         run: just consistency
 
+  verify:
+    name: Formal doğrulama (opsiyonel)
+    runs-on: ubuntu-latest
+    # Opsiyonel: harici araç zinciri (yosys + sby + z3) CI'yı kırmamalı;
+    # lokal testlerde sby yoksa ilgili testler zaten SKIP eder.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: OSS CAD Suite kur (yosys + sby + çözücüler)
+        uses: YosysHQ/setup-oss-cad-suite@v3
+      - name: Kanıtlanabilir invariant → çıkış 0
+        run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
+      - name: İhlal edilen invariant → çıkış 6 + karşı örnek
+        run: |
+          set +e
+          cargo run --bin volt -- verify tests/ui/fail/24_violated_invariant.volt
+          code=$?
+          echo "volt verify çıkış kodu: $code"
+          test "$code" -eq 6
+
   coverage:
     name: Kapsam (bilgi amaçlı)
     runs-on: ubuntu-latest

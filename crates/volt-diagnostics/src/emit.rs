@@ -73,6 +73,7 @@ pub fn render_human(diag: &Diagnostic, map: &SourceMap) -> String {
         .map(|n| match n.kind {
             NoteKind::Reason => format!("{} {}", keys.reason, n.text),
             NoteKind::Note => format!("{} {}", keys.note, n.text),
+            NoteKind::Counterexample => format!("{} {}", keys.counterexample, n.text),
         })
         .collect();
     if let Some(help) = &diag.help {

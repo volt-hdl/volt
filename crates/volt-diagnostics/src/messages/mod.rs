@@ -64,6 +64,7 @@ pub fn message(lang: Lang, code: ErrorCode) -> &'static str {
 pub struct TemplateKeys {
     pub reason: &'static str,
     pub note: &'static str,
+    pub counterexample: &'static str,
     pub help: &'static str,
     pub for_more: &'static str,
 }
@@ -73,12 +74,14 @@ pub fn keys(lang: Lang) -> TemplateKeys {
         Lang::En => TemplateKeys {
             reason: "reason:",
             note: "note:",
+            counterexample: "counterexample:",
             help: "help:",
             for_more: "for more:",
         },
         Lang::Tr => TemplateKeys {
             reason: "neden:",
             note: "not:",
+            counterexample: "karşı örnek:",
             help: "çözüm:",
             for_more: "daha fazla:",
         },

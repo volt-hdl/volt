@@ -664,6 +664,480 @@ fn build_sva_inline_embeds_properties_in_sv() {
     let _ = std::fs::remove_dir_all(&target);
 }
 
+// ═══ F4b — volt verify (SymbiYosys entegrasyonu) ══════════════════
+
+/// PATH'te gerçek sby var mı? (Gerçek-araç testleri yoksa SKIP eder.)
+fn sby_on_path() -> bool {
+    std::env::var_os("PATH")
+        .map(|p| {
+            std::env::split_paths(&p)
+                .any(|d| d.join("sby").is_file() || d.join("sby.exe").is_file())
+        })
+        .unwrap_or(false)
+}
+
+/// Sahte sby: verilen satırları basıp verilen kodla çıkan betik.
+/// `volt verify` VOLT_SBY üzerinden bunu çağırır — sby kurulu olmayan
+/// ortamda FAIL/PASS yorumlama yolları uçtan uca test edilir.
+#[cfg(windows)]
+fn write_fake_sby(dir: &std::path::Path, body: &[&str], exit: i32) -> PathBuf {
+    let path = dir.join("sby.bat");
+    let mut script = String::from("@echo off\r\n");
+    for line in body {
+        script.push_str(line);
+        script.push_str("\r\n");
+    }
+    script.push_str(&format!("exit /b {exit}\r\n"));
+    std::fs::write(&path, script).expect("sahte sby yazılmalı");
+    path
+}
+
+#[cfg(unix)]
+fn write_fake_sby(dir: &std::path::Path, body: &[&str], exit: i32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("sby");
+    let mut script = String::from("#!/bin/sh\n");
+    for line in body {
+        script.push_str(line);
+        script.push_str("\n");
+    }
+    script.push_str(&format!("exit {exit}\n"));
+    std::fs::write(&path, script).expect("sahte sby yazılmalı");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    path
+}
+
+/// FAIL basan sahte sby; `leakycounter` çalışma dizinine iz de yazar.
+fn fake_fail_sby(dir: &std::path::Path) -> PathBuf {
+    #[cfg(windows)]
+    let body = [
+        "mkdir leakycounter\\engine_0 2>nul",
+        "echo dummy> leakycounter\\engine_0\\trace.vcd",
+        "echo SBY [leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..",
+        "echo SBY [leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: leakycounter.sv:9999.1-9999.5",
+        "echo SBY [leakycounter] DONE (FAIL, rc=2)",
+    ];
+    #[cfg(unix)]
+    let body = [
+        "mkdir -p leakycounter/engine_0",
+        "echo dummy > leakycounter/engine_0/trace.vcd",
+        "echo 'SBY [leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..'",
+        "echo 'SBY [leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: leakycounter.sv:9999.1-9999.5'",
+        "echo 'SBY [leakycounter] DONE (FAIL, rc=2)'",
+    ];
+    write_fake_sby(dir, &body, 2)
+}
+
+/// PASS basan sahte sby.
+fn fake_pass_sby(dir: &std::path::Path) -> PathBuf {
+    #[cfg(windows)]
+    let body = ["echo SBY [boundedcounter] DONE (PASS, rc=0)"];
+    #[cfg(unix)]
+    let body = ["echo 'SBY [boundedcounter] DONE (PASS, rc=0)'"];
+    write_fake_sby(dir, &body, 0)
+}
+
+#[test]
+fn verify_missing_file_exit_3() {
+    let output = volt()
+        .args(["verify", "boyle-bir-dosya-yok.volt"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
+fn verify_compile_error_exit_1() {
+    let target = temp_dir("verify-compile-err");
+    let bad = target.join("bozuk.volt");
+    std::fs::write(&bad, "module M { in a : }").expect("yazılmalı");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(&bad)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_without_sby_prints_install_help_exit_3() {
+    let target = temp_dir("verify-no-sby");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env("PATH", "")
+        .env_remove("VOLT_SBY")
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SymbiYosys not found"), "stderr: {stderr}");
+    assert!(stderr.contains("= reason:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("apt install yosys z3, then pip install symbiyosys"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("docker pull hdlc/formal"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("use WSL or Docker"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("'volt build' and 'volt check' do not need SymbiYosys"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("= for more: volt explain verify-setup"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_without_sby_turkish_install_help() {
+    let target = temp_dir("verify-no-sby-tr");
+    let output = volt()
+        .args(["verify", "--lang=tr", "--target-dir"])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env("PATH", "")
+        .env_remove("VOLT_SBY")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SymbiYosys bulunamadı"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("= çözüm: kurulum seçenekleri:"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("= daha fazla: volt explain verify-setup"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_writes_sby_and_formal_sv_before_tool_lookup() {
+    // Yapıtlar sby aranmadan ÖNCE üretilir — sby'siz ortam da .sby görür.
+    let target = temp_dir("verify-artifacts");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env("PATH", "")
+        .env_remove("VOLT_SBY")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(3), "sby yok → 3");
+
+    let sby = std::fs::read_to_string(target.join("formal").join("boundedcounter.sby"))
+        .expect("boundedcounter.sby üretilmeli");
+    assert!(sby.starts_with("[options]\nmode bmc\ndepth 20\n"), "{sby}");
+    assert!(sby.contains("[engines]\nsmtbmc z3\n"), "{sby}");
+    assert!(sby.contains("read -formal boundedcounter.sv"), "{sby}");
+    assert!(sby.contains("prep -top BoundedCounter"), "{sby}");
+    assert!(sby.contains("[files]\nboundedcounter.sv"), "{sby}");
+
+    let sv = std::fs::read_to_string(target.join("formal").join("boundedcounter.sv"))
+        .expect("boundedcounter.sv üretilmeli");
+    // Yosys uyumu: immediate assertion + '// volt:' işareti; property
+    // blokları Yosys'te ayrıştırılamıyor (bkz. volt-sv-emit/src/sby.rs).
+    assert!(sv.contains("// volt:inv_0"), "{sv}");
+    assert!(sv.contains("assert ("), "{sv}");
+    assert!(!sv.contains("property inv_0;"), "{sv}");
+    assert!(sv.contains("initial assume (rst);"), "{sv}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_depth_engine_mode_flags_change_sby() {
+    let target = temp_dir("verify-flags");
+    let _ = volt()
+        .args([
+            "verify",
+            "--depth",
+            "33",
+            "--engine",
+            "boolector",
+            "--mode",
+            "prove",
+            "--target-dir",
+        ])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env("PATH", "")
+        .env_remove("VOLT_SBY")
+        .output()
+        .expect("volt çalışmalı");
+    let sby = std::fs::read_to_string(target.join("formal").join("boundedcounter.sby"))
+        .expect("boundedcounter.sby üretilmeli");
+    assert!(sby.contains("mode prove\n"), "{sby}");
+    assert!(sby.contains("depth 33\n"), "{sby}");
+    assert!(sby.contains("smtbmc boolector\n"), "{sby}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_no_contracts_is_note_exit_0() {
+    let target = temp_dir("verify-no-contracts");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(fixtures().join("counter.volt"))
+        .env("PATH", "")
+        .env_remove("VOLT_SBY")
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no contracts found"), "stderr: {stderr}");
+    assert!(
+        !target.join("formal").exists(),
+        "kontratsız tasarım formal çıktı üretmemeli"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_fake_sby_pass_exit_0() {
+    let target = temp_dir("verify-fake-pass");
+    let sby = fake_pass_sby(&target);
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env("VOLT_SBY", &sby)
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("1 property verified"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_fake_sby_fail_exit_6_with_counterexample() {
+    let target = temp_dir("verify-fake-fail");
+    let sby = fake_fail_sby(&target);
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("fail/24_violated_invariant.volt"))
+        .env("VOLT_SBY", &sby)
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E5001]"), "stderr: {stderr}");
+    assert!(stderr.contains("contract violated"), "stderr: {stderr}");
+    // Karşı örnek gösterimi: döngü etiketi, vcd yolu, açma yardımı.
+    assert!(stderr.contains("violated at cycle 7"), "stderr: {stderr}");
+    assert!(stderr.contains("= counterexample:"), "stderr: {stderr}");
+    assert!(stderr.contains("leakycounter_cex.vcd"), "stderr: {stderr}");
+    assert!(stderr.contains("gtkwave"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("= for more: volt explain E5001"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        target.join("formal").join("leakycounter_cex.vcd").is_file(),
+        "karşı örnek vcd kopyalanmalı"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_fake_sby_fail_turkish_counterexample() {
+    let target = temp_dir("verify-fake-fail-tr");
+    let sby = fake_fail_sby(&target);
+    let output = volt()
+        .args(["verify", "--lang=tr", "--target-dir"])
+        .arg(&target)
+        .arg(ui("fail/24_violated_invariant.volt"))
+        .env("VOLT_SBY", &sby)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(6));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E5001]"), "stderr: {stderr}");
+    assert!(stderr.contains("kontrat ihlal edildi"), "stderr: {stderr}");
+    assert!(stderr.contains("= karşı örnek:"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_fake_sby_fail_json_reports_e5001() {
+    let target = temp_dir("verify-fake-fail-json");
+    let sby = fake_fail_sby(&target);
+    let output = volt()
+        .args(["verify", "--format", "json", "--target-dir"])
+        .arg(&target)
+        .arg(ui("fail/24_violated_invariant.volt"))
+        .env("VOLT_SBY", &sby)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(6));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let envelope: serde_json::Value = serde_json::from_str(&stdout).expect("JSON zarfı");
+    assert_eq!(envelope["command"], "verify");
+    assert_eq!(envelope["success"], false);
+    assert_eq!(envelope["diagnostics"][0]["code"], "E5001");
+    let artifacts = envelope["artifacts"].as_array().expect("artifacts");
+    assert!(
+        artifacts
+            .iter()
+            .any(|a| a.as_str().unwrap_or("").ends_with("leakycounter.sby")),
+        "{artifacts:?}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_provable_invariant_with_real_sby() {
+    // Gerçek araç testi: sby kurulu değilse SKIP (CI'da opsiyonel job koşar).
+    if !sby_on_path() {
+        eprintln!("SKIP: sby PATH'te yok — kurulum için 'volt explain verify-setup'");
+        return;
+    }
+    let target = temp_dir("verify-real-pass");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("pass/23_provable_invariant.volt"))
+        .env_remove("VOLT_SBY")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn verify_violated_invariant_with_real_sby_exit_6() {
+    if !sby_on_path() {
+        eprintln!("SKIP: sby PATH'te yok — kurulum için 'volt explain verify-setup'");
+        return;
+    }
+    let target = temp_dir("verify-real-fail");
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("fail/24_violated_invariant.volt"))
+        .env_remove("VOLT_SBY")
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E5001]"), "stderr: {stderr}");
+    assert!(stderr.contains("= counterexample:"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+// ═══ F4b — volt explain: E5001 ve verify-setup konusu ═════════════
+
+#[test]
+fn explain_e5001_exit_0_with_spec_structure() {
+    let output = volt()
+        .args(["explain", "E5001"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("E5001: "), "stdout: {stdout}");
+    assert!(stdout.contains("WHY THIS IS A PROBLEM"), "stdout: {stdout}");
+    assert!(stdout.contains("counterexample"), "stdout: {stdout}");
+    assert!(stdout.contains("gtkwave"), "stdout: {stdout}");
+    assert!(stdout.contains("https://volthdl.org/errors/E5001"));
+}
+
+#[test]
+fn explain_verify_setup_topic_exit_0() {
+    let output = volt()
+        .args(["explain", "verify-setup"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("verify-setup: "), "stdout: {stdout}");
+    assert!(stdout.contains("INSTALL"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("pip install symbiyosys"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("docker pull hdlc/formal"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("VOLT_SBY"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_verify_setup_turkish() {
+    let output = volt()
+        .args(["explain", "--lang=tr", "verify-setup"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("KURULUM"), "stdout: {stdout}");
+    assert!(stdout.contains("WSL ya da Docker"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_unknown_topic_still_exit_2() {
+    let output = volt()
+        .args(["explain", "boyle-konu-yok"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "bilinmeyen konu stdout üretmemeli"
+    );
+}
+
 #[test]
 fn build_without_emit_sva_stays_rtl_only() {
     let target = temp_dir("no-sva");

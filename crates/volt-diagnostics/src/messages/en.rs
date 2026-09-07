@@ -84,6 +84,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4004 => "Linear port never consumed [V1]",
 
         // ─── Behavioral contracts ───
+        E5001 => "Contract violated (formal verification found a counterexample)",
         E5004 => "Contract expression is not Bool",
 
         // ─── Budget and timing contracts ───

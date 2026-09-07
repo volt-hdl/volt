@@ -1666,7 +1666,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_22_of_22_parse_clean() {
+fn ui_pass_all_23_of_23_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1689,13 +1689,13 @@ fn ui_pass_all_22_of_22_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 22, "ui/pass 22 dosya içermeli");
+    assert_eq!(total, 23, "ui/pass 23 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
-    // artık tamamı temiz ayrışmalı.
+    // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi.
     assert_eq!(
-        clean, 22,
-        "22/22 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 23,
+        "23/23 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
