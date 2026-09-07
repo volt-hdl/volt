@@ -1,11 +1,11 @@
 //~ E2021
-// Tip pozisyonunda çalışma zamanı değeri.
-// Tip genişlikleri derleme zamanında bilinmeli.
+// Runtime value in a type position.
+// Type widths must be known at compile time.
 
 module RuntimeInType {
     in  width_sig : u8
     in  data      : bits<width_sig>
-    //~^ ERROR sabit ifade bekleniyor
+    //~^ ERROR expected a constant expression
     out r         : u8
 
     r = 0

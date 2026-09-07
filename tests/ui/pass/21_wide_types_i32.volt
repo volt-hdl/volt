@@ -1,4 +1,4 @@
-// Geniş işaretli ve işaretsiz tipler
+// Wide signed and unsigned types
 module WideTypes {
     in  clk : clock
     in  a   : i32

@@ -1,5 +1,5 @@
 //~ E0008
-// if ifadesinde else eksik — latch riski.
+// Missing else in an if expression -- latch risk.
 
 module MissingElse {
     in  cond : bool
@@ -7,5 +7,5 @@ module MissingElse {
     out r    : u8
 
     r = if cond { a }
-    //~^ ERROR 'if' ifadesinde 'else' dalı zorunlu
+    //~^ ERROR 'if' expression requires an 'else' branch
 }

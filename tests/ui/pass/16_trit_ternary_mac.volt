@@ -1,5 +1,5 @@
-// Ternary MAC deseni — Trit × INT8
-// type-inference.md §3.3
+// Ternary MAC pattern -- Trit x INT8
+// type-inference.md sec. 3.3
 module TernaryMac {
     in  clk    : clock
     in  weight : Trit
@@ -8,7 +8,7 @@ module TernaryMac {
 
     reg accum : i16 = 0
 
-    // Trit * i8 → i8 (ternary MAC kuralı)
+    // Trit * i8 -> i8 (ternary MAC rule)
     let product = weight * act
 
     on clk {

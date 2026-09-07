@@ -1,4 +1,4 @@
-// Minimal modül: sadece bir port bağlantısı
+// Minimal module: just a single port connection
 module Passthrough {
     in  a : u8
     out b : u8

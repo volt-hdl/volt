@@ -1,5 +1,5 @@
 //~ E0007
-// Kombinasyonel blokta '<=' kullanıldı, '=' olmalı.
+// '<=' used in a combinational block; it should be '='.
 
 module CombWrongOperator {
     in  a : u8
@@ -8,6 +8,6 @@ module CombWrongOperator {
 
     comb {
         r <= a + b
-        //~^ ERROR kombinasyonel blokta '<=' kullanılamaz
+        //~^ ERROR '<=' cannot be used in a combinational block
     }
 }

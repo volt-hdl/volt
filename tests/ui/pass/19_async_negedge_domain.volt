@@ -1,5 +1,5 @@
-// Asenkron reset, negedge saat, aktif-düşük
-// sv-mapping.md §7 — tüm reset varyantları
+// Async reset, negedge clock, active-low
+// sv-mapping.md sec. 7 -- all reset variants
 domain UsbDomain {
     clock = negedge
     reset = async active_low

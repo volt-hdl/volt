@@ -1,4 +1,4 @@
-// Koşullu ifade ve mantıksal operatörler
+// Conditional expression and logical operators
 module Mux {
     in  sel : bool
     in  a   : u8

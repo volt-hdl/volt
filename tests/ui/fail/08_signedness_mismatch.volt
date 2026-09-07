@@ -1,6 +1,6 @@
 //~ E2002
-// İşaretli ve işaretsiz karıştırılamaz.
-// type-inference.md §3.3
+// Signed and unsigned cannot be mixed.
+// type-inference.md section 3.3
 
 module SignednessMismatch {
     in  a : u8
@@ -8,5 +8,5 @@ module SignednessMismatch {
     out r : i16
 
     r = (a + b) as i16
-    //~^ ERROR işaretli ve işaretsiz karıştırılamaz
+    //~^ ERROR cannot mix signed and unsigned
 }

@@ -1,5 +1,5 @@
 //~ E4001
-// Aynı sinyale iki farklı yerden atama yapılıyor.
+// The same signal is assigned from two different places.
 
 module DoubleDriver {
     in  a : u8
@@ -8,5 +8,5 @@ module DoubleDriver {
 
     y = a
     y = b
-    //~^ ERROR 'y' zaten sürülüyor (satır 8)
+    //~^ ERROR 'y' is already driven (line 8)
 }

@@ -1,6 +1,6 @@
 //~ E0006
-// Sıralı blokta '=' kullanıldı, '<=' olmalı.
-// Bu Verilog'un en yaygın hatalarından biri.
+// '=' used in a sequential block; it should be '<='.
+// This is one of the most common Verilog mistakes.
 
 module WrongAssign {
     in  clk : clock
@@ -10,7 +10,7 @@ module WrongAssign {
 
     on clk {
         r = r + 1
-        //~^ ERROR sıralı blokta '=' kullanılamaz
+        //~^ ERROR '=' cannot be used in a sequential block
     }
 
     y = r

@@ -1,4 +1,4 @@
-// Modül örnekleme ve port bağlama
+// Module instantiation and port binding
 module Adder {
     in  a : u8
     in  b : u8

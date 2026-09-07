@@ -1,9 +1,9 @@
 //~ E2020
-// Döngüsel sabit bağımlılığı.
-// const-eval.md §5
+// Cyclic constant dependency.
+// const-eval.md section 5
 
 const A : u32 = B + 1;
-//~^ ERROR döngüsel sabit bağımlılığı
+//~^ ERROR cyclic constant dependency
 const B : u32 = A + 1;
 
 module CyclicConst {

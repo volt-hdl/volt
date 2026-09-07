@@ -1,4 +1,4 @@
-// Bit düzeyi operatörler genişlemez
+// Bitwise operators do not widen
 module BitwiseOps {
     in  a : u8
     in  b : u8

@@ -1,10 +1,10 @@
 //~ E2006
-// Bit indeksi sınır dışı.
+// Bit index out of bounds.
 
 module IndexOutOfBounds {
     in  data : u8
     out bit  : bool
 
     bit = data[9]
-    //~^ ERROR indeks 9 sınır dışı (genişlik 8)
+    //~^ ERROR index 9 out of bounds (width 8)
 }

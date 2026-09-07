@@ -1,13 +1,13 @@
-// Açık tip dönüşümü — örtük genişleme yasak
+// Explicit type cast — implicit widening is forbidden
 module ExplicitCast {
     in  small : u8
     in  large : u16
     out sum   : u17
     out narrow: u8
 
-    // Genişletme: as ile açık
+    // Widening: explicit via as
     sum = (small as u16) + large
 
-    // Daraltma: as ile açık (uyarı üretir ama geçerli)
+    // Narrowing: explicit via as (produces a warning but is valid)
     narrow = large as u8
 }

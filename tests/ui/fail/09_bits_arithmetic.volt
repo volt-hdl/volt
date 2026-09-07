@@ -1,6 +1,6 @@
 //~ E2004
-// bits<N> tipinde aritmetik yapılamaz.
-// bits ham bit vektörüdür, sayısal değil.
+// Arithmetic cannot be performed on bits<N>.
+// bits is a raw bit vector, not a number.
 
 module BitsArithmetic {
     in  a : bits<8>
@@ -8,5 +8,5 @@ module BitsArithmetic {
     out r : bits<8>
 
     r = a + b
-    //~^ ERROR bits<N> tipinde aritmetik yapılamaz
+    //~^ ERROR cannot perform arithmetic on bits<N>
 }

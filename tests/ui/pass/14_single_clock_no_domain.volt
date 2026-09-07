@@ -1,5 +1,5 @@
-// Tek saat kuralı: domain hiç yazılmıyor
-// domain-inference.md K2 — UX Anayasası ilkesi
+// Single-clock rule: no domain is ever written
+// domain-inference.md K2 -- UX Constitution principle
 module SingleClock {
     in  clk    : clock
     in  enable : bool
@@ -8,7 +8,7 @@ module SingleClock {
 
     reg buffer : u8 = 0
 
-    // Hiçbir yerde @Domain yok — çıkarım yapılıyor
+    // No @Domain anywhere -- it is inferred
     on clk {
         if enable {
             buffer <= data

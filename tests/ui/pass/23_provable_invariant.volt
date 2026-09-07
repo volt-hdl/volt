@@ -1,6 +1,6 @@
-// Kanıtlanabilir invariant (F4b): sayaç 10'da sarar, bu yüzden
-// count_r <= 10 erişilebilir her durumda doğrudur. 'volt verify'
-// bmc/prove kipinde bu tasarımı çıkış kodu 0 ile geçirmelidir.
+// Provable invariant (F4b): the counter wraps around at 10, so
+// count_r <= 10 holds in every reachable state. 'volt verify'
+// must pass this design with exit code 0 in bmc/prove mode.
 
 module BoundedCounter {
     in  clk    : clock

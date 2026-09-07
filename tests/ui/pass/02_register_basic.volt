@@ -1,4 +1,4 @@
-// Temel register: her saat kenarında artıyor
+// Basic register: increments on every clock edge
 module Counter {
     in  clk : clock
     out result : u8

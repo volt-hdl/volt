@@ -1,12 +1,12 @@
 //~ E4002
-// Çıkış portu hiç sürülmüyor.
+// The output port is never driven.
 
 module UndrivenOutput {
     in  a : u8
     out y : u8
     out z : u8
-    //~^ ERROR 'z' çıkış portu sürülmüyor
+    //~^ ERROR output port 'z' is not driven
 
     y = a
-    // z hiç atanmadı
+    // z is never assigned
 }

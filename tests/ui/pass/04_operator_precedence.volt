@@ -1,4 +1,4 @@
-// Operatör önceliği: docs/spec/operator-precedence.md
+// Operator precedence: docs/spec/operator-precedence.md
 module Precedence {
     in  a : u8
     in  b : u8

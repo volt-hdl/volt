@@ -1,6 +1,6 @@
 //~ E2001
-// Bit genişliği uyumsuzluğu: örtük genişleme yok.
-// Açık dönüşüm (as) gerekli.
+// Bit width mismatch: there is no implicit widening.
+// An explicit cast (as) is required.
 
 module WidthMismatch {
     in  small : u8
@@ -8,5 +8,5 @@ module WidthMismatch {
     out sum   : u16
 
     sum = small + large
-    //~^ ERROR bit genişliği uyumsuzluğu: u8 ve u16
+    //~^ ERROR bit width mismatch: u8 and u16
 }

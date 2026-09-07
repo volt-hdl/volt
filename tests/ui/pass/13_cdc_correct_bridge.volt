@@ -1,4 +1,4 @@
-// Doğru CDC köprüsü — sync() ile geçiş
+// Correct CDC bridge -- crossing via sync()
 // domain-inference.md K9
 domain Fast {
     clock = posedge
@@ -16,6 +16,6 @@ module CdcBridge {
     in  fast_flag : bool  @Fast
     out slow_flag : bool  @Slow
 
-    // Tek bit sinyal için iki-flop senkronizasyon
+    // Two-flop synchronization for a single-bit signal
     slow_flag = sync(fast_flag, slow_clk)
 }

@@ -1,5 +1,5 @@
 //~ E3011
-// Aynı register iki farklı 'on' bloğundan yazılıyor.
+// The same register is written from two different 'on' blocks.
 // domain-inference.md K4
 
 domain Fast { clock = posedge, reset = sync active_high }
@@ -13,7 +13,7 @@ module RegisterTwoDomains {
     out r : u8 @Fast
 
     reg shared : u8 = 0
-    //~^ ERROR register birden fazla saat alanından yazılıyor
+    //~^ ERROR register is written from more than one clock domain
 
     on fast_clk { shared <= a }
     on slow_clk { shared <= b }

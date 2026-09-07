@@ -1,6 +1,6 @@
 //~ E3001
-// İki farklı saat alanı arasında doğrudan bağlantı.
-// sync() köprüsü olmadan geçiş yapılamaz.
+// Direct connection between two different clock domains.
+// Crossing is not allowed without a sync() bridge.
 
 domain Fast {
     clock = posedge
@@ -19,5 +19,5 @@ module CdcViolation {
     out slow_data : u8    @Slow
 
     slow_data = fast_data
-    //~^ ERROR iki farklı saat alanı doğrudan bağlanamaz
+    //~^ ERROR direct assignment between clock domains
 }

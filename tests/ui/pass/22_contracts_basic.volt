@@ -1,7 +1,7 @@
-// Kontrat sistemi (F4a): requires + ensures + invariant + cover.
-// Tip kontrolü (E5004), kapsam kuralları ve SVA üretimi bu modülü
-// temel alır: requires/ensures portları, invariant register'ları,
-// cover ikisini birden görür.
+// Contract system (F4a): requires + ensures + invariant + cover.
+// Type checking (E5004), scoping rules, and SVA generation build on
+// this module: requires/ensures see the ports, invariant sees the
+// registers, and cover sees both of them.
 
 module SpiCtrl {
     in  clk   : clock

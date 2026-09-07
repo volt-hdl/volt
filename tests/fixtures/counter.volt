@@ -1,5 +1,5 @@
-/// 8-bit yukarı sayaç
-/// enable yüksekken her saat kenarında artar
+/// 8-bit up counter
+/// Increments on each clock edge while enable is high
 module Counter {
     in  clk    : clock
     in  enable : bool

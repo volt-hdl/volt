@@ -1,6 +1,6 @@
 //~ E0010
-// Karşılaştırma operatörleri zincirlenemez.
-// Matematiksel yanılgıyı önlemek için yasak.
+// Comparison operators cannot be chained.
+// Forbidden to prevent the mathematical fallacy.
 
 module ComparisonChain {
     in  a : u8
@@ -9,5 +9,5 @@ module ComparisonChain {
     out r : bool
 
     r = a < b < c
-    //~^ ERROR karşılaştırma operatörleri zincirlenemez
+    //~^ ERROR comparison operators cannot be chained
 }

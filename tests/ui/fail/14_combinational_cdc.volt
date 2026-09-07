@@ -1,6 +1,6 @@
 //~ E3001
-// Kombinasyonel ifadede saat alanı karışımı.
-// domain-inference.md K5 — glitch riski
+// Clock domain mixing in a combinational expression.
+// domain-inference.md K5 -- glitch risk
 
 domain Fast { clock = posedge, reset = sync active_high }
 domain Slow { clock = posedge, reset = sync active_high }
@@ -13,5 +13,5 @@ module CombinationalCdc {
     out result   : bool  @Slow
 
     result = fast_sig & slow_sig
-    //~^ ERROR farklı saat alanları kombinasyonel olarak birleşemez
+    //~^ ERROR different clock domains cannot be combined combinationally
 }

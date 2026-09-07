@@ -1,4 +1,4 @@
-// wire bildirimi ve geniş tipler
+// wire declaration and wide types
 module WireAndWidths {
     in  clk : clock
     in  a   : u32

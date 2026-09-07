@@ -1,4 +1,4 @@
-// Aritmetik taşma genişlemesi kuralları
+// Arithmetic overflow widening rules
 // type-inference.md §3.3
 module ArithWidening {
     in  a : u8

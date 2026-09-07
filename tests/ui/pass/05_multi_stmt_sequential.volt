@@ -1,4 +1,4 @@
-// Çok deyimli sıralı blok, iç içe koşul
+// Multi-statement sequential block, nested conditional
 module Accumulator {
     in  clk    : clock
     in  enable : bool

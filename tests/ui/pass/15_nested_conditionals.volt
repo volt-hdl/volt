@@ -1,4 +1,4 @@
-// İç içe koşullar, else zorunluluğu
+// Nested conditionals, mandatory else
 module NestedCond {
     in  a : bool
     in  b : bool
@@ -7,7 +7,7 @@ module NestedCond {
     in  y : u8
     out r : u8
 
-    // if ifadesinde else ZORUNLU (E0008 önleme)
+    // else is MANDATORY in an if expression (prevents E0008)
     r = if a {
             if b { x } else { y }
         } else {

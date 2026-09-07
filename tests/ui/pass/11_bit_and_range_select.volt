@@ -1,4 +1,4 @@
-// Bit ve aralık seçimi
+// Bit and range select
 module BitSelect {
     in  data : u8
     out msb  : bool

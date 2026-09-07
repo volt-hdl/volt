@@ -1,4 +1,4 @@
-// İşaretli aritmetik ve negasyon
+// Signed arithmetic and negation
 module SignedMath {
     in  a : i8
     in  b : i8

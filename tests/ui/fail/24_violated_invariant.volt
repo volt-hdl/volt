@@ -1,8 +1,8 @@
 //~ E5001
-// İhlal edilen invariant (F4b): sayaç 10'a kadar çıkabildiği halde
-// kontrat 5'in altında kalacağını iddia ediyor. Bu dosya DERLEMEDEN
-// geçer — ihlali derleyici değil 'volt verify' (SymbiYosys karşı
-// örneği, çıkış kodu 6) yakalar; beklenen kod bu yüzden E5001'dir.
+// Violated invariant (F4b): even though the counter can climb to 10,
+// the contract claims it stays below 5. This file passes COMPILATION --
+// the violation is caught not by the compiler but by 'volt verify'
+// (SymbiYosys counterexample, exit code 6); hence the expected code is E5001.
 
 module LeakyCounter {
     in  clk    : clock

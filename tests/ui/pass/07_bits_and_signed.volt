@@ -1,4 +1,4 @@
-// bits<N> tipi ve işaretli aritmetik
+// bits<N> type and signed arithmetic
 module BitsAndSigned {
     in  clk   : clock
     in  flags : bits<4>
@@ -8,7 +8,7 @@ module BitsAndSigned {
 
     reg acc : i16 = 0
 
-    // bits<N> üzerinde bit seçimi
+    // Bit select on bits<N>
     sel = flags[2]
 
     on clk {
