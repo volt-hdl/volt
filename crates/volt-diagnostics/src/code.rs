@@ -72,6 +72,14 @@ impl ErrorCode {
         messages::message(messages::lang(), *self)
     }
 
+    /// "E3001" biçimindeki metni koda çevirir (büyük/küçük harf
+    /// duyarsız). Tanınmayan kod için `None` — `volt explain` çıkış
+    /// kodu 2 ile öneri üretir.
+    pub fn parse(s: &str) -> Option<ErrorCode> {
+        let upper = s.trim().to_ascii_uppercase();
+        ErrorCode::ALL.iter().copied().find(|c| c.as_str() == upper)
+    }
+
     /// W ile başlayan kodlar uyarıdır.
     pub fn is_warning(&self) -> bool {
         self.as_str().starts_with('W')

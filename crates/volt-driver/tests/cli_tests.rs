@@ -405,6 +405,148 @@ fn same_error_code_in_both_languages() {
     assert!(tr_err.contains("= çözüm:"), "tr stderr: {tr_err}");
 }
 
+// ═══ volt explain (cli-contract.md §9) ════════════════════════════
+
+#[test]
+fn explain_e3001_exit_0_with_spec_structure() {
+    let output = volt()
+        .args(["explain", "E3001"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // §9 yapısı: başlık, neden, örnek, çözüm, docs linki (stdout, §11).
+    assert!(stdout.starts_with("E3001: "), "stdout: {stdout}");
+    assert!(stdout.contains("WHY THIS IS A PROBLEM"), "stdout: {stdout}");
+    assert!(stdout.contains("EXAMPLE"), "stdout: {stdout}");
+    assert!(stdout.contains("SOLUTION"), "stdout: {stdout}");
+    assert!(stdout.contains("FOR MORE"), "stdout: {stdout}");
+    assert!(stdout.contains("https://volthdl.org/errors/E3001"));
+    assert!(stdout.contains("sync("), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_unknown_code_exit_2() {
+    let output = volt()
+        .args(["explain", "E9999"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown code 'E9999'"), "stderr: {stderr}");
+    assert!(output.stdout.is_empty(), "bilinmeyen kod stdout üretmemeli");
+}
+
+#[test]
+fn explain_unknown_code_turkish_message() {
+    let output = volt()
+        .args(["explain", "--lang=tr", "E9999"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("bilinmeyen kod 'E9999'"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn explain_typo_gets_suggestion() {
+    let output = volt()
+        .args(["explain", "E1000"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("did you mean 'E1001'?"), "stderr: {stderr}");
+}
+
+#[test]
+fn explain_lang_tr_renders_turkish_sections() {
+    let output = volt()
+        .args(["explain", "--lang=tr", "E3001"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("NEDEN SORUN"), "stdout: {stdout}");
+    assert!(stdout.contains("ÖRNEK"), "stdout: {stdout}");
+    assert!(stdout.contains("ÇÖZÜM"), "stdout: {stdout}");
+    assert!(stdout.contains("DAHA FAZLA"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_code_is_case_insensitive() {
+    let output = volt()
+        .args(["explain", "e3001"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("E3001: "));
+}
+
+#[test]
+fn explain_list_shows_all_codes_by_category() {
+    let output = volt()
+        .args(["explain", "--list"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for cat in ["Syntax", "Name resolution", "Warnings"] {
+        assert!(stdout.contains(cat), "kategori yok: {cat}\n{stdout}");
+    }
+    // Uçlardan örneklem: ilk kod, son kod ve aradaki kategoriler.
+    for code in ["E0001", "E3001", "E9002", "W0010", "W4002"] {
+        assert!(stdout.contains(code), "kod yok: {code}");
+    }
+}
+
+#[test]
+fn explain_without_args_is_usage_error_exit_2() {
+    let output = volt().arg("explain").output().expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn explain_wraps_prose_to_columns_env() {
+    let output = volt()
+        .args(["explain", "E3001"])
+        .env("COLUMNS", "50")
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().skip(1) {
+        if line.starts_with("  ") {
+            continue; // kod blokları ve linkler sarılmaz
+        }
+        assert!(line.chars().count() <= 50, "satır 50'yi aşıyor: {line:?}");
+    }
+}
+
+#[test]
+fn explain_color_always_emits_ansi_piped_default_does_not() {
+    let colored = volt()
+        .args(["explain", "--color=always", "E3001"])
+        .output()
+        .expect("volt çalışmalı");
+    assert!(String::from_utf8_lossy(&colored.stdout).contains('\x1b'));
+
+    // Boruya bağlı stdout'ta auto renk kapalı olmalı (§10).
+    let piped = volt()
+        .args(["explain", "E3001"])
+        .output()
+        .expect("volt çalışmalı");
+    assert!(!String::from_utf8_lossy(&piped.stdout).contains('\x1b'));
+}
+
 #[test]
 fn check_short_format_single_line_diagnostics() {
     let output = volt()

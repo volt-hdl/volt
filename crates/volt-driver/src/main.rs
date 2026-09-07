@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use volt_diagnostics::{
-    lstr, render_human, render_short, to_json_value, Diagnostic, Lang, Severity,
+    explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
 use volt_span::SourceMap;
 use volt_syntax::ParseResult;
@@ -104,6 +104,26 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
+    /// Explain a diagnostic code in detail (cli-contract.md §9)
+    Explain {
+        /// Diagnostic code, e.g. E3001 (case-insensitive)
+        #[arg(required_unless_present = "list")]
+        code: Option<String>,
+        /// List all codes grouped by category
+        #[arg(long)]
+        list: bool,
+        /// Color output: auto | always | never (default: VOLT_COLOR or auto)
+        #[arg(long, value_enum)]
+        color: Option<ColorArg>,
+    },
+}
+
+/// cli-contract.md §10: --color varsayılanı VOLT_COLOR'dan gelir.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ColorArg {
+    Auto,
+    Always,
+    Never,
 }
 
 fn main() -> ExitCode {
@@ -116,6 +136,78 @@ fn main() -> ExitCode {
             format,
         } => build(&file, &target_dir, format),
         Command::Check { file, format } => check(&file, format),
+        Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
+    }
+}
+
+/// `volt explain` — açıklama metni stdout verisidir (§11), tanılar ve
+/// kullanım hataları stderr'e gider. Bilinmeyen kod: çıkış kodu 2.
+fn explain_cmd(code: Option<&str>, list: bool, color: Option<ColorArg>) -> ExitCode {
+    let lang = volt_diagnostics::lang();
+    if list {
+        print!("{}", explain::render_list(lang));
+        return ExitCode::SUCCESS;
+    }
+    let input = code.expect("clap: code veya --list zorunlu");
+    let Some(parsed) = ErrorCode::parse(input) else {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "error: unknown code '{}'", input;
+                tr: "hata: bilinmeyen kod '{}'", input
+            )
+        );
+        if let Some(similar) = explain::suggest(input) {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "did you mean '{}'?", similar.as_str();
+                    tr: "şunu mu demek istediniz: '{}'?", similar.as_str()
+                )
+            );
+        }
+        return ExitCode::from(2);
+    };
+    print!(
+        "{}",
+        explain::render_explanation(parsed, lang, terminal_width(), use_color(color))
+    );
+    ExitCode::SUCCESS
+}
+
+/// Sarma genişliği: COLUMNS > 80 varsayılanı (§9). Alt sınırı
+/// render_explanation uygular.
+fn terminal_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(explain::DEFAULT_WIDTH)
+}
+
+/// Renk kararı: --color > VOLT_COLOR > auto. Auto modda NO_COLOR ve
+/// CI=true rengi kapatır (§10), çıktı terminal değilse de kapalıdır.
+fn use_color(flag: Option<ColorArg>) -> bool {
+    use std::io::IsTerminal;
+    let mode = flag
+        .or_else(|| {
+            std::env::var("VOLT_COLOR").ok().and_then(|v| {
+                match v.trim().to_ascii_lowercase().as_str() {
+                    "auto" => Some(ColorArg::Auto),
+                    "always" => Some(ColorArg::Always),
+                    "never" => Some(ColorArg::Never),
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or(ColorArg::Auto);
+    match mode {
+        ColorArg::Always => true,
+        ColorArg::Never => false,
+        ColorArg::Auto => {
+            std::env::var_os("NO_COLOR").is_none()
+                && std::env::var_os("CI").is_none()
+                && std::io::stdout().is_terminal()
+        }
     }
 }
 
