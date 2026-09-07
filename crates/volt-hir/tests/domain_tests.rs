@@ -405,7 +405,7 @@ fn e3001_secondary_points_to_domain_definition() {
     assert!(
         diag.spans
             .iter()
-            .any(|s| !s.primary && s.label.contains("burada tanımlı")),
+            .any(|s| !s.primary && s.label.contains("defined here")),
         "domain tanım satırına ikincil span olmalı: {diag:?}"
     );
 }
@@ -457,7 +457,7 @@ fn e3001_assign_five_parts() {
         .expect("E3001");
     diag.validate().expect("5 parça kuralı");
     assert!(
-        diag.notes.iter().any(|n| n.text.contains("metastabilite")),
+        diag.notes.iter().any(|n| n.text.contains("metastability")),
         "neden metastabiliteyi anlatmalı: {diag:?}"
     );
     assert!(

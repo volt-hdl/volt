@@ -17,7 +17,7 @@ use volt_ast::{
     ItemKind, LValue, LValueSuffix, MatchArmBody, ModuleDecl, Name, OnTrigger, Port, ResetPolarity,
     ResetSpec, ResetSync, SourceFile, Stmt, StmtKind,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
@@ -200,9 +200,9 @@ impl<'a> Inferencer<'a> {
     fn display(&self, d: DomainId) -> String {
         match self.resolve_dom(d) {
             DomainId::Explicit(id) => format!("@{}", self.domain_name(id)),
-            DomainId::Timeless => "saatsiz (sabit)".to_string(),
-            DomainId::Unresolved(_) => "<belirsiz>".to_string(),
-            DomainId::Error => "<hata>".to_string(),
+            DomainId::Timeless => lstr!(en: "clockless (constant)"; tr: "saatsiz (sabit)"),
+            DomainId::Unresolved(_) => lstr!(en: "<unresolved>"; tr: "<belirsiz>"),
+            DomainId::Error => lstr!(en: "<error>"; tr: "<hata>"),
         }
     }
 
@@ -266,9 +266,18 @@ impl<'a> Inferencer<'a> {
             DefKind::Port { .. } => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E3002,
-                    format!("'{}' bir saat alanı değil", name.text),
-                    LabeledSpan::primary(name.span, "clock tipinde değil"),
-                    "clock tipinde bir port ya da domain tanımı kullanın",
+                    lstr!(
+                        en: "'{}' is not a clock domain", name.text;
+                        tr: "'{}' bir saat alanı değil", name.text
+                    ),
+                    LabeledSpan::primary(
+                        name.span,
+                        lstr!(en: "not of clock type"; tr: "clock tipinde değil"),
+                    ),
+                    lstr!(
+                        en: "use a port of clock type or a domain definition";
+                        tr: "clock tipinde bir port ya da domain tanımı kullanın"
+                    ),
                 ));
                 DomainId::Error
             }
@@ -341,26 +350,40 @@ impl<'a> Inferencer<'a> {
 
     /// K3 — çoklu saatte anotasyonsuz sinyal (E3010, 5 parça).
     fn err_ambiguous(&mut self, name: &Name) {
+        let candidate = self.clock_candidates.first().map(|(_, d)| d.clone());
         let mut diag = Diagnostic::error(
             ErrorCode::E3010,
-            "sinyalin saat alanı belirlenemiyor",
-            LabeledSpan::primary(name.span, "hangi alana ait olduğu belirsiz"),
-            format!(
-                "açık anotasyon ekleyin: {} : <tip> {}",
-                name.text,
-                self.clock_candidates
-                    .first()
-                    .map(|(_, d)| d.clone())
-                    .unwrap_or_else(|| "@Alan".to_string())
+            lstr!(
+                en: "cannot determine the signal's clock domain";
+                tr: "sinyalin saat alanı belirlenemiyor"
+            ),
+            LabeledSpan::primary(
+                name.span,
+                lstr!(
+                    en: "ambiguous which domain this belongs to";
+                    tr: "hangi alana ait olduğu belirsiz"
+                ),
+            ),
+            lstr!(
+                en: "add an explicit annotation: {} : <type> {}",
+                    name.text,
+                    candidate.clone().unwrap_or_else(|| "@Domain".to_string());
+                tr: "açık anotasyon ekleyin: {} : <tip> {}",
+                    name.text,
+                    candidate.clone().unwrap_or_else(|| "@Alan".to_string())
             ),
         )
         .with_note(
             NoteKind::Reason,
-            "modülde birden fazla saat var, sinyalin hangisine \
-             ait olduğu çıkarılamıyor",
+            lstr!(
+                en: "the module has more than one clock, so it cannot be inferred \
+                     which one the signal belongs to";
+                tr: "modülde birden fazla saat var, sinyalin hangisine \
+                     ait olduğu çıkarılamıyor"
+            ),
         );
         for (span, dom) in self.clock_candidates.clone() {
-            diag = diag.with_secondary(span, format!("aday: {dom}"));
+            diag = diag.with_secondary(span, lstr!(en: "candidate: {dom}"; tr: "aday: {dom}"));
         }
         self.diagnostics.push(diag);
     }
@@ -410,17 +433,32 @@ impl<'a> Inferencer<'a> {
                 self.diagnostics.push(
                     Diagnostic::warning(
                         ErrorCode::W3001,
-                        format!(
-                            "register hiçbir 'on' bloğunda yazılmıyor: '{}'",
-                            r.name.text
+                        lstr!(
+                            en: "register is never written in any 'on' block: '{}'",
+                                r.name.text;
+                            tr: "register hiçbir 'on' bloğunda yazılmıyor: '{}'",
+                                r.name.text
                         ),
-                        LabeledSpan::primary(r.name.span, "bu register'a sıralı atama yok"),
-                        "bir 'on <saat>' bloğunda '<=' ile yazın \
-                         ya da sabitse 'let' kullanın",
+                        LabeledSpan::primary(
+                            r.name.span,
+                            lstr!(
+                                en: "no sequential assignment to this register";
+                                tr: "bu register'a sıralı atama yok"
+                            ),
+                        ),
+                        lstr!(
+                            en: "write it with '<=' in an 'on <clock>' block \
+                                 or use 'let' if it is a constant";
+                            tr: "bir 'on <saat>' bloğunda '<=' ile yazın \
+                                 ya da sabitse 'let' kullanın"
+                        ),
                     )
                     .with_note(
                         NoteKind::Reason,
-                        "yazılmayan register sabit bir değer üretir",
+                        lstr!(
+                            en: "a register that is never written produces a constant value";
+                            tr: "yazılmayan register sabit bir değer üretir"
+                        ),
                     ),
                 );
                 DomainId::Timeless
@@ -455,31 +493,51 @@ impl<'a> Inferencer<'a> {
             .collect();
         let mut diag = Diagnostic::error(
             ErrorCode::E3011,
-            "register birden fazla saat alanından yazılıyor",
+            lstr!(
+                en: "register is written from more than one clock domain";
+                tr: "register birden fazla saat alanından yazılıyor"
+            ),
             LabeledSpan::primary(
                 r.name.span,
-                format!(
-                    "'{}' şu alanlardan yazılıyor: {}",
-                    r.name.text,
-                    names.join(", ")
+                lstr!(
+                    en: "'{}' is written from these domains: {}",
+                        r.name.text, names.join(", ");
+                    tr: "'{}' şu alanlardan yazılıyor: {}",
+                        r.name.text, names.join(", ")
                 ),
             ),
-            "her register tek bir saat alanına ait olmalı — \
-             register'ı bölün ya da sync() ile tek alandan besleyin",
+            lstr!(
+                en: "each register must belong to a single clock domain — \
+                     split the register or feed it from one domain with sync()";
+                tr: "her register tek bir saat alanına ait olmalı — \
+                     register'ı bölün ya da sync() ile tek alandan besleyin"
+            ),
         )
         .with_note(
             NoteKind::Reason,
-            "iki saatten yazılan register donanımda sentezlenemez; \
-             hangi kenarın kazanacağı belirsizdir",
+            lstr!(
+                en: "a register written from two clocks cannot be synthesized \
+                     in hardware; it is ambiguous which edge wins";
+                tr: "iki saatten yazılan register donanımda sentezlenemez; \
+                     hangi kenarın kazanacağı belirsizdir"
+            ),
         );
         for (id, span) in distinct {
-            diag =
-                diag.with_secondary(*span, format!("@{} buradan yazıyor", self.domain_name(*id)));
+            diag = diag.with_secondary(
+                *span,
+                lstr!(
+                    en: "@{} writes from here", self.domain_name(*id);
+                    tr: "@{} buradan yazıyor", self.domain_name(*id)
+                ),
+            );
         }
         for (id, _) in distinct {
             diag = diag.with_secondary(
                 self.domain_span(*id),
-                format!("@{} burada tanımlı", self.domain_name(*id)),
+                lstr!(
+                    en: "@{} defined here", self.domain_name(*id);
+                    tr: "@{} burada tanımlı", self.domain_name(*id)
+                ),
             );
         }
         self.diagnostics.push(diag);
@@ -649,25 +707,46 @@ impl<'a> Inferencer<'a> {
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E3012,
-                "'on' bloğunda yabancı saat alanından sinyal okunuyor",
-                LabeledSpan::primary(span, format!("{} alanından geliyor", self.display(d))),
-                format!(
-                    "önce senkronize edin: sync(<sinyal>, <{} saati>)",
-                    self.domain_name(y)
+                lstr!(
+                    en: "a signal from a foreign clock domain is read in an 'on' block";
+                    tr: "'on' bloğunda yabancı saat alanından sinyal okunuyor"
+                ),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(
+                        en: "comes from the {} domain", self.display(d);
+                        tr: "{} alanından geliyor", self.display(d)
+                    ),
+                ),
+                lstr!(
+                    en: "synchronize it first: sync(<signal>, <clock of {}>)",
+                        self.domain_name(y);
+                    tr: "önce senkronize edin: sync(<sinyal>, <{} saati>)",
+                        self.domain_name(y)
                 ),
             )
             .with_secondary(
                 trigger_span,
-                format!("blok @{} alanında", self.domain_name(y)),
+                lstr!(
+                    en: "the block is in the @{} domain", self.domain_name(y);
+                    tr: "blok @{} alanında", self.domain_name(y)
+                ),
             )
             .with_secondary(
                 self.domain_span(x),
-                format!("@{} burada tanımlı", self.domain_name(x)),
+                lstr!(
+                    en: "@{} defined here", self.domain_name(x);
+                    tr: "@{} burada tanımlı", self.domain_name(x)
+                ),
             )
             .with_note(
                 NoteKind::Reason,
-                "yabancı saatten gelen sinyal bu bloğun register'larında \
-                 kararsız anda yakalanabilir (metastabilite)",
+                lstr!(
+                    en: "a signal arriving from a foreign clock may be sampled during \
+                         an unstable window by this block's registers (metastability)";
+                    tr: "yabancı saatten gelen sinyal bu bloğun register'larında \
+                         kararsız anda yakalanabilir (metastabilite)"
+                ),
             ),
         );
     }
@@ -740,39 +819,59 @@ impl<'a> Inferencer<'a> {
     /// domain tanım satırlarına ikincil etiketler (§4).
     fn err_cdc_assign(&mut self, dst: DomainId, src: DomainId, dst_span: Span, src_span: Span) {
         let (d, s) = (self.resolve_dom(dst), self.resolve_dom(src));
+        let dst_name = match d {
+            DomainId::Explicit(id) => Some(self.domain_name(id).to_string()),
+            _ => None,
+        };
         let mut diag = Diagnostic::error(
             ErrorCode::E3001,
-            "saat alanları arasında doğrudan atama",
+            lstr!(
+                en: "direct assignment between clock domains";
+                tr: "saat alanları arasında doğrudan atama"
+            ),
             LabeledSpan::primary(dst_span, self.display(d)),
-            format!(
-                "sync() ile hedef alana senkronize edin: \
-                 hedef = sync(kaynak, <{} saati>)",
-                match d {
-                    DomainId::Explicit(id) => self.domain_name(id).to_string(),
-                    _ => "hedef".to_string(),
-                }
+            lstr!(
+                en: "synchronize into the target domain with sync(): \
+                     dest = sync(src, <clock of {}>)",
+                    dst_name.clone().unwrap_or_else(|| "dest".to_string());
+                tr: "sync() ile hedef alana senkronize edin: \
+                     hedef = sync(kaynak, <{} saati>)",
+                    dst_name.clone().unwrap_or_else(|| "hedef".to_string())
             ),
         )
         .with_secondary(src_span, self.display(s))
         .with_note(
             NoteKind::Reason,
-            "hedef register kaynak sinyali kararsız anda \
-             yakalayabilir (metastabilite)",
+            lstr!(
+                en: "the destination register may sample the source signal \
+                     during an unstable window (metastability)";
+                tr: "hedef register kaynak sinyali kararsız anda \
+                     yakalayabilir (metastabilite)"
+            ),
         )
         .with_note(
             NoteKind::Note,
-            "çok bitli veri için AsyncFifo daha güvenli olabilir",
+            lstr!(
+                en: "for multi-bit data, AsyncFifo may be safer";
+                tr: "çok bitli veri için AsyncFifo daha güvenli olabilir"
+            ),
         );
         if let DomainId::Explicit(id) = d {
             diag = diag.with_secondary(
                 self.domain_span(id),
-                format!("hedef @{} burada tanımlı", self.domain_name(id)),
+                lstr!(
+                    en: "destination @{} defined here", self.domain_name(id);
+                    tr: "hedef @{} burada tanımlı", self.domain_name(id)
+                ),
             );
         }
         if let DomainId::Explicit(id) = s {
             diag = diag.with_secondary(
                 self.domain_span(id),
-                format!("kaynak @{} burada tanımlı", self.domain_name(id)),
+                lstr!(
+                    en: "source @{} defined here", self.domain_name(id);
+                    tr: "kaynak @{} burada tanımlı", self.domain_name(id)
+                ),
             );
         }
         self.diagnostics.push(diag);
@@ -973,28 +1072,45 @@ impl<'a> Inferencer<'a> {
     fn err_cdc_combinational(&mut self, x: u32, y: u32, sa: Span, sb: Span) {
         let diag = Diagnostic::error(
             ErrorCode::E3001,
-            "farklı saat alanları kombinasyonel olarak birleşemez",
+            lstr!(
+                en: "different clock domains cannot be combined combinationally";
+                tr: "farklı saat alanları kombinasyonel olarak birleşemez"
+            ),
             LabeledSpan::primary(sa, format!("@{}", self.domain_name(x))),
-            format!(
-                "önce senkronize edin: let s = sync(<sinyal>, <{} saati>); \
-                 sonra birleştirin",
-                self.domain_name(y)
+            lstr!(
+                en: "synchronize first: let s = sync(<signal>, <clock of {}>); \
+                     then combine",
+                    self.domain_name(y);
+                tr: "önce senkronize edin: let s = sync(<sinyal>, <{} saati>); \
+                     sonra birleştirin",
+                    self.domain_name(y)
             ),
         )
         .with_secondary(sb, format!("@{}", self.domain_name(y)))
         .with_secondary(
             self.domain_span(x),
-            format!("@{} burada tanımlı", self.domain_name(x)),
+            lstr!(
+                en: "@{} defined here", self.domain_name(x);
+                tr: "@{} burada tanımlı", self.domain_name(x)
+            ),
         )
         .with_secondary(
             self.domain_span(y),
-            format!("@{} burada tanımlı", self.domain_name(y)),
+            lstr!(
+                en: "@{} defined here", self.domain_name(y);
+                tr: "@{} burada tanımlı", self.domain_name(y)
+            ),
         )
         .with_note(
             NoteKind::Reason,
-            "iki saat alanından gelen sinyaller kapıda birleşince \
-             geçici darbe (glitch) üretir; bu darbe sonraki \
-             register'da yanlış yakalanır",
+            lstr!(
+                en: "when signals from two clock domains meet at a gate they \
+                     produce a transient pulse (glitch); the next \
+                     register captures this pulse incorrectly";
+                tr: "iki saat alanından gelen sinyaller kapıda birleşince \
+                     geçici darbe (glitch) üretir; bu darbe sonraki \
+                     register'da yanlış yakalanır"
+            ),
         );
         self.diagnostics.push(diag);
     }
@@ -1020,17 +1136,30 @@ impl<'a> Inferencer<'a> {
                 self.diagnostics.push(
                     Diagnostic::warning(
                         ErrorCode::W3002,
-                        "sync() aynı saat alanı içinde gereksiz",
+                        lstr!(
+                            en: "sync() is unnecessary within the same clock domain";
+                            tr: "sync() aynı saat alanı içinde gereksiz"
+                        ),
                         LabeledSpan::primary(
                             span,
-                            format!("kaynak ve hedef @{}", self.domain_name(a)),
+                            lstr!(
+                                en: "source and destination are both @{}", self.domain_name(a);
+                                tr: "kaynak ve hedef @{}", self.domain_name(a)
+                            ),
                         ),
-                        "doğrudan atama yeterli — sync() çağrısını kaldırın",
+                        lstr!(
+                            en: "a direct assignment is enough — remove the sync() call";
+                            tr: "doğrudan atama yeterli — sync() çağrısını kaldırın"
+                        ),
                     )
                     .with_note(
                         NoteKind::Reason,
-                        "senkronizatör yalnız alanlar arası geçişte gerekir; \
-                         aynı alanda 2 çevrim gecikme ekler",
+                        lstr!(
+                            en: "a synchronizer is only needed when crossing between \
+                                 domains; within the same domain it adds 2 cycles of latency";
+                            tr: "senkronizatör yalnız alanlar arası geçişte gerekir; \
+                                 aynı alanda 2 çevrim gecikme ekler"
+                        ),
                     ),
                 );
             }
@@ -1043,18 +1172,34 @@ impl<'a> Inferencer<'a> {
                     self.diagnostics.push(
                         Diagnostic::warning(
                             ErrorCode::W3003,
-                            format!(
-                                "{w}-bit sinyal için iki-flop senkronizasyonu \
-                                 bit tutarlılığı garanti etmez"
+                            lstr!(
+                                en: "two-flop synchronization does not guarantee \
+                                     bit coherence for {w}-bit signals";
+                                tr: "{w}-bit sinyal için iki-flop senkronizasyonu \
+                                     bit tutarlılığı garanti etmez"
                             ),
-                            LabeledSpan::primary(span, "bitler farklı kenarlarda yakalanabilir"),
-                            "gray kodlama veya AsyncFifo kullanın",
+                            LabeledSpan::primary(
+                                span,
+                                lstr!(
+                                    en: "bits may be captured on different edges";
+                                    tr: "bitler farklı kenarlarda yakalanabilir"
+                                ),
+                            ),
+                            lstr!(
+                                en: "use gray coding or AsyncFifo";
+                                tr: "gray kodlama veya AsyncFifo kullanın"
+                            ),
                         )
                         .with_note(
                             NoteKind::Reason,
-                            "iki-flop senkronizatör her biti bağımsız senkronize \
-                             eder; bitler farklı saat kenarlarında yakalanınca \
-                             geçersiz ara değer oluşur",
+                            lstr!(
+                                en: "a two-flop synchronizer synchronizes each bit \
+                                     independently; when bits are captured on different \
+                                     clock edges an invalid intermediate value appears";
+                                tr: "iki-flop senkronizatör her biti bağımsız senkronize \
+                                     eder; bitler farklı saat kenarlarında yakalanınca \
+                                     geçersiz ara değer oluşur"
+                            ),
                         ),
                     );
                 }

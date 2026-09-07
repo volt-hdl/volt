@@ -96,6 +96,7 @@ Tüm komutlarda geçerli:
 -v, --verbose           Ayrıntılı çıktı (-vv daha ayrıntılı)
 -q, --quiet             Sadece hatalar
     --format=<f>        Çıktı formatı: human | json | short
+    --lang=<l>          Tanı dili: en | tr (öncelik: bayrak > VOLT_LANG > Volt.toml [ui] lang > en)
     --color=<c>         Renk: auto | always | never
     --no-color          --color=never kısayolu
 -j, --jobs=<N>          Paralel iş sayısı (varsayılan: CPU sayısı)

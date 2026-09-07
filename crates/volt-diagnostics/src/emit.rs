@@ -44,7 +44,9 @@ fn to_cs_severity(severity: Severity) -> cs::Severity {
 }
 
 /// cli-contract.md §5 "İnsan Çıktısı" formatında (renksiz) metin üretir.
-/// Notlar "= neden:", çözüm "= çözüm:", spec referansı "= daha fazla:" olur.
+/// Anahtar satırlar aktif dile göre seçilir (GLOSSARY.md §7):
+/// EN "= reason: / = help: / = note: / = for more:",
+/// TR "= neden: / = çözüm: / = not: / = daha fazla:".
 pub fn render_human(diag: &Diagnostic, map: &SourceMap) -> String {
     let labels = diag
         .spans
@@ -64,18 +66,23 @@ pub fn render_human(diag: &Diagnostic, map: &SourceMap) -> String {
         })
         .collect();
 
+    let keys = crate::messages::keys(crate::messages::lang());
     let mut notes: Vec<String> = diag
         .notes
         .iter()
         .map(|n| match n.kind {
-            NoteKind::Reason => format!("neden: {}", n.text),
-            NoteKind::Note => format!("not: {}", n.text),
+            NoteKind::Reason => format!("{} {}", keys.reason, n.text),
+            NoteKind::Note => format!("{} {}", keys.note, n.text),
         })
         .collect();
     if let Some(help) = &diag.help {
-        notes.push(format!("çözüm: {help}"));
+        notes.push(format!("{} {help}", keys.help));
     }
-    notes.push(format!("daha fazla: volt explain {}", diag.code.as_str()));
+    notes.push(format!(
+        "{} volt explain {}",
+        keys.for_more,
+        diag.code.as_str()
+    ));
 
     let cs_diag = cs::Diagnostic::new(to_cs_severity(diag.severity))
         .with_code(diag.code.as_str())

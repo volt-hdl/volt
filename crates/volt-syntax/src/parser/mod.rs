@@ -13,7 +13,7 @@ mod stmt;
 use std::collections::HashSet;
 
 use volt_ast::{Expr, ExprKind, Idx, Pattern, PatternKind, SourceFile, TypeRef, TypeRefKind};
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::{FileId, Span};
 
 use crate::lexer::tokenize;
@@ -206,18 +206,21 @@ impl<'s> Parser<'s> {
         let (code, message) = if self.at_eof() {
             (
                 ErrorCode::E0011,
-                format!("beklenmeyen dosya sonu: {what} bekleniyor"),
+                lstr!(en: "unexpected end of file: expected {what}"; tr: "beklenmeyen dosya sonu: {what} bekleniyor"),
             )
         } else {
             (
                 ErrorCode::E0001,
-                format!("beklenmeyen '{}': {what} bekleniyor", self.current_text()),
+                lstr!(en: "unexpected '{}': expected {what}", self.current_text(); tr: "beklenmeyen '{}': {what} bekleniyor", self.current_text()),
             )
         };
         let diag = Diagnostic::error(
             code,
             message,
-            LabeledSpan::primary(self.current_span(), format!("{what} bekleniyor")),
+            LabeledSpan::primary(
+                self.current_span(),
+                lstr!(en: "expected {what}"; tr: "{what} bekleniyor"),
+            ),
             help,
         );
         self.push_error(diag);
@@ -230,11 +233,17 @@ impl<'s> Parser<'s> {
         }
         let diag = Diagnostic::error(
             ErrorCode::E0002,
-            format!("eksik kapanış: '{symbol}'"),
-            LabeledSpan::primary(self.current_span(), format!("'{symbol}' bekleniyordu")),
-            format!("'{symbol}' ekleyin"),
+            lstr!(en: "missing closing delimiter: '{symbol}'"; tr: "eksik kapanış: '{symbol}'"),
+            LabeledSpan::primary(
+                self.current_span(),
+                lstr!(en: "expected '{symbol}'"; tr: "'{symbol}' bekleniyordu"),
+            ),
+            lstr!(en: "add '{symbol}'"; tr: "'{symbol}' ekleyin"),
         )
-        .with_secondary(open_span, "açılış burada");
+        .with_secondary(
+            open_span,
+            lstr!(en: "opening delimiter here"; tr: "açılış burada"),
+        );
         self.push_error(diag);
     }
 

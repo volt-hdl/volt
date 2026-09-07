@@ -13,16 +13,66 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use volt_diagnostics::{render_human, render_short, to_json_value, Diagnostic, Severity};
+use volt_diagnostics::{
+    lstr, render_human, render_short, to_json_value, Diagnostic, Lang, Severity,
+};
 use volt_span::SourceMap;
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
 #[command(name = "volt", version = volt_sv_emit::VOLT_VERSION)]
-#[command(about = "Volt HDL — saat alanı güvenli donanım tanımlama dili")]
+#[command(about = "Volt HDL — clock-domain-safe hardware description language")]
 struct Cli {
+    /// Diagnostic language: en | tr (priority: flag > VOLT_LANG > Volt.toml [ui] lang > en)
+    #[arg(long, global = true, value_enum)]
+    lang: Option<LangArg>,
     #[command(subcommand)]
     command: Command,
+}
+
+/// cli-contract.md §3 --lang değerleri.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum LangArg {
+    En,
+    Tr,
+}
+
+/// Dil önceliği: --lang > VOLT_LANG > Volt.toml [ui] lang > En.
+/// Sistem locale'i BİLEREK okunmaz (CI'da sürpriz üretir).
+fn resolve_lang(flag: Option<LangArg>) -> Lang {
+    match flag {
+        Some(LangArg::En) => return Lang::En,
+        Some(LangArg::Tr) => return Lang::Tr,
+        None => {}
+    }
+    if let Ok(v) = std::env::var("VOLT_LANG") {
+        if let Some(l) = Lang::parse(&v) {
+            return l;
+        }
+    }
+    manifest_lang(Path::new("Volt.toml")).unwrap_or(Lang::En)
+}
+
+/// Volt.toml `[ui] lang` değerini okur. Tek anahtar için tam TOML
+/// ayrıştırıcı bağımlılığı almamak adına bilinçli olarak dar tutuldu.
+fn manifest_lang(path: &Path) -> Option<Lang> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut in_ui = false;
+    for raw in text.lines() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            in_ui = line == "[ui]";
+            continue;
+        }
+        if !in_ui {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("lang") {
+            let value = rest.trim_start().strip_prefix('=')?.trim();
+            return Lang::parse(value.trim_matches('"'));
+        }
+    }
+    None
 }
 
 /// cli-contract.md §3 --format değerleri.
@@ -35,29 +85,31 @@ enum OutputFormat {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Derle ve SystemVerilog üret
+    /// Compile and emit SystemVerilog
     Build {
-        /// Girdi .volt dosyası
+        /// Input .volt file
         file: PathBuf,
-        /// Çıktı dizini (varsayılan: build/)
+        /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
-        /// Çıktı formatı: human | json | short
+        /// Output format: human | json | short
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
-    /// Hızlı kontrol (çıktı üretmez)
+    /// Fast check (produces no output files)
     Check {
-        /// Girdi .volt dosyası
+        /// Input .volt file
         file: PathBuf,
-        /// Çıktı formatı: human | json | short
+        /// Output format: human | json | short
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
 }
 
 fn main() -> ExitCode {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    volt_diagnostics::set_lang(resolve_lang(cli.lang));
+    match cli.command {
         Command::Build {
             file,
             target_dir,
@@ -104,7 +156,13 @@ fn compile(file: &Path, want_sv: bool) -> Result<Compiled, ExitCode> {
     let source = match std::fs::read_to_string(file) {
         Ok(s) => s,
         Err(err) => {
-            eprintln!("hata: '{}' okunamadı: {err}", file.display());
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "error: cannot read '{}': {}", file.display(), err;
+                    tr: "hata: '{}' okunamadı: {}", file.display(), err
+                )
+            );
             return Err(ExitCode::from(3));
         }
     };
@@ -227,7 +285,13 @@ fn print_json_envelope(command: &str, compiled: &Compiled, artifacts: &[String],
 fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
-        eprintln!("   Derleniyor {}", file.display());
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "   Compiling {}", file.display();
+                tr: "   Derleniyor {}", file.display()
+            )
+        );
     }
 
     let compiled = match compile(file, true) {
@@ -240,9 +304,13 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
     let Some(sv) = &compiled.sv else {
         if format == OutputFormat::Human {
             eprintln!(
-                "     Hata: {} hata, {} uyarı nedeniyle derleme başarısız",
-                compiled.errors(),
-                compiled.warnings()
+                "{}",
+                lstr!(
+                    en: "     Error: build failed due to {} error(s), {} warning(s)",
+                        compiled.errors(), compiled.warnings();
+                    tr: "     Hata: {} hata, {} uyarı nedeniyle derleme başarısız",
+                        compiled.errors(), compiled.warnings()
+                )
             );
         }
         if format == OutputFormat::Json {
@@ -253,7 +321,13 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
 
     let rtl_dir = target_dir.join("rtl");
     if let Err(err) = std::fs::create_dir_all(&rtl_dir) {
-        eprintln!("hata: '{}' oluşturulamadı: {err}", rtl_dir.display());
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "error: cannot create '{}': {}", rtl_dir.display(), err;
+                tr: "hata: '{}' oluşturulamadı: {}", rtl_dir.display(), err
+            )
+        );
         return ExitCode::from(3);
     }
     let stem = file
@@ -262,14 +336,32 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
         .unwrap_or_default();
     let out_path = rtl_dir.join(format!("{stem}.sv"));
     if let Err(err) = std::fs::write(&out_path, sv) {
-        eprintln!("hata: '{}' yazılamadı: {err}", out_path.display());
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "error: cannot write '{}': {}", out_path.display(), err;
+                tr: "hata: '{}' yazılamadı: {}", out_path.display(), err
+            )
+        );
         return ExitCode::from(3);
     }
 
     if format == OutputFormat::Human {
         let line_count = sv.lines().count();
-        eprintln!("    Tamamlandı {:.2}s", start.elapsed().as_secs_f64());
-        eprintln!("     Çıktı {} ({} satır)", out_path.display(), line_count);
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
+                tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
+            )
+        );
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "     Output {} ({} lines)", out_path.display(), line_count;
+                tr: "     Çıktı {} ({} satır)", out_path.display(), line_count
+            )
+        );
     }
     if format == OutputFormat::Json {
         print_json_envelope("build", &compiled, &[out_path.display().to_string()], start);
@@ -280,7 +372,13 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
 fn check(file: &Path, format: OutputFormat) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
-        eprintln!("    Kontrol {}", file.display());
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "    Checking {}", file.display();
+                tr: "    Kontrol {}", file.display()
+            )
+        );
     }
 
     let compiled = match compile(file, false) {
@@ -290,11 +388,21 @@ fn check(file: &Path, format: OutputFormat) -> ExitCode {
     render_diagnostics(&compiled, format);
 
     if format == OutputFormat::Human {
-        eprintln!("    Tamamlandı {:.2}s", start.elapsed().as_secs_f64());
         eprintln!(
-            "       Sonuç {} hata, {} uyarı",
-            compiled.errors(),
-            compiled.warnings()
+            "{}",
+            lstr!(
+                en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
+                tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
+            )
+        );
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "      Result {} error(s), {} warning(s)",
+                    compiled.errors(), compiled.warnings();
+                tr: "       Sonuç {} hata, {} uyarı",
+                    compiled.errors(), compiled.warnings()
+            )
         );
     }
     if format == OutputFormat::Json {

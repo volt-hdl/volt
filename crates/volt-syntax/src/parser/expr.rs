@@ -6,7 +6,7 @@
 use volt_ast::{
     ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, Name, NumBase, Path, UnOp,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::token::TokenKind;
@@ -87,9 +87,12 @@ impl Parser<'_> {
             let span = self.bump(); // ilerleme garantisi
             self.push_error(Diagnostic::error(
                 ErrorCode::E0001,
-                "ifade çok derin iç içe",
-                LabeledSpan::primary(span, "derinlik sınırı aşıldı"),
-                "ifadeyi ara let bağlamalarıyla bölün",
+                lstr!(en: "expression is nested too deeply"; tr: "ifade çok derin iç içe"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "nesting depth limit exceeded"; tr: "derinlik sınırı aşıldı"),
+                ),
+                lstr!(en: "split the expression using intermediate let bindings"; tr: "ifadeyi ara let bağlamalarıyla bölün"),
             ));
             return self.alloc_error_expr(span);
         }
@@ -127,13 +130,16 @@ impl Parser<'_> {
                 self.push_error(
                     Diagnostic::error(
                         ErrorCode::E0010,
-                        "karşılaştırma operatörleri zincirlenemez",
-                        LabeledSpan::primary(self.current_span(), "ikinci karşılaştırma"),
-                        "(a < b) && (b < c) biçiminde yazın",
+                        lstr!(en: "comparison operators cannot be chained"; tr: "karşılaştırma operatörleri zincirlenemez"),
+                        LabeledSpan::primary(
+                            self.current_span(),
+                            lstr!(en: "second comparison"; tr: "ikinci karşılaştırma"),
+                        ),
+                        lstr!(en: "write it as (a < b) && (b < c)"; tr: "(a < b) && (b < c) biçiminde yazın"),
                     )
                     .with_note(
                         NoteKind::Reason,
-                        "a < b < c matematiksel yanılgı üretir: (a<b) sonucu 0/1 olarak c ile karşılaştırılır",
+                        lstr!(en: "a < b < c is a mathematical trap: the 0/1 result of (a<b) is compared against c"; tr: "a < b < c matematiksel yanılgı üretir: (a<b) sonucu 0/1 olarak c ile karşılaştırılır"),
                     ),
                 );
             }
@@ -150,8 +156,8 @@ impl Parser<'_> {
                 self.parse_expr_bp(effective_r_bp)
             } else {
                 self.error_expected(
-                    &format!("'{}' operatöründen sonra ifade", op.symbol()),
-                    "operatörün sağına bir operand yazın",
+                    &lstr!(en: "expression after the '{}' operator", op.symbol(); tr: "'{}' operatöründen sonra ifade", op.symbol()),
+                    &lstr!(en: "write an operand to the right of the operator"; tr: "operatörün sağına bir operand yazın"),
                 );
                 self.alloc_error_expr(self.current_span())
             };
@@ -194,13 +200,16 @@ impl Parser<'_> {
             self.push_error(
                 Diagnostic::warning(
                     ErrorCode::W0010,
-                    format!("'{a}' ile '{b}' karışıyor — parantez önerilir"),
-                    LabeledSpan::primary(op_span, "önceliği parantezle netleştirin"),
-                    format!("{interpretation} yazın (mevcut yorum)"),
+                    lstr!(en: "'{a}' and '{b}' are mixed — parentheses recommended"; tr: "'{a}' ile '{b}' karışıyor — parantez önerilir"),
+                    LabeledSpan::primary(
+                        op_span,
+                        lstr!(en: "clarify the precedence with parentheses"; tr: "önceliği parantezle netleştirin"),
+                    ),
+                    lstr!(en: "write {interpretation} (current interpretation)"; tr: "{interpretation} yazın (mevcut yorum)"),
                 )
                 .with_note(
                     NoteKind::Reason,
-                    "öncelik doğru olsa bile okuyucu bundan şüphe eder",
+                    lstr!(en: "even when the precedence is correct, readers will doubt it"; tr: "öncelik doğru olsa bile okuyucu bundan şüphe eder"),
                 ),
             );
             return; // düğüm başına tek uyarı yeter
@@ -272,8 +281,8 @@ impl Parser<'_> {
                     self.parse_expr_bp(PREFIX_BP)
                 } else {
                     self.error_expected(
-                        &format!("'{}' operatöründen sonra ifade", op.symbol()),
-                        "tekli operatörün sağına bir operand yazın",
+                        &lstr!(en: "expression after the '{}' operator", op.symbol(); tr: "'{}' operatöründen sonra ifade", op.symbol()),
+                        &lstr!(en: "write an operand to the right of the unary operator"; tr: "tekli operatörün sağına bir operand yazın"),
                     );
                     self.alloc_error_expr(self.current_span())
                 };
@@ -303,7 +312,10 @@ impl Parser<'_> {
                 self.alloc_error_expr(span)
             }
             _ => {
-                self.error_expected("ifade", "literal, isim, '(' veya tekli operatör bekleniyor");
+                self.error_expected(
+                    &lstr!(en: "expression"; tr: "ifade"),
+                    &lstr!(en: "expected a literal, name, '(' or unary operator"; tr: "literal, isim, '(' veya tekli operatör bekleniyor"),
+                );
                 self.alloc_error_expr(self.current_span())
             }
         }
@@ -318,10 +330,17 @@ impl Parser<'_> {
         let inner = if self.at_expr_start() {
             self.parse_expr()
         } else {
-            self.error_expected("parantez içinde ifade", "boş parantez geçersizdir");
+            self.error_expected(
+                &lstr!(en: "expression inside the parentheses"; tr: "parantez içinde ifade"),
+                &lstr!(en: "empty parentheses are not valid"; tr: "boş parantez geçersizdir"),
+            );
             let e = self.alloc_error_expr(self.current_span());
             self.allow_struct_lit = prev;
-            self.expect(RParen, "kapanış ')'", "eksik ')' ekleyin");
+            self.expect(
+                RParen,
+                &lstr!(en: "closing ')'"; tr: "kapanış ')'"),
+                &lstr!(en: "add the missing ')'"; tr: "eksik ')' ekleyin"),
+            );
             return e;
         };
 
@@ -335,7 +354,10 @@ impl Parser<'_> {
                 if self.at_expr_start() {
                     elems.push(self.parse_expr());
                 } else {
-                    self.error_expected("tuple elemanı", "(a, b) biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "tuple element"; tr: "tuple elemanı"),
+                        &lstr!(en: "write it as (a, b)"; tr: "(a, b) biçiminde yazın"),
+                    );
                     break;
                 }
             }
@@ -349,7 +371,11 @@ impl Parser<'_> {
         }
 
         self.allow_struct_lit = prev;
-        self.expect(RParen, "kapanış ')'", "eksik ')' ekleyin");
+        self.expect(
+            RParen,
+            &lstr!(en: "closing ')'"; tr: "kapanış ')'"),
+            &lstr!(en: "add the missing ')'"; tr: "eksik ')' ekleyin"),
+        );
         // W0010 parantez önerisi bu ifadeyi atlasın diye işaretle.
         self.paren_exprs.insert(inner);
         inner
@@ -369,7 +395,10 @@ impl Parser<'_> {
                 let count = if self.at_expr_start() {
                     self.parse_expr()
                 } else {
-                    self.error_expected("tekrar sayısı", "[0; 4] biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "repeat count"; tr: "tekrar sayısı"),
+                        &lstr!(en: "write it as [0; 4]"; tr: "[0; 4] biçiminde yazın"),
+                    );
                     self.alloc_error_expr(self.current_span())
                 };
                 ArrayLitKind::Repeat {
@@ -385,14 +414,20 @@ impl Parser<'_> {
                     if self.at_expr_start() {
                         elems.push(self.parse_expr());
                     } else {
-                        self.error_expected("dizi elemanı", "[a, b, c] biçiminde yazın");
+                        self.error_expected(
+                            &lstr!(en: "array element"; tr: "dizi elemanı"),
+                            &lstr!(en: "write it as [a, b, c]"; tr: "[a, b, c] biçiminde yazın"),
+                        );
                         break;
                     }
                 }
                 ArrayLitKind::List(elems)
             }
         } else {
-            self.error_expected("dizi literali", "[a, b] veya [değer; adet] biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "array literal"; tr: "dizi literali"),
+                &lstr!(en: "write it as [a, b] or [value; count]"; tr: "[a, b] veya [değer; adet] biçiminde yazın"),
+            );
             ArrayLitKind::List(Vec::new())
         };
 
@@ -422,7 +457,10 @@ impl Parser<'_> {
                     if self.at_expr_start() {
                         Some(self.parse_expr())
                     } else {
-                        self.error_expected("alan değeri", "alan: ifade biçiminde yazın");
+                        self.error_expected(
+                            &lstr!(en: "field value"; tr: "alan değeri"),
+                            &lstr!(en: "write it as field: expression"; tr: "alan: ifade biçiminde yazın"),
+                        );
                         Some(self.alloc_error_expr(self.current_span()))
                     }
                 } else {
@@ -434,7 +472,10 @@ impl Parser<'_> {
                     value,
                 });
             } else {
-                self.error_expected("alan adı", "Ad { alan: değer } biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "field name"; tr: "alan adı"),
+                    &lstr!(en: "write it as Name {{ field: value }}"; tr: "Ad {{ alan: değer }} biçiminde yazın"),
+                );
             }
             if !self.eat(Comma) && self.pos == before {
                 self.bump_any(); // ilerleme garantisi
@@ -459,15 +500,18 @@ impl Parser<'_> {
         let scrutinee = if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
-            self.error_expected("match konusu", "match x { desen => değer } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "match scrutinee"; tr: "match konusu"),
+                &lstr!(en: "write it as match x {{ pattern => value }}"; tr: "match x {{ desen => değer }} biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
 
         let open = self.current_span();
         self.expect(
             LBrace,
-            "match gövdesi için '{'",
-            "match x { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the match body"; tr: "match gövdesi için '{{'"),
+            &lstr!(en: "write it as match x {{ ... }}"; tr: "match x {{ ... }} biçiminde yazın"),
         );
 
         let mut arms = Vec::new();
@@ -493,8 +537,8 @@ impl Parser<'_> {
         self.bump_any(); // 'todo'
         self.expect(
             Bang,
-            "'todo' sonrası '!'",
-            "todo!(\"mesaj\") biçiminde yazın",
+            &lstr!(en: "'!' after 'todo'"; tr: "'todo' sonrası '!'"),
+            &lstr!(en: "write it as todo!(\"message\")"; tr: "todo!(\"mesaj\") biçiminde yazın"),
         );
 
         let mut message = None;
@@ -504,7 +548,10 @@ impl Parser<'_> {
                 let span = self.bump();
                 message = Some(self.unescape_string(span));
             } else if !self.at(RParen) {
-                self.error_expected("todo! mesajı", "todo!(\"mesaj\") — yalnız string alır");
+                self.error_expected(
+                    &lstr!(en: "todo! message"; tr: "todo! mesajı"),
+                    &lstr!(en: "todo!(\"message\") — it only accepts a string"; tr: "todo!(\"mesaj\") — yalnız string alır"),
+                );
                 // bozuk argümanı atla
                 while !self.at(RParen) && !self.at_eof() && !self.at(RBrace) {
                     self.bump_any();
@@ -544,12 +591,12 @@ impl Parser<'_> {
                     let esc_end = span.start + 1 + j as u32 + other.len_utf8() as u32;
                     self.push_error(Diagnostic::error(
                         ErrorCode::E0012,
-                        format!("geçersiz escape dizisi: '\\{other}'"),
+                        lstr!(en: "invalid escape sequence: '\\{other}'"; tr: "geçersiz escape dizisi: '\\{other}'"),
                         LabeledSpan::primary(
                             Span::new(span.file, esc_start, esc_end),
-                            "tanınmayan escape",
+                            lstr!(en: "unknown escape"; tr: "tanınmayan escape"),
                         ),
-                        "geçerli escape dizileri: \\\" \\\\ \\n \\t \\r \\0",
+                        lstr!(en: "valid escape sequences: \\\" \\\\ \\n \\t \\r \\0"; tr: "geçerli escape dizileri: \\\" \\\\ \\n \\t \\r \\0"),
                     ));
                     out.push(other);
                 }
@@ -587,7 +634,10 @@ impl Parser<'_> {
                 let field = if self.at(Ident) {
                     self.parse_name()
                 } else {
-                    self.error_expected("'.' sonrasında alan adı", "x.alan biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "field name after '.'"; tr: "'.' sonrasında alan adı"),
+                        &lstr!(en: "write it as x.field"; tr: "x.alan biçiminde yazın"),
+                    );
                     Name {
                         text: String::new(),
                         span: self.current_span(),
@@ -643,8 +693,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "'if' gövdesi için '{'",
-            "if koşul { deger } biçiminde yazın",
+            &lstr!(en: "'{{' for the 'if' body"; tr: "'if' gövdesi için '{{'"),
+            &lstr!(en: "write it as if cond {{ value }}"; tr: "if koşul {{ deger }} biçiminde yazın"),
         );
         let then_expr = self.parse_expr();
         self.expect_closing(RBrace, "}", open);
@@ -656,8 +706,8 @@ impl Parser<'_> {
                 let open = self.current_span();
                 self.expect(
                     LBrace,
-                    "'else' gövdesi için '{'",
-                    "else { deger } biçiminde yazın",
+                    &lstr!(en: "'{{' for the 'else' body"; tr: "'else' gövdesi için '{{'"),
+                    &lstr!(en: "write it as else {{ value }}"; tr: "else {{ deger }} biçiminde yazın"),
                 );
                 let e = self.parse_expr();
                 self.expect_closing(RBrace, "}", open);
@@ -668,11 +718,17 @@ impl Parser<'_> {
             self.push_error(
                 Diagnostic::error(
                     ErrorCode::E0008,
-                    "'if' ifadesinde 'else' dalı zorunlu",
-                    LabeledSpan::primary(self.span_from(start), "else dalı eksik"),
-                    "else { varsayilan_deger } ekleyin",
+                    lstr!(en: "'if' expression requires an 'else' branch"; tr: "'if' ifadesinde 'else' dalı zorunlu"),
+                    LabeledSpan::primary(
+                        self.span_from(start),
+                        lstr!(en: "missing else branch"; tr: "else dalı eksik"),
+                    ),
+                    lstr!(en: "add else {{ default_value }}"; tr: "else {{ varsayilan_deger }} ekleyin"),
                 )
-                .with_note(NoteKind::Reason, "eksik dal donanımda latch üretir"),
+                .with_note(
+                    NoteKind::Reason,
+                    lstr!(en: "a missing branch produces a latch in hardware"; tr: "eksik dal donanımda latch üretir"),
+                ),
             );
             self.alloc_error_expr(self.current_span())
         };
@@ -725,9 +781,12 @@ impl Parser<'_> {
             None => {
                 self.push_error(Diagnostic::error(
                     ErrorCode::E0005,
-                    format!("geçersiz sayısal literal: '{text}'"),
-                    LabeledSpan::primary(span, "değer 128 bite sığmıyor"),
-                    "daha küçük bir sabit kullanın",
+                    lstr!(en: "invalid numeric literal: '{text}'"; tr: "geçersiz sayısal literal: '{text}'"),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "value does not fit in 128 bits"; tr: "değer 128 bite sığmıyor"),
+                    ),
+                    lstr!(en: "use a smaller constant"; tr: "daha küçük bir sabit kullanın"),
                 ));
                 self.alloc_error_expr(span)
             }

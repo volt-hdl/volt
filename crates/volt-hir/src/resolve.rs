@@ -13,7 +13,9 @@ use volt_ast::{
     Path, Pattern, PatternArgs, PatternKind, PortDir, SourceFile, Stmt, StmtKind, TypeRef,
     TypeRefKind, UseTree, Visibility,
 };
-use volt_diagnostics::{Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::{FileId, Span};
 
 // ═══ Kimlikler ════════════════════════════════════════════════════
@@ -306,11 +308,19 @@ impl<'a> Resolver<'a> {
             self.diagnostics.push(
                 Diagnostic::error(
                     ErrorCode::E1003,
-                    format!("'{}' bu kapsamda zaten tanımlı", name.text),
-                    LabeledSpan::primary(name.span, "ikinci tanım burada"),
-                    "farklı bir isim kullanın — donanımda iki sinyal aynı adı taşıyamaz",
+                    lstr!(en: "'{}' is already defined in this scope", name.text;
+                          tr: "'{}' bu kapsamda zaten tanımlı", name.text),
+                    LabeledSpan::primary(
+                        name.span,
+                        lstr!(en: "second definition here"; tr: "ikinci tanım burada"),
+                    ),
+                    lstr!(en: "use a different name — two signals cannot share the same name in hardware";
+                          tr: "farklı bir isim kullanın — donanımda iki sinyal aynı adı taşıyamaz"),
                 )
-                .with_secondary(prev_span, "önceki tanım burada"),
+                .with_secondary(
+                    prev_span,
+                    lstr!(en: "previous definition here"; tr: "önceki tanım burada"),
+                ),
             );
             return self.error_def;
         }
@@ -320,20 +330,34 @@ impl<'a> Resolver<'a> {
             if let DefKind::Builtin(_) = outer_data.kind {
                 self.diagnostics.push(Diagnostic::warning(
                     ErrorCode::W1003,
-                    format!("yerleşik '{}' gölgeleniyor", name.text),
-                    LabeledSpan::primary(name.span, "bu tanım yerleşiği gizler"),
-                    "farklı bir isim seçin — yerleşik fonksiyon bu kapsamda erişilmez olur",
+                    lstr!(en: "builtin '{}' is shadowed", name.text;
+                          tr: "yerleşik '{}' gölgeleniyor", name.text),
+                    LabeledSpan::primary(
+                        name.span,
+                        lstr!(en: "this definition hides the builtin";
+                              tr: "bu tanım yerleşiği gizler"),
+                    ),
+                    lstr!(en: "choose a different name — the builtin function becomes inaccessible in this scope";
+                          tr: "farklı bir isim seçin — yerleşik fonksiyon bu kapsamda erişilmez olur"),
                 ));
             } else if !matches!(outer_data.kind, DefKind::Error | DefKind::Import) {
                 let outer_span = outer_data.span;
                 self.diagnostics.push(
                     Diagnostic::warning(
                         ErrorCode::W1002,
-                        format!("'{}' dış kapsamdaki tanımı gölgeliyor", name.text),
-                        LabeledSpan::primary(name.span, "iç tanım burada"),
-                        "karışıklığı önlemek için farklı bir isim kullanın",
+                        lstr!(en: "'{}' shadows a definition in an outer scope", name.text;
+                              tr: "'{}' dış kapsamdaki tanımı gölgeliyor", name.text),
+                        LabeledSpan::primary(
+                            name.span,
+                            lstr!(en: "inner definition here"; tr: "iç tanım burada"),
+                        ),
+                        lstr!(en: "use a different name to avoid confusion";
+                              tr: "karışıklığı önlemek için farklı bir isim kullanın"),
                     )
-                    .with_secondary(outer_span, "gölgelenen tanım burada"),
+                    .with_secondary(
+                        outer_span,
+                        lstr!(en: "shadowed definition here"; tr: "gölgelenen tanım burada"),
+                    ),
                 );
             }
         }
@@ -408,11 +432,19 @@ impl<'a> Resolver<'a> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E1010,
-                        format!("belirsiz import: '{}' iki kez getiriliyor", name.text),
-                        LabeledSpan::primary(name.span, "ikinci import burada"),
-                        "birine 'as' ile takma ad verin: use yol::öğe as YeniAd",
+                        lstr!(en: "ambiguous import: '{}' is brought in twice", name.text;
+                              tr: "belirsiz import: '{}' iki kez getiriliyor", name.text),
+                        LabeledSpan::primary(
+                            name.span,
+                            lstr!(en: "second import here"; tr: "ikinci import burada"),
+                        ),
+                        lstr!(en: "give one of them an alias with 'as': use path::item as NewName";
+                              tr: "birine 'as' ile takma ad verin: use yol::öğe as YeniAd"),
                     )
-                    .with_secondary(prev_span, "ilk import burada"),
+                    .with_secondary(
+                        prev_span,
+                        lstr!(en: "first import here"; tr: "ilk import burada"),
+                    ),
                 );
                 continue;
             }
@@ -643,20 +675,27 @@ impl<'a> Resolver<'a> {
             self.diagnostics.push(
                 Diagnostic::error(
                     ErrorCode::E3002,
-                    format!("tanımsız saat alanı: '{}'", name.text),
-                    LabeledSpan::primary(name.span, "bu isimde bir domain yok"),
+                    lstr!(en: "undefined clock domain: '{}'", name.text;
+                          tr: "tanımsız saat alanı: '{}'", name.text),
+                    LabeledSpan::primary(
+                        name.span,
+                        lstr!(en: "no domain with this name"; tr: "bu isimde bir domain yok"),
+                    ),
                     match closest_match(&name.text, &candidates) {
-                        Some(s) => format!("'@{s}' mi demek istediniz?"),
-                        None => format!(
-                            "domain {} {{ clock = posedge ... }} ile tanımlayın",
-                            name.text
+                        Some(s) => lstr!(en: "did you mean '@{}'?", s;
+                                         tr: "'@{}' mi demek istediniz?", s),
+                        None => lstr!(
+                            en: "define it with domain {} {{ clock = posedge ... }}", name.text;
+                            tr: "domain {} {{ clock = posedge ... }} ile tanımlayın", name.text
                         ),
                     },
                 )
                 .with_note(
                     NoteKind::Reason,
-                    "@ anotasyonu yalnız tanımlı bir saat alanına \
-                     ya da clock portuna işaret edebilir",
+                    lstr!(en: "the @ annotation can only refer to a defined clock domain \
+                               or a clock port";
+                          tr: "@ anotasyonu yalnız tanımlı bir saat alanına \
+                               ya da clock portuna işaret edebilir"),
                 ),
             );
             return;
@@ -671,9 +710,14 @@ impl<'a> Resolver<'a> {
         ) {
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E3002,
-                format!("'{}' bir saat alanı değil", name.text),
-                LabeledSpan::primary(name.span, "domain bekleniyor"),
-                "domain Ad { clock = posedge ... } ile tanımlanmış bir isim kullanın",
+                lstr!(en: "'{}' is not a clock domain", name.text;
+                      tr: "'{}' bir saat alanı değil", name.text),
+                LabeledSpan::primary(
+                    name.span,
+                    lstr!(en: "expected a domain"; tr: "domain bekleniyor"),
+                ),
+                lstr!(en: "use a name defined with domain Name {{ clock = posedge ... }}";
+                      tr: "domain Ad {{ clock = posedge ... }} ile tanımlanmış bir isim kullanın"),
             ));
         }
     }
@@ -767,9 +811,14 @@ impl<'a> Resolver<'a> {
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E1001,
-                    format!("'{}' bir modül değil", first.text),
-                    LabeledSpan::primary(first.span, "modül bekleniyor"),
-                    "örneklenecek isim bir module ya da extern module olmalı",
+                    lstr!(en: "'{}' is not a module", first.text;
+                          tr: "'{}' bir modül değil", first.text),
+                    LabeledSpan::primary(
+                        first.span,
+                        lstr!(en: "expected a module"; tr: "modül bekleniyor"),
+                    ),
+                    lstr!(en: "the name being instantiated must be a module or an extern module";
+                          tr: "örneklenecek isim bir module ya da extern module olmalı"),
                 ));
                 None
             }
@@ -791,11 +840,17 @@ impl<'a> Resolver<'a> {
             let suggestion = closest_match(&port_name.text, &candidates);
             let mut diag = Diagnostic::error(
                 ErrorCode::E1009,
-                format!("'{}' modülünde '{}' portu yok", module_name, port_name.text),
-                LabeledSpan::primary(port_name.span, "bilinmeyen port"),
+                lstr!(en: "module '{}' has no port '{}'", module_name, port_name.text;
+                      tr: "'{}' modülünde '{}' portu yok", module_name, port_name.text),
+                LabeledSpan::primary(
+                    port_name.span,
+                    lstr!(en: "unknown port"; tr: "bilinmeyen port"),
+                ),
                 match &suggestion {
-                    Some(s) => format!("'{s}' mi demek istediniz?"),
-                    None => format!("mevcut portlar: {}", candidates.join(", ")),
+                    Some(s) => lstr!(en: "did you mean '{}'?", s;
+                                     tr: "'{}' mi demek istediniz?", s),
+                    None => lstr!(en: "available ports: {}", candidates.join(", ");
+                                  tr: "mevcut portlar: {}", candidates.join(", ")),
                 },
             );
             if let Some(s) = suggestion {
@@ -1103,11 +1158,17 @@ impl<'a> Resolver<'a> {
             if !known.contains(&f.name.text) {
                 diags.push(Diagnostic::error(
                     ErrorCode::E1008,
-                    format!("'{}' yapısında '{}' alanı yok", struct_name, f.name.text),
-                    LabeledSpan::primary(f.name.span, "bilinmeyen alan"),
+                    lstr!(en: "struct '{}' has no field '{}'", struct_name, f.name.text;
+                          tr: "'{}' yapısında '{}' alanı yok", struct_name, f.name.text),
+                    LabeledSpan::primary(
+                        f.name.span,
+                        lstr!(en: "unknown field"; tr: "bilinmeyen alan"),
+                    ),
                     match closest_match(&f.name.text, &known) {
-                        Some(s) => format!("'{s}' mi demek istediniz?"),
-                        None => format!("mevcut alanlar: {}", known.join(", ")),
+                        Some(s) => lstr!(en: "did you mean '{}'?", s;
+                                         tr: "'{}' mi demek istediniz?", s),
+                        None => lstr!(en: "available fields: {}", known.join(", ");
+                                      tr: "mevcut alanlar: {}", known.join(", ")),
                     },
                 ));
             }
@@ -1136,10 +1197,17 @@ impl<'a> Resolver<'a> {
                     let name = self.defs[current.0 as usize].name.clone();
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E1005,
-                        format!("'{name}' bir ad alanı değil"),
-                        LabeledSpan::primary(path.span, "'::' burada kullanılamaz"),
-                        "'::' yalnız enum ve paket yollarında geçerlidir; \
-                         sinyal erişimi için '.' kullanın",
+                        lstr!(en: "'{}' is not a namespace", name;
+                              tr: "'{}' bir ad alanı değil", name),
+                        LabeledSpan::primary(
+                            path.span,
+                            lstr!(en: "'::' cannot be used here";
+                                  tr: "'::' burada kullanılamaz"),
+                        ),
+                        lstr!(en: "'::' is only valid in enum and package paths; \
+                                   use '.' for signal access";
+                              tr: "'::' yalnız enum ve paket yollarında geçerlidir; \
+                                   sinyal erişimi için '.' kullanın"),
                     ));
                     return self.error_def;
                 }
@@ -1162,11 +1230,17 @@ impl<'a> Resolver<'a> {
         let names: Vec<String> = variants.iter().map(|(n, _)| n.clone()).collect();
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E1007,
-            format!("'{}' enum'ında '{}' varyantı yok", enum_name, seg.text),
-            LabeledSpan::primary(seg.span, "bilinmeyen varyant"),
+            lstr!(en: "enum '{}' has no variant '{}'", enum_name, seg.text;
+                  tr: "'{}' enum'ında '{}' varyantı yok", enum_name, seg.text),
+            LabeledSpan::primary(
+                seg.span,
+                lstr!(en: "unknown variant"; tr: "bilinmeyen varyant"),
+            ),
             match closest_match(&seg.text, &names) {
-                Some(s) => format!("'{s}' mi demek istediniz?"),
-                None => format!("mevcut varyantlar: {}", names.join(", ")),
+                Some(s) => lstr!(en: "did you mean '{}'?", s;
+                                 tr: "'{}' mi demek istediniz?", s),
+                None => lstr!(en: "available variants: {}", names.join(", ");
+                              tr: "mevcut varyantlar: {}", names.join(", ")),
             },
         ));
         self.error_def
@@ -1197,14 +1271,23 @@ impl<'a> Resolver<'a> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E1002,
-                        format!("'{}' bu noktada henüz tanımlı değil", name.text),
-                        LabeledSpan::primary(name.span, "burada kullanılıyor"),
-                        format!("'{}' bildirimini bu kullanımdan yukarı taşıyın", name.text),
+                        lstr!(en: "'{}' is not yet defined at this point", name.text;
+                              tr: "'{}' bu noktada henüz tanımlı değil", name.text),
+                        LabeledSpan::primary(
+                            name.span,
+                            lstr!(en: "used here"; tr: "burada kullanılıyor"),
+                        ),
+                        lstr!(en: "move the declaration of '{}' above this use", name.text;
+                              tr: "'{}' bildirimini bu kullanımdan yukarı taşıyın", name.text),
                     )
-                    .with_secondary(decl_span, "ama burada tanımlanıyor")
+                    .with_secondary(
+                        decl_span,
+                        lstr!(en: "but it is defined here"; tr: "ama burada tanımlanıyor"),
+                    )
                     .with_note(
                         NoteKind::Reason,
-                        "modül içi bildirimler kullanımdan önce gelmeli",
+                        lstr!(en: "declarations inside a module must come before their uses";
+                              tr: "modül içi bildirimler kullanımdan önce gelmeli"),
                     ),
                 );
                 return;
@@ -1215,11 +1298,17 @@ impl<'a> Resolver<'a> {
         let suggestion = closest_match(&name.text, &candidates);
         let mut diag = Diagnostic::error(
             ErrorCode::E1001,
-            format!("tanımsız isim: '{}'", name.text),
-            LabeledSpan::primary(name.span, "bu isim çözülemedi"),
+            lstr!(en: "undefined name: '{}'", name.text;
+                  tr: "tanımsız isim: '{}'", name.text),
+            LabeledSpan::primary(
+                name.span,
+                lstr!(en: "this name could not be resolved"; tr: "bu isim çözülemedi"),
+            ),
             match &suggestion {
-                Some(s) => format!("'{s}' mi demek istediniz?"),
-                None => "bu isim hiçbir kapsamda tanımlı değil".to_string(),
+                Some(s) => lstr!(en: "did you mean '{}'?", s;
+                                 tr: "'{}' mi demek istediniz?", s),
+                None => lstr!(en: "this name is not defined in any scope";
+                              tr: "bu isim hiçbir kapsamda tanımlı değil"),
             },
         );
         if let Some(s) = suggestion {
@@ -1293,13 +1382,19 @@ impl<'a> Resolver<'a> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E1006,
-                        "döngüsel modül bağımlılığı",
-                        LabeledSpan::primary(span, "döngü bu modülden başlıyor"),
-                        "örnekleme zincirindeki bağımlılıklardan birini kaldırın",
+                        lstr!(en: "cyclic module dependency"; tr: "döngüsel modül bağımlılığı"),
+                        LabeledSpan::primary(
+                            span,
+                            lstr!(en: "the cycle starts at this module";
+                                  tr: "döngü bu modülden başlıyor"),
+                        ),
+                        lstr!(en: "remove one of the dependencies in the instantiation chain";
+                              tr: "örnekleme zincirindeki bağımlılıklardan birini kaldırın"),
                     )
                     .with_note(
                         NoteKind::Note,
-                        format!("döngü: {} → {}", cycle.join(" → "), cycle[0]),
+                        lstr!(en: "cycle: {} → {}", cycle.join(" → "), cycle[0];
+                              tr: "döngü: {} → {}", cycle.join(" → "), cycle[0]),
                     ),
                 );
             }
@@ -1337,28 +1432,47 @@ impl<'a> Resolver<'a> {
                 continue;
             }
             let (code, msg) = match data.kind {
-                DefKind::Port { dir: PortDir::In } => {
-                    (ErrorCode::W1001, "kullanılmayan giriş portu")
-                }
+                DefKind::Port { dir: PortDir::In } => (
+                    ErrorCode::W1001,
+                    lstr!(en: "unused input port"; tr: "kullanılmayan giriş portu"),
+                ),
                 DefKind::Register => {
                     if self.writes.contains(&def) {
-                        (ErrorCode::W1004, "yazılıp hiç okunmayan register")
+                        (
+                            ErrorCode::W1004,
+                            lstr!(en: "register written but never read";
+                                  tr: "yazılıp hiç okunmayan register"),
+                        )
                     } else {
-                        (ErrorCode::W1004, "kullanılmayan register")
+                        (
+                            ErrorCode::W1004,
+                            lstr!(en: "unused register"; tr: "kullanılmayan register"),
+                        )
                     }
                 }
-                DefKind::Wire | DefKind::LocalBinding => {
-                    (ErrorCode::W1001, "kullanılmayan bağlama")
-                }
-                DefKind::Domain => (ErrorCode::W3004, "kullanılmayan domain tanımı"),
-                DefKind::Import => (ErrorCode::W1005, "kullanılmayan import"),
+                DefKind::Wire | DefKind::LocalBinding => (
+                    ErrorCode::W1001,
+                    lstr!(en: "unused binding"; tr: "kullanılmayan bağlama"),
+                ),
+                DefKind::Domain => (
+                    ErrorCode::W3004,
+                    lstr!(en: "unused domain definition"; tr: "kullanılmayan domain tanımı"),
+                ),
+                DefKind::Import => (
+                    ErrorCode::W1005,
+                    lstr!(en: "unused import"; tr: "kullanılmayan import"),
+                ),
                 _ => continue,
             };
             warnings.push(Diagnostic::warning(
                 code,
                 format!("{}: '{}'", msg, data.name),
-                LabeledSpan::primary(data.span, "burada tanımlı, hiç okunmuyor"),
-                format!("'_' öneki ekleyerek susturabilirsiniz: _{}", data.name),
+                LabeledSpan::primary(
+                    data.span,
+                    lstr!(en: "defined here, never read"; tr: "burada tanımlı, hiç okunmuyor"),
+                ),
+                lstr!(en: "add a '_' prefix to silence: _{}", data.name;
+                      tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", data.name),
             ));
         }
         self.diagnostics.extend(warnings);

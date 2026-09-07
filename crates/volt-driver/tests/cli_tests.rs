@@ -46,13 +46,13 @@ fn build_counter_succeeds_and_matches_expected() {
         std::fs::read_to_string(fixtures().join("counter.expected.sv")).expect("beklenen");
     assert_eq!(produced, expected, "CLI çıktısı da birebir eşleşmeli");
 
-    // cli-contract.md §5 ilerleme mesajları (stderr'de, §11)
+    // cli-contract.md §5 ilerleme mesajları (stderr'de, §11) — varsayılan dil EN
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Derleniyor"), "stderr: {stderr}");
-    assert!(stderr.contains("Tamamlandı"));
-    assert!(stderr.contains("Çıktı"));
+    assert!(stderr.contains("Compiling"), "stderr: {stderr}");
+    assert!(stderr.contains("Finished"));
+    assert!(stderr.contains("Output"));
     assert!(stderr.contains("counter.sv"));
-    assert!(stderr.contains("satır)"));
+    assert!(stderr.contains("lines)"));
 
     let _ = std::fs::remove_dir_all(&target);
 }
@@ -80,7 +80,7 @@ fn build_compile_error_exit_1() {
         .expect("volt çalışmalı");
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("derleme başarısız"), "stderr: {stderr}");
+    assert!(stderr.contains("build failed"), "stderr: {stderr}");
     assert!(
         !target.join("rtl").join("bozuk.sv").exists(),
         "hatalı build çıktı üretmemeli"
@@ -107,7 +107,7 @@ fn check_counter_exit_0() {
         .expect("volt çalışmalı");
     assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Sonuç 0 hata"), "stderr: {stderr}");
+    assert!(stderr.contains("Result 0 error"), "stderr: {stderr}");
 }
 
 // ═══ F2c: CDC kontrolü CLI'da (Volt'un vaadi) ═════════════════════
@@ -122,8 +122,8 @@ fn check_cdc_violation_exit_1_with_e3001() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("E3001"), "stderr: {stderr}");
-    // 5 parça: çözüm satırı sync() önermeli.
-    assert!(stderr.contains("= çözüm"), "stderr: {stderr}");
+    // 5 parça: çözüm (help) satırı sync() önermeli — varsayılan dil EN.
+    assert!(stderr.contains("= help"), "stderr: {stderr}");
     assert!(stderr.contains("sync("), "stderr: {stderr}");
 }
 
@@ -141,7 +141,10 @@ fn check_single_clock_pass_exit_0_no_diagnostics() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Sonuç 0 hata, 0 uyarı"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("Result 0 error(s), 0 warning(s)"),
+        "stderr: {stderr}"
+    );
     // UX Anayasası: hiçbir tanı yok — kullanıcı 'domain' kavramını
     // görmez (dosya YOLU 'no_domain' içerdiğinden tanı satırı sayılır).
     assert!(!stderr.contains("error["), "stderr: {stderr}");
@@ -162,7 +165,7 @@ fn check_cdc_bridge_with_sync_exit_0() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Sonuç 0 hata"), "stderr: {stderr}");
+    assert!(stderr.contains("Result 0 error"), "stderr: {stderr}");
 }
 
 #[test]
@@ -177,7 +180,7 @@ fn build_cdc_violation_exit_1_no_sv_output() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("E3001"), "stderr: {stderr}");
-    assert!(stderr.contains("derleme başarısız"), "stderr: {stderr}");
+    assert!(stderr.contains("build failed"), "stderr: {stderr}");
     assert!(
         !target.join("rtl").join("01_cdc_violation.sv").exists(),
         "CDC ihlali SV üretmemeli — Volt'un vaadi"
@@ -286,6 +289,120 @@ fn build_json_format_lists_artifact() {
     assert!(artifacts[0].as_str().unwrap().contains("counter.sv"));
 
     let _ = std::fs::remove_dir_all(&target);
+}
+
+// ═══ --lang / VOLT_LANG / Volt.toml [ui] lang (cli-contract.md §3) ═
+
+#[test]
+fn default_lang_is_english() {
+    let output = volt()
+        .arg("check")
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E3001]"), "stderr: {stderr}");
+    assert!(stderr.contains("= reason:"), "stderr: {stderr}");
+    assert!(stderr.contains("= help:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("= for more: volt explain E3001"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("= çözüm"),
+        "EN çıktıda Türkçe anahtar olmamalı: {stderr}"
+    );
+}
+
+#[test]
+fn lang_flag_tr_switches_output_to_turkish() {
+    let output = volt()
+        .args(["build", "--lang=tr", "--target-dir"])
+        .arg(temp_dir("lang-flag"))
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E3001]"), "stderr: {stderr}");
+    assert!(stderr.contains("= çözüm:"), "stderr: {stderr}");
+    assert!(stderr.contains("= neden:"), "stderr: {stderr}");
+    assert!(stderr.contains("sync("), "stderr: {stderr}");
+    assert!(stderr.contains("derleme başarısız"), "stderr: {stderr}");
+}
+
+#[test]
+fn volt_lang_env_tr_switches_output_to_turkish() {
+    let output = volt()
+        .arg("check")
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .env("VOLT_LANG", "tr")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error[E3001]"), "stderr: {stderr}");
+    assert!(stderr.contains("= çözüm:"), "stderr: {stderr}");
+}
+
+#[test]
+fn lang_flag_overrides_volt_lang_env() {
+    let output = volt()
+        .args(["check", "--lang=en"])
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .env("VOLT_LANG", "tr")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("= help:"), "stderr: {stderr}");
+    assert!(!stderr.contains("= çözüm"), "stderr: {stderr}");
+}
+
+#[test]
+fn volt_toml_ui_lang_tr_used_when_no_flag_or_env() {
+    let dir = temp_dir("toml-lang");
+    std::fs::write(dir.join("Volt.toml"), "[ui]\nlang = \"tr\"\n").expect("Volt.toml");
+    let output = volt()
+        .arg("check")
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .current_dir(&dir)
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("= çözüm:"), "stderr: {stderr}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn same_error_code_in_both_languages() {
+    // İki dilde de AYNI E-kodu üretilmeli; yalnız metin dili değişir.
+    let run = |lang: &str| {
+        let output = volt()
+            .args(["check", "--lang", lang])
+            .arg(ui("fail/01_cdc_violation.volt"))
+            .env_remove("VOLT_LANG")
+            .output()
+            .expect("volt çalışmalı");
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+    let (en_code, en_err) = run("en");
+    let (tr_code, tr_err) = run("tr");
+    assert_eq!(en_code, Some(1));
+    assert_eq!(tr_code, Some(1));
+    assert!(en_err.contains("error[E3001]"), "en stderr: {en_err}");
+    assert!(tr_err.contains("error[E3001]"), "tr stderr: {tr_err}");
+    assert!(en_err.contains("= help:"), "en stderr: {en_err}");
+    assert!(tr_err.contains("= çözüm:"), "tr stderr: {tr_err}");
 }
 
 #[test]

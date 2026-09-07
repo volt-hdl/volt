@@ -1775,7 +1775,7 @@ fn recovery_missing_rbrace_is_e0002_with_open_location() {
     assert!(
         diag.spans
             .iter()
-            .any(|s| !s.primary && s.label.contains("açılış")),
+            .any(|s| !s.primary && s.label.contains("opening")),
         "açılış konumu ikincil span olmalı"
     );
 }

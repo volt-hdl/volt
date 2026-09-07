@@ -4,7 +4,7 @@
 //! çıkarımı (taşma genişlemesi dahil) F2'de HIR'a taşınacak.
 
 use volt_ast::{BinOp, Expr, ExprKind, Idx, NumBase, UnOp};
-use volt_diagnostics::ErrorCode;
+use volt_diagnostics::{lstr, ErrorCode};
 
 use crate::Emitter;
 
@@ -259,7 +259,13 @@ impl<'a> Emitter<'a> {
                 (format!("{b}.{name}"), PREC_ATOM)
             }
             ExprKind::Call { .. } => {
-                self.future(span, "fonksiyon çağrıları (sync dahil)");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "function calls (including sync)";
+                        tr: "fonksiyon çağrıları (sync dahil)"
+                    ),
+                );
                 ("1'b0".to_string(), PREC_ATOM)
             }
             ExprKind::Cast { expr, ty } => {
@@ -295,7 +301,13 @@ impl<'a> Emitter<'a> {
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
             | ExprKind::Todo { .. } => {
-                self.future(span, "bu ifade türünün SV üretimi");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "SV generation of this expression kind";
+                        tr: "bu ifade türünün SV üretimi"
+                    ),
+                );
                 ("1'b0".to_string(), PREC_ATOM)
             }
         };
@@ -326,9 +338,15 @@ impl<'a> Emitter<'a> {
         let Some(src) = src else {
             self.error(
                 ErrorCode::E2005,
-                "dönüşüm kaynağının genişliği belirlenemiyor".into(),
+                lstr!(
+                    en: "cannot determine the width of the cast source";
+                    tr: "dönüşüm kaynağının genişliği belirlenemiyor"
+                ),
                 span,
-                "operandın tipini açıkça belirtin",
+                &lstr!(
+                    en: "specify the operand's type explicitly";
+                    tr: "operandın tipini açıkça belirtin"
+                ),
             );
             return inner;
         };
@@ -342,9 +360,15 @@ impl<'a> Emitter<'a> {
                 } else {
                     self.error(
                         ErrorCode::E2005,
-                        "işaretli genişletme yalnız basit sinyallerde destekleniyor".into(),
+                        lstr!(
+                            en: "sign extension is only supported on simple signals";
+                            tr: "işaretli genişletme yalnız basit sinyallerde destekleniyor"
+                        ),
                         span,
-                        "önce let ile ara sinyale bağlayın",
+                        &lstr!(
+                            en: "bind to an intermediate signal with let first";
+                            tr: "önce let ile ara sinyale bağlayın"
+                        ),
                     );
                     inner
                 }
@@ -360,9 +384,15 @@ impl<'a> Emitter<'a> {
             } else {
                 self.error(
                     ErrorCode::E2005,
-                    "daraltıcı dönüşüm yalnız basit sinyallerde destekleniyor".into(),
+                    lstr!(
+                        en: "narrowing cast is only supported on simple signals";
+                        tr: "daraltıcı dönüşüm yalnız basit sinyallerde destekleniyor"
+                    ),
                     span,
-                    "önce let ile ara sinyale bağlayın",
+                    &lstr!(
+                        en: "bind to an intermediate signal with let first";
+                        tr: "önce let ile ara sinyale bağlayın"
+                    ),
                 );
                 inner
             }
@@ -380,9 +410,15 @@ impl<'a> Emitter<'a> {
         let Some(sig) = sig else {
             self.error(
                 ErrorCode::E2005,
-                format!("'{value}' literalinin genişliği belirlenemiyor"),
+                lstr!(
+                    en: "cannot determine the width of the literal '{value}'";
+                    tr: "'{value}' literalinin genişliği belirlenemiyor"
+                ),
                 span,
-                "hedef tipe atayın veya sonek ekleyin (ör. 42u8)",
+                &lstr!(
+                    en: "assign to a target type or add a suffix (e.g. 42u8)";
+                    tr: "hedef tipe atayın veya sonek ekleyin (ör. 42u8)"
+                ),
             );
             return value.to_string();
         };

@@ -5,6 +5,7 @@ pub mod code;
 pub mod diagnostic;
 pub mod emit;
 pub mod json;
+pub mod messages;
 
 pub use code::ErrorCode;
 pub use diagnostic::{
@@ -12,3 +13,4 @@ pub use diagnostic::{
 };
 pub use emit::{render_human, render_short};
 pub use json::{to_json_string, to_json_value};
+pub use messages::{lang, set_lang, Lang};

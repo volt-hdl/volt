@@ -3,7 +3,7 @@
 //! Tanılar `volt-diagnostics` modeliyle üretilir (5 parça kuralı).
 
 use logos::Logos;
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
 
 use crate::token::{Token, TokenKind};
@@ -49,9 +49,12 @@ pub fn tokenize_with_trivia(file: FileId, source: &str) -> LexOutput {
             Err(()) => {
                 errors.push(Diagnostic::error(
                     ErrorCode::E0001,
-                    format!("beklenmeyen karakter: {:?}", lexer.slice()),
-                    LabeledSpan::primary(span, "bu karakter Volt sözlüğünde yok"),
-                    "bu karakteri kaldırın; geçerli tokenlar için grammar-full.ebnf §15'e bakın",
+                    lstr!(en: "unexpected character: {:?}", lexer.slice(); tr: "beklenmeyen karakter: {:?}", lexer.slice()),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "this character is not part of the Volt vocabulary"; tr: "bu karakter Volt sözlüğünde yok"),
+                    ),
+                    lstr!(en: "remove this character; see grammar-full.ebnf §15 for valid tokens"; tr: "bu karakteri kaldırın; geçerli tokenlar için grammar-full.ebnf §15'e bakın"),
                 ));
                 TokenKind::Error
             }
@@ -68,26 +71,29 @@ fn check_token(kind: TokenKind, span: Span, text: &str) -> Option<Diagnostic> {
         TokenKind::Reserved => Some(
             Diagnostic::error(
                 ErrorCode::E0003,
-                format!("'{text}' ayrılmış anahtar kelimedir, henüz desteklenmiyor"),
-                LabeledSpan::primary(span, "ayrılmış kelime"),
-                format!("farklı bir isim seçin (ör. '{text}_')"),
+                lstr!(en: "'{text}' is a reserved keyword and is not supported yet"; tr: "'{text}' ayrılmış anahtar kelimedir, henüz desteklenmiyor"),
+                LabeledSpan::primary(span, lstr!(en: "reserved word"; tr: "ayrılmış kelime")),
+                lstr!(en: "choose a different name (e.g. '{text}_')"; tr: "farklı bir isim seçin (ör. '{text}_')"),
             )
             .with_note(
                 NoteKind::Reason,
-                "V1'de dil genişlediğinde bu isimler anlam kazanacak; şimdi kullanılırsa kod kırılır",
+                lstr!(en: "these names will gain meaning as the language grows in V1; using them now would break your code"; tr: "V1'de dil genişlediğinde bu isimler anlam kazanacak; şimdi kullanılırsa kod kırılır"),
             ),
         ),
         TokenKind::InvalidNumber => Some(Diagnostic::error(
             ErrorCode::E0005,
-            format!("geçersiz sayısal literal: '{text}'"),
-            LabeledSpan::primary(span, "geçersiz literal"),
-            "önekten sonra tabana uygun en az bir rakam gelmeli (ör. 0xFF, 0b1010, 0o755)",
+            lstr!(en: "invalid numeric literal: '{text}'"; tr: "geçersiz sayısal literal: '{text}'"),
+            LabeledSpan::primary(span, lstr!(en: "invalid literal"; tr: "geçersiz literal")),
+            lstr!(en: "the prefix must be followed by at least one digit valid in that base (e.g. 0xFF, 0b1010, 0o755)"; tr: "önekten sonra tabana uygun en az bir rakam gelmeli (ör. 0xFF, 0b1010, 0o755)"),
         )),
         TokenKind::BlockComment(false) => Some(Diagnostic::error(
             ErrorCode::E0013,
-            "kapanmamış blok yorumu",
-            LabeledSpan::primary(span, "yorum burada başlıyor ama kapanmıyor"),
-            "eksik '*/' ekleyin (iç içe yorumlarda her '/*' ayrıca kapanmalı)",
+            lstr!(en: "unterminated block comment"; tr: "kapanmamış blok yorumu"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "comment starts here but is never closed"; tr: "yorum burada başlıyor ama kapanmıyor"),
+            ),
+            lstr!(en: "add the missing '*/' (in nested comments every '/*' must be closed separately)"; tr: "eksik '*/' ekleyin (iç içe yorumlarda her '/*' ayrıca kapanmalı)"),
         )),
         _ => None,
     }

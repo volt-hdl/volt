@@ -10,7 +10,9 @@ use volt_ast::{
     Idx, IfStmt, InstanceDecl, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, MatchStmt,
     Name, OnBlock, OnTrigger, PortBinding, RegDecl, Stmt, StmtKind, WireDecl,
 };
-use volt_diagnostics::{Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 
 use crate::token::TokenKind::*;
 
@@ -52,8 +54,8 @@ impl Parser<'_> {
                                 self.parse_expr()
                             } else {
                                 self.error_expected(
-                                    "atamanın sağında ifade",
-                                    "isim = ifade biçiminde yazın",
+                                    &lstr!(en: "expression on the right-hand side of the assignment"; tr: "atamanın sağında ifade"),
+                                    &lstr!(en: "write it as name = expression"; tr: "isim = ifade biçiminde yazın"),
                                 );
                                 self.alloc_error_expr(self.current_span())
                             };
@@ -62,8 +64,8 @@ impl Parser<'_> {
                         }
                         None => {
                             self.error_expected(
-                                "atama hedefi olarak isim/indeks/alan",
-                                "sol taraf isim, isim[i] veya isim.alan olmalı",
+                                &lstr!(en: "name/index/field as the assignment target"; tr: "atama hedefi olarak isim/indeks/alan"),
+                                &lstr!(en: "the left-hand side must be name, name[i] or name.field"; tr: "sol taraf isim, isim[i] veya isim.alan olmalı"),
                             );
                             self.bump_any(); // '='
                             let _ = self.parse_expr();
@@ -80,9 +82,12 @@ impl Parser<'_> {
             _ => {
                 let err = Diagnostic::error(
                     ErrorCode::E0001,
-                    format!("beklenmeyen '{}', deyim bekleniyor", self.current_text()),
-                    LabeledSpan::primary(self.current_span(), "deyim bekleniyor"),
-                    "reg, let, wire, on, comb, for veya atama bekleniyor",
+                    lstr!(en: "unexpected '{}', expected a statement", self.current_text(); tr: "beklenmeyen '{}', deyim bekleniyor", self.current_text()),
+                    LabeledSpan::primary(
+                        self.current_span(),
+                        lstr!(en: "expected a statement"; tr: "deyim bekleniyor"),
+                    ),
+                    lstr!(en: "expected reg, let, wire, on, comb, for or an assignment"; tr: "reg, let, wire, on, comb, for veya atama bekleniyor"),
                 );
                 self.recover(STMT_START, err);
                 StmtKind::Error
@@ -131,19 +136,26 @@ impl Parser<'_> {
                 Some(self.parse_name())
             } else {
                 self.error_expected(
-                    "reg domaini için saat adı",
-                    "reg(clk) isim = 0 biçiminde yazın",
+                    &lstr!(en: "clock name for the reg domain"; tr: "reg domaini için saat adı"),
+                    &lstr!(en: "write it as reg(clk) name = 0"; tr: "reg(clk) isim = 0 biçiminde yazın"),
                 );
                 None
             };
-            self.expect(RParen, "kapanış ')'", "reg(clk) biçiminde yazın");
+            self.expect(
+                RParen,
+                &lstr!(en: "closing ')'"; tr: "kapanış ')'"),
+                &lstr!(en: "write it as reg(clk)"; tr: "reg(clk) biçiminde yazın"),
+            );
             d
         } else {
             None
         };
 
         if !self.at(Ident) {
-            self.error_expected("register adı", "reg isim : u8 = 0 biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "register name"; tr: "register adı"),
+                &lstr!(en: "write it as reg name : u8 = 0"; tr: "reg isim : u8 = 0 biçiminde yazın"),
+            );
             self.recover_silent(STMT_START);
             return StmtKind::Error;
         }
@@ -159,13 +171,16 @@ impl Parser<'_> {
             if self.at_expr_start() {
                 self.parse_expr()
             } else {
-                self.error_expected("başlangıç değeri", "reg isim : u8 = 0 biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "initial value"; tr: "başlangıç değeri"),
+                    &lstr!(en: "write it as reg name : u8 = 0"; tr: "reg isim : u8 = 0 biçiminde yazın"),
+                );
                 self.alloc_error_expr(self.current_span())
             }
         } else {
             self.error_expected(
-                "reg başlangıç değeri için '='",
-                &format!("reg {} : u8 = 0 biçiminde yazın", name.text),
+                &lstr!(en: "'=' for the reg initial value"; tr: "reg başlangıç değeri için '='"),
+                &lstr!(en: "write it as reg {} : u8 = 0", name.text; tr: "reg {} : u8 = 0 biçiminde yazın", name.text),
             );
             self.alloc_error_expr(self.current_span())
         };
@@ -185,8 +200,8 @@ impl Parser<'_> {
 
         if !self.at(Ident) {
             self.error_expected(
-                "let bağlaması için isim",
-                "let isim = ifade biçiminde yazın",
+                &lstr!(en: "name for the let binding"; tr: "let bağlaması için isim"),
+                &lstr!(en: "write it as let name = expression"; tr: "let isim = ifade biçiminde yazın"),
             );
             self.recover_silent(STMT_START);
             return None;
@@ -203,13 +218,16 @@ impl Parser<'_> {
             if self.at_expr_start() {
                 self.parse_expr()
             } else {
-                self.error_expected("let değeri", "let isim = ifade biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "let value"; tr: "let değeri"),
+                    &lstr!(en: "write it as let name = expression"; tr: "let isim = ifade biçiminde yazın"),
+                );
                 self.alloc_error_expr(self.current_span())
             }
         } else {
             self.error_expected(
-                "let için '='",
-                &format!("let {} = ifade biçiminde yazın", name.text),
+                &lstr!(en: "'=' for the let binding"; tr: "let için '='"),
+                &lstr!(en: "write it as let {} = expression", name.text; tr: "let {} = ifade biçiminde yazın", name.text),
             );
             self.alloc_error_expr(self.current_span())
         };
@@ -223,7 +241,10 @@ impl Parser<'_> {
         self.bump_any(); // 'wire'
 
         if !self.at(Ident) {
-            self.error_expected("wire adı", "wire isim : u8 biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "wire name"; tr: "wire adı"),
+                &lstr!(en: "write it as wire name : u8"; tr: "wire isim : u8 biçiminde yazın"),
+            );
             self.recover_silent(STMT_START);
             return StmtKind::Error;
         }
@@ -231,8 +252,8 @@ impl Parser<'_> {
 
         self.expect(
             Colon,
-            "wire bildiriminde ':'",
-            &format!("wire {} : u8 biçiminde yazın", name.text),
+            &lstr!(en: "':' in the wire declaration"; tr: "wire bildiriminde ':'"),
+            &lstr!(en: "write it as wire {} : u8", name.text; tr: "wire {} : u8 biçiminde yazın", name.text),
         );
         let ty = self.parse_type_or_error();
         self.eat(Semi);
@@ -249,28 +270,45 @@ impl Parser<'_> {
         let var = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("döngü değişkeni", "for i in 0..N { } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "loop variable"; tr: "döngü değişkeni"),
+                &lstr!(en: "write it as for i in 0..N {{ }}"; tr: "for i in 0..N {{ }} biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
             }
         };
 
-        self.expect(KwIn, "'for' için 'in'", "for i in 0..N { } biçiminde yazın");
+        self.expect(
+            KwIn,
+            &lstr!(en: "'in' for the 'for' loop"; tr: "'for' için 'in'"),
+            &lstr!(en: "write it as for i in 0..N {{ }}"; tr: "for i in 0..N {{ }} biçiminde yazın"),
+        );
 
         let start = if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
-            self.error_expected("aralık başlangıcı", "for i in 0..N biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "range start"; tr: "aralık başlangıcı"),
+                &lstr!(en: "write it as for i in 0..N"; tr: "for i in 0..N biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
 
-        self.expect(DotDot, "aralık için '..'", "for i in 0..N biçiminde yazın");
+        self.expect(
+            DotDot,
+            &lstr!(en: "'..' for the range"; tr: "aralık için '..'"),
+            &lstr!(en: "write it as for i in 0..N"; tr: "for i in 0..N biçiminde yazın"),
+        );
 
         let end = if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
-            self.error_expected("aralık sonu", "for i in 0..N biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "range end"; tr: "aralık sonu"),
+                &lstr!(en: "write it as for i in 0..N"; tr: "for i in 0..N biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
 
@@ -294,8 +332,8 @@ impl Parser<'_> {
                     OnTrigger::Reset(name)
                 } else {
                     self.error_expected(
-                        "'.' sonrasında 'reset'",
-                        "on clk.reset { } biçiminde yazın",
+                        &lstr!(en: "'reset' after '.'"; tr: "'.' sonrasında 'reset'"),
+                        &lstr!(en: "write it as on clk.reset {{ }}"; tr: "on clk.reset {{ }} biçiminde yazın"),
                     );
                     OnTrigger::Error
                 }
@@ -303,7 +341,10 @@ impl Parser<'_> {
                 OnTrigger::Clock(name)
             }
         } else {
-            self.error_expected("'on' için saat adı", "on clk { } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "clock name for 'on'"; tr: "'on' için saat adı"),
+                &lstr!(en: "write it as on clk {{ }}"; tr: "on clk {{ }} biçiminde yazın"),
+            );
             OnTrigger::Error
         };
 
@@ -321,9 +362,12 @@ impl Parser<'_> {
             let span = self.bump();
             self.push_error(Diagnostic::error(
                 ErrorCode::E0001,
-                "blok çok derin iç içe",
-                LabeledSpan::primary(span, "derinlik sınırı aşıldı"),
-                "iç içe blokları ayrı modüllere bölün",
+                lstr!(en: "block is nested too deeply"; tr: "blok çok derin iç içe"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "nesting depth limit exceeded"; tr: "derinlik sınırı aşıldı"),
+                ),
+                lstr!(en: "split the nested blocks into separate modules"; tr: "iç içe blokları ayrı modüllere bölün"),
             ));
             return self.ast.blocks.alloc(Block {
                 span,
@@ -335,7 +379,11 @@ impl Parser<'_> {
         self.depth += 1;
 
         let open = self.current_span();
-        self.expect(LBrace, "blok için '{'", "{ ... } biçiminde yazın");
+        self.expect(
+            LBrace,
+            &lstr!(en: "'{{' for the block"; tr: "blok için '{{'"),
+            &lstr!(en: "write it as {{ ... }}"; tr: "{{ ... }} biçiminde yazın"),
+        );
 
         let mut stmts = Vec::new();
         while !self.at(RBrace) && !self.at_eof() {
@@ -371,12 +419,12 @@ impl Parser<'_> {
             _ => {
                 let err = Diagnostic::error(
                     ErrorCode::E0001,
-                    format!(
-                        "beklenmeyen '{}', blok deyimi bekleniyor",
-                        self.current_text()
+                    lstr!(en: "unexpected '{}', expected a block statement", self.current_text(); tr: "beklenmeyen '{}', blok deyimi bekleniyor", self.current_text()),
+                    LabeledSpan::primary(
+                        self.current_span(),
+                        lstr!(en: "expected a statement"; tr: "deyim bekleniyor"),
                     ),
-                    LabeledSpan::primary(self.current_span(), "deyim bekleniyor"),
-                    "atama, if, match, for veya let bekleniyor",
+                    lstr!(en: "expected an assignment, if, match, for or let"; tr: "atama, if, match, for veya let bekleniyor"),
                 );
                 self.recover(BLOCK_STMT_START, err);
                 BlockStmt::Error
@@ -393,15 +441,18 @@ impl Parser<'_> {
         let scrutinee = if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
-            self.error_expected("match konusu", "match x { desen => ... } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "match scrutinee"; tr: "match konusu"),
+                &lstr!(en: "write it as match x {{ pattern => ... }}"; tr: "match x {{ desen => ... }} biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
 
         let open = self.current_span();
         self.expect(
             LBrace,
-            "match gövdesi için '{'",
-            "match x { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the match body"; tr: "match gövdesi için '{{'"),
+            &lstr!(en: "write it as match x {{ ... }}"; tr: "match x {{ ... }} biçiminde yazın"),
         );
 
         let mut arms = Vec::new();
@@ -431,7 +482,10 @@ impl Parser<'_> {
             if self.at_expr_start() {
                 Some(self.parse_expr_no_struct_lit())
             } else {
-                self.error_expected("koruma koşulu", "desen if koşul => ... biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "guard condition"; tr: "koruma koşulu"),
+                    &lstr!(en: "write it as pattern if cond => ..."; tr: "desen if koşul => ... biçiminde yazın"),
+                );
                 None
             }
         } else {
@@ -440,8 +494,8 @@ impl Parser<'_> {
 
         self.expect(
             FatArrow,
-            "match kolunda '=>'",
-            "desen => sonuç biçiminde yazın",
+            &lstr!(en: "'=>' in the match arm"; tr: "match kolunda '=>'"),
+            &lstr!(en: "write it as pattern => result"; tr: "desen => sonuç biçiminde yazın"),
         );
 
         let body = match ctx {
@@ -450,7 +504,10 @@ impl Parser<'_> {
                 let expr = if self.at_expr_start() {
                     self.parse_expr()
                 } else {
-                    self.error_expected("kol gövdesi", "desen => ifade biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "arm body"; tr: "kol gövdesi"),
+                        &lstr!(en: "write it as pattern => expression"; tr: "desen => ifade biçiminde yazın"),
+                    );
                     self.alloc_error_expr(self.current_span())
                 };
                 MatchArmBody::Expr(expr)
@@ -475,8 +532,8 @@ impl Parser<'_> {
             Some(lv) => lv,
             None => {
                 self.error_expected(
-                    "atama hedefi",
-                    "sol taraf isim, isim[i] veya isim.alan olmalı",
+                    &lstr!(en: "assignment target"; tr: "atama hedefi"),
+                    &lstr!(en: "the left-hand side must be name, name[i] or name.field"; tr: "sol taraf isim, isim[i] veya isim.alan olmalı"),
                 );
                 self.recover_silent(BLOCK_STMT_START);
                 return BlockStmt::Error;
@@ -494,13 +551,16 @@ impl Parser<'_> {
                 self.push_error(
                     Diagnostic::error(
                         ErrorCode::E0006,
-                        "sıralı blokta '=' kullanılamaz",
-                        LabeledSpan::primary(op_span, "'<=' olmalı"),
-                        "'<=' kullanın",
+                        lstr!(en: "'=' cannot be used in a sequential block"; tr: "sıralı blokta '=' kullanılamaz"),
+                        LabeledSpan::primary(
+                            op_span,
+                            lstr!(en: "should be '<='"; tr: "'<=' olmalı"),
+                        ),
+                        lstr!(en: "use '<='"; tr: "'<=' kullanın"),
                     )
                     .with_note(
                         NoteKind::Note,
-                        "'on' bloğu içindeki atamalar saat kenarında olur",
+                        lstr!(en: "assignments inside an 'on' block happen on the clock edge"; tr: "'on' bloğu içindeki atamalar saat kenarında olur"),
                     )
                     .with_suggestion(Suggestion {
                         span: op_span,
@@ -520,13 +580,16 @@ impl Parser<'_> {
                 self.push_error(
                     Diagnostic::error(
                         ErrorCode::E0007,
-                        "kombinasyonel blokta '<=' kullanılamaz",
-                        LabeledSpan::primary(op_span, "'=' olmalı"),
-                        "'=' kullanın",
+                        lstr!(en: "'<=' cannot be used in a combinational block"; tr: "kombinasyonel blokta '<=' kullanılamaz"),
+                        LabeledSpan::primary(
+                            op_span,
+                            lstr!(en: "should be '='"; tr: "'=' olmalı"),
+                        ),
+                        lstr!(en: "use '='"; tr: "'=' kullanın"),
                     )
                     .with_note(
                         NoteKind::Note,
-                        "comb bloğu anlık atama içerir, saat kenarı yoktur",
+                        lstr!(en: "a comb block contains immediate assignments; there is no clock edge"; tr: "comb bloğu anlık atama içerir, saat kenarı yoktur"),
                     )
                     .with_suggestion(Suggestion {
                         span: op_span,
@@ -543,8 +606,8 @@ impl Parser<'_> {
                     BlockContext::Combinational | BlockContext::Function => "'='",
                 };
                 self.error_expected(
-                    &format!("atama operatörü {expected}"),
-                    &format!("hedef {expected} ifade biçiminde yazın"),
+                    &lstr!(en: "assignment operator {expected}"; tr: "atama operatörü {expected}"),
+                    &lstr!(en: "write it as target {expected} expression"; tr: "hedef {expected} ifade biçiminde yazın"),
                 );
                 self.recover_silent(BLOCK_STMT_START);
                 return BlockStmt::Error;
@@ -554,7 +617,10 @@ impl Parser<'_> {
         let rhs = if self.at_expr_start() {
             self.parse_expr()
         } else {
-            self.error_expected("atamanın sağında ifade", "hedef <= ifade biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "expression on the right-hand side of the assignment"; tr: "atamanın sağında ifade"),
+                &lstr!(en: "write it as target <= expression"; tr: "hedef <= ifade biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
         self.eat(Semi);
@@ -574,7 +640,10 @@ impl Parser<'_> {
         let cond = if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
-            self.error_expected("'if' koşulu", "if koşul { ... } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "'if' condition"; tr: "'if' koşulu"),
+                &lstr!(en: "write it as if cond {{ ... }}"; tr: "if koşul {{ ... }} biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
 

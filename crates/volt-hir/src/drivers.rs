@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use volt_ast::{ModuleDecl, PortDir};
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{DefId, DefKind, ResolveResult};
@@ -59,14 +59,26 @@ impl DriverTable {
                 out.push(
                     Diagnostic::error(
                         ErrorCode::E4001,
-                        format!("'{name}' zaten sürülüyor"),
-                        LabeledSpan::primary(full[1].span, "ikinci sürücü burada"),
-                        "tek bir atama kullanın veya koşullu ifade yazın",
+                        lstr!(en: "'{name}' is already driven"; tr: "'{name}' zaten sürülüyor"),
+                        LabeledSpan::primary(
+                            full[1].span,
+                            lstr!(en: "second driver here"; tr: "ikinci sürücü burada"),
+                        ),
+                        lstr!(
+                            en: "use a single assignment or write a conditional expression";
+                            tr: "tek bir atama kullanın veya koşullu ifade yazın"
+                        ),
                     )
-                    .with_secondary(full[0].span, "ilk atama burada")
+                    .with_secondary(
+                        full[0].span,
+                        lstr!(en: "first assignment here"; tr: "ilk atama burada"),
+                    )
                     .with_note(
                         NoteKind::Reason,
-                        "donanımda bir sinyali iki kaynak aynı anda süremez",
+                        lstr!(
+                            en: "in hardware, two sources cannot drive the same signal at once";
+                            tr: "donanımda bir sinyali iki kaynak aynı anda süremez"
+                        ),
                     ),
                 );
             }
@@ -88,13 +100,25 @@ impl DriverTable {
                 out.push(
                     Diagnostic::error(
                         ErrorCode::E4002,
-                        format!("'{}' çıkış portu sürülmüyor", port.name.text),
-                        LabeledSpan::primary(port.span, "bu porta hiç atama yok"),
-                        format!("{} = ... şeklinde bir atama ekleyin", port.name.text),
+                        lstr!(
+                            en: "output port '{}' is not driven", port.name.text;
+                            tr: "'{}' çıkış portu sürülmüyor", port.name.text
+                        ),
+                        LabeledSpan::primary(
+                            port.span,
+                            lstr!(en: "this port is never assigned"; tr: "bu porta hiç atama yok"),
+                        ),
+                        lstr!(
+                            en: "add an assignment like {} = ...", port.name.text;
+                            tr: "{} = ... şeklinde bir atama ekleyin", port.name.text
+                        ),
                     )
                     .with_note(
                         NoteKind::Reason,
-                        "sürücüsüz çıkış SystemVerilog'da yüksek empedans (Z) üretir",
+                        lstr!(
+                            en: "an undriven output produces high impedance (Z) in SystemVerilog";
+                            tr: "sürücüsüz çıkış SystemVerilog'da yüksek empedans (Z) üretir"
+                        ),
                     ),
                 );
             }
@@ -111,18 +135,30 @@ impl DriverTable {
                 continue;
             }
             let (code, what) = match data.kind {
-                DefKind::Register => (ErrorCode::W4002, "yazılıp hiç okunmayan register"),
+                DefKind::Register => (
+                    ErrorCode::W4002,
+                    lstr!(
+                        en: "register written but never read";
+                        tr: "yazılıp hiç okunmayan register"
+                    ),
+                ),
                 DefKind::Wire | DefKind::LocalBinding => (
                     ErrorCode::W4001,
-                    "kullanılmayan sinyal: sürülüyor ama hiç okunmuyor",
+                    lstr!(
+                        en: "unused signal: driven but never read";
+                        tr: "kullanılmayan sinyal: sürülüyor ama hiç okunmuyor"
+                    ),
                 ),
                 _ => continue,
             };
             out.push(Diagnostic::warning(
                 code,
                 format!("{what}: '{}'", data.name),
-                LabeledSpan::primary(data.span, "burada tanımlı"),
-                format!("'_' öneki ile susturabilirsiniz: _{}", data.name),
+                LabeledSpan::primary(data.span, lstr!(en: "defined here"; tr: "burada tanımlı")),
+                lstr!(
+                    en: "add a '_' prefix to silence: _{}", data.name;
+                    tr: "'_' öneki ile susturabilirsiniz: _{}", data.name
+                ),
             ));
         }
     }

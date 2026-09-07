@@ -3,8 +3,8 @@
 //! JSON şeması referansı: docs/spec/cli-contract.md §5.
 
 use volt_diagnostics::{
-    render_human, render_short, to_json_value, Applicability, Diagnostic, ErrorCode, LabeledSpan,
-    NoteKind, Severity, Suggestion,
+    messages, render_human, render_short, to_json_value, Applicability, Diagnostic, ErrorCode,
+    LabeledSpan, Lang, NoteKind, Severity, Suggestion,
 };
 use volt_span::{FileId, SourceMap, Span};
 
@@ -43,9 +43,10 @@ fn code_as_str() {
 
 #[test]
 fn code_display_includes_description() {
+    // Varsayılan dil EN — Display açıklaması İngilizce.
     let text = ErrorCode::E0001.to_string();
     assert!(text.starts_with("E0001:"));
-    assert!(text.contains("Beklenmeyen token"));
+    assert!(text.contains("Unexpected token"));
 }
 
 #[test]
@@ -233,9 +234,46 @@ fn human_output_has_contract_elements() {
     assert!(text.contains("error[E3001]"), "çıktı: {text}");
     assert!(text.contains("iki farklı saat alanı doğrudan bağlanamaz"));
     assert!(text.contains("design.volt"));
-    assert!(text.contains("neden: sinyal kararsız bir anda yakalanabilir"));
-    assert!(text.contains("çözüm: result = sync(data, slow_clk)"));
-    assert!(text.contains("daha fazla: volt explain E3001"));
+    // Şablon anahtarları aktif dilden gelir — varsayılan EN (GLOSSARY §7).
+    assert!(text.contains("reason: sinyal kararsız bir anda yakalanabilir"));
+    assert!(text.contains("help: result = sync(data, slow_clk)"));
+    assert!(text.contains("for more: volt explain E3001"));
+}
+
+// ═══ Yerelleştirme (messages/{en,tr}.rs) ══════════════════════════
+
+#[test]
+fn en_and_tr_cover_the_same_code_set() {
+    // İki dil de ErrorCode::ALL'daki her kod için boş olmayan açıklama
+    // taşımalı (match'ler joker kolsuz — derleyici de zorlar).
+    for &code in ErrorCode::ALL {
+        let en = messages::message(Lang::En, code);
+        let tr = messages::message(Lang::Tr, code);
+        assert!(!en.trim().is_empty(), "{}: EN açıklama boş", code.as_str());
+        assert!(!tr.trim().is_empty(), "{}: TR açıklama boş", code.as_str());
+    }
+}
+
+#[test]
+fn template_keys_follow_glossary() {
+    let en = messages::keys(Lang::En);
+    assert_eq!(en.reason, "reason:");
+    assert_eq!(en.help, "help:");
+    assert_eq!(en.note, "note:");
+    assert_eq!(en.for_more, "for more:");
+    let tr = messages::keys(Lang::Tr);
+    assert_eq!(tr.reason, "neden:");
+    assert_eq!(tr.help, "çözüm:");
+    assert_eq!(tr.note, "not:");
+    assert_eq!(tr.for_more, "daha fazla:");
+}
+
+#[test]
+fn lang_parse_accepts_en_tr_only() {
+    assert_eq!(Lang::parse("en"), Some(Lang::En));
+    assert_eq!(Lang::parse("TR"), Some(Lang::Tr));
+    assert_eq!(Lang::parse("de"), None);
+    assert_eq!(Lang::parse(""), None);
 }
 
 #[test]

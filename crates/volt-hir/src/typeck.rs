@@ -17,7 +17,7 @@ use volt_ast::{
     ItemKind, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, Name, RegDecl,
     SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
@@ -169,9 +169,12 @@ impl<'a> TypeChecker<'a, '_> {
                 if self.types.is_int_lit(inferred) {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2012,
-                        "register tipi belirlenemiyor",
-                        LabeledSpan::primary(r.name.span, "literal başlangıç tipi belirsiz"),
-                        format!("reg {} : u8 = ... şeklinde tip yazın", r.name.text),
+                        lstr!(en: "cannot determine register type"; tr: "register tipi belirlenemiyor"),
+                        LabeledSpan::primary(
+                            r.name.span,
+                            lstr!(en: "type of literal initializer is ambiguous"; tr: "literal başlangıç tipi belirsiz"),
+                        ),
+                        lstr!(en: "write the type as reg {} : u8 = ...", r.name.text; tr: "reg {} : u8 = ... şeklinde tip yazın", r.name.text),
                     ));
                     self.types.error()
                 } else {
@@ -198,9 +201,12 @@ impl<'a> TypeChecker<'a, '_> {
                 if self.types.is_int_lit(ty) {
                     self.diagnostics.push(Diagnostic::warning(
                         ErrorCode::W2012,
-                        "tip belirtilmedi, i32 varsayıldı",
-                        LabeledSpan::primary(l.name.span, "literal tipi bağlamdan çözülemedi"),
-                        format!("let {} : i32 = ... yazarak açık belirtin", l.name.text),
+                        lstr!(en: "type not specified, i32 assumed"; tr: "tip belirtilmedi, i32 varsayıldı"),
+                        LabeledSpan::primary(
+                            l.name.span,
+                            lstr!(en: "literal type could not be resolved from context"; tr: "literal tipi bağlamdan çözülemedi"),
+                        ),
+                        lstr!(en: "make it explicit by writing let {} : i32 = ...", l.name.text; tr: "let {} : i32 = ... yazarak açık belirtin", l.name.text),
                     ));
                     self.types.intern(Ty::SInt { width: 32 })
                 } else {
@@ -615,9 +621,9 @@ impl<'a> TypeChecker<'a, '_> {
                 Ty::UInt { .. } | Ty::UIntFlex { .. } => {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2002,
-                        "işaretsiz değer negatiflenemez",
-                        LabeledSpan::primary(span, "işaretli tip gerekli"),
-                        "önce i8/i16 gibi işaretli tipe dönüştürün",
+                        lstr!(en: "cannot negate an unsigned value"; tr: "işaretsiz değer negatiflenemez"),
+                        LabeledSpan::primary(span, lstr!(en: "signed type required"; tr: "işaretli tip gerekli")),
+                        lstr!(en: "convert to a signed type such as i8/i16 first"; tr: "önce i8/i16 gibi işaretli tipe dönüştürün"),
                     ));
                     self.types.error()
                 }
@@ -655,9 +661,12 @@ impl<'a> TypeChecker<'a, '_> {
         if self.is_bits(lt) || self.is_bits(rt) {
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E2004,
-                "bits<N> tipinde aritmetik yapılamaz",
-                LabeledSpan::primary(span, "bits ham bit vektörüdür, sayısal değil"),
-                "u8/i8 gibi sayısal tipe dönüştürün",
+                lstr!(en: "cannot perform arithmetic on bits<N>"; tr: "bits<N> tipinde aritmetik yapılamaz"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "bits is a raw bit vector, not a number"; tr: "bits ham bit vektörüdür, sayısal değil"),
+                ),
+                lstr!(en: "convert to a numeric type such as u8/i8"; tr: "u8/i8 gibi sayısal tipe dönüştürün"),
             ));
             return self.types.error();
         }
@@ -725,8 +734,8 @@ impl<'a> TypeChecker<'a, '_> {
                 _ => {
                     self.err_type_mismatch_msg(
                         span,
-                        "bu operatör Trit tipinde tanımlı değil",
-                        "Trit yalnız *, + ve - destekler",
+                        &lstr!(en: "this operator is not defined for Trit"; tr: "bu operatör Trit tipinde tanımlı değil"),
+                        &lstr!(en: "Trit only supports *, + and -"; tr: "Trit yalnız *, + ve - destekler"),
                     );
                     self.types.error()
                 }
@@ -741,8 +750,8 @@ impl<'a> TypeChecker<'a, '_> {
                 let shown = self.types.display(other);
                 self.err_type_mismatch_msg(
                     span,
-                    &format!("Trit ile '{shown}' arasında bu işlem tanımlı değil"),
-                    "Trit yalnız işaretli tiple (iN) çarpılabilir; gerekirse as ile dönüştürün",
+                    &lstr!(en: "this operation is not defined between Trit and '{shown}'"; tr: "Trit ile '{shown}' arasında bu işlem tanımlı değil"),
+                    &lstr!(en: "Trit can only be multiplied with a signed type (iN); convert with as if needed"; tr: "Trit yalnız işaretli tiple (iN) çarpılabilir; gerekirse as ile dönüştürün"),
                 );
                 self.types.error()
             }
@@ -785,9 +794,9 @@ impl<'a> TypeChecker<'a, '_> {
                 } else {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2001,
-                        format!("bit genişliği uyumsuzluğu: bits<{a}> ve bits<{b}>"),
-                        LabeledSpan::primary(span, "operand genişlikleri farklı"),
-                        "operand genişliklerini eşitleyin",
+                        lstr!(en: "bit width mismatch: bits<{a}> and bits<{b}>"; tr: "bit genişliği uyumsuzluğu: bits<{a}> ve bits<{b}>"),
+                        LabeledSpan::primary(span, lstr!(en: "operand widths differ"; tr: "operand genişlikleri farklı")),
+                        lstr!(en: "make the operand widths equal"; tr: "operand genişliklerini eşitleyin"),
                     ));
                     self.types.error()
                 }
@@ -832,8 +841,8 @@ impl<'a> TypeChecker<'a, '_> {
             let shown = self.types.display(lt);
             self.err_type_mismatch_msg(
                 span,
-                &format!("'{shown}' tipi kaydırılamaz"),
-                "kaydırma yalnız uN, iN ve bits<N> tiplerinde tanımlı",
+                &lstr!(en: "type '{shown}' cannot be shifted"; tr: "'{shown}' tipi kaydırılamaz"),
+                &lstr!(en: "shifts are only defined for uN, iN and bits<N>"; tr: "kaydırma yalnız uN, iN ve bits<N> tiplerinde tanımlı"),
             );
             return self.types.error();
         }
@@ -844,8 +853,8 @@ impl<'a> TypeChecker<'a, '_> {
             let shown = self.types.display(rt);
             self.err_type_mismatch_msg(
                 span,
-                &format!("kaydırma miktarı sayısal olmalı, '{shown}' bulundu"),
-                "miktarı uN/iN tipinde ya da sabit olarak verin",
+                &lstr!(en: "shift amount must be numeric, found '{shown}'"; tr: "kaydırma miktarı sayısal olmalı, '{shown}' bulundu"),
+                &lstr!(en: "provide the amount as uN/iN or as a constant"; tr: "miktarı uN/iN tipinde ya da sabit olarak verin"),
             );
             // Spec: sonuç yine sol operandın tipidir.
             return lt;
@@ -854,9 +863,12 @@ impl<'a> TypeChecker<'a, '_> {
             if amount >= i128::from(width) {
                 self.diagnostics.push(Diagnostic::warning(
                     ErrorCode::W2013,
-                    format!("kaydırma miktarı {amount}, {width} bit genişliği aşıyor"),
-                    LabeledSpan::primary(span, "tüm bitler dışarı kayar, sonuç hep 0"),
-                    format!("miktarı 0..{width} aralığında tutun"),
+                    lstr!(en: "shift amount {amount} exceeds the width of {width} bits"; tr: "kaydırma miktarı {amount}, {width} bit genişliği aşıyor"),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "all bits are shifted out, the result is always 0"; tr: "tüm bitler dışarı kayar, sonuç hep 0"),
+                    ),
+                    lstr!(en: "keep the amount in the range 0..{width}"; tr: "miktarı 0..{width} aralığında tutun"),
                 ));
             }
         }
@@ -903,8 +915,8 @@ impl<'a> TypeChecker<'a, '_> {
         let r = self.types.display(rt);
         self.err_type_mismatch_msg(
             span,
-            &format!("karşılaştırma operandları aynı tipte olmalı: '{l}' ile '{r}'"),
-            "operandları as ile aynı tipe getirin",
+            &lstr!(en: "comparison operands must have the same type: '{l}' and '{r}'"; tr: "karşılaştırma operandları aynı tipte olmalı: '{l}' ile '{r}'"),
+            &lstr!(en: "convert the operands to the same type with as"; tr: "operandları as ile aynı tipe getirin"),
         );
     }
 
@@ -942,8 +954,8 @@ impl<'a> TypeChecker<'a, '_> {
         let r = self.types.display(rt);
         self.err_type_mismatch_msg(
             span,
-            &format!("aritmetik operandları uyumsuz: '{l}' ile '{r}'"),
-            "operandları aynı sayısal tipe getirin",
+            &lstr!(en: "incompatible arithmetic operands: '{l}' and '{r}'"; tr: "aritmetik operandları uyumsuz: '{l}' ile '{r}'"),
+            &lstr!(en: "convert the operands to the same numeric type"; tr: "operandları aynı sayısal tipe getirin"),
         );
         self.types.error()
     }
@@ -953,8 +965,8 @@ impl<'a> TypeChecker<'a, '_> {
         let r = self.types.display(rt);
         self.err_type_mismatch_msg(
             span,
-            &format!("bit düzeyi operatör '{l}' ile '{r}' tipinde tanımlı değil"),
-            "bit düzeyi işlemler bool, uN, iN ve bits<N> ister",
+            &lstr!(en: "bitwise operator is not defined for '{l}' and '{r}'"; tr: "bit düzeyi operatör '{l}' ile '{r}' tipinde tanımlı değil"),
+            &lstr!(en: "bitwise operations require bool, uN, iN or bits<N>"; tr: "bit düzeyi işlemler bool, uN, iN ve bits<N> ister"),
         );
         self.types.error()
     }
@@ -962,9 +974,9 @@ impl<'a> TypeChecker<'a, '_> {
     fn err_sign_mismatch(&mut self, span: Span) {
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2002,
-            "işaretli ve işaretsiz karıştırılamaz",
-            LabeledSpan::primary(span, "işaretler farklı"),
-            "as ile açık dönüşüm yapın",
+            lstr!(en: "cannot mix signed and unsigned"; tr: "işaretli ve işaretsiz karıştırılamaz"),
+            LabeledSpan::primary(span, lstr!(en: "signs differ"; tr: "işaretler farklı")),
+            lstr!(en: "use an explicit cast with as"; tr: "as ile açık dönüşüm yapın"),
         ));
     }
 
@@ -973,13 +985,13 @@ impl<'a> TypeChecker<'a, '_> {
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2001,
-                format!("bit genişliği uyumsuzluğu: {prefix}{a} ve {prefix}{b}"),
-                LabeledSpan::primary(span, "operand genişlikleri farklı"),
-                format!("dar operandı genişletin: (ifade) as {prefix}{}", a.max(b)),
+                lstr!(en: "bit width mismatch: {prefix}{a} and {prefix}{b}"; tr: "bit genişliği uyumsuzluğu: {prefix}{a} ve {prefix}{b}"),
+                LabeledSpan::primary(span, lstr!(en: "operand widths differ"; tr: "operand genişlikleri farklı")),
+                lstr!(en: "widen the narrow operand: (expr) as {prefix}{}", a.max(b); tr: "dar operandı genişletin: (ifade) as {prefix}{}", a.max(b)),
             )
             .with_note(
                 NoteKind::Reason,
-                "farklı genişlikler örtük birleştirilemez; genişletme donanımda ek tel ve mantık gerektirir",
+                lstr!(en: "different widths cannot be combined implicitly; widening requires extra wires and logic in hardware"; tr: "farklı genişlikler örtük birleştirilemez; genişletme donanımda ek tel ve mantık gerektirir"),
             ),
         );
     }
@@ -1038,8 +1050,8 @@ impl<'a> TypeChecker<'a, '_> {
         let e = self.types.display(else_ty);
         self.err_type_mismatch_msg(
             span,
-            &format!("if/else dalları farklı tipte: '{t}' ile '{e}'"),
-            "dalları aynı tipe getirin; gerekirse as ile dönüştürün",
+            &lstr!(en: "if/else branches have different types: '{t}' and '{e}'"; tr: "if/else dalları farklı tipte: '{t}' ile '{e}'"),
+            &lstr!(en: "make the branches the same type; convert with as if needed"; tr: "dalları aynı tipe getirin; gerekirse as ile dönüştürün"),
         );
         self.types.error()
     }
@@ -1101,8 +1113,8 @@ impl<'a> TypeChecker<'a, '_> {
             _ => {
                 self.err_type_mismatch_msg(
                     span,
-                    "bit seçimi yalnız sayısal, bits veya dizi tipinde yapılır",
-                    "önce değeri uygun bir tipe dönüştürün",
+                    &lstr!(en: "bit selection is only allowed on numeric, bits or array types"; tr: "bit seçimi yalnız sayısal, bits veya dizi tipinde yapılır"),
+                    &lstr!(en: "convert the value to a suitable type first"; tr: "önce değeri uygun bir tipe dönüştürün"),
                 );
                 self.types.error()
             }
@@ -1123,8 +1135,8 @@ impl<'a> TypeChecker<'a, '_> {
         let Some(width) = self.types.width_of(base_ty) else {
             self.err_type_mismatch_msg(
                 span,
-                "aralık seçimi yalnız sayısal veya bits tipinde yapılır",
-                "önce değeri uygun bir tipe dönüştürün",
+                &lstr!(en: "range selection is only allowed on numeric or bits types"; tr: "aralık seçimi yalnız sayısal veya bits tipinde yapılır"),
+                &lstr!(en: "convert the value to a suitable type first"; tr: "önce değeri uygun bir tipe dönüştürün"),
             );
             return self.types.error();
         };
@@ -1133,18 +1145,18 @@ impl<'a> TypeChecker<'a, '_> {
                 if h < l {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2007,
-                        "aralık ters (hi < lo)",
-                        LabeledSpan::primary(span, "yüksek bit önce yazılmalı"),
-                        format!("[{l}:{h}] yazın"),
+                        lstr!(en: "range is reversed (hi < lo)"; tr: "aralık ters (hi < lo)"),
+                        LabeledSpan::primary(span, lstr!(en: "the high bit must be written first"; tr: "yüksek bit önce yazılmalı")),
+                        lstr!(en: "write [{l}:{h}]"; tr: "[{l}:{h}] yazın"),
                     ));
                     return self.types.error();
                 }
                 if l < 0 || h >= i128::from(width) {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2006,
-                        format!("aralık sınır dışı (genişlik {width})"),
-                        LabeledSpan::primary(span, "aralık taban genişliği aşıyor"),
-                        format!("geçerli en yüksek bit: {}", width - 1),
+                        lstr!(en: "range out of bounds (width {width})"; tr: "aralık sınır dışı (genişlik {width})"),
+                        LabeledSpan::primary(span, lstr!(en: "range exceeds the width of the base"; tr: "aralık taban genişliği aşıyor")),
+                        lstr!(en: "highest valid bit: {}", width - 1; tr: "geçerli en yüksek bit: {}", width - 1),
                     ));
                     return self.types.error();
                 }
@@ -1155,9 +1167,9 @@ impl<'a> TypeChecker<'a, '_> {
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2008,
-                    "aralık sınırları derleme zamanı sabiti olmalı",
-                    LabeledSpan::primary(span, "değişken sınır"),
-                    "değişken indeks için x[i] +: WIDTH kullanın",
+                    lstr!(en: "range bounds must be compile-time constants"; tr: "aralık sınırları derleme zamanı sabiti olmalı"),
+                    LabeledSpan::primary(span, lstr!(en: "non-constant bound"; tr: "değişken sınır")),
+                    lstr!(en: "use x[i] +: WIDTH for a variable index"; tr: "değişken indeks için x[i] +: WIDTH kullanın"),
                 ));
                 self.types.error()
             }
@@ -1195,8 +1207,8 @@ impl<'a> TypeChecker<'a, '_> {
                 _ => {
                     self.err_type_mismatch_msg(
                         span,
-                        "demet indeksi eleman sayısını aşıyor",
-                        "geçerli bir demet indeksi kullanın",
+                        &lstr!(en: "tuple index exceeds the number of elements"; tr: "demet indeksi eleman sayısını aşıyor"),
+                        &lstr!(en: "use a valid tuple index"; tr: "geçerli bir demet indeksi kullanın"),
                     );
                     self.types.error()
                 }
@@ -1205,8 +1217,8 @@ impl<'a> TypeChecker<'a, '_> {
                 let shown = self.types.display(base_ty);
                 self.err_type_mismatch_msg(
                     span,
-                    &format!("'{shown}' tipinde alan erişimi yok"),
-                    "alan erişimi struct ve modül örneklerinde geçerlidir",
+                    &lstr!(en: "no field access on type '{shown}'"; tr: "'{shown}' tipinde alan erişimi yok"),
+                    &lstr!(en: "field access is valid on structs and module instances"; tr: "alan erişimi struct ve modül örneklerinde geçerlidir"),
                 );
                 self.types.error()
             }
@@ -1281,18 +1293,18 @@ impl<'a> TypeChecker<'a, '_> {
                 if !matches!(value, 0 | 1) {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2011,
-                        "Trit literali {-1, 0, +1} olmalı",
-                        LabeledSpan::primary(span, format!("{value} bu kümede değil")),
-                        "değeri -1, 0 veya 1 yapın",
+                        lstr!(en: "Trit literal must be {{-1, 0, +1}}"; tr: "Trit literali {{-1, 0, +1}} olmalı"),
+                        LabeledSpan::primary(span, lstr!(en: "{value} is not in this set"; tr: "{value} bu kümede değil")),
+                        lstr!(en: "make the value -1, 0 or 1"; tr: "değeri -1, 0 veya 1 yapın"),
                     ));
                 }
             }
             Ty::Bool => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2003,
-                    "sayısal literal bool bağlamında",
-                    LabeledSpan::primary(span, "bool bekleniyor"),
-                    "true veya false yazın",
+                    lstr!(en: "numeric literal in bool context"; tr: "sayısal literal bool bağlamında"),
+                    LabeledSpan::primary(span, lstr!(en: "expected bool"; tr: "bool bekleniyor")),
+                    lstr!(en: "write true or false"; tr: "true veya false yazın"),
                 ));
             }
             _ => {
@@ -1318,9 +1330,9 @@ impl<'a> TypeChecker<'a, '_> {
             if sa != se {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2002,
-                    "işaret uyumsuzluğu",
-                    LabeledSpan::primary(span, "işaretli ve işaretsiz karışıyor"),
-                    "as ile açık dönüşüm yapın",
+                    lstr!(en: "sign mismatch"; tr: "işaret uyumsuzluğu"),
+                    LabeledSpan::primary(span, lstr!(en: "signed and unsigned are mixed"; tr: "işaretli ve işaretsiz karışıyor")),
+                    lstr!(en: "use an explicit cast with as"; tr: "as ile açık dönüşüm yapın"),
                 ));
                 return;
             }
@@ -1334,11 +1346,12 @@ impl<'a> TypeChecker<'a, '_> {
             (&Ty::Bits { width: a }, &Ty::Bits { width: b }) => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2001,
-                    format!(
-                        "bit genişliği uyumsuzluğu: bits<{a}> değeri bits<{b}> hedefe atanamaz"
+                    lstr!(
+                        en: "bit width mismatch: a bits<{a}> value cannot be assigned to a bits<{b}> target";
+                        tr: "bit genişliği uyumsuzluğu: bits<{a}> değeri bits<{b}> hedefe atanamaz"
                     ),
-                    LabeledSpan::primary(span, "genişlikler farklı"),
-                    "kaynak ve hedef genişliklerini eşitleyin",
+                    LabeledSpan::primary(span, lstr!(en: "widths differ"; tr: "genişlikler farklı")),
+                    lstr!(en: "make the source and target widths equal"; tr: "kaynak ve hedef genişliklerini eşitleyin"),
                 ));
             }
             _ => self.err_type_mismatch(expected, actual, span),
@@ -1350,13 +1363,13 @@ impl<'a> TypeChecker<'a, '_> {
     fn width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
         let (msg, label) = if a > b {
             (
-                format!("{a} bit değer {b} bit hedefe sığmaz"),
-                "örtük daraltma yasak",
+                lstr!(en: "a {a}-bit value does not fit in a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe sığmaz"),
+                lstr!(en: "implicit narrowing is not allowed"; tr: "örtük daraltma yasak"),
             )
         } else {
             (
-                format!("{a} bit değer {b} bit hedefe örtük genişlemez"),
-                "örtük genişleme yasak",
+                lstr!(en: "a {a}-bit value does not implicitly widen to a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe örtük genişlemez"),
+                lstr!(en: "implicit widening is not allowed"; tr: "örtük genişleme yasak"),
             )
         };
         self.diagnostics.push(
@@ -1364,11 +1377,11 @@ impl<'a> TypeChecker<'a, '_> {
                 ErrorCode::E2001,
                 msg,
                 LabeledSpan::primary(span, label),
-                format!("açık dönüşüm: (ifade) as {prefix}{b}"),
+                lstr!(en: "explicit cast: (expr) as {prefix}{b}"; tr: "açık dönüşüm: (ifade) as {prefix}{b}"),
             )
             .with_note(
                 NoteKind::Reason,
-                "genişletme donanımda ek tel ve mantık gerektirir; görünür olmalı",
+                lstr!(en: "widening requires extra wires and logic in hardware; it must be visible"; tr: "genişletme donanımda ek tel ve mantık gerektirir; görünür olmalı"),
             ),
         );
     }
@@ -1392,9 +1405,9 @@ impl<'a> TypeChecker<'a, '_> {
             | (Ty::SInt { width: a }, Ty::SInt { width: b }) => {
                 self.diagnostics.push(Diagnostic::warning(
                     ErrorCode::W2010,
-                    format!("{a} bit → {b} bit daraltma, üst bitler kesilir"),
-                    LabeledSpan::primary(span, "bilgi kaybı olabilir"),
-                    "bilinçli daraltma ise sorun yok; değilse önce maskeleme yapın",
+                    lstr!(en: "{a}-bit → {b}-bit narrowing, upper bits are truncated"; tr: "{a} bit → {b} bit daraltma, üst bitler kesilir"),
+                    LabeledSpan::primary(span, lstr!(en: "possible loss of information"; tr: "bilgi kaybı olabilir")),
+                    lstr!(en: "if the narrowing is intentional this is fine; otherwise mask first"; tr: "bilinçli daraltma ise sorun yok; değilse önce maskeleme yapın"),
                 ));
                 true
             }
@@ -1416,9 +1429,9 @@ impl<'a> TypeChecker<'a, '_> {
             let dst_s = self.types.display(dst);
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E2009,
-                format!("'{src_s}' → '{dst_s}' dönüşümü geçersiz"),
-                LabeledSpan::primary(span, "bu dönüşüm tanımlı değil"),
-                "ara dönüşüm gerekebilir",
+                lstr!(en: "cast '{src_s}' → '{dst_s}' is invalid"; tr: "'{src_s}' → '{dst_s}' dönüşümü geçersiz"),
+                LabeledSpan::primary(span, lstr!(en: "this cast is not defined"; tr: "bu dönüşüm tanımlı değil")),
+                lstr!(en: "an intermediate cast may be needed"; tr: "ara dönüşüm gerekebilir"),
             ));
         }
     }
@@ -1463,9 +1476,9 @@ impl<'a> TypeChecker<'a, '_> {
         };
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2010,
-            format!("literal {value}, {shown} tipine sığmıyor (maksimum {max})"),
-            LabeledSpan::primary(span, "değer tip aralığının dışında"),
-            "daha geniş bir tip kullanın veya değeri küçültün",
+            lstr!(en: "literal {value} does not fit in type {shown} (maximum {max})"; tr: "literal {value}, {shown} tipine sığmıyor (maksimum {max})"),
+            LabeledSpan::primary(span, lstr!(en: "value is outside the type's range"; tr: "değer tip aralığının dışında")),
+            lstr!(en: "use a wider type or reduce the value"; tr: "daha geniş bir tip kullanın veya değeri küçültün"),
         ));
     }
 
@@ -1495,9 +1508,9 @@ impl<'a> TypeChecker<'a, '_> {
     fn index_out_of_bounds(&mut self, index: i128, width: u64, span: Span) {
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2006,
-            format!("indeks {index} sınır dışı (genişlik {width})"),
-            LabeledSpan::primary(span, "geçersiz bit indeksi"),
-            format!("geçerli aralık: 0..{}", width.saturating_sub(1)),
+            lstr!(en: "index {index} out of bounds (width {width})"; tr: "indeks {index} sınır dışı (genişlik {width})"),
+            LabeledSpan::primary(span, lstr!(en: "invalid bit index"; tr: "geçersiz bit indeksi")),
+            lstr!(en: "valid range: 0..{}", width.saturating_sub(1); tr: "geçerli aralık: 0..{}", width.saturating_sub(1)),
         ));
     }
 
@@ -1506,8 +1519,8 @@ impl<'a> TypeChecker<'a, '_> {
         let act = self.types.display(actual);
         self.err_type_mismatch_msg(
             span,
-            &format!("tip uyumsuzluğu: '{exp}' bekleniyor, '{act}' bulundu"),
-            "değeri hedef tipe uyarlayın; gerekiyorsa 'as' ile açık dönüşüm yapın",
+            &lstr!(en: "type mismatch: expected '{exp}', found '{act}'"; tr: "tip uyumsuzluğu: '{exp}' bekleniyor, '{act}' bulundu"),
+            &lstr!(en: "adapt the value to the target type; use an explicit cast with 'as' if needed"; tr: "değeri hedef tipe uyarlayın; gerekiyorsa 'as' ile açık dönüşüm yapın"),
         );
     }
 
@@ -1515,7 +1528,7 @@ impl<'a> TypeChecker<'a, '_> {
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2003,
             msg,
-            LabeledSpan::primary(span, "uyumsuz tip"),
+            LabeledSpan::primary(span, lstr!(en: "mismatched types"; tr: "uyumsuz tip")),
             help,
         ));
     }

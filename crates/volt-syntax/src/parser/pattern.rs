@@ -5,6 +5,7 @@
 //! yalnız ayrıştırılır.
 
 use volt_ast::{Expr, ExprKind, FieldPattern, Idx, Pattern, PatternArgs, PatternKind, UnOp};
+use volt_diagnostics::lstr;
 
 use crate::token::TokenKind::*;
 
@@ -110,8 +111,8 @@ impl Parser<'_> {
             }
             _ => {
                 self.error_expected(
-                    "desen",
-                    "_, literal, isim, Yol::Varyant veya (desen, ...) bekleniyor",
+                    &lstr!(en: "pattern"; tr: "desen"),
+                    &lstr!(en: "expected _, a literal, a name, Path::Variant or (pattern, ...)"; tr: "_, literal, isim, Yol::Varyant veya (desen, ...) bekleniyor"),
                 );
                 self.alloc_error_pattern(self.current_span())
             }
@@ -137,7 +138,10 @@ impl Parser<'_> {
                 })
             }
             _ => {
-                self.error_expected("literal desen", "42, true veya false bekleniyor");
+                self.error_expected(
+                    &lstr!(en: "literal pattern"; tr: "literal desen"),
+                    &lstr!(en: "expected 42, true or false"; tr: "42, true veya false bekleniyor"),
+                );
                 self.alloc_error_expr(self.current_span())
             }
         }
@@ -178,7 +182,10 @@ impl Parser<'_> {
                     pattern,
                 });
             } else {
-                self.error_expected("alan deseni", "İsim veya isim: desen bekleniyor");
+                self.error_expected(
+                    &lstr!(en: "field pattern"; tr: "alan deseni"),
+                    &lstr!(en: "expected a name or name: pattern"; tr: "İsim veya isim: desen bekleniyor"),
+                );
             }
             if !self.eat(Comma) && self.pos == before {
                 self.bump_any(); // ilerleme garantisi

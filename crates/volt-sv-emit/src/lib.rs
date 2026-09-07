@@ -13,7 +13,7 @@ use volt_ast::{
     LValueSuffix, ModuleDecl, OnBlock, OnTrigger, Port, PortDir, ResetPolarity, ResetSync,
     SourceFile, StmtKind, TypeRef, TypeRefKind,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, Severity};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
 
 pub use expr::Sig;
@@ -177,9 +177,15 @@ impl<'a> Emitter<'a> {
     pub(crate) fn future(&mut self, span: Span, what: &str) {
         self.error(
             ErrorCode::E0003,
-            format!("{what} F0 SV üretiminde desteklenmiyor"),
+            lstr!(
+                en: "{what} is not supported in F0 SV generation";
+                tr: "{what} F0 SV üretiminde desteklenmiyor"
+            ),
             span,
-            "bu yapı F1+ sürümünde eklenecek",
+            &lstr!(
+                en: "this construct will be added in F1+";
+                tr: "bu yapı F1+ sürümünde eklenecek"
+            ),
         );
     }
 
@@ -206,9 +212,15 @@ impl<'a> Emitter<'a> {
                     }
                     None => self.error(
                         ErrorCode::E2012,
-                        format!("'{}' register tipi belirlenemiyor", reg.name.text),
+                        lstr!(
+                            en: "cannot determine the type of register '{}'", reg.name.text;
+                            tr: "'{}' register tipi belirlenemiyor", reg.name.text
+                        ),
                         span,
-                        "F0'da reg tipi açık yazılmalı: reg isim : u8 = 0",
+                        &lstr!(
+                            en: "in F0 the reg type must be written explicitly: reg name : u8 = 0";
+                            tr: "F0'da reg tipi açık yazılmalı: reg isim : u8 = 0"
+                        ),
                     ),
                 }
             }
@@ -351,9 +363,15 @@ impl<'a> Emitter<'a> {
                         None => {
                             self.error(
                                 ErrorCode::E2005,
-                                format!("'{}' genişliği belirlenemiyor", decl.name.text),
+                                lstr!(
+                                    en: "cannot determine the width of '{}'", decl.name.text;
+                                    tr: "'{}' genişliği belirlenemiyor", decl.name.text
+                                ),
                                 stmt.span,
-                                "let bağlamasına açık tip yazın: let x : u8 = ...",
+                                &lstr!(
+                                    en: "write an explicit type on the let binding: let x : u8 = ...";
+                                    tr: "let bağlamasına açık tip yazın: let x : u8 = ..."
+                                ),
                             );
                             None
                         }
@@ -372,22 +390,43 @@ impl<'a> Emitter<'a> {
                 StmtKind::Expr(_) | StmtKind::Error => None, // parse tanısı zaten var
                 // F1 parser yapıları — SV üretimi sonraki aşamalarda
                 StmtKind::Wire(w) => {
-                    self.future(stmt.span, &format!("'wire {}' SV üretimi", w.name.text));
+                    self.future(
+                        stmt.span,
+                        &lstr!(
+                            en: "SV generation of 'wire {}'", w.name.text;
+                            tr: "'wire {}' SV üretimi", w.name.text
+                        ),
+                    );
                     None
                 }
                 StmtKind::Instance(inst) => {
                     self.future(
                         stmt.span,
-                        &format!("'{}' modül örneklemesinin SV üretimi", inst.name.text),
+                        &lstr!(
+                            en: "SV generation of module instance '{}'", inst.name.text;
+                            tr: "'{}' modül örneklemesinin SV üretimi", inst.name.text
+                        ),
                     );
                     None
                 }
                 StmtKind::Comb(_) => {
-                    self.future(stmt.span, "'comb' bloğunun SV üretimi");
+                    self.future(
+                        stmt.span,
+                        &lstr!(
+                            en: "SV generation of the 'comb' block";
+                            tr: "'comb' bloğunun SV üretimi"
+                        ),
+                    );
                     None
                 }
                 StmtKind::For(_) => {
-                    self.future(stmt.span, "'for' generate döngüsünün SV üretimi");
+                    self.future(
+                        stmt.span,
+                        &lstr!(
+                            en: "SV generation of the 'for' generate loop";
+                            tr: "'for' generate döngüsünün SV üretimi"
+                        ),
+                    );
                     None
                 }
             };
@@ -417,7 +456,13 @@ impl<'a> Emitter<'a> {
         let clk = match &on.trigger {
             OnTrigger::Clock(name) => name.text.clone(),
             OnTrigger::Reset(name) => {
-                self.future(span, "'on saat.reset' blokları");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "the 'on clock.reset' block";
+                        tr: "'on saat.reset' blokları"
+                    ),
+                );
                 name.text.clone()
             }
             OnTrigger::Error => "clk".to_string(),
@@ -497,14 +542,32 @@ impl<'a> Emitter<'a> {
                 BlockStmt::If(if_stmt) => self.emit_if(if_stmt, indent, &mut lines),
                 BlockStmt::Let(decl) => {
                     let span = ast.blocks[block].span;
-                    self.future(span, &format!("blok içi 'let {}'", decl.name.text));
+                    self.future(
+                        span,
+                        &lstr!(
+                            en: "'let {}' inside a block", decl.name.text;
+                            tr: "blok içi 'let {}'", decl.name.text
+                        ),
+                    );
                 }
                 BlockStmt::Error => {}
                 // F1 parser yapıları — SV üretimi sonraki aşamalarda
-                BlockStmt::Match(m) => self.future(m.span, "'match' deyiminin SV üretimi"),
+                BlockStmt::Match(m) => self.future(
+                    m.span,
+                    &lstr!(
+                        en: "SV generation of the 'match' statement";
+                        tr: "'match' deyiminin SV üretimi"
+                    ),
+                ),
                 BlockStmt::For(f) => {
                     let span = ast.blocks[f.body].span;
-                    self.future(span, "'for' generate döngüsünün SV üretimi");
+                    self.future(
+                        span,
+                        &lstr!(
+                            en: "SV generation of the 'for' generate loop";
+                            tr: "'for' generate döngüsünün SV üretimi"
+                        ),
+                    );
                 }
             }
         }
@@ -611,30 +674,60 @@ impl<'a> Emitter<'a> {
                     _ => {
                         self.error(
                             ErrorCode::E2005,
-                            "bits<N> genişliği derleme zamanında belirlenemiyor".into(),
+                            lstr!(
+                                en: "the width of bits<N> cannot be determined at compile time";
+                                tr: "bits<N> genişliği derleme zamanında belirlenemiyor"
+                            ),
                             span,
-                            "N sabit bir ifade olmalı (ör. bits<8>)",
+                            &lstr!(
+                                en: "N must be a constant expression (e.g. bits<8>)";
+                                tr: "N sabit bir ifade olmalı (ör. bits<8>)"
+                            ),
                         );
                         None
                     }
                 }
             }
             TypeRefKind::Trit => {
-                self.future(span, "'Trit' tipinin SV eşlemesi");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "SV mapping of the 'Trit' type";
+                        tr: "'Trit' tipinin SV eşlemesi"
+                    ),
+                );
                 None
             }
             TypeRefKind::Reset(_) => {
-                self.future(span, "açık 'reset' portları");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "the explicit 'reset' port";
+                        tr: "açık 'reset' portları"
+                    ),
+                );
                 None
             }
             TypeRefKind::Error => None, // parse tanısı zaten var
             // F1 parser tipleri — SV eşlemesi sonraki aşamalarda
             TypeRefKind::Array { .. } | TypeRefKind::Tuple(_) => {
-                self.future(span, "dizi/tuple tiplerinin SV eşlemesi");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "SV mapping of array/tuple types";
+                        tr: "dizi/tuple tiplerinin SV eşlemesi"
+                    ),
+                );
                 None
             }
             TypeRefKind::Path { .. } => {
-                self.future(span, "kullanıcı tanımlı tiplerin SV eşlemesi");
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "SV mapping of user-defined types";
+                        tr: "kullanıcı tanımlı tiplerin SV eşlemesi"
+                    ),
+                );
                 None
             }
         }

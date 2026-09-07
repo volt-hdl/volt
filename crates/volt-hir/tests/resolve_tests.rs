@@ -211,7 +211,7 @@ fn e1001_typo_gets_suggestion() {
         diag.help
             .as_deref()
             .unwrap_or("")
-            .contains("'enable' mi demek istediniz?"),
+            .contains("did you mean 'enable'?"),
         "öneri bekleniyor: {:?}",
         diag.help
     );
@@ -230,7 +230,7 @@ fn e1001_no_suggestion_when_nothing_close() {
         diag.help
             .as_deref()
             .unwrap_or("")
-            .contains("hiçbir kapsamda"),
+            .contains("not defined in any scope"),
         "genel yardım bekleniyor: {:?}",
         diag.help
     );
@@ -315,7 +315,7 @@ fn e1007_variant_suggestion() {
         diag.help
             .as_deref()
             .unwrap_or("")
-            .contains("'Bekle' mi demek istediniz?"),
+            .contains("did you mean 'Bekle'?"),
         "varyant önerisi bekleniyor: {:?}",
         diag.help
     );
@@ -369,7 +369,7 @@ fn e1009_port_suggestion() {
         diag.help
             .as_deref()
             .unwrap_or("")
-            .contains("'sum' mi demek istediniz?"),
+            .contains("did you mean 'sum'?"),
         "port önerisi bekleniyor: {:?}",
         diag.help
     );

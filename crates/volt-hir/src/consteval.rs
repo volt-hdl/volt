@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use volt_ast::{
     ArrayLitKind, BinOp, Expr, ExprKind, Idx, ItemKind, SourceFile, TypeRef, TypeRefKind, UnOp,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
@@ -122,9 +122,18 @@ impl<'a> ConstEvaluator<'a> {
                         let span = self.span_of(*len);
                         self.diagnostics.push(Diagnostic::error(
                             ErrorCode::E2026,
-                            format!("dizi boyutu sınır dışı: {n}"),
-                            LabeledSpan::primary(span, "geçersiz boyut"),
-                            format!("boyut 0..{MAX_ARRAY_LEN} aralığında olmalı"),
+                            lstr!(
+                                en: "array size out of bounds: {n}";
+                                tr: "dizi boyutu sınır dışı: {n}"
+                            ),
+                            LabeledSpan::primary(
+                                span,
+                                lstr!(en: "invalid size"; tr: "geçersiz boyut"),
+                            ),
+                            lstr!(
+                                en: "size must be in the range 0..{MAX_ARRAY_LEN}";
+                                tr: "boyut 0..{MAX_ARRAY_LEN} aralığında olmalı"
+                            ),
                         ));
                     }
                 }
@@ -145,20 +154,26 @@ impl<'a> ConstEvaluator<'a> {
             ConstValue::Int(n) if n > 0 && n <= MAX_WIDTH as i128 => Some(n as u32),
             ConstValue::Int(n) => {
                 let reason = if n <= 0 {
-                    "genişlik pozitif olmalı"
+                    lstr!(en: "width must be positive"; tr: "genişlik pozitif olmalı")
                 } else {
-                    "genişlik çok büyük"
+                    lstr!(en: "width is too large"; tr: "genişlik çok büyük")
                 };
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E2025,
-                        format!("geçersiz genişlik: {n}"),
+                        lstr!(en: "invalid width: {n}"; tr: "geçersiz genişlik: {n}"),
                         LabeledSpan::primary(span, reason),
-                        format!("genişlik 1..={MAX_WIDTH} aralığında olmalı"),
+                        lstr!(
+                            en: "width must be in the range 1..={MAX_WIDTH}";
+                            tr: "genişlik 1..={MAX_WIDTH} aralığında olmalı"
+                        ),
                     )
                     .with_note(
                         NoteKind::Reason,
-                        "bits<0> veya devasa genişlik sentezlenemez",
+                        lstr!(
+                            en: "bits<0> or a huge width cannot be synthesized";
+                            tr: "bits<0> veya devasa genişlik sentezlenemez"
+                        ),
                     ),
                 );
                 None
@@ -167,9 +182,15 @@ impl<'a> ConstEvaluator<'a> {
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2021,
-                    "sabit ifade bekleniyor",
-                    LabeledSpan::primary(span, "sayısal sabit değil"),
-                    "genişlik tam sayı bir sabit olmalı",
+                    lstr!(en: "expected a constant expression"; tr: "sabit ifade bekleniyor"),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "not a numeric constant"; tr: "sayısal sabit değil"),
+                    ),
+                    lstr!(
+                        en: "width must be an integer constant";
+                        tr: "genişlik tam sayı bir sabit olmalı"
+                    ),
                 ));
                 None
             }
@@ -194,13 +215,25 @@ impl<'a> ConstEvaluator<'a> {
             self.diagnostics.push(
                 Diagnostic::error(
                     ErrorCode::E2020,
-                    "döngüsel sabit bağımlılığı",
-                    LabeledSpan::primary(span, format!("'{first}' hesaplanırken")),
-                    "bağımlılıklardan birini kaldırın",
+                    lstr!(en: "cyclic constant dependency"; tr: "döngüsel sabit bağımlılığı"),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(
+                            en: "while evaluating '{first}'";
+                            tr: "'{first}' hesaplanırken"
+                        ),
+                    ),
+                    lstr!(
+                        en: "remove one of the dependencies";
+                        tr: "bağımlılıklardan birini kaldırın"
+                    ),
                 )
                 .with_note(
                     NoteKind::Note,
-                    format!("döngü: {} → {}", cycle.join(" → "), first),
+                    lstr!(
+                        en: "cycle: {} → {}", cycle.join(" → "), first;
+                        tr: "döngü: {} → {}", cycle.join(" → "), first
+                    ),
                 ),
             );
             return ConstValue::Error;
@@ -245,7 +278,7 @@ impl<'a> ConstEvaluator<'a> {
                     DefKind::EnumVariant { .. } => self.variant_value(def),
                     DefKind::Error => ConstValue::Error,
                     other => {
-                        self.error_not_constant(span, describe_def_kind(other));
+                        self.error_not_constant(span, &describe_def_kind(other));
                         ConstValue::Error
                     }
                 }
@@ -312,9 +345,18 @@ impl<'a> ConstEvaluator<'a> {
                 if n < 0 || n as u128 > MAX_ARRAY_LEN as u128 {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2026,
-                        format!("dizi boyutu sınır dışı: {n}"),
-                        LabeledSpan::primary(span, "geçersiz tekrar sayısı"),
-                        format!("boyut 0..{MAX_ARRAY_LEN} aralığında olmalı"),
+                        lstr!(
+                            en: "array size out of bounds: {n}";
+                            tr: "dizi boyutu sınır dışı: {n}"
+                        ),
+                        LabeledSpan::primary(
+                            span,
+                            lstr!(en: "invalid repeat count"; tr: "geçersiz tekrar sayısı"),
+                        ),
+                        lstr!(
+                            en: "size must be in the range 0..{MAX_ARRAY_LEN}";
+                            tr: "boyut 0..{MAX_ARRAY_LEN} aralığında olmalı"
+                        ),
                     ));
                     return ConstValue::Error;
                 }
@@ -345,18 +387,29 @@ impl<'a> ConstEvaluator<'a> {
                         } else {
                             self.diagnostics.push(Diagnostic::error(
                                 ErrorCode::E2029,
-                                format!(
-                                    "sabit dizi indeksi sınır dışı: {i} (uzunluk {})",
-                                    items.len()
+                                lstr!(
+                                    en: "constant array index out of bounds: {i} (length {})",
+                                        items.len();
+                                    tr: "sabit dizi indeksi sınır dışı: {i} (uzunluk {})",
+                                        items.len()
                                 ),
-                                LabeledSpan::primary(span, "geçersiz indeks"),
-                                format!("indeks 0..{} aralığında olmalı", items.len()),
+                                LabeledSpan::primary(
+                                    span,
+                                    lstr!(en: "invalid index"; tr: "geçersiz indeks"),
+                                ),
+                                lstr!(
+                                    en: "index must be in the range 0..{}", items.len();
+                                    tr: "indeks 0..{} aralığında olmalı", items.len()
+                                ),
                             ));
                             ConstValue::Error
                         }
                     }
                     _ => {
-                        self.error_not_constant(span, "bu ifade");
+                        self.error_not_constant(
+                            span,
+                            &lstr!(en: "this expression"; tr: "bu ifade"),
+                        );
                         ConstValue::Error
                     }
                 }
@@ -365,7 +418,7 @@ impl<'a> ConstEvaluator<'a> {
             ExprKind::Error => ConstValue::Error,
 
             _ => {
-                self.error_not_constant(span, "bu ifade");
+                self.error_not_constant(span, &lstr!(en: "this expression"; tr: "bu ifade"));
                 ConstValue::Error
             }
         }
@@ -452,14 +505,25 @@ impl<'a> ConstEvaluator<'a> {
                         self.diagnostics.push(
                             Diagnostic::error(
                                 ErrorCode::E2022,
-                                "derleme zamanı taşması",
+                                lstr!(en: "compile-time overflow"; tr: "derleme zamanı taşması"),
                                 LabeledSpan::primary(
                                     span,
-                                    format!("'{}' işleminin sonucu i128'e sığmıyor", op.symbol()),
+                                    lstr!(
+                                        en: "the result of '{}' does not fit in i128",
+                                            op.symbol();
+                                        tr: "'{}' işleminin sonucu i128'e sığmıyor",
+                                            op.symbol()
+                                    ),
                                 ),
-                                "daha küçük değerler kullanın",
+                                lstr!(en: "use smaller values"; tr: "daha küçük değerler kullanın"),
                             )
-                            .with_note(NoteKind::Reason, "derleme zamanı taşma hatadır, sarmaz"),
+                            .with_note(
+                                NoteKind::Reason,
+                                lstr!(
+                                    en: "compile-time overflow is an error, it does not wrap";
+                                    tr: "derleme zamanı taşma hatadır, sarmaz"
+                                ),
+                            ),
                         );
                         Error
                     }
@@ -472,13 +536,13 @@ impl<'a> ConstEvaluator<'a> {
                 BinOp::Eq => Bool(a == b),
                 BinOp::Ne => Bool(a != b),
                 _ => {
-                    self.type_mismatch(span, "sayısal");
+                    self.type_mismatch(span, &lstr!(en: "numeric"; tr: "sayısal"));
                     Error
                 }
             },
 
             _ => {
-                self.type_mismatch(span, "aynı tip");
+                self.type_mismatch(span, &lstr!(en: "the same type"; tr: "aynı tip"));
                 Error
             }
         }
@@ -493,9 +557,15 @@ impl<'a> ConstEvaluator<'a> {
                 None => {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2022,
-                        "derleme zamanı taşması",
-                        LabeledSpan::primary(span, "negatifleme i128'e sığmıyor"),
-                        "daha küçük bir değer kullanın",
+                        lstr!(en: "compile-time overflow"; tr: "derleme zamanı taşması"),
+                        LabeledSpan::primary(
+                            span,
+                            lstr!(
+                                en: "negation does not fit in i128";
+                                tr: "negatifleme i128'e sığmıyor"
+                            ),
+                        ),
+                        lstr!(en: "use a smaller value"; tr: "daha küçük bir değer kullanın"),
                     ));
                     Error
                 }
@@ -507,7 +577,7 @@ impl<'a> ConstEvaluator<'a> {
                 Error
             }
             _ => {
-                self.type_mismatch(span, "sayısal");
+                self.type_mismatch(span, &lstr!(en: "numeric"; tr: "sayısal"));
                 Error
             }
         }
@@ -522,11 +592,11 @@ impl<'a> ConstEvaluator<'a> {
         span: Span,
     ) -> ConstValue {
         let Some(&def) = self.res.resolutions.get(&callee) else {
-            self.error_not_constant(span, "bu çağrı");
+            self.error_not_constant(span, &lstr!(en: "this call"; tr: "bu çağrı"));
             return ConstValue::Error;
         };
         let DefKind::Builtin(builtin) = self.res.def_kind(def) else {
-            self.error_not_constant(span, "fonksiyon çağrısı");
+            self.error_not_constant(span, &lstr!(en: "function call"; tr: "fonksiyon çağrısı"));
             return ConstValue::Error;
         };
 
@@ -536,9 +606,15 @@ impl<'a> ConstEvaluator<'a> {
                 if args.len() != 1 {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2021,
-                        format!("clog2 tek argüman bekler, {} verildi", args.len()),
-                        LabeledSpan::primary(span, "yanlış argüman sayısı"),
-                        "clog2(N) biçiminde çağırın",
+                        lstr!(
+                            en: "clog2 expects one argument, {} given", args.len();
+                            tr: "clog2 tek argüman bekler, {} verildi", args.len()
+                        ),
+                        LabeledSpan::primary(
+                            span,
+                            lstr!(en: "wrong number of arguments"; tr: "yanlış argüman sayısı"),
+                        ),
+                        lstr!(en: "call it as clog2(N)"; tr: "clog2(N) biçiminde çağırın"),
                     ));
                     return ConstValue::Error;
                 }
@@ -548,9 +624,18 @@ impl<'a> ConstEvaluator<'a> {
                 if n <= 0 {
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E2021,
-                        format!("clog2 pozitif değer bekler, {n} verildi"),
-                        LabeledSpan::primary(span, "geçersiz argüman"),
-                        "clog2'ye 1 veya daha büyük bir sabit verin",
+                        lstr!(
+                            en: "clog2 expects a positive value, {n} given";
+                            tr: "clog2 pozitif değer bekler, {n} verildi"
+                        ),
+                        LabeledSpan::primary(
+                            span,
+                            lstr!(en: "invalid argument"; tr: "geçersiz argüman"),
+                        ),
+                        lstr!(
+                            en: "give clog2 a constant of 1 or greater";
+                            tr: "clog2'ye 1 veya daha büyük bir sabit verin"
+                        ),
                     ));
                     return ConstValue::Error;
                 }
@@ -562,7 +647,7 @@ impl<'a> ConstEvaluator<'a> {
             // Cast benzeri yerleşikler: değer değişmiyor, sadece tip.
             BuiltinKind::Zext | BuiltinKind::Sext | BuiltinKind::Trunc => {
                 if args.len() != 1 {
-                    self.error_not_constant(span, "bu çağrı");
+                    self.error_not_constant(span, &lstr!(en: "this call"; tr: "bu çağrı"));
                     return ConstValue::Error;
                 }
                 self.const_eval(args[0])
@@ -574,7 +659,10 @@ impl<'a> ConstEvaluator<'a> {
             | BuiltinKind::PopCount
             | BuiltinKind::Concat
             | BuiltinKind::Replicate => {
-                self.error_not_constant(span, "donanım fonksiyonu");
+                self.error_not_constant(
+                    span,
+                    &lstr!(en: "hardware function"; tr: "donanım fonksiyonu"),
+                );
                 ConstValue::Error
             }
         }
@@ -590,14 +678,27 @@ impl<'a> ConstEvaluator<'a> {
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2021,
-                "sabit ifade bekleniyor",
-                LabeledSpan::primary(span, format!("{what} (çalışma zamanı değeri)")),
-                "const AD : u32 = ...; kullanın veya generic parametre ekleyin: \
-                 module Foo<const W: u32>",
+                lstr!(en: "expected a constant expression"; tr: "sabit ifade bekleniyor"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(
+                        en: "{what} (runtime value)";
+                        tr: "{what} (çalışma zamanı değeri)"
+                    ),
+                ),
+                lstr!(
+                    en: "use const NAME : u32 = ...; or add a generic parameter: \
+                         module Foo<const W: u32>";
+                    tr: "const AD : u32 = ...; kullanın veya generic parametre ekleyin: \
+                         module Foo<const W: u32>"
+                ),
             )
             .with_note(
                 NoteKind::Reason,
-                "tip genişlikleri derleme zamanında bilinmeli",
+                lstr!(
+                    en: "type widths must be known at compile time";
+                    tr: "tip genişlikleri derleme zamanında bilinmeli"
+                ),
             ),
         );
     }
@@ -605,18 +706,27 @@ impl<'a> ConstEvaluator<'a> {
     fn type_mismatch(&mut self, span: Span, expected: &str) {
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2003,
-            format!("tip uyumsuzluğu: {expected} bekleniyor"),
-            LabeledSpan::primary(span, "uyumsuz işlenen"),
-            "işlenen tiplerini kontrol edin",
+            lstr!(
+                en: "type mismatch: expected {expected}";
+                tr: "tip uyumsuzluğu: {expected} bekleniyor"
+            ),
+            LabeledSpan::primary(span, lstr!(en: "mismatched operand"; tr: "uyumsuz işlenen")),
+            lstr!(en: "check the operand types"; tr: "işlenen tiplerini kontrol edin"),
         ));
     }
 
     fn division_by_zero(&mut self, span: Span) {
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2023,
-            "sıfıra bölme",
-            LabeledSpan::primary(span, "bölen derleme zamanında 0"),
-            "böleni sıfırdan farklı bir sabit yapın",
+            lstr!(en: "division by zero"; tr: "sıfıra bölme"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "divisor is 0 at compile time"; tr: "bölen derleme zamanında 0"),
+            ),
+            lstr!(
+                en: "make the divisor a nonzero constant";
+                tr: "böleni sıfırdan farklı bir sabit yapın"
+            ),
         ));
     }
 
@@ -624,26 +734,45 @@ impl<'a> ConstEvaluator<'a> {
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2024,
-                format!("geçersiz kaydırma miktarı: {amount}"),
-                LabeledSpan::primary(span, "kaydırma 0..128 aralığında olmalı"),
-                "daha küçük bir kaydırma miktarı kullanın",
+                lstr!(
+                    en: "invalid shift amount: {amount}";
+                    tr: "geçersiz kaydırma miktarı: {amount}"
+                ),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(
+                        en: "shift must be in the range 0..128";
+                        tr: "kaydırma 0..128 aralığında olmalı"
+                    ),
+                ),
+                lstr!(
+                    en: "use a smaller shift amount";
+                    tr: "daha küçük bir kaydırma miktarı kullanın"
+                ),
             )
-            .with_note(NoteKind::Reason, "sonuç i128 aralığını aşıyor"),
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "the result exceeds the i128 range"; tr: "sonuç i128 aralığını aşıyor"),
+            ),
         );
     }
 }
 
-fn describe_def_kind(kind: DefKind) -> &'static str {
+fn describe_def_kind(kind: DefKind) -> String {
     match kind {
-        DefKind::Port { .. } => "bu bir port",
-        DefKind::Register => "bu bir register",
-        DefKind::Wire => "bu bir wire",
-        DefKind::LocalBinding => "bu bir let bağlaması",
-        DefKind::Instance => "bu bir modül örneği",
-        DefKind::Module => "bu bir modül",
-        DefKind::Function => "bu bir fonksiyon",
-        DefKind::Builtin(_) => "bu bir yerleşik fonksiyon",
-        DefKind::GenericParam => "bu bir generic parametre",
-        _ => "bu ifade",
+        DefKind::Port { .. } => lstr!(en: "this is a port"; tr: "bu bir port"),
+        DefKind::Register => lstr!(en: "this is a register"; tr: "bu bir register"),
+        DefKind::Wire => lstr!(en: "this is a wire"; tr: "bu bir wire"),
+        DefKind::LocalBinding => lstr!(en: "this is a let binding"; tr: "bu bir let bağlaması"),
+        DefKind::Instance => lstr!(en: "this is a module instance"; tr: "bu bir modül örneği"),
+        DefKind::Module => lstr!(en: "this is a module"; tr: "bu bir modül"),
+        DefKind::Function => lstr!(en: "this is a function"; tr: "bu bir fonksiyon"),
+        DefKind::Builtin(_) => {
+            lstr!(en: "this is a builtin function"; tr: "bu bir yerleşik fonksiyon")
+        }
+        DefKind::GenericParam => {
+            lstr!(en: "this is a generic parameter"; tr: "bu bir generic parametre")
+        }
+        _ => lstr!(en: "this expression"; tr: "bu ifade"),
     }
 }

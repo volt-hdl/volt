@@ -9,7 +9,7 @@ use volt_ast::{
     Param, Port, PortDir, ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TypeAlias,
     TypeRef, TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
 };
-use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
 
 use crate::token::TokenKind::*;
@@ -72,7 +72,10 @@ impl Parser<'_> {
         let start = self.pos;
         self.bump_any(); // 'package'
         if !self.at(Ident) {
-            self.error_expected("paket yolu", "package cip::alt_sistem; biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "package path"; tr: "paket yolu"),
+                &lstr!(en: "write it as package cip::alt_sistem;"; tr: "package cip::alt_sistem; biçiminde yazın"),
+            );
             self.recover_silent(ITEM_START);
             return;
         }
@@ -82,9 +85,12 @@ impl Parser<'_> {
         if self.ast.package.is_some() {
             self.push_error(Diagnostic::error(
                 ErrorCode::E0001,
-                "yinelenen 'package' bildirimi",
-                LabeledSpan::primary(span, "dosyada tek 'package' olabilir"),
-                "fazladan bildirimi kaldırın",
+                lstr!(en: "duplicate 'package' declaration"; tr: "yinelenen 'package' bildirimi"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "a file can have only one 'package'"; tr: "dosyada tek 'package' olabilir"),
+                ),
+                lstr!(en: "remove the extra declaration"; tr: "fazladan bildirimi kaldırın"),
             ));
         } else {
             self.ast.package = Some(PackageDecl { span, path });
@@ -96,7 +102,10 @@ impl Parser<'_> {
         let start = self.pos;
         self.bump_any(); // 'use'
         if !self.at(Ident) {
-            self.error_expected("use yolu", "use paket::modul; biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "use path"; tr: "use yolu"),
+                &lstr!(en: "write it as use paket::modul;"; tr: "use paket::modul; biçiminde yazın"),
+            );
             self.recover_silent(ITEM_START);
             return;
         }
@@ -120,8 +129,8 @@ impl Parser<'_> {
                             paths.push(self.parse_path());
                         } else {
                             self.error_expected(
-                                "use listesinde yol",
-                                "use a::{b, c::d} biçiminde yazın",
+                                &lstr!(en: "path in the use list"; tr: "use listesinde yol"),
+                                &lstr!(en: "write it as use a::{{b, c::d}}"; tr: "use a::{{b, c::d}} biçiminde yazın"),
                             );
                         }
                         if !self.eat(Comma) && self.pos == before {
@@ -133,8 +142,8 @@ impl Parser<'_> {
                 }
                 _ => {
                     self.error_expected(
-                        "'::' sonrası '*', '{' veya isim",
-                        "use a::* veya use a::{b, c} biçiminde yazın",
+                        &lstr!(en: "'*', '{{' or a name after '::'"; tr: "'::' sonrası '*', '{{' veya isim"),
+                        &lstr!(en: "write it as use a::* or use a::{{b, c}}"; tr: "use a::* veya use a::{{b, c}} biçiminde yazın"),
                     );
                 }
             }
@@ -142,7 +151,10 @@ impl Parser<'_> {
             if self.at(Ident) {
                 tree = Some(UseTree::Alias(self.parse_name()));
             } else {
-                self.error_expected("'as' sonrası takma ad", "use a::b as c; biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "alias after 'as'"; tr: "'as' sonrası takma ad"),
+                    &lstr!(en: "write it as use a::b as c;"; tr: "use a::b as c; biçiminde yazın"),
+                );
             }
         }
 
@@ -186,9 +198,12 @@ impl Parser<'_> {
             _ => {
                 let err = Diagnostic::error(
                     ErrorCode::E0001,
-                    format!("beklenmeyen '{}', öğe bekleniyor", self.current_text()),
-                    LabeledSpan::primary(self.current_span(), "öğe bekleniyor"),
-                    "module, domain, fn, struct, enum, const, type veya extern bekleniyor",
+                    lstr!(en: "unexpected '{}', expected an item", self.current_text(); tr: "beklenmeyen '{}', öğe bekleniyor", self.current_text()),
+                    LabeledSpan::primary(
+                        self.current_span(),
+                        lstr!(en: "expected an item"; tr: "öğe bekleniyor"),
+                    ),
+                    lstr!(en: "expected module, domain, fn, struct, enum, const, type or extern"; tr: "module, domain, fn, struct, enum, const, type veya extern bekleniyor"),
                 );
                 self.recover(ITEM_START, err);
                 ItemKind::Error
@@ -240,26 +255,27 @@ impl Parser<'_> {
                 Some(Ident) | Some(KwDomain) | Some(KwReg) => self.parse_name(),
                 _ => {
                     self.error_expected(
-                        "nitelik adı",
-                        "@nitelik veya @nitelik(argümanlar) biçiminde yazın",
+                        &lstr!(en: "attribute name"; tr: "nitelik adı"),
+                        &lstr!(en: "write it as @attribute or @attribute(args)"; tr: "@nitelik veya @nitelik(argümanlar) biçiminde yazın"),
                     );
                     continue; // '@' tüketildi, ilerleme garantili
                 }
             };
 
             if !KNOWN_ATTRIBUTES.contains(&name.text.as_str()) {
+                let known = KNOWN_ATTRIBUTES
+                    .iter()
+                    .map(|a| format!("@{a}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 self.push_error(Diagnostic::warning(
                     ErrorCode::W0020,
-                    format!("bilinmeyen nitelik: '@{}'", name.text),
-                    LabeledSpan::primary(name.span, "tanınmayan nitelik"),
-                    format!(
-                        "tanınan nitelikler: {}",
-                        KNOWN_ATTRIBUTES
-                            .iter()
-                            .map(|a| format!("@{a}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                    lstr!(en: "unknown attribute: '@{}'", name.text; tr: "bilinmeyen nitelik: '@{}'", name.text),
+                    LabeledSpan::primary(
+                        name.span,
+                        lstr!(en: "unrecognized attribute"; tr: "tanınmayan nitelik"),
                     ),
+                    lstr!(en: "known attributes: {known}"; tr: "tanınan nitelikler: {known}"),
                 ));
             }
 
@@ -276,9 +292,12 @@ impl Parser<'_> {
                         } else {
                             self.push_error(Diagnostic::error(
                                 ErrorCode::E0009,
-                                format!("'{}' argümanında değer eksik", arg_name.text),
-                                LabeledSpan::primary(self.current_span(), "değer bekleniyor"),
-                                "@budget(lut = 5000) biçiminde yazın",
+                                lstr!(en: "missing value in the '{}' argument", arg_name.text; tr: "'{}' argümanında değer eksik", arg_name.text),
+                                LabeledSpan::primary(
+                                    self.current_span(),
+                                    lstr!(en: "expected a value"; tr: "değer bekleniyor"),
+                                ),
+                                lstr!(en: "write it as @budget(lut = 5000)"; tr: "@budget(lut = 5000) biçiminde yazın"),
                             ));
                             self.alloc_error_expr(self.current_span())
                         };
@@ -291,9 +310,12 @@ impl Parser<'_> {
                     } else {
                         self.push_error(Diagnostic::error(
                             ErrorCode::E0009,
-                            format!("geçersiz nitelik argümanı: '{}'", self.current_text()),
-                            LabeledSpan::primary(self.current_span(), "argüman bekleniyor"),
-                            "isim = değer veya değer biçiminde yazın",
+                            lstr!(en: "invalid attribute argument: '{}'", self.current_text(); tr: "geçersiz nitelik argümanı: '{}'", self.current_text()),
+                            LabeledSpan::primary(
+                                self.current_span(),
+                                lstr!(en: "expected an argument"; tr: "argüman bekleniyor"),
+                            ),
+                            lstr!(en: "write it as name = value or value"; tr: "isim = değer veya değer biçiminde yazın"),
                         ));
                     }
                     if !self.eat(Comma) && self.pos == before {
@@ -328,8 +350,8 @@ impl Parser<'_> {
                         self.parse_name()
                     } else {
                         self.error_expected(
-                            "const parametre adı",
-                            "<const N: u32> biçiminde yazın",
+                            &lstr!(en: "const parameter name"; tr: "const parametre adı"),
+                            &lstr!(en: "write it as <const N: u32>"; tr: "<const N: u32> biçiminde yazın"),
                         );
                         Name {
                             text: String::new(),
@@ -338,8 +360,8 @@ impl Parser<'_> {
                     };
                     self.expect(
                         Colon,
-                        "const parametrede ':'",
-                        "<const N: u32> biçiminde yazın",
+                        &lstr!(en: "':' in the const parameter"; tr: "const parametrede ':'"),
+                        &lstr!(en: "write it as <const N: u32>"; tr: "<const N: u32> biçiminde yazın"),
                     );
                     let ty = self.parse_type_or_error();
                     params.push(GenericParam {
@@ -355,7 +377,10 @@ impl Parser<'_> {
                             if self.at(Ident) {
                                 bounds.push(self.parse_path());
                             } else {
-                                self.error_expected("tip sınırı", "<T: Bound> biçiminde yazın");
+                                self.error_expected(
+                                    &lstr!(en: "type bound"; tr: "tip sınırı"),
+                                    &lstr!(en: "write it as <T: Bound>"; tr: "<T: Bound> biçiminde yazın"),
+                                );
                                 break;
                             }
                             if !self.eat(Plus) {
@@ -370,8 +395,8 @@ impl Parser<'_> {
                 }
                 _ => {
                     self.error_expected(
-                        "generic parametre",
-                        "<const N: u32> veya <T: Bound> biçiminde yazın",
+                        &lstr!(en: "generic parameter"; tr: "generic parametre"),
+                        &lstr!(en: "write it as <const N: u32> or <T: Bound>"; tr: "<const N: u32> veya <T: Bound> biçiminde yazın"),
                     );
                 }
             }
@@ -420,7 +445,10 @@ impl Parser<'_> {
                     args.push(GenericArg::Const(self.parse_expr_bp(ABOVE_SHIFT_BP)));
                 }
                 _ => {
-                    self.error_expected("generic argüman", "tip veya sabit ifade bekleniyor");
+                    self.error_expected(
+                        &lstr!(en: "generic argument"; tr: "generic argüman"),
+                        &lstr!(en: "expected a type or constant expression"; tr: "tip veya sabit ifade bekleniyor"),
+                    );
                 }
             }
             if !self.eat(Comma) && self.pos == before {
@@ -441,7 +469,10 @@ impl Parser<'_> {
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("modül adı", "module Ad { ... } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "module name"; tr: "modül adı"),
+                &lstr!(en: "write it as module Name {{ ... }}"; tr: "module Ad {{ ... }} biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
@@ -457,8 +488,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "modül gövdesi için '{'",
-            "module Ad { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the module body"; tr: "modül gövdesi için '{{'"),
+            &lstr!(en: "write it as module Name {{ ... }}"; tr: "module Ad {{ ... }} biçiminde yazın"),
         );
 
         // Gövde: portlar, kontratlar ve deyimler. Gramer sırayı önerir ama
@@ -505,14 +536,17 @@ impl Parser<'_> {
                 self.push_error(
                     Diagnostic::error(
                         ErrorCode::E0004,
-                        format!(
-                            "blok sonlandırma ismi uyuşmuyor: '{}' bekleniyor, '{}' bulundu",
-                            name.text, cname.text
+                        lstr!(en: "block closing name does not match: expected '{}', found '{}'", name.text, cname.text; tr: "blok sonlandırma ismi uyuşmuyor: '{}' bekleniyor, '{}' bulundu", name.text, cname.text),
+                        LabeledSpan::primary(
+                            cname.span,
+                            lstr!(en: "wrong name"; tr: "yanlış isim"),
                         ),
-                        LabeledSpan::primary(cname.span, "yanlış isim"),
-                        format!("'module {}' yazın veya sonlandırıcıyı kaldırın", name.text),
+                        lstr!(en: "write 'module {}' or remove the terminator", name.text; tr: "'module {}' yazın veya sonlandırıcıyı kaldırın", name.text),
                     )
-                    .with_secondary(name.span, "modül burada tanımlandı"),
+                    .with_secondary(
+                        name.span,
+                        lstr!(en: "module defined here"; tr: "modül burada tanımlandı"),
+                    ),
                 );
             }
             closing_name = Some(cname);
@@ -538,7 +572,10 @@ impl Parser<'_> {
         self.bump_any();
 
         if !self.at(Ident) {
-            self.error_expected("port adı", "in isim : tip biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "port name"; tr: "port adı"),
+                &lstr!(en: "write it as in name : type"; tr: "in isim : tip biçiminde yazın"),
+            );
             self.recover_silent(PORT_RECOVERY);
             return None;
         }
@@ -546,8 +583,8 @@ impl Parser<'_> {
 
         if !self.eat(Colon) {
             self.error_expected(
-                "port tanımında ':'",
-                &format!("in {} : u8 şeklinde yazın", name.text),
+                &lstr!(en: "':' in the port definition"; tr: "port tanımında ':'"),
+                &lstr!(en: "write it as in {} : u8", name.text; tr: "in {} : u8 şeklinde yazın", name.text),
             );
             self.recover_silent(PORT_RECOVERY);
             let ty = self.alloc_error_type(self.current_span());
@@ -569,8 +606,8 @@ impl Parser<'_> {
                 Some(self.parse_name())
             } else {
                 self.error_expected(
-                    "'@' sonrasında domain adı",
-                    "in a : u8 @Fast biçiminde yazın",
+                    &lstr!(en: "domain name after '@'"; tr: "'@' sonrasında domain adı"),
+                    &lstr!(en: "write it as in a : u8 @Fast"; tr: "in a : u8 @Fast biçiminde yazın"),
                 );
                 None
             }
@@ -596,11 +633,18 @@ impl Parser<'_> {
         let start = self.pos;
         let kind = contract_kind(self.current().unwrap_or(Error)).unwrap_or(ContractKind::Assert);
         self.bump_any();
-        self.expect(Colon, "kontrat için ':'", "requires: koşul biçiminde yazın");
+        self.expect(
+            Colon,
+            &lstr!(en: "':' for the contract"; tr: "kontrat için ':'"),
+            &lstr!(en: "write it as requires: cond"; tr: "requires: koşul biçiminde yazın"),
+        );
         let expr = if self.at_expr_start() {
             self.parse_expr()
         } else {
-            self.error_expected("kontrat koşulu", "requires: a < b biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "contract condition"; tr: "kontrat koşulu"),
+                &lstr!(en: "write it as requires: a < b"; tr: "requires: a < b biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
         self.eat(Semi);
@@ -621,8 +665,8 @@ impl Parser<'_> {
             self.parse_name()
         } else {
             self.error_expected(
-                "fonksiyon adı",
-                "fn ad(a: u8) -> u8 { ... } biçiminde yazın",
+                &lstr!(en: "function name"; tr: "fonksiyon adı"),
+                &lstr!(en: "write it as fn name(a: u8) -> u8 {{ ... }}"; tr: "fn ad(a: u8) -> u8 {{ ... }} biçiminde yazın"),
             );
             Name {
                 text: String::new(),
@@ -640,15 +684,19 @@ impl Parser<'_> {
         let open = self.current_span();
         if self.expect(
             LParen,
-            "parametre listesi için '('",
-            "fn ad(a: u8) biçiminde yazın",
+            &lstr!(en: "'(' for the parameter list"; tr: "parametre listesi için '('"),
+            &lstr!(en: "write it as fn name(a: u8)"; tr: "fn ad(a: u8) biçiminde yazın"),
         ) {
             while !self.at(RParen) && !self.at_eof() {
                 let before = self.pos;
                 let pstart = self.pos;
                 if self.at(Ident) {
                     let pname = self.parse_name();
-                    self.expect(Colon, "parametrede ':'", "a: u8 biçiminde yazın");
+                    self.expect(
+                        Colon,
+                        &lstr!(en: "':' in the parameter"; tr: "parametrede ':'"),
+                        &lstr!(en: "write it as a: u8"; tr: "a: u8 biçiminde yazın"),
+                    );
                     let ty = self.parse_type_or_error();
                     params.push(Param {
                         span: self.span_from(pstart),
@@ -656,7 +704,10 @@ impl Parser<'_> {
                         ty,
                     });
                 } else {
-                    self.error_expected("parametre adı", "a: u8 biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "parameter name"; tr: "parametre adı"),
+                        &lstr!(en: "write it as a: u8"; tr: "a: u8 biçiminde yazın"),
+                    );
                 }
                 if !self.eat(Comma) && self.pos == before {
                     self.bump_any(); // ilerleme garantisi
@@ -703,7 +754,10 @@ impl Parser<'_> {
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("struct adı", "struct Ad { alan: tip } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "struct name"; tr: "struct adı"),
+                &lstr!(en: "write it as struct Name {{ field: type }}"; tr: "struct Ad {{ alan: tip }} biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
@@ -719,8 +773,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "struct gövdesi için '{'",
-            "struct Ad { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the struct body"; tr: "struct gövdesi için '{{'"),
+            &lstr!(en: "write it as struct Name {{ ... }}"; tr: "struct Ad {{ ... }} biçiminde yazın"),
         );
         let fields = self.parse_struct_fields();
         self.expect_closing(RBrace, "}", open);
@@ -743,7 +797,11 @@ impl Parser<'_> {
             let attrs = self.parse_attributes();
             if self.at(Ident) {
                 let name = self.parse_name();
-                self.expect(Colon, "struct alanında ':'", "alan: u8 biçiminde yazın");
+                self.expect(
+                    Colon,
+                    &lstr!(en: "':' in the struct field"; tr: "struct alanında ':'"),
+                    &lstr!(en: "write it as field: u8"; tr: "alan: u8 biçiminde yazın"),
+                );
                 let ty = self.parse_type_or_error();
                 fields.push(StructField {
                     span: self.span_from(start),
@@ -753,7 +811,10 @@ impl Parser<'_> {
                     ty,
                 });
             } else if !self.at(RBrace) {
-                self.error_expected("struct alanı", "alan: tip biçiminde yazın");
+                self.error_expected(
+                    &lstr!(en: "struct field"; tr: "struct alanı"),
+                    &lstr!(en: "write it as field: type"; tr: "alan: tip biçiminde yazın"),
+                );
             }
             if !self.eat(Comma) && self.pos == before {
                 self.bump_any(); // ilerleme garantisi
@@ -768,7 +829,10 @@ impl Parser<'_> {
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("enum adı", "enum Ad { Varyant } biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "enum name"; tr: "enum adı"),
+                &lstr!(en: "write it as enum Name {{ Variant }}"; tr: "enum Ad {{ Varyant }} biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
@@ -791,8 +855,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "enum gövdesi için '{'",
-            "enum Ad { Varyant } biçiminde yazın",
+            &lstr!(en: "'{{' for the enum body"; tr: "enum gövdesi için '{{'"),
+            &lstr!(en: "write it as enum Name {{ Variant }}"; tr: "enum Ad {{ Varyant }} biçiminde yazın"),
         );
 
         let mut variants = Vec::new();
@@ -828,7 +892,10 @@ impl Parser<'_> {
                     if self.at_expr_start() {
                         Some(self.parse_expr())
                     } else {
-                        self.error_expected("varyant değeri", "Idle = 0 biçiminde yazın");
+                        self.error_expected(
+                            &lstr!(en: "variant value"; tr: "varyant değeri"),
+                            &lstr!(en: "write it as Idle = 0"; tr: "Idle = 0 biçiminde yazın"),
+                        );
                         None
                     }
                 } else {
@@ -843,8 +910,8 @@ impl Parser<'_> {
                 });
             } else if !self.at(RBrace) {
                 self.error_expected(
-                    "enum varyantı",
-                    "Varyant, Varyant(tip) veya Varyant = değer bekleniyor",
+                    &lstr!(en: "enum variant"; tr: "enum varyantı"),
+                    &lstr!(en: "expected Variant, Variant(type) or Variant = value"; tr: "Varyant, Varyant(tip) veya Varyant = değer bekleniyor"),
                 );
             }
             if !self.eat(Comma) && self.pos == before {
@@ -870,7 +937,10 @@ impl Parser<'_> {
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("sabit adı", "const AD : u32 = 8; biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "constant name"; tr: "sabit adı"),
+                &lstr!(en: "write it as const NAME : u32 = 8;"; tr: "const AD : u32 = 8; biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
@@ -879,15 +949,22 @@ impl Parser<'_> {
 
         self.expect(
             Colon,
-            "const bildiriminde ':'",
-            "const AD : u32 = 8; biçiminde yazın",
+            &lstr!(en: "':' in the const declaration"; tr: "const bildiriminde ':'"),
+            &lstr!(en: "write it as const NAME : u32 = 8;"; tr: "const AD : u32 = 8; biçiminde yazın"),
         );
         let ty = self.parse_type_or_error();
-        self.expect(Eq, "const için '='", "const AD : u32 = 8; biçiminde yazın");
+        self.expect(
+            Eq,
+            &lstr!(en: "'=' for the const"; tr: "const için '='"),
+            &lstr!(en: "write it as const NAME : u32 = 8;"; tr: "const AD : u32 = 8; biçiminde yazın"),
+        );
         let value = if self.at_expr_start() {
             self.parse_expr()
         } else {
-            self.error_expected("sabit değeri", "const AD : u32 = 8; biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "constant value"; tr: "sabit değeri"),
+                &lstr!(en: "write it as const NAME : u32 = 8;"; tr: "const AD : u32 = 8; biçiminde yazın"),
+            );
             self.alloc_error_expr(self.current_span())
         };
         self.eat(Semi);
@@ -902,7 +979,10 @@ impl Parser<'_> {
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
-            self.error_expected("tip takma adı", "type Kelime = bits<32>; biçiminde yazın");
+            self.error_expected(
+                &lstr!(en: "type alias name"; tr: "tip takma adı"),
+                &lstr!(en: "write it as type Kelime = bits<32>;"; tr: "type Kelime = bits<32>; biçiminde yazın"),
+            );
             Name {
                 text: String::new(),
                 span: self.current_span(),
@@ -917,8 +997,8 @@ impl Parser<'_> {
 
         self.expect(
             Eq,
-            "type için '='",
-            "type Kelime = bits<32>; biçiminde yazın",
+            &lstr!(en: "'=' for the type alias"; tr: "type için '='"),
+            &lstr!(en: "write it as type Kelime = bits<32>;"; tr: "type Kelime = bits<32>; biçiminde yazın"),
         );
         let target = self.parse_type_or_error();
         self.eat(Semi);
@@ -935,16 +1015,16 @@ impl Parser<'_> {
         self.bump_any(); // 'extern'
         self.expect(
             KwModule,
-            "'extern' sonrası 'module'",
-            "extern module Ad { in a : u8 } biçiminde yazın",
+            &lstr!(en: "'module' after 'extern'"; tr: "'extern' sonrası 'module'"),
+            &lstr!(en: "write it as extern module Name {{ in a : u8 }}"; tr: "extern module Ad {{ in a : u8 }} biçiminde yazın"),
         );
 
         let name = if self.at(Ident) {
             self.parse_name()
         } else {
             self.error_expected(
-                "extern modül adı",
-                "extern module Ad { ... } biçiminde yazın",
+                &lstr!(en: "extern module name"; tr: "extern modül adı"),
+                &lstr!(en: "write it as extern module Name {{ ... }}"; tr: "extern module Ad {{ ... }} biçiminde yazın"),
             );
             Name {
                 text: String::new(),
@@ -961,8 +1041,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "extern gövdesi için '{'",
-            "extern module Ad { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the extern body"; tr: "extern gövdesi için '{{'"),
+            &lstr!(en: "write it as extern module Name {{ ... }}"; tr: "extern module Ad {{ ... }} biçiminde yazın"),
         );
 
         let mut ports = Vec::new();
@@ -978,7 +1058,10 @@ impl Parser<'_> {
                 }
                 Some(RBrace) | None => break,
                 _ => {
-                    self.error_expected("extern modülde port", "extern gövdesi yalnız port içerir");
+                    self.error_expected(
+                        &lstr!(en: "port in the extern module"; tr: "extern modülde port"),
+                        &lstr!(en: "an extern body contains only ports"; tr: "extern gövdesi yalnız port içerir"),
+                    );
                     self.recover_silent(PORT_RECOVERY);
                 }
             }
@@ -1025,16 +1108,16 @@ impl Parser<'_> {
                         }
                         _ => {
                             self.error_expected(
-                                "reset türü",
-                                "reset(sync, active_high) biçiminde yazın",
+                                &lstr!(en: "reset kind"; tr: "reset türü"),
+                                &lstr!(en: "write it as reset(sync, active_high)"; tr: "reset(sync, active_high) biçiminde yazın"),
                             );
                             ResetSync::Sync
                         }
                     };
                     self.expect(
                         Comma,
-                        "reset türünde ','",
-                        "reset(sync, active_high) biçiminde yazın",
+                        &lstr!(en: "',' in the reset kind"; tr: "reset türünde ','"),
+                        &lstr!(en: "write it as reset(sync, active_high)"; tr: "reset(sync, active_high) biçiminde yazın"),
                     );
                     let polarity = match self.current() {
                         Some(KwActiveHigh) => {
@@ -1047,8 +1130,8 @@ impl Parser<'_> {
                         }
                         _ => {
                             self.error_expected(
-                                "sıfırlama polaritesi",
-                                "reset(sync, active_high) biçiminde yazın",
+                                &lstr!(en: "reset polarity"; tr: "sıfırlama polaritesi"),
+                                &lstr!(en: "write it as reset(sync, active_high)"; tr: "reset(sync, active_high) biçiminde yazın"),
                             );
                             ResetPolarity::ActiveHigh
                         }
@@ -1098,16 +1181,26 @@ impl Parser<'_> {
             }
             Some(KwBits) => {
                 self.bump_any();
-                self.expect(Lt, "bits için '<'", "bits<8> biçiminde yazın");
+                self.expect(
+                    Lt,
+                    &lstr!(en: "'<' for bits"; tr: "bits için '<'"),
+                    &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
+                );
                 // '>'/'>>' kapanış sanılsın diye kaydırma-üstü bp ile ayrıştır
                 let n = if self.at_expr_start() {
                     self.parse_expr_bp(ABOVE_SHIFT_BP)
                 } else {
-                    self.error_expected("bits genişlik ifadesi", "bits<8> biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "bits width expression"; tr: "bits genişlik ifadesi"),
+                        &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
+                    );
                     self.alloc_error_expr(self.current_span())
                 };
                 if !self.eat_generic_close() {
-                    self.error_expected("bits için kapanış '>'", "bits<8> biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "closing '>' for bits"; tr: "bits için kapanış '>'"),
+                        &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
+                    );
                 }
                 TypeRefKind::Bits(n)
             }
@@ -1115,11 +1208,18 @@ impl Parser<'_> {
             Some(LBracket) => {
                 let open = self.bump();
                 let elem = self.parse_type_or_error();
-                self.expect(Semi, "dizi tipinde ';'", "[u8; 4] biçiminde yazın");
+                self.expect(
+                    Semi,
+                    &lstr!(en: "';' in the array type"; tr: "dizi tipinde ';'"),
+                    &lstr!(en: "write it as [u8; 4]"; tr: "[u8; 4] biçiminde yazın"),
+                );
                 let len = if self.at_expr_start() {
                     self.parse_expr()
                 } else {
-                    self.error_expected("dizi uzunluğu", "[u8; 4] biçiminde yazın");
+                    self.error_expected(
+                        &lstr!(en: "array length"; tr: "dizi uzunluğu"),
+                        &lstr!(en: "write it as [u8; 4]"; tr: "[u8; 4] biçiminde yazın"),
+                    );
                     self.alloc_error_expr(self.current_span())
                 };
                 self.expect_closing(RBracket, "]", open);
@@ -1151,8 +1251,8 @@ impl Parser<'_> {
             }
             _ => {
                 self.error_expected(
-                    "tip",
-                    "bool, clock, reset, u8..u64, i8..i64, Trit, bits<N>, [T; N], (T, U) veya tip adı kullanın",
+                    &lstr!(en: "type"; tr: "tip"),
+                    &lstr!(en: "use bool, clock, reset, u8..u64, i8..i64, Trit, bits<N>, [T; N], (T, U) or a type name"; tr: "bool, clock, reset, u8..u64, i8..i64, Trit, bits<N>, [T; N], (T, U) veya tip adı kullanın"),
                 );
                 TypeRefKind::Error
             }
@@ -1170,8 +1270,8 @@ impl Parser<'_> {
             self.parse_name()
         } else {
             self.error_expected(
-                "domain adı",
-                "domain Ad { clock = posedge } biçiminde yazın",
+                &lstr!(en: "domain name"; tr: "domain adı"),
+                &lstr!(en: "write it as domain Name {{ clock = posedge }}"; tr: "domain Ad {{ clock = posedge }} biçiminde yazın"),
             );
             Name {
                 text: String::new(),
@@ -1182,8 +1282,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "domain gövdesi için '{'",
-            "domain Ad { ... } biçiminde yazın",
+            &lstr!(en: "'{{' for the domain body"; tr: "domain gövdesi için '{{'"),
+            &lstr!(en: "write it as domain Name {{ ... }}"; tr: "domain Ad {{ ... }} biçiminde yazın"),
         );
 
         let mut fields = Vec::new();
@@ -1222,21 +1322,31 @@ impl Parser<'_> {
                     _ => {
                         self.push_error(Diagnostic::warning(
                             ErrorCode::W0020,
-                            format!("bilinmeyen domain anahtarı: '{}'", name.text),
-                            LabeledSpan::primary(name.span, "tanınmayan anahtar"),
-                            "geçerli anahtarlar: clock, frequency, reset, reset_cycles, reset_sequence",
+                            lstr!(en: "unknown domain key: '{}'", name.text; tr: "bilinmeyen domain anahtarı: '{}'", name.text),
+                            LabeledSpan::primary(
+                                name.span,
+                                lstr!(en: "unrecognized key"; tr: "tanınmayan anahtar"),
+                            ),
+                            lstr!(en: "valid keys: clock, frequency, reset, reset_cycles, reset_sequence"; tr: "geçerli anahtarlar: clock, frequency, reset, reset_cycles, reset_sequence"),
                         ));
                         DomainKey::Unknown(name)
                     }
                 }
             }
             _ => {
-                self.error_expected("domain anahtarı", "clock = posedge gibi bir alan yazın");
+                self.error_expected(
+                    &lstr!(en: "domain key"; tr: "domain anahtarı"),
+                    &lstr!(en: "write a field such as clock = posedge"; tr: "clock = posedge gibi bir alan yazın"),
+                );
                 return None;
             }
         };
 
-        self.expect(Eq, "domain alanında '='", "clock = posedge biçiminde yazın");
+        self.expect(
+            Eq,
+            &lstr!(en: "'=' in the domain field"; tr: "domain alanında '='"),
+            &lstr!(en: "write it as clock = posedge"; tr: "clock = posedge biçiminde yazın"),
+        );
         // ADR-0023: sync/async yalnız "reset =" değer konumunda anahtar kelime.
         let value = self.parse_domain_value(matches!(key, DomainKey::Reset));
         Some(DomainField {
@@ -1280,8 +1390,8 @@ impl Parser<'_> {
                     }
                     _ => {
                         self.error_expected(
-                            "sıfırlama polaritesi",
-                            "sync active_high veya async active_low biçiminde yazın",
+                            &lstr!(en: "reset polarity"; tr: "sıfırlama polaritesi"),
+                            &lstr!(en: "write it as sync active_high or async active_low"; tr: "sync active_high veya async active_low biçiminde yazın"),
                         );
                         ResetPolarity::ActiveHigh
                     }
@@ -1299,8 +1409,8 @@ impl Parser<'_> {
             _ if self.at_expr_start() => DomainValue::Literal(self.parse_expr()),
             _ => {
                 self.error_expected(
-                    "domain değeri",
-                    "posedge, negedge, none, sync/async + polarite veya literal bekleniyor",
+                    &lstr!(en: "domain value"; tr: "domain değeri"),
+                    &lstr!(en: "expected posedge, negedge, none, sync/async + polarity or a literal"; tr: "posedge, negedge, none, sync/async + polarite veya literal bekleniyor"),
                 );
                 DomainValue::Error
             }
@@ -1316,8 +1426,8 @@ impl Parser<'_> {
         let open = self.current_span();
         self.expect(
             LBrace,
-            "fonksiyon gövdesi için '{'",
-            "fn ad() -> u8 { ifade } biçiminde yazın",
+            &lstr!(en: "'{{' for the function body"; tr: "fonksiyon gövdesi için '{{'"),
+            &lstr!(en: "write it as fn name() -> u8 {{ expression }}"; tr: "fn ad() -> u8 {{ ifade }} biçiminde yazın"),
         );
 
         let mut stmts = Vec::new();
@@ -1338,8 +1448,8 @@ impl Parser<'_> {
                         tail = Some(expr);
                     } else {
                         self.error_expected(
-                            "fonksiyonda son ifade '}' öncesinde",
-                            "ara değerleri let ile bağlayın; son ifade dönüş değeridir",
+                            &lstr!(en: "the final expression of the function right before '}}'"; tr: "fonksiyonda son ifade '}}' öncesinde"),
+                            &lstr!(en: "bind intermediate values with let; the final expression is the return value"; tr: "ara değerleri let ile bağlayın; son ifade dönüş değeridir"),
                         );
                         self.eat(Semi);
                         stmts.push(BlockStmt::Error);
@@ -1348,12 +1458,12 @@ impl Parser<'_> {
                 _ => {
                     let err = Diagnostic::error(
                         ErrorCode::E0001,
-                        format!(
-                            "beklenmeyen '{}', fonksiyon gövdesinde let veya ifade bekleniyor",
-                            self.current_text()
+                        lstr!(en: "unexpected '{}', expected let or an expression in the function body", self.current_text(); tr: "beklenmeyen '{}', fonksiyon gövdesinde let veya ifade bekleniyor", self.current_text()),
+                        LabeledSpan::primary(
+                            self.current_span(),
+                            lstr!(en: "expected a statement"; tr: "deyim bekleniyor"),
                         ),
-                        LabeledSpan::primary(self.current_span(), "deyim bekleniyor"),
-                        "let bağlaması veya dönüş ifadesi yazın",
+                        lstr!(en: "write a let binding or a return expression"; tr: "let bağlaması veya dönüş ifadesi yazın"),
                     );
                     self.recover(super::recovery::BLOCK_STMT_START, err);
                     stmts.push(BlockStmt::Error);
