@@ -2,6 +2,7 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
+![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
 ![tests](https://img.shields.io/badge/tests-719-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-84%25-green)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
