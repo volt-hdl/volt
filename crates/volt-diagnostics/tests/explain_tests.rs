@@ -1,6 +1,6 @@
 //! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
 //!
-//! Kapsam: 88 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
+//! Kapsam: 89 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
 //! genişliğe göre sarma, renk, --list gruplaması ve kod önerisi.
 
 use volt_diagnostics::explain::{
@@ -9,10 +9,10 @@ use volt_diagnostics::explain::{
 use volt_diagnostics::{ErrorCode, Lang};
 
 /// Spec'teki toplam kod sayısı — kod eklenince bilinçli olarak güncellenir.
-const CODE_COUNT: usize = 88;
+const CODE_COUNT: usize = 89;
 
 #[test]
-fn all_codes_present_88_of_88() {
+fn all_codes_present_89_of_89() {
     assert_eq!(
         ErrorCode::ALL.len(),
         CODE_COUNT,
@@ -208,6 +208,14 @@ fn category_ranges_match_code_table() {
     assert_eq!(
         category_name(Lang::En, ErrorCode::E2020),
         "Constant evaluation"
+    );
+    assert_eq!(
+        category_name(Lang::En, ErrorCode::E5004),
+        "Behavioral contracts"
+    );
+    assert_eq!(
+        category_name(Lang::Tr, ErrorCode::E5004),
+        "Davranışsal kontratlar"
     );
     assert_eq!(
         category_name(Lang::En, ErrorCode::E6001),

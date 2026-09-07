@@ -5,6 +5,7 @@
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
 mod expr;
+mod sva;
 
 use std::collections::HashMap;
 
@@ -17,6 +18,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
 
 pub use expr::Sig;
+pub use sva::{SvaFile, SvaMode};
 
 pub const VOLT_VERSION: &str = "0.1.0";
 
@@ -36,9 +38,9 @@ impl EmitResult {
 
 /// Reset üretim varyantı (sv-mapping.md §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ResetCfg {
-    sync: ResetSync, // None → reset yok
-    polarity: ResetPolarity,
+pub(crate) struct ResetCfg {
+    pub(crate) sync: ResetSync, // None → reset yok
+    pub(crate) polarity: ResetPolarity,
 }
 
 impl ResetCfg {
@@ -47,18 +49,18 @@ impl ResetCfg {
         polarity: ResetPolarity::ActiveHigh,
     };
 
-    fn is_none(&self) -> bool {
+    pub(crate) fn is_none(&self) -> bool {
         self.sync == ResetSync::None
     }
 
-    fn port_name(&self) -> &'static str {
+    pub(crate) fn port_name(&self) -> &'static str {
         match self.polarity {
             ResetPolarity::ActiveHigh => "rst",
             ResetPolarity::ActiveLow => "rst_n",
         }
     }
 
-    fn condition(&self) -> &'static str {
+    pub(crate) fn condition(&self) -> &'static str {
         match self.polarity {
             ResetPolarity::ActiveHigh => "rst",
             ResetPolarity::ActiveLow => "!rst_n",
@@ -75,9 +77,9 @@ impl ResetCfg {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DomainInfo {
-    edge: ClockEdge,
-    reset: ResetCfg,
+pub(crate) struct DomainInfo {
+    pub(crate) edge: ClockEdge,
+    pub(crate) reset: ResetCfg,
 }
 
 const DEFAULT_DOMAIN: DomainInfo = DomainInfo {
@@ -87,10 +89,10 @@ const DEFAULT_DOMAIN: DomainInfo = DomainInfo {
 
 /// Modülün bir saat portu: adı, `@Domain` anotasyonu ve alan bilgisi.
 #[derive(Debug, Clone)]
-struct ClockPort {
-    name: String,
-    domain: Option<String>,
-    info: DomainInfo,
+pub(crate) struct ClockPort {
+    pub(crate) name: String,
+    pub(crate) domain: Option<String>,
+    pub(crate) info: DomainInfo,
 }
 
 /// Benzersiz reset portları, saat portu sırası korunarak (ada göre teklenir).
@@ -170,13 +172,36 @@ fn sync_always_ff(clk: &str, info: DomainInfo, chain: &[(String, String)], zero:
     out
 }
 
-/// Dosyadaki tüm modülleri tek SV dosyasına üretir.
+/// Dosyadaki tüm modülleri tek SV dosyasına üretir (SVA'sız).
 pub fn emit(ast: &SourceFile, source_name: &str) -> EmitResult {
+    let out = emit_full(ast, source_name, "", SvaMode::None);
+    EmitResult {
+        sv: out.sv,
+        diagnostics: out.diagnostics,
+    }
+}
+
+/// SV + SVA çıktısı (F4a). `source` kaynak metni — SVA yorumlarındaki
+/// satır numaraları buradan hesaplanır.
+#[derive(Debug)]
+pub struct EmitOutput {
+    pub sv: String,
+    /// Ayrı modda kontratlı her modül için bir .sva içeriği.
+    pub sva_files: Vec<SvaFile>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Tüm modülleri üretir; `mode`'a göre kontratlardan SVA da çıkarır.
+pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMode) -> EmitOutput {
     let mut emitter = Emitter {
         ast,
         diagnostics: Vec::new(),
         domains: collect_domains(ast),
         symbols: HashMap::new(),
+        source,
+        source_name,
+        sva_mode: mode,
+        sva_files: Vec::new(),
     };
 
     let mut modules = Vec::new();
@@ -193,14 +218,15 @@ pub fn emit(ast: &SourceFile, source_name: &str) -> EmitResult {
     sv.push('\n');
     sv.push_str("`default_nettype wire\n");
 
-    EmitResult {
+    EmitOutput {
         sv,
+        sva_files: emitter.sva_files,
         diagnostics: emitter.diagnostics,
     }
 }
 
 /// sv-mapping.md §12 — deterministik başlık (tarih yok).
-fn header(source_name: &str) -> String {
+pub(crate) fn header(source_name: &str) -> String {
     format!(
         "// Bu dosya Volt tarafından otomatik üretilmiştir.\n\
          // Kaynak: {source_name}\n\
@@ -247,6 +273,11 @@ pub(crate) struct Emitter<'a> {
     domains: HashMap<String, DomainInfo>,
     /// Modül içi sinyal tablosu: isim → genişlik/işaret.
     pub(crate) symbols: HashMap<String, Sig>,
+    /// Kaynak metin — SVA yorumlarındaki satır numaraları için.
+    pub(crate) source: &'a str,
+    pub(crate) source_name: &'a str,
+    pub(crate) sva_mode: SvaMode,
+    pub(crate) sva_files: Vec<SvaFile>,
 }
 
 impl<'a> Emitter<'a> {
@@ -346,7 +377,22 @@ impl<'a> Emitter<'a> {
         }
 
         let ports_block = self.emit_ports(module, &resets);
-        let body_chunks = self.emit_body(module, &clocks);
+        let mut body_chunks = self.emit_body(module, &clocks);
+
+        // F4a — kontratlardan SVA üretimi (moda göre gömülü ya da ayrı).
+        match self.sva_mode {
+            SvaMode::None => {}
+            SvaMode::Inline => {
+                if let Some(block) = self.sva_properties(module, &clocks, 4) {
+                    body_chunks.push(block);
+                }
+            }
+            SvaMode::Separate => {
+                if let Some(file) = self.sva_file(module, &clocks) {
+                    self.sva_files.push(file);
+                }
+            }
+        }
 
         let mut out = String::new();
         if let Some(doc) = doc {

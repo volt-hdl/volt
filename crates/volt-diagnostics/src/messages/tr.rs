@@ -83,6 +83,9 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4003 => "Lineer port çift tüketim [V1]",
         E4004 => "Lineer port tüketilmedi [V1]",
 
+        // ─── Davranışsal kontratlar ───
+        E5004 => "Kontrat ifadesi Bool değil",
+
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => "Kaynak bütçesi aşıldı",
         E6003 => "@false_path kanıtlanamadı (yol gerçekten var)",

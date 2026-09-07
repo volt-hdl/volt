@@ -584,6 +584,9 @@ NO_COLOR=1 volt build                   → ANSI kodu yok
 > içinde tanımlıydı; bağlayıcı tanım artık burasıdır.
 
 ```
+E5xxx  Davranışsal Kontratlar
+  E5004  Kontrat ifadesi Bool değil
+
 E6xxx  Bütçe ve Zamanlama
   E6001  Kaynak bütçesi aşıldı
   E6003  @false_path kanıtlanamadı (yol gerçekten var)

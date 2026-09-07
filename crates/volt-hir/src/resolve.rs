@@ -633,12 +633,7 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        // 3. Kontratlar.
-        for c in &m.contracts {
-            self.resolve_expr(c.expr, scope);
-        }
-
-        // 4. Gövde — SIRALI; ileride bildirilecekler E1002 için izlenir.
+        // 3. Gövde — SIRALI; ileride bildirilecekler E1002 için izlenir.
         let mut later: HashMap<String, Span> = HashMap::new();
         for &stmt in &m.body {
             if let Some(name) = declared_name(&self.ast.stmts[stmt].kind) {
@@ -650,6 +645,13 @@ impl<'a> Resolver<'a> {
             self.resolve_stmt(stmt, scope, module_def);
         }
         self.pending.pop();
+
+        // 4. Kontratlar — bildirim sırasından bağımsızdır, gövdeden SONRA
+        //    çözülür ki invariant/cover register ve let'leri görebilsin.
+        //    Tür bazlı kapsam kısıtı (requires → yalnız port) typeck'te.
+        for c in &m.contracts {
+            self.resolve_expr(c.expr, scope);
+        }
     }
 
     fn resolve_domain_ref(&mut self, name: &Name, scope: ScopeId) {

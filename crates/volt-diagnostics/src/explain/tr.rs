@@ -464,6 +464,15 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         )
         .with_note("Lineer tipler V1 özelliğidir; bu denetim F-serisi sürümlerde etkin değildir."),
 
+        // ─── Davranışsal kontratlar ───
+        E5004 => Explanation::new(
+            "Kontrat ifadesi Bool değil",
+            "requires/ensures/invariant/cover/assert/assume koşulları Bool tipinde olmalıdır.",
+            "Bir kontrat ya sağlanan ya sağlanmayan bir özelliği bildirir; bu anlamı yalnız Bool tipinde bir ifade taşır. 'speed + 1' gibi sayısal bir ifadenin doğruluk değeri yoktur — derleyici onu bir iddiaya, varsayıma ya da kapsam hedefine çeviremez.",
+            "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: tip u9, bool değil\n}",
+            "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ karşılaştırma bool üretir\n}",
+        ),
+
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => Explanation::new(
             "Kaynak bütçesi aşıldı",

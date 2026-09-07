@@ -17,6 +17,7 @@ use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
 use volt_span::SourceMap;
+use volt_sv_emit::{SvaFile, SvaMode};
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
@@ -95,6 +96,12 @@ enum Command {
         /// Output format: human | json | short
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
+        /// Additional outputs: sva (SystemVerilog assertions from contracts)
+        #[arg(long, value_enum, value_delimiter = ',')]
+        emit: Vec<EmitArg>,
+        /// SVA placement: separate .sva file with bind | inline in the .sv
+        #[arg(long, value_enum, default_value_t = SvaArg::Separate)]
+        sva: SvaArg,
     },
     /// Fast check (produces no output files)
     Check {
@@ -126,6 +133,19 @@ enum ColorArg {
     Never,
 }
 
+/// `--emit` ek çıktıları (F4a).
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum EmitArg {
+    Sva,
+}
+
+/// `--sva` yerleşimi (F4a ADIM 3); varsayılan ayrı dosya + bind.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum SvaArg {
+    Separate,
+    Inline,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
@@ -134,7 +154,19 @@ fn main() -> ExitCode {
             file,
             target_dir,
             format,
-        } => build(&file, &target_dir, format),
+            emit,
+            sva,
+        } => {
+            let mode = if emit.contains(&EmitArg::Sva) {
+                match sva {
+                    SvaArg::Separate => SvaMode::Separate,
+                    SvaArg::Inline => SvaMode::Inline,
+                }
+            } else {
+                SvaMode::None
+            };
+            build(&file, &target_dir, format, mode)
+        }
         Command::Check { file, format } => check(&file, format),
         Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
     }
@@ -216,6 +248,8 @@ struct Compiled {
     diagnostics: Vec<Diagnostic>,
     /// Yalnız tüm aşamalar hatasızsa üretilir.
     sv: Option<String>,
+    /// `--emit=sva` ayrı modunda kontratlı modüllerin .sva içerikleri.
+    sva_files: Vec<SvaFile>,
 }
 
 impl Compiled {
@@ -244,7 +278,7 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
 ///
 /// `check` emit koşmaz (§6 "çıktı üretmeden doğrulama") — sv-emit'in
 /// F0 sınırları (örn. sync() çağrısı E0003) analizi engellememeli.
-fn compile(file: &Path, want_sv: bool) -> Result<Compiled, ExitCode> {
+fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
     let source = match std::fs::read_to_string(file) {
         Ok(s) => s,
         Err(err) => {
@@ -270,6 +304,7 @@ fn compile(file: &Path, want_sv: bool) -> Result<Compiled, ExitCode> {
             map,
             diagnostics,
             sv: None,
+            sva_files: Vec::new(),
         });
     }
 
@@ -279,26 +314,28 @@ fn compile(file: &Path, want_sv: bool) -> Result<Compiled, ExitCode> {
             map,
             diagnostics,
             sv: None,
+            sva_files: Vec::new(),
         });
     }
 
-    // ── Aşama 5: emit (E2005 literal boyutlandırma) ──
+    // ── Aşama 5: emit (E2005 literal boyutlandırma; F4a SVA) ──
     let source_name = file
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| file.display().to_string());
-    let emitted = volt_sv_emit::emit(&parsed.ast, &source_name);
+    let emitted = volt_sv_emit::emit_full(&parsed.ast, &source_name, &source, sva_mode);
     diagnostics.extend(emitted.diagnostics);
-    let sv = if count_errors(&diagnostics) == 0 {
-        Some(emitted.sv)
+    let (sv, sva_files) = if count_errors(&diagnostics) == 0 {
+        (Some(emitted.sv), emitted.sva_files)
     } else {
-        None
+        (None, Vec::new())
     };
 
     Ok(Compiled {
         map,
         diagnostics,
         sv,
+        sva_files,
     })
 }
 
@@ -374,7 +411,7 @@ fn print_json_envelope(command: &str, compiled: &Compiled, artifacts: &[String],
     );
 }
 
-fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
+fn build(file: &Path, target_dir: &Path, format: OutputFormat, sva_mode: SvaMode) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
         eprintln!(
@@ -386,7 +423,7 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
         );
     }
 
-    let compiled = match compile(file, true) {
+    let compiled = match compile(file, true, sva_mode) {
         Ok(c) => c,
         Err(code) => return code,
     };
@@ -438,8 +475,37 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
         return ExitCode::from(3);
     }
 
+    // F4a — ayrı SVA dosyaları: build/formal/<modul>.sva.
+    let mut artifacts = vec![out_path.display().to_string()];
+    if !compiled.sva_files.is_empty() {
+        let formal_dir = target_dir.join("formal");
+        if let Err(err) = std::fs::create_dir_all(&formal_dir) {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "error: cannot create '{}': {}", formal_dir.display(), err;
+                    tr: "hata: '{}' oluşturulamadı: {}", formal_dir.display(), err
+                )
+            );
+            return ExitCode::from(3);
+        }
+        for sva in &compiled.sva_files {
+            let sva_path = formal_dir.join(format!("{}.sva", sva.module_name.to_lowercase()));
+            if let Err(err) = std::fs::write(&sva_path, &sva.content) {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "error: cannot write '{}': {}", sva_path.display(), err;
+                        tr: "hata: '{}' yazılamadı: {}", sva_path.display(), err
+                    )
+                );
+                return ExitCode::from(3);
+            }
+            artifacts.push(sva_path.display().to_string());
+        }
+    }
+
     if format == OutputFormat::Human {
-        let line_count = sv.lines().count();
         eprintln!(
             "{}",
             lstr!(
@@ -450,13 +516,22 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat) -> ExitCode {
         eprintln!(
             "{}",
             lstr!(
-                en: "     Output {} ({} lines)", out_path.display(), line_count;
-                tr: "     Çıktı {} ({} satır)", out_path.display(), line_count
+                en: "     Output {} ({} lines)", out_path.display(), sv.lines().count();
+                tr: "     Çıktı {} ({} satır)", out_path.display(), sv.lines().count()
             )
         );
+        for artifact in artifacts.iter().skip(1) {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "     Output {artifact}";
+                    tr: "     Çıktı {artifact}"
+                )
+            );
+        }
     }
     if format == OutputFormat::Json {
-        print_json_envelope("build", &compiled, &[out_path.display().to_string()], start);
+        print_json_envelope("build", &compiled, &artifacts, start);
     }
     ExitCode::SUCCESS
 }
@@ -473,7 +548,7 @@ fn check(file: &Path, format: OutputFormat) -> ExitCode {
         );
     }
 
-    let compiled = match compile(file, false) {
+    let compiled = match compile(file, false, SvaMode::None) {
         Ok(c) => c,
         Err(code) => return code,
     };

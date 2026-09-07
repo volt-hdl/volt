@@ -13,9 +13,9 @@
 use std::collections::HashMap;
 
 use volt_ast::{
-    ArrayLitKind, BinOp, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, IntSuffix,
-    ItemKind, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, Name, RegDecl,
-    SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
+    ArrayLitKind, BinOp, Block, BlockStmt, Contract, ContractKind, ElseBranch, Expr, ExprKind, Idx,
+    IfStmt, IntSuffix, ItemKind, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl,
+    Name, RegDecl, SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -119,9 +119,100 @@ impl<'a> TypeChecker<'a, '_> {
         for &stmt in &m.body {
             self.check_stmt(stmt);
         }
+        // Kontratlar gövdeden SONRA: register/let tipleri artık kayıtlı.
+        for c in &m.contracts {
+            self.check_contract(c);
+        }
         let mut diags = Vec::new();
         self.drivers.check_undriven_outputs(m, self.res, &mut diags);
         self.diagnostics.extend(diags);
+    }
+
+    // ═══ Kontratlar (F4a) ═════════════════════════════════════════
+
+    /// Her kontrat ifadesi Bool olmalı (E5004); tür bazlı kapsam:
+    /// requires/ensures → port, invariant → port + register,
+    /// cover/assert/assume → hepsi (ihlal E1001).
+    fn check_contract(&mut self, c: &Contract) {
+        let ty = self.synth(c.expr);
+        if !self.types.is_error(ty) && !matches!(self.types.ty(ty), Ty::Bool) {
+            let shown = self.types.display(ty);
+            let span = self.ast.exprs[c.expr].span;
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E5004,
+                lstr!(en: "contract expression is not Bool"; tr: "kontrat ifadesi Bool değil"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "this expression has type '{shown}'"; tr: "bu ifadenin tipi '{shown}'"),
+                ),
+                lstr!(
+                    en: "write a condition such as a comparison (x <= 2) or a bool signal";
+                    tr: "karşılaştırma (x <= 2) ya da bool sinyal gibi bir koşul yazın"
+                ),
+            ));
+        }
+        self.check_contract_scope(c);
+    }
+
+    fn check_contract_scope(&mut self, c: &Contract) {
+        if matches!(
+            c.kind,
+            ContractKind::Cover | ContractKind::Assert | ContractKind::Assume
+        ) {
+            return; // her sinyale erişebilir
+        }
+        let mut paths = Vec::new();
+        collect_path_exprs(self.ast, c.expr, &mut paths);
+        for p in paths {
+            // Çözülemeyen isim E1001'i isim çözümlemede zaten aldı.
+            let Some(&def) = self.res.resolutions.get(&p) else {
+                continue;
+            };
+            let out_of_scope = match self.res.def_kind(def) {
+                DefKind::Register => c.kind != ContractKind::Invariant,
+                DefKind::Wire | DefKind::LocalBinding | DefKind::Instance => true,
+                // Port, const, enum varyantı vb. her kontratta serbest.
+                _ => false,
+            };
+            if !out_of_scope {
+                continue;
+            }
+            let kw = contract_keyword(c.kind);
+            let name = match &self.ast.exprs[p].kind {
+                ExprKind::Path(path) => path
+                    .segments
+                    .last()
+                    .map(|n| n.text.clone())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            let span = self.ast.exprs[p].span;
+            let help = match c.kind {
+                ContractKind::Invariant => lstr!(
+                    en: "'invariant' may only reference module ports and registers";
+                    tr: "'invariant' yalnız modül portlarına ve register'lara erişebilir"
+                ),
+                _ => lstr!(
+                    en: "'requires' and 'ensures' may only reference module ports";
+                    tr: "'requires' ve 'ensures' yalnız modül portlarına erişebilir"
+                ),
+            };
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E1001,
+                lstr!(
+                    en: "'{name}' cannot be referenced in a '{kw}' contract";
+                    tr: "'{name}' bir '{kw}' kontratında kullanılamaz"
+                ),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(
+                        en: "out of scope for this contract kind";
+                        tr: "bu kontrat türünün kapsamı dışında"
+                    ),
+                ),
+                help,
+            ));
+        }
     }
 
     fn check_stmt(&mut self, stmt_idx: Idx<Stmt>) {
@@ -1531,6 +1622,88 @@ impl<'a> TypeChecker<'a, '_> {
             LabeledSpan::primary(span, lstr!(en: "mismatched types"; tr: "uyumsuz tip")),
             help,
         ));
+    }
+}
+
+/// Kontrat kapsam denetimi için ifade ağacındaki Path düğümlerini toplar.
+fn collect_path_exprs(ast: &SourceFile, expr: Idx<Expr>, out: &mut Vec<Idx<Expr>>) {
+    match &ast.exprs[expr].kind {
+        ExprKind::Path(_) => out.push(expr),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            collect_path_exprs(ast, *lhs, out);
+            collect_path_exprs(ast, *rhs, out);
+        }
+        ExprKind::Unary { operand, .. } => collect_path_exprs(ast, *operand, out),
+        ExprKind::Index { base, index } => {
+            collect_path_exprs(ast, *base, out);
+            collect_path_exprs(ast, *index, out);
+        }
+        ExprKind::Range { base, hi, lo } => {
+            collect_path_exprs(ast, *base, out);
+            collect_path_exprs(ast, *hi, out);
+            collect_path_exprs(ast, *lo, out);
+        }
+        ExprKind::Field { base, .. } => collect_path_exprs(ast, *base, out),
+        ExprKind::Call { callee, args } => {
+            collect_path_exprs(ast, *callee, out);
+            for &a in args {
+                collect_path_exprs(ast, a, out);
+            }
+        }
+        ExprKind::Cast { expr: inner, .. } => collect_path_exprs(ast, *inner, out),
+        ExprKind::If {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            collect_path_exprs(ast, *cond, out);
+            collect_path_exprs(ast, *then_expr, out);
+            collect_path_exprs(ast, *else_expr, out);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            collect_path_exprs(ast, *scrutinee, out);
+            for arm in arms {
+                if let Some(guard) = arm.guard {
+                    collect_path_exprs(ast, guard, out);
+                }
+                if let MatchArmBody::Expr(e) = &arm.body {
+                    collect_path_exprs(ast, *e, out);
+                }
+            }
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for f in fields {
+                if let Some(v) = f.value {
+                    collect_path_exprs(ast, v, out);
+                }
+            }
+        }
+        ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
+            for &i in items {
+                collect_path_exprs(ast, i, out);
+            }
+        }
+        ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => {
+            collect_path_exprs(ast, *value, out);
+            collect_path_exprs(ast, *count, out);
+        }
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => {}
+    }
+}
+
+/// Tanı metinlerinde kontrat anahtar kelimesi.
+fn contract_keyword(kind: ContractKind) -> &'static str {
+    match kind {
+        ContractKind::Requires => "requires",
+        ContractKind::Ensures => "ensures",
+        ContractKind::Invariant => "invariant",
+        ContractKind::Cover => "cover",
+        ContractKind::Assert => "assert",
+        ContractKind::Assume => "assume",
     }
 }
 

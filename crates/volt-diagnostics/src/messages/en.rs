@@ -83,6 +83,9 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4003 => "Linear port consumed twice [V1]",
         E4004 => "Linear port never consumed [V1]",
 
+        // ─── Behavioral contracts ───
+        E5004 => "Contract expression is not Bool",
+
         // ─── Budget and timing contracts ───
         E6001 => "Resource budget exceeded",
         E6003 => "@false_path could not be proven (the path actually exists)",

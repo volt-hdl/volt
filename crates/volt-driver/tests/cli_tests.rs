@@ -562,3 +562,125 @@ fn check_short_format_single_line_diagnostics() {
         "stderr: {stderr}"
     );
 }
+
+// ═══ F4a — volt build --emit=sva ══════════════════════════════════
+
+fn contract_source() -> &'static str {
+    "module Uart {\n    in  clk   : clock\n    in  speed : u8\n    in  start : bool\n    out busy  : bool\n\n    requires: speed <= 2\n    invariant: !(busy_r && start)\n\n    reg busy_r : bool = false\n\n    on clk {\n        busy_r <= start\n    }\n\n    busy = busy_r\n}\n"
+}
+
+#[test]
+fn build_emit_sva_writes_formal_file() {
+    let target = temp_dir("emit-sva");
+    let src = target.join("uart.volt");
+    std::fs::write(&src, contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .args(["build", "--emit", "sva", "--target-dir"])
+        .arg(&target)
+        .arg(&src)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let sva_path = target.join("formal").join("uart.sva");
+    let sva = std::fs::read_to_string(&sva_path).expect("uart.sva üretilmeli");
+    assert!(sva.contains("assume property (req_0);"), "{sva}");
+    assert!(sva.contains("assert property (inv_0);"), "{sva}");
+    assert!(sva.contains("bind Uart uart_sva sva_inst (.*);"), "{sva}");
+
+    // Üretilen dosyalar listesinde SVA görünmeli (stderr, human format).
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("uart.sva"), "stderr: {stderr}");
+
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn build_emit_sva_json_lists_artifacts() {
+    let target = temp_dir("emit-sva-json");
+    let src = target.join("uart.volt");
+    std::fs::write(&src, contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .args(["build", "--emit", "sva", "--format", "json", "--target-dir"])
+        .arg(&target)
+        .arg(&src)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("JSON zarfı");
+    let artifacts: Vec<String> = json["artifacts"]
+        .as_array()
+        .expect("artifacts dizisi")
+        .iter()
+        .map(|v| v.as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        artifacts.iter().any(|a| a.ends_with("uart.sv")),
+        "{artifacts:?}"
+    );
+    assert!(
+        artifacts.iter().any(|a| a.ends_with("uart.sva")),
+        "{artifacts:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn build_sva_inline_embeds_properties_in_sv() {
+    let target = temp_dir("sva-inline");
+    let src = target.join("uart.volt");
+    std::fs::write(&src, contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .args(["build", "--emit", "sva", "--sva", "inline", "--target-dir"])
+        .arg(&target)
+        .arg(&src)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let sv = std::fs::read_to_string(target.join("rtl").join("uart.sv")).expect("uart.sv");
+    assert!(sv.contains("property inv_0;"), "{sv}");
+    assert!(
+        !target.join("formal").exists(),
+        "inline modda ayrı dosya yok"
+    );
+
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn build_without_emit_sva_stays_rtl_only() {
+    let target = temp_dir("no-sva");
+    let src = target.join("uart.volt");
+    std::fs::write(&src, contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .args(["build", "--target-dir"])
+        .arg(&target)
+        .arg(&src)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+
+    let sv = std::fs::read_to_string(target.join("rtl").join("uart.sv")).expect("uart.sv");
+    assert!(!sv.contains("property"), "varsayılan build SVA içermemeli");
+    assert!(!target.join("formal").exists());
+
+    let _ = std::fs::remove_dir_all(&target);
+}

@@ -346,6 +346,12 @@ impl<'a> Inferencer<'a> {
         for &stmt in &m.body {
             self.walk_stmt(stmt);
         }
+
+        // 7. KONTRATLAR (F4a) — kontrat ifadesindeki sinyaller aynı
+        //    alanda olmalı; karışım join üzerinden E3001 üretir.
+        for c in &m.contracts {
+            self.expr_domain(c.expr);
+        }
     }
 
     /// K3 — çoklu saatte anotasyonsuz sinyal (E3010, 5 parça).

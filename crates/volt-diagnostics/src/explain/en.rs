@@ -464,6 +464,15 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         )
         .with_note("Linear types are a V1 feature; this check is inactive in F-series versions."),
 
+        // ─── Behavioral contracts ───
+        E5004 => Explanation::new(
+            "Contract expression is not Bool",
+            "requires/ensures/invariant/cover/assert/assume conditions must be Bool expressions.",
+            "A contract states a property that either holds or does not; only a Bool expression carries that meaning. A numeric expression such as 'speed + 1' has no truth value, so the compiler cannot turn it into an assertion, an assumption or a coverage goal.",
+            "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: type is u9, not bool\n}",
+            "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ comparison yields bool\n}",
+        ),
+
         // ─── Budget and timing contracts ───
         E6001 => Explanation::new(
             "Resource budget exceeded",

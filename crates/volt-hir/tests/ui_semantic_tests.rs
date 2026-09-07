@@ -232,5 +232,19 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 21);
+    assert_eq!(checked, 22);
+}
+
+// ═══ Kontratlar (F4a) ═════════════════════════════════════════════
+
+#[test]
+fn ui_fail_23_contract_not_bool_e5004() {
+    assert_ui_fail("fail/23_contract_not_bool.volt");
+}
+
+#[test]
+fn ui_pass_22_contracts_basic_clean() {
+    // Dört kontrat türü birlikte hatasız geçmeli (F4a tamamlanma ölçütü).
+    let result = analyze_file("pass/22_contracts_basic.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
 }
