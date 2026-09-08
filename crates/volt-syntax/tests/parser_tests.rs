@@ -1341,7 +1341,8 @@ fn instance_with_path_module() {
 #[test]
 fn instance_with_generic_args_parses_directly() {
     let result = p(
-        "module M { let u_fifo = AsyncFifo<u8, 16> { wr_clk: fclk, wr_data: din, \
+        // ADR-0028: 'fifo' artık ayrılmış kelime değil, örnekleme adı olabilir.
+        "module M { let fifo = AsyncFifo<u8, 16> { wr_clk: fclk, wr_data: din, \
          wr_en: push, rd_clk: sclk, rd_en: pop } }",
     );
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
@@ -1349,7 +1350,7 @@ fn instance_with_generic_args_parses_directly() {
     let StmtKind::Instance(inst) = &result.ast.stmts[module.body[0]].kind else {
         panic!("InstanceDecl bekleniyor")
     };
-    assert_eq!(inst.name.text, "u_fifo");
+    assert_eq!(inst.name.text, "fifo");
     assert_eq!(inst.module_path.segments[0].text, "AsyncFifo");
     assert_eq!(inst.generic_args.len(), 2, "iki generic argüman");
     assert!(matches!(inst.generic_args[0], GenericArg::Type(_)));

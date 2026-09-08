@@ -162,12 +162,10 @@ pub enum TokenKind {
     KwActiveLow,
 
     // ─── Ayrılmış anahtar kelimeler (§17, kullanımı E0003) ───
+    // ADR-0028: fifo/ram/regfile/arbiter stdlib bileşeni oldu, listeden
+    // çıkarıldı — normal Ident olarak tanınırlar.
     #[token("pipeline")]
     #[token("fsm")]
-    #[token("arbiter")]
-    #[token("fifo")]
-    #[token("ram")]
-    #[token("regfile")]
     #[token("stage")]
     #[token("stall")]
     #[token("flush")]

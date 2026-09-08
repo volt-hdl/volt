@@ -22,11 +22,11 @@ module PulseBridge {
     in  p_in     : bool  @Fast
     out p_out    : bool  @Slow
 
-    let u_ps = PulseSync {
+    let ps = PulseSync {
         src_clk: fast_clk,
         pulse_in: p_in,
         dst_clk: slow_clk,
     }
 
-    p_out = u_ps.pulse_out
+    p_out = ps.pulse_out
 }

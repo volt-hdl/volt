@@ -21,7 +21,7 @@ module HsBridge {
     out dout     : u8    @Slow
     out valid    : bool  @Slow
 
-    let u_hs = HandshakeSync<u8> {
+    let hs = HandshakeSync<u8> {
         src_clk: fast_clk,
         data_in: din,
         send: send_req,
@@ -30,7 +30,7 @@ module HsBridge {
 
     // busy is high while a transfer is in flight (source domain);
     // valid strobes for one destination cycle when dout updates.
-    busy  = u_hs.busy
-    dout  = u_hs.data_out
-    valid = u_hs.valid
+    busy  = hs.busy
+    dout  = hs.data_out
+    valid = hs.valid
 }

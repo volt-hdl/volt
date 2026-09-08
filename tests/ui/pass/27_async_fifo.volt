@@ -22,7 +22,7 @@ module FifoBridge {
     out full     : bool  @Fast
     out empty    : bool  @Slow
 
-    let u_fifo = AsyncFifo<u8, 16> {
+    let fifo = AsyncFifo<u8, 16> {
         wr_clk: fast_clk,
         wr_data: din,
         wr_en: push,
@@ -31,7 +31,7 @@ module FifoBridge {
     }
 
     // Outputs are read back with field access.
-    full  = u_fifo.wr_full
-    dout  = u_fifo.rd_data
-    empty = u_fifo.rd_empty
+    full  = fifo.wr_full
+    dout  = fifo.rd_data
+    empty = fifo.rd_empty
 }

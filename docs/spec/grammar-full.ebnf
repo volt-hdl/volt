@@ -459,16 +459,20 @@ BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
       Ident (sync() CDC çağrısı dahil). Bkz. ADR-0023. *)
 
    AYRILMIŞ (V1+, kullanılırsa E0003):
-     pipeline fsm arbiter fifo ram regfile
+     pipeline fsm
      stage stall flush hook impl trait where
      Spike PTrit Option Some None Result Ok Err
      spike self Self mut ref move
      secret confidential public
      clamp_low clamp_high latch
      retention isolation always_on voltage
-     
+
    Gerekçe: kullanıcı bunları tanımlayıcı olarak kullanırsa,
    V1'de dil genişlediğinde kodu kırılır. Şimdiden rezerve.
+
+   (* ADR-0028: 'fifo', 'ram', 'regfile', 'arbiter' listeden
+      çıkarıldı — stdlib bileşeni oldukları için dil yapısı
+      olmayacaklar; normal Ident olarak tanınırlar. *)
 *)
 
 

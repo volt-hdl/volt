@@ -142,8 +142,14 @@ fn kw_reset_spec() {
 
 #[test]
 fn reserved_structural() {
-    let ks = kinds("pipeline fsm arbiter fifo ram regfile");
-    assert_eq!(ks, vec![Reserved; 6]);
+    let ks = kinds("pipeline fsm");
+    assert_eq!(ks, vec![Reserved; 2]);
+}
+
+#[test]
+fn released_stdlib_words_are_plain_idents() {
+    // ADR-0028: stdlib bileşeni oldular, rezervasyon kalktı.
+    assert_eq!(assert_clean("fifo ram regfile arbiter"), vec![Ident; 4]);
 }
 
 #[test]
