@@ -18,6 +18,8 @@ use volt_diagnostics::{
 };
 use volt_span::{FileId, Span};
 
+use crate::builtin::BuiltinPrim;
+
 // ═══ Kimlikler ════════════════════════════════════════════════════
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -129,6 +131,8 @@ pub struct ResolveResult {
     pub reads: HashSet<DefId>,
     /// Instance tanımı → hedef modül tanımı.
     pub instance_module: HashMap<DefId, DefId>,
+    /// Instance tanımı → yerleşik CDC primitifi (ADR-0027).
+    pub instance_builtin: HashMap<DefId, BuiltinPrim>,
     /// Öğe tanımı → AST öğesi (port/alan tip araması için).
     pub item_of_def: HashMap<DefId, Idx<Item>>,
 }
@@ -150,6 +154,15 @@ impl ResolveResult {
             .find(|(_, d)| d.name == name)
             .map(|(i, d)| (DefId(i as u32), d))
     }
+}
+
+/// Örnekleme hedefi: kullanıcı modülü, yerleşik CDC primitifi
+/// (ADR-0027) ya da çözülemeyen isim.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum InstanceTarget {
+    Module(DefId),
+    Builtin(BuiltinPrim),
+    Unknown,
 }
 
 /// Bir kaynak dosyanın tüm isimlerini çözer.
@@ -189,6 +202,8 @@ struct Resolver<'a> {
     enum_variants: HashMap<DefId, Vec<(String, DefId)>>,
     /// Instance tanımı → hedef modül tanımı.
     instance_module: HashMap<DefId, DefId>,
+    /// Instance tanımı → yerleşik CDC primitifi (ADR-0027).
+    instance_builtin: HashMap<DefId, BuiltinPrim>,
     /// Modül örnekleme kenarları (E1006 döngü tespiti).
     instance_edges: Vec<(DefId, DefId)>,
 }
@@ -215,6 +230,7 @@ impl<'a> Resolver<'a> {
             item_of_def: HashMap::new(),
             enum_variants: HashMap::new(),
             instance_module: HashMap::new(),
+            instance_builtin: HashMap::new(),
             instance_edges: Vec::new(),
         };
         r.prelude = r.new_scope(ScopeKind::Prelude, None);
@@ -251,6 +267,7 @@ impl<'a> Resolver<'a> {
             type_resolutions: self.type_resolutions,
             reads: self.reads,
             instance_module: self.instance_module,
+            instance_builtin: self.instance_builtin,
             item_of_def: self.item_of_def,
         }
     }
@@ -762,8 +779,14 @@ impl<'a> Resolver<'a> {
                     }
                 }
                 for b in &inst.bindings {
-                    if let Some(target) = target {
-                        self.check_port_exists(target, &b.port_name.clone());
+                    match target {
+                        InstanceTarget::Module(def) => {
+                            self.check_port_exists(def, &b.port_name.clone());
+                        }
+                        InstanceTarget::Builtin(prim) => {
+                            self.check_builtin_binding(prim, &b.port_name.clone());
+                        }
+                        InstanceTarget::Unknown => {}
                     }
                     match b.value {
                         Some(e) => self.resolve_expr(e, scope),
@@ -776,9 +799,15 @@ impl<'a> Resolver<'a> {
                 self.mark_declared(&inst.name.text);
                 let inst_def =
                     self.declare_checked(&inst.name.clone(), DefKind::Instance, scope, false);
-                if let Some(target) = target {
-                    self.instance_module.insert(inst_def, target);
-                    self.instance_edges.push((module_def, target));
+                match target {
+                    InstanceTarget::Module(t) => {
+                        self.instance_module.insert(inst_def, t);
+                        self.instance_edges.push((module_def, t));
+                    }
+                    InstanceTarget::Builtin(prim) => {
+                        self.instance_builtin.insert(inst_def, prim);
+                    }
+                    InstanceTarget::Unknown => {}
                 }
             }
             StmtKind::On(on) => {
@@ -801,15 +830,25 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_instance_target(&mut self, path: &Path, scope: ScopeId) -> Option<DefId> {
-        let first = path.segments.first()?.clone();
+    fn resolve_instance_target(&mut self, path: &Path, scope: ScopeId) -> InstanceTarget {
+        let Some(first) = path.segments.first().cloned() else {
+            return InstanceTarget::Unknown;
+        };
+        // Kapsamda çözülemeyen tek segmentli isim yerleşik bir CDC
+        // primitifi olabilir (ADR-0027) — E1001 üretilmeden önce
+        // denenir. Kullanıcı aynı adla modül tanımlarsa o kazanır.
+        if path.segments.len() == 1 && self.lookup_visible(&first.text, scope).is_none() {
+            if let Some(prim) = BuiltinPrim::from_name(&first.text) {
+                return InstanceTarget::Builtin(prim);
+            }
+        }
         let def = self.resolve_simple(&first, scope, true);
         // soc::uart::Uart gibi çok segmentli yollar F2 (paketler) işi.
         let kind = self.defs[def.0 as usize].kind;
         match kind {
-            DefKind::Module | DefKind::ExternModule => Some(def),
-            DefKind::Error | DefKind::Import => None,
-            DefKind::Struct => None, // struct literal — tip kontrolü işi
+            DefKind::Module | DefKind::ExternModule => InstanceTarget::Module(def),
+            DefKind::Error | DefKind::Import => InstanceTarget::Unknown,
+            DefKind::Struct => InstanceTarget::Unknown, // struct literal — tip kontrolü işi
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E1001,
@@ -822,9 +861,102 @@ impl<'a> Resolver<'a> {
                     lstr!(en: "the name being instantiated must be a module or an extern module";
                           tr: "örneklenecek isim bir module ya da extern module olmalı"),
                 ));
-                None
+                InstanceTarget::Unknown
             }
         }
+    }
+
+    /// Kapsam zincirinde (kendisi dahil) görünür ilk tanım — tanı
+    /// üretmeyen sessiz arama.
+    fn lookup_visible(&self, name: &str, scope: ScopeId) -> Option<DefId> {
+        let mut current = Some(scope);
+        while let Some(s) = current {
+            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(name) {
+                return Some(def);
+            }
+            current = self.scopes[s.0 as usize].parent;
+        }
+        None
+    }
+
+    /// Yerleşik primitif örneklemesinde port BAĞLAMA adı denetimi:
+    /// bilinmeyen port ya da çıkış portuna değer bağlama E1009.
+    fn check_builtin_binding(&mut self, prim: BuiltinPrim, port_name: &Name) {
+        match prim.port(&port_name.text) {
+            None => self.err_builtin_unknown_port(prim, port_name),
+            Some(port) if port.dir == PortDir::Out => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E1009,
+                    lstr!(en: "cannot bind a value to output port '{}' of '{}'",
+                              port_name.text, prim.name();
+                          tr: "'{}' çıkış portuna değer bağlanamaz ('{}')",
+                              port_name.text, prim.name()),
+                    LabeledSpan::primary(
+                        port_name.span,
+                        lstr!(en: "this is an output port"; tr: "bu bir çıkış portu"),
+                    ),
+                    lstr!(en: "outputs are read with field access after the instance: x = inst.{}",
+                              port_name.text;
+                          tr: "çıkışlar örneklemeden sonra alan erişimiyle okunur: x = ornek.{}",
+                              port_name.text),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// Yerleşik primitif alan OKUMASI denetimi (`inst.port`): bilinmeyen
+    /// port veya giriş portu okuma E1009.
+    fn check_builtin_field(&mut self, prim: BuiltinPrim, field: &Name) {
+        match prim.port(&field.text) {
+            None => self.err_builtin_unknown_port(prim, field),
+            Some(port) if port.dir == PortDir::In => {
+                self.diagnostics.push(Diagnostic::error(
+                    ErrorCode::E1009,
+                    lstr!(en: "input port '{}' of '{}' cannot be read via field access",
+                              field.text, prim.name();
+                          tr: "'{}' giriş portu alan erişimiyle okunamaz ('{}')",
+                              field.text, prim.name()),
+                    LabeledSpan::primary(
+                        field.span,
+                        lstr!(en: "this is an input port"; tr: "bu bir giriş portu"),
+                    ),
+                    lstr!(en: "only output ports are readable; inputs are bound inside the instance";
+                          tr: "yalnız çıkış portları okunabilir; girişler örnekleme içinde bağlanır"),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// E1009 — yerleşik primitifte bilinmeyen port adı; gerçek port
+    /// listesi yardım metninde verilir.
+    fn err_builtin_unknown_port(&mut self, prim: BuiltinPrim, port_name: &Name) {
+        let candidates: Vec<String> = prim.ports().iter().map(|p| p.name.to_string()).collect();
+        let suggestion = closest_match(&port_name.text, &candidates);
+        let mut diag = Diagnostic::error(
+            ErrorCode::E1009,
+            lstr!(en: "'{}' has no port '{}'", prim.name(), port_name.text;
+                  tr: "'{}' primitifinde '{}' portu yok", prim.name(), port_name.text),
+            LabeledSpan::primary(
+                port_name.span,
+                lstr!(en: "unknown port"; tr: "bilinmeyen port"),
+            ),
+            match &suggestion {
+                Some(s) => lstr!(en: "did you mean '{}'?", s;
+                                 tr: "'{}' mi demek istediniz?", s),
+                None => lstr!(en: "available ports: {}", candidates.join(", ");
+                              tr: "mevcut portlar: {}", candidates.join(", ")),
+            },
+        );
+        if let Some(s) = suggestion {
+            diag = diag.with_suggestion(Suggestion {
+                span: port_name.span,
+                replacement: s,
+                applicability: Applicability::MaybeIncorrect,
+            });
+        }
+        self.diagnostics.push(diag);
     }
 
     fn check_port_exists(&mut self, module_def: DefId, port_name: &Name) {
@@ -893,6 +1025,8 @@ impl<'a> Resolver<'a> {
                     if let Some(base) = current {
                         if let Some(&target) = self.instance_module.get(&base) {
                             self.check_port_exists(target, &field.clone());
+                        } else if let Some(&prim) = self.instance_builtin.get(&base) {
+                            self.check_builtin_field(prim, &field.clone());
                         }
                     }
                     current = None;
@@ -1080,6 +1214,8 @@ impl<'a> Resolver<'a> {
                 if let Some(&base_def) = self.resolutions.get(&base) {
                     if let Some(&target) = self.instance_module.get(&base_def) {
                         self.check_port_exists(target, &field);
+                    } else if let Some(&prim) = self.instance_builtin.get(&base_def) {
+                        self.check_builtin_field(prim, &field);
                     }
                 }
             }

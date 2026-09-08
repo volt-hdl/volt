@@ -310,6 +310,10 @@ impl<'a> TypeChecker<'a, '_> {
 
     fn handle_instance(&mut self, inst: &volt_ast::InstanceDecl) {
         let def = self.res.decl_spans.get(&inst.name.span).copied();
+        if let Some(prim) = def.and_then(|d| self.res.instance_builtin.get(&d).copied()) {
+            self.handle_builtin_instance(inst, def, prim);
+            return;
+        }
         let target = def.and_then(|d| self.res.instance_module.get(&d).copied());
         let ty = match target {
             Some(module) => self.types.intern(Ty::Instance(ModuleId(module.0))),
@@ -327,6 +331,148 @@ impl<'a> TypeChecker<'a, '_> {
                 }
             }
         }
+    }
+
+    /// Yerleşik CDC primitifi örneklemesi (ADR-0027): generic argüman
+    /// sayısı/biçimi, DEPTH kısıtı (E2025) ve giriş bağlama tipleri.
+    fn handle_builtin_instance(
+        &mut self,
+        inst: &volt_ast::InstanceDecl,
+        def: Option<DefId>,
+        prim: crate::builtin::BuiltinPrim,
+    ) {
+        use crate::builtin::PortKind;
+
+        let data = self.builtin_data_type(inst, prim);
+        let ty = self.types.intern(Ty::Builtin { prim, data });
+        if let Some(def) = def {
+            self.def_types.insert(def, ty);
+        }
+
+        // Giriş bağlamaları port tablosundaki beklenen tiple denetlenir;
+        // bilinmeyen/çıkış portu E1009'u isim çözümlemede aldı.
+        for b in &inst.bindings {
+            let Some(value) = b.value else { continue };
+            match prim.port(&b.port_name.text) {
+                Some(port) => {
+                    let expected = match port.kind {
+                        PortKind::Clock => self.types.intern(Ty::Clock),
+                        PortKind::Bool => self.types.bool_ty(),
+                        PortKind::Data => data,
+                    };
+                    self.check(value, expected);
+                }
+                None => {
+                    self.synth(value);
+                }
+            }
+        }
+    }
+
+    /// Generic argümanları çözer: `T` veri tipi + AsyncFifo'da DEPTH.
+    /// Yanlış sayı E2003, sabit olmayan DEPTH E2008, iki kuvveti
+    /// olmayan DEPTH E2025 üretir.
+    fn builtin_data_type(
+        &mut self,
+        inst: &volt_ast::InstanceDecl,
+        prim: crate::builtin::BuiltinPrim,
+    ) -> TypeId {
+        use volt_ast::GenericArg;
+
+        let want = prim.type_arg_count() + prim.const_arg_count();
+        if inst.generic_args.len() != want {
+            self.err_builtin_arity(inst, prim);
+            return self.types.error();
+        }
+
+        // T pozisyonel olarak ilk argümandır (AsyncFifo/HandshakeSync).
+        let data = if prim.type_arg_count() == 1 {
+            match &inst.generic_args[0] {
+                GenericArg::Type(t) => self.resolve_type_ref(*t),
+                GenericArg::Const(_) => {
+                    self.err_builtin_arity(inst, prim);
+                    return self.types.error();
+                }
+            }
+        } else {
+            self.types.bool_ty() // PulseSync: veri portu yok
+        };
+
+        // AsyncFifo DEPTH (ikinci argüman): tam sayı literali ve 2'nin
+        // kuvveti (>= 2). Parser çıplak bir ismi tip sayar; sabit ADIYLA
+        // verilen DEPTH de E2008'e düşer (literal zorunlu).
+        if prim.const_arg_count() == 1 {
+            match &inst.generic_args[1] {
+                GenericArg::Const(e) => {
+                    let span = self.ast.exprs[*e].span;
+                    match self.ast.exprs[*e].kind {
+                        volt_ast::ExprKind::IntLit { value, .. } => {
+                            if value < 2 || !value.is_power_of_two() {
+                                self.diagnostics.push(Diagnostic::error(
+                                    ErrorCode::E2025,
+                                    lstr!(en: "AsyncFifo DEPTH must be a power of two, got {value}";
+                                          tr: "AsyncFifo DEPTH iki kuvveti olmalı, {value} verildi"),
+                                    LabeledSpan::primary(
+                                        span,
+                                        lstr!(en: "invalid depth"; tr: "geçersiz derinlik"),
+                                    ),
+                                    lstr!(en: "use 2, 4, 8, 16, ... for gray-code pointers to work";
+                                          tr: "gray kod pointer'larının çalışması için 2, 4, 8, 16, ... kullanın"),
+                                ));
+                            }
+                        }
+                        _ => self.err_builtin_depth_not_literal(span),
+                    }
+                }
+                GenericArg::Type(t) => {
+                    let span = self.ast.types[*t].span;
+                    self.err_builtin_depth_not_literal(span);
+                }
+            }
+        }
+        data
+    }
+
+    /// E2003 — yerleşik primitifte yanlış generic argüman sayısı/biçimi.
+    fn err_builtin_arity(
+        &mut self,
+        inst: &volt_ast::InstanceDecl,
+        prim: crate::builtin::BuiltinPrim,
+    ) {
+        let shape = match prim {
+            crate::builtin::BuiltinPrim::AsyncFifo => "AsyncFifo<T, DEPTH>",
+            crate::builtin::BuiltinPrim::HandshakeSync => "HandshakeSync<T>",
+            crate::builtin::BuiltinPrim::PulseSync => "PulseSync",
+        };
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2003,
+            lstr!(en: "'{}' expects {} type and {} const generic argument(s), got {}",
+                      prim.name(), prim.type_arg_count(), prim.const_arg_count(),
+                      inst.generic_args.len();
+                  tr: "'{}' {} tip ve {} sabit generic argüman bekler, {} verildi",
+                      prim.name(), prim.type_arg_count(), prim.const_arg_count(),
+                      inst.generic_args.len()),
+            LabeledSpan::primary(
+                inst.name.span,
+                lstr!(en: "wrong generic argument count"; tr: "yanlış generic argüman sayısı"),
+            ),
+            lstr!(en: "write it as {shape} {{ ... }}"; tr: "{shape} {{ ... }} biçiminde yazın"),
+        ));
+    }
+
+    /// E2008 — DEPTH literal değil (sabit ismi ya da ifade).
+    fn err_builtin_depth_not_literal(&mut self, span: Span) {
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2008,
+            lstr!(en: "AsyncFifo DEPTH must be a compile-time integer literal";
+                  tr: "AsyncFifo DEPTH derleme zamanı tam sayı literali olmalı"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "not an integer literal"; tr: "tam sayı literali değil"),
+            ),
+            lstr!(en: "write the depth directly, e.g. AsyncFifo<u8, 16>";
+                  tr: "derinliği doğrudan yazın, ör. AsyncFifo<u8, 16>"),
+        ));
     }
 
     fn check_for(&mut self, f: &volt_ast::ForStmt) {
@@ -1276,6 +1422,16 @@ impl<'a> TypeChecker<'a, '_> {
             Ty::Instance(m) => self
                 .port_type_of(DefId(m.0), &field.text)
                 .unwrap_or_else(|| self.types.error()),
+            // Yerleşik primitif portu: tablo üzerinden tiplenir; geçersiz
+            // alan E1009'u isim çözümlemede aldı — sessiz Error.
+            Ty::Builtin { prim, data } => match prim.port(&field.text) {
+                Some(port) => match port.kind {
+                    crate::builtin::PortKind::Data => data,
+                    crate::builtin::PortKind::Bool => self.types.bool_ty(),
+                    crate::builtin::PortKind::Clock => self.types.intern(Ty::Clock),
+                },
+                None => self.types.error(),
+            },
             Ty::Struct(s) => {
                 let field_ty =
                     self.res.item_of_def.get(&DefId(s.0)).and_then(|&item_idx| {

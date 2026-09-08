@@ -60,6 +60,9 @@ pub struct SbyOptions {
     pub mode: SbyMode,
     pub depth: u32,
     pub engine: SbyEngine,
+    /// İki+ saatli modüllerde `multiclock on` (Yosys clk2fflogic akışı,
+    /// ADR-0027); tek saatli tasarımların çıktısı değişmez.
+    pub multiclock: bool,
 }
 
 impl Default for SbyOptions {
@@ -68,6 +71,7 @@ impl Default for SbyOptions {
             mode: SbyMode::Bmc,
             depth: 20,
             engine: SbyEngine::Z3,
+            multiclock: false,
         }
     }
 }
@@ -88,10 +92,18 @@ impl fmt::Display for SbyOptions {
 /// dosya adıdır (ikisi de `build/formal/` altına yazılır);
 /// `top_module` Volt modül adıdır (SV modül adıyla birebir).
 pub fn sby_config(top_module: &str, sv_file: &str, opts: &SbyOptions) -> String {
+    // `multiclock on` yalnız gerektiğinde eklenir — tek saatli
+    // tasarımların .sby çıktısı birebir korunur.
+    let multiclock = if opts.multiclock {
+        "multiclock on\n"
+    } else {
+        ""
+    };
     format!(
         "[options]\n\
          mode {mode}\n\
          depth {depth}\n\
+         {multiclock}\
          \n\
          [engines]\n\
          smtbmc {engine}\n\
@@ -141,6 +153,7 @@ mod tests {
             mode: SbyMode::Prove,
             depth: 40,
             engine: SbyEngine::Boolector,
+            multiclock: false,
         };
         let text = sby_config("Uart", "uart.sv", &opts);
         assert!(text.contains("mode prove\n"), "{text}");
@@ -152,5 +165,26 @@ mod tests {
     fn cover_mode_and_yices_engine_spell_correctly() {
         assert_eq!(SbyMode::Cover.as_str(), "cover");
         assert_eq!(SbyEngine::Yices.as_str(), "yices");
+    }
+
+    #[test]
+    fn multiclock_off_by_default_and_absent_from_config() {
+        assert!(!SbyOptions::default().multiclock);
+        let text = sby_config("Counter", "counter.sv", &SbyOptions::default());
+        assert!(!text.contains("multiclock"), "{text}");
+    }
+
+    #[test]
+    fn multiclock_on_appears_in_options_section() {
+        let opts = SbyOptions {
+            multiclock: true,
+            ..SbyOptions::default()
+        };
+        let text = sby_config("FifoBridge", "fifobridge.sv", &opts);
+        assert!(
+            text.starts_with("[options]\nmode bmc\ndepth 20\nmulticlock on\n"),
+            "{text}"
+        );
+        assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
     }
 }

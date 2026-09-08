@@ -1192,8 +1192,14 @@ impl<'a> Inferencer<'a> {
                                 ),
                             ),
                             lstr!(
-                                en: "use gray coding or AsyncFifo";
-                                tr: "gray kodlama veya AsyncFifo kullanın"
+                                en: "for multi-bit data use one of:\n           \
+                                     AsyncFifo<T, N>   — data streams\n           \
+                                     HandshakeSync<T>  — single transfers\n           \
+                                     gray coding       — counters";
+                                tr: "çok bitli veri için şunlardan birini kullanın:\n           \
+                                     AsyncFifo<T, N>   — veri akışları\n           \
+                                     HandshakeSync<T>  — tek transferler\n           \
+                                     gray kodlama      — sayaçlar"
                             ),
                         )
                         .with_note(
@@ -1221,6 +1227,10 @@ impl<'a> Inferencer<'a> {
         let Some(inst_def) = self.decl_def(&inst.name) else {
             return;
         };
+        if let Some(&prim) = self.res.instance_builtin.get(&inst_def) {
+            self.check_builtin_instance(inst, inst_def, prim);
+            return;
+        }
         let Some(&target) = self.res.instance_module.get(&inst_def) else {
             // Struct literal veya çözülmemiş hedef — bağlama ifadeleri
             // yine de yayılıma girer.
@@ -1305,6 +1315,94 @@ impl<'a> Inferencer<'a> {
         }
 
         self.instance_ports.insert(inst_def, port_domains);
+    }
+
+    /// Yerleşik CDC primitifi (ADR-0027, K8'in yerleşik eşleniği):
+    /// yazma/kaynak domain'i `wr_clk`/`src_clk` bağlamasından,
+    /// okuma/hedef domain'i `rd_clk`/`dst_clk` bağlamasından gelir.
+    /// Port→domain haritası doldurulur ki `f.rd_data` gibi alan
+    /// okumaları hedef alanda görünsün ve mevcut CDC denetimleri
+    /// (K5-K7) doğal olarak çalışsın. Kaynak taraf girişleri kaynak
+    /// alanda olmalı (check_compat). PulseSync her örneklemede W3005
+    /// kullanım kısıtını hatırlatır.
+    fn check_builtin_instance(
+        &mut self,
+        inst: &volt_ast::InstanceDecl,
+        inst_def: DefId,
+        prim: crate::builtin::BuiltinPrim,
+    ) {
+        use crate::builtin::{DomainRole, PortKind};
+
+        // 1. Saat bağlamalarından src/dst domain'leri.
+        let mut src_dom = DomainId::Error;
+        let mut dst_dom = DomainId::Error;
+        for b in &inst.bindings {
+            let Some(port) = prim.port(&b.port_name.text) else {
+                continue;
+            };
+            if port.kind == PortKind::Clock {
+                let dom = self.binding_domain(b);
+                match port.role {
+                    DomainRole::Src => src_dom = dom,
+                    DomainRole::Dst => dst_dom = dom,
+                }
+            }
+        }
+
+        // 2. Port→domain haritası (alan okumaları için).
+        let mut port_domains: HashMap<String, DomainId> = HashMap::new();
+        for port in prim.ports() {
+            let dom = match port.role {
+                DomainRole::Src => src_dom,
+                DomainRole::Dst => dst_dom,
+            };
+            port_domains.insert(port.name.to_string(), dom);
+        }
+
+        // 3. Saat dışı giriş bağlamaları kendi tarafının alanında olmalı.
+        for b in &inst.bindings {
+            let Some(port) = prim.port(&b.port_name.text) else {
+                if let Some(e) = b.value {
+                    self.expr_domain(e);
+                }
+                continue;
+            };
+            if port.kind == PortKind::Clock {
+                continue;
+            }
+            let expected = port_domains
+                .get(port.name)
+                .copied()
+                .unwrap_or(DomainId::Error);
+            let actual = self.binding_domain(b);
+            let value_span = match b.value {
+                Some(e) => self.ast.exprs[e].span,
+                None => b.span,
+            };
+            self.check_compat(expected, actual, b.span, value_span);
+        }
+
+        self.instance_ports.insert(inst_def, port_domains);
+
+        // 4. PulseSync kullanım kısıtı (ADR-0027 W3005): toggle
+        //    protokolü sık darbeleri yutar; saat oranı statik olarak
+        //    bilinemediğinden her örneklemede hatırlatılır.
+        if prim == crate::builtin::BuiltinPrim::PulseSync {
+            self.diagnostics.push(Diagnostic::warning(
+                ErrorCode::W3005,
+                lstr!(en: "PulseSync requires spacing between source pulses";
+                      tr: "PulseSync kaynak darbeleri arasında aralık gerektirir"),
+                LabeledSpan::primary(
+                    inst.name.span,
+                    lstr!(en: "toggle protocol drops closely spaced pulses";
+                          tr: "toggle protokolü sık darbeleri düşürür"),
+                ),
+                lstr!(en: "guarantee at least 3 destination clock cycles between consecutive \
+                           pulses, or use HandshakeSync/AsyncFifo";
+                      tr: "ardışık darbeler arasında en az 3 hedef saat çevrimi bırakın ya da \
+                           HandshakeSync/AsyncFifo kullanın"),
+            ));
+        }
     }
 
     /// Hedef portun domain anahtarı: açık @Domain tanımı ya da hedefin

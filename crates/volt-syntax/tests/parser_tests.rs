@@ -5,9 +5,9 @@
 
 use volt_ast::{
     AttrArg, BlockContext, BlockStmt, ClockEdge, ContractKind, DomainKey, DomainValue, ElseBranch,
-    Expr, ExprKind, GenericParamKind, Idx, IntSuffix, ItemKind, LValueSuffix, MatchArmBody,
-    NumBase, OnTrigger, PatternArgs, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile,
-    StmtKind, TypeRefKind, UseTree, VariantData, Visibility,
+    Expr, ExprKind, GenericArg, GenericParamKind, Idx, IntSuffix, ItemKind, LValueSuffix,
+    MatchArmBody, NumBase, OnTrigger, PatternArgs, PatternKind, PortDir, ResetPolarity, ResetSync,
+    SourceFile, StmtKind, TypeRefKind, UseTree, VariantData, Visibility,
 };
 use volt_span::FileId;
 use volt_syntax::parser::{parse, parse_expr, ParseResult};
@@ -1336,6 +1336,82 @@ fn instance_with_path_module() {
     assert_eq!(inst.module_path.segments.len(), 2);
 }
 
+// ═══ Generic argümanlı örnekleme (grammar §10, ADR-0027) ══════════
+
+#[test]
+fn instance_with_generic_args_parses_directly() {
+    let result = p(
+        "module M { let u_fifo = AsyncFifo<u8, 16> { wr_clk: fclk, wr_data: din, \
+         wr_en: push, rd_clk: sclk, rd_en: pop } }",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    let StmtKind::Instance(inst) = &result.ast.stmts[module.body[0]].kind else {
+        panic!("InstanceDecl bekleniyor")
+    };
+    assert_eq!(inst.name.text, "u_fifo");
+    assert_eq!(inst.module_path.segments[0].text, "AsyncFifo");
+    assert_eq!(inst.generic_args.len(), 2, "iki generic argüman");
+    assert!(matches!(inst.generic_args[0], GenericArg::Type(_)));
+    assert!(matches!(inst.generic_args[1], GenericArg::Const(_)));
+    assert_eq!(inst.bindings.len(), 5);
+    assert_eq!(inst.bindings[0].port_name.text, "wr_clk");
+}
+
+#[test]
+fn instance_single_type_arg() {
+    let result = p("module M { let hs = HandshakeSync<u8> { src_clk: a, data_in: d } }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    let StmtKind::Instance(inst) = &result.ast.stmts[module.body[0]].kind else {
+        panic!("InstanceDecl bekleniyor")
+    };
+    assert_eq!(inst.generic_args.len(), 1);
+}
+
+#[test]
+fn let_comparison_still_parses_as_expression() {
+    // `let a = b < c` örnekleme DEĞİL — ileri bakış `> {` görmez.
+    let result = p("module M { let a = b < c }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    let StmtKind::Let(decl) = &result.ast.stmts[module.body[0]].kind else {
+        panic!("LetDecl bekleniyor")
+    };
+    assert!(matches!(
+        result.ast.exprs[decl.value].kind,
+        ExprKind::Binary { .. }
+    ));
+}
+
+#[test]
+fn let_double_comparison_stays_expression() {
+    // `b < c` ve `d > e` — `>` sonrası `{` yok, ifade yolu korunur.
+    let result = p("module M { let a = b < c let z = d > e }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    assert!(matches!(
+        result.ast.stmts[module.body[0]].kind,
+        StmtKind::Let(_)
+    ));
+    assert!(matches!(
+        result.ast.stmts[module.body[1]].kind,
+        StmtKind::Let(_)
+    ));
+}
+
+#[test]
+fn nested_generic_close_does_not_panic() {
+    // `Fifo<Entry<8>>` — `>>` iki kapanış sayılır; panik yok, AST üretilir.
+    let result = p("module M { let f = Fifo<Entry<8>> { clk: c } }");
+    let module = result.ast.module(0).unwrap();
+    assert!(!module.body.is_empty(), "deyim üretilmeli");
+    let StmtKind::Instance(inst) = &result.ast.stmts[module.body[0]].kind else {
+        panic!("InstanceDecl bekleniyor: {:?}", result.error_codes())
+    };
+    assert_eq!(inst.generic_args.len(), 1);
+}
+
 #[test]
 fn let_with_type_annotation_stays_let() {
     // Tip anotasyonu varsa yapı literali değeri olan LetDecl kalır
@@ -1666,7 +1742,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_23_of_23_parse_clean() {
+fn ui_pass_all_26_of_26_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1689,13 +1765,14 @@ fn ui_pass_all_23_of_23_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 23, "ui/pass 23 dosya içermeli");
+    assert_eq!(total, 26, "ui/pass 26 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
-    // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi.
+    // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
+    // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını ekledi.
     assert_eq!(
-        clean, 23,
-        "23/23 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 26,
+        "26/26 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

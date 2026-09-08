@@ -4,12 +4,14 @@
 //! volt-lower devralacak. Tip bilgisi kaba çıkarımla gelir (F2'de HIR
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
+mod builtin_prim;
 mod expr;
 mod sby;
 mod sva;
 
 use std::collections::HashMap;
 
+use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
     AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
     Idx, IfStmt, ItemKind, LValue, LValueSuffix, ModuleDecl, OnBlock, OnTrigger, PortDir,
@@ -192,6 +194,9 @@ pub struct EmitOutput {
     pub sva_files: Vec<SvaFile>,
     /// Üretilen her property'nin kimliği (F4b — sby FAIL eşlemesi).
     pub sva_props: Vec<SvaProp>,
+    /// İki ve daha çok saat portlu modüller — `.sby` dosyasına
+    /// `multiclock on` eklenmesi için (ADR-0027, clk2fflogic akışı).
+    pub multiclock_modules: Vec<String>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -202,6 +207,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         diagnostics: Vec::new(),
         domains: collect_domains(ast),
         symbols: HashMap::new(),
+        builtin_insts: HashMap::new(),
         source,
         source_name,
         sva_mode: mode,
@@ -210,9 +216,13 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
     };
 
     let mut modules = Vec::new();
+    let mut multiclock_modules = Vec::new();
     for &item_idx in &ast.items {
         let item = &ast.items_arena[item_idx];
         if let ItemKind::Module(module) = &item.kind {
+            if emitter.collect_clock_ports(module).len() >= 2 {
+                multiclock_modules.push(module.name.text.clone());
+            }
             modules.push(emitter.emit_module(module, item.doc.as_deref()));
         }
     }
@@ -227,6 +237,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         sv,
         sva_files: emitter.sva_files,
         sva_props: emitter.sva_props,
+        multiclock_modules,
         diagnostics: emitter.diagnostics,
     }
 }
@@ -279,6 +290,10 @@ pub(crate) struct Emitter<'a> {
     domains: HashMap<String, DomainInfo>,
     /// Modül içi sinyal tablosu: isim → genişlik/işaret.
     pub(crate) symbols: HashMap<String, Sig>,
+    /// Modül içi yerleşik CDC primitif örnekleri (ADR-0027): örnek adı →
+    /// doğrulanmış bilgi. Ön geçişte doldurulur ki `f.rd_data` alan
+    /// erişimleri deyim sırasından bağımsız `f_rd_data`'ya çevrilsin.
+    pub(crate) builtin_insts: HashMap<String, builtin_prim::BuiltinInst>,
     /// Kaynak metin — SVA yorumlarındaki satır numaraları için.
     pub(crate) source: &'a str,
     pub(crate) source_name: &'a str,
@@ -373,6 +388,9 @@ impl<'a> Emitter<'a> {
         // Saat portları ve alan başına reset yapılandırması (§7)
         let clocks = self.collect_clock_ports(module);
         let resets = reset_port_set(&clocks);
+        // Yerleşik primitif örnekleri (ADR-0027) — sembol ön geçişi gibi
+        // deyimlerden ÖNCE toplanır; alan erişimi çevirisi buna bakar.
+        self.collect_builtin_insts(module, &clocks);
         for cfg in &resets {
             self.symbols.insert(
                 cfg.port_name().to_string(),
@@ -559,14 +577,22 @@ impl<'a> Emitter<'a> {
                     None
                 }
                 StmtKind::Instance(inst) => {
-                    self.future(
-                        stmt.span,
-                        &lstr!(
-                            en: "SV generation of module instance '{}'", inst.name.text;
-                            tr: "'{}' modül örneklemesinin SV üretimi", inst.name.text
-                        ),
-                    );
-                    None
+                    let is_builtin = inst.module_path.segments.len() == 1
+                        && BuiltinPrim::from_name(&inst.module_path.segments[0].text).is_some();
+                    if is_builtin {
+                        // Ön geçiş doğrulayamadıysa tanı üretildi — boş chunk.
+                        self.emit_builtin_instance(&module.name.text, &inst.name.text, stmt.span)
+                            .map(|chunk| (Kind::Always, chunk))
+                    } else {
+                        self.future(
+                            stmt.span,
+                            &lstr!(
+                                en: "SV generation of module instance '{}'", inst.name.text;
+                                tr: "'{}' modül örneklemesinin SV üretimi", inst.name.text
+                            ),
+                        );
+                        None
+                    }
                 }
                 StmtKind::Comb(_) => {
                     self.future(
@@ -921,6 +947,12 @@ impl<'a> Emitter<'a> {
     // ═══ LValue ═══════════════════════════════════════════════════
 
     fn emit_lvalue(&mut self, lv: &'a LValue) -> String {
+        // Yerleşik primitif alanı hedefte: `f.rd_data` → `f_rd_data`.
+        if let [LValueSuffix::Field(f)] = lv.suffixes.as_slice() {
+            if self.builtin_insts.contains_key(&lv.base.text) {
+                return format!("{}_{}", lv.base.text, f.text);
+            }
+        }
         let mut out = lv.base.text.clone();
         for suffix in &lv.suffixes {
             match suffix {

@@ -87,6 +87,13 @@ pub enum Ty {
     Enum(EnumId),
     /// Modül örneği (port erişimi için).
     Instance(ModuleId),
+    /// Yerleşik CDC primitifi örneği (ADR-0027): AsyncFifo vb.
+    /// `data`, `T` generic argümanının çözülmüş tipidir; alan erişimi
+    /// port tablosundan tiplenir.
+    Builtin {
+        prim: volt_ast::builtin::BuiltinPrim,
+        data: TypeId,
+    },
     /// Boyutlandırılmamış tamsayı literali — bağlamdan belirlenir.
     IntLit,
     /// Aritmetik genişleme sonucu (ADR-0025): `[lo, hi]` aralığındaki her
@@ -215,6 +222,7 @@ impl TypeArena {
             Ty::Struct(_) => "struct".to_string(),
             Ty::Enum(_) => "enum".to_string(),
             Ty::Instance(_) => "modül örneği".to_string(),
+            Ty::Builtin { prim, .. } => format!("{} örneği", prim.name()),
             Ty::IntLit => "tamsayı literali".to_string(),
             // Kullanıcı yüzünde doğal genişlik gösterilir (§10 vektörleri).
             Ty::UIntFlex { hi, .. } => format!("u{hi}"),

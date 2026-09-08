@@ -119,6 +119,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3002 => "Gereksiz sync() (aynı domain)",
         W3003 => "Çok bitli sync() — bit tutarlılığı garanti değil",
         W3004 => "Kullanılmayan domain tanımı",
+        W3005 => "PulseSync darbeleri hedef alanda aralık gerektirir",
         W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
         W4002 => "Yazılıp hiç okunmayan register",
     }

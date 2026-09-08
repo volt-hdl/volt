@@ -7,6 +7,7 @@
 //! (ast-nodes.md İ3).
 
 pub mod arena;
+pub mod builtin;
 
 pub use arena::{Arena, Idx};
 use volt_span::Span;

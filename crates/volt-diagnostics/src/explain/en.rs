@@ -667,6 +667,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "domain Debug { clock = posedge }    // ⚠ W3004: nothing uses it",
             "// (removed)                        // ✓",
         ),
+        W3005 => Explanation::new(
+            "PulseSync minimum pulse spacing",
+            "PulseSync uses a toggle protocol; source pulses that arrive too close together are swallowed.",
+            "PulseSync converts each source pulse into a level toggle, synchronizes the toggle with two flops in the destination domain, and re-derives a pulse by edge detection. If a second source pulse flips the toggle back before the destination has sampled the first flip, the destination sees no edge at all and BOTH pulses are lost. The clock ratio is not known at compile time, so the compiler cannot prove the spacing; it reminds you of the usage constraint instead: keep at least 3 destination clock cycles between consecutive source pulses, or use AsyncFifo/HandshakeSync for bursts.",
+            "let ps = PulseSync { src_clk: fast_clk, pulse_in: p, dst_clk: slow_clk }   // ⚠ W3005",
+            "// guarantee >= 3 dst_clk cycles between pulses, or:\nlet hs = HandshakeSync<u8> { ... }   // ✓ flow control built in",
+        ),
         W4001 => Explanation::new(
             "Unused signal",
             "This signal is declared in the netlist but drives nothing.",

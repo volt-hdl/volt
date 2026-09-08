@@ -232,7 +232,34 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 23);
+    assert_eq!(checked, 26);
+}
+
+// ═══ Yerleşik CDC primitifleri (ADR-0027) ═════════════════════════
+
+#[test]
+fn ui_pass_27_async_fifo_clean() {
+    let result = analyze_file("pass/27_async_fifo.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_28_handshake_sync_clean() {
+    let result = analyze_file("pass/28_handshake_sync.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_29_pulse_sync_warns_w3005_only() {
+    // W3005 BEKLENEN davranıştır (ADR-0027): toggle protokolü darbe
+    // aralığı kısıtını her örneklemede hatırlatır; hata üretilmez.
+    let result = analyze_file("pass/29_pulse_sync.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert!(
+        result.error_codes().contains(&"W3005"),
+        "W3005 bekleniyor: {:?}",
+        result.error_codes()
+    );
 }
 
 // ═══ Kontratlar (F4a) ═════════════════════════════════════════════

@@ -20,6 +20,13 @@ use super::expr::ABOVE_COMPARISON_BP;
 use super::recovery::{BLOCK_STMT_START, STMT_START};
 use super::{Parser, MAX_DEPTH};
 
+/// `let` değeri iki üretimden birine gider (grammar §10 + §19 [N3]):
+/// düz bağlama ya da generic argümanlı modül örneklemesi.
+pub(crate) enum LetOrInstance {
+    Let(LetDecl),
+    Instance(InstanceDecl),
+}
+
 impl Parser<'_> {
     // ═══ Modül gövdesi deyimleri ══════════════════════════════════
 
@@ -30,10 +37,15 @@ impl Parser<'_> {
 
         let kind = match self.current() {
             Some(KwReg) => self.parse_reg(),
-            Some(KwLet) => match self.parse_let() {
+            Some(KwLet) => match self.parse_let_impl(true) {
                 // [N3]: '=' sonrası yapı literali görülünce InstanceDecl'e
-                // yeniden sınıflandırma — geri izleme DEĞİL.
-                Some(decl) => self.reclassify_let(decl),
+                // yeniden sınıflandırma — geri izleme DEĞİL. Generic
+                // argümanlı örnekleme (`let f = AsyncFifo<u8, 16> { ... }`)
+                // ise sınırlı token ileri bakışıyla doğrudan ayrıştırılır
+                // (grammar §10 InstanceDecl [GenericArgs]); ileri bakış
+                // `> {` görmezse normal ifade yolu (karşılaştırma) sürer.
+                Some(LetOrInstance::Instance(inst)) => StmtKind::Instance(inst),
+                Some(LetOrInstance::Let(decl)) => self.reclassify_let(decl),
                 None => StmtKind::Error,
             },
             Some(KwWire) => self.parse_wire(),
@@ -194,8 +206,19 @@ impl Parser<'_> {
         })
     }
 
-    /// `let isim [: tip] = ifade [;]`
+    /// `let isim [: tip] = ifade [;]` — blok bağlamı (örnekleme yok).
     pub(crate) fn parse_let(&mut self) -> Option<LetDecl> {
+        match self.parse_let_impl(false)? {
+            LetOrInstance::Let(decl) => Some(decl),
+            // allow_instance=false ile erişilmez.
+            LetOrInstance::Instance(_) => None,
+        }
+    }
+
+    /// `let` gövdesi. `allow_instance` yalnız modül gövdesinde true:
+    /// değer konumu `Yol<...> {` ile başlıyorsa (sınırlı ileri bakış,
+    /// AST kurmadan) doğrudan InstanceDecl ayrıştırılır — grammar §10.
+    fn parse_let_impl(&mut self, allow_instance: bool) -> Option<LetOrInstance> {
         self.bump_any(); // 'let'
 
         if !self.at(Ident) {
@@ -215,6 +238,9 @@ impl Parser<'_> {
         };
 
         let value = if self.eat(Eq) {
+            if allow_instance && ty.is_none() && self.instance_generics_ahead() {
+                return Some(LetOrInstance::Instance(self.parse_generic_instance(name)));
+            }
             if self.at_expr_start() {
                 self.parse_expr()
             } else {
@@ -233,7 +259,124 @@ impl Parser<'_> {
         };
 
         self.eat(Semi);
-        Some(LetDecl { name, ty, value })
+        Some(LetOrInstance::Let(LetDecl { name, ty, value }))
+    }
+
+    /// Sınırlı ileri bakış: mevcut konum `Ident (:: Ident)* <` ile
+    /// başlayıp `<`/`>` yuvası kapandığında `{` geliyorsa true. AST
+    /// kurulmaz, geri izleme yoktur; yalnız ham token'lara bakılır.
+    /// `>>` iki kapanış sayılır (Fifo<Entry<8>> deseni). Tarama ~32
+    /// token ile sınırlıdır — `let a = b < c` gibi karşılaştırmalar
+    /// hızla elenir ve normal ifade yoluna düşer.
+    fn instance_generics_ahead(&self) -> bool {
+        const SCAN_LIMIT: usize = 32;
+        let kind_at = |i: usize| self.tokens.get(i).map(|t| t.kind);
+
+        let mut i = self.pos;
+        if kind_at(i) != Some(Ident) {
+            return false;
+        }
+        i += 1;
+        while kind_at(i) == Some(ColonColon) && kind_at(i + 1) == Some(Ident) {
+            i += 2;
+        }
+        if kind_at(i) != Some(Lt) {
+            return false;
+        }
+
+        let mut depth = 0usize;
+        let limit = i + SCAN_LIMIT;
+        while i < limit {
+            match kind_at(i) {
+                Some(Lt) => depth += 1,
+                Some(Gt) => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        return kind_at(i + 1) == Some(LBrace);
+                    }
+                }
+                Some(Shr) => {
+                    if depth < 2 {
+                        return false;
+                    }
+                    depth -= 2;
+                    if depth == 0 {
+                        return kind_at(i + 1) == Some(LBrace);
+                    }
+                }
+                // Generic argüman gövdesinde beklenen token'lar: isimler,
+                // sabitler, virgül, yol ayırıcı ve yerleşik tip anahtar
+                // kelimeleri. Başka bir şey görülürse ifade yoluna düşülür.
+                Some(
+                    Ident | IntLit | Comma | ColonColon | KwBool | KwClock | KwReset | KwU8 | KwU16
+                    | KwU32 | KwU64 | KwI8 | KwI16 | KwI32 | KwI64 | KwTrit | KwBits,
+                ) => {}
+                _ => return false,
+            }
+            i += 1;
+        }
+        false
+    }
+
+    /// `Yol<Args> { port: değer, ... }` — ileri bakış doğruladıktan
+    /// sonra doğrudan örnekleme ayrıştırması (yapı literali sapağı yok).
+    fn parse_generic_instance(&mut self, name: Name) -> InstanceDecl {
+        let module_path = self.parse_path();
+        let generic_args = self.parse_generic_args();
+
+        let open = self.current_span();
+        self.expect(
+            LBrace,
+            &lstr!(en: "'{{' for the port bindings"; tr: "port bağlamaları için '{{'"),
+            &lstr!(en: "write it as let name = Module<...> {{ port: value }}"; tr: "let isim = Modul<...> {{ port: değer }} biçiminde yazın"),
+        );
+
+        let mut bindings = Vec::new();
+        while !self.at(RBrace) && !self.at_eof() {
+            let before = self.pos;
+            if self.at(Ident) {
+                let bstart = self.pos;
+                let port_name = self.parse_name();
+                let value = if self.eat(Colon) {
+                    if self.at_expr_start() {
+                        Some(self.parse_expr())
+                    } else {
+                        self.error_expected(
+                            &lstr!(en: "port value"; tr: "port değeri"),
+                            &lstr!(en: "write it as port: expression"; tr: "port: ifade biçiminde yazın"),
+                        );
+                        Some(self.alloc_error_expr(self.current_span()))
+                    }
+                } else {
+                    None // `clk` kısayolu — yerel isim port adıyla aynı
+                };
+                bindings.push(PortBinding {
+                    span: self.span_from(bstart),
+                    port_name,
+                    value,
+                });
+            } else {
+                self.error_expected(
+                    &lstr!(en: "port name"; tr: "port adı"),
+                    &lstr!(en: "write it as Module<...> {{ port: value }}"; tr: "Modul<...> {{ port: değer }} biçiminde yazın"),
+                );
+            }
+            if !self.eat(Comma) && self.pos == before {
+                self.bump_any(); // ilerleme garantisi
+            }
+        }
+        self.expect_closing(RBrace, "}", open);
+        self.eat(Semi);
+
+        InstanceDecl {
+            name,
+            module_path,
+            generic_args,
+            bindings,
+        }
     }
 
     /// `wire isim : tip [;]` — bildirim; atama ayrı AssignStmt ile.

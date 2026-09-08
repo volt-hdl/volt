@@ -149,7 +149,12 @@ impl<'a> Emitter<'a> {
                 let (t, e) = (*then_expr, *else_expr);
                 self.width_of(t).or_else(|| self.width_of(e))
             }
-            ExprKind::Field { .. } | ExprKind::Call { .. } | ExprKind::Error => None,
+            // Yerleşik primitif portu (f.rd_data): tablo üzerinden genişlik.
+            ExprKind::Field { base, field } => {
+                let (base, field) = (*base, field.text.clone());
+                self.builtin_field_sig(base, &field)
+            }
+            ExprKind::Call { .. } | ExprKind::Error => None,
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
             | ExprKind::Match { .. }
@@ -158,6 +163,22 @@ impl<'a> Emitter<'a> {
             | ExprKind::TupleLit(_)
             | ExprKind::Todo { .. } => None,
         }
+    }
+
+    /// Yerleşik primitif alan erişiminin genişliği: taban tek segmentli
+    /// bir örnek adıysa port tablosundan okunur (ADR-0027).
+    pub(crate) fn builtin_field_sig(&self, base: Idx<Expr>, field: &str) -> Option<Sig> {
+        use volt_ast::builtin::PortKind;
+        let inst = crate::path_single(self.ast, base)?;
+        let info = self.builtin_insts.get(inst)?;
+        let port = info.prim.port(field)?;
+        Some(match port.kind {
+            PortKind::Data => info.data,
+            PortKind::Bool | PortKind::Clock => Sig {
+                width: 1,
+                signed: false,
+            },
+        })
     }
 
     // ═══ İfade üretimi ════════════════════════════════════════════
@@ -255,8 +276,16 @@ impl<'a> Emitter<'a> {
             ExprKind::Field { base, field } => {
                 let base = *base;
                 let name = field.text.clone();
-                let b = self.emit_prec(base, None, PREC_ATOM, false);
-                (format!("{b}.{name}"), PREC_ATOM)
+                // Yerleşik primitif çıkışı: `f.rd_data` → `f_rd_data`.
+                match crate::path_single(ast, base)
+                    .filter(|inst| self.builtin_insts.contains_key(*inst))
+                {
+                    Some(inst) => (format!("{inst}_{name}"), PREC_ATOM),
+                    None => {
+                        let b = self.emit_prec(base, None, PREC_ATOM, false);
+                        (format!("{b}.{name}"), PREC_ATOM)
+                    }
+                }
             }
             ExprKind::Call { .. } => {
                 self.future(

@@ -119,6 +119,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3002 => "Redundant sync() (same domain)",
         W3003 => "Multi-bit sync() — bit coherence is not guaranteed",
         W3004 => "Unused domain definition",
+        W3005 => "PulseSync pulses need spacing in the destination domain",
         W4001 => "Unused signal (silence with a '_' prefix)",
         W4002 => "Register written but never read",
     }

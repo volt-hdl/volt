@@ -667,6 +667,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "domain Debug { clock = posedge }    // ⚠ W3004: kimse kullanmıyor",
             "// (kaldırıldı)                     // ✓",
         ),
+        W3005 => Explanation::new(
+            "PulseSync asgari darbe aralığı",
+            "PulseSync toggle protokolü kullanır; çok sık gelen kaynak darbeleri yutulur.",
+            "PulseSync her kaynak darbesini bir seviye değişimine (toggle) çevirir, toggle'ı hedef alanda iki flop ile senkronize eder ve kenar sezimiyle darbeyi yeniden türetir. İkinci bir kaynak darbesi, hedef ilk değişimi örneklemeden toggle'ı geri çevirirse hedef hiç kenar görmez ve İKİ darbe de kaybolur. Saat oranı derleme zamanında bilinmediğinden derleyici aralığı kanıtlayamaz; bunun yerine kullanım kısıtını hatırlatır: ardışık kaynak darbeleri arasında en az 3 hedef saat çevrimi bırakın ya da yoğun trafik için AsyncFifo/HandshakeSync kullanın.",
+            "let ps = PulseSync { src_clk: fast_clk, pulse_in: p, dst_clk: slow_clk }   // ⚠ W3005",
+            "// darbeler arasında >= 3 dst_clk çevrimi garanti edin, ya da:\nlet hs = HandshakeSync<u8> { ... }   // ✓ akış kontrolü yerleşik",
+        ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
             "Bu sinyal netlist'te bildirilmiş ama hiçbir şeyi sürmüyor.",

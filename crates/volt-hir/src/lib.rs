@@ -5,6 +5,7 @@
 //! tip kontrolü (type-inference.md §1-§6) ve sürücü analizi (§11).
 //! F2c: domain çıkarımı ve CDC kontrolü (domain-inference.md K1-K9).
 
+pub mod builtin;
 pub mod consteval;
 pub mod domain;
 pub mod drivers;
@@ -12,6 +13,7 @@ pub mod resolve;
 pub mod ty;
 pub mod typeck;
 
+pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
 pub use resolve::{

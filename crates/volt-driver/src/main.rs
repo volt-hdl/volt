@@ -241,6 +241,8 @@ fn main() -> ExitCode {
                 mode: mode.into(),
                 depth,
                 engine: engine.into(),
+                // Modül başına verify.rs'te ayarlanır (multiclock_modules).
+                multiclock: false,
             },
         ),
         Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
@@ -334,6 +336,8 @@ struct Compiled {
     sva_files: Vec<SvaFile>,
     /// Üretilen property kimlikleri (F4b `verify` — sby FAIL eşlemesi).
     sva_props: Vec<SvaProp>,
+    /// İki+ saat portlu modüller — `.sby`'ye `multiclock on` (ADR-0027).
+    multiclock_modules: Vec<String>,
 }
 
 impl Compiled {
@@ -390,6 +394,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
             sv: None,
             sva_files: Vec::new(),
             sva_props: Vec::new(),
+            multiclock_modules: Vec::new(),
         });
     }
 
@@ -401,6 +406,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
             sv: None,
             sva_files: Vec::new(),
             sva_props: Vec::new(),
+            multiclock_modules: Vec::new(),
         });
     }
 
@@ -411,10 +417,15 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         .unwrap_or_else(|| file.display().to_string());
     let emitted = volt_sv_emit::emit_full(&parsed.ast, &source_name, &source, sva_mode);
     diagnostics.extend(emitted.diagnostics);
-    let (sv, sva_files, sva_props) = if count_errors(&diagnostics) == 0 {
-        (Some(emitted.sv), emitted.sva_files, emitted.sva_props)
+    let (sv, sva_files, sva_props, multiclock_modules) = if count_errors(&diagnostics) == 0 {
+        (
+            Some(emitted.sv),
+            emitted.sva_files,
+            emitted.sva_props,
+            emitted.multiclock_modules,
+        )
     } else {
-        (None, Vec::new(), Vec::new())
+        (None, Vec::new(), Vec::new(), Vec::new())
     };
 
     Ok(Compiled {
@@ -423,6 +434,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         sv,
         sva_files,
         sva_props,
+        multiclock_modules,
     })
 }
 

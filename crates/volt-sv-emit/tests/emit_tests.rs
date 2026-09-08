@@ -554,6 +554,10 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "13_cdc_correct_bridge.volt",
         "14_single_clock_no_domain.volt",
         "15_nested_conditionals.volt",
+        // F5 (ADR-0027): yerleşik CDC primitifleri temiz SV üretmeli.
+        "27_async_fifo.volt",
+        "28_handshake_sync.volt",
+        "29_pulse_sync.volt",
     ];
 
     let mut clean = 0;
@@ -608,4 +612,216 @@ fn multiple_modules_in_one_file() {
         out[a_end..].contains("module B ("),
         "modüller sıralı olmalı"
     );
+}
+
+// ═══ Yerleşik CDC primitifleri (ADR-0027) ═════════════════════
+
+const CDC_DOMAINS: &str = "domain Fast { clock = posedge, reset = sync active_high }
+                           domain Slow { clock = posedge, reset = sync active_high }
+";
+
+fn fifo_src(depth: &str) -> String {
+    format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in din : u8 @Fast in push : bool @Fast in pop : bool @Slow          out dout : u8 @Slow out full : bool @Fast out empty : bool @Slow          let f = AsyncFifo<u8, {depth}> {{ wr_clk: fast_clk, wr_data: din, wr_en: push,          rd_clk: slow_clk, rd_en: pop }}          full = f.wr_full dout = f.rd_data empty = f.rd_empty }}"
+    )
+}
+
+fn hs_src() -> String {
+    format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in din : u8 @Fast in s : bool @Fast          out busy : bool @Fast out dout : u8 @Slow out valid : bool @Slow          let h = HandshakeSync<u8> {{ src_clk: fast_clk, data_in: din, send: s,          dst_clk: slow_clk }}          busy = h.busy dout = h.data_out valid = h.valid }}"
+    )
+}
+
+fn ps_src() -> String {
+    format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in p : bool @Fast out q : bool @Slow          let u = PulseSync {{ src_clk: fast_clk, pulse_in: p, dst_clk: slow_clk }}          q = u.pulse_out }}"
+    )
+}
+
+fn emit_immediate(src: &str) -> volt_sv_emit::EmitOutput {
+    let parsed = volt_syntax::parser::parse(FileId(0), src);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "parse hatasız olmalı: {:?}",
+        parsed.error_codes()
+    );
+    volt_sv_emit::emit_full(
+        &parsed.ast,
+        "test.volt",
+        src,
+        volt_sv_emit::SvaMode::Immediate,
+    )
+}
+
+#[test]
+fn async_fifo_emits_mem_and_gray_pointers() {
+    let out = sv(&fifo_src("16"));
+    assert!(out.contains("f_mem ["), "bellek dizisi: {out}");
+    assert!(out.contains("f_wgray"), "yazma gray pointer'ı: {out}");
+    assert!(out.contains("f_rgray_s1"), "iki-flop senkron: {out}");
+    assert!(out.contains("localparam int f_DEPTH = 16;"), "{out}");
+    assert!(
+        out.contains("assign f_rd_empty = (f_rgray == f_wgray_s1);"),
+        "{out}"
+    );
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn async_fifo_field_access_becomes_prefixed_signal() {
+    let out = sv(&fifo_src("16"));
+    assert!(out.contains("assign dout = f_rd_data;"), "{out}");
+    assert!(out.contains("assign full = f_wr_full;"), "{out}");
+    assert!(!out.contains("f.rd_data"), "alan erişimi çevrilmeli: {out}");
+}
+
+#[test]
+fn async_fifo_depth_12_is_e2025() {
+    let codes = emit_codes(&fifo_src("12"));
+    assert!(codes.contains(&"E2025"), "E2025 bekleniyor: {codes:?}");
+}
+
+#[test]
+fn async_fifo_depth_2_special_cases_full_flag() {
+    // AW==1: sıfır genişlikli dilim yerine pointer'ın tamamı terslenir.
+    let out = sv(&fifo_src("2"));
+    assert!(
+        out.contains("assign f_wr_full = (f_wgray == ~f_rgray_s1);"),
+        "{out}"
+    );
+}
+
+#[test]
+fn handshake_sync_emits_req_ack_and_data_reg() {
+    let out = sv(&hs_src());
+    assert!(out.contains("h_req_s1"), "req senkronu: {out}");
+    assert!(out.contains("h_ack_s1"), "ack senkronu: {out}");
+    assert!(out.contains("h_data_q"), "veri register'ı: {out}");
+    assert!(out.contains("assign h_busy = h_req || h_ack_s1;"), "{out}");
+    assert!(out.contains("assign dout = h_data_out;"), "{out}");
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn pulse_sync_emits_toggle_and_edge_detect() {
+    let out = sv(&ps_src());
+    assert!(out.contains("u_toggle <= ~u_toggle;"), "{out}");
+    assert!(
+        out.contains("assign u_pulse_out = u_sync1 ^ u_sync2;"),
+        "{out}"
+    );
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn builtin_missing_binding_is_diagnosed() {
+    let src = format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in p : bool @Fast out q : bool @Slow          let u = PulseSync {{ src_clk: fast_clk, dst_clk: slow_clk }}          q = u.pulse_out }}"
+    );
+    let codes = emit_codes(&src);
+    assert!(codes.contains(&"E0003"), "eksik bağlama tanısı: {codes:?}");
+}
+
+#[test]
+fn builtin_clock_binding_must_be_module_clock_port() {
+    let src = format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in p : bool @Fast out q : bool @Slow          let u = PulseSync {{ src_clk: p, pulse_in: p, dst_clk: slow_clk }}          q = u.pulse_out }}"
+    );
+    let codes = emit_codes(&src);
+    assert!(codes.contains(&"E0003"), "saat bağlama tanısı: {codes:?}");
+}
+
+#[test]
+fn immediate_mode_adds_volt_markers_and_props() {
+    let out = emit_immediate(&fifo_src("16"));
+    assert!(
+        out.diagnostics.is_empty(),
+        "{:?}",
+        out.diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(out.sv.contains("// volt:f_inv_0"), "{}", out.sv);
+    assert!(out.sv.contains("// volt:f_cov_0"), "{}", out.sv);
+    assert!(out.sv.contains("// volt:f_cov_1"), "{}", out.sv);
+    assert!(out.sv.contains("initial assume (rst);"), "{}", out.sv);
+    let names: Vec<&str> = out.sva_props.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["f_inv_0", "f_cov_0", "f_cov_1"]);
+    assert!(out.sva_props.iter().all(|p| p.module_name == "M"));
+}
+
+#[test]
+fn immediate_mode_observers_are_formal_only() {
+    // Immediate: gölge register'lar var; None modunda YOK (lint temiz).
+    let imm = emit_immediate(&hs_src());
+    assert!(imm.sv.contains("h_data_prev"), "{}", imm.sv);
+    assert!(imm.sv.contains("// volt:h_inv_0"), "{}", imm.sv);
+    let plain = sv(&hs_src());
+    assert!(!plain.contains("h_data_prev"), "{plain}");
+    assert!(!plain.contains("initial"), "{plain}");
+
+    let imm = emit_immediate(&ps_src());
+    assert!(imm.sv.contains("u_toggle_d"), "{}", imm.sv);
+    assert!(imm.sv.contains("u_pin_d"), "{}", imm.sv);
+    // Zayıflatılmış kontrat: toggle bütünlüğü (ADR-0027).
+    assert!(
+        imm.sv.contains("(u_toggle == u_toggle_d) || u_pin_d"),
+        "{}",
+        imm.sv
+    );
+    assert!(imm.sv.contains("// volt:u_inv_0"), "{}", imm.sv);
+    assert!(imm.sv.contains("// volt:u_cov_0"), "{}", imm.sv);
+    let plain = sv(&ps_src());
+    assert!(!plain.contains("u_toggle_d"), "{plain}");
+}
+
+#[test]
+fn immediate_mode_emits_formal_init_state() {
+    // BMC reset durumundan başlar: clk2fflogic altında kenar örneklemeyen
+    // alan hiç sıfırlanmaz — init bloğu tüm iç durumu reset değerine çeker.
+    let imm = emit_immediate(&fifo_src("16"));
+    assert!(imm.sv.contains("initial begin"), "{}", imm.sv);
+    for reg in ["wbin", "wgray", "rbin", "rgray", "rgray_s1", "wgray_s1"] {
+        assert!(imm.sv.contains(&format!("f_{reg} = 5'd0;")), "{}", imm.sv);
+    }
+    assert!(imm.sv.contains("f_rd_data = 8'd0;"), "{}", imm.sv);
+    // İz ortası kısmi reset yasağı: her alanda kenar bazlı assume.
+    assert!(
+        imm.sv
+            .contains("always @(posedge fast_clk) assume (!(rst)); // formal: no mid-trace reset"),
+        "{}",
+        imm.sv
+    );
+    assert!(
+        imm.sv
+            .contains("always @(posedge slow_clk) assume (!(rst));"),
+        "{}",
+        imm.sv
+    );
+    // Normal build çıktısı formal kurulumların hiçbirini görmez.
+    let plain = sv(&fifo_src("16"));
+    assert!(!plain.contains("initial begin"), "{plain}");
+    assert!(!plain.contains("assume"), "{plain}");
+}
+
+#[test]
+fn multiclock_modules_lists_two_clock_module_only() {
+    let out = emit_immediate(&fifo_src("16"));
+    assert_eq!(out.multiclock_modules, ["M"]);
+
+    let single = "module S { in clk : clock in a : u8 out b : u8                   reg r : u8 = 0 on clk { r <= a } b = r }";
+    let parsed = volt_syntax::parser::parse(FileId(0), single);
+    let out = volt_sv_emit::emit_full(&parsed.ast, "t.volt", single, volt_sv_emit::SvaMode::None);
+    assert!(out.multiclock_modules.is_empty());
+}
+
+#[test]
+fn builtin_let_binding_of_output_gets_width() {
+    // `let x = f.rd_data` — genişlik port tablosundan gelmeli (E2005 yok).
+    let src = format!(
+        "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in din : u8 @Fast in push : bool @Fast in pop : bool @Slow          out dout : u8 @Slow          let f = AsyncFifo<u8, 16> {{ wr_clk: fast_clk, wr_data: din, wr_en: push,          rd_clk: slow_clk, rd_en: pop }}          let x = f.rd_data dout = x }}"
+    );
+    let out = sv(&src);
+    assert!(out.contains("wire [7:0] x = f_rd_data;"), "{out}");
 }

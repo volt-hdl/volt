@@ -122,7 +122,10 @@ pub(crate) fn verify(
             return io_error(&sv_path, &err);
         }
         let sby_path = formal_dir.join(format!("{stem}.sby"));
-        let config = sby_config(module, &format!("{stem}.sv"), &opts);
+        // İki+ saatli modül: Yosys clk2fflogic akışı için multiclock on.
+        let mut mod_opts = opts;
+        mod_opts.multiclock = compiled.multiclock_modules.iter().any(|m| m == module);
+        let config = sby_config(module, &format!("{stem}.sv"), &mod_opts);
         if let Err(err) = std::fs::write(&sby_path, config) {
             return io_error(&sby_path, &err);
         }
