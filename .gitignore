@@ -10,3 +10,9 @@ Thumbs.db
 demo-output.txt
 
 CLAUDE.md
+
+# VS Code extension
+editors/vscode/node_modules/
+editors/vscode/out/
+editors/vscode/*.vsix
+editors/vscode/package-lock.json
