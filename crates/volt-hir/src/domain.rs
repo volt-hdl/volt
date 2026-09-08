@@ -1384,9 +1384,30 @@ impl<'a> Inferencer<'a> {
 
         self.instance_ports.insert(inst_def, port_domains);
 
-        // 4. PulseSync kullanım kısıtı (ADR-0027 W3005): toggle
-        //    protokolü sık darbeleri yutar; saat oranı statik olarak
-        //    bilinemediğinden her örneklemede hatırlatılır.
+        // 4a. DualPortRam kullanım kısıtı (ADR-0029 W3006): iki port
+        //     aynı adrese aynı çevrimde yazarsa B portu kazanır; adres
+        //     çakışması statik olarak bilinemediğinden her örneklemede
+        //     hatırlatılır (W3005 kalıbı).
+        if prim == crate::builtin::BuiltinPrim::DualPortRam {
+            self.diagnostics.push(Diagnostic::warning(
+                ErrorCode::W3006,
+                lstr!(en: "DualPortRam write-write collisions resolve in favor of port B";
+                      tr: "DualPortRam yazma-yazma çakışmalarında B portu kazanır"),
+                LabeledSpan::primary(
+                    inst.name.span,
+                    lstr!(en: "simultaneous writes to the same address are not detected";
+                          tr: "aynı adrese eş zamanlı yazma algılanmaz"),
+                ),
+                lstr!(en: "ensure the two ports never write the same address in the same cycle, \
+                           or arbitrate writes before the RAM";
+                      tr: "iki portun aynı çevrimde aynı adrese yazmadığından emin olun ya da \
+                           yazmaları RAM'den önce arbitre edin"),
+            ));
+        }
+
+        // 4b. PulseSync kullanım kısıtı (ADR-0027 W3005): toggle
+        //     protokolü sık darbeleri yutar; saat oranı statik olarak
+        //     bilinemediğinden her örneklemede hatırlatılır.
         if prim == crate::builtin::BuiltinPrim::PulseSync {
             self.diagnostics.push(Diagnostic::warning(
                 ErrorCode::W3005,

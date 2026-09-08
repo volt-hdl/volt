@@ -674,6 +674,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "let ps = PulseSync { src_clk: fast_clk, pulse_in: p, dst_clk: slow_clk }   // ⚠ W3005",
             "// darbeler arasında >= 3 dst_clk çevrimi garanti edin, ya da:\nlet hs = HandshakeSync<u8> { ... }   // ✓ akış kontrolü yerleşik",
         ),
+        W3006 => Explanation::new(
+            "DualPortRam yazma-yazma çakışması",
+            "İki RAM portu da aynı çevrimde yazabilir; aynı adresi hedeflerlerse B portu sessizce kazanır.",
+            "DualPortRam tek saatte iki bağımsız okuma/yazma portu verir. Üretilen bellek önce A portunun, sonra B portunun yazmasını uygular; aynı çevrimde aynı adrese yazma yalnız B portunun verisini bırakır. Adresler çalışma zamanı değerleri olduğundan derleyici çakışmayı statik olarak dışlayamaz; her örneklemede kısıtı hatırlatır. Portların ayrık adres bölgelerine yazdığını yapısal olarak garanti edin (ör. bölge başına tek yazıcı) ya da yazıcıları tek portlu Ram önünde arbitre edin.",
+            "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
+            "// a_wr_en && b_wr_en iken x != y garanti edin, ya da:\nlet m = Ram<u8, 256> { ... }   // ✓ tek yazıcı, çakışma yok",
+        ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
             "Bu sinyal netlist'te bildirilmiş ama hiçbir şeyi sürmüyor.",

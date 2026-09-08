@@ -166,7 +166,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Yerleşik primitif alan erişiminin genişliği: taban tek segmentli
-    /// bir örnek adıysa port tablosundan okunur (ADR-0027).
+    /// bir örnek adıysa port tablosundan okunur (ADR-0027/0029).
     pub(crate) fn builtin_field_sig(&self, base: Idx<Expr>, field: &str) -> Option<Sig> {
         use volt_ast::builtin::PortKind;
         let inst = crate::path_single(self.ast, base)?;
@@ -176,6 +176,18 @@ impl<'a> Emitter<'a> {
             PortKind::Data => info.data,
             PortKind::Bool | PortKind::Clock => Sig {
                 width: 1,
+                signed: false,
+            },
+            PortKind::Addr => Sig {
+                width: info.dim.trailing_zeros(),
+                signed: false,
+            },
+            PortKind::Dim => Sig {
+                width: info.dim as u32,
+                signed: false,
+            },
+            PortKind::Taps => Sig {
+                width: info.dim as u32 * info.data.width,
                 signed: false,
             },
         })

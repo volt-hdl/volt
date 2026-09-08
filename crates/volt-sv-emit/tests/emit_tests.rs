@@ -558,6 +558,13 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "27_async_fifo.volt",
         "28_handshake_sync.volt",
         "29_pulse_sync.volt",
+        // F5 (ADR-0029): tek saatli stdlib yapı taşları.
+        "30_sync_fifo.volt",
+        "31_ram.volt",
+        "32_counter.volt",
+        "33_shift_register.volt",
+        "34_arbiter.volt",
+        "35_edge_detect.volt",
     ];
 
     let mut clean = 0;

@@ -674,6 +674,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "let ps = PulseSync { src_clk: fast_clk, pulse_in: p, dst_clk: slow_clk }   // ⚠ W3005",
             "// guarantee >= 3 dst_clk cycles between pulses, or:\nlet hs = HandshakeSync<u8> { ... }   // ✓ flow control built in",
         ),
+        W3006 => Explanation::new(
+            "DualPortRam write-write collision",
+            "Both RAM ports can write in the same cycle; if they target the same address, port B silently wins.",
+            "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports write disjoint addresses (e.g. one writer per region), or arbitrate the writers in front of a single-port Ram.",
+            "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
+            "// ensure x != y whenever a_wr_en && b_wr_en, or:\nlet m = Ram<u8, 256> { ... }   // ✓ single writer, no collision",
+        ),
         W4001 => Explanation::new(
             "Unused signal",
             "This signal is declared in the netlist but drives nothing.",

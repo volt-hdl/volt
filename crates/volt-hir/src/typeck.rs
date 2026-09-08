@@ -333,18 +333,17 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// Yerleşik CDC primitifi örneklemesi (ADR-0027): generic argüman
-    /// sayısı/biçimi, DEPTH kısıtı (E2025) ve giriş bağlama tipleri.
+    /// Yerleşik stdlib primitifi örneklemesi (ADR-0027/0029): generic
+    /// argüman sayısı/biçimi, sabit argüman kısıtı (E2025) ve giriş
+    /// bağlama tipleri.
     fn handle_builtin_instance(
         &mut self,
         inst: &volt_ast::InstanceDecl,
         def: Option<DefId>,
         prim: crate::builtin::BuiltinPrim,
     ) {
-        use crate::builtin::PortKind;
-
-        let data = self.builtin_data_type(inst, prim);
-        let ty = self.types.intern(Ty::Builtin { prim, data });
+        let (data, dim) = self.builtin_generic_args(inst, prim);
+        let ty = self.types.intern(Ty::Builtin { prim, data, dim });
         if let Some(def) = def {
             self.def_types.insert(def, ty);
         }
@@ -355,11 +354,7 @@ impl<'a> TypeChecker<'a, '_> {
             let Some(value) = b.value else { continue };
             match prim.port(&b.port_name.text) {
                 Some(port) => {
-                    let expected = match port.kind {
-                        PortKind::Clock => self.types.intern(Ty::Clock),
-                        PortKind::Bool => self.types.bool_ty(),
-                        PortKind::Data => data,
-                    };
+                    let expected = self.builtin_port_type(port.kind, data, dim);
                     self.check(value, expected);
                 }
                 None => {
@@ -369,68 +364,134 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// Generic argümanları çözer: `T` veri tipi + AsyncFifo'da DEPTH.
-    /// Yanlış sayı E2003, sabit olmayan DEPTH E2008, iki kuvveti
-    /// olmayan DEPTH E2025 üretir.
-    fn builtin_data_type(
+    /// Port türünden beklenen/okunan tip: `Data` → T, `Addr` →
+    /// `u(clog2(DEPTH))`, `Dim` → `bits<DIM>`, `Taps` →
+    /// `bits<LEN * width(T)>` (ADR-0029).
+    fn builtin_port_type(
+        &mut self,
+        kind: crate::builtin::PortKind,
+        data: TypeId,
+        dim: u32,
+    ) -> TypeId {
+        use crate::builtin::PortKind;
+        match kind {
+            PortKind::Clock => self.types.intern(Ty::Clock),
+            PortKind::Bool => self.types.bool_ty(),
+            PortKind::Data => data,
+            PortKind::Addr => {
+                if dim < 2 {
+                    return self.types.error(); // E2025/E2003 zaten üretildi
+                }
+                // `uN` yalnız 8/16/32/64 için var; adres her clog2(DEPTH)
+                // genişliğinde ifade edilebilsin diye ham vektördür.
+                self.types.intern(Ty::Bits {
+                    width: dim.trailing_zeros() as u16,
+                })
+            }
+            PortKind::Dim => {
+                if dim == 0 {
+                    return self.types.error();
+                }
+                self.types.intern(Ty::Bits { width: dim as u16 })
+            }
+            PortKind::Taps => {
+                if self.types.is_error(data) || dim == 0 {
+                    return self.types.error();
+                }
+                // Bool `width_of`'ta None döner ama 1 bit taşır.
+                let w = self.types.width_of(data).unwrap_or(1) as u32;
+                self.types.intern(Ty::Bits {
+                    width: (dim * w) as u16,
+                })
+            }
+        }
+    }
+
+    /// Generic argümanları çözer: `T` veri tipi + sabit boyut
+    /// (DEPTH/WIDTH/LEN/N). Yanlış sayı E2003, literal olmayan sabit
+    /// E2008, kural dışı sabit E2025 üretir. Dönüş: (T tipi, sabit).
+    fn builtin_generic_args(
         &mut self,
         inst: &volt_ast::InstanceDecl,
         prim: crate::builtin::BuiltinPrim,
-    ) -> TypeId {
+    ) -> (TypeId, u32) {
         use volt_ast::GenericArg;
 
         let want = prim.type_arg_count() + prim.const_arg_count();
         if inst.generic_args.len() != want {
             self.err_builtin_arity(inst, prim);
-            return self.types.error();
+            return (self.types.error(), 0);
         }
 
-        // T pozisyonel olarak ilk argümandır (AsyncFifo/HandshakeSync).
+        // T pozisyonel olarak ilk argümandır.
         let data = if prim.type_arg_count() == 1 {
             match &inst.generic_args[0] {
                 GenericArg::Type(t) => self.resolve_type_ref(*t),
                 GenericArg::Const(_) => {
                     self.err_builtin_arity(inst, prim);
-                    return self.types.error();
+                    return (self.types.error(), 0);
                 }
             }
         } else {
-            self.types.bool_ty() // PulseSync: veri portu yok
+            self.types.bool_ty() // veri portu olmayan primitifler
         };
 
-        // AsyncFifo DEPTH (ikinci argüman): tam sayı literali ve 2'nin
-        // kuvveti (>= 2). Parser çıplak bir ismi tip sayar; sabit ADIYLA
-        // verilen DEPTH de E2008'e düşer (literal zorunlu).
+        // Sabit argüman (T'den sonra gelir): tam sayı literali olmalı ve
+        // primitifin kuralına uymalı (iki kuvveti / aralık). Parser
+        // çıplak bir ismi tip sayar; sabit ADIYLA verilen değer de
+        // E2008'e düşer (literal zorunlu).
+        let mut dim = 0u32;
         if prim.const_arg_count() == 1 {
-            match &inst.generic_args[1] {
+            let rule = prim.const_rule().expect("const_arg_count == 1");
+            match &inst.generic_args[prim.type_arg_count()] {
                 GenericArg::Const(e) => {
                     let span = self.ast.exprs[*e].span;
                     match self.ast.exprs[*e].kind {
                         volt_ast::ExprKind::IntLit { value, .. } => {
-                            if value < 2 || !value.is_power_of_two() {
-                                self.diagnostics.push(Diagnostic::error(
-                                    ErrorCode::E2025,
-                                    lstr!(en: "AsyncFifo DEPTH must be a power of two, got {value}";
-                                          tr: "AsyncFifo DEPTH iki kuvveti olmalı, {value} verildi"),
-                                    LabeledSpan::primary(
-                                        span,
-                                        lstr!(en: "invalid depth"; tr: "geçersiz derinlik"),
-                                    ),
-                                    lstr!(en: "use 2, 4, 8, 16, ... for gray-code pointers to work";
-                                          tr: "gray kod pointer'larının çalışması için 2, 4, 8, 16, ... kullanın"),
-                                ));
+                            if rule.allows(value) {
+                                dim = value as u32;
+                            } else {
+                                self.err_builtin_const_rule(prim, value, span);
                             }
                         }
-                        _ => self.err_builtin_depth_not_literal(span),
+                        _ => self.err_builtin_const_not_literal(prim, span),
                     }
                 }
                 GenericArg::Type(t) => {
                     let span = self.ast.types[*t].span;
-                    self.err_builtin_depth_not_literal(span);
+                    self.err_builtin_const_not_literal(prim, span);
                 }
             }
         }
-        data
+        (data, dim)
+    }
+
+    /// E2025 — sabit generic argüman primitifin kuralına uymuyor.
+    fn err_builtin_const_rule(
+        &mut self,
+        prim: crate::builtin::BuiltinPrim,
+        value: u128,
+        span: Span,
+    ) {
+        use crate::builtin::ConstRule;
+        let (name, param) = (prim.name(), prim.const_param_name());
+        let msg = match prim.const_rule() {
+            Some(ConstRule::PowerOfTwo { .. }) => {
+                lstr!(en: "{name} {param} must be a power of two, got {value}";
+                      tr: "{name} {param} iki kuvveti olmalı, {value} verildi")
+            }
+            _ => lstr!(en: "{name} {param} is out of range, got {value}";
+                       tr: "{name} {param} aralık dışı, {value} verildi"),
+        };
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2025,
+            msg,
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "invalid size parameter"; tr: "geçersiz boyut parametresi"),
+            ),
+            lstr!(en: "{}", prim.const_rule_hint_en(); tr: "{}", prim.const_rule_hint_tr()),
+        ));
     }
 
     /// E2003 — yerleşik primitifte yanlış generic argüman sayısı/biçimi.
@@ -439,11 +500,7 @@ impl<'a> TypeChecker<'a, '_> {
         inst: &volt_ast::InstanceDecl,
         prim: crate::builtin::BuiltinPrim,
     ) {
-        let shape = match prim {
-            crate::builtin::BuiltinPrim::AsyncFifo => "AsyncFifo<T, DEPTH>",
-            crate::builtin::BuiltinPrim::HandshakeSync => "HandshakeSync<T>",
-            crate::builtin::BuiltinPrim::PulseSync => "PulseSync",
-        };
+        let shape = prim.generic_shape();
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2003,
             lstr!(en: "'{}' expects {} type and {} const generic argument(s), got {}",
@@ -460,18 +517,19 @@ impl<'a> TypeChecker<'a, '_> {
         ));
     }
 
-    /// E2008 — DEPTH literal değil (sabit ismi ya da ifade).
-    fn err_builtin_depth_not_literal(&mut self, span: Span) {
+    /// E2008 — sabit generic argüman literal değil (sabit ismi ya da ifade).
+    fn err_builtin_const_not_literal(&mut self, prim: crate::builtin::BuiltinPrim, span: Span) {
+        let (name, param) = (prim.name(), prim.const_param_name());
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2008,
-            lstr!(en: "AsyncFifo DEPTH must be a compile-time integer literal";
-                  tr: "AsyncFifo DEPTH derleme zamanı tam sayı literali olmalı"),
+            lstr!(en: "{name} {param} must be a compile-time integer literal";
+                  tr: "{name} {param} derleme zamanı tam sayı literali olmalı"),
             LabeledSpan::primary(
                 span,
                 lstr!(en: "not an integer literal"; tr: "tam sayı literali değil"),
             ),
-            lstr!(en: "write the depth directly, e.g. AsyncFifo<u8, 16>";
-                  tr: "derinliği doğrudan yazın, ör. AsyncFifo<u8, 16>"),
+            lstr!(en: "write the size directly, e.g. {}", prim.generic_shape();
+                  tr: "boyutu doğrudan yazın, ör. {}", prim.generic_shape()),
         ));
     }
 
@@ -1424,12 +1482,8 @@ impl<'a> TypeChecker<'a, '_> {
                 .unwrap_or_else(|| self.types.error()),
             // Yerleşik primitif portu: tablo üzerinden tiplenir; geçersiz
             // alan E1009'u isim çözümlemede aldı — sessiz Error.
-            Ty::Builtin { prim, data } => match prim.port(&field.text) {
-                Some(port) => match port.kind {
-                    crate::builtin::PortKind::Data => data,
-                    crate::builtin::PortKind::Bool => self.types.bool_ty(),
-                    crate::builtin::PortKind::Clock => self.types.intern(Ty::Clock),
-                },
+            Ty::Builtin { prim, data, dim } => match prim.port(&field.text) {
+                Some(port) => self.builtin_port_type(port.kind, data, dim),
                 None => self.types.error(),
             },
             Ty::Struct(s) => {

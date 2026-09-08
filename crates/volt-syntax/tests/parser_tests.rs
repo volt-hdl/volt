@@ -1743,7 +1743,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_26_of_26_parse_clean() {
+fn ui_pass_all_32_of_32_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1766,14 +1766,15 @@ fn ui_pass_all_26_of_26_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 26, "ui/pass 26 dosya içermeli");
+    assert_eq!(total, 32, "ui/pass 32 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
-    // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını ekledi.
+    // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını,
+    // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını ekledi.
     assert_eq!(
-        clean, 26,
-        "26/26 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 32,
+        "32/32 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

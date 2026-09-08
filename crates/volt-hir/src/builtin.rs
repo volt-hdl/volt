@@ -4,4 +4,4 @@
 //! her iki crate de SV üretimi/denetim için aynı port imzalarına
 //! bakar); HIR yüzeyi buradan yeniden dışa aktarılır.
 
-pub use volt_ast::builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
+pub use volt_ast::builtin::{BuiltinPort, BuiltinPrim, ConstRule, DomainRole, PortKind};

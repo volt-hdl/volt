@@ -87,12 +87,14 @@ pub enum Ty {
     Enum(EnumId),
     /// Modül örneği (port erişimi için).
     Instance(ModuleId),
-    /// Yerleşik CDC primitifi örneği (ADR-0027): AsyncFifo vb.
-    /// `data`, `T` generic argümanının çözülmüş tipidir; alan erişimi
+    /// Yerleşik stdlib primitifi örneği (ADR-0027/0029): AsyncFifo vb.
+    /// `data`, `T` generic argümanının çözülmüş tipidir; `dim`, sabit
+    /// generic argümandır (DEPTH/WIDTH/LEN/N — yoksa 0). Alan erişimi
     /// port tablosundan tiplenir.
     Builtin {
         prim: volt_ast::builtin::BuiltinPrim,
         data: TypeId,
+        dim: u32,
     },
     /// Boyutlandırılmamış tamsayı literali — bağlamdan belirlenir.
     IntLit,

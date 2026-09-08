@@ -232,7 +232,7 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 26);
+    assert_eq!(checked, 32);
 }
 
 // ═══ Yerleşik CDC primitifleri (ADR-0027) ═════════════════════════
@@ -260,6 +260,61 @@ fn ui_pass_29_pulse_sync_warns_w3005_only() {
         "W3005 bekleniyor: {:?}",
         result.error_codes()
     );
+}
+
+// ═══ Tek saatli stdlib yapı taşları (ADR-0029) ════════════════════
+
+#[test]
+fn ui_pass_30_sync_fifo_clean() {
+    let result = analyze_file("pass/30_sync_fifo.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_31_ram_warns_w3006_only() {
+    // W3006 BEKLENEN davranıştır (ADR-0029): DualPortRam yazma-yazma
+    // çakışması kısıtını her örneklemede hatırlatır; hata üretilmez.
+    let result = analyze_file("pass/31_ram.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert!(
+        result.error_codes().contains(&"W3006"),
+        "W3006 bekleniyor: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_pass_32_counter_clean() {
+    let result = analyze_file("pass/32_counter.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_33_shift_register_clean() {
+    let result = analyze_file("pass/33_shift_register.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_34_arbiter_clean() {
+    let result = analyze_file("pass/34_arbiter.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_35_edge_detect_clean() {
+    let result = analyze_file("pass/35_edge_detect.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_25_sync_fifo_bad_depth_e2025() {
+    assert_ui_fail("fail/25_sync_fifo_bad_depth.volt");
+}
+
+#[test]
+fn ui_fail_26_arbiter_bad_n_e2025() {
+    assert_ui_fail("fail/26_arbiter_bad_n.volt");
 }
 
 // ═══ Kontratlar (F4a) ═════════════════════════════════════════════
