@@ -1,0 +1,116 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Volt HDL",
+  "scopeName": "source.volt",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#domain-annotation" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#stdlib" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.volt",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.volt",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.volt",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [{ "include": "#comments" }]
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.volt",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.volt", "match": "\\\\." }
+      ]
+    },
+    "domain-annotation": {
+      "name": "entity.name.namespace.domain.volt",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.volt",
+          "match": "\\b(if|else|match|for|in)\\b"
+        },
+        {
+          "name": "keyword.declaration.volt",
+          "match": "\\b(module|domain|reg|let|wire|on|comb|fn|const|type|struct|enum|extern|package|use|pub|out|inout)\\b"
+        },
+        {
+          "name": "keyword.other.contract.volt",
+          "match": "\\b(requires|ensures|invariant|cover|assert|assume|todo)\\b"
+        },
+        {
+          "name": "constant.language.volt",
+          "match": "\\b(true|false|posedge|negedge|none|active_high|active_low)\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "storage.type.volt",
+      "match": "\\b(bool|clock|reset|bits|Trit|u8|u16|u32|u64|i8|i16|i32|i64)\\b"
+    },
+    "stdlib": {
+      "name": "support.class.stdlib.volt",
+      "match": "\\b(SyncFifo|Ram|DualPortRam|Counter|ShiftRegister|RoundRobinArbiter|PriorityArbiter|EdgeDetect|AsyncFifo|HandshakeSync|PulseSync)\\b"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.volt",
+          "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*(u8|u16|u32|u64|i8|i16|i32|i64)?\\b"
+        },
+        {
+          "name": "constant.numeric.binary.volt",
+          "match": "\\b0b[01][01_]*(u8|u16|u32|u64|i8|i16|i32|i64)?\\b"
+        },
+        {
+          "name": "constant.numeric.octal.volt",
+          "match": "\\b0o[0-7][0-7_]*(u8|u16|u32|u64|i8|i16|i32|i64)?\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.volt",
+          "match": "\\b[0-9][0-9_]*(u8|u16|u32|u64|i8|i16|i32|i64)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.nonblocking.volt",
+          "match": "<="
+        },
+        {
+          "name": "keyword.operator.volt",
+          "match": "(==|!=|>=|<<|>>|&&|\\|\\||->|=>|[+\\-*/%&|^~!<>=])"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.module.volt",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

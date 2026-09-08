@@ -250,6 +250,7 @@ Optional tools:
 
 - [docs/spec/](docs/spec/) — the binding language specification
   (grammar, type inference, domain inference, SV mapping)
+- [docs/stdlib.md](docs/stdlib.md) — standard library reference (11 modules)
 - [docs/adr/](docs/adr/) — architecture decision records
 - [docs/README.md](docs/README.md) — full document index
 

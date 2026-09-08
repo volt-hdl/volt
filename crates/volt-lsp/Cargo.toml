@@ -1,0 +1,14 @@
+[package]
+name = "volt-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+volt-ast = { path = "../volt-ast" }
+volt-hir = { path = "../volt-hir" }
+volt-span = { path = "../volt-span" }
+volt-syntax = { path = "../volt-syntax" }
+volt-diagnostics = { path = "../volt-diagnostics" }
+tower-lsp.workspace = true
+tokio.workspace = true

@@ -133,6 +133,8 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
+    /// Start the Volt language server on stdio (F5a; editors connect here)
+    Lsp,
     /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
     Explain {
         /// Diagnostic code, e.g. E3001 (case-insensitive)
@@ -245,6 +247,10 @@ fn main() -> ExitCode {
                 multiclock: false,
             },
         ),
+        Command::Lsp => {
+            volt_lsp::run_stdio();
+            ExitCode::SUCCESS
+        }
         Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
     }
 }

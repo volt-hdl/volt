@@ -1,0 +1,62 @@
+{
+  "name": "volt-hdl",
+  "displayName": "Volt HDL",
+  "description": "Volt HDL language support: syntax highlighting, diagnostics, hover, completion (via volt lsp)",
+  "version": "0.1.0",
+  "publisher": "volthdl",
+  "license": "(MIT OR Apache-2.0)",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "volt",
+        "aliases": [
+          "Volt HDL",
+          "volt"
+        ],
+        "extensions": [
+          ".volt"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "volt",
+        "scopeName": "source.volt",
+        "path": "./syntaxes/volt.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Volt HDL",
+      "properties": {
+        "volt.serverPath": {
+          "type": "string",
+          "default": "volt",
+          "description": "Path to the volt executable (the language server runs as 'volt lsp')."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}

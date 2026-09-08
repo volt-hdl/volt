@@ -9,6 +9,7 @@ members = [
     "crates/volt-lower",
     "crates/volt-sv-emit",
     "crates/volt-driver",
+    "crates/volt-lsp",
 ]
 
 [workspace.package]
@@ -27,3 +28,6 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 criterion = "0.5"
+# F5a LSP sunucusu: tower-lsp + async çalışma zamanı (yalnız volt-lsp kullanır)
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "time", "sync"] }

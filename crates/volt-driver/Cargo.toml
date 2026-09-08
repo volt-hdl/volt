@@ -15,6 +15,7 @@ volt-span = { path = "../volt-span" }
 volt-syntax = { path = "../volt-syntax" }
 volt-sv-emit = { path = "../volt-sv-emit" }
 volt-diagnostics = { path = "../volt-diagnostics" }
+volt-lsp = { path = "../volt-lsp" }
 clap.workspace = true
 serde_json.workspace = true
 

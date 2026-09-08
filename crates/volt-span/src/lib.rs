@@ -101,6 +101,38 @@ impl SourceMap {
         (line0 as u32 + 1, text.chars().count() as u32 + 1)
     }
 
+    /// Verilen bayt offsetinin 0-TABANLI (satır, sütun) konumu — sütun
+    /// UTF-16 KOD BİRİMİ sayısıdır (LSP Position sözleşmesi). BMP dışı
+    /// karakterler (örn. emoji) 2 kod birimi sayılır; `line_col_utf8`
+    /// bunları 1 karakter saydığı için LSP'de KULLANILAMAZ.
+    pub fn line_col_utf16(&self, id: FileId, byte: u32) -> (u32, u32) {
+        let line0 = self.line_index(id, byte);
+        let line_start = self.file(id).line_starts[line0] as usize;
+        let end = (byte as usize).min(self.file(id).text.len());
+        let text = &self.file(id).text[line_start..end];
+        let col: usize = text.chars().map(char::len_utf16).sum();
+        (line0 as u32, col as u32)
+    }
+
+    /// 0-tabanlı (satır, UTF-16 sütun) konumunun bayt offseti (LSP
+    /// Position → Span çevirisi). Satır/sütun taşarsa satır sonuna /
+    /// dosya sonuna kırpılır; artımlı düzenlemede editor önde olabilir.
+    pub fn byte_of_utf16_position(&self, id: FileId, line0: u32, col_utf16: u32) -> u32 {
+        let file = self.file(id);
+        let last_line = file.line_starts.len() - 1;
+        let line = (line0 as usize).min(last_line);
+        let range = self.line_range(id, line);
+        let line_text = file.text[range.clone()].trim_end_matches(['\n', '\r']);
+        let mut units: u32 = 0;
+        for (off, ch) in line_text.char_indices() {
+            if units >= col_utf16 {
+                return (range.start + off) as u32;
+            }
+            units += ch.len_utf16() as u32;
+        }
+        (range.start + line_text.len()) as u32
+    }
+
     /// Baytın bulunduğu 0-tabanlı satır indeksi.
     pub fn line_index(&self, id: FileId, byte: u32) -> usize {
         let starts = &self.file(id).line_starts;
@@ -220,5 +252,55 @@ mod tests {
     fn line_col_at_line_start_is_col_one() {
         let (map, id) = map_with("a\nb\n");
         assert_eq!(map.line_col_at(id, 2), (2, 1));
+    }
+
+    #[test]
+    fn utf16_ascii_matches_byte_column() {
+        let (map, id) = map_with("let x = 1\nlet y = 2\n");
+        // 0-tabanlı: 2. satır 'y' karakteri (bayt 14) → (1, 4)
+        assert_eq!(map.line_col_utf16(id, 14), (1, 4));
+    }
+
+    #[test]
+    fn utf16_multibyte_counts_one_unit() {
+        // 'ç' UTF-8'de 2 bayt, UTF-16'da 1 kod birimi
+        let src = "module Sayaç { in veri : u8 }";
+        let (map, id) = map_with(src);
+        // "module Sayaç { in " → 18 karakter = 18 UTF-16 birimi ('ç' 1
+        // birim); bayt offseti ise 19 ('ç' 2 bayt).
+        let veri = src.find("veri").unwrap() as u32;
+        assert_eq!(map.line_col_utf16(id, veri), (0, 18));
+    }
+
+    #[test]
+    fn utf16_surrogate_pair_counts_two_units() {
+        // '🔧' UTF-8'de 4 bayt, UTF-16'da 2 kod birimi (BMP dışı)
+        let src = "// 🔧 tamir\nmodule M {}";
+        let (map, id) = map_with(src);
+        let tamir = src.find("tamir").unwrap() as u32;
+        // satır 0: "// " (3 birim) + emoji (2 birim) + " " (1 birim) = 6
+        assert_eq!(map.line_col_utf16(id, tamir), (0, 6));
+        let module = src.find("module").unwrap() as u32;
+        assert_eq!(map.line_col_utf16(id, module), (1, 0));
+    }
+
+    #[test]
+    fn byte_of_utf16_roundtrip() {
+        let src = "// 🔧 çare\nmodule Sayaç {}\n";
+        let (map, id) = map_with(src);
+        for target in ["çare", "Sayaç", "module"] {
+            let byte = src.find(target).unwrap() as u32;
+            let (line, col) = map.line_col_utf16(id, byte);
+            assert_eq!(map.byte_of_utf16_position(id, line, col), byte);
+        }
+    }
+
+    #[test]
+    fn byte_of_utf16_clamps_past_line_end() {
+        let (map, id) = map_with("ab\ncd\n");
+        // sütun satır sonunu aşarsa satır sonuna kırpılır
+        assert_eq!(map.byte_of_utf16_position(id, 0, 99), 2);
+        // satır dosya sonunu aşarsa son satıra kırpılır
+        assert_eq!(map.byte_of_utf16_position(id, 99, 0), 6);
     }
 }
