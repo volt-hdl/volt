@@ -664,6 +664,136 @@ fn build_sva_inline_embeds_properties_in_sv() {
     let _ = std::fs::remove_dir_all(&target);
 }
 
+// ═══ Regresyon — --emit=sva yol biçimleri ═════════════════════════
+// Dört yol biçimi de aynı sonucu vermeli: göreli, ./göreli, mutlak ve
+// çalışma dizininden çıplak dosya adı. Varsayılan --target-dir (build/)
+// sürecin çalışma dizinine göre çözülür.
+
+#[test]
+fn build_emit_sva_relative_path_writes_formal_file() {
+    let root = temp_dir("sva-rel");
+    std::fs::create_dir_all(root.join("src")).expect("src dizini");
+    std::fs::write(root.join("src").join("uart.volt"), contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .current_dir(&root)
+        .args(["build", "--emit", "sva", "src/uart.volt"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let sva = std::fs::read_to_string(root.join("build").join("formal").join("uart.sva"))
+        .expect("uart.sva üretilmeli");
+    assert!(sva.contains("assert property (inv_0);"), "{sva}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn build_emit_sva_dot_relative_path_writes_formal_file() {
+    let root = temp_dir("sva-dot-rel");
+    std::fs::create_dir_all(root.join("src")).expect("src dizini");
+    std::fs::write(root.join("src").join("uart.volt"), contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .current_dir(&root)
+        .args(["build", "--emit", "sva", "./src/uart.volt"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("build").join("formal").join("uart.sva").exists(),
+        "./ önekli yol .sva üretmeli"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn build_emit_sva_absolute_path_writes_formal_file() {
+    let root = temp_dir("sva-abs");
+    std::fs::create_dir_all(root.join("src")).expect("src dizini");
+    let src = root.join("src").join("uart.volt");
+    std::fs::write(&src, contract_source()).expect("yazılmalı");
+    assert!(src.is_absolute(), "temp yolu mutlak olmalı");
+
+    let output = volt()
+        .current_dir(&root)
+        .args(["build", "--emit", "sva"])
+        .arg(&src)
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("build").join("formal").join("uart.sva").exists(),
+        "mutlak yol .sva üretmeli"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn build_emit_sva_bare_filename_in_source_dir() {
+    let root = temp_dir("sva-bare");
+    std::fs::create_dir_all(root.join("src")).expect("src dizini");
+    std::fs::write(root.join("src").join("uart.volt"), contract_source()).expect("yazılmalı");
+
+    let output = volt()
+        .current_dir(root.join("src"))
+        .args(["build", "--emit", "sva", "uart.volt"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // build/ bu kez kaynak dizininin içinde açılır (çalışma dizini orası).
+    assert!(
+        root.join("src")
+            .join("build")
+            .join("formal")
+            .join("uart.sva")
+            .exists(),
+        "çıplak dosya adı .sva üretmeli"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// '--target-dir' değer beklerken yanına başka bayrak gelirse bu bir
+// kullanım hatasıdır (cli-contract.md §2: çıkış 2) — yol çözümleme
+// hatası değil. Mesaj eksik değeri açıkça söylemeli.
+#[test]
+fn build_target_dir_without_value_is_usage_error_exit_2() {
+    let output = volt()
+        .args(["build", "--target-dir", "--emit=sva", "uart.volt"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("a value is required for '--target-dir"),
+        "stderr: {stderr}"
+    );
+}
+
 // ═══ F4b — volt verify (SymbiYosys entegrasyonu) ══════════════════
 
 /// PATH'te gerçek sby var mı? (Gerçek-araç testleri yoksa SKIP eder.)
