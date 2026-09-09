@@ -78,9 +78,48 @@ fn invariant_logical_negation_is_clean() {
 
 #[test]
 fn ensures_implication_shape_is_clean() {
-    // Volt'ta '->' yok; !a || b biçimi kullanılır.
+    // Eski biçim: !a || b — geriye uyumluluk için desteklenir.
     let result = check(&uart_module("    ensures: !start || busy\n"));
     assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+// ═══ İmplikasyon operatörü (ADR-0034) ═════════════════════════════
+
+#[test]
+fn ensures_implication_operator_is_clean() {
+    let result = check(&uart_module("    ensures: start -> busy\n"));
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn invariant_implication_operator_is_clean() {
+    let result = check(&uart_module("    invariant: !busy -> !start\n"));
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn implication_chain_is_clean() {
+    // Sağ birleşme: a -> (b -> c); üçü de Bool.
+    let result = check(&uart_module("    invariant: start -> busy -> !start\n"));
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn implication_non_bool_lhs_is_e2003() {
+    let found = codes(&uart_module("    invariant: speed -> busy\n"));
+    assert!(
+        found.contains(&"E2003"),
+        "sol operand Bool değil: {found:?}"
+    );
+}
+
+#[test]
+fn implication_non_bool_rhs_is_e2003() {
+    let found = codes(&uart_module("    invariant: start -> speed\n"));
+    assert!(
+        found.contains(&"E2003"),
+        "sağ operand Bool değil: {found:?}"
+    );
 }
 
 #[test]

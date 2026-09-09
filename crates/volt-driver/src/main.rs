@@ -26,12 +26,17 @@ use volt_syntax::ParseResult;
 #[derive(Parser)]
 #[command(name = "volt", version = volt_sv_emit::VOLT_VERSION)]
 #[command(about = "Volt HDL — clock-domain-safe hardware description language")]
+#[command(after_help = "EXAMPLES:
+    volt build counter.volt
+    volt run counter.volt --vcd waves.vcd
+    volt verify counter.volt --mode prove
+    volt explain E3001")]
 struct Cli {
     /// Diagnostic language: en | tr (priority: flag > VOLT_LANG > Volt.toml [ui] lang > en)
     #[arg(long, global = true, value_enum)]
     lang: Option<LangArg>,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 /// cli-contract.md §3 --lang değerleri.
@@ -90,6 +95,11 @@ enum OutputFormat {
 #[derive(Subcommand)]
 enum Command {
     /// Compile and emit SystemVerilog
+    #[command(after_help = "EXAMPLES:
+    volt build counter.volt
+    volt build --emit=sva design.volt
+    volt build --sva inline --emit=sva design.volt
+    volt build --format json --target-dir out design.volt")]
     Build {
         /// Input .volt file
         file: PathBuf,
@@ -107,6 +117,9 @@ enum Command {
         sva: SvaArg,
     },
     /// Fast check (produces no output files)
+    #[command(after_help = "EXAMPLES:
+    volt check design.volt
+    volt check --format short design.volt")]
     Check {
         /// Input .volt file
         file: PathBuf,
@@ -115,6 +128,10 @@ enum Command {
         format: OutputFormat,
     },
     /// Formally verify contracts with SymbiYosys (F4b; exit 6 on counterexample)
+    #[command(after_help = "EXAMPLES:
+    volt verify design.volt
+    volt verify --mode prove design.volt
+    volt verify --depth 40 --engine boolector design.volt")]
     Verify {
         /// Input .volt file
         file: PathBuf,
@@ -135,6 +152,10 @@ enum Command {
         format: OutputFormat,
     },
     /// Compile and simulate with Verilator (ADR-0033; cli-contract.md §7)
+    #[command(after_help = "EXAMPLES:
+    volt run design.volt
+    volt run --cycles 500 design.volt
+    volt run --vcd waves.vcd design.volt")]
     Run {
         /// Input .volt file
         file: PathBuf,
@@ -152,6 +173,10 @@ enum Command {
         target_dir: PathBuf,
     },
     /// Run simulation tests with Verilator (ADR-0033; cli-contract.md §8)
+    #[command(after_help = "EXAMPLES:
+    volt test
+    volt test my_design_test.volt
+    volt test uart --nocapture")]
     Test {
         /// A .volt test file, or a substring filter over test names
         filter: Option<String>,
@@ -165,13 +190,21 @@ enum Command {
     /// Start the Volt language server on stdio (F5a; editors connect here)
     Lsp,
     /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
+    #[command(after_help = "EXAMPLES:
+    volt explain E3001
+    volt explain domains
+    volt explain --topics
+    volt explain --list")]
     Explain {
-        /// Diagnostic code, e.g. E3001 (case-insensitive)
-        #[arg(required_unless_present = "list")]
+        /// Diagnostic code, e.g. E3001 (case-insensitive), or a topic name
+        #[arg(required_unless_present_any = ["list", "topics"])]
         code: Option<String>,
         /// List all codes grouped by category
         #[arg(long)]
         list: bool,
+        /// List all topics ('volt explain <topic>')
+        #[arg(long)]
+        topics: bool,
         /// Color output: auto | always | never (default: VOLT_COLOR or auto)
         #[arg(long, value_enum)]
         color: Option<ColorArg>,
@@ -238,7 +271,13 @@ impl From<VerifyModeArg> for SbyMode {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
-    match cli.command {
+    // Komutsuz çağrı hata DEĞİL, yol göstermedir (UX Anayasası:
+    // en iyi onboarding olmayan onboarding) — sık görevler + çıkış 0.
+    let Some(command) = cli.command else {
+        print_no_command_help();
+        return ExitCode::SUCCESS;
+    };
+    match command {
         Command::Build {
             file,
             target_dir,
@@ -292,19 +331,56 @@ fn main() -> ExitCode {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS
         }
-        Command::Explain { code, list, color } => explain_cmd(code.as_deref(), list, color),
+        Command::Explain {
+            code,
+            list,
+            topics,
+            color,
+        } => explain_cmd(code.as_deref(), list, topics, color),
     }
+}
+
+/// `volt` (argümansız): sürüm + sık görevler, stdout'a, çıkış 0.
+fn print_no_command_help() {
+    let version = volt_sv_emit::VOLT_VERSION;
+    print!(
+        "{}",
+        lstr!(
+            en: "Volt HDL {version}\n\n\
+                 No command given. Common tasks:\n\
+                 \x20   volt build design.volt      Compile to SystemVerilog\n\
+                 \x20   volt check design.volt      Check without producing output\n\
+                 \x20   volt run design.volt        Simulate\n\
+                 \x20   volt test                   Run tests\n\
+                 \x20   volt verify design.volt     Prove contracts\n\
+                 \x20   volt explain E3001          Explain an error code\n\n\
+                 Run 'volt --help' for all commands.\n";
+            tr: "Volt HDL {version}\n\n\
+                 Komut verilmedi. Sık görevler:\n\
+                 \x20   volt build tasarim.volt     SystemVerilog'a derle\n\
+                 \x20   volt check tasarim.volt     Çıktı üretmeden denetle\n\
+                 \x20   volt run tasarim.volt       Simüle et\n\
+                 \x20   volt test                   Testleri koştur\n\
+                 \x20   volt verify tasarim.volt    Kontratları kanıtla\n\
+                 \x20   volt explain E3001          Bir hata kodunu açıkla\n\n\
+                 Tüm komutlar için 'volt --help' çalıştırın.\n"
+        )
+    );
 }
 
 /// `volt explain` — açıklama metni stdout verisidir (§11), tanılar ve
 /// kullanım hataları stderr'e gider. Bilinmeyen kod: çıkış kodu 2.
-fn explain_cmd(code: Option<&str>, list: bool, color: Option<ColorArg>) -> ExitCode {
+fn explain_cmd(code: Option<&str>, list: bool, topics: bool, color: Option<ColorArg>) -> ExitCode {
     let lang = volt_diagnostics::lang();
     if list {
         print!("{}", explain::render_list(lang));
         return ExitCode::SUCCESS;
     }
-    let input = code.expect("clap: code veya --list zorunlu");
+    if topics {
+        print!("{}", explain::topics::render_topic_list(lang));
+        return ExitCode::SUCCESS;
+    }
+    let input = code.expect("clap: code, --list veya --topics zorunlu");
     let Some(parsed) = ErrorCode::parse(input) else {
         // F4b: kod değilse konu dene ('volt explain verify-setup').
         if let Some(page) =
@@ -695,6 +771,18 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat, sva_mode: SvaMode
                 )
             );
         }
+        // Bağlama göre sonraki adım (UX Anayasası: kullanıcı belgeye
+        // gitmeden bir sonraki komutu görür).
+        let name = file.display();
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "       Next: volt run {name}      (simulate)\n             \
+                     volt verify {name}   (prove contracts)";
+                tr: "   Sıradaki: volt run {name}      (simüle et)\n             \
+                     volt verify {name}   (kontratları kanıtla)"
+            )
+        );
     }
     if format == OutputFormat::Json {
         print_json_envelope("build", &compiled, &artifacts, start);
@@ -737,6 +825,16 @@ fn check(file: &Path, format: OutputFormat) -> ExitCode {
                     compiled.errors(), compiled.warnings()
             )
         );
+        if compiled.errors() == 0 {
+            let name = file.display();
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Next: volt build {name}   (emit SystemVerilog)";
+                    tr: "   Sıradaki: volt build {name}   (SystemVerilog üret)"
+                )
+            );
+        }
     }
     if format == OutputFormat::Json {
         print_json_envelope("check", &compiled, &[], start);

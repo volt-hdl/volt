@@ -346,7 +346,11 @@ FieldPattern    = Ident [ ":" Pattern ] ;
    Aşağıdaki hiyerarşi referans amaçlıdır.
 *)
 
-Expr            = OrExpr ;
+Expr            = ImplExpr ;
+
+ImplExpr        = OrExpr [ "->" ImplExpr ] ;
+(* SAĞ birleşmeli, 0. seviye — a -> b ≡ !a || b (ADR-0034).
+   fn dönüş tipindeki "->" imza konumunda tüketilir, çakışmaz. *)
 
 OrExpr          = AndExpr { "||" AndExpr } ;
 

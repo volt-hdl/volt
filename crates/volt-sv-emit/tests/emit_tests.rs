@@ -57,6 +57,27 @@ fn assert_no_forbidden(sv: &str) {
     }
 }
 
+// ═══ İmplikasyon operatörü RTL açılımı (ADR-0034) ═════════════════
+
+#[test]
+fn implication_expands_to_not_or() {
+    // SV'de ifade düzeyinde '->' yok; a -> b → !a || b.
+    let out = sv(
+        "module M {\n    in  f : bool\n    in  g : bool\n    out y : bool\n\n    y = f -> g\n}\n",
+    );
+    assert!(out.contains("!f || g"), "{out}");
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn implication_binary_lhs_is_parenthesized() {
+    // '!' açılımı sol operandı kapsasın diye ikili sol parantezlenir.
+    let out = sv(
+        "module M {\n    in  f : bool\n    in  g : bool\n    in  h : bool\n    out y : bool\n\n    y = (f && g) -> h\n}\n",
+    );
+    assert!(out.contains("!(f && g) || h"), "{out}");
+}
+
 // ═══ KRİTİK: birebir snapshot ═════════════════════════════════════
 
 #[test]

@@ -213,6 +213,15 @@ pub(crate) fn verify(
         crate::print_json_envelope("verify", &compiled, &artifacts, start);
     }
     if any_fail {
+        if format == OutputFormat::Human {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "        Next: volt explain E5001   (how to read a counterexample)";
+                    tr: "    Sıradaki: volt explain E5001   (karşı örnek nasıl okunur)"
+                )
+            );
+        }
         return ExitCode::from(6);
     }
     if any_error {

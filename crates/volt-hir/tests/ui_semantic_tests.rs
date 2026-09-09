@@ -232,7 +232,7 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 35);
+    assert_eq!(checked, 36);
 }
 
 // ═══ Keyfi genişlik + sıralı match (ADR-0031/0032) ════════════════

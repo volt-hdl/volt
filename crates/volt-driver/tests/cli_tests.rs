@@ -1138,6 +1138,228 @@ fn explain_unknown_topic_still_exit_2() {
     );
 }
 
+// ═══ Kendi kendini belgeleme: komutsuz yardım, EXAMPLES, Next, konular ═
+
+#[test]
+fn no_command_prints_common_tasks_exit_0() {
+    // Komutsuz çağrı hata değil, yol göstermedir (çıkış 0, stdout).
+    let output = volt()
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Volt HDL"), "stdout: {stdout}");
+    assert!(stdout.contains("No command given"), "stdout: {stdout}");
+    for cmd in [
+        "volt build",
+        "volt run",
+        "volt test",
+        "volt verify",
+        "volt explain E3001",
+    ] {
+        assert!(stdout.contains(cmd), "eksik görev: {cmd}\n{stdout}");
+    }
+    assert!(stdout.contains("volt --help"), "stdout: {stdout}");
+}
+
+#[test]
+fn no_command_turkish_help() {
+    let output = volt()
+        .env("VOLT_LANG", "tr")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Komut verilmedi"), "stdout: {stdout}");
+    assert!(stdout.contains("Kontratları kanıtla"), "stdout: {stdout}");
+}
+
+#[test]
+fn top_level_help_has_examples_section() {
+    let output = volt().arg("--help").output().expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("EXAMPLES:"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("volt build counter.volt"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
+fn subcommand_helps_have_examples() {
+    for (cmd, sample) in [
+        ("build", "volt build --emit=sva design.volt"),
+        ("check", "volt check design.volt"),
+        ("verify", "volt verify --mode prove design.volt"),
+        ("run", "volt run --vcd waves.vcd design.volt"),
+        ("test", "volt test uart --nocapture"),
+        ("explain", "volt explain --topics"),
+    ] {
+        let output = volt()
+            .args([cmd, "--help"])
+            .output()
+            .expect("volt çalışmalı");
+        assert_eq!(output.status.code(), Some(0), "{cmd} --help");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("EXAMPLES:"), "{cmd}: {stdout}");
+        assert!(stdout.contains(sample), "{cmd}: {stdout}");
+    }
+}
+
+#[test]
+fn build_success_suggests_next_steps() {
+    let target = temp_dir("build-next");
+    let output = volt()
+        .args(["build", "--target-dir"])
+        .arg(&target)
+        .arg(fixtures().join("counter.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Next: volt run"), "stderr: {stderr}");
+    assert!(stderr.contains("volt verify"), "stderr: {stderr}");
+    assert!(stderr.contains("(simulate)"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn check_success_suggests_build() {
+    let output = volt()
+        .arg("check")
+        .arg(fixtures().join("counter.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Next: volt build"), "stderr: {stderr}");
+}
+
+#[test]
+fn check_failure_has_no_next_suggestion() {
+    let output = volt()
+        .arg("check")
+        .arg(ui("fail/01_cdc_violation.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("Next: volt build"), "stderr: {stderr}");
+}
+
+#[test]
+fn verify_failure_suggests_explain_e5001() {
+    let target = temp_dir("verify-next");
+    let sby = fake_fail_sby(&target);
+    let output = volt()
+        .args(["verify", "--target-dir"])
+        .arg(&target)
+        .arg(ui("fail/24_violated_invariant.volt"))
+        .env("VOLT_SBY", &sby)
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(6));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Next: volt explain E5001"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn explain_topics_lists_all_topics_exit_0() {
+    let output = volt()
+        .args(["explain", "--topics"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for topic in [
+        "getting-started",
+        "domains",
+        "contracts",
+        "stdlib",
+        "verify-setup",
+        "simulation-setup",
+    ] {
+        assert!(stdout.contains(topic), "eksik konu: {topic}\n{stdout}");
+    }
+}
+
+#[test]
+fn explain_topics_turkish() {
+    let output = volt()
+        .args(["explain", "--topics", "--lang=tr"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Konular"), "stdout: {stdout}");
+    assert!(stdout.contains("saat alanları"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_domains_topic_exit_0() {
+    let output = volt()
+        .args(["explain", "domains"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("domains: "), "stdout: {stdout}");
+    assert!(stdout.contains("E3001"), "stdout: {stdout}");
+    assert!(stdout.contains("domain Fast"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_contracts_topic_mentions_implication() {
+    let output = volt()
+        .args(["explain", "contracts"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("requires"), "stdout: {stdout}");
+    assert!(stdout.contains("!busy -> tx"), "stdout: {stdout}");
+    assert!(stdout.contains("--mode prove"), "stdout: {stdout}");
+}
+
+#[test]
+fn explain_stdlib_topic_lists_components() {
+    let output = volt()
+        .args(["explain", "stdlib"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for prim in ["AsyncFifo", "SyncFifo", "Ram", "EdgeDetect", "Counter"] {
+        assert!(stdout.contains(prim), "eksik bileşen: {prim}\n{stdout}");
+    }
+}
+
+#[test]
+fn explain_getting_started_topic_turkish() {
+    let output = volt()
+        .args(["explain", "--lang=tr", "getting-started"])
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("İlk Volt tasarımınız"), "stdout: {stdout}");
+    assert!(stdout.contains("volt build blink.volt"), "stdout: {stdout}");
+}
+
 #[test]
 fn build_without_emit_sva_stays_rtl_only() {
     let target = temp_dir("no-sva");

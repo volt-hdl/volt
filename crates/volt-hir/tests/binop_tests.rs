@@ -401,6 +401,31 @@ fn bitwise_bool_yields_bool() {
 }
 
 #[test]
+fn implication_bool_yields_bool() {
+    // a -> b ≡ !a || b (ADR-0034); iki operand da Bool olmalı.
+    let c = codes(
+        "module M {\n    in  f : bool\n    in  g : bool\n    out y : bool\n\n    y = f -> g\n}\n",
+    );
+    assert!(c.is_empty(), "{c:?}");
+}
+
+#[test]
+fn implication_numeric_lhs_e2003() {
+    let c = codes(
+        "module M {\n    in  a : u8\n    in  g : bool\n    out y : bool\n\n    y = a -> g\n}\n",
+    );
+    assert!(c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn implication_numeric_rhs_e2003() {
+    let c = codes(
+        "module M {\n    in  f : bool\n    in  b : u8\n    out y : bool\n\n    y = f -> b\n}\n",
+    );
+    assert!(c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
 fn bitwise_signed_keeps_width() {
     let result =
         check("module M {\n    in  a : i8\n    in  b : i8\n    out y : i8\n\n    y = a & b\n}\n");

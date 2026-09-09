@@ -228,6 +228,85 @@ fn prec_15_eq_chain_is_e0010() {
     );
 }
 
+// ═══ İmplikasyon operatörü (operator-precedence.md §4, ADR-0034) ══
+
+#[test]
+fn prec_16_implication_right_assoc() {
+    assert_eq!(expr_clean_sexp("a -> b -> c"), "(-> a (-> b c))");
+}
+
+#[test]
+fn prec_17_or_binds_tighter_than_implication() {
+    assert_eq!(expr_clean_sexp("a || b -> c"), "(-> (|| a b) c)");
+}
+
+#[test]
+fn impl_rhs_or_binds_tighter() {
+    assert_eq!(expr_clean_sexp("a -> b || c"), "(-> a (|| b c))");
+}
+
+#[test]
+fn impl_not_binds_tighter() {
+    assert_eq!(expr_clean_sexp("!a -> b"), "(-> (! a) b)");
+}
+
+#[test]
+fn impl_and_binds_tighter() {
+    assert_eq!(expr_clean_sexp("a && b -> c"), "(-> (&& a b) c)");
+}
+
+#[test]
+fn impl_comparison_operand() {
+    assert_eq!(expr_clean_sexp("a == 0 -> b < c"), "(-> (== a 0) (< b c))");
+}
+
+#[test]
+fn impl_paren_overrides_right_assoc() {
+    assert_eq!(expr_clean_sexp("(a -> b) -> c"), "(-> (-> a b) c)");
+}
+
+#[test]
+fn fn_return_arrow_unaffected_by_implication() {
+    // fn imzasındaki '->' dönüş tipidir; gövdedeki '->' implikasyondur.
+    let result = p("fn imp(a: bool, b: bool) -> bool { a -> b }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let ItemKind::Fn(f) = &result.ast.items_arena[result.ast.items[0]].kind else {
+        panic!("fn bekleniyor")
+    };
+    assert!(f.return_ty.is_some(), "dönüş tipi korunmalı");
+    let block = &result.ast.blocks[f.body];
+    let tail = block.tail.expect("son ifade olmalı");
+    assert!(matches!(
+        result.ast.exprs[tail].kind,
+        ExprKind::Binary {
+            op: volt_ast::BinOp::Imp,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn fn_contract_implication_with_return_arrow() {
+    // Aynı imzada hem dönüş '->' hem kontrat implikasyonu sorunsuz.
+    let result = p("fn g(a: bool, b: bool) -> bool requires: a -> b { b }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn module_contract_implication_parses() {
+    let result = p(
+        "module M {\n    in  clk : clock\n    in  a : bool\n    out q : bool\n\n    \
+                    invariant: !a -> q\n\n    q = a\n}",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn impl_missing_rhs_recovers() {
+    let (result, _) = parse_expr(FileId(0), "a ->");
+    assert!(!result.diagnostics.is_empty(), "sağ operand eksik");
+}
+
 // ═══ Ek ifade testleri ════════════════════════════════════════════
 
 #[test]
@@ -1828,7 +1907,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_35_of_35_parse_clean() {
+fn ui_pass_all_36_of_36_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1851,17 +1930,18 @@ fn ui_pass_all_35_of_35_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 35, "ui/pass 35 dosya içermeli");
+    assert_eq!(total, 36, "ui/pass 36 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
     // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını,
     // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını,
     // ADR-0031/0032 ise 37-38 keyfi genişlik + match fixture'larını,
-    // ADR-0033 ise 39_test_block'u (test blokları) ekledi.
+    // ADR-0033 ise 39_test_block'u (test blokları),
+    // ADR-0034 ise 40_implication_operator'ı (implikasyon) ekledi.
     assert_eq!(
-        clean, 35,
-        "35/35 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 36,
+        "36/36 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

@@ -203,9 +203,21 @@ impl<'a> Emitter<'a> {
         Some(blocks.join("\n\n"))
     }
 
-    /// Kontrat ifadesi → SV metni. `ensures` için üst düzey `!a || b`
-    /// deseni örtüşmeli gerektirmeye (`a |-> b`) çevrilir.
+    /// Kontrat ifadesi → SV metni. Üst düzey `a -> b` implikasyonu her
+    /// kontrat türünde, `ensures`'ün eski `!a || b` deseni geriye uyumluluk
+    /// için örtüşmeli gerektirmeye (`a |-> b`) çevrilir (ADR-0034).
     fn sva_expr(&mut self, c: &Contract) -> String {
+        if let ExprKind::Binary {
+            op: BinOp::Imp,
+            lhs,
+            rhs,
+        } = &self.ast.exprs[c.expr].kind
+        {
+            let (lhs, rhs) = (*lhs, *rhs);
+            let a = self.emit_expr(lhs, ONE_BIT);
+            let b = self.emit_expr(rhs, ONE_BIT);
+            return format!("{a} |-> {b}");
+        }
         if c.kind == ContractKind::Ensures {
             if let ExprKind::Binary {
                 op: BinOp::Or,

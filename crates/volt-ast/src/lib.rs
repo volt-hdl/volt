@@ -797,6 +797,8 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// `a -> b` — mantıksal implikasyon, `!a || b` (ADR-0034).
+    Imp,
 }
 
 impl BinOp {
@@ -829,6 +831,7 @@ impl BinOp {
             BinOp::Ge => ">=",
             BinOp::And => "&&",
             BinOp::Or => "||",
+            BinOp::Imp => "->",
         }
     }
 }

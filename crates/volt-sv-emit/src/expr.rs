@@ -39,6 +39,8 @@ impl Sig {
 /// operator-precedence.md §3'ten türetildi).
 fn sv_prec(op: BinOp) -> u8 {
     match op {
+        // İmplikasyon SV'de `!a || b` olarak açıldığından || düzeyinde.
+        BinOp::Imp => 1,
         BinOp::Or => 1,
         BinOp::And => 2,
         BinOp::Eq | BinOp::Ne => 3,
@@ -127,6 +129,7 @@ impl<'a> Emitter<'a> {
                         | BinOp::Ge
                         | BinOp::And
                         | BinOp::Or
+                        | BinOp::Imp
                 ) {
                     return Some(Sig {
                         width: 1,
@@ -285,25 +288,33 @@ impl<'a> Emitter<'a> {
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
                         self.width_of(lhs).or_else(|| self.width_of(rhs))
                     }
-                    BinOp::And | BinOp::Or => Some(Sig {
+                    BinOp::And | BinOp::Or | BinOp::Imp => Some(Sig {
                         width: 1,
                         signed: false,
                     }),
                     _ => self.width_of(idx).or(ctx),
                 };
-                let l = self.emit_prec(lhs, operand_ctx, prec, false);
-                let r = if matches!(op, BinOp::Shl | BinOp::Shr) {
-                    let inner = self.emit_plain(rhs);
-                    // kaydırma miktarı atom değilse parantezle
-                    if matches!(&ast.exprs[rhs].kind, ExprKind::Binary { .. }) {
-                        format!("({inner})")
-                    } else {
-                        inner
-                    }
+                // İmplikasyonun SV ifade karşılığı yok — `!a || b` açılımı
+                // (ADR-0034); sol operand ! altında kalsın diye parantezlenir.
+                if op == BinOp::Imp {
+                    let l = self.emit_prec(lhs, operand_ctx, PREC_UNARY, false);
+                    let r = self.emit_prec(rhs, operand_ctx, prec, true);
+                    (format!("!{l} || {r}"), prec)
                 } else {
-                    self.emit_prec(rhs, operand_ctx, prec, true)
-                };
-                (format!("{l} {} {r}", op.symbol()), prec)
+                    let l = self.emit_prec(lhs, operand_ctx, prec, false);
+                    let r = if matches!(op, BinOp::Shl | BinOp::Shr) {
+                        let inner = self.emit_plain(rhs);
+                        // kaydırma miktarı atom değilse parantezle
+                        if matches!(&ast.exprs[rhs].kind, ExprKind::Binary { .. }) {
+                            format!("({inner})")
+                        } else {
+                            inner
+                        }
+                    } else {
+                        self.emit_prec(rhs, operand_ctx, prec, true)
+                    };
+                    (format!("{l} {} {r}", op.symbol()), prec)
+                }
             }
             ExprKind::Index { base, index } => {
                 let (base, index) = (*base, *index);

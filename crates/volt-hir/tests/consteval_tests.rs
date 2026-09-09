@@ -111,6 +111,23 @@ fn logical_ops_on_bool() {
 }
 
 #[test]
+fn implication_on_bool() {
+    // a -> b ≡ !a || b (ADR-0034): yalnız true -> false sonucu false.
+    assert_eq!(
+        eval_named("const SONUC : bool = true -> false;", "SONUC"),
+        ConstValue::Bool(false)
+    );
+    assert_eq!(
+        eval_named("const SONUC : bool = false -> false;", "SONUC"),
+        ConstValue::Bool(true)
+    );
+    assert_eq!(
+        eval_named("const SONUC : bool = true -> true;", "SONUC"),
+        ConstValue::Bool(true)
+    );
+}
+
+#[test]
 fn if_with_constant_condition() {
     assert_eq!(eval_expr("if true { 1 } else { 2 }"), ConstValue::Int(1));
     assert_eq!(eval_expr("if 3 > 5 { 1 } else { 2 }"), ConstValue::Int(2));

@@ -24,13 +24,12 @@ module UartTx {
     // At most 8 data bits are ever counted in one frame.
     invariant: bit_count_r <= 8
     // The line idles high: whenever the transmitter is not busy the
-    // tx output is high. Volt has no implication operator, so
-    // `!busy -> tx` is written as its disjunctive form `busy || tx`.
-    invariant: busy_r || tx_r
+    // tx output is high (ADR-0034 implication, SVA: !busy_r |-> tx_r).
+    invariant: !busy_r -> tx_r
     // Induction helper: outside IDLE (state 0) the transmitter is
-    // always busy. Without this, `busy_r || tx_r` alone is not
+    // always busy. Without this, the idle-line invariant alone is not
     // inductive and `--mode prove` fails.
-    invariant: state_r == 0 || busy_r
+    invariant: state_r != 0 -> busy_r
 
     // Reachability targets: every one of the four states is visited.
     cover: state_r == 0    // IDLE

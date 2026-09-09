@@ -21,7 +21,53 @@ struct Topic {
 }
 
 /// Tanımlı konu adları (küçük harf, tire ile).
-pub const TOPIC_NAMES: &[&str] = &["verify-setup", "simulation-setup"];
+pub const TOPIC_NAMES: &[&str] = &[
+    "getting-started",
+    "domains",
+    "contracts",
+    "stdlib",
+    "verify-setup",
+    "simulation-setup",
+];
+
+/// `volt explain --topics` — konu adı + tek satır özet listesi.
+pub fn render_topic_list(lang: Lang) -> String {
+    let (title, footer) = match lang {
+        Lang::En => (
+            "Topics — 'volt explain <topic>':",
+            "Diagnostic codes: 'volt explain E3001' or 'volt explain --list'.",
+        ),
+        Lang::Tr => (
+            "Konular — 'volt explain <konu>':",
+            "Tanı kodları: 'volt explain E3001' ya da 'volt explain --list'.",
+        ),
+    };
+    let mut out = String::new();
+    out.push_str(title);
+    out.push_str("\n\n");
+    for name in TOPIC_NAMES {
+        let summary = match (*name, lang) {
+            ("getting-started", Lang::En) => "your first design, from file to waveform",
+            ("getting-started", Lang::Tr) => "ilk tasarımınız: dosyadan dalga formuna",
+            ("domains", Lang::En) => "clock domains, resets and CDC safety",
+            ("domains", Lang::Tr) => "saat alanları, reset'ler ve CDC güvenliği",
+            ("contracts", Lang::En) => "requires/ensures/invariant/cover",
+            ("contracts", Lang::Tr) => "requires/ensures/invariant/cover",
+            ("stdlib", Lang::En) => "the 11 built-in components",
+            ("stdlib", Lang::Tr) => "11 yerleşik bileşen",
+            ("verify-setup", Lang::En) => "installing SymbiYosys for 'volt verify'",
+            ("verify-setup", Lang::Tr) => "'volt verify' için SymbiYosys kurulumu",
+            ("simulation-setup", Lang::En) => "installing Verilator for 'volt run'",
+            ("simulation-setup", Lang::Tr) => "'volt run' için Verilator kurulumu",
+            _ => "",
+        };
+        out.push_str(&format!("  {name:<18} {summary}\n"));
+    }
+    out.push('\n');
+    out.push_str(footer);
+    out.push('\n');
+    out
+}
 
 fn lookup(name: &str, lang: Lang) -> Option<Topic> {
     match (name, lang) {
@@ -181,6 +227,287 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 ),
             ],
             more: &["https://volthdl.org/guide/simulation-setup"],
+        }),
+        ("getting-started", Lang::En) => Some(Topic {
+            title: "Your first Volt design",
+            summary: "Volt compiles Rust-like source to SystemVerilog and checks clock \
+                      domain safety in the type system. This page walks through one \
+                      design from file to waveform.",
+            sections: &[
+                (
+                    "WRITE",
+                    "Save this as blink.volt:\n\n\
+                     \x20 module Blink {\n\
+                     \x20     in  clk : clock\n\
+                     \x20     out led : bool\n\n\
+                     \x20     reg count_r : u8 = 0\n\n\
+                     \x20     on clk {\n\
+                     \x20         count_r <= count_r + 1\n\
+                     \x20     }\n\n\
+                     \x20     led = count_r[7]\n\
+                     \x20 }",
+                ),
+                (
+                    "COMPILE AND RUN",
+                    "  volt check blink.volt        errors only, no output files\n\
+                     \x20 volt build blink.volt        writes build/rtl/blink.sv\n\
+                     \x20 volt run blink.volt --cycles 300 --vcd waves.vcd\n\n\
+                     Open waves.vcd with any viewer (e.g. gtkwave) to see the led toggle.",
+                ),
+                (
+                    "NEXT STEPS",
+                    "Add a contract ('invariant: count_r <= 255') and prove it with \
+                     'volt verify blink.volt'. Write a 'test \"name\" { ... }' block and \
+                     run it with 'volt test'. Related topics: 'volt explain contracts', \
+                     'volt explain domains', 'volt explain stdlib'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/getting-started"],
+        }),
+        ("getting-started", Lang::Tr) => Some(Topic {
+            title: "İlk Volt tasarımınız",
+            summary: "Volt, Rust benzeri kaynağı SystemVerilog'a derler ve saat alanı \
+                      güvenliğini tip sisteminde denetler. Bu sayfa bir tasarımı dosyadan \
+                      dalga formuna kadar adım adım gösterir.",
+            sections: &[
+                (
+                    "YAZIN",
+                    "Bunu blink.volt olarak kaydedin:\n\n\
+                     \x20 module Blink {\n\
+                     \x20     in  clk : clock\n\
+                     \x20     out led : bool\n\n\
+                     \x20     reg count_r : u8 = 0\n\n\
+                     \x20     on clk {\n\
+                     \x20         count_r <= count_r + 1\n\
+                     \x20     }\n\n\
+                     \x20     led = count_r[7]\n\
+                     \x20 }",
+                ),
+                (
+                    "DERLEYİN VE KOŞTURUN",
+                    "  volt check blink.volt        yalnız hatalar, çıktı dosyası yok\n\
+                     \x20 volt build blink.volt        build/rtl/blink.sv üretir\n\
+                     \x20 volt run blink.volt --cycles 300 --vcd dalga.vcd\n\n\
+                     dalga.vcd'yi bir görüntüleyiciyle (ör. gtkwave) açıp led'in \
+                     değişimini izleyin.",
+                ),
+                (
+                    "SONRAKİ ADIMLAR",
+                    "Bir kontrat ekleyin ('invariant: count_r <= 255') ve 'volt verify \
+                     blink.volt' ile kanıtlayın. Bir 'test \"ad\" { ... }' bloğu yazıp \
+                     'volt test' ile koşturun. İlgili konular: 'volt explain contracts', \
+                     'volt explain domains', 'volt explain stdlib'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/getting-started"],
+        }),
+        ("domains", Lang::En) => Some(Topic {
+            title: "Clock domains and CDC safety",
+            summary: "Every signal in Volt lives in a clock domain. Mixing two domains \
+                      without an explicit synchronizer is a compile error (E3001) — this \
+                      is Volt's core promise: no silent clock-domain-crossing bugs.",
+            sections: &[
+                (
+                    "SINGLE CLOCK",
+                    "With one clock you never write the word 'domain'; everything is \
+                     inferred:\n\n\
+                     \x20 module M {\n\
+                     \x20     in  clk : clock\n\
+                     \x20     ...\n\
+                     \x20 }",
+                ),
+                (
+                    "TWO OR MORE CLOCKS",
+                    "Declare a domain per clock and tag the ports:\n\n\
+                     \x20 domain Fast { clock = posedge, reset = sync active_high }\n\
+                     \x20 domain Slow { clock = posedge, reset = sync active_high }\n\n\
+                     \x20 module Bridge {\n\
+                     \x20     in  fast_clk : clock @Fast\n\
+                     \x20     in  slow_clk : clock @Slow\n\
+                     \x20     in  a : bool @Fast\n\
+                     \x20     ...\n\
+                     \x20 }\n\n\
+                     A domain fixes the clock edge (posedge/negedge) and the reset \
+                     style (sync/async, active_high/active_low, or none).",
+                ),
+                (
+                    "CROSSING DOMAINS",
+                    "Reading an @Fast signal under the Slow clock is E3001. Cross with \
+                     sync() (two-flop synchronizer, single bits) or a stdlib bridge \
+                     (AsyncFifo, HandshakeSync, PulseSync) for words and pulses — see \
+                     'volt explain stdlib'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/domains"],
+        }),
+        ("domains", Lang::Tr) => Some(Topic {
+            title: "Saat alanları ve CDC güvenliği",
+            summary: "Volt'ta her sinyal bir saat alanında yaşar. İki alanı açık bir \
+                      senkronizör olmadan karıştırmak derleme hatasıdır (E3001) — Volt'un \
+                      temel vaadi: sessiz saat alanı geçişi hatası yok.",
+            sections: &[
+                (
+                    "TEK SAAT",
+                    "Tek saatte 'domain' sözcüğünü hiç yazmazsınız; her şey çıkarsanır:\n\n\
+                     \x20 module M {\n\
+                     \x20     in  clk : clock\n\
+                     \x20     ...\n\
+                     \x20 }",
+                ),
+                (
+                    "İKİ VEYA DAHA FAZLA SAAT",
+                    "Saat başına bir alan bildirin ve portları etiketleyin:\n\n\
+                     \x20 domain Fast { clock = posedge, reset = sync active_high }\n\
+                     \x20 domain Slow { clock = posedge, reset = sync active_high }\n\n\
+                     \x20 module Bridge {\n\
+                     \x20     in  fast_clk : clock @Fast\n\
+                     \x20     in  slow_clk : clock @Slow\n\
+                     \x20     in  a : bool @Fast\n\
+                     \x20     ...\n\
+                     \x20 }\n\n\
+                     Alan; saat kenarını (posedge/negedge) ve reset biçimini \
+                     (sync/async, active_high/active_low ya da none) sabitler.",
+                ),
+                (
+                    "ALANLAR ARASI GEÇİŞ",
+                    "@Fast bir sinyali Slow saati altında okumak E3001'dir. Tek bitler \
+                     için sync() (çift flip-flop senkronizörü), sözcük ve darbeler için \
+                     stdlib köprüleri (AsyncFifo, HandshakeSync, PulseSync) kullanın — \
+                     bkz. 'volt explain stdlib'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/domains"],
+        }),
+        ("contracts", Lang::En) => Some(Topic {
+            title: "Behavioral contracts",
+            summary: "Contracts state what must hold in every reachable cycle. \
+                      'volt verify' proves them formally with SymbiYosys; 'volt build \
+                      --emit=sva' turns them into SystemVerilog assertions.",
+            sections: &[
+                (
+                    "THE FOUR KEYWORDS",
+                    "  requires:  ...   assumption about the inputs (ports only)\n\
+                     \x20 ensures:   ...   guarantee about the outputs (ports only)\n\
+                     \x20 invariant: ...   always true inside (ports + registers)\n\
+                     \x20 cover:     ...   reachability target (sees everything)",
+                ),
+                (
+                    "IMPLICATION",
+                    "The most common contract shape is \"if A then B\" — write it with \
+                     the '->' operator (ADR-0034):\n\n\
+                     \x20 invariant: !busy -> tx        // when idle, the line is high\n\
+                     \x20 ensures:   start -> busy      // SVA: start |-> busy\n\n\
+                     'a -> b' means '!a || b'; both sides must be bool.",
+                ),
+                (
+                    "PROVING",
+                    "  volt verify design.volt                 bounded check (bmc)\n\
+                     \x20 volt verify design.volt --mode prove    k-induction proof\n\
+                     \x20 volt verify design.volt --mode cover    reach the cover targets\n\n\
+                     A counterexample exits with code 6 and writes a .vcd trace; \
+                     'volt explain E5001' explains how to read it. Installation: \
+                     'volt explain verify-setup'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/contracts"],
+        }),
+        ("contracts", Lang::Tr) => Some(Topic {
+            title: "Davranışsal kontratlar",
+            summary: "Kontratlar, erişilebilir her döngüde neyin doğru kalması \
+                      gerektiğini söyler. 'volt verify' bunları SymbiYosys ile formal \
+                      kanıtlar; 'volt build --emit=sva' SystemVerilog assertion'larına \
+                      çevirir.",
+            sections: &[
+                (
+                    "DÖRT ANAHTAR KELİME",
+                    "  requires:  ...   girişler hakkında varsayım (yalnız portlar)\n\
+                     \x20 ensures:   ...   çıkışlar hakkında güvence (yalnız portlar)\n\
+                     \x20 invariant: ...   içeride hep doğru (portlar + register'lar)\n\
+                     \x20 cover:     ...   erişilebilirlik hedefi (her şeyi görür)",
+                ),
+                (
+                    "İMPLİKASYON",
+                    "En yaygın kontrat biçimi \"A ise B\"dir — '->' operatörüyle yazın \
+                     (ADR-0034):\n\n\
+                     \x20 invariant: !busy -> tx        // boştayken hat yüksek\n\
+                     \x20 ensures:   start -> busy      // SVA: start |-> busy\n\n\
+                     'a -> b', '!a || b' demektir; iki taraf da bool olmalıdır.",
+                ),
+                (
+                    "KANITLAMA",
+                    "  volt verify tasarim.volt                 sınırlı denetim (bmc)\n\
+                     \x20 volt verify tasarim.volt --mode prove    k-endüksiyon kanıtı\n\
+                     \x20 volt verify tasarim.volt --mode cover    cover hedeflerine ulaş\n\n\
+                     Karşı örnek 6 koduyla çıkar ve bir .vcd izi yazar; nasıl okunacağını \
+                     'volt explain E5001' anlatır. Kurulum: 'volt explain verify-setup'.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/contracts"],
+        }),
+        ("stdlib", Lang::En) => Some(Topic {
+            title: "The built-in component library",
+            summary: "Eleven components are built into the compiler (ADR-0027/0029). \
+                      Instantiate them like modules; the generated RTL is battle-tested \
+                      and CDC-correct.",
+            sections: &[
+                (
+                    "CDC BRIDGES (two domains)",
+                    "  AsyncFifo<T, DEPTH>     gray-pointer FIFO between two clocks\n\
+                     \x20 HandshakeSync<T>        one word per 4-phase req/ack transfer\n\
+                     \x20 PulseSync               carries a single-cycle pulse across",
+                ),
+                (
+                    "SINGLE-CLOCK BUILDING BLOCKS",
+                    "  SyncFifo<T, DEPTH>      buffer between producer and consumer\n\
+                     \x20 Ram<T, DEPTH>           synchronous single-port memory\n\
+                     \x20 DualPortRam<T, DEPTH>   one write port, one read port\n\
+                     \x20 Counter<WIDTH>          up-counter with enable and wrap\n\
+                     \x20 ShiftRegister<T, LEN>   fixed-length delay line\n\
+                     \x20 RoundRobinArbiter<N>    fair grant among N requesters\n\
+                     \x20 PriorityArbiter<N>      lowest index wins\n\
+                     \x20 EdgeDetect              rising/falling edge pulses",
+                ),
+                (
+                    "USAGE",
+                    "  let f = SyncFifo<u8, 16> { clk: clk, ... }\n\
+                     \x20 ... f.rd_data ...\n\n\
+                     Wrong generic arguments produce E2003 with the expected shape; \
+                     DEPTH must be a power of two where noted.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/stdlib"],
+        }),
+        ("stdlib", Lang::Tr) => Some(Topic {
+            title: "Yerleşik bileşen kütüphanesi",
+            summary: "Derleyicide on bir yerleşik bileşen vardır (ADR-0027/0029). \
+                      Modül gibi örneklenir; üretilen RTL denenmiş ve CDC-doğrudur.",
+            sections: &[
+                (
+                    "CDC KÖPRÜLERİ (iki alan)",
+                    "  AsyncFifo<T, DEPTH>     iki saat arasında gray-pointer FIFO\n\
+                     \x20 HandshakeSync<T>        4-fazlı req/ack ile sözcük aktarımı\n\
+                     \x20 PulseSync               tek döngülük darbeyi karşıya taşır",
+                ),
+                (
+                    "TEK SAATLİ YAPI TAŞLARI",
+                    "  SyncFifo<T, DEPTH>      üretici ile tüketici arasında tampon\n\
+                     \x20 Ram<T, DEPTH>           senkron tek portlu bellek\n\
+                     \x20 DualPortRam<T, DEPTH>   bir yazma, bir okuma portu\n\
+                     \x20 Counter<WIDTH>          enable ve sarmalı yukarı sayaç\n\
+                     \x20 ShiftRegister<T, LEN>   sabit uzunluklu gecikme hattı\n\
+                     \x20 RoundRobinArbiter<N>    N istekçi arasında adil tahsis\n\
+                     \x20 PriorityArbiter<N>      en düşük indeks kazanır\n\
+                     \x20 EdgeDetect              yükselen/düşen kenar darbeleri",
+                ),
+                (
+                    "KULLANIM",
+                    "  let f = SyncFifo<u8, 16> { clk: clk, ... }\n\
+                     \x20 ... f.rd_data ...\n\n\
+                     Yanlış generic argüman, beklenen kalıbı gösteren E2003 üretir; \
+                     belirtilen yerlerde DEPTH iki kuvveti olmalıdır.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/stdlib"],
         }),
         _ => None,
     }

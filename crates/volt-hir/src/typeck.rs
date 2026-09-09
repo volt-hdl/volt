@@ -931,15 +931,16 @@ impl<'a> TypeChecker<'a, '_> {
 
     fn synth_binary(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
         use BinOp::{
-            Add, And, BitAnd, BitOr, BitXor, Div, Eq, Ge, Gt, Le, Lt, Mul, Ne, Or, Rem, Shl, Shr,
-            Sub,
+            Add, And, BitAnd, BitOr, BitXor, Div, Eq, Ge, Gt, Imp, Le, Lt, Mul, Ne, Or, Rem, Shl,
+            Shr, Sub,
         };
         match op {
             Add | Sub | Mul | Div | Rem => self.synth_arith(op, lhs, rhs, span),
             BitAnd | BitOr | BitXor => self.synth_bitwise(lhs, rhs, span),
             Shl | Shr => self.synth_shift(lhs, rhs, span),
             Eq | Ne | Lt | Gt | Le | Ge => self.synth_comparison(lhs, rhs, span),
-            And | Or => self.synth_logical(lhs, rhs),
+            // a -> b ≡ !a || b: iki operand da Bool, sonuç Bool (ADR-0034).
+            And | Or | Imp => self.synth_logical(lhs, rhs),
         }
     }
 

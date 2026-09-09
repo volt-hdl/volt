@@ -13,6 +13,7 @@ Pratt parser'da `binding power` olarak kullanılır.
 
 | Öncelik | Operatör | Anlam | Birleşme | Örnek |
 |---------|----------|-------|----------|-------|
+| 0 | `->` | mantıksal implikasyon | **sağ** | `a -> b -> c` → `a -> (b -> c)` |
 | 1 | `\|\|` | mantıksal veya | sol | `a \|\| b \|\| c` → `(a \|\| b) \|\| c` |
 | 2 | `&&` | mantıksal ve | sol | `a && b && c` → `(a && b) && c` |
 | 3 | `==` `!=` | eşitlik | **birleşmez** | `a == b == c` → HATA E0010 |
@@ -83,7 +84,26 @@ Parser bağlama göre ayırır:
   a * -b     → a * (-b)
 ```
 
-### 2.5 `as` Operatörü (Tip Dönüşümü)
+### 2.5 İmplikasyon Operatörü `->` (ADR-0034)
+
+```volt
+invariant: !busy -> tx
+// ≡ invariant: !(!busy) || tx — ama niyet kaynakta görünür kalır.
+// SVA çıktısı: !busy |-> tx (örtüşmeli gerektirme)
+```
+
+`a -> b`, `!a || b` ile eşdeğerdir: iki operand da Bool olmalı
+(değilse E2003), sonuç Bool'dur. EN DÜŞÜK öncelik seviyesidir
+(0, `||` altında) ve SAĞ birleşmelidir:
+`a -> b -> c` → `a -> (b -> c)`.
+
+**`fn` dönüş tipiyle çakışmaz:** parametre listesinin kapanış
+`)`'ından sonraki `->`, ifade ayrıştırması hiç başlamadan ÖĞE
+parser'ında tüketilir; ifade döngüsüne ulaşan her `->`
+implikasyondur. Karar LL(2) içindedir — `)` sonrası tek token
+ileri bakış yeter, geri alma gerekmez.
+
+### 2.6 `as` Operatörü (Tip Dönüşümü)
 
 ```volt
 let x = a as u16 + b;
@@ -108,6 +128,11 @@ Rust implementasyonu için hazır değerler:
 /// (sol_bp, sağ_bp) — sol birleşme için sağ_bp = sol_bp + 1
 fn infix_binding_power(op: BinOp) -> Option<(u8, u8)> {
     let bp = match op {
+        // SAĞ birleşmeli, 0. seviye (ADR-0034). sol_bp Or ile eşit ama
+        // çakışmaz: implikasyonun sağ operandı min_bp=0 ile ayrışır,
+        // || ve üzeri daha sıkı bağlanır; sağ_bp=0 < sol_bp=1 sağ
+        // birleşmeyi verir.
+        BinOp::Imp       => (1, 0),
         BinOp::Or        => (1, 2),      // sol
         BinOp::And       => (3, 4),      // sol
         BinOp::Eq | BinOp::Ne
@@ -175,6 +200,8 @@ a << 2 + 1                   (<< a (+ 2 1))
 !a && b                      (&& (! a) b)
 -a + b                       (+ (- a) b)
 a as u16 + b                 (+ (as a u16) b)
+a -> b -> c                  (-> a (-> b c))
+a || b -> c                  (-> (|| a b) c)
 !a[0]                        (! (index a 0))
 a.b.c                        (field (field a b) c)
 (a + b) * c                  (* (+ a b) c)

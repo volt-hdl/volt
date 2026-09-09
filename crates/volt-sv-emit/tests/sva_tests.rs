@@ -78,6 +78,52 @@ fn ensures_becomes_assert_with_implication_sugar() {
     assert!(sva.contains("start |-> busy"), "{sva}");
 }
 
+// ═══ İmplikasyon operatörü → |-> (ADR-0034) ═══════════════════════
+
+#[test]
+fn invariant_implication_becomes_overlapped_implication() {
+    let sva = single_sva(&uart("    invariant: start -> busy\n"));
+    assert!(sva.contains("property inv_0;"), "{sva}");
+    assert!(sva.contains("start |-> busy"), "{sva}");
+}
+
+#[test]
+fn ensures_implication_operator_becomes_overlapped_implication() {
+    let sva = single_sva(&uart("    ensures: start -> busy\n"));
+    assert!(sva.contains("property ens_0;"), "{sva}");
+    assert!(sva.contains("start |-> busy"), "{sva}");
+}
+
+#[test]
+fn requires_implication_becomes_assume_with_overlapped_implication() {
+    let sva = single_sva(&uart("    requires: start -> speed == 2\n"));
+    assert!(sva.contains("assume property (req_0);"), "{sva}");
+    assert!(sva.contains("start |-> speed == 8'd2"), "{sva}");
+}
+
+#[test]
+fn nested_implication_rhs_expands_to_boolean_form() {
+    // Sağ birleşme: a -> (b -> c); yalnız üst düzey |-> olur,
+    // iç implikasyon boolean açılımıyla (!b || c) yazılır.
+    let sva = single_sva(&uart("    invariant: start -> busy -> !start\n"));
+    assert!(sva.contains("start |-> !busy || !start"), "{sva}");
+    assert_eq!(sva.matches("|->").count(), 1, "{sva}");
+}
+
+#[test]
+fn implication_lhs_with_negation() {
+    let sva = single_sva(&uart("    invariant: !busy -> !start\n"));
+    assert!(sva.contains("!busy |-> !start"), "{sva}");
+}
+
+#[test]
+fn immediate_mode_implication_expands_to_boolean_form() {
+    // Yosys '|->' bilmez; tek döngüde '!a || b' eşdeğerdir.
+    let out = full(&uart("    invariant: start -> busy\n"), SvaMode::Immediate);
+    assert!(out.sv.contains("!start || busy"), "{}", out.sv);
+    assert!(!out.sv.contains("|->"), "{}", out.sv);
+}
+
 #[test]
 fn assume_contract_becomes_assume_property() {
     let sva = single_sva(&uart("    assume: speed == 0\n"));

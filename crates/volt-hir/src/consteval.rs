@@ -493,7 +493,7 @@ impl<'a> ConstEvaluator<'a> {
                     BinOp::Le => return Bool(a <= b),
                     BinOp::Ge => return Bool(a >= b),
 
-                    BinOp::And | BinOp::Or => {
+                    BinOp::And | BinOp::Or | BinOp::Imp => {
                         self.type_mismatch(span, "bool");
                         return Error;
                     }
@@ -533,6 +533,7 @@ impl<'a> ConstEvaluator<'a> {
             (Bool(a), Bool(b)) => match op {
                 BinOp::And => Bool(a && b),
                 BinOp::Or => Bool(a || b),
+                BinOp::Imp => Bool(!a || b),
                 BinOp::Eq => Bool(a == b),
                 BinOp::Ne => Bool(a != b),
                 _ => {

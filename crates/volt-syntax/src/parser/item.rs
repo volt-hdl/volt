@@ -641,7 +641,10 @@ impl Parser<'_> {
             &lstr!(en: "write it as requires: cond"; tr: "requires: koşul biçiminde yazın"),
         );
         let expr = if self.at_expr_start() {
-            self.parse_expr()
+            // Struct literal yasak: fn kontratı gövde '{'sinden önce gelir,
+            // 'requires: a -> b { ... }' içindeki 'b {' yapı literali
+            // sanılmamalı ('if' başlığıyla aynı kural).
+            self.parse_expr_no_struct_lit()
         } else {
             self.error_expected(
                 &lstr!(en: "contract condition"; tr: "kontrat koşulu"),

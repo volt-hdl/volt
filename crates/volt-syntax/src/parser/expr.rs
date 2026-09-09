@@ -17,6 +17,10 @@ use super::{Parser, MAX_DEPTH};
 /// (left_bp, right_bp) — operator-precedence.md §3 değerleri.
 fn infix_binding_power(op: BinOp) -> (u8, u8) {
     match op {
+        // SAĞ birleşmeli (r_bp < l_bp): a -> b -> c ≡ a -> (b -> c).
+        // l_bp=1 Or ile eşit ama çakışmaz: sağ operand min_bp=0 ile
+        // ayrıştırıldığından || implikasyondan sıkı bağlanır (ADR-0034).
+        BinOp::Imp => (1, 0),
         BinOp::Or => (1, 2),
         BinOp::And => (3, 4),
         BinOp::Eq | BinOp::Ne => (5, 5), // BİRLEŞMEZ
@@ -44,6 +48,10 @@ pub(crate) const ABOVE_SHIFT_BP: u8 = 16;
 
 fn token_binop(kind: TokenKind) -> Option<BinOp> {
     Some(match kind {
+        // İfade bağlamında '->' her zaman implikasyondur; fn dönüş
+        // tipindeki '->' item parser'ında imza konumunda tüketilir,
+        // bu döngüye hiç ulaşmaz (ADR-0034).
+        Arrow => BinOp::Imp,
         PipePipe => BinOp::Or,
         AmpAmp => BinOp::And,
         EqEq => BinOp::Eq,

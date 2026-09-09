@@ -362,6 +362,27 @@ pub(crate) fn run(
             tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
         )
     );
+    // Bağlama göre sonraki adım: dalga formu alınmadıysa --vcd öner.
+    let name = file.display();
+    if vcd.is_none() {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "        Next: volt test                        (run tests)\n              \
+                     volt run --vcd waves.vcd {name}   (record a waveform)";
+                tr: "    Sıradaki: volt test                        (testleri koştur)\n              \
+                     volt run --vcd dalga.vcd {name}   (dalga formu kaydet)"
+            )
+        );
+    } else {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "        Next: volt test   (run tests)";
+                tr: "    Sıradaki: volt test   (testleri koştur)"
+            )
+        );
+    }
     ExitCode::SUCCESS
 }
 

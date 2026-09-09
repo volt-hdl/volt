@@ -15,6 +15,7 @@ Used as `binding power` in the Pratt parser.
 
 | Prec | Operator | Meaning | Assoc | Example |
 |------|----------|---------|-------|---------|
+| 0 | `->` | logical implication | **right** | `a -> b -> c` → `a -> (b -> c)` |
 | 1 | `\|\|` | logical or | left | `a \|\| b \|\| c` → `(a \|\| b) \|\| c` |
 | 2 | `&&` | logical and | left | `a && b && c` → `(a && b) && c` |
 | 3 | `==` `!=` | equality | **non-assoc** | `a == b == c` → ERROR E0010 |
@@ -85,7 +86,26 @@ Examples:
   a * -b     → a * (-b)
 ```
 
-### 2.5 The `as` Operator (Type Cast)
+### 2.5 The Implication Operator `->` (ADR-0034)
+
+```volt
+invariant: !busy -> tx
+// ≡ invariant: !(!busy) || tx — but the intent stays visible.
+// SVA output: !busy |-> tx (overlapped implication)
+```
+
+`a -> b` is equivalent to `!a || b`: both operands must be Bool
+(otherwise E2003), the result is Bool. It is the LOWEST precedence
+level (0, below `||`) and RIGHT-associative:
+`a -> b -> c` → `a -> (b -> c)`.
+
+**No conflict with `fn` return types:** the `->` after a parameter
+list's closing `)` is consumed by the ITEM parser before expression
+parsing ever starts; any `->` reaching the expression loop is an
+implication. The decision fits in LL(2) — one token of lookahead
+after `)` — with no backtracking.
+
+### 2.6 The `as` Operator (Type Cast)
 
 ```volt
 let x = a as u16 + b;
@@ -110,6 +130,11 @@ Ready-to-use values for the Rust implementation:
 /// (left_bp, right_bp) — for left-assoc, right_bp = left_bp + 1
 fn infix_binding_power(op: BinOp) -> Option<(u8, u8)> {
     let bp = match op {
+        // RIGHT-assoc, level 0 (ADR-0034). l_bp equals Or's but they
+        // cannot clash: the implication's rhs is parsed with min_bp=0,
+        // so || and everything above binds tighter; r_bp=0 < l_bp=1
+        // yields right associativity.
+        BinOp::Imp       => (1, 0),
         BinOp::Or        => (1, 2),      // left
         BinOp::And       => (3, 4),      // left
         BinOp::Eq | BinOp::Ne
@@ -177,6 +202,8 @@ a << 2 + 1                   (<< a (+ 2 1))
 !a && b                      (&& (! a) b)
 -a + b                       (+ (- a) b)
 a as u16 + b                 (+ (as a u16) b)
+a -> b -> c                  (-> a (-> b c))
+a || b -> c                  (-> (|| a b) c)
 !a[0]                        (! (index a 0))
 a.b.c                        (field (field a b) c)
 (a + b) * c                  (* (+ a b) c)
