@@ -194,6 +194,8 @@ impl Parser<'_> {
                 self.parse_package();
                 return;
             }
+            // Bağlamsal 'test' (ADR-0033): Ident("test") + StringLit.
+            Some(Ident) if self.at_test_decl() => self.parse_test(),
             None => return,
             _ => {
                 let err = Diagnostic::error(

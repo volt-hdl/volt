@@ -530,6 +530,50 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "@abi_version(4)         // ✓ değişiklikle birlikte artırıldı",
         ),
 
+        // ─── Simülasyon testleri (ADR-0033) ───
+        E8501 => Explanation::new(
+            "Test bloğunda bilinmeyen modül örnekleniyor",
+            "'let dut = X { };' deyimi var olmayan bir modülü adlıyor.",
+            "Bir test tek bir tasarımı (DUT) sürer. Modül ya aynı dosyada tanımlı olmalı ya da — X_test.volt adlı dosyalar için — otomatik ayrıştırılan kardeş X.volt dosyasında bulunmalıdır. En sık neden modül adındaki yazım hatasıdır.",
+            "test \"t\" {\n    let dut = Countr { };   // ✗ E8501: 'Countr' diye modül yok\n}",
+            "test \"t\" {\n    let dut = Counter { };  // ✓\n}",
+        ),
+        E8502 => Explanation::new(
+            "Test bloğunda bilinmeyen port",
+            "Başvurulan port, örneklenen modülde tanımlı değil.",
+            "Test deyimleri yalnız modülün bildirilen portlarına dokunabilir; iç register'lar testbench'ten görünmez. Tam ad için modülün port listesine bakın.",
+            "dut.enabel = true;      // ✗ E8502: 'enabel' diye port yok",
+            "dut.enable = true;      // ✓",
+        ),
+        E8503 => Explanation::new(
+            "Giriş olmayan porta yazma",
+            "Testten yalnız 'in' portları sürülebilir; saat portlarını simülatörün kendisi sürer.",
+            "Çıkışları tasarım üretir — testbench'ten yazmak sürücü çakışması yaratırdı. Saati step() kendisi çevirir, örtük reset hattını da reset() yönetir; ikisine de doğrudan atama yapılamaz.",
+            "dut.count = 3;          // ✗ E8503: 'count' bir çıkış",
+            "step(3);                // ✓ count'u tasarım üretsin",
+        ),
+        E8504 => Explanation::new(
+            "Çıkış olmayan porttan okuma",
+            "Assert'ler ve okumalar yalnız 'out' portlarını gözleyebilir.",
+            "Testbench tasarımı çıkışları üzerinden gözler. Bir girişi geri okumak yalnız testin kendi yazdığı değeri yansıtır; tasarım hakkında hiçbir şey doğrulamaz.",
+            "assert_eq(dut.enable, 1);   // ✗ E8504: 'enable' bir giriş",
+            "assert_eq(dut.count, 1);    // ✓",
+        ),
+        E8505 => Explanation::new(
+            "Geçersiz test yerleşiği çağrısı",
+            "Çağrı hiçbir test yerleşiğiyle eşleşmiyor ya da argümanları hatalı.",
+            "Test gövdesi tam altı yerleşik tanır: tamsayı n >= 1 ile step(n), argümansız reset(), assert_eq(a, b), assert_ne(a, b), assert_true(a) ve assert_false(a). Bunların dışındaki her şey — bilinmeyen ad, yanlış argüman sayısı, step(0) — derleme anında reddedilir.",
+            "step();                 // ✗ E8505: step çevrim sayısı ister",
+            "step(1);                // ✓",
+        ),
+        E8506 => Explanation::new(
+            "Test bloğunda tanımsız ya da yinelenen örnek adı",
+            "Bir örnek 'let' deyiminden önce kullanılıyor ya da aynı ad iki kez bağlanıyor.",
+            "Her test, tasarımını herhangi bir kullanımdan önce tek bir 'let dut = Modul { };' satırıyla adlandırır. Aynı adı yeniden bağlamak sonraki deyimleri belirsizleştirirdi.",
+            "test \"t\" {\n    dut.enable = true;      // ✗ E8506: 'dut' henüz tanımsız\n}",
+            "test \"t\" {\n    let dut = Counter { };\n    dut.enable = true;      // ✓\n}",
+        ),
+
         // ─── Release disiplini ───
         E9001 => Explanation::new(
             "todo! ile release build yapılamaz",

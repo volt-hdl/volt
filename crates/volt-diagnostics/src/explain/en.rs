@@ -530,6 +530,50 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "@abi_version(4)         // ✓ bumped with the change",
         ),
 
+        // ─── Simulation tests (ADR-0033) ───
+        E8501 => Explanation::new(
+            "Unknown module instantiated in a test block",
+            "The 'let dut = X { };' statement names a module that does not exist.",
+            "A test drives one design-under-test. The module must be defined in the same file, or — for a file named X_test.volt — in the sibling file X.volt, which is parsed automatically. A typo in the module name is the usual cause.",
+            "test \"t\" {\n    let dut = Countr { };   // ✗ E8501: no module 'Countr'\n}",
+            "test \"t\" {\n    let dut = Counter { };  // ✓\n}",
+        ),
+        E8502 => Explanation::new(
+            "Unknown port in a test block",
+            "The referenced port does not exist on the instantiated module.",
+            "Test statements may only touch the module's declared ports; internal registers are not visible from a testbench. Check the port list of the module for the exact name.",
+            "dut.enabel = true;      // ✗ E8502: no port 'enabel'",
+            "dut.enable = true;      // ✓",
+        ),
+        E8503 => Explanation::new(
+            "Write to a port that is not an input",
+            "Only 'in' ports may be driven from a test; clock ports are driven by the simulator itself.",
+            "Outputs are produced by the design — writing them from the testbench would create a driver conflict. The clock is toggled automatically by step(), and the implicit reset line is controlled by reset(), so neither may be assigned directly.",
+            "dut.count = 3;          // ✗ E8503: 'count' is an output",
+            "step(3);                // ✓ let the design produce count",
+        ),
+        E8504 => Explanation::new(
+            "Read from a port that is not an output",
+            "Assertions and reads may only observe 'out' ports.",
+            "A testbench observes the design through its outputs. Reading an input back would only reflect the value the test itself wrote, which asserts nothing about the design.",
+            "assert_eq(dut.enable, 1);   // ✗ E8504: 'enable' is an input",
+            "assert_eq(dut.count, 1);    // ✓",
+        ),
+        E8505 => Explanation::new(
+            "Invalid test builtin call",
+            "The call does not match any test builtin, or its arguments are wrong.",
+            "The test body accepts exactly six builtins: step(n) with an integer n >= 1, reset() with no arguments, assert_eq(a, b), assert_ne(a, b), assert_true(a) and assert_false(a). Anything else — unknown names, wrong arity, step(0) — is rejected at compile time.",
+            "step();                 // ✗ E8505: step needs a cycle count",
+            "step(1);                // ✓",
+        ),
+        E8506 => Explanation::new(
+            "Undefined or duplicate instance name in a test block",
+            "An instance is used before its 'let' statement, or the same name is bound twice.",
+            "Each test names its design-under-test with a single 'let dut = Module { };' line before any use. Re-binding the same name would make the following statements ambiguous.",
+            "test \"t\" {\n    dut.enable = true;      // ✗ E8506: 'dut' not defined yet\n}",
+            "test \"t\" {\n    let dut = Counter { };\n    dut.enable = true;      // ✓\n}",
+        ),
+
         // ─── Release discipline ───
         E9001 => Explanation::new(
             "Release builds cannot contain todo!",

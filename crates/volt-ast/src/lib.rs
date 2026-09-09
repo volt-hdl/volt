@@ -109,6 +109,8 @@ pub enum ItemKind {
     Const(ConstDecl),
     TypeAlias(TypeAlias),
     Extern(ExternDecl),
+    /// `test "ad" { ... }` — simülasyon testi (ADR-0033).
+    Test(TestDecl),
     /// Hata kurtarma: ayrıştırılamayan öğe.
     Error,
 }
@@ -223,6 +225,66 @@ pub struct ExternDecl {
     pub name: Name,
     pub generics: Vec<GenericParam>,
     pub ports: Vec<Port>,
+}
+
+/// `test "ad" { ... }` bloğu (ADR-0033). Gövde donanım değil doğrusal
+/// betik olduğundan modül deyim arenalarını kullanmaz; kendi küçük
+/// deyim/ifade türlerini taşır.
+#[derive(Debug)]
+pub struct TestDecl {
+    /// String literal içeriği (tırnaklar hariç), ör. `counter increments`.
+    pub name: String,
+    pub name_span: Span,
+    pub stmts: Vec<TestStmt>,
+}
+
+impl TestDecl {
+    /// Cargo biçimli raporda görünen ad: boşluklar `_` olur.
+    pub fn display_name(&self) -> String {
+        self.name.replace(' ', "_")
+    }
+}
+
+/// Test gövdesi deyimi (grammar-full.ebnf TestStmt).
+#[derive(Debug)]
+pub enum TestStmt {
+    /// `let dut = Counter { };`
+    LetDut {
+        span: Span,
+        name: Name,
+        module: Name,
+    },
+    /// `dut.port = <ifade>;`
+    SetPort {
+        span: Span,
+        dut: Name,
+        port: Name,
+        value: TestExpr,
+    },
+    /// `step(1);`, `reset();`, `assert_eq(a, b);` ...
+    Call {
+        span: Span,
+        func: Name,
+        args: Vec<TestExpr>,
+    },
+}
+
+/// Test gövdesi ifadesi (grammar-full.ebnf TestExpr).
+#[derive(Debug)]
+pub struct TestExpr {
+    pub span: Span,
+    pub kind: TestExprKind,
+}
+
+#[derive(Debug)]
+pub enum TestExprKind {
+    Int(u64),
+    Bool(bool),
+    /// `dut.port` okuması.
+    PortRead {
+        dut: Name,
+        port: Name,
+    },
 }
 
 #[derive(Debug)]

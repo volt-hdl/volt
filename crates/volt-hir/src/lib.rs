@@ -10,6 +10,7 @@ pub mod consteval;
 pub mod domain;
 pub mod drivers;
 pub mod resolve;
+pub mod sim;
 pub mod ty;
 pub mod typeck;
 
@@ -19,6 +20,7 @@ pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource
 pub use resolve::{
     resolve_file, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope, ScopeId, ScopeKind,
 };
+pub use sim::{check_tests, collect_modules};
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 pub use typeck::{typecheck, TypeckResult};
 
@@ -55,10 +57,20 @@ pub fn analyze(ast: &SourceFile) -> AnalysisResult {
     let typeck = typecheck(ast, &resolve, &mut evaluator);
     let domain = infer_domains(ast, &resolve, &typeck);
 
+    // Test blokları (ADR-0033): dosyada hiç modül yoksa testler kardeş
+    // dosyanın modüllerini kullanıyordur — modül-varlık denetimi atlanır
+    // (sürücü, kardeş dosyayı yükleyip tam denetimi kendisi yapar).
+    let has_modules = ast
+        .items
+        .iter()
+        .any(|i| matches!(ast.items_arena[*i].kind, volt_ast::ItemKind::Module(_)));
+    let test_diags = sim::check_tests(&[ast], ast, !has_modules);
+
     let mut diagnostics = resolve.diagnostics.clone();
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
     diagnostics.extend(domain.diagnostics.iter().cloned());
+    diagnostics.extend(test_diags);
     AnalysisResult {
         resolve,
         typeck,

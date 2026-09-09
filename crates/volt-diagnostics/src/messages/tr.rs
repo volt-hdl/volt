@@ -97,6 +97,14 @@ pub fn description(code: ErrorCode) -> &'static str {
         E7001 => "SemVer ihlali: kırıcı değişiklik ama MAJOR bump yok",
         E7002 => "abi_version değişmeden arayüz değişti",
 
+        // ─── Simülasyon testleri (ADR-0033) ───
+        E8501 => "Test bloğunda bilinmeyen modül örnekleniyor",
+        E8502 => "Test bloğunda bilinmeyen port",
+        E8503 => "Giriş olmayan porta yazma",
+        E8504 => "Çıkış olmayan porttan okuma",
+        E8505 => "Geçersiz test yerleşiği çağrısı",
+        E8506 => "Test bloğunda tanımsız ya da yinelenen örnek adı",
+
         // ─── Release disiplini ───
         E9001 => "todo! ile release build yapılamaz",
         E9002 => "Determinizm ihlali",

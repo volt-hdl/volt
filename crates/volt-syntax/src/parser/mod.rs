@@ -9,6 +9,7 @@ mod item;
 mod pattern;
 pub(crate) mod recovery;
 mod stmt;
+mod test;
 
 use std::collections::HashSet;
 

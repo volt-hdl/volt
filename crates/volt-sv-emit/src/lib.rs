@@ -7,6 +7,7 @@
 mod builtin_prim;
 mod expr;
 mod sby;
+pub mod sim;
 mod sva;
 
 use std::collections::HashMap;
@@ -23,6 +24,10 @@ use volt_span::Span;
 
 pub use expr::Sig;
 pub use sby::{sby_config, SbyEngine, SbyMode, SbyOptions};
+pub use sim::{
+    collect_sim_ports, find_module, run_testbench_cpp, test_testbench_cpp, SimPort, TbAssertKind,
+    TbStep, TbTest, TbValue,
+};
 pub use sva::{SvaFile, SvaMode, SvaProp};
 
 pub const VOLT_VERSION: &str = "0.1.0";

@@ -523,6 +523,9 @@ impl<'a> Resolver<'a> {
                 self.root,
                 is_public,
             )),
+            // Test blokları isim alanına ad eklemez (ADR-0033);
+            // doğrulamaları sim::check_tests yapar.
+            ItemKind::Test(_) => None,
             ItemKind::Error => None,
         };
         if let Some(def) = def {
@@ -600,6 +603,8 @@ impl<'a> Resolver<'a> {
                     self.resolve_type(p.ty, scope);
                 }
             }
+            // Gövdesi modül arenalarını kullanmaz (ADR-0033).
+            ItemKind::Test(_) => {}
             ItemKind::Error => {}
         }
     }

@@ -61,6 +61,9 @@ error_codes! {
     // ─── Sürümleme ───
     E7001, E7002,
 
+    // ─── Simülasyon testleri (ADR-0033) ───
+    E8501, E8502, E8503, E8504, E8505, E8506,
+
     // ─── Release disiplini ───
     E9001, E9002,
 

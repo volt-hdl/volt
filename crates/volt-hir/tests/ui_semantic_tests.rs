@@ -232,7 +232,7 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 34);
+    assert_eq!(checked, 35);
 }
 
 // ═══ Keyfi genişlik + sıralı match (ADR-0031/0032) ════════════════
@@ -343,4 +343,17 @@ fn ui_pass_22_contracts_basic_clean() {
     // Dört kontrat türü birlikte hatasız geçmeli (F4a tamamlanma ölçütü).
     let result = analyze_file("pass/22_contracts_basic.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+// ═══ Test bloklari ve simulasyon (ADR-0033) ═══
+
+#[test]
+fn ui_pass_39_test_block_clean() {
+    let result = analyze_file("pass/39_test_block.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_28_test_unknown_port_e8502() {
+    assert_ui_fail("fail/28_test_unknown_port.volt");
 }

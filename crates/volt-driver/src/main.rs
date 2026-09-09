@@ -8,6 +8,7 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod sim;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -133,6 +134,34 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
+    /// Compile and simulate with Verilator (ADR-0033; cli-contract.md §7)
+    Run {
+        /// Input .volt file
+        file: PathBuf,
+        /// Number of clock cycles to simulate
+        #[arg(long, default_value_t = 100)]
+        cycles: u64,
+        /// Write a VCD waveform to this file
+        #[arg(long)]
+        vcd: Option<PathBuf>,
+        /// Top module (default: the only module in the file)
+        #[arg(long)]
+        top: Option<String>,
+        /// Output directory (default: build/)
+        #[arg(long, default_value = "build")]
+        target_dir: PathBuf,
+    },
+    /// Run simulation tests with Verilator (ADR-0033; cli-contract.md §8)
+    Test {
+        /// A .volt test file, or a substring filter over test names
+        filter: Option<String>,
+        /// Also stream the raw testbench output
+        #[arg(long)]
+        nocapture: bool,
+        /// Output directory (default: build/)
+        #[arg(long, default_value = "build")]
+        target_dir: PathBuf,
+    },
     /// Start the Volt language server on stdio (F5a; editors connect here)
     Lsp,
     /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
@@ -247,6 +276,18 @@ fn main() -> ExitCode {
                 multiclock: false,
             },
         ),
+        Command::Run {
+            file,
+            cycles,
+            vcd,
+            top,
+            target_dir,
+        } => sim::run(&file, cycles, vcd.as_deref(), top.as_deref(), &target_dir),
+        Command::Test {
+            filter,
+            nocapture,
+            target_dir,
+        } => sim::test(filter.as_deref(), nocapture, &target_dir),
         Command::Lsp => {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS
@@ -336,6 +377,8 @@ fn use_color(flag: Option<ColorArg>) -> bool {
 struct Compiled {
     map: SourceMap,
     diagnostics: Vec<Diagnostic>,
+    /// Ayrıştırılan AST — `run`/`test` port bilgisi için (ADR-0033).
+    ast: volt_ast::SourceFile,
     /// Yalnız tüm aşamalar hatasızsa üretilir.
     sv: Option<String>,
     /// `--emit=sva` ayrı modunda kontratlı modüllerin .sva içerikleri.
@@ -397,6 +440,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         return Ok(Compiled {
             map,
             diagnostics,
+            ast: parsed.ast,
             sv: None,
             sva_files: Vec::new(),
             sva_props: Vec::new(),
@@ -409,6 +453,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         return Ok(Compiled {
             map,
             diagnostics,
+            ast: parsed.ast,
             sv: None,
             sva_files: Vec::new(),
             sva_props: Vec::new(),
@@ -437,6 +482,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
     Ok(Compiled {
         map,
         diagnostics,
+        ast: parsed.ast,
         sv,
         sva_files,
         sva_props,
@@ -471,6 +517,21 @@ fn run_semantic_stages(parsed: &ParseResult, out: &mut Vec<Diagnostic>) -> bool 
     // ── Aşama 4: domain çıkarımı ve CDC (Volt'un vaadi) ──
     let domain = volt_hir::infer_domains(&parsed.ast, &resolve, &typeck);
     out.extend(domain.diagnostics);
+
+    // ── Test blokları (ADR-0033) ── Dosyada hiç modül yoksa testler
+    // kardeş dosyanın modüllerini kullanıyordur; modül-varlık denetimi
+    // atlanır (sim.rs kardeş dosyayla tam denetimi yapar).
+    let has_modules = parsed.ast.items.iter().any(|i| {
+        matches!(
+            parsed.ast.items_arena[*i].kind,
+            volt_ast::ItemKind::Module(_)
+        )
+    });
+    out.extend(volt_hir::check_tests(
+        &[&parsed.ast],
+        &parsed.ast,
+        !has_modules,
+    ));
     true
 }
 

@@ -49,7 +49,21 @@ ItemKind        = ModuleDecl                                (* [F0] *)
                 | EnumDecl                                  (* [F3] *)
                 | ConstDecl                                 (* [F2] *)
                 | TypeAlias                                 (* [F3] *)
-                | ExternDecl ;                              (* [F3] *)
+                | ExternDecl                                (* [F3] *)
+                | TestDecl ;                                (* [F4] ADR-0033 *)
+
+(* 'test' bağlamsal anahtar kelimedir (ADR-0023 deseni, ADR-0033):
+   lexer Ident üretir, parser yalnız öğe konumunda 'test' + StringLit
+   dizilimini test bloğu sayar. Gövde donanım değil doğrusal betiktir;
+   deyimler ';' ile biter. *)
+TestDecl        = "test" StringLit "{" { TestStmt } "}" ;   (* [F4] ADR-0033 *)
+
+TestStmt        = "let" Ident "=" Ident "{" "}" ";"         (* dut örnekleme *)
+                | Ident "." Ident "=" TestExpr ";"          (* giriş sürme *)
+                | Ident "(" [ TestExpr { "," TestExpr } ] ")" ";" ;
+                                                            (* step/reset/assert_* *)
+
+TestExpr        = IntLit | "true" | "false" | Ident "." Ident ;
 
 
 (* ═══ 2. NİTELİKLER (ATTRIBUTES) ══════════════════════════════ *)

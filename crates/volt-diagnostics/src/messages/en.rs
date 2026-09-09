@@ -97,6 +97,14 @@ pub fn description(code: ErrorCode) -> &'static str {
         E7001 => "SemVer violation: breaking change without a MAJOR bump",
         E7002 => "Interface changed without an abi_version bump",
 
+        // ─── Simulation tests (ADR-0033) ───
+        E8501 => "Unknown module instantiated in a test block",
+        E8502 => "Unknown port in a test block",
+        E8503 => "Write to a port that is not an input",
+        E8504 => "Read from a port that is not an output",
+        E8505 => "Invalid test builtin call",
+        E8506 => "Undefined or duplicate instance name in a test block",
+
         // ─── Release discipline ───
         E9001 => "Release builds cannot contain todo!",
         E9002 => "Determinism violation",

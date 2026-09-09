@@ -9,6 +9,7 @@ name = "volt"
 path = "src/main.rs"
 
 [dependencies]
+volt-ast = { path = "../volt-ast" }
 volt-hir = { path = "../volt-hir" }
 volt-lower = { path = "../volt-lower" }
 volt-span = { path = "../volt-span" }

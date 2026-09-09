@@ -1828,7 +1828,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_34_of_34_parse_clean() {
+fn ui_pass_all_35_of_35_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1851,16 +1851,17 @@ fn ui_pass_all_34_of_34_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 34, "ui/pass 34 dosya içermeli");
+    assert_eq!(total, 35, "ui/pass 35 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
     // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını,
     // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını,
-    // ADR-0031/0032 ise 37-38 keyfi genişlik + match fixture'larını ekledi.
+    // ADR-0031/0032 ise 37-38 keyfi genişlik + match fixture'larını,
+    // ADR-0033 ise 39_test_block'u (test blokları) ekledi.
     assert_eq!(
-        clean, 34,
-        "34/34 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 35,
+        "35/35 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2034,4 +2035,65 @@ fn every_stmt_carries_span() {
         assert!(span.end > span.start, "boş span: {span:?}");
         assert_eq!(span.file, FileId(0));
     }
+}
+
+// ═══ Test blokları (ADR-0033) ══════════════════════════════════════
+
+#[test]
+fn test_block_parses_with_all_builtins() {
+    let src = "test \"counter increments\" {\n    let dut = Counter { };\n    dut.enable = true;\n    step(1);\n    assert_eq(dut.count, 1);\n    reset();\n    assert_ne(dut.count, 1);\n    assert_true(dut.count);\n    assert_false(dut.count);\n}\n";
+    let result = p(src);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let ast = result.ast;
+    assert_eq!(ast.items.len(), 1);
+    let ItemKind::Test(test) = &ast.items_arena[ast.items[0]].kind else {
+        panic!("test öğesi bekleniyor");
+    };
+    assert_eq!(test.name, "counter increments");
+    assert_eq!(test.display_name(), "counter_increments");
+    assert_eq!(test.stmts.len(), 8);
+}
+
+#[test]
+fn test_is_contextual_not_reserved() {
+    // 'test' bağlamsal (ADR-0023 deseni): sıradan Ident olarak serbest.
+    let src = "module M {\n    in  clk  : clock\n    in  test : bool\n    out q    : bool\n    reg r : bool = false\n    on clk { r <= test }\n    q = r\n}\n";
+    let result = p(src);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn test_block_hex_and_bool_literals() {
+    let src = "test \"t\" {\n    let dut = Tx { };\n    dut.data = 0xA5;\n    dut.start = false;\n    step(2);\n}\n";
+    let result = p(src);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let ItemKind::Test(test) = &result.ast.items_arena[result.ast.items[0]].kind else {
+        panic!("test öğesi bekleniyor");
+    };
+    assert_eq!(test.stmts.len(), 4);
+}
+
+#[test]
+fn test_block_missing_semi_is_e0001() {
+    let src = "test \"t\" {\n    let dut = Counter { };\n    step(1)\n}\n";
+    assert_eq!(codes(src), vec!["E0001"]);
+}
+
+#[test]
+fn test_block_bad_stmt_recovers_to_next_semi() {
+    // Bozuk deyim atlanır, sonrakiler ayrışmaya devam eder.
+    let src = "test \"t\" {\n    let dut = Counter { };\n    += 3;\n    step(1);\n}\n";
+    let result = p(src);
+    assert!(!result.diagnostics.is_empty());
+    let ItemKind::Test(test) = &result.ast.items_arena[result.ast.items[0]].kind else {
+        panic!("test öğesi bekleniyor");
+    };
+    // let + step ayrışır; bozuk satır düşer.
+    assert_eq!(test.stmts.len(), 2);
+}
+
+#[test]
+fn test_block_unclosed_brace_is_e0002() {
+    let src = "test \"t\" {\n    let dut = Counter { };\n";
+    assert!(codes(src).contains(&"E0002"));
 }
