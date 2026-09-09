@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
     AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
-    Idx, IfStmt, ItemKind, LValue, LValueSuffix, ModuleDecl, OnBlock, OnTrigger, PortDir,
-    ResetPolarity, ResetSync, SourceFile, StmtKind, TypeRef, TypeRefKind,
+    Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock,
+    OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind,
+    TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
@@ -208,6 +209,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         domains: collect_domains(ast),
         symbols: HashMap::new(),
         builtin_insts: HashMap::new(),
+        consts: collect_consts(ast),
         source,
         source_name,
         sva_mode: mode,
@@ -255,6 +257,19 @@ pub(crate) fn header(source_name: &str) -> String {
     )
 }
 
+/// Üst düzey `const` öğeleri: isim → (bildirilen tip, değer ifadesi).
+/// SV üretiminde const referansları boyutlandırılmış literale katlanır
+/// (localparam üretilmez; ADR-0031 uygulama notu).
+fn collect_consts(ast: &SourceFile) -> HashMap<String, (Idx<TypeRef>, Idx<Expr>)> {
+    let mut map = HashMap::new();
+    for &item_idx in &ast.items {
+        if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
+            map.insert(c.name.text.clone(), (c.ty, c.value));
+        }
+    }
+    map
+}
+
 fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
     let mut map = HashMap::new();
     for &item_idx in &ast.items {
@@ -294,6 +309,9 @@ pub(crate) struct Emitter<'a> {
     /// doğrulanmış bilgi. Ön geçişte doldurulur ki `f.rd_data` alan
     /// erişimleri deyim sırasından bağımsız `f_rd_data`'ya çevrilsin.
     pub(crate) builtin_insts: HashMap<String, builtin_prim::BuiltinInst>,
+    /// Üst düzey const tablosu — Path referansları literale katlanır.
+    /// Modül sinyalleri (symbols) aynı adı gölgeler.
+    pub(crate) consts: HashMap<String, (Idx<TypeRef>, Idx<Expr>)>,
     /// Kaynak metin — SVA yorumlarındaki satır numaraları için.
     pub(crate) source: &'a str,
     pub(crate) source_name: &'a str,
@@ -889,14 +907,8 @@ impl<'a> Emitter<'a> {
                     );
                 }
                 BlockStmt::Error => {}
+                BlockStmt::Match(m) => self.emit_match(m, indent, &mut lines),
                 // F1 parser yapıları — SV üretimi sonraki aşamalarda
-                BlockStmt::Match(m) => self.future(
-                    m.span,
-                    &lstr!(
-                        en: "SV generation of the 'match' statement";
-                        tr: "'match' deyiminin SV üretimi"
-                    ),
-                ),
                 BlockStmt::For(f) => {
                     let span = ast.blocks[f.body].span;
                     self.future(
@@ -910,6 +922,81 @@ impl<'a> Emitter<'a> {
             }
         }
         lines
+    }
+
+    /// `match` deyimi `case` yapısına iner (ADR-0032). Desen kapsamı:
+    /// literal, literal `A | B` alternatifi ve joker `_` (→ default).
+    /// Muhafız (guard) ile bağlama/yol/tuple desenleri sonraki aşamalarda.
+    fn emit_match(&mut self, m: &'a MatchStmt, indent: usize, lines: &mut Vec<String>) {
+        let ind = " ".repeat(indent);
+        let scrut_sig = self.width_of(m.scrutinee);
+        let scrut = self.emit_expr(m.scrutinee, scrut_sig);
+        lines.push(format!("{ind}case ({scrut})"));
+        for arm in &m.arms {
+            if arm.guard.is_some() {
+                self.future(
+                    arm.span,
+                    &lstr!(
+                        en: "SV generation of match arm guards";
+                        tr: "match kolu muhafızlarının SV üretimi"
+                    ),
+                );
+                continue;
+            }
+            let Some(label) = self.match_arm_label(arm.pattern, scrut_sig) else {
+                continue;
+            };
+            lines.push(format!("{ind}    {label}: begin"));
+            match &arm.body {
+                MatchArmBody::Block(b) => lines.extend(self.emit_block(*b, indent + 8)),
+                MatchArmBody::Expr(e) => {
+                    let span = self.ast.exprs[*e].span;
+                    self.future(
+                        span,
+                        &lstr!(
+                            en: "expression-bodied match arms in statement position";
+                            tr: "deyim konumunda ifade gövdeli match kolları"
+                        ),
+                    );
+                }
+            }
+            lines.push(format!("{ind}    end"));
+        }
+        lines.push(format!("{ind}endcase"));
+    }
+
+    /// Kol etiketi: literal(ler) virgülle ayrılır, joker `default` olur.
+    /// None → tanı üretildi ya da desen zaten hatalı, kol atlanır.
+    fn match_arm_label(&mut self, pattern: Idx<Pattern>, scrut_sig: Option<Sig>) -> Option<String> {
+        let ast = self.ast;
+        match &ast.patterns[pattern].kind {
+            PatternKind::Wildcard => Some("default".to_string()),
+            PatternKind::Literal(e) => Some(self.emit_expr(*e, scrut_sig)),
+            PatternKind::Or(alts) => {
+                if alts
+                    .iter()
+                    .any(|&a| matches!(ast.patterns[a].kind, PatternKind::Wildcard))
+                {
+                    return Some("default".to_string());
+                }
+                let mut labels = Vec::with_capacity(alts.len());
+                for &a in alts {
+                    labels.push(self.match_arm_label(a, scrut_sig)?);
+                }
+                Some(labels.join(", "))
+            }
+            PatternKind::Error => None, // parse tanısı zaten var
+            PatternKind::Binding(_) | PatternKind::Path { .. } | PatternKind::Tuple(_) => {
+                self.future(
+                    ast.patterns[pattern].span,
+                    &lstr!(
+                        en: "SV generation of binding/path/tuple match patterns";
+                        tr: "bağlama/yol/tuple match desenlerinin SV üretimi"
+                    ),
+                );
+                None
+            }
+        }
     }
 
     fn emit_if(&mut self, if_stmt: &'a IfStmt, indent: usize, lines: &mut Vec<String>) {
@@ -1094,6 +1181,13 @@ fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
                 out.push(lhs.base.text.clone());
             }
             BlockStmt::If(if_stmt) => collect_written_if(ast, if_stmt, out),
+            BlockStmt::Match(m) => {
+                for arm in &m.arms {
+                    if let MatchArmBody::Block(b) = &arm.body {
+                        collect_written(ast, &ast.blocks[*b], out);
+                    }
+                }
+            }
             _ => {}
         }
     }

@@ -104,6 +104,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* explanation of the module\nmodule M {              // ✗ E0013: still inside the comment",
             "/* explanation of the module */\nmodule M {              // ✓",
         ),
+        E0014 => Explanation::new(
+            "Missing '_' arm in the match statement",
+            "A 'match' statement inside an on/comb block must end with a wildcard '_' arm.",
+            "In hardware, a match lowers to a 'case'; a missing default arm would leave some encodings without a defined action. Full exhaustiveness analysis over enum variants arrives with F3 — until then the '_' arm is the explicit guarantee that every value is covered (ADR-0032). In a sequential block an empty '_ => { }' arm simply keeps the registers' values.",
+            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n}",
+            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n}",
+        ),
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => Explanation::new(

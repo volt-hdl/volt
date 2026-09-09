@@ -565,6 +565,9 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "33_shift_register.volt",
         "34_arbiter.volt",
         "35_edge_detect.volt",
+        // ADR-0031/0032: keyfi genişlik + sıralı blokta match.
+        "37_arbitrary_widths.volt",
+        "38_match_sequential.volt",
     ];
 
     let mut clean = 0;
@@ -606,6 +609,98 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         clean >= must_emit.len(),
         "temiz: {clean}, atlanan: {skipped}"
     );
+}
+
+// ═══ match → case üretimi (ADR-0032) ══════════════════════════════
+
+const MATCH_FSM: &str = "module M {\n    in clk : clock\n    out y : bool\n\n    reg state_r : u2 = 0\n    reg y_r : bool = false\n\n    on clk {\n        match state_r {\n            0 => { y_r <= false }\n            1 | 2 => { state_r <= 3 }\n            _ => {\n                y_r <= true\n                state_r <= 0\n            }\n        }\n    }\n\n    y = y_r\n}\n";
+
+#[test]
+fn match_stmt_lowers_to_case_with_default() {
+    let out = sv(MATCH_FSM);
+    assert!(out.contains("case (state_r)"), "{out}");
+    assert!(out.contains("2'd0: begin"), "{out}");
+    assert!(out.contains("default: begin"), "{out}");
+    assert!(out.contains("endcase"), "{out}");
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn match_or_pattern_becomes_comma_label_list() {
+    let out = sv(MATCH_FSM);
+    assert!(out.contains("2'd1, 2'd2: begin"), "{out}");
+}
+
+#[test]
+fn match_writes_reach_reset_assignments() {
+    // Reset bloğu match kolları İÇİNDE yazılan reg'leri de sıfırlamalı.
+    let out = sv(MATCH_FSM);
+    let reset = out
+        .split("if (rst) begin")
+        .nth(1)
+        .and_then(|s| s.split("end else begin").next())
+        .expect("reset bloğu üretilmeli");
+    assert!(reset.contains("y_r <= 1'b0;"), "{out}");
+    assert!(reset.contains("state_r <= 2'd0;"), "{out}");
+}
+
+#[test]
+fn match_arm_guard_is_future_error() {
+    // Muhafızlı kolun SV üretimi sonraki aşamada — E0003 tanısı.
+    let src = "module M { in clk : clock in c : bool out y : bool reg r : bool = false on clk { match r { true if c => { r <= false } _ => { } } } y = r }";
+    let codes = emit_codes(src);
+    assert!(codes.contains(&"E0003"), "{codes:?}");
+}
+
+// ═══ Üst düzey const katlama (ADR-0031) ═══════════════════════════
+
+#[test]
+fn const_reference_folds_to_sized_literal() {
+    let src = "const DIVISOR : u10 = 434\n\nmodule M {\n    in clk : clock\n    out y : bool\n    reg cnt_r : u10 = 0\n    reg y_r : bool = false\n    on clk {\n        if cnt_r == DIVISOR - 1 {\n            y_r <= true\n        } else {\n            cnt_r <= cnt_r + 1\n        }\n    }\n    y = y_r\n}\n";
+    let out = sv(src);
+    assert!(out.contains("cnt_r == 10'd434 - 10'd1"), "{out}");
+    assert!(
+        !out.contains("DIVISOR"),
+        "const adı RTL'ye sızmamalı: {out}"
+    );
+}
+
+#[test]
+fn const_chain_folds_through_references() {
+    // CLKS = CLK_HZ / BAUD zinciri referans üzerinden katlanır.
+    let src = "const CLK_HZ : u32 = 1_843_200\nconst BAUD : u32 = 460_800\nconst CLKS : u32 = CLK_HZ / BAUD\n\nmodule M {\n    in clk : clock\n    out y : bool\n    reg cnt_r : u32 = 0\n    reg y_r : bool = false\n    on clk {\n        if cnt_r == CLKS - 1 {\n            y_r <= true\n        } else {\n            cnt_r <= cnt_r + 1\n        }\n    }\n    y = y_r\n}\n";
+    let out = sv(src);
+    assert!(out.contains("32'd4 - 32'd1"), "{out}");
+}
+
+#[test]
+fn arbitrary_width_reg_declares_sized_logic() {
+    // ADR-0031: u17 → logic [16:0].
+    let src = "module M {\n    in clk : clock\n    in d : u17\n    out y : u17\n    reg r : u17 = 0\n    on clk { r <= d }\n    y = r\n}\n";
+    let out = sv(src);
+    assert!(out.contains("logic [16:0] r;"), "{out}");
+    assert!(out.contains("input  logic [16:0] d,"), "{out}");
+}
+
+#[test]
+fn uart_example_emits_case_fsm_with_folded_const() {
+    // examples/uart_tx.volt tamamlanma ölçütleri: const doğrudan
+    // karşılaştırmada, FSM match/case ile (ADR-0031/0032).
+    let src = include_str!("../../../examples/uart_tx.volt");
+    let result = compile(src, "uart_tx.volt");
+    assert!(
+        !result.has_errors(),
+        "{:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(result.sv.contains("case (state_r)"), "{}", result.sv);
+    assert!(result.sv.contains("10'd4 - 10'd1"), "{}", result.sv);
+    assert!(!result.sv.contains("CLKS_PER_BIT"), "{}", result.sv);
+    assert_no_forbidden(&result.sv);
 }
 
 #[test]

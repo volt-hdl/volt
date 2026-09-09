@@ -60,10 +60,21 @@ impl<'a> Emitter<'a> {
     // ═══ Sabit değerlendirme (bits<N>, aralık genişliği) ══════════
 
     pub(crate) fn eval_const(&self, idx: Idx<Expr>) -> Option<u128> {
+        self.eval_const_depth(idx, 0)
+    }
+
+    /// Derinlik sınırı, döngüsel const zincirinde (HIR tanısı üretilmiş
+    /// olsa da) yığın taşmasını önler.
+    fn eval_const_depth(&self, idx: Idx<Expr>, depth: u32) -> Option<u128> {
+        const MAX_CONST_DEPTH: u32 = 64;
+        if depth > MAX_CONST_DEPTH {
+            return None;
+        }
         match &self.ast.exprs[idx].kind {
             ExprKind::IntLit { value, .. } => Some(*value),
             ExprKind::Binary { op, lhs, rhs } => {
-                let (l, r) = (self.eval_const(*lhs)?, self.eval_const(*rhs)?);
+                let l = self.eval_const_depth(*lhs, depth + 1)?;
+                let r = self.eval_const_depth(*rhs, depth + 1)?;
                 match op {
                     BinOp::Add => l.checked_add(r),
                     BinOp::Sub => l.checked_sub(r),
@@ -71,6 +82,15 @@ impl<'a> Emitter<'a> {
                     BinOp::Div => l.checked_div(r),
                     _ => None,
                 }
+            }
+            // Üst düzey const referansı; modül sinyalleri gölgeler.
+            ExprKind::Path(p) if p.segments.len() == 1 => {
+                let name = &p.segments[0].text;
+                if self.symbols.contains_key(name) {
+                    return None;
+                }
+                let &(_, value) = self.consts.get(name)?;
+                self.eval_const_depth(value, depth + 1)
             }
             _ => None,
         }
@@ -88,7 +108,13 @@ impl<'a> Emitter<'a> {
             }),
             ExprKind::Path(path) => {
                 let name = path.segments.first()?;
-                self.symbols.get(&name.text).copied()
+                if let Some(sig) = self.symbols.get(&name.text).copied() {
+                    return Some(sig);
+                }
+                // Üst düzey const: genişlik bildirilen tipinden gelir.
+                let &(ty, _) = self.consts.get(&name.text)?;
+                let span = ast.exprs[idx].span;
+                self.sig_of_typeref(ty, span)
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 if matches!(
@@ -229,13 +255,20 @@ impl<'a> Emitter<'a> {
             ExprKind::BoolLit(true) => ("1'b1".to_string(), PREC_ATOM),
             ExprKind::BoolLit(false) => ("1'b0".to_string(), PREC_ATOM),
             ExprKind::Path(path) => {
-                let name = path
-                    .segments
-                    .iter()
-                    .map(|n| n.text.clone())
-                    .collect::<Vec<_>>()
-                    .join("::");
-                (name, PREC_ATOM)
+                // Üst düzey const referansı boyutlandırılmış literale
+                // katlanır — üretilen RTL'de tanımsız isim kalmaz.
+                match self.fold_const_path(path, ctx, span) {
+                    Some(folded) => (folded, PREC_ATOM),
+                    None => {
+                        let name = path
+                            .segments
+                            .iter()
+                            .map(|n| n.text.clone())
+                            .collect::<Vec<_>>()
+                            .join("::");
+                        (name, PREC_ATOM)
+                    }
+                }
             }
             ExprKind::Unary { op, operand } => {
                 let operand = *operand;
@@ -361,6 +394,32 @@ impl<'a> Emitter<'a> {
         } else {
             text
         }
+    }
+
+    /// Üst düzey const referansını boyutlandırılmış literale katlar.
+    /// Modül sinyalleri ve yerleşik primitif örnekleri aynı adı gölgeler;
+    /// katlanamayan referans isim olarak basılmaya devam eder.
+    fn fold_const_path(
+        &mut self,
+        path: &volt_ast::Path,
+        ctx: Option<Sig>,
+        span: volt_span::Span,
+    ) -> Option<String> {
+        if path.segments.len() != 1 {
+            return None;
+        }
+        let name = &path.segments[0].text;
+        if self.symbols.contains_key(name) || self.builtin_insts.contains_key(name) {
+            return None;
+        }
+        let &(ty, value_idx) = self.consts.get(name)?;
+        let value = self.eval_const(value_idx)?;
+        let base = match &self.ast.exprs[value_idx].kind {
+            ExprKind::IntLit { base, .. } => *base,
+            _ => NumBase::Dec,
+        };
+        let sig = self.sig_of_typeref(ty, span).or(ctx);
+        Some(self.fmt_int(value, base, sig, span))
     }
 
     /// Zero/sign-extend veya daraltma (§6).

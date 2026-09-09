@@ -81,9 +81,10 @@ fn kw_primitive_types() {
 
 #[test]
 fn kw_unsigned_int_types() {
+    // ADR-0031: uN ailesi tek token türünde toplanır, genişlik metinden okunur.
     assert_eq!(
         assert_clean("u8 u16 u32 u64"),
-        vec![KwU8, KwU16, KwU32, KwU64]
+        vec![UIntType, UIntType, UIntType, UIntType]
     );
 }
 
@@ -91,7 +92,25 @@ fn kw_unsigned_int_types() {
 fn kw_signed_int_types() {
     assert_eq!(
         assert_clean("i8 i16 i32 i64"),
-        vec![KwI8, KwI16, KwI32, KwI64]
+        vec![SIntType, SIntType, SIntType, SIntType]
+    );
+}
+
+#[test]
+fn arbitrary_width_int_types_lex_as_type_tokens() {
+    // ADR-0031: keyfi genişlik — u3/u10/u17/i5 tek tip tokenıdır.
+    assert_eq!(
+        assert_clean("u1 u3 u10 u17 u64 i1 i5 i33"),
+        vec![UIntType, UIntType, UIntType, UIntType, UIntType, SIntType, SIntType, SIntType]
+    );
+}
+
+#[test]
+fn width_like_idents_stay_idents() {
+    // En-uzun-eşleşme: u8x, i2c_addr, u0 tip değil normal Ident'tir.
+    assert_eq!(
+        assert_clean("u8x i2c_addr u0 u_8"),
+        vec![Ident, Ident, Ident, Ident]
     );
 }
 

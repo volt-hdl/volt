@@ -232,7 +232,21 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 32);
+    assert_eq!(checked, 34);
+}
+
+// ═══ Keyfi genişlik + sıralı match (ADR-0031/0032) ════════════════
+
+#[test]
+fn ui_pass_37_arbitrary_widths_clean() {
+    let result = analyze_file("pass/37_arbitrary_widths.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_38_match_sequential_clean() {
+    let result = analyze_file("pass/38_match_sequential.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
 }
 
 // ═══ Yerleşik CDC primitifleri (ADR-0027) ═════════════════════════

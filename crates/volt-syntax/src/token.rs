@@ -111,22 +111,14 @@ pub enum TokenKind {
     KwBits,
     #[token("Trit")]
     KwTrit,
-    #[token("u8")]
-    KwU8,
-    #[token("u16")]
-    KwU16,
-    #[token("u32")]
-    KwU32,
-    #[token("u64")]
-    KwU64,
-    #[token("i8")]
-    KwI8,
-    #[token("i16")]
-    KwI16,
-    #[token("i32")]
-    KwI32,
-    #[token("i64")]
-    KwI64,
+    /// `u1`..`uN` — keyfi genişlikli işaretsiz tip ailesi (ADR-0031).
+    /// Genişlik sınırı (1..=64) parser'da denetlenir; `u8x` gibi daha
+    /// uzun Ident eşleşmeleri logos'un en-uzun-eşleşme kuralıyla kazanır.
+    #[regex(r"u[1-9][0-9]*", priority = 3)]
+    UIntType,
+    /// `i1`..`iN` — keyfi genişlikli işaretli tip ailesi (ADR-0031).
+    #[regex(r"i[1-9][0-9]*", priority = 3)]
+    SIntType,
     #[token("true")]
     KwTrue,
     #[token("false")]

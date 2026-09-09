@@ -1082,12 +1082,47 @@ fn extern_body_rejects_statements() {
 // ═══ Tipler: yol, dizi, tuple, parametreli reset ══════════════════
 
 #[test]
-fn widened_types_parse_as_path_types() {
-    // ui/pass dosyalarındaki u9/u17/u33 gibi genişletilmiş tipler
+fn widened_types_parse_as_builtin_ints() {
+    // ADR-0031: u9/u17/u33 gibi tipler artık doğrudan UInt/SInt olur.
     let result = p("module M { in a : u8 out sum : u9 sum = a + a }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
     let module = result.ast.module(0).unwrap();
     assert_eq!(type_dump(&result.ast, module.ports[1].ty), "u9");
+    assert!(matches!(
+        result.ast.types[module.ports[1].ty].kind,
+        TypeRefKind::UInt(9)
+    ));
+}
+
+#[test]
+fn arbitrary_width_types_parse_direct() {
+    // ADR-0031: u1..u64 / i1..i64 tüm aralık doğrudan UInt/SInt.
+    let result = p("module M { in a : u3 in b : u10 in c : u17 in d : i5 out y : u1 y = 0 }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    let kinds: Vec<_> = module
+        .ports
+        .iter()
+        .map(|p| type_dump(&result.ast, p.ty))
+        .collect();
+    assert_eq!(kinds, ["u3", "u10", "u17", "i5", "u1"]);
+    assert!(matches!(
+        result.ast.types[module.ports[3].ty].kind,
+        TypeRefKind::SInt(5)
+    ));
+}
+
+#[test]
+fn width_above_64_stays_path_type() {
+    // 64 üstü genişlik SV eşlemesine sahip değil — eski Path (widened)
+    // yolu korunur, typeck aileyi tanır (ADR-0031).
+    let result = p("module M { in a : u128 out y : u8 y = 0 }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    assert!(matches!(
+        result.ast.types[module.ports[0].ty].kind,
+        TypeRefKind::Path { .. }
+    ));
 }
 
 #[test]
@@ -1571,8 +1606,58 @@ fn match_arm_guard() {
 
 #[test]
 fn match_exhaustiveness_not_checked_in_parser() {
-    // Eksik kollar F2'nin işi — parser tanı ÜRETMEZ
+    // İFADE konumundaki match serbesttir (ADR-0032 yalnız deyimi bağlar);
+    // eksik kollar F2/F3 tip analizinin işi — parser tanı ÜRETMEZ.
     let result = p("module M { y = match x { 1 => 2 } }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+// ═══ E0014: deyim konumunda '_' kolu zorunlu (ADR-0032) ═══════════
+
+#[test]
+fn match_stmt_missing_wildcard_is_e0014() {
+    let result =
+        p("module M { in clk : clock on clk { match r { 0 => { r <= 1 } 1 => { r <= 0 } } } }");
+    assert!(
+        result.error_codes().contains(&"E0014"),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn match_stmt_or_wildcard_alternative_counts() {
+    // `1 | _` alternatifi kapsayıcıdır — E0014 üretilmez.
+    let result =
+        p("module M { in clk : clock on clk { match r { 0 => { r <= 1 } 1 | _ => { } } } }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn match_stmt_guarded_wildcard_is_still_e0014() {
+    // Muhafızlı '_' kapsayıcı değildir.
+    let result = p("module M { in clk : clock on clk { match r { _ if c => { r <= 1 } } } }");
+    assert!(
+        result.error_codes().contains(&"E0014"),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn match_stmt_in_comb_block_requires_wildcard() {
+    let result = p("module M { comb { match x { 0 => { y = 1 } } } }");
+    assert!(
+        result.error_codes().contains(&"E0014"),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn cast_to_arbitrary_width_parses() {
+    // ADR-0031: `as u10` gibi keyfi genişlik dönüşümleri.
+    let result = p("module M { in a : u8 out y : u10 y = a as u10 }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
 }
 
@@ -1743,7 +1828,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_32_of_32_parse_clean() {
+fn ui_pass_all_34_of_34_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1766,15 +1851,16 @@ fn ui_pass_all_32_of_32_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 32, "ui/pass 32 dosya içermeli");
+    assert_eq!(total, 34, "ui/pass 34 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
     // F5 (ADR-0027) 27-29 yerleşik CDC primitif fixture'larını,
-    // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını ekledi.
+    // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını,
+    // ADR-0031/0032 ise 37-38 keyfi genişlik + match fixture'larını ekledi.
     assert_eq!(
-        clean, 32,
-        "32/32 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 34,
+        "34/34 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -1797,6 +1883,7 @@ fn ui_fail_files_produce_expected_codes() {
         ("06_wrong_assign_operator.volt", "E0006"),
         ("16_missing_else.volt", "E0008"),
         ("18_comb_wrong_operator.volt", "E0007"),
+        ("27_match_missing_wildcard.volt", "E0014"),
     ];
     for (file, expected) in cases {
         let path = format!(

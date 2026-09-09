@@ -24,6 +24,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0011 => "Beklenmeyen dosya sonu",
         E0012 => "Geçersiz escape dizisi",
         E0013 => "Kapanmamış blok yorumu",
+        E0014 => "match deyiminde '_' kolu eksik",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",

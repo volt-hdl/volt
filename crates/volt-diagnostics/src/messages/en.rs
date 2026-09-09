@@ -24,6 +24,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0011 => "Unexpected end of file",
         E0012 => "Invalid escape sequence",
         E0013 => "Unterminated block comment",
+        E0014 => "Missing '_' arm in the match statement",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",

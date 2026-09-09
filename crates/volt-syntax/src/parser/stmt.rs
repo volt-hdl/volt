@@ -311,8 +311,8 @@ impl Parser<'_> {
                 // sabitler, virgül, yol ayırıcı ve yerleşik tip anahtar
                 // kelimeleri. Başka bir şey görülürse ifade yoluna düşülür.
                 Some(
-                    Ident | IntLit | Comma | ColonColon | KwBool | KwClock | KwReset | KwU8 | KwU16
-                    | KwU32 | KwU64 | KwI8 | KwI16 | KwI32 | KwI64 | KwTrit | KwBits,
+                    Ident | IntLit | Comma | ColonColon | KwBool | KwClock | KwReset | UIntType
+                    | SIntType | KwTrit | KwBits,
                 ) => {}
                 _ => return false,
             }
@@ -576,7 +576,9 @@ impl Parser<'_> {
     }
 
     /// `match ifade { desen [if koşul] => gövde, ... }`
-    /// Exhaustiveness kontrolü F2'ye aittir — burada yalnız ayrıştırılır.
+    /// Enum varyantları üzerinden tam exhaustiveness F3'ün işi; o zamana
+    /// dek deyim bağlamındaki match'te joker '_' kolu zorunludur —
+    /// eksikse E0014 (ADR-0032).
     pub(crate) fn parse_match_stmt(&mut self, ctx: BlockContext) -> MatchStmt {
         let start = self.pos;
         self.bump_any(); // 'match'
@@ -608,10 +610,43 @@ impl Parser<'_> {
         }
 
         self.expect_closing(RBrace, "}", open);
+        let span = self.span_from(start);
+
+        let has_wildcard = arms
+            .iter()
+            .any(|arm| arm.guard.is_none() && self.pattern_has_wildcard(arm.pattern));
+        if !has_wildcard {
+            self.push_error(
+                Diagnostic::error(
+                    ErrorCode::E0014,
+                    lstr!(en: "'match' statement has no '_' arm"; tr: "'match' deyiminde '_' kolu yok"),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "every value must be covered"; tr: "her değer kapsanmalı"),
+                    ),
+                    lstr!(en: "add a final '_ => {{ }}' arm"; tr: "sona '_ => {{ }}' kolu ekleyin"),
+                )
+                .with_note(
+                    NoteKind::Note,
+                    lstr!(en: "exhaustiveness analysis over enum variants arrives with F3 (ADR-0032); in a sequential block an empty '_' arm keeps the registers' values"; tr: "enum varyantları üzerinden kapsayıcılık analizi F3 ile gelecek (ADR-0032); sıralı blokta boş '_' kolu register değerlerini korur"),
+                ),
+            );
+        }
+
         MatchStmt {
-            span: self.span_from(start),
+            span,
             scrutinee,
             arms,
+        }
+    }
+
+    /// Desen `_` içeriyor mu? `A | _` gibi alternatifler de sayılır.
+    fn pattern_has_wildcard(&self, idx: Idx<volt_ast::Pattern>) -> bool {
+        use volt_ast::PatternKind;
+        match &self.ast.patterns[idx].kind {
+            PatternKind::Wildcard => true,
+            PatternKind::Or(alts) => alts.iter().any(|&p| self.pattern_has_wildcard(p)),
+            _ => false,
         }
     }
 

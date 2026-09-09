@@ -158,8 +158,12 @@ PrimitiveType   = "bool"                                      (* [F0] *)
 
 ResetType       = "reset" [ "(" ResetSync "," ResetPolarity ")" ] ;
 
-UIntType        = "u8" | "u16" | "u32" | "u64" ;
-SIntType        = "i8" | "i16" | "i32" | "i64" ;
+UIntType        = "u" IntWidth ;                              (* ADR-0031 *)
+SIntType        = "i" IntWidth ;                              (* ADR-0031 *)
+IntWidth        = ( "1".."9" ) { Digit } ;
+(* ADR-0031: 1 ≤ N ≤ 64 doğrudan donanım tipidir (u10, i5, ...).
+   N > 64 tek segmentli isim (PathType) gibi taşınır: tip sistemi
+   aileyi tanır, SV eşlemesi sonraki aşamaların işidir. *)
 
 ArrayType       = "[" Type ";" Expr "]" ;                     (* [F2] *)
 
@@ -292,7 +296,9 @@ BlockAssign     = LValue "=" Expr [ ";" ] ;    (* comb blokta *)
 IfStmt          = "if" Expr Block
                   [ "else" ( IfStmt | Block ) ] ;
 
-MatchStmt       = "match" Expr "{" { MatchArm } "}" ;         (* [F3] *)
+MatchStmt       = "match" Expr "{" { MatchArm } "}" ;
+(* ADR-0032: deyim konumunda muhafızsız bir '_' kolu ZORUNLU (yoksa
+   E0014); SV karşılığı case/default. Enum kapsayıcılık analizi [F3]. *)
 
 MatchArm        = Pattern [ "if" Expr ] "=>"
                   ( Block | Expr [ "," ] ) ;
@@ -449,7 +455,7 @@ BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
      if else match for in as
      fn const type struct enum extern package use pub
      bool clock reset bits Trit
-     u8 u16 u32 u64 i8 i16 i32 i64
+     uN iN (tip ailesi: u1..u64 / i1..i64 ve üstü, ADR-0031)
      true false todo
      requires ensures invariant cover assert assume
      posedge negedge none sync async active_high active_low
@@ -491,7 +497,8 @@ BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
    E0011  Beklenmeyen dosya sonu
    E0012  Geçersiz escape dizisi
    E0013  Kapanmamış blok yorumu
-   
+   E0014  match deyiminde '_' kolu eksik (ADR-0032)
+
    W0010  Belirsiz operatör önceliği, parantez önerilir
    W0020  Bilinmeyen nitelik (attribute)
    W0021  Kullanılmayan doc yorumu

@@ -6,8 +6,8 @@ use volt_ast::{
     AttrArg, Attribute, BlockContext, BlockStmt, ClockEdge, ConstDecl, Contract, ContractKind,
     DomainDecl, DomainField, DomainKey, DomainValue, EnumDecl, EnumVariant, ExternDecl, FnDecl,
     GenericArg, GenericParam, GenericParamKind, Idx, Item, ItemKind, ModuleDecl, Name, PackageDecl,
-    Param, Port, PortDir, ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TypeAlias,
-    TypeRef, TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
+    Param, Path, Port, PortDir, ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField,
+    TypeAlias, TypeRef, TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
@@ -435,8 +435,8 @@ impl Parser<'_> {
             let before = self.pos;
             match self.current() {
                 Some(
-                    KwBool | KwClock | KwReset | KwU8 | KwU16 | KwU32 | KwU64 | KwI8 | KwI16
-                    | KwI32 | KwI64 | KwTrit | KwBits | LBracket | LParen | Ident,
+                    KwBool | KwClock | KwReset | UIntType | SIntType | KwTrit | KwBits | LBracket
+                    | LParen | Ident,
                 ) => {
                     args.push(GenericArg::Type(self.parse_type_or_error()));
                 }
@@ -1143,38 +1143,7 @@ impl Parser<'_> {
                 };
                 TypeRefKind::Reset(spec)
             }
-            Some(KwU8) => {
-                self.bump_any();
-                TypeRefKind::UInt(8)
-            }
-            Some(KwU16) => {
-                self.bump_any();
-                TypeRefKind::UInt(16)
-            }
-            Some(KwU32) => {
-                self.bump_any();
-                TypeRefKind::UInt(32)
-            }
-            Some(KwU64) => {
-                self.bump_any();
-                TypeRefKind::UInt(64)
-            }
-            Some(KwI8) => {
-                self.bump_any();
-                TypeRefKind::SInt(8)
-            }
-            Some(KwI16) => {
-                self.bump_any();
-                TypeRefKind::SInt(16)
-            }
-            Some(KwI32) => {
-                self.bump_any();
-                TypeRefKind::SInt(32)
-            }
-            Some(KwI64) => {
-                self.bump_any();
-                TypeRefKind::SInt(64)
-            }
+            Some(UIntType) | Some(SIntType) => self.parse_int_type(),
             Some(KwTrit) => {
                 self.bump_any();
                 TypeRefKind::Trit
@@ -1259,6 +1228,29 @@ impl Parser<'_> {
         };
         let span = self.span_from(start);
         self.ast.types.alloc(TypeRef { span, kind })
+    }
+
+    /// `uN`/`iN` tip ailesi (ADR-0031): 1..=64 doğrudan UInt/SInt olur.
+    /// 64 üstü genişlikler eski davranışla Path (widened) taşınır —
+    /// typeck aileyi tanır, SV eşlemesi sonraki aşamaların işidir.
+    fn parse_int_type(&mut self) -> TypeRefKind {
+        let signed = self.at(SIntType);
+        let name = self.parse_name();
+        let width = name.text[1..]
+            .parse::<u32>()
+            .ok()
+            .filter(|w| (1..=64).contains(w));
+        match width {
+            Some(w) if signed => TypeRefKind::SInt(w as u8),
+            Some(w) => TypeRefKind::UInt(w as u8),
+            None => TypeRefKind::Path {
+                path: Path {
+                    span: name.span,
+                    segments: vec![name],
+                },
+                args: Vec::new(),
+            },
+        }
     }
 
     // ═══ Domain ═══════════════════════════════════════════════════

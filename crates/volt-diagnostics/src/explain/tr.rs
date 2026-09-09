@@ -104,6 +104,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* modülün açıklaması\nmodule M {              // ✗ E0013: hâlâ yorumun içinde",
             "/* modülün açıklaması */\nmodule M {              // ✓",
         ),
+        E0014 => Explanation::new(
+            "match deyiminde '_' kolu eksik",
+            "on/comb bloğu içindeki bir 'match' deyimi joker '_' koluyla bitmelidir.",
+            "Donanımda match bir 'case' yapısına iner; varsayılan kol eksikse bazı kodlamaların tanımlı davranışı kalmaz. Enum varyantları üzerinden tam kapsayıcılık (exhaustiveness) analizi F3 ile gelecek — o zamana dek '_' kolu her değerin kapsandığının açık güvencesidir (ADR-0032). Sıralı blokta boş '_ => { }' kolu register değerlerini olduğu gibi korur.",
+            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n}",
+            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlamalar değerini korur\n    }\n}",
+        ),
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => Explanation::new(
