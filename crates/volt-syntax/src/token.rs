@@ -35,13 +35,10 @@ pub enum TokenKind {
     InnerDocComment,
 
     // ─── Literaller ───
-    #[regex(r"[0-9][0-9_]*(u8|u16|u32|u64|i8|i16|i32|i64)?", priority = 6)]
     #[regex(
-        r"0x[0-9a-fA-F][0-9a-fA-F_]*(u8|u16|u32|u64|i8|i16|i32|i64)?",
+        r"(0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|[0-9][0-9_]*)(u8|u16|u32|u64|i8|i16|i32|i64)?",
         priority = 6
     )]
-    #[regex(r"0b[01][01_]*(u8|u16|u32|u64|i8|i16|i32|i64)?", priority = 6)]
-    #[regex(r"0o[0-7][0-7_]*(u8|u16|u32|u64|i8|i16|i32|i64)?", priority = 6)]
     IntLit,
 
     /// Radix öneki var ama gövdesi geçersiz: `0x`, `0b12`, `0o9` → E0005

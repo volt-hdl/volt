@@ -699,7 +699,7 @@ fn write_fake_sby(dir: &std::path::Path, body: &[&str], exit: i32) -> PathBuf {
     let mut script = String::from("#!/bin/sh\n");
     for line in body {
         script.push_str(line);
-        script.push_str("\n");
+        script.push('\n');
     }
     script.push_str(&format!("exit {exit}\n"));
     std::fs::write(&path, script).expect("sahte sby yazılmalı");

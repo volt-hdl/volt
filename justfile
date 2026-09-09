@@ -48,3 +48,14 @@ ci: check consistency
 check-fast:
     cargo fmt --all --check
     cargo clippy --all-targets --all-features -- -D warnings
+
+# Push oncesi siki lint. Iki kosu gerekli cunku CI Linux'ta calisir:
+# #[cfg(unix)] kodu Windows clippy'sinde hic derlenmez, nightly de
+# stable'da olmayan lint'leri erken yakalar.
+# Kurulum (bir kez):
+#   rustup component add clippy --toolchain nightly
+#   rustup target add x86_64-unknown-linux-gnu
+#   rustup target add x86_64-unknown-linux-gnu --toolchain nightly
+clippy-strict:
+    cargo +nightly clippy --all-targets --all-features -- -D warnings
+    cargo clippy --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
