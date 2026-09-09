@@ -3,7 +3,7 @@
 An HDL where clock domain crossing bugs won't compile.
 
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
-![tests](https://img.shields.io/badge/tests-834-brightgreen)
+![tests](https://img.shields.io/badge/tests-1096-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-84%25-green)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
 
@@ -89,6 +89,8 @@ $ volt build tests/fixtures/counter.volt
    Compiling tests/fixtures/counter.volt
     Finished 0.00s
      Output build\rtl\counter.sv (34 lines)
+       Next: volt run tests/fixtures/counter.volt      (simulate)
+             volt verify tests/fixtures/counter.volt   (prove contracts)
 ```
 
 First 20 lines of `build/rtl/counter.sv`, copied verbatim (doc comments
@@ -121,17 +123,142 @@ The reset port and reset block are generated automatically; bare `always`,
 `reg`, `initial` and `#` delays are never emitted. CI lints this output
 with `verilator --lint-only -Wall` and requires zero warnings.
 
+## State machines, arbitrary widths, implication
+
+Integer types come in every width from `u1` to `u64` (and `i1` to `i64`) —
+a baud counter that needs to reach 434 is a `u10`, not a wasteful `u16`.
+State machines are written as a `match` inside the sequential block, and
+`->` is the implication operator: `!a || b` in RTL expressions, SVA `|->`
+in contract position. All three, condensed from `examples/uart_tx.volt`
+(an 8N1 UART transmitter whose contracts are proven by induction):
+
+```text
+const CLKS_PER_BIT : u10 = 4
+
+module UartTx {
+    // The line idles high: whenever the transmitter is not busy,
+    // tx is high.
+    invariant: !busy_r -> tx_r
+
+    reg state_r : u2 = 0        // 0 IDLE, 1 START, 2 DATA, 3 STOP
+
+    on clk {
+        match state_r {
+            0 => { ... }        // IDLE:  wait for a start pulse
+            1 => { ... }        // START: drive the start bit low
+            2 => { ... }        // DATA:  shift the frame out LSB first
+            _ => { ... }        // STOP:  stop bit high, release the bus
+        }
+    }
+}
+```
+
+## Simulation and testing
+
+Tests live in `*_test.volt` files next to the design; the sibling design
+file is parsed automatically. `step()` advances clock cycles and the
+`assert_*` builtins check outputs. From `examples/uart_tx_test.volt`,
+copied verbatim:
+
+```text
+test "start bit is low" {
+    let dut = UartTx { };
+    dut.data = 0xA5;
+    dut.start = true;
+    step(1);
+    dut.start = false;
+    step(1);
+    assert_false(dut.tx);
+    assert_true(dut.busy);
+    step(3);
+    assert_false(dut.tx);
+}
+```
+
+`volt test` compiles the design and a generated C++ testbench with
+Verilator, runs each test in its own simulation context and reports in
+cargo style:
+
+```console
+$ volt test examples/uart_tx_test.volt
+   Compiling examples/uart_tx_test.volt
+running 4 tests
+test idle_line_is_high ... ok
+test start_bit_is_low ... ok
+test data_bits_lsb_first ... ok
+test frame_is_10_bits ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+`volt run` simulates a single module and prints its ports cycle by cycle;
+`--vcd` records a waveform instead:
+
+```console
+$ volt run tests/fixtures/counter.volt --cycles 10
+   Compiling tests/fixtures/counter.volt
+  Simulating Counter (10 cycles)
+cycle  enable  count
+-----  ------  -----
+    0       0      0
+    1       1      1
+    2       1      2
+    3       1      3
+    4       1      4
+    5       1      5
+    6       1      6
+    7       1      7
+    8       1      8
+    9       1      9
+   10       1     10
+    Finished 6.89s
+        Next: volt test                        (run tests)
+              volt run --vcd waves.vcd tests/fixtures/counter.volt   (record a waveform)
+```
+
+Both commands need **Verilator** installed (`volt explain
+simulation-setup` prints the setup guide). `volt build` and `volt check`
+never do.
+
+## Standard library
+
+Eleven primitives are built into the compiler: recognized during name
+resolution, emitted as SystemVerilog templates, and each shipping formal
+contracts that `volt verify` proves.
+
+| Primitive | Clocks | Generics |
+|---|---|---|
+| `SyncFifo` | single | `<T, DEPTH>` |
+| `Ram` | single | `<T, DEPTH>` |
+| `DualPortRam` | single | `<T, DEPTH>` |
+| `Counter` | single | `<WIDTH>` |
+| `ShiftRegister` | single | `<T, LEN>` |
+| `RoundRobinArbiter` | single | `<N>` |
+| `PriorityArbiter` | single | `<N>` |
+| `EdgeDetect` | single | — |
+| `AsyncFifo` | dual (CDC) | `<T, DEPTH>` |
+| `HandshakeSync` | dual (CDC) | `<T>` |
+| `PulseSync` | dual (CDC) | — |
+
+Instantiate in an expression, read outputs as fields:
+
+```text
+let fifo = SyncFifo<u8, 16> { clk: clk, wr_data: din, wr_en: push, rd_en: pop }
+dout  = fifo.rd_data
+full  = fifo.full
+empty = fifo.empty
+```
+
+SyncFifo's contracts include `invariant: !(full && empty)` — proven in
+full for the single-clock FIFO, deliberately weakened for AsyncFifo where
+two-flop synchronization delays the flags. Full port tables and contract
+lists: [docs/stdlib.md](docs/stdlib.md).
+
 ## Formal verification
 
 Contracts are part of the language, not a separate assertion file. A module
 can declare `requires` (input assumption), `ensures` (output guarantee),
-`invariant` (always-true state property) and `cover` (reachability goal):
-
-```text
-module Counter {
-    invariant: count_r < 5
-}
-```
+`invariant` (always-true state property) and `cover` (reachability goal).
 
 `volt verify` compiles the design, generates a Yosys-compatible model plus
 an `.sby` script, runs SymbiYosys and maps the result back to the contract.
@@ -141,7 +268,7 @@ with `invariant: count_r <= 10`) the property holds:
 ```console
 $ volt verify tests/ui/pass/23_provable_invariant.volt
    Verifying tests/ui/pass/23_provable_invariant.volt
-    Finished 0.55s
+    Finished 1.26s
       Result 1 property verified (bmc, depth 20)
 ```
 
@@ -158,9 +285,12 @@ error[E5001]: contract violated
    │                ^^^^^^^^^^^ violated at cycle 7
    │
    = reason: the 'invariant' contract of module 'LeakyCounter' does not hold for every reachable state
-   = counterexample: build/formal/leakycounter_cex.vcd
+   = counterexample: build\formal\leakycounter_cex.vcd
    = help: open the counterexample with 'gtkwave' or 'surfer'
    = for more: volt explain E5001
+
+
+        Next: volt explain E5001   (how to read a counterexample)
 ```
 
 Contracts reach SystemVerilog assertions in two modes: `volt build
@@ -192,9 +322,26 @@ expensive place to debug. Volt makes the crossing a compile error instead.
 EXAMPLE
 ```
 
-Explanations exist for all 90 diagnostic codes, in English and Turkish
-(`--lang=tr`). Topic pages work too: `volt explain verify-setup` prints
-the SymbiYosys installation guide.
+Explanations exist for all 99 diagnostic codes, in English and Turkish
+(`--lang=tr`). Topic pages work too: `volt explain verify-setup` and
+`volt explain simulation-setup` print the SymbiYosys and Verilator
+installation guides.
+
+## Editor support
+
+A VS Code extension lives in `editors/vscode/` (local install only, not
+published). It launches `volt lsp` and provides diagnostics as you type,
+hover with type and clock domain, completion (types after `:`, domains
+after `@`), go-to-definition, outline and syntax highlighting.
+
+```console
+$ cd editors/vscode
+$ npm install
+```
+
+Then open `editors/vscode/` in VS Code and press F5 (Run Extension), or
+package a `.vsix` with `npx @vscode/vsce package`. The `volt` binary must
+be on PATH, or set `volt.serverPath`.
 
 ## Status
 
@@ -202,17 +349,36 @@ Pre-1.0, under active development. Syntax may change without notice.
 
 | Works today | Not yet |
 |---|---|
-| Full-grammar parser with error recovery, fuzzed | Language server / LSP (F5) |
-| Name resolution and const evaluation | Reset-domain (RDC) checks — error codes reserved, not enforced |
-| Type system with overflow widening on arithmetic | Simulation driver (`volt run` / `volt test`) — specced, not implemented |
-| Domain inference and CDC checking (E3001, ambiguous-domain, multi-domain writes) | Standard library is thin |
+| Full-grammar parser with error recovery, fuzzed | Reset-domain (RDC) checks — E3003 reserved, not enforced |
+| Name resolution and const evaluation | Pipeline support — `pipeline` keyword reserved |
+| Type system with overflow widening; arbitrary widths `u1`..`u64` / `i1`..`i64` | Package management |
+| `match` in sequential blocks; implication operator `->` | Playground |
+| Domain inference and CDC checking (E3001, ambiguous-domain, multi-domain writes) | |
 | `sync()` / `sync3()` generation — source-capture register plus two/three-stage synchronizer in the target domain | |
 | Contract system: `requires` / `ensures` / `invariant` / `cover` | |
 | SVA generation (`--emit=sva`, separate or inline) | |
 | Formal verification via SymbiYosys (`volt verify`: bmc / prove / cover, counterexample VCD) | |
+| Simulation on Verilator: `volt run` / `volt test`, `test` blocks, VCD output | |
+| Standard library — 11 primitives with proven contracts | |
+| Language server (`volt lsp`) and VS Code extension | |
 | SystemVerilog output, single- and multi-clock modules, Verilator-lint-clean | |
-| `volt explain` — 90 codes, English and Turkish | |
-| CLI: `volt build` / `check` / `verify` / `explain`, contracted exit codes, `--lang en\|tr`, JSON output | |
+| `volt explain` — 99 codes, English and Turkish | |
+| CLI with contracted exit codes, `--lang en\|tr`, JSON output | |
+
+## CLI
+
+| Command | What it does |
+|---|---|
+| `volt build` | Compile and emit SystemVerilog (`--emit=sva`, `--format json`) |
+| `volt check` | Fast check; produces no output files |
+| `volt run` | Compile and simulate with Verilator (`--cycles`, `--vcd`, `--top`) |
+| `volt test` | Run `*_test.volt` simulation tests with Verilator |
+| `volt verify` | Formally verify contracts with SymbiYosys; exit 6 on counterexample |
+| `volt explain` | Explain a diagnostic code or topic in detail |
+| `volt lsp` | Start the language server on stdio |
+
+Every command accepts `--lang en|tr`; exit codes are contracted in
+`docs/spec/cli-contract.md`.
 
 ## Installation
 
@@ -223,16 +389,18 @@ $ cargo build --release
 $ ./target/release/volt build tests/fixtures/counter.volt
 ```
 
-Requires stable Rust; no other dependencies for `volt build` / `volt check`.
+Requires stable Rust; no other dependencies for `volt build` / `volt
+check` / `volt lsp`.
 
 Optional tools:
 
+- **Verilator** — required by `volt run` and `volt test`; CI also uses it
+  to lint the generated SystemVerilog
 - **SymbiYosys** (with Yosys and an SMT solver such as z3) — required by
   `volt verify` only
-- **Verilator** — used by CI to lint the generated SystemVerilog; also the
-  planned backend for `volt test`, which is specced but not implemented yet
 - **Windows** — both tools are Linux-first; use WSL or Docker
-  (`docker pull hdlc/formal` covers the SymbiYosys stack)
+  (`verilator/verilator` for simulation, `hdlc/formal` for the
+  SymbiYosys stack)
 
 ## Why not an existing HDL?
 
