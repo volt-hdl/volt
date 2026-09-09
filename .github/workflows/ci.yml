@@ -10,17 +10,17 @@ env:
 
 jobs:
   test:
-    name: Biçim + Lint + Testler
+    name: BiÃ§im + Lint + Testler
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Biçim denetimi
+      - name: BiÃ§im denetimi
         run: cargo fmt --all --check
-      - name: Clippy (uyarılar hata)
+      - name: Clippy (uyarÄ±lar hata)
         run: cargo clippy --all-targets -- -D warnings
       - name: Testler
         run: cargo test --all
@@ -29,58 +29,58 @@ jobs:
     name: Verilator lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Verilator kur
         run: sudo apt-get update && sudo apt-get install -y verilator
       - name: counter.volt derle
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
-      # DECLFILENAME beklenen bir istisna: cli-contract.md §5 çıktı adını
-      # kaynak dosyadan (counter.sv), sv-mapping.md İ1 modül adını Volt
-      # kaynağından (Counter) türetir — büyük/küçük harf farkı kaçınılmaz.
-      # Onun dışında SIFIR uyarı bekleniyor.
-      - name: Verilator lint — SIFIR uyarı bekleniyor
+      # DECLFILENAME beklenen bir istisna: cli-contract.md Â§5 Ã§Ä±ktÄ± adÄ±nÄ±
+      # kaynak dosyadan (counter.sv), sv-mapping.md Ä°1 modÃ¼l adÄ±nÄ± Volt
+      # kaynaÄŸÄ±ndan (Counter) tÃ¼retir â€” bÃ¼yÃ¼k/kÃ¼Ã§Ã¼k harf farkÄ± kaÃ§Ä±nÄ±lmaz.
+      # Onun dÄ±ÅŸÄ±nda SIFIR uyarÄ± bekleniyor.
+      - name: Verilator lint â€” SIFIR uyarÄ± bekleniyor
         run: verilator --lint-only -Wall -Wno-DECLFILENAME build/rtl/counter.sv
 
   consistency:
-    name: Spec-kod tutarlılık
+    name: Spec-kod tutarlÄ±lÄ±k
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
-      - name: Tutarlılık denetimi
+      - name: TutarlÄ±lÄ±k denetimi
         run: just consistency
 
   verify:
-    name: Formal doğrulama (opsiyonel)
+    name: Formal doÄŸrulama (opsiyonel)
     runs-on: ubuntu-latest
-    # Opsiyonel: harici araç zinciri (yosys + sby + z3) CI'yı kırmamalı;
+    # Opsiyonel: harici araÃ§ zinciri (yosys + sby + z3) CI'yÄ± kÄ±rmamalÄ±;
     # lokal testlerde sby yoksa ilgili testler zaten SKIP eder.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: OSS CAD Suite kur (yosys + sby + çözücüler)
+      - name: OSS CAD Suite kur (yosys + sby + Ã§Ã¶zÃ¼cÃ¼ler)
         uses: YosysHQ/setup-oss-cad-suite@v3
-      - name: Kanıtlanabilir invariant → çıkış 0
+      - name: KanÄ±tlanabilir invariant â†’ Ã§Ä±kÄ±ÅŸ 0
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
-      - name: İhlal edilen invariant → çıkış 6 + karşı örnek
+      - name: Ä°hlal edilen invariant â†’ Ã§Ä±kÄ±ÅŸ 6 + karÅŸÄ± Ã¶rnek
         run: |
           set +e
           cargo run --bin volt -- verify tests/ui/fail/24_violated_invariant.volt
           code=$?
-          echo "volt verify çıkış kodu: $code"
+          echo "volt verify Ã§Ä±kÄ±ÅŸ kodu: $code"
           test "$code" -eq 6
 
   coverage:
-    name: Kapsam (bilgi amaçlı)
+    name: Kapsam (bilgi amaÃ§lÄ±)
     runs-on: ubuntu-latest
-    # Bilgi amaçlı: eşik henüz yok, başarısızlık CI'yı kırmaz.
+    # Bilgi amaÃ§lÄ±: eÅŸik henÃ¼z yok, baÅŸarÄ±sÄ±zlÄ±k CI'yÄ± kÄ±rmaz.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -89,8 +89,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Kapsam raporu
         run: just coverage
-      - name: HTML raporu yükle
-        uses: actions/upload-artifact@v4
+      - name: HTML raporu yÃ¼kle
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: target/llvm-cov/html/
@@ -99,7 +99,7 @@ jobs:
     name: Fuzz (5 dk)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
