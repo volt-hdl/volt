@@ -1025,6 +1025,11 @@ impl<'a> Resolver<'a> {
                     self.resolve_expr(*lo, scope);
                     current = None;
                 }
+                LValueSuffix::PartSelect { start, width, .. } => {
+                    self.resolve_expr(*start, scope);
+                    self.resolve_expr(*width, scope);
+                    current = None;
+                }
                 LValueSuffix::Field(field) => {
                     // uart.busy hedefi: instance portu doğrulanabilir.
                     if let Some(base) = current {
@@ -1211,6 +1216,13 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(*base, scope);
                 self.resolve_expr(*hi, scope);
                 self.resolve_expr(*lo, scope);
+            }
+            ExprKind::PartSelect {
+                base, start, width, ..
+            } => {
+                self.resolve_expr(*base, scope);
+                self.resolve_expr(*start, scope);
+                self.resolve_expr(*width, scope);
             }
             ExprKind::Field { base, field } => {
                 let (base, field) = (*base, field.clone());

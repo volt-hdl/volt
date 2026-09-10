@@ -263,6 +263,12 @@ pub enum TokenKind {
     Arrow,
     #[token("=>")]
     FatArrow,
+    /// `data[i +: W]` artan parça seçimi (ADR-0035).
+    #[token("+:")]
+    PlusColon,
+    /// `data[i -: W]` azalan parça seçimi (ADR-0035).
+    #[token("-:")]
+    MinusColon,
 
     /// Hiçbir kurala uymayan girdi (E0001).
     Error,

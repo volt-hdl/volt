@@ -587,3 +587,123 @@ fn expression_types_are_recorded() {
         "ifade tip haritası dolu olmalı"
     );
 }
+
+// ═══ Değişken indeks + part-select (ADR-0035) ═════════════════════
+
+const REGFILE: &str = "module M {\n    in  clk : clock\n    in  we : bool\n    in  waddr : bits<2>\n    in  raddr : bits<2>\n    in  wdata : u8\n    out rdata : u8\n\n    reg regs : [u8; 4] = [0; 4]\n\n    on clk {\n        if we {\n            regs[waddr] <= wdata\n        }\n    }\n\n    rdata = regs[raddr]\n}\n";
+
+#[test]
+fn dynamic_array_index_read_and_write_clean() {
+    let c = codes(REGFILE);
+    assert!(c.is_empty(), "{c:?}");
+}
+
+#[test]
+fn dynamic_array_index_yields_element_type() {
+    let result = check("module M {\n    in  idx : bits<2>\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 4] = [0; 4]\n\n    on clk { regs[0] <= 1 }\n\n    let _v = regs[idx]\n\n    y = _v\n}\n");
+    assert_eq!(def_ty(&result, "_v"), "u8");
+}
+
+#[test]
+fn const_array_index_out_of_bounds_e2006() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 4] = [0; 4]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[4]\n}\n");
+    assert!(c.contains(&"E2006"), "{c:?}");
+}
+
+#[test]
+fn array_repeat_literal_narrows_to_element_type() {
+    // [0; 4] içindeki 0 hedef eleman tipine (u8) daraltılır — E2003 yok.
+    let c = codes(REGFILE);
+    assert!(!c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn array_repeat_literal_element_overflow_e2010() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 4] = [300; 4]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[0]\n}\n");
+    assert!(c.contains(&"E2010"), "{c:?}");
+}
+
+#[test]
+fn array_repeat_literal_wrong_count_e2003() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 4] = [0; 5]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[0]\n}\n");
+    assert!(c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn array_list_literal_narrows_to_element_type() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 2] = [1, 2]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[0]\n}\n");
+    assert!(!c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn array_list_literal_wrong_len_e2003() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 2] = [1, 2, 3]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[0]\n}\n");
+    assert!(c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn part_select_const_width_yields_bits() {
+    let result = check("module M {\n    in  data : u32\n    in  i : bits<5>\n    out y : bits<8>\n\n    let _v = data[i +: 8]\n\n    y = _v\n}\n");
+    assert_eq!(def_ty(&result, "_v"), "bits<8>");
+    assert!(result.error_codes().is_empty());
+}
+
+#[test]
+fn part_select_descending_clean() {
+    let c =
+        codes("module M {\n    in  data : u32\n    out y : bits<8>\n\n    y = data[31 -: 8]\n}\n");
+    assert!(c.is_empty(), "{c:?}");
+}
+
+#[test]
+fn part_select_variable_width_e2008() {
+    let c = codes("module M {\n    in  data : u32\n    in  i : bits<5>\n    in  w : bits<5>\n    out y : bits<8>\n\n    y = data[i +: w]\n}\n");
+    assert!(c.contains(&"E2008"), "{c:?}");
+}
+
+#[test]
+fn part_select_zero_width_e2006() {
+    let c = codes("module M {\n    in  data : u32\n    in  i : bits<5>\n    out y : bits<8>\n\n    y = data[i +: 0]\n}\n");
+    assert!(c.contains(&"E2006"), "{c:?}");
+}
+
+#[test]
+fn part_select_width_exceeds_base_e2006() {
+    let c = codes("module M {\n    in  data : u8\n    in  i : bits<3>\n    out y : bits<8>\n\n    y = data[i +: 16]\n}\n");
+    assert!(c.contains(&"E2006"), "{c:?}");
+}
+
+#[test]
+fn part_select_const_start_out_of_bounds_e2006() {
+    // 28 +: 8 → bit 35 gerekir, u32 taşar.
+    let c =
+        codes("module M {\n    in  data : u32\n    out y : bits<8>\n\n    y = data[28 +: 8]\n}\n");
+    assert!(c.contains(&"E2006"), "{c:?}");
+}
+
+#[test]
+fn part_select_descending_underflow_e2006() {
+    // 3 -: 8 → bit -4 gerekir.
+    let c =
+        codes("module M {\n    in  data : u32\n    out y : bits<8>\n\n    y = data[3 -: 8]\n}\n");
+    assert!(c.contains(&"E2006"), "{c:?}");
+}
+
+#[test]
+fn part_select_on_array_base_e2003() {
+    let c = codes("module M {\n    in  clk : clock\n    out y : bits<2>\n\n    reg regs : [u8; 4] = [0; 4]\n\n    on clk { regs[0] <= 1 }\n\n    y = regs[0 +: 2]\n}\n");
+    assert!(c.contains(&"E2003"), "{c:?}");
+}
+
+#[test]
+fn part_select_lvalue_target_clean() {
+    let c = codes("module M {\n    in  clk : clock\n    in  i : bits<3>\n    in  nib : bits<4>\n    out y : u8\n\n    reg acc : u8 = 0\n\n    on clk {\n        acc[i +: 4] <= nib\n    }\n\n    y = acc\n}\n");
+    assert!(c.is_empty(), "{c:?}");
+}
+
+#[test]
+fn dynamic_bit_select_still_bool() {
+    let result = check("module M {\n    in  data : u8\n    in  i : bits<3>\n    out y : bool\n\n    let _b = data[i]\n\n    y = _b\n}\n");
+    assert_eq!(def_ty(&result, "_b"), "bool");
+    assert!(result.error_codes().is_empty());
+}

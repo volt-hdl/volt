@@ -320,6 +320,8 @@ MatchArm        = Pattern [ "if" Expr ] "=>"
 LValue          = Ident { LValueSuffix } ;
 
 LValueSuffix    = "[" Expr [ ":" Expr ] "]"    (* bit / aralık *)
+                | "[" Expr "+:" Expr "]"        (* artan part-select, ADR-0035 *)
+                | "[" Expr "-:" Expr "]"        (* azalan part-select, ADR-0035 *)
                 | "." Ident ;                   (* alan *)
 
 
@@ -376,6 +378,8 @@ UnaryExpr       = ( "!" | "~" | "-" ) UnaryExpr
 PostfixExpr     = PrimaryExpr { PostfixSuffix } ;
 
 PostfixSuffix   = "[" Expr [ ":" Expr ] "]"    (* indeks / dilim *)
+                | "[" Expr "+:" Expr "]"        (* artan part-select, ADR-0035 *)
+                | "[" Expr "-:" Expr "]"        (* azalan part-select, ADR-0035 *)
                 | "." Ident                     (* alan erişimi *)
                 | "(" [ ArgList ] ")"           (* çağrı *)
                 | "as" Type ;                   (* tip dönüşümü *)

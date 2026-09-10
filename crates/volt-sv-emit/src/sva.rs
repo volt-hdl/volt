@@ -276,7 +276,12 @@ impl<'a> Emitter<'a> {
                     .get(n)
                     .map(|s| s.decl_type())
                     .unwrap_or_else(|| "logic".to_string());
-                (ty, n.clone())
+                // Dizi sinyali: unpacked boyut isimden sonra (ADR-0035).
+                let name = match self.array_dims.get(n) {
+                    Some(len) => format!("{n} [0:{}]", len - 1),
+                    None => n.clone(),
+                };
+                (ty, name)
             })
             .collect();
         let ty_width = entries.iter().map(|(ty, _)| ty.len()).max().unwrap_or(5);

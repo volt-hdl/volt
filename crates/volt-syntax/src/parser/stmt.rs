@@ -870,6 +870,19 @@ impl Parser<'_> {
                     suffixes.push(LValueSuffix::Range { hi: *hi, lo: *lo });
                     current = *base;
                 }
+                ExprKind::PartSelect {
+                    base,
+                    start,
+                    width,
+                    ascending,
+                } => {
+                    suffixes.push(LValueSuffix::PartSelect {
+                        start: *start,
+                        width: *width,
+                        ascending: *ascending,
+                    });
+                    current = *base;
+                }
                 ExprKind::Field { base, field } => {
                     suffixes.push(LValueSuffix::Field(field.clone()));
                     current = *base;

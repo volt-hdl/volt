@@ -545,6 +545,12 @@ pub enum LValueSuffix {
     Index(Idx<Expr>),
     /// `x[7:4]`
     Range { hi: Idx<Expr>, lo: Idx<Expr> },
+    /// `x[i +: W]` / `x[i -: W]` (ADR-0035)
+    PartSelect {
+        start: Idx<Expr>,
+        width: Idx<Expr>,
+        ascending: bool,
+    },
     /// `x.field`
     Field(Name),
 }
@@ -705,6 +711,14 @@ pub enum ExprKind {
         base: Idx<Expr>,
         hi: Idx<Expr>,
         lo: Idx<Expr>,
+    },
+    /// `x[i +: W]` / `x[i -: W]` — SV indexed part-select (ADR-0035).
+    /// `ascending: true` → `+:` (i'den yukarı), `false` → `-:` (i'den aşağı).
+    PartSelect {
+        base: Idx<Expr>,
+        start: Idx<Expr>,
+        width: Idx<Expr>,
+        ascending: bool,
     },
     Field {
         base: Idx<Expr>,

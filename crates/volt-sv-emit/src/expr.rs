@@ -154,14 +154,30 @@ impl<'a> Emitter<'a> {
                 let operand = *operand;
                 self.width_of(operand)
             }
-            ExprKind::Index { .. } => Some(Sig {
-                width: 1,
-                signed: false,
-            }),
+            // Dizi tabanında indeks ELEMANI seçer (ADR-0035); bit seçimi 1 bittir.
+            ExprKind::Index { base, .. } => {
+                let base = *base;
+                if let Some(name) = crate::path_single(self.ast, base) {
+                    if self.array_dims.contains_key(name) {
+                        return self.symbols.get(name).copied();
+                    }
+                }
+                Some(Sig {
+                    width: 1,
+                    signed: false,
+                })
+            }
             ExprKind::Range { hi, lo, .. } => {
                 let (hi, lo) = (self.eval_const(*hi)?, self.eval_const(*lo)?);
                 Some(Sig {
                     width: (hi.saturating_sub(lo) + 1) as u32,
+                    signed: false,
+                })
+            }
+            ExprKind::PartSelect { width, .. } => {
+                let w = self.eval_const(*width)?;
+                Some(Sig {
+                    width: w as u32,
                     signed: false,
                 })
             }
@@ -329,6 +345,19 @@ impl<'a> Emitter<'a> {
                 let lo = self.emit_plain(lo);
                 (format!("{b}[{hi}:{lo}]"), PREC_ATOM)
             }
+            ExprKind::PartSelect {
+                base,
+                start,
+                width,
+                ascending,
+            } => {
+                let (base, start, width, asc) = (*base, *start, *width, *ascending);
+                let b = self.emit_prec(base, None, PREC_ATOM, false);
+                let s = self.emit_plain(start);
+                let w = self.emit_plain(width);
+                let op = if asc { "+:" } else { "-:" };
+                (format!("{b}[{s} {op} {w}]"), PREC_ATOM)
+            }
             ExprKind::Field { base, field } => {
                 let base = *base;
                 let name = field.text.clone();
@@ -379,11 +408,26 @@ impl<'a> Emitter<'a> {
                 (format!("{c} ? {t} : {e}"), PREC_TERNARY)
             }
             ExprKind::Error => ("1'b0".to_string(), PREC_ATOM), // parse tanısı zaten var
+            // Dizi literalleri (ADR-0035): tekrar → '{default: v},
+            // liste → '{a, b, ...}. Reg init/reset konumunda kullanılır.
+            ExprKind::ArrayLit(volt_ast::ArrayLitKind::Repeat { value, .. }) => {
+                let value = *value;
+                let v = self.emit_prec(value, ctx, PREC_TERNARY, false);
+                (format!("'{{default: {v}}}"), PREC_ATOM)
+            }
+            ExprKind::ArrayLit(volt_ast::ArrayLitKind::List(items)) => {
+                let items = items.clone();
+                let parts = items
+                    .iter()
+                    .map(|&i| self.emit_prec(i, ctx, PREC_TERNARY, false))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                (format!("'{{{parts}}}"), PREC_ATOM)
+            }
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
             | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
             | ExprKind::Todo { .. } => {
                 self.future(

@@ -77,7 +77,7 @@ endmodule
 | `i32` | `logic signed [31:0]` | |
 | `bits<N>` | `logic [N-1:0]` | aritmetiksiz |
 | `clock` | `logic` | port bağlamında |
-| `[T; N]` | `T_sv [N-1:0]` | dizi |
+| `[T; N]` | `T_sv ad [0:N-1]` | unpacked dizi (ADR-0035); boyut isimden SONRA — sentez araçları BRAM/dağıtık RAM'e eşleyebilir. Şimdilik yalnız `reg` bildirimlerinde |
 
 **Örnek:**
 ```volt

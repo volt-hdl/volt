@@ -363,10 +363,31 @@ ExprKind::Range { base, hi, lo } => {
         _ => {
             self.error(E2008, span,
                 "aralık sınırları derleme zamanı sabiti olmalı",
-                "değişken indeks için x[i] +: WIDTH kullanın");
+                "değişken indeks için x[i +: WIDTH] kullanın");
             self.mk_ty(Ty::Error)
         }
     }
+}
+
+// ADR-0035: dizi tabanında indeks ELEMANI seçer; idx değişken olabilir.
+// arr : [T; N], idx sayısal → arr[idx] : T
+// Sabit idx'te derleme zamanı sınır denetimi (E2006); değişken idx'te
+// denetim YOK — idx < N garantisi kontratla sağlanır (invariant: idx < N).
+
+// ADR-0035: indexed part-select — x[i +: W] / x[i -: W] → bits<W>
+// W derleme zamanı sabiti olmalı (değilse E2008) ve 1..=genişlik
+// aralığında olmalı (değilse E2006). i değişken olabilir; i sabitse
+// tüm seçim aralığı derleme zamanında denetlenir (E2006).
+ExprKind::PartSelect { base, start, width, ascending } => {
+    let bt = self.synth(*base);
+    let base_width = self.width_of(bt)?;
+    let Some(w) = self.const_eval(*width) else {
+        self.error(E2008, span,
+            "parça seçimi genişliği derleme zamanı sabiti olmalı",
+            "WIDTH'i literal veya const yapın");
+        return self.mk_ty(Ty::Error);
+    };
+    self.mk_ty(Ty::Bits { width: w as u16 })
 }
 ```
 

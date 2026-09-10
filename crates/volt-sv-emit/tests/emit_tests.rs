@@ -589,6 +589,9 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         // ADR-0031/0032: keyfi genişlik + sıralı blokta match.
         "37_arbitrary_widths.volt",
         "38_match_sequential.volt",
+        // ADR-0035: değişken dizi indeksi + indexed part-select.
+        "41_dynamic_array_index.volt",
+        "42_indexed_part_select.volt",
     ];
 
     let mut clean = 0;
@@ -947,4 +950,65 @@ fn builtin_let_binding_of_output_gets_width() {
     );
     let out = sv(&src);
     assert!(out.contains("wire [7:0] x = f_rd_data;"), "{out}");
+}
+
+// ═══ Değişken indeks + part-select üretimi (ADR-0035) ═════════════
+
+const REGFILE_SRC: &str = "module RegFile {\n    in  clk : clock\n    in  we : bool\n    in  waddr : bits<5>\n    in  raddr : bits<5>\n    in  wdata : u32\n    out rdata : u32\n\n    reg regs : [u32; 32] = [0; 32]\n\n    on clk {\n        if we {\n            regs[waddr] <= wdata\n        }\n    }\n\n    rdata = regs[raddr]\n}\n";
+
+#[test]
+fn array_reg_declares_unpacked_dimension() {
+    let out = sv(REGFILE_SRC);
+    assert!(out.contains("logic [31:0] regs [0:31];"), "{out}");
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn array_reg_reset_unrolls_to_for_loop() {
+    // '{default: v} Yosys'te desteklenmez — for döngüsü iki araçta da geçer.
+    let out = sv(REGFILE_SRC);
+    assert!(
+        out.contains(
+            "for (int volt_i = 0; volt_i < 32; volt_i = volt_i + 1) regs[volt_i] <= 32'd0;"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn dynamic_array_write_emits_indexed_target() {
+    let out = sv(REGFILE_SRC);
+    assert!(out.contains("regs[waddr] <= wdata;"), "{out}");
+}
+
+#[test]
+fn dynamic_array_read_emits_indexed_assign() {
+    let out = sv(REGFILE_SRC);
+    assert!(out.contains("assign rdata = regs[raddr];"), "{out}");
+}
+
+#[test]
+fn array_list_literal_resets_per_element() {
+    let out = sv("module M {\n    in  clk : clock\n    out y : u8\n\n    reg regs : [u8; 2] = [1, 2]\n\n    on clk { regs[0] <= 3 }\n\n    y = regs[1]\n}\n");
+    assert!(out.contains("regs[0] <= 8'd1;"), "{out}");
+    assert!(out.contains("regs[1] <= 8'd2;"), "{out}");
+}
+
+#[test]
+fn part_select_read_emits_verbatim() {
+    let out = sv("module M {\n    in  data : u32\n    in  i : bits<5>\n    out y : bits<8>\n\n    y = data[i +: 8]\n}\n");
+    assert!(out.contains("assign y = data[i +: 8];"), "{out}");
+}
+
+#[test]
+fn part_select_descending_emits_verbatim() {
+    let out =
+        sv("module M {\n    in  data : u32\n    out y : bits<8>\n\n    y = data[31 -: 8]\n}\n");
+    assert!(out.contains("assign y = data[31 -: 8];"), "{out}");
+}
+
+#[test]
+fn part_select_lvalue_emits_verbatim() {
+    let out = sv("module M {\n    in  clk : clock\n    in  i : bits<3>\n    in  nib : bits<4>\n    out y : u8\n\n    reg acc : u8 = 0\n\n    on clk {\n        acc[i +: 4] <= nib\n    }\n\n    y = acc\n}\n");
+    assert!(out.contains("acc[i +: 4] <= nib;"), "{out}");
 }

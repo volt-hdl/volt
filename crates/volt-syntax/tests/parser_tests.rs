@@ -55,6 +55,18 @@ fn dump(ast: &SourceFile, idx: Idx<Expr>) -> String {
             dump(ast, *hi),
             dump(ast, *lo)
         ),
+        ExprKind::PartSelect {
+            base,
+            start,
+            width,
+            ascending,
+        } => format!(
+            "({} {} {} {})",
+            if *ascending { "+:" } else { "-:" },
+            dump(ast, *base),
+            dump(ast, *start),
+            dump(ast, *width)
+        ),
         ExprKind::Field { base, field } => {
             format!("(field {} {})", dump(ast, *base), field.text)
         }
@@ -1907,7 +1919,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_36_of_36_parse_clean() {
+fn ui_pass_all_38_of_38_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1930,7 +1942,7 @@ fn ui_pass_all_36_of_36_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 36, "ui/pass 36 dosya içermeli");
+    assert_eq!(total, 38, "ui/pass 38 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1938,10 +1950,11 @@ fn ui_pass_all_36_of_36_parse_clean() {
     // ADR-0029 ise 30-35 tek saatli stdlib fixture'larını,
     // ADR-0031/0032 ise 37-38 keyfi genişlik + match fixture'larını,
     // ADR-0033 ise 39_test_block'u (test blokları),
-    // ADR-0034 ise 40_implication_operator'ı (implikasyon) ekledi.
+    // ADR-0034 ise 40_implication_operator'ı (implikasyon),
+    // ADR-0035 ise 41-42'yi (dizi indeksi + part-select) ekledi.
     assert_eq!(
-        clean, 36,
-        "36/36 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 38,
+        "38/38 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2176,4 +2189,69 @@ fn test_block_bad_stmt_recovers_to_next_semi() {
 fn test_block_unclosed_brace_is_e0002() {
     let src = "test \"t\" {\n    let dut = Counter { };\n";
     assert!(codes(src).contains(&"E0002"));
+}
+
+// ═══ Indexed part-select (ADR-0035) ═══════════════════════════════
+
+#[test]
+fn part_select_ascending_sexp() {
+    assert_eq!(expr_clean_sexp("a[i +: 8]"), "(+: a i 8)");
+}
+
+#[test]
+fn part_select_descending_sexp() {
+    assert_eq!(expr_clean_sexp("a[i -: 8]"), "(-: a i 8)");
+}
+
+#[test]
+fn part_select_start_is_full_expr() {
+    assert_eq!(expr_clean_sexp("a[i + 1 +: 8]"), "(+: a (+ i 1) 8)");
+}
+
+#[test]
+fn part_select_chains_with_index() {
+    // Sonek zinciri: önce eleman, sonra parça.
+    assert_eq!(expr_clean_sexp("a[0][i +: 4]"), "(+: (index a 0) i 4)");
+}
+
+#[test]
+fn range_select_still_parses_as_range() {
+    assert_eq!(expr_clean_sexp("a[7:4]"), "(range a 7 4)");
+}
+
+#[test]
+fn part_select_lvalue_target_parses() {
+    let result = p("module M {\n    in clk : clock\n    in i : bits<3>\n    reg acc : u8 = 0\n    on clk {\n        acc[i +: 4] <= 0\n    }\n}\n");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).expect("modül");
+    let stmt = &result.ast.stmts[module.body[1]];
+    let StmtKind::On(on) = &stmt.kind else {
+        panic!("on bloğu bekleniyor");
+    };
+    let block = &result.ast.blocks[on.body];
+    let BlockStmt::NonBlockAssign { lhs, .. } = &block.stmts[0] else {
+        panic!("nonblocking atama bekleniyor");
+    };
+    assert!(matches!(
+        lhs.suffixes[0],
+        LValueSuffix::PartSelect {
+            ascending: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn dynamic_array_index_lvalue_parses() {
+    let result = p("module M {\n    in clk : clock\n    in idx : bits<2>\n    reg regs : [u8; 4] = [0; 4]\n    on clk {\n        regs[idx] <= 1\n    }\n}\n");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn part_select_missing_width_recovers() {
+    let (result, _) = parse_expr(FileId(0), "a[i +: ]");
+    assert!(
+        !result.diagnostics.is_empty(),
+        "genişlik eksik — tanı bekleniyor"
+    );
 }

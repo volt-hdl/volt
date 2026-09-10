@@ -14,10 +14,10 @@ use std::collections::HashMap;
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
-    AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
-    Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock,
-    OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind,
-    TypeRef, TypeRefKind,
+    ArrayLitKind, AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch,
+    Expr, ExprKind, Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt,
+    ModuleDecl, OnBlock, OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync,
+    SourceFile, StmtKind, TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
@@ -213,6 +213,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         diagnostics: Vec::new(),
         domains: collect_domains(ast),
         symbols: HashMap::new(),
+        array_dims: HashMap::new(),
         builtin_insts: HashMap::new(),
         consts: collect_consts(ast),
         source,
@@ -308,8 +309,12 @@ pub(crate) struct Emitter<'a> {
     pub(crate) ast: &'a SourceFile,
     pub(crate) diagnostics: Vec<Diagnostic>,
     domains: HashMap<String, DomainInfo>,
-    /// Modül içi sinyal tablosu: isim → genişlik/işaret.
+    /// Modül içi sinyal tablosu: isim → genişlik/işaret. Dizi tipli
+    /// reg'lerde ELEMAN imzası tutulur; boyut `array_dims`'tedir.
     pub(crate) symbols: HashMap<String, Sig>,
+    /// Dizi tipli reg'ler (ADR-0035): isim → eleman sayısı N.
+    /// SV bildirimi `logic [W-1:0] ad [0:N-1]` biçimindedir.
+    pub(crate) array_dims: HashMap<String, u32>,
     /// Modül içi yerleşik CDC primitif örnekleri (ADR-0027): örnek adı →
     /// doğrulanmış bilgi. Ön geçişte doldurulur ki `f.rd_data` alan
     /// erişimleri deyim sırasından bağımsız `f_rd_data`'ya çevrilsin.
@@ -376,6 +381,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, module: &'a ModuleDecl, doc: Option<&str>) -> String {
         let ast = self.ast;
         self.symbols.clear();
+        self.array_dims.clear();
 
         // Sembol tablosu: portlar + reg'ler (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -387,6 +393,13 @@ impl<'a> Emitter<'a> {
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {
                 let span = ast.stmts[stmt_idx].span;
                 match reg.ty {
+                    // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
+                    Some(ty) if matches!(&ast.types[ty].kind, TypeRefKind::Array { .. }) => {
+                        if let Some((sig, len)) = self.array_reg_sig(ty, span) {
+                            self.symbols.insert(reg.name.text.clone(), sig);
+                            self.array_dims.insert(reg.name.text.clone(), len);
+                        }
+                    }
                     Some(ty) => {
                         if let Some(sig) = self.sig_of_typeref(ty, span) {
                             self.symbols.insert(reg.name.text.clone(), sig);
@@ -524,9 +537,16 @@ impl<'a> Emitter<'a> {
             let entry = match &stmt.kind {
                 // Sembolde yoksa E2012 zaten üretildi
                 StmtKind::Reg(reg) => self.symbols.get(&reg.name.text).copied().map(|sig| {
+                    // Unpacked dizi boyutu isimden SONRA yazılır (§2):
+                    // `logic [31:0] regs [0:31];` — sentez araçları bunu
+                    // BRAM/dağıtık RAM'e eşleyebilir.
+                    let dims = match self.array_dims.get(&reg.name.text) {
+                        Some(n) => format!(" [0:{}]", n - 1),
+                        None => String::new(),
+                    };
                     (
                         Kind::Decl,
-                        format!("    {} {};", sig.decl_type(), reg.name.text),
+                        format!("    {} {}{dims};", sig.decl_type(), reg.name.text),
                     )
                 }),
                 StmtKind::Let(decl) => {
@@ -874,12 +894,52 @@ impl<'a> Emitter<'a> {
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {
                 if written.iter().any(|w| w == &reg.name.text) {
                     let sig = self.symbols.get(&reg.name.text).copied();
+                    if let Some(n) = self.array_dims.get(&reg.name.text).copied() {
+                        lines.extend(self.array_reset_lines(&reg.name.text, reg.init, sig, n));
+                        continue;
+                    }
                     let init = self.emit_expr(reg.init, sig);
                     lines.push(format!("{} <= {};", reg.name.text, init));
                 }
             }
         }
         lines
+    }
+
+    /// Dizi reg reset satırları (ADR-0035). `'{default: v}` deseni Yosys
+    /// tarafından desteklenmediğinden tekrar literali for döngüsüne,
+    /// liste literali eleman atamalarına açılır — iki araç da kabul eder.
+    fn array_reset_lines(
+        &mut self,
+        name: &str,
+        init: Idx<Expr>,
+        sig: Option<Sig>,
+        n: u32,
+    ) -> Vec<String> {
+        match &self.ast.exprs[init].kind {
+            ExprKind::ArrayLit(ArrayLitKind::Repeat { value, .. }) => {
+                let value = *value;
+                let v = self.emit_expr(value, sig);
+                vec![format!(
+                    "for (int volt_i = 0; volt_i < {n}; volt_i = volt_i + 1) {name}[volt_i] <= {v};"
+                )]
+            }
+            ExprKind::ArrayLit(ArrayLitKind::List(items)) => {
+                let items = items.clone();
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &e)| {
+                        let v = self.emit_expr(e, sig);
+                        format!("{name}[{k}] <= {v};")
+                    })
+                    .collect()
+            }
+            _ => {
+                let v = self.emit_expr(init, sig);
+                vec![format!("{name} <= {v};")]
+            }
+        }
     }
 
     fn emit_block(&mut self, block: Idx<Block>, indent: usize) -> Vec<String> {
@@ -1057,6 +1117,16 @@ impl<'a> Emitter<'a> {
                     let lo = self.emit_plain(*lo);
                     out.push_str(&format!("[{hi}:{lo}]"));
                 }
+                LValueSuffix::PartSelect {
+                    start,
+                    width,
+                    ascending,
+                } => {
+                    let s = self.emit_plain(*start);
+                    let w = self.emit_plain(*width);
+                    let op = if *ascending { "+:" } else { "-:" };
+                    out.push_str(&format!("[{s} {op} {w}]"));
+                }
                 LValueSuffix::Field(name) => out.push_str(&format!(".{}", name.text)),
             }
         }
@@ -1065,8 +1135,14 @@ impl<'a> Emitter<'a> {
 
     fn lvalue_sig(&mut self, lv: &LValue) -> Option<Sig> {
         let mut sig = self.symbols.get(&lv.base.text).copied();
+        // Dizi tabanında ilk indeks ELEMANI seçer, biti değil (ADR-0035).
+        let mut is_array = self.array_dims.contains_key(&lv.base.text);
         for suffix in &lv.suffixes {
             sig = match suffix {
+                LValueSuffix::Index(_) if is_array => {
+                    is_array = false;
+                    sig
+                }
                 LValueSuffix::Index(_) => Some(Sig {
                     width: 1,
                     signed: false,
@@ -1078,6 +1154,13 @@ impl<'a> Emitter<'a> {
                         signed: false,
                     })
                 }
+                LValueSuffix::PartSelect { width, .. } => {
+                    let w = self.eval_const(*width)?;
+                    Some(Sig {
+                        width: w as u32,
+                        signed: false,
+                    })
+                }
                 LValueSuffix::Field(_) => None,
             };
         }
@@ -1085,6 +1168,34 @@ impl<'a> Emitter<'a> {
     }
 
     // ═══ Tipler (§2) ══════════════════════════════════════════════
+
+    /// `[T; N]` reg tipi (ADR-0035): eleman imzası + eleman sayısı.
+    /// Yalnız reg bildirimlerinde çağrılır; iç içe dizi desteklenmez.
+    pub(crate) fn array_reg_sig(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<(Sig, u32)> {
+        let TypeRefKind::Array { elem, len } = &self.ast.types[ty].kind else {
+            return None;
+        };
+        let (elem, len) = (*elem, *len);
+        let sig = self.sig_of_typeref(elem, span)?;
+        match self.eval_const(len) {
+            Some(n) if n >= 1 => Some((sig, n as u32)),
+            _ => {
+                self.error(
+                    ErrorCode::E2005,
+                    lstr!(
+                        en: "the length of [T; N] cannot be determined at compile time";
+                        tr: "[T; N] uzunluğu derleme zamanında belirlenemiyor"
+                    ),
+                    span,
+                    &lstr!(
+                        en: "N must be a constant expression (e.g. [u32; 32])";
+                        tr: "N sabit bir ifade olmalı (ör. [u32; 32])"
+                    ),
+                );
+                None
+            }
+        }
+    }
 
     pub(crate) fn sig_of_typeref(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
         match &self.ast.types[ty].kind {

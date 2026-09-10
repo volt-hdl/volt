@@ -232,7 +232,26 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 36);
+    assert_eq!(checked, 38);
+}
+
+// ═══ Değişken indeks + part-select (ADR-0035) ═════════════════════
+
+#[test]
+fn ui_pass_41_dynamic_array_index_clean() {
+    let result = analyze_file("pass/41_dynamic_array_index.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_42_indexed_part_select_clean() {
+    let result = analyze_file("pass/42_indexed_part_select.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_30_part_select_variable_width_e2008() {
+    assert_ui_fail("fail/30_part_select_variable_width.volt");
 }
 
 // ═══ Keyfi genişlik + sıralı match (ADR-0031/0032) ════════════════

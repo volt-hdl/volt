@@ -788,6 +788,11 @@ impl<'a> Inferencer<'a> {
                     self.expr_domain(*hi);
                     self.expr_domain(*lo);
                 }
+                LValueSuffix::PartSelect { start, width, .. } => {
+                    let d = self.expr_domain(*start);
+                    self.check_compat(lhs_dom, d, lhs.span, self.ast.exprs[*start].span);
+                    self.expr_domain(*width);
+                }
                 LValueSuffix::Field(_) => {}
             }
         }
@@ -925,6 +930,16 @@ impl<'a> Inferencer<'a> {
                 self.expr_domain(hi);
                 self.expr_domain(lo);
                 self.expr_domain(base)
+            }
+            // Başlangıç indeksi çalışma zamanı okumasıdır; genişlik sabittir.
+            ExprKind::PartSelect {
+                base, start, width, ..
+            } => {
+                let (base, start, width) = (*base, *start, *width);
+                self.expr_domain(width);
+                let a = self.expr_domain(base);
+                let b = self.expr_domain(start);
+                self.join(a, b, self.ast.exprs[base].span, self.ast.exprs[start].span)
             }
             ExprKind::Field { base, field } => {
                 let (base, field) = (*base, field.clone());

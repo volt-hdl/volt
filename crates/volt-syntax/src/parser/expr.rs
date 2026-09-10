@@ -629,6 +629,22 @@ impl Parser<'_> {
                         hi: first,
                         lo,
                     }
+                } else if self.eat(PlusColon) {
+                    let width = self.parse_expr();
+                    ExprKind::PartSelect {
+                        base,
+                        start: first,
+                        width,
+                        ascending: true,
+                    }
+                } else if self.eat(MinusColon) {
+                    let width = self.parse_expr();
+                    ExprKind::PartSelect {
+                        base,
+                        start: first,
+                        width,
+                        ascending: false,
+                    }
                 } else {
                     ExprKind::Index { base, index: first }
                 };

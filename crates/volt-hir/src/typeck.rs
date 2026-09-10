@@ -627,6 +627,15 @@ impl<'a> TypeChecker<'a, '_> {
                     self.index_result(ty, *e, lv.span)
                 }
                 LValueSuffix::Range { hi, lo } => self.range_result(ty, *hi, *lo, lv.span),
+                LValueSuffix::PartSelect {
+                    start,
+                    width,
+                    ascending,
+                } => {
+                    self.synth(*start);
+                    self.synth(*width);
+                    self.part_select_result(ty, *start, *width, *ascending, lv.span)
+                }
                 LValueSuffix::Field(name) => self.field_result(ty, &name.clone(), lv.span),
             };
         }
@@ -821,6 +830,18 @@ impl<'a> TypeChecker<'a, '_> {
             ExprKind::Range { base, hi, lo } => {
                 let base_ty = self.synth(*base);
                 self.range_result(base_ty, *hi, *lo, span)
+            }
+            ExprKind::PartSelect {
+                base,
+                start,
+                width,
+                ascending,
+            } => {
+                let (base, start, width, ascending) = (*base, *start, *width, *ascending);
+                let base_ty = self.synth(base);
+                self.synth(start);
+                self.synth(width);
+                self.part_select_result(base_ty, start, width, ascending, span)
             }
             ExprKind::Field { base, field } => {
                 let (base, field) = (*base, field.clone());
@@ -1465,11 +1486,68 @@ impl<'a> TypeChecker<'a, '_> {
                     ErrorCode::E2008,
                     lstr!(en: "range bounds must be compile-time constants"; tr: "aralık sınırları derleme zamanı sabiti olmalı"),
                     LabeledSpan::primary(span, lstr!(en: "non-constant bound"; tr: "değişken sınır")),
-                    lstr!(en: "use x[i] +: WIDTH for a variable index"; tr: "değişken indeks için x[i] +: WIDTH kullanın"),
+                    lstr!(en: "use x[i +: WIDTH] for a variable index"; tr: "değişken indeks için x[i +: WIDTH] kullanın"),
                 ));
                 self.types.error()
             }
         }
+    }
+
+    /// ADR-0035 — indexed part-select `x[i +: W]` / `x[i -: W]`.
+    /// Başlangıç indeksi değişken olabilir; genişlik derleme zamanı
+    /// sabiti olmalı (SV kuralı, IEEE 1800 §11.5.1). Sonuç `bits<W>`.
+    fn part_select_result(
+        &mut self,
+        base_ty: TypeId,
+        start: Idx<Expr>,
+        width: Idx<Expr>,
+        ascending: bool,
+        span: Span,
+    ) -> TypeId {
+        if self.types.is_error(base_ty) {
+            return self.types.error();
+        }
+        let Some(base_width) = self.types.width_of(base_ty) else {
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "part-select is only allowed on numeric or bits types"; tr: "parça seçimi yalnız sayısal veya bits tipinde yapılır"),
+                &lstr!(en: "convert the value to a suitable type first"; tr: "önce değeri uygun bir tipe dönüştürün"),
+            );
+            return self.types.error();
+        };
+        let Some(w) = self.try_const_eval(width) else {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E2008,
+                lstr!(en: "part-select width must be a compile-time constant"; tr: "parça seçimi genişliği derleme zamanı sabiti olmalı"),
+                LabeledSpan::primary(span, lstr!(en: "non-constant width"; tr: "değişken genişlik")),
+                lstr!(en: "make WIDTH a literal or const; only the start index may vary"; tr: "WIDTH'i literal veya const yapın; yalnız başlangıç indeksi değişebilir"),
+            ));
+            return self.types.error();
+        };
+        if w < 1 || w > i128::from(base_width) {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E2006,
+                lstr!(en: "part-select width {w} out of bounds (base width {base_width})"; tr: "parça seçimi genişliği {w} sınır dışı (taban genişliği {base_width})"),
+                LabeledSpan::primary(span, lstr!(en: "invalid part-select width"; tr: "geçersiz parça genişliği")),
+                lstr!(en: "valid width range: 1..={base_width}"; tr: "geçerli genişlik aralığı: 1..={base_width}"),
+            ));
+            return self.types.error();
+        }
+        // Başlangıç sabitse tüm seçim aralığı derleme zamanında denetlenir;
+        // değişkense denetim çalışma zamanına kalır (kontratla sağlanır).
+        if let Some(s) = self.try_const_eval(start) {
+            let (lo, hi) = if ascending {
+                (s, s + w - 1)
+            } else {
+                (s - w + 1, s)
+            };
+            if lo < 0 || hi >= i128::from(base_width) {
+                let bad = if lo < 0 { lo } else { hi };
+                self.index_out_of_bounds(bad, u64::from(base_width), span);
+                return self.types.error();
+            }
+        }
+        self.types.intern(Ty::Bits { width: w as u16 })
     }
 
     /// Alan erişimi: modül örneği portu, struct alanı veya demet indeksi.
@@ -1569,6 +1647,44 @@ impl<'a> TypeChecker<'a, '_> {
                 self.check(cond, bool_ty);
                 self.check(then_expr, expected);
                 self.check(else_expr, expected);
+                self.expr_types.insert(expr, expected);
+            }
+            // ADR-0035: dizi literalleri hedef eleman tipine daraltılır —
+            // `reg regs : [u32; 32] = [0; 32]` içindeki 0 bir u32'dir.
+            ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count })
+                if matches!(*self.types.ty(expected), Ty::Array { .. }) =>
+            {
+                let (value, count) = (*value, *count);
+                let Ty::Array { elem, len } = *self.types.ty(expected) else {
+                    unreachable!()
+                };
+                self.check(value, elem);
+                match self.try_const_eval(count) {
+                    Some(n) if n == i128::from(len) => {}
+                    _ => {
+                        let actual = self.synth_uncached(expr);
+                        self.expect_assignable(actual, expected, span);
+                    }
+                }
+                self.expr_types.insert(expr, expected);
+            }
+            ExprKind::ArrayLit(ArrayLitKind::List(items))
+                if matches!(*self.types.ty(expected), Ty::Array { .. }) =>
+            {
+                let items = items.clone();
+                let Ty::Array { elem, len } = *self.types.ty(expected) else {
+                    unreachable!()
+                };
+                for &i in &items {
+                    self.check(i, elem);
+                }
+                if items.len() as u32 != len {
+                    let actual = self.types.intern(Ty::Array {
+                        elem,
+                        len: items.len() as u32,
+                    });
+                    self.err_type_mismatch(expected, actual, span);
+                }
                 self.expr_types.insert(expr, expected);
             }
             _ => {
@@ -1853,6 +1969,13 @@ fn collect_path_exprs(ast: &SourceFile, expr: Idx<Expr>, out: &mut Vec<Idx<Expr>
             collect_path_exprs(ast, *base, out);
             collect_path_exprs(ast, *hi, out);
             collect_path_exprs(ast, *lo, out);
+        }
+        ExprKind::PartSelect {
+            base, start, width, ..
+        } => {
+            collect_path_exprs(ast, *base, out);
+            collect_path_exprs(ast, *start, out);
+            collect_path_exprs(ast, *width, out);
         }
         ExprKind::Field { base, .. } => collect_path_exprs(ast, *base, out),
         ExprKind::Call { callee, args } => {
