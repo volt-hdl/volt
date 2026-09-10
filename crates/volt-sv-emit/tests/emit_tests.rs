@@ -594,6 +594,9 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "42_indexed_part_select.volt",
         // ADR-0036: işaretli kaydırma / karşılaştırma / cast.
         "43_signed_ops.volt",
+        // ADR-0038: pipeline sözdizimi (desugar → temiz SV).
+        "45_pipeline_basic.volt",
+        "46_pipeline_forwarding.volt",
     ];
 
     let mut clean = 0;

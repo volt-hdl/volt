@@ -10,6 +10,7 @@ pub mod arena;
 pub mod builtin;
 
 pub use arena::{Arena, Idx};
+use std::collections::HashMap;
 use volt_span::Span;
 
 /// Kaynak isim. Spec interning öngörür (Name(SymbolId)); F0/F1'de
@@ -38,6 +39,26 @@ pub struct SourceFile {
     pub types: Arena<TypeRef>,
     pub patterns: Arena<Pattern>,
     pub blocks: Arena<Block>,
+    pub timing: TimingInfo,
+}
+
+/// L1 zamanlama yan tabloları (ADR-0037). `Delayed<T, N>` tip yazımı ve
+/// `delay<K>(x)` ifadesi parser'da iç formlarına indirgenir — SV üretimi
+/// bunları hiç görmez ("tip seviyesi" ilkesi); volt-hir'in timing geçidi
+/// bu tablolardan okur.
+#[derive(Debug, Default)]
+pub struct TimingInfo {
+    /// `Delayed<T, N>`: anahtar iç tipin (`T`) düğümü; değer `N` sabit
+    /// ifadesi ve tüm `Delayed<...>` yazımının span'i.
+    pub delayed_types: HashMap<Idx<TypeRef>, (Idx<Expr>, Span)>,
+    /// `delay<K>(x)`: anahtar iç ifadenin (`x`) düğümü. İç içe
+    /// `delay<1>(delay<2>(x))` aynı anahtara birikir (toplam +3).
+    pub delay_exprs: HashMap<Idx<Expr>, Vec<(Idx<Expr>, Span)>>,
+    /// Pipeline desugar'ının sabitlediği gecikmeler (ADR-0038 §3):
+    /// bildirim adı span'i → (çevrim, kaynak span). timing.rs bunları
+    /// açık `Delayed<T, N>` anotasyonu gibi okur — `stage(...)` içeren
+    /// aşama-yerel `let`'ler otomatik yeniden zamanlama iddiasıdır.
+    pub pinned: HashMap<Span, (u32, Span)>,
 }
 
 impl SourceFile {
@@ -124,6 +145,52 @@ pub struct ModuleDecl {
     pub body: Vec<Idx<Stmt>>,
     /// `} module Counter` sonlandırıcısı varsa.
     pub closing_name: Option<Name>,
+}
+
+/// `pipeline(N) Ad { ... }` (ADR-0038). Yalnız ayrıştırma ara
+/// biçimidir: parser desugar ile ModuleDecl'e indirger, AST arenasına
+/// Pipeline öğesi hiç girmez — isim çözümleme, tip denetimi ve SV
+/// üretimi pipeline'ı görmez (ADR-0037'nin silme ilkesinin L2 eşi).
+#[derive(Debug)]
+pub struct PipelineDecl {
+    pub name: Name,
+    /// `pipeline(N)` — bildirilen aşama sayısı.
+    pub depth: u32,
+    pub depth_span: Span,
+    pub ports: Vec<Port>,
+    pub contracts: Vec<Contract>,
+    /// Modül seviyesi deyimler (mimari reg'ler, çıkış atamaları).
+    pub body: Vec<Idx<Stmt>>,
+    pub stages: Vec<StageDecl>,
+    pub stalls: Vec<StallDecl>,
+    pub flushes: Vec<FlushDecl>,
+}
+
+/// `stage Ad { ... }` — gövde ardışık bağlamdır (let + `<=` + if/match).
+#[derive(Debug)]
+pub struct StageDecl {
+    pub name: Name,
+    pub body: Idx<Block>,
+}
+
+/// `stall [S1, S2] when koşul` (ADR-0038 §4).
+#[derive(Debug)]
+pub struct StallDecl {
+    pub span: Span,
+    /// Boş liste = aşama gövdesindeki listesiz biçim.
+    pub stages: Vec<Name>,
+    pub cond: Idx<Expr>,
+    /// Yazıldığı aşamanın indeksi; modül seviyesinde None.
+    pub in_stage: Option<usize>,
+}
+
+/// `flush S1, S2 when koşul` (ADR-0038 §5).
+#[derive(Debug)]
+pub struct FlushDecl {
+    pub span: Span,
+    pub stages: Vec<Name>,
+    pub cond: Idx<Expr>,
+    pub in_stage: Option<usize>,
 }
 
 #[derive(Debug)]

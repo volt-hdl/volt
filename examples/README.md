@@ -8,6 +8,7 @@ the contracts with `volt verify`.
 
 | File | Demonstrates |
 |---|---|
+| `riscv_pipeline.volt` | RV32I 5-stage pipeline (12-instruction subset), hand-built: manual inter-stage registers, EX→EX / MEM→EX forwarding plus the WB→ID bypass, load-use stall, branch/JAL flush. 10 inductive invariants (x0, PC alignment, per-stage wb_en/rd validity) proven with `--mode prove --depth 3 --engine boolector`; `stall_o`/`flush_o` debug ports work around contracts only seeing ports and registers. |
 | `uart_tx.volt` | UART transmitter (8N1). Four-state FSM written as a `match` inside the sequential block (ADR-0032), a `u10` baud counter compared directly against the `CLKS_PER_BIT` constant (ADR-0031), start/busy handshake, LSB-first shift register, safety invariants proven by induction (`--mode prove`), and `cover` targets showing all four states are reachable. |
 
 ## Building

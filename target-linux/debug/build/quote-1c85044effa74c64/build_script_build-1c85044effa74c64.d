@@ -1,0 +1,5 @@
+/work/target-linux/debug/build/quote-1c85044effa74c64/build_script_build-1c85044effa74c64.d: /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.47/build.rs
+
+/work/target-linux/debug/build/quote-1c85044effa74c64/build_script_build-1c85044effa74c64: /usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.47/build.rs
+
+/usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-1.0.47/build.rs:

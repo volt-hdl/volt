@@ -594,6 +594,9 @@ fn run_semantic_stages(parsed: &ParseResult, out: &mut Vec<Diagnostic>) -> bool 
     let domain = volt_hir::infer_domains(&parsed.ast, &resolve, &typeck);
     out.extend(domain.diagnostics);
 
+    // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
+    out.extend(volt_hir::check_timing(&parsed.ast, &resolve));
+
     // ── Test blokları (ADR-0033) ── Dosyada hiç modül yoksa testler
     // kardeş dosyanın modüllerini kullanıyordur; modül-varlık denetimi
     // atlanır (sim.rs kardeş dosyayla tam denetimi yapar).
