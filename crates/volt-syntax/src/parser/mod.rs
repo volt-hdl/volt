@@ -4,9 +4,11 @@
 //! İlkeler (error-recovery.md §1): asla panik yok, her girdide AST,
 //! her kurtarma en az bir token tüketir, kaskadlar bastırılır.
 
+mod desugar;
 mod expr;
-mod item;
+pub(crate) mod item;
 mod pattern;
+mod pipeline;
 pub(crate) mod recovery;
 mod stmt;
 mod test;
@@ -69,6 +71,12 @@ pub(crate) struct Parser<'s> {
     pub(crate) allow_struct_lit: bool,
     /// Parantezle sarılmış ifadeler — W0010 parantez önerisi bunları atlar.
     pub(crate) paren_exprs: HashSet<Idx<Expr>>,
+    /// `stage(X).y` ara kayıtları (ADR-0038) — desugar tüketir.
+    pub(crate) stage_refs: pipeline::StageRefMap,
+    /// Ayrıştırılmakta olan aşamanın indeksi (göreli stage refleri için).
+    pub(crate) current_stage: Option<usize>,
+    /// Pipeline gövdesi içinde miyiz? (stage(...) yalnız burada geçerli.)
+    pub(crate) in_pipeline: bool,
 }
 
 impl<'s> Parser<'s> {
@@ -94,6 +102,9 @@ impl<'s> Parser<'s> {
             eof_span: Span::new(file, len, len),
             allow_struct_lit: true,
             paren_exprs: HashSet::new(),
+            stage_refs: pipeline::StageRefMap::new(),
+            current_stage: None,
+            in_pipeline: false,
         }
     }
 

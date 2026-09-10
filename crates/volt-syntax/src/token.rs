@@ -149,15 +149,21 @@ pub enum TokenKind {
     KwActiveHigh,
     #[token("active_low")]
     KwActiveLow,
+    // ADR-0038: pipeline sözdizimi — rezerve listeden terfi.
+    #[token("pipeline")]
+    KwPipeline,
+    #[token("stage")]
+    KwStage,
+    #[token("stall")]
+    KwStall,
+    #[token("flush")]
+    KwFlush,
 
     // ─── Ayrılmış anahtar kelimeler (§17, kullanımı E0003) ───
     // ADR-0028: fifo/ram/regfile/arbiter stdlib bileşeni oldu, listeden
     // çıkarıldı — normal Ident olarak tanınırlar.
-    #[token("pipeline")]
+    // ADR-0038: pipeline/stage/stall/flush aktif anahtar kelime oldu.
     #[token("fsm")]
-    #[token("stage")]
-    #[token("stall")]
-    #[token("flush")]
     #[token("hook")]
     #[token("impl")]
     #[token("trait")]

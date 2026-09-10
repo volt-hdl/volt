@@ -87,6 +87,13 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",
         E5004 => "Kontrat ifadesi Bool değil",
+        E5010 => "Zamanlama hizasızlığı (farklı boru hattı aşamalarının değerleri birleştirildi)",
+        E5011 => "Geçersiz pipeline yapısı (aşama sayısı, yinelenen aşama, saat portları)",
+        E5012 => "Geçersiz aşama referansı",
+        E5013 => "Geçersiz stall/flush deyimi",
+        E5014 => "Boru hattında taşınan değere açık skaler tip gerekli",
+        E5015 => "Aşama referansları üzerinden kombinasyonel çevrim",
+        E5016 => "Aşama-yerel değer adı pipeline genelinde benzersiz değil",
 
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => "Kaynak bütçesi aşıldı",

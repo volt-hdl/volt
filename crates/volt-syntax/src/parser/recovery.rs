@@ -11,8 +11,8 @@ pub(crate) type TokenSet = &'static [TokenKind];
 
 /// Öğe seviyesi — en dış sınır.
 pub(crate) const ITEM_START: TokenSet = &[
-    KwModule, KwDomain, KwFn, KwStruct, KwEnum, KwConst, KwType, KwExtern, KwPub, KwUse, KwPackage,
-    At, DocComment,
+    KwModule, KwPipeline, KwDomain, KwFn, KwStruct, KwEnum, KwConst, KwType, KwExtern, KwPub,
+    KwUse, KwPackage, At, DocComment,
 ];
 
 /// Port seviyesi (error-recovery.md §2; kurtarmada PORT_RECOVERY kullanılır).

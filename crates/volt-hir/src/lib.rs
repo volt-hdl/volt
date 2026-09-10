@@ -11,6 +11,7 @@ pub mod domain;
 pub mod drivers;
 pub mod resolve;
 pub mod sim;
+pub mod timing;
 pub mod ty;
 pub mod typeck;
 
@@ -21,6 +22,7 @@ pub use resolve::{
     resolve_file, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope, ScopeId, ScopeKind,
 };
 pub use sim::{check_tests, collect_modules};
+pub use timing::check_timing;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 pub use typeck::{typecheck, TypeckResult};
 
@@ -66,11 +68,15 @@ pub fn analyze(ast: &SourceFile) -> AnalysisResult {
         .any(|i| matches!(ast.items_arena[*i].kind, volt_ast::ItemKind::Module(_)));
     let test_diags = sim::check_tests(&[ast], ast, !has_modules);
 
+    // L1 zamanlama (ADR-0037): yalnız @strict_timing modüllerinde çalışır.
+    let timing_diags = timing::check_timing(ast, &resolve);
+
     let mut diagnostics = resolve.diagnostics.clone();
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
     diagnostics.extend(domain.diagnostics.iter().cloned());
     diagnostics.extend(test_diags);
+    diagnostics.extend(timing_diags);
     AnalysisResult {
         resolve,
         typeck,

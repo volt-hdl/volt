@@ -87,6 +87,13 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",
         E5004 => "Contract expression is not Bool",
+        E5010 => "Timing misalignment (values from different pipeline stages combined)",
+        E5011 => "Invalid pipeline structure (stage count, duplicate stage, clock ports)",
+        E5012 => "Invalid stage reference",
+        E5013 => "Invalid stall/flush statement",
+        E5014 => "Pipelined value needs an explicit scalar type",
+        E5015 => "Combinational cycle through stage references",
+        E5016 => "Stage-local value name is not unique across the pipeline",
 
         // ─── Budget and timing contracts ───
         E6001 => "Resource budget exceeded",

@@ -490,6 +490,55 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: type is u9, not bool\n}",
             "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ comparison yields bool\n}",
         ),
+        E5010 => Explanation::new(
+            "Timing misalignment",
+            "In a @strict_timing module, values whose pipeline delays differ cannot be combined directly.",
+            "Every signal in a pipelined design belongs to an instruction that entered the pipe some number of cycles ago — its delay (ADR-0037, L1). Combining a 3-cycle-old value with a 2-cycle-old one usually means a missing stage register or a forward from the wrong stage; the result silently mixes two different instructions. Inside a @strict_timing module the compiler tracks a delay for each port (0), register (source delay + 1) and let (join of its operands), and rejects any operator whose operands disagree.\n\nIf the mix is intentional (forwarding, bypass), state the result's delay explicitly — 'let fwd : Delayed<u32, 2> = ...' — or re-align a younger value with 'delay<K>(x)'. Constants and literals are exempt: they carry no timing.",
+            "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = a + b        // ✗ E5010: 1 cycle vs 2 cycles\n    on clk { a <= x  b <= a }\n}",
+            "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = delay<1>(a) + b   // ✓ both sides are 2 cycles old\n    on clk { a <= x  b <= a }\n}",
+        ),
+        E5011 => Explanation::new(
+            "Invalid pipeline structure",
+            "The stage count must match pipeline(N), stage names must be unique, and the pipeline needs exactly one clock port.",
+            "pipeline(N) declares the depth of the pipe up front; the compiler derives every stage register, stall guard and flush guard from it (ADR-0038). A mismatch between N and the number of 'stage' blocks, a duplicated stage name, or an ambiguous clock would make the generated structure ill-defined, so each is rejected here rather than surfacing later as a confusing downstream error.",
+            "pipeline(5) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✗ E5011: 2 stages, 5 declared\n}",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✓ depth matches\n}",
+        ),
+        E5012 => Explanation::new(
+            "Invalid stage reference",
+            "stage(X).y must name a known stage and a value that already exists at stage X.",
+            "stage(X).y reads value 'y' as stage X sees it: the live signal in y's own stage, or the pipeline register carrying it into a later stage. The reference is invalid when X is not a stage of this pipeline (unknown name, or a relative form like stage(+9) that walks past the last stage), when 'y' is not a stage-local value, or when X is earlier than the stage that defines 'y' — the value simply does not exist yet at that point. The relative forms stage(+k)/stage(-k) are anchored to the current stage, so they are only meaningful inside a stage body.",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { let a : u32 = 1 }\n    stage D { let b : u32 = stage(+9).a }   // ✗ E5012: past the last stage\n}",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { let a : u32 = 1 }\n    stage D { let b : u32 = stage(-1).a }   // ✓ previous stage\n}",
+        ),
+        E5013 => Explanation::new(
+            "Invalid stall/flush statement",
+            "A stall set must be a contiguous prefix of the pipeline; stage lists must name real stages.",
+            "Stalling a stage means every earlier stage must also hold — otherwise the held stage would be overwritten by the one still advancing behind it. The compiler therefore requires the stalled set to start at the first stage and be contiguous (ADR-0038 §4). The bare form 'stall when cond' infers that prefix from the stage it is written in, so at module level it has no anchor and the stage list is mandatory. Flush lists are free-form but must name stages of this pipeline.",
+            "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall D when hazard      // ✗ E5013: D without F is not a prefix\n}",
+            "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall F, D when hazard   // ✓ contiguous prefix\n}",
+        ),
+        E5014 => Explanation::new(
+            "Pipelined value needs an explicit scalar type",
+            "A stage-local let that crosses a stage boundary must be annotated with bool, uN, iN or bits<K>.",
+            "When a value defined in one stage is read in a later one, the compiler materializes a register per crossed boundary and a zero-valued bubble for stall and flush. Both need the concrete type: the register declaration is emitted from it and the bubble is its zero (false or 0). This is the pipeline counterpart of F0's 'reg types must be written explicitly' rule (E2012). Values consumed only inside their own stage may stay unannotated.",
+            "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a = x + 1 }\n    stage D { let b : u32 = a }   // ✗ E5014: 'a' crosses, no type\n}",
+            "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a : u32 = x + 1 }\n    stage D { let b : u32 = a }   // ✓",
+        ),
+        E5015 => Explanation::new(
+            "Combinational cycle through stage references",
+            "stage(...) reads of live values must not form a dependency cycle.",
+            "A stage(X).y reference to a value in its own defining stage is a plain wire, not a register. If two such wires depend on each other — a in stage F reads stage(D).b while b in stage D reads stage(F).a — the generated netlist would contain a combinational loop. The compiler orders the hoisted lets by dependency and rejects any cycle. Break the loop by routing one direction through a pipeline register (reference the value from a later stage) or by recomputing one side locally.",
+            "stage F { let a : u32 = stage(+1).b }\nstage D { let b : u32 = stage(-1).a }   // ✗ E5015: a → b → a",
+            "stage F { let a : u32 = pc }\nstage D { let b : u32 = a + 4 }          // ✓ acyclic",
+        ),
+        E5016 => Explanation::new(
+            "Stage-local value name is not unique",
+            "Every stage-local let in a pipeline must have a distinct name.",
+            "Cross-stage references are made by name ('a' in a later stage means 'the pipelined copy of a'), and the generated registers are named <stage>_<name>_r. If two stages both defined 'a', both the reference and the generated SystemVerilog would be ambiguous. There is no shadowing inside a pipeline; pick distinct names — the stage prefix in the generated code keeps them readable.",
+            "stage F { let v : u32 = 1 }\nstage D { let v : u32 = 2 }   // ✗ E5016: 'v' defined twice",
+            "stage F { let f_v : u32 = 1 }\nstage D { let d_v : u32 = 2 }  // ✓",
+        ),
 
         // ─── Budget and timing contracts ───
         E6001 => Explanation::new(

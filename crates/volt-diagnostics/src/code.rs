@@ -52,8 +52,9 @@ error_codes! {
     // ─── Bağlantı/sürücü (type-inference.md) ───
     E4001, E4002, E4003, E4004,
 
-    // ─── Davranışsal kontratlar (contracts) ───
-    E5001, E5004,
+    // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
+    //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016) ───
+    E5001, E5004, E5010, E5011, E5012, E5013, E5014, E5015, E5016,
 
     // ─── Bütçe ve zamanlama kontratları ───
     E6001, E6003, E6004,

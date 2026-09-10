@@ -161,8 +161,17 @@ fn kw_reset_spec() {
 
 #[test]
 fn reserved_structural() {
-    let ks = kinds("pipeline fsm");
+    let ks = kinds("fsm hook");
     assert_eq!(ks, vec![Reserved; 2]);
+}
+
+#[test]
+fn promoted_pipeline_keywords() {
+    // ADR-0038: rezerve listeden aktif anahtar kelimeye terfi.
+    assert_eq!(
+        assert_clean("pipeline stage stall flush"),
+        vec![KwPipeline, KwStage, KwStall, KwFlush]
+    );
 }
 
 #[test]
@@ -173,7 +182,8 @@ fn released_stdlib_words_are_plain_idents() {
 
 #[test]
 fn reserved_pipeline_control() {
-    assert_eq!(kinds("stage stall flush hook"), vec![Reserved; 4]);
+    // ADR-0038 sonrası rezerve kalan yapısal kelimeler.
+    assert_eq!(kinds("fsm hook impl trait"), vec![Reserved; 4]);
 }
 
 #[test]
@@ -203,7 +213,7 @@ fn reserved_v1_domain_words() {
 
 #[test]
 fn reserved_emits_e0003() {
-    assert_eq!(error_codes("pipeline"), vec!["E0003"]);
+    assert_eq!(error_codes("fsm"), vec!["E0003"]);
 }
 
 #[test]

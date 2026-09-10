@@ -549,7 +549,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_block_stmt(&mut self, ctx: BlockContext) -> BlockStmt {
+    pub(crate) fn parse_block_stmt(&mut self, ctx: BlockContext) -> BlockStmt {
         match self.current() {
             Some(KwIf) => BlockStmt::If(self.parse_if_stmt(ctx)),
             Some(KwLet) => match self.parse_let() {

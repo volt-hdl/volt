@@ -43,6 +43,7 @@ Path            = Ident { "::" Ident } ;
 Item            = [ Attributes ] [ DocComment ] [ "pub" ] ItemKind ;
 
 ItemKind        = ModuleDecl                                (* [F0] *)
+                | PipelineDecl                              (* [F4] ADR-0038 *)
                 | DomainDecl                                (* [F1] *)
                 | FnDecl                                    (* [F2] *)
                 | StructDecl                                (* [F3] *)
@@ -131,6 +132,34 @@ Port            = [ Attributes ] [ DocComment ]
                   PortDir Ident ":" Type [ DomainAnnot ] [ "," ] ;
 
 PortDir         = "in" | "out" | "inout" ;                    (* [F3] *)
+
+
+(* ═══ 4a. PIPELINE BİLDİRİMİ (ADR-0038) ═══════════════════════ *)
+(* Parser'da ModuleDecl'e indirgenir (desugar): aşama register'ları,
+   stall/flush muhafızları ve tek always_ff otomatik üretilir.
+   Aşama i'nin gecikmesi i'dir; bildirim örtük @strict_timing taşır.
+   Hata kodları E5011–E5016 ADR-0038 §7'de tanımlıdır. *)
+
+PipelineDecl    = "pipeline" "(" IntLit ")" Ident
+                  "{" PipelineBody "}" ;                      (* [F4] *)
+
+PipelineBody    = { Port } { Contract }
+                  { Stmt | StageDecl | StallStmt | FlushStmt } ;
+
+StageDecl       = "stage" Ident
+                  "{" { SeqBlockStmt | StallStmt | FlushStmt } "}" ;
+
+(* Aşama gövdesinde StallStmt liste alabilir; modül seviyesinde
+   liste zorunludur (E5013). Stall kümesi ilk aşamadan başlayan
+   bitişik bir önek olmalıdır. *)
+StallStmt       = "stall" [ Ident { "," Ident } ] "when" Expr ;
+
+FlushStmt       = "flush" Ident { "," Ident } "when" Expr ;
+
+(* İfade konumunda aşama referansı — tipi Delayed<T, N_X> (§3):
+   stage(Ad).y, stage(+1).y, stage(-1).y *)
+StageRef        = "stage" "(" ( Ident | ("+"|"-") IntLit ) ")"
+                  "." Ident ;
 
 DomainAnnot     = "@" Ident ;                                 (* [F2] *)
 
@@ -481,14 +510,14 @@ BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
      true false todo
      requires ensures invariant cover assert assume
      posedge negedge none sync async active_high active_low
+     pipeline stage stall flush (ADR-0038 ile terfi etti)
 
    (* 'sync' ve 'async' bağlamsal anahtar kelimedir — yalnız
       "reset =" değer konumunda anahtar kelime, diğer her yerde
       Ident (sync() CDC çağrısı dahil). Bkz. ADR-0023. *)
 
    AYRILMIŞ (V1+, kullanılırsa E0003):
-     pipeline fsm
-     stage stall flush hook impl trait where
+     fsm hook impl trait where
      Spike PTrit Option Some None Result Ok Err
      spike self Self mut ref move
      secret confidential public

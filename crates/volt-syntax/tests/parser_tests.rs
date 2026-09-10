@@ -1919,7 +1919,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_39_of_39_parse_clean() {
+fn ui_pass_all_42_of_42_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1942,7 +1942,7 @@ fn ui_pass_all_39_of_39_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 39, "ui/pass 39 dosya içermeli");
+    assert_eq!(total, 42, "ui/pass 42 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1952,10 +1952,12 @@ fn ui_pass_all_39_of_39_parse_clean() {
     // ADR-0033 ise 39_test_block'u (test blokları),
     // ADR-0034 ise 40_implication_operator'ı (implikasyon),
     // ADR-0035 ise 41-42'yi (dizi indeksi + part-select),
-    // ADR-0036 ise 43'ü (işaretli işlemler) ekledi.
+    // ADR-0036 ise 43'ü (işaretli işlemler),
+    // ADR-0037 ise 44'ü (L1 zamanlama, Delayed),
+    // ADR-0038 ise 45-46'yı (pipeline sözdizimi) ekledi.
     assert_eq!(
-        clean, 39,
-        "39/39 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 42,
+        "42/42 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -1979,6 +1981,9 @@ fn ui_fail_files_produce_expected_codes() {
         ("16_missing_else.volt", "E0008"),
         ("18_comb_wrong_operator.volt", "E0007"),
         ("27_match_missing_wildcard.volt", "E0014"),
+        // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
+        ("33_stage_out_of_range.volt", "E5012"),
+        ("34_pipeline_bad_stall.volt", "E5013"),
     ];
     for (file, expected) in cases {
         let path = format!(
@@ -2255,4 +2260,118 @@ fn part_select_missing_width_recovers() {
         !result.diagnostics.is_empty(),
         "genişlik eksik — tanı bekleniyor"
     );
+}
+
+// ═══ L1 zamanlama sözdizimi (ADR-0037) ═════════════════════════════
+
+#[test]
+fn delayed_type_desugars_to_inner_with_side_table() {
+    let result =
+        p("module M {\n    in clk : clock\n    reg r : Delayed<u8, 2> = 0\n    on clk { r <= r }\n}\n");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.timing.delayed_types.len(), 1);
+    let m = result.ast.module(0).expect("modül bekleniyor");
+    let StmtKind::Reg(r) = &result.ast.stmts[m.body[0]].kind else {
+        panic!("reg bekleniyor");
+    };
+    let ty = r.ty.expect("tip anotasyonu bekleniyor");
+    // Tip düğümü iç tiptir — çözümleme ve SV üretimi yalnız u8 görür.
+    assert!(matches!(result.ast.types[ty].kind, TypeRefKind::UInt(8)));
+    let (cycles, _) = result.ast.timing.delayed_types[&ty];
+    assert!(matches!(
+        result.ast.exprs[cycles].kind,
+        ExprKind::IntLit { value: 2, .. }
+    ));
+}
+
+#[test]
+fn delayed_type_const_name_cycles_becomes_path_expr() {
+    let result = p(
+        "const K : u32 = 2\nmodule M {\n    in clk : clock\n    reg r : Delayed<u8, K> = 0\n    on clk { r <= r }\n}\n",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let (_ty, &(cycles, _)) = result
+        .ast
+        .timing
+        .delayed_types
+        .iter()
+        .next()
+        .expect("tablo girdisi bekleniyor");
+    assert!(matches!(result.ast.exprs[cycles].kind, ExprKind::Path(_)));
+}
+
+#[test]
+fn delayed_with_wrong_arity_is_e0001() {
+    assert!(
+        codes("module M { in clk : clock reg r : Delayed<8> = 0 on clk { r <= r } }")
+            .contains(&"E0001")
+    );
+}
+
+#[test]
+fn delay_expr_desugars_to_inner_with_side_table() {
+    let result =
+        p("module M {\n    in x : u32\n    out y : u32\n    let s = delay<2>(x)\n    y = s\n}\n");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.timing.delay_exprs.len(), 1);
+    let m = result.ast.module(0).expect("modül bekleniyor");
+    let StmtKind::Let(l) = &result.ast.stmts[m.body[0]].kind else {
+        panic!("let bekleniyor");
+    };
+    // AST'de yalnız iç ifade yaşar; sarmalayıcı yan tablodadır.
+    assert!(matches!(result.ast.exprs[l.value].kind, ExprKind::Path(_)));
+    let wraps = &result.ast.timing.delay_exprs[&l.value];
+    assert_eq!(wraps.len(), 1);
+    assert!(matches!(
+        result.ast.exprs[wraps[0].0].kind,
+        ExprKind::IntLit { value: 2, .. }
+    ));
+}
+
+#[test]
+fn nested_delay_exprs_accumulate_on_same_key() {
+    let result = p(
+        "module M {\n    in x : u32\n    out y : u32\n    let s = delay<1>(delay<2>(x))\n    y = s\n}\n",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let m = result.ast.module(0).expect("modül bekleniyor");
+    let StmtKind::Let(l) = &result.ast.stmts[m.body[0]].kind else {
+        panic!("let bekleniyor");
+    };
+    assert_eq!(result.ast.timing.delay_exprs[&l.value].len(), 2);
+}
+
+#[test]
+fn delay_as_plain_identifier_still_parses() {
+    // 'delay' rezerve değildir: tam kalıp (`delay<K>(`) dışında sıradan isim.
+    let result = p(
+        "module M {\n    in delay : u32\n    out y : u32\n    let s = delay + 1\n    y = s\n}\n",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert!(result.ast.timing.delay_exprs.is_empty());
+}
+
+#[test]
+fn strict_timing_attribute_is_known() {
+    let result = p("@strict_timing\nmodule M {\n    in clk : clock\n}\n");
+    assert!(
+        !result.error_codes().contains(&"W0020"),
+        "@strict_timing tanınan nitelik olmalı: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn delayed_in_let_annotation_desugars() {
+    let result = p(
+        "module M {\n    in x : u32\n    out y : u32\n    let f : Delayed<u32, 1> = x\n    y = f\n}\n",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.timing.delayed_types.len(), 1);
+    let m = result.ast.module(0).expect("modül bekleniyor");
+    let StmtKind::Let(l) = &result.ast.stmts[m.body[0]].kind else {
+        panic!("let bekleniyor");
+    };
+    let ty = l.ty.expect("tip anotasyonu bekleniyor");
+    assert!(matches!(result.ast.types[ty].kind, TypeRefKind::UInt(32)));
 }

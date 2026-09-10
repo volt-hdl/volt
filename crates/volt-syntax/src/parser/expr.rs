@@ -241,6 +241,7 @@ impl Parser<'_> {
                     | Minus
                     | StringLit
                     | KwTodo
+                    | KwStage
                     | InvalidNumber
                     | Reserved
             )
@@ -266,6 +267,18 @@ impl Parser<'_> {
                 })
             }
             Some(Ident) => {
+                // `delay<K>(x)` (ADR-0037): bağlamsal 'delay' — kalıp
+                // ancak 5 token ileri bakışla tam eşleşirse tüketilir,
+                // aksi halde 'delay' sıradan bir isimdir. Tip düzeyinde
+                // soyulur: AST'de yalnız `x` yaşar, K yan tabloya yazılır.
+                if self.current_text() == "delay"
+                    && matches!(self.peek(1), Some(Lt))
+                    && matches!(self.peek(2), Some(IntLit) | Some(Ident))
+                    && matches!(self.peek(3), Some(Gt))
+                    && matches!(self.peek(4), Some(LParen))
+                {
+                    return self.parse_delay_expr(start);
+                }
                 let path = self.parse_path();
                 // StructLit: `Ad { alan: değer }` — başlık bağlamlarında
                 // ('if x {' gibi) allow_struct_lit=false ile bastırılır.
@@ -305,6 +318,8 @@ impl Parser<'_> {
             Some(KwIf) => self.parse_if_expr(),
             Some(KwMatch) => self.parse_match_expr(),
             Some(KwTodo) => self.parse_todo_expr(),
+            // `stage(X).y` aşama referansı (ADR-0038) — pipeline.rs.
+            Some(KwStage) => self.parse_stage_ref(start),
             Some(StringLit) => {
                 let span = self.bump();
                 let text = self.unescape_string(span);
@@ -787,6 +802,43 @@ impl Parser<'_> {
             span: self.span_from(start),
             segments,
         }
+    }
+
+    /// `delay<K>(x)` — L1 zamanlama yeniden hizalama biçimi (ADR-0037).
+    /// AST'de yalnız iç ifade yaşar; `K` timing yan tablosuna birikir
+    /// (iç içe formlar toplanır). Çağıran, 5 token ileri bakışla kalıbı
+    /// doğruladı: 'delay' '<' (IntLit|Ident) '>' '('.
+    fn parse_delay_expr(&mut self, start: usize) -> Idx<Expr> {
+        self.bump_any(); // 'delay'
+        self.bump_any(); // '<'
+        let cycles = if self.at(IntLit) {
+            self.parse_int_lit()
+        } else {
+            let name = self.parse_name();
+            let span = name.span;
+            let path = Path {
+                span,
+                segments: vec![name],
+            };
+            self.ast.exprs.alloc(Expr {
+                span,
+                kind: ExprKind::Path(path),
+            })
+        };
+        self.bump_any(); // '>'
+        let open = self.bump(); // '('
+        let inner = self.parse_expr();
+        self.expect_closing(RParen, ")", open);
+        let full_span = self.span_from(start);
+        self.ast
+            .timing
+            .delay_exprs
+            .entry(inner)
+            .or_default()
+            .push((cycles, full_span));
+        // Parantezli form: W0010 parantez önerisinin dışında kalır.
+        self.paren_exprs.insert(inner);
+        inner
     }
 
     pub(crate) fn parse_int_lit(&mut self) -> Idx<Expr> {

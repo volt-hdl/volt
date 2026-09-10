@@ -9,11 +9,12 @@ use volt_diagnostics::explain::{
 use volt_diagnostics::{ErrorCode, Lang};
 
 /// Spec'teki toplam kod sayısı — kod eklenince bilinçli olarak güncellenir.
-/// (E0014, ADR-0032 ile; E8501-E8506, ADR-0033 ile eklendi.)
-const CODE_COUNT: usize = 99;
+/// (E0014, ADR-0032 ile; E8501-E8506, ADR-0033 ile; E5010, ADR-0037 ile;
+/// E5011-E5016, ADR-0038 ile eklendi.)
+const CODE_COUNT: usize = 106;
 
 #[test]
-fn all_codes_present_99_of_99() {
+fn all_codes_present_106_of_106() {
     assert_eq!(
         ErrorCode::ALL.len(),
         CODE_COUNT,

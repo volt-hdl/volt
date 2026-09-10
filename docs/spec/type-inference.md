@@ -825,3 +825,35 @@ W4002  Yazılıp hiç okunmayan register
 3. Kullanım analizi
    → W4001, W4002
 ```
+
+## 12. L1 Timing — `Delayed<T, N>` (ADR-0037)
+
+Every value in a `@strict_timing` module carries a *delay*: how many
+cycles after pipeline entry it becomes valid. Input ports are 0, a
+register is its source's delay + 1, a combinational `let` is the join
+of its operands. Constants and literals carry no timing and unify with
+any delay.
+
+Rules (E5010 on violation, only inside `@strict_timing` modules):
+
+```
+Delayed<T,N> op Delayed<T,N>  →  Delayed<T,N>
+Delayed<T,N> op Delayed<T,M>  →  E5010          (N ≠ M)
+T            op Delayed<T,N>  →  E5010          (T undelayed, e.g. an input port)
+IntLit       op Delayed<T,N>  →  Delayed<T,N>   (literals/constants exempt)
+delay<K>(x)  : Delayed<T,N>   →  Delayed<T,N+K>
+on clk { r <= e }  where e : Delayed<T,N>  →  r : Delayed<T,N+1>
+```
+
+Exemptions: `if`/`match` conditions (control), `r <= r` hold writes
+(stall pattern), feedback loops (counters, pc, register files — no
+fixed delay exists, so they are unconstrained), and the initializer of
+an explicitly annotated `let` (a *retiming assertion* — the forwarding
+escape hatch). `Delayed` and `delay<K>` erase at the type level: name
+resolution, type checking and SV emission see only the inner type and
+expression; generated RTL is unchanged. Without `@strict_timing` the
+pass does not run at all — existing code compiles bit-for-bit
+identically, with no new warnings.
+
+Binding details and the V0 limits (integer-literal cycle counts, no
+type-alias transparency) live in ADR-0037.

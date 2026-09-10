@@ -4,10 +4,11 @@
 
 use volt_ast::{
     AttrArg, Attribute, BlockContext, BlockStmt, ClockEdge, ConstDecl, Contract, ContractKind,
-    DomainDecl, DomainField, DomainKey, DomainValue, EnumDecl, EnumVariant, ExternDecl, FnDecl,
-    GenericArg, GenericParam, GenericParamKind, Idx, Item, ItemKind, ModuleDecl, Name, PackageDecl,
-    Param, Path, Port, PortDir, ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField,
-    TypeAlias, TypeRef, TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
+    DomainDecl, DomainField, DomainKey, DomainValue, EnumDecl, EnumVariant, Expr, ExprKind,
+    ExternDecl, FnDecl, GenericArg, GenericParam, GenericParamKind, Idx, Item, ItemKind,
+    ModuleDecl, Name, PackageDecl, Param, Path, Port, PortDir, ResetPolarity, ResetSpec, ResetSync,
+    StructDecl, StructField, TypeAlias, TypeRef, TypeRefKind, UseDecl, UseTree, VariantData,
+    Visibility,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
@@ -37,10 +38,12 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     "debug_visible",
     "debug_trace",
     "synthesis_target",
+    // ADR-0037: L1 zamanlama — modül düzeyinde gecikme denetimini açar.
+    "strict_timing",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.
-fn contract_kind(kind: TokenKind) -> Option<ContractKind> {
+pub(crate) fn contract_kind(kind: TokenKind) -> Option<ContractKind> {
     Some(match kind {
         KwRequires => ContractKind::Requires,
         KwEnsures => ContractKind::Ensures,
@@ -169,7 +172,7 @@ impl Parser<'_> {
     fn parse_item(&mut self) {
         let start = self.pos;
         let doc = self.collect_doc_comments();
-        let attrs = self.parse_attributes();
+        let mut attrs = self.parse_attributes();
         let visibility = if self.eat(KwPub) {
             Visibility::Public
         } else {
@@ -178,6 +181,24 @@ impl Parser<'_> {
 
         let kind = match self.current() {
             Some(KwModule) => self.parse_module(),
+            // ADR-0038: pipeline modüle indirgenir ve örtük olarak
+            // @strict_timing taşır — L1 denetimi her pipeline'da açık.
+            Some(KwPipeline) => {
+                let kind = self.parse_pipeline();
+                if !attrs.iter().any(|a| a.name.text == "strict_timing") {
+                    if let ItemKind::Module(m) = &kind {
+                        attrs.push(Attribute {
+                            span: m.name.span,
+                            name: Name {
+                                text: "strict_timing".to_string(),
+                                span: m.name.span,
+                            },
+                            args: Vec::new(),
+                        });
+                    }
+                }
+                kind
+            }
             Some(KwDomain) => self.parse_domain(),
             Some(KwFn) => self.parse_fn(),
             Some(KwStruct) => self.parse_struct(),
@@ -564,7 +585,11 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_port(&mut self, attrs: Vec<Attribute>, doc: Option<String>) -> Option<Port> {
+    pub(crate) fn parse_port(
+        &mut self,
+        attrs: Vec<Attribute>,
+        doc: Option<String>,
+    ) -> Option<Port> {
         let start = self.pos;
         let direction = match self.current() {
             Some(KwIn) => PortDir::In,
@@ -1221,6 +1246,12 @@ impl Parser<'_> {
                 } else {
                     Vec::new()
                 };
+                // `Delayed<T, N>` (ADR-0037) yerleşiktir ve tip düzeyinde
+                // soyulur: iç tip düğümü döner, çevrim sayısı timing yan
+                // tablosuna yazılır — çözümleme/emit yalnız `T` görür.
+                if path.segments.len() == 1 && path.segments[0].text == "Delayed" {
+                    return self.desugar_delayed_type(start, args);
+                }
                 TypeRefKind::Path { path, args }
             }
             _ => {
@@ -1233,6 +1264,56 @@ impl Parser<'_> {
         };
         let span = self.span_from(start);
         self.ast.types.alloc(TypeRef { span, kind })
+    }
+
+    /// `Delayed<T, N>` yerleşik tip yazımını iç tipe indirger (ADR-0037).
+    /// Tip düğümü olarak yalnız `T` yaşar; `N` sabit ifadesi timing yan
+    /// tablosuna yazılır — çözümleme, tip kontrolü ve SV üretimi `T` görür.
+    fn desugar_delayed_type(&mut self, start: usize, args: Vec<GenericArg>) -> Idx<TypeRef> {
+        let full_span = self.span_from(start);
+        if let [GenericArg::Type(inner), second] = args.as_slice() {
+            let inner = *inner;
+            // `Delayed<u32, K>`: sabit adı `K` tip argümanı gibi
+            // ayrışır — tek parçalı yol tipi sabit ifadeye çevrilir.
+            let cycles = match second {
+                GenericArg::Const(e) => Some(*e),
+                GenericArg::Type(t) => self.type_as_const_expr(*t),
+            };
+            if let Some(cycles) = cycles {
+                self.ast
+                    .timing
+                    .delayed_types
+                    .insert(inner, (cycles, full_span));
+                return inner;
+            }
+        }
+        self.push_error(Diagnostic::error(
+            ErrorCode::E0001,
+            lstr!(en: "invalid Delayed type arguments"; tr: "geçersiz Delayed tip argümanları"),
+            LabeledSpan::primary(
+                full_span,
+                lstr!(en: "expected Delayed<Type, Cycles>"; tr: "Delayed<Tip, Çevrim> bekleniyor"),
+            ),
+            lstr!(en: "write it as Delayed<u32, 3>"; tr: "Delayed<u32, 3> biçiminde yazın"),
+        ));
+        self.alloc_error_type(full_span)
+    }
+
+    /// Tek parçalı, argümansız yol tipini sabit isim ifadesine çevirir
+    /// (`Delayed<u32, DEPTH>` içindeki `DEPTH`).
+    fn type_as_const_expr(&mut self, ty: Idx<TypeRef>) -> Option<Idx<Expr>> {
+        let TypeRefKind::Path { path, args } = &self.ast.types[ty].kind else {
+            return None;
+        };
+        if !args.is_empty() || path.segments.len() != 1 {
+            return None;
+        }
+        let path = path.clone();
+        let span = path.span;
+        Some(self.ast.exprs.alloc(Expr {
+            span,
+            kind: ExprKind::Path(path),
+        }))
     }
 
     /// `uN`/`iN` tip ailesi (ADR-0031): 1..=64 doğrudan UInt/SInt olur.

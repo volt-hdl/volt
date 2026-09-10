@@ -1,4 +1,4 @@
-//! tests/ui dosyalarının anlamsal (F1b) doğrulaması.
+﻿//! tests/ui dosyalarının anlamsal (F1b) doğrulaması.
 //!
 //! Parser seviyesi ui taraması volt-syntax'ta; burada isim çözümleme
 //! ve const eval'in ui/fail beklentileri denetlenir.
@@ -232,7 +232,8 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 39);
+    // ADR-0038: 45-46 pipeline fixture'ları eklendi.
+    assert_eq!(checked, 42);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
@@ -383,4 +384,22 @@ fn ui_pass_39_test_block_clean() {
 #[test]
 fn ui_fail_28_test_unknown_port_e8502() {
     assert_ui_fail("fail/28_test_unknown_port.volt");
+}
+
+// ═══ L1 zamanlama (ADR-0037) ═══
+
+#[test]
+fn ui_pass_44_delayed_aligned_clean() {
+    let result = analyze_file("pass/44_delayed_aligned.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_31_delay_mismatch_e5010() {
+    assert_ui_fail("fail/31_delay_mismatch.volt");
+}
+
+#[test]
+fn ui_fail_32_missing_delay_e5010() {
+    assert_ui_fail("fail/32_missing_delay.volt");
 }

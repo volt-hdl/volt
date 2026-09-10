@@ -96,6 +96,11 @@ pub enum Ty {
         data: TypeId,
         dim: u32,
     },
+    /// L1 zamanlama sarmalayıcısı (ADR-0037): `Delayed<T, N>` — değer,
+    /// boru hattına girişten `cycles` çevrim sonra geçerlidir. Yüzey
+    /// yazımı parser'da iç tipe indirgenir (SV üretimi görmez); bu
+    /// varyant timing geçidinin gecikmeli tip gösterimidir.
+    Delayed { inner: TypeId, cycles: u16 },
     /// Boyutlandırılmamış tamsayı literali — bağlamdan belirlenir.
     IntLit,
     /// Aritmetik genişleme sonucu (ADR-0025): `[lo, hi]` aralığındaki her
@@ -225,6 +230,9 @@ impl TypeArena {
             Ty::Enum(_) => "enum".to_string(),
             Ty::Instance(_) => "modül örneği".to_string(),
             Ty::Builtin { prim, .. } => format!("{} örneği", prim.name()),
+            Ty::Delayed { inner, cycles } => {
+                format!("Delayed<{}, {cycles}>", self.display(*inner))
+            }
             Ty::IntLit => "tamsayı literali".to_string(),
             // Kullanıcı yüzünde doğal genişlik gösterilir (§10 vektörleri).
             Ty::UIntFlex { hi, .. } => format!("u{hi}"),

@@ -490,6 +490,55 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: tip u9, bool değil\n}",
             "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ karşılaştırma bool üretir\n}",
         ),
+        E5010 => Explanation::new(
+            "Zamanlama hizasızlığı",
+            "@strict_timing modülünde boru hattı gecikmeleri farklı değerler doğrudan birleştirilemez.",
+            "Boru hatlı bir tasarımda her sinyal, hatta belirli sayıda çevrim önce girmiş bir komuta aittir — bu onun gecikmesidir (ADR-0037, L1). 3 çevrim yaşındaki bir değeri 2 çevrim yaşındakiyle birleştirmek çoğunlukla eksik bir aşama register'ı ya da yanlış aşamadan yönlendirme demektir; sonuç iki farklı komutu sessizce karıştırır. @strict_timing modülünde derleyici her port (0), register (kaynak gecikmesi + 1) ve let (operand birleşimi) için bir gecikme izler ve operandları uyuşmayan işleci reddeder.\n\nKarışım bilinçliyse (yönlendirme, bypass) sonucun gecikmesini açıkça bildirin — 'let fwd : Delayed<u32, 2> = ...' — ya da genç değeri 'delay<K>(x)' ile hizalayın. Sabitler ve literaller muaftır: zamanlama taşımazlar.",
+            "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = a + b        // ✗ E5010: 1 çevrim ile 2 çevrim\n    on clk { a <= x  b <= a }\n}",
+            "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = delay<1>(a) + b   // ✓ iki taraf da 2 çevrim yaşında\n    on clk { a <= x  b <= a }\n}",
+        ),
+        E5011 => Explanation::new(
+            "Geçersiz pipeline yapısı",
+            "Aşama sayısı pipeline(N) ile eşleşmeli, aşama adları benzersiz olmalı, tam bir saat portu bulunmalı.",
+            "pipeline(N) borunun derinliğini baştan bildirir; derleyici tüm aşama register'larını, stall ve flush muhafızlarını bundan türetir (ADR-0038). N ile 'stage' bloklarının sayısının uyuşmaması, yinelenen aşama adı ya da belirsiz saat, üretilecek yapıyı tanımsız bırakır — bu yüzden sorun ileride kafa karıştıran bir hataya dönüşmeden burada reddedilir.",
+            "pipeline(5) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✗ E5011: 2 aşama var, 5 bildirildi\n}",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✓ derinlik eşleşiyor\n}",
+        ),
+        E5012 => Explanation::new(
+            "Geçersiz aşama referansı",
+            "stage(X).y bilinen bir aşamayı ve X aşamasında zaten var olan bir değeri adlandırmalı.",
+            "stage(X).y, 'y' değerini X aşamasının gördüğü haliyle okur: kendi aşamasındaki canlı sinyal ya da sonraki aşamaya taşıyan boru hattı register'ı. X bu pipeline'ın aşaması değilse (bilinmeyen ad, ya da stage(+9) gibi son aşamayı aşan göreli biçim), 'y' aşama-yerel bir değer değilse ya da X, 'y'yi tanımlayan aşamadan önceyse referans geçersizdir — değer o noktada henüz yoktur. Göreli biçimler (stage(+k)/stage(-k)) bulunulan aşamaya bağlıdır; yalnız aşama gövdesinde anlamlıdır.",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { let a : u32 = 1 }\n    stage D { let b : u32 = stage(+9).a }   // ✗ E5012: son aşamayı aşıyor\n}",
+            "pipeline(2) P {\n    in clk : clock\n    stage F { let a : u32 = 1 }\n    stage D { let b : u32 = stage(-1).a }   // ✓ önceki aşama\n}",
+        ),
+        E5013 => Explanation::new(
+            "Geçersiz stall/flush deyimi",
+            "Stall kümesi boru hattının bitişik bir öneki olmalı; aşama listeleri gerçek aşamaları adlandırmalı.",
+            "Bir aşamayı durdurmak, ondan önceki her aşamanın da durmasını gerektirir — aksi halde tutulan aşama, arkasından ilerlemeye devam eden aşama tarafından ezilir. Derleyici bu yüzden durdurulan kümenin ilk aşamadan başlayıp bitişik olmasını ister (ADR-0038 §4). Listesiz 'stall when koşul' biçimi bu öneki yazıldığı aşamadan çıkarır; modül seviyesinde çıpası olmadığından aşama listesi zorunludur. Flush listesi serbest biçimlidir ama bu pipeline'ın aşamalarını adlandırmalıdır.",
+            "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall D when hazard      // ✗ E5013: F'siz D önek değil\n}",
+            "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall F, D when hazard   // ✓ bitişik önek\n}",
+        ),
+        E5014 => Explanation::new(
+            "Boru hattında taşınan değere açık skaler tip gerekli",
+            "Aşama sınırını geçen aşama-yerel let, bool, uN, iN veya bits<K> ile anotasyonlanmalı.",
+            "Bir aşamada tanımlanan değer sonraki bir aşamada okunduğunda derleyici, geçilen her sınır için bir register ve stall/flush için sıfır değerli bir bubble üretir. İkisi de somut tipe muhtaçtır: register bildirimi tipten yazılır, bubble tipin sıfırıdır (false ya da 0). Bu, F0'ın 'reg tipi açık yazılmalı' kuralının (E2012) pipeline karşılığıdır. Yalnız kendi aşamasında tüketilen değerler anotasyonsuz kalabilir.",
+            "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a = x + 1 }\n    stage D { let b : u32 = a }   // ✗ E5014: 'a' sınırı geçiyor, tipi yok\n}",
+            "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a : u32 = x + 1 }\n    stage D { let b : u32 = a }   // ✓",
+        ),
+        E5015 => Explanation::new(
+            "Aşama referansları üzerinden kombinasyonel çevrim",
+            "Canlı değerlere yapılan stage(...) okumaları bağımlılık çevrimi oluşturmamalı.",
+            "Bir değerin kendi tanım aşamasındaki stage(X).y okuması register değil düz bir teldir. İki böyle tel birbirine bağımlıysa — F aşamasındaki a, stage(D).b'yi okurken D aşamasındaki b, stage(F).a'yı okuyorsa — üretilen netlist kombinasyonel döngü içerir. Derleyici taşınan let'leri bağımlılığa göre sıralar ve her çevrimi reddeder. Döngüyü, bir yönü boru hattı register'ından geçirerek (değeri sonraki aşamadan referans ederek) ya da bir tarafı yerel yeniden hesaplayarak kırın.",
+            "stage F { let a : u32 = stage(+1).b }\nstage D { let b : u32 = stage(-1).a }   // ✗ E5015: a → b → a",
+            "stage F { let a : u32 = pc }\nstage D { let b : u32 = a + 4 }          // ✓ çevrimsiz",
+        ),
+        E5016 => Explanation::new(
+            "Aşama-yerel değer adı benzersiz değil",
+            "Pipeline içindeki her aşama-yerel let farklı bir ad taşımalı.",
+            "Aşamalar arası referanslar adla yapılır (sonraki aşamadaki 'a', 'a'nın boru hattı kopyası demektir) ve üretilen register'lar <aşama>_<ad>_r diye adlandırılır. İki aşama da 'a' tanımlasaydı hem referans hem üretilen SystemVerilog belirsizleşirdi. Pipeline içinde gölgeleme yoktur; farklı adlar seçin — üretilen koddaki aşama öneki okunabilirliği korur.",
+            "stage F { let v : u32 = 1 }\nstage D { let v : u32 = 2 }   // ✗ E5016: 'v' iki kez tanımlı",
+            "stage F { let f_v : u32 = 1 }\nstage D { let d_v : u32 = 2 }  // ✓",
+        ),
 
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => Explanation::new(
