@@ -17,10 +17,10 @@
 // provable one-line contract (invariant: regs[0] == 0) instead of a
 // convention buried in a 32-arm match.
 //
-// Sign extension avoids arithmetic right shift on purpose: `>>` maps
-// to the logical SV operator, so immediates OR in the upper sign mask
-// when instr[31] is set, SRA fills with ~(ones >> shamt), and signed
-// compares use the bias trick (a ^ 0x80000000).
+// Signed operations use the native forms (ADR-0036): immediates and
+// SRA sign-extend through `(x as i32) >> n`, which emits the SV
+// arithmetic shift (`$signed(x) >>> n`), and SLT/BLT compare through
+// `(a as i32) < (b as i32)`, which emits `$signed(a) < $signed(b)`.
 
 module RiscvCore {
     in  clk       : clock
@@ -69,24 +69,23 @@ module RiscvCore {
     let rs1_v = regs[rs1_i]
     let rs2_v = regs[rs2_i]
 
-    // ── Immediates (manual sign extension via upper-mask OR) ──────
-    let imm_i = if instr[31] { (instr >> 20) | 0xFFFFF000 }
-                else         { instr >> 20 }
+    // ── Immediates (sign extension via arithmetic shift) ──────────
+    let imm_i = ((instr as i32) >> 20) as u32
 
-    let imm_s_lo = ((instr >> 25) << 5) | ((instr >> 7) & 0x1F)
-    let imm_s    = if instr[31] { imm_s_lo | 0xFFFFF000 } else { imm_s_lo }
+    let imm_s = ((((instr as i32) >> 25) << 5) as u32)
+              | ((instr >> 7) & 0x1F)
 
-    let imm_b_lo = (((instr >> 8) & 0xF) << 1)
-                 | (((instr >> 25) & 0x3F) << 5)
-                 | (((instr >> 7) & 1) << 11)
-    let imm_b    = if instr[31] { imm_b_lo | 0xFFFFF000 } else { imm_b_lo }
+    let imm_b = ((((instr as i32) >> 31) << 12) as u32)
+              | (((instr >> 7) & 1) << 11)
+              | (((instr >> 25) & 0x3F) << 5)
+              | (((instr >> 8) & 0xF) << 1)
 
     let imm_u = instr & 0xFFFFF000
 
-    let imm_j_lo = (((instr >> 21) & 0x3FF) << 1)
-                 | (((instr >> 20) & 1) << 11)
-                 | (instr & 0xFF000)
-    let imm_j    = if instr[31] { imm_j_lo | 0xFFF00000 } else { imm_j_lo }
+    let imm_j = ((((instr as i32) >> 31) << 20) as u32)
+              | (instr & 0xFF000)
+              | (((instr >> 20) & 1) << 11)
+              | (((instr >> 21) & 0x3FF) << 1)
 
     // ── ALU ───────────────────────────────────────────────────────
     let alu_b = if is_alu_r { rs2_v } else { imm_i }
@@ -94,36 +93,27 @@ module RiscvCore {
     // Bit 30 selects SUB (R-type f3=0) and SRA (f3=5, R and I alike).
     let alt_op = instr[30]
 
-    // Signed compare via bias: (a ^ MIN) <u (b ^ MIN)  ==  a <s b.
-    let sa  = rs1_v ^ 0x80000000
-    let sb  = alu_b ^ 0x80000000    // SLT(I): rs2 or immediate
-    let sbr = rs2_v ^ 0x80000000    // branches always compare rs2
-
-    // Arithmetic shift fill: ones above the shifted-in position when
-    // the sign bit is set; zero otherwise (shamt == 0 → fill == 0).
-    let ones : u32 = 0xFFFFFFFF
-    let sra_fill = if rs1_v[31] { ~(ones >> shamt) } else { 0 }
-
     let alu_out =
         if f3 == 0 {
             if is_alu_r && alt_op { rs1_v - alu_b } else { rs1_v + alu_b }
         } else if f3 == 1 { rs1_v << shamt
-        } else if f3 == 2 { if sa < sb { 1 } else { 0 }          // SLT(I)
+        } else if f3 == 2 {                                      // SLT(I)
+            if (rs1_v as i32) < (alu_b as i32) { 1 } else { 0 }
         } else if f3 == 3 { if rs1_v < alu_b { 1 } else { 0 }    // SLTU(I)
         } else if f3 == 4 { rs1_v ^ alu_b
-        } else if f3 == 5 {
-            if alt_op { (rs1_v >> shamt) | sra_fill } else { rs1_v >> shamt }
+        } else if f3 == 5 {                                      // SRA / SRL
+            if alt_op { ((rs1_v as i32) >> shamt) as u32 } else { rs1_v >> shamt }
         } else if f3 == 6 { rs1_v | alu_b
         } else { rs1_v & alu_b }
 
     // ── Branch decision ───────────────────────────────────────────
     let br_taken =
-        if f3 == 0 { rs1_v == rs2_v            // BEQ
-        } else if f3 == 1 { rs1_v != rs2_v     // BNE
-        } else if f3 == 4 { sa < sbr           // BLT
-        } else if f3 == 5 { sa >= sbr          // BGE
-        } else if f3 == 6 { rs1_v < rs2_v      // BLTU
-        } else { rs1_v >= rs2_v }              // BGEU
+        if f3 == 0 { rs1_v == rs2_v                          // BEQ
+        } else if f3 == 1 { rs1_v != rs2_v                   // BNE
+        } else if f3 == 4 { (rs1_v as i32) < (rs2_v as i32)  // BLT
+        } else if f3 == 5 { (rs1_v as i32) >= (rs2_v as i32) // BGE
+        } else if f3 == 6 { rs1_v < rs2_v                    // BLTU
+        } else { rs1_v >= rs2_v }                            // BGEU
 
     // ── Data memory interface ─────────────────────────────────────
     let addr = rs1_v + (if is_store { imm_s } else { imm_i })

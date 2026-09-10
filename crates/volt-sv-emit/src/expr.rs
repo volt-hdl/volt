@@ -136,6 +136,14 @@ impl<'a> Emitter<'a> {
                         signed: false,
                     });
                 }
+                // Kaydırma sonucu SOL operandın genişlik ve işaretini taşır
+                // (ADR-0036) — miktar operandı sonucu etkilemez. İşaret bilgisi
+                // doğru olmalı ki `(x as i32) >> n` üstündeki `as u32` cast'i
+                // $unsigned sınırını üretsin (SV bağlam sızıntısına karşı).
+                if matches!(op, BinOp::Shl | BinOp::Shr) {
+                    let lhs = *lhs;
+                    return self.width_of(lhs);
+                }
                 let (lhs, rhs) = (*lhs, *rhs);
                 match (self.width_of(lhs), self.width_of(rhs)) {
                     (Some(l), Some(r)) => Some(Sig {
@@ -329,7 +337,14 @@ impl<'a> Emitter<'a> {
                     } else {
                         self.emit_prec(rhs, operand_ctx, prec, true)
                     };
-                    (format!("{l} {} {r}", op.symbol()), prec)
+                    // İşaretli sağ kaydırma aritmetiktir (ADR-0036): SV'de
+                    // `>>` her zaman mantıksal; işaret ancak `>>>` ile korunur.
+                    let sym = if op == BinOp::Shr && self.width_of(lhs).is_some_and(|s| s.signed) {
+                        ">>>"
+                    } else {
+                        op.symbol()
+                    };
+                    (format!("{l} {sym} {r}"), prec)
                 }
             }
             ExprKind::Index { base, index } => {
@@ -531,7 +546,17 @@ impl<'a> Emitter<'a> {
                 format!("{{{{{n}{{1'b0}}}}, {inner}}}")
             }
         } else if target.width == src.width {
-            inner
+            // Aynı genişlikte işaret DEĞİŞİYORSA no-op değildir (ADR-0036):
+            // $signed/$unsigned sarmalayıcısı hem karşılaştırma/kaydırma
+            // semantiğini kurar hem de SV işaret-bağlamı sızıntısını kesen
+            // öz-belirlenimli (self-determined) bir sınır oluşturur.
+            if target.signed && !src.signed {
+                format!("$signed({inner})")
+            } else if !target.signed && src.signed {
+                format!("$unsigned({inner})")
+            } else {
+                inner
+            }
         } else {
             // daraltma: yalnız basit isimlerde dilimlenebilir
             if matches!(&self.ast.exprs[operand].kind, ExprKind::Path(_)) {

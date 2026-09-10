@@ -232,7 +232,15 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 38);
+    assert_eq!(checked, 39);
+}
+
+// ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
+
+#[test]
+fn ui_pass_43_signed_ops_clean() {
+    let result = analyze_file("pass/43_signed_ops.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
 }
 
 // ═══ Değişken indeks + part-select (ADR-0035) ═════════════════════

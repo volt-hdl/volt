@@ -233,9 +233,13 @@ assign y = a ? 8'd1 : (b ? 8'd2 : 8'd3);
 | `&&` `\|\|` | `&&` `\|\|` | mantıksal |
 | `==` `!=` | `==` `!=` | |
 | `<` `>` `<=` `>=` | `<` `>` `<=` `>=` | |
-| `<<` `>>` | `<<` `>>` | mantıksal kaydırma |
+| `<<` | `<<` | sol kaydırma (işaretten bağımsız) |
+| `>>` (işaretsiz sol operand) | `>>` | mantıksal kaydırma |
+| `>>` (işaretli sol operand) | `>>>` | aritmetik kaydırma, işaret korunur (ADR-0036) |
 | `a as u16` | `{{8{1'b0}}, a}` | zero-extend |
 | `a as i16` | `{{8{a[7]}}, a}` | sign-extend |
+| `a as i32` (a: u32, aynı genişlik) | `$signed(a)` | işaret yeniden yorumlama (ADR-0036); öz-belirlenimli sınır |
+| `a as u32` (a: i32, aynı genişlik) | `$unsigned(a)` | işaret yeniden yorumlama (ADR-0036) |
 | `a[3]` | `a[3]` | bit seçimi |
 | `a[7:4]` | `a[7:4]` | aralık seçimi |
 

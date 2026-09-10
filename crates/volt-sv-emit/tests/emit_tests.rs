@@ -592,6 +592,8 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         // ADR-0035: değişken dizi indeksi + indexed part-select.
         "41_dynamic_array_index.volt",
         "42_indexed_part_select.volt",
+        // ADR-0036: işaretli kaydırma / karşılaştırma / cast.
+        "43_signed_ops.volt",
     ];
 
     let mut clean = 0;
@@ -1011,4 +1013,85 @@ fn part_select_descending_emits_verbatim() {
 fn part_select_lvalue_emits_verbatim() {
     let out = sv("module M {\n    in  clk : clock\n    in  i : bits<3>\n    in  nib : bits<4>\n    out y : u8\n\n    reg acc : u8 = 0\n\n    on clk {\n        acc[i +: 4] <= nib\n    }\n\n    y = acc\n}\n");
     assert!(out.contains("acc[i +: 4] <= nib;"), "{out}");
+}
+
+// ═══ İşaretli kaydırma / cast / karşılaştırma (ADR-0036) ══════════
+
+#[test]
+fn signed_shr_emits_arithmetic_shift() {
+    let out = sv("module M {\n    in  a : i32\n    out y : i32\n\n    y = a >> 3\n}\n");
+    assert!(out.contains("a >>> 3"), "{out}");
+    assert_no_forbidden(&out);
+}
+
+#[test]
+fn unsigned_shr_stays_logical() {
+    let out = sv("module M {\n    in  a : u32\n    out y : u32\n\n    y = a >> 3\n}\n");
+    assert!(out.contains("a >> 3"), "{out}");
+    assert!(!out.contains(">>>"), "{out}");
+}
+
+#[test]
+fn shl_never_becomes_arithmetic() {
+    // SV'de <<< ile << eşdeğerdir; işaretlide de << üretilir.
+    let out = sv("module M {\n    in  a : i32\n    out y : i32\n\n    y = a << 3\n}\n");
+    assert!(out.contains("a << 3"), "{out}");
+    assert!(!out.contains("<<<"), "{out}");
+}
+
+#[test]
+fn same_width_cast_to_signed_emits_dollar_signed() {
+    let out = sv("module M {\n    in  u : u32\n    in  a : i32\n    out y : bool\n\n    y = (u as i32) < a\n}\n");
+    assert!(out.contains("$signed(u) < a"), "{out}");
+}
+
+#[test]
+fn same_width_cast_to_unsigned_emits_dollar_unsigned() {
+    let out = sv("module M {\n    in  a : i32\n    out y : u32\n\n    y = a as u32\n}\n");
+    assert!(out.contains("$unsigned(a)"), "{out}");
+}
+
+#[test]
+fn same_width_same_sign_cast_stays_noop() {
+    let out = sv("module M {\n    in  d : u8\n    out y : u8\n\n    y = d[7:0] as u8\n}\n");
+    assert!(!out.contains("$signed"), "{out}");
+    assert!(!out.contains("$unsigned"), "{out}");
+}
+
+#[test]
+fn signed_compare_of_two_casts() {
+    let out = sv("module M {\n    in  x : u32\n    in  z : u32\n    out y : bool\n\n    y = (x as i32) < (z as i32)\n}\n");
+    assert!(out.contains("$signed(x) < $signed(z)"), "{out}");
+}
+
+#[test]
+fn signed_ports_compare_without_wrappers() {
+    // Bildirimi zaten signed olan operandlar sarmalayıcı gerektirmez.
+    let out =
+        sv("module M {\n    in  a : i32\n    in  b : i32\n    out y : bool\n\n    y = a < b\n}\n");
+    assert!(out.contains("a < b"), "{out}");
+    assert!(!out.contains("$signed"), "{out}");
+}
+
+#[test]
+fn cast_roundtrip_keeps_self_determined_boundary() {
+    // $unsigned(...) sınırı, >>>'ın dış işaretsiz bağlamdan etkilenip
+    // mantıksal kaydırmaya düşmesini engeller (IEEE 1800 §11.8.1).
+    let out =
+        sv("module M {\n    in  u : u32\n    out y : u32\n\n    y = ((u as i32) >> 2) as u32\n}\n");
+    assert!(out.contains("$unsigned(($signed(u) >>> 2))"), "{out}");
+}
+
+#[test]
+fn widening_sign_extend_unchanged() {
+    let out = sv("module M {\n    in  a : i8\n    out y : i32\n\n    y = a as i32\n}\n");
+    assert!(out.contains("{{24{a[7]}}, a}"), "{out}");
+    assert!(!out.contains("$signed(a)"), "{out}");
+}
+
+#[test]
+fn widening_zero_extend_unchanged() {
+    let out = sv("module M {\n    in  a : u8\n    out y : u32\n\n    y = a as u32\n}\n");
+    assert!(out.contains("{{24{1'b0}}, a}"), "{out}");
+    assert!(!out.contains("$unsigned"), "{out}");
 }

@@ -707,3 +707,36 @@ fn dynamic_bit_select_still_bool() {
     assert_eq!(def_ty(&result, "_b"), "bool");
     assert!(result.error_codes().is_empty());
 }
+
+// ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
+
+#[test]
+fn signed_shift_result_keeps_lhs_type() {
+    // Spec: kaydırma sonucu sol operandın tipidir — i32 >> n → i32.
+    let result = check("module M {\n    in  a : i32\n    in  sh : u8\n    out y : i32\n\n    let _x = a >> (sh & 31)\n\n    y = _x\n}\n");
+    assert_eq!(def_ty(&result, "_x"), "i32");
+    assert!(
+        result.error_codes().is_empty(),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn signed_compare_of_casts_is_bool() {
+    let result = check("module M {\n    in  u : u32\n    in  z : u32\n    out y : bool\n\n    let _c = (u as i32) < (z as i32)\n\n    y = _c\n}\n");
+    assert_eq!(def_ty(&result, "_c"), "bool");
+    assert!(
+        result.error_codes().is_empty(),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn cast_roundtrip_through_signed_is_clean() {
+    let c = codes(
+        "module M {\n    in  u : u32\n    out y : u32\n\n    y = ((u as i32) >> 2) as u32\n}\n",
+    );
+    assert!(c.is_empty(), "{c:?}");
+}
