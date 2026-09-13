@@ -663,7 +663,7 @@ fn build_sva_inline_embeds_properties_in_sv() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let sv = std::fs::read_to_string(target.join("rtl").join("uart.sv")).expect("uart.sv");
+    let sv = std::fs::read_to_string(target.join("rtl").join("Uart.sv")).expect("Uart.sv");
     assert!(sv.contains("property inv_0;"), "{sv}");
     assert!(
         !target.join("formal").exists(),
@@ -1513,7 +1513,7 @@ fn build_without_emit_sva_stays_rtl_only() {
         .expect("volt çalışmalı");
     assert_eq!(output.status.code(), Some(0));
 
-    let sv = std::fs::read_to_string(target.join("rtl").join("uart.sv")).expect("uart.sv");
+    let sv = std::fs::read_to_string(target.join("rtl").join("Uart.sv")).expect("Uart.sv");
     assert!(!sv.contains("property"), "varsayılan build SVA içermemeli");
     assert!(!target.join("formal").exists());
 

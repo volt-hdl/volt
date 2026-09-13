@@ -36,12 +36,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y verilator
       - name: counter.volt derle
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
-      # DECLFILENAME beklenen bir istisna: cli-contract.md Â§5 Ã§Ä±ktÄ± adÄ±nÄ±
-      # kaynak dosyadan (counter.sv), sv-mapping.md Ä°1 modÃ¼l adÄ±nÄ± Volt
-      # kaynaÄŸÄ±ndan (Counter) tÃ¼retir â€” bÃ¼yÃ¼k/kÃ¼Ã§Ã¼k harf farkÄ± kaÃ§Ä±nÄ±lmaz.
-      # Onun dÄ±ÅŸÄ±nda SIFIR uyarÄ± bekleniyor.
-      - name: Verilator lint â€” SIFIR uyarÄ± bekleniyor
-        run: verilator --lint-only -Wall -Wno-DECLFILENAME build/rtl/counter.sv
+      # ADR-0024: çıktı adı modül adından türer (build/rtl/Counter.sv), bu
+      # yüzden DECLFILENAME dahil SIFIR uyarı bekleniyor.
+      - name: Verilator lint — SIFIR uyarı bekleniyor
+        run: verilator --lint-only -Wall build/rtl/Counter.sv
 
   consistency:
     name: Spec-kod tutarlÄ±lÄ±k
