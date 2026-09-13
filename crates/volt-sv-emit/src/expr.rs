@@ -207,6 +207,11 @@ impl<'a> Emitter<'a> {
                 let (base, field) = (*base, field.text.clone());
                 self.builtin_field_sig(base, &field)
             }
+            // prev(x[, N]) (ADR-0040): argümanın genişliği.
+            ExprKind::Call { callee, args } if self.is_prev_call(*callee) => {
+                let x = args.first().copied()?;
+                self.width_of(x)
+            }
             ExprKind::Call { .. } | ExprKind::Error => None,
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
@@ -386,6 +391,11 @@ impl<'a> Emitter<'a> {
                         (format!("{b}.{name}"), PREC_ATOM)
                     }
                 }
+            }
+            // prev(x[, N]) (ADR-0040): $past ya da yardımcı reg.
+            ExprKind::Call { callee, args } if self.is_prev_call(*callee) => {
+                let args = args.clone();
+                (self.emit_prev(idx, &args, ctx), PREC_ATOM)
             }
             ExprKind::Call { .. } => {
                 self.future(

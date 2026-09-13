@@ -171,6 +171,10 @@ impl<'a> Emitter<'a> {
                 clock.info.reset.condition()
             ));
         }
+        // ADR-0040: prev() yardımcı register zincirleri (Yosys $past bilmez).
+        if let Some(block) = self.past_reg_block(module, &clock, indent) {
+            blocks.push(block);
+        }
         for c in &module.contracts {
             let (prefix, verb) = sva_construct(c.kind);
             let slot = kind_slot(c.kind);

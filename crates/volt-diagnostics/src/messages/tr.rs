@@ -96,6 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E5014 => "Boru hattında taşınan değere açık skaler tip gerekli",
         E5015 => "Aşama referansları üzerinden kombinasyonel çevrim",
         E5016 => "Aşama-yerel değer adı pipeline genelinde benzersiz değil",
+        E5017 => "prev() kontrat dışında ya da geçersiz argümanla kullanıldı (ADR-0040)",
 
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => "Kaynak bütçesi aşıldı",

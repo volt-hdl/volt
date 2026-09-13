@@ -659,7 +659,8 @@ impl<'a> ConstEvaluator<'a> {
             | BuiltinKind::Sync3
             | BuiltinKind::PopCount
             | BuiltinKind::Concat
-            | BuiltinKind::Replicate => {
+            | BuiltinKind::Replicate
+            | BuiltinKind::Prev => {
                 self.error_not_constant(
                     span,
                     &lstr!(en: "hardware function"; tr: "donanım fonksiyonu"),

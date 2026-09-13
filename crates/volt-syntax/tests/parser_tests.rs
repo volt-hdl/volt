@@ -1919,7 +1919,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_44_of_44_parse_clean() {
+fn ui_pass_all_45_of_45_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1942,7 +1942,7 @@ fn ui_pass_all_44_of_44_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 44, "ui/pass 44 dosya içermeli");
+    assert_eq!(total, 45, "ui/pass 45 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1955,10 +1955,11 @@ fn ui_pass_all_44_of_44_parse_clean() {
     // ADR-0036 ise 43'ü (işaretli işlemler),
     // ADR-0037 ise 44'ü (L1 zamanlama, Delayed),
     // ADR-0038 ise 45-46'yı (pipeline sözdizimi),
-    // ADR-0039 ise 47-48'i (bundle portları) ekledi.
+    // ADR-0039 ise 47-48'i (bundle portları),
+    // ADR-0040 ise 49'u (prev() ardışık kontratlar) ekledi.
     assert_eq!(
-        clean, 44,
-        "44/44 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 45,
+        "45/45 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

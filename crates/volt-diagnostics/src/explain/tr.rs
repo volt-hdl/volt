@@ -556,6 +556,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "stage F { let f_v : u32 = 1 }\nstage D { let d_v : u32 = 2 }  // ✓",
         ),
 
+        E5017 => Explanation::new(
+            "prev() kontrat dışında ya da geçersiz argümanla kullanıldı",
+            "prev() yerleşiği RTL'de (let, atama, on/comb bloğu) geçiyor ya da argümanları (sinyal) / (sinyal, pozitif literal) biçiminde değil.",
+            "prev(x) x'in bir önceki döngüdeki, prev(x, N) N döngü önceki değeridir; yalnız ardışık kontratlar (requires/ensures/invariant/cover/assert/assume) için vardır ve SVA'da $past(x)'e, Yosys akışında yardımcı register zincirine indirgenir (ADR-0040). Donanımın örtük geçmişi yoktur: RTL'de geçmiş değer açık bir register olmalıdır ki saati, reset'i ve genişliği görünsün.",
+            "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    y = prev(x)              // ✗ E5017: RTL bağlamı\n}",
+            "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg x_r : u8 = 0\n    on clk { x_r <= x }\n    y = x_r                  // ✓ açık register\n    invariant: prev(x) == x_r   // ✓ prev() kontrat içinde\n}",
+        ),
+
         // ─── Bütçe ve zamanlama kontratları ───
         E6001 => Explanation::new(
             "Kaynak bütçesi aşıldı",

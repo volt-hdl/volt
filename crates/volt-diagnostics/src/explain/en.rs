@@ -556,6 +556,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "stage F { let f_v : u32 = 1 }\nstage D { let d_v : u32 = 2 }  // ✓",
         ),
 
+        E5017 => Explanation::new(
+            "prev() used outside a contract or with invalid arguments",
+            "The prev() builtin appears in RTL (a let, an assignment, an on/comb block) or its arguments are not (signal) / (signal, positive literal).",
+            "prev(x) is the previous-cycle value of x and prev(x, N) the value N cycles ago; it exists only for sequential contracts (requires/ensures/invariant/cover/assert/assume) and lowers to $past(x) in SVA or to a helper register chain in the Yosys flow (ADR-0040). Hardware itself has no implicit history: a past value in RTL must be an explicit register so that its clock, reset and width are visible.",
+            "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    y = prev(x)              // ✗ E5017: RTL context\n}",
+            "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg x_r : u8 = 0\n    on clk { x_r <= x }\n    y = x_r                  // ✓ explicit register\n    invariant: prev(x) == x_r   // ✓ prev() inside a contract\n}",
+        ),
+
         // ─── Budget and timing contracts ───
         E6001 => Explanation::new(
             "Resource budget exceeded",

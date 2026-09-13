@@ -458,3 +458,37 @@ yönleri, parametreli arayüzler ve hiyerarşi düzleştirme) tutarsız
 desteklenir; düz portlar her araçta çalışır ve üretilen RTL'nin
 Volt kaynağıyla bire bir izlenebilirliğini korur. Test bloklarında ve
 örnekleme bağlamalarında da düz ad kullanılır (`dut.aw_addr`).
+
+---
+
+## 15. Ardışık Kontratlar — `prev()` (ADR-0040)
+
+`prev(x)` bir önceki döngüdeki, `prev(x, N)` N döngü önceki değerdir;
+yalnız kontratlarda geçerlidir (RTL'de E5017) ve `x`'in saat alanında
+değerlendirilir (başka alanla karışım E3001).
+
+| Volt | `--emit=sva` (Inline/Separate) | `volt verify` (Immediate, Yosys) |
+|---|---|---|
+| `prev(x)` | `$past(x)` | `past_x_1` yardımcı register |
+| `prev(x, 3)` | `$past(x, 3)` | `past_x_1 → past_x_2 → past_x_3` zinciri |
+
+Yosys'in Verilog ön ucu `$past`'i bilmediğinden Immediate modda her
+farklı argüman için bir register zinciri üretilir; reset değeri 0'dır
+(reset sonrası ilk döngüde `prev(x) == 0`). Aynı argümanın tüm
+derinlikleri tek zinciri paylaşır; bileşik argüman `past_e<k>_N` adını
+alır.
+
+```systemverilog
+// prev() helper registers (ADR-0040): value N cycles ago, 0 after reset
+logic past_b_valid_1;
+always_ff @(posedge clk) begin
+    if (rst) begin
+        past_b_valid_1 <= '0;
+    end else begin
+        past_b_valid_1 <= b_valid;
+    end
+end
+// invariant from axi4lite_slave.volt:83
+always @(posedge clk)
+    if (!(rst)) assert (!(past_b_valid_1 && !past_b_ready_1) || b_valid); // volt:inv_5
+```

@@ -96,6 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E5014 => "Pipelined value needs an explicit scalar type",
         E5015 => "Combinational cycle through stage references",
         E5016 => "Stage-local value name is not unique across the pipeline",
+        E5017 => "prev() used outside a contract or with invalid arguments (ADR-0040)",
 
         // ─── Budget and timing contracts ───
         E6001 => "Resource budget exceeded",

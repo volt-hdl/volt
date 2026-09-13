@@ -22,7 +22,7 @@ use volt_span::Span;
 
 use crate::consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 use crate::drivers::DriverTable;
-use crate::resolve::{is_widened_int_type, DefId, DefKind, ResolveResult};
+use crate::resolve::{is_widened_int_type, BuiltinKind, DefId, DefKind, ResolveResult};
 use crate::ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 
 /// Tip kontrolü çıktısı.
@@ -848,12 +848,25 @@ impl<'a> TypeChecker<'a, '_> {
                 let base_ty = self.synth(base);
                 self.field_result(base_ty, &field, span)
             }
-            ExprKind::Call { args, .. } => {
-                // Yerleşik çağrı tipleri F2b (sync/zext/concat...).
-                for &a in args.clone().iter() {
-                    self.synth(a);
+            ExprKind::Call { callee, args } => {
+                let (callee, args) = (*callee, args.clone());
+                // prev(x[, N]) argümanının tipini taşır (ADR-0040); diğer
+                // yerleşik çağrı tipleri F2b (sync/zext/concat...).
+                let is_prev =
+                    self.res.resolutions.get(&callee).is_some_and(|&d| {
+                        self.res.def_kind(d) == DefKind::Builtin(BuiltinKind::Prev)
+                    });
+                let mut first = None;
+                for &a in args.iter() {
+                    let t = self.synth(a);
+                    if first.is_none() {
+                        first = Some(t);
+                    }
                 }
-                self.types.error()
+                match (is_prev, first) {
+                    (true, Some(t)) => t,
+                    _ => self.types.error(),
+                }
             }
             ExprKind::Cast { expr: inner, ty } => {
                 let src = self.synth(*inner);

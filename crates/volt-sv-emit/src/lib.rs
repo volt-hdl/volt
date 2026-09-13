@@ -6,6 +6,7 @@
 
 mod builtin_prim;
 mod expr;
+mod past;
 mod sby;
 pub mod sim;
 mod sva;
@@ -221,6 +222,7 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         sva_mode: mode,
         sva_files: Vec::new(),
         sva_props: Vec::new(),
+        past_regs: HashMap::new(),
     };
 
     let mut modules = Vec::new();
@@ -328,6 +330,8 @@ pub(crate) struct Emitter<'a> {
     pub(crate) sva_mode: SvaMode,
     pub(crate) sva_files: Vec<SvaFile>,
     pub(crate) sva_props: Vec<SvaProp>,
+    /// Immediate modda prev() çağrısı → yardımcı reg adı (ADR-0040).
+    pub(crate) past_regs: HashMap<Idx<Expr>, String>,
 }
 
 impl<'a> Emitter<'a> {

@@ -1022,6 +1022,12 @@ impl<'a> Inferencer<'a> {
                     if matches!(kind, BuiltinKind::Sync | BuiltinKind::Sync3) {
                         return self.sync_domain(&args, expr.span);
                     }
+                    // prev(x) x-in alanında değerlendirilir (ADR-0040).
+                    if kind == BuiltinKind::Prev {
+                        if let Some(&x) = args.first() {
+                            return self.expr_domain(x);
+                        }
+                    }
                 }
                 let mut dom = DomainId::Timeless;
                 let mut dom_span = expr.span;

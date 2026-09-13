@@ -76,6 +76,8 @@ pub enum BuiltinKind {
     Replicate,
     PopCount,
     Clog2,
+    /// prev(x[, N]) — kontratlarda N döngü önceki değer (ADR-0040).
+    Prev,
 }
 
 #[derive(Debug)]
@@ -209,6 +211,9 @@ struct Resolver<'a> {
     /// Bundle'dan düzleştirilmiş GİRİŞ portları (ADR-0039) — atama
     /// hedefi olursa E4005.
     bundle_inputs: HashMap<DefId, BundleOrigin>,
+    /// Kontrat ifadesi çözümleniyor mu? prev() yalnız burada geçerli
+    /// (E5017, ADR-0040).
+    in_contract: bool,
 }
 
 impl<'a> Resolver<'a> {
@@ -236,6 +241,7 @@ impl<'a> Resolver<'a> {
             instance_builtin: HashMap::new(),
             instance_edges: Vec::new(),
             bundle_inputs: HashMap::new(),
+            in_contract: false,
         };
         r.prelude = r.new_scope(ScopeKind::Prelude, None);
         r.root = r.new_scope(ScopeKind::Root, Some(r.prelude));
@@ -409,6 +415,7 @@ impl<'a> Resolver<'a> {
             ("replicate", BuiltinKind::Replicate),
             ("popcount", BuiltinKind::PopCount),
             ("clog2", BuiltinKind::Clog2),
+            ("prev", BuiltinKind::Prev),
         ];
         for &(name, kind) in BUILTINS {
             let def = self.add_def(
@@ -563,9 +570,11 @@ impl<'a> Resolver<'a> {
                 if let Some(ret) = f.return_ty {
                     self.resolve_type(ret, scope);
                 }
+                self.in_contract = true;
                 for c in &f.contracts {
                     self.resolve_expr(c.expr, scope);
                 }
+                self.in_contract = false;
                 self.resolve_block(f.body, scope);
             }
             ItemKind::Struct(s) => {
@@ -678,9 +687,11 @@ impl<'a> Resolver<'a> {
         // 4. Kontratlar — bildirim sırasından bağımsızdır, gövdeden SONRA
         //    çözülür ki invariant/cover register ve let'leri görebilsin.
         //    Tür bazlı kapsam kısıtı (requires → yalnız port) typeck'te.
+        self.in_contract = true;
         for c in &m.contracts {
             self.resolve_expr(c.expr, scope);
         }
+        self.in_contract = false;
     }
 
     fn resolve_domain_ref(&mut self, name: &Name, scope: ScopeId) {
@@ -1294,10 +1305,12 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                self.resolve_expr(*callee, scope);
-                for &a in args.clone().iter() {
+                let (callee, args) = (*callee, args.clone());
+                self.resolve_expr(callee, scope);
+                for &a in args.iter() {
                     self.resolve_expr(a, scope);
                 }
+                self.check_prev_call(callee, &args, expr_idx);
             }
             ExprKind::Cast { expr: inner, ty } => {
                 self.resolve_expr(*inner, scope);
@@ -1742,4 +1755,55 @@ fn levenshtein(a: &str, b: &str) -> usize {
         std::mem::swap(&mut prev, &mut cur);
     }
     prev[b.len()]
+}
+
+// ═══ prev() — ardışık kontratlar (ADR-0040) ═══════════════════════
+
+impl Resolver<'_> {
+    /// E5017: prev(x[, N]) yalnız kontrat ifadesinde ve (sinyal) ya da
+    /// (sinyal, pozitif literal) argümanlarıyla geçerlidir. Beş parça:
+    /// kod, konum, açıklama, öneri (RTL'de reg), ADR referansı (explain).
+    fn check_prev_call(&mut self, callee: Idx<Expr>, args: &[Idx<Expr>], call: Idx<Expr>) {
+        let Some(&def) = self.resolutions.get(&callee) else {
+            return;
+        };
+        if self.defs[def.0 as usize].kind != DefKind::Builtin(BuiltinKind::Prev) {
+            return;
+        }
+        let span = self.ast.exprs[call].span;
+        if !self.in_contract {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E5017,
+                lstr!(en: "prev() can only be used inside contracts";
+                      tr: "prev() yalnızca kontratlarda kullanılabilir"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "this is RTL, not a contract"; tr: "burası kontrat değil, RTL"),
+                ),
+                lstr!(en: "use a register for a past value in RTL: reg x_r : T = 0; on clk {{ x_r <= x }}";
+                      tr: "RTL'de geçmiş değer için reg kullanın: reg x_r : T = 0; on clk {{ x_r <= x }}"),
+            ));
+            return;
+        }
+        let depth_ok = match args.get(1) {
+            None => true,
+            Some(&n) => {
+                matches!(self.ast.exprs[n].kind, ExprKind::IntLit { value, .. } if value >= 1)
+            }
+        };
+        if args.is_empty() || args.len() > 2 || !depth_ok {
+            self.diagnostics.push(Diagnostic::error(
+                ErrorCode::E5017,
+                lstr!(en: "prev() takes a signal and an optional positive cycle count";
+                      tr: "prev() bir sinyal ve isteğe bağlı pozitif döngü sayısı alır"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "expected prev(x) or prev(x, N) with N >= 1";
+                          tr: "prev(x) ya da N >= 1 ile prev(x, N) bekleniyor"),
+                ),
+                lstr!(en: "write it as prev(x) or prev(x, 2)";
+                      tr: "prev(x) ya da prev(x, 2) biçiminde yazın"),
+            ));
+        }
+    }
 }

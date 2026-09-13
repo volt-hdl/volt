@@ -78,6 +78,19 @@ module Axi4LiteSlave {
     invariant: b.resp == 0 || b.resp == 2
     invariant: r.resp == 0 || r.resp == 2
 
+    // Sequential protocol rules (ADR-0040, prev()). The master must hold
+    // *_valid until the matching *_ready — a slave cannot enforce that on
+    // its inputs, so these are environment assumptions.
+    assume: prev(aw.valid) && !prev(aw.ready) -> aw.valid
+    assume: prev(w.valid) && !prev(w.ready) -> w.valid
+    assume: prev(ar.valid) && !prev(ar.ready) -> ar.valid
+    // The slave holds its responses until the master accepts them.
+    invariant: prev(b.valid) && !prev(b.ready) -> b.valid
+    invariant: prev(r.valid) && !prev(r.ready) -> r.valid
+    // Every accepted request is answered on the very next cycle.
+    invariant: prev(aw.valid) && prev(aw.ready) -> b.valid
+    invariant: prev(ar.valid) && prev(ar.ready) -> r.valid
+
     cover: b.valid && b.ready
     cover: r.valid && r.ready
     cover: b.valid && b.resp == 2
