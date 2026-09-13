@@ -512,6 +512,11 @@ pub enum TypeRefKind {
     SInt(u8),
     /// `bits<N>` — N derleme zamanı ifadesi.
     Bits(Idx<Expr>),
+    /// `uint<N>` / `sint<N>` — genişliği derleme zamanı ifadesi olan
+    /// tam sayı (ADR-0041). Çözümleme yolu `bits<N>` ile aynıdır;
+    /// `u8`/`i16` sabit ailesinin generic parametreli eşi.
+    UIntN(Idx<Expr>),
+    SIntN(Idx<Expr>),
     Trit,
     /// `[T; N]`
     Array {

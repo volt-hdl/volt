@@ -8,16 +8,33 @@ use std::path::{Path, PathBuf};
 pub struct FileId(pub u32);
 
 /// Kaynak metinde yarı açık bayt aralığı `[start, end)`.
+///
+/// `ctx` monomorfizasyon bağlamıdır (ADR-0041): klonlanan generic modül
+/// gövdesindeki her span aynı `start`/`end`/`file` ile ama farklı `ctx`
+/// ile taşınır. Böylece tanılar hâlâ kaynak konumu gösterir, ama span
+/// anahtarlı tablolar (resolve `decl_spans`/`use_spans`, timing `pinned`)
+/// klonlar arasında çakışmaz. Elle yazılmış kaynakta her zaman 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: u32,
     pub end: u32,
     pub file: FileId,
+    pub ctx: u16,
 }
 
 impl Span {
     pub fn new(file: FileId, start: u32, end: u32) -> Self {
-        Self { start, end, file }
+        Self {
+            start,
+            end,
+            file,
+            ctx: 0,
+        }
+    }
+
+    /// Aynı kaynak aralığı, farklı monomorfizasyon bağlamı (ADR-0041).
+    pub fn with_ctx(self, ctx: u16) -> Self {
+        Self { ctx, ..self }
     }
 
     pub fn len(&self) -> u32 {

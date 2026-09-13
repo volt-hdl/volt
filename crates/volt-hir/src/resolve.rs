@@ -1232,7 +1232,9 @@ impl<'a> Resolver<'a> {
     fn resolve_type(&mut self, ty_idx: Idx<TypeRef>, scope: ScopeId) {
         let ty = &self.ast.types[ty_idx];
         match &ty.kind {
-            TypeRefKind::Bits(e) => self.resolve_expr(*e, scope),
+            TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
+                self.resolve_expr(*e, scope)
+            }
             TypeRefKind::Array { elem, len } => {
                 self.resolve_type(*elem, scope);
                 self.resolve_expr(*len, scope);

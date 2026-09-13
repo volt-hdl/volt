@@ -597,6 +597,10 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         // ADR-0038: pipeline sözdizimi (desugar → temiz SV).
         "45_pipeline_basic.volt",
         "46_pipeline_forwarding.volt",
+        // ADR-0041: genişleme, const dizi, generic örnekleme (monomorf).
+        "50_widening_same_sign.volt",
+        "51_const_array.volt",
+        "52_generic_instantiation.volt",
     ];
 
     let mut clean = 0;

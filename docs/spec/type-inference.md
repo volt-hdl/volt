@@ -541,12 +541,11 @@ fn expect_assignable(&mut self, actual: TypeId, expected: TypeId,
                 format!("açık kesme için: (ifade) as u{}", b))
         }
 
-        // GENİŞLEME — örtük YASAK (açıklık ilkesi)
-        (UInt { width: a }, UInt { width: b }) if a < b => {
-            self.error(E2001, self.span(expr),
-                format!("{} bit değer {} bit hedefe örtük genişlemez", a, b),
-                format!("açık genişletme: (ifade) as u{}", b))
-        }
+        // GENİŞLEME — hedef tip AÇIKÇA yazılmışsa (check modu) ve
+        // işaret aynıysa örtük İZİNLİ (ADR-0041). check moduna yalnız
+        // let/reg/wire/port/const bildirimleri ve atama hedefleri
+        // girdiğinden bu koşul burada her zaman sağlanır.
+        (UInt { width: a }, UInt { width: b }) if a < b => Ok(()),
 
         // İŞARET UYUMSUZLUĞU
         (UInt { .. }, SInt { .. }) | (SInt { .. }, UInt { .. }) => {
@@ -560,14 +559,25 @@ fn expect_assignable(&mut self, actual: TypeId, expected: TypeId,
 }
 ```
 
-**Tasarım kararı: örtük genişleme bile yasak.**
+**Tasarım kararı: örtük genişleme yalnız hedef tip açıkça yazılmışsa (ADR-0041).**
 
 ```
 Gerekçe: donanımda genişleme BEDAVA DEĞİL
   u8 → u16 zero-extend: 8 tel daha
   i8 → i16 sign-extend: 8 tel + fanout
 
-Kullanıcı bunu görmeli. Rust aynı kararı verdi.
+Hedef tipi yazan kullanıcı maliyeti görmüştür:
+  let x : i32 = y        // y: i16 → OK (ADR-0041)
+  let c : i19 = a + b    // a,b: i18 → operandlar ÖNCE i19'a genişletilir
+  let c = a18 + b19      // anotasyon yok → E2001 (synth modu, değişmedi)
+  let v : i8 = u         // u: i16 → E2001 daraltma (değişmedi)
+  let z : u16 = w        // w: i16 → E2002 (değişmedi)
+
+Beklenen tip aritmetik operandlara İTİLİR: check modunda `+ - * / %`
+işleminin literal olmayan operandları int tipli, beklenenle aynı işaretli
+ve doğal genişliği beklenene sığıyorsa işlem beklenen tipte yapılır;
+aksi halde synth yolu ve eski tanılar geçerlidir. SV üretimi genişlemeyi
+boyut dönüşümüyle (`32'(t)`) açık basar (sv-mapping.md §16).
 ```
 
 ---

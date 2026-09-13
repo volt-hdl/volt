@@ -188,9 +188,9 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E2001 => Explanation::new(
             "Bit width mismatch",
             "The two sides of this connection have different bit widths.",
-            "Implicit width changes silently drop or invent bits — a classic source of hardware bugs that only appear with large values. Volt never resizes implicitly: widening and narrowing must both be written out with 'as'.",
-            "in  a : u8\nout y : u16\ny = a                   // ✗ E2001: 8 vs 16 bits",
-            "y = a as u16            // ✓ explicit widening",
+            "Implicit narrowing silently drops upper bits — a classic source of hardware bugs that only appear with large values. Volt never narrows implicitly: the truncation must be written out with 'as'. Widening to a wider target of the SAME sign is implicit only when the target type is written explicitly (a let/reg/port type or an assignment target, ADR-0041); operands of different widths with no written target still need a cast.",
+            "in  a : u16\nout y : u8\ny = a                   // ✗ E2001: 16 bits into 8",
+            "y = a as u8             // ✓ explicit narrowing (W2010)\nout z : u32\nz = a                   // ✓ same-sign widening, target written",
         ),
         E2002 => Explanation::new(
             "Signedness mismatch",

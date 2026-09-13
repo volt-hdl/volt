@@ -9,6 +9,11 @@
 //! doğal olarak `u9`'dur ama sayaç deseni (`count <= count + 1`) taşma
 //! bitini atarak operand genişliğine de uyarlanabilir. Yerleşik çağrı
 //! tipleri (sync/zext/concat...) ve kontratlar sonraki fazın işidir.
+//!
+//! ADR-0041: hedef tip açıkça yazılmışsa (check modu) aynı işaretli
+//! genişleme örtüktür — beklenen tip aritmetik operandlara itilir
+//! (`let c : i19 = a + b` önce a ve b'yi i19'a genişletir). Daraltma
+//! (E2001) ve işaret farkı (E2002) her iki modda da hata kalır.
 
 use std::collections::HashMap;
 
@@ -713,12 +718,23 @@ impl<'a> TypeChecker<'a, '_> {
                 width: u16::from(*w),
             }),
             TypeRefKind::Trit => self.types.intern(Ty::Trit),
-            TypeRefKind::Bits(e) => match self.try_const_eval(*e) {
-                Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => {
-                    self.types.intern(Ty::Bits { width: n as u16 })
+            // `bits<N>` / `uint<N>` / `sint<N>` (ADR-0041): genişlik sabiti
+            // aynı yoldan çözülür; geçersiz genişlik tanısı consteval'de.
+            TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
+                let kind = &ast.types[ty_idx].kind;
+                match self.try_const_eval(*e) {
+                    Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => {
+                        let width = n as u16;
+                        let ty = match kind {
+                            TypeRefKind::UIntN(_) => Ty::UInt { width },
+                            TypeRefKind::SIntN(_) => Ty::SInt { width },
+                            _ => Ty::Bits { width },
+                        };
+                        self.types.intern(ty)
+                    }
+                    _ => self.types.error(),
                 }
-                _ => self.types.error(),
-            },
+            }
             TypeRefKind::Array { elem, len } => {
                 let elem_ty = self.resolve_type_ref(*elem);
                 match self.try_const_eval(*len) {
@@ -984,6 +1000,21 @@ impl<'a> TypeChecker<'a, '_> {
     fn synth_arith(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
         let lt = self.synth(lhs);
         let rt = self.synth(rhs);
+        self.arith_of(op, lhs, rhs, lt, rt, span)
+    }
+
+    /// Aritmetik sonuç, operand tipleri ZATEN sentezlenmişken — check
+    /// modundaki genişleme yolu (`check_arith`) operandları bir kez
+    /// sentezler; tanıların çiftlenmemesi için sentez burada tekrarlanmaz.
+    fn arith_of(
+        &mut self,
+        op: BinOp,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        lt: TypeId,
+        rt: TypeId,
+        span: Span,
+    ) -> TypeId {
         if self.types.is_error(lt) || self.types.is_error(rt) {
             return self.types.error();
         }
@@ -1662,6 +1693,16 @@ impl<'a> TypeChecker<'a, '_> {
                 self.check(else_expr, expected);
                 self.expr_types.insert(expr, expected);
             }
+            // ADR-0041: beklenen somut uN/iN aritmetik operandlara itilir.
+            ExprKind::Binary { op, lhs, rhs }
+                if matches!(
+                    op,
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                ) =>
+            {
+                let (op, lhs, rhs) = (*op, *lhs, *rhs);
+                self.check_arith(expr, op, lhs, rhs, expected, span);
+            }
             // ADR-0035: dizi literalleri hedef eleman tipine daraltılır —
             // `reg regs : [u32; 32] = [0; 32]` içindeki 0 bir u32'dir.
             ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count })
@@ -1707,6 +1748,78 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
+    /// ADR-0041 — check modunda aritmetik: hedef tip açıkça yazılmışsa
+    /// aynı işaretli, hedefe sığan operandlar ÖNCE hedef genişliğe
+    /// genişletilir, işlem sonra yapılır (`let c : i19 = a + b`). Uygun
+    /// olmayan durumlar (Trit, bits, yalnız literal, işaret farkı,
+    /// hedeften geniş operand) sentez yoluna düşer; sonuç yine
+    /// atanabilirlik denetiminden geçer (daraltma E2001 kalır).
+    fn check_arith(
+        &mut self,
+        expr: Idx<Expr>,
+        op: BinOp,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        expected: TypeId,
+        span: Span,
+    ) {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        let actual = if self.widen_operands(lhs, rhs, lt, rt, expected) {
+            // Genişletilmiş operandların sonucu (lo = hedef) her zaman sığar.
+            let result = self.arith_result(op, expected, expected, span);
+            self.expect_assignable(result, expected, span);
+            expected
+        } else {
+            self.arith_of(op, lhs, rhs, lt, rt, span)
+        };
+        self.expr_types.insert(expr, actual);
+        if actual != expected {
+            self.expect_assignable(actual, expected, span);
+        }
+    }
+
+    /// Genişleme uygunluğu (ADR-0041): beklenen somut uN/iN; en az bir
+    /// operand literal değil; literal olmayan her operand aynı işaretli
+    /// ve doğal genişliği hedefe sığıyor. Uygunsa literaller hedef tipe
+    /// uyarlanır ve operandların kayıtlı tipi genişletilmiş hedef olur.
+    fn widen_operands(
+        &mut self,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        lt: TypeId,
+        rt: TypeId,
+        expected: TypeId,
+    ) -> bool {
+        if !matches!(self.types.ty(expected), Ty::UInt { .. } | Ty::SInt { .. }) {
+            return false;
+        }
+        let Some((sign, _, width)) = self.types.int_range(expected) else {
+            return false;
+        };
+        let operands = [(lhs, lt), (rhs, rt)];
+        if operands.iter().all(|&(_, t)| self.types.is_int_lit(t)) {
+            return false;
+        }
+        for &(_, t) in &operands {
+            if self.types.is_int_lit(t) {
+                continue;
+            }
+            match self.types.int_range(t) {
+                Some((s, _, hi)) if s == sign && hi <= width => {}
+                _ => return false,
+            }
+        }
+        for (e, t) in operands {
+            if self.types.is_int_lit(t) {
+                self.check(e, expected); // sınır denetimi + tip kaydı
+            } else {
+                self.expr_types.insert(e, expected);
+            }
+        }
+        true
+    }
+
     /// Soneksiz literali beklenen tipe uyarla (§4).
     fn check_int_lit(&mut self, value: u128, expected: TypeId, span: Span) {
         match *self.types.ty(expected) {
@@ -1745,8 +1858,11 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// §5 — atanabilirlik: örtük daraltma DA genişleme DE yasak. Esnek
-    /// aritmetik sonucu (ADR-0025) hedef genişliği aralığındaysa uyar.
+    /// §5 — atanabilirlik: örtük daraltma yasak (E2001), işaret farkı
+    /// E2002. Esnek aritmetik sonucu (ADR-0025) hedef genişliği
+    /// aralığındaysa uyar. ADR-0041: beklenen tip check moduna yalnız
+    /// açık bildirimlerden (let/reg/wire/port/const tipi, atama hedefi,
+    /// port bağlama) girdiğinden aynı işaretli genişleme burada örtüktür.
     fn expect_assignable(&mut self, actual: TypeId, expected: TypeId, span: Span) {
         if actual == expected || self.types.is_error(actual) || self.types.is_error(expected) {
             return;
@@ -1767,10 +1883,12 @@ impl<'a> TypeChecker<'a, '_> {
                 ));
                 return;
             }
-            if alo.max(elo) <= ahi.min(ehi) {
+            // Kesişim (esnek sonuç) ya da hedefe sığan doğal genişlik
+            // (ADR-0041 genişleme) — ikisi de kabul.
+            if alo.max(elo) <= ahi.min(ehi) || ahi <= ehi {
                 return;
             }
-            self.width_mismatch(ahi, ehi, if sa { "i" } else { "u" }, span);
+            self.width_mismatch(alo, ehi, if sa { "i" } else { "u" }, span);
             return;
         }
         match (self.types.ty(actual), self.types.ty(expected)) {
@@ -1789,30 +1907,23 @@ impl<'a> TypeChecker<'a, '_> {
         }
     }
 
-    /// E2001 — donanımda genişleme bedava değildir; her iki yön de açık
-    /// dönüşüm ister (§5 tasarım kararı).
+    /// E2001 — örtük daraltma: `a` bitlik değer `b` bitlik hedefe
+    /// sığmaz; kesme açık dönüşümle görünür kılınmalı (§5; ADR-0041:
+    /// genişleme hedef tip yazılmışsa örtük, daraltma asla).
     fn width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
-        let (msg, label) = if a > b {
-            (
-                lstr!(en: "a {a}-bit value does not fit in a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe sığmaz"),
-                lstr!(en: "implicit narrowing is not allowed"; tr: "örtük daraltma yasak"),
-            )
-        } else {
-            (
-                lstr!(en: "a {a}-bit value does not implicitly widen to a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe örtük genişlemez"),
-                lstr!(en: "implicit widening is not allowed"; tr: "örtük genişleme yasak"),
-            )
-        };
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2001,
-                msg,
-                LabeledSpan::primary(span, label),
+                lstr!(en: "a {a}-bit value does not fit in a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe sığmaz"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "implicit narrowing is not allowed"; tr: "örtük daraltma yasak"),
+                ),
                 lstr!(en: "explicit cast: (expr) as {prefix}{b}"; tr: "açık dönüşüm: (ifade) as {prefix}{b}"),
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "widening requires extra wires and logic in hardware; it must be visible"; tr: "genişletme donanımda ek tel ve mantık gerektirir; görünür olmalı"),
+                lstr!(en: "narrowing drops the upper bits; in hardware that truncation must be visible"; tr: "daraltma üst bitleri düşürür; donanımda bu kesme görünür olmalı"),
             ),
         );
     }

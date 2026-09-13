@@ -112,7 +112,7 @@ impl<'a> ConstEvaluator<'a> {
     fn check_type(&mut self, ty_idx: Idx<TypeRef>) {
         let ty = &self.ast.types[ty_idx];
         match &ty.kind {
-            TypeRefKind::Bits(e) => {
+            TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
                 let _ = self.eval_type_arg(*e);
             }
             TypeRefKind::Array { elem, len } => {

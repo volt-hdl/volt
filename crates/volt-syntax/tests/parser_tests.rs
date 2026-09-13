@@ -124,6 +124,8 @@ fn type_dump(ast: &SourceFile, idx: Idx<volt_ast::TypeRef>) -> String {
         TypeRefKind::UInt(n) => format!("u{n}"),
         TypeRefKind::SInt(n) => format!("i{n}"),
         TypeRefKind::Bits(e) => format!("bits<{}>", dump(ast, *e)),
+        TypeRefKind::UIntN(e) => format!("uint<{}>", dump(ast, *e)),
+        TypeRefKind::SIntN(e) => format!("sint<{}>", dump(ast, *e)),
         TypeRefKind::Trit => "Trit".into(),
         TypeRefKind::Array { elem, len } => {
             format!("[{}; {}]", type_dump(ast, *elem), dump(ast, *len))
@@ -1919,7 +1921,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_45_of_45_parse_clean() {
+fn ui_pass_all_48_of_48_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1942,7 +1944,7 @@ fn ui_pass_all_45_of_45_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 45, "ui/pass 45 dosya içermeli");
+    assert_eq!(total, 48, "ui/pass 48 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1956,10 +1958,11 @@ fn ui_pass_all_45_of_45_parse_clean() {
     // ADR-0037 ise 44'ü (L1 zamanlama, Delayed),
     // ADR-0038 ise 45-46'yı (pipeline sözdizimi),
     // ADR-0039 ise 47-48'i (bundle portları),
-    // ADR-0040 ise 49'u (prev() ardışık kontratlar) ekledi.
+    // ADR-0040 ise 49'u (prev() ardışık kontratlar),
+    // ADR-0041 ise 50-52'yi (genişleme, const dizi, generic örnekleme) ekledi.
     assert_eq!(
-        clean, 45,
-        "45/45 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 48,
+        "48/48 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

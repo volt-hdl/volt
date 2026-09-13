@@ -312,6 +312,8 @@ pub enum TypeRefKind {
     UInt(u8),        // 8, 16, 32, 64
     SInt(u8),
     Bits(Idx<Expr>), // bits<N> — N derleme zamanı ifadesi
+    UIntN(Idx<Expr>), // uint<N> — genişliği sabit ifade (ADR-0041)
+    SIntN(Idx<Expr>), // sint<N> — işaretli eşi (ADR-0041)
     Trit,
     Array { elem: Idx<TypeRef>, len: Idx<Expr> },
     Tuple(Vec<Idx<TypeRef>>),

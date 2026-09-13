@@ -5,7 +5,10 @@
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
 mod builtin_prim;
+mod const_array;
 mod expr;
+mod generate;
+mod instance;
 mod past;
 mod sby;
 pub mod sim;
@@ -23,6 +26,7 @@ use volt_ast::{
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::Span;
 
+pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
 pub use sby::{sby_config, SbyEngine, SbyMode, SbyOptions};
 pub use sim::{
@@ -209,6 +213,17 @@ pub struct EmitOutput {
 
 /// Tüm modülleri üretir; `mode`'a göre kontratlardan SVA da çıkarır.
 pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMode) -> EmitOutput {
+    emit_full_opts(ast, source_name, source, mode, ConstArrayStyle::default())
+}
+
+/// `emit_full` + değişken indeksli const dizilerin SV biçimi (ADR-0041).
+pub fn emit_full_opts(
+    ast: &SourceFile,
+    source_name: &str,
+    source: &str,
+    mode: SvaMode,
+    const_array_style: ConstArrayStyle,
+) -> EmitOutput {
     let mut emitter = Emitter {
         ast,
         diagnostics: Vec::new(),
@@ -216,7 +231,12 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
         symbols: HashMap::new(),
         array_dims: HashMap::new(),
         builtin_insts: HashMap::new(),
+        user_insts: HashMap::new(),
         consts: collect_consts(ast),
+        const_array_style,
+        array_consts_used: Vec::new(),
+        loop_vars: Vec::new(),
+        pre_decls: Vec::new(),
         source,
         source_name,
         sva_mode: mode,
@@ -321,9 +341,22 @@ pub(crate) struct Emitter<'a> {
     /// doğrulanmış bilgi. Ön geçişte doldurulur ki `f.rd_data` alan
     /// erişimleri deyim sırasından bağımsız `f_rd_data`'ya çevrilsin.
     pub(crate) builtin_insts: HashMap<String, builtin_prim::BuiltinInst>,
+    /// Modül içi kullanıcı modülü örnekleri (ADR-0041): örnek adı →
+    /// hedef modül + çıkış telleri; `f.result` → `f_result`.
+    pub(crate) user_insts: HashMap<String, instance::UserInst>,
     /// Üst düzey const tablosu — Path referansları literale katlanır.
     /// Modül sinyalleri (symbols) aynı adı gölgeler.
     pub(crate) consts: HashMap<String, (Idx<TypeRef>, Idx<Expr>)>,
+    /// Değişken indeksli const dizinin SV biçimi (ADR-0041).
+    pub(crate) const_array_style: ConstArrayStyle,
+    /// Bu modülde değişken indeksle kullanılan dizi sabitleri (ilk
+    /// kullanım sırasıyla) — gövde başına tablo bildirimi üretilir.
+    pub(crate) array_consts_used: Vec<String>,
+    /// Açılmakta olan `for` döngülerinin değişkenleri (içten dışa
+    /// gölgeleme; en son eklenen kazanır).
+    pub(crate) loop_vars: Vec<(String, i128)>,
+    /// Gövde başına konan ön bildirimler: örnek çıkış telleri.
+    pub(crate) pre_decls: Vec<String>,
     /// Kaynak metin — SVA yorumlarındaki satır numaraları için.
     pub(crate) source: &'a str,
     pub(crate) source_name: &'a str,
@@ -386,16 +419,24 @@ impl<'a> Emitter<'a> {
         let ast = self.ast;
         self.symbols.clear();
         self.array_dims.clear();
+        self.array_consts_used.clear();
+        self.loop_vars.clear();
+        self.pre_decls.clear();
 
-        // Sembol tablosu: portlar + reg'ler (let'ler sırayla eklenir)
+        // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
             if let Some(sig) = self.sig_of_typeref(port.ty, port.span) {
                 self.symbols.insert(port.name.text.clone(), sig);
             }
         }
         for &stmt_idx in &module.body {
+            let span = ast.stmts[stmt_idx].span;
+            if let StmtKind::Wire(w) = &ast.stmts[stmt_idx].kind {
+                if let Some(sig) = self.sig_of_typeref(w.ty, span) {
+                    self.symbols.insert(w.name.text.clone(), sig);
+                }
+            }
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {
-                let span = ast.stmts[stmt_idx].span;
                 match reg.ty {
                     // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
                     Some(ty) if matches!(&ast.types[ty].kind, TypeRefKind::Array { .. }) => {
@@ -431,6 +472,7 @@ impl<'a> Emitter<'a> {
         // Yerleşik primitif örnekleri (ADR-0027) — sembol ön geçişi gibi
         // deyimlerden ÖNCE toplanır; alan erişimi çevirisi buna bakar.
         self.collect_builtin_insts(module, &clocks);
+        self.collect_user_insts(module);
         for cfg in &resets {
             self.symbols.insert(
                 cfg.port_name().to_string(),
@@ -443,6 +485,9 @@ impl<'a> Emitter<'a> {
 
         let ports_block = self.emit_ports(module, &resets);
         let mut body_chunks = self.emit_body(module, &clocks);
+        if let Some(pre) = self.pre_decl_chunk() {
+            body_chunks.insert(0, pre);
+        }
 
         // F4a — kontratlardan SVA üretimi (moda göre gömülü ya da ayrı).
         match self.sva_mode {
@@ -482,6 +527,18 @@ impl<'a> Emitter<'a> {
             out.push_str("\n\nendmodule\n");
         }
         out
+    }
+
+    /// Gövde başı ön bildirimleri (ADR-0041): değişken indeksli dizi
+    /// sabitlerinin tabloları + kullanıcı örneklerinin çıkış telleri.
+    fn pre_decl_chunk(&mut self) -> Option<String> {
+        let used = std::mem::take(&mut self.array_consts_used);
+        let mut lines: Vec<String> = used
+            .iter()
+            .filter_map(|name| self.emit_const_array_decl(name))
+            .collect();
+        lines.extend(std::mem::take(&mut self.pre_decls));
+        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     /// Port sırası (§1): clock'lar → reset'ler → in → inout → out.
@@ -554,13 +611,17 @@ impl<'a> Emitter<'a> {
                     )
                 }),
                 StmtKind::Let(decl) => {
-                    let sig = self
-                        .width_of(decl.value)
-                        .or_else(|| decl.ty.and_then(|t| self.sig_of_typeref(t, stmt.span)));
+                    // Bildirilen tip wire genişliğini SÜRER (ADR-0041):
+                    // `let p : i32 = a * b` → 32 bitlik wire; tip yoksa
+                    // kaba çıkarım.
+                    let sig = decl
+                        .ty
+                        .and_then(|t| self.sig_of_typeref(t, stmt.span))
+                        .or_else(|| self.width_of(decl.value));
                     match sig {
                         Some(sig) => {
                             self.symbols.insert(decl.name.text.clone(), sig);
-                            let value = self.emit_expr(decl.value, Some(sig));
+                            let value = self.emit_assigned(decl.value, Some(sig));
                             Some((
                                 Kind::Decl,
                                 format!(
@@ -606,23 +667,30 @@ impl<'a> Emitter<'a> {
                         None => {
                             let lhs_sig = self.lvalue_sig(&assign.lhs);
                             let lhs = self.emit_lvalue(&assign.lhs);
-                            let rhs = self.emit_expr(assign.rhs, lhs_sig);
+                            let rhs = self.emit_assigned(assign.rhs, lhs_sig);
                             Some((Kind::Assign, format!("    assign {lhs} = {rhs};")))
                         }
                     }
                 }
                 StmtKind::Expr(_) | StmtKind::Error => None, // parse tanısı zaten var
-                // F1 parser yapıları — SV üretimi sonraki aşamalarda
-                StmtKind::Wire(w) => {
-                    self.future(
-                        stmt.span,
-                        &lstr!(
-                            en: "SV generation of 'wire {}'", w.name.text;
-                            tr: "'wire {}' SV üretimi", w.name.text
-                        ),
-                    );
-                    None
-                }
+                // `wire x : T` → `logic` bildirimi (ADR-0041); sembol ön
+                // geçişte eklendi, dizi tipli wire hâlâ future.
+                StmtKind::Wire(w) => match self.symbols.get(&w.name.text).copied() {
+                    Some(sig) => Some((
+                        Kind::Decl,
+                        format!("    {} {};", sig.decl_type(), w.name.text),
+                    )),
+                    None => {
+                        self.future(
+                            stmt.span,
+                            &lstr!(
+                                en: "SV generation of 'wire {}' with this type", w.name.text;
+                                tr: "bu tipteki 'wire {}' SV üretimi", w.name.text
+                            ),
+                        );
+                        None
+                    }
+                },
                 StmtKind::Instance(inst) => {
                     let is_builtin = inst.module_path.segments.len() == 1
                         && BuiltinPrim::from_name(&inst.module_path.segments[0].text).is_some();
@@ -631,36 +699,16 @@ impl<'a> Emitter<'a> {
                         self.emit_builtin_instance(&module.name.text, &inst.name.text, stmt.span)
                             .map(|chunk| (Kind::Always, chunk))
                     } else {
-                        self.future(
-                            stmt.span,
-                            &lstr!(
-                                en: "SV generation of module instance '{}'", inst.name.text;
-                                tr: "'{}' modül örneklemesinin SV üretimi", inst.name.text
-                            ),
-                        );
-                        None
+                        // Kullanıcı modülü (ADR-0041) — hedef yoksa E0003.
+                        self.emit_user_instance(module, clocks, inst, stmt.span)
+                            .map(|chunk| (Kind::Always, chunk))
                     }
                 }
-                StmtKind::Comb(_) => {
-                    self.future(
-                        stmt.span,
-                        &lstr!(
-                            en: "SV generation of the 'comb' block";
-                            tr: "'comb' bloğunun SV üretimi"
-                        ),
-                    );
-                    None
-                }
-                StmtKind::For(_) => {
-                    self.future(
-                        stmt.span,
-                        &lstr!(
-                            en: "SV generation of the 'for' generate loop";
-                            tr: "'for' generate döngüsünün SV üretimi"
-                        ),
-                    );
-                    None
-                }
+                StmtKind::Comb(block) => Some((Kind::Always, self.emit_comb(*block))),
+                // Derleme zamanı döngüsü açılır (ADR-0041).
+                StmtKind::For(f) => self
+                    .emit_module_for(f, stmt.span)
+                    .map(|chunk| (Kind::Assign, chunk)),
             };
 
             if let Some((kind, text)) = entry {
@@ -921,6 +969,13 @@ impl<'a> Emitter<'a> {
         n: u32,
     ) -> Vec<String> {
         match &self.ast.exprs[init].kind {
+            // `reg r : [T; N] = COEFFS` — dizi sabiti literaline açılır.
+            ExprKind::Path(p)
+                if p.segments.len() == 1 && self.is_const_array(&p.segments[0].text) =>
+            {
+                let (_, value) = self.consts[&p.segments[0].text];
+                self.array_reset_lines(name, value, sig, n)
+            }
             ExprKind::ArrayLit(ArrayLitKind::Repeat { value, .. }) => {
                 let value = *value;
                 let v = self.emit_expr(value, sig);
@@ -955,13 +1010,13 @@ impl<'a> Emitter<'a> {
                 BlockStmt::NonBlockAssign { lhs, rhs, .. } => {
                     let sig = self.lvalue_sig(lhs);
                     let lhs_s = self.emit_lvalue(lhs);
-                    let rhs_s = self.emit_expr(*rhs, sig);
+                    let rhs_s = self.emit_assigned(*rhs, sig);
                     lines.push(format!("{ind}{lhs_s} <= {rhs_s};"));
                 }
                 BlockStmt::BlockAssign { lhs, rhs, .. } => {
                     let sig = self.lvalue_sig(lhs);
                     let lhs_s = self.emit_lvalue(lhs);
-                    let rhs_s = self.emit_expr(*rhs, sig);
+                    let rhs_s = self.emit_assigned(*rhs, sig);
                     lines.push(format!("{ind}{lhs_s} = {rhs_s};"));
                 }
                 BlockStmt::If(if_stmt) => self.emit_if(if_stmt, indent, &mut lines),
@@ -977,17 +1032,8 @@ impl<'a> Emitter<'a> {
                 }
                 BlockStmt::Error => {}
                 BlockStmt::Match(m) => self.emit_match(m, indent, &mut lines),
-                // F1 parser yapıları — SV üretimi sonraki aşamalarda
-                BlockStmt::For(f) => {
-                    let span = ast.blocks[f.body].span;
-                    self.future(
-                        span,
-                        &lstr!(
-                            en: "SV generation of the 'for' generate loop";
-                            tr: "'for' generate döngüsünün SV üretimi"
-                        ),
-                    );
-                }
+                // Derleme zamanı döngüsü: gövde iterasyon başına açılır.
+                BlockStmt::For(f) => self.emit_for_in_block(f, indent, &mut lines),
             }
         }
         lines
@@ -1108,6 +1154,21 @@ impl<'a> Emitter<'a> {
             if self.builtin_insts.contains_key(&lv.base.text) {
                 return format!("{}_{}", lv.base.text, f.text);
             }
+            if self.user_insts.contains_key(&lv.base.text) {
+                self.error(
+                    ErrorCode::E2005,
+                    lstr!(
+                        en: "cannot assign to '{}.{}': instance ports are driven by the instance", lv.base.text, f.text;
+                        tr: "'{}.{}' atanamaz: örnek portlarını örneğin kendisi sürer", lv.base.text, f.text
+                    ),
+                    lv.span,
+                    &lstr!(
+                        en: "bind inputs in the instance literal and read outputs as {}.{}", lv.base.text, f.text;
+                        tr: "girişleri örnekleme literalinde bağlayın, çıkışları {}.{} ile okuyun", lv.base.text, f.text
+                    ),
+                );
+                return format!("{}_{}", lv.base.text, f.text);
+            }
         }
         let mut out = lv.base.text.clone();
         for suffix in &lv.suffixes {
@@ -1215,12 +1276,13 @@ impl<'a> Emitter<'a> {
                 width: *n as u32,
                 signed: true,
             }),
-            TypeRefKind::Bits(e) => {
+            TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
                 let e = *e;
+                let signed = matches!(&self.ast.types[ty].kind, TypeRefKind::SIntN(_));
                 match self.eval_const(e) {
                     Some(n) if n >= 1 => Some(Sig {
                         width: n as u32,
-                        signed: false,
+                        signed,
                     }),
                     _ => {
                         self.error(

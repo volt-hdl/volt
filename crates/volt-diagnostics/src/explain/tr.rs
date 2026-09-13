@@ -188,9 +188,9 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E2001 => Explanation::new(
             "Bit genişliği uyumsuzluğu",
             "Bu bağlantının iki tarafının bit genişlikleri farklı.",
-            "Örtük genişlik değişimi bitleri sessizce düşürür veya uydurur — yalnız büyük değerlerde ortaya çıkan klasik donanım hatası kaynağı. Volt asla örtük boyutlandırmaz: genişletme de daraltma da 'as' ile açıkça yazılmalıdır.",
-            "in  a : u8\nout y : u16\ny = a                   // ✗ E2001: 8'e karşı 16 bit",
-            "y = a as u16            // ✓ açık genişletme",
+            "Örtük daraltma üst bitleri sessizce düşürür — yalnız büyük değerlerde ortaya çıkan klasik donanım hatası kaynağı. Volt asla örtük daraltmaz: kesme 'as' ile açıkça yazılmalıdır. AYNI işaretli daha geniş bir hedefe genişleme yalnız hedef tip açıkça yazılmışsa (let/reg/port tipi ya da atama hedefi, ADR-0041) örtüktür; yazılı hedefi olmayan farklı genişlikteki operandlar yine cast ister.",
+            "in  a : u16\nout y : u8\ny = a                   // ✗ E2001: 16 bit 8 bite",
+            "y = a as u8             // ✓ açık daraltma (W2010)\nout z : u32\nz = a                   // ✓ aynı işaretli genişleme, hedef yazılı",
         ),
         E2002 => Explanation::new(
             "İşaret uyumsuzluğu",

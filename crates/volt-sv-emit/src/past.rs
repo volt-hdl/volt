@@ -61,7 +61,7 @@ impl<'a> Emitter<'a> {
     fn prev_depth(&self, args: &[Idx<Expr>]) -> u32 {
         args.get(1)
             .and_then(|&n| self.eval_const(n))
-            .map(|v| v.clamp(1, u32::MAX as u128) as u32)
+            .map(|v| v.clamp(1, i128::from(u32::MAX)) as u32)
             .unwrap_or(1)
     }
 

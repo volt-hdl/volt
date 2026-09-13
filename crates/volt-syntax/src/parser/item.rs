@@ -1219,28 +1219,21 @@ impl Parser<'_> {
             }
             Some(KwBits) => {
                 self.bump_any();
-                self.expect(
-                    Lt,
-                    &lstr!(en: "'<' for bits"; tr: "bits için '<'"),
-                    &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
-                );
-                // '>'/'>>' kapanış sanılsın diye kaydırma-üstü bp ile ayrıştır
-                let n = if self.at_expr_start() {
-                    self.parse_expr_bp(ABOVE_SHIFT_BP)
+                TypeRefKind::Bits(self.parse_width_arg("bits"))
+            }
+            // `uint<N>` / `sint<N>` (ADR-0041): genişliği sabit ifade olan
+            // tam sayı — `u8`/`i16` ailesinin generic-parametreli eşi.
+            Some(Ident)
+                if self.peek(1) == Some(Lt) && matches!(self.current_text(), "uint" | "sint") =>
+            {
+                let signed = self.current_text() == "sint";
+                self.bump_any();
+                let n = self.parse_width_arg(if signed { "sint" } else { "uint" });
+                if signed {
+                    TypeRefKind::SIntN(n)
                 } else {
-                    self.error_expected(
-                        &lstr!(en: "bits width expression"; tr: "bits genişlik ifadesi"),
-                        &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
-                    );
-                    self.alloc_error_expr(self.current_span())
-                };
-                if !self.eat_generic_close() {
-                    self.error_expected(
-                        &lstr!(en: "closing '>' for bits"; tr: "bits için kapanış '>'"),
-                        &lstr!(en: "write it as bits<8>"; tr: "bits<8> biçiminde yazın"),
-                    );
+                    TypeRefKind::UIntN(n)
                 }
-                TypeRefKind::Bits(n)
             }
             // `[Tip; N]` — dizi tipi
             Some(LBracket) => {
@@ -1599,5 +1592,34 @@ impl Parser<'_> {
             tail,
             context: BlockContext::Function,
         })
+    }
+}
+
+impl Parser<'_> {
+    /// `<N>` genişlik argümanı — `bits<N>`, `uint<N>`, `sint<N>`
+    /// (ADR-0041). `'>'`/`'>>'` kapanış sanılsın diye kaydırma-üstü bp
+    /// ile ayrıştırılır; `what` tanı metinlerindeki tip adıdır.
+    pub(crate) fn parse_width_arg(&mut self, what: &str) -> Idx<Expr> {
+        self.expect(
+            Lt,
+            &lstr!(en: "'<' for {what}"; tr: "{what} için '<'"),
+            &lstr!(en: "write it as {what}<8>"; tr: "{what}<8> biçiminde yazın"),
+        );
+        let n = if self.at_expr_start() {
+            self.parse_expr_bp(ABOVE_SHIFT_BP)
+        } else {
+            self.error_expected(
+                &lstr!(en: "{what} width expression"; tr: "{what} genişlik ifadesi"),
+                &lstr!(en: "write it as {what}<8>"; tr: "{what}<8> biçiminde yazın"),
+            );
+            self.alloc_error_expr(self.current_span())
+        };
+        if !self.eat_generic_close() {
+            self.error_expected(
+                &lstr!(en: "closing '>' for {what}"; tr: "{what} için kapanış '>'"),
+                &lstr!(en: "write it as {what}<8>"; tr: "{what}<8> biçiminde yazın"),
+            );
+        }
+        n
     }
 }

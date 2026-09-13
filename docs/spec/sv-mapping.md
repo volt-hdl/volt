@@ -76,6 +76,8 @@ endmodule
 | `i16` | `logic signed [15:0]` | |
 | `i32` | `logic signed [31:0]` | |
 | `bits<N>` | `logic [N-1:0]` | aritmetiksiz |
+| `uint<N>` | `logic [N-1:0]` | genişliği sabit ifade (ADR-0041) |
+| `sint<N>` | `logic signed [N-1:0]` | işaretli eşi (ADR-0041) |
 | `clock` | `logic` | port bağlamında |
 | `[T; N]` | `T_sv ad [0:N-1]` | unpacked dizi (ADR-0035); boyut isimden SONRA — sentez araçları BRAM/dağıtık RAM'e eşleyebilir. Şimdilik yalnız `reg` bildirimlerinde |
 
@@ -198,7 +200,10 @@ wire [8:0] sum = a + b;
 wire [9:0] doubled = sum << 1;
 ```
 
-**Kural:** `let` → `wire`, genişlik tip çıkarımından gelir.
+**Kural:** `let` → `wire`; genişlik açık tip yazılmışsa ANOTASYONDAN,
+yoksa tip çıkarımından gelir (ADR-0041). Anotasyon operanddan genişse
+operandlar boyut dönüşümüyle açık genişletilir: `let p : i32 = t * c`
+(t, c: i16) → `wire signed [31:0] p = 32'(t) * 32'(c);` (§16).
 
 ### 5.3 Koşullu İfade
 
@@ -342,6 +347,11 @@ assign busy = u_busy;
 - İsimli port bağlama (positional asla kullanılmaz)
 - Çıkış sinyalleri için `<örnek>_<port>` wire üretilir
 - Clock ve reset otomatik bağlanır
+- ADR-0041: çıkış telleri modül gövdesinin BAŞINDA bildirilir (kullanım
+  sırasından bağımsız); reset, hedef modülün saat alanı yapılandırmasından
+  üst modülün aynı adlı reset portuna bağlanır; bağlanmamış giriş portu
+  E2005; generic argümanlı örnekleme monomorfizasyonla somut modül adına
+  (`FirFilter<8, 16>` → `FirFilter_8_16`) çevrilmiş olarak gelir
 
 ---
 
@@ -492,3 +502,115 @@ end
 always @(posedge clk)
     if (!(rst)) assert (!(past_b_valid_1 && !past_b_ready_1) || b_valid); // volt:inv_5
 ```
+
+---
+
+## 16. Genişleme, Const Diziler, Açılan Döngüler (ADR-0041)
+
+### 16.1 Açık genişletme — boyut dönüşümü
+
+Volt, hedef tipi açıkça yazılmış aynı-işaret genişlemeyi kabul eder
+(type-inference.md §5). SV'de bağlam-belirlenimli genişlik aynı değeri
+verir ama Verilator `-Wall` WIDTHEXPAND uyarır; bu yüzden emitter
+genişlemeyi boyut dönüşümüyle AÇIK basar:
+
+```volt
+let p : i32 = t * c          // t, c : i16
+result = s                   // result : i32, s : i16
+```
+```systemverilog
+wire signed [31:0] p = 32'(t) * 32'(c);
+assign result = 32'(s);
+```
+
+Kural: aritmetik operandın etkin bağlamı `max(ifade genişliği, hedef)`;
+bağlamdan dar ATOM operand (`x`, `arr[i]`, `inst_out`) `W'(x)` ile sarılır,
+bileşik alt ifadeye bağlam içeri aktarılır. Literaller zaten bağlam
+genişliğiyle boyutlanır. Boyut dönüşümü işaretli operandda işaret,
+işaretsizde sıfır genişletir. Kaydırmanın sol operandına dış bağlam
+itilmez; karşılaştırma operandları kendi genişliklerinde kalır.
+
+Aynı biçim bileşik ifade cast'lerinde de kullanılır: `(a + b) as i32` →
+`32'(a + b)`, `(a + b) as u8` → `8'(a + b)`. Basit sinyal cast'leri §6'daki
+`{{N{x[msb]}}, x}` / `x[W-1:0]` biçimlerini korur.
+
+### 16.2 Const diziler
+
+```volt
+const COEFFS : [i16; 8] = [1, 2, 3, 4, 4, 3, 2, 1]
+let p0 : i32 = taps[0] * COEFFS[0]      // sabit indeks
+let c  : i16 = COEFFS[sel]              // sinyal indeks
+reg   k : [i16; 8] = COEFFS             // reg başlatıcı
+```
+```systemverilog
+function automatic logic signed [15:0] COEFFS_at(input logic [2:0] i);
+    case (i)
+        0: COEFFS_at = 16'sd1;
+        1: COEFFS_at = 16'sd2;
+        // ...
+        7: COEFFS_at = 16'sd1;
+        default: COEFFS_at = 16'sd0;
+    endcase
+endfunction
+
+wire signed [31:0] p0 = 32'(taps[0]) * 32'sd1;   // katlandı
+wire signed [15:0] c = COEFFS_at(sel);
+// reset dalında: k[0] <= 16'sd1; k[1] <= 16'sd2; ...
+```
+
+- Sabit indeks (literal, sabit ifade, açılmış döngü değişkeni) elemanı
+  LİTERALE katlar; SV'de dizi adı görünmez.
+- Sinyal indeks: modül gövdesinin başında bir kez tablo işlevi bildirilir
+  (`function automatic logic signed [15:0] COEFFS_at(input logic [2:0] i)`
+  + `case`) ve erişim `COEFFS_at(idx)` olur. Ölçüm (ADR-0041): Yosys
+  `read_verilog -sv` unpacked `localparam` dizisini reddeder, tablo işlevi
+  Yosys ve Verilator -Wall'da temiz; `localparam` biçimi emitter'da
+  `ConstArrayStyle::LocalparamArray` ile seçilebilir yedek olarak kalır.
+- Çıplak dizi referansı yalnız reg başlatıcısında; başka konumda E2005.
+- Negatif sabit değerler `(-16'sd2)` olarak basılır.
+
+### 16.3 Döngü açma, `comb`, `wire`
+
+```volt
+reg taps : [i16; 4] = [0; 4]
+wire acc : i32
+on clk {
+    for i in 1..4 { taps[i] <= taps[i - 1] }
+    taps[0] <= sample
+}
+comb {
+    acc = 0
+    for i in 0..4 { acc = acc + taps[i] * COEFFS[i] }
+}
+```
+```systemverilog
+logic signed [15:0] taps [0:3];
+logic signed [31:0] acc;
+
+always_ff @(posedge clk) begin
+    if (rst) begin
+        for (int volt_i = 0; volt_i < 4; volt_i = volt_i + 1) taps[volt_i] <= 16'sd0;
+    end else begin
+        taps[1] <= taps[0];
+        taps[2] <= taps[1];
+        taps[3] <= taps[2];
+        taps[0] <= sample;
+    end
+end
+
+always_comb begin
+    acc = 32'sd0;
+    acc = acc + 32'(taps[0]) * 32'sd1;
+    acc = acc + 32'(taps[1]) * 32'sd2;
+    acc = acc + 32'(taps[2]) * 32'sd3;
+    acc = acc + 32'(taps[3]) * 32'sd4;
+end
+```
+
+- `for` sınırları derleme zamanı sabiti olmalı (const-eval.md §8); değilse
+  E2005. Gövde her iterasyon için açılır, döngü değişkeni literale ikame
+  edilir. Modül seviyesi `for` gövdesindeki `=` atamaları `assign`
+  satırlarına açılır.
+- `wire x : T` → `logic ... x;` bildirimi; sürücüsü `comb` ya da `assign`.
+- `comb { }` → `always_comb begin ... end`; aynı blok içinde art arda
+  tam atama tek sürücü sayılır (type-inference.md §11.2).

@@ -415,6 +415,11 @@ belleği tüketir. Erken hata daha iyi.
 
 ## 8. Döngü Açma (Loop Unrolling)
 
+> ADR-0041: SV emitter `for` gövdesini derleme zamanında AÇAR (döngü
+> değişkeni literale ikame edilir); sınır sabit değilse E2005. Const
+> diziler (`ConstValue::Array`) sabit indekste elemana katlanır, sinyal
+> indekste `localparam` unpacked dizi olarak üretilir (sv-mapping.md §16).
+
 ```volt
 for i in 0..4 {
     out[i] = in[i] & mask

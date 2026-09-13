@@ -232,8 +232,9 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle, ADR-0040: 49 prev fixture'ları.
-    assert_eq!(checked, 45);
+    // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle, ADR-0040: 49 prev,
+    // ADR-0041: 50-52 genişleme/const dizi/generic örnekleme fixture'ları.
+    assert_eq!(checked, 48);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

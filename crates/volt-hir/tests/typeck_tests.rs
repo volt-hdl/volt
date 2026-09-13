@@ -124,9 +124,10 @@ fn implicit_narrowing_e2001() {
 }
 
 #[test]
-fn implicit_widening_e2001() {
+fn implicit_widening_to_explicit_target_ok() {
+    // ADR-0041: hedef tip açıkça yazılmış, işaret aynı → genişleme örtük.
     let c = codes("module M {\n    in  a : u8\n    out y : u16\n\n    y = a\n}\n");
-    assert!(c.contains(&"E2001"), "{c:?}");
+    assert!(c.is_empty(), "{c:?}");
 }
 
 #[test]
@@ -359,8 +360,9 @@ fn reg_without_type_infers_from_non_literal_init() {
 
 #[test]
 fn binary_arith_width_mismatch_e2001_in_f2b() {
-    // fail/02 senaryosu — F2a'da sessizdi, F2b'de E2001.
-    let c = codes("module M {\n    in  small : u8\n    in  large : u16\n    out sum   : u16\n\n    sum = small + large\n}\n");
+    // fail/02 senaryosu — F2a'da sessizdi, F2b'de E2001. ADR-0041 sonrası
+    // hedef u8: large sığmaz, operand uyumsuzluğu E2001 kalır.
+    let c = codes("module M {\n    in  small : u8\n    in  large : u16\n    out sum   : u8\n\n    sum = small + large\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 

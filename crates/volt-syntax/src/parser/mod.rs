@@ -8,6 +8,7 @@ mod bundle;
 mod desugar;
 mod expr;
 pub(crate) mod item;
+pub(crate) mod mono;
 mod pattern;
 mod pipeline;
 pub(crate) mod recovery;
@@ -22,6 +23,7 @@ use volt_span::{FileId, Span};
 
 use crate::lexer::tokenize;
 use crate::token::{Token, TokenKind};
+pub use mono::monomorphize;
 use recovery::same_kind;
 
 /// Ayrıştırma sonucu: AST + tüm tanılar (lexer + parser).
@@ -41,6 +43,10 @@ impl ParseResult {
 pub fn parse(file: FileId, source: &str) -> ParseResult {
     let mut parser = Parser::new(file, source);
     parser.parse_source_file();
+    // Generic örneklemelerin monomorfizasyonu (ADR-0041) — pipeline
+    // desugar'ı gibi parser katmanında; alt geçitler somut modül görür.
+    let mono_diags = mono::monomorphize(&mut parser.ast);
+    parser.diagnostics.extend(mono_diags);
     parser.finish()
 }
 

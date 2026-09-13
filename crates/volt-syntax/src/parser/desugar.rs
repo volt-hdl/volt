@@ -1224,7 +1224,9 @@ impl Parser<'_> {
             TypeRefKind::Bool
             | TypeRefKind::UInt(_)
             | TypeRefKind::SInt(_)
-            | TypeRefKind::Bits(_) => Some(ty),
+            | TypeRefKind::Bits(_)
+            | TypeRefKind::UIntN(_)
+            | TypeRefKind::SIntN(_) => Some(ty),
             _ => None,
         }
     }
@@ -1236,6 +1238,8 @@ impl Parser<'_> {
             TypeRefKind::SInt(w) => TypeRefKind::SInt(*w),
             // Genişlik ifadesi paylaşılır: sabit ifade, tek kez çözülür.
             TypeRefKind::Bits(e) => TypeRefKind::Bits(*e),
+            TypeRefKind::UIntN(e) => TypeRefKind::UIntN(*e),
+            TypeRefKind::SIntN(e) => TypeRefKind::SIntN(*e),
             _ => TypeRefKind::Error,
         };
         self.ast.types.alloc(TypeRef { span, kind })

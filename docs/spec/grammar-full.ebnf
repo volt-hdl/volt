@@ -197,6 +197,8 @@ PrimitiveType   = "bool"                                      (* [F0] *)
                 | ResetType                                   (* [F1] *)
                 | UIntType | SIntType                         (* [F0] *)
                 | "bits" "<" Expr ">"                         (* [F1] *)
+                | "uint" "<" Expr ">"                         (* ADR-0041 *)
+                | "sint" "<" Expr ">"                         (* ADR-0041 *)
                 | "Trit" ;                                    (* [F2] *)
 
 ResetType       = "reset" [ "(" ResetSync "," ResetPolarity ")" ] ;

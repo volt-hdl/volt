@@ -104,9 +104,10 @@ fn div_and_rem_do_not_widen() {
 }
 
 #[test]
-fn div_result_does_not_stretch_to_wider_target_e2001() {
+fn div_result_does_not_narrow_to_narrower_target_e2001() {
+    // ADR-0041: u9 hedefe genişleme artık örtük; daraltma (u7) hâlâ E2001.
     let c =
-        codes("module M {\n    in  a : u8\n    in  b : u8\n    out q : u9\n\n    q = a / b\n}\n");
+        codes("module M {\n    in  a : u8\n    in  b : u8\n    out q : u7\n\n    q = a / b\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 
@@ -117,25 +118,28 @@ fn counter_pattern_add_wraps_to_operand_width() {
     assert!(c.is_empty(), "{c:?}");
 }
 
-/// ADR-0025: esnek aralık [8,9] dışına örtük çıkış yok.
+/// ADR-0025: esnek aralık [8,9] altına örtük daraltma yok (ADR-0041 yalnız
+/// açık hedefe genişlemeyi serbest bırakır).
 #[test]
-fn add_result_beyond_natural_width_e2001() {
+fn add_result_below_natural_width_e2001() {
     let c =
-        codes("module M {\n    in  a : u8\n    in  b : u8\n    out s : u10\n\n    s = a + b\n}\n");
+        codes("module M {\n    in  a : u8\n    in  b : u8\n    out s : u7\n\n    s = a + b\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 
 #[test]
 fn arith_operand_width_mismatch_e2001() {
+    // ADR-0041: hedef u16 olsaydı a genişlerdi; u8 hedefte b sığmaz →
+    // operand genişlikleri örtük birleştirilemez.
     let c =
-        codes("module M {\n    in  a : u8\n    in  b : u16\n    out s : u16\n\n    s = a + b\n}\n");
+        codes("module M {\n    in  a : u8\n    in  b : u16\n    out s : u8\n\n    s = a + b\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 
 #[test]
 fn arith_width_mismatch_diag_has_help_and_reason() {
     let result =
-        check("module M {\n    in  a : u8\n    in  b : u16\n    out s : u16\n\n    s = a + b\n}\n");
+        check("module M {\n    in  a : u8\n    in  b : u16\n    out s : u8\n\n    s = a + b\n}\n");
     let diag = result
         .diagnostics
         .iter()
@@ -197,8 +201,9 @@ fn signed_accumulator_wraps_to_operand_width() {
 
 #[test]
 fn signed_width_mismatch_e2001() {
+    // ADR-0041: i16 hedefte a genişlerdi; i8 hedefte b sığmaz.
     let c =
-        codes("module M {\n    in  a : i8\n    in  b : i16\n    out s : i16\n\n    s = a + b\n}\n");
+        codes("module M {\n    in  a : i8\n    in  b : i16\n    out s : i8\n\n    s = a + b\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 
@@ -459,10 +464,11 @@ fn bitwise_sign_mismatch_e2002() {
 }
 
 #[test]
-fn bitwise_does_not_widen_e2001() {
-    // u8 & u8 → u8; u9 hedefe örtük genişlemez.
+fn bitwise_does_not_narrow_e2001() {
+    // u8 & u8 → u8 (genişlemez); u7 hedefe daraltma E2001. ADR-0041: u9
+    // hedefe atama artık açık hedefe örtük genişlemedir, hata değil.
     let c =
-        codes("module M {\n    in  a : u8\n    in  b : u8\n    out y : u9\n\n    y = a & b\n}\n");
+        codes("module M {\n    in  a : u8\n    in  b : u8\n    out y : u7\n\n    y = a & b\n}\n");
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 

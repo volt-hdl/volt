@@ -116,7 +116,7 @@ impl<'a> Emitter<'a> {
             let rule = prim.const_rule().expect("const_arg_count == 1");
             match inst.generic_args.get(prim.type_arg_count()) {
                 Some(GenericArg::Const(e)) => match self.eval_const(*e) {
-                    Some(n) if rule.allows(n) => n as u64,
+                    Some(n) if u128::try_from(n).is_ok_and(|n| rule.allows(n)) => n as u64,
                     Some(n) => {
                         let (name, param) = (prim.name(), prim.const_param_name());
                         let msg = match rule {

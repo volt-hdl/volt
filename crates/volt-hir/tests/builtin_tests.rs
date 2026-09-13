@@ -161,12 +161,12 @@ fn reading_an_input_port_via_field_is_e1009() {
 
 #[test]
 fn fifo_wr_data_type_mismatch_is_error() {
-    // din u8 iken T=u16 — E2001/E2003 genişlik uyumsuzluğu.
+    // din u32 iken T=u16 — E2001 daraltma (ADR-0041: u8 → u16 örtük genişlerdi).
     let inst = "    let f = AsyncFifo<u16, 16> { wr_clk: fast_clk, wr_data: din, \
                 wr_en: push, rd_clk: slow_clk, rd_en: pop }";
     let src = format!(
         "{TWO_DOMAINS}module M {{\n    in  fast_clk : clock @Fast\n    \
-         in  slow_clk : clock @Slow\n    in  din : u8 @Fast\n    in  push : bool @Fast\n    \
+         in  slow_clk : clock @Slow\n    in  din : u32 @Fast\n    in  push : bool @Fast\n    \
          in  pop : bool @Slow\n    out dout : u16 @Slow\n\n{inst}\n\n    \
          dout = f.rd_data\n}}\n"
     );
