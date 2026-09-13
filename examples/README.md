@@ -12,6 +12,7 @@ the contracts with `volt verify`.
 | `uart_tx.volt` | UART transmitter (8N1). Four-state FSM written as a `match` inside the sequential block (ADR-0032), a `u10` baud counter compared directly against the `CLKS_PER_BIT` constant (ADR-0031), start/busy handshake, LSB-first shift register, safety invariants proven by induction (`--mode prove`), and `cover` targets showing all four states are reachable. |
 | `axi4lite_slave.volt` | AXI4-Lite register slave built from five `struct port` bundles (ADR-0039) with sequential protocol contracts via `prev()` (ADR-0040: responses held until accepted, every accepted request answered next cycle, master hold rules as assumptions): one master-view definition per channel, the slave declares each with `in` so every field direction flips; the generated SV is flat (`aw_addr`, `aw_ready`, ...). Four RW registers with byte strobes, a read-only status word, SLVERR for non-zero `prot`. Five simulation tests, Verilator `-Wall` clean, 16 contracts (9 invariants + 3 assumptions + 4 covers) proven with `--mode prove --depth 3 --engine boolector`. |
 | `fir_filter.volt` | FIR low-pass (kernel `const COEFFS : [i16; 8]`, DC gain 20) as a generic `FirFilter<const TAPS, const WIDTH>` (ADR-0041): `sint<WIDTH>` sample, `[sint<WIDTH>; TAPS]` tap line shifted by a `for`, MAC as a `comb` accumulation over `COEFFS[i]` — zero casts, the `: i32` targets widen the 16×16 products (same-sign widening). Monomorphised twice, `Fir8` = `FirFilter<8, 16>` and `Fir4` = `FirFilter<4, 16>` (SV modules `FirFilter_8_16`, `FirFilter_4_16`), plus `FirFilterPipe` (`pipeline(3)` Multiply → Add1 → Add2, 3-cycle latency). Ten simulation tests (impulse/step/full-scale/zero/valid gating for 8 and 4 taps, pipeline latency/valid), Verilator `-Wall` clean, contracts (no-overflow bound, valid delay, per-stage induction helpers, covers) pass `bmc 12` / `prove 4 --engine boolector` / `cover 12`. |
+| `soc/` | Multi-module SoC (see [`soc/README.md`](soc/README.md)): `SocTop` → `BusDecoder` + `Gpio` + `Timer` + `UartCtrl` (`SyncFifo<u8,16>` + the reused `UartTx`) + the reused `Axi4LiteSlave`, one AXI4-Lite host port, four 256-byte pages, SLVERR outside the map. Ten instances, 133 port bindings, 24 forward `wire`s (bodies resolve top-down), 70 contracts. Written as a scale/composition test; since ADR-0042 the six per-module `.volt` files compile as one unit through `use` (`volt build examples/soc/top.volt`), with `UartTx` and `Axi4LiteSlave` reused by reference. Instance-name/port-name clashes (`timer` + `irq` vs port `timer_irq`) produced duplicate SV declarations silently. Verilator `-Wall` clean across all 8 modules, 5/5 simulation tests, 74 properties `bmc 12` / `prove 3 --engine boolector` / `cover 48`. |
 
 ## Building
 
@@ -23,28 +24,48 @@ The generated RTL lands in `build/rtl/uart_tx.sv`.
 
 ## Linting (Verilator, Docker)
 
-Verilator's `DECLFILENAME` check wants the file named after the module,
-so copy before linting:
+`volt build` writes one `.sv` per module (`build/rtl/<Module>.sv`,
+ADR-0024), so Verilator's `DECLFILENAME` check is satisfied as is:
 
 ```
-cp build/rtl/uart_tx.sv build/rtl/UartTx.sv
-docker run --rm -v "$PWD/build/rtl:/work" -w /work \
-    verilator/verilator:latest --lint-only -Wall UartTx.sv
+volt build examples/uart_tx.volt          # build/rtl/UartTx.sv
+docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:latest --lint-only -Wall UartTx.sv
 ```
 
-A file with several modules (`fir_filter.volt`: `FirFilter_8_16`,
-`FirFilter_4_16`, `Fir8`, `Fir4`, `FirFilterPipe`) is emitted as one
-`.sv`; split it per module before linting so `DECLFILENAME` stays
-happy, and lint the tops with the submodules on the command line:
+A source file with several modules (`fir_filter.volt`: `FirFilter_8_16`,
+`FirFilter_4_16`, `Fir8`, `Fir4`, `FirFilterPipe`) yields one file per
+module; lint the tops with the submodules on the command line:
 
 ```
-awk '/^module [A-Za-z0-9_]+ \(/{f=$2".sv"} f{print > f} /^endmodule/{f=""}' build/rtl/fir_filter.sv
-docker run --rm -v "$PWD/build/rtl:/work" -w /work \
-    verilator/verilator:latest --lint-only -Wall Fir8.sv FirFilter_8_16.sv
+docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:latest --lint-only -Wall Fir8.sv FirFilter_8_16.sv
 ```
 
 (Git Bash on Windows rewrites `/work`; prefix the `docker run` with
-`MSYS_NO_PATHCONV=1`.)
+`MSYS_NO_PATHCONV=1`. `volt build --single-file` restores the old
+`build/rtl/<source>.sv` layout.)
+
+For a whole multi-file hierarchy build the top and pass every module
+file, naming the top (`use` pulls the other files in, ADR-0042):
+
+```
+volt build examples/soc/top.volt          # 8 source files -> 8 .sv files
+docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:latest --lint-only -Wall --top-module SocTop     SocTop.sv BusDecoder.sv Gpio.sv Timer.sv UartCtrl.sv Axi4LiteSlave.sv AxiToReg.sv UartTx.sv
+```
+
+## Simulation tests (Verilator, Docker)
+
+`volt test examples/<name>_test.volt` compiles the test file together
+with its sibling `<name>.volt` and needs Verilator (`VOLT_VERILATOR` or
+`PATH`). Without a local install, run the driver inside the Verilator
+image (the cargo caches live in named volumes):
+
+```
+docker run --rm --entrypoint bash -v "$PWD:/work" \
+    -v volt-cargo:/usr/local/cargo -v volt-rustup:/usr/local/rustup \
+    -v volt-target:/work/target-linux -e CARGO_TARGET_DIR=/work/target-linux \
+    -e RUSTUP_HOME=/usr/local/rustup -e CARGO_HOME=/usr/local/cargo \
+    verilator/verilator -c 'export PATH=/usr/local/cargo/bin:$PATH; cd /work && cargo run -q -p volt-driver -- test examples/soc/top_test.volt'
+```
 
 ## Formal verification (SymbiYosys, Docker)
 

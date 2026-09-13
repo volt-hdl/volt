@@ -183,6 +183,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "use fifo::Config\nuse uart::Config        // ✗ E1010: which 'Config'?",
             "use fifo::Config as FifoConfig\nuse uart::Config as UartConfig   // ✓",
         ),
+        E1011 => Explanation::new(
+            "Module not found",
+            "A 'use' names a package that no file in the compilation unit provides.",
+            "Since ADR-0042 'use soc::gpio::Gpio' loads a file: first './soc/gpio.volt' next to the importing file, then '<root>/src/soc/gpio.volt' where <root> is the directory holding Volt.toml, then the built-in 'std' prelude. The error lists every path that was tried. The same code is reported when the file exists but does not define the requested item — the help then lists the package's public items.",
+            "use soc::gpoi::Gpio     // ✗ E1011: no soc/gpoi.volt anywhere",
+            "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt declares 'package soc::gpio;'",
+        ),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(

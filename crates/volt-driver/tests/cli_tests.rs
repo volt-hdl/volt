@@ -40,10 +40,19 @@ fn build_counter_succeeds_and_matches_expected() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let sv_path = target.join("rtl").join("counter.sv");
-    let produced = std::fs::read_to_string(&sv_path).expect("counter.sv üretilmeli");
-    let expected =
-        std::fs::read_to_string(fixtures().join("counter.expected.sv")).expect("beklenen");
+    // ADR-0024: dosya adı = modül adı; başlıkta ek `Module:` satırı.
+    let sv_path = target.join("rtl").join("Counter.sv");
+    let produced = std::fs::read_to_string(&sv_path).expect("Counter.sv üretilmeli");
+    let expected = std::fs::read_to_string(fixtures().join("counter.expected.sv"))
+        .expect("beklenen")
+        .replacen(
+            "// Source:  counter.volt
+",
+            "// Source:  counter.volt
+// Module:  Counter
+",
+            1,
+        );
     assert_eq!(produced, expected, "CLI çıktısı da birebir eşleşmeli");
 
     // cli-contract.md §5 ilerleme mesajları (stderr'de, §11) — varsayılan dil EN
@@ -51,7 +60,7 @@ fn build_counter_succeeds_and_matches_expected() {
     assert!(stderr.contains("Compiling"), "stderr: {stderr}");
     assert!(stderr.contains("Finished"));
     assert!(stderr.contains("Output"));
-    assert!(stderr.contains("counter.sv"));
+    assert!(stderr.contains("Counter.sv"));
     assert!(stderr.contains("lines)"));
 
     let _ = std::fs::remove_dir_all(&target);
@@ -286,7 +295,7 @@ fn build_json_format_lists_artifact() {
     assert_eq!(envelope["success"], true);
     let artifacts = envelope["artifacts"].as_array().unwrap();
     assert_eq!(artifacts.len(), 1);
-    assert!(artifacts[0].as_str().unwrap().contains("counter.sv"));
+    assert!(artifacts[0].as_str().unwrap().contains("Counter.sv"));
 
     let _ = std::fs::remove_dir_all(&target);
 }
@@ -624,7 +633,7 @@ fn build_emit_sva_json_lists_artifacts() {
         .map(|v| v.as_str().unwrap_or_default().to_string())
         .collect();
     assert!(
-        artifacts.iter().any(|a| a.ends_with("uart.sv")),
+        artifacts.iter().any(|a| a.ends_with(".sv")),
         "{artifacts:?}"
     );
     assert!(
@@ -1508,5 +1517,204 @@ fn build_without_emit_sva_stays_rtl_only() {
     assert!(!sv.contains("property"), "varsayılan build SVA içermemeli");
     assert!(!target.join("formal").exists());
 
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+// ═══ Çoklu dosya derleme (ADR-0042) + modül başına SV (ADR-0024) ═══
+
+fn multifile(rel: &str) -> PathBuf {
+    ui("multifile").join(rel)
+}
+
+#[test]
+fn build_multifile_writes_one_sv_per_module() {
+    let target = temp_dir("multifile-build");
+    let output = volt()
+        .args(["build", "--target-dir"])
+        .arg(&target)
+        .arg(multifile("basic/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    let rtl = target.join("rtl");
+    assert!(rtl.join("Ticker.sv").is_file(), "{stderr}");
+    assert!(rtl.join("Hidden.sv").is_file(), "{stderr}");
+    assert!(rtl.join("Top.sv").is_file(), "{stderr}");
+    assert!(!rtl.join("main.sv").exists());
+    assert!(
+        stderr.contains("2 source file(s), 3 SV file(s)"),
+        "{stderr}"
+    );
+    let top = std::fs::read_to_string(rtl.join("Top.sv")).unwrap();
+    assert!(top.contains("// Module:  Top"));
+    assert!(top.contains("Ticker c"), "{top}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn build_single_file_flag_keeps_source_named_output() {
+    let target = temp_dir("multifile-single");
+    let output = volt()
+        .args(["build", "--single-file", "--target-dir"])
+        .arg(&target)
+        .arg(multifile("basic/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rtl = target.join("rtl");
+    assert!(rtl.join("main.sv").is_file());
+    assert!(!rtl.join("Top.sv").exists());
+    let sv = std::fs::read_to_string(rtl.join("main.sv")).unwrap();
+    assert!(sv.contains("module Ticker (") && sv.contains("module Top ("));
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn build_multifile_json_lists_every_sv_artifact() {
+    let target = temp_dir("multifile-json");
+    let output = volt()
+        .args(["build", "--format", "json", "--target-dir"])
+        .arg(&target)
+        .arg(multifile("basic/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap();
+    let artifacts = json["artifacts"].as_array().unwrap();
+    assert_eq!(artifacts.len(), 3, "{artifacts:?}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn check_multifile_notfound_is_e1011_exit_1_with_searched_paths() {
+    let output = volt()
+        .arg("check")
+        .arg(multifile("notfound/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1011"), "{stderr}");
+    assert!(stderr.contains("searched:"), "{stderr}");
+    assert!(stderr.contains("nowhere.volt"), "{stderr}");
+    assert!(stderr.contains("volt explain E1011"), "{stderr}");
+}
+
+#[test]
+fn check_multifile_pubpriv_is_e1004_exit_1() {
+    let output = volt()
+        .arg("check")
+        .arg(multifile("pubpriv/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1004"), "{stderr}");
+    assert!(
+        stderr.contains("'Hidden' is private to module 'lib'"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("lib.volt") || stderr.contains("main.volt"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn check_multifile_cyclic_is_e1006_exit_1() {
+    let output = volt()
+        .arg("check")
+        .arg(multifile("cyclic/a.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("E1006"), "{stderr}");
+    assert!(stderr.contains("import chain"), "{stderr}");
+}
+
+#[test]
+fn check_multifile_basic_exit_0() {
+    let output = volt()
+        .arg("check")
+        .arg(multifile("basic/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_multifile_pubpriv_turkish_message() {
+    let output = volt()
+        .args(["--lang", "tr", "check"])
+        .arg(multifile("pubpriv/main.volt"))
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("modülüne özeldir"), "{stderr}");
+}
+
+#[test]
+fn explain_e1011_renders_in_both_languages() {
+    for (lang, needle) in [("en", "Module not found"), ("tr", "Modül bulunamadı")] {
+        let output = volt()
+            .args(["--lang", lang, "explain", "E1011"])
+            .output()
+            .expect("volt çalışmalı");
+        assert_eq!(output.status.code(), Some(0));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains(needle), "{lang}: {stdout}");
+        assert!(stdout.contains("ADR-0042"), "{lang}: {stdout}");
+    }
+}
+
+#[test]
+fn build_soc_example_from_six_files_reuses_uart_and_axi() {
+    let target = temp_dir("soc-multifile");
+    let top = PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/soc/top.volt"
+    ));
+    let output = volt()
+        .args(["build", "--target-dir"])
+        .arg(&target)
+        .arg(&top)
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(
+        stderr.contains("8 source file(s), 8 SV file(s)"),
+        "{stderr}"
+    );
+    for m in [
+        "SocTop",
+        "BusDecoder",
+        "AxiToReg",
+        "Gpio",
+        "Timer",
+        "UartCtrl",
+        "UartTx",
+        "Axi4LiteSlave",
+    ] {
+        assert!(
+            target.join("rtl").join(format!("{m}.sv")).is_file(),
+            "{m}.sv eksik"
+        );
+    }
+    let uart = std::fs::read_to_string(target.join("rtl/UartTx.sv")).unwrap();
+    assert!(uart.contains("// Source:  uart_tx.volt"), "{uart}");
     let _ = std::fs::remove_dir_all(&target);
 }

@@ -37,6 +37,7 @@ error_codes! {
 
     // ─── İsim çözümleme (name-resolution.md) ───
     E1001, E1002, E1003, E1004, E1005, E1006, E1007, E1008, E1009, E1010,
+    E1011,
 
     // ─── Tip çıkarımı (type-inference.md) ───
     E2001, E2002, E2003, E2004, E2005, E2006, E2007, E2008, E2009, E2010,

@@ -146,6 +146,12 @@ build/
 
 ## 5. `volt build`
 
+> ADR-0024 + ADR-0042 (uygulandı): girdi dosyasının `use` bağımlılıkları
+> otomatik yüklenir; çıktı **modül başına** `build/rtl/<Modül>.sv`'dir
+> (başlıkta `// Module:` ve modülün kendi kaynak dosyası). `--single-file`
+> aşağıdaki `build/rtl/<kaynak>.sv` düzenini korur. Bu bölümdeki örnekler
+> `--single-file` çıktısını gösterir.
+
 ```bash
 volt build [SEÇENEKLER] [DOSYA]
 ```

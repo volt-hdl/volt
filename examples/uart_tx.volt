@@ -14,7 +14,7 @@
 
 const CLKS_PER_BIT : u10 = 4
 
-module UartTx {
+pub module UartTx {
     in  clk   : clock
     in  start : bool
     in  data  : u8

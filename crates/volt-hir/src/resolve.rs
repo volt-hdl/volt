@@ -19,6 +19,7 @@ use volt_diagnostics::{
 use volt_span::{FileId, Span};
 
 use crate::builtin::BuiltinPrim;
+use crate::unit::{mono_base, FileScope};
 
 // ═══ Kimlikler ════════════════════════════════════════════════════
 
@@ -174,6 +175,18 @@ pub fn resolve_file(ast: &SourceFile) -> ResolveResult {
     r.finish()
 }
 
+/// Çoklu dosya derleme birimini çözer (ADR-0042). `scopes` dosya başına
+/// import görünürlüğüdür (`unit::check_imports`); kök kapsamdaki bir öğe
+/// başka dosyadan yalnız import edilmişse görünür. `use` bildirimleri
+/// burada YENİDEN kaydedilmez — birim denetimi (E1004/E1010/E1011)
+/// `check_imports`'ta yapılmıştır.
+pub fn resolve_unit(ast: &SourceFile, scopes: &HashMap<FileId, FileScope>) -> ResolveResult {
+    let mut r = Resolver::new(ast);
+    r.file_scopes = Some(scopes);
+    r.run();
+    r.finish()
+}
+
 // ═══ Çözücü ═══════════════════════════════════════════════════════
 
 struct Resolver<'a> {
@@ -214,6 +227,11 @@ struct Resolver<'a> {
     /// Kontrat ifadesi çözümleniyor mu? prev() yalnız burada geçerli
     /// (E5017, ADR-0040).
     in_contract: bool,
+    /// Derleme birimi modu (ADR-0042): dosya başına import görünürlüğü.
+    /// `None` = tek dosya, kök kapsam süzülmez.
+    file_scopes: Option<&'a HashMap<FileId, FileScope>>,
+    /// Şu an çözümlenen öğenin dosyası (kök kapsam süzgeci için).
+    current_file: FileId,
 }
 
 impl<'a> Resolver<'a> {
@@ -242,6 +260,8 @@ impl<'a> Resolver<'a> {
             instance_edges: Vec::new(),
             bundle_inputs: HashMap::new(),
             in_contract: false,
+            file_scopes: None,
+            current_file: FileId(0),
         };
         r.prelude = r.new_scope(ScopeKind::Prelude, None);
         r.root = r.new_scope(ScopeKind::Root, Some(r.prelude));
@@ -252,13 +272,17 @@ impl<'a> Resolver<'a> {
     }
 
     fn run(&mut self) {
-        self.collect_imports();
+        if self.file_scopes.is_none() {
+            self.collect_imports();
+        }
         // ── Geçiş 1: öğe toplama (ileri referans serbest) ──
         for &item in &self.ast.items {
+            self.current_file = self.ast.items_arena[item].span.file;
             self.collect_item(item);
         }
         // ── Geçiş 2: gövde çözümleme ──
         for &item in &self.ast.items {
+            self.current_file = self.ast.items_arena[item].span.file;
             self.resolve_item_body(item);
         }
         self.check_instance_cycles();
@@ -395,7 +419,7 @@ impl<'a> Resolver<'a> {
     fn lookup_in_parents(&self, name: &str, scope: ScopeId) -> Option<DefId> {
         let mut current = self.scopes[scope.0 as usize].parent;
         while let Some(s) = current {
-            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(name) {
+            if let Some(def) = self.scope_get(s, name) {
                 return Some(def);
             }
             current = self.scopes[s.0 as usize].parent;
@@ -623,11 +647,30 @@ impl<'a> Resolver<'a> {
     }
 
     fn lookup_item_def(&self, name: &str) -> DefId {
-        self.scopes[self.root.0 as usize]
-            .bindings
-            .get(name)
-            .copied()
-            .unwrap_or(self.error_def)
+        self.scope_get(self.root, name).unwrap_or(self.error_def)
+    }
+
+    /// Kapsamda ad araması. Kök kapsamda derleme birimi süzgeci uygulanır
+    /// (ADR-0042): başka dosyanın öğesi yalnız import edilmişse görünür;
+    /// `use a::B as C` takma adı kök addan önce çözülür. Monomorfize
+    /// örnekler (`Fifo_8_16`) şablon adının görünürlüğünü devralır.
+    fn scope_get(&self, scope: ScopeId, name: &str) -> Option<DefId> {
+        let bindings = &self.scopes[scope.0 as usize].bindings;
+        let Some(scopes) = self.file_scopes.filter(|_| scope == self.root) else {
+            return bindings.get(name).copied();
+        };
+        let file_scope = scopes.get(&self.current_file);
+        let target = file_scope
+            .and_then(|s| s.aliases.get(name))
+            .map_or(name, String::as_str);
+        let def = bindings.get(target).copied()?;
+        let data = &self.defs[def.0 as usize];
+        if data.span.file == self.current_file || data.span == synthetic_span() {
+            return Some(def);
+        }
+        let visible = file_scope
+            .is_some_and(|s| s.visible.contains(name) || s.visible.contains(mono_base(name)));
+        visible.then_some(def)
     }
 
     fn declare_generic(&mut self, g: &volt_ast::GenericParam, scope: ScopeId) {
@@ -701,7 +744,7 @@ impl<'a> Resolver<'a> {
         let mut found = None;
         let mut current = Some(scope);
         while let Some(s) = current {
-            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(&name.text) {
+            if let Some(def) = self.scope_get(s, &name.text) {
                 found = Some(def);
                 break;
             }
@@ -894,7 +937,7 @@ impl<'a> Resolver<'a> {
     fn lookup_visible(&self, name: &str, scope: ScopeId) -> Option<DefId> {
         let mut current = Some(scope);
         while let Some(s) = current {
-            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(name) {
+            if let Some(def) = self.scope_get(s, name) {
                 return Some(def);
             }
             current = self.scopes[s.0 as usize].parent;
@@ -1476,7 +1519,7 @@ impl<'a> Resolver<'a> {
     fn resolve_simple(&mut self, name: &Name, scope: ScopeId, is_read: bool) -> DefId {
         let mut current = Some(scope);
         while let Some(s) = current {
-            if let Some(&def) = self.scopes[s.0 as usize].bindings.get(&name.text) {
+            if let Some(def) = self.scope_get(s, &name.text) {
                 if is_read {
                     self.reads.insert(def);
                 } else {
@@ -1807,5 +1850,24 @@ impl Resolver<'_> {
                       tr: "prev(x) ya da prev(x, 2) biçiminde yazın"),
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_mode_tests {
+    use crate::unit::mono_base;
+
+    #[test]
+    fn mono_base_strips_numeric_suffixes_only() {
+        assert_eq!(mono_base("Fifo_8_16"), "Fifo");
+        assert_eq!(mono_base("Fifo"), "Fifo");
+        assert_eq!(mono_base("uart_tx"), "uart_tx");
+        assert_eq!(mono_base("Shift_reg_4"), "Shift_reg");
+    }
+
+    #[test]
+    fn mono_base_keeps_trailing_underscore_names() {
+        assert_eq!(mono_base("x_"), "x_");
+        assert_eq!(mono_base("_"), "_");
     }
 }

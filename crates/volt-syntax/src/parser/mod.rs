@@ -50,6 +50,29 @@ pub fn parse(file: FileId, source: &str) -> ParseResult {
     parser.finish()
 }
 
+/// Birden çok dosyayı TEK derleme birimine ayrıştırır (ADR-0042).
+/// Dosyalar sırayla aynı arena'lara eklenir; her düğümün span'i kendi
+/// dosyasını taşır. Monomorfizasyon tüm dosyalar okunduktan sonra bir
+/// kez koşar — generic tanım ile örneklemesi farklı dosyalarda olabilir.
+pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
+    let mut ast = SourceFile::default();
+    let mut diagnostics = Vec::new();
+    for (i, &(file, source)) in files.iter().enumerate() {
+        let mut parser = Parser::new(file, source);
+        parser.ast = std::mem::take(&mut ast);
+        parser.parse_items_only();
+        if i + 1 == files.len() {
+            // ADR-0039 bundle düzleştirmesi tüm birim üzerinde bir kez.
+            parser.flatten_bundles();
+        }
+        let result = parser.finish();
+        ast = result.ast;
+        diagnostics.extend(result.diagnostics);
+    }
+    diagnostics.extend(mono::monomorphize(&mut ast));
+    ParseResult { ast, diagnostics }
+}
+
 /// Tek bir ifadeyi ayrıştırır (öncelik testleri için).
 pub fn parse_expr(file: FileId, source: &str) -> (ParseResult, Idx<Expr>) {
     let mut parser = Parser::new(file, source);

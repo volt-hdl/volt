@@ -9,6 +9,7 @@
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
 mod sim;
+mod unit;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -19,8 +20,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
+use volt_hir::FileScope;
+use volt_span::FileId;
 use volt_span::SourceMap;
-use volt_sv_emit::{SbyEngine, SbyMode, SbyOptions, SvaFile, SvaMode, SvaProp};
+use volt_sv_emit::{
+    ConstArrayStyle, SbyEngine, SbyMode, SbyOptions, SourceText, SvModule, SvaFile, SvaMode,
+    SvaProp,
+};
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
@@ -115,6 +121,9 @@ enum Command {
         /// SVA placement: separate .sva file with bind | inline in the .sv
         #[arg(long, value_enum, default_value_t = SvaArg::Separate)]
         sva: SvaArg,
+        /// Write all modules into one build/rtl/<source>.sv (pre-ADR-0024 layout)
+        #[arg(long)]
+        single_file: bool,
     },
     /// Fast check (produces no output files)
     #[command(after_help = "EXAMPLES:
@@ -284,6 +293,7 @@ fn main() -> ExitCode {
             format,
             emit,
             sva,
+            single_file,
         } => {
             let mode = if emit.contains(&EmitArg::Sva) {
                 match sva {
@@ -293,7 +303,7 @@ fn main() -> ExitCode {
             } else {
                 SvaMode::None
             };
-            build(&file, &target_dir, format, mode)
+            build(&file, &target_dir, format, mode, single_file)
         }
         Command::Check { file, format } => check(&file, format),
         Command::Verify {
@@ -457,6 +467,10 @@ struct Compiled {
     ast: volt_ast::SourceFile,
     /// Yalnız tüm aşamalar hatasızsa üretilir.
     sv: Option<String>,
+    /// Modül başına SV (ADR-0024) — `sv` ile aynı koşulda dolu.
+    modules: Vec<SvModule>,
+    /// Birimdeki dosya sayısı (ana dosya dahil; ADR-0042 ölçümü).
+    file_count: usize,
     /// `--emit=sva` ayrı modunda kontratlı modüllerin .sva içerikleri.
     sva_files: Vec<SvaFile>,
     /// Üretilen property kimlikleri (F4b `verify` — sby FAIL eşlemesi).
@@ -492,8 +506,9 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
 /// `check` emit koşmaz (§6 "çıktı üretmeden doğrulama") — sv-emit'in
 /// F0 sınırları (örn. sync() çağrısı E0003) analizi engellememeli.
 fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
-    let source = match std::fs::read_to_string(file) {
-        Ok(s) => s,
+    // ── Aşama 0+1: dosya keşfi (ADR-0042) + birim ayrıştırma ──
+    let unit = match unit::load_unit(file) {
+        Ok(u) => u,
         Err(err) => {
             eprintln!(
                 "{}",
@@ -505,36 +520,37 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
             return Err(ExitCode::from(3));
         }
     };
-
-    let mut map = SourceMap::new();
-    let file_id = map.add_file(file.display().to_string(), source.clone());
-
-    // ── Aşama 1: parse ──
-    let parsed = volt_syntax::parser::parse(file_id, &source);
+    let map = unit.map;
+    let parsed = unit.parsed;
+    let file_count = unit.files.len();
     let mut diagnostics = parsed.diagnostics.clone();
+    let fail = |map: SourceMap, diagnostics: Vec<Diagnostic>, ast: volt_ast::SourceFile| Compiled {
+        map,
+        diagnostics,
+        ast,
+        sv: None,
+        modules: Vec::new(),
+        file_count,
+        sva_files: Vec::new(),
+        sva_props: Vec::new(),
+        multiclock_modules: Vec::new(),
+    };
     if count_errors(&diagnostics) > 0 {
-        return Ok(Compiled {
-            map,
-            diagnostics,
-            ast: parsed.ast,
-            sv: None,
-            sva_files: Vec::new(),
-            sva_props: Vec::new(),
-            multiclock_modules: Vec::new(),
-        });
+        return Ok(fail(map, diagnostics, parsed.ast));
     }
 
-    let semantic = run_semantic_stages(&parsed, &mut diagnostics);
+    // ── Aşama 2a: import çözümlemesi — bulunamayan dosya (E1011),
+    // döngü (E1006), özel öğe (E1004), belirsizlik (E1010) ──
+    diagnostics.extend(unit.diagnostics);
+    let imports = volt_hir::check_imports(&parsed.ast, &unit.info);
+    diagnostics.extend(imports.diagnostics);
+    if count_errors(&diagnostics) > 0 {
+        return Ok(fail(map, diagnostics, parsed.ast));
+    }
+
+    let semantic = run_semantic_stages(&parsed, &imports.scopes, &mut diagnostics);
     if count_errors(&diagnostics) > 0 || !semantic || !want_sv {
-        return Ok(Compiled {
-            map,
-            diagnostics,
-            ast: parsed.ast,
-            sv: None,
-            sva_files: Vec::new(),
-            sva_props: Vec::new(),
-            multiclock_modules: Vec::new(),
-        });
+        return Ok(fail(map, diagnostics, parsed.ast));
     }
 
     // ── Aşama 5: emit (E2005 literal boyutlandırma; F4a SVA) ──
@@ -542,17 +558,46 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| file.display().to_string());
-    let emitted = volt_sv_emit::emit_full(&parsed.ast, &source_name, &source, sva_mode);
+    let names: Vec<(FileId, String)> = unit
+        .files
+        .iter()
+        .map(|(fid, p)| {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string());
+            (*fid, name)
+        })
+        .collect();
+    // Ana dosya birimde sonda; SourceText listesinde İLK olmalı (yedek).
+    let mut sources: Vec<SourceText<'_>> = names
+        .iter()
+        .map(|(fid, name)| SourceText {
+            file: *fid,
+            name,
+            text: map.source(*fid),
+        })
+        .collect();
+    sources.rotate_right(1);
+    let emitted = volt_sv_emit::emit_unit(
+        &parsed.ast,
+        &source_name,
+        &sources,
+        sva_mode,
+        ConstArrayStyle::default(),
+    );
     diagnostics.extend(emitted.diagnostics);
-    let (sv, sva_files, sva_props, multiclock_modules) = if count_errors(&diagnostics) == 0 {
+    let (sv, modules, sva_files, sva_props, multiclock_modules) = if count_errors(&diagnostics) == 0
+    {
         (
             Some(emitted.sv),
+            emitted.modules,
             emitted.sva_files,
             emitted.sva_props,
             emitted.multiclock_modules,
         )
     } else {
-        (None, Vec::new(), Vec::new(), Vec::new())
+        (None, Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
 
     Ok(Compiled {
@@ -560,6 +605,8 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         diagnostics,
         ast: parsed.ast,
         sv,
+        modules,
+        file_count,
         sva_files,
         sva_props,
         multiclock_modules,
@@ -568,9 +615,13 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
 
 /// Aşama 2-4: resolve → const+typeck → domain. Tanılar `out`'a
 /// eklenir; bir aşama hata üretirse sonrakiler koşmaz.
-fn run_semantic_stages(parsed: &ParseResult, out: &mut Vec<Diagnostic>) -> bool {
-    // ── Aşama 2: isim çözümleme ──
-    let resolve = volt_hir::resolve_file(&parsed.ast);
+fn run_semantic_stages(
+    parsed: &ParseResult,
+    scopes: &std::collections::HashMap<FileId, FileScope>,
+    out: &mut Vec<Diagnostic>,
+) -> bool {
+    // ── Aşama 2: isim çözümleme (birim modu, ADR-0042) ──
+    let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
     let resolve_failed = count_errors(&resolve.diagnostics) > 0;
     out.extend(resolve.diagnostics.iter().cloned());
     if resolve_failed {
@@ -656,7 +707,13 @@ fn print_json_envelope(command: &str, compiled: &Compiled, artifacts: &[String],
     );
 }
 
-fn build(file: &Path, target_dir: &Path, format: OutputFormat, sva_mode: SvaMode) -> ExitCode {
+fn build(
+    file: &Path,
+    target_dir: &Path,
+    format: OutputFormat,
+    sva_mode: SvaMode,
+    single_file: bool,
+) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
         eprintln!(
@@ -704,24 +761,40 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat, sva_mode: SvaMode
         );
         return ExitCode::from(3);
     }
-    let stem = file
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let out_path = rtl_dir.join(format!("{stem}.sv"));
-    if let Err(err) = std::fs::write(&out_path, sv) {
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "error: cannot write '{}': {}", out_path.display(), err;
-                tr: "hata: '{}' yazılamadı: {}", out_path.display(), err
-            )
-        );
-        return ExitCode::from(3);
+    // ADR-0024: modül başına bir dosya (build/rtl/<Modül>.sv);
+    // `--single-file` eski düzeni (build/rtl/<kaynak>.sv) korur.
+    let outputs: Vec<(PathBuf, &str)> = if single_file || compiled.modules.is_empty() {
+        let stem = file
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        vec![(rtl_dir.join(format!("{stem}.sv")), sv.as_str())]
+    } else {
+        compiled
+            .modules
+            .iter()
+            .map(|m| (rtl_dir.join(format!("{}.sv", m.name)), m.sv.as_str()))
+            .collect()
+    };
+    for (path, content) in &outputs {
+        if let Err(err) = std::fs::write(path, content) {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "error: cannot write '{}': {}", path.display(), err;
+                    tr: "hata: '{}' yazılamadı: {}", path.display(), err
+                )
+            );
+            return ExitCode::from(3);
+        }
     }
+    let sv_count = outputs.len();
 
     // F4a — ayrı SVA dosyaları: build/formal/<modul>.sva.
-    let mut artifacts = vec![out_path.display().to_string()];
+    let mut artifacts: Vec<String> = outputs
+        .iter()
+        .map(|(p, _)| p.display().to_string())
+        .collect();
     if !compiled.sva_files.is_empty() {
         let formal_dir = target_dir.join("formal");
         if let Err(err) = std::fs::create_dir_all(&formal_dir) {
@@ -754,18 +827,22 @@ fn build(file: &Path, target_dir: &Path, format: OutputFormat, sva_mode: SvaMode
         eprintln!(
             "{}",
             lstr!(
-                en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
-                tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
+                en: "    Finished {:.2}s ({} source file(s), {} SV file(s))",
+                    start.elapsed().as_secs_f64(), compiled.file_count, sv_count;
+                tr: "    Tamamlandı {:.2}s ({} kaynak dosya, {} SV dosyası)",
+                    start.elapsed().as_secs_f64(), compiled.file_count, sv_count
             )
         );
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "     Output {} ({} lines)", out_path.display(), sv.lines().count();
-                tr: "     Çıktı {} ({} satır)", out_path.display(), sv.lines().count()
-            )
-        );
-        for artifact in artifacts.iter().skip(1) {
+        for (path, content) in &outputs {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "     Output {} ({} lines)", path.display(), content.lines().count();
+                    tr: "     Çıktı {} ({} satır)", path.display(), content.lines().count()
+                )
+            );
+        }
+        for artifact in artifacts.iter().skip(outputs.len()) {
             eprintln!(
                 "{}",
                 lstr!(

@@ -13,7 +13,9 @@
 use volt_ast::{BinOp, ClockEdge, Contract, ContractKind, Expr, ExprKind, Idx, ModuleDecl, UnOp};
 
 use crate::expr::Sig;
+use crate::SourceText;
 use crate::{header, ClockPort, Emitter};
+use volt_span::{FileId, Span};
 
 /// SVA çıktı modu (`volt build --sva=...`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +83,6 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let clock = clocks.first()?.clone();
-        let source_name = self.source_name;
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
@@ -122,7 +123,7 @@ impl<'a> Emitter<'a> {
                 keyword: contract_keyword(c.kind),
                 span: self.ast.exprs[c.expr].span,
             });
-            let line = line_of(self.source, self.ast.exprs[c.expr].span.start);
+            let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
             let expr = self.sva_expr(c);
             blocks.push(format!(
                 "{ind}// {kw} from {source_name}:{line}\n\
@@ -153,7 +154,6 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let clock = clocks.first()?.clone();
-        let source_name = self.source_name;
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
@@ -186,7 +186,7 @@ impl<'a> Emitter<'a> {
                 keyword: contract_keyword(c.kind),
                 span: self.ast.exprs[c.expr].span,
             });
-            let line = line_of(self.source, self.ast.exprs[c.expr].span.start);
+            let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
             let expr = self.emit_expr(c.expr, ONE_BIT);
             let stmt = if clock.info.reset.is_none() {
                 format!("{verb} ({expr}); // volt:{name}")
@@ -353,6 +353,27 @@ fn contract_keyword(kind: ContractKind) -> &'static str {
 }
 
 /// Bayt konumunun 1-tabanlı satır numarası.
+impl<'a> Emitter<'a> {
+    /// Span'in dosyası — birimde yoksa ana dosya (tek dosya modu).
+    fn source_of(&self, file: FileId) -> &SourceText<'a> {
+        self.sources
+            .iter()
+            .find(|s| s.file == file)
+            .or_else(|| self.sources.first())
+            .expect("emit: en az bir kaynak dosya")
+    }
+
+    pub(crate) fn source_name_of(&self, file: FileId) -> &'a str {
+        self.source_of(file).name
+    }
+
+    /// SVA yorumları için `dosya:satır` (ADR-0042: dosya span'e göre).
+    fn location_of(&self, span: Span) -> (&'a str, usize) {
+        let src = self.source_of(span.file);
+        (src.name, line_of(src.text, span.start))
+    }
+}
+
 fn line_of(source: &str, byte: u32) -> usize {
     let end = (byte as usize).min(source.len());
     source.as_bytes()[..end]

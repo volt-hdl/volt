@@ -14,17 +14,20 @@ pub mod sim;
 pub mod timing;
 pub mod ty;
 pub mod typeck;
+pub mod unit;
 
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
 pub use resolve::{
-    resolve_file, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope, ScopeId, ScopeKind,
+    resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
+    ScopeId, ScopeKind,
 };
 pub use sim::{check_tests, collect_modules};
 pub use timing::check_timing;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 pub use typeck::{typecheck, TypeckResult};
+pub use unit::{check_imports, FileScope, ImportResult, UnitInfo};
 
 use volt_ast::SourceFile;
 use volt_diagnostics::Diagnostic;
@@ -52,7 +55,19 @@ impl AnalysisResult {
 /// İsim çözümleme + const değerlendirme + tip kontrolü + domain
 /// çıkarımını tek geçişte koşturur.
 pub fn analyze(ast: &SourceFile) -> AnalysisResult {
-    let resolve = resolve_file(ast);
+    analyze_with(ast, resolve_file(ast))
+}
+
+/// `analyze`'in derleme birimi biçimi (ADR-0042): `scopes` dosya başına
+/// import görünürlüğü (`check_imports`).
+pub fn analyze_unit(
+    ast: &SourceFile,
+    scopes: &std::collections::HashMap<volt_span::FileId, FileScope>,
+) -> AnalysisResult {
+    analyze_with(ast, resolve_unit(ast, scopes))
+}
+
+fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let mut evaluator = ConstEvaluator::new(ast, &resolve);
     evaluator.eval_all_consts();
     evaluator.check_type_positions();

@@ -194,6 +194,29 @@ fn resolve_qualified(&mut self, path: &Path, scope: ScopeId) -> DefId {
 
 ---
 
+### 3.3 Dosya Sınırını Aşan Yollar (ADR-0042)
+
+`use` yolunun son bölümü dışındaki kısım **paket yolu**, son bölüm
+**öğe**dir: `use soc::gpio::Gpio;` → paket `soc::gpio`, öğe `Gpio`.
+Paket, sürücünün bulduğu bir dosyadır (`./soc/gpio.volt`, sonra
+`<kök>/<src>/soc/gpio.volt`, `std::` yerleşik); öğe o dosyanın üst
+düzey öğelerinde aranır ve `pub` olmalıdır.
+
+```
+resolve_use(path, file):
+    (pkg, item) = split_last(path)
+    target = unit.files[pkg]            // yoksa E1011 (aranan yollar not)
+    def    = items_of(target)[item]     // yoksa E1011 (pub öğeler listelenir)
+    if !def.is_public: E1004
+    if file.visible[local(item)] başka bir öğeyse: E1010
+    file.visible.insert(local(item) → def)
+```
+
+Kök kapsam derleme birimi genelinde tektir; bir dosya başka dosyanın
+öğesini yalnız `visible` kümesindeyse yalın adla kullanabilir (aksi
+E1001). Glob (`use pkg::*`) hedefin tüm `pub` öğelerini ekler; takma ad
+(`as`) yerel adı değiştirir. Döngüsel import E1006.
+
 ## 4. Kritik Kural: İleri Referans
 
 Bu Volt'un en önemli çözümleme kararı.
@@ -499,6 +522,7 @@ E1007  Enum varyantı bulunamadı
 E1008  Struct alanı bulunamadı
 E1009  Modül portu bulunamadı
 E1010  Ambiguous import (iki 'use' aynı ismi getiriyor)
+E1011  Module not found (import edilen paketi sağlayan dosya yok — ADR-0042)
 
 W1001  Kullanılmayan sinyal / bağlama
 W1002  Gölgeleme (iç kapsamda aynı isim)

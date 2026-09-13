@@ -30,7 +30,9 @@ pub struct Path {
 /// Bir dosyanın tam AST'si (ast-nodes.md §2).
 #[derive(Debug, Default)]
 pub struct SourceFile {
-    pub package: Option<PackageDecl>,
+    /// `package` bildirimleri — derleme biriminde dosya başına en çok
+    /// bir tane (span.file ile ayrışır; ADR-0042).
+    pub packages: Vec<PackageDecl>,
     pub uses: Vec<UseDecl>,
     pub items: Vec<Idx<Item>>,
     pub items_arena: Arena<Item>,

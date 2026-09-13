@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — F5: çoklu dosya derleme ve import sistemi (2026-09-13, ADR-0042)
+
+- **Dosya keşfi**: `volt build <dosya>` bağımlılıkları `use`
+  bildirimlerinden bulur — `./a/b.volt`, sonra `<Volt.toml kökü>/<src>/a/b.volt`,
+  `std::` yerleşik. `Volt.toml [package] name/src`.
+- **`package a::b;`** dosya başına bir kez; `pub` olmayan öğe dışarıya
+  kapalı (E1004 ilk kez üretiliyor). `use a::b::X`, `use a::{b::X, c::Y}`,
+  `use a::b::*`, `use a::b::X as Z` çözülür. Yeni kod **E1011** (modül
+  bulunamadı, aranan yollar listelenir); döngüsel import E1006; belirsiz
+  import E1010. `volt explain E1011` iki dilde.
+- **Derleme birimi**: tüm dosyalar tek arena'da (`parse_unit`), iki
+  geçiş; bundle düzleştirme ve monomorfizasyon birim üzerinde bir kez.
+- **ADR-0024 uygulandı**: modül başına `build/rtl/<Modül>.sv`
+  (`// Module:` başlığı, modülün kendi kaynak adı); `--single-file` eski
+  düzen. Verilator DECLFILENAME kalktı.
+- **`examples/soc/`** altı dosyaya bölündü (`top/bus/axi/gpio/timer/uart`);
+  `soc.volt` ve `flatten.sh` silindi, `UartTx`/`Axi4LiteSlave` referansla
+  yeniden kullanılıyor. 8 kaynak → 8 SV, 0,02 s; Verilator `-Wall` temiz;
+  5/5 simülasyon testi; 74 property `bmc 12`.
+- `tests/ui/multifile/{basic,pubpriv,notfound,cyclic}`; UI harness
+  çoklu dosya birimi analiz eder.
+
 ### Eklendi — F4b: SymbiYosys entegrasyonu ve `volt verify` (2026-09-07)
 
 - **`volt verify` komutu** (`volt-driver/src/verify.rs`): derle →

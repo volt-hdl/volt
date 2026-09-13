@@ -8,7 +8,7 @@ pub mod span;
 pub mod token;
 
 pub use lexer::{tokenize, tokenize_with_trivia, LexOutput};
-pub use parser::{monomorphize, parse, parse_expr, ParseResult};
+pub use parser::{monomorphize, parse, parse_expr, parse_unit, ParseResult};
 pub use token::{Token, TokenKind};
 // Geriye uyumluluk re-export'u: Span tipleri volt-span'den gelir.
 pub use volt_span::{FileId, Span};

@@ -1,4 +1,4 @@
-﻿//! tests/ui dosyalarının anlamsal (F1b) doğrulaması.
+//! tests/ui dosyalarının anlamsal (F1b) doğrulaması.
 //!
 //! Parser seviyesi ui taraması volt-syntax'ta; burada isim çözümleme
 //! ve const eval'in ui/fail beklentileri denetlenir.
@@ -403,4 +403,100 @@ fn ui_fail_31_delay_mismatch_e5010() {
 #[test]
 fn ui_fail_32_missing_delay_e5010() {
     assert_ui_fail("fail/32_missing_delay.volt");
+}
+
+// ═══ Çoklu dosya fixture'ları — tests/ui/multifile/<dizin>/ (ADR-0042) ═══
+
+/// Dizindeki tüm .volt dosyalarını tek birim olarak analiz eder. Paket
+/// adı dosya kökü (`lib.volt` → `lib`); giriş dosyası sonda okunur.
+fn analyze_multifile_dir(dir: &str, entry: &str) -> Vec<&'static str> {
+    let base = format!(
+        "{}/../../tests/ui/multifile/{dir}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut names: Vec<String> = std::fs::read_dir(&base)
+        .expect("multifile dizini")
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".volt") && n != entry)
+        .collect();
+    names.sort();
+    names.push(entry.to_string());
+    let texts: Vec<String> = names
+        .iter()
+        .map(|n| std::fs::read_to_string(format!("{base}/{n}")).expect("ui dosyası okunmalı"))
+        .collect();
+    let sources: Vec<(FileId, &str)> = texts
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (FileId(i as u32), t.as_str()))
+        .collect();
+    let parsed = volt_syntax::parse_unit(&sources);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "{dir} ayrışmalı: {:?}",
+        parsed.error_codes()
+    );
+    let mut info = volt_hir::UnitInfo::default();
+    for (i, n) in names.iter().enumerate() {
+        info.add(
+            FileId(i as u32),
+            vec![n.trim_end_matches(".volt").to_string()],
+        );
+    }
+    let imports = volt_hir::check_imports(&parsed.ast, &info);
+    let mut codes: Vec<&'static str> = imports
+        .diagnostics
+        .iter()
+        .map(|d| d.code.as_str())
+        .collect();
+    let result = volt_hir::analyze_unit(&parsed.ast, &imports.scopes);
+    codes.extend(
+        result
+            .diagnostics
+            .iter()
+            .filter(|d| !d.code.is_warning())
+            .map(|d| d.code.as_str()),
+    );
+    codes
+}
+
+#[test]
+fn ui_multifile_basic_passes() {
+    let codes = analyze_multifile_dir("basic", "main.volt");
+    assert!(codes.is_empty(), "{codes:?}");
+}
+
+#[test]
+fn ui_multifile_pubpriv_is_e1004() {
+    let codes = analyze_multifile_dir("pubpriv", "main.volt");
+    assert!(codes.contains(&"E1004"), "{codes:?}");
+}
+
+#[test]
+fn ui_multifile_notfound_is_e1011() {
+    let codes = analyze_multifile_dir("notfound", "main.volt");
+    assert!(codes.contains(&"E1011"), "{codes:?}");
+}
+
+#[test]
+fn ui_multifile_entry_files_declare_expected_outcome() {
+    let base = format!("{}/../../tests/ui/multifile", env!("CARGO_MANIFEST_DIR"));
+    for (dir, entry) in [
+        ("basic", "main.volt"),
+        ("pubpriv", "main.volt"),
+        ("notfound", "main.volt"),
+        ("cyclic", "a.volt"),
+    ] {
+        let first = std::fs::read_to_string(format!("{base}/{dir}/{entry}"))
+            .expect("giriş dosyası")
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            first.starts_with("//~ "),
+            "{dir}/{entry}: ilk satır '//~ ...' olmalı: {first}"
+        );
+    }
 }

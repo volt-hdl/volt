@@ -10,7 +10,7 @@ use volt_ast::{
     SourceFile, StmtKind, TypeRefKind, UseTree, VariantData, Visibility,
 };
 use volt_span::FileId;
-use volt_syntax::parser::{parse, parse_expr, ParseResult};
+use volt_syntax::parser::{parse, parse_expr, parse_unit, ParseResult};
 
 fn p(src: &str) -> ParseResult {
     parse(FileId(0), src)
@@ -973,7 +973,7 @@ fn sync_in_non_reset_domain_field_is_literal() {
 fn package_decl_parsed() {
     let result = p("package cip::alt_sistem;\nmodule M { }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
-    let pkg = result.ast.package.as_ref().expect("package bekleniyor");
+    let pkg = result.ast.packages.first().expect("package bekleniyor");
     let names: Vec<&str> = pkg.path.segments.iter().map(|s| s.text.as_str()).collect();
     assert_eq!(names, ["cip", "alt_sistem"]);
 }
@@ -2379,4 +2379,59 @@ fn delayed_in_let_annotation_desugars() {
     };
     let ty = l.ty.expect("tip anotasyonu bekleniyor");
     assert!(matches!(result.ast.types[ty].kind, TypeRefKind::UInt(32)));
+}
+
+// ═══ Derleme birimi ayrıştırması (ADR-0042) ═══
+
+#[test]
+fn parse_unit_merges_files_and_records_package_per_file() {
+    let a = "package lib;\npub module A { in clk : clock in x : bool out y : bool y = x }\n";
+    let b = "use lib::A;\nmodule B { in clk : clock in x : bool out y : bool y = x }\n";
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.items.len(), 2);
+    assert_eq!(result.ast.packages.len(), 1);
+    assert_eq!(result.ast.packages[0].span.file, FileId(0));
+    assert_eq!(result.ast.uses.len(), 1);
+    assert_eq!(result.ast.uses[0].span.file, FileId(1));
+    let files: Vec<FileId> = result
+        .ast
+        .items
+        .iter()
+        .map(|&i| result.ast.items_arena[i].span.file)
+        .collect();
+    assert_eq!(files, [FileId(0), FileId(1)]);
+}
+
+#[test]
+fn parse_unit_duplicate_package_is_per_file() {
+    let a = "package a;\n";
+    let b = "package b;\npackage c;\n";
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    assert_eq!(result.error_codes(), ["E0001"]);
+    assert_eq!(result.ast.packages.len(), 2);
+}
+
+#[test]
+fn parse_unit_flattens_bundle_ports_across_files() {
+    // Bundle struct in file 0, module using it in file 1: flattening
+    // runs once over the whole unit, so the port is expanded.
+    let a = "package bus;\npub struct port Link { out v : bool\n in r : bool }\n";
+    let b = "use bus::Link;\nmodule M { in clk : clock in l : Link\n l.r = l.v }\n";
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let m = result
+        .ast
+        .items
+        .iter()
+        .find_map(|&i| match &result.ast.items_arena[i].kind {
+            ItemKind::Module(m) => Some(m),
+            _ => None,
+        })
+        .expect("modül");
+    let names: Vec<&str> = m.ports.iter().map(|p| p.name.text.as_str()).collect();
+    assert!(
+        names.contains(&"l_v") && names.contains(&"l_r"),
+        "{names:?}"
+    );
 }

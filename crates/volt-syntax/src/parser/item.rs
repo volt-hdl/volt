@@ -57,6 +57,15 @@ pub(crate) fn contract_kind(kind: TokenKind) -> Option<ContractKind> {
 
 impl Parser<'_> {
     pub(crate) fn parse_source_file(&mut self) {
+        self.parse_items_only();
+        // ADR-0039: bundle portları düz portlara açılır (tüm öğeler
+        // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
+        self.flatten_bundles();
+    }
+
+    /// Öğeleri okur, bundle düzleştirmesi YAPMAZ — derleme biriminde
+    /// (ADR-0042) düzleştirme tüm dosyalar okununca bir kez koşar.
+    pub(crate) fn parse_items_only(&mut self) {
         while !self.at_eof() {
             let before = self.pos;
             match self.current() {
@@ -68,9 +77,6 @@ impl Parser<'_> {
                 self.bump_any(); // ilerleme garantisi
             }
         }
-        // ADR-0039: bundle portları düz portlara açılır (tüm öğeler
-        // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
-        self.flatten_bundles();
     }
 
     /// `package yol::adi ;`
@@ -88,7 +94,7 @@ impl Parser<'_> {
         let path = self.parse_path();
         self.eat(Semi);
         let span = self.span_from(start);
-        if self.ast.package.is_some() {
+        if self.ast.packages.iter().any(|p| p.span.file == span.file) {
             self.push_error(Diagnostic::error(
                 ErrorCode::E0001,
                 lstr!(en: "duplicate 'package' declaration"; tr: "yinelenen 'package' bildirimi"),
@@ -99,7 +105,7 @@ impl Parser<'_> {
                 lstr!(en: "remove the extra declaration"; tr: "fazladan bildirimi kaldırın"),
             ));
         } else {
-            self.ast.package = Some(PackageDecl { span, path });
+            self.ast.packages.push(PackageDecl { span, path });
         }
     }
 

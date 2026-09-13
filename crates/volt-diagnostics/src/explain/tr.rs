@@ -183,6 +183,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "use fifo::Config\nuse uart::Config        // ✗ E1010: hangi 'Config'?",
             "use fifo::Config as FifoConfig\nuse uart::Config as UartConfig   // ✓",
         ),
+        E1011 => Explanation::new(
+            "Modül bulunamadı",
+            "Bir 'use', derleme birimindeki hiçbir dosyanın sağlamadığı bir paketi adlandırıyor.",
+            "ADR-0042'den beri 'use soc::gpio::Gpio' bir dosya yükler: önce import eden dosyanın yanındaki './soc/gpio.volt', sonra Volt.toml'un bulunduğu dizine göre '<kök>/src/soc/gpio.volt', en son yerleşik 'std' ön eki. Hata, denenen tüm yolları listeler. Dosya var ama istenen öğeyi tanımlamıyorsa da aynı kod verilir — yardım metni paketin açık öğelerini sıralar.",
+            "use soc::gpoi::Gpio     // ✗ E1011: hiçbir yerde soc/gpoi.volt yok",
+            "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt 'package soc::gpio;' bildiriyor",
+        ),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(

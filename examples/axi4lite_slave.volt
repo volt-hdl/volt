@@ -21,41 +21,41 @@
 // the write is dropped and the response is SLVERR (2); accepted
 // accesses respond OKAY (0).
 
-struct port AxiWriteAddr {
+pub struct port AxiWriteAddr {
     out addr  : u32
     out prot  : u3
     out valid : bool
     in  ready : bool
 }
 
-struct port AxiWriteData {
+pub struct port AxiWriteData {
     out data  : u32
     out strb  : u4
     out valid : bool
     in  ready : bool
 }
 
-struct port AxiWriteResp {
+pub struct port AxiWriteResp {
     in  resp  : u2
     in  valid : bool
     out ready : bool
 }
 
-struct port AxiReadAddr {
+pub struct port AxiReadAddr {
     out addr  : u32
     out prot  : u3
     out valid : bool
     in  ready : bool
 }
 
-struct port AxiReadData {
+pub struct port AxiReadData {
     in  data  : u32
     in  resp  : u2
     in  valid : bool
     out ready : bool
 }
 
-module Axi4LiteSlave {
+pub module Axi4LiteSlave {
     in  clk    : clock
     in  aw     : AxiWriteAddr
     in  w      : AxiWriteData
