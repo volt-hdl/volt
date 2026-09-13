@@ -47,10 +47,10 @@ error_codes! {
 
     // ─── Saat/sıfırlama alanları (domain-inference.md) ───
     E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009, E3010,
-    E3011, E3012,
+    E3011, E3012, E3013,
 
     // ─── Bağlantı/sürücü (type-inference.md) ───
-    E4001, E4002, E4003, E4004,
+    E4001, E4002, E4003, E4004, E4005,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016) ───

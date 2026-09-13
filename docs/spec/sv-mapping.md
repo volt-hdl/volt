@@ -414,3 +414,47 @@ yosys -p "read_verilog -sv design.sv; hierarchy -check; check"
 ```
 
 CI bu üç kontrolü her commit'te çalıştırır.
+
+---
+
+## 14. Bundle Portları (ADR-0039)
+
+Bundle (`struct port`) DÜZLEŞİR; SV `interface`/`modport` ÜRETİLMEZ.
+Her alan `<port>_<alan>` adlı bağımsız bir port olur; iç içe bundle
+`<port>_<alan>_<alt_alan>`. Yön alanın bildirilen yönüdür, port `in`
+ile bildirilmişse tersine çevrilir. Port sırası kaynak sırasıdır
+(bundle alanları bildirildikleri yerde açılır); §1'deki in/inout/out
+gruplaması düz portlara uygulanır.
+
+### Volt
+
+```volt
+struct port AxiWriteAddr {
+    out addr  : u32
+    out valid : bool
+    in  ready : bool
+}
+
+module Slave {
+    in aw : AxiWriteAddr
+    aw.ready = true
+}
+```
+
+### SystemVerilog
+
+```systemverilog
+module Slave (
+    input  logic [31:0] aw_addr,
+    input  logic        aw_valid,
+    output logic        aw_ready
+);
+    assign aw_ready = 1'b1;
+endmodule
+```
+
+Gerekçe: SV `interface` sentez ve lint araçlarında (özellikle modport
+yönleri, parametreli arayüzler ve hiyerarşi düzleştirme) tutarsız
+desteklenir; düz portlar her araçta çalışır ve üretilen RTL'nin
+Volt kaynağıyla bire bir izlenebilirliğini korur. Test bloklarında ve
+örnekleme bağlamalarında da düz ad kullanılır (`dut.aw_addr`).

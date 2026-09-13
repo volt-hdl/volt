@@ -77,12 +77,14 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3010 => "Domain belirsiz (çoklu saat, anotasyon yok)",
         E3011 => "Register birden fazla domainden yazılıyor",
         E3012 => "'on' bloğunda yabancı domain sinyali okunuyor",
+        E3013 => "Bundle alanları farklı saat alanlarında çıkarıldı (ADR-0039)",
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => "Çift sürücü",
         E4002 => "Sürücüsüz çıkış portu",
         E4003 => "Lineer port çift tüketim [V1]",
         E4004 => "Lineer port tüketilmedi [V1]",
+        E4005 => "Bundle alanının yönü ihlal edildi (ADR-0039)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

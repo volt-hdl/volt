@@ -439,6 +439,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
 
+        E3013 => Explanation::new(
+            "Bundle alanları farklı saat alanlarında çıkarıldı",
+            "Bir bundle portunun düzleştirilmiş alanları farklı saat alanlarına düştü.",
+            "Bundle (struct port, ADR-0039) tek bir arayüzdür: bütün alanlar modül sınırını birlikte geçer, bu yüzden hepsi aynı saat alanında olmalıdır. Port anotasyonundan farklı bir alan seviyesi @Domain anotasyonu ya da farklı saatlerin bloklarından kullanılan alanlar arayüzü bir CDC sınırından böler. Portun tamamını tek bir alanla anotasyonlayın ya da arayüzü iki bundle'a ayırın.",
+            "struct port Bus {\n    out data  : u8 @Fast\n    in  ready : bool @Slow    // ✗ E3013: aynı bundle, iki alan\n}",
+            "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ bütün bundle tek alanda\n}",
+        ),
+
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",
@@ -470,6 +478,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "sink = grant            // ✓ tam bir kez tüketildi",
         )
         .with_note("Lineer tipler V1 özelliğidir; bu denetim F-serisi sürümlerde etkin değildir."),
+
+        E4005 => Explanation::new(
+            "Bundle alanının yönü ihlal edildi",
+            "Etkin yönü giriş olan bir bundle alanına modül içinde atama yapılıyor.",
+            "Her struct port alanı bir yön taşır. Port 'in' ile bildirilince bütün alanlar tersine çevrilir (out → in, in → out); böylece master ve slave tek tanımı paylaşır. Ters çevirme sonrası giriş olan bir alan dışarıdan sürülür; ona atama ikinci bir sürücü yaratır. Dışa bakan alanları sürün ya da portu ters yönle bildirin.",
+            "struct port Req { out addr : u32, in ready : bool }\nmodule Slave {\n    in req : Req               // req.addr burada GİRİŞ\n    req.addr = 0               // ✗ E4005\n}",
+            "module Slave {\n    in req : Req\n    req.ready = true           // ✓ 'in ready' çıkışa döner\n}",
+        ),
 
         // ─── Davranışsal kontratlar ───
         E5001 => Explanation::new(

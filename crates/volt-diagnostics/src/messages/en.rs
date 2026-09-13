@@ -77,12 +77,14 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3010 => "Ambiguous domain (multiple clocks, no annotation)",
         E3011 => "Register written from more than one domain",
         E3012 => "Foreign-domain signal read inside an 'on' block",
+        E3013 => "Bundle fields inferred in different clock domains (ADR-0039)",
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => "Double driver",
         E4002 => "Undriven output port",
         E4003 => "Linear port consumed twice [V1]",
         E4004 => "Linear port never consumed [V1]",
+        E4005 => "Bundle field direction violated (ADR-0039)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",

@@ -228,7 +228,12 @@ StructDecl      = "struct" [ "port" ] Ident [ GenericParams ]
                   "{" { StructField } "}" ;
 
 StructField     = [ Attributes ] [ DocComment ]
-                  Ident ":" Type [ "," ] ;
+                  [ PortDir ] Ident ":" Type [ DomainAnnot ] [ "," ] ;
+
+(* ADR-0039: `struct port` (bundle) alanları PortDir ("in" | "out") ile
+   BAŞLAMAK ZORUNDADIR ve DomainAnnot alabilir; sıradan struct alanları
+   yön taşıyamaz. Bundle tipli bir Port parser'da `<port>_<alan>` düz
+   portlarına açılır; `in` bildirimi her alanın yönünü tersler. *)
 
 EnumDecl        = "enum" Ident [ GenericParams ]
                   [ ":" Type ]

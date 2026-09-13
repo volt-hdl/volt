@@ -68,6 +68,9 @@ impl Parser<'_> {
                 self.bump_any(); // ilerleme garantisi
             }
         }
+        // ADR-0039: bundle portları düz portlara açılır (tüm öğeler
+        // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
+        self.flatten_bundles();
     }
 
     /// `package yol::adi ;`
@@ -623,24 +626,12 @@ impl Parser<'_> {
                 name,
                 ty,
                 domain: None,
+                bundle: None,
             });
         }
 
         let ty = self.parse_type_or_error();
-
-        let domain = if self.eat(At) {
-            if self.at(Ident) {
-                Some(self.parse_name())
-            } else {
-                self.error_expected(
-                    &lstr!(en: "domain name after '@'"; tr: "'@' sonrasında domain adı"),
-                    &lstr!(en: "write it as in a : u8 @Fast"; tr: "in a : u8 @Fast biçiminde yazın"),
-                );
-                None
-            }
-        } else {
-            None
-        };
+        let domain = self.parse_domain_annot();
 
         self.eat(Comma);
         Some(Port {
@@ -651,7 +642,23 @@ impl Parser<'_> {
             name,
             ty,
             domain,
+            bundle: None,
         })
+    }
+
+    /// `@DomainName` anotasyonu (port ve `struct port` alanı).
+    fn parse_domain_annot(&mut self) -> Option<Name> {
+        if !self.eat(At) {
+            return None;
+        }
+        if self.at(Ident) {
+            return Some(self.parse_name());
+        }
+        self.error_expected(
+            &lstr!(en: "domain name after '@'"; tr: "'@' sonrasında domain adı"),
+            &lstr!(en: "write it as in a : u8 @Fast"; tr: "in a : u8 @Fast biçiminde yazın"),
+        );
+        None
     }
 
     /// `requires: ifade [;]` — davranışsal kontrat (grammar §5).
@@ -806,7 +813,7 @@ impl Parser<'_> {
             &lstr!(en: "'{{' for the struct body"; tr: "struct gövdesi için '{{'"),
             &lstr!(en: "write it as struct Name {{ ... }}"; tr: "struct Ad {{ ... }} biçiminde yazın"),
         );
-        let fields = self.parse_struct_fields();
+        let fields = self.parse_struct_fields(is_port);
         self.expect_closing(RBrace, "}", open);
 
         ItemKind::Struct(StructDecl {
@@ -817,14 +824,39 @@ impl Parser<'_> {
         })
     }
 
-    /// `{` sonrası alan listesi; `}` tüketmez.
-    fn parse_struct_fields(&mut self) -> Vec<StructField> {
+    /// `{` sonrası alan listesi; `}` tüketmez. `struct port` alanları
+    /// (ADR-0039) `in`/`out` yönü ile başlar ve `@Domain` alabilir:
+    /// `out addr : u32 @Bus,`.
+    fn parse_struct_fields(&mut self, is_port: bool) -> Vec<StructField> {
         let mut fields = Vec::new();
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             let start = self.pos;
             let doc = self.collect_doc_comments();
             let attrs = self.parse_attributes();
+            let direction = match self.current() {
+                Some(KwIn) => Some(PortDir::In),
+                Some(KwOut) => Some(PortDir::Out),
+                _ => None,
+            };
+            if direction.is_some() {
+                if !is_port {
+                    self.error_expected(
+                        &lstr!(en: "struct field name (only 'struct port' fields carry a direction)";
+                               tr: "struct alan adı (yalnız 'struct port' alanları yön taşır)"),
+                        &lstr!(en: "remove the direction or declare the type as struct port Name {{ ... }}";
+                               tr: "yönü kaldırın ya da tipi struct port Ad {{ ... }} olarak bildirin"),
+                    );
+                }
+                self.bump_any();
+            } else if is_port && self.at(Ident) {
+                self.error_expected(
+                    &lstr!(en: "port direction ('in' or 'out') before the struct port field";
+                           tr: "struct port alanından önce yön ('in' veya 'out')"),
+                    &lstr!(en: "write it as out {} : u8", self.current_text();
+                           tr: "out {} : u8 biçiminde yazın", self.current_text()),
+                );
+            }
             if self.at(Ident) {
                 let name = self.parse_name();
                 self.expect(
@@ -833,12 +865,19 @@ impl Parser<'_> {
                     &lstr!(en: "write it as field: u8"; tr: "alan: u8 biçiminde yazın"),
                 );
                 let ty = self.parse_type_or_error();
+                let domain = if is_port {
+                    self.parse_domain_annot()
+                } else {
+                    None
+                };
                 fields.push(StructField {
                     span: self.span_from(start),
                     attrs,
                     doc,
+                    direction,
                     name,
                     ty,
+                    domain,
                 });
             } else if !self.at(RBrace) {
                 self.error_expected(
@@ -912,7 +951,7 @@ impl Parser<'_> {
                     }
                     Some(LBrace) => {
                         let sopen = self.bump();
-                        let fields = self.parse_struct_fields();
+                        let fields = self.parse_struct_fields(false);
                         self.expect_closing(RBrace, "}", sopen);
                         VariantData::Struct(fields)
                     }

@@ -8,10 +8,10 @@
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, GenericArg, GenericParamKind, Idx,
-    Item, ItemKind, LValue, LValueSuffix, MatchArm, MatchArmBody, ModuleDecl, Name, OnTrigger,
-    Path, Pattern, PatternArgs, PatternKind, PortDir, SourceFile, Stmt, StmtKind, TypeRef,
-    TypeRefKind, UseTree, Visibility,
+    ArrayLitKind, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, GenericArg,
+    GenericParamKind, Idx, Item, ItemKind, LValue, LValueSuffix, MatchArm, MatchArmBody,
+    ModuleDecl, Name, OnTrigger, Path, Pattern, PatternArgs, PatternKind, PortDir, SourceFile,
+    Stmt, StmtKind, TypeRef, TypeRefKind, UseTree, Visibility,
 };
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
@@ -206,6 +206,9 @@ struct Resolver<'a> {
     instance_builtin: HashMap<DefId, BuiltinPrim>,
     /// Modül örnekleme kenarları (E1006 döngü tespiti).
     instance_edges: Vec<(DefId, DefId)>,
+    /// Bundle'dan düzleştirilmiş GİRİŞ portları (ADR-0039) — atama
+    /// hedefi olursa E4005.
+    bundle_inputs: HashMap<DefId, BundleOrigin>,
 }
 
 impl<'a> Resolver<'a> {
@@ -232,6 +235,7 @@ impl<'a> Resolver<'a> {
             instance_module: HashMap::new(),
             instance_builtin: HashMap::new(),
             instance_edges: Vec::new(),
+            bundle_inputs: HashMap::new(),
         };
         r.prelude = r.new_scope(ScopeKind::Prelude, None);
         r.root = r.new_scope(ScopeKind::Root, Some(r.prelude));
@@ -641,12 +645,15 @@ impl<'a> Resolver<'a> {
 
         // 2. Portlar — birbirini görebilir, sıra anlamsal bilgi taşımaz.
         for p in &m.ports {
-            self.declare_checked(
+            let def = self.declare_checked(
                 &p.name.clone(),
                 DefKind::Port { dir: p.direction },
                 scope,
                 false,
             );
+            if let (PortDir::In, Some(origin)) = (p.direction, &p.bundle) {
+                self.bundle_inputs.insert(def, origin.clone());
+            }
         }
         for p in &m.ports {
             self.resolve_type(p.ty, scope);
@@ -1011,8 +1018,58 @@ impl<'a> Resolver<'a> {
         self.resolve_block(f.body, loop_scope);
     }
 
+    /// E4005 (ADR-0039) — etkin yönü giriş olan bundle alanına atama.
+    /// Beş parça: kod, konum, açıklama, öneri, ADR referansı (not).
+    fn check_bundle_direction(&mut self, def: DefId, base: &Name) {
+        let Some(origin) = self.bundle_inputs.get(&def).cloned() else {
+            return;
+        };
+        let (port, field) = (origin.port.text.clone(), origin.path.clone());
+        let declared = match origin.declared {
+            PortDir::In => "in",
+            PortDir::Out => "out",
+            PortDir::InOut => "inout",
+        };
+        let opposite = if origin.flipped { "out" } else { "in" };
+        let mut diag = Diagnostic::error(
+            ErrorCode::E4005,
+            lstr!(en: "cannot assign bundle field '{port}.{field}': its direction is input";
+                  tr: "'{port}.{field}' bundle alanına atanamaz: yönü giriş"),
+            LabeledSpan::primary(
+                base.span,
+                lstr!(en: "this field is driven from outside the module";
+                      tr: "bu alan modülün dışından sürülür"),
+            ),
+            lstr!(en: "drive the fields that face outward, or declare the port as '{opposite} {port} : {}'",
+                      origin.bundle;
+                  tr: "dışa bakan alanları sürün ya da portu '{opposite} {port} : {}' olarak bildirin",
+                      origin.bundle),
+        )
+        .with_secondary(
+            origin.port.span,
+            lstr!(en: "bundle port declared here"; tr: "bundle portu burada bildirildi"),
+        );
+        diag = if origin.flipped {
+            diag.with_note(
+                NoteKind::Reason,
+                lstr!(en: "field '{field}' is declared '{declared}' in '{}', and an 'in' bundle port flips every field direction (ADR-0039)",
+                          origin.bundle;
+                      tr: "'{field}' alanı '{}' içinde '{declared}' bildirilmiş; 'in' bundle portu her alanın yönünü tersler (ADR-0039)",
+                          origin.bundle),
+            )
+        } else {
+            diag.with_note(
+                NoteKind::Reason,
+                lstr!(en: "field '{field}' is declared '{declared}' in '{}' (ADR-0039)", origin.bundle;
+                      tr: "'{field}' alanı '{}' içinde '{declared}' bildirilmiş (ADR-0039)", origin.bundle),
+            )
+        };
+        self.diagnostics.push(diag);
+    }
+
     fn resolve_lvalue(&mut self, lv: &LValue, scope: ScopeId) {
         let def = self.resolve_simple(&lv.base.clone(), scope, false);
+        self.check_bundle_direction(def, &lv.base.clone());
         let mut current = Some(def);
         for suffix in &lv.suffixes {
             match suffix {

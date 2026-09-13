@@ -4,6 +4,7 @@
 //! İlkeler (error-recovery.md §1): asla panik yok, her girdide AST,
 //! her kurtarma en az bir token tüketir, kaskadlar bastırılır.
 
+mod bundle;
 mod desugar;
 mod expr;
 pub(crate) mod item;

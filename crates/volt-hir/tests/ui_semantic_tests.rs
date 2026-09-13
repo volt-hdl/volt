@@ -232,8 +232,8 @@ fn ui_pass_files_have_no_semantic_errors() {
         );
         checked += 1;
     }
-    // ADR-0038: 45-46 pipeline fixture'ları eklendi.
-    assert_eq!(checked, 42);
+    // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle fixture'ları.
+    assert_eq!(checked, 44);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

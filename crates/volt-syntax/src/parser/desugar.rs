@@ -1256,7 +1256,7 @@ impl Parser<'_> {
 }
 
 /// LValue son eklerindeki ifade indeksleri.
-fn lvalue_suffix_exprs(s: &volt_ast::LValueSuffix) -> Vec<Idx<Expr>> {
+pub(super) fn lvalue_suffix_exprs(s: &volt_ast::LValueSuffix) -> Vec<Idx<Expr>> {
     use volt_ast::LValueSuffix::*;
     match s {
         Index(e) => vec![*e],
@@ -1267,7 +1267,7 @@ fn lvalue_suffix_exprs(s: &volt_ast::LValueSuffix) -> Vec<Idx<Expr>> {
 }
 
 /// Match kollarındaki ifade/blok indeksleri.
-fn collect_arm_idxs(
+pub(super) fn collect_arm_idxs(
     arms: &[volt_ast::MatchArm],
     exprs: &mut Vec<Idx<Expr>>,
     blocks: &mut Vec<Idx<Block>>,
@@ -1284,7 +1284,7 @@ fn collect_arm_idxs(
 }
 
 /// Bir ifadenin çocuk ifade ve blok indeksleri (yeniden yazma gezgini).
-fn expr_children(kind: &ExprKind) -> (Vec<Idx<Expr>>, Vec<Idx<Block>>) {
+pub(super) fn expr_children(kind: &ExprKind) -> (Vec<Idx<Expr>>, Vec<Idx<Block>>) {
     let mut es = Vec::new();
     let mut bs = Vec::new();
     match kind {

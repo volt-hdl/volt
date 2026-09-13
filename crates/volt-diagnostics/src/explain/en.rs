@@ -439,6 +439,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
 
+        E3013 => Explanation::new(
+            "Bundle fields inferred in different clock domains",
+            "The flattened fields of one bundle port ended up in different clock domains.",
+            "A bundle (struct port, ADR-0039) is one interface: every field crosses the module boundary together, so all of them must live in the same clock domain. A field-level @Domain annotation that differs from the port annotation, or fields used from blocks of different clocks, splits the interface across a CDC boundary. Annotate the whole port with one domain, or split the interface into two bundles.",
+            "struct port Bus {\n    out data  : u8 @Fast\n    in  ready : bool @Slow    // ✗ E3013: same bundle, two domains\n}",
+            "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ one domain for the whole bundle\n}",
+        ),
+
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",
@@ -470,6 +478,14 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "sink = grant            // ✓ consumed exactly once",
         )
         .with_note("Linear types are a V1 feature; this check is inactive in F-series versions."),
+
+        E4005 => Explanation::new(
+            "Bundle field direction violated",
+            "A bundle field whose effective direction is input is assigned inside the module.",
+            "Each struct port field carries a direction. Declaring the port with 'in' flips every field (out becomes in, in becomes out) so that master and slave share one definition. A field that is an input after flipping is driven from outside; assigning it would create a second driver. Drive the fields that face outward, or declare the port with the opposite direction.",
+            "struct port Req { out addr : u32, in ready : bool }\nmodule Slave {\n    in req : Req               // req.addr is an INPUT here\n    req.addr = 0               // ✗ E4005\n}",
+            "module Slave {\n    in req : Req\n    req.ready = true           // ✓ 'in ready' flips to output\n}",
+        ),
 
         // ─── Behavioral contracts ───
         E5001 => Explanation::new(

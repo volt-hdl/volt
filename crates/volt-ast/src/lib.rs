@@ -203,6 +203,25 @@ pub struct Port {
     pub ty: Idx<TypeRef>,
     /// `@DomainName` anotasyonu.
     pub domain: Option<Name>,
+    /// Bundle (port grubu, ADR-0039) düzleştirmesinden gelen port ise
+    /// kaynağı. `in aw : AxiWriteAddr` → `aw_addr`, `aw_valid`, ...
+    /// portları bu alanı taşır; elle yazılmış portlarda `None`.
+    pub bundle: Option<BundleOrigin>,
+}
+
+/// Düzleştirilmiş bir bundle alanının kaynağı (ADR-0039).
+#[derive(Debug, Clone)]
+pub struct BundleOrigin {
+    /// Kullanıcının yazdığı bundle portu (`aw`) — gerçek span.
+    pub port: Name,
+    /// Bundle tipinin adı (`AxiWriteAddr`).
+    pub bundle: String,
+    /// Noktalı alan yolu (`addr`, iç içe: `sub.addr`).
+    pub path: String,
+    /// Alanın `struct port` içinde bildirilen yönü.
+    pub declared: PortDir,
+    /// Port `in` yazıldığı için yön tersine çevrildi mi?
+    pub flipped: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,7 +251,8 @@ pub struct Param {
 #[derive(Debug)]
 pub struct StructDecl {
     pub name: Name,
-    /// `struct port` — lineer tip [V1]; şimdilik yalnız ayrıştırılır.
+    /// `struct port` — bundle / port grubu (ADR-0039): modül portu olarak
+    /// kullanıldığında parser düz portlara açar.
     pub is_port: bool,
     pub generics: Vec<GenericParam>,
     pub fields: Vec<StructField>,
@@ -243,8 +263,13 @@ pub struct StructField {
     pub span: Span,
     pub attrs: Vec<Attribute>,
     pub doc: Option<String>,
+    /// `struct port` alanının yönü (`in`/`out`, ADR-0039); sıradan
+    /// struct alanlarında `None`.
+    pub direction: Option<PortDir>,
     pub name: Name,
     pub ty: Idx<TypeRef>,
+    /// `struct port` alanındaki `@DomainName` anotasyonu (ADR-0039).
+    pub domain: Option<Name>,
 }
 
 #[derive(Debug)]
