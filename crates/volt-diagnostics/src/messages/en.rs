@@ -25,6 +25,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0012 => "Invalid escape sequence",
         E0013 => "Unterminated block comment",
         E0014 => "Missing '_' arm in the match statement",
+        E0015 => "MMIO register map layout error (ADR-0044)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",
@@ -86,6 +87,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4003 => "Linear port consumed twice [V1]",
         E4004 => "Linear port never consumed [V1]",
         E4005 => "Bundle field direction violated (ADR-0039)",
+        E4006 => "Bus-owned MMIO register field written from RTL (ADR-0044)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",

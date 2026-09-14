@@ -16,3 +16,10 @@ editors/vscode/node_modules/
 editors/vscode/out/
 editors/vscode/*.vsix
 editors/vscode/package-lock.json
+
+# Verilator / simulation build output
+examples/build/
+obj_dir/
+obj_*/
+*.mk
+*.d

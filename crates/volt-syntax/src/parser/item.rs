@@ -6,9 +6,9 @@ use volt_ast::{
     AttrArg, Attribute, BlockContext, BlockStmt, ClockEdge, ConstDecl, Contract, ContractKind,
     DomainDecl, DomainField, DomainKey, DomainValue, EnumDecl, EnumVariant, Expr, ExprKind,
     ExternDecl, FnDecl, GenericArg, GenericParam, GenericParamKind, Idx, Item, ItemKind,
-    ModuleDecl, Name, PackageDecl, Param, Path, Port, PortDir, ResetPolarity, ResetSpec, ResetSync,
-    StructDecl, StructField, TypeAlias, TypeRef, TypeRefKind, UseDecl, UseTree, VariantData,
-    Visibility,
+    MmioFieldDecl, MmioRegDecl, ModuleDecl, Name, PackageDecl, Param, Path, Port, PortDir,
+    ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TypeAlias, TypeRef, TypeRefKind,
+    UseDecl, UseTree, VariantData, Visibility,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
@@ -40,6 +40,9 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     "synthesis_target",
     // ADR-0037: L1 zamanlama — modül düzeyinde gecikme denetimini açar.
     "strict_timing",
+    // ADR-0044: @mmio register alanı nitelikleri.
+    "self_clearing",
+    "w1c",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.
@@ -58,8 +61,11 @@ pub(crate) fn contract_kind(kind: TokenKind) -> Option<ContractKind> {
 impl Parser<'_> {
     pub(crate) fn parse_source_file(&mut self) {
         self.parse_items_only();
+        // ADR-0044: @mmio modülleri bus adaptörü + register mantığına
+        // açılır (bundle tipli AXI portları üretir), SONRA
         // ADR-0039: bundle portları düz portlara açılır (tüm öğeler
         // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
+        self.desugar_mmio();
         self.flatten_bundles();
     }
 
@@ -530,6 +536,7 @@ impl Parser<'_> {
         let mut ports = Vec::new();
         let mut contracts = Vec::new();
         let mut body = Vec::new();
+        let mut mmio_regs = Vec::new();
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             let doc = self.collect_doc_comments();
@@ -544,6 +551,13 @@ impl Parser<'_> {
                     contracts.push(self.parse_contract());
                 }
                 Some(RBrace) | None => break,
+                // ADR-0044: `@reg(...) ad : { alanlar }` register bildirimi.
+                Some(Ident)
+                    if matches!(self.peek(1), Some(Colon))
+                        && attrs.iter().any(|a| a.name.text == "reg") =>
+                {
+                    mmio_regs.push(self.parse_mmio_reg(attrs, doc));
+                }
                 _ => {
                     body.push(self.parse_stmt(attrs));
                 }
@@ -591,7 +605,70 @@ impl Parser<'_> {
             contracts,
             body,
             closing_name,
+            mmio_regs,
         })
+    }
+
+    /// `@reg(...) ad : { alan : Tip [@nitelik] [,] ... }` (ADR-0044).
+    /// Nitelikler zaten okundu; imleç register adındadır.
+    fn parse_mmio_reg(&mut self, attrs: Vec<Attribute>, doc: Option<String>) -> MmioRegDecl {
+        let start = self.pos;
+        let name = self.parse_name();
+        self.bump_any(); // ':' (LL(2) ile doğrulandı)
+        let open = self.current_span();
+        let mut fields = Vec::new();
+        if self.expect(
+            LBrace,
+            &lstr!(en: "'{{' for the register fields"; tr: "register alanları için '{{'"),
+            &lstr!(en: "write it as @reg(offset = 0x00, access = ReadWrite) name : {{ field : bits<8>, @reserved : bits<24> }}"; tr: "@reg(offset = 0x00, access = ReadWrite) ad : {{ alan : bits<8>, @reserved : bits<24> }} biçiminde yazın"),
+        ) {
+            while !self.at(RBrace) && !self.at_eof() {
+                let before = self.pos;
+                let fstart = self.pos;
+                let mut fattrs = self.parse_attributes();
+                // `reset` anahtar kelimesi alan adı olarak serbesttir
+                // (`reset : bool @self_clearing`); erişim `regs.control.reset`.
+                let fname = if self.at(Ident) || self.at(KwReset) {
+                    Some(self.parse_name())
+                } else if fattrs.iter().any(|a| a.name.text == "reserved") {
+                    None
+                } else {
+                    self.error_expected(
+                        &lstr!(en: "field name or @reserved"; tr: "alan adı veya @reserved"),
+                        &lstr!(en: "write it as pins : bits<8> or @reserved : bits<24>"; tr: "pins : bits<8> veya @reserved : bits<24> biçiminde yazın"),
+                    );
+                    if self.pos == before {
+                        self.bump_any();
+                    }
+                    continue;
+                };
+                self.expect(
+                    Colon,
+                    &lstr!(en: "':' before the field type"; tr: "alan tipinden önce ':'"),
+                    &lstr!(en: "write it as pins : bits<8>"; tr: "pins : bits<8> biçiminde yazın"),
+                );
+                let ty = self.parse_type_or_error();
+                // Tip sonrası nitelik: `reset : bool @self_clearing`.
+                fattrs.extend(self.parse_attributes());
+                fields.push(MmioFieldDecl {
+                    span: self.span_from(fstart),
+                    attrs: fattrs,
+                    name: fname,
+                    ty,
+                });
+                if !self.eat(Comma) && self.pos == before {
+                    self.bump_any(); // ilerleme garantisi
+                }
+            }
+            self.expect_closing(RBrace, "}", open);
+        }
+        MmioRegDecl {
+            span: self.span_from(start),
+            attrs,
+            doc,
+            name,
+            fields,
+        }
     }
 
     pub(crate) fn parse_port(
@@ -654,9 +731,24 @@ impl Parser<'_> {
 
     /// `@DomainName` anotasyonu (port ve `struct port` alanı).
     fn parse_domain_annot(&mut self) -> Option<Name> {
-        if !self.eat(At) {
+        if !self.at(At) {
             return None;
         }
+        // Port sonrasındaki `@reg(...)` / `@mmio(...)` / `@strict_timing`
+        // domain anotasyonu değil, SONRAKİ öğenin niteliğidir (ADR-0044):
+        // anahtar kelime adlı, parantezli ya da tanınan nitelik adı.
+        let is_attribute = match self.peek(1) {
+            Some(KwReg) | Some(KwDomain) => true,
+            Some(Ident) => {
+                matches!(self.peek(2), Some(LParen))
+                    || KNOWN_ATTRIBUTES.contains(&self.text_at(self.pos + 1))
+            }
+            _ => false,
+        };
+        if is_attribute {
+            return None;
+        }
+        self.bump_any(); // '@'
         if self.at(Ident) {
             return Some(self.parse_name());
         }

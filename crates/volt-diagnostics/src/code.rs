@@ -33,7 +33,7 @@ macro_rules! error_codes {
 error_codes! {
     // ─── Sözdizimi (grammar-full.ebnf §18) ───
     E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009, E0010,
-    E0011, E0012, E0013, E0014,
+    E0011, E0012, E0013, E0014, E0015,
 
     // ─── İsim çözümleme (name-resolution.md) ───
     E1001, E1002, E1003, E1004, E1005, E1006, E1007, E1008, E1009, E1010,
@@ -51,7 +51,7 @@ error_codes! {
     E3011, E3012, E3013,
 
     // ─── Bağlantı/sürücü (type-inference.md) ───
-    E4001, E4002, E4003, E4004, E4005,
+    E4001, E4002, E4003, E4004, E4005, E4006,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)

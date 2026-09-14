@@ -112,6 +112,27 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n}",
         ),
 
+        E0015 => Explanation::new(
+            "MMIO register map layout error",
+            "Two '@reg' registers of an '@mmio' module overlap, or a register does not fit the 32-bit word.",
+            "An '@mmio' module is a memory-mapped register block: every '@reg' occupies one 32-bit word at 'base + offset', and the generated address decoder selects exactly one register per address. Two registers at the same offset (or at offsets that are not 4-byte aligned) would both answer the same bus access, so the decoder could not be generated. The same error reports a register whose fields add up to more than 32 bits, a field type other than bool / bits<N> / uN, and a '@reg' outside an '@mmio' module.",
+            "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module Regs {
+    @reg(offset = 0x00, access = ReadWrite)
+    a : { v : bits<8>, @reserved : bits<24> }
+    @reg(offset = 0x00, access = ReadOnly, volatile)   // ✗ E0015: same offset as 'a'
+    b : { v : bits<8>, @reserved : bits<24> }
+}",
+            "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module Regs {
+    @reg(offset = 0x00, access = ReadWrite)
+    a : { v : bits<8>, @reserved : bits<24> }
+    @reg(offset = 0x04, access = ReadOnly, volatile)   // ✓ next word
+    b : { v : bits<8>, @reserved : bits<24> }
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+
         // ─── Name resolution (name-resolution.md) ───
         E1001 => Explanation::new(
             "Undefined name",
@@ -493,6 +514,29 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "struct port Req { out addr : u32, in ready : bool }\nmodule Slave {\n    in req : Req               // req.addr is an INPUT here\n    req.addr = 0               // ✗ E4005\n}",
             "module Slave {\n    in req : Req\n    req.ready = true           // ✓ 'in ready' flips to output\n}",
         ),
+
+        E4006 => Explanation::new(
+            "Bus-owned MMIO register field written from RTL",
+            "A field of a non-volatile '@reg' register is assigned inside the module body.",
+            "In an '@mmio' module every register has exactly one writer. A register without 'volatile' is owned by the bus: software writes it, the generated decoder stores it, and the RTL only reads it ('let en = regs.control.enable'). Assigning such a field from RTL would create a second driver next to the generated write logic. Registers that the hardware updates (status, inputs, counters) are declared 'volatile': the RTL writes them with '<=' and the bus only reads them (a '@w1c' field is the exception — software clears it by writing 1).",
+            "@mmio(base = 0, bus = AXI4Lite)
+module Gpio {
+    in clk : clock
+    in pins_in : u8
+    @reg(offset = 0x08, access = ReadOnly)
+    input : { pins : u8, @reserved : bits<24> }
+    on clk { regs.input.pins <= pins_in }   // ✗ E4006: 'input' is not volatile
+}",
+            "@mmio(base = 0, bus = AXI4Lite)
+module Gpio {
+    in clk : clock
+    in pins_in : u8
+    @reg(offset = 0x08, access = ReadOnly, volatile)
+    input : { pins : u8, @reserved : bits<24> }
+    on clk { regs.input.pins <= pins_in }   // ✓ hardware-owned
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── Behavioral contracts ───
         E5001 => Explanation::new(

@@ -112,6 +112,27 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlamalar değerini korur\n    }\n}",
         ),
 
+        E0015 => Explanation::new(
+            "MMIO register haritası yerleşim hatası",
+            "Bir '@mmio' modülünde iki '@reg' register'ı çakışıyor ya da bir register 32 bitlik sözcüğe sığmıyor.",
+            "'@mmio' modülü bellek eşlemeli bir register bloğudur: her '@reg' 'base + offset' adresinde bir 32 bitlik sözcük kaplar ve üretilen adres çözücü her adres için tam bir register seçer. Aynı offset'teki (ya da 4 bayta hizalı olmayan) iki register aynı bus erişimine birlikte cevap verirdi; çözücü üretilemez. Aynı hata, alanları toplam 32 biti aşan register'ı, bool / bits<N> / uN dışındaki alan tipini ve '@mmio' olmayan modüldeki '@reg' bildirimini de raporlar.",
+            "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module Regs {
+    @reg(offset = 0x00, access = ReadWrite)
+    a : { v : bits<8>, @reserved : bits<24> }
+    @reg(offset = 0x00, access = ReadOnly, volatile)   // ✗ E0015: 'a' ile aynı offset
+    b : { v : bits<8>, @reserved : bits<24> }
+}",
+            "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module Regs {
+    @reg(offset = 0x00, access = ReadWrite)
+    a : { v : bits<8>, @reserved : bits<24> }
+    @reg(offset = 0x04, access = ReadOnly, volatile)   // ✓ sonraki sözcük
+    b : { v : bits<8>, @reserved : bits<24> }
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => Explanation::new(
             "Tanımsız isim",
@@ -493,6 +514,29 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "struct port Req { out addr : u32, in ready : bool }\nmodule Slave {\n    in req : Req               // req.addr burada GİRİŞ\n    req.addr = 0               // ✗ E4005\n}",
             "module Slave {\n    in req : Req\n    req.ready = true           // ✓ 'in ready' çıkışa döner\n}",
         ),
+
+        E4006 => Explanation::new(
+            "Bus'a ait MMIO register alanına RTL'den yazıldı",
+            "'volatile' olmayan bir '@reg' register'ının alanına modül gövdesinde atama yapılıyor.",
+            "'@mmio' modülünde her register'ın tam bir yazarı vardır. 'volatile' olmayan register bus'a aittir: yazılım yazar, üretilen çözücü saklar, RTL yalnız okur ('let en = regs.control.enable'). Böyle bir alana RTL'den atama, üretilen yazma mantığının yanında ikinci bir sürücü yaratır. Donanımın güncellediği register'lar (durum, girişler, sayaçlar) 'volatile' bildirilir: RTL onları '<=' ile yazar, bus yalnız okur ('@w1c' alanı istisnadır — yazılım 1 yazarak temizler).",
+            "@mmio(base = 0, bus = AXI4Lite)
+module Gpio {
+    in clk : clock
+    in pins_in : u8
+    @reg(offset = 0x08, access = ReadOnly)
+    input : { pins : u8, @reserved : bits<24> }
+    on clk { regs.input.pins <= pins_in }   // ✗ E4006: 'input' volatile değil
+}",
+            "@mmio(base = 0, bus = AXI4Lite)
+module Gpio {
+    in clk : clock
+    in pins_in : u8
+    @reg(offset = 0x08, access = ReadOnly, volatile)
+    input : { pins : u8, @reserved : bits<24> }
+    on clk { regs.input.pins <= pins_in }   // ✓ donanıma ait
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── Davranışsal kontratlar ───
         E5001 => Explanation::new(

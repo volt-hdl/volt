@@ -25,6 +25,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0012 => "Geçersiz escape dizisi",
         E0013 => "Kapanmamış blok yorumu",
         E0014 => "match deyiminde '_' kolu eksik",
+        E0015 => "MMIO register haritası yerleşim hatası (ADR-0044)",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",
@@ -86,6 +87,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4003 => "Lineer port çift tüketim [V1]",
         E4004 => "Lineer port tüketilmedi [V1]",
         E4005 => "Bundle alanının yönü ihlal edildi (ADR-0039)",
+        E4006 => "Bus'a ait MMIO register alanına RTL'den yazıldı (ADR-0044)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

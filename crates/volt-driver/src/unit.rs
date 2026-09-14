@@ -303,6 +303,22 @@ fn cyclic_import(
     )
 }
 
+/// Parser'ın ürettiği sentetik kaynakları (ADR-0044 `@mmio`) haritaya
+/// kaydeder. Parser kimlikleri birimdeki dosyaların ardından sırayla
+/// verdiğinden `add_file` aynı kimliği döndürmelidir; döndürmezse
+/// üretilen koda düşen tanılar yanlış metin gösterirdi — bu yüzden
+/// sıra bozulursa panik yerine boş metinle doldurulur.
+pub fn register_generated(map: &mut SourceMap, generated: &[volt_syntax::GeneratedSource]) {
+    for g in generated {
+        while map.len() < g.file.0 as usize {
+            map.add_file("<volt-internal>", String::new());
+        }
+        if map.len() == g.file.0 as usize {
+            map.add_file(&g.name, g.text.clone());
+        }
+    }
+}
+
 /// Ana dosyadan başlayarak birimi yükler. G/Ç hatası (ana dosya ya da
 /// bulunan bir bağımlılık okunamadı) `Err` döner — çıkış kodu 3.
 pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
@@ -328,6 +344,7 @@ pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
         .map(|(fid, _)| (*fid, loader.texts[fid].as_str()))
         .collect();
     let parsed = volt_syntax::parse_unit(&sources);
+    register_generated(&mut loader.map, &parsed.generated);
     Ok(LoadedUnit {
         map: loader.map,
         files: loader.order,

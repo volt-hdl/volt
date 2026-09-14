@@ -601,6 +601,9 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "50_widening_same_sign.volt",
         "51_const_array.volt",
         "52_generic_instantiation.volt",
+        // ADR-0044: @mmio register haritası (desugar → temiz SV).
+        "57_mmio_basic.volt",
+        "58_mmio_access_control.volt",
     ];
 
     let mut clean = 0;

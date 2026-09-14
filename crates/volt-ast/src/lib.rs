@@ -147,6 +147,34 @@ pub struct ModuleDecl {
     pub body: Vec<Idx<Stmt>>,
     /// `} module Counter` sonlandırıcısı varsa.
     pub closing_name: Option<Name>,
+    /// `@reg(...) ad : { alanlar }` register bildirimleri (ADR-0044).
+    /// Yalnız ayrıştırma ara biçimidir: `@mmio` desugar'ı bunları tüketip
+    /// bus adaptörü + adres çözümleme deyimlerine çevirir; alt geçitler
+    /// bu listeyi her zaman BOŞ görür.
+    pub mmio_regs: Vec<MmioRegDecl>,
+}
+
+/// `@reg(offset = 0x00, access = ReadWrite[, volatile]) ad : { ... }`
+/// (ADR-0044). `attrs` içinde `@reg` niteliği (ve varsa diğerleri) taşınır.
+#[derive(Debug)]
+pub struct MmioRegDecl {
+    pub span: Span,
+    pub attrs: Vec<Attribute>,
+    pub doc: Option<String>,
+    pub name: Name,
+    pub fields: Vec<MmioFieldDecl>,
+}
+
+/// Register alanı: `pins : bits<8>`, `reset : bool @self_clearing`,
+/// `@reserved : bits<24>` (adı yok). Öndeki ve tip sonrası nitelikler
+/// tek listede birleşir.
+#[derive(Debug)]
+pub struct MmioFieldDecl {
+    pub span: Span,
+    pub attrs: Vec<Attribute>,
+    /// `@reserved` alanında None.
+    pub name: Option<Name>,
+    pub ty: Idx<TypeRef>,
 }
 
 /// `pipeline(N) Ad { ... }` (ADR-0038). Yalnız ayrıştırma ara

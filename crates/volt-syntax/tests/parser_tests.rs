@@ -1921,7 +1921,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_48_of_48_parse_clean() {
+fn ui_pass_all_50_of_50_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1944,7 +1944,7 @@ fn ui_pass_all_48_of_48_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 48, "ui/pass 48 dosya içermeli");
+    assert_eq!(total, 50, "ui/pass 50 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1959,10 +1959,11 @@ fn ui_pass_all_48_of_48_parse_clean() {
     // ADR-0038 ise 45-46'yı (pipeline sözdizimi),
     // ADR-0039 ise 47-48'i (bundle portları),
     // ADR-0040 ise 49'u (prev() ardışık kontratlar),
-    // ADR-0041 ise 50-52'yi (genişleme, const dizi, generic örnekleme) ekledi.
+    // ADR-0041 ise 50-52'yi (genişleme, const dizi, generic örnekleme),
+    // ADR-0044 ise 57-58'i (@mmio register haritası) ekledi.
     assert_eq!(
-        clean, 48,
-        "48/48 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 50,
+        "50/50 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -1989,6 +1990,9 @@ fn ui_fail_files_produce_expected_codes() {
         // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
         ("33_stage_out_of_range.volt", "E5012"),
         ("34_pipeline_bad_stall.volt", "E5013"),
+        // ADR-0044: @mmio tanıları desugar'da (parse içinde) üretilir.
+        ("44_mmio_write_readonly.volt", "E4006"),
+        ("45_mmio_offset_overlap.volt", "E0015"),
     ];
     for (file, expected) in cases {
         let path = format!(

@@ -102,6 +102,7 @@ impl Parser<'_> {
                 contracts: p.contracts,
                 body: p.body,
                 closing_name: None,
+                mmio_regs: Vec::new(),
             });
         }
         if p.stages.len() as u32 != p.depth {
@@ -328,6 +329,7 @@ impl Parser<'_> {
             contracts: p.contracts,
             body,
             closing_name: None,
+            mmio_regs: Vec::new(),
         })
     }
 

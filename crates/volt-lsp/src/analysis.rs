@@ -36,6 +36,13 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
     let mut map = SourceMap::new();
     let file_id = map.add_file(path.to_string(), text.to_string());
     let parsed = volt_syntax::parse(file_id, text);
+    // ADR-0044: üretilen @mmio kaynakları da haritaya girer ki sentetik
+    // dosyaya düşen bir tanı konum çevrilirken panik etmesin.
+    for g in &parsed.generated {
+        if map.len() == g.file.0 as usize {
+            map.add_file(g.name.clone(), g.text.clone());
+        }
+    }
     let mut diagnostics = parsed.diagnostics;
 
     let mut analysis = Analysis {

@@ -81,6 +81,8 @@ impl<'a> Cloner<'a> {
             contracts,
             body,
             closing_name: None,
+            // @mmio desugar'ı monomorfizasyondan önce koştu; liste boş.
+            mmio_regs: Vec::new(),
         }
     }
 

@@ -10,7 +10,7 @@ env:
 
 jobs:
   test:
-    name: BiÃ§im + Lint + Testler
+    name: Format + Lint + Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,11 +18,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: BiÃ§im denetimi
+      - name: Format check
         run: cargo fmt --all --check
-      - name: Clippy (uyarÄ±lar hata)
+      - name: Clippy (warnings are errors)
         run: cargo clippy --all-targets -- -D warnings
-      - name: Testler
+      - name: Tests
         run: cargo test --all
 
   integration:
@@ -32,50 +32,50 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Verilator kur
+      - name: Install Verilator
         run: sudo apt-get update && sudo apt-get install -y verilator
-      - name: counter.volt derle
+      - name: Compile counter.volt
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
-      # ADR-0024: çıktı adı modül adından türer (build/rtl/Counter.sv), bu
-      # yüzden DECLFILENAME dahil SIFIR uyarı bekleniyor.
-      - name: Verilator lint — SIFIR uyarı bekleniyor
+      # ADR-0024: the output file name derives from the module name
+      # (build/rtl/Counter.sv), so ZERO warnings are expected, DECLFILENAME included.
+      - name: Verilator lint - ZERO warnings expected
         run: verilator --lint-only -Wall build/rtl/Counter.sv
 
   consistency:
-    name: Spec-kod tutarlÄ±lÄ±k
+    name: Spec-code consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
-      - name: TutarlÄ±lÄ±k denetimi
+      - name: Consistency check
         run: just consistency
 
   verify:
-    name: Formal doÄŸrulama (opsiyonel)
+    name: Formal verification
     runs-on: ubuntu-latest
-    # Opsiyonel: harici araÃ§ zinciri (yosys + sby + z3) CI'yÄ± kÄ±rmamalÄ±;
-    # lokal testlerde sby yoksa ilgili testler zaten SKIP eder.
+    # Optional: the external toolchain (yosys + sby + z3) must not break CI;
+    # local tests already SKIP when sby is missing.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: OSS CAD Suite kur (yosys + sby + Ã§Ã¶zÃ¼cÃ¼ler)
+      - name: Install OSS CAD Suite (yosys + sby + solvers)
         uses: YosysHQ/setup-oss-cad-suite@v3
-      - name: KanÄ±tlanabilir invariant â†’ Ã§Ä±kÄ±ÅŸ 0
+      - name: Provable invariant -> exit 0
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
-      - name: Ä°hlal edilen invariant â†’ Ã§Ä±kÄ±ÅŸ 6 + karÅŸÄ± Ã¶rnek
+      - name: Violated invariant -> exit 6 + counterexample
         run: |
           set +e
           cargo run --bin volt -- verify tests/ui/fail/24_violated_invariant.volt
           code=$?
-          echo "volt verify Ã§Ä±kÄ±ÅŸ kodu: $code"
+          echo "volt verify exit code: $code"
           test "$code" -eq 6
 
   coverage:
-    name: Kapsam (bilgi amaÃ§lÄ±)
+    name: Coverage (informational)
     runs-on: ubuntu-latest
-    # Bilgi amaÃ§lÄ±: eÅŸik henÃ¼z yok, baÅŸarÄ±sÄ±zlÄ±k CI'yÄ± kÄ±rmaz.
+    # Informational: no threshold yet, a failure does not break CI.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -85,16 +85,16 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: extractions/setup-just@v2
       - uses: Swatinem/rust-cache@v2
-      - name: Kapsam raporu
+      - name: Coverage report
         run: just coverage
-      - name: HTML raporu yÃ¼kle
+      - name: Upload HTML report
         uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: target/llvm-cov/html/
 
   fuzz:
-    name: Fuzz (5 dk)
+    name: Fuzz (5 min)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -104,7 +104,7 @@ jobs:
           workspaces: |
             .
             fuzz
-      - name: cargo-fuzz kur
+      - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: parse_never_panics (300 s)
         run: cargo +nightly fuzz run parse_never_panics -- -max_total_time=300

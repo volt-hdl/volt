@@ -8,6 +8,7 @@ mod bundle;
 mod desugar;
 mod expr;
 pub(crate) mod item;
+mod mmio;
 pub(crate) mod mono;
 mod pattern;
 mod pipeline;
@@ -26,11 +27,26 @@ use crate::token::{Token, TokenKind};
 pub use mono::monomorphize;
 use recovery::same_kind;
 
-/// Ayrıştırma sonucu: AST + tüm tanılar (lexer + parser).
+/// Ayrıştırma sonucu: AST + tüm tanılar (lexer + parser) + parser'ın
+/// ürettiği sentetik kaynaklar (ADR-0044 `@mmio`).
 #[derive(Debug)]
 pub struct ParseResult {
     pub ast: SourceFile,
     pub diagnostics: Vec<Diagnostic>,
+    /// Desugar'ın ürettiği ve kendi `FileId`'siyle ayrıştırdığı Volt
+    /// metinleri. Sürücü bunları SourceMap'e AYNI kimlikle kaydeder ki
+    /// üretilen koda düşen bir tanı üretilen satırı göstersin.
+    pub generated: Vec<GeneratedSource>,
+}
+
+/// Parser'ın ürettiği sentetik kaynak dosya (ADR-0044).
+#[derive(Debug, Clone)]
+pub struct GeneratedSource {
+    /// Birimdeki dosyaların ardından sırayla atanan kimlik.
+    pub file: FileId,
+    /// Görünen ad (`<mmio:Gpio>`).
+    pub name: String,
+    pub text: String,
 }
 
 impl ParseResult {
@@ -57,20 +73,30 @@ pub fn parse(file: FileId, source: &str) -> ParseResult {
 pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
     let mut ast = SourceFile::default();
     let mut diagnostics = Vec::new();
+    let mut generated = Vec::new();
+    let next_synthetic = files.iter().map(|(f, _)| f.0 + 1).max().unwrap_or(0);
     for (i, &(file, source)) in files.iter().enumerate() {
         let mut parser = Parser::new(file, source);
         parser.ast = std::mem::take(&mut ast);
         parser.parse_items_only();
         if i + 1 == files.len() {
-            // ADR-0039 bundle düzleştirmesi tüm birim üzerinde bir kez.
+            // ADR-0044 @mmio desugar'ı, sonra ADR-0039 bundle
+            // düzleştirmesi — ikisi de tüm birim üzerinde bir kez.
+            parser.next_synthetic = next_synthetic;
+            parser.desugar_mmio();
             parser.flatten_bundles();
         }
         let result = parser.finish();
         ast = result.ast;
         diagnostics.extend(result.diagnostics);
+        generated.extend(result.generated);
     }
     diagnostics.extend(mono::monomorphize(&mut ast));
-    ParseResult { ast, diagnostics }
+    ParseResult {
+        ast,
+        diagnostics,
+        generated,
+    }
 }
 
 /// Tek bir ifadeyi ayrıştırır (öncelik testleri için).
@@ -107,6 +133,11 @@ pub(crate) struct Parser<'s> {
     pub(crate) current_stage: Option<usize>,
     /// Pipeline gövdesi içinde miyiz? (stage(...) yalnız burada geçerli.)
     pub(crate) in_pipeline: bool,
+    /// Bir sonraki sentetik kaynak kimliği (ADR-0044). Tek dosyada
+    /// `file + 1`; birimde en büyük kimlik + 1 (parse_unit ayarlar).
+    pub(crate) next_synthetic: u32,
+    /// Bu ayrıştırmada üretilen sentetik kaynaklar.
+    pub(crate) generated: Vec<GeneratedSource>,
 }
 
 impl<'s> Parser<'s> {
@@ -135,6 +166,8 @@ impl<'s> Parser<'s> {
             stage_refs: pipeline::StageRefMap::new(),
             current_stage: None,
             in_pipeline: false,
+            next_synthetic: file.0 + 1,
+            generated: Vec::new(),
         }
     }
 
@@ -142,6 +175,7 @@ impl<'s> Parser<'s> {
         ParseResult {
             ast: self.ast,
             diagnostics: self.diagnostics,
+            generated: self.generated,
         }
     }
 
@@ -172,6 +206,11 @@ impl<'s> Parser<'s> {
 
     pub(crate) fn text_of(&self, span: Span) -> &'s str {
         &self.source[span.start as usize..span.end as usize]
+    }
+
+    /// `pos + n` konumundaki tokenın metni; dosya sonunda boş.
+    pub(crate) fn text_at(&self, pos: usize) -> &'s str {
+        self.tokens.get(pos).map_or("", |t| self.text_of(t.span))
     }
 
     pub(crate) fn current_text(&self) -> &'s str {

@@ -670,7 +670,9 @@ impl Parser<'_> {
             }
             Some(Dot) => {
                 self.bump_any();
-                let field = if self.at(Ident) {
+                // `reset` anahtar kelimesi alan adı olabilir (ADR-0044
+                // `regs.control.reset`); `on clk.reset` stmt.rs'te ayrılır.
+                let field = if self.at(Ident) || self.at(KwReset) {
                     self.parse_name()
                 } else {
                     self.error_expected(
