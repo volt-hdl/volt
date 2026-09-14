@@ -70,7 +70,21 @@ VOLT_SBY=build/sby-docker.cmd volt verify --mode cover --depth 48 examples/soc/t
 Results after the multi-file rewrite (2026-09-13): Verilator `-Wall`
 clean for all eight modules linted together, no DECLFILENAME; 5/5 tests
 pass; 74 properties (own contracts + the stdlib FIFO's) pass `bmc 12`
-(24.6 s wall including Docker start-up). Build time 0.02–0.09 s for the
+(24.6 s wall including Docker start-up).
+
+After the Handshake rewrite (2026-09-14, ADR-0050): the AXI channels of
+`AxiToReg`, `Timer`, `UartCtrl`, `Axi4LiteSlave` and `SocTop` are
+`Handshake<Payload>` bundles, so every one of them carries automatic
+valid/ready hold + payload-stability contracts — 137 properties pass
+`bmc 12` / `prove 3 --engine boolector` / `cover 48`; 5/5 tests,
+`-Wall` clean. The top-level automatic contracts found a real decoder
+bug: `BusDecoder` accepted a new request while a response was still
+being delivered, so the owner register and the response mux switched
+mid-delivery (valid dropped, data changed). Fixed with a
+`wr_pending`/`rd_pending` gate on both steering and the ready mux, and
+W is now steered only together with AW. `Gpio` (`@mmio`) keeps the
+generated flat AXI names (`aw_addr`), the Handshake peripherals bind
+`aw_data_addr`, ... Build time 0.02–0.09 s for the
 eight files (debug binary, Windows) — process start dominates, the
 compiler itself is well under 10 ms.
 

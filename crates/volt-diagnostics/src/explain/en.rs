@@ -565,6 +565,14 @@ module Gpio {
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── Behavioral contracts ───
+        E4007 => Explanation::new(
+            "Handshake valid depends combinationally on ready",
+            "The producer side of a 'Handshake<T>' port derives 'valid' from 'ready' through a combinational path.",
+            "A valid/ready handshake completes when both signals are high in the same cycle. The protocol (Volt Handshake, AXI A3.3.1) puts the obligation on the producer: it raises 'valid' when it has data and holds it until 'ready' arrives, without looking at 'ready' first. The consumer is free to derive 'ready' from 'valid'. If the producer also waited for 'ready', two such parties would wait for each other forever. The compiler follows continuous assignments, 'let' bindings and 'comb' blocks (conditions included) from 'valid' back to 'ready'; a register ('on clk') breaks the path, so decide 'valid' from registered state instead. Instance outputs are opaque to this check.",
+            "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    tx.valid = tx.ready && have_data    // ✗ E4007: valid waits for ready\n    tx.data  = 0\n}",
+            "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    reg valid_r : bool = false\n    on clk {\n        if tx.fired { valid_r <= false }\n        else if have_data { valid_r <= true }\n    }\n    tx.valid = valid_r                  // ✓ registered decision\n    tx.data  = 0\n}",
+        ),
+
         E5001 => Explanation::new(
             "Contract violated",
             "Formal verification found an execution that breaks a contract of this module.",

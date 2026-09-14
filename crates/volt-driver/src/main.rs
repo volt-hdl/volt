@@ -656,6 +656,9 @@ fn run_semantic_stages(
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
     out.extend(volt_hir::check_timing(&parsed.ast, &resolve));
 
+    // ── Handshake protokolü (ADR-0050): valid, ready'ye bağlı olamaz ──
+    out.extend(volt_hir::check_handshakes(&parsed.ast, &resolve));
+
     // ── Test blokları (ADR-0033) ── Dosyada hiç modül yoksa testler
     // kardeş dosyanın modüllerini kullanıyordur; modül-varlık denetimi
     // atlanır (sim.rs kardeş dosyayla tam denetimi yapar).

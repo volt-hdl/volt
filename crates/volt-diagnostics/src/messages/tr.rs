@@ -89,6 +89,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4004 => "Lineer port tüketilmedi [V1]",
         E4005 => "Bundle alanının yönü ihlal edildi (ADR-0039)",
         E4006 => "Bus'a ait MMIO register alanına RTL'den yazıldı (ADR-0044)",
+        E4007 => "Handshake valid'i ready'ye kombinasyonel bağımlı (ADR-0050)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

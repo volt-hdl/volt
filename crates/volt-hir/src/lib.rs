@@ -10,6 +10,7 @@ pub mod builtin;
 pub mod consteval;
 pub mod domain;
 pub mod drivers;
+pub mod handshake;
 pub mod resolve;
 pub mod sim;
 pub mod timing;
@@ -21,6 +22,7 @@ pub use attrs::{check_attributes, UnenforcedLint, UNENFORCED_ATTRIBUTES};
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
+pub use handshake::check_handshakes;
 pub use resolve::{
     resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
     ScopeId, ScopeKind,
@@ -88,6 +90,10 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     // L1 zamanlama (ADR-0037): yalnız @strict_timing modüllerinde çalışır.
     let timing_diags = timing::check_timing(ast, &resolve);
 
+    // Handshake protokolü (ADR-0050): üretici valid'i ready'ye
+    // kombinasyonel bağlayamaz (E4007).
+    let handshake_diags = handshake::check_handshakes(ast, &resolve);
+
     // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
     // tek dosya API'sinde varsayılan politika uyarıdır.
     let mut diagnostics = attrs::check_attributes(ast, UnenforcedLint::Warn);
@@ -97,6 +103,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     diagnostics.extend(domain.diagnostics.iter().cloned());
     diagnostics.extend(test_diags);
     diagnostics.extend(timing_diags);
+    diagnostics.extend(handshake_diags);
     AnalysisResult {
         resolve,
         typeck,

@@ -11,17 +11,17 @@
 
 package soc::uart;
 
-use axi4lite_slave::{AxiWriteAddr, AxiWriteData, AxiWriteResp, AxiReadAddr, AxiReadData};
+use axi4lite_slave::{AxiAddr, AxiWData, AxiResp, AxiRData};
 use soc::axi::{AxiToReg, AxiReadCtl, RegBus};
 use uart_tx::UartTx;
 
 pub module UartCtrl {
     in  clk : clock
-    in  aw  : AxiWriteAddr
-    in  w   : AxiWriteData
-    in  b   : AxiWriteResp
-    in  ar  : AxiReadAddr
-    in  r   : AxiReadData
+    in  aw  : Handshake<AxiAddr>
+    in  w   : Handshake<AxiWData>
+    out b   : Handshake<AxiResp>
+    in  ar  : Handshake<AxiAddr>
+    out r   : Handshake<AxiRData>
     out tx  : bool
 
     // Pops are never back-to-back (the FIFO data needs a cycle to
@@ -32,19 +32,19 @@ pub module UartCtrl {
 
     let br = AxiToReg {
         clk: clk,
-        aw_addr: aw.addr, aw_prot: aw.prot, aw_valid: aw.valid,
-        w_data: w.data, w_strb: w.strb, w_valid: w.valid,
+        aw_data_addr: aw.data.addr, aw_data_prot: aw.data.prot, aw_valid: aw.valid,
+        w_data_data: w.data.data, w_data_strb: w.data.strb, w_valid: w.valid,
         b_ready: b.ready,
-        ar_addr: ar.addr, ar_prot: ar.prot, ar_valid: ar.valid,
+        ar_data_addr: ar.data.addr, ar_data_prot: ar.data.prot, ar_valid: ar.valid,
         r_ready: r.ready,
     }
-    aw.ready = br.aw_ready
-    w.ready  = br.w_ready
-    b.valid  = br.b_valid
-    b.resp   = br.b_resp
-    ar.ready = br.ar_ready
-    r.valid  = br.r_valid
-    r.resp   = br.r_resp
+    aw.ready    = br.aw_ready
+    w.ready     = br.w_ready
+    b.valid     = br.b_valid
+    b.data.resp = br.b_data_resp
+    ar.ready    = br.ar_ready
+    r.valid     = br.r_valid
+    r.data.resp = br.r_resp
 
     reg pop_r    : bool = false
     reg push_r   : bool = false
@@ -95,6 +95,6 @@ pub module UartCtrl {
         }
     }
 
-    r.data = rdata_r
+    r.data.data = rdata_r
     tx = u.tx
 }

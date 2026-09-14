@@ -1944,7 +1944,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 54, "ui/pass 54 dosya içermeli");
+    assert_eq!(total, 56, "ui/pass 56 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1965,8 +1965,8 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0048 ise 63-64'ü (W0021 uygulanmayan nitelik + @allow),
     // ADR-0049 ise 65'i (AsyncDualPortRam çift saatli bellek) ekledi.
     assert_eq!(
-        clean, 54,
-        "54/54 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 56,
+        "56/56 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

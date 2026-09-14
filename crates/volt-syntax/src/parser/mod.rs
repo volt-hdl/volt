@@ -7,6 +7,7 @@
 mod bundle;
 mod desugar;
 mod expr;
+mod handshake;
 pub(crate) mod item;
 mod mmio;
 pub(crate) mod mono;

@@ -565,6 +565,14 @@ module Gpio {
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── Davranışsal kontratlar ───
+        E4007 => Explanation::new(
+            "Handshake valid'i ready'ye kombinasyonel bağımlı",
+            "Bir 'Handshake<T>' portunun üretici tarafı 'valid'i kombinasyonel bir yolla 'ready'den türetiyor.",
+            "valid/ready el sıkışması iki sinyal de aynı çevrimde yüksekken tamamlanır. Protokol (Volt Handshake, AXI A3.3.1) yükümlülüğü üreticiye verir: verisi olunca 'valid'i yükseltir ve 'ready' gelene dek tutar; önce 'ready'ye bakmaz. Tüketici 'ready'yi 'valid'den türetmekte serbesttir. Üretici de 'ready'yi bekleseydi iki taraf birbirini sonsuza dek beklerdi. Derleyici sürekli atamaları, 'let' bağlarını ve 'comb' bloklarını (koşullar dâhil) 'valid'den 'ready'ye doğru izler; bir register ('on clk') yolu keser — 'valid'i register'lanmış durumdan üretin. Örnek çıkışları bu denetim için opaktır.",
+            "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    tx.valid = tx.ready && have_data    // ✗ E4007: valid, ready'yi bekliyor\n    tx.data  = 0\n}",
+            "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    reg valid_r : bool = false\n    on clk {\n        if tx.fired { valid_r <= false }\n        else if have_data { valid_r <= true }\n    }\n    tx.valid = valid_r                  // ✓ register'lanmış karar\n    tx.data  = 0\n}",
+        ),
+
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",
             "Formal doğrulama, bu modülün bir kontratını bozan bir yürütme buldu.",

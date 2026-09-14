@@ -237,7 +237,7 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain,
     // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced),
     // ADR-0049: 65 domain-aware çift saatli bellek.
-    assert_eq!(checked, 54);
+    assert_eq!(checked, 56);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

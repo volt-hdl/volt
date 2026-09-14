@@ -27,6 +27,7 @@ cikis = ornek.cikis_portu
 | [RoundRobinArbiter](#roundrobinarbiter) | tek | `<N>` | E2025 |
 | [PriorityArbiter](#priorityarbiter) | tek | `<N>` | E2025 |
 | [EdgeDetect](#edgedetect) | tek | — | — |
+| [Handshake](#handshake-tek-saat-bundle) | tek (bundle) | `<T>` | E4007 |
 | [AsyncFifo](#asyncfifo-cdc) | çift (CDC) | `<T, DEPTH>` | E2025 |
 | [HandshakeSync](#handshakesync-cdc) | çift (CDC) | `<T>` | — |
 | [PulseSync](#pulsesync-cdc) | çift (CDC) | — | W3005 |
@@ -294,6 +295,94 @@ pressed = ed.rising
 
 ---
 
+## Handshake (tek saat, bundle)
+
+```volt
+in  rx : Handshake<T>     // tüketici: data/valid giriş, ready çıkış
+out tx : Handshake<T>     // üretici:  data/valid çıkış, ready giriş
+```
+
+Tek saat alanında valid/ready el sıkışması (ADR-0050). Diğer
+primitiflerden farklı olarak örneklenen bir modül DEĞİL, yerleşik bir
+`struct port` bundle'ıdır (ADR-0039): port tipi olarak yazılır, parser
+düz portlara açar.
+
+| Alan | Yön (`out tx`) | Tip | Açıklama |
+|---|---|---|---|
+| `data` | out | `T` | Taşınan veri; `T` sade bir `struct` ise alanları `tx_data_<alan>` düz portlarına açılır (`tx.data.addr`) |
+| `valid` | out | bool | Üretici verisi hazır; `ready` gelene dek yüksek kalır |
+| `ready` | in | bool | Tüketici bu çevrimde alabilir |
+| `fired` | (sanal) | bool | `valid && ready` — transfer bu çevrimde gerçekleşti |
+| `stalled` | (sanal) | bool | `valid && !ready` — üretici bekliyor |
+
+`in rx : Handshake<T>` her alanın yönünü tersler. Üretilen SV düzdür:
+`tx_data`, `tx_valid`, `tx_ready` (struct payload: `tx_data_addr`, ...).
+Kullanıcı aynı adla `struct port Handshake` tanımlarsa kullanıcı tanımı
+kazanır.
+
+**Kontratlar** (`volt verify`, OTOMATİK — her Handshake portu için):
+
+| Kural | `out` (üretici) | `in` (tüketici) |
+|---|---|---|
+| `prev(valid) && !prev(ready) -> valid` | invariant | assume |
+| `prev(valid) && !prev(ready) -> data == prev(data)` (düz veri alanı başına) | invariant | assume |
+
+Tüketici tarafta `assume`: modül kendi girişini kanıtlayamaz, ortamdan
+bekler (ADR-0040 ile aynı gerekçe). Dizi/tuple payload için veri kuralı
+üretilmez. Kapatmak için `@no_protocol_check` (port ya da modül
+düzeyi) — protokolü bilerek konuşmayan bir izleme çıkışı gibi.
+
+**E4007:** üretici tarafta `valid`, `ready`'ye kombinasyonel bağımlı
+olamaz (sürekli atama, `let`, `comb` bloğu üzerinden izlenir; `on`
+bloğu yolu keser). Tüketici `ready`yi `valid`den türetebilir.
+
+```volt
+module Producer {
+    in  clk : clock
+    out tx  : Handshake<u8>
+    reg valid_r : bool = false
+    on clk {
+        if tx.fired { valid_r <= false } else { valid_r <= true }
+    }
+    tx.data  = 42
+    tx.valid = valid_r
+}
+module Consumer {
+    in  clk : clock
+    in  rx  : Handshake<u8>
+    reg acc : u8 = 0
+    on clk { if rx.fired { acc <= acc + rx.data } }
+    rx.ready = true
+}
+```
+
+**Ne zaman kullanılmalı:** aynı saat alanında iki modül arasında geri
+basınçlı veri aktarımı; AXI4-Lite/AXI-Stream benzeri kanallar
+(`examples/axi4lite_slave.volt`: beş kanal = beş `Handshake<Payload>`).
+
+**Ne zaman kullanılmamalı:** iki taraf FARKLI saatteyse — `Handshake<T>`
+senkronizasyon içermez, alan denetimi bağlamayı E3001 ile reddeder.
+Alanlar arası tek transfer için `HandshakeSync<T>`, akış için
+`AsyncFifo`.
+
+## Handshake mı, HandshakeSync mı?
+
+| | `Handshake<T>` | `HandshakeSync<T>` |
+|---|---|---|
+| Ne | Port tipi (bundle) | Örneklenen modül |
+| Saat | tek alan | iki alan (`src_clk` → `dst_clk`) |
+| Protokol | valid/ready, her çevrim transfer olabilir | 4 fazlı req/ack, transfer başına birkaç çevrim (iki yönde 2-flop) |
+| Geri basınç | `ready` | `busy` |
+| Kontrat | otomatik tutma + veri kararlılığı (invariant/assume) | req yüksekken veri kararlılığı, transfer cover'ı |
+| Kullan | modüller arası kanal, bus arayüzü | seyrek, tek seferlik CDC transferi |
+
+Karar kuralı: **aynı saatteyse `Handshake<T>`, değilse
+`HandshakeSync<T>`** (akış için `AsyncFifo`). Farklı saatte `Handshake`
+kullanmak mümkün değildir: derleyici karşı alandan bağlanan her alanı
+reddeder (E3001/E3013).
+
+---
+
 ## CDC primitifleri (ADR-0027)
 
 ### AsyncFifo (CDC)
@@ -322,7 +411,9 @@ stabil tutulur. Portlar: `src_clk`, `data_in`, `send`, `busy`;
 `dst_clk`, `data_out`, `valid`. Kontrat: req yüksekken veri stabilite
 invariant'ı; transfer cover'ı.
 
-**Kullanım:** seyrek, tek seferlik alanlar arası transferler.
+**Kullanım:** seyrek, tek seferlik alanlar arası transferler. Aynı
+saat alanı içinde valid/ready kanalı için `Handshake<T>` bundle'ı
+(bkz. [Handshake mı, HandshakeSync mı?](#handshake-mı-handshakesync-mı)).
 
 ### PulseSync (CDC)
 
@@ -429,5 +520,6 @@ değildir: derleyici her yanlış alanlı bağlamayı reddeder.
 |---|---|
 | Sıralı akış (stream) | `AsyncFifo<T, N>` |
 | Tek transfer | `HandshakeSync<T>` |
+| (aynı saat — CDC değil) | `Handshake<T>` bundle'ı |
 | Sayaç | gray kodlama (`AsyncFifo` içinde hazır) |
 | Rastgele erişim | `AsyncDualPortRam<T, N>` |

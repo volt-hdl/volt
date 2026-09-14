@@ -89,8 +89,27 @@ pub module BusDecoder {
     reg bad_bvalid_r : bool = false
     reg bad_rvalid_r : bool = false
 
-    let bad_wr_fire : bool = host.aw_valid && host.w_valid && aw_bad && !bad_bvalid_r
-    let bad_rd_fire : bool = host.ar_valid && ar_bad && !bad_rvalid_r
+    // A response still being delivered pins the owner: no new request is
+    // steered (or accepted) until the master has taken it. Without this
+    // gate a second request aimed at another peripheral would switch the
+    // response mux mid-delivery — SocTop's automatic Handshake contracts
+    // (b/r held until ready, payload stable while stalled, ADR-0050)
+    // caught exactly that.
+    let wr_pending : bool = if wsel_r == 0 { gpio.b_valid }
+                            else if wsel_r == 1 { timer.b_valid }
+                            else if wsel_r == 2 { uart.b_valid }
+                            else if wsel_r == 3 { sys.b_valid }
+                            else { bad_bvalid_r }
+    let rd_pending : bool = if rsel_r == 0 { gpio.r_valid }
+                            else if rsel_r == 1 { timer.r_valid }
+                            else if rsel_r == 2 { uart.r_valid }
+                            else if rsel_r == 3 { sys.r_valid }
+                            else { bad_rvalid_r }
+    let wr_open : bool = host.aw_valid && !wr_pending
+    let rd_open : bool = host.ar_valid && !rd_pending
+
+    let bad_wr_fire : bool = wr_open && host.w_valid && aw_bad && !bad_bvalid_r
+    let bad_rd_fire : bool = rd_open && ar_bad && !bad_rvalid_r
 
     on clk {
         if host.aw_valid && host.aw_ready {
@@ -116,43 +135,49 @@ pub module BusDecoder {
     off_aw_addr = aw_addr & 0xFF
     off_ar_addr = ar_addr & 0xFF
 
-    // Request steering (combinational).
-    gpio.aw_valid  = host.aw_valid && aw_page == 0
-    timer.aw_valid = host.aw_valid && aw_page == 1
-    uart.aw_valid  = host.aw_valid && aw_page == 2
-    sys.aw_valid   = host.aw_valid && aw_page == 3
-    gpio.w_valid   = host.w_valid && aw_page == 0
-    timer.w_valid  = host.w_valid && aw_page == 1
-    uart.w_valid   = host.w_valid && aw_page == 2
-    sys.w_valid    = host.w_valid && aw_page == 3
-    gpio.ar_valid  = host.ar_valid && ar_page == 0
-    timer.ar_valid = host.ar_valid && ar_page == 1
-    uart.ar_valid  = host.ar_valid && ar_page == 2
-    sys.ar_valid   = host.ar_valid && ar_page == 3
+    // Request steering (combinational), held back while a response is
+    // pending. W is steered only together with AW (AXI4-Lite lets the
+    // master present W first; steering it alone would raise a
+    // peripheral's w_valid and drop it again when AW picks another page,
+    // breaking the hold rule the peripherals assume on their w input).
+    gpio.aw_valid  = wr_open && aw_page == 0
+    timer.aw_valid = wr_open && aw_page == 1
+    uart.aw_valid  = wr_open && aw_page == 2
+    sys.aw_valid   = wr_open && aw_page == 3
+    gpio.w_valid   = wr_open && host.w_valid && aw_page == 0
+    timer.w_valid  = wr_open && host.w_valid && aw_page == 1
+    uart.w_valid   = wr_open && host.w_valid && aw_page == 2
+    sys.w_valid    = wr_open && host.w_valid && aw_page == 3
+    gpio.ar_valid  = rd_open && ar_page == 0
+    timer.ar_valid = rd_open && ar_page == 1
+    uart.ar_valid  = rd_open && ar_page == 2
+    sys.ar_valid   = rd_open && ar_page == 3
 
-    host.aw_ready = (aw_page == 0 && gpio.aw_ready)
-                  || (aw_page == 1 && timer.aw_ready)
-                  || (aw_page == 2 && uart.aw_ready)
-                  || (aw_page == 3 && sys.aw_ready)
-                  || bad_wr_fire
-    host.w_ready  = (aw_page == 0 && gpio.w_ready)
-                  || (aw_page == 1 && timer.w_ready)
-                  || (aw_page == 2 && uart.w_ready)
-                  || (aw_page == 3 && sys.w_ready)
-                  || bad_wr_fire
-    host.ar_ready = (ar_page == 0 && gpio.ar_ready)
-                  || (ar_page == 1 && timer.ar_ready)
-                  || (ar_page == 2 && uart.ar_ready)
-                  || (ar_page == 3 && sys.ar_ready)
-                  || bad_rd_fire
+    // The ready mux is gated as well: standing alone, a peripheral's
+    // ready is a free input, and the owner must not change while a
+    // response is pending.
+    host.aw_ready = !wr_pending
+                  && ((aw_page == 0 && gpio.aw_ready)
+                   || (aw_page == 1 && timer.aw_ready)
+                   || (aw_page == 2 && uart.aw_ready)
+                   || (aw_page == 3 && sys.aw_ready)
+                   || bad_wr_fire)
+    host.w_ready  = !wr_pending
+                  && ((aw_page == 0 && gpio.w_ready)
+                   || (aw_page == 1 && timer.w_ready)
+                   || (aw_page == 2 && uart.w_ready)
+                   || (aw_page == 3 && sys.w_ready)
+                   || bad_wr_fire)
+    host.ar_ready = !rd_pending
+                  && ((ar_page == 0 && gpio.ar_ready)
+                   || (ar_page == 1 && timer.ar_ready)
+                   || (ar_page == 2 && uart.ar_ready)
+                   || (ar_page == 3 && sys.ar_ready)
+                   || bad_rd_fire)
 
     // Response steering follows the registered owner. (`match` as an
     // expression parses but is E0003 in SV generation, hence if-chains.)
-    host.b_valid = if wsel_r == 0 { gpio.b_valid }
-                   else if wsel_r == 1 { timer.b_valid }
-                   else if wsel_r == 2 { uart.b_valid }
-                   else if wsel_r == 3 { sys.b_valid }
-                   else { bad_bvalid_r }
+    host.b_valid = wr_pending
     host.b_resp  = if wsel_r == 0 { gpio.b_resp }
                    else if wsel_r == 1 { timer.b_resp }
                    else if wsel_r == 2 { uart.b_resp }
@@ -163,11 +188,7 @@ pub module BusDecoder {
     uart.b_ready  = host.b_ready && wsel_r == 2
     sys.b_ready   = host.b_ready && wsel_r == 3
 
-    host.r_valid = if rsel_r == 0 { gpio.r_valid }
-                   else if rsel_r == 1 { timer.r_valid }
-                   else if rsel_r == 2 { uart.r_valid }
-                   else if rsel_r == 3 { sys.r_valid }
-                   else { bad_rvalid_r }
+    host.r_valid = rd_pending
     host.r_resp  = if rsel_r == 0 { gpio.r_resp }
                    else if rsel_r == 1 { timer.r_resp }
                    else if rsel_r == 2 { uart.r_resp }

@@ -45,6 +45,9 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     "w1c",
     // ADR-0048: `@allow(unenforced)` — W0021 susturma; yorumu volt-hir/attrs.rs.
     "allow",
+    // ADR-0050: Handshake<T> otomatik protokol kontratlarını kapatır
+    // (port ya da modül düzeyi); yorumu parser/bundle.rs + handshake.rs.
+    "no_protocol_check",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.

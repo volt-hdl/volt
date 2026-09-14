@@ -278,3 +278,163 @@ fn undriven_flattened_output_is_e4002() {
         result.error_codes()
     );
 }
+
+// ═══ Yerleşik Handshake<T> (ADR-0050) ═════════════════════════════
+
+#[test]
+fn ui_pass_66_handshake_basic_clean() {
+    let (_, result) = analyze_file("pass/66_handshake_basic.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_67_handshake_contracts_clean() {
+    let (_, result) = analyze_file("pass/67_handshake_contracts.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_52_handshake_protocol_violation_e4007() {
+    assert_ui_fail("fail/52_handshake_protocol_violation.volt");
+}
+
+/// Yalnız hatalar (uyarılar — kullanılmayan clk gibi — dışarıda).
+fn errors(result: &volt_hir::AnalysisResult) -> Vec<&str> {
+    result
+        .error_codes()
+        .into_iter()
+        .filter(|c| c.starts_with('E'))
+        .collect()
+}
+
+const PRODUCER_HEAD: &str = "module P {\n    in  clk : clock\n    in  have : bool\n    out tx : Handshake<u8>\n    tx.data = 0\n";
+
+#[test]
+fn e4007_direct_valid_from_ready() {
+    let result = analyze_src(&format!(
+        "{PRODUCER_HEAD}    tx.valid = tx.ready && have\n}}"
+    ));
+    assert_eq!(errors(&result), vec!["E4007"]);
+}
+
+#[test]
+fn e4007_through_let_chain() {
+    let src = format!(
+        "{PRODUCER_HEAD}    let a : bool = tx.ready\n    let b : bool = a && have\n    tx.valid = b\n}}"
+    );
+    let result = analyze_src(&src);
+    assert_eq!(errors(&result), vec!["E4007"]);
+}
+
+#[test]
+fn e4007_through_comb_block_condition() {
+    let src = format!(
+        "{PRODUCER_HEAD}    comb {{\n        if tx.ready {{ tx.valid = have }} else {{ tx.valid = false }}\n    }}\n}}"
+    );
+    let result = analyze_src(&src);
+    assert_eq!(errors(&result), vec!["E4007"]);
+}
+
+#[test]
+fn e4007_not_raised_when_valid_is_registered() {
+    let src = format!(
+        "{PRODUCER_HEAD}    reg valid_r : bool = false\n    on clk {{\n        if tx.fired {{ valid_r <= false }} else if have {{ valid_r <= true }}\n    }}\n    tx.valid = valid_r\n}}"
+    );
+    let result = analyze_src(&src);
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn e4007_not_raised_for_consumer_ready_from_valid() {
+    let src = "module C {\n    in  clk : clock\n    in  rx : Handshake<u8>\n    out d : u8\n    rx.ready = rx.valid\n    d = rx.data\n}";
+    let result = analyze_src(src);
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn e4007_has_five_parts_and_names_the_path() {
+    let src = format!("{PRODUCER_HEAD}    let go : bool = have && tx.ready\n    tx.valid = go\n}}");
+    let result = analyze_src(&src);
+    let d = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E4007")
+        .expect("E4007");
+    assert!(d.message.contains("'tx'"), "{}", d.message);
+    assert!(d.help.as_deref().is_some_and(|h| h.contains("valid_r")));
+    assert!(
+        d.spans.len() >= 3,
+        "primary + ready okuması + port: {:?}",
+        d.spans.len()
+    );
+    assert!(
+        d.notes
+            .iter()
+            .any(|n| n.text.contains("tx.valid <- go <- tx_ready")),
+        "{:?}",
+        d.notes
+    );
+}
+
+#[test]
+fn auto_contracts_use_prev_without_e5017() {
+    // Sentezlenen kontratlar kontrat bağlamında çözümlenir: prev() serbest.
+    let src = format!(
+        "{PRODUCER_HEAD}    reg v : bool = false\n    on clk {{ v <= have }}\n    tx.valid = v\n}}"
+    );
+    let result = analyze_src(&src);
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert!(!result.error_codes().contains(&"E5017"));
+}
+
+#[test]
+fn auto_contracts_count_as_reads_of_ready() {
+    // Üretici ready'yi hiç okumasa da otomatik kontrat okur: W1001 yok.
+    let src = format!("{PRODUCER_HEAD}    tx.valid = have\n}}");
+    let result = analyze_src(&src);
+    let unused_ready = |r: &volt_hir::AnalysisResult| {
+        r.diagnostics
+            .iter()
+            .any(|d| d.code.as_str() == "W1001" && d.message.contains("tx_ready"))
+    };
+    assert!(!unused_ready(&result), "{:?}", result.error_codes());
+    // @no_protocol_check ile kontrat yok: tx_ready gerçekten okunmuyor.
+    let src = "module P {\n    in  clk : clock\n    in  have : bool\n    @no_protocol_check\n    out tx : Handshake<u8>\n    tx.data = 0\n    tx.valid = have\n}";
+    let result = analyze_src(src);
+    assert!(unused_ready(&result), "{:?}", result.error_codes());
+}
+
+#[test]
+fn consumer_driving_valid_is_e4005() {
+    let src = "module C {\n    in  clk : clock\n    in  rx : Handshake<u8>\n    rx.valid = true\n    rx.ready = true\n}";
+    let result = analyze_src(src);
+    assert!(
+        result.error_codes().contains(&"E4005"),
+        "{:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn struct_payload_fields_type_check() {
+    let src = "struct Req { addr : u32, prot : u3 }\nmodule C {\n    in  clk : clock\n    in  req : Handshake<Req>\n    out a : u32\n    req.ready = req.data.prot == 0\n    a = req.data.addr\n}";
+    let result = analyze_src(src);
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn no_protocol_check_attribute_is_enforced_no_w0021() {
+    let src = "@no_protocol_check\nmodule P {\n    in  clk : clock\n    out tx : Handshake<u8>\n    tx.data = 0\n    tx.valid = tx.ready\n}";
+    let result = analyze_src(src);
+    // Nitelik uygulanıyor (W0021 yok) ama E4007 kapanmaz: yapısal kural.
+    assert!(
+        !result.error_codes().contains(&"W0021"),
+        "{:?}",
+        result.error_codes()
+    );
+    assert!(
+        result.error_codes().contains(&"E4007"),
+        "{:?}",
+        result.error_codes()
+    );
+}

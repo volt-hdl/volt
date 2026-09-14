@@ -5,6 +5,37 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — `Handshake<T>` yerleşik el sıkışma bundle'ı (2026-09-14, ADR-0050)
+
+- **Tek saatli valid/ready artık bir port tipi**: `out tx : Handshake<u8>`
+  (üretici) / `in rx : Handshake<u8>` (tüketici, yönler terslenir);
+  ADR-0039 düzleştirmesiyle `tx_data`/`tx_valid`/`tx_ready` düz
+  portları, sade struct payload alan alan (`aw_data_addr`). Sanal
+  alanlar `tx.fired` (`valid && ready`) ve `tx.stalled`
+  (`valid && !ready`) ifadeye yazılır — Seçenek B (bundle üzerinde alan),
+  yerleşik fonksiyona (Seçenek A) tercih edildi: sıfır yeni kavram.
+- **Protokol kontratları otomatik**: her Handshake portu için "valid,
+  ready gelene dek düşmez" ve "veri el sıkışma tamamlanana dek sabit"
+  (düz veri alanı başına) — üreticide `invariant`, tüketicide `assume`.
+  `@no_protocol_check` (port ya da modül) kapatır.
+- **E4007**: üretici tarafta `valid`, `ready`'ye kombinasyonel bağımlı
+  olamaz (kilitlenme); sürekli atama/`let`/`comb` yolu izlenir, `on`
+  bloğu keser. `volt explain E4007` iki dilde.
+- `examples/axi4lite_slave.volt` 163 → 131 satır: beş `struct port` (34
+  satır) → dört payload struct (4 satır), beş elle yazılmış tutma
+  kuralı → 14 otomatik kural; 25 özellik `prove 3 --engine boolector` /
+  `bmc 12` / `cover 12` ile kanıtlı, 5/5 sim testi, Verilator `-Wall`
+  temiz.
+- SoC: AXI kanalları Handshake'e geçti; `SocTop`'ın otomatik `b`/`r`
+  kontratları `BusDecoder`'da gerçek bir hata buldu (yanıt teslim
+  edilirken başka periferiğe istek kabul edilip yanıt muxu sahibini
+  değiştiriyordu) — `wr_pending`/`rd_pending` kapısıyla düzeltildi.
+  `AxiToReg`'in 7 protokol satırı 3'e indi. Gpio (`@mmio`) düz AXI
+  adlarını korur (ayrı ADR).
+- `tests/ui/pass/66_handshake_basic`, `67_handshake_contracts`,
+  `fail/52_handshake_protocol_violation` (E4007); docs/stdlib.md
+  "Handshake" bölümü + "Handshake mı, HandshakeSync mı?" tablosu.
+
 ### Eklendi — domain-aware bellek: `AsyncDualPortRam<T, DEPTH>` (2026-09-14, ADR-0049)
 
 - **"Bir alanda yaz, ötekinde oku" belleği artık tek primitif**: yazma

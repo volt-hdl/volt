@@ -129,3 +129,97 @@ fn ui_pass_48_emits_six_flat_ports() {
         .count();
     assert_eq!(ports, 6, "{out}");
 }
+
+// ═══ Yerleşik Handshake<T> (ADR-0050) ═════════════════════════════
+
+const PRODUCER: &str = "module P {\n    in  clk : clock\n    out tx : Handshake<u8>\n    reg v : bool = false\n    on clk { if tx.fired { v <= false } else { v <= true } }\n    tx.data = 7\n    tx.valid = v\n}\n";
+
+#[test]
+fn builtin_handshake_ports_are_flat() {
+    let out = sv(PRODUCER);
+    assert!(port_line(&out, "tx_data")
+        .trim_start()
+        .starts_with("output"));
+    assert!(port_line(&out, "tx_valid")
+        .trim_start()
+        .starts_with("output"));
+    assert!(port_line(&out, "tx_ready")
+        .trim_start()
+        .starts_with("input"));
+    assert!(!out.contains("interface"), "{out}");
+}
+
+#[test]
+fn builtin_handshake_struct_payload_ports_are_flat_and_typed() {
+    let src = "struct Req { addr : u32, prot : u3 }\nmodule C {\n    in  clk : clock\n    in  req : Handshake<Req>\n    out a : u32\n    req.ready = req.data.prot == 0\n    a = req.data.addr\n}\n";
+    let out = sv(src);
+    let addr = port_line(&out, "req_data_addr");
+    assert!(addr.contains("input") && addr.contains("[31:0]"), "{addr}");
+    let prot = port_line(&out, "req_data_prot");
+    assert!(prot.contains("[2:0]"), "{prot}");
+    assert!(port_line(&out, "req_ready")
+        .trim_start()
+        .starts_with("output"));
+}
+
+#[test]
+fn builtin_handshake_fired_emits_valid_and_ready() {
+    let out = sv(PRODUCER);
+    assert!(out.contains("tx_valid && tx_ready"), "{out}");
+}
+
+#[test]
+fn builtin_handshake_auto_contracts_reach_immediate_sva() {
+    let parsed = volt_syntax::parser::parse(FileId(0), PRODUCER);
+    assert!(parsed.diagnostics.is_empty());
+    let out = volt_sv_emit::emit_full(
+        &parsed.ast,
+        "test.volt",
+        PRODUCER,
+        volt_sv_emit::SvaMode::Immediate,
+    );
+    assert!(
+        !out.diagnostics
+            .iter()
+            .any(|d| d.code.as_str().starts_with('E')),
+        "{:?}",
+        out.diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+    let sv = out.sv;
+    // valid, ready gelene dek düşmez; veri sabit — geçmiş register zinciri.
+    assert!(sv.contains("past_tx_valid_1"), "{sv}");
+    assert!(sv.contains("past_tx_ready_1"), "{sv}");
+    assert!(
+        sv.contains("assert (!(past_tx_valid_1 && !past_tx_ready_1) || tx_valid)"),
+        "{sv}"
+    );
+    assert!(sv.contains("tx_data == past_tx_data_1"), "{sv}");
+}
+
+#[test]
+fn builtin_handshake_consumer_contracts_are_assumptions() {
+    let src = "module C {\n    in  clk : clock\n    in  rx : Handshake<u8>\n    out d : u8\n    rx.ready = true\n    d = rx.data\n}\n";
+    let parsed = volt_syntax::parser::parse(FileId(0), src);
+    let out = volt_sv_emit::emit_full(
+        &parsed.ast,
+        "test.volt",
+        src,
+        volt_sv_emit::SvaMode::Immediate,
+    );
+    assert!(
+        out.sv
+            .contains("assume (!(past_rx_valid_1 && !past_rx_ready_1) || rx_valid)"),
+        "{}",
+        out.sv
+    );
+    assert!(!out.sv.contains("assert (!(past_rx_valid_1"), "{}", out.sv);
+}
+
+#[test]
+fn builtin_handshake_rtl_output_has_no_past_registers() {
+    let out = sv(PRODUCER);
+    assert!(!out.contains("past_"), "{out}");
+}

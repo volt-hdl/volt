@@ -89,6 +89,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4004 => "Linear port never consumed [V1]",
         E4005 => "Bundle field direction violated (ADR-0039)",
         E4006 => "Bus-owned MMIO register field written from RTL (ADR-0044)",
+        E4007 => "Handshake valid depends combinationally on ready (ADR-0050)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",

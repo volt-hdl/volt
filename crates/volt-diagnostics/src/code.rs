@@ -51,7 +51,7 @@ error_codes! {
     E3011, E3012, E3013, E3014,
 
     // ─── Bağlantı/sürücü (type-inference.md) ───
-    E4001, E4002, E4003, E4004, E4005, E4006,
+    E4001, E4002, E4003, E4004, E4005, E4006, E4007,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)
