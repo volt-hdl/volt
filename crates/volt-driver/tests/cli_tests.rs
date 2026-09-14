@@ -1718,3 +1718,119 @@ fn build_soc_example_from_six_files_reuses_uart_and_axi() {
     assert!(uart.contains("// Source:  uart_tx.volt"), "{uart}");
     let _ = std::fs::remove_dir_all(&target);
 }
+
+// ═══ W0021: uygulanmayan nitelik (ADR-0048) ══════════════════════
+
+#[test]
+fn check_unenforced_attribute_warns_w0021_exit_0() {
+    let output = volt()
+        .arg("check")
+        .arg(ui("pass/63_unenforced_attribute_warns.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.contains("warning[W0021]"), "stderr: {stderr}");
+    assert!(stderr.contains("@timing"), "stderr: {stderr}");
+    assert!(stderr.contains("= reason:"), "stderr: {stderr}");
+    assert!(stderr.contains("SDC"), "stderr: {stderr}");
+    assert!(stderr.contains("= help:"), "stderr: {stderr}");
+    assert!(stderr.contains("explain W0021"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("0 error(s), 1 warning(s)"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_allow_unenforced_silences_w0021() {
+    let output = volt()
+        .arg("check")
+        .arg(ui("pass/64_allow_unenforced_silences.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains("warning["), "stderr: {stderr}");
+    assert!(
+        stderr.contains("0 error(s), 0 warning(s)"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn volt_toml_lint_unenforced_allow_silences_w0021() {
+    // Volt.toml, DOSYANIN dizininden yukarı aranır (paket manifesti).
+    let dir = temp_dir("lint-allow");
+    std::fs::write(
+        dir.join("Volt.toml"),
+        "[package]\nname = \"p\"\n\n[lint]\nunenforced_attributes = \"allow\"\n",
+    )
+    .expect("Volt.toml");
+    let src = std::fs::read_to_string(ui("pass/63_unenforced_attribute_warns.volt")).unwrap();
+    std::fs::write(dir.join("t.volt"), src).expect("t.volt");
+    let output = volt()
+        .arg("check")
+        .arg(dir.join("t.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains("W0021"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn volt_toml_lint_unenforced_warn_keeps_w0021() {
+    let dir = temp_dir("lint-warn");
+    std::fs::write(
+        dir.join("Volt.toml"),
+        "[lint]\nunenforced_attributes = \"warn\"\n",
+    )
+    .expect("Volt.toml");
+    let src = std::fs::read_to_string(ui("pass/63_unenforced_attribute_warns.volt")).unwrap();
+    std::fs::write(dir.join("t.volt"), src).expect("t.volt");
+    let output = volt()
+        .arg("check")
+        .arg(dir.join("t.volt"))
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.contains("warning[W0021]"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn explain_w0021_en_describes_unenforced_attribute() {
+    let output = volt()
+        .args(["explain", "W0021"])
+        .env_remove("VOLT_LANG")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("W0021: "), "{stdout}");
+    assert!(stdout.contains("not yet enforced"), "{stdout}");
+    assert!(stdout.contains("@allow(unenforced)"), "{stdout}");
+    assert!(stdout.contains("unenforced_attributes"), "{stdout}");
+}
+
+#[test]
+fn explain_w0021_tr_describes_unenforced_attribute() {
+    let output = volt()
+        .args(["explain", "W0021"])
+        .env("VOLT_LANG", "tr")
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("W0021: "), "{stdout}");
+    assert!(stdout.contains("uygulanmıyor"), "{stdout}");
+    assert!(stdout.contains("@allow(unenforced)"), "{stdout}");
+    assert!(stdout.contains("NEDEN SORUN"), "{stdout}");
+}

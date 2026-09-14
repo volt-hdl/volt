@@ -5,6 +5,7 @@
 //! tip kontrolü (type-inference.md §1-§6) ve sürücü analizi (§11).
 //! F2c: domain çıkarımı ve CDC kontrolü (domain-inference.md K1-K9).
 
+pub mod attrs;
 pub mod builtin;
 pub mod consteval;
 pub mod domain;
@@ -16,6 +17,7 @@ pub mod ty;
 pub mod typeck;
 pub mod unit;
 
+pub use attrs::{check_attributes, UnenforcedLint, UNENFORCED_ATTRIBUTES};
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
@@ -86,7 +88,10 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     // L1 zamanlama (ADR-0037): yalnız @strict_timing modüllerinde çalışır.
     let timing_diags = timing::check_timing(ast, &resolve);
 
-    let mut diagnostics = resolve.diagnostics.clone();
+    // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
+    // tek dosya API'sinde varsayılan politika uyarıdır.
+    let mut diagnostics = attrs::check_attributes(ast, UnenforcedLint::Warn);
+    diagnostics.extend(resolve.diagnostics.iter().cloned());
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
     diagnostics.extend(domain.diagnostics.iter().cloned());

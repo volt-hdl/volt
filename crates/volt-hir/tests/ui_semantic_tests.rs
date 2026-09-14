@@ -234,8 +234,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     }
     // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle, ADR-0040: 49 prev,
     // ADR-0041: 50-52 genişleme/const dizi/generic örnekleme fixture'ları,
-    // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain.
-    assert_eq!(checked, 51);
+    // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain,
+    // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced).
+    assert_eq!(checked, 53);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

@@ -5,6 +5,32 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — uygulanmayan nitelikler artık uyarıyor: W0021 (2026-09-14, ADR-0048)
+
+- **"Sessizce yok sayma" ihlali kapandı**: `@timing`, `@budget`,
+  `@false_path`, `@multicycle`, `@version`, `@abi_version`, `@dft`,
+  `@debug_visible`, `@debug_trace`, `@synthesis_target` ve `@domain`
+  gramerde olduğu için W0020 üretmiyor ama hiçbir geçit okumuyordu
+  (SDC yok, bütçe denetimi yok). Kullanıcı kısıt yazdığını sanıyordu.
+  Artık her kullanım **W0021** üretir: `= reason:` nitelik ailesine
+  göre neyin eksik olduğunu, `= help:` bu arada ne yapılacağını söyler.
+- **Susturma**: aynı öğede `@allow(unenforced)` (öğenin portları ve
+  gövdesi dâhil) ya da Volt.toml `[lint] unenforced_attributes =
+  "allow"` (paket geneli). Hatalı `@allow` argümanı **E0009** — yanlış
+  yazılmış susturma sessiz kalmaz.
+- W0021 kodu daha önce hiç üretilmeyen "kullanılmayan doc yorumu"
+  rezervasyonuydu; ADR-0048 ile yeniden tanımlandı (spec §18 satırı
+  ADR tarafından geçersiz kılınır). `volt explain W0021` iki dilde.
+- Yeni geçit `volt-hir/src/attrs.rs`; sürücü (Volt.toml politikası),
+  `volt_hir::analyze` ve LSP aynı denetimi koşar.
+- `examples/vga/vga_timing.volt` `@timing`i korur ve bilerek W0021
+  üretir (şeffaflık); `tests/ui/pass/63_unenforced_attribute_warns`,
+  `64_allow_unenforced_silences`; +35 test.
+- Uzun vade (yalnız belge): ADR-0048 `@timing → create_clock /
+  set_max_delay`, `@false_path → set_false_path`, `@multicycle →
+  set_multicycle_path` eşlemelerini ve `build/constraints/<Top>.sdc`
+  üretimini V1 planı olarak yazar.
+
 ### Eklendi — extern modül sınırında domain anotasyonu (2026-09-14, ADR-0047)
 
 - **CDC güvenlik açığı kapandı**: `extern module` portları isim

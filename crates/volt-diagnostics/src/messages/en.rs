@@ -126,7 +126,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Warnings ───
         W0010 => "Ambiguous operator precedence, parentheses recommended",
         W0020 => "Unknown attribute",
-        W0021 => "Unused doc comment",
+        W0021 => "Attribute is parsed but not yet enforced",
         W1001 => "Unused signal / binding",
         W1002 => "Shadowing (same name in an inner scope)",
         W1003 => "Shadowing of a builtin name",

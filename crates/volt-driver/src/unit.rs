@@ -18,13 +18,15 @@ use std::path::{Path, PathBuf};
 use volt_ast::{SourceFile, UseTree};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_hir::unit::{module_not_found, PackagePath, STD_PACKAGE};
-use volt_hir::UnitInfo;
+use volt_hir::{UnenforcedLint, UnitInfo};
 use volt_span::{FileId, SourceMap, Span};
 use volt_syntax::ParseResult;
 
 /// Yüklenmiş derleme birimi.
 pub struct LoadedUnit {
     pub map: SourceMap,
+    /// Bulunan Volt.toml (ADR-0048 `[lint]` politikası buradan okunur).
+    pub manifest: Option<Manifest>,
     /// Birimdeki dosyalar, bağımlılık sırasıyla (ana dosya SONDA).
     pub files: Vec<(FileId, PathBuf)>,
     pub info: UnitInfo,
@@ -42,6 +44,8 @@ pub struct Manifest {
     pub name: Option<String>,
     /// Kaynak kök dizini, `root`'a göre (varsayılan `src`).
     pub src: PathBuf,
+    /// `[lint] unenforced_attributes` (ADR-0048); varsayılan `warn`.
+    pub lint_unenforced: UnenforcedLint,
 }
 
 impl Manifest {
@@ -62,6 +66,10 @@ impl Manifest {
     pub fn parse(root: PathBuf, text: &str) -> Manifest {
         let mut name = None;
         let mut src = PathBuf::from("src");
+        // `[lint]` bölümü volt-hir'de okunur (ADR-0048): sürücü ve LSP
+        // aynı tarayıcıyı paylaşır. Tanınmayan değer `warn`'a düşer —
+        // güvenli yön: susturma kazara açılamaz, yalnız kapanır.
+        let lint_unenforced = UnenforcedLint::from_manifest(text);
         let mut in_package = false;
         for raw in text.lines() {
             let line = raw.split('#').next().unwrap_or("").trim();
@@ -82,7 +90,12 @@ impl Manifest {
                 _ => {}
             }
         }
-        Manifest { root, name, src }
+        Manifest {
+            root,
+            name,
+            src,
+            lint_unenforced,
+        }
     }
 
     pub fn src_dir(&self) -> PathBuf {
@@ -347,6 +360,7 @@ pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
     register_generated(&mut loader.map, &parsed.generated);
     Ok(LoadedUnit {
         map: loader.map,
+        manifest: loader.manifest,
         files: loader.order,
         info: loader.info,
         diagnostics: loader.diagnostics,
@@ -374,6 +388,26 @@ mod tests {
         let m = Manifest::parse(PathBuf::from("/p"), "[ui]\nlang = \"en\"\n");
         assert_eq!(m.name, None);
         assert_eq!(m.src, PathBuf::from("src"));
+    }
+
+    #[test]
+    fn manifest_parse_reads_lint_unenforced_attributes() {
+        let m = Manifest::parse(
+            PathBuf::from("/p"),
+            "[package]\nname = \"p\"\n\n[lint]\nunenforced_attributes = \"allow\"  # ADR-0048\n",
+        );
+        assert_eq!(m.lint_unenforced, UnenforcedLint::Allow);
+    }
+
+    #[test]
+    fn manifest_lint_defaults_to_warn_and_ignores_unknown_value() {
+        let none = Manifest::parse(PathBuf::from("/p"), "[package]\nname = \"p\"\n");
+        assert_eq!(none.lint_unenforced, UnenforcedLint::Warn);
+        let bogus = Manifest::parse(
+            PathBuf::from("/p"),
+            "[lint]\nunenforced_attributes = \"maybe\"\n",
+        );
+        assert_eq!(bogus.lint_unenforced, UnenforcedLint::Warn);
     }
 
     fn ui(dir: &str, entry: &str) -> PathBuf {

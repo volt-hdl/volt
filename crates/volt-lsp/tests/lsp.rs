@@ -633,3 +633,45 @@ fn span_to_range_counts_utf16_units() {
     assert_eq!(range.start.character, 0);
     assert_eq!(range.end.character, 6);
 }
+
+#[test]
+fn unenforced_attribute_surfaces_w0021_in_editor() {
+    // ADR-0048: editör de "sessizce yok sayma" yasağına uyar.
+    let a = analyze(
+        "@timing(clk = 25175000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n",
+    );
+    assert!(
+        a.diagnostics.iter().any(|d| d.code.as_str() == "W0021"),
+        "W0021 bekleniyordu: {:?}",
+        a.diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn editor_honours_volt_toml_lint_policy() {
+    // Sürücü ile aynı Volt.toml politikası (ADR-0048): paket "allow"
+    // dediyse editörde de W0021 çizgisi yok.
+    let dir = std::env::temp_dir().join(format!("volt-lsp-lint-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dizini");
+    std::fs::write(
+        dir.join("Volt.toml"),
+        "[lint]\nunenforced_attributes = \"allow\"\n",
+    )
+    .expect("Volt.toml");
+    let src = "@timing(clk = 25175000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n";
+    let path = dir.join("m.volt");
+    let a = analysis::analyze(path.to_str().unwrap(), src);
+    assert!(
+        !a.diagnostics.iter().any(|d| d.code.as_str() == "W0021"),
+        "Volt.toml allow → W0021 olmamalı: {:?}",
+        a.diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

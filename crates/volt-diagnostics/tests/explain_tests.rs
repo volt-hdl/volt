@@ -1,4 +1,4 @@
-﻿//! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
+//! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
 //!
 //! Kapsam: 93 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
 //! genişliğe göre sarma, renk, --list gruplaması ve kod önerisi.
@@ -278,4 +278,30 @@ fn e3014_explanations_mention_extern_in_both_languages() {
     let tr = explanation(Lang::Tr, ErrorCode::E3014);
     assert!(tr.why.contains("extern"), "{}", tr.why);
     assert!(tr.example.contains("@"), "{}", tr.example);
+}
+
+#[test]
+fn w0021_explanations_describe_unenforced_attributes_in_both_languages() {
+    let en = explanation(Lang::En, ErrorCode::W0021);
+    assert!(en.title.contains("not yet enforced"), "{}", en.title);
+    assert!(en.why.contains("@allow(unenforced)"), "{}", en.why);
+    assert!(en.why.contains("unenforced_attributes"), "{}", en.why);
+    assert!(en.example.contains("@timing"), "{}", en.example);
+    assert!(en.fix.contains("@allow(unenforced)"), "{}", en.fix);
+    let tr = explanation(Lang::Tr, ErrorCode::W0021);
+    assert!(tr.title.contains("uygulanmıyor"), "{}", tr.title);
+    assert!(tr.why.contains("@allow(unenforced)"), "{}", tr.why);
+    assert!(tr.example.contains("@timing"), "{}", tr.example);
+    assert!(tr.fix.contains("@allow(unenforced)"), "{}", tr.fix);
+}
+
+#[test]
+fn w0021_explanation_notes_the_adr_in_both_languages() {
+    for lang in [Lang::En, Lang::Tr] {
+        let exp = explanation(lang, ErrorCode::W0021);
+        let note = exp
+            .note
+            .unwrap_or_else(|| panic!("{}: NOT bölümü yok", lang.as_str()));
+        assert!(note.contains("ADR-0048"), "{note}");
+    }
 }

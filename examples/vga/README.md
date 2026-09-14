@@ -189,12 +189,22 @@ Four crossings in the final design:
   no float literal, so `25.175` lexes as `25` `.` `175` and the
   parser reports E0001 "expected field name after '.'" — an
   unhelpful message for what is really "no decimal literals".
-- **`@timing(pix_clk = 25175000)` parses and is silently accepted.**
-  The attribute is in `KNOWN_ATTRIBUTES` (no W0020), its arguments
-  are parsed as expressions and then dropped: `@timing(pixel_clock >=
-  25175000)` with a name that exists nowhere also compiles cleanly.
-  Nothing downstream reads `attrs` except `@strict_timing`
-  (`volt-hir/src/timing.rs`).
+- **`@timing(pix_clk = 25175000)` parses and is NOT enforced -- and
+  since ADR-0048 the compiler says so.** The attribute is in
+  `KNOWN_ATTRIBUTES` (no W0020), its arguments are parsed as
+  expressions and then dropped: `@timing(pixel_clock >= 25175000)`
+  with a name that exists nowhere also compiles. Before ADR-0048 this
+  was silent; now every unenforced attribute (`@timing`, `@budget`,
+  `@false_path`, `@multicycle`, `@version`, `@abi_version`, `@dft`,
+  `@debug_visible`, `@debug_trace`, `@synthesis_target`, `@domain`)
+  produces **W0021** with the reason ("SDC generation is not
+  implemented yet") and the opt-out (`@allow(unenforced)` on the item,
+  or `[lint] unenforced_attributes = "allow"` in Volt.toml). This
+  example keeps the attribute and the warning on purpose: `volt check
+  examples/vga/vga_top.volt` reports `0 error(s), 2 warning(s)` (W0021
+  here, W3006 in the frame buffer). Nothing downstream reads `attrs`
+  except `@strict_timing` (`volt-hir/src/timing.rs`) and the W0021
+  pass itself (`volt-hir/src/attrs.rs`).
 - **No SDC/XDC output:** `build/` contains only `.sv`; the domain
   declaration's `frequency` key is parsed (`DomainKey::Frequency`)
   and equally ignored.
@@ -309,7 +319,9 @@ Language features that would have made this easy, roughly by impact:
    synchronizer; and the matching formal wrapper fix (hold reset until
    each clock has ticked).
 3. **`@timing` / `frequency` semantics** with SDC output; at minimum
-   `set_clock_groups -asynchronous` from the domain analysis.
+   `set_clock_groups -asynchronous` from the domain analysis. The
+   attribute now warns (W0021) instead of being dropped silently; the
+   SDC mapping itself is planned in ADR-0048.
 4. **Test-language clock control:** a clock ratio per test or
    `step_pix(n)` / `step_sys(n)`, so a 2-clock design is simulated with
    two clocks.
@@ -346,4 +358,4 @@ the type system also rejects the one thing that is legitimately dual-
 clock (a true dual-port RAM), the formal flow is not yet ready for two
 clocks (reset ordering, contract clock choice), simulation runs both
 clocks as one, and the timing side (`@timing`, `frequency`, SDC) is
-parsed but does nothing.
+parsed but does nothing -- since ADR-0048 it at least says so (W0021).

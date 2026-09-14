@@ -756,11 +756,22 @@ module Gpio {
             "@multicycle(2)          // ✓\nreg r : u8 = 0",
         ),
         W0021 => Explanation::new(
-            "Kullanılmayan doc yorumu",
-            "Bu doc yorumu hiçbir öğeye bağlı değil.",
-            "Doc yorumları ('///') hemen ardından gelen öğeyi belgeler. Ardından boşluk, iç deyim ya da blok sonu gelen doc yorumu hiçbir şeyi belgelemez ve üretilen dokümantasyonda görünmez. Öğesinin hemen üstüne taşıyın ya da normal yoruma çevirin.",
-            "/// Olayları sayar.\n\n// (boş satır bağı koparır)  ⚠ W0021\nmodule Counter { }",
-            "/// Olayları sayar.\nmodule Counter { }      // ✓",
+            "Nitelik ayrıştırılıyor ama henüz uygulanmıyor",
+            "Nitelik sözdizimsel olarak geçerli, ama hiçbir derleyici geçidi okumuyor: ondan kısıt, denetim ya da çıktı üretilmiyor.",
+            "Volt, kullanıcının yazdığını sessizce yok saymayı yasaklar. @timing, @budget, @false_path, @multicycle, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target ve @domain gramerde (bu yüzden W0020 değil), ama bugün hiçbiri uygulanmıyor — @timing SDC yazmaz, @budget hiçbir şeyi denetlemez, @false_path hiçbir şeyi kanıtlamaz. Bu uyarı olmasa var olmayan bir kısıtın var olduğuna inanırdınız; boşluk ancak üretici aracında ya da silisyumda ortaya çıkardı.
+
+Niteliği, uygulanmaya başladığı gün çalışsın diye tutun ve boşluğu açıkça kabul edin: aynı öğede @allow(unenforced) o öğe için (portlar ve gövde dâhil) W0021'i susturur; Volt.toml [lint] unenforced_attributes = \"allow\" tüm paket için susturur. Bu arada kısıtı üretici akışında (.xdc/.sdc) ifade edin.",
+            "@timing(pix_clk = 25175000)   // ⚠ W0021: SDC yazılmıyor
+module VgaTiming { /* ... */ }",
+            "@timing(pix_clk = 25175000) @allow(unenforced)   // ✓ kabul edildi
+module VgaTiming { /* ... */ }
+
+// ya da paket genelinde, Volt.toml içinde:
+// [lint]
+// unenforced_attributes = \"allow\"",
+        )
+        .with_note(
+            "Yol haritası ADR-0048: @timing → create_clock / set_max_delay, @false_path → set_false_path, @multicycle → set_multicycle_path; ileriki bir sürümde build/constraints/<Top>.sdc olarak üretilecek. Bir nitelik uygulanmaya başlayınca bu uyarının listesinden çıkar; geride kalan @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir.",
         ),
         W1001 => Explanation::new(
             "Kullanılmayan sinyal veya bağlama",

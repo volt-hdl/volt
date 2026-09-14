@@ -57,6 +57,10 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
     };
 
     if count_errors(&diagnostics) == 0 {
+        // ADR-0048: uygulanmayan nitelikler editörde de görünür (W0021);
+        // politika sürücüyle aynı Volt.toml'dan (dosya dizininden yukarı).
+        let lint = volt_hir::UnenforcedLint::discover(std::path::Path::new(path).parent());
+        diagnostics.extend(volt_hir::check_attributes(&analysis.ast, lint));
         let resolve = volt_hir::resolve_file(&analysis.ast);
         let resolve_failed = count_errors(&resolve.diagnostics) > 0;
         diagnostics.extend(resolve.diagnostics.iter().cloned());

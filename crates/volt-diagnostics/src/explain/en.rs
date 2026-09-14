@@ -756,11 +756,22 @@ module Gpio {
             "@multicycle(2)          // ✓\nreg r : u8 = 0",
         ),
         W0021 => Explanation::new(
-            "Unused doc comment",
-            "This doc comment is not attached to any item.",
-            "Doc comments ('///') document the item that immediately follows them. A doc comment followed by a blank stretch, an inner statement, or the end of a block documents nothing and will not appear in generated documentation. Move it directly above its item, or make it a regular comment.",
-            "/// Counts events.\n\n// (blank line breaks the attachment)  ⚠ W0021\nmodule Counter { }",
-            "/// Counts events.\nmodule Counter { }      // ✓",
+            "Attribute is parsed but not yet enforced",
+            "The attribute is valid syntax, but no compiler pass reads it: no constraint, check or output is generated from it.",
+            "Volt forbids silently ignoring what the user wrote. @timing, @budget, @false_path, @multicycle, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target and @domain are in the grammar (so they are not W0020), yet none of them is enforced today — @timing writes no SDC, @budget checks nothing, @false_path proves nothing. Without this warning you would believe a constraint exists when it does not, and the gap would only surface in the vendor tool or in silicon.
+
+Keep the attribute if you want it to start working the day it is enforced, and acknowledge the gap explicitly: @allow(unenforced) on the same item silences W0021 for that item (ports and body included); Volt.toml [lint] unenforced_attributes = \"allow\" silences it for the whole package. Meanwhile express the constraint in the vendor flow (.xdc/.sdc).",
+            "@timing(pix_clk = 25175000)   // ⚠ W0021: no SDC is written
+module VgaTiming { /* ... */ }",
+            "@timing(pix_clk = 25175000) @allow(unenforced)   // ✓ acknowledged
+module VgaTiming { /* ... */ }
+
+// or, package-wide, in Volt.toml:
+// [lint]
+// unenforced_attributes = \"allow\"",
+        )
+        .with_note(
+            "ADR-0048 is the roadmap: @timing maps to create_clock / set_max_delay, @false_path to set_false_path, @multicycle to set_multicycle_path, emitted as build/constraints/<Top>.sdc in a later release. When an attribute is enforced it leaves this warning's list, so an @allow(unenforced) left behind then does nothing and can be removed.",
         ),
         W1001 => Explanation::new(
             "Unused signal or binding",

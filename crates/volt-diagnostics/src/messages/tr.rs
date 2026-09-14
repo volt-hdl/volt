@@ -126,7 +126,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Uyarılar ───
         W0010 => "Belirsiz operatör önceliği, parantez önerilir",
         W0020 => "Bilinmeyen nitelik (attribute)",
-        W0021 => "Kullanılmayan doc yorumu",
+        W0021 => "Nitelik ayrıştırılıyor ama henüz uygulanmıyor",
         W1001 => "Kullanılmayan sinyal / bağlama",
         W1002 => "Gölgeleme (iç kapsamda aynı isim)",
         W1003 => "Yerleşik ismin gölgelenmesi",

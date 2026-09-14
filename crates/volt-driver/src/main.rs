@@ -523,6 +523,10 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
     let map = unit.map;
     let parsed = unit.parsed;
     let file_count = unit.files.len();
+    let lint_unenforced = unit
+        .manifest
+        .as_ref()
+        .map_or_else(Default::default, |m| m.lint_unenforced);
     let mut diagnostics = parsed.diagnostics.clone();
     let fail = |map: SourceMap, diagnostics: Vec<Diagnostic>, ast: volt_ast::SourceFile| Compiled {
         map,
@@ -538,6 +542,10 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
     }
+
+    // ── Aşama 1b: uygulanmayan nitelikler (ADR-0048, W0021) — Volt.toml
+    // `[lint] unenforced_attributes = "allow"` ile susturulabilir.
+    diagnostics.extend(volt_hir::check_attributes(&parsed.ast, lint_unenforced));
 
     // ── Aşama 2a: import çözümlemesi — bulunamayan dosya (E1011),
     // döngü (E1006), özel öğe (E1004), belirsizlik (E1010) ──

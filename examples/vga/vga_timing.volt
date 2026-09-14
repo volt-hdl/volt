@@ -35,9 +35,15 @@ const V_SYNC_BEG  : u10 = 490   // 480 + 10 front porch
 const V_SYNC_END  : u10 = 492   // 490 + 2 sync
 const V_TOTAL     : u10 = 525   // 492 + 33 back porch
 
-// @timing(pixel_clock >= 25.175.mhz) -- see README: the attribute is
-// parsed (grammar §2, [F4]) but has no interpreter yet; a float
-// literal does not lex, so the constraint can only be spelled in Hz.
+// @timing(pixel_clock >= 25.175.mhz) -- see README: a float literal
+// does not lex, so the constraint can only be spelled in Hz. The
+// attribute is parsed (grammar §2, [F4]) but has no interpreter yet:
+// the compiler says so with W0021 (ADR-0048) instead of ignoring it
+// silently. The warning is INTENDED here -- it tells the reader that
+// no SDC is written and the pixel clock must be constrained in the
+// vendor flow. Silence it with `@allow(unenforced)` on this line or
+// `[lint] unenforced_attributes = "allow"` in Volt.toml once that is
+// a conscious decision, not before.
 @timing(pix_clk = 25175000)
 pub module VgaTiming {
     in  pix_clk : clock @PixDomain

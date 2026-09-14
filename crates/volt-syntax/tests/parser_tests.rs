@@ -1944,7 +1944,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 51, "ui/pass 51 dosya içermeli");
+    assert_eq!(total, 53, "ui/pass 53 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1961,10 +1961,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0040 ise 49'u (prev() ardışık kontratlar),
     // ADR-0041 ise 50-52'yi (genişleme, const dizi, generic örnekleme),
     // ADR-0044 ise 57-58'i (@mmio register haritası),
-    // ADR-0047 ise 62'yi (extern domain anotasyonu) ekledi.
+    // ADR-0047 ise 62'yi (extern domain anotasyonu),
+    // ADR-0048 ise 63-64'ü (W0021 uygulanmayan nitelik + @allow) ekledi.
     assert_eq!(
-        clean, 51,
-        "51/51 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 53,
+        "53/53 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

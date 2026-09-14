@@ -43,6 +43,8 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     // ADR-0044: @mmio register alanı nitelikleri.
     "self_clearing",
     "w1c",
+    // ADR-0048: `@allow(unenforced)` — W0021 susturma; yorumu volt-hir/attrs.rs.
+    "allow",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.
