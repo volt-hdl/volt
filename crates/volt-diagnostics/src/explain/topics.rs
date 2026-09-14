@@ -446,7 +446,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
         }),
         ("stdlib", Lang::En) => Some(Topic {
             title: "The built-in component library",
-            summary: "Eleven components are built into the compiler (ADR-0027/0029). \
+            summary: "Twelve components are built into the compiler (ADR-0027/0029/0049). \
                       Instantiate them like modules; the generated RTL is battle-tested \
                       and CDC-correct.",
             sections: &[
@@ -454,7 +454,8 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "CDC BRIDGES (two domains)",
                     "  AsyncFifo<T, DEPTH>     gray-pointer FIFO between two clocks\n\
                      \x20 HandshakeSync<T>        one word per 4-phase req/ack transfer\n\
-                     \x20 PulseSync               carries a single-cycle pulse across",
+                     \x20 PulseSync               carries a single-cycle pulse across\n\
+                     \x20 AsyncDualPortRam<T, DEPTH>  write on one clock, read on the other",
                 ),
                 (
                     "SINGLE-CLOCK BUILDING BLOCKS",
@@ -479,14 +480,15 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
         }),
         ("stdlib", Lang::Tr) => Some(Topic {
             title: "Yerleşik bileşen kütüphanesi",
-            summary: "Derleyicide on bir yerleşik bileşen vardır (ADR-0027/0029). \
+            summary: "Derleyicide on iki yerleşik bileşen vardır (ADR-0027/0029/0049). \
                       Modül gibi örneklenir; üretilen RTL denenmiş ve CDC-doğrudur.",
             sections: &[
                 (
                     "CDC KÖPRÜLERİ (iki alan)",
                     "  AsyncFifo<T, DEPTH>     iki saat arasında gray-pointer FIFO\n\
                      \x20 HandshakeSync<T>        4-fazlı req/ack ile sözcük aktarımı\n\
-                     \x20 PulseSync               tek döngülük darbeyi karşıya taşır",
+                     \x20 PulseSync               tek döngülük darbeyi karşıya taşır\n\
+                     \x20 AsyncDualPortRam<T, DEPTH>  bir saatte yaz, ötekinde oku",
                 ),
                 (
                     "TEK SAATLİ YAPI TAŞLARI",

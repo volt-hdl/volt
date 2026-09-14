@@ -75,7 +75,7 @@ test "frame buffer write read" {
     dut.wr_en = true;
     step(1);
     dut.wr_en = false;
-    step(10);                      // FIFO crossing + RAM write
+    step(1);                       // the write landed on that edge; settle one more
     dut.rd_x = 3;
     dut.rd_y = 2;
     step(2);                       // registered read

@@ -305,3 +305,16 @@ fn w0021_explanation_notes_the_adr_in_both_languages() {
         assert!(note.contains("ADR-0048"), "{note}");
     }
 }
+
+#[test]
+fn w3003_explanation_names_async_dual_port_ram_in_both_languages() {
+    // ADR-0049: rastgele erişimli veri için dördüncü alternatif.
+    for lang in [Lang::En, Lang::Tr] {
+        let exp = explanation(lang, ErrorCode::W3003);
+        assert!(
+            exp.why.contains("AsyncDualPortRam"),
+            "{lang:?}: {}",
+            exp.why
+        );
+    }
+}

@@ -1,5 +1,6 @@
 //! Yerleşik stdlib primitifleri (ADR-0027, ADR-0029): CDC primitifleri
-//! (AsyncFifo, HandshakeSync, PulseSync) ve tek saatli günlük yapı
+//! (AsyncFifo, HandshakeSync, PulseSync), domain-aware çift saatli bellek
+//! (AsyncDualPortRam, ADR-0049) ve tek saatli günlük yapı
 //! taşları (SyncFifo, Ram, DualPortRam, Counter, ShiftRegister,
 //! RoundRobinArbiter, PriorityArbiter, EdgeDetect).
 //!
@@ -36,6 +37,10 @@ pub enum BuiltinPrim {
     PriorityArbiter,
     /// Tek saatli kenar algılama: `EdgeDetect` (ADR-0029).
     EdgeDetect,
+    /// Çift saatli, domain-aware bellek: `AsyncDualPortRam<T, DEPTH>`
+    /// (ADR-0049) — yazma portu Src, okuma portu Dst; bellek dizisi
+    /// CDC sınırıdır, adres senkronizasyonu gerekmez.
+    AsyncDualPortRam,
 }
 
 /// Primitif portunun taşıdığı değerin türü.
@@ -209,6 +214,18 @@ const EDGE_DETECT_PORTS: &[BuiltinPort] = &[
     sport("both", PortDir::Out, PortKind::Bool),
 ];
 
+/// AsyncDualPortRam<T, DEPTH> port tablosu (ADR-0049): yazma tarafı Src,
+/// okuma tarafı Dst. Okuma portu her çevrim okur (rd_en yok).
+const ASYNC_DUAL_PORT_RAM_PORTS: &[BuiltinPort] = &[
+    port("wr_clk", PortDir::In, PortKind::Clock, DomainRole::Src),
+    port("wr_addr", PortDir::In, PortKind::Addr, DomainRole::Src),
+    port("wr_data", PortDir::In, PortKind::Data, DomainRole::Src),
+    port("wr_en", PortDir::In, PortKind::Bool, DomainRole::Src),
+    port("rd_clk", PortDir::In, PortKind::Clock, DomainRole::Dst),
+    port("rd_addr", PortDir::In, PortKind::Addr, DomainRole::Dst),
+    port("rd_data", PortDir::Out, PortKind::Data, DomainRole::Dst),
+];
+
 impl BuiltinPrim {
     /// İsimden primitif; bilinmeyen isimde None.
     pub fn from_name(name: &str) -> Option<BuiltinPrim> {
@@ -224,6 +241,7 @@ impl BuiltinPrim {
             "RoundRobinArbiter" => Some(BuiltinPrim::RoundRobinArbiter),
             "PriorityArbiter" => Some(BuiltinPrim::PriorityArbiter),
             "EdgeDetect" => Some(BuiltinPrim::EdgeDetect),
+            "AsyncDualPortRam" => Some(BuiltinPrim::AsyncDualPortRam),
             _ => None,
         }
     }
@@ -242,6 +260,7 @@ impl BuiltinPrim {
             BuiltinPrim::RoundRobinArbiter => "RoundRobinArbiter",
             BuiltinPrim::PriorityArbiter => "PriorityArbiter",
             BuiltinPrim::EdgeDetect => "EdgeDetect",
+            BuiltinPrim::AsyncDualPortRam => "AsyncDualPortRam",
         }
     }
 
@@ -258,6 +277,7 @@ impl BuiltinPrim {
             BuiltinPrim::ShiftRegister => SHIFT_REGISTER_PORTS,
             BuiltinPrim::RoundRobinArbiter | BuiltinPrim::PriorityArbiter => ARBITER_PORTS,
             BuiltinPrim::EdgeDetect => EDGE_DETECT_PORTS,
+            BuiltinPrim::AsyncDualPortRam => ASYNC_DUAL_PORT_RAM_PORTS,
         }
     }
 
@@ -274,6 +294,7 @@ impl BuiltinPrim {
             | BuiltinPrim::SyncFifo
             | BuiltinPrim::Ram
             | BuiltinPrim::DualPortRam
+            | BuiltinPrim::AsyncDualPortRam
             | BuiltinPrim::ShiftRegister => 1,
             BuiltinPrim::PulseSync
             | BuiltinPrim::Counter
@@ -290,6 +311,7 @@ impl BuiltinPrim {
             | BuiltinPrim::SyncFifo
             | BuiltinPrim::Ram
             | BuiltinPrim::DualPortRam
+            | BuiltinPrim::AsyncDualPortRam
             | BuiltinPrim::Counter
             | BuiltinPrim::ShiftRegister
             | BuiltinPrim::RoundRobinArbiter
@@ -315,7 +337,8 @@ impl BuiltinPrim {
             BuiltinPrim::AsyncFifo
             | BuiltinPrim::SyncFifo
             | BuiltinPrim::Ram
-            | BuiltinPrim::DualPortRam => Some(ConstRule::PowerOfTwo {
+            | BuiltinPrim::DualPortRam
+            | BuiltinPrim::AsyncDualPortRam => Some(ConstRule::PowerOfTwo {
                 min: 2,
                 max: 65_536,
             }),
@@ -362,15 +385,20 @@ impl BuiltinPrim {
             BuiltinPrim::RoundRobinArbiter => "RoundRobinArbiter<N>",
             BuiltinPrim::PriorityArbiter => "PriorityArbiter<N>",
             BuiltinPrim::EdgeDetect => "EdgeDetect",
+            BuiltinPrim::AsyncDualPortRam => "AsyncDualPortRam<T, DEPTH>",
         }
     }
 
-    /// Ayrı bir hedef (okuma) saat alanı var mı? CDC primitiflerinde
-    /// evet; tek saatli yapı taşlarında hayır (tüm portlar Src).
+    /// Ayrı bir hedef (okuma) saat alanı var mı? CDC primitiflerinde ve
+    /// AsyncDualPortRam'da evet; tek saatli yapı taşlarında hayır (tüm
+    /// portlar Src).
     pub fn has_dst_clock(&self) -> bool {
         matches!(
             self,
-            BuiltinPrim::AsyncFifo | BuiltinPrim::HandshakeSync | BuiltinPrim::PulseSync
+            BuiltinPrim::AsyncFifo
+                | BuiltinPrim::HandshakeSync
+                | BuiltinPrim::PulseSync
+                | BuiltinPrim::AsyncDualPortRam
         )
     }
 }

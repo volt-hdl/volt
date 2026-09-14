@@ -1378,11 +1378,13 @@ impl<'a> Inferencer<'a> {
                                 en: "for multi-bit data use one of:\n           \
                                      AsyncFifo<T, N>   — data streams\n           \
                                      HandshakeSync<T>  — single transfers\n           \
-                                     gray coding       — counters";
+                                     gray coding       — counters\n           \
+                                     AsyncDualPortRam<T, N> — random-access data";
                                 tr: "çok bitli veri için şunlardan birini kullanın:\n           \
                                      AsyncFifo<T, N>   — veri akışları\n           \
                                      HandshakeSync<T>  — tek transferler\n           \
-                                     gray kodlama      — sayaçlar"
+                                     gray kodlama      — sayaçlar\n           \
+                                     AsyncDualPortRam<T, N> — rastgele erişimli veri"
                             ),
                         )
                         .with_note(
@@ -1567,6 +1569,33 @@ impl<'a> Inferencer<'a> {
                            or arbitrate writes before the RAM";
                       tr: "iki portun aynı çevrimde aynı adrese yazmadığından emin olun ya da \
                            yazmaları RAM'den önce arbitre edin"),
+            ));
+        }
+
+        // 4a'. AsyncDualPortRam kullanım kısıtı (ADR-0049, W3006 çift saatli
+        //     biçim): diğer saatten yazılmakta olan adresin okunması TANIMSIZ
+        //     değer döndürür (yazıcı + okuyucu çakışması; DualPortRam'ın
+        //     "B kazanır" kuralı burada yoktur). Adres çakışması statik
+        //     bilinemediğinden her örneklemede hatırlatılır.
+        if prim == crate::builtin::BuiltinPrim::AsyncDualPortRam {
+            self.diagnostics.push(Diagnostic::warning(
+                ErrorCode::W3006,
+                lstr!(en: "AsyncDualPortRam read of an address being written from the other \
+                           clock is undefined";
+                      tr: "AsyncDualPortRam'da diğer saatten yazılmakta olan adresin okunması \
+                           tanımsız"),
+                LabeledSpan::primary(
+                    inst.name.span,
+                    lstr!(en: "a read that overlaps a write to the same address from the other \
+                               clock domain returns an undefined value";
+                          tr: "diğer saat alanından aynı adrese yazmayla çakışan okuma \
+                               tanımsız değer döndürür"),
+                ),
+                lstr!(en: "keep the reader off addresses that are being written (e.g. ping-pong \
+                           regions or a handshake before reading), or tolerate one stale sample";
+                      tr: "okuyucuyu yazılmakta olan adreslerden uzak tutun (ör. ping-pong \
+                           bölgeler ya da okumadan önce el sıkışma) ya da tek bayat örneğe \
+                           tahammül edin"),
             ));
         }
 

@@ -9,20 +9,20 @@ design that genuinely needs two clocks.
 ```
 VgaTop                                (vga_top.volt)
  ├── sys_clk @SysDomain   checkerboard writer FSM, `invert`, `fill_done`
- │      │  AsyncFifo<u14,16>  (x, y, bit) commands   ─┐
+ │      │  AsyncDualPortRam<bool,8192> write port   ─┐
  │      │  sync()             invert, done_r         │ sys → pix
  │      │  sync()             frame_tick             │ pix → sys
  ├── FrameBuffer          (frame_buffer.volt)        ◄┘
- │      DualPortRam<bool, 8192> in PixDomain, port A = FIFO pop, port B = scan-out
+ │      AsyncDualPortRam<bool, 8192>: write port @SysDomain, read port @PixDomain (ADR-0049)
  ├── VgaTiming            (vga_timing.volt)   pix_clk only, both domains declared here
  └── pix_clk @PixDomain   read address, 1-cycle alignment, grid, fill bar, RGB
 ```
 
 | File | Lines | Content |
 |---|---|---|
-| `vga_timing.volt` | 85 | `SysDomain`/`PixDomain`, 800x525 counters, active-low hsync/vsync, `visible`, 5 invariants + 3 covers |
-| `frame_buffer.volt` | 99 | sys-side write port → `AsyncFifo<u14,16>` → pix-side `DualPortRam<bool,8192>`; 2 covers |
-| `vga_top.volt` | 130 | writer FSM, three `sync()` crossings, aligned RGB; 3 invariants + 1 cover |
+| `vga_timing.volt` | 91 | `SysDomain`/`PixDomain`, 800x525 counters, active-low hsync/vsync, `visible`, 5 invariants + 3 covers |
+| `frame_buffer.volt` | 52 | sys-side write port → `AsyncDualPortRam<bool,8192>` → pix-side read port (ADR-0049); the primitive's 2 invariants + 1 cover |
+| `vga_top.volt` | 127 | writer FSM, three `sync()` crossings, aligned RGB; 3 invariants + 1 cover |
 | `vga_top_test.volt` | 136 | 7 simulation tests, 1.22 M cycles in total |
 
 ## Building, linting, testing, verifying
@@ -36,20 +36,37 @@ volt test examples/vga/vga_top_test.volt               # 7 tests (Verilator; Doc
 VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 12 examples/vga/vga_timing.volt   # 8 props, 1.5 s
 VOLT_SBY=build/sby-docker.cmd volt verify --mode prove --depth 3 --engine boolector examples/vga/vga_timing.volt
 VOLT_SBY=build/sby-docker.cmd volt verify --mode cover --depth 700 --engine boolector examples/vga/vga_timing.volt
-VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 24 examples/vga/frame_buffer.volt  # 15 props, 212 s
+VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 24 examples/vga/frame_buffer.volt  # 11 props, 6 s (was 15 props, 212 s with the FIFO)
 ```
 
 Results: Verilator `-Wall` clean (3 modules), 7/7 tests, VgaTiming 8/8
-in `bmc 12` and `prove 3`, FrameBuffer 15/15 in `bmc 24`. The two
+in `bmc 12` and `prove 3`, FrameBuffer 11/11 in `bmc 24` (6 s; the
+last 3 are the RAM primitive's own contracts, `cover 12` reaches
+`mem_cov_0` in step 2). The two
 multi-clock runs that do NOT pass, and why, are in §6 below.
 
-Yosys `synth_xilinx` (hdlc/formal image): FrameBuffer = 1 RAMB18E1 +
-3 RAM32M (the FIFO) + 53 FDRE; whole VgaTop = 211 cells, 97 FDRE, the
-same single RAMB18E1.
+Yosys `synth_xilinx` (hdlc/formal image): FrameBuffer = **1 RAMB18E1 and
+nothing else** (before ADR-0049: 1 RAMB18E1 + 3 RAM32M for the FIFO +
+53 FDRE); whole VgaTop = 132 cells, 44 FDRE, the same single RAMB18E1
+(before: 211 cells, 97 FDRE).
 
 ---
 
 ## Findings
+
+> **Update (ADR-0049).** The findings below are the exploration report
+> that motivated ADR-0049; §2 and §3 describe the FIFO-based frame
+> buffer that has since been REPLACED. The stdlib now has
+> `AsyncDualPortRam<T, DEPTH>` (write port on `wr_clk` @Src, read port
+> on `rd_clk` @Dst, the memory array is the CDC boundary); the
+> `frame_buffer.volt` in this directory is that primitive plus two
+> address `let`s — 99 → 52 lines, no packing, no FIFO, no pop/valid
+> register, 1 sys_clk write latency instead of ~6 edges, and no
+> `wr_full` back-pressure for the writer. The deliberate violation
+> (`rd_addr: wr_addr`, a SysDomain address on the read port) is E3001
+> on the binding line with both domains labelled. W3006 now has a
+> dual-clock form: a read of an address being written from the other
+> clock is undefined. Everything not marked as replaced still holds.
 
 ### 1. Two clock domains
 
@@ -86,9 +103,9 @@ same single RAMB18E1.
   "unused input port" warnings for its clocks, so the real diagnostics
   drown in noise for tiny modules.
 
-### 2. CDC bridges
+### 2. CDC bridges (as first written — the pixel path is now `AsyncDualPortRam`, see the update above)
 
-Four crossings in the final design:
+Four crossings in the original design:
 
 | Crossing | Direction | Width | Mechanism |
 |---|---|---|---|
@@ -136,7 +153,7 @@ Four crossings in the final design:
   clock is too slow to see; `PulseSync` (W3005) exists for that, but
   nothing stops a designer from using `sync()` instead.
 
-### 3. Frame buffer
+### 3. Frame buffer (before ADR-0049 — kept as the record that led to it)
 
 - **stdlib `DualPortRam` could not be used as a dual-clock memory.**
   It has one `clk` port (ADR-0029: "two independent ports on the
@@ -310,10 +327,10 @@ model per DUT.
 
 Language features that would have made this easy, roughly by impact:
 
-1. **A dual-clock memory primitive** (`DualClockRam<T, DEPTH>` with
-   `wr_clk`/`rd_clk`), or a way to declare a `reg` array with two
-   port domains. Every video/DMA design wants one, and today the only
-   type-checked route is "FIFO the writes".
+1. **A dual-clock memory primitive** — DONE in ADR-0049 as
+   `AsyncDualPortRam<T, DEPTH>` (`wr_clk`/`rd_clk`, ports checked
+   through the @Src/@Dst symbolic domains, one RAMB18E1). Before it,
+   the only type-checked route was "FIFO the writes".
 2. **Per-domain reset** (`reset = sync active_high` is declared per
    domain but a single `rst` is emitted) plus a generated reset
    synchronizer; and the matching formal wrapper fix (hold reset until
@@ -336,8 +353,9 @@ Language features that would have made this easy, roughly by impact:
 
 ### 8. Comparison with SystemVerilog
 
-Volt: 314 lines of design (85 + 99 + 130) for 375 lines of generated
-SV (49 + 135 + 191). Hand-written SV for the same thing would be
+Volt: 270 lines of design (91 + 52 + 127) for 280 lines of generated
+SV (49 + 49 + 182) after ADR-0049; the original FIFO-based version was
+314 lines (85 + 99 + 130) for 375 lines of SV (49 + 135 + 191). Hand-written SV for the same thing would be
 roughly 420-480 lines: the two `always_ff` blocks and comparators of
 the timing module are the same size; the async FIFO (gray pointers,
 two 2-flop synchronizers, full/empty) is ~90 lines that Volt

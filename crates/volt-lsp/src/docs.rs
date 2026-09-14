@@ -47,7 +47,7 @@ pub struct StdlibDoc {
     pub doc: &'static str,
 }
 
-/// 11 yerleşik primitif — ADR-0027/ADR-0029, docs/stdlib.md.
+/// 12 yerleşik primitif — ADR-0027/ADR-0029/ADR-0049, docs/stdlib.md.
 pub const STDLIB: &[StdlibDoc] = &[
     StdlibDoc {
         name: "SyncFifo",
@@ -115,6 +115,14 @@ pub const STDLIB: &[StdlibDoc] = &[
         signature: "PulseSync",
         doc: "CDC single-pulse synchronizer (toggle + edge detect). \
               See docs/stdlib.md#pulsesync-cdc.",
+    },
+    StdlibDoc {
+        name: "AsyncDualPortRam",
+        signature: "AsyncDualPortRam<T, DEPTH>",
+        doc: "CDC dual-clock memory: write port on wr_clk, read port on rd_clk; \
+              the array itself is the crossing (no synchronizers, BRAM-friendly). \
+              A read of an address being written from the other clock is \
+              undefined (W3006). See docs/stdlib.md#asyncdualportram-cdc.",
     },
 ];
 

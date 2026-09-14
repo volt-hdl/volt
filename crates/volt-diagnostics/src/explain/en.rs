@@ -867,7 +867,7 @@ module VgaTiming { /* ... */ }
         W3003 => Explanation::new(
             "Multi-bit sync()",
             "sync() is applied to a multi-bit signal; bit coherence is not guaranteed.",
-            "Each bit synchronizes independently, so during a change the receiver can observe mixtures of old and new bits (0b1111 → 0b1100 for one cycle). For counters use Gray coding, for data streams an AsyncFifo, for control a handshake — sync() alone is only safe for single bits.",
+            "Each bit synchronizes independently, so during a change the receiver can observe mixtures of old and new bits (0b1111 → 0b1100 for one cycle). For counters use Gray coding, for data streams an AsyncFifo, for control a handshake, for random-access data (frame buffers, lookup tables) an AsyncDualPortRam whose memory array is the crossing — sync() alone is only safe for single bits.",
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bits",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )
@@ -887,9 +887,9 @@ module VgaTiming { /* ... */ }
             "// guarantee >= 3 dst_clk cycles between pulses, or:\nlet hs = HandshakeSync<u8> { ... }   // ✓ flow control built in",
         ),
         W3006 => Explanation::new(
-            "DualPortRam write-write collision",
-            "Both RAM ports can write in the same cycle; if they target the same address, port B silently wins.",
-            "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports write disjoint addresses (e.g. one writer per region), or arbitrate the writers in front of a single-port Ram.",
+            "Same-address port collision",
+            "Two memory ports can touch the same address in the same cycle; the result is not what either port expects (DualPortRam: port B silently wins; AsyncDualPortRam: the read is undefined).",
+            "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. AsyncDualPortRam (ADR-0049) has one write port and one read port on different clocks; a read that overlaps a write to the same address from the other clock returns an undefined value, because the memory array itself is the clock-domain crossing and no synchronizer can order the two accesses. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports use disjoint addresses (e.g. one writer per region, ping-pong buffers, a handshake before reading), or arbitrate the writers in front of a single-port Ram.",
             "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
             "// ensure x != y whenever a_wr_en && b_wr_en, or:\nlet m = Ram<u8, 256> { ... }   // ✓ single writer, no collision",
         ),

@@ -604,6 +604,8 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         // ADR-0044: @mmio register haritası (desugar → temiz SV).
         "57_mmio_basic.volt",
         "58_mmio_access_control.volt",
+        // ADR-0049: domain-aware çift saatli bellek.
+        "65_async_dual_port_ram.volt",
     ];
 
     let mut clean = 0;

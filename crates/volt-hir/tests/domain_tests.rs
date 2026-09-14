@@ -923,3 +923,22 @@ fn ux_scenario_table() {
     ));
     assert!(!bridged.has_errors());
 }
+
+#[test]
+fn w3003_lists_async_dual_port_ram_for_random_access_data() {
+    // ADR-0049: dört alternatif — AsyncFifo, HandshakeSync, gray kod,
+    // AsyncDualPortRam (rastgele erişimli veri).
+    let src = two_clock_module(
+        "    in  fd : u8 @Fast\n    out sq : u8 @Slow\n\n    sq = sync(fd, slow_clk)",
+    );
+    let result = check(&src);
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "W3003")
+        .expect("W3003");
+    let help = diag.help.as_deref().unwrap_or("");
+    for alt in ["AsyncFifo", "HandshakeSync", "gray", "AsyncDualPortRam"] {
+        assert!(help.contains(alt), "{alt} eksik: {help}");
+    }
+}

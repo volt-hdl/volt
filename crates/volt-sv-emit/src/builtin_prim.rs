@@ -272,6 +272,7 @@ impl<'a> Emitter<'a> {
             BuiltinPrim::RoundRobinArbiter => self.emit_round_robin_arbiter(name, &info),
             BuiltinPrim::PriorityArbiter => self.emit_priority_arbiter(name, &info),
             BuiltinPrim::EdgeDetect => self.emit_edge_detect(name, &info),
+            BuiltinPrim::AsyncDualPortRam => self.emit_async_dual_port_ram(name, &info),
         };
         if self.sva_mode == SvaMode::Immediate {
             out.push_str("\n\n");
@@ -684,6 +685,57 @@ impl<'a> Emitter<'a> {
             format!("{i}_b_rd_data <= {zero};"),
         ];
         out.push_str(&builtin_always_ff(&clk, &reset, &body));
+        out
+    }
+
+    // ═══ AsyncDualPortRam — domain-aware çift saatli bellek (ADR-0049) ═
+
+    fn emit_async_dual_port_ram(&mut self, i: &str, info: &BuiltinInst) -> String {
+        let one_bit = Sig {
+            width: 1,
+            signed: false,
+        };
+        let w = info.data.decl_type();
+        let aw = info.addr_width();
+        let depth = info.dim;
+        let addr_sig = Sig {
+            width: aw,
+            signed: false,
+        };
+        let wr_addr = self.builtin_input(info, "wr_addr", addr_sig);
+        let wr_en = self.builtin_input(info, "wr_en", one_bit);
+        let wr_data = self.builtin_input(info, "wr_data", info.data);
+        let rd_addr = self.builtin_input(info, "rd_addr", addr_sig);
+        let src = info.src_clock.clone();
+        let dst = info.dst_clock.clone();
+        let zero = zero_of(info.data);
+
+        let mut out = format!(
+            "    // AsyncDualPortRam '{i}': write on {}, read on {}, depth {depth} \
+             (the array is the CDC boundary; same-address read-during-write is undefined, W3006)\n",
+            src.name, dst.name
+        );
+        out.push_str(&format!("    localparam int {i}_DEPTH = {depth};\n"));
+        out.push_str(&format!("    {w} {i}_mem [{i}_DEPTH];\n"));
+        out.push_str(&format!("    {w} {i}_rd_data;\n\n"));
+
+        // Yazma alanı: resetsiz saf yazma portu — bellek dizisi resetlenmez
+        // ve reset dalı taşımaz ki BRAM çıkarımı bozulmasın. Adres
+        // senkronizasyonu YOK: wr_addr kendi alanındadır.
+        let wr_body = vec![
+            format!("if ({wr_en}) begin"),
+            format!("    {i}_mem[{wr_addr}] <= {wr_data};"),
+            "end".to_string(),
+        ];
+        out.push_str(&builtin_always_ff_no_reset(&src, &wr_body));
+        out.push_str("\n\n");
+
+        // Okuma alanı: her çevrim senkron okuma (rd_en yok). Diğer saatten
+        // aynı adrese yazma sürerken okunan değer tanımsızdır (W3006);
+        // okuma register'ı hedef alanın resetiyle sıfırlanır.
+        let rd_body = vec![format!("{i}_rd_data <= {i}_mem[{rd_addr}];")];
+        let rd_reset = vec![format!("{i}_rd_data <= {zero};")];
+        out.push_str(&builtin_always_ff(&dst, &rd_reset, &rd_body));
         out
     }
 
@@ -1115,6 +1167,46 @@ impl<'a> Emitter<'a> {
                 ));
                 push_prop(self, format!("{i}_inv_1"), "invariant");
             }
+            BuiltinPrim::AsyncDualPortRam => {
+                let aw = info.addr_width();
+                let pw = aw + 1;
+                let depth = info.dim;
+                let addr_sig = Sig {
+                    width: aw,
+                    signed: false,
+                };
+                let one_bit = Sig {
+                    width: 1,
+                    signed: false,
+                };
+                let wr_addr = self.builtin_input(info, "wr_addr", addr_sig);
+                let rd_addr = self.builtin_input(info, "rd_addr", addr_sig);
+                let wr_en = self.builtin_input(info, "wr_en", one_bit);
+                // Her adres KENDİ saatinde örneklenir (ADR-0049): alanlar arası
+                // kontrat yazılmaz. Cover: okuma portu her çevrim okuduğundan
+                // "eş zamanlı okuma ve yazma" = yazma etkin.
+                out.push_str(&contract_line(
+                    &info.src_clock,
+                    "assert",
+                    &format!("{wr_addr} < {pw}'d{depth}"),
+                    &format!("{i}_inv_0"),
+                ));
+                push_prop(self, format!("{i}_inv_0"), "invariant");
+                out.push_str(&contract_line(
+                    &info.dst_clock,
+                    "assert",
+                    &format!("{rd_addr} < {pw}'d{depth}"),
+                    &format!("{i}_inv_1"),
+                ));
+                push_prop(self, format!("{i}_inv_1"), "invariant");
+                out.push_str(&contract_line(
+                    &info.src_clock,
+                    "cover",
+                    &wr_en,
+                    &format!("{i}_cov_0"),
+                ));
+                push_prop(self, format!("{i}_cov_0"), "cover");
+            }
             BuiltinPrim::Counter => {
                 let width = info.dim;
                 let pw = width + 1;
@@ -1275,6 +1367,8 @@ fn builtin_init_lines(i: &str, info: &BuiltinInst) -> Vec<String> {
             format!("{i}_a_rd_data = {zero};"),
             format!("{i}_b_rd_data = {zero};"),
         ],
+        // Bellek dizisi init edilmez (kontratlar ona bakmaz, BRAM korunur).
+        BuiltinPrim::AsyncDualPortRam => vec![format!("{i}_rd_data = {zero};")],
         BuiltinPrim::Counter => {
             let width = info.dim;
             vec![
@@ -1316,6 +1410,20 @@ fn edge_of(clock: &ClockPort) -> &'static str {
         volt_ast::ClockEdge::Negedge => "negedge",
         _ => "posedge",
     }
+}
+
+/// Resetsiz always_ff: yalnız bellek yazma portları için (ADR-0049) —
+/// reset dalı olmayan saf `if (we) mem[addr] <= data` bloğu, BRAM
+/// çıkarımının beklediği biçim.
+fn builtin_always_ff_no_reset(clock: &ClockPort, body: &[String]) -> String {
+    let edge = edge_of(clock);
+    let clk = &clock.name;
+    let mut out = format!("    always_ff @({edge} {clk}) begin\n");
+    for line in body {
+        out.push_str(&format!("        {line}\n"));
+    }
+    out.push_str("    end");
+    out
 }
 
 /// Reset varyantlı always_ff (sync_always_ff'in çok satırlı gövdeye

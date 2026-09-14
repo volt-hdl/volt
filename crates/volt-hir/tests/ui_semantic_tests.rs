@@ -235,8 +235,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle, ADR-0040: 49 prev,
     // ADR-0041: 50-52 genişleme/const dizi/generic örnekleme fixture'ları,
     // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain,
-    // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced).
-    assert_eq!(checked, 53);
+    // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced),
+    // ADR-0049: 65 domain-aware çift saatli bellek.
+    assert_eq!(checked, 54);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
@@ -519,4 +520,24 @@ fn ui_fail_49_extern_domain_violation_e3001() {
 #[test]
 fn ui_fail_50_extern_clock_conflict_e3014() {
     assert_ui_fail("fail/50_extern_clock_conflict.volt");
+}
+
+// ═══ Domain-aware bellek (ADR-0049) ═══════════════════════════════
+
+#[test]
+fn ui_pass_65_async_dual_port_ram_warns_w3006_only() {
+    // W3006 BEKLENEN davranıştır (ADR-0049): diğer saatten yazılan
+    // adresin okunması tanımsızdır; her örneklemede hatırlatılır.
+    let result = analyze_file("pass/65_async_dual_port_ram.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert_eq!(
+        result.error_codes(),
+        vec!["W3006"],
+        "yalnız W3006 bekleniyor"
+    );
+}
+
+#[test]
+fn ui_fail_51_async_ram_domain_violation_e3001() {
+    assert_ui_fail("fail/51_async_ram_domain_violation.volt");
 }

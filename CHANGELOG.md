@@ -5,6 +5,31 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — domain-aware bellek: `AsyncDualPortRam<T, DEPTH>` (2026-09-14, ADR-0049)
+
+- **"Bir alanda yaz, ötekinde oku" belleği artık tek primitif**: yazma
+  portu `wr_clk`/`wr_addr`/`wr_data`/`wr_en` (@Src), okuma portu
+  `rd_clk`/`rd_addr`/`rd_data` (@Dst). ADR-0047 sembolik alanları K8
+  yerleşik yolundan geçer: yanlış alandan bağlanan port **E3001**,
+  `rd_data` okuma saatinin alanını taşır. Mevcut `DualPortRam`
+  değişmedi.
+- **Senkronizatör yok, bellek dizisi CDC sınırı**: üretilen SV resetsiz
+  yazma `always_ff` + okuma register'ı; Yosys `synth_xilinx` tek
+  RAMB18E1 (FDRE yok). Adresler kendi alanlarında kalır — gray kod/FIFO
+  kararı kullanıcıdan alındı.
+- **W3006 çift saatli biçim**: diğer saatten yazılmakta olan adresin
+  okunması TANIMSIZ; her örneklemede uyarılır, başlık ve `volt explain
+  W3006` iki biçimi anlatır. **W3003** artık dört alternatif önerir
+  (`AsyncDualPortRam<T, N> — random-access data`).
+- Kontratlar: `wr_addr < DEPTH` (`wr_clk`), `rd_addr < DEPTH` (`rd_clk`),
+  `cover: wr_en`.
+- `examples/vga/frame_buffer.volt` 99 → 52 satır (elle yazılan
+  AsyncFifo + pop + çözme yolu kalktı), üretilen SV 135 → 49 satır,
+  `bmc 24` 212 s → 6 s, 7/7 simülasyon testi, Verilator `-Wall` temiz.
+- `tests/ui/pass/65_async_dual_port_ram`, `fail/51_async_ram_domain_violation`
+  (E3001); docs/stdlib.md "DualPortRam mı, AsyncDualPortRam mı?" tablosu;
+  +33 test.
+
 ### Eklendi — uygulanmayan nitelikler artık uyarıyor: W0021 (2026-09-14, ADR-0048)
 
 - **"Sessizce yok sayma" ihlali kapandı**: `@timing`, `@budget`,

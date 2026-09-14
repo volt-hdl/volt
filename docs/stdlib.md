@@ -30,6 +30,7 @@ cikis = ornek.cikis_portu
 | [AsyncFifo](#asyncfifo-cdc) | çift (CDC) | `<T, DEPTH>` | E2025 |
 | [HandshakeSync](#handshakesync-cdc) | çift (CDC) | `<T>` | — |
 | [PulseSync](#pulsesync-cdc) | çift (CDC) | — | W3005 |
+| [AsyncDualPortRam](#asyncdualportram-cdc) | çift (CDC) | `<T, DEPTH>` | E2025, W3006 |
 
 Sabit generic kuralları: `DEPTH` 2..=65536 arası bir iki kuvveti
 (E2025); `WIDTH` 1..=64; `LEN` ve `N` 2..=64. Sabit argüman derleme
@@ -137,7 +138,10 @@ tek portlu `Ram` önünde arbitre edin.
 okuması, ping-pong tamponu).
 
 **Ne zaman kullanılmamalı:** tek erişimci varsa `Ram`; yazıcılar aynı
-bölgeyi paylaşıyorsa önce arbitrasyon.
+bölgeyi paylaşıyorsa önce arbitrasyon. İki port FARKLI saat
+alanlarındaysa DualPortRam kullanılamaz (tek `clk` portu; öteki alandan
+bağlanan her port E3001) — `AsyncDualPortRam` kullanın, karşılaştırma
+[aşağıda](#dualportram-mı-asyncdualportram-mı).
 
 ## Counter
 
@@ -335,3 +339,95 @@ zayıflatma gerekçesi).
 **Kullanım:** alanlar arası tek bitlik darbe taşıma. Aynı alan içinde
 kenar/darbe türetmek için `EdgeDetect` yeterlidir ve 2-3 çevrimlik
 senkronizatör gecikmesi taşımaz.
+
+### AsyncDualPortRam (CDC)
+
+```volt
+AsyncDualPortRam<T, DEPTH>   // DEPTH: iki kuvveti, 2..=65536
+```
+
+Domain-aware çift saatli bellek (ADR-0049): yazma portu `wr_clk`
+alanında, okuma portu `rd_clk` alanında yaşar. Senkronizatör, gray kod
+ya da FIFO YOKTUR — her portun adresi ve verisi kendi alanında kalır,
+**bellek dizisinin kendisi CDC sınırıdır**. Bu tam olarak sentez
+araçlarının gerçek çift saatli (true dual-port) block RAM'e eşlediği
+kalıptır; üretilen SV'de yazma portu resetsiz saf `always_ff`, okuma
+portu bir çevrim gecikmeli register'dır (Yosys `synth_xilinx`: tek
+RAMB18E1, hiç FDRE yok).
+
+| Port | Yön | Tip | Alan | Açıklama |
+|---|---|---|---|---|
+| `wr_clk` | in | clock | @Src | Yazma saati |
+| `wr_addr` | in | `bits<clog2(DEPTH)>` | @Src | Yazma adresi |
+| `wr_data` | in | `T` | @Src | Yazılacak veri |
+| `wr_en` | in | bool | @Src | Yazma etkin |
+| `rd_clk` | in | clock | @Dst | Okuma saati |
+| `rd_addr` | in | `bits<clog2(DEPTH)>` | @Dst | Okuma adresi (her çevrim okunur, `rd_en` yok) |
+| `rd_data` | out | `T` | @Dst | Senkron okuma (bir `rd_clk` gecikmeli) |
+
+`@Src`/`@Dst` ADR-0047'nin sembolik alanlarıdır: her örneklemede
+`wr_clk`/`rd_clk` bağlantıları onları gerçek alanlara bağlar, diğer
+portlar o haritaya göre denetlenir. Yanlış alandan bağlanan port
+**E3001**, `rd_data` okuması `rd_clk`'nin alanını taşır.
+
+**Kontratlar** (`volt verify`, her adres KENDİ saatinde örneklenir):
+
+- `invariant: wr_addr < DEPTH` (`wr_clk`'ta) ve `invariant: rd_addr <
+  DEPTH` (`rd_clk`'ta) — DEPTH iki kuvveti olduğundan yapısal garanti.
+- `cover: wr_en` — okuma portu her çevrim okuduğundan bu "eş zamanlı
+  okuma ve yazma"nın erişilebilirliğidir.
+- Alanlar arası kontrat YAZILMAZ (kullanıcı kodunda da E3001 olurdu).
+
+**Eş zamanlı erişim — W3006 (çift saatli biçim):** yazma ile AYNI
+adresin diğer saatten okunması çakışırsa okunan değer TANIMSIZDIR —
+eski değer, yeni değer ya da (gerçek donanımda) metastabil bir örnek
+olabilir. Bunu hiçbir senkronizatör sıralayamaz; iki saat arasında
+"aynı çevrim" tanımlı değildir. Derleyici adres çakışmasını statik
+dışlayamadığından her örneklemede W3006 üretir. Sözleşme kullanıcıda:
+okuyucuyu yazılmakta olan adreslerden uzak tutun (ping-pong bölgeler,
+okumadan önce `HandshakeSync`/`PulseSync` ile "hazır" sinyali) ya da
+tek bayat örneğe tahammül edin (kare tamponu: piksel bir kare geç
+görünür).
+
+**Ne zaman kullanılmalı:** bir alanda yazılıp diğerinde RASTGELE
+ERİŞİMLE okunan veri — kare tamponları, arama tabloları, örnek
+tamponları, DMA hedef bellekleri.
+
+**Ne zaman kullanılmamalı:** veri SIRALI akıyorsa `AsyncFifo` (geri
+basınç ve tam/boş bayraklarıyla); tek sözcük seyrek geçiyorsa
+`HandshakeSync`; iki port aynı saatteyse `DualPortRam` (iki tarafta
+da okuma+yazma, aynı-çevrim davranışı tanımlı).
+
+```volt
+let fb = AsyncDualPortRam<bool, 8192> {
+    wr_clk: sys_clk, wr_addr: wr_addr, wr_data: wr_bit, wr_en: wr_en,
+    rd_clk: pix_clk, rd_addr: rd_addr,
+}
+pixel = fb.rd_data
+```
+
+## DualPortRam mı, AsyncDualPortRam mı?
+
+| | `DualPortRam<T, DEPTH>` | `AsyncDualPortRam<T, DEPTH>` |
+|---|---|---|
+| Saat | tek `clk` | `wr_clk` + `rd_clk` |
+| Portlar | A ve B: her ikisi okuma+yazma | yazma portu + okuma portu |
+| Aynı adrese aynı çevrimde | tanımlı: B kazanır (W3006) | tanımsız okuma (W3006) |
+| CDC | yok — öteki alandan bağlanan port E3001 | bellek dizisi sınırdır; adresler alan denetiminden geçer |
+| Sentez | 1 BRAM (TDP, tek saat) | 1 BRAM (TDP, iki saat) |
+| Kullan | CPU + DMA, ping-pong, aynı saatte iki erişimci | kare tamponu, LUT, bir alanda yaz / ötekinde oku |
+
+Karar kuralı: **portlar aynı saatteyse DualPortRam, değilse
+AsyncDualPortRam.** Aynı saatte AsyncDualPortRam kullanmak hata
+değildir ama okuma portunun yazma yeteneğini ve tanımlı çakışma
+davranışını kaybedersiniz. Farklı saatte DualPortRam kullanmak mümkün
+değildir: derleyici her yanlış alanlı bağlamayı reddeder.
+
+Çok bitli CDC karar tablosu (W3003'ün önerdiği dört yol):
+
+| Veri biçimi | Primitif |
+|---|---|
+| Sıralı akış (stream) | `AsyncFifo<T, N>` |
+| Tek transfer | `HandshakeSync<T>` |
+| Sayaç | gray kodlama (`AsyncFifo` içinde hazır) |
+| Rastgele erişim | `AsyncDualPortRam<T, N>` |

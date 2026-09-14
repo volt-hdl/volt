@@ -867,7 +867,7 @@ module VgaTiming { /* ... */ }
         W3003 => Explanation::new(
             "Çok bitli sync()",
             "sync() çok bitli bir sinyale uygulanmış; bit tutarlılığı garanti değil.",
-            "Her bit bağımsız senkronize olur; değişim sırasında alıcı eski ve yeni bitlerin karışımını görebilir (bir çevrim boyunca 0b1111 → 0b1100). Sayaçlar için Gray kodlama, veri akışları için AsyncFifo, kontrol için handshake kullanın — sync() tek başına yalnız tek bit için güvenlidir.",
+            "Her bit bağımsız senkronize olur; değişim sırasında alıcı eski ve yeni bitlerin karışımını görebilir (bir çevrim boyunca 0b1111 → 0b1100). Sayaçlar için Gray kodlama, veri akışları için AsyncFifo, kontrol için handshake, rastgele erişimli veri (kare tamponu, arama tablosu) için bellek dizisi geçişin kendisi olan AsyncDualPortRam kullanın — sync() tek başına yalnız tek bit için güvenlidir.",
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bit",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )

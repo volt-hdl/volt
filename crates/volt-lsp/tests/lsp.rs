@@ -675,3 +675,17 @@ fn editor_honours_volt_toml_lint_policy() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn stdlib_completion_offers_async_dual_port_ram() {
+    // ADR-0049: 12. yerleşik primitif tamamlama ve imza taşır.
+    let a = analyze(COUNTER);
+    let off = offset_of(COUNTER, "count_r + 1", 0) + 10;
+    let items = completions(&a, off);
+    let ram = items
+        .iter()
+        .find(|i| i.label == "AsyncDualPortRam")
+        .expect("AsyncDualPortRam tamamlaması");
+    assert_eq!(ram.detail.as_deref(), Some("AsyncDualPortRam<T, DEPTH>"));
+    assert!(ram.documentation.is_some());
+}

@@ -3,13 +3,13 @@
 //
 //   VgaTop
 //    ├── sys_clk (SysDomain)  checkerboard writer FSM, `invert` control
-//    │       │  AsyncFifo (inside FrameBuffer) + sync() for `invert`
-//    ├── FrameBuffer          write side SysDomain, read side PixDomain
+//    │       │  AsyncDualPortRam (inside FrameBuffer) + sync() for `invert`
+//    ├── FrameBuffer          write port SysDomain, read port PixDomain (ADR-0049)
 //    ├── VgaTiming            pix_clk only
 //    └── pix_clk (PixDomain)  read address, 1-cycle alignment, RGB
 //
 // Clock-domain crossings (all explicit):
-//   sys → pix  pixel data      AsyncFifo<u14,16>   (in FrameBuffer)
+//   sys → pix  pixel data      AsyncDualPortRam<bool,8192> (in FrameBuffer)
 //   sys → pix  invert (1 bit)  sync()
 //   sys → pix  fill_done (1 bit) sync()
 //   pix → sys  frame_tick      sync()  (vsync active, for host pacing)
@@ -33,7 +33,6 @@ pub module VgaTop {
     out red     : bool  @PixDomain
     out green   : bool  @PixDomain
     out blue    : bool  @PixDomain
-    out fb_dbg  : bool  @PixDomain   // frame buffer port-A read-first value
 
     // Writer progress stays inside the board.
     invariant: wx_r < 80
@@ -44,13 +43,13 @@ pub module VgaTop {
 
     // ── Checkerboard writer (SysDomain) ───────────────────────────
     // Walks (x, y) over 80x60 once; cell = 8x8 pixels of the visible
-    // 640x480, colour = bit 0 of x XOR bit 0 of y. Stalls on wr_full.
+    // 640x480, colour = bit 0 of x XOR bit 0 of y. The dual-clock RAM
+    // has no back-pressure, so the writer never stalls.
     reg wx_r   : u7   = 0
     reg wy_r   : u6   = 0
     reg done_r : bool = false
 
-    wire fb_full : bool
-    let advance : bool = !done_r && !fb_full
+    let advance : bool = !done_r
     let cell_bit : bool = wx_r[0] ^ wy_r[0]
 
     on sys_clk {
@@ -87,7 +86,6 @@ pub module VgaTop {
         rd_x:    rd_x,
         rd_y:    rd_y,
     }
-    fb_full = fb.wr_full
 
     // The RAM read is registered (one pix_clk), so delay the sync and
     // blanking signals by one cycle to keep them aligned with the bit.
@@ -122,7 +120,6 @@ pub module VgaTop {
     red    = visible_r && (pix || red_bar)
     green  = visible_r && pix && !grid_r     // white cells, magenta grid
     blue   = visible_r && !red_bar           // blue background
-    fb_dbg = fb.wr_prev
 
     // vsync is a level (two lines long), safe to carry with sync().
     let vs_active : bool = !vsync_r
