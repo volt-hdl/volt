@@ -112,6 +112,7 @@ fn kind_label(kind: DefKind) -> &'static str {
         DefKind::LoopVar => "loop variable",
         DefKind::PatternBinding => "pattern binding",
         DefKind::GenericParam => "generic parameter",
+        DefKind::DomainParam => "symbolic clock domain",
         DefKind::EnumVariant { .. } => "enum variant",
         DefKind::Builtin(_) => "builtin",
         DefKind::Import => "import",

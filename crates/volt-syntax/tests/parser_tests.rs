@@ -1921,7 +1921,7 @@ fn w0010_not_fired_for_unrelated_mixes() {
 // ═══ tests/ui taraması (F1 tamamlanma ölçütleri) ═══════════════════
 
 #[test]
-fn ui_pass_all_50_of_50_parse_clean() {
+fn ui_pass_all_51_of_51_parse_clean() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/ui/pass");
     let mut total = 0;
     let mut clean = 0;
@@ -1944,7 +1944,7 @@ fn ui_pass_all_50_of_50_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 50, "ui/pass 50 dosya içermeli");
+    assert_eq!(total, 51, "ui/pass 51 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1960,10 +1960,11 @@ fn ui_pass_all_50_of_50_parse_clean() {
     // ADR-0039 ise 47-48'i (bundle portları),
     // ADR-0040 ise 49'u (prev() ardışık kontratlar),
     // ADR-0041 ise 50-52'yi (genişleme, const dizi, generic örnekleme),
-    // ADR-0044 ise 57-58'i (@mmio register haritası) ekledi.
+    // ADR-0044 ise 57-58'i (@mmio register haritası),
+    // ADR-0047 ise 62'yi (extern domain anotasyonu) ekledi.
     assert_eq!(
-        clean, 50,
-        "50/50 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 51,
+        "51/51 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

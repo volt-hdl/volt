@@ -80,6 +80,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3011 => "Register written from more than one domain",
         E3012 => "Foreign-domain signal read inside an 'on' block",
         E3013 => "Bundle fields inferred in different clock domains (ADR-0039)",
+        E3014 => "Same symbolic domain bound to two different clocks (ADR-0047)",
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => "Double driver",

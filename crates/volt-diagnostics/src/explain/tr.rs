@@ -475,6 +475,32 @@ module Regs {
             "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ bütün bundle tek alanda\n}",
         ),
 
+        E3014 => Explanation::new(
+            "Aynı sembolik saat alanına iki farklı saat bağlandı",
+            "Bir örneğin iki saat portu aynı alan anotasyonunu taşıyor ama farklı saat alanlarından sürülüyor.",
+            "extern module içinde tanımsız bir @Ad sembolik saat alanıdır (ADR-0047): her örneklemede tam olarak bir gerçek alanı temsil eder, hangisi olduğuna saat bağlantısı karar verir. İki saat portu aynı sembolik alanı paylaşıyorsa sarmalanan SystemVerilog modülü o tarafta tek saatlidir — bu portları farklı saatlerden beslemek, derleyicinin içini göremediği kara kutunun içinde bir saat alanı geçişi açar. Aynı kural saat portları aynı @Alan adını taşıyan sıradan modüller için de geçerlidir.",
+            "extern module ExtRegFile {
+    in wr_clk : clock @Core
+    in rd_clk : clock @Core   // tek alan, iki saat ucu
+    ...
+}
+let rf = ExtRegFile {
+    wr_clk: sys_clk,           // @Core := SysDomain
+    rd_clk: pix_clk,           // ✗ E3014: @Core zaten SysDomain
+}",
+            "let rf = ExtRegFile {
+    wr_clk: sys_clk,
+    rd_clk: sys_clk,           // ✓ iki uç da SysDomain
+}
+// ya da çekirdek gerçekten çift saatliyse taraflara kendi alanlarını verin:
+extern module ExtRegFile {
+    in wr_clk : clock @Src
+    in rd_clk : clock @Dst
+    ...
+}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
+
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",

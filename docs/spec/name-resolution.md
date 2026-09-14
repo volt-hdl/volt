@@ -53,6 +53,9 @@ pub enum DefKind {
     LoopVar,       // for i in 0..N
     PatternBinding,// match Some(x) => ...
     GenericParam,
+    DomainParam,   // extern module içinde tanımsız @Ad — sembolik saat
+                   // alanı, örneklemede saat bağlantısıyla bağlanır
+                   // (ADR-0047, domain-inference.md K8a)
 
     // ── Yerleşik ──
     Builtin(BuiltinKind),

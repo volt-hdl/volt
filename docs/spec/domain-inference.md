@@ -310,6 +310,48 @@ fn check_instance_domains(&mut self, inst: &InstanceDecl) {
 }
 ```
 
+#### K8a — Extern Modül Sınırı (ADR-0047)
+
+K8 `extern module` hedefleri için de geçerlidir. Extern gövdesi
+olmadığından port anotasyonları sınırdaki TEK sözleşmedir:
+
+```volt
+extern module AsyncFifo {
+    in  wr_clk  : clock @Src      // @Src, @Dst: SEMBOLİK alan
+    in  wr_data : u8    @Src      // hiçbir yerde 'domain Src' yok
+    out wr_full : bool  @Src
+    in  rd_clk  : clock @Dst
+    out rd_data : u8    @Dst
+    in  rd_en   : bool  @Dst
+}
+
+let f = AsyncFifo {
+    wr_clk:  sys_clk,     // @Src := SysDomain (adım 1)
+    wr_data: pix_d,       // ← E3001: wr_data @Src = SysDomain bekliyor
+    rd_clk:  pix_clk,     // @Dst := PixDomain
+    rd_en:   pix_en,      // ✓
+}
+pix_q = f.rd_data         // f.rd_data @Dst = PixDomain (K8 haritası)
+```
+
+- `extern module` içinde çözülemeyen `@Ad` E3002 DEĞİL, extern'e özel
+  **sembolik alan parametresidir** (`DefKind::DomainParam`,
+  name-resolution.md §2). Bilinen bir `domain` adı ya da extern'in
+  kendi clock portu (`@wr_clk`) olağan biçimde çözülür.
+- Sembolik alan en az bir `clock` portunda taşınmalıdır; aksi halde
+  hiç bağlanamaz → **E3002** (extern biçimi: "sembolik alanın clock
+  portu yok").
+- Birden fazla clock portu olan extern'de saat dışı her port anotasyon
+  taşımalıdır → **E3010** (K3 sınırda uygulanır). Tek saatli extern K2
+  gibi davranır (anotasyonsuz portlar o saatin alanında), saatsiz
+  extern portları Timeless'tır.
+- K8 adım 1'de aynı anahtara (sembolik ya da açık alan) iki farklı
+  alandan saat bağlanırsa → **E3014**; anahtar `Error`'a düşer, port
+  denetimleri kaskad E3001 üretmez. Bu kural sıradan modüller için de
+  geçerlidir (iki clock portu aynı `@Alan`ı taşıyorsa).
+- Bağlanmamış sembolik alan (`wr_clk` bağlanmadı) `Error`'dur:
+  denetlenemez, yanlış pozitif de üretmez.
+
 ### K9 — `sync()` Köprüsü
 
 Tek meşru CDC geçiş yolu:
@@ -467,6 +509,8 @@ E3009  Bilgi akışı ihlali (trust_level) [V1]
 E3010  Domain belirsiz (çoklu saat, anotasyon yok)
 E3011  Register birden fazla domainden yazılıyor
 E3012  'on' bloğunda yabancı domain sinyali okunuyor
+E3013  Bundle alanları farklı saat alanlarında (ADR-0039)
+E3014  Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)
 
 W3001  Register hiç yazılmıyor
 W3002  Gereksiz sync() (aynı domain)
@@ -540,6 +584,11 @@ Farklı domain doğrudan atama             ✗ E3001
 Kombinasyonel domain karışımı            ✗ E3001
 Register iki 'on' bloğunda               ✗ E3011
 Tanımsız domain referansı                ✗ E3002
+Extern: sembolik alan, doğru bağlanmış   ✓ derlenir (ADR-0047)
+Extern: yanlış alandan port bağlama      ✗ E3001 (ADR-0047)
+Extern: sembolik alana iki farklı saat   ✗ E3014 (ADR-0047)
+Extern: sembolik alanın clock portu yok  ✗ E3002 (ADR-0047)
+Extern: çok saat, anotasyonsuz port      ✗ E3010 (ADR-0047)
 Aynı domain içinde sync()                ⚠ W3002
 8-bit sync()                             ⚠ W3003
 ```

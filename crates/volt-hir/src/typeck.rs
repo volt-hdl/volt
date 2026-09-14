@@ -18,9 +18,10 @@
 use std::collections::HashMap;
 
 use volt_ast::{
-    ArrayLitKind, BinOp, Block, BlockStmt, Contract, ContractKind, ElseBranch, Expr, ExprKind, Idx,
-    IfStmt, IntSuffix, ItemKind, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl,
-    Name, RegDecl, SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
+    ArrayLitKind, BinOp, Block, BlockStmt, Contract, ContractKind, ElseBranch, Expr, ExprKind,
+    ExternDecl, Idx, IfStmt, IntSuffix, ItemKind, LValue, LValueSuffix, LetDecl, MatchArm,
+    MatchArmBody, ModuleDecl, Name, RegDecl, SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind,
+    UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -102,8 +103,10 @@ impl<'a> TypeChecker<'a, '_> {
             }
         }
         for &item_idx in &ast.items {
-            if let ItemKind::Module(m) = &ast.items_arena[item_idx].kind {
-                self.check_module(m);
+            match &ast.items_arena[item_idx].kind {
+                ItemKind::Module(m) => self.check_module(m),
+                ItemKind::Extern(x) => self.type_extern_ports(x),
+                _ => {}
             }
         }
         let mut diags = Vec::new();
@@ -131,6 +134,17 @@ impl<'a> TypeChecker<'a, '_> {
         let mut diags = Vec::new();
         self.drivers.check_undriven_outputs(m, self.res, &mut diags);
         self.diagnostics.extend(diags);
+    }
+
+    /// Extern modül portlarını tipler (ADR-0047): domain çıkarımı saat
+    /// portlarını `Ty::Clock` üzerinden tanır, K8 haritası kurulabilir.
+    fn type_extern_ports(&mut self, x: &ExternDecl) {
+        for p in &x.ports {
+            let ty = self.resolve_type_ref(p.ty);
+            if let Some(&def) = self.res.decl_spans.get(&p.name.span) {
+                self.def_types.insert(def, ty);
+            }
+        }
     }
 
     // ═══ Kontratlar (F4a) ═════════════════════════════════════════

@@ -144,8 +144,14 @@ Four crossings in the final design:
   E3001s. A hand-written `reg` array is caught the same way (the read
   in the pixel `on` block joins the array's domain with the index's).
   So Volt currently offers no way to express a true dual-clock RAM —
-  not in stdlib, not by hand, and `extern module` would only push the
-  problem into an SV file the compiler does not check.
+  not in stdlib, not by hand. An `extern module` wrapper pushes the
+  body into an SV file the compiler does not check, but since ADR-0047
+  the BOUNDARY is checked: `@Src`/`@Dst` symbolic domains on the
+  extern ports are bound by the clock connections and every other
+  port is verified against them (E3001 on a wrong-domain binding,
+  E3014 on two clocks for one domain). What remains unchecked is the
+  inside of the black box, and SV emission of extern instances is
+  still E0003.
 - **What was done instead:** move the crossing off the memory and onto
   the write commands (`AsyncFifo<u14, 16>`), keep the RAM single-clock
   in `PixDomain` with port A for the FIFO drain and port B for the

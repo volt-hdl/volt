@@ -475,6 +475,32 @@ module Regs {
             "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ one domain for the whole bundle\n}",
         ),
 
+        E3014 => Explanation::new(
+            "Same symbolic domain bound to two different clocks",
+            "Two clock ports of one instance carry the same domain annotation but are driven from different clock domains.",
+            "Inside an extern module an unknown @Name is a symbolic clock domain (ADR-0047): it stands for exactly one real domain per instantiation, and the clock connection decides which one. When two clock ports share a symbolic domain, the wrapped SystemVerilog module is single-clock on that side — feeding those ports from different clocks would open a clock-domain crossing inside a black box the compiler cannot see into. The same rule applies to a regular module whose clock ports name the same @Domain.",
+            "extern module ExtRegFile {
+    in wr_clk : clock @Core
+    in rd_clk : clock @Core   // one domain, two clock pins
+    ...
+}
+let rf = ExtRegFile {
+    wr_clk: sys_clk,           // @Core := SysDomain
+    rd_clk: pix_clk,           // ✗ E3014: @Core is already SysDomain
+}",
+            "let rf = ExtRegFile {
+    wr_clk: sys_clk,
+    rd_clk: sys_clk,           // ✓ both pins in SysDomain
+}
+// or, if the core really is dual-clock, give the sides their own domains:
+extern module ExtRegFile {
+    in wr_clk : clock @Src
+    in rd_clk : clock @Dst
+    ...
+}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
+
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",

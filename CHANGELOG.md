@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — extern modül sınırında domain anotasyonu (2026-09-14, ADR-0047)
+
+- **CDC güvenlik açığı kapandı**: `extern module` portları isim
+  çözümlemede bildirilmiyor, tiplenmiyordu; K8 haritası boş kalıyor,
+  yanlış alandan bağlanan port SESSİZ geçiyordu. Artık extern portları
+  tanım/tip alır, K8 sınırda uygulanır → yanlış bağlama **E3001**.
+- **Sembolik saat alanı** (örtük, seçenek A): extern içinde tanımsız
+  `@Src`/`@Dst` extern'e özel parametredir (`DefKind::DomainParam`);
+  örneklemede saat bağlantısı gerçek alana bağlar, çıkış okumaları
+  (`f.rd_data`) bağlanan alanı taşır. Gramer değişmedi.
+- Yeni kod **E3014**: aynı sembolik/açık alana iki farklı alandan saat
+  (sıradan modüller için de geçerli); `volt explain E3014` iki dilde.
+  Extern biçimli **E3002** (sembolik alanın clock portu yok) ve
+  **E3010** (çok saatli extern'de anotasyonsuz port).
+- Extern portları W1001 üretmez; LSP hover "symbolic clock domain".
+- `tests/ui/pass/62_extern_domains.volt`, `fail/49_extern_domain_violation`
+  (E3001), `fail/50_extern_clock_conflict` (E3014); +36 test.
+- Bilinen sınır (dokunulmadı): volt-sv-emit extern örneğini
+  üretemiyor (E0003 "target module is not in this file").
+
 ### Eklendi — F5: çoklu dosya derleme ve import sistemi (2026-09-13, ADR-0042)
 
 - **Dosya keşfi**: `volt build <dosya>` bağımlılıkları `use`

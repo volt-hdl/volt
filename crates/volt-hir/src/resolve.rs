@@ -8,10 +8,10 @@
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, GenericArg,
-    GenericParamKind, Idx, Item, ItemKind, LValue, LValueSuffix, MatchArm, MatchArmBody,
-    ModuleDecl, Name, OnTrigger, Path, Pattern, PatternArgs, PatternKind, PortDir, SourceFile,
-    Stmt, StmtKind, TypeRef, TypeRefKind, UseTree, Visibility,
+    ArrayLitKind, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, ExternDecl,
+    GenericArg, GenericParamKind, Idx, Item, ItemKind, LValue, LValueSuffix, MatchArm,
+    MatchArmBody, ModuleDecl, Name, OnTrigger, Path, Pattern, PatternArgs, PatternKind, PortDir,
+    SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, UseTree, Visibility,
 };
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
@@ -54,6 +54,10 @@ pub enum DefKind {
     LoopVar,
     PatternBinding,
     GenericParam,
+    /// `extern module` içinde tanımsız `@Ad` — sembolik saat alanı
+    /// parametresi (ADR-0047). Örneklemede saat bağlantısıyla gerçek
+    /// alana bağlanır; extern kapsamı dışında görünmez.
+    DomainParam,
 
     // ── Yerleşik ──
     Builtin(BuiltinKind),
@@ -106,6 +110,9 @@ pub enum ScopeKind {
     Root,
     Prelude,
     Module(DefId),
+    /// `extern module` port kapsamı (ADR-0047) — kullanım raporu
+    /// (W1001) bu kapsamı atlar: portlar dış SV modülüne aittir.
+    Extern(DefId),
     Function(DefId),
     Block,
     Loop,
@@ -354,6 +361,15 @@ impl<'a> Resolver<'a> {
         scope: ScopeId,
         is_public: bool,
     ) -> DefId {
+        if self.report_duplicate(name, scope) {
+            return self.error_def;
+        }
+        self.warn_shadowing(name, scope);
+        self.declare(name, kind, scope, is_public)
+    }
+
+    /// Aynı kapsamda çift tanım E1003 (true → çağıran bildirimden vazgeçer).
+    fn report_duplicate(&mut self, name: &Name, scope: ScopeId) -> bool {
         if let Some(&prev) = self.scopes[scope.0 as usize].bindings.get(&name.text) {
             let prev_span = self.defs[prev.0 as usize].span;
             self.diagnostics.push(
@@ -373,9 +389,13 @@ impl<'a> Resolver<'a> {
                     lstr!(en: "previous definition here"; tr: "önceki tanım burada"),
                 ),
             );
-            return self.error_def;
+            return true;
         }
+        false
+    }
 
+    /// Dış kapsam gölgelemesi W1002 / yerleşik gölgeleme W1003.
+    fn warn_shadowing(&mut self, name: &Name, scope: ScopeId) {
         if let Some(outer) = self.lookup_in_parents(&name.text, scope) {
             let outer_data = &self.defs[outer.0 as usize];
             if let DefKind::Builtin(_) = outer_data.kind {
@@ -412,8 +432,6 @@ impl<'a> Resolver<'a> {
                 );
             }
         }
-
-        self.declare(name, kind, scope, is_public)
     }
 
     fn lookup_in_parents(&self, name: &str, scope: ScopeId) -> Option<DefId> {
@@ -631,15 +649,7 @@ impl<'a> Resolver<'a> {
                 }
                 self.resolve_type(t.target, scope);
             }
-            ItemKind::Extern(x) => {
-                let scope = self.new_scope(ScopeKind::Block, Some(self.root));
-                for g in &x.generics {
-                    self.declare_generic(g, scope);
-                }
-                for p in &x.ports {
-                    self.resolve_type(p.ty, scope);
-                }
-            }
+            ItemKind::Extern(x) => self.resolve_extern_body(x),
             // Gövdesi modül arenalarını kullanmaz (ADR-0033).
             ItemKind::Test(_) => {}
             ItemKind::Error => {}
@@ -737,6 +747,66 @@ impl<'a> Resolver<'a> {
         self.in_contract = false;
     }
 
+    /// `extern module` gövdesi (ADR-0047): portlar tanım olarak bildirilir
+    /// (K8 haritası onları saat/veri portu olarak tanısın), tipleri
+    /// çözülür; `@Ad` anotasyonu bilinen bir domain'e ya da saat portuna
+    /// çözülür, tanımsızsa extern'e özel SEMBOLİK domain parametresi
+    /// (`DefKind::DomainParam`) açar. Sembolik alanın bir clock portunda
+    /// taşınıp taşınmadığı domain çıkarımında denetlenir (E3002).
+    fn resolve_extern_body(&mut self, x: &ExternDecl) {
+        let extern_def = self.lookup_item_def(&x.name.text);
+        let scope = self.new_scope(ScopeKind::Extern(extern_def), Some(self.root));
+        for g in &x.generics {
+            self.declare_generic(g, scope);
+        }
+        // Çift port E1003; gölgeleme uyarısı YOK — extern'in gövdesi
+        // olmadığından kök isimle çakışma hiçbir karışıklık yaratamaz.
+        for p in &x.ports {
+            if self.report_duplicate(&p.name, scope) {
+                continue;
+            }
+            self.declare(&p.name, DefKind::Port { dir: p.direction }, scope, false);
+        }
+        for p in &x.ports {
+            self.resolve_type(p.ty, scope);
+            if let Some(domain) = &p.domain {
+                self.resolve_symbolic_domain_ref(domain, scope);
+            }
+        }
+    }
+
+    /// Extern içinde `@Ad`: görünür bir isimse olağan domain çözümü
+    /// (domain tanımı, saat portu ya da daha önce açılmış sembolik alan);
+    /// değilse yeni sembolik alan. İlk geçiş hem tanım hem kullanımdır
+    /// (K8 `port_domain_key` anotasyon span'ından okur).
+    fn resolve_symbolic_domain_ref(&mut self, name: &Name, scope: ScopeId) {
+        // Yalnız alan anlamı taşıyan tanımlar olağan yola gider; kök
+        // kapsamdaki bir struct/const/fn aynı adı taşıyorsa sembolik alanı
+        // GÖLGELEMEZ (aksi halde yanlış E3002 + denetim sessizce kapanırdı).
+        let existing = self.lookup_visible(&name.text, scope);
+        if existing.is_some_and(|d| {
+            matches!(
+                self.defs[d.0 as usize].kind,
+                DefKind::Domain
+                    | DefKind::DomainParam
+                    | DefKind::Import
+                    | DefKind::Port { .. }
+                    | DefKind::Error
+            )
+        }) {
+            self.resolve_domain_ref(name, scope);
+            return;
+        }
+        // `decl_spans`'e YAZILMAZ: bundle düzleştirmesi anotasyon span'ini
+        // port adı span'iyle paylaşır (bundle.rs), o anahtar portundur.
+        let def = self.add_def(DefKind::DomainParam, &name.text, name.span, scope, false);
+        self.scopes[scope.0 as usize]
+            .bindings
+            .insert(name.text.clone(), def);
+        self.reads.insert(def);
+        self.use_spans.insert(name.span, def);
+    }
+
     fn resolve_domain_ref(&mut self, name: &Name, scope: ScopeId) {
         // Domain konumunda çözülemeyen isim E1001 değil E3002 üretir:
         // kullanıcı bir saat alanı bekliyordu, genel "tanımsız isim"
@@ -791,7 +861,11 @@ impl<'a> Resolver<'a> {
         let kind = self.defs[def.0 as usize].kind;
         if !matches!(
             kind,
-            DefKind::Domain | DefKind::Error | DefKind::Import | DefKind::Port { .. }
+            DefKind::Domain
+                | DefKind::DomainParam
+                | DefKind::Error
+                | DefKind::Import
+                | DefKind::Port { .. }
         ) {
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E3002,
@@ -1696,6 +1770,13 @@ impl<'a> Resolver<'a> {
             }
             // Public öğeler muaf (dışarıdan kullanılabilir).
             if data.is_public {
+                continue;
+            }
+            // Extern portları dış SV modülüne aittir (ADR-0047).
+            if matches!(
+                self.scopes[data.scope.0 as usize].kind,
+                ScopeKind::Extern(_)
+            ) {
                 continue;
             }
             if self.reads.contains(&def) {

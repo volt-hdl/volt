@@ -234,8 +234,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     }
     // ADR-0038: 45-46 pipeline, ADR-0039: 47-48 bundle, ADR-0040: 49 prev,
     // ADR-0041: 50-52 genişleme/const dizi/generic örnekleme fixture'ları,
-    // ADR-0044: 57-58 @mmio register haritası.
-    assert_eq!(checked, 50);
+    // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain.
+    assert_eq!(checked, 51);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
@@ -500,4 +500,22 @@ fn ui_multifile_entry_files_declare_expected_outcome() {
             "{dir}/{entry}: ilk satır '//~ ...' olmalı: {first}"
         );
     }
+}
+
+// ═══ Extern domain anotasyonu (ADR-0047) ══════════════════════════
+
+#[test]
+fn ui_pass_62_extern_domains_clean() {
+    let result = analyze_file("pass/62_extern_domains.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_fail_49_extern_domain_violation_e3001() {
+    assert_ui_fail("fail/49_extern_domain_violation.volt");
+}
+
+#[test]
+fn ui_fail_50_extern_clock_conflict_e3014() {
+    assert_ui_fail("fail/50_extern_clock_conflict.volt");
 }

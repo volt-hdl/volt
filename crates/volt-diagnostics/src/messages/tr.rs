@@ -80,6 +80,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3011 => "Register birden fazla domainden yazılıyor",
         E3012 => "'on' bloğunda yabancı domain sinyali okunuyor",
         E3013 => "Bundle alanları farklı saat alanlarında çıkarıldı (ADR-0039)",
+        E3014 => "Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)",
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => "Çift sürücü",

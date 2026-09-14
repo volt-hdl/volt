@@ -48,7 +48,7 @@ error_codes! {
 
     // ─── Saat/sıfırlama alanları (domain-inference.md) ───
     E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009, E3010,
-    E3011, E3012, E3013,
+    E3011, E3012, E3013, E3014,
 
     // ─── Bağlantı/sürücü (type-inference.md) ───
     E4001, E4002, E4003, E4004, E4005, E4006,

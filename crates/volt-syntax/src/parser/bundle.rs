@@ -389,7 +389,17 @@ fn expand(
                 span: name_span,
             },
             ty: f.ty,
-            domain: f.domain.clone().or_else(|| port.domain.clone()),
+            // Anotasyon span'i de düzleştirilmiş port başına benzersiz
+            // (use_spans anahtarı): aynı struct'ı iki extern kullanınca
+            // sembolik alan tanımları birbirini ezmesin (ADR-0047).
+            domain: f
+                .domain
+                .clone()
+                .or_else(|| port.domain.clone())
+                .map(|d| Name {
+                    text: d.text,
+                    span: name_span,
+                }),
             bundle: Some(BundleOrigin {
                 port: port.name.clone(),
                 bundle: bundle.to_string(),

@@ -10,12 +10,12 @@
 //! Geçiş tip kontrolünden SONRA koşar; saat portları `Ty::Clock`
 //! üzerinden bulunur, sync() genişliği `expr_types`'tan okunur.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind, Idx, IfStmt,
-    ItemKind, LValue, LValueSuffix, MatchArmBody, ModuleDecl, Name, OnTrigger, Port, ResetPolarity,
-    ResetSpec, ResetSync, SourceFile, Stmt, StmtKind,
+    Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind, ExternDecl,
+    Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, ModuleDecl, Name, OnTrigger, Port,
+    ResetPolarity, ResetSpec, ResetSync, SourceFile, Stmt, StmtKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -95,8 +95,10 @@ pub fn infer_domains(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult)
     };
     inf.collect_domain_decls();
     for &item_idx in &ast.items {
-        if let ItemKind::Module(m) = &ast.items_arena[item_idx].kind {
-            inf.infer_module(m);
+        match &ast.items_arena[item_idx].kind {
+            ItemKind::Module(m) => inf.infer_module(m),
+            ItemKind::Extern(x) => inf.check_extern_decl(x),
+            _ => {}
         }
     }
     DomainResult {
@@ -264,26 +266,32 @@ impl<'a> Inferencer<'a> {
             // İsim çözümleme portları `reg(clk)` için kabul eder; clock
             // tipinde olmayan port burada yakalanır.
             DefKind::Port { .. } => {
-                self.diagnostics.push(Diagnostic::error(
-                    ErrorCode::E3002,
-                    lstr!(
-                        en: "'{}' is not a clock domain", name.text;
-                        tr: "'{}' bir saat alanı değil", name.text
-                    ),
-                    LabeledSpan::primary(
-                        name.span,
-                        lstr!(en: "not of clock type"; tr: "clock tipinde değil"),
-                    ),
-                    lstr!(
-                        en: "use a port of clock type or a domain definition";
-                        tr: "clock tipinde bir port ya da domain tanımı kullanın"
-                    ),
-                ));
+                self.err_annotation_not_clock(name);
                 DomainId::Error
             }
             // Diğer türler için E3002 isim çözümlemede üretildi.
             _ => DomainId::Error,
         }
+    }
+
+    /// E3002 — `@port` anotasyonu clock tipinde olmayan bir porta işaret
+    /// ediyor (modül ve extern ortak).
+    fn err_annotation_not_clock(&mut self, name: &Name) {
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E3002,
+            lstr!(
+                en: "'{}' is not a clock domain", name.text;
+                tr: "'{}' bir saat alanı değil", name.text
+            ),
+            LabeledSpan::primary(
+                name.span,
+                lstr!(en: "not of clock type"; tr: "clock tipinde değil"),
+            ),
+            lstr!(
+                en: "use a port of clock type or a domain definition";
+                tr: "clock tipinde bir port ya da domain tanımı kullanın"
+            ),
+        ));
     }
 
     // ═══ Modül çıkarımı (§3 akışı) ════════════════════════════════
@@ -330,7 +338,7 @@ impl<'a> Inferencer<'a> {
             let dom = match &p.domain {
                 Some(ann) => self.annotation_domain(&ann.clone()),
                 None if self.multi_clock => {
-                    self.err_ambiguous(&p.name.clone());
+                    self.err_ambiguous(&p.name.clone(), false);
                     DomainId::Error
                 }
                 None => self.default_domain,
@@ -417,8 +425,19 @@ impl<'a> Inferencer<'a> {
     }
 
     /// K3 — çoklu saatte anotasyonsuz sinyal (E3010, 5 parça).
-    fn err_ambiguous(&mut self, name: &Name) {
+    fn err_ambiguous(&mut self, name: &Name, in_extern: bool) {
         let candidate = self.clock_candidates.first().map(|(_, d)| d.clone());
+        let reason = if in_extern {
+            lstr!(en: "the extern module has more than one clock port, so it cannot be \
+                       inferred which one the port belongs to (ADR-0047)";
+                  tr: "extern modülde birden fazla clock portu var, portun hangisine \
+                       ait olduğu çıkarılamıyor (ADR-0047)")
+        } else {
+            lstr!(en: "the module has more than one clock, so it cannot be inferred \
+                       which one the signal belongs to";
+                  tr: "modülde birden fazla saat var, sinyalin hangisine \
+                       ait olduğu çıkarılamıyor")
+        };
         let mut diag = Diagnostic::error(
             ErrorCode::E3010,
             lstr!(
@@ -441,19 +460,100 @@ impl<'a> Inferencer<'a> {
                     candidate.clone().unwrap_or_else(|| "@Alan".to_string())
             ),
         )
-        .with_note(
-            NoteKind::Reason,
-            lstr!(
-                en: "the module has more than one clock, so it cannot be inferred \
-                     which one the signal belongs to";
-                tr: "modülde birden fazla saat var, sinyalin hangisine \
-                     ait olduğu çıkarılamıyor"
-            ),
-        );
+        .with_note(NoteKind::Reason, reason);
         for (span, dom) in self.clock_candidates.clone() {
             diag = diag.with_secondary(span, lstr!(en: "candidate: {dom}"; tr: "aday: {dom}"));
         }
         self.diagnostics.push(diag);
+    }
+
+    // ═══ Extern modül bildirimi (ADR-0047) ════════════════════════
+
+    /// Extern sınırının domain sözleşmesi: sembolik `@Ad` en az bir clock
+    /// portunda taşınmalı (E3002), çok saatli extern'de saat dışı her
+    /// port anotasyonlu olmalı (E3010). Tek saatli extern K2 gibi
+    /// davranır, saatsiz extern Timeless'tır — ikisi de anotasyonsuz.
+    fn check_extern_decl(&mut self, x: &ExternDecl) {
+        let clocks: Vec<&Port> = x
+            .ports
+            .iter()
+            .filter(|p| self.decl_def(&p.name).is_some_and(|d| self.is_clock_def(d)))
+            .collect();
+        let anchored: HashSet<DefId> = clocks
+            .iter()
+            .filter_map(|c| c.domain.as_ref())
+            .filter_map(|a| self.use_def(a.span))
+            .collect();
+
+        self.clock_candidates.clear();
+        for c in &clocks {
+            let shown = match &c.domain {
+                Some(a) => format!("@{}", a.text),
+                None => format!("@{}", c.name.text),
+            };
+            self.clock_candidates.push((c.name.span, shown));
+        }
+
+        let mut reported: HashSet<DefId> = HashSet::new();
+        for p in &x.ports {
+            let Some(def) = self.decl_def(&p.name) else {
+                continue;
+            };
+            if self.is_clock_def(def) {
+                continue;
+            }
+            match &p.domain {
+                Some(ann) => {
+                    let Some(dom_def) = self.use_def(ann.span) else {
+                        continue;
+                    };
+                    match self.res.def_kind(dom_def) {
+                        DefKind::DomainParam
+                            if !anchored.contains(&dom_def) && reported.insert(dom_def) =>
+                        {
+                            self.err_symbolic_without_clock(&x.name, ann);
+                        }
+                        // `@port` clock tipinde değil — modülle aynı E3002.
+                        DefKind::Port { .. } if !self.is_clock_def(dom_def) => {
+                            self.err_annotation_not_clock(ann);
+                        }
+                        _ => {}
+                    }
+                }
+                None if clocks.len() > 1 => self.err_ambiguous(&p.name, true),
+                None => {}
+            }
+        }
+    }
+
+    /// E3002 (extern biçimi) — sembolik alanı taşıyan clock portu yok:
+    /// örneklemede hiç bağlanamaz, dolayısıyla hiç denetlenemez.
+    fn err_symbolic_without_clock(&mut self, module: &Name, ann: &Name) {
+        let lower = ann.text.to_lowercase();
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E3002,
+                lstr!(en: "symbolic domain '@{}' has no clock port in extern module '{}'",
+                          ann.text, module.text;
+                      tr: "'@{}' sembolik saat alanının '{}' extern modülünde clock portu yok",
+                          ann.text, module.text),
+                LabeledSpan::primary(
+                    ann.span,
+                    lstr!(en: "no clock port carries this domain";
+                          tr: "bu alanı taşıyan clock portu yok"),
+                ),
+                lstr!(en: "add a clock port for it: in {lower}_clk : clock @{}", ann.text;
+                      tr: "onun için bir clock portu ekleyin: in {lower}_clk : clock @{}", ann.text),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a symbolic domain is bound to a real clock domain through a clock \
+                           connection at instantiation; without a clock port it can never be \
+                           bound (ADR-0047)";
+                      tr: "sembolik alan örneklemede saat bağlantısıyla gerçek alana bağlanır; \
+                           clock portu yoksa hiç bağlanamaz (ADR-0047)"),
+            ),
+        );
     }
 
     // ═══ K4 — register domain'i ═══════════════════════════════════
@@ -1343,25 +1443,7 @@ impl<'a> Inferencer<'a> {
             .collect();
 
         // 1. Saat bağlantılarından modülün domain haritasını çıkar.
-        let mut mapping: HashMap<DefId, DomainId> = HashMap::new();
-        for b in &inst.bindings {
-            let Some(port) = target_ports
-                .iter()
-                .find(|p| p.name.text == b.port_name.text)
-            else {
-                continue;
-            };
-            let Some(key) = self.port_domain_key(port, &target_clocks) else {
-                continue;
-            };
-            let is_clock = self
-                .decl_def(&port.name)
-                .is_some_and(|def| self.is_clock_def(def));
-            if is_clock {
-                let actual = self.binding_domain(b);
-                mapping.insert(key, actual);
-            }
-        }
+        let mapping = self.build_domain_mapping(inst, target_ports, &target_clocks);
 
         // 2. Diğer portları bu haritaya göre kontrol et.
         let mut port_domains: HashMap<String, DomainId> = HashMap::new();
@@ -1509,6 +1591,107 @@ impl<'a> Inferencer<'a> {
         }
     }
 
+    /// K8 adım 1: saat bağlamalarından anahtar → gerçek alan haritası.
+    /// Aynı anahtara (sembolik ya da açık alan) ikinci bir saat farklı
+    /// alandan gelirse E3014; anahtar Error'a düşer ki port denetimleri
+    /// E3001 kaskadı üretmesin (ADR-0047).
+    fn build_domain_mapping(
+        &mut self,
+        inst: &volt_ast::InstanceDecl,
+        target_ports: &[Port],
+        target_clocks: &[&Port],
+    ) -> HashMap<DefId, DomainId> {
+        let mut mapping: HashMap<DefId, DomainId> = HashMap::new();
+        let mut first_bind: HashMap<DefId, Span> = HashMap::new();
+        for b in &inst.bindings {
+            let Some(port) = target_ports
+                .iter()
+                .find(|p| p.name.text == b.port_name.text)
+            else {
+                continue;
+            };
+            let is_clock = self
+                .decl_def(&port.name)
+                .is_some_and(|def| self.is_clock_def(def));
+            if !is_clock {
+                continue;
+            }
+            let Some(key) = self.port_domain_key(port, target_clocks) else {
+                continue;
+            };
+            let actual = self.binding_domain(b);
+            match mapping.get(&key).copied() {
+                Some(prev) if self.clocks_conflict(prev, actual) => {
+                    let prev_span = first_bind.get(&key).copied().unwrap_or(b.span);
+                    self.err_clock_conflict(key, prev, actual, prev_span, b.span);
+                    mapping.insert(key, DomainId::Error);
+                }
+                Some(_) => {}
+                None => {
+                    mapping.insert(key, actual);
+                    first_bind.insert(key, b.span);
+                }
+            }
+        }
+        mapping
+    }
+
+    /// İki saat bağlaması çelişir mi: ikisi de belirli ve farklı alan.
+    /// Timeless/Error/Unresolved taraflar çelişki sayılmaz (kaskad yok).
+    fn clocks_conflict(&self, a: DomainId, b: DomainId) -> bool {
+        matches!(
+            (self.resolve_dom(a), self.resolve_dom(b)),
+            (DomainId::Explicit(x), DomainId::Explicit(y)) if x != y
+        )
+    }
+
+    /// E3014 (ADR-0047) — aynı alan anahtarına iki farklı saat bağlandı.
+    /// Beş parça: kod, konum (ikinci bağlama), açıklama, öneri, ADR
+    /// referansı (not); ilk bağlama ikincil etiket taşır.
+    fn err_clock_conflict(
+        &mut self,
+        key: DefId,
+        prev: DomainId,
+        actual: DomainId,
+        prev_span: Span,
+        span: Span,
+    ) {
+        let key_name = format!("@{}", self.res.defs[key.0 as usize].name);
+        let what = if self.res.def_kind(key) == DefKind::DomainParam {
+            lstr!(en: "symbolic domain"; tr: "sembolik saat alanı")
+        } else {
+            lstr!(en: "clock domain"; tr: "saat alanı")
+        };
+        let (d_prev, d_now) = (self.display(prev), self.display(actual));
+        let diag = Diagnostic::error(
+            ErrorCode::E3014,
+            lstr!(en: "{what} '{key_name}' is bound to two different clocks: {d_prev} and {d_now}";
+                  tr: "'{key_name}' {what} iki farklı saate bağlandı: {d_prev} ve {d_now}"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "this clock is {d_now}"; tr: "bu saat {d_now}"),
+            ),
+            lstr!(en: "drive both clock ports of '{key_name}' from one clock, or give the second \
+                       port its own domain in the declaration (e.g. @Dst)";
+                  tr: "'{key_name}' alanının iki saat portunu da tek saatten sürün ya da \
+                       bildirimde ikinci porta kendi alanını verin (ör. @Dst)"),
+        )
+        .with_secondary(
+            prev_span,
+            lstr!(en: "'{key_name}' was already bound to {d_prev} here";
+                  tr: "'{key_name}' burada zaten {d_prev} olarak bağlanmıştı"),
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(en: "one domain annotation stands for exactly one clock domain per \
+                       instantiation; two clocks would open a CDC path inside the module \
+                       (ADR-0047)";
+                  tr: "bir alan anotasyonu her örneklemede tam olarak bir saat alanını temsil \
+                       eder; iki saat modülün içinde bir CDC yolu açar (ADR-0047)"),
+        );
+        self.diagnostics.push(diag);
+    }
+
     /// Hedef portun domain anahtarı: açık @Domain tanımı ya da hedefin
     /// clock portu (tek saat kuralı hedef modülde de geçerli).
     fn port_domain_key(&self, port: &Port, target_clocks: &[&Port]) -> Option<DefId> {
@@ -1532,7 +1715,8 @@ impl<'a> Inferencer<'a> {
     }
 
     /// K8 adım 2: haritada eşleşme yoksa global domain tanımı geçerli;
-    /// o da yoksa Timeless (saatsiz hedef modül).
+    /// bağlanmamış sembolik alan (ADR-0047) Error (denetlenemez, kaskad
+    /// yok); o da yoksa Timeless (saatsiz hedef modül).
     fn expected_port_domain(
         &mut self,
         port: &Port,
@@ -1547,6 +1731,7 @@ impl<'a> Inferencer<'a> {
         }
         match self.by_decl.get(&key) {
             Some(&id) => DomainId::Explicit(id),
+            None if self.res.def_kind(key) == DefKind::DomainParam => DomainId::Error,
             None => DomainId::Timeless,
         }
     }
