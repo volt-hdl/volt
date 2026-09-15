@@ -5,6 +5,37 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — HW-SW köprüsü: `@mmio`'dan sürücü, başlık, regmap.json ve belge (2026-09-15, ADR-0053)
+
+- **`volt build --emit=rust,c,regmap,regmap-md`**: birimdeki her `@mmio`
+  modülü için `build/sw/<modül>.rs` (`no_std` Rust sürücüsü),
+  `build/sw/<modül>.h` (C başlığı), `build/sw/<modül>.json`
+  (`volt-regmap/1`) ve `build/docs/<modül>.md` (register haritası
+  tabloları). Register haritası artık tek yerde yaşar: RTL, sürücü ve
+  belge aynı `RegInfo` listesinden üretilir.
+- **Durum tespiti**: `@mmio` bilgisi HIR'da DURMUYORDU — ADR-0044 silme
+  ilkesiyle parser'da tüketiliyordu. Yeni `volt_ast::mmio::RegMap`
+  (saf veri: base, bus, register offset/access/volatile, alan lsb/
+  genişlik/tip/`@reserved`/`@self_clearing`/`@w1c`, üç seviyede doc)
+  parser'da RTL ile aynı anda kurulur, `ParseResult.regmaps` ile
+  sürücüye döner. Alan doc yorumu (`/// açıklama` bir alanın üstünde)
+  eklendi (`MmioFieldDecl.doc`).
+- **Erişim hakkı derleme zamanında**: ReadOnly register'a setter,
+  WriteOnly register'a getter üretilmez (Rust'ta "method not found",
+  C'de tanımsız fonksiyon). `@reserved` bitler `*_MASK` ile maskelenir;
+  `@self_clearing` → `trigger_*`, `@w1c` → `clear_*`; okuma-değiştirme-
+  yazma darbe bitlerini korumaz (yeniden tetikleme yok).
+- **Tutarlılık testi**: `regmap.json`'daki her adres üretilen SV'nin
+  `mmio_whit`/`mmio_rhit` kümesi, `case (ar_addr)`/`case (aw_addr)`
+  kolları ve okuma maskeleriyle karşılaştırılır; denetimin kendisi de
+  kaydırılmış bir adresle sınanır. Üretilen Rust `cargo check`
+  (`#![no_std]`, `-D warnings`, clippy pedantic temiz), C başlığı `gcc
+  -std=c99 -Wall -Wextra -Werror -pedantic -fsyntax-only` + C11 + `g++
+  -std=c++17` ile doğrulandı.
+- Yeni crate `volt-sw-emit` (rust/c/json/markdown üreticileri, saf
+  `RegMap → String`); `cli-contract.md` §4/§5 (ADR kaynaklı);
+  `tests/ui/pass/72_mmio_driver_generation.volt`; testler +50.
+
 ### Eklendi — güven seviyeleri: `trust_level`, E3009, `declassify` (2026-09-15, ADR-0052)
 
 - **Domain'in dördüncü boyutu uygulandı**: `domain D { trust_level =

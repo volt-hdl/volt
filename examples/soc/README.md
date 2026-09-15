@@ -154,3 +154,25 @@ warnings Volt cannot silence (no `_` on a binding, no pragma).
 - **`onehot0(...)`** / `at_most_one` contract builtin; `@mmio` register
   maps; `Handshake<T>` in the stdlib; instance-name clash detection;
   `match` as an expression in combinational assignments.
+
+## Software side (ADR-0053)
+
+The `@mmio` map of `gpio.volt` is the single source for the RTL *and*
+the software. One command produces the driver, the C header, the
+machine-readable map and the documentation next to the RTL:
+
+```
+volt build --emit=rust,c,regmap,regmap-md gpio.volt
+build/rtl/Gpio.sv      AXI4-Lite slave (ADR-0044)
+build/sw/gpio.rs       no_std Rust driver: Gpio::data_out(), set_dir(), data_in() — no set_data_in()
+build/sw/gpio.h        C header: GPIO_DIR, GPIO_DIR_PINS_SHIFT/MASK, gpio_get_data_in_pins()
+build/sw/gpio.json     volt-regmap/1 (offsets, access, fields)
+build/docs/gpio.md     register map tables
+```
+
+A ReadOnly register never gets a setter and a WriteOnly register never
+gets a getter, so a driver that writes `data_in` does not compile. The
+test suite (`crates/volt-driver/tests/sw_emit_tests.rs`) checks every
+offset in `gpio.json` against the address decode of `Gpio.sv`, runs
+`cargo check` on the generated Rust and `gcc -fsyntax-only` on the
+header (when a C compiler is available).

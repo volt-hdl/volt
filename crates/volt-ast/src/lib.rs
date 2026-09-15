@@ -8,6 +8,7 @@
 
 pub mod arena;
 pub mod builtin;
+pub mod mmio;
 
 pub use arena::{Arena, Idx};
 use std::collections::HashMap;
@@ -198,6 +199,8 @@ pub struct MmioFieldDecl {
     /// `@reserved` alanında None.
     pub name: Option<Name>,
     pub ty: Idx<TypeRef>,
+    /// Alanın `///` doc yorumu (ADR-0053: sürücü/belge üretimine aktarılır).
+    pub doc: Option<String>,
 }
 
 /// `pipeline(N) Ad { ... }` (ADR-0038). Yalnız ayrıştırma ara

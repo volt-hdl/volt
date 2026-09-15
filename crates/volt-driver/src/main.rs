@@ -27,6 +27,7 @@ use volt_sv_emit::{
     ConstArrayStyle, SbyEngine, SbyMode, SbyOptions, SourceText, SvModule, SvaFile, SvaMode,
     SvaProp,
 };
+use volt_sw_emit::{EmitOpts, SwKind};
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
@@ -115,7 +116,8 @@ enum Command {
         /// Output format: human | json | short
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
-        /// Additional outputs: sva (SystemVerilog assertions from contracts)
+        /// Additional outputs: sva (assertions), rust | c (drivers, build/sw/),
+        /// regmap (build/sw/<module>.json), regmap-md (build/docs/<module>.md)
         #[arg(long, value_enum, value_delimiter = ',')]
         emit: Vec<EmitArg>,
         /// SVA placement: separate .sva file with bind | inline in the .sv
@@ -228,10 +230,27 @@ enum ColorArg {
     Never,
 }
 
-/// `--emit` ek çıktıları (F4a).
+/// `--emit` ek çıktıları (F4a `sva`; ADR-0053 yazılım tarafı).
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum EmitArg {
     Sva,
+    Rust,
+    C,
+    Regmap,
+    RegmapMd,
+}
+
+impl EmitArg {
+    /// Yazılım çıktısı türü; `sva` için None.
+    fn sw_kind(self) -> Option<SwKind> {
+        match self {
+            EmitArg::Sva => None,
+            EmitArg::Rust => Some(SwKind::Rust),
+            EmitArg::C => Some(SwKind::C),
+            EmitArg::Regmap => Some(SwKind::Json),
+            EmitArg::RegmapMd => Some(SwKind::Markdown),
+        }
+    }
 }
 
 /// `--sva` yerleşimi (F4a ADIM 3); varsayılan ayrı dosya + bind.
@@ -303,7 +322,14 @@ fn main() -> ExitCode {
             } else {
                 SvaMode::None
             };
-            build(&file, &target_dir, format, mode, single_file)
+            // Aynı tür iki kez yazıldıysa (rust,rust) bir kez üretilir.
+            let mut sw: Vec<SwKind> = Vec::new();
+            for kind in emit.iter().filter_map(|e| e.sw_kind()) {
+                if !sw.contains(&kind) {
+                    sw.push(kind);
+                }
+            }
+            build(&file, &target_dir, format, mode, single_file, &sw)
         }
         Command::Check { file, format } => check(&file, format),
         Command::Verify {
@@ -477,6 +503,9 @@ struct Compiled {
     sva_props: Vec<SvaProp>,
     /// İki+ saat portlu modüller — `.sby`'ye `multiclock on` (ADR-0027).
     multiclock_modules: Vec<String>,
+    /// `@mmio` modüllerinin register haritaları (ADR-0053) — `--emit=rust,
+    /// c,regmap,regmap-md` bunlardan üretilir; hata varsa boş.
+    regmaps: Vec<volt_ast::mmio::RegMap>,
 }
 
 impl Compiled {
@@ -538,6 +567,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         sva_files: Vec::new(),
         sva_props: Vec::new(),
         multiclock_modules: Vec::new(),
+        regmaps: Vec::new(),
     };
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
@@ -618,6 +648,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         sva_files,
         sva_props,
         multiclock_modules,
+        regmaps: parsed.regmaps,
     })
 }
 
@@ -727,6 +758,7 @@ fn build(
     format: OutputFormat,
     sva_mode: SvaMode,
     single_file: bool,
+    sw: &[SwKind],
 ) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
@@ -837,6 +869,21 @@ fn build(
         }
     }
 
+    // ADR-0053 — yazılım tarafı: build/sw/<modül>.{rs,h,json}, build/docs/<modül>.md.
+    if !sw.is_empty() {
+        let opts = EmitOpts {
+            source: file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.display().to_string()),
+            version: volt_sv_emit::VOLT_VERSION.to_string(),
+        };
+        match write_sw_outputs(target_dir, &compiled.regmaps, sw, &opts, format) {
+            Ok(paths) => artifacts.extend(paths),
+            Err(code) => return code,
+        }
+    }
+
     if format == OutputFormat::Human {
         eprintln!(
             "{}",
@@ -882,6 +929,61 @@ fn build(
         print_json_envelope("build", &compiled, &artifacts, start);
     }
     ExitCode::SUCCESS
+}
+
+/// `--emit=rust,c,regmap,regmap-md` (ADR-0053): birimdeki her `@mmio`
+/// modülü için istenen türleri yazar, yazılan yolları döndürür. `@mmio`
+/// modülü yoksa dosya üretilmez; insan biçiminde bir not düşülür (hata
+/// değil — sürücüsü olmayan bir tasarım geçerlidir).
+fn write_sw_outputs(
+    target_dir: &Path,
+    regmaps: &[volt_ast::mmio::RegMap],
+    kinds: &[SwKind],
+    opts: &EmitOpts,
+    format: OutputFormat,
+) -> Result<Vec<String>, ExitCode> {
+    if regmaps.is_empty() {
+        if format == OutputFormat::Human {
+            let flags: Vec<&str> = kinds.iter().map(|k| k.flag()).collect();
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Note: no @mmio module in the unit; --emit={} produced nothing", flags.join(",");
+                    tr: "         Not: birimde @mmio modülü yok; --emit={} hiçbir şey üretmedi", flags.join(",")
+                )
+            );
+        }
+        return Ok(Vec::new());
+    }
+    let mut written = Vec::new();
+    for map in regmaps {
+        for &kind in kinds {
+            let path = kind.output_path(target_dir, map);
+            let dir = path.parent().expect("çıktı yolu bir dizin içinde");
+            if let Err(err) = std::fs::create_dir_all(dir) {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "error: cannot create '{}': {}", dir.display(), err;
+                        tr: "hata: '{}' oluşturulamadı: {}", dir.display(), err
+                    )
+                );
+                return Err(ExitCode::from(3));
+            }
+            if let Err(err) = std::fs::write(&path, kind.render(map, opts)) {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "error: cannot write '{}': {}", path.display(), err;
+                        tr: "hata: '{}' yazılamadı: {}", path.display(), err
+                    )
+                );
+                return Err(ExitCode::from(3));
+            }
+            written.push(path.display().to_string());
+        }
+    }
+    Ok(written)
 }
 
 fn check(file: &Path, format: OutputFormat) -> ExitCode {

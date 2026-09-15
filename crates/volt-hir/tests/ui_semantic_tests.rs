@@ -238,8 +238,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced),
     // ADR-0049: 65 domain-aware çift saatli bellek,
     // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain),
-    // ADR-0052: 70-71 güven seviyeleri + declassify.
-    assert_eq!(checked, 60);
+    // ADR-0052: 70-71 güven seviyeleri + declassify,
+    // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita).
+    assert_eq!(checked, 61);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

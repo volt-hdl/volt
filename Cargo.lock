@@ -1208,6 +1208,7 @@ dependencies = [
  "volt-lsp",
  "volt-span",
  "volt-sv-emit",
+ "volt-sw-emit",
  "volt-syntax",
 ]
 
@@ -1251,6 +1252,16 @@ version = "0.1.0"
 dependencies = [
  "volt-ast",
  "volt-diagnostics",
+ "volt-span",
+ "volt-syntax",
+]
+
+[[package]]
+name = "volt-sw-emit"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "volt-ast",
  "volt-span",
  "volt-syntax",
 ]

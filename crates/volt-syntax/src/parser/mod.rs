@@ -20,6 +20,7 @@ mod test;
 
 use std::collections::HashSet;
 
+use volt_ast::mmio::RegMap;
 use volt_ast::{Expr, ExprKind, Idx, Pattern, PatternKind, SourceFile, TypeRef, TypeRefKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::{FileId, Span};
@@ -39,6 +40,10 @@ pub struct ParseResult {
     /// metinleri. Sürücü bunları SourceMap'e AYNI kimlikle kaydeder ki
     /// üretilen koda düşen bir tanı üretilen satırı göstersin.
     pub generated: Vec<GeneratedSource>,
+    /// `@mmio` modüllerinin register haritaları (ADR-0053): RTL'e açılan
+    /// bilginin yazılım tarafı için dil bağımsız kopyası. Sürücü
+    /// `--emit=rust,c,regmap,regmap-md` çıktılarını bundan üretir.
+    pub regmaps: Vec<RegMap>,
 }
 
 /// Parser'ın ürettiği sentetik kaynak dosya (ADR-0044).
@@ -76,6 +81,7 @@ pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
     let mut ast = SourceFile::default();
     let mut diagnostics = Vec::new();
     let mut generated = Vec::new();
+    let mut regmaps = Vec::new();
     let next_synthetic = files.iter().map(|(f, _)| f.0 + 1).max().unwrap_or(0);
     for (i, &(file, source)) in files.iter().enumerate() {
         let mut parser = Parser::new(file, source);
@@ -93,12 +99,14 @@ pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
         ast = result.ast;
         diagnostics.extend(result.diagnostics);
         generated.extend(result.generated);
+        regmaps.extend(result.regmaps);
     }
     diagnostics.extend(mono::monomorphize(&mut ast));
     ParseResult {
         ast,
         diagnostics,
         generated,
+        regmaps,
     }
 }
 
@@ -141,6 +149,8 @@ pub(crate) struct Parser<'s> {
     pub(crate) next_synthetic: u32,
     /// Bu ayrıştırmada üretilen sentetik kaynaklar.
     pub(crate) generated: Vec<GeneratedSource>,
+    /// Açılan `@mmio` modüllerinin register haritaları (ADR-0053).
+    pub(crate) regmaps: Vec<RegMap>,
     /// Çift yönlü port durumu (ADR-0051): öğenin `inout`/`opendrain`
     /// portları ve `p.drive(v)`'nin beklettiği ikinci deyim.
     pub(crate) bidir: bidir::BidirState,
@@ -174,6 +184,7 @@ impl<'s> Parser<'s> {
             in_pipeline: false,
             next_synthetic: file.0 + 1,
             generated: Vec::new(),
+            regmaps: Vec::new(),
             bidir: bidir::BidirState::default(),
         }
     }
@@ -183,6 +194,7 @@ impl<'s> Parser<'s> {
             ast: self.ast,
             diagnostics: self.diagnostics,
             generated: self.generated,
+            regmaps: self.regmaps,
         }
     }
 

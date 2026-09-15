@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
 use volt_ast::{
     AttrArg, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, LValue,
     LValueSuffix, MatchArmBody, MmioRegDecl, Name, NumBase, Path, Stmt, StmtKind, TypeRef,
@@ -135,6 +136,8 @@ struct FieldInfo {
     ty: FieldTy,
     self_clearing: bool,
     w1c: bool,
+    /// `///` doc yorumu — yalnız yazılım tarafına (ADR-0053) aktarılır.
+    doc: Option<String>,
 }
 
 impl FieldInfo {
@@ -159,10 +162,14 @@ struct RegInfo {
     name: String,
     /// `base + offset` — tam 32 bit adres karşılaştırması.
     addr: u64,
+    /// `@reg(offset = ...)` — yazılım haritası taban göreli offset ister.
+    offset: u64,
     access: Access,
     fields: Vec<FieldInfo>,
     owner: Owner,
     span: Span,
+    /// `///` doc yorumu — yazılım tarafına (ADR-0053) aktarılır.
+    doc: Option<String>,
 }
 
 impl RegInfo {
@@ -184,6 +191,50 @@ impl RegInfo {
     }
     fn rd(&self) -> String {
         format!("{PREFIX}{}_rd", self.name)
+    }
+}
+
+/// RTL'e açılan haritanın yazılım tarafı kopyası (ADR-0053): aynı
+/// `RegInfo` listesinden üretilir, bu yüzden sürücü ile RTL ayrışamaz.
+fn regmap(module: &str, base: u64, doc: Option<String>, regs: &[RegInfo]) -> RegMap {
+    let registers = regs
+        .iter()
+        .map(|r| RegDesc {
+            name: r.name.clone(),
+            offset: r.offset,
+            access: match r.access {
+                Access::ReadWrite => RegAccess::ReadWrite,
+                Access::ReadOnly => RegAccess::ReadOnly,
+                Access::WriteOnly => RegAccess::WriteOnly,
+            },
+            volatile: r.owner == Owner::Hardware,
+            doc: r.doc.clone(),
+            fields: r
+                .fields
+                .iter()
+                .map(|f| FieldDesc {
+                    name: f.name.clone().unwrap_or_else(|| "_reserved".to_string()),
+                    lsb: f.lo,
+                    width: f.ty.width(),
+                    kind: match f.ty {
+                        FieldTy::Bool => FieldKind::Bool,
+                        FieldTy::Bits(_) => FieldKind::Bits,
+                        FieldTy::UInt(_) => FieldKind::UInt,
+                    },
+                    reserved: f.name.is_none(),
+                    self_clearing: f.self_clearing,
+                    w1c: f.w1c,
+                    doc: f.doc.clone(),
+                })
+                .collect(),
+        })
+        .collect();
+    RegMap {
+        module: module.to_string(),
+        base,
+        bus: BUS_AXI4LITE.to_string(),
+        doc,
+        registers,
     }
 }
 
@@ -255,6 +306,8 @@ impl Parser<'_> {
             let Some(gen) = self.parse_generated(file, &module_name, text) else {
                 continue;
             };
+            let doc = self.ast.items_arena[item].doc.clone();
+            self.regmaps.push(regmap(&module_name, base, doc, &infos));
             self.rewrite_user_side(item, &infos);
             self.splice(item, gen);
         }
@@ -474,10 +527,12 @@ impl Parser<'_> {
         Some(RegInfo {
             name: r.name.text.clone(),
             addr: base + offset,
+            offset,
             access,
             fields,
             owner,
             span: r.span,
+            doc: r.doc.clone(),
         })
     }
 
@@ -566,6 +621,7 @@ impl Parser<'_> {
                 ty,
                 self_clearing,
                 w1c,
+                doc: f.doc.clone(),
             });
             lo += ty.width();
         }

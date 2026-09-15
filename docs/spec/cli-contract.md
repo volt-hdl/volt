@@ -132,11 +132,12 @@ build/
 ├── constraints/                  [V1]
 │   ├── design.sdc
 │   └── design.xdc
-├── sw/                           [V1]
-│   ├── driver.rs
-│   └── driver.h
-├── docs/                         [F5]
-│   └── design_spec.md
+├── sw/                           ADR-0053 (uygulandı): --emit=rust,c,regmap
+│   ├── gpio.rs                   no_std Rust sürücüsü (@mmio modülü başına)
+│   ├── gpio.h                    C başlığı
+│   └── gpio.json                 volt-regmap/1 register haritası
+├── docs/                         ADR-0053 (uygulandı): --emit=regmap-md
+│   └── gpio.md                   register haritası tabloları
 └── .volt-cache/                  artımlı derleme
 ```
 
@@ -159,13 +160,38 @@ volt build [SEÇENEKLER] [DOSYA]
 ```
 SEÇENEKLER:
     --release             Deterministik build + volt.lock
-    --emit=<tür>          sv | json-ast | json-hir | none
+    --emit=<tür,...>      sva | rust | c | regmap | regmap-md   (uygulandı)
+                          json-ast | json-hir | none          [V1]
     --target=<hedef>      generic | fpga-xilinx | fpga-intel |
                           asic-generic | asic-sky130
     --optimize=<seviye>   structure | aggressive
     --out=<dosya>         Tek dosya çıktısı
     --deny-warnings       Uyarıları hata say
 ```
+
+### Yazılım çıktıları — `--emit=rust,c,regmap,regmap-md` (ADR-0053)
+
+> ADR-0053 (uygulandı). Birimdeki her `@mmio` modülü (ADR-0044) için
+> register haritasından yazılım tarafı üretilir; dosya adı modül adının
+> snake_case halidir (`GpioRegs` → `gpio_regs`).
+
+| `--emit` | Dosya | İçerik |
+|---|---|---|
+| `rust` | `build/sw/<modül>.rs` | `no_std` Rust sürücüsü: `struct <Modül> { base: *mut u32 }`, `BASE`/`*_OFFSET`/`*_MASK` sabitleri, `read_volatile`/`write_volatile` erişimciler; ReadOnly alana setter, WriteOnly alana getter ÜRETİLMEZ; `@self_clearing` → `trigger_*`, `@w1c` → `clear_*` |
+| `c` | `build/sw/<modül>.h` | `#define <MOD>_BASE`, `<MOD>_<REG>`, `_OFFSET`, `_MASK`, alan başına `_SHIFT`/`_MASK`; `static inline <mod>_get_/_set_/_trigger_/_clear_<reg>_<alan>()` |
+| `regmap` | `build/sw/<modül>.json` | `volt-regmap/1` şeması (ADR-0053 §5): `name`, `base`, `bus`, `registers[{name, offset, address, access: rw\|ro\|wo, volatile, fields[{name, lsb, width, type, reserved, self_clearing, w1c, doc}]}]` |
+| `regmap-md` | `build/docs/<modül>.md` | `\| Offset \| Name \| Access \| Description \|` özet tablosu + register başına bit alanı tablosu; açıklamalar Volt `///` doc yorumlarından |
+
+Kurallar:
+
+- Değerler virgülle birleşir (`--emit=sva,rust,c`); yinelenen tür bir
+  kez yazılır. Yazılan yollar JSON zarfının `artifacts` listesine RTL
+  ve SVA dosyalarından SONRA girer; insan biçiminde `Output` satırı.
+- Derleme hatası varsa yazılım çıktısı da üretilmez (RTL ile aynı kural).
+- Birimde `@mmio` modülü yoksa dosya üretilmez; çıkış kodu 0, insan
+  biçiminde `Note: no @mmio module in the unit; --emit=... produced nothing`.
+- Doc yorumları (`///`) modül, register ve alan seviyesinde dört çıktıya
+  aktarılır.
 
 ### İnsan Çıktısı — Başarı
 

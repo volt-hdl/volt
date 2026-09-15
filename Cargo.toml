@@ -8,6 +8,7 @@ members = [
     "crates/volt-hir",
     "crates/volt-lower",
     "crates/volt-sv-emit",
+    "crates/volt-sw-emit",
     "crates/volt-driver",
     "crates/volt-lsp",
 ]

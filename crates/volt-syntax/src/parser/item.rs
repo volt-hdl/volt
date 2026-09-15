@@ -640,6 +640,8 @@ impl Parser<'_> {
             while !self.at(RBrace) && !self.at_eof() {
                 let before = self.pos;
                 let fstart = self.pos;
+                // ADR-0053: alan doc yorumu sürücü/belge üretimine aktarılır.
+                let fdoc = self.collect_doc_comments();
                 let mut fattrs = self.parse_attributes();
                 // `reset` anahtar kelimesi alan adı olarak serbesttir
                 // (`reset : bool @self_clearing`); erişim `regs.control.reset`.
@@ -670,6 +672,7 @@ impl Parser<'_> {
                     attrs: fattrs,
                     name: fname,
                     ty,
+                    doc: fdoc,
                 });
                 if !self.eat(Comma) && self.pos == before {
                     self.bump_any(); // ilerleme garantisi
