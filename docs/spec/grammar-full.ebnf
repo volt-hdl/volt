@@ -99,7 +99,7 @@ DomainKey       = (* saat *)
                 | "reset" | "reset_cycles" | "reset_sequence"
                   (* güç — [V1] *)
                 | "voltage" | "always_on" | "retention" | "isolation"
-                  (* güvenlik — [V1] *)
+                  (* güvenlik — ADR-0052 *)
                 | "trust_level" ;
 
 DomainValue     = ClockEdge
@@ -115,7 +115,8 @@ ResetSpec       = ResetSync ResetPolarity | "none" ;
 ResetSync       = "sync" | "async" ;
 ResetPolarity   = "active_high" | "active_low" ;
 
-TrustLevel      = "secret" | "confidential" | "public" ;      (* [V1] *)
+TrustLevel      = "secret" | "confidential" | "public" ;      (* ADR-0052; bağlamsal:
+                                                                 yalnız "trust_level =" değer konumunda *)
 IsolationKind   = "clamp_low" | "clamp_high" | "latch" ;      (* [V1] *)
 
 
@@ -436,7 +437,14 @@ PrimaryExpr     = Literal
                 | ArrayLit                                    (* [F3] *)
                 | TupleLit                                    (* [F3] *)
                 | TodoExpr                                    (* [F1] *)
+                | DeclassifyExpr                              (* ADR-0052 *)
                 | "(" Expr ")" ;
+
+(* Bilinçli güven düşürme: yalnız "declassify(" biçiminde bağlamsal;
+   gerekçe ZORUNLU ve boş olmayan dize (yoksa E0016). Parser'da soyulur:
+   AST'de yalnız Expr yaşar, çağrı SourceFile::trust yan tablosuna
+   yazılır, her kayıt W3008 üretir. *)
+DeclassifyExpr  = "declassify" "(" Expr "," StringLit ")" ;
 
 IfExpr          = "if" Expr "{" Expr "}"
                   "else" ( IfExpr | "{" Expr "}" ) ;
@@ -529,13 +537,15 @@ BlockComment    = "/*" { AnyChar | BlockComment } "*/" ;
 
    (* 'sync' ve 'async' bağlamsal anahtar kelimedir — yalnız
       "reset =" değer konumunda anahtar kelime, diğer her yerde
-      Ident (sync() CDC çağrısı dahil). Bkz. ADR-0023. *)
+      Ident (sync() CDC çağrısı dahil). Bkz. ADR-0023.
+      'secret', 'confidential', 'public' de bağlamsaldır — yalnız
+      "trust_level =" değer konumunda; 'declassify' yalnız '(' izliyorsa
+      (ADR-0052 ile ayrılmış listeden çıktılar). *)
 
    AYRILMIŞ (V1+, kullanılırsa E0003):
      fsm hook impl trait where
      Spike PTrit Option Some None Result Ok Err
      spike self Self mut ref move
-     secret confidential public
      clamp_low clamp_high latch
      retention isolation always_on voltage
 

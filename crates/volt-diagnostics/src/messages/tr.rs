@@ -26,6 +26,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0013 => "Kapanmamış blok yorumu",
         E0014 => "match deyiminde '_' kolu eksik",
         E0015 => "MMIO register haritası yerleşim hatası (ADR-0044)",
+        E0016 => "Gerekçesiz declassify (ADR-0052)",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",
@@ -75,7 +76,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3006 => "Güç alanı geçişi izolasyonsuz [V1]",
         E3007 => "Güç sekans ihlali [V1]",
         E3008 => "Retention eksik [V1]",
-        E3009 => "Bilgi akışı ihlali (trust_level) [V1]",
+        E3009 => "Bilgi akışı ihlali (trust_level)",
         E3010 => "Domain belirsiz (çoklu saat, anotasyon yok)",
         E3011 => "Register birden fazla domainden yazılıyor",
         E3012 => "'on' bloğunda yabancı domain sinyali okunuyor",
@@ -147,6 +148,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3005 => "PulseSync darbeleri hedef alanda aralık gerektirir",
         W3006 => "Aynı adrese port çakışması algılanmaz (DualPortRam yazma-yazma, AsyncDualPortRam yazma sırasında okuma)",
         W3007 => "Harici çift yönlü sinyal senkronizasyonsuz okunuyor (ADR-0051)",
+        W3008 => "Bilinçli güven düşürme (declassify) — gözden geçirilmeli (ADR-0052)",
         W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
         W4002 => "Yazılıp hiç okunmayan register",
     }

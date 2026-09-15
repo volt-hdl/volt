@@ -134,6 +134,13 @@ module Regs {
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── Name resolution (name-resolution.md) ───
+        E0016 => Explanation::new(
+            "declassify without a reason",
+            "A 'declassify(expr, \"reason\")' call is missing its reason string, or the reason is empty.",
+            "'declassify' is the only sanctioned way for information to move from a higher trust level to a lower one (ADR-0052). Every such point is a security decision that a reviewer must be able to audit later, so the language makes the justification part of the syntax: a non-empty string literal is mandatory, and the compiler repeats it in the W3008 warning it emits for every declassification. A call without a reason is a syntax error, not a warning.",
+            "busy = declassify(state != IDLE)                       // ✗ E0016: no reason\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: empty reason",
+            "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ reviewed, W3008 records it",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",
@@ -436,12 +443,12 @@ module Regs {
         .with_note("Power domains are a V1 feature; this check is inactive in F-series versions."),
         E3009 => Explanation::new(
             "Information flow violation (trust_level)",
-            "Data flows from a high-trust source into a lower-trust sink without declassification.",
-            "trust_level annotations let the compiler track where secret or privileged data may flow. A direct assignment from high to low would leak information; the flow must pass through an explicit declassify point that documents the decision.",
-            "// key: trust_level = secret, dbg: trust_level = public\ndbg = key               // ✗ E3009",
-            "dbg = declassify(key.parity())  // ✓ explicit, reviewed leak",
+            "Data from a higher trust level reaches a lower-trust sink without passing through 'declassify'.",
+            "A domain may carry 'trust_level = secret | confidential | public' (ADR-0052). Every signal inherits the trust level of its domain (K1/K2 as for clocks), an expression carries the highest level of its operands, and the compiler follows that label through assignments, 'let' bindings, registers, 'if'/'match' conditions and instance ports. Information may only flow to the same or a higher level: secret → public is a leak, public → secret is fine, constants fit everywhere. Signals whose domain has no 'trust_level' are unclassified: they take the highest level ever written into them, so an unannotated register cannot launder a secret. The only sanctioned downgrade is 'declassify(expr, \"reason\")', which turns the value public and leaves a W3008 audit trail.",
+            "domain SecureCore { trust_level = secret }\ndomain Debug      { trust_level = public }\n\nmodule KeyStore {\n    in  clk       : clock\n    in  key       : u128 @SecureCore\n    out debug_out : u8   @Debug\n    debug_out = key[7:0]                // ✗ E3009: secret data flows to a public output\n}",
+            "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ✓ deliberate, W3008 records it",
         )
-        .with_note("Information-flow checking is a V1 feature; this check is inactive in F-series versions."),
+        .with_note("A domain that carries a trust_level but no clock port in the module does not open a new clock domain: the signal stays in the module's clock (K11), the annotation only classifies it. Trust is checked at the type level only — the generated SystemVerilog is unchanged."),
         E3010 => Explanation::new(
             "Ambiguous domain",
             "The module has multiple clock domains and this signal does not say which one it belongs to.",
@@ -914,6 +921,13 @@ module VgaTiming { /* ... */ }
             "An ordinary 'in' port is trusted to be in the module's domain (K2). A bidirectional pad is different: by definition it is driven by another device (an I2C slave, an SDRAM, a bus master) whose timing has nothing to do with this clock, so a direct read samples an asynchronous signal and can go metastable. The read is therefore treated as external (ADR-0051): pass it through sync() first and use the synchronised copy. Reads inside contracts and as the source of sync() are not reported. The warning is deliberate, not an error: a testbench or a design whose peer is known to share the clock may read the line directly.",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asynchronous line sampled directly\n}",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ two-flop synchroniser\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
+        ),
+        W3008 => Explanation::new(
+            "Deliberate trust downgrade",
+            "A 'declassify(expr, \"reason\")' call lowers information from a higher trust level to public.",
+            "Declassification is the one legitimate path across the trust lattice (ADR-0052), so the compiler never blocks it — but it never lets it pass silently either. Every call produces this warning with the source level and the reason the author wrote, which makes a security review a matter of reading the compiler output: the warnings are the complete list of places where classified information is intentionally revealed. There is nothing to fix unless the reason no longer holds; if it does not, remove the call and the flow becomes an E3009 error again.",
+            "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, reason recorded",
+            "// Keep the call and review the reason; the warning is the audit trail, not a defect.",
         ),
         W4001 => Explanation::new(
             "Unused signal",

@@ -1,6 +1,6 @@
 //! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
 //!
-//! Kapsam: 116 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
+//! Kapsam: 118 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
 //! genişliğe göre sarma, renk, --list gruplaması ve kod önerisi.
 
 use volt_diagnostics::explain::{
@@ -11,11 +11,11 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// Spec'teki toplam kod sayısı — kod eklenince bilinçli olarak güncellenir.
 /// (E0014, ADR-0032 ile; E8501-E8506, ADR-0033 ile; E5010, ADR-0037 ile;
 /// E5011-E5016, ADR-0038 ile; E3013/E4005, ADR-0039 ile; E5017, ADR-0040 ile; E0015/E4006, ADR-0044 ile; E3014, ADR-0047 ile; E4007, ADR-0050 ile;
-/// E4008/W3007, ADR-0051 ile eklendi.)
-const CODE_COUNT: usize = 116;
+/// E4008/W3007, ADR-0051 ile; E0016/W3008, ADR-0052 ile eklendi.)
+const CODE_COUNT: usize = 118;
 
 #[test]
-fn all_codes_present_116_of_116() {
+fn all_codes_present_118_of_118() {
     assert_eq!(
         ErrorCode::ALL.len(),
         CODE_COUNT,
@@ -259,7 +259,8 @@ fn suggest_returns_none_for_distant_input() {
 #[test]
 fn v1_codes_carry_a_note_in_both_languages() {
     use ErrorCode::*;
-    for code in [E3006, E3007, E3008, E3009, E4003, E4004] {
+    // E3009 artık V1 değil: ADR-0052 ile uygulandı.
+    for code in [E3006, E3007, E3008, E4003, E4004] {
         for lang in [Lang::En, Lang::Tr] {
             assert!(
                 explanation(lang, code).note.is_some(),
@@ -318,4 +319,28 @@ fn w3003_explanation_names_async_dual_port_ram_in_both_languages() {
             exp.why
         );
     }
+}
+
+#[test]
+fn adr_0052_explanations_describe_trust_flow_in_both_languages() {
+    for lang in [Lang::En, Lang::Tr] {
+        let e = explanation(lang, ErrorCode::E3009);
+        assert!(e.why.contains("declassify"), "{}", e.why);
+        assert!(e.why.contains("trust_level"), "{}", e.why);
+        assert!(e.example.contains("@SecureCore"), "{}", e.example);
+        assert!(e.note.is_some(), "E3009 K11 notu taşımalı");
+        let w = explanation(lang, ErrorCode::W3008);
+        assert!(w.why.contains("E3009"), "{}", w.why);
+        assert!(w.example.contains("declassify"), "{}", w.example);
+        let r = explanation(lang, ErrorCode::E0016);
+        assert!(r.why.contains("W3008"), "{}", r.why);
+        assert!(r.example.contains("E0016"), "{}", r.example);
+    }
+}
+
+#[test]
+fn e3009_message_no_longer_marked_v1() {
+    assert!(!ErrorCode::E3009.description().contains("V1"));
+    assert!(ErrorCode::E0016.description().contains("declassify"));
+    assert!(ErrorCode::W3008.is_warning());
 }

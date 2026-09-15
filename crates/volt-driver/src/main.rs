@@ -651,7 +651,10 @@ fn run_semantic_stages(
 
     // ── Aşama 4: domain çıkarımı ve CDC (Volt'un vaadi) ──
     let domain = volt_hir::infer_domains(&parsed.ast, &resolve, &typeck);
+    // ── F2f güven seviyeleri (ADR-0052): E3009 / W3008 ──
+    let trust = volt_hir::check_trust(&parsed.ast, &resolve, &typeck, &domain);
     out.extend(domain.diagnostics);
+    out.extend(trust);
 
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
     out.extend(volt_hir::check_timing(&parsed.ast, &resolve));

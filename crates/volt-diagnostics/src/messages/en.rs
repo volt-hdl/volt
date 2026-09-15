@@ -26,6 +26,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0013 => "Unterminated block comment",
         E0014 => "Missing '_' arm in the match statement",
         E0015 => "MMIO register map layout error (ADR-0044)",
+        E0016 => "declassify without a reason string (ADR-0052)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",
@@ -75,7 +76,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3006 => "Power domain crossing without isolation [V1]",
         E3007 => "Power sequence violation [V1]",
         E3008 => "Missing retention [V1]",
-        E3009 => "Information flow violation (trust_level) [V1]",
+        E3009 => "Information flow violation (trust_level)",
         E3010 => "Ambiguous domain (multiple clocks, no annotation)",
         E3011 => "Register written from more than one domain",
         E3012 => "Foreign-domain signal read inside an 'on' block",
@@ -147,6 +148,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3005 => "PulseSync pulses need spacing in the destination domain",
         W3006 => "Same-address port collision is not detected (DualPortRam write-write, AsyncDualPortRam read-during-write)",
         W3007 => "External bidirectional signal read without synchronization (ADR-0051)",
+        W3008 => "Deliberate trust downgrade (declassify) — review it (ADR-0052)",
         W4001 => "Unused signal (silence with a '_' prefix)",
         W4002 => "Register written but never read",
     }

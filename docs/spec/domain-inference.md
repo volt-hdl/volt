@@ -42,9 +42,12 @@ pub struct DomainInfo {
     pub name: Name,
     pub clock: ClockSpec,
     pub reset: ResetSpec,
-    // [V1] güç ve güven
+    // [V1] güç
     pub power: Option<PowerSpec>,
-    pub trust: TrustLevel,
+    // Güven seviyesi (ADR-0052): `trust_level` yazılmamışsa None =
+    // sınıflandırılmamış; `trust_span` E3009 "trust level here" etiketi.
+    pub trust: Option<TrustLevel>,
+    pub trust_span: Option<Span>,
 }
 ```
 
@@ -117,6 +120,58 @@ ucu kendi zamanlamasıyla başka bir aygıttır. `p.read()` (ya da çıplak
 **W3007** üretir; okuma yine modülün alanında değerlendirilir (E3012
 kaskadı olmaz). `sync(p.read(), clk)` içinde kaynak alan `Timeless`
 döner — hedefle aynı alan sayılmaz, W3002 çıkmaz.
+
+### K11 — Güven Seviyesi: Domain'in Dördüncü Boyutu (ADR-0052)
+
+```volt
+domain SecureCore { clock = posedge, reset = sync active_high, trust_level = secret }
+domain Debug      { clock = posedge, reset = sync active_high, trust_level = public }
+```
+
+Kafes `public < confidential < secret`; bilgi yalnız eşit ya da daha
+yüksek seviyeye akar. Güven geçidi (`trust.rs`) saat çıkarımından SONRA
+koşar ve aynı mekanizmayı kullanır:
+
+- **Sinyalin seviyesi = alanının seviyesi** (K1/K2/K4 aynen): `@Ad`
+  bildirimi trust_level taşıyorsa o, anotasyonsuz sinyal modülün tek
+  alanının seviyesi, register yazıcı bloğunun alanı.
+- **İfade en yüksek seviyeyi taşır** (K5 eşleniği, `join` = max).
+- **Atama** (K6): hedef seviye < kaynak seviye → **E3009**. Kaynak =
+  sağ taraf ⊔ içinde bulunulan `if`/`match` koşulu (örtük akış) ⊔ hedef
+  indeksleri.
+- **Örnekleme** (K8): giriş portuna bağlanan değer ≤ port seviyesi;
+  `inst.out` port seviyesini taşır; sınıflandırılmamış çıkış, örneğin
+  sınıflandırılmış girişlerinin en yükseğini (tutucu özet).
+- **`sync()`** (K9) saati değiştirir, etiketi KORUR.
+- **Sabitler** (Timeless) her seviyeyle uyumlu.
+- **Sınıflandırılmamış sinyal** (alanında trust_level yok) kendisine
+  yazılan en yüksek seviyeyi alır (sabit nokta) — anotasyonsuz register
+  bir sırrı aklayamaz. Dosyada trust_level yoksa geçit hiç koşmaz.
+
+**Saat boyutu takma adı.** trust_level taşıyan bir `@Ad` anotasyonu, bu
+modülün hiçbir clock portu `Ad`'ı taşımıyorsa yeni saat alanı AÇMAZ:
+tek saatli modülde sinyal modülün alanında kalır (yalnız güven boyutu
+belirlenir); çoklu saatte E3010; bir clock portu taşıyorsa gerçek saat
+alanıdır (E3001 korunur). Örneklemede de hedefin tek saatinden bağlanır.
+trust_level'sız bildirimler için davranış değişmez.
+
+**`declassify(expr, "gerekçe")`** tek meşru düşürme: sonuç public,
+gerekçe zorunlu (**E0016**), her çağrı **W3008** iz kaydı. Parser'da
+soyulur (`delay<K>` gibi); SV üretimi hiç görmez. Kontratlar gözlemdir,
+denetlenmez; "sızıntı yok" iki-izli özellik olduğundan otomatik
+invariant üretilmez (ADR-0052 §5).
+
+```
+error[E3009]: secret data flows to a public output
+   ┌─ crypto.volt:92:5
+20 │     trust_level = secret            -------------------- source trust level here
+26 │     trust_level = public            -------------------- destination trust level here
+92 │     debug_out = key_r[7:0] as u8
+   │     ^^^^^^^^^   ----- @SecureCore (secret)
+   │     @Debug (public)
+   = reason: information from a higher trust level cannot reach a lower one; this could leak key material (ADR-0052)
+   = help: if intentional, use declassify(expr, "reason")
+```
 
 ### K3 — Çoklu Saat: Anotasyon Zorunlu
 
@@ -515,7 +570,7 @@ E3005  Koşullu sıfırlama karşılanmadı
 E3006  Güç alanı geçişi izolasyonsuz [V1]
 E3007  Güç sekans ihlali [V1]
 E3008  Retention eksik [V1]
-E3009  Bilgi akışı ihlali (trust_level) [V1]
+E3009  Bilgi akışı ihlali (trust_level) (ADR-0052, K11)
 E3010  Domain belirsiz (çoklu saat, anotasyon yok)
 E3011  Register birden fazla domainden yazılıyor
 E3012  'on' bloğunda yabancı domain sinyali okunuyor
@@ -527,7 +582,10 @@ W3002  Gereksiz sync() (aynı domain)
 W3003  Çok bitli sync() — bit tutarlılığı garanti değil
 W3004  Kullanılmayan domain tanımı
 W3007  Harici çift yönlü sinyal senkronizasyonsuz okunuyor (ADR-0051)
+W3008  Bilinçli güven düşürme (declassify) — gözden geçirilmeli (ADR-0052)
 ```
+
+E0016 (gerekçesiz declassify) sözdizimi kodudur; grammar-full.ebnf §18.
 
 ---
 

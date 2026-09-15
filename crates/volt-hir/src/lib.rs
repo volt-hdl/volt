@@ -4,6 +4,7 @@
 //! değerlendirme (const-eval.md §1-§6). F2a: tip gösterimi + çift yönlü
 //! tip kontrolü (type-inference.md §1-§6) ve sürücü analizi (§11).
 //! F2c: domain çıkarımı ve CDC kontrolü (domain-inference.md K1-K9).
+//! F2f: bilgi akışı denetimi, trust_level (ADR-0052, K11).
 
 pub mod attrs;
 pub mod builtin;
@@ -14,6 +15,7 @@ pub mod handshake;
 pub mod resolve;
 pub mod sim;
 pub mod timing;
+pub mod trust;
 pub mod ty;
 pub mod typeck;
 pub mod unit;
@@ -29,6 +31,7 @@ pub use resolve::{
 };
 pub use sim::{check_tests, collect_modules};
 pub use timing::check_timing;
+pub use trust::check_trust;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 pub use typeck::{typecheck, TypeckResult};
 pub use unit::{check_imports, FileScope, ImportResult, UnitInfo};
@@ -78,6 +81,10 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let typeck = typecheck(ast, &resolve, &mut evaluator);
     let domain = infer_domains(ast, &resolve, &typeck);
 
+    // Güven seviyeleri (ADR-0052): saat çıkarımının sonucu üzerinde
+    // bilgi akışı denetimi; trust_level/declassify yoksa hiç koşmaz.
+    let trust_diags = trust::check_trust(ast, &resolve, &typeck, &domain);
+
     // Test blokları (ADR-0033): dosyada hiç modül yoksa testler kardeş
     // dosyanın modüllerini kullanıyordur — modül-varlık denetimi atlanır
     // (sürücü, kardeş dosyayı yükleyip tam denetimi kendisi yapar).
@@ -101,6 +108,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
     diagnostics.extend(domain.diagnostics.iter().cloned());
+    diagnostics.extend(trust_diags);
     diagnostics.extend(test_diags);
     diagnostics.extend(timing_diags);
     diagnostics.extend(handshake_diags);

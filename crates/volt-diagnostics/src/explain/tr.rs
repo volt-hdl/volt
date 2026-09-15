@@ -134,6 +134,13 @@ module Regs {
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
 
         // ─── İsim çözümleme (name-resolution.md) ───
+        E0016 => Explanation::new(
+            "Gerekçesiz declassify",
+            "Bir 'declassify(ifade, \"gerekçe\")' çağrısının gerekçe dizesi eksik ya da boş.",
+            "'declassify', bilginin yüksek güven seviyesinden düşüğe inebileceği tek meşru yoldur (ADR-0052). Her böyle nokta, gözden geçirenin sonradan denetleyebilmesi gereken bir güvenlik kararıdır; bu yüzden dil gerekçeyi sözdiziminin parçası yapar: boş olmayan bir dize literali zorunludur ve derleyici her düşürme için ürettiği W3008 uyarısında bu gerekçeyi yineler. Gerekçesiz çağrı uyarı değil sözdizimi hatasıdır.",
+            "busy = declassify(state != IDLE)                       // ✗ E0016: gerekçe yok\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: gerekçe boş",
+            "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ gözden geçirilmiş, W3008 kaydeder",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",
@@ -436,12 +443,12 @@ module Regs {
         .with_note("Güç alanları V1 özelliğidir; bu denetim F-serisi sürümlerde etkin değildir."),
         E3009 => Explanation::new(
             "Bilgi akışı ihlali (trust_level)",
-            "Yüksek güven düzeyindeki veri, declassify olmadan daha düşük güvenli hedefe akıyor.",
-            "trust_level anotasyonları derleyicinin gizli veya ayrıcalıklı verinin nereye akabileceğini izlemesini sağlar. Yüksekten alçağa doğrudan atama bilgi sızdırır; akış, kararı belgeleyen açık bir declassify noktasından geçmelidir.",
-            "// key: trust_level = secret, dbg: trust_level = public\ndbg = key               // ✗ E3009",
-            "dbg = declassify(key.parity())  // ✓ açık, gözden geçirilmiş sızıntı",
+            "Yüksek güven seviyesindeki veri 'declassify'dan geçmeden daha düşük güvenli bir hedefe ulaşıyor.",
+            "Bir domain 'trust_level = secret | confidential | public' taşıyabilir (ADR-0052). Her sinyal alanının güven seviyesini devralır (saatteki K1/K2 gibi), bir ifade operandlarının en yüksek seviyesini taşır ve derleyici bu etiketi atamalar, 'let' bağlamaları, register'lar, 'if'/'match' koşulları ve örnek portları boyunca izler. Bilgi yalnız aynı ya da daha yüksek seviyeye akabilir: secret → public sızıntıdır, public → secret serbesttir, sabitler her yere uyar. Alanında 'trust_level' olmayan sinyaller sınıflandırılmamıştır: kendilerine yazılan en yüksek seviyeyi alırlar, dolayısıyla anotasyonsuz bir register bir sırrı aklayamaz. Tek meşru düşürme 'declassify(ifade, \"gerekçe\")'dır: değeri public yapar ve W3008 iz kaydı bırakır.",
+            "domain SecureCore { trust_level = secret }\ndomain Debug      { trust_level = public }\n\nmodule KeyStore {\n    in  clk       : clock\n    in  key       : u128 @SecureCore\n    out debug_out : u8   @Debug\n    debug_out = key[7:0]                // ✗ E3009: gizli veri açık çıkışa akıyor\n}",
+            "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ✓ bilinçli, W3008 kaydeder",
         )
-        .with_note("Bilgi akışı denetimi V1 özelliğidir; F-serisi sürümlerde etkin değildir."),
+        .with_note("trust_level taşıyan ama modülde clock portu olmayan bir domain yeni saat alanı AÇMAZ: sinyal modülün saatinde kalır (K11), anotasyon yalnız sınıflandırır. Güven yalnız tip seviyesinde denetlenir — üretilen SystemVerilog değişmez."),
         E3010 => Explanation::new(
             "Domain belirsiz",
             "Modülde birden çok saat alanı var ve bu sinyal hangisine ait olduğunu söylemiyor.",
@@ -914,6 +921,13 @@ module VgaTiming { /* ... */ }
             "Sıradan bir 'in' portun modülün alanında olduğuna güvenilir (K2). Çift yönlü pad farklıdır: tanımı gereği başka bir aygıt (I2C köle, SDRAM, veri yolu efendisi) sürer ve zamanlaması bu saatle ilgisizdir; doğrudan okuma asenkron bir sinyali örnekler ve yarı kararlı kalabilir. Bu yüzden okuma harici sayılır (ADR-0051): önce sync() ile geçirin, senkronize kopyayı kullanın. Kontrat içindeki okumalar ve sync() kaynağı olan okuma raporlanmaz. Uyarı bilinçli olarak hata değildir: bir test tezgâhı ya da karşı tarafın aynı saati paylaştığı bilinen bir tasarım hattı doğrudan okuyabilir.",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asenkron hat doğrudan örnekleniyor\n}",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ iki-flop senkronizatör\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
+        ),
+        W3008 => Explanation::new(
+            "Bilinçli güven düşürme",
+            "Bir 'declassify(ifade, \"gerekçe\")' çağrısı bilgiyi yüksek güven seviyesinden public'e indiriyor.",
+            "Güven düşürme, güven kafesini geçmenin tek meşru yoludur (ADR-0052); derleyici bunu asla engellemez — ama sessizce de geçirmez. Her çağrı, kaynak seviyesi ve yazarın yazdığı gerekçeyle bu uyarıyı üretir; böylece güvenlik incelemesi derleyici çıktısını okumaya iner: uyarılar, sınıflandırılmış bilginin bilinçli olarak açıklandığı yerlerin eksiksiz listesidir. Gerekçe hâlâ geçerliyse düzeltilecek bir şey yoktur; geçerli değilse çağrıyı kaldırın, akış yeniden E3009 hatası olur.",
+            "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, gerekçe kayıtlı",
+            "// Çağrıyı koruyun, gerekçeyi gözden geçirin; uyarı bir kusur değil, iz kaydıdır.",
         ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",

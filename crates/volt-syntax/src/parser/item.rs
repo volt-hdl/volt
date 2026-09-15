@@ -7,8 +7,8 @@ use volt_ast::{
     DomainDecl, DomainField, DomainKey, DomainValue, EnumDecl, EnumVariant, Expr, ExprKind,
     ExternDecl, FnDecl, GenericArg, GenericParam, GenericParamKind, Idx, Item, ItemKind,
     MmioFieldDecl, MmioRegDecl, ModuleDecl, Name, PackageDecl, Param, Path, Port, PortDir,
-    ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TypeAlias, TypeRef, TypeRefKind,
-    UseDecl, UseTree, VariantData, Visibility,
+    ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TrustLevel, TypeAlias, TypeRef,
+    TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
@@ -1553,6 +1553,7 @@ impl Parser<'_> {
                     "frequency" => DomainKey::Frequency,
                     "reset_cycles" => DomainKey::ResetCycles,
                     "reset_sequence" => DomainKey::ResetSequence,
+                    "trust_level" => DomainKey::TrustLevel,
                     _ => {
                         self.push_error(Diagnostic::warning(
                             ErrorCode::W0020,
@@ -1561,7 +1562,7 @@ impl Parser<'_> {
                                 name.span,
                                 lstr!(en: "unrecognized key"; tr: "tanınmayan anahtar"),
                             ),
-                            lstr!(en: "valid keys: clock, frequency, reset, reset_cycles, reset_sequence"; tr: "geçerli anahtarlar: clock, frequency, reset, reset_cycles, reset_sequence"),
+                            lstr!(en: "valid keys: clock, frequency, reset, reset_cycles, reset_sequence, trust_level"; tr: "geçerli anahtarlar: clock, frequency, reset, reset_cycles, reset_sequence, trust_level"),
                         ));
                         DomainKey::Unknown(name)
                     }
@@ -1582,12 +1583,38 @@ impl Parser<'_> {
             &lstr!(en: "write it as clock = posedge"; tr: "clock = posedge biçiminde yazın"),
         );
         // ADR-0023: sync/async yalnız "reset =" değer konumunda anahtar kelime.
-        let value = self.parse_domain_value(matches!(key, DomainKey::Reset));
+        // ADR-0052: secret/confidential/public yalnız "trust_level =" konumunda.
+        let value = if matches!(key, DomainKey::TrustLevel) {
+            self.parse_trust_level_value()
+        } else {
+            self.parse_domain_value(matches!(key, DomainKey::Reset))
+        };
         Some(DomainField {
             span: self.span_from(start),
             key,
             value,
         })
+    }
+
+    /// `trust_level = secret | confidential | public` (ADR-0052). Üç
+    /// seviye bağlamsal anahtar kelimedir (ADR-0023 kalıbı): lexer Ident
+    /// üretir, yalnız bu değer konumunda seviye olarak yorumlanır.
+    fn parse_trust_level_value(&mut self) -> DomainValue {
+        if self.at(Ident) {
+            if let Some(level) = TrustLevel::parse(self.current_text()) {
+                self.bump_any();
+                return DomainValue::Trust(level);
+            }
+        }
+        self.error_expected(
+            &lstr!(en: "trust level (secret, confidential or public)"; tr: "güven seviyesi (secret, confidential veya public)"),
+            &lstr!(en: "write it as trust_level = secret"; tr: "trust_level = secret biçiminde yazın"),
+        );
+        // Hatalı değeri atla ki alan ayrıştırması ilerlesin (satır sonu / '}' / ',' değilse).
+        if !self.at(RBrace) && !self.at(Comma) && !self.at_eof() {
+            self.bump_any();
+        }
+        DomainValue::Error
     }
 
     fn parse_domain_value(&mut self, in_reset: bool) -> DomainValue {

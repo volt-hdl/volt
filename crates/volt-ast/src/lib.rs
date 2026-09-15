@@ -42,6 +42,29 @@ pub struct SourceFile {
     pub patterns: Arena<Pattern>,
     pub blocks: Arena<Block>,
     pub timing: TimingInfo,
+    /// Güven düşürme yan tablosu (ADR-0052) — bkz. [`TrustInfo`].
+    pub trust: TrustInfo,
+}
+
+/// `declassify(expr, "gerekçe")` yan tablosu (ADR-0052). Çağrı parser'da
+/// soyulur: AST'de yalnız `expr` yaşar (SV üretimi çağrıyı hiç görmez —
+/// "tip seviyesi" ilkesi, ADR-0037 `delay<K>` gibi); volt-hir'in güven
+/// geçidi buradan okur ve her kayıt için W3008 üretir.
+#[derive(Debug, Default)]
+pub struct TrustInfo {
+    /// Anahtar: düşürülen iç ifadenin düğümü.
+    pub declassify: HashMap<Idx<Expr>, DeclassifySite>,
+}
+
+/// Bir `declassify` çağrısının kaydı.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclassifySite {
+    /// Tüm `declassify(...)` yazımının span'i.
+    pub span: Span,
+    /// Zorunlu gerekçe metni (tırnaksız).
+    pub reason: String,
+    /// Gerekçe literalinin span'i.
+    pub reason_span: Span,
 }
 
 /// L1 zamanlama yan tabloları (ADR-0037). `Delayed<T, N>` tip yazımı ve
@@ -485,6 +508,8 @@ pub enum DomainKey {
     Reset,
     ResetCycles,
     ResetSequence,
+    /// `trust_level = secret | confidential | public` (ADR-0052).
+    TrustLevel,
     /// Bilinmeyen anahtar — W0020 uyarısı.
     Unknown(Name),
 }
@@ -493,9 +518,41 @@ pub enum DomainKey {
 pub enum DomainValue {
     ClockEdge(ClockEdge),
     Reset(ResetSpec),
+    Trust(TrustLevel),
     Literal(Idx<Expr>),
     Bool(bool),
     Error,
+}
+
+/// Güven seviyesi (ADR-0052): sıralama `Public < Confidential < Secret`.
+/// Bilgi yalnız eşit ya da daha yüksek seviyeye akabilir; yüksekten
+/// düşüğe akış E3009'dur, tek meşru yol `declassify`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TrustLevel {
+    Public,
+    Confidential,
+    Secret,
+}
+
+impl TrustLevel {
+    /// Kaynak yazımı: `secret` / `confidential` / `public`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TrustLevel::Public => "public",
+            TrustLevel::Confidential => "confidential",
+            TrustLevel::Secret => "secret",
+        }
+    }
+
+    /// Kaynak yazımından seviye; tanınmayan metin `None`.
+    pub fn parse(text: &str) -> Option<TrustLevel> {
+        match text {
+            "public" => Some(TrustLevel::Public),
+            "confidential" => Some(TrustLevel::Confidential),
+            "secret" => Some(TrustLevel::Secret),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

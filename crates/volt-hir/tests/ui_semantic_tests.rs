@@ -237,8 +237,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain,
     // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced),
     // ADR-0049: 65 domain-aware çift saatli bellek,
-    // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain).
-    assert_eq!(checked, 58);
+    // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain),
+    // ADR-0052: 70-71 güven seviyeleri + declassify.
+    assert_eq!(checked, 60);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════
@@ -541,4 +542,30 @@ fn ui_pass_65_async_dual_port_ram_warns_w3006_only() {
 #[test]
 fn ui_fail_51_async_ram_domain_violation_e3001() {
     assert_ui_fail("fail/51_async_ram_domain_violation.volt");
+}
+
+// ═══ Güven seviyeleri (ADR-0052) ══════════════════════════════════
+
+#[test]
+fn ui_pass_70_trust_levels_clean() {
+    // Yalnız meşru akışlar: hiç E3009/W3008 yok, hiç domain tanısı yok.
+    let result = analyze_file("pass/70_trust_levels.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_pass_71_declassify_warns_w3008_only() {
+    // W3008 BEKLENEN davranıştır: her declassify bir iz kaydıdır.
+    let result = analyze_file("pass/71_declassify.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert_eq!(result.error_codes(), vec!["W3008", "W3008"]);
+}
+
+#[test]
+fn ui_fail_55_trust_leak_e3009() {
+    assert_ui_fail("fail/55_trust_leak.volt");
 }

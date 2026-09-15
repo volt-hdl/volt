@@ -4,7 +4,8 @@
 //! W0010 parantez önerisi: operator-precedence.md §5.
 
 use volt_ast::{
-    ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, Name, NumBase, Path, UnOp,
+    ArrayLitKind, BinOp, DeclassifySite, Expr, ExprKind, FieldInit, Idx, IntSuffix, Name, NumBase,
+    Path, UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -278,6 +279,12 @@ impl Parser<'_> {
                     && matches!(self.peek(4), Some(LParen))
                 {
                     return self.parse_delay_expr(start);
+                }
+                // `declassify(x, "gerekçe")` (ADR-0052): bağlamsal —
+                // yalnız '(' izliyorsa. Tip düzeyinde soyulur: AST'de
+                // yalnız `x` yaşar, çağrı ve gerekçe yan tabloya yazılır.
+                if self.current_text() == "declassify" && matches!(self.peek(1), Some(LParen)) {
+                    return self.parse_declassify_expr(start);
                 }
                 let path = self.parse_path();
                 // StructLit: `Ad { alan: değer }` — başlık bağlamlarında
@@ -841,6 +848,76 @@ impl Parser<'_> {
         // Parantezli form: W0010 parantez önerisinin dışında kalır.
         self.paren_exprs.insert(inner);
         inner
+    }
+
+    /// `declassify(expr, "reason")` — güven seviyesini bilinçli düşürme
+    /// (ADR-0052). Gerekçe ZORUNLU ve boş olmayan bir dize literalidir;
+    /// eksikse E0016. Çağrı AST'den soyulur (`delay<K>` gibi): dönen
+    /// düğüm iç ifadedir, kayıt `ast.trust.declassify`e düşer.
+    fn parse_declassify_expr(&mut self, start: usize) -> Idx<Expr> {
+        self.bump_any(); // 'declassify'
+        let open = self.bump(); // '('
+        let prev = self.allow_struct_lit;
+        self.allow_struct_lit = true;
+        let inner = self.parse_expr();
+        let reason = if self.eat(Comma) && self.at(StringLit) {
+            let span = self.bump();
+            let text = self.unescape_string(span);
+            if text.trim().is_empty() {
+                self.err_declassify_reason(span, true);
+                None
+            } else {
+                Some((text, span))
+            }
+        } else {
+            // Virgülden sonra dize olmayan bir argüman geldiyse atla ki
+            // ')' beklentisi kaskad üretmesin.
+            let bad = self.current_span();
+            if !self.at(RParen) && !self.at_eof() {
+                self.parse_expr();
+            }
+            self.err_declassify_reason(bad, false);
+            None
+        };
+        self.allow_struct_lit = prev;
+        self.expect_closing(RParen, ")", open);
+        let full_span = self.span_from(start);
+        if let Some((reason, reason_span)) = reason {
+            self.ast.trust.declassify.insert(
+                inner,
+                DeclassifySite {
+                    span: full_span,
+                    reason,
+                    reason_span,
+                },
+            );
+        }
+        // Parantezli form: W0010 parantez önerisinin dışında kalır.
+        self.paren_exprs.insert(inner);
+        inner
+    }
+
+    /// E0016 — gerekçesiz (ya da boş gerekçeli) `declassify`.
+    fn err_declassify_reason(&mut self, span: Span, empty: bool) {
+        let label = if empty {
+            lstr!(en: "the reason is empty"; tr: "gerekçe boş")
+        } else {
+            lstr!(en: "a string reason is required here"; tr: "burada bir dize gerekçe gerekli")
+        };
+        self.push_error(
+            Diagnostic::error(
+                ErrorCode::E0016,
+                lstr!(en: "declassify requires a reason"; tr: "declassify gerekçe gerektirir"),
+                LabeledSpan::primary(span, label),
+                lstr!(en: "write it as declassify(expr, \"why this may be revealed\")";
+                      tr: "declassify(ifade, \"neden açıklanabilir\") biçiminde yazın"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a declassification is a deliberate security decision; the reason is the audit trail reviewers read (ADR-0052)";
+                      tr: "güven düşürme bilinçli bir güvenlik kararıdır; gerekçe gözden geçirenlerin okuduğu iz kaydıdır (ADR-0052)"),
+            ),
+        );
     }
 
     pub(crate) fn parse_int_lit(&mut self) -> Idx<Expr> {

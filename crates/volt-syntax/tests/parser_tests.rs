@@ -7,7 +7,7 @@ use volt_ast::{
     AttrArg, BlockContext, BlockStmt, ClockEdge, ContractKind, DomainKey, DomainValue, ElseBranch,
     Expr, ExprKind, GenericArg, GenericParamKind, Idx, IntSuffix, ItemKind, LValueSuffix,
     MatchArmBody, NumBase, OnTrigger, PatternArgs, PatternKind, PortDir, ResetPolarity, ResetSync,
-    SourceFile, StmtKind, TypeRefKind, UseTree, VariantData, Visibility,
+    SourceFile, StmtKind, TrustLevel, TypeRefKind, UseTree, VariantData, Visibility,
 };
 use volt_span::FileId;
 use volt_syntax::parser::{parse, parse_expr, parse_unit, ParseResult};
@@ -653,6 +653,130 @@ fn domain_negedge_and_async_low() {
         }
         other => panic!("reset spec bekleniyor: {other:?}"),
     }
+}
+
+// ═══ trust_level + declassify (ADR-0052) ═════════════════════════
+
+#[test]
+fn domain_trust_level_parses_all_three_levels() {
+    for (text, level) in [
+        ("secret", TrustLevel::Secret),
+        ("confidential", TrustLevel::Confidential),
+        ("public", TrustLevel::Public),
+    ] {
+        let result = p(&format!(
+            "domain D {{ clock = posedge, reset = sync active_high, trust_level = {text} }}"
+        ));
+        assert!(
+            result.diagnostics.is_empty(),
+            "{text}: {:?}",
+            result.error_codes()
+        );
+        let domain = result.ast.domain(0).unwrap();
+        assert_eq!(domain.fields.len(), 3);
+        assert_eq!(domain.fields[2].key, DomainKey::TrustLevel);
+        assert!(
+            matches!(domain.fields[2].value, DomainValue::Trust(l) if l == level),
+            "{text}: {:?}",
+            domain.fields[2].value
+        );
+    }
+}
+
+#[test]
+fn domain_trust_level_alone_is_enough() {
+    // Saat/reset yazılmayabilir: yalnız güven bölgesi tanımlayan domain.
+    let result = p("domain Debug { trust_level = public }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let domain = result.ast.domain(0).unwrap();
+    assert!(matches!(
+        domain.fields[0].value,
+        DomainValue::Trust(TrustLevel::Public)
+    ));
+}
+
+#[test]
+fn domain_trust_level_bad_value_is_e0001() {
+    let result = p("domain D { trust_level = top_secret }");
+    assert!(
+        result.error_codes().contains(&"E0001"),
+        "{:?}",
+        result.error_codes()
+    );
+    assert!(matches!(
+        result.ast.domain(0).unwrap().fields[0].value,
+        DomainValue::Error
+    ));
+}
+
+#[test]
+fn trust_words_are_contextual_not_reserved() {
+    // secret/confidential/public artık ayrılmış kelime değil: tanımlayıcı
+    // olarak kullanılabilir (E0003 yok).
+    let result =
+        p("module M {\n    in public : bool\n    out secret : bool\n    secret = public\n}");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn declassify_is_stripped_and_recorded() {
+    let result = p(
+        "module M {\n    in a : u8\n    out b : bool\n    b = declassify(a != 0, \"presence\")\n}",
+    );
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.trust.declassify.len(), 1);
+    let (&inner, site) = result.ast.trust.declassify.iter().next().unwrap();
+    assert_eq!(site.reason, "presence");
+    // İç ifade AST'de sıradan bir ikili işlemdir; çağrı düğümü yoktur.
+    assert!(matches!(
+        result.ast.exprs[inner].kind,
+        ExprKind::Binary { .. }
+    ));
+    // Atama sağ tarafı doğrudan iç ifadedir (çağrı düğümü yok).
+    let module = result.ast.module(0).unwrap();
+    let StmtKind::Assign(a) = &result.ast.stmts[module.body[0]].kind else {
+        panic!("atama bekleniyor");
+    };
+    assert_eq!(a.rhs, inner);
+    // Kayıt span'i tüm çağrıyı kapsar, gerekçe span'i literali.
+    assert!(site.span.start < site.reason_span.start && site.reason_span.end < site.span.end);
+}
+
+#[test]
+fn declassify_without_reason_is_e0016() {
+    let result = p("module M {\n    in a : u8\n    out b : bool\n    b = declassify(a != 0)\n}");
+    assert_eq!(result.error_codes(), vec!["E0016"]);
+    assert!(result.ast.trust.declassify.is_empty());
+}
+
+#[test]
+fn declassify_with_empty_reason_is_e0016() {
+    let result =
+        p("module M {\n    in a : u8\n    out b : bool\n    b = declassify(a != 0, \"  \")\n}");
+    assert_eq!(result.error_codes(), vec!["E0016"]);
+}
+
+#[test]
+fn declassify_with_non_string_reason_is_e0016() {
+    let result =
+        p("module M {\n    in a : u8\n    out b : bool\n    b = declassify(a != 0, 42)\n}");
+    assert_eq!(result.error_codes(), vec!["E0016"]);
+}
+
+#[test]
+fn declassify_nested_in_expression_keeps_precedence() {
+    // declassify(x, "r") & y → (x) & y; iç ifade parantezli sayılır (W0010 yok).
+    let result = p("module M {\n    in a : u8\n    in c : u8\n    out b : u8\n    b = declassify(a + 1, \"r\") & c\n}");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.trust.declassify.len(), 1);
+}
+
+#[test]
+fn declassify_as_plain_identifier_is_still_a_name() {
+    // '(' izlemiyorsa sıradan bir isimdir (bağlamsal).
+    let result = p("module M {\n    in declassify : bool\n    out b : bool\n    b = declassify\n}");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert!(result.ast.trust.declassify.is_empty());
 }
 
 #[test]
@@ -1944,7 +2068,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 58, "ui/pass 58 dosya içermeli");
+    assert_eq!(total, 60, "ui/pass 60 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -1964,10 +2088,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0047 ise 62'yi (extern domain anotasyonu),
     // ADR-0048 ise 63-64'ü (W0021 uygulanmayan nitelik + @allow),
     // ADR-0049 ise 65'i (AsyncDualPortRam çift saatli bellek),
-    // ADR-0051 ise 68-69'u (inout / opendrain çift yönlü portlar) ekledi.
+    // ADR-0051 ise 68-69'u (inout / opendrain çift yönlü portlar),
+    // ADR-0052 ise 70-71'i (trust_level + declassify) ekledi.
     assert_eq!(
-        clean, 58,
-        "58/58 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 60,
+        "60/60 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -1997,6 +2122,8 @@ fn ui_fail_files_produce_expected_codes() {
         // ADR-0044: @mmio tanıları desugar'da (parse içinde) üretilir.
         ("44_mmio_write_readonly.volt", "E4006"),
         ("45_mmio_offset_overlap.volt", "E0015"),
+        // ADR-0052: gerekçesiz declassify parser'da yakalanır.
+        ("56_declassify_no_reason.volt", "E0016"),
     ];
     for (file, expected) in cases {
         let path = format!(

@@ -5,6 +5,41 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — güven seviyeleri: `trust_level`, E3009, `declassify` (2026-09-15, ADR-0052)
+
+- **Domain'in dördüncü boyutu uygulandı**: `domain D { trust_level =
+  secret | confidential | public }` ayrıştırılır (önce W0020 + E0003
+  veriyordu); üç kelime ayrılmış listeden çıkıp bağlamsal oldu
+  (ADR-0023 kalıbı). Kafes `public < confidential < secret`; bilgi yalnız
+  eşit ya da yüksek seviyeye akar, yüksekten düşüğe akış **E3009**
+  (ilk kez üretiliyor — kod 2024'ten beri tabloda "[V1]" olarak
+  bekliyordu).
+- **Akış analizi saat çıkarımının üstünde** (`volt-hir/trust.rs`):
+  sinyalin seviyesi alanının seviyesi (K1/K2/K4), ifade en yükseği taşır
+  (K5), atama + `if`/`match` koşulu örtük akış (K6/K7), örnekleme (K8),
+  `sync()` etiketi korur (K9). Alanı trust_level'sız sinyaller
+  sınıflandırılmamıştır ve yazılan en yüksek seviyeyi alır (sabit nokta):
+  anotasyonsuz register / alt modül sır aklayamaz. trust_level yoksa geçit
+  hiç koşmaz — mevcut tasarımlar değişmedi.
+- **K11 — trust'lı anotasyon saat alanı açmaz**: `@Debug` gibi bir
+  anotasyon, modülde clock portu taşımıyorsa sinyali modülün saatinde
+  bırakır, yalnız sınıflandırır (tek saat + iki güven bölgesi artık
+  E3001 değil). Çoklu saatte E3010; clock portu taşıyorsa eski davranış.
+- **`declassify(expr, "gerekçe")`**: tek meşru düşürme, sonuç public;
+  gerekçe zorunlu (**E0016**, yeni), her çağrı **W3008** (yeni) iz
+  kaydı — güvenlik incelemesi derleyici çıktısını okumaya iner. Parser'da
+  soyulur (`delay<K>` gibi), SV üretimi değişmez. Otomatik "sızıntı yok"
+  kontratı ÜRETİLMEZ (iki-izli özellik, ADR-0052 §5).
+- **E3009 beş parça**: iki trust_level satırı, hedef `@Debug (public)`,
+  kaynak tanığı `@SecureCore (secret)`, neden, `declassify` önerisi.
+  `volt explain` E0016/E3009/W3008 iki dilde; 118 kod.
+- `examples/crypto/key_store.volt` (YENİ): AES anahtar kaydı + yükleme
+  FSM'i, iki domain tek saat, üç `declassify`; kasıtlı `debug_out =
+  key_r[7:0]` E3009. 65 satır SV, Verilator `-Wall` temiz, `bmc 12` /
+  `prove 3` / `cover 12` 6/6.
+- `tests/ui/pass/70_trust_levels`, `71_declassify`, `fail/55_trust_leak`
+  (E3009), `fail/56_declassify_no_reason` (E0016); +57 test.
+
 ### Eklendi — çift yönlü portlar: `inout` yazma + `opendrain` tipi (2026-09-15, ADR-0051)
 
 - **`inout` artık yazılabiliyor, `opendrain` yeni port yönü**: sürücü

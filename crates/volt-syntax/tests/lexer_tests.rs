@@ -204,11 +204,20 @@ fn reserved_type_names() {
 
 #[test]
 fn reserved_v1_domain_words() {
-    // grammar-full.ebnf §17'deki tam liste — V1 domain/güvenlik kelimeleri
+    // grammar-full.ebnf §17'deki tam liste — V1 domain/güç kelimeleri.
+    // secret/confidential/public ADR-0052 ile bağlamsal oldu (aşağıda).
     assert_eq!(
-        kinds("secret confidential public clamp_low clamp_high latch retention isolation always_on voltage"),
-        vec![Reserved; 10]
+        kinds("clamp_low clamp_high latch retention isolation always_on voltage"),
+        vec![Reserved; 7]
     );
+}
+
+#[test]
+fn trust_level_words_are_plain_identifiers() {
+    // ADR-0052: yalnız "trust_level =" değer konumunda anlam taşırlar;
+    // lexer için sıradan Ident, E0003 yok.
+    assert_eq!(kinds("secret confidential public"), vec![Ident; 3]);
+    assert!(error_codes("secret confidential public").is_empty());
 }
 
 #[test]

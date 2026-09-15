@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use volt_ast::{
     Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind, ExternDecl,
     Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, ModuleDecl, Name, OnTrigger, Port,
-    ResetPolarity, ResetSpec, ResetSync, SourceFile, Stmt, StmtKind,
+    ResetPolarity, ResetSpec, ResetSync, SourceFile, Stmt, StmtKind, TrustLevel,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -56,6 +56,10 @@ pub struct DomainInfo {
     /// Tanım satırı — E3001/E3010 ikincil etiketleri buraya bağlanır.
     pub span: Span,
     pub source: DomainSource,
+    /// `trust_level = ...` (ADR-0052); yazılmamışsa `None` = sınıflandırılmamış.
+    pub trust: Option<TrustLevel>,
+    /// `trust_level` alanının span'i — E3009 "trust level here" etiketi.
+    pub trust_span: Option<Span>,
 }
 
 /// Domain nereden geliyor: açık `domain` bildirimi veya anotasyonsuz
@@ -72,6 +76,9 @@ pub struct DomainResult {
     pub domains: Vec<DomainInfo>,
     /// Sinyal tanımı → çıkarılan saat alanı.
     pub signal_domains: HashMap<DefId, DomainId>,
+    /// `domain Ad { ... }` bildirimi → `domains` indeksi (güven geçidi
+    /// anotasyonun bildirimine buradan ulaşır, ADR-0052).
+    pub decl_domains: HashMap<DefId, u32>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -95,6 +102,7 @@ pub fn infer_domains(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult)
         bidir_ports: HashSet::new(),
         in_sync_source: false,
         in_contract: false,
+        anchored: HashSet::new(),
     };
     inf.collect_domain_decls();
     for &item_idx in &ast.items {
@@ -107,6 +115,7 @@ pub fn infer_domains(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult)
     DomainResult {
         domains: inf.domains,
         signal_domains: inf.signal_domains,
+        decl_domains: inf.by_decl,
         diagnostics: inf.diagnostics,
     }
 }
@@ -139,6 +148,10 @@ struct Inferencer<'a> {
     in_sync_source: bool,
     /// Kontrat ifadesi çözümleniyor (W3007 bastırılır).
     in_contract: bool,
+    /// Bu modülün bir clock portunun taşıdığı domain bildirimleri (K11,
+    /// ADR-0052): taşınmayan, trust_level yazılmış anotasyon yeni saat
+    /// alanı açmaz.
+    anchored: HashSet<DefId>,
 }
 
 impl<'a> Inferencer<'a> {
@@ -159,10 +172,16 @@ impl<'a> Inferencer<'a> {
                 sync: ResetSync::None,
                 polarity: ResetPolarity::ActiveHigh,
             };
+            let mut trust = None;
+            let mut trust_span = None;
             for field in &d.fields {
                 match (&field.key, &field.value) {
                     (DomainKey::Clock, DomainValue::ClockEdge(edge)) => clock.edge = *edge,
                     (DomainKey::Reset, DomainValue::Reset(spec)) => reset = *spec,
+                    (DomainKey::TrustLevel, DomainValue::Trust(level)) => {
+                        trust = Some(*level);
+                        trust_span = Some(field.span);
+                    }
                     _ => {}
                 }
             }
@@ -173,6 +192,8 @@ impl<'a> Inferencer<'a> {
                 reset,
                 span: d.name.span,
                 source: DomainSource::Decl(def),
+                trust,
+                trust_span,
             });
             self.by_decl.insert(def, id);
         }
@@ -195,6 +216,8 @@ impl<'a> Inferencer<'a> {
             },
             span,
             source: DomainSource::ClockPort(port_def),
+            trust: None,
+            trust_span: None,
         });
         self.by_clock_port.insert(port_def, id);
         id
@@ -283,6 +306,38 @@ impl<'a> Inferencer<'a> {
         }
     }
 
+    /// K11 (ADR-0052) — saat dışı sinyalin `@Ad` anotasyonu. `Ad` bir
+    /// `trust_level` taşıyan domain bildirimiyse ve bu modülün hiçbir
+    /// clock portu onu taşımıyorsa yeni saat alanı AÇMAZ: sinyal saat
+    /// boyutunda modülün tek alanında (K2) kalır, anotasyon yalnız güven
+    /// boyutunu belirler. Çoklu saatte böyle bir anotasyon hangi saate
+    /// ait olduğunu söylemez → E3010. trust_level'sız bildirimler için
+    /// davranış değişmez (geriye uyumluluk).
+    fn signal_annotation_domain(&mut self, ann: &Name) -> DomainId {
+        let Some(def) = self.use_def(ann.span) else {
+            return DomainId::Error;
+        };
+        if self.is_trust_only_alias(def, &self.anchored.clone()) {
+            if self.multi_clock {
+                self.err_ambiguous(ann, false);
+                return DomainId::Error;
+            }
+            return self.default_domain;
+        }
+        self.annotation_domain(ann)
+    }
+
+    /// `def`, trust_level yazılmış bir domain bildirimi mi ve `anchored`
+    /// (bir modülün clock portlarının taşıdığı bildirimler) dışında mı?
+    fn is_trust_only_alias(&self, def: DefId, anchored: &HashSet<DefId>) -> bool {
+        self.res.def_kind(def) == DefKind::Domain
+            && self
+                .by_decl
+                .get(&def)
+                .is_some_and(|&id| self.domains[id as usize].trust.is_some())
+            && !anchored.contains(&def)
+    }
+
     /// E3002 — `@port` anotasyonu clock tipinde olmayan bir porta işaret
     /// ediyor (modül ve extern ortak).
     fn err_annotation_not_clock(&mut self, name: &Name) {
@@ -317,9 +372,15 @@ impl<'a> Inferencer<'a> {
         }
 
         self.clock_candidates.clear();
+        self.anchored.clear();
         for &(def, p) in &clocks {
             let dom = match &p.domain {
-                Some(ann) => self.annotation_domain(&ann.clone()),
+                Some(ann) => {
+                    if let Some(d) = self.use_def(ann.span) {
+                        self.anchored.insert(d);
+                    }
+                    self.annotation_domain(&ann.clone())
+                }
                 None => {
                     let id = self.implicit_clock_domain(def, &p.name.text, p.name.span);
                     DomainId::Explicit(id)
@@ -349,7 +410,7 @@ impl<'a> Inferencer<'a> {
                 self.bidir_ports.insert(def);
             }
             let dom = match &p.domain {
-                Some(ann) => self.annotation_domain(&ann.clone()),
+                Some(ann) => self.signal_annotation_domain(&ann.clone()),
                 None if self.multi_clock => {
                     self.err_ambiguous(&p.name.clone(), false);
                     DomainId::Error
@@ -627,7 +688,7 @@ impl<'a> Inferencer<'a> {
             };
             match &r.domain {
                 Some(ann) => {
-                    let dom = self.annotation_domain(&ann.clone());
+                    let dom = self.signal_annotation_domain(&ann.clone());
                     self.signal_domains.insert(def, dom);
                 }
                 None => inferred.push((def, r)),
@@ -1792,7 +1853,17 @@ impl<'a> Inferencer<'a> {
     /// clock portu (tek saat kuralı hedef modülde de geçerli).
     fn port_domain_key(&self, port: &Port, target_clocks: &[&Port]) -> Option<DefId> {
         if let Some(ann) = &port.domain {
-            return self.use_def(ann.span);
+            let key = self.use_def(ann.span)?;
+            // K11 (ADR-0052): hedefte clock portu taşımayan trust_level'lı
+            // anotasyon saat anahtarı değildir — tek saat kuralına düşer.
+            let target_anchored: HashSet<DefId> = target_clocks
+                .iter()
+                .filter_map(|c| c.domain.as_ref())
+                .filter_map(|a| self.use_def(a.span))
+                .collect();
+            if !self.is_trust_only_alias(key, &target_anchored) {
+                return Some(key);
+            }
         }
         let def = self.decl_def(&port.name)?;
         if self.is_clock_def(def) {
