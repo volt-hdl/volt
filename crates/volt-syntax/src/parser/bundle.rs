@@ -79,6 +79,7 @@ pub(super) fn flip(dir: PortDir) -> PortDir {
         PortDir::In => PortDir::Out,
         PortDir::Out => PortDir::In,
         PortDir::InOut => PortDir::InOut,
+        PortDir::OpenDrain => PortDir::OpenDrain,
     }
 }
 

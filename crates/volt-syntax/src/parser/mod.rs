@@ -4,6 +4,7 @@
 //! İlkeler (error-recovery.md §1): asla panik yok, her girdide AST,
 //! her kurtarma en az bir token tüketir, kaskadlar bastırılır.
 
+mod bidir;
 mod bundle;
 mod desugar;
 mod expr;
@@ -86,6 +87,7 @@ pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
             parser.next_synthetic = next_synthetic;
             parser.desugar_mmio();
             parser.flatten_bundles();
+            parser.expand_bidir_ports();
         }
         let result = parser.finish();
         ast = result.ast;
@@ -139,6 +141,9 @@ pub(crate) struct Parser<'s> {
     pub(crate) next_synthetic: u32,
     /// Bu ayrıştırmada üretilen sentetik kaynaklar.
     pub(crate) generated: Vec<GeneratedSource>,
+    /// Çift yönlü port durumu (ADR-0051): öğenin `inout`/`opendrain`
+    /// portları ve `p.drive(v)`'nin beklettiği ikinci deyim.
+    pub(crate) bidir: bidir::BidirState,
 }
 
 impl<'s> Parser<'s> {
@@ -169,6 +174,7 @@ impl<'s> Parser<'s> {
             in_pipeline: false,
             next_synthetic: file.0 + 1,
             generated: Vec::new(),
+            bidir: bidir::BidirState::default(),
         }
     }
 

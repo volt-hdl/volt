@@ -14,6 +14,7 @@ the contracts with `volt verify`.
 | `fir_filter.volt` | FIR low-pass (kernel `const COEFFS : [i16; 8]`, DC gain 20) as a generic `FirFilter<const TAPS, const WIDTH>` (ADR-0041): `sint<WIDTH>` sample, `[sint<WIDTH>; TAPS]` tap line shifted by a `for`, MAC as a `comb` accumulation over `COEFFS[i]` — zero casts, the `: i32` targets widen the 16×16 products (same-sign widening). Monomorphised twice, `Fir8` = `FirFilter<8, 16>` and `Fir4` = `FirFilter<4, 16>` (SV modules `FirFilter_8_16`, `FirFilter_4_16`), plus `FirFilterPipe` (`pipeline(3)` Multiply → Add1 → Add2, 3-cycle latency). Ten simulation tests (impulse/step/full-scale/zero/valid gating for 8 and 4 taps, pipeline latency/valid), Verilator `-Wall` clean, contracts (no-overflow bound, valid delay, per-stage induction helpers, covers) pass `bmc 12` / `prove 4 --engine boolector` / `cover 12`. |
 | `soc/` | Multi-module SoC (see [`soc/README.md`](soc/README.md)): `SocTop` → `BusDecoder` + `Gpio` + `Timer` + `UartCtrl` (`SyncFifo<u8,16>` + the reused `UartTx`) + the reused `Axi4LiteSlave`, one AXI4-Lite host port, four 256-byte pages, SLVERR outside the map. Ten instances, 133 port bindings, 24 forward `wire`s (bodies resolve top-down), 70 contracts. Written as a scale/composition test; since ADR-0042 the six per-module `.volt` files compile as one unit through `use` (`volt build examples/soc/top.volt`), with `UartTx` and `Axi4LiteSlave` reused by reference. Instance-name/port-name clashes (`timer` + `irq` vs port `timer_irq`) produced duplicate SV declarations silently. Since ADR-0050 the AXI channels are `Handshake<Payload>` bundles with automatic protocol contracts, which caught a decoder bug (owner switch while a response was pending). Verilator `-Wall` clean across all 8 modules, 5/5 simulation tests, 137 properties `bmc 12` / `prove 3 --engine boolector` / `cover 48`. |
 | `vga/` | The first **two-clock** design (see [`vga/README.md`](vga/README.md)): 640x480 @ 60 Hz sync generator (`VgaTiming`, PixDomain only), an 80x60 1-bit frame buffer written from `SysDomain` and read from `PixDomain` (`FrameBuffer`), and a checkerboard top (`VgaTop`). Four crossings, all explicit: pixel writes through `AsyncFifo<u14,16>`, three 1-bit controls through `sync()`. The frame buffer is one `AsyncDualPortRam<bool,8192>` (ADR-0049: write port in SysDomain, read port in PixDomain, the array is the crossing) that maps to one RAMB18E1 with no other cells; the original FIFO-the-writes version that motivated the primitive is kept in the README as the record. Ten deliberate CDC violations were all caught (E3010, 9× E3001, W3003/W3002). `@timing(...)` parses but is not enforced (no float literal, no SDC) -- since ADR-0048 the compiler says so with W0021 instead of staying silent. 7 simulation tests, 1.22 M cycles (a full 420 k-cycle frame costs ~40 ms of run time; the 14 s wall is Verilator compile), both clocks driven as one by the harness. VgaTiming 8 properties `bmc 12` / `prove 3`; FrameBuffer 15 properties `bmc 24` (212 s under `multiclock on`); `prove` on the multi-clock modules is blocked by a formal-wrapper reset-ordering gap documented in the README. |
+| `i2c/` | I2C master (see [`i2c/README.md`](i2c/README.md)) — the design that got `inout` writing and the `opendrain` port kind into the language (ADR-0051): 100/400 kHz, 7-bit addressing, single-byte write/read, ACK/NACK, START / STOP / REPEATED START, clock stretching. `opendrain sda`/`scl` pads driven with `sda.drive_low()` / `sda.release()`, read through `sync(sda.read(), clk)` (a direct read is W3007), contracts on the drive intent (`sda.released`). Pure Volt: the compiler emits `assign sda = sda_drive_low ? 1'b0 : 1'bz`; the test bench binds master and slave to two `wire`s that become `tri1` nets. 7-state FSM as a `match` in the `on clk` block, 4-phase bit divider from `const CLKS_PER_BIT_*` (3.2 MHz: 32 / 8 clocks per bit). Verilator `-Wall` clean (tri1 + 1'bz), 12/12 tests, 13 properties `bmc 12` / `prove 3 --engine boolector`, 7/7 covers at `cover 190`. |
 
 ## Building
 
@@ -53,10 +54,20 @@ volt build examples/soc/top.volt          # 8 source files -> 8 .sv files
 docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:latest --lint-only -Wall --top-module SocTop     SocTop.sv BusDecoder.sv Gpio.sv Timer.sv UartCtrl.sv Axi4LiteSlave.sv AxiToReg.sv UartTx.sv
 ```
 
+A design with bidirectional pins needs no hand-written SV since
+ADR-0051: `opendrain` / `inout` ports generate their own tri-state
+buffer (`examples/i2c/`):
+
+```
+volt build examples/i2c/i2c_master.volt   # build/rtl/I2cMaster.sv, inout wire sda + assign sda = ... : 1'bz
+docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:latest --lint-only -Wall --top-module I2cMaster I2cMaster.sv
+```
+
 ## Simulation tests (Verilator, Docker)
 
 `volt test examples/<name>_test.volt` compiles the test file together
-with its sibling `<name>.volt` and needs Verilator (`VOLT_VERILATOR` or
+with its sibling `<name>.volt` (or whatever the test file pulls in
+through `use`, as `i2c/i2c_test.volt` does) and needs Verilator (`VOLT_VERILATOR` or
 `PATH`). Without a local install, run the driver inside the Verilator
 image (the cargo caches live in named volumes):
 

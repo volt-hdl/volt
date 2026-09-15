@@ -5,6 +5,36 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — çift yönlü portlar: `inout` yazma + `opendrain` tipi (2026-09-15, ADR-0051)
+
+- **`inout` artık yazılabiliyor, `opendrain` yeni port yönü**: sürücü
+  niyeti modülün kendi register'larıdır — `p.drive(value)` (inout),
+  `p.drive_low()` (opendrain), `p.release()` yalnız `on` bloğunda;
+  `p.read()` hattın seviyesi; `p.released` / `p.driving` kontrat ve
+  ifadelerde. Parser `<p>_oe`/`<p>_out` (`<p>_drive_low`) register'larını
+  sentezler; aşağı akış aşamaları yalnız sıradan port + register görür
+  (Seçenek B+: yöntem çağrıları — koşullu `released` literaline (C) ve
+  elle `oe` sinyaline (A) tercih edildi, ADR'de karşılaştırma tablosu).
+- **SV**: `inout wire` port (IEEE 1800 23.2.2.3), tek üç durumlu tampon
+  `assign p = enable ? value : 'z` — sv-mapping §11 "z üretilmez" kuralına
+  tek istisna (§17). Örnek bağlaması adla; üst `wire` `inout` için `wire`,
+  `opendrain` için `tri1` (pull-up + kablolu-VE). Formal çıktıda dış aygıt
+  `(* anyseq *)` ile modellenir (Yosys serbest `'z`yi 0 okur).
+- **E4008**: çift yönlü porta doğrudan atama, `on` dışında sürme,
+  bilinmeyen üye, tip kuralı. **W3007**: `inout`/`opendrain` okuması
+  harici sayılır — `sync()` kaynağı ya da kontrat değilse uyarı
+  (clock stretching için gerekli). `volt explain` iki dilde.
+- `examples/i2c/`: 69 satırlık elle yazılmış `i2c_top.sv` sarmalayıcı
+  KALKTI; master `opendrain sda/scl` + `sync()`, köle modeli aynı,
+  tezgâh iki `wire` (`tri1`). 12/12 sim (Docker Verilator), 13 özellik
+  `bmc 12` / `prove 3` / `cover 190` (7/7), Verilator `-Wall` temiz.
+  Sistem saati 3.2 MHz (32/8 clk-bit): senkronizatör gecikmesi hızlı
+  modda bit başına +1 çevrim.
+- `tests/ui/pass/68_inout_bidirectional`, `69_opendrain_basic`,
+  `fail/53_opendrain_direct_assign` (E4008), `fail/54_inout_unsynchronized`
+  (W3007); +53 test. Yan düzeltme: `0 as bits<8>` literal cast'i emitter'da
+  E2005 vermiyor artık (hedef genişliğinde literal).
+
 ### Eklendi — `Handshake<T>` yerleşik el sıkışma bundle'ı (2026-09-14, ADR-0050)
 
 - **Tek saatli valid/ready artık bir port tipi**: `out tx : Handshake<u8>`

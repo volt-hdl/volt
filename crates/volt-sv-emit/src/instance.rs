@@ -55,8 +55,30 @@ impl<'a> Emitter<'a> {
             let Some(target) = self.module_decl_named(target_name) else {
                 continue;
             };
+            // Çift yönlü portlar (ADR-0051): üst modülün teli bağlanır,
+            // `<örnek>_<port>` teli üretilmez; bağlanan tel net olur.
+            for p in target
+                .ports
+                .iter()
+                .filter(|p| p.direction.is_bidirectional())
+            {
+                let bound = inst
+                    .bindings
+                    .iter()
+                    .find(|b| b.port_name.text == p.name.text)
+                    .and_then(|b| match b.value {
+                        Some(e) => crate::path_single(ast, e).map(str::to_owned),
+                        None => Some(p.name.text.clone()),
+                    });
+                if let Some(wire) = bound {
+                    let entry = self.bus_wires.entry(wire).or_insert(p.direction);
+                    if p.direction == PortDir::OpenDrain {
+                        *entry = PortDir::OpenDrain;
+                    }
+                }
+            }
             let mut outputs = Vec::new();
-            for p in target.ports.iter().filter(|p| p.direction != PortDir::In) {
+            for p in target.ports.iter().filter(|p| p.direction == PortDir::Out) {
                 if let Some(sig) = self.sig_of_typeref(p.ty, p.span) {
                     self.pre_decls.push(format!(
                         "    {} {}_{};",
@@ -148,10 +170,12 @@ impl<'a> Emitter<'a> {
             let Some(sig) = self.sig_of_typeref(p.ty, p.span) else {
                 continue;
             };
-            let value = if p.direction == PortDir::In {
-                self.input_binding(&name, p, &bindings, sig, span)
-            } else {
-                self.output_binding(&name, p, &bindings, span)
+            let value = match p.direction {
+                PortDir::In => self.input_binding(&name, p, &bindings, sig, span),
+                PortDir::Out => self.output_binding(&name, p, &bindings, span),
+                PortDir::InOut | PortDir::OpenDrain => {
+                    self.bidir_binding(&name, p, &bindings, span)
+                }
             };
             conns.push((p.name.text.clone(), value));
         }
@@ -185,6 +209,41 @@ impl<'a> Emitter<'a> {
                     ),
                 );
                 "1'b0".to_string()
+            }
+        }
+    }
+
+    /// Çift yönlü port (ADR-0051) üst modülün bir `wire`ına ya da kendi
+    /// çift yönlü portuna ADIYLA bağlanır (net paylaşımı); ifade ya da
+    /// bağlanmamış port E2005.
+    fn bidir_binding(
+        &mut self,
+        inst: &str,
+        port: &Port,
+        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        span: Span,
+    ) -> String {
+        let simple = match bindings.get(port.name.text.as_str()) {
+            Some(Some(e)) => crate::path_single(self.ast, *e).map(str::to_owned),
+            Some(None) => Some(port.name.text.clone()),
+            None => None,
+        };
+        match simple {
+            Some(wire) => wire,
+            None => {
+                self.error(
+                    ErrorCode::E2005,
+                    lstr!(
+                        en: "{} port '{}' of instance '{inst}' must be bound to a wire or a bidirectional port of this module", port.direction.keyword(), port.name.text;
+                        tr: "'{inst}' örneğinin {} portu '{}' bu modülün bir wire'ına ya da çift yönlü portuna bağlanmalı", port.direction.keyword(), port.name.text
+                    ),
+                    span,
+                    &lstr!(
+                        en: "declare wire {}_bus : <type> and bind {}: {}_bus — the line is shared, not computed", port.name.text, port.name.text, port.name.text;
+                        tr: "wire {}_bus : <tip> bildirip {}: {}_bus bağlayın — hat paylaşılır, hesaplanmaz", port.name.text, port.name.text, port.name.text
+                    ),
+                );
+                "1'bz".to_string()
             }
         }
     }

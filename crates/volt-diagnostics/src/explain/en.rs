@@ -572,6 +572,13 @@ module Gpio {
             "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    tx.valid = tx.ready && have_data    // ✗ E4007: valid waits for ready\n    tx.data  = 0\n}",
             "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    reg valid_r : bool = false\n    on clk {\n        if tx.fired { valid_r <= false }\n        else if have_data { valid_r <= true }\n    }\n    tx.valid = valid_r                  // ✓ registered decision\n    tx.data  = 0\n}",
         ),
+        E4008 => Explanation::new(
+            "Bidirectional port misuse",
+            "An 'inout' or 'opendrain' port is assigned directly, driven outside an 'on' block, or used with a member it does not have.",
+            "A bidirectional pad is shared with the outside world, so its value is not a plain expression: at every moment the module either drives it or leaves it to the other devices (high impedance / the pull-up). Volt keeps that decision in the module's own registers (<p>_oe and <p>_out for 'inout', <p>_drive_low for 'opendrain'), synthesised by the compiler, and generates the single tri-state buffer 'assign p = enable ? value : \'z' itself (ADR-0051). A continuous assignment 'p = expr' would produce a push-pull driver that fights the bus; a drive call outside an 'on' block has no register to hold the state; other member names have no meaning on a pad.\n\nThe only operations are: p.drive(value) (inout), p.drive_low() (opendrain), p.release() -- statements inside 'on clk'; p.read() -- the resolved line level as an expression; p.released / p.driving -- the drive state, usable in contracts and expressions. An 'opendrain' port is always 'bool'; an 'inout' port is bool, uN, iN or bits<N>.",
+            "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    sda = if en { false } else { true }    // ✗ E4008: push-pull on an open-drain line\n}",
+            "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ registered drive intent\n    }\n    invariant: !en -> sda.released\n}",
+        ),
 
         E5001 => Explanation::new(
             "Contract violated",
@@ -900,6 +907,13 @@ module VgaTiming { /* ... */ }
             "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. AsyncDualPortRam (ADR-0049) has one write port and one read port on different clocks; a read that overlaps a write to the same address from the other clock returns an undefined value, because the memory array itself is the clock-domain crossing and no synchronizer can order the two accesses. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports use disjoint addresses (e.g. one writer per region, ping-pong buffers, a handshake before reading), or arbitrate the writers in front of a single-port Ram.",
             "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
             "// ensure x != y whenever a_wr_en && b_wr_en, or:\nlet m = Ram<u8, 256> { ... }   // ✓ single writer, no collision",
+        ),
+        W3007 => Explanation::new(
+            "External bidirectional signal read without synchronization",
+            "The level of an 'inout' / 'opendrain' port is read directly; the other end of that line is a device outside the module's clock domain.",
+            "An ordinary 'in' port is trusted to be in the module's domain (K2). A bidirectional pad is different: by definition it is driven by another device (an I2C slave, an SDRAM, a bus master) whose timing has nothing to do with this clock, so a direct read samples an asynchronous signal and can go metastable. The read is therefore treated as external (ADR-0051): pass it through sync() first and use the synchronised copy. Reads inside contracts and as the source of sync() are not reported. The warning is deliberate, not an error: a testbench or a design whose peer is known to share the clock may read the line directly.",
+            "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asynchronous line sampled directly\n}",
+            "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ two-flop synchroniser\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
         ),
         W4001 => Explanation::new(
             "Unused signal",

@@ -58,7 +58,9 @@ endmodule
 **Kurallar:**
 - `clock` tipi → `input logic clk`
 - Reset portu **otomatik eklenir** (bkz. §7)
-- Port sırası: clock → reset → diğer inputlar → outputlar
+- Port sırası: clock → reset → diğer inputlar → inout/opendrain → outputlar
+- `inout` / `opendrain` portu `inout wire` (IEEE 1800 23.2.2.3: inout bir
+  net olmalı) — bkz. §17 (ADR-0051)
 - Belgeleme yorumu `///` → `//` olarak aktarılır
 
 ---
@@ -382,7 +384,9 @@ E2005 hatası verilir.
 ✗ #delay            → hiç kullanılmaz
 ✗ pozisyonel bağlama → isimli bağlama
 ✗ örtük genişlik    → her zaman açık
-✗ x veya z değeri   → hiç üretilmez
+✗ x veya z değeri   → hiç üretilmez (İSTİSNA: çift yönlü port tamponu
+                       `assign p = en ? v : 'z`, yalnız derleyici
+                       kalıbı — §17, ADR-0051; x hâlâ üretilmez)
 ✗ casex / casez     → case ile açık karşılaştırma
 ```
 
@@ -614,3 +618,72 @@ end
 - `wire x : T` → `logic ... x;` bildirimi; sürücüsü `comb` ya da `assign`.
 - `comb { }` → `always_comb begin ... end`; aynı blok içinde art arda
   tam atama tek sürücü sayılır (type-inference.md §11.2).
+
+---
+
+## 17. Çift Yönlü Portlar — `inout` / `opendrain` (ADR-0051)
+
+### Volt
+```volt
+module Pad {
+    in  clk : clock
+    in  en  : bool
+    opendrain sda : bool          // yalnız bool; pull-up harici, kablolu-VE
+    inout     dq  : bits<8>       // bool / uN / iN / bits<N>
+    out level : bool
+
+    invariant: !en -> sda.released      // sürücü niyeti: !sda_drive_low
+
+    wire sda_s : bool
+    sda_s = sync(sda.read(), clk)       // dış aygıt: önce senkronize (W3007)
+
+    on clk {
+        if en { sda.drive_low() } else { sda.release() }
+        if en { dq.drive(0 as bits<8>) } else { dq.release() }
+    }
+    level = sda_s
+}
+```
+
+### SystemVerilog
+```systemverilog
+module Pad (
+    input  logic       clk,
+    input  logic       rst,
+    input  logic       en,
+    inout  wire        sda,
+    inout  wire [7:0]  dq,
+    output logic       level
+);
+    logic sda_drive_low;          // parser'ın sentezlediği sürücü register'ları
+    logic dq_oe;
+    logic [7:0] dq_out;
+    ...                           // always_ff: reset'te serbest (1'b0), sonra <=
+
+    // opendrain pad (ADR-0051): driven only while sda_drive_low is high
+    assign sda = sda_drive_low ? 1'b0 : 1'bz;
+    // inout pad (ADR-0051): driven only while dq_oe is high
+    assign dq = dq_oe ? dq_out : {8{1'bz}};
+endmodule
+```
+
+**Kurallar:**
+- Sürücü durumu register'dır: `p.drive(v)` → `p_oe <= 1; p_out <= v`,
+  `p.drive_low()` → `p_drive_low <= 1`, `p.release()` → enable `<= 0`;
+  yalnız `on` bloğunda. Doğrudan atama (`p = e`, `p <= e`) E4008.
+- Okuma `p.read()` net'in kendisidir (`sda`); ayrı `sda_in` teli yok.
+- `p.released` = `!<enable>`, `p.driving` = `<enable>` — kontratlar
+  sürücü NİYETİNİ kanıtlar, `z` değerini değil.
+- Yalnız sürülen (ya da `released`/`driving` ile gözlenen) port tampon
+  alır; yalnız okunan pad için `assign` üretilmez.
+- Örnekleme: çift yönlü port üst modülün `wire`ına ya da kendi çift
+  yönlü portuna ADIYLA bağlanır (`.sda(sda_bus)`); bağlanan tel net
+  olur — `inout` için `wire`, `opendrain` için `tri1` (pull-up +
+  kablolu-VE; birden çok pad aynı tele bağlanabilir). `<örnek>_<port>`
+  çıkış teli üretilmez; ifade bağlamak / bağlamamak E2005.
+- Formal (`volt verify`, Immediate) çıktısı: Yosys serbest `'z` netini
+  sabit 0 okur; bu modda dış aygıt `(* anyseq *) logic p_ext;` +
+  `assign p = enable ? value : p_ext;` ile modellenir (serbestken
+  serbest değer), `tri1` yerine düz `wire` yazılır.
+- Verilator: `-Wall` lint temiz; `--cc` iç tri-state netlerini çözer,
+  üst seviye `inout` için `--pins-inout-enables` gerekir.

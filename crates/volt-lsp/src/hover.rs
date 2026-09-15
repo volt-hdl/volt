@@ -105,6 +105,9 @@ fn kind_label(kind: DefKind) -> &'static str {
         DefKind::Port {
             dir: PortDir::InOut,
         } => "inout port",
+        DefKind::Port {
+            dir: PortDir::OpenDrain,
+        } => "open-drain port",
         DefKind::Register => "register",
         DefKind::Wire => "wire",
         DefKind::Instance => "module instance",

@@ -275,6 +275,7 @@ pub fn emit_unit(
         array_consts_used: Vec::new(),
         loop_vars: Vec::new(),
         pre_decls: Vec::new(),
+        bus_wires: HashMap::new(),
         sources,
         source_name,
         sva_mode: mode,
@@ -417,6 +418,10 @@ pub(crate) struct Emitter<'a> {
     pub(crate) loop_vars: Vec<(String, i128)>,
     /// Gövde başına konan ön bildirimler: örnek çıkış telleri.
     pub(crate) pre_decls: Vec<String>,
+    /// Bir örneğin `inout`/`opendrain` portuna bağlanan üst modül
+    /// telleri (ADR-0051): `wire` (inout) ya da `tri1` (opendrain —
+    /// pull-up'lı kablolu-VE) olarak bildirilir, `logic` değil.
+    pub(crate) bus_wires: HashMap<String, PortDir>,
     /// Kaynak metin — SVA yorumlarındaki satır numaraları için.
     /// Birimdeki kaynak dosyalar (ADR-0042) — ilk giriş ana dosya.
     pub(crate) sources: &'a [SourceText<'a>],
@@ -483,6 +488,7 @@ impl<'a> Emitter<'a> {
         self.array_consts_used.clear();
         self.loop_vars.clear();
         self.pre_decls.clear();
+        self.bus_wires.clear();
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -549,6 +555,10 @@ impl<'a> Emitter<'a> {
         if let Some(pre) = self.pre_decl_chunk() {
             body_chunks.insert(0, pre);
         }
+        // ADR-0051: çift yönlü portların üç durumlu tamponları.
+        if let Some(chunk) = self.emit_bidir_drivers(module) {
+            body_chunks.push(chunk);
+        }
 
         // F4a — kontratlardan SVA üretimi (moda göre gömülü ya da ayrı).
         match self.sva_mode {
@@ -614,15 +624,24 @@ impl<'a> Emitter<'a> {
         for cfg in resets {
             lines.push(("input", "logic".into(), cfg.port_name().into()));
         }
-        for pass in [PortDir::In, PortDir::InOut, PortDir::Out] {
+        for pass in [
+            PortDir::In,
+            PortDir::InOut,
+            PortDir::OpenDrain,
+            PortDir::Out,
+        ] {
             for port in &module.ports {
                 if port.direction != pass || is_clock(port) {
                     continue;
                 }
-                let ty = self.sv_type_string(port.ty, port.span);
+                let mut ty = self.sv_type_string(port.ty, port.span);
                 let dir = match pass {
                     PortDir::In => "input",
-                    PortDir::InOut => "inout",
+                    // IEEE 1800 23.2.2.3: inout portu net olmalı (ADR-0051).
+                    PortDir::InOut | PortDir::OpenDrain => {
+                        ty = ty.replacen("logic", "wire", 1);
+                        "inout"
+                    }
                     PortDir::Out => "output",
                 };
                 lines.push((dir, ty, port.name.text.clone()));
@@ -737,9 +756,19 @@ impl<'a> Emitter<'a> {
                 // `wire x : T` → `logic` bildirimi (ADR-0041); sembol ön
                 // geçişte eklendi, dizi tipli wire hâlâ future.
                 StmtKind::Wire(w) => match self.symbols.get(&w.name.text).copied() {
+                    // Bir örneğin çift yönlü portuna bağlanan tel net'tir
+                    // (ADR-0051): `wire`; açık drenaj hattı `tri1` (pull-up).
                     Some(sig) => Some((
                         Kind::Decl,
-                        format!("    {} {};", sig.decl_type(), w.name.text),
+                        // Yosys'in Verilog ön ucu `tri1` tanımaz: formal
+                        // (Immediate) çıktısında pull-up'sız `wire` (ADR-0051 sınırı).
+                        match self.bus_wires.get(&w.name.text) {
+                            Some(PortDir::OpenDrain) if self.sva_mode != SvaMode::Immediate => {
+                                format!("    tri1 {}{};", sig.wire_prefix(), w.name.text)
+                            }
+                            Some(_) => format!("    wire {}{};", sig.wire_prefix(), w.name.text),
+                            None => format!("    {} {};", sig.decl_type(), w.name.text),
+                        },
                     )),
                     None => {
                         self.future(
@@ -787,6 +816,62 @@ impl<'a> Emitter<'a> {
             .map(|(_, text)| text)
             .filter(|text| !text.is_empty())
             .collect()
+    }
+
+    /// sv-mapping.md §17 (ADR-0051) — çift yönlü portların üç durumlu
+    /// tamponları. Sürücü register'ları parser sentezledi (`<p>_oe` +
+    /// `<p>_out`, `<p>_drive_low`); yalnız sürülen (ya da `released`/
+    /// `driving` ile gözlenen) portun register'ı vardır — yalnız okunan
+    /// pad için `assign` üretilmez (modül hattı sürmez).
+    fn emit_bidir_drivers(&mut self, module: &'a ModuleDecl) -> Option<String> {
+        let mut lines = Vec::new();
+        for port in &module.ports {
+            let Some(regs) = port.direction.bidir_regs(&port.name.text) else {
+                continue;
+            };
+            if !self.symbols.contains_key(&regs.enable) {
+                continue;
+            }
+            let Some(sig) = self.symbols.get(&port.name.text).copied() else {
+                continue;
+            };
+            let name = &port.name.text;
+            // Formal (Immediate) model: Yosys reads a released `'z` net as
+            // constant 0, which would freeze any pad that waits for its
+            // pull-up. The external device is modelled as an unconstrained
+            // `(* anyseq *)` driver that owns the line while it is released:
+            // released → free value, driven → the module's value.
+            let formal = self.sva_mode == SvaMode::Immediate;
+            let released = if formal {
+                lines.push(format!(
+                    "    // formal model of the external device on {name} (ADR-0051): free while released"
+                ));
+                lines.push(format!("    (* anyseq *) {} {name}_ext;", sig.decl_type()));
+                format!("{name}_ext")
+            } else if sig.width == 1 {
+                "1'bz".to_string()
+            } else {
+                format!("{{{}{{1'bz}}}}", sig.width)
+            };
+            let line = match (port.direction, regs.data) {
+                (PortDir::OpenDrain, _) => {
+                    format!("    assign {name} = {} ? 1'b0 : {released};", regs.enable)
+                }
+                (_, Some(data)) if self.symbols.contains_key(&data) => {
+                    format!("    assign {name} = {} ? {data} : {released};", regs.enable)
+                }
+                _ => format!("    assign {name} = {released};"),
+            };
+            if !formal {
+                lines.push(format!(
+                    "    // {} pad (ADR-0051): driven only while {} is high",
+                    port.direction.keyword(),
+                    regs.enable
+                ));
+            }
+            lines.push(line);
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     /// sv-mapping.md §8 — `dest = sync(src, dst_clk)` / `sync3(...)` köprüsü.

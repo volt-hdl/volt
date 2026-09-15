@@ -108,6 +108,16 @@ fn infer_module_domains(&mut self, m: &ModuleDecl) {
 }
 ```
 
+### K2a — Çift Yönlü Port Okuması Haricidir (ADR-0051)
+
+`inout` / `opendrain` portu K2 ile modülün alanına ATANIR (atama ve
+örnekleme denetimleri için) ama OKUMASI harici sayılır: pad'in öbür
+ucu kendi zamanlamasıyla başka bir aygıttır. `p.read()` (ya da çıplak
+`p`) bir `sync()` çağrısının kaynağı değilse ve kontrat içinde değilse
+**W3007** üretir; okuma yine modülün alanında değerlendirilir (E3012
+kaskadı olmaz). `sync(p.read(), clk)` içinde kaynak alan `Timeless`
+döner — hedefle aynı alan sayılmaz, W3002 çıkmaz.
+
 ### K3 — Çoklu Saat: Anotasyon Zorunlu
 
 ```volt
@@ -516,6 +526,7 @@ W3001  Register hiç yazılmıyor
 W3002  Gereksiz sync() (aynı domain)
 W3003  Çok bitli sync() — bit tutarlılığı garanti değil
 W3004  Kullanılmayan domain tanımı
+W3007  Harici çift yönlü sinyal senkronizasyonsuz okunuyor (ADR-0051)
 ```
 
 ---

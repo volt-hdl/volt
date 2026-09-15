@@ -42,6 +42,7 @@ impl Parser<'_> {
         let item_start = self.pos;
         self.bump_any(); // 'pipeline'
         let prev_in_pipeline = std::mem::replace(&mut self.in_pipeline, true);
+        self.bidir.ports.clear(); // ADR-0051: öğe başına çift yönlü port tablosu
 
         let open_paren = self.current_span();
         self.expect(
@@ -184,7 +185,10 @@ impl Parser<'_> {
                     let flush = self.parse_flush(Some(stage_idx));
                     decl.flushes.push(flush);
                 }
-                _ => stmts.push(self.parse_block_stmt(BlockContext::Sequential)),
+                _ => {
+                    stmts.push(self.parse_block_stmt(BlockContext::Sequential));
+                    stmts.append(&mut self.bidir.pending); // ADR-0051
+                }
             }
             if self.pos == before {
                 self.bump_any(); // ilerleme garantisi

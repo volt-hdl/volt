@@ -236,8 +236,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0041: 50-52 genişleme/const dizi/generic örnekleme fixture'ları,
     // ADR-0044: 57-58 @mmio register haritası, ADR-0047: 62 extern domain,
     // ADR-0048: 63-64 uygulanmayan nitelik (W0021) + @allow(unenforced),
-    // ADR-0049: 65 domain-aware çift saatli bellek.
-    assert_eq!(checked, 56);
+    // ADR-0049: 65 domain-aware çift saatli bellek,
+    // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain).
+    assert_eq!(checked, 58);
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

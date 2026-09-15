@@ -131,7 +131,15 @@ ModuleBody      = { Port } { Contract } { Stmt } ;
 Port            = [ Attributes ] [ DocComment ]
                   PortDir Ident ":" Type [ DomainAnnot ] [ "," ] ;
 
-PortDir         = "in" | "out" | "inout" ;                    (* [F3] *)
+PortDir         = "in" | "out" | "inout" | "opendrain" ;      (* [F3]; "opendrain" ADR-0051 *)
+
+(* ADR-0051: "opendrain" BAĞLAMSAL anahtar kelimedir — yalnız port
+   konumunda `opendrain Ident ":"` deseninde tanınır. inout/opendrain
+   portu yalnız `on` bloğunda `p.drive(v)` / `p.drive_low()` /
+   `p.release()` deyimleriyle sürülür (Stmt = Postfix çağrısı), `p.read()`
+   ile okunur; `p.released` / `p.driving` sanal alanlardır. Parser bunları
+   sentezlenmiş `<p>_oe`/`<p>_out`/`<p>_drive_low` register atamalarına
+   açar; doğrudan atama E4008. *)
 
 
 (* ═══ 4a. PIPELINE BİLDİRİMİ (ADR-0038) ═══════════════════════ *)

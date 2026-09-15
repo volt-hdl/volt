@@ -836,6 +836,16 @@ W4002  Yazılıp hiç okunmayan register
    → W4001, W4002
 ```
 
+### 11.7 E4008 — Çift Yönlü Port Yanlış Kullanımı (ADR-0051)
+
+`inout` / `opendrain` portuna doğrudan atama (`p = e`, `p <= e`) E4008:
+çift yönlü pad başka aygıtlarla paylaşılır; sürücü durumu parser'ın
+sentezlediği `<p>_oe`/`<p>_out` (`<p>_drive_low`) register'larıdır ve
+yalnız `on` bloğunda `p.drive(v)` / `p.drive_low()` / `p.release()` ile
+değişir. Aynı kod `on` dışında sürme çağrısı, bilinmeyen üye, argüman
+sayısı ve tip kuralı (`opendrain` yalnız `bool`; `inout` bool/uN/iN/
+bits<N>) için de kullanılır — mesaj bağlama göre.
+
 ## 12. L1 Timing — `Delayed<T, N>` (ADR-0037)
 
 Every value in a `@strict_timing` module carries a *delay*: how many

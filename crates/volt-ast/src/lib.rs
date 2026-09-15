@@ -259,7 +259,63 @@ pub enum PortDir {
     In,
     Out,
     InOut,
+    /// `opendrain p : bool` (ADR-0051) — yalnız aşağı çekilebilen,
+    /// harici pull-up'lı çift yönlü pad; birden çok sürücü kablolu-VE.
+    OpenDrain,
 }
+
+impl PortDir {
+    /// `inout` ya da `opendrain`: dış dünyayla paylaşılan pad (ADR-0051).
+    pub fn is_bidirectional(self) -> bool {
+        matches!(self, PortDir::InOut | PortDir::OpenDrain)
+    }
+
+    /// Kaynak koddaki anahtar kelime.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            PortDir::In => "in",
+            PortDir::Out => "out",
+            PortDir::InOut => "inout",
+            PortDir::OpenDrain => "opendrain",
+        }
+    }
+
+    /// Çift yönlü portun parser tarafından sentezlenen sürücü
+    /// register'ları (ADR-0051); tek yönlü portta `None`.
+    pub fn bidir_regs(self, port: &str) -> Option<BidirRegs> {
+        match self {
+            PortDir::InOut => Some(BidirRegs {
+                enable: format!("{port}_oe"),
+                data: Some(format!("{port}_out")),
+            }),
+            PortDir::OpenDrain => Some(BidirRegs {
+                enable: format!("{port}_drive_low"),
+                data: None,
+            }),
+            PortDir::In | PortDir::Out => None,
+        }
+    }
+}
+
+/// Çift yönlü bir portun sürücü durumu (ADR-0051): `enable` sürücü
+/// etkin mi (`<p>_oe` / `<p>_drive_low`), `data` sürülen değer
+/// (`<p>_out`, yalnız `inout`). `p.released` = `!enable`,
+/// `p.driving` = `enable`; SV'de `assign p = enable ? data : 'z`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BidirRegs {
+    pub enable: String,
+    pub data: Option<String>,
+}
+
+/// Çift yönlü port yöntemleri (ADR-0051): `p.drive(v)` (inout),
+/// `p.drive_low()` (opendrain), `p.release()`, `p.read()`.
+pub const BIDIR_DRIVE: &str = "drive";
+pub const BIDIR_DRIVE_LOW: &str = "drive_low";
+pub const BIDIR_RELEASE: &str = "release";
+pub const BIDIR_READ: &str = "read";
+/// Kontrat / ifade sanal alanları: `p.released`, `p.driving`.
+pub const BIDIR_RELEASED: &str = "released";
+pub const BIDIR_DRIVING: &str = "driving";
 
 #[derive(Debug)]
 pub struct FnDecl {

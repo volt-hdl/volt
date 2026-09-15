@@ -735,6 +735,11 @@ impl<'a> Emitter<'a> {
             return self.emit_prec(operand, None, PREC_ATOM, false);
         };
         let src = self.width_of(operand);
+        // Soneksiz literal (`0 as bits<8>`): hedef genişliğinde
+        // boyutlandırılmış literal — ara genişlik yoktur (ADR-0051).
+        if src.is_none() && matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) {
+            return self.emit_prec(operand, Some(target), PREC_ATOM, false);
+        }
         let inner = self.emit_prec(operand, src, PREC_ATOM, false);
 
         let Some(src) = src else {

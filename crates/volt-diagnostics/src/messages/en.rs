@@ -90,6 +90,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4005 => "Bundle field direction violated (ADR-0039)",
         E4006 => "Bus-owned MMIO register field written from RTL (ADR-0044)",
         E4007 => "Handshake valid depends combinationally on ready (ADR-0050)",
+        E4008 => "Bidirectional port misuse: direct assignment, unknown member or drive call outside an on block (ADR-0051)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",
@@ -145,6 +146,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3004 => "Unused domain definition",
         W3005 => "PulseSync pulses need spacing in the destination domain",
         W3006 => "Same-address port collision is not detected (DualPortRam write-write, AsyncDualPortRam read-during-write)",
+        W3007 => "External bidirectional signal read without synchronization (ADR-0051)",
         W4001 => "Unused signal (silence with a '_' prefix)",
         W4002 => "Register written but never read",
     }

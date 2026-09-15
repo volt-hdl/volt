@@ -532,6 +532,8 @@ impl Parser<'_> {
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             stmts.push(self.parse_block_stmt(ctx));
+            // `p.drive(v)` iki deyim üretir (ADR-0051); ikincisi burada.
+            stmts.append(&mut self.bidir.pending);
             if self.pos == before {
                 self.bump_any(); // ilerleme garantisi — sonsuz döngü koruması
             }
@@ -706,6 +708,10 @@ impl Parser<'_> {
     fn parse_block_assign(&mut self, ctx: BlockContext) -> BlockStmt {
         let start = self.pos;
         let lhs_expr = self.parse_expr_bp(ABOVE_COMPARISON_BP);
+        // ADR-0051: `p.drive(v)` / `p.drive_low()` / `p.release()` deyimi.
+        if let Some(stmt) = self.try_bidir_call(lhs_expr, ctx) {
+            return stmt;
+        }
         let lhs = match self.expr_to_lvalue(lhs_expr) {
             Some(lv) => lv,
             None => {

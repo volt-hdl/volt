@@ -114,6 +114,7 @@ fn module_children(analysis: &Analysis, m: &ModuleDecl) -> Vec<DocumentSymbol> {
             PortDir::In => (SymbolKind::PROPERTY, "in"),
             PortDir::Out => (SymbolKind::FIELD, "out"),
             PortDir::InOut => (SymbolKind::INTERFACE, "inout"),
+            PortDir::OpenDrain => (SymbolKind::INTERFACE, "opendrain"),
         };
         children.push(symbol(
             map,

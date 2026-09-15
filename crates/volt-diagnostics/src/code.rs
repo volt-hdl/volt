@@ -51,7 +51,7 @@ error_codes! {
     E3011, E3012, E3013, E3014,
 
     // ─── Bağlantı/sürücü (type-inference.md) ───
-    E4001, E4002, E4003, E4004, E4005, E4006, E4007,
+    E4001, E4002, E4003, E4004, E4005, E4006, E4007, E4008,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)
@@ -73,7 +73,7 @@ error_codes! {
     // ─── Uyarılar ───
     W0010, W0020, W0021, W1001, W1002, W1003, W1004, W1005, W2010, W2011,
     W2012, W2013, W2020, W2021, W3001, W3002, W3003, W3004, W3005, W3006,
-    W4001, W4002,
+    W3007, W4001, W4002,
 }
 
 impl ErrorCode {

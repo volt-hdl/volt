@@ -572,6 +572,13 @@ module Gpio {
             "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    tx.valid = tx.ready && have_data    // ✗ E4007: valid, ready'yi bekliyor\n    tx.data  = 0\n}",
             "module Producer {\n    in  clk : clock\n    out tx  : Handshake<u8>\n    reg valid_r : bool = false\n    on clk {\n        if tx.fired { valid_r <= false }\n        else if have_data { valid_r <= true }\n    }\n    tx.valid = valid_r                  // ✓ register'lanmış karar\n    tx.data  = 0\n}",
         ),
+        E4008 => Explanation::new(
+            "Çift yönlü port yanlış kullanımı",
+            "Bir 'inout' ya da 'opendrain' porta doğrudan atama yapılıyor, 'on' bloğu dışında sürülüyor ya da olmayan bir üyesi kullanılıyor.",
+            "Çift yönlü bir pad dış dünyayla paylaşılır; değeri sıradan bir ifade değildir: modül her an ya hattı sürer ya da diğer aygıtlara bırakır (yüksek empedans / pull-up). Volt bu kararı modülün kendi register'larında tutar (inout için <p>_oe ve <p>_out, opendrain için <p>_drive_low) — derleyici sentezler — ve tek üç durumlu tamponu 'assign p = enable ? value : \'z' olarak kendisi üretir (ADR-0051). Sürekli atama 'p = ifade' veri yoluyla çekişen push-pull sürücü üretirdi; 'on' bloğu dışındaki sürme çağrısının durumu tutacak register'ı yoktur; başka üye adlarının pad üzerinde anlamı yoktur.\n\nTek işlemler: p.drive(değer) (inout), p.drive_low() (opendrain), p.release() — 'on clk' içinde deyim; p.read() — çözümlenmiş hat seviyesi, ifade; p.released / p.driving — sürücü durumu, kontratta ve ifadede. 'opendrain' portu her zaman 'bool'; 'inout' portu bool, uN, iN ya da bits<N>.",
+            "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    sda = if en { false } else { true }    // ✗ E4008: açık drenaj hatta push-pull\n}",
+            "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ register'lanmış sürücü niyeti\n    }\n    invariant: !en -> sda.released\n}",
+        ),
 
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",
@@ -900,6 +907,13 @@ module VgaTiming { /* ... */ }
             "DualPortRam tek saatte iki bağımsız okuma/yazma portu verir. Üretilen bellek önce A portunun, sonra B portunun yazmasını uygular; aynı çevrimde aynı adrese yazma yalnız B portunun verisini bırakır. Adresler çalışma zamanı değerleri olduğundan derleyici çakışmayı statik olarak dışlayamaz; her örneklemede kısıtı hatırlatır. Portların ayrık adres bölgelerine yazdığını yapısal olarak garanti edin (ör. bölge başına tek yazıcı) ya da yazıcıları tek portlu Ram önünde arbitre edin.",
             "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
             "// a_wr_en && b_wr_en iken x != y garanti edin, ya da:\nlet m = Ram<u8, 256> { ... }   // ✓ tek yazıcı, çakışma yok",
+        ),
+        W3007 => Explanation::new(
+            "Harici çift yönlü sinyal senkronizasyonsuz okunuyor",
+            "Bir 'inout' / 'opendrain' portun seviyesi doğrudan okunuyor; hattın öbür ucu modülün saat alanı dışındaki bir aygıttır.",
+            "Sıradan bir 'in' portun modülün alanında olduğuna güvenilir (K2). Çift yönlü pad farklıdır: tanımı gereği başka bir aygıt (I2C köle, SDRAM, veri yolu efendisi) sürer ve zamanlaması bu saatle ilgisizdir; doğrudan okuma asenkron bir sinyali örnekler ve yarı kararlı kalabilir. Bu yüzden okuma harici sayılır (ADR-0051): önce sync() ile geçirin, senkronize kopyayı kullanın. Kontrat içindeki okumalar ve sync() kaynağı olan okuma raporlanmaz. Uyarı bilinçli olarak hata değildir: bir test tezgâhı ya da karşı tarafın aynı saati paylaştığı bilinen bir tasarım hattı doğrudan okuyabilir.",
+            "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asenkron hat doğrudan örnekleniyor\n}",
+            "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ iki-flop senkronizatör\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
         ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",

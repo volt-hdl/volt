@@ -90,6 +90,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4005 => "Bundle alanının yönü ihlal edildi (ADR-0039)",
         E4006 => "Bus'a ait MMIO register alanına RTL'den yazıldı (ADR-0044)",
         E4007 => "Handshake valid'i ready'ye kombinasyonel bağımlı (ADR-0050)",
+        E4008 => "Çift yönlü port yanlış kullanımı: doğrudan atama, bilinmeyen üye ya da on bloğu dışında sürme (ADR-0051)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",
@@ -145,6 +146,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3004 => "Kullanılmayan domain tanımı",
         W3005 => "PulseSync darbeleri hedef alanda aralık gerektirir",
         W3006 => "Aynı adrese port çakışması algılanmaz (DualPortRam yazma-yazma, AsyncDualPortRam yazma sırasında okuma)",
+        W3007 => "Harici çift yönlü sinyal senkronizasyonsuz okunuyor (ADR-0051)",
         W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
         W4002 => "Yazılıp hiç okunmayan register",
     }

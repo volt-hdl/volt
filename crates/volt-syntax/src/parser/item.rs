@@ -72,6 +72,9 @@ impl Parser<'_> {
         // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
         self.desugar_mmio();
         self.flatten_bundles();
+        // ADR-0051: çift yönlü portların sürücü register'ları ve
+        // read()/released/driving yeniden yazımı (bundle alanı inout olabilir).
+        self.expand_bidir_ports();
     }
 
     /// Öğeleri okur, bundle düzleştirmesi YAPMAZ — derleme biriminde
@@ -542,12 +545,19 @@ impl Parser<'_> {
         let mut contracts = Vec::new();
         let mut body = Vec::new();
         let mut mmio_regs = Vec::new();
+        self.bidir.ports.clear();
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             let doc = self.collect_doc_comments();
             let attrs = self.parse_attributes();
             match self.current() {
                 Some(KwIn) | Some(KwOut) | Some(KwInout) => {
+                    if let Some(port) = self.parse_port(attrs, doc) {
+                        ports.push(port);
+                    }
+                }
+                // ADR-0051: `opendrain ad : tip` (bağlamsal anahtar kelime).
+                Some(Ident) if self.at_opendrain_port() => {
                     if let Some(port) = self.parse_port(attrs, doc) {
                         ports.push(port);
                     }
@@ -685,7 +695,9 @@ impl Parser<'_> {
         let direction = match self.current() {
             Some(KwIn) => PortDir::In,
             Some(KwOut) => PortDir::Out,
-            _ => PortDir::InOut,
+            Some(KwInout) => PortDir::InOut,
+            // Çağıran `at_opendrain_port` ile doğruladı (ADR-0051).
+            _ => PortDir::OpenDrain,
         };
         self.bump_any();
 
@@ -698,6 +710,9 @@ impl Parser<'_> {
             return None;
         }
         let name = self.parse_name();
+        if direction.is_bidirectional() {
+            self.bidir.ports.insert(name.text.clone(), direction);
+        }
 
         if !self.eat(Colon) {
             self.error_expected(
@@ -1218,12 +1233,18 @@ impl Parser<'_> {
         );
 
         let mut ports = Vec::new();
+        self.bidir.ports.clear();
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             let doc = self.collect_doc_comments();
             let attrs = self.parse_attributes();
             match self.current() {
                 Some(KwIn) | Some(KwOut) | Some(KwInout) => {
+                    if let Some(port) = self.parse_port(attrs, doc) {
+                        ports.push(port);
+                    }
+                }
+                Some(Ident) if self.at_opendrain_port() => {
                     if let Some(port) = self.parse_port(attrs, doc) {
                         ports.push(port);
                     }
