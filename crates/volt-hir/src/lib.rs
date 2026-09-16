@@ -122,6 +122,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     diagnostics.extend(timing_diags);
     diagnostics.extend(handshake_diags);
     diagnostics.extend(constraint_diags);
+    let diagnostics = annotate_generate(ast, diagnostics);
     AnalysisResult {
         resolve,
         typeck,
@@ -129,3 +130,51 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
         diagnostics,
     }
 }
+
+/// Açılmış `for` yinelemesine düşen tanılara bağlam notu ekler
+/// (ADR-0056): birincil span'in `ctx`'i `SourceFile::generate`
+/// tablosundaysa "'for' döngüsünün i = 2 yinelemesinde" notu ve döngü
+/// deyimine ikincil etiket. Kaynak konumu zaten kullanıcının yazdığı
+/// satırdır (klon span'leri korur); not hangi kopyada olduğunu söyler.
+/// Aynı tanıya ikinci kez uygulanmaz.
+pub fn annotate_generate(
+    ast: &SourceFile,
+    diagnostics: Vec<volt_diagnostics::Diagnostic>,
+) -> Vec<volt_diagnostics::Diagnostic> {
+    use volt_diagnostics::NoteKind;
+    if ast.generate.iterations.is_empty() {
+        return diagnostics;
+    }
+    diagnostics
+        .into_iter()
+        .map(|d| {
+            let Some(ctx) = d.primary_span().map(|s| s.span.ctx) else {
+                return d;
+            };
+            let chain = ast.generate.chain(ctx);
+            if chain.is_empty() || d.notes.iter().any(|n| n.text.contains(GENERATE_NOTE_MARK)) {
+                return d;
+            }
+            let vars: Vec<String> = chain.iter().map(|(v, n)| format!("{v} = {n}")).collect();
+            let vars = vars.join(", ");
+            let note = volt_diagnostics::lstr!(
+                en: "in the unrolled 'for' iteration {vars} {GENERATE_NOTE_MARK}";
+                tr: "'for' döngüsünün {vars} yinelemesinde {GENERATE_NOTE_MARK}"
+            );
+            let d = d.with_note(NoteKind::Note, note);
+            match ast.generate.outermost_span(ctx) {
+                Some(span) if !d.spans.iter().any(|s| s.span == span) => d.with_secondary(
+                    span,
+                    volt_diagnostics::lstr!(
+                        en: "'for' loop unrolled at compile time here";
+                        tr: "'for' döngüsü burada derleme zamanında açıldı"
+                    ),
+                ),
+                _ => d,
+            }
+        })
+        .collect()
+}
+
+/// Bağlam notunun tanınma imi (çift uygulamaya karşı).
+const GENERATE_NOTE_MARK: &str = "(ADR-0056)";

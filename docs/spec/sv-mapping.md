@@ -82,7 +82,8 @@ endmodule
 | `uint<N>` | `logic [N-1:0]` | genişliği sabit ifade (ADR-0041) |
 | `sint<N>` | `logic signed [N-1:0]` | işaretli eşi (ADR-0041) |
 | `clock` | `logic` | port bağlamında |
-| `[T; N]` | `T_sv ad [0:N-1]` | unpacked dizi (ADR-0035); boyut isimden SONRA — sentez araçları BRAM/dağıtık RAM'e eşleyebilir. Şimdilik yalnız `reg` bildirimlerinde |
+| `[T; N]` | `T_sv ad [0:N-1]` | unpacked dizi (ADR-0035); boyut isimden SONRA — sentez araçları BRAM/dağıtık RAM'e eşleyebilir. Yalnız `reg` bildirimlerinde |
+| `[T; N]` port / `wire` | `logic [N*W-1:0] ad` | PAKETLENMİŞ vektör (ADR-0056): Yosys unpacked dizi portu kabul etmez. Eleman erişimi `ad[W*i +: W]` (literal indekste katlanır: `ad[8 +: 8]`), işaretli eleman `$signed(ad[...])`; bütün dizi ataması vektör kopyası |
 
 **Örnek:**
 ```volt

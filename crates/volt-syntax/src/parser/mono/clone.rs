@@ -24,13 +24,91 @@ pub(super) struct Cloner<'a> {
     /// Monomorf bağlamı: klonlanan her span bu etiketi taşır (ADR-0041),
     /// resolve'un Span anahtarlı tabloları klonlar arasında çakışmaz.
     ctx: u16,
-    /// const generic parametre adı → argüman değeri.
-    subst: HashMap<String, u128>,
+    /// const generic parametre (ya da açılan döngü değişkeni, ADR-0056)
+    /// adı → değer. Negatif değer `-lit` olarak yazılır.
+    subst: HashMap<String, i128>,
+    /// Döngü açılımı (ADR-0056): gövdede bildirilen isim → yineleme
+    /// sonekli adı (`pe` → `pe_0`). Bildirimlere ve tek segmentli yol /
+    /// LValue tabanı referanslarına uygulanır; alan ve port adlarına
+    /// dokunmaz.
+    rename: HashMap<String, String>,
+    /// Her iki operandı literale inen aritmetik katlanır (`0*4+1` → `1`);
+    /// yalnız döngü açılımında açık — SV çıktısı okunur kalsın.
+    fold: bool,
 }
 
 impl<'a> Cloner<'a> {
-    pub(super) fn new(ast: &'a mut SourceFile, subst: HashMap<String, u128>, ctx: u16) -> Self {
-        Self { ast, subst, ctx }
+    pub(super) fn new(ast: &'a mut SourceFile, subst: HashMap<String, i128>, ctx: u16) -> Self {
+        Self {
+            ast,
+            subst,
+            ctx,
+            rename: HashMap::new(),
+            fold: false,
+        }
+    }
+
+    /// Döngü açılımı kipi: isim yeniden yazma + sabit katlama (ADR-0056).
+    pub(super) fn with_rename(mut self, rename: HashMap<String, String>) -> Self {
+        self.rename = rename;
+        self.fold = true;
+        self
+    }
+
+    /// Gövdede bildirilen ismin bu yinelemedeki adı.
+    fn declared_name(&mut self, n: &Name) -> Name {
+        let mut name = self.tag_name(n);
+        if let Some(new) = self.rename.get(&n.text) {
+            name.text = new.clone();
+        }
+        name
+    }
+
+    /// İkame değerini literal (negatifse `-lit`) olarak yazar.
+    fn subst_expr_kind(&mut self, v: i128, span: Span) -> ExprKind {
+        if v >= 0 {
+            return ExprKind::IntLit {
+                value: v as u128,
+                suffix: None,
+                base: NumBase::Dec,
+            };
+        }
+        let operand = self.int_lit(v.unsigned_abs(), span);
+        ExprKind::Unary {
+            op: volt_ast::UnOp::Neg,
+            operand,
+        }
+    }
+
+    /// `fold` açıkken iki literalli aritmetiği katlar; sonuç negatif ya
+    /// da taşarsa dokunmaz (SV aynı ifadeyi kendisi hesaplar).
+    fn fold_binary(&self, op: volt_ast::BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>) -> Option<ExprKind> {
+        use volt_ast::BinOp;
+        if !self.fold {
+            return None;
+        }
+        let lit = |e: Idx<Expr>| match &self.ast.exprs[e].kind {
+            ExprKind::IntLit {
+                value,
+                suffix: None,
+                ..
+            } => i128::try_from(*value).ok(),
+            _ => None,
+        };
+        let (l, r) = (lit(lhs)?, lit(rhs)?);
+        let v = match op {
+            BinOp::Add => l.checked_add(r),
+            BinOp::Sub => l.checked_sub(r),
+            BinOp::Mul => l.checked_mul(r),
+            BinOp::Div if r != 0 => l.checked_div(r),
+            BinOp::Rem if r != 0 => l.checked_rem(r),
+            _ => None,
+        }?;
+        (v >= 0).then_some(ExprKind::IntLit {
+            value: v as u128,
+            suffix: None,
+            base: NumBase::Dec,
+        })
     }
 
     /// Span'i bu monomorfun bağlamıyla etiketler; satır/sütun değişmez.
@@ -211,7 +289,8 @@ impl<'a> Cloner<'a> {
             return None;
         }
         let value = *self.subst.get(&path.segments[0].text)?;
-        Some(self.int_lit(value, span))
+        let kind = self.subst_expr_kind(value, span);
+        Some(self.ast.exprs.alloc(Expr { span, kind }))
     }
 
     fn int_lit(&mut self, value: u128, span: volt_span::Span) -> Idx<Expr> {
@@ -231,6 +310,12 @@ impl<'a> Cloner<'a> {
         let span = self.tag(self.ast.exprs[e].span);
         let kind = self.clone_expr_kind(e);
         let new = self.ast.exprs.alloc(Expr { span, kind });
+        // Blok içi generic örnekleme argümanları (ADR-0056).
+        if let Some(args) = self.ast.generate.block_generic_args.get(&e) {
+            let args = self.copy_generic_args(args);
+            let args = args.iter().map(|a| self.clone_generic_arg(a)).collect();
+            self.ast.generate.block_generic_args.insert(new, args);
+        }
         // `delay<K>(x)` yan tablosu (ADR-0037).
         if let Some(entries) = self.ast.timing.delay_exprs.get(&e).cloned() {
             let cloned = entries
@@ -260,18 +345,22 @@ impl<'a> Cloner<'a> {
             },
             ExprKind::Error => ExprKind::Error,
             ExprKind::Path(p) => {
-                // İkame: const generic parametre → argüman literali.
+                // İkame: const generic parametre / döngü değişkeni → literal.
                 if p.segments.len() == 1 {
                     if let Some(&v) = self.subst.get(&p.segments[0].text) {
-                        return ExprKind::IntLit {
-                            value: v,
-                            suffix: None,
-                            base: NumBase::Dec,
-                        };
+                        let span = self.tag(self.ast.exprs[e].span);
+                        return self.subst_expr_kind(v, span);
                     }
                 }
                 let p = p.clone();
-                ExprKind::Path(self.tag_path(&p))
+                let mut p = self.tag_path(&p);
+                // Yineleme sonekli isim (ADR-0056): `pe.out` → `pe_0.out`.
+                if p.segments.len() == 1 {
+                    if let Some(new) = self.rename.get(&p.segments[0].text) {
+                        p.segments[0].text = new.clone();
+                    }
+                }
+                ExprKind::Path(p)
             }
             ExprKind::Binary { .. }
             | ExprKind::Unary { .. }
@@ -294,11 +383,9 @@ impl<'a> Cloner<'a> {
         match &self.ast.exprs[e].kind {
             ExprKind::Binary { op, lhs, rhs } => {
                 let (op, lhs, rhs) = (*op, *lhs, *rhs);
-                ExprKind::Binary {
-                    op,
-                    lhs: self.clone_expr(lhs),
-                    rhs: self.clone_expr(rhs),
-                }
+                let (lhs, rhs) = (self.clone_expr(lhs), self.clone_expr(rhs));
+                self.fold_binary(op, lhs, rhs)
+                    .unwrap_or(ExprKind::Binary { op, lhs, rhs })
             }
             ExprKind::Unary { op, operand } => {
                 let (op, operand) = (*op, *operand);
@@ -542,7 +629,7 @@ impl<'a> Cloner<'a> {
 
     fn clone_let(&mut self, name: Name, ty: Option<Idx<TypeRef>>, value: Idx<Expr>) -> LetDecl {
         LetDecl {
-            name: self.tag_name(&name),
+            name: self.declared_name(&name),
             ty: ty.map(|t| self.clone_type(t)),
             value: self.clone_expr(value),
         }
@@ -583,7 +670,7 @@ impl<'a> Cloner<'a> {
 
     fn clone_instance(&mut self, inst: InstanceDecl) -> InstanceDecl {
         InstanceDecl {
-            name: self.tag_name(&inst.name),
+            name: self.declared_name(&inst.name),
             module_path: self.tag_path(&inst.module_path),
             generic_args: inst
                 .generic_args
@@ -652,7 +739,7 @@ impl<'a> Cloner<'a> {
             .collect();
         LValue {
             span: self.tag(l.span),
-            base: self.tag_name(&l.base),
+            base: self.declared_name(&l.base),
             suffixes,
         }
     }

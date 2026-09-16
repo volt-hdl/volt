@@ -79,7 +79,7 @@ impl<'a> Emitter<'a> {
             }
             let mut outputs = Vec::new();
             for p in target.ports.iter().filter(|p| p.direction == PortDir::Out) {
-                if let Some(sig) = self.sig_of_typeref(p.ty, p.span) {
+                if let Some(sig) = self.port_sig(p) {
                     self.pre_decls.push(format!(
                         "    {} {}_{};",
                         sig.decl_type(),
@@ -167,7 +167,7 @@ impl<'a> Emitter<'a> {
             conns.push((rst.to_string(), rst.to_string()));
         }
         for p in target.ports.iter().filter(|p| !is_clock(p)) {
-            let Some(sig) = self.sig_of_typeref(p.ty, p.span) else {
+            let Some(sig) = self.port_sig(p) else {
                 continue;
             };
             let value = match p.direction {

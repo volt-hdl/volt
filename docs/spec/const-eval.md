@@ -419,7 +419,14 @@ belleği tüketir. Erken hata daha iyi.
 > ADR-0041: SV emitter `for` gövdesini derleme zamanında AÇAR (döngü
 > değişkeni literale ikame edilir); sınır sabit değilse E2005. Const
 > diziler (`ConstValue::Array`) sabit indekste elemana katlanır, sinyal
-> indekste `localparam` unpacked dizi olarak üretilir (sv-mapping.md §16).
+> indekte `localparam` unpacked dizi olarak üretilir (sv-mapping.md §16).
+>
+> ADR-0056: MODÜL SEVİYESİ `for` parser'da (monomorfizasyon turu içinde)
+> açılır — gövdede örnekleme (`let pe = Pe { ... }` → `pe_0`, `pe_1`, ...;
+> iç içe `pe_0_1`) ve `let` telleri serbesttir, her yineleme benzersiz
+> `Span.ctx` taşır. Sınır sabit değilse E2005, ters aralık E2028, > 4096
+> yineleme E2027; gövdede `if`/`match` E0003. `on`/`comb` içindeki `for`
+> emitter'da açılmaya devam eder.
 
 ```volt
 for i in 0..4 {

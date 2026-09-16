@@ -65,11 +65,10 @@ impl ParseResult {
 /// Kaynak dosyayı tam AST'ye ayrıştırır. Hiçbir girdide panik etmez.
 pub fn parse(file: FileId, source: &str) -> ParseResult {
     let mut parser = Parser::new(file, source);
+    // Monomorfizasyon (ADR-0041) ve `for` açılımı (ADR-0056) pipeline
+    // desugar'ı gibi parser katmanında, bundle düzleştirmesinden önce
+    // (`finish_unit_desugar`); alt geçitler somut, açılmış modül görür.
     parser.parse_source_file();
-    // Generic örneklemelerin monomorfizasyonu (ADR-0041) — pipeline
-    // desugar'ı gibi parser katmanında; alt geçitler somut modül görür.
-    let mono_diags = mono::monomorphize(&mut parser.ast);
-    parser.diagnostics.extend(mono_diags);
     parser.finish()
 }
 
@@ -88,12 +87,12 @@ pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
         parser.ast = std::mem::take(&mut ast);
         parser.parse_items_only();
         if i + 1 == files.len() {
-            // ADR-0044 @mmio desugar'ı, sonra ADR-0039 bundle
-            // düzleştirmesi — ikisi de tüm birim üzerinde bir kez.
+            // ADR-0044 @mmio desugar'ı, sonra mono + `for` açılımı +
+            // ADR-0039 bundle düzleştirmesi — hepsi tüm birim üzerinde
+            // bir kez (generic tanım ile örneklemesi farklı dosyada olabilir).
             parser.next_synthetic = next_synthetic;
             parser.desugar_mmio();
-            parser.flatten_bundles();
-            parser.expand_bidir_ports();
+            parser.finish_unit_desugar();
         }
         let result = parser.finish();
         ast = result.ast;
@@ -101,13 +100,20 @@ pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
         generated.extend(result.generated);
         regmaps.extend(result.regmaps);
     }
-    diagnostics.extend(mono::monomorphize(&mut ast));
     ParseResult {
         ast,
         diagnostics,
         generated,
         regmaps,
     }
+}
+
+/// Ayrıştırma sonucu desugar/mono ÖNCESİ (test yardımcısı): `for`
+/// gibi parser katmanında açılan yapıların ham AST'si.
+pub fn parse_items_only_for_tests(file: FileId, source: &str) -> ParseResult {
+    let mut parser = Parser::new(file, source);
+    parser.parse_items_only();
+    parser.finish()
 }
 
 /// Tek bir ifadeyi ayrıştırır (öncelik testleri için).
@@ -154,6 +160,9 @@ pub(crate) struct Parser<'s> {
     /// Çift yönlü port durumu (ADR-0051): öğenin `inout`/`opendrain`
     /// portları ve `p.drive(v)`'nin beklettiği ikinci deyim.
     pub(crate) bidir: bidir::BidirState,
+    /// Üst düzey const'lar (ad → değer ifadesi) — bundle dizisi
+    /// indekslerinin sabit değerlendirmesi için (ADR-0056).
+    pub(crate) consts: std::collections::HashMap<String, Idx<Expr>>,
 }
 
 impl<'s> Parser<'s> {
@@ -186,6 +195,7 @@ impl<'s> Parser<'s> {
             generated: Vec::new(),
             regmaps: Vec::new(),
             bidir: bidir::BidirState::default(),
+            consts: std::collections::HashMap::new(),
         }
     }
 

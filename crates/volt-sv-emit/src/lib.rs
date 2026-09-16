@@ -268,6 +268,7 @@ pub fn emit_unit(
         domains: collect_domains(ast),
         symbols: HashMap::new(),
         array_dims: HashMap::new(),
+        packed_arrays: HashMap::new(),
         builtin_insts: HashMap::new(),
         user_insts: HashMap::new(),
         consts: collect_consts(ast),
@@ -398,6 +399,12 @@ pub(crate) struct Emitter<'a> {
     /// Dizi tipli reg'ler (ADR-0035): isim → eleman sayısı N.
     /// SV bildirimi `logic [W-1:0] ad [0:N-1]` biçimindedir.
     pub(crate) array_dims: HashMap<String, u32>,
+    /// Dizi tipli port ve wire'lar (ADR-0056): isim → (eleman imzası,
+    /// eleman sayısı). PAKETLENMİŞ vektör olarak üretilir (`logic
+    /// [N*W-1:0] ad`; Yosys unpacked dizi PORTU kabul etmez), eleman
+    /// erişimi `ad[W*i +: W]` part-select'tir; `symbols` toplam
+    /// genişliği taşır.
+    pub(crate) packed_arrays: HashMap<String, (Sig, u32)>,
     /// Modül içi yerleşik CDC primitif örnekleri (ADR-0027): örnek adı →
     /// doğrulanmış bilgi. Ön geçişte doldurulur ki `f.rd_data` alan
     /// erişimleri deyim sırasından bağımsız `f_rd_data`'ya çevrilsin.
@@ -485,6 +492,7 @@ impl<'a> Emitter<'a> {
         let ast = self.ast;
         self.symbols.clear();
         self.array_dims.clear();
+        self.packed_arrays.clear();
         self.array_consts_used.clear();
         self.loop_vars.clear();
         self.pre_decls.clear();
@@ -492,14 +500,14 @@ impl<'a> Emitter<'a> {
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
-            if let Some(sig) = self.sig_of_typeref(port.ty, port.span) {
+            if let Some(sig) = self.signal_sig(&port.name.text, port.ty, port.span) {
                 self.symbols.insert(port.name.text.clone(), sig);
             }
         }
         for &stmt_idx in &module.body {
             let span = ast.stmts[stmt_idx].span;
             if let StmtKind::Wire(w) = &ast.stmts[stmt_idx].kind {
-                if let Some(sig) = self.sig_of_typeref(w.ty, span) {
+                if let Some(sig) = self.signal_sig(&w.name.text, w.ty, span) {
                     self.symbols.insert(w.name.text.clone(), sig);
                 }
             }
@@ -634,7 +642,10 @@ impl<'a> Emitter<'a> {
                 if port.direction != pass || is_clock(port) {
                     continue;
                 }
-                let mut ty = self.sv_type_string(port.ty, port.span);
+                let mut ty = match self.packed_arrays.get(&port.name.text) {
+                    Some(_) => self.symbols[&port.name.text].decl_type(),
+                    None => self.sv_type_string(port.ty, port.span),
+                };
                 let dir = match pass {
                     PortDir::In => "input",
                     // IEEE 1800 23.2.2.3: inout portu net olmalı (ADR-0051).
@@ -795,10 +806,9 @@ impl<'a> Emitter<'a> {
                     }
                 }
                 StmtKind::Comb(block) => Some((Kind::Always, self.emit_comb(*block))),
-                // Derleme zamanı döngüsü açılır (ADR-0041).
-                StmtKind::For(f) => self
-                    .emit_module_for(f, stmt.span)
-                    .map(|chunk| (Kind::Assign, chunk)),
+                // Modül seviyesi `for` parser'da açıldı (ADR-0056);
+                // sınırı sabit olmayan döngü tanıyla birlikte düşürüldü.
+                StmtKind::For(_) => None,
             };
 
             if let Some((kind, text)) = entry {
@@ -1317,8 +1327,15 @@ impl<'a> Emitter<'a> {
             }
         }
         let mut out = lv.base.text.clone();
-        for suffix in &lv.suffixes {
+        let packed = self.packed_arrays.get(&lv.base.text).copied();
+        for (n, suffix) in lv.suffixes.iter().enumerate() {
             match suffix {
+                // Paketlenmiş dizi (ADR-0056): ilk indeks eleman part-select'i.
+                LValueSuffix::Index(i) if n == 0 && packed.is_some() => {
+                    let w = packed.map_or(1, |(s, _)| s.width);
+                    let i = self.emit_plain(*i);
+                    out.push_str(&packed_select(&i, w));
+                }
                 LValueSuffix::Index(i) => {
                     let i = self.emit_plain(*i);
                     out.push_str(&format!("[{i}]"));
@@ -1346,13 +1363,15 @@ impl<'a> Emitter<'a> {
 
     fn lvalue_sig(&mut self, lv: &LValue) -> Option<Sig> {
         let mut sig = self.symbols.get(&lv.base.text).copied();
-        // Dizi tabanında ilk indeks ELEMANI seçer, biti değil (ADR-0035).
-        let mut is_array = self.array_dims.contains_key(&lv.base.text);
+        // Dizi tabanında ilk indeks ELEMANI seçer, biti değil (ADR-0035);
+        // paketlenmiş port/wire dizisinde eleman imzası (ADR-0056).
+        let packed = self.packed_arrays.get(&lv.base.text).copied();
+        let mut is_array = self.array_dims.contains_key(&lv.base.text) || packed.is_some();
         for suffix in &lv.suffixes {
             sig = match suffix {
                 LValueSuffix::Index(_) if is_array => {
                     is_array = false;
-                    sig
+                    packed.map(|(s, _)| s).or(sig)
                 }
                 LValueSuffix::Index(_) => Some(Sig {
                     width: 1,
@@ -1380,8 +1399,37 @@ impl<'a> Emitter<'a> {
 
     // ═══ Tipler (§2) ══════════════════════════════════════════════
 
+    /// Port / wire imzası: skaler tipler `sig_of_typeref`; `[T; N]`
+    /// paketlenmiş vektör olarak kaydedilir (ADR-0056) — toplam genişlik
+    /// döner, eleman bilgisi `packed_arrays`'e yazılır.
+    pub(crate) fn signal_sig(&mut self, name: &str, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
+        if !matches!(self.ast.types[ty].kind, TypeRefKind::Array { .. }) {
+            return self.sig_of_typeref(ty, span);
+        }
+        let (elem, len) = self.array_reg_sig(ty, span)?;
+        self.packed_arrays.insert(name.to_string(), (elem, len));
+        Some(Sig {
+            width: elem.width * len,
+            signed: false,
+        })
+    }
+
+    /// Bir hedef modül portunun bağlama imzası (örnekleme): dizi port
+    /// paketlenmiş toplam genişlik (ADR-0056).
+    pub(crate) fn port_sig(&mut self, port: &volt_ast::Port) -> Option<Sig> {
+        if !matches!(self.ast.types[port.ty].kind, TypeRefKind::Array { .. }) {
+            return self.sig_of_typeref(port.ty, port.span);
+        }
+        let (elem, len) = self.array_reg_sig(port.ty, port.span)?;
+        Some(Sig {
+            width: elem.width * len,
+            signed: false,
+        })
+    }
+
     /// `[T; N]` reg tipi (ADR-0035): eleman imzası + eleman sayısı.
-    /// Yalnız reg bildirimlerinde çağrılır; iç içe dizi desteklenmez.
+    /// Reg bildirimlerinde ve paketlenmiş port/wire dizilerinde
+    /// çağrılır; iç içe dizi desteklenmez.
     pub(crate) fn array_reg_sig(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<(Sig, u32)> {
         let TypeRefKind::Array { elem, len } = &self.ast.types[ty].kind else {
             return None;
@@ -1527,5 +1575,14 @@ fn collect_written_if(ast: &SourceFile, if_stmt: &IfStmt, out: &mut Vec<String>)
         Some(ElseBranch::Block(b)) => collect_written(ast, &ast.blocks[*b], out),
         Some(ElseBranch::If(elif)) => collect_written_if(ast, elif, out),
         None => {}
+    }
+}
+
+/// Paketlenmiş dizi elemanı seçimi (ADR-0056): `[W*i +: W]`; indeks
+/// literalse çarpım katlanır (`[16 +: 8]`).
+pub(crate) fn packed_select(index: &str, width: u32) -> String {
+    match index.parse::<u64>() {
+        Ok(i) => format!("[{} +: {width}]", i * u64::from(width)),
+        Err(_) => format!("[{width} * ({index}) +: {width}]"),
     }
 }

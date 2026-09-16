@@ -1,12 +1,14 @@
-//! Üretim (generate) yapıları — ADR-0041: `for` açma, `wire`, `comb`.
+//! Üretim (generate) yapıları — ADR-0041: blok içi `for` açma, `comb`.
 //!
 //! `for i in a..b { ... }` derleme zamanı döngüsüdür (const-eval.md §8):
 //! sınırlar sabit olmalı; gövde her iterasyon için AÇILIR, döngü
 //! değişkeni `loop_vars` üzerinden sabit olarak ikame edilir (SV
 //! `generate` bloğu üretilmez — çıktı düz ve araç-bağımsızdır).
-//! `comb { }` → `always_comb`, `wire x : T` → `logic` bildirimi.
+//! Yalnız `on`/`comb`/`stage` gövdesindeki `for` buraya gelir; modül
+//! seviyesi `for` parser'da açılır (ADR-0056, volt-syntax
+//! parser/mono/unroll.rs). `comb { }` → `always_comb`.
 
-use volt_ast::{Block, BlockStmt, ForStmt, Idx};
+use volt_ast::{Block, ForStmt, Idx};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
@@ -66,54 +68,6 @@ impl<'a> Emitter<'a> {
             self.loop_vars.push((f.var.text.clone(), v));
             lines.extend(self.emit_block(f.body, indent));
             self.loop_vars.pop();
-        }
-    }
-
-    /// Modül seviyesi `for`: gövdesi kombinasyonel; her iterasyondaki
-    /// `x = y` ataması `assign` satırı olur. Boş aralık → None.
-    pub(crate) fn emit_module_for(&mut self, f: &'a ForStmt, span: Span) -> Option<String> {
-        let (s, e) = self.for_bounds(f, span)?;
-        let mut lines = Vec::new();
-        for v in s..e {
-            self.loop_vars.push((f.var.text.clone(), v));
-            self.emit_for_body_assigns(f.body, &mut lines);
-            self.loop_vars.pop();
-        }
-        (!lines.is_empty()).then(|| lines.join("\n"))
-    }
-
-    fn emit_for_body_assigns(&mut self, body: Idx<Block>, lines: &mut Vec<String>) {
-        let ast = self.ast;
-        for stmt in &ast.blocks[body].stmts {
-            match stmt {
-                BlockStmt::BlockAssign { lhs, rhs, .. } => {
-                    let sig = self.lvalue_sig(lhs);
-                    let l = self.emit_lvalue(lhs);
-                    let r = self.emit_assigned(*rhs, sig);
-                    lines.push(format!("    assign {l} = {r};"));
-                }
-                BlockStmt::For(inner) => {
-                    let span = ast.blocks[inner.body].span;
-                    if let Some(chunk) = self.emit_module_for(inner, span) {
-                        lines.push(chunk);
-                    }
-                }
-                BlockStmt::Error => {}
-                BlockStmt::NonBlockAssign { span, .. } => self.future(
-                    *span,
-                    &lstr!(
-                        en: "non-blocking assignment in a module-level 'for'";
-                        tr: "modül seviyesi 'for' içinde ardışık atama"
-                    ),
-                ),
-                BlockStmt::If(_) | BlockStmt::Match(_) | BlockStmt::Let(_) => self.future(
-                    ast.blocks[body].span,
-                    &lstr!(
-                        en: "if/match/let inside a module-level 'for' (move them into a 'comb' block)";
-                        tr: "modül seviyesi 'for' içinde if/match/let (bir 'comb' bloğuna taşıyın)"
-                    ),
-                ),
-            }
         }
     }
 

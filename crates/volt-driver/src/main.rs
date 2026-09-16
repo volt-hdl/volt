@@ -604,7 +604,8 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
     let mut diagnostics = parsed.diagnostics.clone();
     let fail = |map: SourceMap, diagnostics: Vec<Diagnostic>, ast: volt_ast::SourceFile| Compiled {
         map,
-        diagnostics,
+        // Açılmış `for` yinelemelerine düşen tanılara bağlam notu (ADR-0056).
+        diagnostics: volt_hir::annotate_generate(&ast, diagnostics),
         ast,
         sv: None,
         modules: Vec::new(),
@@ -673,6 +674,8 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         ConstArrayStyle::default(),
     );
     diagnostics.extend(emitted.diagnostics);
+    // Açılmış `for` yinelemelerine düşen tanılara bağlam notu (ADR-0056).
+    let diagnostics = volt_hir::annotate_generate(&parsed.ast, diagnostics);
     let (sv, modules, sva_files, sva_props, multiclock_modules) = if count_errors(&diagnostics) == 0
     {
         (

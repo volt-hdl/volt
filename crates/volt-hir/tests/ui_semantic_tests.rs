@@ -240,8 +240,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain),
     // ADR-0052: 70-71 güven seviyeleri + declassify,
     // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita),
-    // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat).
-    assert_eq!(checked, 63);
+    // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat),
+    // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi.
+    assert_eq!(checked, 66);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

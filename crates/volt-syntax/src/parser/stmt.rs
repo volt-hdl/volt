@@ -6,9 +6,9 @@
 //! yanlış operatör raporlanır ama ayrıştırma doğru operatör gibi sürer.
 
 use volt_ast::{
-    AssignStmt, Attribute, Block, BlockContext, BlockStmt, ElseBranch, Expr, ExprKind, ForStmt,
-    Idx, IfStmt, InstanceDecl, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, MatchStmt,
-    Name, OnBlock, OnTrigger, PortBinding, RegDecl, Stmt, StmtKind, WireDecl,
+    AssignStmt, Attribute, Block, BlockContext, BlockStmt, ElseBranch, Expr, ExprKind, FieldInit,
+    ForStmt, Idx, IfStmt, InstanceDecl, LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody,
+    MatchStmt, Name, OnBlock, OnTrigger, PortBinding, RegDecl, Stmt, StmtKind, WireDecl,
 };
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
@@ -206,12 +206,42 @@ impl Parser<'_> {
         })
     }
 
-    /// `let isim [: tip] = ifade [;]` — blok bağlamı (örnekleme yok).
+    /// `let isim [: tip] = ifade [;]` — blok bağlamı. Generic
+    /// örnekleme sözdizimi (`W<8> { ... }`) yapı literali olarak
+    /// saklanır, argümanlar `generate.block_generic_args`a yazılır:
+    /// modül seviyesi `for` açılımı bunu örneklemeye çevirir (ADR-0056);
+    /// başka blokta yapı literali kalır ve tip denetimi reddeder.
     pub(crate) fn parse_let(&mut self) -> Option<LetDecl> {
-        match self.parse_let_impl(false)? {
+        match self.parse_let_impl(true)? {
             LetOrInstance::Let(decl) => Some(decl),
-            // allow_instance=false ile erişilmez.
-            LetOrInstance::Instance(_) => None,
+            LetOrInstance::Instance(inst) => {
+                let span = inst.module_path.span;
+                let fields = inst
+                    .bindings
+                    .into_iter()
+                    .map(|b| FieldInit {
+                        span: b.span,
+                        name: b.port_name,
+                        value: b.value,
+                    })
+                    .collect();
+                let value = self.ast.exprs.alloc(Expr {
+                    span,
+                    kind: ExprKind::StructLit {
+                        path: inst.module_path,
+                        fields,
+                    },
+                });
+                self.ast
+                    .generate
+                    .block_generic_args
+                    .insert(value, inst.generic_args);
+                Some(LetDecl {
+                    name: inst.name,
+                    ty: None,
+                    value,
+                })
+            }
         }
     }
 

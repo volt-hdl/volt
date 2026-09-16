@@ -71,9 +71,18 @@ impl Parser<'_> {
         // ADR-0039: bundle portları düz portlara açılır (tüm öğeler
         // okunduktan sonra — struct port bildirimi modülden sonra gelebilir).
         self.desugar_mmio();
+        self.finish_unit_desugar();
+    }
+
+    /// Birim sonu desugar zinciri (tek dosya ve `parse_unit` ortak):
+    /// ADR-0041 monomorfizasyon + ADR-0056 `for` açılımı ÖNCE — böylece
+    /// ADR-0039 bundle düzleştirmesi somut modülleri görür ve bundle
+    /// dizisi indeksleri (`ch[i].valid`) literaldir; SONRA ADR-0051 çift
+    /// yönlü port açılımı (bundle alanı inout olabilir).
+    pub(crate) fn finish_unit_desugar(&mut self) {
+        let mono_diags = super::mono::monomorphize(&mut self.ast);
+        self.diagnostics.extend(mono_diags);
         self.flatten_bundles();
-        // ADR-0051: çift yönlü portların sürücü register'ları ve
-        // read()/released/driving yeniden yazımı (bundle alanı inout olabilir).
         self.expand_bidir_ports();
     }
 

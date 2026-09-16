@@ -1516,9 +1516,32 @@ fn comb_block_is_real() {
 
 #[test]
 fn for_stmt_module_level() {
-    // 20_const_and_generate.volt deseni
+    // 20_const_and_generate.volt deseni — modül seviyesi `for` parser'da
+    // açılır (ADR-0056): 8 yineleme → 8 `assign`, döngü değişkeni literal.
     let result = p("module M { for i in 0..8 { temp[i] = data[i] & mask[i] } }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let module = result.ast.module(0).unwrap();
+    assert_eq!(module.body.len(), 8);
+    for (k, &s) in module.body.iter().enumerate() {
+        let StmtKind::Assign(a) = &result.ast.stmts[s].kind else {
+            panic!("assign bekleniyor")
+        };
+        let volt_ast::LValueSuffix::Index(i) = &a.lhs.suffixes[0] else {
+            panic!("indeks bekleniyor")
+        };
+        assert!(
+            matches!(result.ast.exprs[*i].kind, ExprKind::IntLit { value, .. } if value == k as u128)
+        );
+    }
+}
+
+#[test]
+fn for_stmt_module_level_body_kept_before_unroll() {
+    // Ayrıştırma katmanı `for`u olduğu gibi kurar; açılım mono turunda.
+    let result = volt_syntax::parser::parse_items_only_for_tests(
+        FileId(0),
+        "module M { for i in 0..8 { temp[i] = data[i] & mask[i] } }",
+    );
     let module = result.ast.module(0).unwrap();
     let StmtKind::For(f) = &result.ast.stmts[module.body[0]].kind else {
         panic!("for bekleniyor")
@@ -1543,8 +1566,17 @@ fn for_in_on_block_inherits_sequential_context() {
 
 #[test]
 fn for_range_with_const_names() {
-    let result = p("module M { for i in BASLA..BITIS { t[i] = 0 } }");
+    let result = p("const BASLA : u32 = 1\nconst BITIS : u32 = 3\nmodule M { for i in BASLA..BITIS { t[i] = 0 } }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.ast.module(2).unwrap().body.len(), 2);
+}
+
+#[test]
+fn for_range_with_unknown_names_is_e2005_at_parse() {
+    // Modül seviyesi sınır parser'da değerlendirilir (ADR-0056).
+    let result = p("module M { for i in BASLA..BITIS { t[i] = 0 } }");
+    assert_eq!(result.error_codes(), vec!["E2005"]);
+    assert!(result.ast.module(0).unwrap().body.is_empty());
 }
 
 // ═══ Modül örnekleme — [N3] yeniden sınıflandırma ═════════════════
@@ -1965,7 +1997,7 @@ fn invalid_escape_is_e0012() {
 #[test]
 fn range_in_for_only_not_general_expr() {
     // '..' yalnız for başlığında aralıktır; ifadede '[hi:lo]' kullanılır
-    let result = p("module M { for i in 0..N { t[i] = 0 } }");
+    let result = p("const N : u32 = 2\nmodule M { for i in 0..N { t[i] = 0 } }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
 }
 
@@ -2068,7 +2100,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 63, "ui/pass 63 dosya içermeli");
+    assert_eq!(total, 66, "ui/pass 66 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2091,10 +2123,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0051 ise 68-69'u (inout / opendrain çift yönlü portlar),
     // ADR-0052 ise 70-71'i (trust_level + declassify),
     // ADR-0053 ise 72'yi (@mmio sürücü üretimi, alan doc yorumları),
-    // ADR-0054 ise 73-74'ü (SDC üretimi: tek saat / çok saat) ekledi.
+    // ADR-0054 ise 73-74'ü (SDC üretimi: tek saat / çok saat),
+    // ADR-0056 ise 75-77'yi (for içinde örnekleme, iç içe for, bundle dizisi) ekledi.
     assert_eq!(
-        clean, 63,
-        "63/63 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 66,
+        "66/66 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2126,6 +2159,8 @@ fn ui_fail_files_produce_expected_codes() {
         ("45_mmio_offset_overlap.volt", "E0015"),
         // ADR-0052: gerekçesiz declassify parser'da yakalanır.
         ("56_declassify_no_reason.volt", "E0016"),
+        // ADR-0056: bundle dizisi indeksi düzleştirmede (parse içinde) denetlenir.
+        ("58_bundle_array_dynamic_index.volt", "E2008"),
     ];
     for (file, expected) in cases {
         let path = format!(

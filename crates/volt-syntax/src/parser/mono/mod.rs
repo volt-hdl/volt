@@ -19,6 +19,7 @@
 
 mod clone;
 mod pattern;
+pub(crate) mod unroll;
 
 use std::collections::HashMap;
 
@@ -131,6 +132,10 @@ impl Mono<'_> {
         if self.is_generic_template(item) {
             return Vec::new();
         }
+        // Modül seviyesi `for` açılımı (ADR-0056) önce: açılan gövdedeki
+        // örneklemeler bu turun istekleri olur; klonlanmış generic
+        // gövdede sınırlar ikame sonrası literaldir.
+        unroll::unroll_module(self.ast, item, &mut self.next_ctx, &mut self.diagnostics);
         let requests = self.collect_requests(item);
         let mut created = Vec::new();
         for req in requests {
@@ -199,10 +204,16 @@ impl Mono<'_> {
         let (item, is_new) = match self.produced.get(&mangled) {
             Some(&existing) => (existing, false),
             None => {
+                // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
+                // doyurulur.
                 let subst = params
                     .iter()
                     .map(|(n, _)| n.clone())
-                    .zip(values.iter().copied())
+                    .zip(
+                        values
+                            .iter()
+                            .map(|&v| i128::try_from(v).unwrap_or(i128::MAX)),
+                    )
                     .collect();
                 let item = self.clone_template(template, subst, mangled.clone());
                 self.produced.insert(mangled.clone(), item);
@@ -244,7 +255,7 @@ impl Mono<'_> {
     fn clone_template(
         &mut self,
         template: Idx<Item>,
-        subst: HashMap<String, u128>,
+        subst: HashMap<String, i128>,
         mangled: String,
     ) -> Idx<Item> {
         let (span, doc, visibility) = {

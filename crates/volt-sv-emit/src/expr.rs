@@ -236,6 +236,10 @@ impl<'a> Emitter<'a> {
                     if self.array_dims.contains_key(name) {
                         return self.symbols.get(name).copied();
                     }
+                    // Paketlenmiş port/wire dizisi: eleman imzası (ADR-0056).
+                    if let Some(&(elem, _)) = self.packed_arrays.get(name) {
+                        return Some(elem);
+                    }
                     let name = name.to_string();
                     if let Some((sig, _, _)) = self.const_array_info(&name) {
                         return Some(sig);
@@ -476,10 +480,26 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Index { base, index } => {
                 let (base, index) = (*base, *index);
+                let packed =
+                    crate::path_single(ast, base).and_then(|n| self.packed_arrays.get(n).copied());
                 match self.try_emit_const_array_index(base, index, ctx, span) {
                     Some(folded) => {
                         let prec = lit_prec(&folded);
                         (folded, prec)
+                    }
+                    // Paketlenmiş port/wire dizisi elemanı (ADR-0056):
+                    // `a[W*i +: W]`; işaretli eleman `$signed(...)` ile
+                    // sarılır ki part-select'in işaretsizliği sızmasın.
+                    None if packed.is_some() => {
+                        let (elem, _) = packed.expect("packed");
+                        let b = self.emit_prec(base, None, PREC_ATOM, false);
+                        let i = self.emit_plain(index);
+                        let sel = format!("{b}{}", crate::packed_select(&i, elem.width));
+                        if elem.signed {
+                            (format!("$signed({sel})"), PREC_ATOM)
+                        } else {
+                            (sel, PREC_ATOM)
+                        }
                     }
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);

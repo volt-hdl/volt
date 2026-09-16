@@ -1,7 +1,12 @@
 # Çip İçi Ağ (Network-on-Chip) — Tasarım Notu
 
 > Statü: **TASARIM NOTU — BU TURDA UYGULANMADI.** Kod, gramer, spec ve ADR
-> değişmedi. Bu belge opsiyon değeri taşır: talep gelirse hazır plan, gelmezse
+> değişmedi. GÜNCELLEME (ADR-0056, 2026-09-17): §1'deki iki dil sınırı —
+> modül seviyesi `for` içinde örnekleme ve bundle dizisi portu — kaldırıldı;
+> dizi tipli port/wire SV eşlemesi eklendi; §3'teki "sentetik span bütçesi"
+> riski `for` açılımı için geçersiz (klonlar kaynak span'ini korur, yalnız
+> `ctx` değişir; 4×4 = 28 ctx). 4×4 mesh artık iç içe `for` ile yazılabilir
+> (tahmin ~150–200 satır); `noc` desugar'ı (§2-3) hâlâ opsiyon. Bu belge opsiyon değeri taşır: talep gelirse hazır plan, gelmezse
 > sıfır maliyet. §6'daki koşullardan biri oluşmadan UYGULANMAMALIDIR.
 > Tarih: 2026-09-16
 > Dayanak: ADR-0038 (pipeline desugar), ADR-0039 (bundle), ADR-0040 (`prev`),

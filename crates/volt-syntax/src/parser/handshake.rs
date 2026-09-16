@@ -170,9 +170,12 @@ impl Parser<'_> {
     /// açar, alan zinciri ve sanal alan (`fired`/`stalled`) haritalarını
     /// doldurur.
     #[allow(clippy::too_many_arguments)]
+    /// `prefix` düz isimlerin ön eki (`tx`; dizi elemanında `ch_0`),
+    /// yeniden yazma anahtarı port adıdır (`tx.valid`; dizide `ch[0].valid`).
     pub(super) fn expand_handshake(
         &mut self,
         port: &Port,
+        prefix: &str,
         payload: Idx<TypeRef>,
         plain: &PlainDefs,
         out: &mut Vec<Port>,
@@ -181,7 +184,7 @@ impl Parser<'_> {
         item_span: Span,
     ) -> HandshakeInfo {
         let flipped = port.direction == PortDir::In;
-        let prefix = port.name.text.clone();
+        let key = port.name.text.as_str();
         let bool_ty = self.ast.types.alloc(TypeRef {
             span: port.span,
             kind: TypeRefKind::Bool,
@@ -215,7 +218,7 @@ impl Parser<'_> {
             }
             let name_span = fresh_name_span(port.span, item_span, counter);
             flat.names
-                .insert(format!("{prefix}.{path}"), flat_name.clone());
+                .insert(format!("{key}.{path}"), flat_name.clone());
             out.push(Port {
                 span: port.span,
                 attrs: Vec::new(),
@@ -244,7 +247,7 @@ impl Parser<'_> {
         let ready = format!("{prefix}_{FIELD_READY}");
         for (field, negate_ready) in [(FIELD_FIRED, false), (FIELD_STALLED, true)] {
             flat.virtuals.insert(
-                format!("{prefix}.{field}"),
+                format!("{key}.{field}"),
                 Virtual {
                     valid: valid.clone(),
                     ready: ready.clone(),

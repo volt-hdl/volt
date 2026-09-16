@@ -13,17 +13,29 @@
 //! ayrıntısı `handshake.rs`'de: sanal alanlar (`fired`/`stalled`)
 //! ifade olarak yeniden yazılır, protokol kontratları otomatik üretilir.
 
+//!
+//! Bundle DİZİSİ portu (ADR-0056, `in ch : [Handshake<u8>; 4]`) eleman
+//! eleman aynı yoldan açılır: `ch_0_data`, `ch_0_valid`, ...; gövdedeki
+//! `ch[0].valid` (indeks derleme zamanı sabiti — modül seviyesi `for`
+//! değişkeni açılımda literale iner) düz isme yeniden yazılır. Sabit
+//! olmayan ya da aralık dışı indeks E2008.
+
 use std::collections::HashMap;
 
 use volt_ast::{
     BinOp, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
     LValue, LValueSuffix, Name, Path, Port, PortDir, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
 use super::handshake::{has_attr, HandshakeInfo, HANDSHAKE, NO_PROTOCOL_CHECK};
+use super::mono::unroll::{collect_consts, eval_const};
 use super::Parser;
+
+/// Bundle dizisi portunun en fazla eleman sayısı (ADR-0056).
+const MAX_BUNDLE_ARRAY: i128 = 256;
 
 /// İç içe bundle derinlik sınırı — kendine referanslı tanımda sonsuz
 /// açılımı keser.
@@ -45,6 +57,9 @@ pub(super) struct Flat {
     pub names: HashMap<String, String>,
     /// Sanal alanlar (ADR-0050): `tx.fired` → `tx_valid && tx_ready`.
     pub virtuals: HashMap<String, Virtual>,
+    /// Bundle dizisi portları (ADR-0056): ad → eleman sayısı; `ch[i]`
+    /// indeksi sabit olmalı (E2008).
+    pub arrays: HashMap<String, i128>,
 }
 
 /// Bir sanal alanın açılımı: `valid && ready` ya da `valid && !ready`.
@@ -89,14 +104,27 @@ pub(super) fn flip(dir: PortDir) -> PortDir {
 /// bildirilmediğinden çakışmaz), tükenirse öğe sonundan geriye sayan
 /// sıfır genişlikli konumlar (pipeline desugar'ı öğe BAŞINDAN ileri
 /// sayar). `counter` modül başına tektir.
+/// Mono bağlamı (`ctx`) korunur: düzleştirme monomorfizasyondan sonra
+/// koşar, aynı şablonun iki monomorfu aynı konumları üretir.
 pub(super) fn fresh_name_span(port_span: Span, item_span: Span, counter: &mut u32) -> Span {
     *counter += 1;
     if port_span.start + *counter <= port_span.end {
         let p = port_span.start + *counter - 1;
-        Span::new(port_span.file, p, p + 1)
+        Span::new(port_span.file, p, p + 1).with_ctx(port_span.ctx)
     } else {
         let p = item_span.end.saturating_sub(*counter).max(item_span.start);
-        Span::new(item_span.file, p, p)
+        Span::new(item_span.file, p, p).with_ctx(item_span.ctx)
+    }
+}
+
+/// `[T; N]` port tipi: (eleman tipi, uzunluk ifadesi).
+fn array_type(
+    types: &volt_ast::Arena<TypeRef>,
+    ty: Idx<TypeRef>,
+) -> Option<(Idx<TypeRef>, Idx<Expr>)> {
+    match &types[ty].kind {
+        TypeRefKind::Array { elem, len } => Some((*elem, *len)),
+        _ => None,
     }
 }
 
@@ -111,6 +139,7 @@ impl Parser<'_> {
             return;
         }
         let plain = self.collect_plain_struct_defs();
+        let consts = collect_consts(&self.ast);
         let items: Vec<_> = self.ast.items.clone();
         for item in items {
             let item_span = self.ast.items_arena[item].span;
@@ -126,50 +155,67 @@ impl Parser<'_> {
             let mut out = Vec::with_capacity(ports.len());
             let mut handshakes: Vec<HandshakeInfo> = Vec::new();
             for port in ports {
-                let bundle = simple_type_name(&self.ast.types, port.ty)
-                    .filter(|n| defs.contains_key(*n))
-                    .map(str::to_string);
-                let payload = if builtin_handshake {
-                    self.handshake_payload(port.ty)
-                } else {
-                    None
+                // Bundle dizisi (ADR-0056): eleman tipi bundle ise `N` kez
+                // `<port>_<k>` ön ekiyle açılır.
+                let (elem_ty, elems) = match array_type(&self.ast.types, port.ty) {
+                    Some((elem, len)) if self.is_bundle_type(elem, &defs, builtin_handshake) => {
+                        let Some(n) = self.bundle_array_len(&port, len, &consts) else {
+                            continue;
+                        };
+                        flat.arrays.insert(port.name.text.clone(), n);
+                        (elem, Some(n))
+                    }
+                    _ => (port.ty, None),
                 };
-                match (bundle, payload) {
-                    (Some(bundle), _) => {
-                        // `in` port yönleri tersler; `out`/`inout` bildirildiği gibi.
-                        let flipped = port.direction == PortDir::In;
-                        let prefix = port.name.text.clone();
-                        expand(
-                            &defs,
-                            &port,
-                            &bundle,
-                            &prefix,
-                            "",
-                            flipped,
-                            0,
-                            &mut out,
-                            &mut flat,
-                            &mut counter,
-                            item_span,
-                        );
-                    }
-                    (None, Some(payload)) => {
-                        let no_check = item_no_check || has_attr(&port.attrs, NO_PROTOCOL_CHECK);
-                        let info = self.expand_handshake(
-                            &port,
-                            payload,
-                            &plain,
-                            &mut out,
-                            &mut flat,
-                            &mut counter,
-                            item_span,
-                        );
-                        // extern modülün kontratı yoktur: sentezlenmez.
-                        if !no_check && is_module {
-                            handshakes.push(info);
-                        }
-                    }
-                    (None, None) => out.push(port),
+                let Some(n) = elems else {
+                    let prefix = port.name.text.clone();
+                    self.expand_port(
+                        port,
+                        &prefix,
+                        elem_ty,
+                        &defs,
+                        &plain,
+                        builtin_handshake,
+                        item_no_check,
+                        is_module,
+                        &mut out,
+                        &mut flat,
+                        &mut counter,
+                        item_span,
+                        &mut handshakes,
+                    );
+                    continue;
+                };
+                for k in 0..n {
+                    let elem_port = Port {
+                        span: port.span,
+                        attrs: Vec::new(),
+                        doc: None,
+                        direction: port.direction,
+                        name: Name {
+                            text: format!("{}[{k}]", port.name.text),
+                            span: port.name.span,
+                        },
+                        ty: elem_ty,
+                        domain: port.domain.clone(),
+                        bundle: None,
+                    };
+                    let prefix = format!("{}_{k}", port.name.text);
+                    self.expand_port(
+                        elem_port,
+                        &prefix,
+                        elem_ty,
+                        &defs,
+                        &plain,
+                        builtin_handshake,
+                        item_no_check || has_attr(&port.attrs, NO_PROTOCOL_CHECK),
+                        is_module,
+                        &mut out,
+                        &mut flat,
+                        &mut counter,
+                        item_span,
+                        &mut handshakes,
+                    );
                 }
             }
             let (body, contracts) = match &mut self.ast.items_arena[item].kind {
@@ -189,6 +235,7 @@ impl Parser<'_> {
             if flat.is_empty() {
                 continue;
             }
+            self.consts = consts.clone();
             for e in contracts {
                 self.rw_bundle_expr(e, &flat);
             }
@@ -205,6 +252,157 @@ impl Parser<'_> {
                 m.contracts.extend(auto);
             }
         }
+    }
+
+    /// Tek portu (ya da bundle dizisinin bir elemanını) düz portlara
+    /// açar; bundle değilse olduğu gibi geçirir.
+    #[allow(clippy::too_many_arguments)]
+    fn expand_port(
+        &mut self,
+        port: Port,
+        prefix: &str,
+        ty: Idx<TypeRef>,
+        defs: &HashMap<String, Vec<FieldInfo>>,
+        plain: &super::handshake::PlainDefs,
+        builtin_handshake: bool,
+        no_check: bool,
+        is_module: bool,
+        out: &mut Vec<Port>,
+        flat: &mut Flat,
+        counter: &mut u32,
+        item_span: Span,
+        handshakes: &mut Vec<HandshakeInfo>,
+    ) {
+        let bundle = simple_type_name(&self.ast.types, ty)
+            .filter(|n| defs.contains_key(*n))
+            .map(str::to_string);
+        let payload = if builtin_handshake {
+            self.handshake_payload(ty)
+        } else {
+            None
+        };
+        match (bundle, payload) {
+            (Some(bundle), _) => {
+                // `in` port yönleri tersler; `out`/`inout` bildirildiği gibi.
+                let flipped = port.direction == PortDir::In;
+                expand(
+                    defs, &port, &bundle, prefix, "", flipped, 0, out, flat, counter, item_span,
+                );
+            }
+            (None, Some(payload)) => {
+                let no_check = no_check || has_attr(&port.attrs, NO_PROTOCOL_CHECK);
+                let info = self
+                    .expand_handshake(&port, prefix, payload, plain, out, flat, counter, item_span);
+                // extern modülün kontratı yoktur: sentezlenmez.
+                if !no_check && is_module {
+                    handshakes.push(info);
+                }
+            }
+            (None, None) => out.push(port),
+        }
+    }
+
+    /// Eleman tipi bir bundle (kullanıcı `struct port` ya da yerleşik
+    /// `Handshake<T>`) mi?
+    fn is_bundle_type(
+        &self,
+        ty: Idx<TypeRef>,
+        defs: &HashMap<String, Vec<FieldInfo>>,
+        builtin_handshake: bool,
+    ) -> bool {
+        simple_type_name(&self.ast.types, ty).is_some_and(|n| defs.contains_key(n))
+            || (builtin_handshake && self.handshake_payload(ty).is_some())
+    }
+
+    /// `[Bundle; N]` uzunluğu — sabit değilse ya da 1..=256 dışındaysa
+    /// E2008; port düşürülür (kaskad bastırma).
+    fn bundle_array_len(
+        &mut self,
+        port: &Port,
+        len: Idx<Expr>,
+        consts: &HashMap<String, Idx<Expr>>,
+    ) -> Option<i128> {
+        let name = port.name.text.clone();
+        match eval_const(&self.ast, consts, len, 0) {
+            Some(n) if (1..=MAX_BUNDLE_ARRAY).contains(&n) => Some(n),
+            Some(n) => {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        ErrorCode::E2008,
+                        lstr!(
+                            en: "bundle array port '{name}' has {n} elements; the limit is 1..={MAX_BUNDLE_ARRAY}";
+                            tr: "'{name}' bundle dizisi portu {n} elemanlı; sınır 1..={MAX_BUNDLE_ARRAY}"
+                        ),
+                        LabeledSpan::primary(
+                            port.span,
+                            lstr!(en: "array length out of range"; tr: "dizi uzunluğu aralık dışı"),
+                        ),
+                        lstr!(
+                            en: "each element becomes a set of flat ports; split the interface into modules";
+                            tr: "her eleman bir düz port kümesi olur; arayüzü modüllere bölün"
+                        ),
+                    )
+                    .with_note(NoteKind::Note, adr_note()),
+                );
+                None
+            }
+            None => {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        ErrorCode::E2008,
+                        lstr!(
+                            en: "the length of bundle array port '{name}' must be a compile-time constant";
+                            tr: "'{name}' bundle dizisi portunun uzunluğu derleme zamanı sabiti olmalı"
+                        ),
+                        LabeledSpan::primary(
+                            self.ast.exprs[len].span,
+                            lstr!(en: "not a constant"; tr: "sabit değil"),
+                        ),
+                        lstr!(
+                            en: "use a literal, a const item or a const generic parameter: [Handshake<u8>; 4]";
+                            tr: "literal, const öğe ya da const generic parametre kullanın: [Handshake<u8>; 4]"
+                        ),
+                    )
+                    .with_note(NoteKind::Note, adr_note()),
+                );
+                None
+            }
+        }
+    }
+
+    /// E2008 — bundle dizisine sabit olmayan ya da aralık dışı indeks.
+    fn err_bundle_index(&mut self, span: Span, port: &str, len: i128, index: Option<i128>) {
+        let diag = match index {
+            Some(k) => Diagnostic::error(
+                ErrorCode::E2008,
+                lstr!(
+                    en: "index {k} is out of range for bundle array '{port}' ({len} elements)";
+                    tr: "{k} indeksi '{port}' bundle dizisinin aralığı dışında ({len} eleman)"
+                ),
+                LabeledSpan::primary(span, lstr!(en: "out of range"; tr: "aralık dışı")),
+                lstr!(
+                    en: "valid indices are 0..{len}";
+                    tr: "geçerli indeksler 0..{len}"
+                ),
+            ),
+            None => Diagnostic::error(
+                ErrorCode::E2008,
+                lstr!(
+                    en: "index into bundle array '{port}' must be a compile-time constant";
+                    tr: "'{port}' bundle dizisinin indeksi derleme zamanı sabiti olmalı"
+                ),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "not a constant index"; tr: "sabit olmayan indeks"),
+                ),
+                lstr!(
+                    en: "use a literal, a const, or a module-level 'for' variable (the loop is unrolled at compile time); a signal cannot select a bundle";
+                    tr: "literal, const ya da modül seviyesi 'for' değişkeni kullanın (döngü derleme zamanında açılır); sinyal bundle seçemez"
+                ),
+            ),
+        };
+        self.diagnostics
+            .push(diag.with_note(NoteKind::Reason, adr_note()));
     }
 
     /// Kullanıcı `Handshake` adlı bir `struct port` tanımlamış mı (generic
@@ -224,7 +422,11 @@ impl Parser<'_> {
                 ItemKind::Extern(x) => &x.ports,
                 _ => return false,
             };
-            ports.iter().any(|p| self.handshake_payload(p.ty).is_some())
+            ports.iter().any(|p| {
+                // Bundle dizisi (ADR-0056): eleman tipine bakılır.
+                let ty = array_type(&self.ast.types, p.ty).map_or(p.ty, |(elem, _)| elem);
+                self.handshake_payload(ty).is_some()
+            })
         })
     }
 
@@ -267,7 +469,6 @@ impl Parser<'_> {
             StmtKind::Reg(r) => exprs.push(r.init),
             StmtKind::Let(l) => exprs.push(l.value),
             StmtKind::Assign(a) => {
-                rw_lvalue(&mut a.lhs, flat);
                 exprs.push(a.rhs);
                 exprs.extend(a.lhs.suffixes.iter().flat_map(lvalue_suffix_exprs));
             }
@@ -282,6 +483,21 @@ impl Parser<'_> {
                 exprs.extend(inst.bindings.iter().filter_map(|b| b.value));
             }
             StmtKind::Wire(_) | StmtKind::Error => {}
+        }
+        if let StmtKind::Assign(a) = &mut self.ast.stmts[si].kind {
+            let (span, base) = (a.lhs.span, a.lhs.base.clone());
+            let mut lhs = std::mem::replace(
+                &mut a.lhs,
+                LValue {
+                    span,
+                    base,
+                    suffixes: Vec::new(),
+                },
+            );
+            self.rw_lvalue(&mut lhs, flat);
+            if let StmtKind::Assign(a) = &mut self.ast.stmts[si].kind {
+                a.lhs = lhs;
+            }
         }
         for e in exprs {
             self.rw_bundle_expr(e, flat);
@@ -306,7 +522,7 @@ impl Parser<'_> {
         match bs {
             BlockStmt::NonBlockAssign { lhs, rhs, .. }
             | BlockStmt::BlockAssign { lhs, rhs, .. } => {
-                rw_lvalue(lhs, flat);
+                self.rw_lvalue(lhs, flat);
                 self.rw_bundle_expr(*rhs, flat);
                 let idxs: Vec<Idx<Expr>> =
                     lhs.suffixes.iter().flat_map(lvalue_suffix_exprs).collect();
@@ -349,7 +565,7 @@ impl Parser<'_> {
     /// `aw.addr` (ve iç içe `aw.sub.addr`) alan zincirini düz porta
     /// yeniden yazar; eşleşmeyen düğümlerde çocuklara iner.
     fn rw_bundle_expr(&mut self, e: Idx<Expr>, flat: &Flat) {
-        if let Some(key) = self.field_chain(e) {
+        if let Some(key) = self.field_chain(e, flat) {
             if let Some(name) = flat.lookup(&key) {
                 let span = self.ast.exprs[e].span;
                 self.ast.exprs[e].kind = ExprKind::Path(Path {
@@ -380,12 +596,14 @@ impl Parser<'_> {
     /// anahtarı): ifadenin ilk ve son karakteri.
     fn rw_virtual(&mut self, e: Idx<Expr>, v: &Virtual) {
         let span = self.ast.exprs[e].span;
-        let first = Span::new(span.file, span.start, (span.start + 1).min(span.end));
+        let first =
+            Span::new(span.file, span.start, (span.start + 1).min(span.end)).with_ctx(span.ctx);
         let last = Span::new(
             span.file,
             span.end.saturating_sub(1).max(span.start),
             span.end,
-        );
+        )
+        .with_ctx(span.ctx);
         let path = |me: &mut Self, text: &str, nspan: Span| {
             me.ast.exprs.alloc(Expr {
                 span,
@@ -419,18 +637,35 @@ impl Parser<'_> {
     }
 
     /// `a.b.c` biçimindeki zinciri `"a.b.c"` anahtarına çevirir; taban
-    /// tek segmentli bir yol değilse None.
-    fn field_chain(&self, e: Idx<Expr>) -> Option<String> {
-        let mut parts: Vec<&str> = Vec::new();
+    /// tek segmentli bir yol değilse None. Bundle dizisinde taban
+    /// `ch[k]`tır (`"ch[0].valid"`); indeks sabit değilse E2008 üretir
+    /// ve None döner.
+    fn field_chain(&mut self, e: Idx<Expr>, flat: &Flat) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
         let mut cur = e;
         loop {
             match &self.ast.exprs[cur].kind {
                 ExprKind::Field { base, field } => {
-                    parts.push(field.text.as_str());
+                    parts.push(field.text.clone());
                     cur = *base;
                 }
                 ExprKind::Path(p) if p.segments.len() == 1 && !parts.is_empty() => {
-                    parts.push(p.segments[0].text.as_str());
+                    parts.push(p.segments[0].text.clone());
+                    parts.reverse();
+                    return Some(parts.join("."));
+                }
+                ExprKind::Index { base, index } if !parts.is_empty() => {
+                    let (base, index) = (*base, *index);
+                    let ExprKind::Path(p) = &self.ast.exprs[base].kind else {
+                        return None;
+                    };
+                    if p.segments.len() != 1 {
+                        return None;
+                    }
+                    let port = p.segments[0].text.clone();
+                    let &len = flat.arrays.get(&port)?;
+                    let k = self.bundle_index(&port, len, index)?;
+                    parts.push(format!("{port}[{k}]"));
                     parts.reverse();
                     return Some(parts.join("."));
                 }
@@ -438,25 +673,57 @@ impl Parser<'_> {
             }
         }
     }
-}
 
-/// Sol taraf: `aw.ready = x` → `aw_ready = x` (öndeki alan sonekleri
-/// düşer, indeks/aralık sonekleri kalır).
-fn rw_lvalue(lv: &mut LValue, flat: &Flat) {
-    let mut key = lv.base.text.clone();
-    let mut best: Option<(usize, String)> = None;
-    for (i, s) in lv.suffixes.iter().enumerate() {
-        let LValueSuffix::Field(f) = s else { break };
-        key.push('.');
-        key.push_str(&f.text);
-        if let Some(name) = flat.lookup(&key) {
-            best = Some((i + 1, name.to_string()));
+    /// Bundle dizisi indeksi: sabit ve aralık içi ise değeri, değilse
+    /// E2008 + None.
+    fn bundle_index(&mut self, port: &str, len: i128, index: Idx<Expr>) -> Option<i128> {
+        let span = self.ast.exprs[index].span;
+        match eval_const(&self.ast, &self.consts, index, 0) {
+            Some(k) if (0..len).contains(&k) => Some(k),
+            other => {
+                self.err_bundle_index(span, port, len, other);
+                None
+            }
         }
     }
-    if let Some((n, name)) = best {
-        lv.base.text = name;
-        lv.suffixes.drain(..n);
+
+    /// Sol taraf: `aw.ready = x` → `aw_ready = x`, `ch[0].ready = x` →
+    /// `ch_0_ready = x` (öndeki indeks/alan sonekleri düşer, kalan
+    /// indeks/aralık sonekleri kalır).
+    fn rw_lvalue(&mut self, lv: &mut LValue, flat: &Flat) {
+        let mut key = lv.base.text.clone();
+        let mut best: Option<(usize, String)> = None;
+        let mut start = 0;
+        if let Some(&len) = flat.arrays.get(&lv.base.text) {
+            let Some(LValueSuffix::Index(i)) = lv.suffixes.first() else {
+                return;
+            };
+            let Some(k) = self.bundle_index(&lv.base.text.clone(), len, *i) else {
+                return;
+            };
+            key = format!("{key}[{k}]");
+            start = 1;
+        }
+        for (i, s) in lv.suffixes.iter().enumerate().skip(start) {
+            let LValueSuffix::Field(f) = s else { break };
+            key.push('.');
+            key.push_str(&f.text);
+            if let Some(name) = flat.lookup(&key) {
+                best = Some((i + 1, name.to_string()));
+            }
+        }
+        if let Some((n, name)) = best {
+            lv.base.text = name;
+            lv.suffixes.drain(..n);
+        }
     }
+}
+
+fn adr_note() -> String {
+    lstr!(
+        en: "a bundle array is flattened per element at compile time (ADR-0056)";
+        tr: "bundle dizisi derleme zamanında eleman eleman düzleşir (ADR-0056)"
+    )
 }
 
 /// Bir bundle portunu düz portlara açar (iç içe bundle'larda özyineli).

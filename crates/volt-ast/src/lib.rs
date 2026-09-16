@@ -45,6 +45,73 @@ pub struct SourceFile {
     pub timing: TimingInfo,
     /// Güven düşürme yan tablosu (ADR-0052) — bkz. [`TrustInfo`].
     pub trust: TrustInfo,
+    /// Modül seviyesi `for` açılımı yan tablosu (ADR-0056) — bkz.
+    /// [`GenerateInfo`].
+    pub generate: GenerateInfo,
+}
+
+/// Modül seviyesi `for` açılımının izi (ADR-0056). Parser her
+/// yinelemeyi gövdenin klonu olarak modül gövdesine yazar; klonun
+/// span'leri kaynak konumu korur ama benzersiz bir `Span.ctx` taşır
+/// (ADR-0041 mekanizması). Bu tablo ctx → (döngü değişkeni, değer,
+/// döngü span'i, dış yineleme ctx'i) eşlemesini tutar; tanılar
+/// "for i = 2 yinelemesinde" notunu buradan üretir.
+#[derive(Debug, Default)]
+pub struct GenerateInfo {
+    pub iterations: HashMap<u16, GenerateIter>,
+    /// Blok içi `let w = W<8> { ... }` (modül seviyesi `for` gövdesi):
+    /// blok deyimi örnekleme taşımaz, parser yapı literali + bu yan
+    /// tabloya generic argümanları yazar; açılım deyimi modül
+    /// seviyesine kaldırırken `InstanceDecl::generic_args`a taşır.
+    /// Anahtar: yapı literali ifadesi.
+    pub block_generic_args: HashMap<Idx<Expr>, Vec<GenericArg>>,
+}
+
+/// Açılmış bir `for` yinelemesi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerateIter {
+    /// Döngü değişkeninin adı (`i`).
+    pub var: String,
+    /// Bu yinelemedeki değeri.
+    pub value: i128,
+    /// `for` deyiminin span'i (kaynak satırı).
+    pub for_span: Span,
+    /// İç içe döngüde dış yinelemenin ctx'i; en dışta 0.
+    pub parent: u16,
+}
+
+impl GenerateInfo {
+    /// `ctx` bir açılım yinelemesiyse dıştan içe (değişken, değer)
+    /// zinciri: `for y { for x { } }` → `[("y", 1), ("x", 2)]`. Elle
+    /// yazılmış kaynakta (ctx 0) ya da mono bağlamında boş.
+    pub fn chain(&self, ctx: u16) -> Vec<(String, i128)> {
+        let mut out = Vec::new();
+        let mut cur = ctx;
+        // parent zinciri sonlu: her adım daha erken atanmış bir ctx'e gider.
+        while let Some(it) = self.iterations.get(&cur) {
+            out.push((it.var.clone(), it.value));
+            if it.parent == 0 || it.parent == cur {
+                break;
+            }
+            cur = it.parent;
+        }
+        out.reverse();
+        out
+    }
+
+    /// En dıştaki `for` deyiminin span'i (tanı ikincil etiketi için).
+    pub fn outermost_span(&self, ctx: u16) -> Option<Span> {
+        let mut cur = ctx;
+        let mut span = None;
+        while let Some(it) = self.iterations.get(&cur) {
+            span = Some(it.for_span);
+            if it.parent == 0 || it.parent == cur {
+                break;
+            }
+            cur = it.parent;
+        }
+        span
+    }
 }
 
 /// `declassify(expr, "gerekçe")` yan tablosu (ADR-0052). Çağrı parser'da
