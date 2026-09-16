@@ -99,7 +99,7 @@ Tüm komutlarda geçerli:
     --lang=<l>          Tanı dili: en | tr (öncelik: bayrak > VOLT_LANG > Volt.toml [ui] lang > en)
     --color=<c>         Renk: auto | always | never
     --no-color          --color=never kısayolu
--j, --jobs=<N>          Paralel iş sayısı (varsayılan: CPU sayısı)
+-j, --jobs=<N|auto>     Paralel iş sayısı (varsayılan: auto = CPU sayısı; bugün `verify`, ADR-0055)
     --manifest=<yol>    Volt.toml konumu
     --target-dir=<yol>  Çıktı dizini (varsayılan: build/)
 ```
@@ -422,6 +422,94 @@ SEÇENEKLER:
 
 ---
 
+## 8a. `volt verify` — paralel formal doğrulama (ADR-0055)
+
+> ADR-0055 (uygulandı). Birimdeki kontratlı her modül bir SymbiYosys
+> GÖREVİDİR: tek `build/formal/<iş>.sby` dosyası `[tasks]` bölümüyle
+> üretilir (`<iş>` = girdi dosyasının kök adı), tek `sby -j N -f <iş>.sby`
+> süreci görevleri kendi görev döngüsünde paralel koşturur. Paralellik
+> birimi MODÜLDÜR, kontrat değil: bir modülün tüm kontratları tek BMC
+> koşusunda birlikte denetlenir (gerekçe ve ölçüm ADR-0055).
+
+```bash
+$ volt verify -j 8 examples/soc/top.volt
+   Verifying examples/soc/top.volt
+     [1/8] UartTx (7 properties) ... ok (0.40s)
+     [2/8] BusDecoder (24 properties) ... ok (0.78s)
+     ...
+     [8/8] SocTop (19 properties) ... ok (10.87s)
+    Finished 12.25s
+      Result 137 properties verified in 12.3s (8 jobs; bmc, depth 12)
+```
+
+```
+SEÇENEKLER:
+    -j, --jobs=<N|auto>  Paralel sby işi (varsayılan auto = CPU sayısı; 1 = sıralı)
+        --fail-fast      İlk karşı örnekte dur (varsayılan: her görev tamamlanır)
+        --mode=<m>       bmc | prove | cover           (varsayılan: bmc)
+        --depth=<N>      Arama derinliği               (varsayılan: 20)
+        --engine=<e>     z3 | boolector | yices        (varsayılan: z3)
+```
+
+Çıktı dizini (`--target-dir`, §4):
+
+```
+build/formal/
+├── <iş>.sv               tüm birimin SV'si (SVA gömülü, tek dosya)
+├── <iş>.sby              [tasks] = kontratlı modüller, kaynak sırasında
+├── <iş>_<görev>/         sby çalışma dizini (görev = küçük harf modül adı)
+└── <görev>_cex.vcd       karşı örnek izi (yalnız FAIL'de)
+```
+
+Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde).
+
+### İlerleme ve determinizm
+
+- İlerleme satırları `[ k/N] <Modül> (<n> properties) ... ok|FAIL|error (<süre>)`
+  TAMAMLANMA sırasında akar; `k` tamamlanan görev sayısıdır. `-j 1` ile
+  sıra kaynak sırasına eşittir.
+- RAPOR her zaman KAYNAK SIRASINDADIR: E5001 tanıları, `Failures:`
+  listesi, JSON `modules`/`properties`. Tamamlanma sırası raporu
+  değiştirmez; aynı girdi → aynı rapor (yalnız süre alanları değişir).
+  `-j 1` ve `-j N` aynı sonucu verir (testle doğrulanır).
+
+### Hata durumu
+
+- Bir modülün karşı örneği DİĞER görevleri durdurmaz; tüm başarısızlıklar
+  sonda kaynak sırasında listelenir; çıkış kodu 6.
+- `--fail-fast`: ilk `DONE (FAIL)` satırında sby süreci sonlandırılır,
+  bitmemiş görevler `skipped` olur; çıkış kodu 6.
+- Görev `DONE` satırı basmadan biterse araç hatası (çıkış 3; karşı örnek
+  de varsa 6 baskındır) ve `sby -f <iş>.sby <görev>` ipucu yazılır.
+- `-j 0` ya da sayı/`auto` dışı değer kullanım hatasıdır (çıkış 2).
+
+### JSON (`--format=json`)
+
+§5 zarfına `verify` nesnesi eklenir:
+
+```json
+"verify": {
+  "mode": "bmc", "depth": 12, "engine": "z3", "jobs": 8, "fail_fast": false,
+  "modules": [
+    { "module": "SocTop", "task": "soctop", "status": "pass",
+      "properties": 19, "duration_ms": 11614 }
+  ],
+  "properties": [
+    { "module": "SocTop", "name": "inv_0", "keyword": "invariant",
+      "status": "pass", "duration_ms": 11614 }
+  ]
+}
+```
+
+- `modules[].status`: `pass | fail | error | skipped`.
+- `properties[].status`: `pass | fail | unproven | error | skipped`;
+  `unproven` = aynı modülde başka bir kontrat ihlal edildi, BMC o döngüde
+  durdu (bu kontrat o döngüden sonra denetlenmedi).
+- `duration_ms`: kontratın ait olduğu GÖREVİN süresi (modülün kontratları
+  tek koşuda birlikte kanıtlanır); `skipped`/`error` görevlerde `null`.
+
+---
+
 ## 9. `volt explain`
 
 UX Anayasası'nın "= daha fazla" satırının hedefi:
@@ -632,6 +720,7 @@ volt build yok.volt                    3      dosya yok
 volt build (Volt.toml bozuk)           4      config hatası
 volt test (1 test kaldı)               5      test raporu
 volt verify (karşı örnek)              6      counter-example
+volt verify -j 0 x.volt                2      kullanım hatası (ADR-0055)
 volt check --deny-warnings (uyarı var) 1      uyarı → hata
 volt explain E3001                     0      açıklama metni
 volt explain E9999                     2      bilinmeyen kod

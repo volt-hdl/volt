@@ -846,33 +846,34 @@ fn write_fake_sby(dir: &std::path::Path, body: &[&str], exit: i32) -> PathBuf {
     path
 }
 
-/// FAIL basan sahte sby; `leakycounter` çalışma dizinine iz de yazar.
+/// FAIL basan sahte sby; sby'nin `<iş>_<görev>` çalışma dizinine
+/// (`24_violated_invariant_leakycounter`, ADR-0055) iz de yazar.
 fn fake_fail_sby(dir: &std::path::Path) -> PathBuf {
     #[cfg(windows)]
     let body = [
-        "mkdir leakycounter\\engine_0 2>nul",
-        "echo dummy> leakycounter\\engine_0\\trace.vcd",
-        "echo SBY [leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..",
-        "echo SBY [leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: leakycounter.sv:9999.1-9999.5",
-        "echo SBY [leakycounter] DONE (FAIL, rc=2)",
+        "mkdir 24_violated_invariant_leakycounter\\engine_0 2>nul",
+        "echo dummy> 24_violated_invariant_leakycounter\\engine_0\\trace.vcd",
+        "echo SBY [24_violated_invariant_leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..",
+        "echo SBY [24_violated_invariant_leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: 24_violated_invariant.sv:9999.1-9999.5",
+        "echo SBY [24_violated_invariant_leakycounter] DONE (FAIL, rc=2)",
     ];
     #[cfg(unix)]
     let body = [
-        "mkdir -p leakycounter/engine_0",
-        "echo dummy > leakycounter/engine_0/trace.vcd",
-        "echo 'SBY [leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..'",
-        "echo 'SBY [leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: leakycounter.sv:9999.1-9999.5'",
-        "echo 'SBY [leakycounter] DONE (FAIL, rc=2)'",
+        "mkdir -p 24_violated_invariant_leakycounter/engine_0",
+        "echo dummy > 24_violated_invariant_leakycounter/engine_0/trace.vcd",
+        "echo 'SBY [24_violated_invariant_leakycounter] engine_0: ## 0:00:00 Checking assertions in step 7..'",
+        "echo 'SBY [24_violated_invariant_leakycounter] engine_0: ## 0:00:00 Assert failed in LeakyCounter: 24_violated_invariant.sv:9999.1-9999.5'",
+        "echo 'SBY [24_violated_invariant_leakycounter] DONE (FAIL, rc=2)'",
     ];
     write_fake_sby(dir, &body, 2)
 }
 
-/// PASS basan sahte sby.
+/// PASS basan sahte sby (görev etiketi `23_provable_invariant_boundedcounter`).
 fn fake_pass_sby(dir: &std::path::Path) -> PathBuf {
     #[cfg(windows)]
-    let body = ["echo SBY [boundedcounter] DONE (PASS, rc=0)"];
+    let body = ["echo SBY [23_provable_invariant_boundedcounter] DONE (PASS, rc=0)"];
     #[cfg(unix)]
-    let body = ["echo 'SBY [boundedcounter] DONE (PASS, rc=0)'"];
+    let body = ["echo 'SBY [23_provable_invariant_boundedcounter] DONE (PASS, rc=0)'"];
     write_fake_sby(dir, &body, 0)
 }
 
@@ -975,16 +976,27 @@ fn verify_writes_sby_and_formal_sv_before_tool_lookup() {
         .expect("volt çalışmalı");
     assert_eq!(output.status.code(), Some(3), "sby yok → 3");
 
-    let sby = std::fs::read_to_string(target.join("formal").join("boundedcounter.sby"))
-        .expect("boundedcounter.sby üretilmeli");
-    assert!(sby.starts_with("[options]\nmode bmc\ndepth 20\n"), "{sby}");
+    // ADR-0055: birim başına tek .sby (iş adı = dosya kök adı), modül
+    // başına bir görev; .sv de tek dosyadır.
+    let sby = std::fs::read_to_string(target.join("formal").join("23_provable_invariant.sby"))
+        .expect("23_provable_invariant.sby üretilmeli");
+    assert!(
+        sby.starts_with("[tasks]\nboundedcounter\n\n[options]\nmode bmc\ndepth 20\n"),
+        "{sby}"
+    );
     assert!(sby.contains("[engines]\nsmtbmc z3\n"), "{sby}");
-    assert!(sby.contains("read -formal boundedcounter.sv"), "{sby}");
-    assert!(sby.contains("prep -top BoundedCounter"), "{sby}");
-    assert!(sby.contains("[files]\nboundedcounter.sv"), "{sby}");
+    assert!(
+        sby.contains("read -formal 23_provable_invariant.sv"),
+        "{sby}"
+    );
+    assert!(
+        sby.contains("boundedcounter: prep -top BoundedCounter"),
+        "{sby}"
+    );
+    assert!(sby.contains("[files]\n23_provable_invariant.sv"), "{sby}");
 
-    let sv = std::fs::read_to_string(target.join("formal").join("boundedcounter.sv"))
-        .expect("boundedcounter.sv üretilmeli");
+    let sv = std::fs::read_to_string(target.join("formal").join("23_provable_invariant.sv"))
+        .expect("23_provable_invariant.sv üretilmeli");
     // Yosys uyumu: immediate assertion + '// volt:' işareti; property
     // blokları Yosys'te ayrıştırılamıyor (bkz. volt-sv-emit/src/sby.rs).
     assert!(sv.contains("// volt:inv_0"), "{sv}");
@@ -1014,8 +1026,8 @@ fn verify_depth_engine_mode_flags_change_sby() {
         .env_remove("VOLT_SBY")
         .output()
         .expect("volt çalışmalı");
-    let sby = std::fs::read_to_string(target.join("formal").join("boundedcounter.sby"))
-        .expect("boundedcounter.sby üretilmeli");
+    let sby = std::fs::read_to_string(target.join("formal").join("23_provable_invariant.sby"))
+        .expect("23_provable_invariant.sby üretilmeli");
     assert!(sby.contains("mode prove\n"), "{sby}");
     assert!(sby.contains("depth 33\n"), "{sby}");
     assert!(sby.contains("smtbmc boolector\n"), "{sby}");
@@ -1147,9 +1159,10 @@ fn verify_fake_sby_fail_json_reports_e5001() {
     assert_eq!(envelope["diagnostics"][0]["code"], "E5001");
     let artifacts = envelope["artifacts"].as_array().expect("artifacts");
     assert!(
-        artifacts
-            .iter()
-            .any(|a| a.as_str().unwrap_or("").ends_with("leakycounter.sby")),
+        artifacts.iter().any(|a| a
+            .as_str()
+            .unwrap_or("")
+            .ends_with("24_violated_invariant.sby")),
         "{artifacts:?}"
     );
     let _ = std::fs::remove_dir_all(&target);

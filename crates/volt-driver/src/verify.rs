@@ -1,10 +1,16 @@
-//! `volt verify` — kontratları SymbiYosys ile kanıtlar (F4b).
+//! `volt verify` — kontratları SymbiYosys ile kanıtlar (F4b, ADR-0055).
 //!
 //! Boru hattı: derle (SVA GÖMÜLÜ — bkz. volt-sv-emit/src/sby.rs
-//! gerekçesi) → `build/formal/<modul>.sv` + `.sby` üret → `sby -f`
-//! koştur → çıktıyı yorumla. Çıkış kodları (cli-contract.md §2):
-//! 0 tüm özellikler doğrulandı, 1 derleme hatası, 3 sby yok / araç
-//! hatası (IoError), 6 karşı örnek (VerifyFailure).
+//! gerekçesi) → `build/formal/<iş>.sv` + tek `<iş>.sby` (kontratlı modül
+//! başına bir sby GÖREVİ) üret → `sby -j N -f <iş>.sby` koştur →
+//! görev akışını yorumla → raporu KAYNAK SIRASINDA yaz. Çıkış kodları
+//! (cli-contract.md §2): 0 tüm özellikler doğrulandı, 1 derleme hatası,
+//! 3 sby yok / araç hatası (IoError), 6 karşı örnek (VerifyFailure).
+//!
+//! Paralellik birimi MODÜLDÜR, kontrat değil: bir modülün tüm kontratları
+//! tek BMC koşusunda birlikte denetlenir; kontrat başına ayrı koşu toplam
+//! işi 3× büyütüp duvar süresini kısaltmadı (ADR-0055 ölçümü). `-j 1`
+//! görevleri sırayla koşturur; sonuçlar her `-j` için aynıdır.
 //!
 //! sby bulunamadığında kurulum yardımı UX Anayasası biçiminde yazılır;
 //! ayrıntılar `volt explain verify-setup` konusunda yaşar.
@@ -16,11 +22,13 @@ use std::time::Instant;
 use volt_diagnostics::{
     lstr, render_human, render_short, Diagnostic, ErrorCode, LabeledSpan, NoteKind,
 };
-use volt_sv_emit::{sby_config, SbyOptions, SvaMode, SvaProp};
+use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 
+use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
+use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
 use crate::{compile, render_diagnostics, OutputFormat};
 
-/// `sby` çıktısının tek koşudaki özeti.
+/// `sby` çıktısının tek görevdeki özeti.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SbyOutcome {
     /// `DONE (PASS ...)` — tüm özellikler doğrulandı.
@@ -41,14 +49,23 @@ pub(crate) struct SbyFailure {
     pub(crate) step: Option<u32>,
 }
 
+/// `volt verify` paralellik ayarları (cli-contract.md §8a).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VerifyArgs {
+    pub(crate) jobs: Jobs,
+    pub(crate) fail_fast: bool,
+}
+
 pub(crate) fn verify(
     file: &Path,
     target_dir: &Path,
     format: OutputFormat,
     opts: SbyOptions,
+    args: VerifyArgs,
 ) -> ExitCode {
     let start = Instant::now();
-    if format == OutputFormat::Human {
+    let human = format == OutputFormat::Human;
+    if human {
         eprintln!(
             "{}",
             lstr!(
@@ -65,7 +82,7 @@ pub(crate) fn verify(
     render_diagnostics(&compiled, format);
 
     let Some(sv) = compiled.sv.clone() else {
-        if format == OutputFormat::Human {
+        if human {
             eprintln!(
                 "{}",
                 lstr!(
@@ -83,14 +100,9 @@ pub(crate) fn verify(
     };
 
     // Kontratlı modüller, kaynak sırası korunarak teklenir.
-    let mut modules: Vec<String> = Vec::new();
-    for prop in &compiled.sva_props {
-        if !modules.contains(&prop.module_name) {
-            modules.push(prop.module_name.clone());
-        }
-    }
+    let modules = contract_modules(&compiled.sva_props);
     if modules.is_empty() {
-        if format == OutputFormat::Human {
+        if human {
             eprintln!(
                 "{}",
                 lstr!(
@@ -109,29 +121,27 @@ pub(crate) fn verify(
         return ExitCode::SUCCESS;
     }
 
-    // ── ADIM 1: build/formal/ altına .sv + .sby üret ──
+    // ── ADIM 1: build/formal/ altına tek .sv + görevli .sby üret ──
     let formal_dir = target_dir.join("formal");
     if let Err(err) = std::fs::create_dir_all(&formal_dir) {
         return io_error(&formal_dir, &err);
     }
-    let mut artifacts = Vec::new();
-    for module in &modules {
-        let stem = module.to_lowercase();
-        let sv_path = formal_dir.join(format!("{stem}.sv"));
-        if let Err(err) = std::fs::write(&sv_path, &sv) {
-            return io_error(&sv_path, &err);
-        }
-        let sby_path = formal_dir.join(format!("{stem}.sby"));
-        // İki+ saatli modül: Yosys clk2fflogic akışı için multiclock on.
-        let mut mod_opts = opts;
-        mod_opts.multiclock = compiled.multiclock_modules.iter().any(|m| m == module);
-        let config = sby_config(module, &format!("{stem}.sv"), &mod_opts);
-        if let Err(err) = std::fs::write(&sby_path, config) {
-            return io_error(&sby_path, &err);
-        }
-        artifacts.push(sv_path.display().to_string());
-        artifacts.push(sby_path.display().to_string());
+    let job = job_name(file);
+    let sv_name = format!("{job}.sv");
+    let sby_name = format!("{job}.sby");
+    let sv_path = formal_dir.join(&sv_name);
+    if let Err(err) = std::fs::write(&sv_path, &sv) {
+        return io_error(&sv_path, &err);
     }
+    let tasks = sby_tasks(&modules, &compiled.multiclock_modules);
+    let sby_path = formal_dir.join(&sby_name);
+    if let Err(err) = std::fs::write(&sby_path, sby_config_tasks(&tasks, &sv_name, &opts)) {
+        return io_error(&sby_path, &err);
+    }
+    let mut artifacts = vec![
+        sv_path.display().to_string(),
+        sby_path.display().to_string(),
+    ];
 
     // ── ADIM 2: sby'yi bul (VOLT_SBY > PATH) ──
     let Some(sby) = find_sby() else {
@@ -139,50 +149,93 @@ pub(crate) fn verify(
         return ExitCode::from(3);
     };
 
-    // ── ADIM 3: modül başına koştur ve yorumla ──
+    // ── ADIM 3: tek sby süreci, modül başına görev, -j N ──
+    let jobs = args.jobs.resolve();
+    let specs: Vec<TaskSpec> = tasks
+        .iter()
+        .map(|t| TaskSpec {
+            name: t.name.clone(),
+            workdir: format!("{job}_{}", t.name),
+        })
+        .collect();
+    let prop_counts: Vec<usize> = modules
+        .iter()
+        .map(|m| {
+            compiled
+                .sva_props
+                .iter()
+                .filter(|p| &p.module_name == m)
+                .count()
+        })
+        .collect();
+    let total = specs.len();
+    let run = RunConfig {
+        sby: &sby,
+        sby_file: &sby_name,
+        cwd: &formal_dir,
+        jobs,
+        fail_fast: args.fail_fast,
+    };
+    let report = match run_sby_tasks(&run, &specs, |done, idx, status| {
+        if human {
+            eprintln!(
+                "{}",
+                progress_line(done, total, &modules[idx], prop_counts[idx], status)
+            );
+        }
+    }) {
+        Ok(r) => r,
+        Err(err) => {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "error: cannot run '{}': {}", sby.display(), err;
+                    tr: "hata: '{}' çalıştırılamadı: {}", sby.display(), err
+                )
+            );
+            return ExitCode::from(3);
+        }
+    };
+
+    // ── ADIM 4: rapor — KAYNAK SIRASINDA (tamamlanma sırası değil) ──
+    let mut outcomes: Vec<ModuleOutcome> = Vec::with_capacity(total);
     let mut any_fail = false;
     let mut any_error = false;
-    for module in &modules {
-        let stem = module.to_lowercase();
-        let output = match std::process::Command::new(&sby)
-            .arg("-f")
-            .arg(format!("{stem}.sby"))
-            .current_dir(&formal_dir)
-            .output()
-        {
-            Ok(o) => o,
-            Err(err) => {
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: cannot run '{}': {}", sby.display(), err;
-                        tr: "hata: '{}' çalıştırılamadı: {}", sby.display(), err
-                    )
-                );
-                return ExitCode::from(3);
+    for (idx, module) in modules.iter().enumerate() {
+        let result = &report.tasks[idx];
+        let props: Vec<PropInfo> = compiled
+            .sva_props
+            .iter()
+            .filter(|p| &p.module_name == module)
+            .map(|p| PropInfo {
+                name: p.name.clone(),
+                keyword: p.keyword,
+            })
+            .collect();
+        let mut failed_prop = None;
+        match &result.status {
+            TaskStatus::Done {
+                outcome: SbyOutcome::Pass,
+                ..
             }
-        };
-        let log = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        match interpret_sby_output(&log) {
-            SbyOutcome::Pass => {}
-            SbyOutcome::Fail(failure) => {
+            | TaskStatus::Skipped => {}
+            TaskStatus::Done {
+                outcome: SbyOutcome::Fail(failure),
+                ..
+            } => {
                 any_fail = true;
-                let cex = copy_counterexample(&formal_dir, &stem);
+                let cex = copy_counterexample(&formal_dir, &specs[idx].workdir, &tasks[idx].name);
                 if let Some(c) = &cex {
                     artifacts.push(c.display().to_string());
                 }
-                let diag = counterexample_diagnostic(
+                let (prop, diag) = counterexample_diagnostic(
                     module,
-                    &failure,
+                    failure,
                     &sv,
                     &compiled.sva_props,
                     cex.as_deref(),
                 );
+                failed_prop = Some(prop);
                 match format {
                     OutputFormat::Human => eprintln!("{}", render_human(&diag, &compiled.map)),
                     OutputFormat::Short => eprintln!("{}", render_short(&diag, &compiled.map)),
@@ -190,30 +243,52 @@ pub(crate) fn verify(
                 }
                 compiled.diagnostics.push(diag);
             }
-            SbyOutcome::Error => {
+            TaskStatus::Done {
+                outcome: SbyOutcome::Error,
+                ..
+            }
+            | TaskStatus::Missing => {
                 any_error = true;
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: SymbiYosys reported a tool error for module '{module}' \
-                             (exit code {:?})\n  = help: re-run '{} -f {stem}.sby' in '{}' \
-                             to see the full log",
-                            output.status.code(), sby.display(), formal_dir.display();
-                        tr: "hata: SymbiYosys '{module}' modülü için araç hatası bildirdi \
-                             (çıkış kodu {:?})\n  = çözüm: tam log için '{} -f {stem}.sby' \
-                             komutunu '{}' içinde yeniden çalıştırın",
-                            output.status.code(), sby.display(), formal_dir.display()
-                    )
+                print_tool_error(
+                    module,
+                    &sby,
+                    &sby_name,
+                    &tasks[idx].name,
+                    &formal_dir,
+                    report.exit_code,
                 );
             }
         }
+        outcomes.push(ModuleOutcome {
+            module: module.clone(),
+            task: tasks[idx].name.clone(),
+            props,
+            status: result.status.clone(),
+            failed_prop,
+        });
+    }
+    if any_error && !report.global_log.trim().is_empty() {
+        print_global_log(&report.global_log);
     }
 
     if format == OutputFormat::Json {
-        crate::print_json_envelope("verify", &compiled, &artifacts, start);
+        let mut envelope = crate::json_envelope("verify", &compiled, &artifacts, start);
+        envelope["verify"] = verify_json(&outcomes, &opts, jobs, args.fail_fast);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).expect("JSON zarfı")
+        );
     }
-    if any_fail {
-        if format == OutputFormat::Human {
+    if human {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
+                tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
+            )
+        );
+        eprintln!("{}", summary_block(&outcomes, &opts, jobs, start.elapsed()));
+        if any_fail {
             eprintln!(
                 "{}",
                 lstr!(
@@ -222,28 +297,118 @@ pub(crate) fn verify(
                 )
             );
         }
+    }
+    if any_fail {
         return ExitCode::from(6);
     }
     if any_error {
         return ExitCode::from(3);
     }
-    if format == OutputFormat::Human {
-        let props = compiled.sva_props.len();
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "    Finished {:.2}s\n      Result {props} propert{} verified \
-                     ({}, depth {})",
-                    start.elapsed().as_secs_f64(),
-                    if props == 1 { "y" } else { "ies" },
-                    opts.mode.as_str(), opts.depth;
-                tr: "    Tamamlandı {:.2}s\n       Sonuç {props} özellik doğrulandı \
-                     ({}, derinlik {})",
-                    start.elapsed().as_secs_f64(), opts.mode.as_str(), opts.depth
-            )
-        );
-    }
     ExitCode::SUCCESS
+}
+
+/// Kontratlı modüller, kaynak sırasında ve teklenmiş.
+fn contract_modules(props: &[SvaProp]) -> Vec<String> {
+    let mut modules: Vec<String> = Vec::new();
+    for prop in props {
+        if !modules.contains(&prop.module_name) {
+            modules.push(prop.module_name.clone());
+        }
+    }
+    modules
+}
+
+/// Modül → sby görevi; görev adı küçük harf modül adıdır, çakışırsa
+/// (`Foo`/`foo`) sıra numarası eklenir — sby görev adları tekil olmalı.
+fn sby_tasks(modules: &[String], multiclock_modules: &[String]) -> Vec<SbyTask> {
+    let mut used: Vec<String> = Vec::new();
+    modules
+        .iter()
+        .map(|module| {
+            let base = sanitize(&module.to_lowercase());
+            let mut name = base.clone();
+            let mut n = 2;
+            while used.contains(&name) {
+                name = format!("{base}_{n}");
+                n += 1;
+            }
+            used.push(name.clone());
+            SbyTask {
+                name,
+                top: module.clone(),
+                multiclock: multiclock_modules.iter().any(|m| m == module),
+            }
+        })
+        .collect()
+}
+
+/// `.sby` iş adı: girdi dosyasının kök adı (`top.volt` → `top`); sby
+/// çalışma dizinleri `<iş>_<görev>` olur.
+fn job_name(file: &Path) -> String {
+    let stem = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name = sanitize(&stem);
+    if name.is_empty() {
+        "verify".to_string()
+    } else {
+        name
+    }
+}
+
+/// sby görev/iş adı alfabesi: `[A-Za-z0-9_]`, diğerleri `_`.
+fn sanitize(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Araç hatası mesajı: yeniden koşturma ipucu görevi tek başına seçer.
+fn print_tool_error(
+    module: &str,
+    sby: &Path,
+    sby_name: &str,
+    task: &str,
+    formal_dir: &Path,
+    exit_code: Option<i32>,
+) {
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "error: SymbiYosys reported a tool error for module '{module}' \
+                 (exit code {:?})\n  = help: re-run '{} -f {sby_name} {task}' in '{}' \
+                 to see the full log",
+                exit_code, sby.display(), formal_dir.display();
+            tr: "hata: SymbiYosys '{module}' modülü için araç hatası bildirdi \
+                 (çıkış kodu {:?})\n  = çözüm: tam log için '{} -f {sby_name} {task}' \
+                 komutunu '{}' içinde yeniden çalıştırın",
+                exit_code, sby.display(), formal_dir.display()
+        )
+    );
+}
+
+/// Göreve ait olmayan sby satırları (yapılandırma hatası gibi) — en
+/// fazla 20 satır, araç hatası varsa bir kez.
+fn print_global_log(log: &str) {
+    let lines: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
+    let shown = lines.len().min(20);
+    eprintln!(
+        "{}",
+        lstr!(en: "  = note: sby output:"; tr: "  = not: sby çıktısı:")
+    );
+    for line in &lines[..shown] {
+        eprintln!("      {line}");
+    }
+    if lines.len() > shown {
+        eprintln!("      ...");
+    }
 }
 
 /// G/Ç hatası: mesaj + çıkış kodu 3 (cli-contract.md §2).
@@ -396,15 +561,15 @@ fn prop_in_line(line: &str) -> Option<String> {
     }
 }
 
-/// FAIL → E5001 tanısı. Konum eşlenemezse modülün ilk kontratına
-/// düşülür (tanı yine 5 parça taşır).
+/// FAIL → (kontrat adı, E5001 tanısı). Konum eşlenemezse modülün ilk
+/// kontratına düşülür (tanı yine 5 parça taşır).
 fn counterexample_diagnostic(
     module: &str,
     failure: &SbyFailure,
     sv: &str,
     props: &[SvaProp],
     cex: Option<&Path>,
-) -> Diagnostic {
+) -> (String, Diagnostic) {
     let by_name = failure
         .sv_line
         .and_then(|line| prop_name_at(sv, line))
@@ -445,13 +610,13 @@ fn counterexample_diagnostic(
     if let Some(cex) = cex {
         diag = diag.with_note(NoteKind::Counterexample, cex.display().to_string());
     }
-    diag
+    (prop.name.clone(), diag)
 }
 
-/// sby'nin `<modul>/engine_0/trace.vcd` izini `<modul>_cex.vcd` olarak
-/// kopyalar; iz üretilmediyse `None`.
-fn copy_counterexample(formal_dir: &Path, stem: &str) -> Option<PathBuf> {
-    let workdir = formal_dir.join(stem);
+/// sby'nin `<iş>_<görev>/engine_0/trace.vcd` izini `<görev>_cex.vcd`
+/// olarak kopyalar; iz üretilmediyse `None`.
+fn copy_counterexample(formal_dir: &Path, workdir: &str, stem: &str) -> Option<PathBuf> {
+    let workdir = formal_dir.join(workdir);
     let engine_dir = workdir.join("engine_0");
     let trace = ["trace.vcd", "trace_tb.vcd"]
         .iter()
@@ -546,5 +711,38 @@ SBY 12:00:01 [counter] DONE (PASS, rc=0)
         assert_eq!(parse_step("no numbers here"), None);
         assert_eq!(parse_sv_line("Assert failed somewhere else"), None);
         assert_eq!(prop_in_line("assign x = y;"), None);
+    }
+
+    #[test]
+    fn job_name_uses_sanitized_file_stem() {
+        assert_eq!(job_name(Path::new("examples/soc/top.volt")), "top");
+        assert_eq!(
+            job_name(Path::new("23_provable_invariant.volt")),
+            "23_provable_invariant"
+        );
+        assert_eq!(job_name(Path::new("odd-name.v2.volt")), "odd_name_v2");
+    }
+
+    #[test]
+    fn sby_tasks_keep_source_order_and_dedupe_case_collisions() {
+        let modules = ["SocTop".to_string(), "Gpio".to_string(), "GPIO".to_string()];
+        let tasks = sby_tasks(&modules, &["Gpio".to_string()]);
+        let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["soctop", "gpio", "gpio_2"]);
+        assert_eq!(tasks[1].top, "Gpio");
+        assert!(tasks[1].multiclock);
+        assert!(!tasks[0].multiclock);
+    }
+
+    #[test]
+    fn contract_modules_dedupes_in_first_seen_order() {
+        let prop = |m: &str, n: &str| SvaProp {
+            module_name: m.to_string(),
+            name: n.to_string(),
+            keyword: "invariant",
+            span: volt_span::Span::new(volt_span::FileId(0), 0, 0),
+        };
+        let props = [prop("B", "inv_0"), prop("A", "inv_0"), prop("B", "inv_1")];
+        assert_eq!(contract_modules(&props), ["B", "A"]);
     }
 }

@@ -28,7 +28,7 @@ use volt_span::{FileId, Span};
 
 pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
-pub use sby::{sby_config, SbyEngine, SbyMode, SbyOptions};
+pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, run_testbench_cpp, test_testbench_cpp, SimPort, TbAssertKind,
     TbStep, TbTest, TbValue,

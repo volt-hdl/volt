@@ -120,6 +120,53 @@ pub fn sby_config(top_module: &str, sv_file: &str, opts: &SbyOptions) -> String 
     )
 }
 
+/// Çok görevli `.sby` içindeki tek görev (ADR-0055): `[tasks]` satırı,
+/// görevin `prep -top` hedefi ve görev-koşullu `multiclock on`.
+///
+/// sby görevin çalışma dizinini `<iş>_<ad>` olarak kurar (`<iş>` `.sby`
+/// dosyasının kök adı); `name` bu yüzden `[A-Za-z0-9_]` ile sınırlıdır.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SbyTask {
+    /// Görev adı (küçük harf modül adı).
+    pub name: String,
+    /// `prep -top` modülü — Volt modül adıyla birebir.
+    pub top: String,
+    /// İki+ saatli modül için `multiclock on` (ADR-0027).
+    pub multiclock: bool,
+}
+
+/// Bir birimdeki TÜM kontratlı modüller için tek `.sby` (ADR-0055).
+///
+/// Her modül bir sby görevidir; `sby -j N -f <iş>.sby` görevleri tek
+/// süreçte paralel koşturur (sby'nin kendi görev döngüsü). Ortak satırlar
+/// (`mode`, `depth`, `[engines]`, `read -formal`, `[files]`) görev
+/// önekisiz; görevden görevi ayıran satırlar (`prep -top`, `multiclock`)
+/// `<görev>: ` önekiyle yazılır. Görev sırası kaynak sırasıdır.
+pub fn sby_config_tasks(tasks: &[SbyTask], sv_file: &str, opts: &SbyOptions) -> String {
+    let mut out = String::from("[tasks]\n");
+    for task in tasks {
+        out.push_str(&task.name);
+        out.push('\n');
+    }
+    out.push_str(&format!(
+        "\n[options]\nmode {}\ndepth {}\n",
+        opts.mode.as_str(),
+        opts.depth
+    ));
+    for task in tasks.iter().filter(|t| t.multiclock) {
+        out.push_str(&format!("{}: multiclock on\n", task.name));
+    }
+    out.push_str(&format!(
+        "\n[engines]\nsmtbmc {}\n\n[script]\nread -formal {sv_file}\n",
+        opts.engine.as_str()
+    ));
+    for task in tasks {
+        out.push_str(&format!("{}: prep -top {}\n", task.name, task.top));
+    }
+    out.push_str(&format!("\n[files]\n{sv_file}\n"));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +233,75 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
+    }
+
+    fn task(name: &str, top: &str, multiclock: bool) -> SbyTask {
+        SbyTask {
+            name: name.to_string(),
+            top: top.to_string(),
+            multiclock,
+        }
+    }
+
+    #[test]
+    fn tasks_config_lists_every_module_as_a_task_in_source_order() {
+        let tasks = [
+            task("soctop", "SocTop", false),
+            task("gpio", "Gpio", false),
+            task("timer", "Timer", false),
+        ];
+        let text = sby_config_tasks(&tasks, "top.sv", &SbyOptions::default());
+        assert!(
+            text.starts_with("[tasks]\nsoctop\ngpio\ntimer\n\n[options]\nmode bmc\ndepth 20\n"),
+            "{text}"
+        );
+        assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
+        assert!(
+            text.contains(
+                "[script]\nread -formal top.sv\nsoctop: prep -top SocTop\n\
+                 gpio: prep -top Gpio\ntimer: prep -top Timer\n"
+            ),
+            "{text}"
+        );
+        assert!(text.ends_with("[files]\ntop.sv\n"), "{text}");
+    }
+
+    #[test]
+    fn tasks_config_multiclock_is_task_conditional() {
+        let tasks = [
+            task("fifobridge", "FifoBridge", true),
+            task("counter", "Counter", false),
+        ];
+        let text = sby_config_tasks(&tasks, "u.sv", &SbyOptions::default());
+        assert!(
+            text.contains("[options]\nmode bmc\ndepth 20\nfifobridge: multiclock on\n\n"),
+            "{text}"
+        );
+        assert!(!text.contains("counter: multiclock"), "{text}");
+    }
+
+    #[test]
+    fn tasks_config_honors_mode_depth_engine() {
+        let opts = SbyOptions {
+            mode: SbyMode::Cover,
+            depth: 48,
+            engine: SbyEngine::Yices,
+            multiclock: false,
+        };
+        let text = sby_config_tasks(&[task("uart", "Uart", false)], "uart.sv", &opts);
+        assert!(text.contains("mode cover\ndepth 48\n"), "{text}");
+        assert!(text.contains("smtbmc yices\n"), "{text}");
+        assert!(text.contains("uart: prep -top Uart\n"), "{text}");
+    }
+
+    #[test]
+    fn single_task_config_still_uses_tasks_section() {
+        // Tek modüllü tasarımda da biçim aynı: çalışma dizini <iş>_<görev>.
+        let text = sby_config_tasks(
+            &[task("boundedcounter", "BoundedCounter", false)],
+            "x.sv",
+            &SbyOptions::default(),
+        );
+        assert!(text.starts_with("[tasks]\nboundedcounter\n"), "{text}");
     }
 }

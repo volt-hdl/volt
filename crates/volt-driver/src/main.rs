@@ -11,6 +11,8 @@
 mod sim;
 mod unit;
 mod verify;
+mod verify_jobs;
+mod verify_report;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -145,13 +147,21 @@ enum Command {
     #[command(after_help = "EXAMPLES:
     volt verify design.volt
     volt verify --mode prove design.volt
-    volt verify --depth 40 --engine boolector design.volt")]
+    volt verify --depth 40 --engine boolector design.volt
+    volt verify -j 8 examples/soc/top.volt
+    volt verify -j 1 --fail-fast design.volt")]
     Verify {
         /// Input .volt file
         file: PathBuf,
         /// Search depth in cycles (BMC bound / induction length)
         #[arg(long, default_value_t = 20)]
         depth: u32,
+        /// Parallel sby jobs: a number or 'auto' (= CPU count); 1 runs modules sequentially
+        #[arg(short = 'j', long, default_value = "auto", value_parser = verify_jobs::parse_jobs)]
+        jobs: verify_jobs::Jobs,
+        /// Stop at the first counterexample (default: every module task completes)
+        #[arg(long)]
+        fail_fast: bool,
         /// SMT engine: z3 | boolector | yices
         #[arg(long, value_enum, default_value_t = EngineArg::Z3)]
         engine: EngineArg,
@@ -364,6 +374,8 @@ fn main() -> ExitCode {
         Command::Verify {
             file,
             depth,
+            jobs,
+            fail_fast,
             engine,
             mode,
             target_dir,
@@ -376,9 +388,10 @@ fn main() -> ExitCode {
                 mode: mode.into(),
                 depth,
                 engine: engine.into(),
-                // Modül başına verify.rs'te ayarlanır (multiclock_modules).
+                // Görev başına verify.rs'te ayarlanır (multiclock_modules).
                 multiclock: false,
             },
+            verify::VerifyArgs { jobs, fail_fast },
         ),
         Command::Run {
             file,
@@ -772,11 +785,26 @@ fn render_diagnostics(compiled: &Compiled, format: OutputFormat) {
 
 /// cli-contract.md §5 JSON zarfı — stdout'a tek belge.
 fn print_json_envelope(command: &str, compiled: &Compiled, artifacts: &[String], started: Instant) {
+    let envelope = json_envelope(command, compiled, artifacts, started);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&envelope).expect("JSON zarfı")
+    );
+}
+
+/// JSON zarfının kendisi (cli-contract.md §5); `verify` kendi nesnesini
+/// ekleyip basar (ADR-0055).
+fn json_envelope(
+    command: &str,
+    compiled: &Compiled,
+    artifacts: &[String],
+    started: Instant,
+) -> serde_json::Value {
     // CI `diagnostics[0]`'da engelleyici hatayı bekler: hatalar önce,
     // uyarılar sonra (kendi içlerinde kaynak sırası korunur).
     let mut ordered: Vec<&Diagnostic> = compiled.diagnostics.iter().collect();
     ordered.sort_by_key(|d| d.severity != Severity::Error);
-    let envelope = serde_json::json!({
+    serde_json::json!({
         "version": "1",
         "command": command,
         "success": compiled.errors() == 0,
@@ -787,11 +815,7 @@ fn print_json_envelope(command: &str, compiled: &Compiled, artifacts: &[String],
         "summary": { "errors": compiled.errors(), "warnings": compiled.warnings() },
         "artifacts": artifacts,
         "duration_ms": started.elapsed().as_millis() as u64,
-    });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&envelope).expect("JSON zarfı")
-    );
+    })
 }
 
 fn build(

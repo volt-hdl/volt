@@ -71,6 +71,9 @@ jobs:
           code=$?
           echo "volt verify exit code: $code"
           test "$code" -eq 6
+      # ADR-0055: one sby process, one task per contract-bearing module, -j N.
+      - name: SoC (137 properties, 8 module tasks) -j 4 -> exit 0
+        run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
 
   coverage:
     name: Coverage (informational)
