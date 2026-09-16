@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: `type-inference.md`, `name-resolution.md`
 > Aşama: F2 — tip kontrolüyle iç içe
+> Karar kaydı: ADR-0015 (değerlendirme sırası DefId'ye sabit — determinizm)
 
 ---
 

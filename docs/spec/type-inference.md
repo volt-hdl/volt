@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: `grammar-full.ebnf`, `ast-nodes.md`, `domain-inference.md`
 > Aşama: F2
+> Karar kayıtları: ADR-0003 (Trit §3.3/§3.6), ADR-0007 (zamanlama seviyeleri, §12), ADR-0018 (sürücü analizi §11, lineer tipler §11.4)
 
 ---
 

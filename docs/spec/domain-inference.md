@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI — Volt'un temel değer önerisi
 > İlgili: `type-inference.md`, UX Anayasası
 > Aşama: F2c
+> Karar kayıtları: ADR-0002 (`@Domain` anotasyonu ve birleşik domain §1), ADR-0020 (`trust_level` dördüncü boyut, K11)
 
 ---
 

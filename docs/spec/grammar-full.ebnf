@@ -5,6 +5,9 @@
    Kapsam: F0-F5 (MVP) + V1 hazırlığı
    Sınıf:  LL(2) — geri izleme YOK, belirsizlik YOK
    Durum:  BAĞLAYICI — değişiklik ADR gerektirir
+   Karar kayıtları: ADR-0013 (LL(2), geri izleme yok, §17 ayrılmış
+   kelimeler), ADR-0002 (DomainDecl §3), ADR-0011 (Contract §4),
+   ADR-0017 (package/use §1), ADR-0019 (TodoExpr), ADR-0016 (hook rezerve)
    
    Notasyon:
      =       tanım

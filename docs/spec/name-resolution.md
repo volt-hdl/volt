@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: `ast-nodes.md`, `type-inference.md`, `domain-inference.md`
 > Aşama: F1 sonu — F2 için ÖNKOŞUL
+> Karar kayıtları: ADR-0017 (`package`/`use`/`pub` semantiği §3.2-§3.3), ADR-0006 (AST tipsiz, DefId HIR'da — §0)
 
 ---
 

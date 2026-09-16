@@ -5,6 +5,7 @@
 >
 > Bu tabloya uymayan çeviri kabul edilmez.
 > Translations not following this table are rejected.
+> Karar kaydı / Decision record: ADR-0004 (tanı dili — İngilizce varsayılan, Türkçe opt-in; 5 parçalı mesaj şablonu §7)
 
 ---
 

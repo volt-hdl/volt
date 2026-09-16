@@ -2,6 +2,7 @@
 
 > STATÜ: BAĞLAYICI
 > İlgili: `grammar-full.ebnf`, `ast-nodes.md`, UX Anayasası
+> Karar kaydı: ADR-0013 (asla panik, hata düğümü, ilerleme garantisi, kaskad bastırma — §1)
 
 ---
 

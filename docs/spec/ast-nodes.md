@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI
 > Kaynak gramer: `docs/spec/grammar-full.ebnf`
 > Her düğüm gramerdeki bir kurala karşılık gelir.
+> Karar kayıtları: ADR-0006 (arena tabanlı AST, `Idx<T>`, tip bilgisi HIR'da — İ1/İ5), ADR-0013 (hata düğümleri ve kurtarma — İ3)
 
 ---
 

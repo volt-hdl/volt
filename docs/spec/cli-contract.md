@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: UX Anayasası, `error-recovery.md`
 > Aşama: F0'dan itibaren — CI için ÖNKOŞUL
+> Karar kayıtları: ADR-0021 (çıkış kodları §2, `build/` dizini §4, stdout/stderr §11), ADR-0004 (`--lang` §3, tanı biçimi §5), ADR-0015 (determinizm İ3, `--release` planı), ADR-0019 (E9001), ADR-0022 (E7001/E7002)
 
 ---
 

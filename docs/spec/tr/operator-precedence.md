@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI SPESİFİKASYON
 > Bu tablo parser implementasyonunun referansıdır.
 > Değişiklik ADR gerektirir.
+> Karar kaydı: ADR-0013 (karşılaştırma zincirlenmez §2.1, bit operatörleri karşılaştırmadan sıkı §2.2, LL(2) parser sözleşmesi)
 
 ---
 

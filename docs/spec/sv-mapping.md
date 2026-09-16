@@ -3,6 +3,7 @@
 > STATÜ: BAĞLAYICI SPESİFİKASYON
 > Her Volt yapısının ürettiği SystemVerilog burada tanımlıdır.
 > Hedef standart: IEEE 1800-2017
+> Karar kayıtları: ADR-0008 (çıktı stili §0, yasak liste §11), ADR-0012 (1:1 modül, isim korunumu İ1/İ2), ADR-0010 (string template üretim, CIRCT ertelendi)
 
 ---
 

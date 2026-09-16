@@ -5,6 +5,7 @@
 > Changes require an ADR.
 >
 > Turkish translation: `docs/spec/tr/operator-precedence.md`
+> Decision record: ADR-0013 (non-chaining comparison §2.1, bitwise above comparison §2.2, LL(2) parser contract)
 
 ---
 
