@@ -1732,9 +1732,14 @@ fn check_unenforced_attribute_warns_w0021_exit_0() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
     assert!(stderr.contains("warning[W0021]"), "stderr: {stderr}");
-    assert!(stderr.contains("@timing"), "stderr: {stderr}");
+    assert!(stderr.contains("@budget"), "stderr: {stderr}");
     assert!(stderr.contains("= reason:"), "stderr: {stderr}");
-    assert!(stderr.contains("SDC"), "stderr: {stderr}");
+    assert!(stderr.contains("E6001"), "stderr: {stderr}");
+    // ADR-0054: not, hâlâ uygulanmayanları listeler; @timing artık listede değil.
+    assert!(
+        stderr.contains("still unenforced: @domain, @budget"),
+        "stderr: {stderr}"
+    );
     assert!(stderr.contains("= help:"), "stderr: {stderr}");
     assert!(stderr.contains("explain W0021"), "stderr: {stderr}");
     assert!(

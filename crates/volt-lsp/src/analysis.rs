@@ -61,6 +61,9 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
         // politika sürücüyle aynı Volt.toml'dan (dosya dizininden yukarı).
         let lint = volt_hir::UnenforcedLint::discover(std::path::Path::new(path).parent());
         diagnostics.extend(volt_hir::check_attributes(&analysis.ast, lint));
+        // ADR-0054: @timing / @false_path / @multicycle biçim denetimi (E0017)
+        // sürücüyle aynı; W0022 yalnız `volt build --emit=sdc`'de.
+        diagnostics.extend(volt_hir::check_constraints(&analysis.ast));
         let resolve = volt_hir::resolve_file(&analysis.ast);
         let resolve_failed = count_errors(&resolve.diagnostics) > 0;
         diagnostics.extend(resolve.diagnostics.iter().cloned());

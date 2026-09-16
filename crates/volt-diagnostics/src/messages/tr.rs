@@ -27,6 +27,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0014 => "match deyiminde '_' kolu eksik",
         E0015 => "MMIO register haritası yerleşim hatası (ADR-0044)",
         E0016 => "Gerekçesiz declassify (ADR-0052)",
+        E0017 => "Desteklenmeyen ya da tutarsız zamanlama kısıtı (ADR-0054)",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",
@@ -130,6 +131,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0010 => "Belirsiz operatör önceliği, parantez önerilir",
         W0020 => "Bilinmeyen nitelik (attribute)",
         W0021 => "Nitelik ayrıştırılıyor ama henüz uygulanmıyor",
+        W0022 => "Saat alanının frekansı yok; create_clock üretilmedi (ADR-0054)",
         W1001 => "Kullanılmayan sinyal / bağlama",
         W1002 => "Gölgeleme (iç kapsamda aynı isim)",
         W1003 => "Yerleşik ismin gölgelenmesi",

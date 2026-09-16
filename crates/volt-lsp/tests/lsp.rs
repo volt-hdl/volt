@@ -637,9 +637,8 @@ fn span_to_range_counts_utf16_units() {
 #[test]
 fn unenforced_attribute_surfaces_w0021_in_editor() {
     // ADR-0048: editör de "sessizce yok sayma" yasağına uyar.
-    let a = analyze(
-        "@timing(clk = 25175000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n",
-    );
+    let a =
+        analyze("@budget(lut = 5000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n");
     assert!(
         a.diagnostics.iter().any(|d| d.code.as_str() == "W0021"),
         "W0021 bekleniyordu: {:?}",
@@ -662,7 +661,7 @@ fn editor_honours_volt_toml_lint_policy() {
         "[lint]\nunenforced_attributes = \"allow\"\n",
     )
     .expect("Volt.toml");
-    let src = "@timing(clk = 25175000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n";
+    let src = "@budget(lut = 5000)\nmodule M {\n    in a : u8\n    out y : u8\n    y = a\n}\n";
     let path = dir.join("m.volt");
     let a = analysis::analyze(path.to_str().unwrap(), src);
     assert!(

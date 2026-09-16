@@ -141,6 +141,18 @@ module Regs {
             "busy = declassify(state != IDLE)                       // ✗ E0016: no reason\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: empty reason",
             "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ reviewed, W3008 records it",
         ),
+        E0017 => Explanation::new(
+            "Unsupported or inconsistent timing constraint",
+            "A @timing, @false_path or @multicycle attribute uses a form the compiler does not translate, names a signal that is not a port or register, or contradicts the domain frequency.",
+            "Since ADR-0054 these attributes are enforced: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path. A form the compiler only half-understands would still produce a constraint file, and a constraint file that silently lacks the line you wrote is worse than none. So every unsupported spelling is an error, not a warning.
+
+Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timing(clk >= 100.mhz) (minimum), @timing(max_delay(a, b) <= 5.ns), @timing(min_delay(a, b) >= 1.ns), @false_path(from = a, to = b), @multicycle(from = a, to = b, cycles = N); on a register: @false_path, @multicycle(N). Frequencies are written as 25175000 (Hz), 25_175.khz, 100.mhz or 1.ghz; delays always carry a unit (ps, ns, us). Endpoints are ports or registers of the same module — wires, lets and instance outputs are not timing endpoints. A clock requirement is checked against the domain's frequency: '=' must match, '>=' must be met.",
+            "@timing(pix_clk >= 25.175.mhz)        // ✗ E0001: no decimal literals\n@timing(max_delay(a, b) <= 5)         // ✗ E0017: delay without a unit\n@false_path(from = tmp, to = y)       // ✗ E0017: 'tmp' is a let, not a register\n@timing(clk = 50.mhz)                 // ✗ E0017: domain says 100.mhz",
+            "@timing(pix_clk >= 25_175.khz)        // ✓ kHz spelling\n@timing(max_delay(a, b) <= 5.ns)      // ✓\n@false_path(from = cfg_r, to = y)     // ✓ register -> port\n@timing(clk >= 50.mhz)                // ✓ a requirement, met by 100.mhz",
+        )
+        .with_note(
+            "The generated names follow the Vivado / Design Compiler convention: registers become get_cells {name_reg*}, sub-module signals get the instance prefix (fb/mem_reg*). set_clock_groups -asynchronous is derived from the domains without any attribute; sync()/AsyncFifo/HandshakeSync/PulseSync/AsyncDualPortRam crossings get set_false_path automatically.",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",
@@ -780,12 +792,12 @@ module Gpio {
         W0021 => Explanation::new(
             "Attribute is parsed but not yet enforced",
             "The attribute is valid syntax, but no compiler pass reads it: no constraint, check or output is generated from it.",
-            "Volt forbids silently ignoring what the user wrote. @timing, @budget, @false_path, @multicycle, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target and @domain are in the grammar (so they are not W0020), yet none of them is enforced today — @timing writes no SDC, @budget checks nothing, @false_path proves nothing. Without this warning you would believe a constraint exists when it does not, and the gap would only surface in the vendor tool or in silicon.
+            "Volt forbids silently ignoring what the user wrote. @budget, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target and @domain are in the grammar (so they are not W0020), yet none of them is enforced today — @budget checks nothing, @version compares nothing. Without this warning you would believe a check exists when it does not, and the gap would only surface in the vendor tool or in silicon.
 
-Keep the attribute if you want it to start working the day it is enforced, and acknowledge the gap explicitly: @allow(unenforced) on the same item silences W0021 for that item (ports and body included); Volt.toml [lint] unenforced_attributes = \"allow\" silences it for the whole package. Meanwhile express the constraint in the vendor flow (.xdc/.sdc).",
-            "@timing(pix_clk = 25175000)   // ⚠ W0021: no SDC is written
+Keep the attribute if you want it to start working the day it is enforced, and acknowledge the gap explicitly: @allow(unenforced) on the same item silences W0021 for that item (ports and body included); Volt.toml [lint] unenforced_attributes = \"allow\" silences it for the whole package. The diagnostic's second note lists exactly which attributes are still unenforced in this compiler version.",
+            "@budget(lut = 5000)   // ⚠ W0021: no utilization check exists
 module VgaTiming { /* ... */ }",
-            "@timing(pix_clk = 25175000) @allow(unenforced)   // ✓ acknowledged
+            "@budget(lut = 5000) @allow(unenforced)   // ✓ acknowledged
 module VgaTiming { /* ... */ }
 
 // or, package-wide, in Volt.toml:
@@ -793,7 +805,19 @@ module VgaTiming { /* ... */ }
 // unenforced_attributes = \"allow\"",
         )
         .with_note(
-            "ADR-0048 is the roadmap: @timing maps to create_clock / set_max_delay, @false_path to set_false_path, @multicycle to set_multicycle_path, emitted as build/constraints/<Top>.sdc in a later release. When an attribute is enforced it leaves this warning's list, so an @allow(unenforced) left behind then does nothing and can be removed.",
+            "@timing, @false_path and @multicycle left this list with ADR-0054: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path in build/constraints/<Module>.sdc, and a malformed one is E0017. An @allow(unenforced) written for them does nothing now and can be removed. ADR-0048 remains the roadmap for @budget (E6001) and the versioning checks (E7001/E7002).",
+        ),
+        W0022 => Explanation::new(
+            "Clock domain has no frequency; no create_clock emitted",
+            "A constraint file was requested (--emit=sdc or xdc), but this clock's domain declares no 'frequency', so its create_clock line is missing.",
+            "A create_clock needs a period. Without it the timing tool treats every path in that domain as unconstrained: synthesis reports no violation because it checks nothing, and the design can fail on the board while every report is green. Volt knows the domain from the @Name annotation; it only lacks the number. The warning is emitted once per domain (or per unannotated clock port) and only when a constraint file is actually being generated — a design that never asks for SDC is not asked for frequencies.
+
+Declare the frequency in the domain so that every module sharing it is constrained the same way; @timing(clk = F) on a module also fills the gap, but it lives on one module only.",
+            "domain PixDomain {\n    clock = posedge,\n    reset = sync active_high,\n}                        // ⚠ W0022 when --emit=sdc: no period for pix_clk",
+            "domain PixDomain {\n    clock = posedge,\n    reset = sync active_high,\n    frequency = 25_175.khz,   // ✓ create_clock -period 39.722\n}",
+        )
+        .with_note(
+            "Clocks without a frequency are also left out of set_clock_groups (get_clocks would fail on an undefined clock) and of the -from [get_clocks ...] form of generated false paths; those fall back to register and port names. Decimal literals do not exist: 25.175 MHz is written 25_175.khz or 25175000.",
         ),
         W1001 => Explanation::new(
             "Unused signal or binding",

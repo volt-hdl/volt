@@ -2068,7 +2068,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 61, "ui/pass 61 dosya içermeli");
+    assert_eq!(total, 63, "ui/pass 63 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2090,10 +2090,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0049 ise 65'i (AsyncDualPortRam çift saatli bellek),
     // ADR-0051 ise 68-69'u (inout / opendrain çift yönlü portlar),
     // ADR-0052 ise 70-71'i (trust_level + declassify),
-    // ADR-0053 ise 72'yi (@mmio sürücü üretimi, alan doc yorumları) ekledi.
+    // ADR-0053 ise 72'yi (@mmio sürücü üretimi, alan doc yorumları),
+    // ADR-0054 ise 73-74'ü (SDC üretimi: tek saat / çok saat) ekledi.
     assert_eq!(
-        clean, 61,
-        "61/61 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 63,
+        "63/63 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

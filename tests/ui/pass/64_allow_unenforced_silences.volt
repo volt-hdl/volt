@@ -2,7 +2,7 @@
 // acknowledges that the attribute is documentation for now. The
 // attribute stays in the source so it starts working the day the
 // compiler learns to enforce it. Silence is expected: zero diagnostics.
-@timing(clk = 100000000) @allow(unenforced)
+@budget(lut = 5000) @allow(unenforced)
 module Passthrough {
     in  clk : clock
     in  a   : u8

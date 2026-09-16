@@ -1,6 +1,6 @@
 //! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
 //!
-//! Kapsam: 118 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
+//! Kapsam: 120 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
 //! genişliğe göre sarma, renk, --list gruplaması ve kod önerisi.
 
 use volt_diagnostics::explain::{
@@ -11,11 +11,12 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// Spec'teki toplam kod sayısı — kod eklenince bilinçli olarak güncellenir.
 /// (E0014, ADR-0032 ile; E8501-E8506, ADR-0033 ile; E5010, ADR-0037 ile;
 /// E5011-E5016, ADR-0038 ile; E3013/E4005, ADR-0039 ile; E5017, ADR-0040 ile; E0015/E4006, ADR-0044 ile; E3014, ADR-0047 ile; E4007, ADR-0050 ile;
-/// E4008/W3007, ADR-0051 ile; E0016/W3008, ADR-0052 ile eklendi.)
-const CODE_COUNT: usize = 118;
+/// E4008/W3007, ADR-0051 ile; E0016/W3008, ADR-0052 ile; E0017/W0022,
+/// ADR-0054 ile eklendi.)
+const CODE_COUNT: usize = 120;
 
 #[test]
-fn all_codes_present_118_of_118() {
+fn all_codes_present_120_of_120() {
     assert_eq!(
         ErrorCode::ALL.len(),
         CODE_COUNT,
@@ -288,13 +289,51 @@ fn w0021_explanations_describe_unenforced_attributes_in_both_languages() {
     assert!(en.title.contains("not yet enforced"), "{}", en.title);
     assert!(en.why.contains("@allow(unenforced)"), "{}", en.why);
     assert!(en.why.contains("unenforced_attributes"), "{}", en.why);
-    assert!(en.example.contains("@timing"), "{}", en.example);
+    // ADR-0054: örnek artık @budget — @timing uygulanıyor.
+    assert!(en.example.contains("@budget"), "{}", en.example);
+    assert!(
+        !en.why.contains("@timing,"),
+        "@timing listede olmamalı: {}",
+        en.why
+    );
     assert!(en.fix.contains("@allow(unenforced)"), "{}", en.fix);
     let tr = explanation(Lang::Tr, ErrorCode::W0021);
     assert!(tr.title.contains("uygulanmıyor"), "{}", tr.title);
     assert!(tr.why.contains("@allow(unenforced)"), "{}", tr.why);
-    assert!(tr.example.contains("@timing"), "{}", tr.example);
+    assert!(tr.example.contains("@budget"), "{}", tr.example);
     assert!(tr.fix.contains("@allow(unenforced)"), "{}", tr.fix);
+}
+
+#[test]
+fn w0021_note_says_timing_family_is_enforced_since_adr_0054() {
+    for lang in [Lang::En, Lang::Tr] {
+        let note = explanation(lang, ErrorCode::W0021).note.unwrap();
+        assert!(
+            note.contains("ADR-0054") && note.contains("--emit=sdc"),
+            "{note}"
+        );
+    }
+}
+
+#[test]
+fn e0017_and_w0022_explanations_in_both_languages() {
+    let en = explanation(Lang::En, ErrorCode::E0017);
+    assert!(en.title.contains("timing constraint"), "{}", en.title);
+    assert!(en.why.contains("@timing(clk >= 100.mhz)"), "{}", en.why);
+    assert!(en.why.contains("max_delay(a, b) <= 5.ns"), "{}", en.why);
+    assert!(en.example.contains("E0017"), "{}", en.example);
+    assert!(en.note.unwrap().contains("_reg*"));
+    let tr = explanation(Lang::Tr, ErrorCode::E0017);
+    assert!(tr.title.contains("zamanlama kısıtı"), "{}", tr.title);
+    assert!(tr.why.contains("@timing(clk >= 100.mhz)"), "{}", tr.why);
+
+    let en = explanation(Lang::En, ErrorCode::W0022);
+    assert!(en.title.contains("no create_clock"), "{}", en.title);
+    assert!(en.summary.contains("--emit=sdc"), "{}", en.summary);
+    assert!(en.fix.contains("frequency = 25_175.khz"), "{}", en.fix);
+    let tr = explanation(Lang::Tr, ErrorCode::W0022);
+    assert!(tr.title.contains("create_clock"), "{}", tr.title);
+    assert!(tr.fix.contains("frequency = 25_175.khz"), "{}", tr.fix);
 }
 
 #[test]

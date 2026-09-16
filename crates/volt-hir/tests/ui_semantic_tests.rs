@@ -239,8 +239,37 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0049: 65 domain-aware çift saatli bellek,
     // ADR-0051: 68-69 çift yönlü portlar (inout / opendrain),
     // ADR-0052: 70-71 güven seviyeleri + declassify,
-    // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita).
-    assert_eq!(checked, 61);
+    // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita),
+    // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat).
+    assert_eq!(checked, 63);
+}
+
+// ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
+
+#[test]
+fn ui_pass_73_sdc_single_clock_clean() {
+    // @timing(clk >= 40.mhz) alan frekansı 50 MHz ile karşılanır;
+    // @false_path bir register'dan bir porta — hiç tanı yok.
+    let result = analyze_file("pass/73_sdc_single_clock.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_pass_74_sdc_multi_clock_clean() {
+    // Yalnız W3005 (PulseSync darbe aralığı hatırlatması) — hata yok,
+    // E0017 yok, W0021 yok.
+    let result = analyze_file("pass/74_sdc_multi_clock.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    assert_eq!(result.error_codes(), vec!["W3005"]);
+}
+
+#[test]
+fn ui_fail_57_timing_unsupported_form_e0017() {
+    assert_ui_fail("fail/57_timing_unsupported_form.volt");
 }
 
 // ═══ İşaretli işlemler (ADR-0036) ═════════════════════════════════

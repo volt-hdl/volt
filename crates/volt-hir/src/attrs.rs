@@ -32,11 +32,9 @@ use volt_span::{FileId, Span};
 pub const UNENFORCED_ATTRIBUTES: &[&str] = &[
     // [F2]
     "domain",
-    // [F4]
+    // [F4] — @timing / @false_path / @multicycle ADR-0054 ile uygulanıyor
+    // (constraints.rs), listeden çıktılar.
     "budget",
-    "timing",
-    "false_path",
-    "multicycle",
     // [F5]
     "version",
     "abi_version",
@@ -256,23 +254,25 @@ fn unenforced_warning(attr: &Attribute) -> Diagnostic {
         lstr!(en: "the attribute is syntactically valid and will be honored in a future release; silence this with @allow(unenforced) on the same item or Volt.toml [lint] unenforced_attributes = \"allow\"";
               tr: "nitelik sözdizimsel olarak geçerli, ileriki bir sürümde uygulanacak; aynı öğede @allow(unenforced) ya da Volt.toml [lint] unenforced_attributes = \"allow\" ile susturulabilir"),
     )
+    .with_note(
+        NoteKind::Note,
+        lstr!(en: "still unenforced: {}; @timing, @false_path and @multicycle are enforced since ADR-0054 (volt build --emit=sdc)", unenforced_list();
+              tr: "hâlâ uygulanmayan: {}; @timing, @false_path ve @multicycle ADR-0054'ten beri uygulanıyor (volt build --emit=sdc)", unenforced_list()),
+    )
+}
+
+/// `@ad, @ad, ...` — W0021 notunda hâlâ uygulanmayan niteliklerin listesi.
+fn unenforced_list() -> String {
+    UNENFORCED_ATTRIBUTES
+        .iter()
+        .map(|a| format!("@{a}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Nitelik ailesine göre gerekçe ve öneri metni (ADR-0048 tablosu).
 fn reason_and_help(name: &str) -> (String, String) {
     match name {
-        "timing" => (
-            lstr!(en: "timing constraint generation (SDC) is not implemented yet";
-                  tr: "zamanlama kısıtı üretimi (SDC) henüz gerçeklenmedi"),
-            lstr!(en: "use vendor constraints (.xdc/.sdc) meanwhile, or silence with @allow(unenforced)";
-                  tr: "şimdilik üretici kısıt dosyası (.xdc/.sdc) kullanın ya da @allow(unenforced) ile susturun"),
-        ),
-        "false_path" | "multicycle" => (
-            lstr!(en: "path exceptions (SDC set_false_path / set_multicycle_path) and their structural proofs (E6003/E6004) are not implemented yet";
-                  tr: "yol istisnaları (SDC set_false_path / set_multicycle_path) ve yapısal kanıtları (E6003/E6004) henüz gerçeklenmedi"),
-            lstr!(en: "use vendor constraints (.xdc/.sdc) meanwhile, or silence with @allow(unenforced)";
-                  tr: "şimdilik üretici kısıt dosyası (.xdc/.sdc) kullanın ya da @allow(unenforced) ile susturun"),
-        ),
         "budget" => (
             lstr!(en: "resource budget checking (E6001) needs synthesis estimates that are not implemented yet";
                   tr: "kaynak bütçesi denetimi (E6001) henüz gerçeklenmemiş sentez kestirimlerine dayanır"),

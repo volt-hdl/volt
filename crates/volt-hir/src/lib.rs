@@ -9,6 +9,7 @@
 pub mod attrs;
 pub mod builtin;
 pub mod consteval;
+pub mod constraints;
 pub mod domain;
 pub mod drivers;
 pub mod handshake;
@@ -23,6 +24,10 @@ pub mod unit;
 pub use attrs::{check_attributes, UnenforcedLint, UNENFORCED_ATTRIBUTES};
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
+pub use constraints::{
+    check_constraints, collect_constraints, Bridge, ClockConstraint, ConstraintResult,
+    ModuleConstraints, PathKind, PathRule, Target,
+};
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
 pub use handshake::check_handshakes;
 pub use resolve::{
@@ -101,6 +106,10 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     // kombinasyonel bağlayamaz (E4007).
     let handshake_diags = handshake::check_handshakes(ast, &resolve);
 
+    // Zamanlama kısıtları (ADR-0054): @timing / @false_path / @multicycle
+    // biçim ve tutarlılık denetimi (E0017); W0022 yalnız --emit=sdc,xdc'de.
+    let constraint_diags = constraints::check_constraints(ast);
+
     // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
     // tek dosya API'sinde varsayılan politika uyarıdır.
     let mut diagnostics = attrs::check_attributes(ast, UnenforcedLint::Warn);
@@ -112,6 +121,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     diagnostics.extend(test_diags);
     diagnostics.extend(timing_diags);
     diagnostics.extend(handshake_diags);
+    diagnostics.extend(constraint_diags);
     AnalysisResult {
         resolve,
         typeck,

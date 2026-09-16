@@ -141,6 +141,18 @@ module Regs {
             "busy = declassify(state != IDLE)                       // ✗ E0016: gerekçe yok\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: gerekçe boş",
             "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ gözden geçirilmiş, W3008 kaydeder",
         ),
+        E0017 => Explanation::new(
+            "Desteklenmeyen ya da tutarsız zamanlama kısıtı",
+            "Bir @timing, @false_path ya da @multicycle niteliği derleyicinin çevirmediği bir biçim kullanıyor, port ya da register olmayan bir sinyali adlandırıyor ya da alan frekansıyla çelişiyor.",
+            "ADR-0054'ten beri bu nitelikler uygulanıyor: 'volt build --emit=sdc' (ya da xdc) onları create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir. Derleyicinin yarım anladığı bir biçim yine bir kısıt dosyası üretirdi; yazdığınız satırı sessizce içermeyen bir kısıt dosyası hiç olmamasından kötüdür. Bu yüzden desteklenmeyen her yazım uyarı değil hatadır.
+
+Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @timing(clk >= 100.mhz) (en düşük), @timing(max_delay(a, b) <= 5.ns), @timing(min_delay(a, b) >= 1.ns), @false_path(from = a, to = b), @multicycle(from = a, to = b, cycles = N); register üstünde: @false_path, @multicycle(N). Frekans 25175000 (Hz), 25_175.khz, 100.mhz ya da 1.ghz olarak yazılır; gecikme her zaman birim taşır (ps, ns, us). Uç noktalar aynı modülün portları ya da register'larıdır — wire, let ve örnek çıkışları zamanlama uç noktası değildir. Saat gereksinimi alanın frekansıyla karşılaştırılır: '=' eşleşmeli, '>=' karşılanmalı.",
+            "@timing(pix_clk >= 25.175.mhz)        // ✗ E0001: ondalık literal yok\n@timing(max_delay(a, b) <= 5)         // ✗ E0017: birimsiz gecikme\n@false_path(from = tmp, to = y)       // ✗ E0017: 'tmp' bir let, register değil\n@timing(clk = 50.mhz)                 // ✗ E0017: alan 100.mhz diyor",
+            "@timing(pix_clk >= 25_175.khz)        // ✓ kHz yazımı\n@timing(max_delay(a, b) <= 5.ns)      // ✓\n@false_path(from = cfg_r, to = y)     // ✓ register -> port\n@timing(clk >= 50.mhz)                // ✓ gereksinim, 100.mhz karşılıyor",
+        )
+        .with_note(
+            "Üretilen adlar Vivado / Design Compiler geleneğini izler: register'lar get_cells {ad_reg*} olur, alt modül sinyalleri örnek önekini alır (fb/mem_reg*). set_clock_groups -asynchronous hiçbir nitelik olmadan alanlardan türetilir; sync()/AsyncFifo/HandshakeSync/PulseSync/AsyncDualPortRam geçişleri kendiliğinden set_false_path alır.",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",
@@ -780,12 +792,12 @@ module Gpio {
         W0021 => Explanation::new(
             "Nitelik ayrıştırılıyor ama henüz uygulanmıyor",
             "Nitelik sözdizimsel olarak geçerli, ama hiçbir derleyici geçidi okumuyor: ondan kısıt, denetim ya da çıktı üretilmiyor.",
-            "Volt, kullanıcının yazdığını sessizce yok saymayı yasaklar. @timing, @budget, @false_path, @multicycle, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target ve @domain gramerde (bu yüzden W0020 değil), ama bugün hiçbiri uygulanmıyor — @timing SDC yazmaz, @budget hiçbir şeyi denetlemez, @false_path hiçbir şeyi kanıtlamaz. Bu uyarı olmasa var olmayan bir kısıtın var olduğuna inanırdınız; boşluk ancak üretici aracında ya da silisyumda ortaya çıkardı.
+            "Volt, kullanıcının yazdığını sessizce yok saymayı yasaklar. @budget, @version, @abi_version, @dft, @debug_visible, @debug_trace, @synthesis_target ve @domain gramerde (bu yüzden W0020 değil), ama bugün hiçbiri uygulanmıyor — @budget hiçbir şeyi denetlemez, @version hiçbir şeyi karşılaştırmaz. Bu uyarı olmasa var olmayan bir denetimin var olduğuna inanırdınız; boşluk ancak üretici aracında ya da silisyumda ortaya çıkardı.
 
-Niteliği, uygulanmaya başladığı gün çalışsın diye tutun ve boşluğu açıkça kabul edin: aynı öğede @allow(unenforced) o öğe için (portlar ve gövde dâhil) W0021'i susturur; Volt.toml [lint] unenforced_attributes = \"allow\" tüm paket için susturur. Bu arada kısıtı üretici akışında (.xdc/.sdc) ifade edin.",
-            "@timing(pix_clk = 25175000)   // ⚠ W0021: SDC yazılmıyor
+Niteliği, uygulanmaya başladığı gün çalışsın diye tutun ve boşluğu açıkça kabul edin: aynı öğede @allow(unenforced) o öğe için (portlar ve gövde dâhil) W0021'i susturur; Volt.toml [lint] unenforced_attributes = \"allow\" tüm paket için susturur. Tanının ikinci notu bu derleyici sürümünde hâlâ uygulanmayan nitelikleri tek tek listeler.",
+            "@budget(lut = 5000)   // ⚠ W0021: kullanım denetimi yok
 module VgaTiming { /* ... */ }",
-            "@timing(pix_clk = 25175000) @allow(unenforced)   // ✓ kabul edildi
+            "@budget(lut = 5000) @allow(unenforced)   // ✓ kabul edildi
 module VgaTiming { /* ... */ }
 
 // ya da paket genelinde, Volt.toml içinde:
@@ -793,7 +805,19 @@ module VgaTiming { /* ... */ }
 // unenforced_attributes = \"allow\"",
         )
         .with_note(
-            "Yol haritası ADR-0048: @timing → create_clock / set_max_delay, @false_path → set_false_path, @multicycle → set_multicycle_path; ileriki bir sürümde build/constraints/<Top>.sdc olarak üretilecek. Bir nitelik uygulanmaya başlayınca bu uyarının listesinden çıkar; geride kalan @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir.",
+            "@timing, @false_path ve @multicycle ADR-0054 ile bu listeden çıktı: 'volt build --emit=sdc' (ya da xdc) onları build/constraints/<Modül>.sdc içinde create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir; hatalı yazılmış olanı E0017'dir. Onlar için yazılmış bir @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir. @budget (E6001) ve sürüm denetimleri (E7001/E7002) için yol haritası ADR-0048'dir.",
+        ),
+        W0022 => Explanation::new(
+            "Saat alanının frekansı yok; create_clock üretilmedi",
+            "Kısıt dosyası istendi (--emit=sdc ya da xdc), ama bu saatin alanı 'frequency' bildirmiyor; create_clock satırı eksik.",
+            "create_clock bir periyot ister. Onsuz zamanlama aracı o alandaki her yolu kısıtsız sayar: sentez hiçbir ihlal raporlamaz çünkü hiçbir şeyi denetlemez, tasarım her rapor yeşilken kartta düşer. Volt alanı @Ad anotasyonundan biliyor; eksik olan yalnız sayı. Uyarı alan başına (ya da anotasyonsuz saat portu başına) bir kez ve yalnız gerçekten kısıt dosyası üretilirken verilir — SDC istemeyen bir tasarımdan frekans istenmez.
+
+Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtlansın; modül üstünde @timing(clk = F) de boşluğu doldurur ama yalnız o modülde yaşar.",
+            "domain PixDomain {\n    clock = posedge,\n    reset = sync active_high,\n}                        // ⚠ W0022 --emit=sdc ile: pix_clk için periyot yok",
+            "domain PixDomain {\n    clock = posedge,\n    reset = sync active_high,\n    frequency = 25_175.khz,   // ✓ create_clock -period 39.722\n}",
+        )
+        .with_note(
+            "Frekansı olmayan saatler set_clock_groups dışında da kalır (tanımsız saatte get_clocks başarısız olur) ve üretilen false path'lerin -from [get_clocks ...] biçimine giremez; o kurallar register ve port adlarına düşer. Ondalık literal yok: 25.175 MHz 25_175.khz ya da 25175000 olarak yazılır.",
         ),
         W1001 => Explanation::new(
             "Kullanılmayan sinyal veya bağlama",

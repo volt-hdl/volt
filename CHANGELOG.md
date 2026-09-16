@@ -5,6 +5,51 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — SDC/XDC üretimi: `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden (2026-09-16, ADR-0054)
+
+- **`volt build --emit=sdc,xdc`**: saat portu olan her modül için
+  `build/constraints/<Modül>.sdc` (Synopsys/Quartus/OpenSTA) ve `.xdc`
+  (Vivado). Hiçbir nitelik gerekmeden: domain `frequency`'den
+  `create_clock` (100 MHz → `-period 10.000`, 25_175.khz → `39.722`),
+  farklı alanlar arasında `set_clock_groups -asynchronous`, üretilen her
+  CDC köprüsü (`sync()`/`sync3()`, `AsyncFifo`, `HandshakeSync`,
+  `PulseSync`, `AsyncDualPortRam`) için `set_false_path`; XDC'de ek
+  olarak senkronizatör zincirlerine `ASYNC_REG`. Alt modül örnekleri
+  `örnek/` önekiyle üst dosyaya düzleştirilir.
+- **Durum tespiti**: `DomainKey::Frequency` gramerde ve ayrışıyordu ama
+  hiçbir geçit okumuyordu; `@timing` argümanları (`clk >= 100.mhz`,
+  `max_delay(a, b) <= 5.ns`, `from = a, to = b`, `cycles = 3`) bugünkü
+  ifade ayrıştırıcısıyla zaten hatasız ayrışıyor — yeni sözdizimi yok.
+- **`@timing` / `@false_path` / `@multicycle` UYGULANIYOR**: yeni
+  `volt-hir/src/constraints/` (model + biçimler) ve `volt-sdc-emit`
+  crate'i (metin). Desteklenen biçimler: `@timing(clk = F)`, `@timing(clk
+  >= F)` (alan frekansıyla tutarlılık denetimi), `max_delay(a, b) <= T`,
+  `min_delay(a, b) >= T`, `@false_path(from, to)` (modül/port/`reg`),
+  `@multicycle(from, to, cycles = N)` ve `reg` üstünde `@multicycle(N)`.
+  Frekans `Hz`/`.khz`/`.mhz`/`.ghz`, süre `.ps`/`.ns`/`.us` (birim
+  zorunlu). Ondalık literal yok: 25.175 MHz `25_175.khz` yazılır.
+- **E0017** (yeni): desteklenmeyen ya da tutarsız kısıt — bilinmeyen
+  sinyal, birimsiz süre, `let` uç noktası, `clk <= F`, alan frekansıyla
+  çelişen `@timing`; `volt check`, LSP ve `analyze`'de her zaman.
+- **W0022** (yeni): alanın `frequency`'si yok, `create_clock` üretilmedi —
+  alan başına bir kez ve YALNIZ `--emit=sdc,xdc` istendiğinde.
+- **W0021 güncellendi**: `@timing`, `@false_path`, `@multicycle` listeden
+  çıktı; uyarı artık hâlâ uygulanmayanları (`@domain`, `@budget`,
+  `@version`, `@abi_version`, `@dft`, `@debug_visible`, `@debug_trace`,
+  `@synthesis_target`) ikinci bir notta listeler. `tests/ui/pass/63-64`
+  örneği `@budget`'a geçti; `volt explain W0021` yenilendi.
+- `examples/vga`: `SysDomain frequency = 100.mhz`, `PixDomain frequency =
+  25_175.khz`, `VgaTiming` `@timing(pix_clk >= 25_175.khz)`; `volt check`
+  artık `0 error(s), 1 warning(s)` (yalnız W3006). Üretilen `VgaTop.sdc`
+  iki `create_clock` + `set_clock_groups` + dört CDC `set_false_path`.
+- Doğrulama: `volt_sdc_emit::syntax_check` (araçsız sözdizimi kapısı,
+  CI); OpenSTA 3.1 (Docker `openroad/opensta`) `read_sdc` ile yerel
+  doğrulama — Yosys sentezi + `rename -wire -suffix _reg` ile hücre
+  adları eşleşir (ayrıntı ADR-0054 §7).
+- `docs/spec/cli-contract.md` §4/§5 `--emit=sdc,xdc` (ADR kaynaklı);
+  `tests/ui/pass/73-74`, `fail/57`; `constraints_tests.rs` (39),
+  `render_tests.rs` (15), `sdc_emit_tests.rs` (10); 120 kod.
+
 ### Eklendi — HW-SW köprüsü: `@mmio`'dan sürücü, başlık, regmap.json ve belge (2026-09-15, ADR-0053)
 
 - **`volt build --emit=rust,c,regmap,regmap-md`**: birimdeki her `@mmio`

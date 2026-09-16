@@ -18,12 +18,14 @@ package vga::vga_timing;
 pub domain SysDomain {
     clock = posedge,
     reset = sync active_high,
+    frequency = 100.mhz,
 }
 
 /// Pixel side: sync generator, frame-buffer read, RGB output.
 pub domain PixDomain {
     clock = posedge,
     reset = sync active_high,
+    frequency = 25_175.khz,      // 25.175 MHz; decimal literals do not lex
 }
 
 const H_VISIBLE   : u10 = 640
@@ -35,16 +37,14 @@ const V_SYNC_BEG  : u10 = 490   // 480 + 10 front porch
 const V_SYNC_END  : u10 = 492   // 490 + 2 sync
 const V_TOTAL     : u10 = 525   // 492 + 33 back porch
 
-// @timing(pixel_clock >= 25.175.mhz) -- see README: a float literal
-// does not lex, so the constraint can only be spelled in Hz. The
-// attribute is parsed (grammar §2, [F4]) but has no interpreter yet:
-// the compiler says so with W0021 (ADR-0048) instead of ignoring it
-// silently. The warning is INTENDED here -- it tells the reader that
-// no SDC is written and the pixel clock must be constrained in the
-// vendor flow. Silence it with `@allow(unenforced)` on this line or
-// `[lint] unenforced_attributes = "allow"` in Volt.toml once that is
-// a conscious decision, not before.
-@timing(pix_clk = 25175000)
+// The pixel clock is declared once, in PixDomain (frequency = 25_175.khz).
+// This module only states what it NEEDS: at least 25.175 MHz, or the
+// 640x480@60 timing below is wrong. Since ADR-0054 the compiler enforces
+// the attribute: `volt build --emit=sdc` checks it against the domain
+// (a slower domain is E0017) and writes create_clock -period 39.722 to
+// build/constraints/VgaTiming.sdc. A decimal literal (25.175.mhz) does
+// not lex, so the requirement is spelled in kHz.
+@timing(pix_clk >= 25_175.khz)
 pub module VgaTiming {
     in  pix_clk : clock @PixDomain
     out hsync   : bool

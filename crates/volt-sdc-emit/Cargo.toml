@@ -1,0 +1,13 @@
+[package]
+name = "volt-sdc-emit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+volt-ast = { path = "../volt-ast" }
+volt-hir = { path = "../volt-hir" }
+
+[dev-dependencies]
+volt-syntax = { path = "../volt-syntax" }
+volt-span = { path = "../volt-span" }

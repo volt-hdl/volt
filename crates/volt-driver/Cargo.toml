@@ -16,6 +16,7 @@ volt-span = { path = "../volt-span" }
 volt-syntax = { path = "../volt-syntax" }
 volt-sv-emit = { path = "../volt-sv-emit" }
 volt-sw-emit = { path = "../volt-sw-emit" }
+volt-sdc-emit = { path = "../volt-sdc-emit" }
 volt-diagnostics = { path = "../volt-diagnostics" }
 volt-lsp = { path = "../volt-lsp" }
 clap.workspace = true

@@ -1,6 +1,8 @@
 # ADR-0048: Zamanlama Kısıtları — Uygulanmayan Nitelikler W0021 Üretir, SDC Üretimi V1 Planı
 
-> Statü: KABUL EDİLDİ (1. bölüm uygulandı; 2. bölüm yalnız PLAN)
+> Statü: KABUL EDİLDİ (1. bölüm uygulandı; 2. bölüm ADR-0054 ile GERÇEKLENDİ —
+> `@timing`/`@false_path`/`@multicycle` artık uygulanıyor, W0021 listesinden çıktı;
+> bu ADR'nin 2. bölümü tarihsel plan olarak korunur, güncel karar ADR-0054'tedir)
 > Tarih: 2026-09-14
 > Etkilenen: grammar-full.ebnf §2/§18 (W0021 yeniden tanımı),
 > volt-hir (attrs.rs — yeni geçit), volt-diagnostics (W0021 mesaj +

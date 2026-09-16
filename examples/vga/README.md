@@ -202,36 +202,51 @@ Four crossings in the original design:
 
 ### 4. Timing constraints
 
+> Updated for ADR-0054: `@timing` is enforced and `volt build --emit=sdc,xdc`
+> writes the constraint files. The paragraphs below record what the
+> example found before that, followed by what the generated output is now.
+
 - **`@timing(pixel_clock >= 25.175.mhz)` does not parse:** there is
   no float literal, so `25.175` lexes as `25` `.` `175` and the
-  parser reports E0001 "expected field name after '.'" — an
-  unhelpful message for what is really "no decimal literals".
-- **`@timing(pix_clk = 25175000)` parses and is NOT enforced -- and
-  since ADR-0048 the compiler says so.** The attribute is in
-  `KNOWN_ATTRIBUTES` (no W0020), its arguments are parsed as
-  expressions and then dropped: `@timing(pixel_clock >= 25175000)`
-  with a name that exists nowhere also compiles. Before ADR-0048 this
-  was silent; now every unenforced attribute (`@timing`, `@budget`,
-  `@false_path`, `@multicycle`, `@version`, `@abi_version`, `@dft`,
-  `@debug_visible`, `@debug_trace`, `@synthesis_target`, `@domain`)
-  produces **W0021** with the reason ("SDC generation is not
-  implemented yet") and the opt-out (`@allow(unenforced)` on the item,
-  or `[lint] unenforced_attributes = "allow"` in Volt.toml). This
-  example keeps the attribute and the warning on purpose: `volt check
-  examples/vga/vga_top.volt` reports `0 error(s), 2 warning(s)` (W0021
-  here, W3006 in the frame buffer). Nothing downstream reads `attrs`
-  except `@strict_timing` (`volt-hir/src/timing.rs`) and the W0021
-  pass itself (`volt-hir/src/attrs.rs`).
-- **No SDC/XDC output:** `build/` contains only `.sv`; the domain
-  declaration's `frequency` key is parsed (`DomainKey::Frequency`)
-  and equally ignored.
-- **How the pixel-clock guarantee is expressed today:** as a comment.
-  The natural home would be the domain declaration
-  (`domain PixDomain { clock = posedge, frequency = 25175000 }`)
-  with the compiler emitting `create_clock -period 39.72` per clock
-  port and `set_clock_groups -asynchronous` between domains — the
-  latter is the one constraint Volt already *knows* from the domain
-  analysis and could generate with zero user input.
+  parser reports E0001 "expected field name after '.'" -- an
+  unhelpful message for what is really "no decimal literals". This
+  is still true; the frequency is spelled `25_175.khz` (or `25175000`).
+- **Before ADR-0054** the attribute was parsed and dropped (W0021 since
+  ADR-0048), `frequency` was parsed and ignored, and `build/` held only
+  `.sv`. The pixel-clock guarantee lived in a comment.
+- **Now:** the frequency is declared once, in the domain
+  (`SysDomain { frequency = 100.mhz }`, `PixDomain { frequency =
+  25_175.khz }`), and `VgaTiming` states its requirement as
+  `@timing(pix_clk >= 25_175.khz)`. The compiler checks the requirement
+  against the domain (a slower domain is **E0017**) and
+  `volt build --emit=sdc,xdc examples/vga/vga_top.volt` writes, per
+  module, `build/constraints/VgaTop.sdc` / `.xdc`:
+
+  ```
+  create_clock -name sys_clk -period 10.000 [get_ports sys_clk]
+  create_clock -name pix_clk -period 39.722 [get_ports pix_clk]
+  set_clock_groups -asynchronous       -group [get_clocks {sys_clk}]       -group [get_clocks {pix_clk}]
+  # AsyncDualPortRam 'fb/mem': sys_clk -> pix_clk
+  set_false_path -from [get_cells {fb/mem_mem_reg*}] -to [get_cells {fb/mem_rd_data_reg*}]
+  # sync 'sync_invert': sys_clk -> pix_clk
+  set_false_path -from [get_cells {sync_invert_src_reg*}] -to [get_cells {sync_invert_stage0_reg*}]
+  # sync 'sync_done_r': sys_clk -> pix_clk
+  set_false_path -from [get_cells {done_r_reg*}] -to [get_cells {sync_done_r_stage0_reg*}]
+  # sync 'sync_vs_active': pix_clk -> sys_clk
+  set_false_path -from [get_clocks pix_clk] -to [get_cells {sync_vs_active_stage0_reg*}]
+  ```
+
+  The `.xdc` adds `set_property ASYNC_REG TRUE` on each synchronizer
+  chain. Nothing here was written by hand: the two clocks come from the
+  domains, the clock groups from the domain analysis, the false paths
+  from the generated bridges (`AsyncDualPortRam` inside `FrameBuffer`,
+  reached through the `fb/` instance prefix, and the three `sync()`
+  calls). `volt check examples/vga/vga_top.volt` now reports
+  `0 error(s), 1 warning(s)` -- only W3006 remains.
+- **Still open:** a domain without `frequency` gets **W0022** (only when
+  `--emit=sdc` is requested) and no `create_clock`; the register names
+  follow the Vivado / Design Compiler `_reg` convention (Quartus users
+  adapt the `get_cells` pattern).
 
 ### 5. Simulation performance
 
@@ -335,10 +350,10 @@ Language features that would have made this easy, roughly by impact:
    domain but a single `rst` is emitted) plus a generated reset
    synchronizer; and the matching formal wrapper fix (hold reset until
    each clock has ticked).
-3. **`@timing` / `frequency` semantics** with SDC output; at minimum
-   `set_clock_groups -asynchronous` from the domain analysis. The
-   attribute now warns (W0021) instead of being dropped silently; the
-   SDC mapping itself is planned in ADR-0048.
+3. **`@timing` / `frequency` semantics** with SDC output -- DONE in
+   ADR-0054: `volt build --emit=sdc,xdc` writes `create_clock`,
+   `set_clock_groups -asynchronous` and a `set_false_path` per generated
+   bridge; `@timing(clk >= F)` is checked against the domain (E0017).
 4. **Test-language clock control:** a clock ratio per test or
    `step_pix(n)` / `step_sys(n)`, so a 2-clock design is simulated with
    two clocks.
@@ -375,5 +390,5 @@ FIFO and synchronizers are generated, not copied. The price is that
 the type system also rejects the one thing that is legitimately dual-
 clock (a true dual-port RAM), the formal flow is not yet ready for two
 clocks (reset ordering, contract clock choice), simulation runs both
-clocks as one, and the timing side (`@timing`, `frequency`, SDC) is
-parsed but does nothing -- since ADR-0048 it at least says so (W0021).
+clocks as one; the timing side (`@timing`, `frequency`, SDC) was parsed
+but did nothing until ADR-0054, which now generates the constraints.

@@ -21,6 +21,7 @@ use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
 use volt_hir::FileScope;
+use volt_sdc_emit::Dialect;
 use volt_span::FileId;
 use volt_span::SourceMap;
 use volt_sv_emit::{
@@ -106,6 +107,7 @@ enum Command {
     volt build counter.volt
     volt build --emit=sva design.volt
     volt build --sva inline --emit=sva design.volt
+    volt build --emit=sdc,xdc design.volt
     volt build --format json --target-dir out design.volt")]
     Build {
         /// Input .volt file
@@ -117,7 +119,8 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
         /// Additional outputs: sva (assertions), rust | c (drivers, build/sw/),
-        /// regmap (build/sw/<module>.json), regmap-md (build/docs/<module>.md)
+        /// regmap (build/sw/<module>.json), regmap-md (build/docs/<module>.md),
+        /// sdc | xdc (timing constraints, build/constraints/<module>.sdc)
         #[arg(long, value_enum, value_delimiter = ',')]
         emit: Vec<EmitArg>,
         /// SVA placement: separate .sva file with bind | inline in the .sv
@@ -230,7 +233,8 @@ enum ColorArg {
     Never,
 }
 
-/// `--emit` ek çıktıları (F4a `sva`; ADR-0053 yazılım tarafı).
+/// `--emit` ek çıktıları (F4a `sva`; ADR-0053 yazılım tarafı; ADR-0054
+/// zamanlama kısıtları).
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum EmitArg {
     Sva,
@@ -238,17 +242,28 @@ enum EmitArg {
     C,
     Regmap,
     RegmapMd,
+    Sdc,
+    Xdc,
 }
 
 impl EmitArg {
-    /// Yazılım çıktısı türü; `sva` için None.
+    /// Yazılım çıktısı türü; `sva`/`sdc`/`xdc` için None.
     fn sw_kind(self) -> Option<SwKind> {
         match self {
-            EmitArg::Sva => None,
+            EmitArg::Sva | EmitArg::Sdc | EmitArg::Xdc => None,
             EmitArg::Rust => Some(SwKind::Rust),
             EmitArg::C => Some(SwKind::C),
             EmitArg::Regmap => Some(SwKind::Json),
             EmitArg::RegmapMd => Some(SwKind::Markdown),
+        }
+    }
+
+    /// Kısıt lehçesi; diğer türler için None.
+    fn dialect(self) -> Option<Dialect> {
+        match self {
+            EmitArg::Sdc => Some(Dialect::Sdc),
+            EmitArg::Xdc => Some(Dialect::Xdc),
+            _ => None,
         }
     }
 }
@@ -329,7 +344,21 @@ fn main() -> ExitCode {
                     sw.push(kind);
                 }
             }
-            build(&file, &target_dir, format, mode, single_file, &sw)
+            let mut dialects: Vec<Dialect> = Vec::new();
+            for d in emit.iter().filter_map(|e| e.dialect()) {
+                if !dialects.contains(&d) {
+                    dialects.push(d);
+                }
+            }
+            build(
+                &file,
+                &target_dir,
+                format,
+                mode,
+                single_file,
+                &sw,
+                &dialects,
+            )
         }
         Command::Check { file, format } => check(&file, format),
         Command::Verify {
@@ -506,6 +535,9 @@ struct Compiled {
     /// `@mmio` modüllerinin register haritaları (ADR-0053) — `--emit=rust,
     /// c,regmap,regmap-md` bunlardan üretilir; hata varsa boş.
     regmaps: Vec<volt_ast::mmio::RegMap>,
+    /// Zamanlama kısıtı modeli (ADR-0054) — `--emit=sdc,xdc` bundan
+    /// üretilir; anlamsal aşama hatalıysa boş.
+    constraints: volt_hir::ConstraintResult,
 }
 
 impl Compiled {
@@ -568,6 +600,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         sva_props: Vec::new(),
         multiclock_modules: Vec::new(),
         regmaps: Vec::new(),
+        constraints: Default::default(),
     };
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
@@ -586,8 +619,10 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         return Ok(fail(map, diagnostics, parsed.ast));
     }
 
-    let semantic = run_semantic_stages(&parsed, &imports.scopes, &mut diagnostics);
-    if count_errors(&diagnostics) > 0 || !semantic || !want_sv {
+    let Some(constraints) = run_semantic_stages(&parsed, &imports.scopes, &mut diagnostics) else {
+        return Ok(fail(map, diagnostics, parsed.ast));
+    };
+    if count_errors(&diagnostics) > 0 || !want_sv {
         return Ok(fail(map, diagnostics, parsed.ast));
     }
 
@@ -649,22 +684,24 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         sva_props,
         multiclock_modules,
         regmaps: parsed.regmaps,
+        constraints,
     })
 }
 
 /// Aşama 2-4: resolve → const+typeck → domain. Tanılar `out`'a
-/// eklenir; bir aşama hata üretirse sonrakiler koşmaz.
+/// eklenir; bir aşama hata üretirse sonrakiler koşmaz (`None`).
+/// Başarıda zamanlama kısıtı modeli (ADR-0054) döner.
 fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
     out: &mut Vec<Diagnostic>,
-) -> bool {
+) -> Option<volt_hir::ConstraintResult> {
     // ── Aşama 2: isim çözümleme (birim modu, ADR-0042) ──
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
     let resolve_failed = count_errors(&resolve.diagnostics) > 0;
     out.extend(resolve.diagnostics.iter().cloned());
     if resolve_failed {
-        return false;
+        return None;
     }
 
     // ── Aşama 3: const eval + tip kontrolü ──
@@ -677,7 +714,7 @@ fn run_semantic_stages(
     out.extend(evaluator.diagnostics.iter().cloned());
     out.extend(typeck.diagnostics.iter().cloned());
     if stage_failed {
-        return false;
+        return None;
     }
 
     // ── Aşama 4: domain çıkarımı ve CDC (Volt'un vaadi) ──
@@ -707,7 +744,12 @@ fn run_semantic_stages(
         &parsed.ast,
         !has_modules,
     ));
-    true
+
+    // ── Zamanlama kısıtları (ADR-0054): E0017 her zaman; model
+    // `--emit=sdc,xdc` için saklanır, W0022 orada üretilir ──
+    let constraints = volt_hir::collect_constraints(&parsed.ast);
+    out.extend(constraints.diagnostics.iter().cloned());
+    Some(constraints)
 }
 
 /// Tanıları seçilen formatta stderr'e yazar (JSON zarfı hariç — o
@@ -759,6 +801,7 @@ fn build(
     sva_mode: SvaMode,
     single_file: bool,
     sw: &[SwKind],
+    dialects: &[Dialect],
 ) -> ExitCode {
     let start = Instant::now();
     if format == OutputFormat::Human {
@@ -771,10 +814,16 @@ fn build(
         );
     }
 
-    let compiled = match compile(file, true, sva_mode) {
+    let mut compiled = match compile(file, true, sva_mode) {
         Ok(c) => c,
         Err(code) => return code,
     };
+    // ADR-0054: W0022 yalnız kısıt dosyası istendiğinde — SDC istemeyen
+    // bir tasarımdan frekans istenmez.
+    if !dialects.is_empty() {
+        let warnings = compiled.constraints.missing_frequency_warnings();
+        compiled.diagnostics.extend(warnings);
+    }
     render_diagnostics(&compiled, format);
 
     // Hata varsa SV ÜRETİLMEZ — hatalı tasarım sentezlenemez.
@@ -884,6 +933,21 @@ fn build(
         }
     }
 
+    // ADR-0054 — zamanlama kısıtları: build/constraints/<modül>.{sdc,xdc}.
+    if !dialects.is_empty() {
+        let opts = volt_sdc_emit::EmitOpts {
+            source: file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.display().to_string()),
+            version: volt_sv_emit::VOLT_VERSION.to_string(),
+        };
+        match write_constraint_outputs(target_dir, &compiled.constraints, dialects, &opts, format) {
+            Ok(paths) => artifacts.extend(paths),
+            Err(code) => return code,
+        }
+    }
+
     if format == OutputFormat::Human {
         eprintln!(
             "{}",
@@ -971,6 +1035,60 @@ fn write_sw_outputs(
                 return Err(ExitCode::from(3));
             }
             if let Err(err) = std::fs::write(&path, kind.render(map, opts)) {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "error: cannot write '{}': {}", path.display(), err;
+                        tr: "hata: '{}' yazılamadı: {}", path.display(), err
+                    )
+                );
+                return Err(ExitCode::from(3));
+            }
+            written.push(path.display().to_string());
+        }
+    }
+    Ok(written)
+}
+
+/// `--emit=sdc,xdc` (ADR-0054): saat portu olan her modül için istenen
+/// lehçeleri `build/constraints/<Modül>.<sdc|xdc>` olarak yazar, yazılan
+/// yolları döndürür. Saatli modül yoksa `Note:` satırı, çıkış 0.
+fn write_constraint_outputs(
+    target_dir: &Path,
+    constraints: &volt_hir::ConstraintResult,
+    dialects: &[Dialect],
+    opts: &volt_sdc_emit::EmitOpts,
+    format: OutputFormat,
+) -> Result<Vec<String>, ExitCode> {
+    if constraints.modules.is_empty() {
+        if format == OutputFormat::Human {
+            let flags: Vec<&str> = dialects.iter().map(|d| d.flag()).collect();
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Note: no module with a clock port in the unit; --emit={} produced nothing", flags.join(",");
+                    tr: "         Not: birimde saat portlu modül yok; --emit={} hiçbir şey üretmedi", flags.join(",")
+                )
+            );
+        }
+        return Ok(Vec::new());
+    }
+    let dir = target_dir.join("constraints");
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "error: cannot create '{}': {}", dir.display(), err;
+                tr: "hata: '{}' oluşturulamadı: {}", dir.display(), err
+            )
+        );
+        return Err(ExitCode::from(3));
+    }
+    let mut written = Vec::new();
+    for mc in &constraints.modules {
+        for &dialect in dialects {
+            let path = dialect.output_path(target_dir, &mc.module);
+            if let Err(err) = std::fs::write(&path, dialect.render(mc, opts)) {
                 eprintln!(
                     "{}",
                     lstr!(

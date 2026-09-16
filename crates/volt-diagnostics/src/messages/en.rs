@@ -27,6 +27,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0014 => "Missing '_' arm in the match statement",
         E0015 => "MMIO register map layout error (ADR-0044)",
         E0016 => "declassify without a reason string (ADR-0052)",
+        E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",
@@ -130,6 +131,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0010 => "Ambiguous operator precedence, parentheses recommended",
         W0020 => "Unknown attribute",
         W0021 => "Attribute is parsed but not yet enforced",
+        W0022 => "Clock domain has no frequency; no create_clock emitted (ADR-0054)",
         W1001 => "Unused signal / binding",
         W1002 => "Shadowing (same name in an inner scope)",
         W1003 => "Shadowing of a builtin name",
