@@ -6,10 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
-use volt_ast::{SourceFile, TestDecl, TestExpr, TestExprKind, TestStmt, TestUnOp};
+use volt_ast::{Name, SourceFile, TestDecl, TestExpr, TestExprKind, TestStmt, TestUnOp};
 use volt_hir::{TestFileError, TestFileLoader};
 use volt_span::SourceMap;
-use volt_sv_emit::{TbAssertKind, TbStep, TbTest, TbValue};
+use volt_sv_emit::{TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue};
 
 use crate::unit::Manifest;
 
@@ -170,14 +170,7 @@ impl Lowering<'_> {
             }
             TestStmt::SetPort {
                 span, port, value, ..
-            } => {
-                let value = lower_value(value)?;
-                self.push_loc(*span, &value, steps);
-                steps.push(TbStep::SetPort {
-                    port: port.text.clone(),
-                    value,
-                });
-            }
+            } => self.set_port(*span, port, value, steps)?,
             TestStmt::LetVar { span, name, value } => {
                 steps.push(TbStep::Loc(self.loc(*span)));
                 let name = name.text.clone();
@@ -207,6 +200,73 @@ impl Lowering<'_> {
             TestStmt::Call { span, func, args } => self.call(*span, &func.text, args, steps)?,
         }
         Some(())
+    }
+
+    /// `dut.port = v` (ADR-0059). Sabit değer derleme zamanında
+    /// denetlendi (E8512) ve bit deseni olarak yazılır; sığdığı
+    /// kanıtlanamayan her değer çalışma zamanı denetimiyle yazılır.
+    fn set_port(
+        &self,
+        span: volt_span::Span,
+        port: &Name,
+        value: &TestExpr,
+        steps: &mut Vec<TbStep>,
+    ) -> Option<()> {
+        let width = self.port_width(&port.text);
+        let constant = volt_hir::const_test_value(value);
+        if let (Some(width), Some(constant)) = (width, constant) {
+            if !width.accepts(constant) {
+                return None; // E8512'den geçmiş olamaz
+            }
+            steps.push(TbStep::SetPort {
+                port: port.text.clone(),
+                value: TbValue::Lit(width.to_pattern(constant)),
+            });
+            return Some(());
+        }
+        let value = lower_value(value)?;
+        let port_name = port.text.clone();
+        if self.fits_without_check(width, constant, &value) {
+            self.push_loc(span, &value, steps);
+            steps.push(TbStep::SetPort {
+                port: port_name,
+                value,
+            });
+            return Some(());
+        }
+        steps.push(TbStep::Loc(self.loc(span)));
+        steps.push(TbStep::SetPortChecked {
+            port: port_name,
+            value,
+            check: TbPortCheck {
+                bits: width.map(|w| w.bits),
+                signed: width.is_some_and(volt_hir::PortWidth::is_signed),
+                type_name: width.map_or_else(|| "?".to_string(), volt_hir::PortWidth::type_name),
+            },
+        });
+        Some(())
+    }
+
+    fn port_width(&self, port: &str) -> Option<volt_hir::PortWidth> {
+        volt_hir::test_port_width(self.ctx.sources, self.module.as_deref()?, port)
+    }
+
+    /// Denetimsiz yazılabilir mi? 0/1 her porta sığar; bir `out` portunun
+    /// okunan deseni, en az o kadar geniş porta sığar.
+    fn fits_without_check(
+        &self,
+        target: Option<volt_hir::PortWidth>,
+        constant: Option<u64>,
+        value: &TbValue,
+    ) -> bool {
+        if constant.is_some_and(|c| c <= 1) {
+            return true;
+        }
+        let (Some(target), TbValue::Port(source)) = (target, value) else {
+            return false;
+        };
+        self.port_width(source)
+            .is_some_and(|source| source.max_pattern() <= target.max_pattern())
     }
 
     /// Konum adımı yalnız gerekince eklenir: düz literal/port deyimleri
@@ -387,6 +447,128 @@ mod tests {
         };
         assert_eq!(*kind, TbAssertKind::False);
         assert!(lowered.load_targets.is_empty());
+    }
+
+    const PORTS: &str = "module Ports {\n    in  clk  : clock\n    in  addr : u3\n    in  sv   : i8\n    in  wide : u16\n    out q3   : u3\n    out q16  : u16\n    reg r : u16 = 0\n    on clk { r <= r + 1 }\n    q3 = addr\n    q16 = r\n}\n\n";
+
+    fn lower_ports(body: &str) -> Vec<TbStep> {
+        let src = format!("{PORTS}test \"t\" {{\n    let dut = Ports {{ }};\n{body}\n}}\n");
+        let mut map = SourceMap::new();
+        let fid = map.add_file("ports_test.volt", src.clone());
+        let parsed = volt_syntax::parser::parse(fid, &src);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let test = parsed
+            .ast
+            .items
+            .iter()
+            .find_map(|i| match &parsed.ast.items_arena[*i].kind {
+                ItemKind::Test(t) => Some(t),
+                _ => None,
+            })
+            .expect("test bloğu");
+        let ctx = LowerCtx {
+            map: &map,
+            file_label: "ports_test.volt",
+            sources: &[&parsed.ast],
+            files: &FakeFiles(""),
+        };
+        lower_test(&ctx, test).expect("indirgeme").tb.steps
+    }
+
+    fn port_check(steps: &[TbStep]) -> Option<&TbPortCheck> {
+        steps.iter().find_map(|s| match s {
+            TbStep::SetPortChecked { check, .. } => Some(check),
+            TbStep::For { body, .. } => port_check(body),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn constant_port_write_needs_no_runtime_check() {
+        let steps = lower_ports("    dut.addr = 3 + 4;");
+        assert_eq!(
+            steps,
+            vec![TbStep::SetPort {
+                port: "addr".into(),
+                value: TbValue::Lit(7),
+            }]
+        );
+    }
+
+    #[test]
+    fn negative_constant_is_written_as_its_bit_pattern() {
+        let steps = lower_ports("    dut.sv = 0 - 1;");
+        assert_eq!(
+            steps,
+            vec![TbStep::SetPort {
+                port: "sv".into(),
+                value: TbValue::Lit(0xFF),
+            }]
+        );
+    }
+
+    #[test]
+    fn loop_counter_write_carries_the_port_width() {
+        let steps = lower_ports("    for i in 0..16 {\n        dut.addr = i;\n    }");
+        let check = port_check(&steps).expect("çalışma zamanı denetimi");
+        assert_eq!(
+            *check,
+            TbPortCheck {
+                bits: Some(3),
+                signed: false,
+                type_name: "u3".into(),
+            }
+        );
+        let TbStep::For { body, .. } = &steps[1] else {
+            panic!("for bekleniyor: {steps:?}");
+        };
+        assert_eq!(body[0], TbStep::Loc("ports_test.volt:17".into()));
+    }
+
+    #[test]
+    fn signed_port_check_is_marked_signed() {
+        let steps = lower_ports("    let n = 1;\n    dut.sv = 0 - n;");
+        let check = port_check(&steps).expect("çalışma zamanı denetimi");
+        assert_eq!((check.bits, check.signed), (Some(8), true));
+        assert_eq!(check.type_name, "i8");
+    }
+
+    #[test]
+    fn narrower_output_port_fits_without_a_check() {
+        let steps = lower_ports("    dut.wide = dut.q3;");
+        assert!(port_check(&steps).is_none(), "{steps:?}");
+    }
+
+    #[test]
+    fn wider_output_port_is_checked() {
+        let steps = lower_ports("    dut.addr = dut.q16;");
+        assert_eq!(port_check(&steps).expect("denetim").bits, Some(3));
+    }
+
+    #[test]
+    fn overflowing_constant_does_not_lower() {
+        // E8512'den kaçan bir sabit sessizce yazılmaz: test indirgenmez.
+        let src =
+            format!("{PORTS}test \"t\" {{\n    let dut = Ports {{ }};\n    dut.addr = 8;\n}}\n");
+        let mut map = SourceMap::new();
+        let fid = map.add_file("ports_test.volt", src.clone());
+        let parsed = volt_syntax::parser::parse(fid, &src);
+        let test = parsed
+            .ast
+            .items
+            .iter()
+            .find_map(|i| match &parsed.ast.items_arena[*i].kind {
+                ItemKind::Test(t) => Some(t),
+                _ => None,
+            })
+            .expect("test bloğu");
+        let ctx = LowerCtx {
+            map: &map,
+            file_label: "ports_test.volt",
+            sources: &[&parsed.ast],
+            files: &FakeFiles(""),
+        };
+        assert!(lower_test(&ctx, test).is_none());
     }
 
     #[test]

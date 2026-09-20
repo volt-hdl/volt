@@ -463,6 +463,11 @@ fn ui_fail_59_test_file_outside_project_e8507() {
     assert_ui_fail("fail/59_test_file_outside_project.volt");
 }
 
+#[test]
+fn ui_fail_60_test_port_overflow_const_e8512() {
+    assert_ui_fail("fail/60_test_port_overflow_const.volt");
+}
+
 // ═══ L1 zamanlama (ADR-0037) ═══
 
 #[test]

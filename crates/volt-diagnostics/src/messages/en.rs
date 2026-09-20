@@ -127,6 +127,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8509 => "load() target is not a memory array",
         E8510 => "load() source does not fit the target array",
         E8511 => "Type mismatch in a test expression",
+        E8512 => "Value does not fit in port width",
 
         // ─── Release discipline ───
         E9001 => "Release builds cannot contain todo!",

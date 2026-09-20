@@ -3,7 +3,8 @@
 
 use volt_ast::TestBinOp;
 use volt_sv_emit::{
-    load_config_vlt, test_testbench_cpp, SimPort, TbAssertKind, TbStep, TbTest, TbValue,
+    load_config_vlt, test_testbench_cpp, SimPort, TbAssertKind, TbPortCheck, TbStep, TbTest,
+    TbValue,
 };
 
 fn ports() -> Vec<SimPort> {
@@ -317,4 +318,107 @@ fn load_without_known_width_falls_back_to_the_cpp_type() {
     ]);
     assert!(cpp.contains("volt_load(dut.rootp->Adder__DOT__mem, v_d, n_d, 0U);"));
     assert!(cpp.contains("(bits >= 64 || (src[i] >> bits) == 0)"));
+}
+
+// ═══ Port genişlik denetimi (ADR-0059) ═══
+
+fn checked(value: TbValue, bits: Option<u32>, signed: bool, type_name: &str) -> TbStep {
+    TbStep::SetPortChecked {
+        port: "a".into(),
+        value,
+        check: TbPortCheck {
+            bits,
+            signed,
+            type_name: type_name.into(),
+        },
+    }
+}
+
+#[test]
+fn proven_port_write_stays_unchecked() {
+    let cpp = cpp_of(vec![TbStep::SetPort {
+        port: "a".into(),
+        value: TbValue::Lit(7),
+    }]);
+    assert!(cpp.contains("    dut.a = 7ULL;\n"));
+    assert!(!cpp.contains("volt_port_fits"), "koruma yalnız gerekince");
+}
+
+#[test]
+fn checked_port_write_guards_before_the_assignment() {
+    let cpp = cpp_of(vec![
+        TbStep::Loc("adder_test.volt:4".into()),
+        checked(var("n"), Some(3), false, "u3"),
+    ]);
+    assert!(cpp.contains("static bool volt_port_fits("));
+    let guard = cpp
+        .find("if (!volt_port_fits(volt_pv, 3U, false)) {")
+        .expect("koruma");
+    let write = cpp
+        .find("dut.a = volt_port_bits(volt_pv, 3U); }")
+        .expect("yazma");
+    assert!(guard < write, "sığmayan değer porta ulaşmamalı");
+    assert!(cpp.contains("const unsigned long long volt_pv = v_n;"));
+}
+
+#[test]
+fn port_overflow_report_names_port_type_and_width() {
+    let cpp = cpp_of(vec![
+        TbStep::Loc("adder_test.volt:4".into()),
+        checked(var("n"), Some(3), false, "u3"),
+    ]);
+    assert!(cpp.contains(
+        "VOLT-ASSERT-FAIL port_overflow adder_test.volt:4 left=%llu right=%llu port=a:u3\\n\", volt_pv, 3ULL);"
+    ));
+}
+
+#[test]
+fn port_overflow_inside_a_loop_reports_the_iteration() {
+    let cpp = cpp_of(vec![TbStep::For {
+        var: "i".into(),
+        start: TbValue::Lit(0),
+        end: TbValue::Lit(16),
+        body: vec![
+            TbStep::Loc("adder_test.volt:5".into()),
+            checked(var("i"), Some(3), false, "u3"),
+        ],
+    }]);
+    assert!(cpp.contains("left=%llu right=%llu loop=i=%llu port=a:u3\\n\", volt_pv, 3ULL, v_i);"));
+}
+
+#[test]
+fn signed_port_check_allows_negative_numbers() {
+    let cpp = cpp_of(vec![checked(var("n"), Some(8), true, "i8")]);
+    assert!(cpp.contains("volt_port_fits(volt_pv, 8U, true)"));
+    assert!(cpp.contains("dut.a = volt_port_bits(volt_pv, 8U); }"));
+}
+
+#[test]
+fn unknown_width_falls_back_to_the_storage_type() {
+    let cpp = cpp_of(vec![checked(var("n"), None, false, "?")]);
+    assert!(cpp.contains("if (!volt_port_fits_type(dut.a, volt_pv)) {"));
+    assert!(cpp.contains("dut.a = volt_pv; }"));
+    assert!(cpp.contains("right=%llu port=a:?\\n\", volt_pv, 0ULL);"));
+}
+
+#[test]
+fn faulting_value_is_reported_before_the_port_check() {
+    let cpp = cpp_of(vec![
+        TbStep::LetArray {
+            name: "xs".into(),
+            data: vec![1, 2],
+        },
+        checked(
+            TbValue::Index {
+                array: "xs".into(),
+                index: Box::new(var("k")),
+            },
+            Some(3),
+            false,
+            "u3",
+        ),
+    ]);
+    let fault = cpp.find("if (volt_fault) {").expect("hata denetimi");
+    let guard = cpp.find("if (!volt_port_fits(").expect("koruma");
+    assert!(fault < guard);
 }

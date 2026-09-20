@@ -10,13 +10,13 @@
 use std::collections::HashMap;
 
 use volt_ast::{
-    ExprKind, Idx, ItemKind, ModuleDecl, Name, RegDecl, SourceFile, StmtKind, TestExpr,
-    TestExprKind, TypeRef, TypeRefKind,
+    ModuleDecl, Name, RegDecl, SourceFile, StmtKind, TestExpr, TestExprKind, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sim::undefined_dut;
 use crate::sim_expr::{type_mismatch, Scope};
+use crate::sim_port::{literal_or_const, scalar_width, ScalarWidth};
 
 /// Testbench'in doğrudan yazabildiği en geniş eleman (C++ `QData`).
 const MAX_LOAD_ELEM_BITS: u32 = 64;
@@ -94,9 +94,9 @@ pub(crate) fn check_load(
         ));
         return;
     };
-    let elem_bits = match elem_width(reg_src, *elem) {
-        ElemWidth::Bits(w) if w <= MAX_LOAD_ELEM_BITS => Some(w),
-        ElemWidth::Bits(_) => {
+    let elem_bits = match scalar_width(reg_src, *elem) {
+        ScalarWidth::Known(w) if w.bits <= MAX_LOAD_ELEM_BITS => Some(w.bits),
+        ScalarWidth::Known(_) => {
             diags.push(not_a_memory(
                 target.span,
                 lstr!(en: "elements of '{}' are wider than 64 bits", reg.name.text;
@@ -104,7 +104,7 @@ pub(crate) fn check_load(
             ));
             return;
         }
-        ElemWidth::NotScalar => {
+        ScalarWidth::NotScalar => {
             diags.push(not_a_memory(
                 target.span,
                 lstr!(en: "elements of '{}' are not plain numbers", reg.name.text;
@@ -112,7 +112,7 @@ pub(crate) fn check_load(
             ));
             return;
         }
-        ElemWidth::Unknown => None,
+        ScalarWidth::Unknown => None,
     };
     let Some(info) = source_info else {
         return;
@@ -163,9 +163,9 @@ pub fn resolve_load_target(
         return None;
     };
     let elem_bits = reg.ty.and_then(|ty| match &reg_src.types[ty].kind {
-        TypeRefKind::Array { elem, .. } => match elem_width(reg_src, *elem) {
-            ElemWidth::Bits(w) => Some(w),
-            ElemWidth::Unknown | ElemWidth::NotScalar => None,
+        TypeRefKind::Array { elem, .. } => match scalar_width(reg_src, *elem) {
+            ScalarWidth::Known(w) => Some(w.bits),
+            ScalarWidth::Unknown | ScalarWidth::NotScalar => None,
         },
         _ => None,
     });
@@ -237,56 +237,6 @@ fn find_reg<'a>(src: &'a SourceFile, module: &ModuleDecl, name: &str) -> Option<
             StmtKind::Reg(reg) if reg.name.text == name => Some(reg),
             _ => None,
         })
-}
-
-/// `load` hedefinin eleman tipi.
-enum ElemWidth {
-    Bits(u32),
-    /// Genişlik derleme zamanı ifadesi ama burada çözülemedi (ör. generic
-    /// parametre): genişlik denetimi yapılamaz.
-    Unknown,
-    /// Dizi, demet, struct...: testbench tek sayı yazamaz.
-    NotScalar,
-}
-
-fn elem_width(src: &SourceFile, ty: Idx<TypeRef>) -> ElemWidth {
-    match &src.types[ty].kind {
-        TypeRefKind::Bool => ElemWidth::Bits(1),
-        TypeRefKind::UInt(n) | TypeRefKind::SInt(n) => ElemWidth::Bits(u32::from(*n)),
-        TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
-            literal_or_const(src, *e)
-                .and_then(|v| u32::try_from(v).ok())
-                .map_or(ElemWidth::Unknown, ElemWidth::Bits)
-        }
-        // Tip takma adı / enum: sayı olabilir, burada çözülmez.
-        TypeRefKind::Path { .. } => ElemWidth::Unknown,
-        _ => ElemWidth::NotScalar,
-    }
-}
-
-/// Düz literal ya da düz literal değerli üst düzey `const`.
-fn literal_or_const(src: &SourceFile, len: Idx<volt_ast::Expr>) -> Option<u128> {
-    literal_value(src, len).or_else(|| {
-        let ExprKind::Path(path) = &src.exprs[len].kind else {
-            return None;
-        };
-        let [only] = path.segments.as_slice() else {
-            return None;
-        };
-        src.items
-            .iter()
-            .find_map(|idx| match &src.items_arena[*idx].kind {
-                ItemKind::Const(c) if c.name.text == only.text => literal_value(src, c.value),
-                _ => None,
-            })
-    })
-}
-
-fn literal_value(src: &SourceFile, expr: Idx<volt_ast::Expr>) -> Option<u128> {
-    match &src.exprs[expr].kind {
-        ExprKind::IntLit { value, .. } => Some(*value),
-        _ => None,
-    }
 }
 
 fn not_a_memory(span: volt_span::Span, message: String) -> Diagnostic {

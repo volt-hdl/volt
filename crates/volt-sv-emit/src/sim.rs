@@ -9,7 +9,8 @@
 use volt_ast::{ItemKind, ModuleDecl, PortDir, SourceFile, TestBinOp, TypeRefKind};
 
 use crate::sim_script::{
-    printf_literal, uses_load, uses_script_runtime, ScriptEmitter, LOAD_PRELUDE, SCRIPT_PRELUDE,
+    printf_literal, uses_load, uses_port_check, uses_script_runtime, ScriptEmitter, LOAD_PRELUDE,
+    PORT_PRELUDE, SCRIPT_PRELUDE,
 };
 
 /// Testbench'in bilmesi gereken port özeti.
@@ -56,8 +57,15 @@ pub fn find_module<'a>(
 /// numaralarını çözerek bu biçime indirger.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TbStep {
-    /// `dut.port = v;`
+    /// `dut.port = v;` — değerin porta sığdığı derleme zamanında kanıtlı.
     SetPort { port: String, value: TbValue },
+    /// `dut.port = <hesaplanmış>;` — değer yazılmadan önce port
+    /// genişliğine göre denetlenir; sığmıyorsa test düşer (ADR-0059).
+    SetPortChecked {
+        port: String,
+        value: TbValue,
+        check: TbPortCheck,
+    },
     /// `step(n);`
     Step(u64),
     /// `reset();`
@@ -94,6 +102,18 @@ pub enum TbStep {
         source: String,
         elem_bits: Option<u32>,
     },
+}
+
+/// Çalışma zamanı port genişlik denetimi (ADR-0059).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TbPortCheck {
+    /// Port genişliği; `None` = derleyici çözemedi, denetim Verilator
+    /// modelindeki C++ depolama tipine göre yapılır.
+    pub bits: Option<u32>,
+    /// İşaretli port aralıktaki negatif sayıyı (`0 - 1`) da kabul eder.
+    pub signed: bool,
+    /// Raporda görünen tip adı (`u3`); genişlik bilinmiyorsa `?`.
+    pub type_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,6 +318,10 @@ pub fn test_testbench_cpp(module: &str, ports: &[SimPort], tests: &[TbTest]) -> 
         if loads {
             out.push_str(LOAD_PRELUDE);
         }
+        out.push('\n');
+    }
+    if tests.iter().any(|t| uses_port_check(&t.steps)) {
+        out.push_str(PORT_PRELUDE);
         out.push('\n');
     }
     out.push_str(&cycle_fn(ports, false));

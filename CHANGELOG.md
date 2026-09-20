@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Test bloğunda porta maskesiz yazım: SESSİZ YANLIŞ SİMÜLASYON (2026-09-20, ADR-0059)
+
+- Verilator giriş portlarını maskelemez: `addr : u3` portuna 8 yazınca
+  model donanımda imkânsız bir durumu yürütüyordu (`out echo : u3` 8
+  okuyor, `tbl[addr]` yanlış eleman veriyor, `addr > 5` doğru çıkıyordu)
+  ve hiçbir uyarı yoktu.
+- Sabit değer artık derlenmez: **E8512** `value does not fit in port
+  width` (değer + port tipi + geçerli aralık). Sabit ifadeler katlanır
+  (`4 + 4`, `1 << 3`).
+- Hesaplanmış değer (`for i in 0..16 { dut.addr = i }`) testbench'te
+  denetlenir; sığmayan değer porta ULAŞMAZ, test düşer:
+  `port 'addr' (u3) cannot hold value 8 at t_test.volt:14` +
+  `range: 0..7` + `loop:  i = 8`. Maskeleme bilerek yapılmaz.
+- İşaretli port bit desenini (`i8`: 0..255) ve `0 - n` ile yazılmış
+  negatif sayıyı (−128'e kadar) kabul eder; negatif sayı porta kayıpsız
+  deseniyle yazılır (eskiden `sint<12>` porta `0 - 1` kirli bit bırakırdı).
+- `assert_eq`/`assert_ne(dut.out, <sabit>)`: sabit portun okuyabileceği
+  aralığı aşıyorsa E8512 — `assert_ne` sessizce hep geçiyordu.
+- Genişlik AST port tipinden çözülür (`load` ile ortak yol); çözülemeyen
+  (takma ad, generic) portta denetim C++ depolama tipine düşer.
+- Mevcut 143 simülasyon testi (59 RISC-V dahil) değişmeden geçti.
+
 ### Eklendi — Test dili: yerel değişken, dizi, `for`, `read_hex`, `load` (2026-09-20, ADR-0058)
 
 - `let n = 4;`, `let expected = [0x63, 0x7c];`, `expected[i]`, `len(x)` ve

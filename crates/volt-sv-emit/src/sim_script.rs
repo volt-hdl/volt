@@ -9,7 +9,7 @@
 
 use volt_ast::TestBinOp;
 
-use super::sim::{TbAssertKind, TbStep, TbValue};
+use super::sim::{TbAssertKind, TbPortCheck, TbStep, TbValue};
 
 /// Betik yardımcıları; yalnız ihtiyaç duyan testbench'e eklenir.
 pub(crate) const SCRIPT_PRELUDE: &str = "\
@@ -61,6 +61,29 @@ static void volt_load(VlUnpacked<T, N>& dst, const unsigned long long* src, std:
 }
 ";
 
+/// Port genişlik koruması (ADR-0059). Verilator girişleri maskelemez:
+/// sığmayan değer modelde başıboş bit bırakır ve simülasyon donanımda
+/// imkânsız bir durumu yürütür. Kural volt-hir `PortWidth::accepts` ile
+/// aynıdır.
+pub(crate) const PORT_PRELUDE: &str = "\
+// Port width guard (ADR-0059): a value that does not fit fails the test.
+static bool volt_port_fits(unsigned long long v, unsigned bits, bool is_signed) {
+    if (bits >= 64) return true;
+    const unsigned long long mask = (1ULL << bits) - 1;
+    if ((v & ~mask) == 0) return true;
+    // A negative number written as 0 - n: bits [63:bits-1] are all ones.
+    return is_signed && (v | (mask >> 1)) == ~0ULL;
+}
+static unsigned long long volt_port_bits(unsigned long long v, unsigned bits) {
+    return bits >= 64 ? v : v & ((1ULL << bits) - 1);
+}
+// Width unknown to the compiler: fall back to the C++ storage type.
+template <typename T>
+static bool volt_port_fits_type(const T&, unsigned long long v) {
+    return static_cast<unsigned long long>(static_cast<T>(v)) == v;
+}
+";
+
 /// Adımlarda (iç içe dahil) `pred`'i sağlayan var mı?
 fn any_step(steps: &[TbStep], pred: &dyn Fn(&TbStep) -> bool) -> bool {
     steps.iter().any(|s| {
@@ -91,6 +114,10 @@ pub(crate) fn uses_script_runtime(steps: &[TbStep]) -> bool {
                 }
         )
     })
+}
+
+pub(crate) fn uses_port_check(steps: &[TbStep]) -> bool {
+    any_step(steps, &|s| matches!(s, TbStep::SetPortChecked { .. }))
 }
 
 pub(crate) fn uses_load(steps: &[TbStep]) -> bool {
@@ -200,11 +227,24 @@ impl ScriptEmitter {
 
     /// Başarısızlık gövdesi: rapor satırı + temizlik + `return false`.
     fn fail_block(&mut self, kind_fmt: &str, kind_arg: &str, left: &str, right: &str) {
+        self.fail_block_with(kind_fmt, kind_arg, left, right, "");
+    }
+
+    /// `extra`: satır sonuna eklenen sabit belirteç (` port=addr:u3`).
+    fn fail_block_with(
+        &mut self,
+        kind_fmt: &str,
+        kind_arg: &str,
+        left: &str,
+        right: &str,
+        extra: &str,
+    ) {
         let (ctx_fmt, ctx_args) = self.loop_context();
         let loc = printf_literal(&self.loc);
+        let extra = printf_literal(extra);
         self.indent += 1;
         self.line(&format!(
-            "std::printf(\"VOLT-ASSERT-FAIL {kind_fmt} {loc} left=%llu right=%llu{ctx_fmt}\\n\"{kind_arg}, {left}, {right}{ctx_args});"
+            "std::printf(\"VOLT-ASSERT-FAIL {kind_fmt} {loc} left=%llu right=%llu{ctx_fmt}{extra}\\n\"{kind_arg}, {left}, {right}{ctx_args});"
         ));
         self.line("dut.final();");
         self.line("return false;");
@@ -235,6 +275,9 @@ impl ScriptEmitter {
             TbStep::SetPort { port, value } => {
                 self.line(&format!("dut.{port} = {};", cpp_value(value)));
                 self.fault_check_if(&[value]);
+            }
+            TbStep::SetPortChecked { port, value, check } => {
+                self.emit_checked_port(port, value, check);
             }
             TbStep::Step(n) => self.line(&format!(
                 "for (unsigned long long s = 0; s < {n}ULL; ++s) run_cycle(&dut, ctx);"
@@ -281,6 +324,38 @@ impl ScriptEmitter {
                 elem_bits,
             } => self.emit_load(target, source, *elem_bits),
         }
+    }
+
+    /// Değer bir kez hesaplanır, denetlenir, sonra yazılır: sığmayan
+    /// değer porta HİÇ ulaşmaz. İşaretli portta aralıktaki negatif sayı
+    /// bit desenine indirgenir (kayıpsız — kırpma değil).
+    fn emit_checked_port(&mut self, port: &str, value: &TbValue, check: &TbPortCheck) {
+        self.line(&format!(
+            "{{ const unsigned long long volt_pv = {};",
+            cpp_value(value)
+        ));
+        self.fault_check_if(&[value]);
+        let (fits, stored) = match check.bits {
+            Some(bits) => (
+                format!("volt_port_fits(volt_pv, {bits}U, {})", check.signed),
+                format!("volt_port_bits(volt_pv, {bits}U)"),
+            ),
+            None => (
+                format!("volt_port_fits_type(dut.{port}, volt_pv)"),
+                "volt_pv".to_string(),
+            ),
+        };
+        self.line(&format!("if (!{fits}) {{"));
+        let bits = check.bits.unwrap_or(0);
+        self.fail_block_with(
+            "port_overflow",
+            "",
+            "volt_pv",
+            &format!("{bits}ULL"),
+            &format!(" port={port}:{}", check.type_name),
+        );
+        self.line("}");
+        self.line(&format!("dut.{port} = {stored}; }}"));
     }
 
     /// Sınırlar döngüden ÖNCE bir kez hesaplanır: gövde sınırı okuyan

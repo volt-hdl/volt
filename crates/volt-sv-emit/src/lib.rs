@@ -32,7 +32,7 @@ pub use expr::Sig;
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, test_testbench_cpp,
-    SimPort, TbAssertKind, TbStep, TbTest, TbValue,
+    SimPort, TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue,
 };
 pub use sva::{SvaFile, SvaMode, SvaProp};
 

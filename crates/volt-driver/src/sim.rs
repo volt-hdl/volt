@@ -405,6 +405,8 @@ struct AssertFailure {
     right: u64,
     /// `loop=i=3,j=1` — hata `for` içindeyse sayaç değerleri (ADR-0058).
     loop_ctx: Option<String>,
+    /// `port=addr:u3` — port genişlik hatasında (ad, tip) (ADR-0059).
+    port: Option<(String, String)>,
 }
 
 /// Testbench stdout'unu sonuçlara çevirir (sv-emit VOLT-* protokolü).
@@ -436,16 +438,22 @@ fn parse_assert_fail(rest: &str) -> Option<AssertFailure> {
     let loc = parts.next()?.to_string();
     let left = parts.next()?.strip_prefix("left=")?.parse().ok()?;
     let right = parts.next()?.strip_prefix("right=")?.parse().ok()?;
-    let loop_ctx = parts
-        .next()
-        .and_then(|p| p.strip_prefix("loop="))
-        .map(|vars| vars.replace('=', " = ").replace(',', ", "));
+    let (mut loop_ctx, mut port) = (None, None);
+    for extra in parts {
+        if let Some(vars) = extra.strip_prefix("loop=") {
+            loop_ctx = Some(vars.replace('=', " = ").replace(',', ", "));
+        } else if let Some((name, ty)) = extra.strip_prefix("port=").and_then(|p| p.split_once(':'))
+        {
+            port = Some((name.to_string(), ty.to_string()));
+        }
+    }
     Some(AssertFailure {
         kind,
         loc,
         left,
         right,
         loop_ctx,
+        port,
     })
 }
 
@@ -774,6 +782,7 @@ fn print_failure(f: &AssertFailure) {
             println!("  division by zero at {}", f.loc);
             println!("    dividend: {}", f.left);
         }
+        "port_overflow" => print_port_overflow(f),
         "load_too_long" => {
             println!("  load() source does not fit the target at {}", f.loc);
             println!("    source elements: {}", f.left);
@@ -797,6 +806,40 @@ fn print_failure(f: &AssertFailure) {
     }
 }
 
+/// Port genişlik hatası (ADR-0059): `right` port genişliğidir (0 =
+/// derleyici çözemedi, denetim C++ depolama tipine göre yapıldı).
+fn port_overflow_lines(f: &AssertFailure) -> Vec<String> {
+    let value = volt_hir::describe_value(f.left);
+    let Some((name, ty)) = &f.port else {
+        return vec![format!("  port cannot hold value {value} at {}", f.loc)];
+    };
+    let Some(bits) = u32::try_from(f.right).ok().filter(|b| *b > 0) else {
+        return vec![format!(
+            "  port '{name}' cannot hold value {value} at {}",
+            f.loc
+        )];
+    };
+    let kind = if ty.starts_with('i') {
+        volt_hir::ScalarKind::SInt
+    } else {
+        volt_hir::ScalarKind::UInt
+    };
+    let range = volt_hir::PortWidth { bits, kind }.write_range();
+    vec![
+        format!(
+            "  port '{name}' ({ty}) cannot hold value {value} at {}",
+            f.loc
+        ),
+        format!("    range: {range}"),
+    ]
+}
+
+fn print_port_overflow(f: &AssertFailure) {
+    for line in port_overflow_lines(f) {
+        println!("{line}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -816,6 +859,52 @@ mod tests {
         assert_eq!(f.kind, "assert_eq");
         assert_eq!(f.loc, "uart_tx_test.volt:24");
         assert_eq!((f.left, f.right), (1, 0));
+    }
+
+    #[test]
+    fn parse_assert_fail_reads_port_and_loop_context() {
+        let f = parse_assert_fail(
+            "port_overflow t_test.volt:14 left=8 right=3 loop=i=8,j=1 port=addr:u3",
+        )
+        .expect("ayrışmalı");
+        assert_eq!(f.kind, "port_overflow");
+        assert_eq!((f.left, f.right), (8, 3));
+        assert_eq!(f.loop_ctx.as_deref(), Some("i = 8, j = 1"));
+        assert_eq!(f.port, Some(("addr".to_string(), "u3".to_string())));
+    }
+
+    #[test]
+    fn port_overflow_report_names_port_value_and_range() {
+        let f = parse_assert_fail("port_overflow t_test.volt:14 left=8 right=3 port=addr:u3")
+            .expect("ayrışmalı");
+        assert_eq!(
+            port_overflow_lines(&f),
+            vec![
+                "  port 'addr' (u3) cannot hold value 8 at t_test.volt:14".to_string(),
+                "    range: 0..7".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn port_overflow_report_shows_negative_numbers_and_signed_range() {
+        let f = parse_assert_fail(
+            "port_overflow t_test.volt:9 left=18446744073709551487 right=8 port=sv:i8",
+        )
+        .expect("ayrışmalı");
+        let lines = port_overflow_lines(&f);
+        assert!(lines[0].contains("(i8) cannot hold value 18446744073709551487 (-129)"));
+        assert_eq!(lines[1], "    range: -128..255");
+    }
+
+    #[test]
+    fn port_overflow_report_without_a_known_width_has_no_range() {
+        let f = parse_assert_fail("port_overflow t_test.volt:9 left=70000 right=0 port=word:?")
+            .expect("ayrışmalı");
+        assert_eq!(
+            port_overflow_lines(&f),
+            vec!["  port 'word' cannot hold value 70000 at t_test.volt:9".to_string()]
+        );
     }
 
     #[test]

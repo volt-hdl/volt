@@ -127,6 +127,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8509 => "load() hedefi bir bellek dizisi değil",
         E8510 => "load() kaynağı hedef diziye sığmıyor",
         E8511 => "Test ifadesinde tip uyuşmazlığı",
+        E8512 => "Değer port genişliğine sığmıyor",
 
         // ─── Release disiplini ───
         E9001 => "todo! ile release build yapılamaz",

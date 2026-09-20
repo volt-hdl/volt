@@ -268,7 +268,8 @@ test bloğunu erken kapatır ve hata kaskadı üretirdi.
   yazar; `$readmemh`/`read_hex` eleman sayar. 0'dan başlayan tek
   bölümlü görüntüde zararsızdır; çok bölümlü görüntüde adresler 4 kat
   kayar (riscv_sw/README.md'de not edildi).
-- Bilinen sınırlar (kod incelemesinden, bu ADR'de çözülmedi):
+- Bilinen sınırlar (kod incelemesinden, bu ADR'de çözülmedi; ilki
+  **ADR-0059 ile KAPANDI** — sabit E8512, hesaplanmış değer testi düşürür):
   hesaplanmış değer porta maskesiz yazılır (`addr : u3` iken
   `dut.addr = i`, i ≥ 8 — ADR-0033'te literal için de böyleydi; döngüyle
   artık olağan, port genişliğini `SimPort`'a taşıyan ayrı bir karar

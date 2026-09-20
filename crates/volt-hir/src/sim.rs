@@ -14,6 +14,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sim_expr::{Scope, VarKind};
 use crate::sim_load;
+use crate::sim_port;
 use crate::testdata::TestFileLoader;
 
 /// dut adı → Some(modül) | None (varlığı varsayılan dış modül).
@@ -130,6 +131,7 @@ impl<'a> Checker<'a, '_> {
             } => {
                 check_set_port(&self.scope.duts, dut, port, self.diags);
                 self.scope.expect_scalar(value, self.diags);
+                sim_port::check_set_port_value(&self.scope.duts, dut, port, value, self.diags);
             }
             TestStmt::LetVar { name, value, .. } => {
                 let kind = self.scope.let_value(value, self.files, self.diags);
@@ -205,6 +207,9 @@ impl<'a> Checker<'a, '_> {
             _ => {
                 for arg in args {
                     self.scope.expect_scalar(arg, self.diags);
+                }
+                if matches!(func.text.as_str(), "assert_eq" | "assert_ne") {
+                    sim_port::check_assert_compare(&self.scope.duts, args, self.diags);
                 }
             }
         }

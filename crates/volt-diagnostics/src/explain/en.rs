@@ -792,6 +792,13 @@ module Gpio {
             "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected);      // ✗ E8511: an array, not a number\n}",
             "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected[0]);   // ✓\n}",
         ),
+        E8512 => Explanation::new(
+            "Value does not fit in port width",
+            "A test writes a constant to a port, or compares a port with a constant, that the port's type cannot hold.",
+            "The testbench hands a port a plain C++ integer and the simulator does not mask it: writing 8 to a u3 port leaves a stray bit in the model, and the simulation then runs a state the hardware can never be in — a lookup reads the wrong entry and a comparison takes the wrong branch, silently. Constants are checked at compile time; a computed value (a loop counter, an array element) is checked when the test runs and fails the test with the port, the value and the loop iteration. A signed port accepts its bit patterns (i8: 0..255) and negative numbers written as 0 - n (down to -128). Ports always read back as bit patterns, so a comparison against a constant above the port's maximum can never match.",
+            "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    dut.addr = 8;             // ✗ E8512: u3 holds 0..7\n}",
+            "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    for i in 0..8 {\n        dut.addr = i;         // ✓ 0..7\n        step(1);\n    }\n}",
+        ),
 
         // ─── Release discipline ───
         E9001 => Explanation::new(
