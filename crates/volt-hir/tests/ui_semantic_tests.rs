@@ -242,8 +242,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita),
     // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat),
     // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi,
-    // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load.
-    assert_eq!(checked, 69);
+    // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load,
+    // ADR-0060: 81 test bloğunda sabit yayılımı.
+    assert_eq!(checked, 70);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -466,6 +467,21 @@ fn ui_fail_59_test_file_outside_project_e8507() {
 #[test]
 fn ui_fail_60_test_port_overflow_const_e8512() {
     assert_ui_fail("fail/60_test_port_overflow_const.volt");
+}
+
+#[test]
+fn ui_fail_61_test_const_propagation_e8512() {
+    assert_ui_fail("fail/61_test_const_propagation.volt");
+}
+
+#[test]
+fn ui_pass_81_test_const_ok_clean() {
+    let result = analyze_file("pass/81_test_const_ok.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
 }
 
 // ═══ L1 zamanlama (ADR-0037) ═══

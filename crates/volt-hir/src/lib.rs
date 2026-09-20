@@ -15,6 +15,7 @@ pub mod drivers;
 pub mod handshake;
 pub mod resolve;
 pub mod sim;
+mod sim_const;
 mod sim_expr;
 mod sim_load;
 mod sim_port;
@@ -39,6 +40,7 @@ pub use resolve::{
     ScopeId, ScopeKind,
 };
 pub use sim::{check_tests, check_tests_with_files, collect_modules};
+pub use sim_const::TestConsts;
 pub use sim_load::{resolve_load_target, LoadTarget};
 pub use sim_port::{const_test_value, describe_value, test_port_width, PortWidth, ScalarKind};
 pub use testdata::{

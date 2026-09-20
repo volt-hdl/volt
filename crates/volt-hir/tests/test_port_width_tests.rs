@@ -108,7 +108,15 @@ fn unresolved_width_is_left_to_the_testbench() {
 #[test]
 fn computed_value_is_left_to_the_testbench() {
     assert!(codes("for i in 0..16 {\n    dut.addr = i;\n}").is_empty());
-    assert!(codes("let n = 8;\ndut.addr = n;").is_empty());
+    // Port okumasına bağlı `let` sabit değildir (ADR-0060).
+    assert!(codes("let x = dut.data;\ndut.addr = x;").is_empty());
+}
+
+#[test]
+fn constant_let_is_checked_at_compile_time() {
+    // ADR-0059 bunu koşuya bırakıyordu; ADR-0060 sabit yayılımıyla
+    // derleme zamanına çekti.
+    assert_eq!(codes("let n = 8;\ndut.addr = n;"), vec!["E8512"]);
 }
 
 #[test]

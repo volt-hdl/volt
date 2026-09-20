@@ -2100,7 +2100,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 69, "ui/pass 69 dosya içermeli");
+    assert_eq!(total, 70, "ui/pass 70 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2125,10 +2125,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0053 ise 72'yi (@mmio sürücü üretimi, alan doc yorumları),
     // ADR-0054 ise 73-74'ü (SDC üretimi: tek saat / çok saat),
     // ADR-0056 ise 75-77'yi (for içinde örnekleme, iç içe for, bundle dizisi),
-    // ADR-0058 ise 78-80'i (test dizisi, test for döngüsü, read_hex + load) ekledi.
+    // ADR-0058 ise 78-80'i (test dizisi, test for döngüsü, read_hex + load),
+    // ADR-0060 ise 81'i (test bloğunda sabit yayılımı) ekledi.
     assert_eq!(
-        clean, 69,
-        "69/69 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 70,
+        "70/70 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

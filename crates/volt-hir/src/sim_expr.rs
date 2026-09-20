@@ -11,6 +11,7 @@ use volt_ast::{Name, TestExpr, TestExprKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sim::{bad_arity, check_port_read, unknown_builtin, DutMap, TEST_VALUE_BUILTINS};
+use crate::sim_const::TestConsts;
 use crate::testdata::{
     normalize_data_path, parse_readmemh, HexError, HexErrorReason, TestFileError, TestFileLoader,
 };
@@ -32,16 +33,32 @@ pub(crate) enum VarKind {
 #[derive(Default)]
 pub(crate) struct Scope<'a> {
     pub duts: DutMap<'a>,
+    /// Derleme zamanında bilinen değerler (ADR-0060); çerçeveleri
+    /// `frames` ile birlikte açılıp kapanır.
+    pub consts: TestConsts,
+    /// Tek dosyalık analiz (kardeş dosya yüklenmedi): bilinmeyen ad
+    /// kardeşin üst düzey `const`u olabilir — E8506 tam denetime kalır.
+    pub assume_external_names: bool,
     frames: Vec<HashMap<String, VarKind>>,
 }
 
 impl Scope<'_> {
+    pub fn with_consts(consts: TestConsts, assume_external_names: bool) -> Self {
+        Self {
+            consts,
+            assume_external_names,
+            ..Self::default()
+        }
+    }
+
     pub fn push(&mut self) {
         self.frames.push(HashMap::new());
+        self.consts.push();
     }
 
     pub fn pop(&mut self) {
         self.frames.pop();
+        self.consts.pop();
     }
 
     pub fn lookup(&self, name: &str) -> Option<VarKind> {
@@ -52,10 +69,13 @@ impl Scope<'_> {
         self.duts.contains_key(name) || self.lookup(name).is_some()
     }
 
-    pub fn define(&mut self, name: &str, kind: VarKind) {
+    /// `constant`: sayının derleme zamanı değeri; dizi, döngü sayacı ve
+    /// çalışma zamanı değerinde `None`.
+    pub fn define(&mut self, name: &str, kind: VarKind, constant: Option<u64>) {
         if let Some(frame) = self.frames.last_mut() {
             frame.insert(name.to_string(), kind);
         }
+        self.consts.bind(name, constant);
     }
 
     /// Dizi adı bekleyen konumlar (`ad[i]`, `len(ad)`, `load` kaynağı).
@@ -67,6 +87,15 @@ impl Scope<'_> {
                     name.span,
                     lstr!(en: "'{}' is a number, not an array", name.text;
                           tr: "'{}' bir sayı, dizi değil", name.text),
+                ));
+                None
+            }
+            // Üst düzey `const` tanımlıdır ama sayıdır (ADR-0060).
+            None if self.consts.global(&name.text).is_some() => {
+                diags.push(type_mismatch(
+                    name.span,
+                    lstr!(en: "'{}' is a const number, not an array", name.text;
+                          tr: "'{}' bir sabit sayı, dizi değil", name.text),
                 ));
                 None
             }
@@ -97,8 +126,8 @@ impl Scope<'_> {
             TestExprKind::Index { base, index } => {
                 let info = self.expect_array(base, diags);
                 self.expect_scalar(index, diags);
-                if let (Some(info), TestExprKind::Int(i)) = (info, &index.kind) {
-                    if usize::try_from(*i).map_or(true, |i| i >= info.len) {
+                if let (Some(info), Some(i)) = (info, self.consts.eval(index)) {
+                    if usize::try_from(i).map_or(true, |i| i >= info.len) {
                         diags.push(type_mismatch(
                             index.span,
                             lstr!(en: "index {i} is out of bounds: '{}' has {} element(s)", base.text, info.len;
@@ -143,7 +172,13 @@ impl Scope<'_> {
                 lstr!(en: "'{}' is the instance, not a value", name.text;
                       tr: "'{}' örneğin kendisi, değer değil", name.text),
             )),
-            None => diags.push(undefined_name(name)),
+            // Üst düzey `const` (ADR-0060): yalnız düz literal görünür.
+            None => match self.consts.global(&name.text) {
+                Some(Some(_)) => {}
+                Some(None) => diags.push(computed_const(name)),
+                None if self.assume_external_names => {}
+                None => diags.push(undefined_name(name)),
+            },
         }
     }
 
@@ -354,6 +389,22 @@ fn undefined_name(name: &Name) -> Diagnostic {
         ),
         lstr!(en: "define it first: let {} = ...;", name.text;
               tr: "önce tanımlayın: let {} = ...;", name.text),
+    )
+}
+
+/// Üst düzey `const` var ama değeri düz literal değil: test denetimi
+/// const değerlendiriciden bağımsızdır (ADR-0033), değeri göremez.
+fn computed_const(name: &Name) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::E8506,
+        lstr!(en: "const '{}' is not a plain literal; its value is not visible in a test", name.text;
+              tr: "'{}' sabiti düz literal değil; değeri testte görünmez", name.text),
+        LabeledSpan::primary(
+            name.span,
+            lstr!(en: "computed const"; tr: "hesaplanmış sabit"),
+        ),
+        lstr!(en: "tests see only literal consts (const N : u8 = 8); bind the value here: let {} = ...;", name.text;
+              tr: "testler yalnız literal sabitleri görür (const N : u8 = 8); değeri burada bağlayın: let {} = ...;", name.text),
     )
 }
 
