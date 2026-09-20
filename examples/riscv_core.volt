@@ -1,6 +1,8 @@
 // RV32IM + Zicsr core — 37 base-ISA instructions, the 8 M-extension
 // instructions and the 6 CSR instructions over a minimal machine-mode
-// CSR set. Single-cycle, except division.
+// CSR set, with traps (ECALL/EBREAK/illegal/misaligned + MRET), one
+// external interrupt line and a memory-mapped UART. Single-cycle,
+// except division.
 //
 // Rewritten with ADR-0035 features: the register file is one
 // `reg regs : [u32; 32]` with dynamic indexing (regs[rs1_i], regs[rd_i])
@@ -51,14 +53,47 @@
 //   mcycle  0xB00/0xB80, minstret 0xB02/0xB82  64-bit, READ-ONLY here
 //     (the spec makes them writable; a software write would break
 //     minstret <= mcycle, so writes are ignored in this core).
-// Unmapped CSR numbers read zero and ignore writes; nothing traps
-// yet (ECALL/MRET/interrupts are a later round), so mtvec/mepc/mcause
-// are plain storage for now.
+//   mie     0x304  only MEIE (bit 11) is writable
+//   mip     0x344  read-only, MEIP (bit 11) mirrors the `irq` pin
+//   mscratch 0x340 plain storage for the trap handler
+// Unmapped CSR numbers read zero and ignore writes.
+//
+// Traps. Synchronous exceptions: illegal instruction (mcause 2),
+// instruction-address-misaligned on a taken jump/branch whose target
+// has bit 1 set (0), EBREAK (3), misaligned load (4) / store (6),
+// ECALL (11). A trap is taken *instead of* the instruction at pc: no
+// register, CSR, memory or I/O write happens, minstret does not
+// count, and mepc <- pc, mcause <- cause, MPIE <- MIE, MIE <- 0,
+// pc <- mtvec. MRET undoes it: pc <- mepc, MIE <- MPIE, MPIE <- 1.
+// WFI and FENCE are NOPs.
+//
+// Interrupt: one level-sensitive external line `irq` (expected
+// synchronous to clk), taken when mstatus.MIE && mie.MEIE with
+// mcause = 0x8000000B. The core is single-cycle, so every cycle starts
+// on an instruction boundary — except inside a division. The interrupt
+// therefore waits while the divider is running (div_busy || div_done);
+// the division retires first and mepc is the pc of the *next*
+// instruction, the one the interrupt displaced. `irq_ack_o` pulses in
+// the cycle the interrupt is taken, `trap_o` for every trap, `mret_o`
+// for an executed MRET.
+//
+// Memory-mapped I/O. Loads/stores whose address has the top nibble 2
+// (0x2xxx_xxxx) never reach the memory bus (mem_read/mem_write stay
+// low); everything else does, and the external decoder splits
+// 0x0000_xxxx ROM from 0x1000_xxxx RAM.
+//   0x2000_0000  UART TX data   a store sends the low byte of rs2
+//                               through UartTx (examples/uart_tx.volt);
+//                               ignored while the transmitter is busy
+//   0x2000_0004  UART TX status bit 0 = busy
+// Only address bit 2 is decoded inside the I/O window.
+
+use uart_tx::UartTx;
 
 module RiscvCore {
     in  clk       : clock
     in  instr     : u32
     in  mem_rdata : u32
+    in  irq       : bool
     out pc        : u32
     out mem_addr  : u32
     out mem_wdata : u32
@@ -67,6 +102,10 @@ module RiscvCore {
     out mem_read  : bool
     out stall_o   : bool
     out cyc_wrap_o : bool
+    out trap_o    : bool
+    out irq_ack_o : bool
+    out mret_o    : bool
+    out uart_txd  : bool
 
     // x0 reads as zero forever — the guard `rd_i != 0` below keeps
     // this inductive from the reset state [0; 32].
@@ -75,6 +114,11 @@ module RiscvCore {
     // extension): +4 keeps bit 0, branch/JAL immediates have bit 0
     // hardwired zero, and JALR masks it explicitly.
     invariant: !pc_r[0]
+    // ... and bit 1 too: a jump to a target with bit 1 set traps
+    // instead (instruction-address-misaligned), and mtvec/mepc are
+    // masked on the way in. So a trap always saves a valid pc.
+    invariant: !pc_r[1]
+    invariant: !mtvec[0] && !mtvec[1]
     // Counters: mcycle ticks every cycle (0 = reset or 2^64 wrap),
     // and no more instructions retire than cycles elapse — until
     // mcycle itself wraps, which the sticky `cyc_wrap` records so the
@@ -83,6 +127,14 @@ module RiscvCore {
     invariant: mcycle != 0 -> mcycle == prev(mcycle) + 1
     invariant: !cyc_wrap -> minstret <= mcycle
     invariant: !mepc[0] && !mepc[1]
+    // Trap entry: mepc holds the pc the trap was taken at, with
+    // interrupts masked. MRET: the pc comes back from mepc.
+    invariant: prev(trap_o) -> mepc == prev(pc_r)
+    invariant: prev(trap_o) -> !mstatus[3]
+    invariant: prev(mret_o) -> pc_r == prev(mepc)
+    // An interrupt needs MIE and MEIE, and never cuts into a division.
+    invariant: irq_ack_o -> mstatus[3] && mie_meie && irq
+    invariant: irq_ack_o -> !div_busy && !div_done
     // Divider control: busy counts 0..31, done sits at 32.
     invariant: !(div_busy && div_done)
     invariant: div_busy -> div_cnt < 32
@@ -108,6 +160,12 @@ module RiscvCore {
     cover: (instr[6:0] as u7) == 0x33 && (instr[31:25] as u7) == 1
         && (instr[14:12] as u3) == 0
     cover: div_done && div_d == 0
+    // An ECALL trapped, an MRET ran, an interrupt was taken, and a
+    // store to 0x2000_0000 pulled the UART line low (start bit).
+    cover: trap_o && instr == 0x00000073 && !irq_ack_o
+    cover: mret_o
+    cover: irq_ack_o
+    cover: !uart_txd
 
     reg pc_r : u32 = 0
     reg regs : [u32; 32] = [0; 32]
@@ -126,6 +184,8 @@ module RiscvCore {
     reg mtvec    : u32 = 0
     reg mepc     : u32 = 0
     reg mcause   : u32 = 0
+    reg mscratch : u32 = 0
+    reg mie_meie : bool = false
     reg mcycle   : u64 = 0
     reg minstret : u64 = 0
     reg cyc_wrap : bool = false
@@ -150,8 +210,29 @@ module RiscvCore {
     let is_m      = is_alu_r && (instr >> 25) == 1
     let is_mul    = is_m && !f3[2]
     let is_div    = is_m && f3[2]
-    // Zicsr: SYSTEM opcode with f3 != 0 (f3 == 0 is ECALL/MRET, a NOP here).
+    // Zicsr: SYSTEM opcode with f3 != 0; f3 == 0 is the privileged group.
     let is_csr    = opcode == 0x73 && f3 != 0
+    let is_ecall  = instr == 0x00000073
+    let is_ebreak = instr == 0x00100073
+    let is_mret   = instr == 0x30200073
+    let is_wfi    = instr == 0x10500073   // NOP: the core never sleeps
+    let is_fence  = opcode == 0x0F        // FENCE / FENCE.I: NOP, no caches
+
+    // Everything else is an illegal instruction: unknown opcodes,
+    // unassigned f3 values, shifts and R-type with a stray funct7.
+    let f7 = instr[31:25] as u7
+    let sh_ok =
+        if f3 == 1 { f7 == 0
+        } else if f3 == 5 { f7 == 0 || f7 == 0x20
+        } else { true }
+    let r_ok = f7 == 0 || f7 == 1 || (f7 == 0x20 && (f3 == 0 || f3 == 5))
+    let legal = is_lui || is_auipc || is_jal || (is_jalr && f3 == 0)
+             || (is_branch && f3 != 2 && f3 != 3)
+             || (is_load && f3 != 3 && f3 < 6)
+             || (is_store && f3 < 3)
+             || (is_alu_i && sh_ok) || (is_alu_r && r_ok)
+             || (is_csr && f3 != 4)
+             || is_ecall || is_ebreak || is_mret || is_wfi || is_fence
 
     // ── Register file read (dynamic indexing, ADR-0035) ───────────
     let rs1_v = regs[rs1_i]
@@ -239,13 +320,61 @@ module RiscvCore {
 
     let stall_d = is_div && !div_done
 
+    // ── Jump target ───────────────────────────────────────────────
+    let do_jump = is_jal || is_jalr || (is_branch && br_taken)
+    let jump_tgt =
+        if is_jal { pc_r + imm_j
+        } else if is_jalr { (rs1_v + imm_i) & 0xFFFFFFFE
+        } else { pc_r + imm_b }
+
+    // ── Data address, I/O decode ──────────────────────────────────
+    let addr = rs1_v + (if is_store { imm_s } else { imm_i })
+    let off8 = (addr & 3) << 3    // byte lane → bit offset
+    let is_io = (is_load || is_store) && (addr >> 28) == 2
+
+    // ── Traps ─────────────────────────────────────────────────────
+    // Halfword accesses (f3[1:0] == 1) need bit 0 clear, words both.
+    let acc_mis = ((f3 & 3) == 1 && addr[0]) || (f3 == 2 && (addr & 3) != 0)
+    let if_mis  = do_jump && jump_tgt[1]
+    let ld_mis  = is_load && acc_mis
+    let st_mis  = is_store && acc_mis
+    let exc = !legal || if_mis || is_ecall || is_ebreak || ld_mis || st_mis
+    let exc_cause : u32 =
+        if !legal { 2
+        } else if if_mis { 0
+        } else if is_ebreak { 3
+        } else if ld_mis { 4
+        } else if st_mis { 6
+        } else { 11 }
+
+    // Interrupts are taken on instruction boundaries only: never while
+    // the divider holds the current instruction half-done.
+    let take_irq  = irq && mstatus[3] && mie_meie && !div_busy && !div_done
+    let take_trap = take_irq || exc
+    // An interrupt can displace a division that has not started yet.
+    let hold = stall_d && !take_irq
+    let do_mret = is_mret && !take_trap
+
+    // ── UART (memory-mapped, 0x2000_0000 data / 0x2000_0004 status) ─
+    let uart_we = is_store && is_io && !addr[2] && !take_trap
+    let u_tx = UartTx {
+        clk: clk,
+        start: uart_we,
+        data: rs2_v[7:0] as u8,
+    }
+    let io_rdata : u32 = if addr[2] && u_tx.busy { 1 } else { 0 }
+    let rdata = if is_io { io_rdata } else { mem_rdata }
+
     // ── CSR access ────────────────────────────────────────────────
     let csr_addr = instr[31:20] as u12
     let csr_rdata =
         if csr_addr == 0x300 { mstatus | 0x1800           // MPP = M
+        } else if csr_addr == 0x304 { if mie_meie { 0x800 } else { 0 }
         } else if csr_addr == 0x305 { mtvec
+        } else if csr_addr == 0x340 { mscratch
         } else if csr_addr == 0x341 { mepc
         } else if csr_addr == 0x342 { mcause
+        } else if csr_addr == 0x344 { if irq { 0x800 } else { 0 }    // MEIP
         } else if csr_addr == 0xB00 { mcycle[31:0] as u32
         } else if csr_addr == 0xB80 { mcycle[63:32] as u32
         } else if csr_addr == 0xB02 { minstret[31:0] as u32
@@ -261,24 +390,21 @@ module RiscvCore {
         if csr_op == 1 { csr_src
         } else if csr_op == 2 { csr_rdata | csr_src
         } else { csr_rdata & (csr_src ^ 0xFFFFFFFF) }
-    let csr_we = is_csr && (csr_op == 1 || rs1_i != 0)
+    let csr_we = is_csr && (csr_op == 1 || rs1_i != 0) && !take_trap
 
-    // ── Data memory interface ─────────────────────────────────────
-    let addr = rs1_v + (if is_store { imm_s } else { imm_i })
-    let off8 = (addr & 3) << 3    // byte lane → bit offset
-
+    // ── Load data (memory or I/O) ─────────────────────────────────
     // Sub-word extraction with a variable-start part-select
     // (ADR-0035) — previously a shift-and-mask detour. The halfword
     // offset is inlined so no wire carries lint-unused upper bits.
-    let lb_u = mem_rdata[off8 +: 8] as u8
+    let lb_u = rdata[off8 +: 8] as u8
     let lb_s = lb_u as i8
-    let lh_u = mem_rdata[((addr & 2) << 3) +: 16] as u16
+    let lh_u = rdata[((addr & 2) << 3) +: 16] as u16
     let lh_s = lh_u as i16
 
     let load_val =
         if f3 == 0 { (lb_s as i32) as u32      // LB
         } else if f3 == 1 { (lh_s as i32) as u32  // LH
-        } else if f3 == 2 { mem_rdata          // LW
+        } else if f3 == 2 { rdata              // LW
         } else if f3 == 4 { lb_u as u32        // LBU
         } else { lh_u as u32 }                 // LHU
 
@@ -293,24 +419,22 @@ module RiscvCore {
         } else if is_div { div_out
         } else { alu_out }
 
-    // A stalled division writes nothing until its result is ready.
+    // A stalled division writes nothing until its result is ready,
+    // a trapping instruction writes nothing at all.
     let wb_en = (is_lui || is_auipc || is_jal || is_jalr
-             || is_load || is_alu_i || is_alu_r || is_csr) && !stall_d
+             || is_load || is_alu_i || is_alu_r || is_csr)
+             && !stall_d && !take_trap
 
     // ── State update ──────────────────────────────────────────────
     on clk {
-        if stall_d {
+        if take_trap {
+            pc_r <= mtvec
+        } else if stall_d {
             pc_r <= pc_r
-        } else if is_branch {
-            if br_taken {
-                pc_r <= pc_r + imm_b
-            } else {
-                pc_r <= pc_r + 4
-            }
-        } else if is_jal {
-            pc_r <= pc_r + imm_j
-        } else if is_jalr {
-            pc_r <= (rs1_v + imm_i) & 0xFFFFFFFE
+        } else if is_mret {
+            pc_r <= mepc
+        } else if do_jump {
+            pc_r <= jump_tgt
         } else {
             pc_r <= pc_r + 4
         }
@@ -338,7 +462,7 @@ module RiscvCore {
                 div_busy <= false
                 div_done <= true
             }
-        } else {
+        } else if !take_irq {
             div_n    <= a_mag
             div_d    <= b_mag
             div_q    <= 0
@@ -347,10 +471,19 @@ module RiscvCore {
             div_busy <= true
         }
 
-        // CSR writes, WARL masks applied on the way in.
-        if csr_we {
+        // Trap entry / MRET / CSR writes (WARL masks applied on the
+        // way in). mstatus: MIE is bit 3, MPIE bit 7.
+        if take_trap {
+            mepc    <= pc_r
+            mcause  <= if take_irq { 0x8000000B } else { exc_cause }
+            mstatus <= if mstatus[3] { 0x80 } else { 0 }
+        } else if is_mret {
+            mstatus <= if mstatus[7] { 0x88 } else { 0x80 }
+        } else if csr_we {
             if csr_addr == 0x300 { mstatus <= csr_wdata & 0x88 }   // MIE, MPIE
+            if csr_addr == 0x304 { mie_meie <= csr_wdata[11] }
             if csr_addr == 0x305 { mtvec   <= csr_wdata & 0xFFFFFFFC }
+            if csr_addr == 0x340 { mscratch <= csr_wdata }
             if csr_addr == 0x341 { mepc    <= csr_wdata & 0xFFFFFFFC }
             if csr_addr == 0x342 { mcause  <= csr_wdata }
         }
@@ -359,21 +492,29 @@ module RiscvCore {
         if mcycle == 0xFFFFFFFFFFFFFFFF {
             cyc_wrap <= true
         }
-        if !stall_d {
+        if !stall_d && !take_trap {
             minstret <= minstret + 1
         }
     }
 
     // ── Outputs ───────────────────────────────────────────────────
+    // I/O accesses and trapping instructions stay off the memory bus.
+    let mem_rd = is_load && !is_io && !take_trap
+    let mem_wr = is_store && !is_io && !take_trap
+
     pc        = pc_r
-    stall_o   = stall_d
+    stall_o   = hold
+    trap_o    = take_trap
+    irq_ack_o = take_irq
+    mret_o    = do_mret
+    uart_txd  = u_tx.tx
     cyc_wrap_o = cyc_wrap
-    mem_addr  = if is_store || is_load { addr } else { 0 }
-    mem_read  = is_load
-    mem_write = is_store
+    mem_addr  = if mem_rd || mem_wr { addr } else { 0 }
+    mem_read  = mem_rd
+    mem_write = mem_wr
     mem_wdata = rs2_v << off8
     mem_wmask =
-        if !is_store { 0
+        if !mem_wr { 0
         } else if f3 == 0 { 1u8 << (addr & 3)   // SB
         } else if f3 == 1 { 3u8 << (addr & 2)   // SH
         } else { 15 }                           // SW

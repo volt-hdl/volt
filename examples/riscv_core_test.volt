@@ -1,5 +1,7 @@
-// RV32IM + Zicsr core testbench — 44 tests: 26 for the base ISA, 11 for
-// the M extension (every RISC-V division corner case), 7 for the CSRs.
+// RV32IM + Zicsr core testbench — 58 tests: 26 for the base ISA, 11 for
+// the M extension (every RISC-V division corner case), 7 for the CSRs,
+// 9 for traps (ECALL/EBREAK/MRET/illegal/misaligned), 3 for the external
+// interrupt, 2 for the memory-mapped UART.
 //
 // Observation strategy: the register file is internal, so register
 // values are read back through the memory interface — execute a
@@ -626,4 +628,301 @@ test "minstret counts instructions" {
     dut.instr = 0x00402023;      // sw x4, 0(x0)
     step(1);
     assert_eq(dut.mem_wdata, 37);
+}
+
+// ── Traps ─────────────────────────────────────────────────────────
+
+test "ecall sets mcause 11" {
+    let dut = RiscvCore { };
+    dut.instr = 0x00000073;      // ecall
+    step(1);
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 11);
+}
+
+test "ecall saves pc to mepc" {
+    let dut = RiscvCore { };
+    dut.instr = 0x00000013;      // nop, nop
+    step(2);
+    dut.instr = 0x00000073;      // ecall  (at pc == 8)
+    step(1);
+    assert_true(dut.trap_o);
+    dut.instr = 0x341021F3;      // csrrs x3, mepc, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 8);
+}
+
+test "ecall jumps to mtvec" {
+    let dut = RiscvCore { };
+    dut.instr = 0x10000093;      // addi x1, x0, 0x100
+    step(1);
+    dut.instr = 0x30509073;      // csrrw x0, mtvec, x1
+    step(1);
+    dut.instr = 0x00000073;      // ecall
+    step(1);
+    assert_eq(dut.pc, 0x100);
+}
+
+test "ebreak sets mcause 3" {
+    let dut = RiscvCore { };
+    dut.instr = 0x00100073;      // ebreak
+    step(1);
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 3);
+}
+
+test "mret returns to mepc" {
+    let dut = RiscvCore { };
+    dut.instr = 0x04000093;      // addi x1, x0, 0x40
+    step(1);
+    dut.instr = 0x34109073;      // csrrw x0, mepc, x1
+    step(1);
+    dut.instr = 0x30200073;      // mret
+    step(1);
+    assert_eq(dut.pc, 0x40);
+}
+
+test "mret restores mie" {
+    let dut = RiscvCore { };
+    dut.instr = 0x30045073;      // csrrwi x0, mstatus, 8  (MIE = 1)
+    step(1);
+    dut.instr = 0x00000073;      // ecall: MPIE <- MIE, MIE <- 0
+    step(1);
+    dut.instr = 0x300021F3;      // csrrs x3, mstatus, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0x1880);  // MPP | MPIE
+    dut.instr = 0x30200073;      // mret: MIE <- MPIE, MPIE <- 1
+    step(1);
+    dut.instr = 0x300021F3;      // csrrs x3, mstatus, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0x1888);  // MPP | MPIE | MIE
+}
+
+test "illegal instruction traps" {
+    let dut = RiscvCore { };
+    dut.instr = 0x10000093;      // addi x1, x0, 0x100
+    step(1);
+    dut.instr = 0x30509073;      // csrrw x0, mtvec, x1
+    step(1);
+    dut.instr = 0xFFFFFFFF;      // not an instruction  (at pc == 8)
+    step(1);
+    assert_eq(dut.pc, 0x100);
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x34102273;      // csrrs x4, mepc, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 2);
+    dut.instr = 0x00402023;      // sw x4, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 8);
+}
+
+test "misaligned load traps" {
+    let dut = RiscvCore { };
+    dut.instr = 0x00000013;      // nop
+    step(1);
+    dut.instr = 0x0010A183;      // lw x3, 1(x0)  (at pc == 4)
+    step(1);
+    assert_false(dut.mem_read);  // the access never reaches the bus
+    assert_eq(dut.pc, 0);        // mtvec
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 4);
+    dut.instr = 0x00102123;      // sw x1, 2(x0)  (misaligned store)
+    step(1);
+    assert_false(dut.mem_write);
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 6);
+}
+
+test "misaligned jump traps without linking" {
+    let dut = RiscvCore { };
+    dut.instr = 0x10000093;      // addi x1, x0, 0x100
+    step(1);
+    dut.instr = 0x30509073;      // csrrw x0, mtvec, x1
+    step(1);
+    dut.instr = 0x002000EF;      // jal x1, +2  (at pc == 8, target bit 1 set)
+    step(1);
+    assert_eq(dut.pc, 0x100);
+    dut.instr = 0x00102023;      // sw x1, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0x100);  // x1 kept its value: no link
+    dut.instr = 0x341021F3;      // csrrs x3, mepc, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 8);
+}
+
+// ── Interrupts ────────────────────────────────────────────────────
+//   0x10000293  addi  x5, x0, 0x100     0x30529073  csrrw x0, mtvec, x5
+//   0xFFF00293  addi  x5, x0, -1        0x30429073  csrrw x0, mie, x5
+//   0x30045073  csrrwi x0, mstatus, 8   (MIE = 1)
+
+test "interrupt taken when mie set" {
+    let dut = RiscvCore { };
+    dut.instr = 0x10000293;      // addi x5, x0, 0x100
+    step(1);
+    dut.instr = 0x30529073;      // csrrw x0, mtvec, x5
+    step(1);
+    dut.instr = 0xFFF00293;      // addi x5, x0, -1
+    step(1);
+    dut.instr = 0x30429073;      // csrrw x0, mie, x5  (MEIE sticks)
+    step(1);
+    dut.instr = 0x30045073;      // csrrwi x0, mstatus, 8
+    step(1);
+    assert_eq(dut.pc, 20);
+    dut.instr = 0x00500093;      // addi x1, x0, 5  (displaced by the irq)
+    dut.irq = true;
+    step(1);
+    assert_eq(dut.pc, 0x100);
+    assert_false(dut.irq_ack_o); // MIE is off now: the held line does not nest
+    dut.instr = 0x342021F3;      // csrrs x3, mcause, x0
+    step(1);
+    dut.instr = 0x34102273;      // csrrs x4, mepc, x0
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0x8000000B);
+    dut.instr = 0x00402023;      // sw x4, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 20);    // the instruction that did not run
+    dut.instr = 0x00102023;      // sw x1, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0);     // ... and really did not run
+}
+
+test "interrupt ignored when mie clear" {
+    let dut = RiscvCore { };
+    dut.instr = 0xFFF00293;      // addi x5, x0, -1
+    step(1);
+    dut.instr = 0x30429073;      // csrrw x0, mie, x5  (MEIE on, MIE off)
+    step(1);
+    dut.instr = 0x00000013;      // nop
+    dut.irq = true;
+    step(2);
+    assert_false(dut.irq_ack_o);
+    assert_eq(dut.pc, 16);
+    dut.instr = 0x344021F3;      // csrrs x3, mip, x0  (pending all the same)
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0x800);
+}
+
+test "interrupt waits during division" {
+    let dut = RiscvCore { };
+    dut.instr = 0x06400093;      // addi x1, x0, 100
+    step(1);
+    dut.instr = 0x00700113;      // addi x2, x0, 7
+    step(1);
+    dut.instr = 0x10000293;      // addi x5, x0, 0x100
+    step(1);
+    dut.instr = 0x30529073;      // csrrw x0, mtvec, x5
+    step(1);
+    dut.instr = 0xFFF00293;      // addi x5, x0, -1
+    step(1);
+    dut.instr = 0x30429073;      // csrrw x0, mie, x5
+    step(1);
+    dut.instr = 0x30045073;      // csrrwi x0, mstatus, 8
+    step(1);
+    assert_eq(dut.pc, 28);
+    dut.instr = 0x0220C1B3;      // div x3, x1, x2
+    step(1);                     // operands latched, divider running
+    dut.irq = true;
+    step(10);
+    assert_true(dut.stall_o);
+    assert_false(dut.irq_ack_o);
+    assert_eq(dut.pc, 28);
+    step(22);                    // 33 cycles in: the write-back cycle
+    assert_false(dut.stall_o);
+    assert_false(dut.irq_ack_o);
+    assert_eq(dut.pc, 28);
+    step(1);                     // division retired
+    assert_eq(dut.pc, 32);
+    assert_true(dut.irq_ack_o);  // boundary reached: now it is taken
+    step(1);
+    assert_eq(dut.pc, 0x100);
+    dut.irq = false;
+    dut.instr = 0x34102273;      // csrrs x4, mepc, x0
+    step(1);
+    dut.instr = 0x00402023;      // sw x4, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 32);    // the instruction after the div
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 14);    // the quotient survived
+}
+
+// ── Memory-mapped I/O ─────────────────────────────────────────────
+//   0x200000B7  lui x1, 0x20000        0x05500113  addi x2, x0, 0x55
+//   0x00208023  sb  x2, 0(x1)          0x0040A183  lw   x3, 4(x1)
+// UartTx runs at 4 clocks per bit: 0x55 goes out LSB first as 1,0,1,0,...
+
+test "uart write goes to peripheral" {
+    let dut = RiscvCore { };
+    dut.instr = 0x200000B7;      // lui x1, 0x20000
+    step(1);
+    dut.instr = 0x05500113;      // addi x2, x0, 0x55
+    step(1);
+    assert_true(dut.uart_txd);   // line idles high
+    dut.instr = 0x00208023;      // sb x2, 0(x1)
+    step(1);
+    assert_false(dut.mem_write); // an I/O store stays off the memory bus
+    assert_eq(dut.mem_wmask, 0);
+    dut.instr = 0x00000013;      // nop
+    step(1);
+    assert_false(dut.uart_txd);  // start bit
+    step(4);
+    assert_true(dut.uart_txd);   // data bit 0 of 0x55
+    step(4);
+    assert_false(dut.uart_txd);  // data bit 1
+    step(4);
+    assert_true(dut.uart_txd);   // data bit 2
+}
+
+test "uart status readable" {
+    let dut = RiscvCore { };
+    dut.mem_rdata = 0xFFFFFFFF;  // what the memory bus would answer
+    dut.instr = 0x200000B7;      // lui x1, 0x20000
+    step(1);
+    dut.instr = 0x0040A183;      // lw x3, 4(x1)
+    step(1);
+    assert_false(dut.mem_read);  // an I/O load stays off the memory bus
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0); // idle
+    dut.instr = 0x00208023;      // sb x2, 0(x1)
+    step(1);
+    dut.instr = 0x0040A183;      // lw x3, 4(x1)
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 1); // busy
+    dut.instr = 0x00000013;      // nop: let the 40-cycle frame drain
+    step(45);
+    dut.instr = 0x0040A183;      // lw x3, 4(x1)
+    step(1);
+    dut.instr = 0x00302023;      // sw x3, 0(x0)
+    step(1);
+    assert_eq(dut.mem_wdata, 0); // idle again
 }
