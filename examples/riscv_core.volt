@@ -89,7 +89,7 @@
 
 use uart_tx::UartTx;
 
-module RiscvCore {
+pub module RiscvCore {
     in  clk       : clock
     in  instr     : u32
     in  mem_rdata : u32
