@@ -5,6 +5,30 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — SV üretiminde operatör önceliği: SESSİZ YANLIŞ DERLEME (2026-09-20, ADR-0057)
+
+- **Belirti**: `(a & b) == 0` → `a & b == 8'd0` üretiliyordu; SV bunu
+  `a & (b == 0)` okur. Parantez kararı Volt öncelik tablosuyla
+  veriliyordu, oysa `&` `^` `|` Volt'ta karşılaştırmadan SIKI (ADR-0013
+  §2.2), SystemVerilog'da GEVŞEK bağlanır. Tanı ya da lint uyarısı yoktu.
+- **Kapsam**: 3 bit düzeyi × 6 karşılaştırma = 18 operatör çifti, bit
+  düzeyi işlem karşılaştırmanın operandı olduğunda (sol ya da sağ). RTL,
+  `if` koşulları ve **SVA kontratları** aynı üreticiyi kullandığından hepsi
+  etkileniyordu; kontrat içinde bu kalıp boş-doğru kanıta yol açabilir.
+- **Çözüm**: `sv_prec` IEEE 1800-2017 Tablo 11-2'ye geçti; ayrışan
+  düzeyde parantez iki yönde basılır (`a & (b == 0)` de parantezli kalır).
+  Diğer çıktılar değişmez.
+- **Depo etkisi**: 156 üretilmiş SV dosyası ve 476 property metni
+  karşılaştırıldı — yalnız `tests/ui/pass/04_operator_precedence.volt`
+  çıktısı değişti; `examples/` ve `counter.expected.sv` aynı, boş-doğru
+  property bulunmadı.
+- **YAPMANIZ GEREKEN**: kendi tasarımınızda `&` `|` `^` ile `==` `!=` `<`
+  `>` `<=` `>=` operatörlerini aynı ifadede kullandıysanız yeniden
+  derleyin ve `volt verify` sonuçlarını yeniden üretin.
+- Yeni: `crates/volt-sv-emit/tests/precedence_tests.rs` (24 test) —
+  19 × 19 operatör çifti × 2 ağaç biçimi, bağımsız bir IEEE öncelik
+  ayrıştırıcısıyla gidiş-dönüş sınanır.
+
 ### Eklendi — SDC/XDC üretimi: `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden (2026-09-16, ADR-0054)
 
 - **`volt build --emit=sdc,xdc`**: saat portu olan her modül için

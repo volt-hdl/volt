@@ -51,23 +51,38 @@ pub(crate) fn widen_sig(declared: Option<Sig>, ctx: Option<Sig>) -> Option<Sig> 
     }
 }
 
-/// SV çıktısında parantez kararı için öncelik (Volt tablosuyla uyumlu,
-/// operator-precedence.md §3'ten türetildi).
+/// SV çıktısında parantez kararı için öncelik — HEDEF dilin tablosu
+/// (IEEE 1800-2017 §11.3.2, Tablo 11-2), Volt'unki DEĞİL (ADR-0057).
+/// İki tablo tek yerde ayrışır: Volt'ta `&` `^` `|` karşılaştırmadan
+/// sıkı bağlanır (ADR-0013 §2.2), SV'de C mirası olarak gevşek. Volt
+/// sırası kullanılırsa `(a & b) == 0` parantezsiz basılır ve SV bunu
+/// `a & (b == 0)` okur — sessiz yanlış derleme.
 fn sv_prec(op: BinOp) -> u8 {
     match op {
         // İmplikasyon SV'de `!a || b` olarak açıldığından || düzeyinde.
         BinOp::Imp => 1,
         BinOp::Or => 1,
         BinOp::And => 2,
-        BinOp::Eq | BinOp::Ne => 3,
-        BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 4,
-        BinOp::BitOr => 5,
-        BinOp::BitXor => 6,
-        BinOp::BitAnd => 7,
+        BinOp::BitOr => 3,
+        BinOp::BitXor => 4,
+        BinOp::BitAnd => 5,
+        BinOp::Eq | BinOp::Ne => 6,
+        BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 7,
         BinOp::Shl | BinOp::Shr => 8,
         BinOp::Add | BinOp::Sub => 9,
         BinOp::Mul | BinOp::Div | BinOp::Rem => 10,
     }
+}
+
+fn is_bitwise(op: BinOp) -> bool {
+    matches!(op, BinOp::BitOr | BinOp::BitXor | BinOp::BitAnd)
+}
+
+fn is_comparison(op: BinOp) -> bool {
+    matches!(
+        op,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
+    )
 }
 
 const PREC_TERNARY: u8 = 0;
@@ -668,7 +683,8 @@ impl<'a> Emitter<'a> {
         let l = if widen {
             self.emit_operand(lhs, operand_ctx, prec, false)
         } else {
-            self.emit_prec(lhs, operand_ctx, prec, false)
+            let text = self.emit_prec(lhs, operand_ctx, prec, false);
+            self.paren_comparison_under_bitwise(op, lhs, text)
         };
         let r = if matches!(op, BinOp::Shl | BinOp::Shr) {
             let inner = self.emit_plain(rhs);
@@ -681,7 +697,8 @@ impl<'a> Emitter<'a> {
         } else if widen {
             self.emit_operand(rhs, operand_ctx, prec, true)
         } else {
-            self.emit_prec(rhs, operand_ctx, prec, true)
+            let text = self.emit_prec(rhs, operand_ctx, prec, true);
+            self.paren_comparison_under_bitwise(op, rhs, text)
         };
         // İşaretli sağ kaydırma aritmetiktir (ADR-0036): SV'de
         // `>>` her zaman mantıksal; işaret ancak `>>>` ile korunur.
@@ -691,6 +708,24 @@ impl<'a> Emitter<'a> {
             op.symbol()
         };
         format!("{l} {sym} {r}")
+    }
+
+    /// Bit düzeyi operatörün karşılaştırma operandı: SV tablosu parantez
+    /// İSTEMEZ (`a & b == 0` zaten `a & (b == 0)` okunur) ama iki dilin
+    /// ayrıştığı tek düzey burası olduğundan okur hangi tabloyu aklında
+    /// tutarsa tutsun aynı ağacı görsün diye parantez basılır (ADR-0057).
+    fn paren_comparison_under_bitwise(
+        &self,
+        parent: BinOp,
+        operand: Idx<Expr>,
+        text: String,
+    ) -> String {
+        match &self.ast.exprs[operand].kind {
+            ExprKind::Binary { op, .. } if is_bitwise(parent) && is_comparison(*op) => {
+                format!("({text})")
+            }
+            _ => text,
+        }
     }
 
     /// Üst düzey const referansını boyutlandırılmış literale katlar.

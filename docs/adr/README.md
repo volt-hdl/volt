@@ -76,6 +76,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0026](ADR-0026-uretilen-kod-dili.md) | Üretilen kodun dili — her zaman İngilizce | K | 2026-09-08 |
 | [0053](ADR-0053-hw-sw-koprusu.md) | HW-SW köprüsü — `@mmio` haritasından sürücü, başlık, `regmap.json` ve belge üretimi | K | 2026-09-15 |
 | [0054](ADR-0054-sdc-uretimi.md) | SDC/XDC üretimi — `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden | K (ADR-0048 Bölüm 2'yi gerçekler) | 2026-09-16 |
+| [0057](ADR-0057-sv-operator-onceligi.md) | SV üretiminde operatör önceliği — parantez kararı IEEE 1800 tablosuyla (sessiz yanlış derleme düzeltmesi) | K | 2026-09-20 |
 
 ## Araç zinciri
 
