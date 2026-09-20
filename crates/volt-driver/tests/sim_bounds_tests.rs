@@ -116,6 +116,101 @@ fn check_computed_value_is_not_a_compile_error() {
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
 }
 
+// ═══ Derleme zamanı: sabit yayılımı (ADR-0060) ════════════════════
+
+#[test]
+fn check_constant_let_overflow_is_e8512_with_the_binding() {
+    let (output, stderr) = check(
+        "prop",
+        "test \"t\" {\n    let dut = Table { };\n    let n = 8;\n    dut.addr = n;\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert_eq!(
+        stderr.matches("error[E8512]").count(),
+        1,
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("value 8"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("known at compile time: n = 8"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_constant_let_chain_overflow_is_e8512() {
+    let (output, stderr) = check(
+        "prop-chain",
+        "test \"t\" {\n    let dut = Table { };\n    let n = 7;\n    let m = n + 1;\n    dut.addr = m;\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("error[E8512]"), "stderr: {stderr}");
+    assert!(stderr.contains("m = 8"), "stderr: {stderr}");
+}
+
+#[test]
+fn check_constant_let_that_fits_is_clean() {
+    let (output, stderr) = check(
+        "prop-ok",
+        "test \"t\" {\n    let dut = Table { };\n    let n = 7;\n    dut.addr = n;\n    let neg = 0 - 128;\n    dut.sv = neg;\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+}
+
+#[test]
+fn check_port_read_let_is_not_a_compile_error() {
+    let (output, stderr) = check(
+        "prop-read",
+        "test \"t\" {\n    let dut = Table { };\n    let x = dut.secho;\n    dut.addr = x;\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+}
+
+#[test]
+fn test_cmd_reports_the_propagated_overflow_once() {
+    // `volt test` de derleme zamanında durur (Verilator aranmaz) ve
+    // tanıyı bir kez sayar.
+    let dir = temp_dir("prop-test-cmd");
+    write_test(
+        &dir,
+        "test \"t\" {\n    let dut = Table { };\n    let n = 8;\n    dut.addr = n;\n}\n",
+    );
+    let output = volt()
+        .current_dir(&dir)
+        .env("VOLT_LANG", "en")
+        .args(["test", "table_test.volt", "--target-dir", "build"])
+        .output()
+        .expect("volt test");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert_eq!(
+        stderr.matches("error[E8512]").count(),
+        1,
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("due to 1 error(s)"), "stderr: {stderr}");
+}
+
+#[test]
+fn ui_fixtures_for_constant_propagation_behave() {
+    let fail = volt()
+        .arg("check")
+        .arg(ui("fail/61_test_const_propagation.volt"))
+        .output()
+        .expect("volt check");
+    assert_eq!(fail.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&fail.stderr).contains("E8512"));
+
+    let pass = volt()
+        .arg("check")
+        .arg(ui("pass/81_test_const_ok.volt"))
+        .output()
+        .expect("volt check");
+    let stderr = String::from_utf8_lossy(&pass.stderr);
+    assert_eq!(pass.status.code(), Some(0), "stderr: {stderr}");
+}
+
 #[test]
 fn check_unreachable_assert_constant_is_e8512() {
     let (output, stderr) = check(
@@ -226,7 +321,7 @@ fn runtime_overflow_is_reported_instead_of_a_later_assert() {
     // testten sonra port gözlenemez.
     let Some((code, out)) = run_tests(
         "rt-nowrite",
-        "test \"keeps last\" {\n    let dut = Table { };\n    let n = 5;\n    dut.addr = n;\n    step(1);\n    assert_eq(dut.echo, 5);\n    dut.addr = n + 3;\n}\n",
+        "test \"keeps last\" {\n    let dut = Table { };\n    dut.addr = 5;\n    step(1);\n    let n = dut.echo;\n    assert_eq(n, 5);\n    dut.addr = n + 3;\n}\n",
     ) else {
         return;
     };
@@ -239,7 +334,7 @@ fn runtime_overflow_is_reported_instead_of_a_later_assert() {
 fn runtime_signed_port_holds_negative_numbers_exactly() {
     let Some((code, out)) = run_tests(
         "rt-signed",
-        "test \"negatives\" {\n    let dut = Table { };\n    let one = 1;\n    dut.sv = 0 - one;\n    step(1);\n    assert_true(dut.neg);\n    assert_eq(dut.secho, 0xFF);\n    dut.sv = 0 - (one * 128);\n    step(1);\n    assert_eq(dut.secho, 0x80);\n    dut.sv = 254 + one;\n    step(1);\n    assert_eq(dut.secho, 255);\n}\n",
+        "test \"negatives\" {\n    let dut = Table { };\n    dut.addr = 1;\n    step(1);\n    let one = dut.echo;\n    dut.sv = 0 - one;\n    step(1);\n    assert_true(dut.neg);\n    assert_eq(dut.secho, 0xFF);\n    dut.sv = 0 - (one * 128);\n    step(1);\n    assert_eq(dut.secho, 0x80);\n    dut.sv = 254 + one;\n    step(1);\n    assert_eq(dut.secho, 255);\n}\n",
     ) else {
         return;
     };
@@ -250,7 +345,7 @@ fn runtime_signed_port_holds_negative_numbers_exactly() {
 fn runtime_signed_port_rejects_values_below_the_minimum() {
     let Some((code, out)) = run_tests(
         "rt-signed-min",
-        "test \"too negative\" {\n    let dut = Table { };\n    let n = 129;\n    dut.sv = 0 - n;\n}\n",
+        "test \"too negative\" {\n    let dut = Table { };\n    for n in 129..130 {\n        dut.sv = 0 - n;\n    }\n}\n",
     ) else {
         return;
     };
@@ -264,11 +359,39 @@ fn runtime_signed_port_rejects_values_below_the_minimum() {
 fn runtime_unsigned_port_rejects_a_negative_number() {
     let Some((code, out)) = run_tests(
         "rt-neg-unsigned",
-        "test \"negative\" {\n    let dut = Table { };\n    let one = 1;\n    dut.addr = 0 - one;\n}\n",
+        "test \"negative\" {\n    let dut = Table { };\n    for one in 1..2 {\n        dut.addr = 0 - one;\n    }\n}\n",
     ) else {
         return;
     };
     assert_eq!(code, Some(5), "{out}");
     assert!(out.contains("port 'addr' (u3) cannot hold value"), "{out}");
     assert!(out.contains("(-1)"), "{out}");
+}
+
+#[test]
+fn runtime_port_read_let_overflow_is_caught_during_the_run() {
+    // ADR-0060 kapsamı dışı: port okumasına bağlı `let` sabit değildir;
+    // taşma sessiz kalmaz, koşuda yakalanır.
+    let Some((code, out)) = run_tests(
+        "rt-read-let",
+        "test \"read then write\" {\n    let dut = Table { };\n    dut.sv = 100;\n    step(1);\n    let x = dut.secho;\n    dut.addr = x;\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(code, Some(5), "{out}");
+    assert!(
+        out.contains("port 'addr' (u3) cannot hold value 100"),
+        "{out}"
+    );
+}
+
+#[test]
+fn runtime_constant_let_passes_and_the_variable_stays_readable() {
+    let Some((code, out)) = run_tests(
+        "rt-const-let",
+        "test \"const let\" {\n    let dut = Table { };\n    let n = 7;\n    dut.addr = n;\n    step(1);\n    assert_eq(dut.echo, n);\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(code, Some(0), "{out}");
 }

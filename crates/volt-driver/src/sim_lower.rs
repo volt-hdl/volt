@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use volt_ast::{Name, SourceFile, TestDecl, TestExpr, TestExprKind, TestStmt, TestUnOp};
-use volt_hir::{TestFileError, TestFileLoader};
+use volt_hir::{TestConsts, TestFileError, TestFileLoader};
 use volt_span::SourceMap;
 use volt_sv_emit::{TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue};
 
@@ -84,24 +84,29 @@ pub(crate) struct LowerCtx<'a> {
 }
 
 /// Test ifadesini tb değerine indirger; sayı olmayan biçimler `None`.
-fn lower_value(expr: &TestExpr) -> Option<TbValue> {
+/// Üst düzey `const` betikte değişken değildir: değeriyle yazılır
+/// (ADR-0060). Yerel `let` adları betik değişkeni olarak kalır.
+fn lower_value(consts: &TestConsts, expr: &TestExpr) -> Option<TbValue> {
     Some(match &expr.kind {
         TestExprKind::Int(n) => TbValue::Lit(*n),
         TestExprKind::Bool(b) => TbValue::Lit(u64::from(*b)),
         TestExprKind::PortRead { port, .. } => TbValue::Port(port.text.clone()),
-        TestExprKind::Var(name) => TbValue::Var(name.text.clone()),
+        TestExprKind::Var(name) => match consts.global(&name.text) {
+            Some(value) => TbValue::Lit(value?),
+            None => TbValue::Var(name.text.clone()),
+        },
         TestExprKind::Index { base, index } => TbValue::Index {
             array: base.text.clone(),
-            index: Box::new(lower_value(index)?),
+            index: Box::new(lower_value(consts, index)?),
         },
         TestExprKind::Unary {
             op: TestUnOp::Not,
             operand,
-        } => TbValue::Not(Box::new(lower_value(operand)?)),
+        } => TbValue::Not(Box::new(lower_value(consts, operand)?)),
         TestExprKind::Binary { op, lhs, rhs } => TbValue::Binary {
             op: *op,
-            lhs: Box::new(lower_value(lhs)?),
-            rhs: Box::new(lower_value(rhs)?),
+            lhs: Box::new(lower_value(consts, lhs)?),
+            rhs: Box::new(lower_value(consts, rhs)?),
         },
         TestExprKind::Call { func, args } if func.text == "len" => match args.first()?.kind {
             TestExprKind::Var(ref name) => TbValue::Len(name.text.clone()),
@@ -146,15 +151,30 @@ struct Lowering<'a> {
     ctx: &'a LowerCtx<'a>,
     module: Option<String>,
     load_targets: Vec<(String, String)>,
+    /// Derleme zamanında bilinen değerler (ADR-0060) — denetimdeki
+    /// (`check_tests_with_files`) ortamın aynısı; E8512 kararıyla
+    /// betiğe yazılan desen aynı değerden çıkar.
+    consts: TestConsts,
 }
 
 impl Lowering<'_> {
     fn block(&mut self, stmts: &[TestStmt]) -> Option<Vec<TbStep>> {
+        self.consts.push();
+        let steps = self.block_steps(stmts);
+        self.consts.pop();
+        steps
+    }
+
+    fn block_steps(&mut self, stmts: &[TestStmt]) -> Option<Vec<TbStep>> {
         let mut steps = Vec::new();
         for stmt in stmts {
             self.stmt(stmt, &mut steps)?;
         }
         Some(steps)
+    }
+
+    fn value(&self, expr: &TestExpr) -> Option<TbValue> {
+        lower_value(&self.consts, expr)
     }
 
     fn loc(&self, span: volt_span::Span) -> String {
@@ -173,14 +193,19 @@ impl Lowering<'_> {
             } => self.set_port(*span, port, value, steps)?,
             TestStmt::LetVar { span, name, value } => {
                 steps.push(TbStep::Loc(self.loc(*span)));
-                let name = name.text.clone();
-                steps.push(match array_data(value, self.ctx.files) {
-                    Some(data) => TbStep::LetArray { name, data: data? },
-                    None => TbStep::LetScalar {
-                        name,
-                        value: lower_value(value)?,
+                let step = match array_data(value, self.ctx.files) {
+                    Some(data) => TbStep::LetArray {
+                        name: name.text.clone(),
+                        data: data?,
                     },
-                });
+                    None => TbStep::LetScalar {
+                        name: name.text.clone(),
+                        value: self.value(value)?,
+                    },
+                };
+                steps.push(step);
+                // Dizi `eval`de sabit değildir: adı bilinmiyor olarak bağlanır.
+                self.consts.bind_let(&name.text, value);
             }
             TestStmt::For {
                 span,
@@ -190,11 +215,17 @@ impl Lowering<'_> {
                 body,
             } => {
                 steps.push(TbStep::Loc(self.loc(*span)));
+                let (start, end) = (self.value(start)?, self.value(end)?);
+                // Sayaç koşuda değişir: aynı adlı sabiti gölgeler.
+                self.consts.push();
+                self.consts.bind(&var.text, None);
+                let body = self.block(body);
+                self.consts.pop();
                 steps.push(TbStep::For {
                     var: var.text.clone(),
-                    start: lower_value(start)?,
-                    end: lower_value(end)?,
-                    body: self.block(body)?,
+                    start,
+                    end,
+                    body: body?,
                 });
             }
             TestStmt::Call { span, func, args } => self.call(*span, &func.text, args, steps)?,
@@ -213,7 +244,7 @@ impl Lowering<'_> {
         steps: &mut Vec<TbStep>,
     ) -> Option<()> {
         let width = self.port_width(&port.text);
-        let constant = volt_hir::const_test_value(value);
+        let constant = self.consts.eval(value);
         if let (Some(width), Some(constant)) = (width, constant) {
             if !width.accepts(constant) {
                 return None; // E8512'den geçmiş olamaz
@@ -224,7 +255,7 @@ impl Lowering<'_> {
             });
             return Some(());
         }
-        let value = lower_value(value)?;
+        let value = self.value(value)?;
         let port_name = port.text.clone();
         if self.fits_without_check(width, constant, &value) {
             self.push_loc(span, &value, steps);
@@ -286,7 +317,7 @@ impl Lowering<'_> {
     ) -> Option<()> {
         let kind = match func {
             "step" => {
-                match lower_value(args.first()?)? {
+                match self.value(args.first()?)? {
                     TbValue::Lit(n) => steps.push(TbStep::Step(n)),
                     count => {
                         steps.push(TbStep::Loc(self.loc(span)));
@@ -306,9 +337,9 @@ impl Lowering<'_> {
             "assert_false" => TbAssertKind::False,
             _ => return None,
         };
-        let left = lower_value(args.first()?)?;
+        let left = self.value(args.first()?)?;
         let right = match args.get(1) {
-            Some(arg) => lower_value(arg)?,
+            Some(arg) => self.value(arg)?,
             None => TbValue::Lit(0),
         };
         steps.push(TbStep::Assert {
@@ -353,6 +384,7 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
         ctx,
         module: None,
         load_targets: Vec::new(),
+        consts: TestConsts::new(ctx.sources),
     };
     let steps = lowering.block(&test.stmts)?;
     Some(LoweredTest {
@@ -527,10 +559,115 @@ mod tests {
 
     #[test]
     fn signed_port_check_is_marked_signed() {
-        let steps = lower_ports("    let n = 1;\n    dut.sv = 0 - n;");
+        let steps = lower_ports("    for i in 0..2 {\n        dut.sv = 0 - i;\n    }");
         let check = port_check(&steps).expect("çalışma zamanı denetimi");
         assert_eq!((check.bits, check.signed), (Some(8), true));
         assert_eq!(check.type_name, "i8");
+    }
+
+    // ═══ Sabit yayılımı (ADR-0060) ═══
+
+    /// İlk `dut.<port> = ...` adımı (döngü gövdeleri dahil).
+    fn first_write(steps: &[TbStep]) -> Option<&TbStep> {
+        steps.iter().find_map(|s| match s {
+            TbStep::SetPort { .. } | TbStep::SetPortChecked { .. } => Some(s),
+            TbStep::For { body, .. } => first_write(body),
+            _ => None,
+        })
+    }
+
+    fn lit_write(port: &str, value: u64) -> TbStep {
+        TbStep::SetPort {
+            port: port.into(),
+            value: TbValue::Lit(value),
+        }
+    }
+
+    fn try_lower_ports(body: &str) -> Option<LoweredTest> {
+        let src = format!("{PORTS}test \"t\" {{\n    let dut = Ports {{ }};\n{body}\n}}\n");
+        let mut map = SourceMap::new();
+        let fid = map.add_file("ports_test.volt", src.clone());
+        let parsed = volt_syntax::parser::parse(fid, &src);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let test = parsed
+            .ast
+            .items
+            .iter()
+            .find_map(|i| match &parsed.ast.items_arena[*i].kind {
+                ItemKind::Test(t) => Some(t),
+                _ => None,
+            })
+            .expect("test bloğu");
+        let ctx = LowerCtx {
+            map: &map,
+            file_label: "ports_test.volt",
+            sources: &[&parsed.ast],
+            files: &FakeFiles(""),
+        };
+        lower_test(&ctx, test)
+    }
+
+    #[test]
+    fn constant_let_is_written_as_a_literal_without_a_check() {
+        let steps = lower_ports("    let n = 7;\n    dut.addr = n;");
+        assert_eq!(first_write(&steps), Some(&lit_write("addr", 7)));
+        assert!(port_check(&steps).is_none(), "{steps:?}");
+        // Betik değişkeni yine tanımlanır: assert'ler onu okuyabilir.
+        assert!(steps.contains(&TbStep::LetScalar {
+            name: "n".into(),
+            value: TbValue::Lit(7),
+        }));
+    }
+
+    #[test]
+    fn let_chain_folds_to_the_final_pattern() {
+        let steps = lower_ports("    let n = 3;\n    let m = n + 1;\n    dut.sv = 0 - m;");
+        assert_eq!(first_write(&steps), Some(&lit_write("sv", 0xFC)));
+    }
+
+    #[test]
+    fn overflowing_constant_let_does_not_lower() {
+        // E8512'den kaçan yayılmış sabit sessizce yazılmaz.
+        assert!(try_lower_ports("    let n = 8;\n    dut.addr = n;").is_none());
+        assert!(try_lower_ports("    let n = 7;\n    dut.addr = n;").is_some());
+    }
+
+    #[test]
+    fn port_read_let_keeps_the_runtime_check() {
+        let steps = lower_ports("    let x = dut.q16;\n    dut.addr = x;");
+        assert_eq!(port_check(&steps).expect("denetim").bits, Some(3));
+    }
+
+    #[test]
+    fn let_depending_on_the_loop_counter_keeps_the_runtime_check() {
+        let steps = lower_ports(
+            "    for i in 0..4 {\n        let n = i + 6;\n        dut.addr = n;\n    }",
+        );
+        assert_eq!(port_check(&steps).expect("denetim").bits, Some(3));
+    }
+
+    #[test]
+    fn constant_let_inside_a_loop_is_folded() {
+        let steps =
+            lower_ports("    for i in 0..4 {\n        let n = 5;\n        dut.addr = n;\n    }");
+        assert_eq!(first_write(&steps), Some(&lit_write("addr", 5)));
+    }
+
+    #[test]
+    fn block_local_constant_does_not_leak_out_of_the_loop() {
+        // Döngü içindeki `n` bloğuyla biter; dışarıdaki `n` ayrı bağlamadır.
+        let steps = lower_ports(
+            "    for i in 0..2 {\n        let n = 5;\n        dut.addr = n;\n    }\n    let n = dut.q16;\n    dut.addr = n;",
+        );
+        let outer = steps
+            .iter()
+            .rev()
+            .find(|s| matches!(s, TbStep::SetPort { .. } | TbStep::SetPortChecked { .. }))
+            .expect("dış yazım");
+        assert!(
+            matches!(outer, TbStep::SetPortChecked { value: TbValue::Var(v), .. } if v == "n"),
+            "{outer:?}"
+        );
     }
 
     #[test]

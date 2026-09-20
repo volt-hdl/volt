@@ -10,11 +10,12 @@
 
 use volt_ast::{
     Expr, ExprKind, Idx, ItemKind, Name, PortDir, SourceFile, TestBinOp, TestExpr, TestExprKind,
-    TestUnOp, TypeRef, TypeRefKind,
+    TypeRef, TypeRefKind,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 
 use crate::sim::DutMap;
+use crate::sim_const::TestConsts;
 
 /// Betik değerlerinin genişliği: bundan geniş port her değeri tutar.
 const SCRIPT_VALUE_BITS: u32 = 64;
@@ -183,25 +184,14 @@ pub fn test_port_width(sources: &[&SourceFile], module: &str, port: &str) -> Opt
     port_type_width(src, found.ty)
 }
 
-/// Yalnız literallerden oluşan test ifadesinin değeri. Anlam üretilen
-/// C++ ile aynıdır: 64 bitte sarar, 64 ve üstü kaydırma 0 verir; sıfıra
-/// bölme sabit değildir (çalışma zamanında testi düşürür).
+/// Yalnız literallerden oluşan test ifadesinin değeri: boş ortamda
+/// [`TestConsts::eval`]. Ad içeren ifadeler için ortamı kullanın
+/// (ADR-0060).
 pub fn const_test_value(expr: &TestExpr) -> Option<u64> {
-    match &expr.kind {
-        TestExprKind::Int(n) => Some(*n),
-        TestExprKind::Bool(b) => Some(u64::from(*b)),
-        TestExprKind::Unary {
-            op: TestUnOp::Not,
-            operand,
-        } => Some(u64::from(const_test_value(operand)? == 0)),
-        TestExprKind::Binary { op, lhs, rhs } => {
-            fold_binary(*op, const_test_value(lhs)?, const_test_value(rhs)?)
-        }
-        _ => None,
-    }
+    TestConsts::default().eval(expr)
 }
 
-fn fold_binary(op: TestBinOp, l: u64, r: u64) -> Option<u64> {
+pub(crate) fn fold_binary(op: TestBinOp, l: u64, r: u64) -> Option<u64> {
     let shift = |f: fn(u64, u32) -> u64| {
         u32::try_from(r)
             .ok()
@@ -251,6 +241,7 @@ fn dut_port_width(duts: &DutMap<'_>, dut: &Name, port: &Name, dir: PortDir) -> O
 /// `dut.port = <sabit>`: değer porta sığmıyorsa E8512.
 pub(crate) fn check_set_port_value(
     duts: &DutMap<'_>,
+    consts: &TestConsts,
     dut: &Name,
     port: &Name,
     value: &TestExpr,
@@ -259,8 +250,8 @@ pub(crate) fn check_set_port_value(
     let Some(width) = dut_port_width(duts, dut, port, PortDir::In) else {
         return;
     };
-    let Some(constant) = const_test_value(value) else {
-        return; // hesaplanmış değer: testbench çalışma zamanında denetler
+    let Some(constant) = consts.eval(value) else {
+        return; // çalışma zamanı değeri: testbench koşuda denetler
     };
     if width.accepts(constant) {
         return;
@@ -273,7 +264,7 @@ pub(crate) fn check_set_port_value(
     } else {
         lstr!(en: "use a value in range {range}"; tr: "{range} aralığında bir değer kullanın")
     };
-    diags.push(does_not_fit(value, constant, help).with_secondary(
+    diags.push(does_not_fit(consts, value, constant, help).with_secondary(
         port.span,
         lstr!(en: "port '{}' is {ty} (max {})", port.text, width.max_pattern();
               tr: "'{}' portu {ty} (en çok {})", port.text, width.max_pattern()),
@@ -285,6 +276,7 @@ pub(crate) fn check_set_port_value(
 /// düşer, `assert_ne` SESSİZCE hep geçerdi.
 pub(crate) fn check_assert_compare(
     duts: &DutMap<'_>,
+    consts: &TestConsts,
     args: &[TestExpr],
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -298,7 +290,7 @@ pub(crate) fn check_assert_compare(
         let Some(width) = dut_port_width(duts, dut, port, PortDir::Out) else {
             continue;
         };
-        let Some(constant) = const_test_value(other) else {
+        let Some(constant) = consts.eval(other) else {
             continue;
         };
         if width.fits_pattern(constant) {
@@ -313,7 +305,7 @@ pub(crate) fn check_assert_compare(
             lstr!(en: "the port reads values in 0..{max}; this comparison can never match";
                   tr: "port 0..{max} aralığında değer okur; bu karşılaştırma hiç eşleşemez")
         };
-        diags.push(does_not_fit(other, constant, help).with_secondary(
+        diags.push(does_not_fit(consts, other, constant, help).with_secondary(
             port.span,
             lstr!(en: "port '{}' is {ty} (max {max})", port.text;
                   tr: "'{}' portu {ty} (en çok {max})", port.text),
@@ -321,13 +313,28 @@ pub(crate) fn check_assert_compare(
     }
 }
 
-fn does_not_fit(value: &TestExpr, constant: u64, help: String) -> Diagnostic {
+/// E8512. Değer `let`/`const` bağlamalarından geliyorsa (ADR-0060) not
+/// satırı hangi adın hangi değeri taşıdığını söyler.
+fn does_not_fit(consts: &TestConsts, value: &TestExpr, constant: u64, help: String) -> Diagnostic {
     let shown = describe_value(constant);
-    Diagnostic::error(
+    let diag = Diagnostic::error(
         ErrorCode::E8512,
         lstr!(en: "value does not fit in port width"; tr: "değer port genişliğine sığmıyor"),
         LabeledSpan::primary(value.span, lstr!(en: "value {shown}"; tr: "değer {shown}")),
         help,
+    );
+    let bindings = consts.bindings_in(value);
+    if bindings.is_empty() {
+        return diag;
+    }
+    let listed = bindings
+        .iter()
+        .map(|(name, v)| format!("{name} = {}", describe_value(*v)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    diag.with_note(
+        NoteKind::Note,
+        lstr!(en: "known at compile time: {listed}"; tr: "derleme zamanında bilinen: {listed}"),
     )
 }
 

@@ -12,6 +12,7 @@ use volt_ast::{
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
+use crate::sim_const::TestConsts;
 use crate::sim_expr::{Scope, VarKind};
 use crate::sim_load;
 use crate::sim_port;
@@ -77,6 +78,7 @@ pub fn check_tests_with_files(
     files: Option<&dyn TestFileLoader>,
 ) -> Vec<Diagnostic> {
     let modules = collect_modules(sources);
+    let consts = TestConsts::new(sources);
     let mut diags = Vec::new();
 
     for idx in &tests_from.items {
@@ -96,7 +98,7 @@ pub fn check_tests_with_files(
             modules: &modules,
             assume_external_modules,
             files,
-            scope: Scope::default(),
+            scope: Scope::with_consts(consts.clone()),
             diags: &mut diags,
         };
         checker.check_block(&test.stmts, 0);
@@ -131,11 +133,20 @@ impl<'a> Checker<'a, '_> {
             } => {
                 check_set_port(&self.scope.duts, dut, port, self.diags);
                 self.scope.expect_scalar(value, self.diags);
-                sim_port::check_set_port_value(&self.scope.duts, dut, port, value, self.diags);
+                sim_port::check_set_port_value(
+                    &self.scope.duts,
+                    &self.scope.consts,
+                    dut,
+                    port,
+                    value,
+                    self.diags,
+                );
             }
             TestStmt::LetVar { name, value, .. } => {
                 let kind = self.scope.let_value(value, self.files, self.diags);
-                self.define(name, kind);
+                // Tek atamalı dil: sabit ifade bağlanan ad da sabittir.
+                let constant = self.scope.consts.eval(value);
+                self.define(name, kind, constant);
             }
             TestStmt::For {
                 var,
@@ -147,7 +158,7 @@ impl<'a> Checker<'a, '_> {
                 self.scope.expect_scalar(start, self.diags);
                 self.scope.expect_scalar(end, self.diags);
                 self.scope.push();
-                self.define(var, VarKind::Scalar);
+                self.define(var, VarKind::Scalar, None); // sayaç koşuda değişir
                 self.check_block(body, depth + 1);
                 self.scope.pop();
             }
@@ -179,12 +190,12 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    fn define(&mut self, name: &Name, kind: VarKind) {
+    fn define(&mut self, name: &Name, kind: VarKind, constant: Option<u64>) {
         if self.scope.is_defined(&name.text) {
             self.diags.push(duplicate_name(name));
             return;
         }
-        self.scope.define(&name.text, kind);
+        self.scope.define(&name.text, kind, constant);
     }
 
     fn check_call(&mut self, span: volt_span::Span, func: &Name, args: &'a [TestExpr]) {
@@ -209,7 +220,12 @@ impl<'a> Checker<'a, '_> {
                     self.scope.expect_scalar(arg, self.diags);
                 }
                 if matches!(func.text.as_str(), "assert_eq" | "assert_ne") {
-                    sim_port::check_assert_compare(&self.scope.duts, args, self.diags);
+                    sim_port::check_assert_compare(
+                        &self.scope.duts,
+                        &self.scope.consts,
+                        args,
+                        self.diags,
+                    );
                 }
             }
         }
