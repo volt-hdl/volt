@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{ExprKind, ItemKind, SourceFile, TestExpr, TestExprKind, TestUnOp};
+use volt_ast::{Expr, ExprKind, Idx, ItemKind, SourceFile, TestExpr, TestExprKind, TestUnOp, UnOp};
 
 use crate::sim_port::fold_binary;
 
@@ -39,11 +39,7 @@ impl TestConsts {
                 let ItemKind::Const(decl) = &src.items_arena[*idx].kind else {
                     continue;
                 };
-                let value = match &src.exprs[decl.value].kind {
-                    ExprKind::IntLit { value, .. } => u64::try_from(*value).ok(),
-                    ExprKind::BoolLit(b) => Some(u64::from(*b)),
-                    _ => None,
-                };
+                let value = plain_literal(src, decl.value);
                 globals.entry(decl.name.text.clone()).or_insert(value);
             }
         }
@@ -139,6 +135,25 @@ impl TestConsts {
             }
             _ => {}
         }
+    }
+}
+
+/// Düz literal: `8`, `true` ya da eksi işaretli literal `-1`. Negatif
+/// sayı test değerleriyle aynı biçimde 64 bitte sarar (`0 - 1`).
+fn plain_literal(src: &SourceFile, expr: Idx<Expr>) -> Option<u64> {
+    match &src.exprs[expr].kind {
+        ExprKind::IntLit { value, .. } => u64::try_from(*value).ok(),
+        ExprKind::BoolLit(b) => Some(u64::from(*b)),
+        ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } => match &src.exprs[*operand].kind {
+            ExprKind::IntLit { value, .. } => {
+                u64::try_from(*value).ok().map(|v| 0u64.wrapping_sub(v))
+            }
+            _ => None,
+        },
+        _ => None,
     }
 }
 

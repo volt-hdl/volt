@@ -98,7 +98,7 @@ pub fn check_tests_with_files(
             modules: &modules,
             assume_external_modules,
             files,
-            scope: Scope::with_consts(consts.clone()),
+            scope: Scope::with_consts(consts.clone(), assume_external_modules),
             diags: &mut diags,
         };
         checker.check_block(&test.stmts, 0);
@@ -193,6 +193,9 @@ impl<'a> Checker<'a, '_> {
     fn define(&mut self, name: &Name, kind: VarKind, constant: Option<u64>) {
         if self.scope.is_defined(&name.text) {
             self.diags.push(duplicate_name(name));
+            // İki bağlamadan hangisinin kastedildiği belirsiz: eski değerle
+            // sahte E8512 üretmemek için ad "bilinmiyor"a iner.
+            self.scope.consts.bind(&name.text, None);
             return;
         }
         self.scope.define(&name.text, kind, constant);

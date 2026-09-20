@@ -105,15 +105,35 @@ testbench'i bayt bayt aynıdır (golden kayıtları değişmedi).
 `let k = SOME_CONST;` eskiden E8506 ("tanımlı değil") idi. Artık
 `sources`taki (test dosyası + kardeşi) üst düzey `const`lar görünür:
 
-- **Düz literal** (`const LIMIT : u8 = 8`): sabit; betiğe değeriyle
-  (`TbValue::Lit`) yazılır — C++ tarafında böyle bir değişken yoktur.
+- **Düz literal** (`const LIMIT : u8 = 8`, `true`, eksi işaretli
+  `const NEG : i8 = -1`): sabit; betiğe değeriyle (`TbValue::Lit`) yazılır
+  — C++ tarafında böyle bir değişken yoktur. Negatif literal test
+  değerleri gibi 64 bitte sarar (`0 - 1`), işaretli porta ADR-0059 §2
+  kuralıyla sığar.
 - **Hesaplanmış** (`const B : u8 = A + 1`) ya da 64 bite sığmayan: değeri
   burada çözülmez (seçenek 2'nin gerekçesi). SESSİZ KALMAZ: **E8506**
   `const 'B' is not a plain literal; its value is not visible in a test`
   + çözüm (`let B = ...;`). Yeni hata kodu açılmadı; E8506 zaten "bu ad
   bu testte kullanılamaz" sınıfıdır.
 
-Yerel ad üst düzey sabiti gölgeler (hata değil; Rust ile aynı).
+Yerel ad üst düzey sabiti gölgeler (hata değil; Rust ile aynı). Dizi
+konumunda (`len(LIMIT)`, `LIMIT[0]`, `load` kaynağı) üst düzey sabit
+E8511'dir ("sabit sayı, dizi değil"), E8506 değil.
+
+**Kardeş dosya ve tek dosyalık analiz.** `m_test.volt`, `m.volt`deki
+`const DEPTH`i kullanabilir; ama `compile()`, `analyze` ve LSP test
+bloklarını kardeşi YÜKLEMEDEN denetler. O kipte (`assume_external_modules`
+— dosyada hiç modül yok) bilinmeyen bir ad kardeşin sabiti olabilir:
+E8506 verilmez, karar kardeşli tam denetime (`volt test`) kalır. Bu,
+modül/port denetiminin aynı kipte zaten yaptığı gevşetmedir (ADR-0033);
+bedeli de aynıdır: böyle bir dosyada `volt check` ad yazım hatasını
+göremez, `volt test` görür. İlk uygulama bunu atlamıştı — tek dosyalık
+ön denetim `DEPTH` için E8506, tam denetim aynı ad için E8512 veriyordu
+(kod incelemesinde bulundu; `sibling_const_*` testleri nöbette).
+
+Yinelenen `let` (E8506) sonrası ad ortamda "bilinmiyor"a iner: hangi
+bağlamanın kastedildiği belirsizken eski değerle ikinci bir E8512
+üretilmez.
 
 ### 4. Tanı
 
@@ -154,6 +174,7 @@ kardeş dosyada olabilir ve kardeş ayrı `SourceMap` ile derlenir
 | `len(t)` | Katlanmaz → koşuda denetlenir | Hayır |
 | Sabit sıfıra bölme | Sabit değil → koşuda test düşer | Hayır |
 | Hesaplanmış üst düzey `const` | E8506 (derleme) | Hayır |
+| Modülsüz test dosyasında bilinmeyen ad, tek dosyalık analiz (`volt check`, LSP) | Tanı yok — kardeşin sabiti olabilir; `volt test` tam denetimde E8506 | `check`te evet (ADR-0033 modül/port gevşetmesiyle aynı bedel), `test`te hayır |
 | Genişliği çözülemeyen port (takma ad, generic) | Sabit bilinse de C++ depolama tipine göre koşuda (ADR-0059 §1) | Hayır |
 | `step(n)`, `n` sabit 0 | Yalnız literal `step(0)` E8505; yayılmış 0 koşuya kalır | Hayır (0 adım) |
 

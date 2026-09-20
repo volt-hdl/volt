@@ -180,3 +180,61 @@ fn literal_value_gets_no_binding_note() {
     assert_eq!(found.len(), 1);
     assert!(found[0].notes.is_empty(), "{found:?}");
 }
+
+// ═══ İnceleme bulguları ═══════════════════════════════════════════
+
+#[test]
+fn duplicate_let_does_not_leave_a_stale_constant_behind() {
+    // Yinelenen ad E8506'dır; eski değerle sahte E8512 üretilmemeli.
+    assert_eq!(
+        codes("let n = 9;\nlet n = 3;\ndut.addr = n;"),
+        vec!["E8506"]
+    );
+    assert_eq!(
+        codes("let i = 9;\nfor i in 0..2 {\n    dut.addr = i;\n}"),
+        vec!["E8506"]
+    );
+}
+
+#[test]
+fn negated_literal_const_is_a_plain_literal() {
+    let src = format!(
+        "const NEG : i8 = -1\nconst LOW : i8 = -129\n{DUT}\ntest \"t\" {{\n    let dut = Dut {{ }};\n    dut.sv = NEG;\n    dut.sv = LOW;\n}}\n"
+    );
+    let ast = parse(&src);
+    let found: Vec<String> = check_tests(&[&ast], &ast, false)
+        .iter()
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    // NEG = -1 sığar; LOW = -129 i8'e sığmaz.
+    assert_eq!(found, vec!["E8512"]);
+}
+
+#[test]
+fn top_level_const_in_an_array_position_is_a_type_error() {
+    // 'LIMIT' tanımlıdır ama dizi değildir: E8506 değil E8511.
+    assert_eq!(codes("dut.addr = len(LIMIT);"), vec!["E8511"]);
+    assert_eq!(codes("dut.addr = LIMIT[0];"), vec!["E8511"]);
+}
+
+#[test]
+fn single_file_pass_defers_unknown_names_to_the_sibling_check() {
+    // Modülsüz test dosyası: adlar kardeş dosyanın `const`ları olabilir.
+    // Tek dosyalık ön denetim (assume_external_modules) E8506 vermez;
+    // kardeşli tam denetim verir.
+    let lib = parse("const DEPTH : u8 = 9\n\nmodule M {\n    in  clk  : clock\n    in  addr : u3\n    out echo : u3\n    echo = addr\n}\n");
+    let test = parse(
+        "test \"t\" {\n    let dut = M { };\n    dut.addr = DEPTH;\n    dut.addr = typo;\n}\n",
+    );
+    let single: Vec<_> = check_tests(&[&test], &test, true)
+        .iter()
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    assert!(single.is_empty(), "{single:?}");
+
+    let full: Vec<_> = check_tests(&[&test, &lib], &test, false)
+        .iter()
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    assert_eq!(full, vec!["E8512", "E8506"]);
+}

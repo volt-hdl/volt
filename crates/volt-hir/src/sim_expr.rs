@@ -36,13 +36,17 @@ pub(crate) struct Scope<'a> {
     /// Derleme zamanında bilinen değerler (ADR-0060); çerçeveleri
     /// `frames` ile birlikte açılıp kapanır.
     pub consts: TestConsts,
+    /// Tek dosyalık analiz (kardeş dosya yüklenmedi): bilinmeyen ad
+    /// kardeşin üst düzey `const`u olabilir — E8506 tam denetime kalır.
+    pub assume_external_names: bool,
     frames: Vec<HashMap<String, VarKind>>,
 }
 
 impl Scope<'_> {
-    pub fn with_consts(consts: TestConsts) -> Self {
+    pub fn with_consts(consts: TestConsts, assume_external_names: bool) -> Self {
         Self {
             consts,
+            assume_external_names,
             ..Self::default()
         }
     }
@@ -83,6 +87,15 @@ impl Scope<'_> {
                     name.span,
                     lstr!(en: "'{}' is a number, not an array", name.text;
                           tr: "'{}' bir sayı, dizi değil", name.text),
+                ));
+                None
+            }
+            // Üst düzey `const` tanımlıdır ama sayıdır (ADR-0060).
+            None if self.consts.global(&name.text).is_some() => {
+                diags.push(type_mismatch(
+                    name.span,
+                    lstr!(en: "'{}' is a const number, not an array", name.text;
+                          tr: "'{}' bir sabit sayı, dizi değil", name.text),
                 ));
                 None
             }
@@ -163,6 +176,7 @@ impl Scope<'_> {
             None => match self.consts.global(&name.text) {
                 Some(Some(_)) => {}
                 Some(None) => diags.push(computed_const(name)),
+                None if self.assume_external_names => {}
                 None => diags.push(undefined_name(name)),
             },
         }

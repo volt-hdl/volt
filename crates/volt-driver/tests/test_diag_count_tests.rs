@@ -167,3 +167,74 @@ test \"t\" {
     assert_eq!(occurrences(&stderr, "error[E"), 1, "{stderr}");
     assert!(stderr.contains("due to 1 error(s)"), "{stderr}");
 }
+
+// ═══ Kardeş dosyadaki `const` (ADR-0060) ══════════════════════════
+
+const TABLE_LIB: &str = "\
+const DEPTH : u8 = 9
+const LAST  : u8 = 7
+
+module M {
+    in  clk  : clock
+    in  addr : u3
+    out echo : u3
+
+    echo = addr
+}
+";
+
+#[test]
+fn sibling_const_overflow_is_one_e8512_not_an_undefined_name() {
+    let tests = "test \"t\" {\n    let dut = M { };\n    dut.addr = DEPTH;\n    step(1);\n}\n";
+    let (code, stderr) = run_test_cmd(
+        "sibling-const",
+        &[("m.volt", TABLE_LIB), ("m_test.volt", tests)],
+        "m_test.volt",
+    );
+
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(occurrences(&stderr, "error[E8506]"), 0, "{stderr}");
+    assert_eq!(occurrences(&stderr, "error[E8512]"), 1, "{stderr}");
+    assert!(stderr.contains("DEPTH = 9"), "{stderr}");
+    assert!(stderr.contains("due to 1 error(s)"), "{stderr}");
+}
+
+#[test]
+fn sibling_const_that_fits_builds_the_test() {
+    // Derleme geçer; başlatılamayan "Verilator" ile araç aşamasına
+    // (çıkış 3) kadar gelinmesi derlemenin hatasız bittiğini gösterir.
+    let dir = temp_dir("sibling-const-ok");
+    std::fs::write(dir.join("m.volt"), TABLE_LIB).expect("yaz");
+    let test_file = dir.join("m_test.volt");
+    std::fs::write(
+        &test_file,
+        "test \"t\" {\n    let dut = M { };\n    dut.addr = LAST;\n    step(1);\n    assert_eq(dut.echo, LAST);\n}\n",
+    )
+    .expect("yaz");
+    let output = volt()
+        .current_dir(&dir)
+        .env("VOLT_LANG", "en")
+        .env("VOLT_VERILATOR", &test_file)
+        .args(["test", "m_test.volt", "--target-dir", "build"])
+        .output()
+        .expect("volt test");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(output.status.code(), Some(3), "{stderr}");
+    assert_eq!(occurrences(&stderr, "error[E"), 0, "{stderr}");
+}
+
+#[test]
+fn sibling_style_typo_is_still_reported_once_by_the_full_check() {
+    let tests = "test \"t\" {\n    let dut = M { };\n    dut.addr = typo;\n}\n";
+    let (code, stderr) = run_test_cmd(
+        "sibling-typo",
+        &[("m.volt", TABLE_LIB), ("m_test.volt", tests)],
+        "m_test.volt",
+    );
+
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(occurrences(&stderr, "error[E8506]"), 1, "{stderr}");
+    assert!(stderr.contains("due to 1 error(s)"), "{stderr}");
+}
