@@ -5,7 +5,7 @@
 //! ihlalde E1002). Prelude yerleşikleri §7'de; Trit prelude'de DEĞİL
 //! (opt-in import, UX Anayasası).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use volt_ast::{
     ArrayLitKind, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, ExternDecl,
@@ -23,7 +23,7 @@ use crate::unit::{mono_base, FileScope};
 
 // ═══ Kimlikler ════════════════════════════════════════════════════
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DefId(pub u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1721,11 +1721,20 @@ impl<'a> Resolver<'a> {
         self.diagnostics.push(diag);
     }
 
+    /// Görünür adlar — DETERMİNİSTİK sırada: içten dışa kapsam, kapsam
+    /// içinde DefId (bildirim) sırası. `closest_match` eşit uzaklıkta ilk
+    /// adayı seçtiğinden öneri `HashMap` sırasına sızmamalıdır.
     fn visible_names(&self, scope: ScopeId) -> Vec<String> {
         let mut names = Vec::new();
         let mut current = Some(scope);
         while let Some(s) = current {
-            names.extend(self.scopes[s.0 as usize].bindings.keys().cloned());
+            let mut bound: Vec<(DefId, &String)> = self.scopes[s.0 as usize]
+                .bindings
+                .iter()
+                .map(|(name, &def)| (def, name))
+                .collect();
+            bound.sort_unstable();
+            names.extend(bound.into_iter().map(|(_, name)| name.clone()));
             current = self.scopes[s.0 as usize].parent;
         }
         names
@@ -1741,7 +1750,8 @@ impl<'a> Resolver<'a> {
     // ═══ E1006: modül örnekleme döngüsü ═══════════════════════════
 
     fn check_instance_cycles(&mut self) {
-        let mut edges: HashMap<DefId, Vec<DefId>> = HashMap::new();
+        // BTreeMap: DFS başlangıçları DefId sırasıyla gezilir (determinizm).
+        let mut edges: BTreeMap<DefId, Vec<DefId>> = BTreeMap::new();
         for &(from, to) in &self.instance_edges {
             edges.entry(from).or_default().push(to);
         }
@@ -1765,20 +1775,27 @@ impl<'a> Resolver<'a> {
     fn dfs_cycle(
         &mut self,
         node: DefId,
-        edges: &HashMap<DefId, Vec<DefId>>,
+        edges: &BTreeMap<DefId, Vec<DefId>>,
         visited: &mut HashSet<DefId>,
         path_set: &mut HashSet<DefId>,
         stack: &mut Vec<DefId>,
         reported: &mut HashSet<DefId>,
     ) {
         if path_set.contains(&node) {
-            if reported.insert(node) {
-                let cycle: Vec<String> = stack
+            // Yığının sonu `node`'un ikinci görünüşü; döngü ilkinden başlar.
+            let first = stack.iter().position(|d| *d == node).unwrap_or(0);
+            let members = &stack[first..stack.len() - 1];
+            // Döngü, girildiği yerden bağımsız olarak en küçük DefId'li
+            // modülden başlatılır: aynı döngü hep aynı metni üretir.
+            let pivot = (0..members.len()).min_by_key(|&i| members[i]).unwrap_or(0);
+            let head = members[pivot];
+            if reported.insert(head) {
+                let cycle: Vec<String> = members[pivot..]
                     .iter()
-                    .skip_while(|d| **d != node)
+                    .chain(&members[..pivot])
                     .map(|d| self.defs[d.0 as usize].name.clone())
                     .collect();
-                let span = self.defs[node.0 as usize].span;
+                let span = self.defs[head.0 as usize].span;
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E1006,
