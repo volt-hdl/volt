@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use volt_ast::{ItemKind, SourceFile, TestDecl};
-use volt_diagnostics::lstr;
+use volt_diagnostics::{lstr, Diagnostic};
 use volt_sv_emit::{SvaMode, TbTest};
 
 use super::test_files::sibling_path;
@@ -87,19 +87,35 @@ pub(super) fn compile_unit(file: &Path) -> Result<TestUnit, ExitCode> {
     Ok(unit)
 }
 
-/// Kardeş dosya dahil TAM test denetimi (E8501-E8506): tanıları basar,
+/// Kardeş dosya dahil TAM test denetimi (E8501-E8512): tanıları basar,
 /// hata sayısını döndürür.
+///
+/// `compile` aynı test bloklarını tek dosya olarak zaten denetlemiş ve
+/// tanılarını `render_diagnostics` basmıştır; tam denetim onun üst
+/// kümesidir. Yalnız YENİ tanılar basılır ve sayılır — yoksa her test
+/// hatası iki kez görünür ve "2 error(s)" diye sayılırdı.
 fn check_unit_tests(unit: &TestUnit) -> usize {
     let files = FsTestFiles::for_test_file(&unit.path);
     let test_diags =
         volt_hir::check_tests_with_files(&unit.sources(), &unit.compiled.ast, false, Some(&files));
-    for diag in &test_diags {
+    let fresh = unreported(test_diags, &unit.compiled.diagnostics);
+    for diag in &fresh {
         eprintln!(
             "{}",
             volt_diagnostics::render_human(diag, &unit.compiled.map)
         );
     }
-    test_diags.iter().filter(|d| !d.code.is_warning()).count()
+    fresh.iter().filter(|d| !d.code.is_warning()).count()
+}
+
+/// `candidates` içinden `reported`da birebir (kod, konum, ileti, notlar)
+/// bulunmayanları sırayı koruyarak döndürür. Farklı konumdaki aynı hata
+/// ayrı tanıdır: iki test bloğundaki aynı yanlış iki kez sayılır.
+fn unreported(candidates: Vec<Diagnostic>, reported: &[Diagnostic]) -> Vec<Diagnostic> {
+    candidates
+        .into_iter()
+        .filter(|diag| !reported.contains(diag))
+        .collect()
 }
 
 // ═══ Gruplama ═════════════════════════════════════════════════════
@@ -194,6 +210,32 @@ mod tests {
                 .map(|(m, r)| (m.to_string(), r.to_string()))
                 .collect(),
         }
+    }
+
+    fn diag_at(code: volt_diagnostics::ErrorCode, start: u32) -> Diagnostic {
+        let span = volt_span::Span::new(volt_span::FileId(0), start, start + 1);
+        Diagnostic::error(
+            code,
+            "ileti".to_string(),
+            volt_diagnostics::LabeledSpan::primary(span, "etiket".to_string()),
+            "çözüm".to_string(),
+        )
+    }
+
+    #[test]
+    fn unreported_drops_exact_repeats_but_keeps_other_spans_and_codes() {
+        // Arrange
+        use volt_diagnostics::ErrorCode::{E8503, E8504};
+        let reported = [diag_at(E8503, 10)];
+        let candidates = vec![diag_at(E8503, 10), diag_at(E8503, 40), diag_at(E8504, 10)];
+
+        // Act
+        let fresh = unreported(candidates, &reported);
+
+        // Assert: aynı kod başka konumda ve aynı konumda başka kod yenidir.
+        assert_eq!(fresh, [diag_at(E8503, 40), diag_at(E8504, 10)]);
+        assert!(unreported(vec![diag_at(E8503, 10)], &reported).is_empty());
+        assert_eq!(unreported(vec![diag_at(E8503, 10)], &[]).len(), 1);
     }
 
     #[test]
