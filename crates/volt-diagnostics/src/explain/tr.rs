@@ -757,6 +757,41 @@ module Gpio {
             "test \"t\" {\n    dut.enable = true;      // ✗ E8506: 'dut' henüz tanımsız\n}",
             "test \"t\" {\n    let dut = Counter { };\n    dut.enable = true;      // ✓\n}",
         ),
+        E8507 => Explanation::new(
+            "Test veri dosyası bulunamadı ya da proje dışında",
+            "read_hex() var olmayan bir dosyayı ya da proje dizininden çıkan bir yolu gösteriyor.",
+            "Test veri yolları test dosyasına göre çözülür ve bir test yalnız kendi projesindeki dosyaları okuyabilir (en yakın Volt.toml'un dizini; yoksa test dosyasının kendi dizini). Dışarı uzanan bir test — mutlak yol ya da proje kökünü aşan '..' — sonucu koştuğu makineye bağımlı kılar ve indirilen bir testin keyfi dosya okumasına izin verirdi.",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = read_hex(\"../../secrets.hex\");   // ✗ E8507: projeden çıkıyor\n}",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = read_hex(\"sw/hello.hex\");        // ✓ test dosyasına göre göreli\n}",
+        ),
+        E8508 => Explanation::new(
+            "Bozuk hex veri dosyası",
+            "read_hex()'e verilen dosya geçerli bir $readmemh metni değil.",
+            "read_hex() Verilog $readmemh biçimini kabul eder: boşlukla ayrılmış onaltılık kelimeler, '_' ayırıcıları, '//' ve '/* */' yorumları ve yazma konumunu (eleman cinsinden) taşıyan '@adres'. 64 bitten geniş kelimeler, x/z basamakları, boş dosya ve 1M elemanı aşan adresler reddedilir; çünkü test betiği düz 64 bit değerlerle çalışır.",
+            "// data.hex\n0000_0013\n0000_00G3        // ✗ E8508: 'G' onaltılık basamak değil",
+            "// data.hex\n@0\n0000_0013 0000_0093   // ✓\n/* boşluk */ @8\nDEADBEEF",
+        ),
+        E8509 => Explanation::new(
+            "load() hedefi bir bellek dizisi değil",
+            "load()'un ilk argümanı test edilen tasarımın bir dizi yazmacını göstermelidir.",
+            "load(dut.mem, veri) test verisini simüle edilen tasarımın belleğine doğrudan yazar; bu yüzden hedef dizi tipli bir 'reg' olmalıdır — testin modülünde (dut.mem) ya da bir alt örnekte (dut.cpu.mem). Portlar, wire'lar, skalar yazmaçlar ve bilinmeyen adlar yüklenemez. 64 bitten geniş elemanlar desteklenmez.",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = [0x13, 0x93];\n    load(dut.halted, rom);      // ✗ E8509: 'halted' bir port\n}",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = [0x13, 0x93];\n    load(dut.imem, rom);        // ✓ reg imem : [u32; 128]\n}",
+        ),
+        E8510 => Explanation::new(
+            "load() kaynağı hedef diziye sığmıyor",
+            "Veri hedef bellekten uzun ya da bir değer bir elemanın taşıyabileceğinden fazla bit istiyor.",
+            "load() 0. elemanı 0. elemana kopyalar ve daha uzun hedefin kalanına dokunmaz — $readmemh gibi. Bellekten uzun veri ya da eleman genişliğine sığmayan kelime simülasyonda sessizce kırpılırdı ve çalıştığını sandığınız program bellekteki olmazdı. Bellek boyutu düz bir sayı değilse aynı denetim simülasyon anında yapılır ve testi düşürür.",
+            "test \"t\" {\n    let dut = Soc { };             // reg imem : [u32; 2]\n    let rom = [1, 2, 3];\n    load(dut.imem, rom);           // ✗ E8510: 2'lik diziye 3 eleman\n}",
+            "test \"t\" {\n    let dut = Soc { };             // reg imem : [u32; 4]\n    let rom = [1, 2, 3];\n    load(dut.imem, rom);           // ✓ imem[3] değerini korur\n}",
+        ),
+        E8511 => Explanation::new(
+            "Test ifadesinde tip uyuşmazlığı",
+            "Sayı beklenen yerde dizi ya da dizi beklenen yerde sayı kullanılmış.",
+            "Test değerleri ya 64 bit sayıdır ya da bunların dizisidir. Portlar, step(), assert'ler, operatörler ve döngü sınırları sayı alır; indeksleme, len() ve load() kaynağı dizi alır. Dizi literalleri yalnız sabit sayı tutar ve boş olamaz; read_hex() string literali alır ve önce 'let' ile bağlanmalıdır.",
+            "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected);      // ✗ E8511: sayı değil dizi\n}",
+            "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected[0]);   // ✓\n}",
+        ),
 
         // ─── Release disiplini ───
         E9001 => Explanation::new(

@@ -63,11 +63,40 @@ ItemKind        = ModuleDecl                                (* [F0] *)
 TestDecl        = "test" StringLit "{" { TestStmt } "}" ;   (* [F4] ADR-0033 *)
 
 TestStmt        = "let" Ident "=" Ident "{" "}" ";"         (* dut örnekleme *)
+                | "let" Ident "=" TestExpr ";"              (* yerel değişken — ADR-0058 *)
+                | "for" Ident "in" TestExpr ".." TestExpr
+                  "{" { TestStmt } "}"                      (* çalışma zamanı döngüsü — ADR-0058 *)
                 | Ident "." Ident "=" TestExpr ";"          (* giriş sürme *)
-                | Ident "(" [ TestExpr { "," TestExpr } ] ")" ";" ;
-                                                            (* step/reset/assert_* *)
+                | Ident "(" [ TestExprList ] ")" ";" ;
+                                                            (* step/reset/assert_*/load *)
 
-TestExpr        = IntLit | "true" | "false" | Ident "." Ident ;
+(* ADR-0058: 'let x = Ad {' dut örneklemedir, diğer her 'let' yerel
+   değişkendir (tek token ileri bakış). Değerler 64 bit işaretsiz sayı
+   ya da sayı dizisidir. Öncelik ve birleşim donanım ifadeleriyle
+   aynıdır (operator-precedence.md); karşılaştırma ve eşitlik
+   zincirlenemez. Dizi literali ve read_hex yalnız 'let' sağ tarafında,
+   StringLit yalnız read_hex argümanı olarak, iki ve daha çok parçalı
+   yol yalnız load hedefi olarak anlamlıdır (E8511). *)
+TestExpr        = TestOr ;
+TestOr          = TestAnd { "||" TestAnd } ;
+TestAnd         = TestEq { "&&" TestEq } ;
+TestEq          = TestCmp [ ( "==" | "!=" ) TestCmp ] ;
+TestCmp         = TestBitOr [ ( "<" | ">" | "<=" | ">=" ) TestBitOr ] ;
+TestBitOr       = TestBitXor { "|" TestBitXor } ;
+TestBitXor      = TestBitAnd { "^" TestBitAnd } ;
+TestBitAnd      = TestShift { "&" TestShift } ;
+TestShift       = TestAdd { ( "<<" | ">>" ) TestAdd } ;
+TestAdd         = TestMul { ( "+" | "-" ) TestMul } ;
+TestMul         = TestUnary { ( "*" | "/" | "%" ) TestUnary } ;
+TestUnary       = "!" TestUnary | TestPrimary ;
+TestPrimary     = IntLit | "true" | "false" | StringLit
+                | "(" TestExpr ")"
+                | "[" [ TestExprList ] "]"                  (* dizi literali *)
+                | Ident "." Ident { "." Ident }             (* dut.port | dut.inst.mem *)
+                | Ident "(" [ TestExprList ] ")"            (* read_hex / len *)
+                | Ident "[" TestExpr "]"                    (* dizi indeksi *)
+                | Ident ;                                   (* yerel değişken *)
+TestExprList    = TestExpr { "," TestExpr } [ "," ] ;
 
 
 (* ═══ 2. NİTELİKLER (ATTRIBUTES) ══════════════════════════════ *)

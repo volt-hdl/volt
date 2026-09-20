@@ -931,43 +931,42 @@ test "uart status readable" {
 }
 
 // ── A real C program ──────────────────────────────────────────────
-// riscv_sw/hello.c, compiled with GCC (-march=rv32im -O2) and linked
-// into riscv_sw/hello_rom.volt. HelloSoc (riscv_sw/hello_soc.volt)
-// wraps the core with that ROM, a RAM and a UART receiver, because a
-// test block cannot load memory or collect serial bytes on its own:
-// the receiver stores every byte and the test pages through them with
-// rx_sel (one step lets the selected byte settle; the program has
-// halted by then, so extra cycles change nothing).
+// riscv_sw/hello.c, compiled with GCC (-march=rv32im -O2). The test
+// reads the linked image (riscv_sw/hello.hex, 32-bit $readmemh words)
+// and loads it into the program memory of HelloSoc
+// (riscv_sw/hello_soc.volt), which wraps the core with that memory, a
+// RAM and a UART receiver. The core ran on an empty memory during the
+// implicit start-up reset, so reset() restarts it on the program —
+// loaded memories survive a reset (ADR-0058).
+// A test cannot collect serial bytes on its own: the receiver stores
+// every byte and the test pages through them with rx_sel (one step lets
+// the selected byte settle; the program has halted by then, so extra
+// cycles change nothing).
 // The program prints the greeting, then 7 * 6 as "42" — MUL for the
 // product, DIV and REM for the two digits — one 40-cycle frame per byte.
 
 test "hello program prints greeting" {
     let dut = HelloSoc { };
+    let program = read_hex("riscv_sw/hello.hex");
+    // "Hello from Volt!\n42\n" — 4 is 42 / 10, 2 is 42 % 10
+    let expected = [
+        0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x20,
+        0x66, 0x72, 0x6F, 0x6D, 0x20,
+        0x56, 0x6F, 0x6C, 0x74, 0x21, 0x0A,
+        0x34, 0x32, 0x0A,
+    ];
+    load(dut.imem, program);
+    reset();
     step(5000);
     assert_true(dut.halted);         // reached `halt: j halt` ...
     assert_false(dut.trap_seen);     // ... without a single trap
     assert_false(dut.unexpected);    // ... or a stray bus access
-    assert_eq(dut.rx_count, 20);     // "Hello from Volt!\n42\n"
-    dut.rx_sel = 0;   step(1);  assert_eq(dut.rx_byte, 0x48);   // H
-    dut.rx_sel = 1;   step(1);  assert_eq(dut.rx_byte, 0x65);   // e
-    dut.rx_sel = 2;   step(1);  assert_eq(dut.rx_byte, 0x6C);   // l
-    dut.rx_sel = 3;   step(1);  assert_eq(dut.rx_byte, 0x6C);   // l
-    dut.rx_sel = 4;   step(1);  assert_eq(dut.rx_byte, 0x6F);   // o
-    dut.rx_sel = 5;   step(1);  assert_eq(dut.rx_byte, 0x20);   // space
-    dut.rx_sel = 6;   step(1);  assert_eq(dut.rx_byte, 0x66);   // f
-    dut.rx_sel = 7;   step(1);  assert_eq(dut.rx_byte, 0x72);   // r
-    dut.rx_sel = 8;   step(1);  assert_eq(dut.rx_byte, 0x6F);   // o
-    dut.rx_sel = 9;   step(1);  assert_eq(dut.rx_byte, 0x6D);   // m
-    dut.rx_sel = 10;  step(1);  assert_eq(dut.rx_byte, 0x20);   // space
-    dut.rx_sel = 11;  step(1);  assert_eq(dut.rx_byte, 0x56);   // V
-    dut.rx_sel = 12;  step(1);  assert_eq(dut.rx_byte, 0x6F);   // o
-    dut.rx_sel = 13;  step(1);  assert_eq(dut.rx_byte, 0x6C);   // l
-    dut.rx_sel = 14;  step(1);  assert_eq(dut.rx_byte, 0x74);   // t
-    dut.rx_sel = 15;  step(1);  assert_eq(dut.rx_byte, 0x21);   // !
-    dut.rx_sel = 16;  step(1);  assert_eq(dut.rx_byte, 0x0A);   // newline
-    dut.rx_sel = 17;  step(1);  assert_eq(dut.rx_byte, 0x34);   // 4  (42 / 10)
-    dut.rx_sel = 18;  step(1);  assert_eq(dut.rx_byte, 0x32);   // 2  (42 % 10)
-    dut.rx_sel = 19;  step(1);  assert_eq(dut.rx_byte, 0x0A);   // newline
+    assert_eq(dut.rx_count, len(expected));
+    for i in 0..len(expected) {
+        dut.rx_sel = i;
+        step(1);
+        assert_eq(dut.rx_byte, expected[i]);
+    }
     // Program-specific: 847 instructions in 913 cycles — the DIV and
     // the REM each hold the core for 33 extra cycles.
     assert_eq(dut.cycles, 913);

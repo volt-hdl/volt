@@ -15,6 +15,9 @@ pub mod drivers;
 pub mod handshake;
 pub mod resolve;
 pub mod sim;
+mod sim_expr;
+mod sim_load;
+pub mod testdata;
 pub mod timing;
 pub mod trust;
 pub mod ty;
@@ -34,7 +37,12 @@ pub use resolve::{
     resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
     ScopeId, ScopeKind,
 };
-pub use sim::{check_tests, collect_modules};
+pub use sim::{check_tests, check_tests_with_files, collect_modules};
+pub use sim_load::{resolve_load_target, LoadTarget};
+pub use testdata::{
+    normalize_data_path, parse_readmemh, HexError, HexErrorReason, HexImage, TestFileError,
+    TestFileLoader,
+};
 pub use timing::check_timing;
 pub use trust::check_trust;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};

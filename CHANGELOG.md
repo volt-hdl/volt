@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Test dili: yerel değişken, dizi, `for`, `read_hex`, `load` (2026-09-20, ADR-0058)
+
+- `let n = 4;`, `let expected = [0x63, 0x7c];`, `expected[i]`, `len(x)` ve
+  tam ifade kümesi (`* / % + - << >> & ^ |`, karşılaştırma, `&& || !`);
+  öncelik donanım ifadeleriyle aynı. Değerler 64 bit sayı ya da sayı dizisi.
+- `for i in 0..16 { ... }` — üretilen C++'ta ÇALIŞMA ZAMANI döngüsü
+  (açılım değil): gövde bir kez üretilir, sınır port/`len` olabilir,
+  düşen assert sayaçları raporlar (`loop:  i = 2, j = 1`).
+- `read_hex("dosya.hex")` — `$readmemh` metni derleme zamanında okunur;
+  yol test dosyasına göre görelidir ve projeden çıkamaz (E8507), biçim
+  hatası satır numarasıyla E8508.
+- `load(dut.mem, veri)` / `load(dut.cpu.mem, veri)` — tasarımın dizi
+  yazmacına doğrudan yazar. Üretilen SV değişmez: hedefler bir `.vlt`
+  dosyasıyla tek tek `public_flat_rw` yapılır. Yüklenen bellek
+  `reset()`'ten sağ çıkar. E8509 (hedef bellek değil), E8510 (sığmıyor).
+- İndeks taşması, sıfıra bölme ve sığmayan `load` testi çökertmez,
+  konumuyla düşürür. Yeni kodlar E8507–E8511, `volt explain` iki dilde.
+- ADR-0058 özelliği kullanmayan testlerin testbench'i bayt bayt aynıdır.
+- `examples/riscv_sw/`: `hex2volt.py` ve `hello_rom.volt` silindi;
+  `HelloSoc` programı `read_hex` + `load` ile alır, `hello.hex` 32 bit
+  kelime dökümü oldu. 59/59 test, 913 çevrim / 847 komut aynı.
+
 ### Düzeltildi — SV üretiminde operatör önceliği: SESSİZ YANLIŞ DERLEME (2026-09-20, ADR-0057)
 
 - **Belirti**: `(a & b) == 0` → `a & b == 8'd0` üretiliyordu; SV bunu

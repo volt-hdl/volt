@@ -1,0 +1,7 @@
+// $readmemh image for 80_test_read_hex.volt
+@0
+0000_0013 DEADBEEF   // two words on one line
+/* a gap: word 2 stays zero */
+@3
+00C0FFEE
+CAFEF00D 00000001

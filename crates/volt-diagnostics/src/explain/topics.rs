@@ -170,7 +170,10 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      them in a sibling file: tests in X_test.volt can instantiate the \
                      modules of X.volt automatically. Inside a test, step(n) advances \
                      the clock, reset() pulses the implicit reset line, and \
-                     assert_eq/assert_ne/assert_true/assert_false check output ports.\n\n\
+                     assert_eq/assert_ne/assert_true/assert_false check output ports. \
+                     'let' binds numbers and arrays ([1, 2, 3] or read_hex(\"file.hex\")), \
+                     'for i in 0..n { ... }' repeats a block at run time, and \
+                     load(dut.mem, data) writes an array into a memory of the design.\n\n\
                      \x20 volt run design.volt --cycles 20 --vcd waves.vcd\n\
                      \x20 volt test my_design_test.volt",
                 ),
@@ -214,7 +217,10 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      modüllerini otomatik örnekleyebilir. Test içinde step(n) saati \
                      ilerletir, reset() örtük reset hattını atımlar; \
                      assert_eq/assert_ne/assert_true/assert_false çıkış portlarını \
-                     denetler.\n\n\
+                     denetler. 'let' sayı ve dizi bağlar ([1, 2, 3] ya da \
+                     read_hex(\"dosya.hex\")), 'for i in 0..n { ... }' bloğu çalışma \
+                     zamanında yineler, load(dut.mem, veri) diziyi tasarımın \
+                     belleğine yazar.\n\n\
                      \x20 volt run tasarim.volt --cycles 20 --vcd dalga.vcd\n\
                      \x20 volt test tasarim_test.volt",
                 ),

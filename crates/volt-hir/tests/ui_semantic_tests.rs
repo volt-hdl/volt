@@ -241,8 +241,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0052: 70-71 güven seviyeleri + declassify,
     // ADR-0053: 72 @mmio sürücü üretimi (doc yorumlu tam harita),
     // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat),
-    // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi.
-    assert_eq!(checked, 66);
+    // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi,
+    // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load.
+    assert_eq!(checked, 69);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -421,6 +422,45 @@ fn ui_pass_39_test_block_clean() {
 #[test]
 fn ui_fail_28_test_unknown_port_e8502() {
     assert_ui_fail("fail/28_test_unknown_port.volt");
+}
+
+// ═══ Test dili genişletme (ADR-0058) ═══
+
+#[test]
+fn ui_pass_78_test_array_clean() {
+    let result = analyze_file("pass/78_test_array.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_pass_79_test_for_loop_clean() {
+    let result = analyze_file("pass/79_test_for_loop.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_pass_80_test_read_hex_clean_without_file_access() {
+    // Tek dosyalık analiz dosya okumaz: yol sözcüksel olarak proje
+    // içinde, içerik bilinmiyor — tanı üretilmemeli.
+    let result = analyze_file("pass/80_test_read_hex.volt");
+    assert!(
+        result.diagnostics.is_empty(),
+        "temiz geçmeli: {:?}",
+        result.error_codes()
+    );
+}
+
+#[test]
+fn ui_fail_59_test_file_outside_project_e8507() {
+    assert_ui_fail("fail/59_test_file_outside_project.volt");
 }
 
 // ═══ L1 zamanlama (ADR-0037) ═══

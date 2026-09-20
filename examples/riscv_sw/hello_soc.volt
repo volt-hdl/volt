@@ -1,10 +1,13 @@
-// Simulation SoC: RiscvCore + the generated program ROM + a small RAM +
-// a UART receiver that collects what the program prints.
+// Simulation SoC: RiscvCore + a program memory + a small RAM + a UART
+// receiver that collects what the program prints.
 //
-// `volt test` blocks can only set ports, step and assert — no arrays,
-// loops or file access — so a test cannot load a program or watch a
-// serial line by itself. This module does both in hardware and shows
-// the result through plain ports:
+// The program is not part of this file: the test reads hello.hex with
+// read_hex() and writes it into `imem` with load() (ADR-0058), so a
+// new program needs no new hardware. In real hardware the same memory
+// is filled through the prog_* port (a boot loader, a debugger); the
+// test leaves that port idle. A test still cannot watch a serial line
+// by itself, so the receiver stays in hardware and shows the result
+// through plain ports:
 //   rx_count          bytes received so far
 //   rx_byte           rx_buf[rx_sel], the test pages through the text
 //   halted            the program reached `halt: j halt` (start.S)
@@ -14,15 +17,15 @@
 //                     an MRET — nothing hello.c should ever cause
 //   cycles, instrs    clock cycles / retired instructions until halt
 //
-// Memory map (link.ld): ROM at 0x0000_0000 on both the instruction and
-// the data bus (the string constants live in .rodata), RAM at
+// Memory map (link.ld): program memory at 0x0000_0000 on both the
+// instruction and the data bus (the string constants live in .rodata),
+// 1024 words (4 KB) that the program can only read; RAM at
 // 0x1000_0000. The linker reserves 64 KB of RAM; this model keeps the
 // simulation small with 64 words (256 bytes) that alias through the whole
 // window, so the stack at the top of RAM lands on the last words.
 // 0x2000_0000 (UART) is decoded inside the core and never shows up here.
 
 use riscv_core::RiscvCore;
-use riscv_sw::hello_rom::HelloRom;
 
 const HALT_INSTR : u32 = 0x0000006F    // jal x0, 0
 const UART_CLKS_PER_BIT : u6 = 4       // uart_tx.volt CLKS_PER_BIT
@@ -31,6 +34,9 @@ const UART_STOP_AT : u6 = 37           // inside the stop bit (36..39)
 
 pub module HelloSoc {
     in  clk       : clock
+    in  prog_we   : bool     // program port: imem[prog_addr] <= prog_data
+    in  prog_addr : u10
+    in  prog_data : u32
     in  rx_sel    : u5
     out rx_count  : u8
     out rx_byte   : u8
@@ -40,6 +46,9 @@ pub module HelloSoc {
     out cycles    : u32
     out instrs    : u32
 
+    // A zero word is an illegal instruction, so running off the end of
+    // the program traps.
+    reg imem     : [u32; 1024] = [0; 1024]
     reg ram      : [u32; 64] = [0; 64]
     reg rx_buf   : [u8; 32]  = [0; 32]
     reg rx_cnt   : u8   = 0
@@ -69,12 +78,12 @@ pub module HelloSoc {
     let is_ram = (addr_w >> 28) == 1
     let ram_i  = addr_w[7:2] as u6
 
-    let rom = HelloRom {
-        iaddr: pc_w,
-        daddr: addr_w,
-    }
-    instr_w = rom.idata
-    rdata_w = if is_ram { ram[ram_i] } else { rom.ddata }
+    // Addresses wrap inside imem (bits [11:2] index it); ifault / dfault
+    // report an address that does not belong to it.
+    let ifault = (pc_w >> 12) != 0 || (pc_w & 3) != 0
+    let dfault = (addr_w >> 12) != 0
+    instr_w = imem[pc_w[11:2] as u10]
+    rdata_w = if is_ram { ram[ram_i] } else { imem[addr_w[11:2] as u10] }
 
     // Byte-lane write: the core presents a full word plus a lane mask.
     let wmask = cpu.mem_wmask
@@ -90,9 +99,9 @@ pub module HelloSoc {
     // The lane mask is a u8 on the core, only four lanes exist.
     let bus_rd = cpu.mem_read
     let bus_wr = cpu.mem_write
-    let bad_bus = (bus_rd && !is_ram && !(is_rom && !rom.dfault))
+    let bad_bus = (bus_rd && !is_ram && !(is_rom && !dfault))
                || (bus_wr && (!is_ram || (wmask >> 4) != 0))
-    let odd_w = bad_bus || rom.ifault
+    let odd_w = bad_bus || ifault
              || cpu.irq_ack_o || cpu.mret_o || cpu.cyc_wrap_o
 
     // ── UART receiver (8N1, same clock as the transmitter) ────────
@@ -106,6 +115,9 @@ pub module HelloSoc {
     let halt_w = instr_w == HALT_INSTR && !trap_r
 
     on clk {
+        if prog_we {
+            imem[prog_addr] <= prog_data
+        }
         if bus_wr && is_ram {
             ram[ram_i] <= ram_new
         }

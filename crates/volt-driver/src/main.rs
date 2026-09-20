@@ -9,6 +9,7 @@
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
 mod sim;
+mod sim_lower;
 mod unit;
 mod verify;
 mod verify_jobs;
@@ -633,7 +634,11 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
         return Ok(fail(map, diagnostics, parsed.ast));
     }
 
-    let Some(constraints) = run_semantic_stages(&parsed, &imports.scopes, &mut diagnostics) else {
+    // Test veri dosyaları (ADR-0058) ana dosyaya göre çözülür.
+    let test_files = sim_lower::FsTestFiles::for_test_file(file);
+    let Some(constraints) =
+        run_semantic_stages(&parsed, &imports.scopes, &test_files, &mut diagnostics)
+    else {
         return Ok(fail(map, diagnostics, parsed.ast));
     };
     if count_errors(&diagnostics) > 0 || !want_sv {
@@ -710,6 +715,7 @@ fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, Ex
 fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
+    test_files: &dyn volt_hir::TestFileLoader,
     out: &mut Vec<Diagnostic>,
 ) -> Option<volt_hir::ConstraintResult> {
     // ── Aşama 2: isim çözümleme (birim modu, ADR-0042) ──
@@ -755,10 +761,11 @@ fn run_semantic_stages(
             volt_ast::ItemKind::Module(_)
         )
     });
-    out.extend(volt_hir::check_tests(
+    out.extend(volt_hir::check_tests_with_files(
         &[&parsed.ast],
         &parsed.ast,
         !has_modules,
+        Some(test_files),
     ));
 
     // ── Zamanlama kısıtları (ADR-0054): E0017 her zaman; model

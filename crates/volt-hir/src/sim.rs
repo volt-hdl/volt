@@ -12,7 +12,14 @@ use volt_ast::{
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
-/// Test gövdesinin tanıdığı yerleşikler: (ad, argüman sayısı).
+use crate::sim_expr::{Scope, VarKind};
+use crate::sim_load;
+use crate::testdata::TestFileLoader;
+
+/// dut adı → Some(modül) | None (varlığı varsayılan dış modül).
+pub(crate) type DutMap<'a> = HashMap<&'a str, Option<(&'a SourceFile, &'a ModuleDecl)>>;
+
+/// Test gövdesinin tanıdığı deyim yerleşikleri: (ad, argüman sayısı).
 pub const TEST_BUILTINS: &[(&str, usize)] = &[
     ("step", 1),
     ("reset", 0),
@@ -20,7 +27,11 @@ pub const TEST_BUILTINS: &[(&str, usize)] = &[
     ("assert_ne", 2),
     ("assert_true", 1),
     ("assert_false", 1),
+    ("load", 2),
 ];
+
+/// Değer döndüren yerleşikler (ADR-0058): (ad, argüman sayısı).
+pub const TEST_VALUE_BUILTINS: &[(&str, usize)] = &[("read_hex", 1), ("len", 1)];
 
 /// `sources` içindeki tüm modülleri ad → (kaynak, modül) olarak toplar.
 pub fn collect_modules<'a>(
@@ -44,10 +55,25 @@ pub fn collect_modules<'a>(
 /// tek dosyalık analizde (`analyze`, LSP) sahte E8501 üretmemek için.
 /// Sürücü, kardeş dosyayı yükleyip `sources` ile geçirdiğinde bunu
 /// `false` verir ve tam denetim yapılır.
+///
+/// Dosya erişimi yoktur: `read_hex` yolları yalnız sözcüksel olarak
+/// denetlenir (bkz. [`check_tests_with_files`]).
 pub fn check_tests(
     sources: &[&SourceFile],
     tests_from: &SourceFile,
     assume_external_modules: bool,
+) -> Vec<Diagnostic> {
+    check_tests_with_files(sources, tests_from, assume_external_modules, None)
+}
+
+/// [`check_tests`] + veri dosyası erişimi (ADR-0058): `files` verilirse
+/// `read_hex` dosyaları okunur, biçimi (E8508) ve `load` boyutları
+/// (E8510) gerçek içerikle denetlenir.
+pub fn check_tests_with_files(
+    sources: &[&SourceFile],
+    tests_from: &SourceFile,
+    assume_external_modules: bool,
+    files: Option<&dyn TestFileLoader>,
 ) -> Vec<Diagnostic> {
     let modules = collect_modules(sources);
     let mut diags = Vec::new();
@@ -56,9 +82,6 @@ pub fn check_tests(
         let ItemKind::Test(test) = &tests_from.items_arena[*idx].kind else {
             continue;
         };
-        // dut adı → Some(modül) | None (varlığı varsayılan dış modül).
-        let mut duts: HashMap<&str, Option<(&SourceFile, &ModuleDecl)>> = HashMap::new();
-
         // Bir test tek DUT sürer (ADR-0033): Verilator modeli test
         // yürütülebiliri başına tek üst modülle kurulur.
         if !test
@@ -68,66 +91,129 @@ pub fn check_tests(
         {
             diags.push(missing_dut(test));
         }
-
-        for stmt in &test.stmts {
-            match stmt {
-                TestStmt::LetDut { name, module, .. } => {
-                    if !duts.is_empty() {
-                        diags.push(duplicate_dut(name));
-                        continue;
-                    }
-                    match modules.get(&module.text) {
-                        Some(found) => {
-                            duts.insert(&name.text, Some(*found));
-                        }
-                        None if assume_external_modules => {
-                            duts.insert(&name.text, None);
-                        }
-                        None => diags.push(unknown_module(module)),
-                    }
-                }
-                TestStmt::SetPort {
-                    dut, port, value, ..
-                } => {
-                    check_set_port(&duts, dut, port, &mut diags);
-                    check_expr(&duts, value, &mut diags);
-                }
-                TestStmt::Call { span, func, args } => {
-                    let Some((_, arity)) =
-                        TEST_BUILTINS.iter().find(|(name, _)| *name == func.text)
-                    else {
-                        diags.push(unknown_builtin(func));
-                        continue;
-                    };
-                    if args.len() != *arity {
-                        diags.push(bad_arity(func, *arity, args.len(), *span));
-                        continue;
-                    }
-                    if func.text == "step" {
-                        match &args[0].kind {
-                            TestExprKind::Int(n) if *n >= 1 => {}
-                            _ => diags.push(bad_step_arg(&args[0])),
-                        }
-                        continue;
-                    }
-                    for arg in args {
-                        check_expr(&duts, arg, &mut diags);
-                    }
-                }
-            }
-        }
+        let mut checker = Checker {
+            modules: &modules,
+            assume_external_modules,
+            files,
+            scope: Scope::default(),
+            diags: &mut diags,
+        };
+        checker.check_block(&test.stmts, 0);
     }
     diags
 }
 
+/// Tek testin deyim yürüyücüsü: kapsamı taşır, tanıları biriktirir.
+struct Checker<'a, 'd> {
+    modules: &'d HashMap<String, (&'a SourceFile, &'a ModuleDecl)>,
+    assume_external_modules: bool,
+    files: Option<&'d dyn TestFileLoader>,
+    scope: Scope<'a>,
+    diags: &'d mut Vec<Diagnostic>,
+}
+
+impl<'a> Checker<'a, '_> {
+    /// `depth`: `for` iç içelik derinliği (0 = test gövdesi).
+    fn check_block(&mut self, stmts: &'a [TestStmt], depth: usize) {
+        self.scope.push();
+        for stmt in stmts {
+            self.check_stmt(stmt, depth);
+        }
+        self.scope.pop();
+    }
+
+    fn check_stmt(&mut self, stmt: &'a TestStmt, depth: usize) {
+        match stmt {
+            TestStmt::LetDut { name, module, .. } => self.check_let_dut(name, module, depth),
+            TestStmt::SetPort {
+                dut, port, value, ..
+            } => {
+                check_set_port(&self.scope.duts, dut, port, self.diags);
+                self.scope.expect_scalar(value, self.diags);
+            }
+            TestStmt::LetVar { name, value, .. } => {
+                let kind = self.scope.let_value(value, self.files, self.diags);
+                self.define(name, kind);
+            }
+            TestStmt::For {
+                var,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                self.scope.expect_scalar(start, self.diags);
+                self.scope.expect_scalar(end, self.diags);
+                self.scope.push();
+                self.define(var, VarKind::Scalar);
+                self.check_block(body, depth + 1);
+                self.scope.pop();
+            }
+            TestStmt::Call { span, func, args } => self.check_call(*span, func, args),
+        }
+    }
+
+    fn check_let_dut(&mut self, name: &'a Name, module: &Name, depth: usize) {
+        if depth > 0 {
+            self.diags.push(dut_inside_loop(name));
+            return;
+        }
+        if !self.scope.duts.is_empty() {
+            self.diags.push(duplicate_dut(name));
+            return;
+        }
+        if self.scope.is_defined(&name.text) {
+            self.diags.push(duplicate_name(name));
+            return;
+        }
+        match self.modules.get(&module.text) {
+            Some(found) => {
+                self.scope.duts.insert(&name.text, Some(*found));
+            }
+            None if self.assume_external_modules => {
+                self.scope.duts.insert(&name.text, None);
+            }
+            None => self.diags.push(unknown_module(module)),
+        }
+    }
+
+    fn define(&mut self, name: &Name, kind: VarKind) {
+        if self.scope.is_defined(&name.text) {
+            self.diags.push(duplicate_name(name));
+            return;
+        }
+        self.scope.define(&name.text, kind);
+    }
+
+    fn check_call(&mut self, span: volt_span::Span, func: &Name, args: &'a [TestExpr]) {
+        let Some((_, arity)) = TEST_BUILTINS.iter().find(|(name, _)| *name == func.text) else {
+            self.diags.push(unknown_builtin(func));
+            return;
+        };
+        if args.len() != *arity {
+            self.diags.push(bad_arity(func, *arity, args.len(), span));
+            return;
+        }
+        match func.text.as_str() {
+            "step" => match &args[0].kind {
+                TestExprKind::Int(0) => self.diags.push(bad_step_arg(&args[0])),
+                _ => self.scope.expect_scalar(&args[0], self.diags),
+            },
+            "load" => {
+                sim_load::check_load(&self.scope, self.modules, &args[0], &args[1], self.diags)
+            }
+            _ => {
+                for arg in args {
+                    self.scope.expect_scalar(arg, self.diags);
+                }
+            }
+        }
+    }
+}
+
 /// `dut.port = v` sol tarafı: dut tanımlı, port var, yönü `in`,
 /// tipi `clock` değil.
-fn check_set_port(
-    duts: &HashMap<&str, Option<(&SourceFile, &ModuleDecl)>>,
-    dut: &Name,
-    port: &Name,
-    diags: &mut Vec<Diagnostic>,
-) {
+fn check_set_port(duts: &DutMap<'_>, dut: &Name, port: &Name, diags: &mut Vec<Diagnostic>) {
     let Some(entry) = duts.get(dut.text.as_str()) else {
         diags.push(undefined_dut(dut));
         return;
@@ -159,15 +245,13 @@ fn check_set_port(
     }
 }
 
-/// Test ifadesi: `dut.port` okumaları `out` port olmalı.
-fn check_expr(
-    duts: &HashMap<&str, Option<(&SourceFile, &ModuleDecl)>>,
-    expr: &TestExpr,
+/// `dut.port` okuması: dut tanımlı, port var ve yönü `out`.
+pub(crate) fn check_port_read(
+    duts: &DutMap<'_>,
+    dut: &Name,
+    port: &Name,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let TestExprKind::PortRead { dut, port } = &expr.kind else {
-        return;
-    };
     let Some(entry) = duts.get(dut.text.as_str()) else {
         diags.push(undefined_dut(dut));
         return;
@@ -219,7 +303,7 @@ fn unknown_port(port: &Name, module: &str) -> Diagnostic {
     )
 }
 
-fn undefined_dut(dut: &Name) -> Diagnostic {
+pub(crate) fn undefined_dut(dut: &Name) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E8506,
         lstr!(en: "'{}' is not defined in this test", dut.text;
@@ -247,6 +331,34 @@ fn duplicate_dut(name: &Name) -> Diagnostic {
     )
 }
 
+fn dut_inside_loop(name: &Name) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::E8506,
+        lstr!(en: "instance '{}' is created inside a loop", name.text;
+              tr: "'{}' örneği döngü içinde oluşturuluyor", name.text),
+        LabeledSpan::primary(
+            name.span,
+            lstr!(en: "'let' of an instance inside 'for'"; tr: "'for' içinde örnek 'let'i"),
+        ),
+        lstr!(en: "a test drives a single instance; create it once at the top of the test";
+              tr: "bir test tek örnek sürer; onu testin başında bir kez oluşturun"),
+    )
+}
+
+fn duplicate_name(name: &Name) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::E8506,
+        lstr!(en: "'{}' is already defined in this test", name.text;
+              tr: "'{}' bu testte zaten tanımlı", name.text),
+        LabeledSpan::primary(
+            name.span,
+            lstr!(en: "second definition here"; tr: "ikinci tanım burada"),
+        ),
+        lstr!(en: "test names cannot be shadowed; pick another name";
+              tr: "test adları gölgelenemez; başka bir ad seçin"),
+    )
+}
+
 fn missing_dut(test: &volt_ast::TestDecl) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E8506,
@@ -261,7 +373,7 @@ fn missing_dut(test: &volt_ast::TestDecl) -> Diagnostic {
     )
 }
 
-fn unknown_builtin(func: &Name) -> Diagnostic {
+pub(crate) fn unknown_builtin(func: &Name) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E8505,
         lstr!(en: "unknown test builtin '{}'", func.text;
@@ -270,12 +382,12 @@ fn unknown_builtin(func: &Name) -> Diagnostic {
             func.span,
             lstr!(en: "not a test builtin"; tr: "test yerleşiği değil"),
         ),
-        lstr!(en: "available: step(n), reset(), assert_eq(a, b), assert_ne(a, b), assert_true(a), assert_false(a)";
-              tr: "mevcutlar: step(n), reset(), assert_eq(a, b), assert_ne(a, b), assert_true(a), assert_false(a)"),
+        lstr!(en: "statements: step(n), reset(), assert_eq(a, b), assert_ne(a, b), assert_true(a), assert_false(a), load(dut.mem, data); values: read_hex(\"file\"), len(array)";
+              tr: "deyimler: step(n), reset(), assert_eq(a, b), assert_ne(a, b), assert_true(a), assert_false(a), load(dut.mem, veri); değerler: read_hex(\"dosya\"), len(dizi)"),
     )
 }
 
-fn bad_arity(func: &Name, want: usize, got: usize, span: volt_span::Span) -> Diagnostic {
+pub(crate) fn bad_arity(func: &Name, want: usize, got: usize, span: volt_span::Span) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::E8505,
         lstr!(en: "'{}' expects {want} argument(s), got {got}", func.text;

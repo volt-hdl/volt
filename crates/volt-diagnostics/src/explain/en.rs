@@ -757,6 +757,41 @@ module Gpio {
             "test \"t\" {\n    dut.enable = true;      // ✗ E8506: 'dut' not defined yet\n}",
             "test \"t\" {\n    let dut = Counter { };\n    dut.enable = true;      // ✓\n}",
         ),
+        E8507 => Explanation::new(
+            "Test data file not found or outside the project",
+            "read_hex() names a file that does not exist, or a path that leaves the project directory.",
+            "Test data paths are resolved relative to the test file, and a test may only read files inside its project (the directory of the nearest Volt.toml, or the test file's own directory when there is none). A test that reaches outside — an absolute path, or '..' past the project root — would make the result depend on the machine it runs on, and would let a downloaded test read arbitrary files.",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = read_hex(\"../../secrets.hex\");   // ✗ E8507: leaves the project\n}",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = read_hex(\"sw/hello.hex\");        // ✓ relative to the test file\n}",
+        ),
+        E8508 => Explanation::new(
+            "Malformed hex data file",
+            "The file given to read_hex() is not valid $readmemh text.",
+            "read_hex() accepts the Verilog $readmemh format: whitespace-separated hexadecimal words, '_' separators, '//' and '/* */' comments and '@addr' to move the write position (in elements). Words wider than 64 bits, x/z digits, an empty file and addresses beyond 1M elements are rejected, because the test script works on plain 64-bit values.",
+            "// data.hex\n0000_0013\n0000_00G3        // ✗ E8508: 'G' is not a hex digit",
+            "// data.hex\n@0\n0000_0013 0000_0093   // ✓\n/* gap */ @8\nDEADBEEF",
+        ),
+        E8509 => Explanation::new(
+            "load() target is not a memory array",
+            "The first argument of load() must name an array register of the design under test.",
+            "load(dut.mem, data) writes test data straight into a memory of the simulated design, so the target has to be a 'reg' with an array type — in the test's module (dut.mem) or in a sub-instance (dut.cpu.mem). Ports, wires, scalar registers and unknown names cannot be loaded. Elements wider than 64 bits are not supported.",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = [0x13, 0x93];\n    load(dut.halted, rom);      // ✗ E8509: 'halted' is a port\n}",
+            "test \"t\" {\n    let dut = Soc { };\n    let rom = [0x13, 0x93];\n    load(dut.imem, rom);        // ✓ reg imem : [u32; 128]\n}",
+        ),
+        E8510 => Explanation::new(
+            "load() source does not fit the target array",
+            "The data is longer than the target memory, or a value needs more bits than one element has.",
+            "load() copies element 0 to element 0 and leaves the rest of a longer target untouched — like $readmemh. Data that is longer than the memory, or a word that does not fit the element width, would be silently truncated in simulation, and the program you think is running would not be the one in memory. When the memory size is not a plain number the same check runs at simulation time and fails the test.",
+            "test \"t\" {\n    let dut = Soc { };             // reg imem : [u32; 2]\n    let rom = [1, 2, 3];\n    load(dut.imem, rom);           // ✗ E8510: 3 elements into 2\n}",
+            "test \"t\" {\n    let dut = Soc { };             // reg imem : [u32; 4]\n    let rom = [1, 2, 3];\n    load(dut.imem, rom);           // ✓ imem[3] keeps its value\n}",
+        ),
+        E8511 => Explanation::new(
+            "Type mismatch in a test expression",
+            "An array is used where a number is expected, or the other way round.",
+            "Test values are either 64-bit numbers or arrays of them. Ports, step(), assertions, operators and loop bounds take numbers; indexing, len() and the source of load() take arrays. Array literals hold constant numbers only and cannot be empty, and read_hex() takes a string literal and must be bound with 'let' first.",
+            "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected);      // ✗ E8511: an array, not a number\n}",
+            "test \"t\" {\n    let dut = Sbox { };\n    let expected = [0x63, 0x7c];\n    assert_eq(dut.q, expected[0]);   // ✓\n}",
+        ),
 
         // ─── Release discipline ───
         E9001 => Explanation::new(

@@ -4,14 +4,15 @@
 //! üretir, yalnız öğe konumunda `test <StringLit>` dizilimi test bloğu
 //! başlatır. Gövde donanım değil doğrusal betiktir; deyimler `;` ile
 //! biter ve modül deyim arenalarını KULLANMAZ (grammar-full.ebnf
-//! TestStmt/TestExpr).
+//! TestStmt/TestExpr). ADR-0058: yerel değişken, dizi, `for` döngüsü;
+//! ifade ayrıştırması `test_expr.rs`'tedir.
 
-use volt_ast::{ItemKind, TestDecl, TestExpr, TestExprKind, TestStmt};
+use volt_ast::{ItemKind, TestDecl, TestStmt};
 use volt_diagnostics::lstr;
 
 use crate::token::TokenKind::*;
 
-use super::Parser;
+use super::{Parser, MAX_DEPTH};
 
 impl Parser<'_> {
     /// Öğe konumunda bağlamsal `test` başlangıcı mı?
@@ -42,9 +43,31 @@ impl Parser<'_> {
                 stmts: Vec::new(),
             });
         }
-        let open = self.bump(); // '{'
+        let stmts = self.parse_test_block();
 
+        ItemKind::Test(TestDecl {
+            name,
+            name_span,
+            stmts,
+        })
+    }
+
+    /// `{ { TestStmt } }` — `{` üzerindeyken çağrılır (test ve `for` gövdesi).
+    fn parse_test_block(&mut self) -> Vec<TestStmt> {
+        let open = self.bump(); // '{'
         let mut stmts = Vec::new();
+        // İç içe `for` sınırı: yığın taşması yerine tanı; gövde atlanır.
+        if self.depth >= MAX_DEPTH {
+            self.error_expected(
+                &lstr!(en: "a shallower loop nest"; tr: "daha sığ bir döngü yuvası"),
+                &lstr!(en: "loops are nested too deeply"; tr: "döngüler çok derin iç içe"),
+            );
+            while !self.at_eof() {
+                self.bump_any();
+            }
+            return stmts;
+        }
+        self.depth += 1;
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
             if let Some(stmt) = self.parse_test_stmt() {
@@ -54,171 +77,165 @@ impl Parser<'_> {
                 self.bump_any(); // ilerleme garantisi
             }
         }
+        self.depth -= 1;
         self.expect_closing(RBrace, "}", open);
-
-        ItemKind::Test(TestDecl {
-            name,
-            name_span,
-            stmts,
-        })
+        stmts
     }
 
     /// Tek test deyimi; sözdizimi bozuksa `None` döner ve `;`/`}`'ye
     /// kadar sessizce atlanır (kaskad önlemi).
     fn parse_test_stmt(&mut self) -> Option<TestStmt> {
-        let start = self.pos;
-        match self.current() {
-            // `let dut = Counter { };`
-            Some(KwLet) => {
-                self.bump_any();
-                if !self.at(Ident) {
-                    return self.test_stmt_error(
-                        &lstr!(en: "instance name after 'let'"; tr: "'let' sonrası örnek adı"),
-                    );
-                }
-                let name = self.parse_name();
-                if !self.eat(Eq) {
-                    return self.test_stmt_error(&lstr!(en: "'=' after the instance name"; tr: "örnek adından sonra '='"));
-                }
-                if !self.at(Ident) {
-                    return self.test_stmt_error(&lstr!(en: "module name after '='"; tr: "'=' sonrası modül adı"));
-                }
-                let module = self.parse_name();
-                let brace_ok = self.eat(LBrace) && self.eat(RBrace);
-                if !brace_ok {
-                    return self.test_stmt_error(
-                        &lstr!(en: "'{{ }}' after the module name"; tr: "modül adından sonra '{{ }}'"),
-                    );
-                }
-                self.expect_test_semi();
-                Some(TestStmt::LetDut {
-                    span: self.span_from(start),
-                    name,
-                    module,
-                })
-            }
-            // `reset();` — 'reset' anahtar kelimedir (tip konumunda reset
-            // tipi); test gövdesinde çağrı olarak da tanınır.
-            Some(KwReset) if matches!(self.peek(1), Some(LParen)) => {
-                let span = self.bump(); // 'reset'
-                let func = volt_ast::Name {
-                    text: "reset".to_string(),
-                    span,
-                };
-                let open = self.bump(); // '('
-                self.expect_closing(RParen, ")", open);
-                self.expect_test_semi();
-                Some(TestStmt::Call {
-                    span: self.span_from(start),
-                    func,
-                    args: Vec::new(),
-                })
-            }
-            // `dut.port = v;` ya da `step(1);`
-            Some(Ident) => match self.peek(1) {
-                Some(Dot) => {
-                    let dut = self.parse_name();
-                    self.bump_any(); // '.'
-                    if !self.at(Ident) {
-                        return self
-                            .test_stmt_error(&lstr!(en: "port name after '.'"; tr: "'.' sonrası port adı"));
-                    }
-                    let port = self.parse_name();
-                    if !self.eat(Eq) {
-                        return self
-                            .test_stmt_error(&lstr!(en: "'=' after the port"; tr: "porttan sonra '='"));
-                    }
-                    let value = self.parse_test_expr()?;
-                    self.expect_test_semi();
-                    Some(TestStmt::SetPort {
-                        span: self.span_from(start),
-                        dut,
-                        port,
-                        value,
-                    })
-                }
-                Some(LParen) => {
-                    let func = self.parse_name();
-                    let open = self.bump(); // '('
-                    let mut args = Vec::new();
-                    while !self.at(RParen) && !self.at_eof() {
-                        let before = self.pos;
-                        if let Some(arg) = self.parse_test_expr() {
-                            args.push(arg);
-                        }
-                        if !self.eat(Comma) && self.pos == before {
-                            break;
-                        }
-                    }
-                    self.expect_closing(RParen, ")", open);
-                    self.expect_test_semi();
-                    Some(TestStmt::Call {
-                        span: self.span_from(start),
-                        func,
-                        args,
-                    })
-                }
-                _ => self.test_stmt_error(
-                    &lstr!(en: "'.' or '(' after the name"; tr: "isimden sonra '.' veya '('"),
-                ),
-            },
+        match (self.current(), self.peek(1)) {
+            (Some(KwLet), _) => self.parse_test_let(),
+            (Some(KwFor), _) => self.parse_test_for(),
+            // 'reset' anahtar kelimedir (tip konumunda reset tipi); test
+            // gövdesinde çağrı olarak da tanınır.
+            (Some(KwReset), Some(LParen)) => self.parse_test_reset(),
+            (Some(Ident), Some(Dot)) => self.parse_test_set_port(),
+            (Some(Ident), Some(LParen)) => self.parse_test_call(),
+            (Some(Ident), _) => self.test_stmt_error(
+                &lstr!(en: "'.' or '(' after the name"; tr: "isimden sonra '.' veya '('"),
+            ),
             _ => self.test_stmt_error(
-                &lstr!(en: "a test statement (let / dut.port = / a call)"; tr: "test deyimi (let / dut.port = / çağrı)"),
+                &lstr!(en: "a test statement (let / for / dut.port = / a call)"; tr: "test deyimi (let / for / dut.port = / çağrı)"),
             ),
         }
     }
 
-    /// `IntLit | true | false | Ident "." Ident`
-    fn parse_test_expr(&mut self) -> Option<TestExpr> {
+    /// `let dut = Counter { };` ya da `let ad = <ifade>;` (ADR-0058).
+    fn parse_test_let(&mut self) -> Option<TestStmt> {
         let start = self.pos;
-        match self.current() {
-            Some(IntLit) => {
-                let span = self.bump();
-                let text = self.text_of(span);
-                let Some(value) = parse_int_text(text) else {
-                    self.error_expected(
-                        &lstr!(en: "an integer literal"; tr: "tamsayı literali"),
-                        &lstr!(en: "use a plain value such as 4 or 0xA5"; tr: "4 ya da 0xA5 gibi düz bir değer kullanın"),
-                    );
-                    return None;
-                };
-                Some(TestExpr {
-                    span,
-                    kind: TestExprKind::Int(value),
-                })
-            }
-            Some(KwTrue) => Some(TestExpr {
-                span: self.bump(),
-                kind: TestExprKind::Bool(true),
-            }),
-            Some(KwFalse) => Some(TestExpr {
-                span: self.bump(),
-                kind: TestExprKind::Bool(false),
-            }),
-            Some(Ident) if matches!(self.peek(1), Some(Dot)) => {
-                let dut = self.parse_name();
-                self.bump_any(); // '.'
-                if !self.at(Ident) {
-                    self.error_expected(
-                        &lstr!(en: "port name after '.'"; tr: "'.' sonrası port adı"),
-                        &lstr!(en: "write it as dut.port"; tr: "dut.port biçiminde yazın"),
-                    );
-                    return None;
-                }
-                let port = self.parse_name();
-                Some(TestExpr {
-                    span: self.span_from(start),
-                    kind: TestExprKind::PortRead { dut, port },
-                })
-            }
-            _ => {
-                self.error_expected(
-                    &lstr!(en: "a test expression (literal or dut.port)"; tr: "test ifadesi (literal veya dut.port)"),
-                    &lstr!(en: "allowed forms: 4, 0xA5, true, false, dut.port"; tr: "izinli biçimler: 4, 0xA5, true, false, dut.port"),
-                );
-                None
-            }
+        self.bump_any(); // 'let'
+        if !self.at(Ident) {
+            return self.test_stmt_error(
+                &lstr!(en: "instance name after 'let'"; tr: "'let' sonrası örnek adı"),
+            );
         }
+        let name = self.parse_name();
+        if !self.eat(Eq) {
+            return self.test_stmt_error(
+                &lstr!(en: "'=' after the instance name"; tr: "örnek adından sonra '='"),
+            );
+        }
+        // `Ad {` → DUT örnekleme; diğer her şey yerel değişken.
+        if !(self.at(Ident) && matches!(self.peek(1), Some(LBrace))) {
+            let value = self.parse_test_expr()?;
+            self.expect_test_semi();
+            return Some(TestStmt::LetVar {
+                span: self.span_from(start),
+                name,
+                value,
+            });
+        }
+        let module = self.parse_name();
+        let brace_ok = self.eat(LBrace) && self.eat(RBrace);
+        if !brace_ok {
+            return self.test_stmt_error(
+                &lstr!(en: "'{{ }}' after the module name"; tr: "modül adından sonra '{{ }}'"),
+            );
+        }
+        self.expect_test_semi();
+        Some(TestStmt::LetDut {
+            span: self.span_from(start),
+            name,
+            module,
+        })
+    }
+
+    /// `for i in 0..16 { ... }` — çalışma zamanı döngüsü (ADR-0058).
+    fn parse_test_for(&mut self) -> Option<TestStmt> {
+        let start = self.pos;
+        self.bump_any(); // 'for'
+        if !self.at(Ident) {
+            return self.test_for_error(
+                &lstr!(en: "loop variable after 'for'"; tr: "'for' sonrası döngü değişkeni"),
+            );
+        }
+        let var = self.parse_name();
+        if !self.eat(KwIn) {
+            return self.test_for_error(
+                &lstr!(en: "'in' after the loop variable"; tr: "döngü değişkeninden sonra 'in'"),
+            );
+        }
+        let Some(range_start) = self.parse_test_expr() else {
+            return self.skip_test_for_body();
+        };
+        if !self.eat(DotDot) {
+            return self
+                .test_for_error(&lstr!(en: "'..' in the loop range"; tr: "döngü aralığında '..'"));
+        }
+        let Some(range_end) = self.parse_test_expr() else {
+            return self.skip_test_for_body();
+        };
+        if !self.at(LBrace) {
+            return self.test_for_error(
+                &lstr!(en: "'{{' after the loop range"; tr: "döngü aralığından sonra '{{'"),
+            );
+        }
+        let body = self.parse_test_block();
+        Some(TestStmt::For {
+            span: self.span_from(start),
+            var,
+            start: range_start,
+            end: range_end,
+            body,
+        })
+    }
+
+    /// `reset();`
+    fn parse_test_reset(&mut self) -> Option<TestStmt> {
+        let start = self.pos;
+        let span = self.bump(); // 'reset'
+        let func = volt_ast::Name {
+            text: "reset".to_string(),
+            span,
+        };
+        let open = self.bump(); // '('
+        self.expect_closing(RParen, ")", open);
+        self.expect_test_semi();
+        Some(TestStmt::Call {
+            span: self.span_from(start),
+            func,
+            args: Vec::new(),
+        })
+    }
+
+    /// `dut.port = v;`
+    fn parse_test_set_port(&mut self) -> Option<TestStmt> {
+        let start = self.pos;
+        let dut = self.parse_name();
+        self.bump_any(); // '.'
+        if !self.at(Ident) {
+            return self
+                .test_stmt_error(&lstr!(en: "port name after '.'"; tr: "'.' sonrası port adı"));
+        }
+        let port = self.parse_name();
+        if !self.eat(Eq) {
+            return self.test_stmt_error(&lstr!(en: "'=' after the port"; tr: "porttan sonra '='"));
+        }
+        let value = self.parse_test_expr()?;
+        self.expect_test_semi();
+        Some(TestStmt::SetPort {
+            span: self.span_from(start),
+            dut,
+            port,
+            value,
+        })
+    }
+
+    /// `step(1);`, `assert_eq(a, b);`, `load(dut.mem, data);`
+    fn parse_test_call(&mut self) -> Option<TestStmt> {
+        let start = self.pos;
+        let func = self.parse_name();
+        let open = self.bump(); // '('
+        let args = self.parse_test_expr_list(RParen);
+        self.expect_closing(RParen, ")", open);
+        self.expect_test_semi();
+        Some(TestStmt::Call {
+            span: self.span_from(start),
+            func,
+            args,
+        })
     }
 
     /// Deyim sonu `;` — eksikse tanı üretir ama ilerlemeyi bozmaz.
@@ -229,6 +246,33 @@ impl Parser<'_> {
                 &lstr!(en: "test statements end with ';'"; tr: "test deyimleri ';' ile biter"),
             );
         }
+    }
+
+    /// `for` başlığı bozuk: hata bildir, gövde `{ ... }` varsa onu da
+    /// tüket — yoksa gövdenin `}`'si test bloğunu erken kapatırdı.
+    fn test_for_error(&mut self, what: &str) -> Option<TestStmt> {
+        self.error_expected(
+            what,
+            &lstr!(
+                en: "write the loop as: for i in 0..16 {{ ... }}";
+                tr: "döngüyü şöyle yazın: for i in 0..16 {{ ... }}"
+            ),
+        );
+        self.skip_test_for_body()
+    }
+
+    /// Bozuk `for`'un kalanını atlar (tanı zaten üretildi): gövde varsa
+    /// ayrıştırılıp atılır, yoksa `;`'e kadar gidilir.
+    fn skip_test_for_body(&mut self) -> Option<TestStmt> {
+        while !self.at_eof() && !self.at(LBrace) && !self.at(Semi) && !self.at(RBrace) {
+            self.bump_any();
+        }
+        if self.at(LBrace) {
+            self.parse_test_block();
+        } else {
+            self.eat(Semi);
+        }
+        None
     }
 
     /// Hata bildir + `;`/`}` sınırına kadar sessizce atla; `;` yenir.
@@ -250,7 +294,7 @@ impl Parser<'_> {
 
 /// Tamsayı literal metnini değere çevirir: `_` ayırıcıları, `0x/0b/0o`
 /// tabanları ve `u8`..`i64` sonekleri desteklenir.
-fn parse_int_text(text: &str) -> Option<u64> {
+pub(super) fn parse_int_text(text: &str) -> Option<u64> {
     let mut t = text.replace('_', "");
     for suffix in ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64"] {
         if t.len() > suffix.len() && t.ends_with(suffix) {

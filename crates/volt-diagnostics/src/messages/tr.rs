@@ -122,6 +122,11 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8504 => "Çıkış olmayan porttan okuma",
         E8505 => "Geçersiz test yerleşiği çağrısı",
         E8506 => "Test bloğunda tanımsız ya da yinelenen örnek adı",
+        E8507 => "Test veri dosyası bulunamadı ya da proje dışında",
+        E8508 => "Bozuk hex veri dosyası",
+        E8509 => "load() hedefi bir bellek dizisi değil",
+        E8510 => "load() kaynağı hedef diziye sığmıyor",
+        E8511 => "Test ifadesinde tip uyuşmazlığı",
 
         // ─── Release disiplini ───
         E9001 => "todo! ile release build yapılamaz",

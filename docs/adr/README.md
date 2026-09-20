@@ -87,6 +87,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0021](ADR-0021-artifact-uretim-ve-cli-sozlesmesi.md) | Artifact üretim mimarisi ve CLI sözleşmesi — tek kaynak, `build/` dizini, çıkış kodları | K/G | 2026-09-03 |
 | [0022](ADR-0022-semver-donanim-kurallari.md) | SemVer donanım kuralları — `@version`, `@abi_version`, anlamsal diff (rezerve) | K/R | 2026-09-03 |
 | [0033](ADR-0033-test-bloklari-ve-simulasyon.md) | Test blokları ve Verilator simülasyon köprüsü | K | 2026-09-09 |
+| [0058](ADR-0058-test-dili-genisletme.md) | Test dili genişletme — yerel değişken, dizi, çalışma zamanı `for`, `read_hex`, `load` (E8507–E8511) | K | 2026-09-20 |
 | [0042](ADR-0042-coklu-dosya-derleme.md) | Çoklu dosya derleme ve import sistemi | K | 2026-09-13 |
 | [0048](ADR-0048-zamanlama-kisitlari.md) | Zamanlama kısıtları — uygulanmayan nitelikler W0021 üretir, SDC üretimi V1 planı | K (2. bölüm ADR-0054 ile gerçeklendi) | 2026-09-14 |
 

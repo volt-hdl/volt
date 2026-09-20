@@ -122,6 +122,11 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8504 => "Read from a port that is not an output",
         E8505 => "Invalid test builtin call",
         E8506 => "Undefined or duplicate instance name in a test block",
+        E8507 => "Test data file not found or outside the project",
+        E8508 => "Malformed hex data file",
+        E8509 => "load() target is not a memory array",
+        E8510 => "load() source does not fit the target array",
+        E8511 => "Type mismatch in a test expression",
 
         // ─── Release discipline ───
         E9001 => "Release builds cannot contain todo!",

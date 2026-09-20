@@ -14,11 +14,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use volt_ast::{ItemKind, ModuleDecl, SourceFile, TestDecl, TestExpr, TestExprKind, TestStmt};
+use volt_ast::{ItemKind, ModuleDecl, SourceFile, TestDecl};
 use volt_diagnostics::lstr;
-use volt_span::SourceMap;
-use volt_sv_emit::{sim as tbgen, SvaMode, TbAssertKind, TbStep, TbTest, TbValue};
+use volt_sv_emit::{sim as tbgen, SvaMode, TbTest};
 
+use crate::sim_lower::{lower_test, FsTestFiles, LowerCtx};
 use crate::{compile, render_diagnostics, Compiled, OutputFormat};
 
 // ═══ Verilator keşfi ══════════════════════════════════════════════
@@ -403,6 +403,8 @@ struct AssertFailure {
     loc: String,
     left: u64,
     right: u64,
+    /// `loop=i=3,j=1` — hata `for` içindeyse sayaç değerleri (ADR-0058).
+    loop_ctx: Option<String>,
 }
 
 /// Testbench stdout'unu sonuçlara çevirir (sv-emit VOLT-* protokolü).
@@ -434,76 +436,17 @@ fn parse_assert_fail(rest: &str) -> Option<AssertFailure> {
     let loc = parts.next()?.to_string();
     let left = parts.next()?.strip_prefix("left=")?.parse().ok()?;
     let right = parts.next()?.strip_prefix("right=")?.parse().ok()?;
+    let loop_ctx = parts
+        .next()
+        .and_then(|p| p.strip_prefix("loop="))
+        .map(|vars| vars.replace('=', " = ").replace(',', ", "));
     Some(AssertFailure {
         kind,
         loc,
         left,
         right,
+        loop_ctx,
     })
-}
-
-/// Test ifadesini tb değerine indirger.
-fn lower_value(expr: &TestExpr) -> TbValue {
-    match &expr.kind {
-        TestExprKind::Int(n) => TbValue::Lit(*n),
-        TestExprKind::Bool(b) => TbValue::Lit(u64::from(*b)),
-        TestExprKind::PortRead { port, .. } => TbValue::Port(port.text.clone()),
-    }
-}
-
-/// Test bloğunu (DUT modül adı, tb betiği) çiftine indirger.
-/// `check_tests`ten geçmiş AST'de çağrılır; yine de savunmacıdır.
-fn lower_test(map: &SourceMap, file_label: &str, test: &TestDecl) -> Option<(String, TbTest)> {
-    let mut module = None;
-    let mut steps = Vec::new();
-    for stmt in &test.stmts {
-        match stmt {
-            TestStmt::LetDut { module: m, .. } => {
-                if module.is_none() {
-                    module = Some(m.text.clone());
-                }
-            }
-            TestStmt::SetPort { port, value, .. } => steps.push(TbStep::SetPort {
-                port: port.text.clone(),
-                value: lower_value(value),
-            }),
-            TestStmt::Call { span, func, args } => {
-                let loc = format!("{file_label}:{}", map.line_col(*span).0);
-                let kind = match func.text.as_str() {
-                    "step" => {
-                        if let Some(TestExprKind::Int(n)) = args.first().map(|a| &a.kind) {
-                            steps.push(TbStep::Step(*n));
-                        }
-                        continue;
-                    }
-                    "reset" => {
-                        steps.push(TbStep::Reset);
-                        continue;
-                    }
-                    "assert_eq" => TbAssertKind::Eq,
-                    "assert_ne" => TbAssertKind::Ne,
-                    "assert_true" => TbAssertKind::True,
-                    "assert_false" => TbAssertKind::False,
-                    _ => continue,
-                };
-                let left = args.first().map(lower_value)?;
-                let right = args.get(1).map(lower_value).unwrap_or(TbValue::Lit(0));
-                steps.push(TbStep::Assert {
-                    kind,
-                    left,
-                    right,
-                    loc,
-                });
-            }
-        }
-    }
-    Some((
-        module?,
-        TbTest {
-            name: test.display_name(),
-            steps,
-        },
-    ))
 }
 
 /// `X_test.volt` için kardeş `X.volt` yolu (varsa).
@@ -531,9 +474,20 @@ fn discover_test_files() -> Vec<PathBuf> {
     files
 }
 
+/// Aynı yürütülebilirde koşan testler: (birim, DUT modülü) başına bir grup.
+struct TestGroup {
+    module: String,
+    unit: usize,
+    tests: Vec<TbTest>,
+    /// `load` ile yazılan bellekler: (sahip modül, yazmaç adı).
+    load_targets: Vec<(String, String)>,
+}
+
 /// Tek test dosyasının derlenmiş hâli (+ varsa kardeşi).
 struct TestUnit {
     file_label: String,
+    /// `read_hex` yollarının çözüldüğü test dosyası.
+    path: PathBuf,
     compiled: Compiled,
     sibling: Option<Compiled>,
 }
@@ -591,7 +545,9 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
         if let Some(sib) = &sibling {
             sources.push(&sib.ast);
         }
-        let test_diags = volt_hir::check_tests(&sources, &compiled.ast, false);
+        let files = FsTestFiles::for_test_file(file);
+        let test_diags =
+            volt_hir::check_tests_with_files(&sources, &compiled.ast, false, Some(&files));
         for diag in &test_diags {
             eprintln!("{}", volt_diagnostics::render_human(diag, &compiled.map));
         }
@@ -607,6 +563,7 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
             return ExitCode::from(1);
         }
         units.push(TestUnit {
+            path: file.clone(),
             file_label: file
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -618,9 +575,20 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
 
     // ── Testleri topla, süz, modüle göre grupla ──
     // (modül adı, ait olduğu birim indeksi) → tb testleri
-    let mut groups: Vec<(String, usize, Vec<TbTest>)> = Vec::new();
+    let mut groups: Vec<TestGroup> = Vec::new();
     let mut total = 0usize;
     for (ui, unit) in units.iter().enumerate() {
+        let files = FsTestFiles::for_test_file(&unit.path);
+        let mut sources: Vec<&SourceFile> = vec![&unit.compiled.ast];
+        if let Some(sib) = &unit.sibling {
+            sources.push(&sib.ast);
+        }
+        let ctx = LowerCtx {
+            map: &unit.compiled.map,
+            file_label: &unit.file_label,
+            sources: &sources,
+            files: &files,
+        };
         for decl in tests_of(&unit.compiled.ast) {
             let display = decl.display_name();
             if let Some(f) = name_filter {
@@ -628,13 +596,35 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
                     continue;
                 }
             }
-            let Some((module, tb)) = lower_test(&unit.compiled.map, &unit.file_label, decl) else {
-                continue;
+            let Some(lowered) = lower_test(&ctx, decl) else {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "error: internal: test '{display}' passed checks but could not be lowered";
+                        tr: "hata: içsel: '{display}' testi denetimden geçti ama indirgenemedi"
+                    )
+                );
+                return ExitCode::from(3);
             };
             total += 1;
-            match groups.iter_mut().find(|(m, u, _)| *m == module && *u == ui) {
-                Some((_, _, list)) => list.push(tb),
-                None => groups.push((module, ui, vec![tb])),
+            let at = groups
+                .iter()
+                .position(|g| g.module == lowered.module && g.unit == ui)
+                .unwrap_or_else(|| {
+                    groups.push(TestGroup {
+                        module: lowered.module.clone(),
+                        unit: ui,
+                        tests: Vec::new(),
+                        load_targets: Vec::new(),
+                    });
+                    groups.len() - 1
+                });
+            let group = &mut groups[at];
+            group.tests.push(lowered.tb);
+            for target in lowered.load_targets {
+                if !group.load_targets.contains(&target) {
+                    group.load_targets.push(target);
+                }
             }
         }
     }
@@ -652,8 +642,9 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
 
     // ── Grup başına verilate + koştur ──
     let mut outcomes: Vec<TestOutcome> = Vec::new();
-    for (module, ui, tests) in &groups {
-        let unit = &units[*ui];
+    for group in &groups {
+        let (module, tests) = (&group.module, &group.tests);
+        let unit = &units[group.unit];
         // Modülün portları ve SV'si test dosyasından ya da kardeşten gelir.
         let holder = [Some(&unit.compiled), unit.sibling.as_ref()]
             .into_iter()
@@ -689,10 +680,22 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
         if let Err(err) = std::fs::write(sim_dir.join(&tb_name), tb) {
             return io_error(&sim_dir.join(&tb_name), &err);
         }
+        // `load` hedefleri yalnız adlarıyla açılır (ADR-0058): .vlt
+        // dosyası SV'den ÖNCE verilir.
+        let mut inputs = Vec::new();
+        if !group.load_targets.is_empty() {
+            let vlt_name = format!("load_{module}.vlt");
+            let vlt = tbgen::load_config_vlt(&group.load_targets);
+            if let Err(err) = std::fs::write(sim_dir.join(&vlt_name), vlt) {
+                return io_error(&sim_dir.join(&vlt_name), &err);
+            }
+            inputs.push(vlt_name);
+        }
+        inputs.push(sv_name);
         let exe = match verilate(
             &verilator,
             &sim_dir,
-            &[sv_name],
+            &inputs,
             &tb_name,
             module,
             false,
@@ -740,15 +743,7 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
         for o in &failed {
             println!("---- {} ----", o.name);
             match &o.failure {
-                Some(f) if f.kind == "assert_eq" || f.kind == "assert_ne" => {
-                    println!("  {} failed at {}", f.kind, f.loc);
-                    println!("    left:  {}", f.left);
-                    println!("    right: {}", f.right);
-                }
-                Some(f) => {
-                    println!("  {} failed at {}", f.kind, f.loc);
-                    println!("    value: {}", f.left);
-                }
+                Some(f) => print_failure(f),
                 None => println!("  test failed (no assertion detail)"),
             }
         }
@@ -760,6 +755,46 @@ pub(crate) fn test(filter: Option<&str>, nocapture: bool, target_dir: &Path) -> 
     }
     println!("\ntest result: ok. {passed} passed; 0 failed");
     ExitCode::SUCCESS
+}
+
+/// Tek hatanın cargo biçimli ayrıntısı (İngilizce — makine-okur rapor).
+fn print_failure(f: &AssertFailure) {
+    match f.kind.as_str() {
+        "assert_eq" | "assert_ne" => {
+            println!("  {} failed at {}", f.kind, f.loc);
+            println!("    left:  {}", f.left);
+            println!("    right: {}", f.right);
+        }
+        "index_out_of_bounds" => {
+            println!("  index out of bounds at {}", f.loc);
+            println!("    index: {}", f.left);
+            println!("    len:   {}", f.right);
+        }
+        "division_by_zero" => {
+            println!("  division by zero at {}", f.loc);
+            println!("    dividend: {}", f.left);
+        }
+        "load_too_long" => {
+            println!("  load() source does not fit the target at {}", f.loc);
+            println!("    source elements: {}", f.left);
+            println!("    target elements: {}", f.right);
+        }
+        "load_value_too_wide" => {
+            println!(
+                "  load() value does not fit the target element at {}",
+                f.loc
+            );
+            println!("    value: {}", f.left);
+            println!("    index: {}", f.right);
+        }
+        _ => {
+            println!("  {} failed at {}", f.kind, f.loc);
+            println!("    value: {}", f.left);
+        }
+    }
+    if let Some(ctx) = &f.loop_ctx {
+        println!("    loop:  {ctx}");
+    }
 }
 
 #[cfg(test)]
@@ -803,46 +838,6 @@ mod tests {
         assert!(sibling_path(Path::new("counter.volt")).is_none());
         // _test soneki var ama kardeş dosya diskte yok → None.
         assert!(sibling_path(Path::new("nonexistent_test.volt")).is_none());
-    }
-
-    #[test]
-    fn lower_test_maps_statements_to_tb_steps() {
-        let src = "module Counter {\n    in  clk    : clock\n    in  enable : bool\n    out count  : u8\n    reg r : u8 = 0\n    on clk { if enable { r <= r + 1 } }\n    count = r\n}\n\ntest \"counter counts\" {\n    let dut = Counter { };\n    dut.enable = true;\n    step(2);\n    assert_eq(dut.count, 2);\n    reset();\n    assert_false(dut.count);\n}\n";
-        let mut map = SourceMap::new();
-        let fid = map.add_file("counter_test.volt", src.to_string());
-        let parsed = volt_syntax::parser::parse(fid, src);
-        let decls = tests_of(&parsed.ast);
-        assert_eq!(decls.len(), 1);
-        let (module, tb) = lower_test(&map, "counter_test.volt", decls[0]).expect("indirgeme");
-        assert_eq!(module, "Counter");
-        assert_eq!(tb.name, "counter_counts");
-        assert_eq!(tb.steps.len(), 5);
-        assert_eq!(
-            tb.steps[0],
-            TbStep::SetPort {
-                port: "enable".into(),
-                value: TbValue::Lit(1)
-            }
-        );
-        assert_eq!(tb.steps[1], TbStep::Step(2));
-        let TbStep::Assert {
-            kind,
-            left,
-            right,
-            loc,
-        } = &tb.steps[2]
-        else {
-            panic!("assert bekleniyor");
-        };
-        assert_eq!(*kind, TbAssertKind::Eq);
-        assert_eq!(*left, TbValue::Port("count".into()));
-        assert_eq!(*right, TbValue::Lit(2));
-        assert_eq!(loc, "counter_test.volt:14");
-        assert_eq!(tb.steps[3], TbStep::Reset);
-        let TbStep::Assert { kind, .. } = &tb.steps[4] else {
-            panic!("assert bekleniyor");
-        };
-        assert_eq!(*kind, TbAssertKind::False);
     }
 
     #[test]

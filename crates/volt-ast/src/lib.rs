@@ -538,6 +538,22 @@ pub enum TestStmt {
         func: Name,
         args: Vec<TestExpr>,
     },
+    /// `let expected = [0x63, 0x7c];`, `let rom = read_hex("a.hex");`,
+    /// `let n = 4;` — test yerel değişkeni (ADR-0058).
+    LetVar {
+        span: Span,
+        name: Name,
+        value: TestExpr,
+    },
+    /// `for i in 0..16 { ... }` — çalışma zamanı döngüsü (ADR-0058);
+    /// `end` dışlayıcıdır.
+    For {
+        span: Span,
+        var: Name,
+        start: TestExpr,
+        end: TestExpr,
+        body: Vec<TestStmt>,
+    },
 }
 
 /// Test gövdesi ifadesi (grammar-full.ebnf TestExpr).
@@ -556,6 +572,67 @@ pub enum TestExprKind {
         dut: Name,
         port: Name,
     },
+    /// Yerel değişken ya da döngü sayacı (ADR-0058).
+    Var(Name),
+    /// `"hello.hex"` — yalnız `read_hex` argümanı olarak anlamlıdır.
+    Str(String),
+    /// `[0x63, 0x7c, 0x77]`
+    Array(Vec<TestExpr>),
+    /// `expected[i]`
+    Index {
+        base: Name,
+        index: Box<TestExpr>,
+    },
+    /// `dut.cpu.imem` — alt örnek üzerinden bellek yolu; yalnız
+    /// `load` hedefi olarak anlamlıdır.
+    MemberPath {
+        dut: Name,
+        path: Vec<Name>,
+    },
+    Unary {
+        op: TestUnOp,
+        operand: Box<TestExpr>,
+    },
+    Binary {
+        op: TestBinOp,
+        lhs: Box<TestExpr>,
+        rhs: Box<TestExpr>,
+    },
+    /// Değer döndüren yerleşik: `read_hex("a.hex")`, `len(rom)`.
+    Call {
+        func: Name,
+        args: Vec<TestExpr>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestUnOp {
+    /// `!x` — mantıksal değil (0 → 1, diğer → 0).
+    Not,
+}
+
+/// Test ifadesi ikili operatörleri; hepsi 64 bit işaretsiz üzerinde
+/// çalışır, karşılaştırma ve mantıksal olanlar 0/1 üretir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestBinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    LogAnd,
+    LogOr,
 }
 
 #[derive(Debug)]

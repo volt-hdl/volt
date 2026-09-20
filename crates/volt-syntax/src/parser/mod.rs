@@ -17,6 +17,7 @@ mod pipeline;
 pub(crate) mod recovery;
 mod stmt;
 mod test;
+mod test_expr;
 
 use std::collections::HashSet;
 

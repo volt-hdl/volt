@@ -66,6 +66,8 @@ error_codes! {
 
     // ─── Simülasyon testleri (ADR-0033) ───
     E8501, E8502, E8503, E8504, E8505, E8506,
+    // Test dili genişletme (ADR-0058)
+    E8507, E8508, E8509, E8510, E8511,
 
     // ─── Release disiplini ───
     E9001, E9002,
