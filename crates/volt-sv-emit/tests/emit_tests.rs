@@ -395,8 +395,11 @@ fn doc_comments_transferred_as_line_comments() {
 // ═══ Kapsam dışı (E0003) ══════════════════════════════════════════
 
 #[test]
-fn trit_port_is_e0003() {
-    assert!(emit_codes("module M { in t : Trit out y : bool y = true }").contains(&"E0003"));
+fn trit_port_is_no_longer_e0003() {
+    // ADR-0003 eşlemesi eklendi (bkz. trit_emit_tests.rs); açık reset
+    // portu hâlâ kapsam dışı.
+    assert!(emit_codes("module M { in t : Trit out y : bool y = true }").is_empty());
+    assert!(emit_codes("module M { in r : reset out y : bool y = true }").contains(&"E0003"));
 }
 
 #[test]
@@ -606,6 +609,9 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "58_mmio_access_control.volt",
         // ADR-0049: domain-aware çift saatli bellek.
         "65_async_dual_port_ram.volt",
+        // ADR-0003: Trit (2 bit işaretli) + çarpansız ternary MAC.
+        "16_trit_ternary_mac.volt",
+        "82_trit_emit.volt",
     ];
 
     let mut clean = 0;

@@ -243,8 +243,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0054: 73-74 SDC üretimi (tek saat / çok saat),
     // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi,
     // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load,
-    // ADR-0060: 81 test bloğunda sabit yayılımı.
-    assert_eq!(checked, 70);
+    // ADR-0060: 81 test bloğunda sabit yayılımı,
+    // ADR-0003: 82 Trit SV eşlemesi.
+    assert_eq!(checked, 71);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

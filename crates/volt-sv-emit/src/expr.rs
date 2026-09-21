@@ -57,7 +57,7 @@ pub(crate) fn widen_sig(declared: Option<Sig>, ctx: Option<Sig>) -> Option<Sig> 
 /// sıkı bağlanır (ADR-0013 §2.2), SV'de C mirası olarak gevşek. Volt
 /// sırası kullanılırsa `(a & b) == 0` parantezsiz basılır ve SV bunu
 /// `a & (b == 0)` okur — sessiz yanlış derleme.
-fn sv_prec(op: BinOp) -> u8 {
+pub(crate) fn sv_prec(op: BinOp) -> u8 {
     match op {
         // İmplikasyon SV'de `!a || b` olarak açıldığından || düzeyinde.
         BinOp::Imp => 1,
@@ -85,8 +85,8 @@ fn is_comparison(op: BinOp) -> bool {
     )
 }
 
-const PREC_TERNARY: u8 = 0;
-const PREC_UNARY: u8 = 11;
+pub(crate) const PREC_TERNARY: u8 = 0;
+pub(crate) const PREC_UNARY: u8 = 11;
 const PREC_ATOM: u8 = 12;
 
 /// Negatif literal (`-16'sd2`) operand konumunda parantezlenir.
@@ -226,6 +226,9 @@ impl<'a> Emitter<'a> {
                     return self.width_of(lhs);
                 }
                 let (lhs, rhs) = (*lhs, *rhs);
+                if let Some(sig) = self.trit_sum_sig(*op, lhs, rhs) {
+                    return Some(sig);
+                }
                 match (self.width_of(lhs), self.width_of(rhs)) {
                     (Some(l), Some(r)) => Some(Sig {
                         width: l.width.max(r.width),
@@ -401,7 +404,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Aritmetik/tekli/ternary operandı: bağlamla basılır, dar atom sarılır.
-    fn emit_operand(
+    pub(crate) fn emit_operand(
         &mut self,
         idx: Idx<Expr>,
         ctx: Option<Sig>,
@@ -491,7 +494,14 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let (op, lhs, rhs) = (*op, *lhs, *rhs);
-                (self.emit_binary(idx, op, lhs, rhs, ctx), sv_prec(op))
+                // Trit * x → çarpansız seçici (ADR-0003, bkz. trit.rs).
+                let mul_ctx = (op == BinOp::Mul)
+                    .then(|| self.arith_ctx(idx, ctx))
+                    .and_then(|c| self.try_emit_trit_mul(lhs, rhs, c));
+                match mul_ctx {
+                    Some(text) => (text, PREC_TERNARY),
+                    None => (self.emit_binary(idx, op, lhs, rhs, ctx), sv_prec(op)),
+                }
             }
             ExprKind::Index { base, index } => {
                 let (base, index) = (*base, *index);
@@ -664,13 +674,7 @@ impl<'a> Emitter<'a> {
             }),
             // Kaydırmada sol operanda dış bağlam itilmez (ADR-0036).
             BinOp::Shl | BinOp::Shr => self.width_of(lhs),
-            _ => match (self.width_of(idx), ctx) {
-                (Some(own), Some(c)) => Some(Sig {
-                    width: own.width.max(c.width),
-                    signed: own.signed,
-                }),
-                (own, c) => own.or(c),
-            },
+            _ => self.arith_ctx(idx, ctx),
         };
         // İmplikasyonun SV ifade karşılığı yok — `!a || b` açılımı
         // (ADR-0034); sol operand ! altında kalsın diye parantezlenir.
@@ -708,6 +712,18 @@ impl<'a> Emitter<'a> {
             op.symbol()
         };
         format!("{l} {sym} {r}")
+    }
+
+    /// Aritmetik operand bağlamı: max(kendi genişliğim, dış bağlam),
+    /// işaret ifadenin kendisinden (ADR-0041).
+    fn arith_ctx(&mut self, idx: Idx<Expr>, ctx: Option<Sig>) -> Option<Sig> {
+        match (self.width_of(idx), ctx) {
+            (Some(own), Some(c)) => Some(Sig {
+                width: own.width.max(c.width),
+                signed: own.signed,
+            }),
+            (own, c) => own.or(c),
+        }
     }
 
     /// Bit düzeyi operatörün karşılaştırma operandı: SV tablosu parantez

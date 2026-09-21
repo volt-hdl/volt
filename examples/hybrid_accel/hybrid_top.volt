@@ -120,7 +120,7 @@ module BinaryFront {
 pub module HybridTop {
     // ── Ternary domain ────────────────────────────────────────────
     in  t_clk      : clock @TernaryCore
-    in  t_weight   : [i2; TN * TN] @TernaryCore
+    in  t_weight   : [Trit; TN * TN] @TernaryCore
     in  t_act      : [i8; TN]      @TernaryCore
     in  t_start    : bool          @TernaryCore
     out t_busy     : bool          @TernaryCore

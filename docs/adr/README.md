@@ -45,6 +45,7 @@ kodlar tanımlı, mekanizma V1+.
 | No | Başlık | Statü | Tarih |
 |---|---|---|---|
 | [0003](ADR-0003-trit-tipi.md) | Trit tipi — kısıtlı i2 ve katmanlı görünürlük | K/G | 2026-09-03 |
+| [0062](ADR-0062-trit-sv-eslemesi.md) | Trit SV eşlemesi — `logic signed [1:0]` (01/00/11), `Trit * x` çarpansız seçici, emit tanısı tekilleştirme | K | 2026-09-21 |
 | [0007](ADR-0007-zamanlama-seviyeleri.md) | L0/L1/L2 zamanlama seviyeleri | K/G | 2026-09-03 |
 | [0018](ADR-0018-lineer-tipler-opt-in.md) | Lineer tipler — opt-in (`&inv`), normal portlarda sürücü analizi | K/R | 2026-09-03 |
 | [0025](ADR-0025-esnek-genislik-ve-w2013.md) | Aritmetik sonuçlarda esnek genişlik aralığı ve W2013 | K | 2026-09-03 |
