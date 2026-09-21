@@ -73,6 +73,8 @@ error_codes! {
 
     // ─── Release disiplini ───
     E9001, E9002,
+    // Register haritası tutarlılığı (ADR-0063)
+    E9003, E9004,
 
     // ─── Uyarılar ───
     W0010, W0020, W0021, W0022, W1001, W1002, W1003, W1004, W1005, W2010, W2011,

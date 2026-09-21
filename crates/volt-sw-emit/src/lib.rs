@@ -9,6 +9,7 @@
 //! bunu üretilen SV'nin adres çözümlemesiyle karşılaştırarak doğrular.
 
 mod c;
+pub mod check;
 mod json;
 mod markdown;
 mod names;

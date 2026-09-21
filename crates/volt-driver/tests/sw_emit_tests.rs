@@ -4,9 +4,10 @@
 //! (yalın), `tests/ui/pass/58` (her erişim türü), `tests/ui/pass/72`
 //! (doc yorumları + tüm alan nitelikleri).
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use volt_sw_emit::check::{self, DriftKind, Format};
 
 fn volt() -> Command {
     Command::new(env!("CARGO_BIN_EXE_volt"))
@@ -361,6 +362,13 @@ fn assert_schema(v: &serde_json::Value) {
     expect_type(v, "base", |x| x.is_u64(), top);
     expect_type(v, "bus", |x| x.is_string(), top);
     expect_type(v, "doc", |x| x.is_string() || x.is_null(), top);
+    // ADR-0063 eklemeleri: 16 hex haneli harita hash'i, register reset değeri.
+    expect_type(
+        v,
+        "regmap_hash",
+        |x| x.as_str().is_some_and(|h| h.len() == 16),
+        top,
+    );
     let regs = v["registers"].as_array().expect("registers dizi");
     for r in regs {
         let ctx = format!("register {}", r["name"]);
@@ -376,6 +384,7 @@ fn assert_schema(v: &serde_json::Value) {
             "{ctx}: access"
         );
         expect_type(r, "volatile", |x| x.is_boolean(), &ctx);
+        expect_type(r, "reset", |x| x.is_u64(), &ctx);
         expect_type(r, "doc", |x| x.is_string() || x.is_null(), &ctx);
         let fields = r["fields"].as_array().expect("fields dizi");
         let mut next_lsb = 0;
@@ -556,136 +565,26 @@ fn doc_comments_reach_all_four_outputs() {
 
 // ═══ RTL ↔ sürücü tutarlılığı (KRİTİK) ═════════════════════════════
 
-/// Satırdaki tüm `32'h<hex>` literalleri.
-fn hex_literals(line: &str) -> BTreeSet<u64> {
-    let mut out = BTreeSet::new();
-    let mut rest = line;
-    while let Some(pos) = rest.find("32'h") {
-        let digits: String = rest[pos + 4..]
-            .chars()
-            .take_while(|c| c.is_ascii_hexdigit())
-            .collect();
-        out.insert(u64::from_str_radix(&digits, 16).expect("hex"));
-        rest = &rest[pos + 4 + digits.len()..];
-    }
-    out
-}
-
-/// `wire mmio_whit = ...` gibi tek satırdaki adres kümesi.
-fn line_addresses(sv: &str, marker: &str) -> BTreeSet<u64> {
-    let line = sv
-        .lines()
-        .find(|l| l.contains(marker))
-        .unwrap_or_else(|| panic!("SV'de '{marker}' satırı yok"));
-    hex_literals(line)
-}
-
-/// `case (<sel>)` ... `endcase` arasındaki `32'h...:` kollarının adresleri.
-fn case_arms(sv: &str, sel: &str) -> BTreeSet<u64> {
-    let start = sv
-        .find(&format!("case ({sel})"))
-        .unwrap_or_else(|| panic!("SV'de case ({sel}) yok"));
-    let body = &sv[start..];
-    let end = body.find("endcase").expect("endcase");
-    body[..end]
-        .lines()
-        .filter(|l| l.trim_start().starts_with("32'h") && l.contains(':'))
-        .flat_map(|l| hex_literals(l.split(':').next().unwrap()))
-        .collect()
-}
-
 /// regmap.json'daki her adresi RTL'in adres çözümlemesiyle karşılaştırır:
 /// harita kümesi = `mmio_whit`/`mmio_rhit` kümesi; okunabilir register'lar
 /// = `case (ar_addr)` kolları; bus'ın yazdığı register'lar = `case
 /// (aw_addr)` kolları; bus'a ait RW register'ın okuma maskesi = JSON alan
 /// maskesi; `@w1c` bitleri okuma görünümünde aynı bitte. Sürücü ile RTL
 /// aynı `RegInfo`'dan türese de bu test ayrışmayı bağımsız olarak yakalar.
+///
+/// ADR-0063: karşılaştırma mantığı `volt_sw_emit::check::check_rtl`'e
+/// taşındı (`volt build --check-regmap` aynı fonksiyonu çağırır); burada
+/// yalnız JSON okunur ve boş olmayan kalem listesi panik olur.
 fn assert_regmap_matches_rtl(json: &serde_json::Value, sv: &str) {
-    let base = json["base"].as_u64().unwrap();
-    let regs = json["registers"].as_array().unwrap();
-    let all: BTreeSet<u64> = regs
-        .iter()
-        .map(|r| r["address"].as_u64().unwrap())
-        .collect();
-    assert_eq!(all.len(), regs.len(), "adresler benzersiz");
-    assert!(all.iter().all(|a| a >= &base));
-    assert_eq!(
-        line_addresses(sv, "wire mmio_whit ="),
-        all,
-        "yazma adres kümesi"
+    let parsed = check::parse(Format::Json, &json.to_string())
+        .unwrap_or_else(|e| panic!("regmap.json okunamadı: {e:?}"));
+    assert!(
+        parsed.inconsistencies.is_empty(),
+        "regmap.json kendi içinde çelişiyor: {:#?}",
+        parsed.inconsistencies
     );
-    assert_eq!(
-        line_addresses(sv, "wire mmio_rhit ="),
-        all,
-        "okuma adres kümesi"
-    );
-
-    let readable: BTreeSet<u64> = regs
-        .iter()
-        .filter(|r| r["access"] != "wo")
-        .map(|r| r["address"].as_u64().unwrap())
-        .collect();
-    assert_eq!(
-        case_arms(sv, "ar_addr"),
-        readable,
-        "okuma çoklayıcısı kolları"
-    );
-
-    let bus_written: BTreeSet<u64> = regs
-        .iter()
-        .filter(|r| r["access"] != "ro")
-        .map(|r| r["address"].as_u64().unwrap())
-        .collect();
-    assert_eq!(
-        case_arms(sv, "aw_addr"),
-        bus_written,
-        "yazma mantığı kolları"
-    );
-
-    for r in regs {
-        let name = r["name"].as_str().unwrap();
-        let fields = r["fields"].as_array().unwrap();
-        let mask: u64 = fields
-            .iter()
-            .filter(|f| f["reserved"] == false)
-            .map(|f| {
-                let w = f["width"].as_u64().unwrap();
-                let bits = if w >= 32 {
-                    u32::MAX as u64
-                } else {
-                    (1u64 << w) - 1
-                };
-                bits << f["lsb"].as_u64().unwrap()
-            })
-            .fold(0, |m, b| m | b);
-        let rd_line = sv
-            .lines()
-            .find(|l| l.contains(&format!("wire [31:0] mmio_{name}_rd = ")));
-        if r["access"] == "rw" && r["volatile"] == false {
-            let line = rd_line.unwrap_or_else(|| panic!("mmio_{name}_rd satırı yok"));
-            if mask == u32::MAX as u64 {
-                assert!(
-                    !line.contains("32'h"),
-                    "{name}: tam sözcük register maskesiz okunur: {line}"
-                );
-            } else {
-                assert_eq!(
-                    hex_literals(line),
-                    BTreeSet::from([mask]),
-                    "{name} okuma maskesi"
-                );
-            }
-        }
-        for f in fields.iter().filter(|f| f["w1c"] == true) {
-            let bit = 1u64 << f["lsb"].as_u64().unwrap();
-            let line = rd_line.unwrap_or_else(|| panic!("mmio_{name}_rd satırı yok"));
-            assert!(
-                hex_literals(line).contains(&bit),
-                "{name}.{}: @w1c biti okuma görünümünde {bit:#x} olmalı: {line}",
-                f["name"]
-            );
-        }
-    }
+    let drift = check::check_rtl(&parsed.view, sv);
+    assert!(drift.is_empty(), "RTL ile ayrışma: {drift:#?}");
 }
 
 #[test]
@@ -715,6 +614,21 @@ fn rtl_consistency_check_detects_a_shifted_offset() {
     json["registers"][1]["address"] = serde_json::json!(0x40);
     let caught = std::panic::catch_unwind(|| assert_regmap_matches_rtl(&json, &sv));
     assert!(caught.is_err(), "kaydırılmış offset yakalanmalı");
+    // Tutarlı kaydırma (offset + address birlikte): yakalayan artık
+    // JSON'un iç çelişkisi değil, RTL adres çözümlemesidir.
+    json["registers"][1]["offset"] = serde_json::json!(0x40);
+    let drift = check::check_rtl(
+        &check::parse(Format::Json, &json.to_string()).unwrap().view,
+        &sv,
+    );
+    assert_eq!(drift.len(), 2, "{drift:#?}");
+    assert_eq!(drift[0].kind, DriftKind::Offset);
+    assert_eq!(drift[0].subject, "GPIO_DIR");
+    assert_eq!(
+        drift[1].kind,
+        DriftKind::MissingRegister,
+        "0x4 RTL'de sahipsiz"
+    );
     let _ = std::fs::remove_dir_all(&target);
 }
 

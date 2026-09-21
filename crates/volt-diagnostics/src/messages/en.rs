@@ -132,6 +132,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Release discipline ───
         E9001 => "Release builds cannot contain todo!",
         E9002 => "Determinism violation",
+        E9003 => "Register map drift between a driver file and the RTL (ADR-0063)",
+        E9004 => "Not a Volt-generated register map file (ADR-0063)",
 
         // ─── Warnings ───
         W0010 => "Ambiguous operator precedence, parentheses recommended",
