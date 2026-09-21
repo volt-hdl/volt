@@ -132,6 +132,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         // ─── Release disiplini ───
         E9001 => "todo! ile release build yapılamaz",
         E9002 => "Determinizm ihlali",
+        E9003 => "Sürücü dosyası ile RTL arasında register haritası ayrışması (ADR-0063)",
+        E9004 => "Volt'un üretmediği bir register haritası dosyası (ADR-0063)",
 
         // ─── Uyarılar ───
         W0010 => "Belirsiz operatör önceliği, parantez önerilir",

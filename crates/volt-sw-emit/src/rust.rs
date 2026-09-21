@@ -13,11 +13,12 @@ use std::fmt::Write as _;
 
 use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
 
+use crate::check::{field_mask, reset_value};
 use crate::names::{accessor, doc_lines, hex32_rust, hex_short, rust_type, upper_snake};
 use crate::EmitOpts;
 
 pub fn emit(map: &RegMap, opts: &EmitOpts) -> String {
-    let mut s = String::new();
+    let mut s = crate::check::signature(map, opts);
     header(&mut s, map, opts);
     let _ = writeln!(s, "use core::ptr::{{read_volatile, write_volatile}};\n");
     doc_lines(&mut s, "", "///", map.doc.as_deref());
@@ -75,6 +76,26 @@ fn constants(s: &mut String, map: &RegMap) {
             reg.name,
             hex32_rust(u64::from(reg.read_mask()))
         );
+        let _ = writeln!(
+            s,
+            "    /// `{}` value after reset.\n    pub const {up}_RESET: u32 = {};",
+            reg.name,
+            hex32_rust(u64::from(reset_value(reg)))
+        );
+        for f in reg.named() {
+            let fup = format!("{up}_{}", upper_snake(&f.name));
+            let _ = writeln!(
+                s,
+                "    /// Lowest bit of `{}.{}`.\n    pub const {fup}_SHIFT: u32 = {};\n    \
+                 /// Unshifted mask of `{}.{}`.\n    pub const {fup}_MASK: u32 = {};",
+                reg.name,
+                f.name,
+                f.lsb,
+                reg.name,
+                f.name,
+                hex32_rust(u64::from(field_mask(f.width)))
+            );
+        }
     }
 }
 

@@ -30,7 +30,7 @@ Uygulanan kapsam:
 - Golden test: `counter.expected.sv` byte-aynı (emit_tests.rs:84).
 
 Planlanan, uygulanmayan: `volt build` artımlı + `volt build --release`
-sıfırdan deterministik + `volt.lock` (cli-contract.md:163; E9002 kodu
+sıfırdan deterministik + `volt.lock` (cli-contract.md:166; E9002 kodu
 rezerve). Bugün tek mod vardır, her derleme sıfırdan ve deterministiktir.
 
 ## Gerekçe

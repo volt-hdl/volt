@@ -1,4 +1,5 @@
-//! `regmap.json` — `volt-regmap/1` şeması (ADR-0053 §JSON).
+//! `regmap.json` — `volt-regmap/1` şeması (ADR-0053 §JSON; ADR-0063 eklemeli
+//! `regmap_hash` ve register `reset` anahtarları).
 //!
 //! Anahtarlar sabittir; sayılar ondalıktır (JSON hex bilmez), `address =
 //! base + offset` hazır verilir. `doc` yoksa `null`. Register ve alan
@@ -23,6 +24,7 @@ pub fn value(map: &RegMap, opts: &EmitOpts) -> Value {
         "schema": SCHEMA,
         "generator": format!("volt {}", opts.version),
         "source": opts.source,
+        "regmap_hash": crate::check::regmap_hash(map),
         "name": map.module,
         "base": map.base,
         "bus": map.bus,
@@ -32,6 +34,7 @@ pub fn value(map: &RegMap, opts: &EmitOpts) -> Value {
             "offset": r.offset,
             "address": r.address(map.base),
             "access": r.access.short(),
+            "reset": crate::check::reset_value(r),
             "volatile": r.volatile,
             "doc": r.doc,
             "fields": r.fields.iter().map(|f| json!({

@@ -8,6 +8,7 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod regmap_check;
 mod sim;
 mod sim_lower;
 mod unit;
@@ -111,6 +112,7 @@ enum Command {
     volt build --emit=sva design.volt
     volt build --sva inline --emit=sva design.volt
     volt build --emit=sdc,xdc design.volt
+    volt build --emit=c,rust,regmap --check-regmap design.volt
     volt build --format json --target-dir out design.volt")]
     Build {
         /// Input .volt file
@@ -132,6 +134,24 @@ enum Command {
         /// Write all modules into one build/rtl/<source>.sv (pre-ADR-0024 layout)
         #[arg(long)]
         single_file: bool,
+        /// Compare the generated drivers with the generated RTL address decode (ADR-0063)
+        #[arg(long)]
+        check_regmap: bool,
+    },
+    /// Compare a generated driver (.h, .rs, regmap .json) with the design's register map (ADR-0063)
+    #[command(after_help = "EXAMPLES:
+    volt check-regmap gpio.volt --against firmware/gpio.h
+    volt check-regmap gpio.volt --against gpio.h --against gpio.rs
+    volt check-regmap --format json gpio.volt --against build/sw/gpio.json")]
+    CheckRegmap {
+        /// Input .volt file (the register map's source of truth)
+        file: PathBuf,
+        /// A file generated earlier by volt build --emit=c|rust|regmap (repeatable)
+        #[arg(long, required = true)]
+        against: Vec<PathBuf>,
+        /// Output format: human | json | short
+        #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+        format: OutputFormat,
     },
     /// Fast check (produces no output files)
     #[command(after_help = "EXAMPLES:
@@ -339,6 +359,7 @@ fn main() -> ExitCode {
             emit,
             sva,
             single_file,
+            check_regmap,
         } => {
             let mode = if emit.contains(&EmitArg::Sva) {
                 match sva {
@@ -367,11 +388,19 @@ fn main() -> ExitCode {
                 format,
                 mode,
                 single_file,
-                &sw,
+                &SwRequest {
+                    kinds: &sw,
+                    check_regmap,
+                },
                 &dialects,
             )
         }
         Command::Check { file, format } => check(&file, format),
+        Command::CheckRegmap {
+            file,
+            against,
+            format,
+        } => regmap_check::check_regmap(&file, &against, format),
         Command::Verify {
             file,
             depth,
@@ -828,13 +857,20 @@ fn json_envelope(
     })
 }
 
+/// `volt build` yazılım tarafı isteği (ADR-0053 `--emit`, ADR-0063
+/// `--check-regmap`).
+struct SwRequest<'a> {
+    kinds: &'a [SwKind],
+    check_regmap: bool,
+}
+
 fn build(
     file: &Path,
     target_dir: &Path,
     format: OutputFormat,
     sva_mode: SvaMode,
     single_file: bool,
-    sw: &[SwKind],
+    sw: &SwRequest<'_>,
     dialects: &[Dialect],
 ) -> ExitCode {
     let start = Instant::now();
@@ -953,18 +989,41 @@ fn build(
     }
 
     // ADR-0053 — yazılım tarafı: build/sw/<modül>.{rs,h,json}, build/docs/<modül>.md.
-    if !sw.is_empty() {
-        let opts = EmitOpts {
-            source: file
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| file.display().to_string()),
-            version: volt_sv_emit::VOLT_VERSION.to_string(),
-        };
-        match write_sw_outputs(target_dir, &compiled.regmaps, sw, &opts, format) {
+    let sw_opts = EmitOpts {
+        source: file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.display().to_string()),
+        version: volt_sv_emit::VOLT_VERSION.to_string(),
+    };
+    if !sw.kinds.is_empty() {
+        match write_sw_outputs(target_dir, &compiled.regmaps, sw.kinds, &sw_opts, format) {
             Ok(paths) => artifacts.extend(paths),
             Err(code) => return code,
         }
+    }
+    // ADR-0063 Seviye 1 — üretilen sürücü ↔ üretilen RTL adres çözümlemesi.
+    let mut regmap_checked = 0;
+    if sw.check_regmap {
+        let diags = regmap_check::build_check(&compiled, sw.kinds, &sw_opts);
+        if !diags.is_empty() {
+            regmap_check::render(&diags, &compiled.map, format);
+            compiled.diagnostics.extend(diags);
+            if format == OutputFormat::Human {
+                eprintln!(
+                    "{}",
+                    lstr!(
+                        en: "     Error: register map check failed ({} error(s))", compiled.errors();
+                        tr: "     Hata: register haritası denetimi başarısız ({} hata)", compiled.errors()
+                    )
+                );
+            }
+            if format == OutputFormat::Json {
+                print_json_envelope("build", &compiled, &artifacts, start);
+            }
+            return ExitCode::from(1);
+        }
+        regmap_checked = compiled.regmaps.len();
     }
 
     // ADR-0054 — zamanlama kısıtları: build/constraints/<modül>.{sdc,xdc}.
@@ -1008,6 +1067,22 @@ fn build(
                     en: "     Output {artifact}";
                     tr: "     Çıktı {artifact}"
                 )
+            );
+        }
+        if sw.check_regmap {
+            eprintln!(
+                "{}",
+                if regmap_checked == 0 {
+                    lstr!(
+                        en: "       Note: no @mmio module in the unit; --check-regmap checked nothing";
+                        tr: "         Not: birimde @mmio modülü yok; --check-regmap hiçbir şey denetlemedi"
+                    )
+                } else {
+                    lstr!(
+                        en: "     Regmap drivers match the RTL address decode ({} @mmio module(s))", regmap_checked;
+                        tr: "     Regmap sürücüler RTL adres çözümlemesiyle uyumlu ({} @mmio modülü)", regmap_checked
+                    )
+                }
             );
         }
         // Bağlama göre sonraki adım (UX Anayasası: kullanıcı belgeye

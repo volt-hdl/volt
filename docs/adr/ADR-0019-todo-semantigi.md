@@ -26,7 +26,7 @@ ama sentezlenmemelidir (Arch HDL emsali).
 - Sentez: SV üretiminde desteklenmez; `1'b0` yer tutucu + E0003 "not
   supported in F0 SV generation" (sv-emit/src/expr.rs:588-596, lib.rs:446-452).
 - Plan (uygulanmadı): `volt check` todo listesi, `build --release`'de
-  E9001, simülasyonda durma (cli-contract.md:357-363; Dil-Spes-v3:324-330).
+  E9001, simülasyonda durma (cli-contract.md:375-381; Dil-Spes-v3:324-330).
 
 ## Gerekçe
 

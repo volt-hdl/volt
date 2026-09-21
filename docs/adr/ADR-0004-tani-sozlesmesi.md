@@ -32,7 +32,7 @@ Tasarım belgeleri Türkçe yazıldığından tanı dili de kararlaştırılmal�
    satırları (UX Anayasası BÖLÜM IV).
 3. **Dil**: İngilizce varsayılan, Türkçe opt-in; öncelik
    `--lang` > `VOLT_LANG` > `Volt.toml [ui] lang` > en; sistem locale'i
-   bilerek okunmaz (messages/mod.rs:3-5; cli-contract.md:100). Joker kolsuz
+   bilerek okunmaz (messages/mod.rs:3-5; cli-contract.md:102). Joker kolsuz
    `match` her yeni kodu iki dilde zorlar (commit 1dc21b6).
 
 ## Gerekçe
