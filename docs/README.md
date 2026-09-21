@@ -23,7 +23,8 @@ Belge öncelik sırası: **UX Anayasası → adr/ → spec/ → design/ → rese
 | RDC doğrulaması nasıl çözülüyor? | [design/Volt-Butunlesik-Cozum-RDC-Dogrulama-Spec.md](design/Volt-Butunlesik-Cozum-RDC-Dogrulama-Spec.md) |
 | Hangi mimari kararlar alındı? | [design/Volt-Mimari-Kararlar-ve-CLAUDE-md.md](design/Volt-Mimari-Kararlar-ve-CLAUDE-md.md) |
 | Kodlamaya başlamadan ne eksik? | [design/Volt-Kodlama-Oncesi-Kritik-Adimlar.md](design/Volt-Kodlama-Oncesi-Kritik-Adimlar.md) |
-| Rakip HDL'ler (Spade, Clash, Veryl, Arch) nasıl? | [research/](research/) — `*-Detayli-Inceleme.md` dosyaları |
+| Volt rakip HDL'lere göre nerede duruyor? (22 araç, 15 boyut, kaynaklı) | [research/rekabet-2026-09.md](research/rekabet-2026-09.md) |
+| Rakip HDL'lerin eski ayrıntılı incelemeleri | [Spade](research/Volt-Spade-HDL-Detayli-Inceleme.md), [Clash ve Veryl](research/Volt-Clash-ve-Veryl-HDL-Detayli-Inceleme.md), [Arch](research/Volt-Arch-HDL-Detayli-Inceleme.md) — eski; çelişkide `rekabet-2026-09.md` geçerlidir |
 | Ekosistem/pazarlama stratejisi nedir? | [research/Volt-Ekosistem-Strateji-Analizi.md](research/Volt-Ekosistem-Strateji-Analizi.md) |
 | Donanım teknolojisi araştırmaları nerede? | [research/](research/) — SoC, fotonik, ternary analizleri |
 
