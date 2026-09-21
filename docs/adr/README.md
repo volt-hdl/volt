@@ -91,6 +91,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0059](ADR-0059-test-port-genislik-kontrolu.md) | Test bloğunda port genişlik denetimi — sabit değer E8512, hesaplanmış değer çalışma zamanında testi düşürür | K | 2026-09-20 |
 | [0060](ADR-0060-test-sabit-yayilimi.md) | Test bloğunda sabit yayılımı — sabit `let` ve literal üst düzey `const` E8512'ye derleme zamanında ulaşır; port okuması/döngü sayacı koşuda denetlenir | K | 2026-09-20 |
 | [0042](ADR-0042-coklu-dosya-derleme.md) | Çoklu dosya derleme ve import sistemi | K | 2026-09-13 |
+| [0061](ADR-0061-volt-toml-arama-tavani.md) | Volt.toml aramasına tavan — git kökü (kapsayıcı) + ev dizini (dışlayıcı), `VOLT_MANIFEST_DIR` geçersiz kılar | K | 2026-09-21 |
 | [0048](ADR-0048-zamanlama-kisitlari.md) | Zamanlama kısıtları — uygulanmayan nitelikler W0021 üretir, SDC üretimi V1 planı | K (2. bölüm ADR-0054 ile gerçeklendi) | 2026-09-14 |
 
 ## Altyapı

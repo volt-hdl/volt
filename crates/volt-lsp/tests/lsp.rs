@@ -676,6 +676,41 @@ fn editor_honours_volt_toml_lint_policy() {
 }
 
 #[test]
+fn editor_ignores_stray_volt_toml_above_the_git_root() {
+    // ADR-0061: sürücüyle aynı tavan — git kökünün üstündeki "allow"
+    // politikası bu projeye uygulanmaz, W0021 görünür.
+    let tmp = std::env::temp_dir().join(format!("volt-lsp-ceiling-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let repo = tmp.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).expect("temp dizini");
+    std::fs::write(
+        tmp.join("Volt.toml"),
+        "[lint]
+unenforced_attributes = \"allow\"
+",
+    )
+    .expect("Volt.toml");
+    let src = "@budget(lut = 5000)
+module M {
+    in a : u8
+    out y : u8
+    y = a
+}
+";
+    let path = repo.join("m.volt");
+    let a = analysis::analyze(path.to_str().unwrap(), src);
+    assert!(
+        a.diagnostics.iter().any(|d| d.code.as_str() == "W0021"),
+        "başıboş Volt.toml yok sayılmalı → W0021 beklenir: {:?}",
+        a.diagnostics
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn stdlib_completion_offers_async_dual_port_ram() {
     // ADR-0049: 12. yerleşik primitif tamamlama ve imza taşır.
     let a = analyze(COUNTER);

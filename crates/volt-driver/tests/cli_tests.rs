@@ -1852,3 +1852,111 @@ fn explain_w0021_tr_describes_unenforced_attribute() {
     assert!(stdout.contains("@allow(unenforced)"), "{stdout}");
     assert!(stdout.contains("NEDEN SORUN"), "{stdout}");
 }
+
+// ═══ Volt.toml arama tavanı (ADR-0061) ═══════════════════════════
+
+/// `tmp/Volt.toml` (src = "lib") + `tmp/lib/lib.volt` + `tmp/repo/src/main.volt`.
+/// Başıboş manifest kök sayılırsa `use lib::Ticker` onun `src`'inden çözülür;
+/// sayılmazsa E1011.
+fn stray_manifest_tree(tag: &str) -> (PathBuf, PathBuf) {
+    let tmp = temp_dir(tag);
+    std::fs::write(
+        tmp.join("Volt.toml"),
+        "[package]\nname = \"stray\"\nsrc = \"lib\"\n",
+    )
+    .expect("Volt.toml");
+    std::fs::create_dir_all(tmp.join("lib")).expect("lib");
+    std::fs::copy(ui("multifile/basic/lib.volt"), tmp.join("lib/lib.volt")).expect("lib.volt");
+    let src = tmp.join("repo").join("src");
+    std::fs::create_dir_all(&src).expect("src");
+    let main = src.join("main.volt");
+    std::fs::copy(ui("multifile/basic/main.volt"), &main).expect("main.volt");
+    (tmp, main)
+}
+
+/// Tavanı yalnız testin kurduğu ağaç belirlesin: ev dizini ağacın dışında.
+fn check_with_home(main: &std::path::Path, home: &std::path::Path) -> std::process::Output {
+    volt()
+        .arg("check")
+        .arg(main)
+        .env_remove("VOLT_LANG")
+        .env_remove("VOLT_MANIFEST_DIR")
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .output()
+        .expect("volt çalışmalı")
+}
+
+#[test]
+fn stray_volt_toml_above_the_git_root_is_not_the_project_root() {
+    let (tmp, main) = stray_manifest_tree("ceiling-git");
+    std::fs::create_dir_all(tmp.join("repo/.git")).expect(".git");
+    let output = check_with_home(&main, &tmp.join("elsewhere"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("error[E1011]"), "stderr: {stderr}");
+    assert!(stderr.contains("up to the git root"), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn volt_toml_in_the_home_directory_is_not_the_project_root() {
+    // HOME simülasyonu: tmp ev dizini, ~/Volt.toml unutulmuş.
+    let (tmp, main) = stray_manifest_tree("ceiling-home");
+    let output = check_with_home(&main, &tmp);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("error[E1011]"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("below the home directory"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn volt_toml_above_the_file_still_counts_below_the_ceiling() {
+    // Tavan yoksa (git yok, ev dizini dışarıda) ADR-0042 davranışı sürer.
+    let (tmp, main) = stray_manifest_tree("ceiling-none");
+    let output = check_with_home(&main, &tmp.join("elsewhere"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn volt_manifest_dir_overrides_the_ceiling() {
+    let (tmp, main) = stray_manifest_tree("ceiling-override");
+    std::fs::create_dir_all(tmp.join("repo/.git")).expect(".git");
+    let output = volt()
+        .arg("check")
+        .arg(&main)
+        .env_remove("VOLT_LANG")
+        .env("VOLT_MANIFEST_DIR", &tmp)
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn volt_manifest_dir_without_volt_toml_is_reported_in_the_e1011_note() {
+    let (tmp, main) = stray_manifest_tree("ceiling-override-empty");
+    let empty = tmp.join("empty");
+    std::fs::create_dir_all(&empty).expect("empty");
+    let output = volt()
+        .arg("check")
+        .arg(&main)
+        .env_remove("VOLT_LANG")
+        .env("VOLT_MANIFEST_DIR", &empty)
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("VOLT_MANIFEST_DIR points to"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}

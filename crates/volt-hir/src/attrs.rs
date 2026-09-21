@@ -93,20 +93,14 @@ impl UnenforcedLint {
         Self::default()
     }
 
-    /// `dir`den yukarı doğru ilk Volt.toml dosyasının politikası; manifest
+    /// `dir`den yukarı doğru ilk Volt.toml dosyasının politikası (git
+    /// kökü / ev dizini tavanı ve `VOLT_MANIFEST_DIR`, ADR-0061); manifest
     /// yoksa ya da okunamıyorsa `Warn`. Sürücü ve LSP aynı kararı verir.
     pub fn discover(dir: Option<&Path>) -> Self {
-        let mut cur = dir;
-        while let Some(d) = cur {
-            let candidate = d.join("Volt.toml");
-            if candidate.is_file() {
-                return std::fs::read_to_string(&candidate)
-                    .map(|t| Self::from_manifest(&t))
-                    .unwrap_or_default();
-            }
-            cur = d.parent();
-        }
-        Self::default()
+        dir.and_then(|d| crate::manifest_search::find_manifest_dir(d).ok())
+            .and_then(|root| std::fs::read_to_string(root.join(crate::MANIFEST_FILE)).ok())
+            .map(|t| Self::from_manifest(&t))
+            .unwrap_or_default()
     }
 }
 

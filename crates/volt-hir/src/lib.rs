@@ -13,6 +13,7 @@ pub mod constraints;
 pub mod domain;
 pub mod drivers;
 pub mod handshake;
+pub mod manifest_search;
 pub mod resolve;
 pub mod sim;
 mod sim_const;
@@ -35,6 +36,9 @@ pub use constraints::{
 };
 pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
 pub use handshake::check_handshakes;
+pub use manifest_search::{
+    find_manifest_dir, find_manifest_dir_in, SearchEnv, SearchStop, MANIFEST_DIR_ENV, MANIFEST_FILE,
+};
 pub use resolve::{
     resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
     ScopeId, ScopeKind,
