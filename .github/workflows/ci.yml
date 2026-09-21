@@ -53,15 +53,35 @@ jobs:
   verify:
     name: Formal verification
     runs-on: ubuntu-latest
-    # Optional: the external toolchain (yosys + sby + z3) must not break CI;
-    # local tests already SKIP when sby is missing.
-    continue-on-error: true
+    # REQUIRED: a real formal failure must break CI. Network flakiness is
+    # handled by a pinned, cached toolchain and download retries instead of
+    # continue-on-error (setup-oss-cad-suite always fetched the newest nightly
+    # and failed PR #5 with HTTP 504 on the GitHub release download).
+    env:
+      OSS_CAD_SUITE_DATE: 2026-09-21
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install OSS CAD Suite (yosys + sby + solvers)
-        uses: YosysHQ/setup-oss-cad-suite@v3
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (yosys + sby + solvers), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put OSS CAD Suite on PATH
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/sby" --help > /dev/null
+          "$HOME/oss-cad-suite/bin/yosys" -V
       - name: Provable invariant -> exit 0
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
       - name: Violated invariant -> exit 6 + counterexample
