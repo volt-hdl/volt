@@ -163,5 +163,6 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3010 => "Senkron reset birden çok saat alanınca paylaşılıyor (ADR-0065)",
         W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
         W4002 => "Yazılıp hiç okunmayan register",
+        W5001 => "Kontrat simülasyonda izlenemiyor; atlandı (ADR-0064)",
     }
 }

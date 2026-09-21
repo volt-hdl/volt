@@ -1046,5 +1046,15 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "reg stat : u8 = 0\non clk { stat <= s }\n// tek okuyucusu optimizasyonla silindi   // ⚠ W4002",
             "result = stat           // ✓ netlist'te gözlemleniyor",
         ),
+        W5001 => Explanation::new(
+            "Kontrat simülasyonda izlenemiyor",
+            "volt test kontratları simülasyon izleyicisi olarak koşturur (ADR-0064), ama bu kontratın ifadesinin henüz SystemVerilog karşılığı yok; izleyicisi üretilmedi.",
+            "Tasarımın geri kalanı yine test edilir ve diğer her kontrat yine izlenir; yalnız bu kontrat simülasyonda sessizce eksik kalır — bu yüzden raporlanır. 'volt verify' aynı SystemVerilog biçimine ihtiyaç duyar ve ifadeyi E0003 ile reddeder. Kontratı SystemVerilog'a inen yapılarla (operatörler, if-ifadesi, prev()) yeniden yazın ki iki akış da denetleyebilsin.",
+            "invariant: match a { 0 => true, _ => a != 7 }   // ⚠ volt test'te W5001",
+            "invariant: a == 0 || a != 7                     // ✓ izlenir ve kanıtlanabilir",
+        )
+        .with_note(
+            "--no-contracts tüm izleyicileri kapatır ve bu uyarıyı da susturur.",
+        ),
     }
 }

@@ -2,6 +2,7 @@
 
 use std::process::ExitCode;
 
+use super::contracts::{cover_summary_lines, CoverCount};
 use super::tb_output::{AssertFailure, TestOutcome};
 
 /// Bir grubun test satırları: `test <ad> ... ok|FAILED`.
@@ -15,21 +16,30 @@ pub(super) fn print_test_lines(outcomes: &[TestOutcome]) {
     }
 }
 
-/// Cargo biçimli özet; en az bir test kaldıysa çıkış kodu 5.
-pub(super) fn print_summary(outcomes: &[TestOutcome]) -> ExitCode {
+/// Cargo biçimli özet; en az bir test kaldıysa çıkış kodu 5. Cover
+/// özeti (ADR-0064) bilgidir, çıkış kodunu etkilemez.
+pub(super) fn print_summary(outcomes: &[TestOutcome], covers: &[CoverCount]) -> ExitCode {
     let failed: Vec<&TestOutcome> = outcomes.iter().filter(|o| !o.passed).collect();
     let passed = outcomes.len() - failed.len();
+    if !failed.is_empty() {
+        println!("\nfailures:");
+    }
+    for o in &failed {
+        println!("---- {} ----", o.name);
+        for line in outcome_lines(o) {
+            println!("{line}");
+        }
+    }
+    let summary = cover_summary_lines(covers);
+    if !summary.is_empty() {
+        println!();
+        for line in summary {
+            println!("{line}");
+        }
+    }
     if failed.is_empty() {
         println!("\ntest result: ok. {passed} passed; 0 failed");
         return ExitCode::SUCCESS;
-    }
-    println!("\nfailures:");
-    for o in &failed {
-        println!("---- {} ----", o.name);
-        match &o.failure {
-            Some(f) => print_failure(f),
-            None => println!("  test failed (no assertion detail)"),
-        }
     }
     println!(
         "\ntest result: FAILED. {passed} passed; {} failed",
@@ -38,10 +48,13 @@ pub(super) fn print_summary(outcomes: &[TestOutcome]) -> ExitCode {
     ExitCode::from(5)
 }
 
-/// Tek hatanın cargo biçimli ayrıntısı (İngilizce — makine-okur rapor).
-fn print_failure(f: &AssertFailure) {
-    for line in failure_lines(f) {
-        println!("{line}");
+/// Kalan testin ayrıntısı: kontrat ihlali (ADR-0064) test iddiasından
+/// ÖNCE gelir — ihlalin döngüsünde test durur.
+fn outcome_lines(o: &TestOutcome) -> Vec<String> {
+    match (&o.contract, &o.failure) {
+        (Some(v), _) => v.report_lines(),
+        (None, Some(f)) => failure_lines(f),
+        (None, None) => vec!["  test failed (no assertion detail)".to_string()],
     }
 }
 
@@ -205,8 +218,9 @@ mod tests {
             name: "t".to_string(),
             passed,
             failure: None,
+            contract: None,
         };
-        let code = |o: &[TestOutcome]| format!("{:?}", print_summary(o));
+        let code = |o: &[TestOutcome]| format!("{:?}", print_summary(o, &[]));
         assert_eq!(code(&[outcome(true)]), format!("{:?}", ExitCode::SUCCESS));
         assert_eq!(
             code(&[outcome(true), outcome(false)]),

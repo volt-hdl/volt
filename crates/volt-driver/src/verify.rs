@@ -741,6 +741,7 @@ SBY 12:00:01 [counter] DONE (PASS, rc=0)
             name: n.to_string(),
             keyword: "invariant",
             span: volt_span::Span::new(volt_span::FileId(0), 0, 0),
+            primitive: None,
         };
         let props = [prop("B", "inv_0"), prop("A", "inv_0"), prop("B", "inv_1")];
         assert_eq!(contract_modules(&props), ["B", "A"]);

@@ -13,6 +13,7 @@ mod past;
 mod reset_sync;
 mod sby;
 pub mod sim;
+mod sim_contract;
 mod sim_script;
 mod sva;
 mod trit;
@@ -33,9 +34,11 @@ pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
-    collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, test_testbench_cpp,
-    SimPort, SimReset, TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue,
+    collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, run_testbench_cpp_with,
+    test_testbench_cpp, test_testbench_cpp_with, SimPort, SimReset, TbAssertKind, TbPortCheck,
+    TbStep, TbTest, TbValue,
 };
+pub use sim_contract::uses_sim_contracts;
 pub use sva::{SvaFile, SvaMode, SvaProp};
 
 pub const VOLT_VERSION: &str = "0.1.0";
@@ -305,6 +308,7 @@ pub fn emit_unit(
         sva_files: Vec::new(),
         sva_props: Vec::new(),
         past_regs: HashMap::new(),
+        sim_dpi: sim_contract::SimDpiUse::default(),
     };
 
     let mut modules = Vec::new();
@@ -495,6 +499,9 @@ pub(crate) struct Emitter<'a> {
     pub(crate) sva_props: Vec<SvaProp>,
     /// Immediate modda prev() çağrısı → yardımcı reg adı (ADR-0040).
     pub(crate) past_regs: HashMap<Idx<Expr>, String>,
+    /// Simulation modunda bu modülün kullandığı DPI geri çağrıları
+    /// (ADR-0064) — gövde başına yalnız gerekenlerin `import`'u konur.
+    pub(crate) sim_dpi: sim_contract::SimDpiUse,
 }
 
 impl<'a> Emitter<'a> {
@@ -540,6 +547,7 @@ impl<'a> Emitter<'a> {
         self.loop_vars.clear();
         self.pre_decls.clear();
         self.bus_wires.clear();
+        self.sim_dpi = sim_contract::SimDpiUse::default();
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -643,6 +651,16 @@ impl<'a> Emitter<'a> {
             SvaMode::Separate => {
                 if let Some(file) = self.sva_file(module, &clocks) {
                     self.sva_files.push(file);
+                }
+            }
+            SvaMode::Simulation => {
+                if let Some(block) = self.sva_simulation(module, &clocks, 4) {
+                    body_chunks.push(block);
+                }
+                // İzleyiciler (modül ve primitif kontratları) üretildikten
+                // SONRA: gövde başına yalnız kullanılan DPI bildirimleri.
+                if let Some(imports) = self.sim_dpi_imports() {
+                    body_chunks.insert(0, imports);
                 }
             }
         }

@@ -11,6 +11,8 @@
 //!   `past_<x>_1 .. past_<x>_N` yardımcı register zinciri üretilir ve
 //!   assertion'da zincirin halkası kullanılır. Reset değeri 0 — reset
 //!   sonrası ilk döngüde `prev(x) == 0` kabul edilir.
+//! - `SvaMode::Simulation` (`volt test`, ADR-0064): Immediate ile aynı
+//!   zincir — simülasyonda da ilk döngü `prev(x) == 0` (formal ile aynı).
 
 use volt_ast::{ClockEdge, Expr, ExprKind, Idx, ModuleDecl};
 
@@ -43,7 +45,7 @@ impl<'a> Emitter<'a> {
         let Some(&x) = args.first() else {
             return "1'b0".to_string();
         };
-        if self.sva_mode == SvaMode::Immediate {
+        if matches!(self.sva_mode, SvaMode::Immediate | SvaMode::Simulation) {
             if let Some(name) = self.past_regs.get(&call) {
                 return name.clone();
             }

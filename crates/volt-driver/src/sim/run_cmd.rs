@@ -6,34 +6,43 @@ use std::time::Instant;
 
 use volt_ast::ModuleDecl;
 use volt_diagnostics::lstr;
-use volt_sv_emit::{sim as tbgen, SimPort, SvaMode};
+use volt_sv_emit::{sim as tbgen, uses_sim_contracts, SimPort, SvaMode};
 
+use super::contracts::{
+    cover_summary_lines, covers_in, parse_contract_fail, ContractIndex, ContractViolation,
+};
 use super::verilator::{c_path, require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
 use crate::{compile, render_diagnostics, Compiled, OutputFormat};
 
-pub(crate) fn run(
-    file: &Path,
-    cycles: u64,
-    vcd: Option<&Path>,
-    top: Option<&str>,
-    target_dir: &Path,
-) -> ExitCode {
-    match run_inner(file, cycles, vcd, top, target_dir) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(code) => code,
+/// `volt run` seçenekleri (cli-contract.md §7).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RunOptions<'a> {
+    pub cycles: u64,
+    pub vcd: Option<&'a Path>,
+    pub top: Option<&'a str>,
+    /// Kontrat izleyicileri (ADR-0064) — `volt run`'da isteğe bağlı:
+    /// duman uyarıcısı (girişler 1) tasarımın varsayımlarını gözetmez.
+    pub contracts: bool,
+    pub target_dir: &'a Path,
+}
+
+pub(crate) fn run(file: &Path, opts: RunOptions<'_>) -> ExitCode {
+    match run_inner(file, opts) {
+        Ok(code) | Err(code) => code,
     }
 }
 
-fn run_inner(
-    file: &Path,
-    cycles: u64,
-    vcd: Option<&Path>,
-    top: Option<&str>,
-    target_dir: &Path,
-) -> Result<(), ExitCode> {
+fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
+    let RunOptions {
+        cycles,
+        vcd,
+        top,
+        target_dir,
+        ..
+    } = opts;
     let start = Instant::now();
-    let (compiled, sv) = compile_for_run(file)?;
+    let (compiled, sv) = compile_for_run(file, opts.contracts)?;
 
     // Üst modül seçimi: --top > dosyadaki tek modül.
     let module = select_top(&modules_of(&compiled.ast), top, file)?;
@@ -51,7 +60,8 @@ fn run_inner(
     let sv_name = format!("{module_name}.sv");
     create_sim_dir(&sim_dir)?;
     write_file(&sim_dir.join(&sv_name), &sv)?;
-    let tb = run_testbench(&module_name, &ports, cycles, vcd);
+    let contracts = uses_sim_contracts(&sv);
+    let tb = run_testbench(&module_name, &ports, cycles, vcd, contracts);
     write_file(&sim_dir.join("tb.cpp"), &tb)?;
 
     eprintln!(
@@ -70,15 +80,55 @@ fn run_inner(
         mdir: "obj_dir",
     };
     let exe = verilate(&verilator, &job)?;
-    simulate(&exe, &sim_dir)?;
+    let stdout = simulate(&exe, &sim_dir)?;
+    let code = if contracts {
+        let index = ContractIndex::new(&compiled.sva_props, &compiled.map, &module_name);
+        report_contracts(&stdout, &index)
+    } else {
+        ExitCode::SUCCESS
+    };
     print_finished(file, vcd, start);
-    Ok(())
+    Ok(code)
 }
 
-/// Simülasyonu koşturur, stdout'unu aktarır; sıfır dışı çıkış araç hatasıdır.
-fn simulate(exe: &Path, sim_dir: &Path) -> Result<(), ExitCode> {
+/// Koşu sonundaki ihlal ve cover satırlarının raporu (ADR-0064). Bir
+/// kontrat ihlali çıkış kodu 5'tir; varsayım ihlali duman uyarıcısının
+/// sonucudur (tasarım hatası değil), yalnız raporlanır.
+fn report_contracts(stdout: &str, index: &ContractIndex) -> ExitCode {
+    let violations: Vec<ContractViolation> = stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("VOLT-CONTRACT-FAIL "))
+        .filter_map(parse_contract_fail)
+        .map(|v| index.resolve(v))
+        .collect();
+    for v in &violations {
+        println!();
+        for line in v.report_lines() {
+            println!("{line}");
+        }
+    }
+    let summary = cover_summary_lines(&index.covers(&covers_in(stdout)));
+    if !summary.is_empty() {
+        println!();
+        for line in summary {
+            println!("{line}");
+        }
+    }
+    if violations.iter().any(|v| !v.is_assumption()) {
+        ExitCode::from(5)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Simülasyonu koşturur ve çevrim tablosunu basar; izleyici satırları
+/// (`VOLT-*`) tablodan ayıklanır ve ham çıktıyla döner.
+fn simulate(exe: &Path, sim_dir: &Path) -> Result<String, ExitCode> {
     let output = run_simulation(exe, sim_dir)?;
-    print!("{}", String::from_utf8_lossy(&output.stdout));
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    for line in stdout.lines().filter(|l| !l.starts_with("VOLT-")) {
+        println!("{line}");
+    }
     if !output.status.success() {
         eprintln!(
             "{}",
@@ -89,11 +139,11 @@ fn simulate(exe: &Path, sim_dir: &Path) -> Result<(), ExitCode> {
         );
         return Err(ExitCode::from(3));
     }
-    Ok(())
+    Ok(stdout)
 }
 
 /// Dosyayı derler; SV üretilemediyse (hata) çıkış kodu 1.
-fn compile_for_run(file: &Path) -> Result<(Compiled, String), ExitCode> {
+fn compile_for_run(file: &Path, contracts: bool) -> Result<(Compiled, String), ExitCode> {
     eprintln!(
         "{}",
         lstr!(
@@ -101,7 +151,12 @@ fn compile_for_run(file: &Path) -> Result<(Compiled, String), ExitCode> {
             tr: "   Derleniyor {}", file.display()
         )
     );
-    let compiled = compile(file, true, SvaMode::None)?;
+    let mode = if contracts {
+        SvaMode::Simulation
+    } else {
+        SvaMode::None
+    };
+    let compiled = compile(file, true, mode)?;
     render_diagnostics(&compiled, OutputFormat::Human);
     let Some(sv) = compiled.sv.clone() else {
         eprintln!(
@@ -161,9 +216,15 @@ fn select_top<'a>(
 }
 
 /// Serbest koşan testbench; VCD yolu tb'ye mutlak ve `/` ile gömülür.
-fn run_testbench(module: &str, ports: &[SimPort], cycles: u64, vcd: Option<&Path>) -> String {
+fn run_testbench(
+    module: &str,
+    ports: &[SimPort],
+    cycles: u64,
+    vcd: Option<&Path>,
+    contracts: bool,
+) -> String {
     let vcd_str = vcd.map(absolute_vcd).as_deref().map(c_path);
-    tbgen::run_testbench_cpp(module, ports, cycles, vcd_str.as_deref())
+    tbgen::run_testbench_cpp_with(module, ports, cycles, vcd_str.as_deref(), contracts)
 }
 
 /// VCD yolu kullanıcı cwd'sine göre çözülür; tb'ye mutlak gömülür.

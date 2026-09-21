@@ -35,6 +35,13 @@ pub enum SvaMode {
     /// kalıbına indirger; satır sonu işareti sby FAIL logunu Volt
     /// kontratına geri eşlemek için kullanılır.
     Immediate,
+    /// Simülasyon izleyicileri (`volt test`, ADR-0064): Immediate
+    /// kalıbının aynısı, ama `assert`/`assume`/`cover` yerine testbench'in
+    /// DPI geri çağrıları (`volt_contract_fail`, `volt_cover_report`) —
+    /// Verilator'un `$stop`'u yerine test düşer ve kimlik kaynağa eşlenir.
+    /// Formal varsayımlar (`initial assume`) ve init blokları üretilmez;
+    /// RTL kısmı `None` modundan farksızdır.
+    Simulation,
 }
 
 /// Ayrı modda tek modülün SVA dosyası.
@@ -62,10 +69,14 @@ pub struct SvaProp {
     pub keyword: &'static str,
     /// Kontrat ifadesinin Volt kaynağındaki konumu.
     pub span: volt_span::Span,
+    /// Yerleşik primitif kontratıysa primitifin adı (`AsyncFifo`); o
+    /// zaman `span` örneğin konumudur, kontrat metni kaynakta yoktur
+    /// (ADR-0064 simülasyon raporu bunu ayrı anlatır).
+    pub primitive: Option<&'static str>,
 }
 
 /// `1'b0/1'b1` bağlamı: kontrat ifadeleri 1-bit boolean'dır.
-const ONE_BIT: Option<Sig> = Some(Sig {
+pub(crate) const ONE_BIT: Option<Sig> = Some(Sig {
     width: 1,
     signed: false,
 });
@@ -122,6 +133,7 @@ impl<'a> Emitter<'a> {
                 name: name.clone(),
                 keyword: contract_keyword(c.kind),
                 span: self.ast.exprs[c.expr].span,
+                primitive: None,
             });
             let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
             let expr = self.sva_expr(c);
@@ -185,6 +197,7 @@ impl<'a> Emitter<'a> {
                 name: name.clone(),
                 keyword: contract_keyword(c.kind),
                 span: self.ast.exprs[c.expr].span,
+                primitive: None,
             });
             let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
             let expr = self.emit_expr(c.expr, ONE_BIT);
@@ -319,7 +332,7 @@ impl<'a> Emitter<'a> {
 }
 
 /// Kontrat türü → (isim öneki, SVA fiili).
-fn sva_construct(kind: ContractKind) -> (&'static str, &'static str) {
+pub(crate) fn sva_construct(kind: ContractKind) -> (&'static str, &'static str) {
     match kind {
         ContractKind::Invariant => ("inv", "assert"),
         ContractKind::Ensures => ("ens", "assert"),
@@ -330,7 +343,7 @@ fn sva_construct(kind: ContractKind) -> (&'static str, &'static str) {
     }
 }
 
-fn kind_slot(kind: ContractKind) -> usize {
+pub(crate) fn kind_slot(kind: ContractKind) -> usize {
     match kind {
         ContractKind::Requires => 0,
         ContractKind::Ensures => 1,
@@ -341,7 +354,7 @@ fn kind_slot(kind: ContractKind) -> usize {
     }
 }
 
-fn contract_keyword(kind: ContractKind) -> &'static str {
+pub(crate) fn contract_keyword(kind: ContractKind) -> &'static str {
     match kind {
         ContractKind::Requires => "requires",
         ContractKind::Ensures => "ensures",
@@ -368,7 +381,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// SVA yorumları için `dosya:satır` (ADR-0042: dosya span'e göre).
-    fn location_of(&self, span: Span) -> (&'a str, usize) {
+    pub(crate) fn location_of(&self, span: Span) -> (&'a str, usize) {
         let src = self.source_of(span.file);
         (src.name, line_of(src.text, span.start))
     }
