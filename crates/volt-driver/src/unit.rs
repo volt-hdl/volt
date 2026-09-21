@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use volt_ast::{SourceFile, UseTree};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_hir::unit::{module_not_found, PackagePath, STD_PACKAGE};
-use volt_hir::{UnenforcedLint, UnitInfo};
+use volt_hir::{SearchStop, UnenforcedLint, UnitInfo};
 use volt_span::{FileId, SourceMap, Span};
 use volt_syntax::ParseResult;
 
@@ -49,18 +49,19 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// `dir`'den yukarı doğru ilk Volt.toml.
+    /// `dir`'den yukarı doğru ilk Volt.toml (tavan ve `VOLT_MANIFEST_DIR`:
+    /// ADR-0061).
     pub fn discover(dir: &Path) -> Option<Manifest> {
-        let mut cur = Some(dir);
-        while let Some(d) = cur {
-            let candidate = d.join("Volt.toml");
-            if candidate.is_file() {
-                let text = std::fs::read_to_string(&candidate).ok()?;
-                return Some(Manifest::parse(d.to_path_buf(), &text));
-            }
-            cur = d.parent();
-        }
-        None
+        Self::lookup(dir).ok()
+    }
+
+    /// `discover`; bulunamazsa aramanın nerede durduğunu döndürür.
+    /// Okunamayan manifest yok sayılır (`Exhausted`).
+    pub fn lookup(dir: &Path) -> Result<Manifest, SearchStop> {
+        let root = volt_hir::find_manifest_dir(dir)?;
+        let text = std::fs::read_to_string(root.join(volt_hir::MANIFEST_FILE))
+            .map_err(|_| SearchStop::Exhausted)?;
+        Ok(Manifest::parse(root, &text))
     }
 
     pub fn parse(root: PathBuf, text: &str) -> Manifest {
@@ -151,6 +152,8 @@ fn use_targets(ast: &SourceFile) -> Vec<UseTarget> {
 struct Loader {
     map: SourceMap,
     manifest: Option<Manifest>,
+    /// Manifest yoksa aramanın durduğu yer (E1011 notu).
+    search_stop: Option<SearchStop>,
     /// Kanonik yol → dosya kimliği.
     seen: HashMap<PathBuf, FileId>,
     /// DFS yığını (E1006).
@@ -265,18 +268,41 @@ impl Loader {
                         lstr!(en: "searched: {}", tried.join(", ");
                               tr: "aranan yollar: {}", tried.join(", ")),
                     );
-                    if self.manifest.is_none() {
-                        diag = diag.with_note(
-                            NoteKind::Reason,
-                            lstr!(en: "no Volt.toml found above this file — only the file's own directory was searched";
-                                  tr: "bu dosyanın üstünde Volt.toml yok — yalnız dosyanın kendi dizini arandı"),
-                        );
+                    if let Some(stop) = &self.search_stop {
+                        diag = diag.with_note(NoteKind::Reason, no_manifest_note(stop));
                     }
                     self.diagnostics.push(diag);
                 }
             }
         }
         Ok(())
+    }
+}
+
+/// Manifest bulunamayınca E1011'e eklenen not: aramanın nerede durduğu
+/// (ADR-0061). Tavan sessizdir; yalnız manifest'in fark yarattığı bu
+/// tanıda söylenir.
+fn no_manifest_note(stop: &SearchStop) -> String {
+    match stop {
+        SearchStop::Override(dir) => {
+            let dir = dir.display();
+            lstr!(en: "VOLT_MANIFEST_DIR points to '{dir}', which has no Volt.toml — only the file's own directory was searched";
+                  tr: "VOLT_MANIFEST_DIR '{dir}' dizinini gösteriyor, orada Volt.toml yok — yalnız dosyanın kendi dizini arandı")
+        }
+        SearchStop::GitRoot(dir) => {
+            let dir = dir.display();
+            lstr!(en: "no Volt.toml found up to the git root '{dir}' (the search stops there; set VOLT_MANIFEST_DIR to use another manifest) — only the file's own directory was searched";
+                  tr: "git kökü '{dir}' dizinine kadar Volt.toml yok (arama orada durur; başka bir manifest için VOLT_MANIFEST_DIR) — yalnız dosyanın kendi dizini arandı")
+        }
+        SearchStop::Home(dir) => {
+            let dir = dir.display();
+            lstr!(en: "no Volt.toml found below the home directory '{dir}' (a Volt.toml in the home directory itself is not a project root; set VOLT_MANIFEST_DIR to use it) — only the file's own directory was searched";
+                  tr: "ev dizini '{dir}' altında Volt.toml yok (ev dizininin kendi Volt.toml'u proje kökü sayılmaz; kullanmak için VOLT_MANIFEST_DIR) — yalnız dosyanın kendi dizini arandı")
+        }
+        SearchStop::Exhausted => {
+            lstr!(en: "no Volt.toml found above this file — only the file's own directory was searched";
+                  tr: "bu dosyanın üstünde Volt.toml yok — yalnız dosyanın kendi dizini arandı")
+        }
     }
 }
 
@@ -338,9 +364,14 @@ pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
     let dir = main
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    let (manifest, search_stop) = match Manifest::lookup(&dir) {
+        Ok(m) => (Some(m), None),
+        Err(stop) => (None, Some(stop)),
+    };
     let mut loader = Loader {
         map: SourceMap::new(),
-        manifest: Manifest::discover(&dir),
+        manifest,
+        search_stop,
         seen: HashMap::new(),
         stack: Vec::new(),
         order: Vec::new(),
