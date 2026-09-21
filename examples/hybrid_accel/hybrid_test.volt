@@ -34,7 +34,7 @@ module TernaryPeTb {
     out acc_out : i32
     out act_out : i8
 
-    let weight : i2 = if nonzero { if minus { -1 } else { 1 } } else { 0 }
+    let weight : Trit = if nonzero { if minus { -1 } else { 1 } } else { 0 }
     let act_v  : i8 = if act_min { -128 } else { act }
     let pe = TernaryPe { clk: clk, weight: weight, act: act_v, acc_in: acc_in }
     acc_out = pe.acc_out
@@ -49,7 +49,7 @@ module TernaryArrayTb {
     out col7   : i32
     out east7  : i8
 
-    wire w : [i2; TN * TN]
+    wire w : [Trit; TN * TN]
     wire a : [i8; TN]
     for i in 0..TN * TN { w[i] = if minus { -1 } else { 1 } }
     for i in 0..TN { a[i] = act }
@@ -99,7 +99,7 @@ module HybridTb {
     out b_busy   : bool  @BinaryCore
     out result   : i32   @BinaryCore
 
-    wire tw : [i2; TN * TN]
+    wire tw : [Trit; TN * TN]
     wire ta : [i8; TN]
     wire bw : [i8; BN * BN]
     for i in 0..TN * TN { tw[i] = 1 }

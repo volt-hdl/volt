@@ -254,9 +254,14 @@ docker run --rm -v "C:/Dev/volthdl/build/olcum:/work" -w /work/rtl hdlc/formal \
   karışımı kullanıyor; 7 serisinde fiziksel LUT6'ya paketleme (iki LUT5 → bir
   LUT6) yapılmadı. 512 `INV` hücresi gerçek akışta komşu LUT/elde girişine
   soğurulur; burada ayrı sayıldı ve LUT sütununa katılmadı.
-- **Ağırlık kodlaması.** Ternary ağırlık `i2` + elle MUX ile yazıldı; Volt'un
-  `Trit` tipi SV'ye eşlenemiyor (E0003). Gerçek `Trit` eşlemesi farklı mantık
-  üretebilir.
+- **Ağırlık kodlaması.** Ölçüm sırasında ternary ağırlık `i2` + elle MUX ile
+  yazılmıştı; `Trit` tipi o gün SV'ye eşlenemiyordu (E0003).
+  *Not (2026-09-21, ölçüm TEKRARLANMADI):* ADR-0062 ile `Trit` eşlendi ve
+  `examples/hybrid_accel` gerçek `Trit` kullanıyor. Üretilen PE aynı kodlamayı
+  (`2'sb01` / `2'sb11`) ve aynı seçici yapısını üretir; tek fark `0 - act_w`
+  yerine `-(act_w)` (Yosys `proc; opt`: `$sub` yerine `$neg`, 2 `$eq` +
+  2 `$mux` aynı). Teknoloji eşlemesinden sonra sayıların değişmesi
+  beklenmez, ama bu tablo eski kaynağın ölçümüdür.
 - **Sabit ağırlık senaryosu ölçülmedi.** Ağırlıklar sabit olsaydı ternary PE'de
   MUX tamamen düşer (0 / geçir / eksi), binary çarpan da sabit-katsayı
   çarpanına inerdi; iki tarafın oranı bu durumda bilinmiyor.

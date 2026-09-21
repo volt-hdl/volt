@@ -18,7 +18,7 @@ pub const TN : u32 = 8
 
 pub module TernaryArray {
     in  clk      : clock
-    in  weight   : [i2; TN * TN]     // Trit encoding, see ternary_pe.volt
+    in  weight   : [Trit; TN * TN]
     in  act      : [i8; TN]
     out acc      : [i32; TN]
     out act_east : [i8; TN]

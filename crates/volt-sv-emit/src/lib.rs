@@ -14,8 +14,9 @@ mod sby;
 pub mod sim;
 mod sim_script;
 mod sva;
+mod trit;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
@@ -268,6 +269,7 @@ pub fn emit_unit(
         diagnostics: Vec::new(),
         domains: collect_domains(ast),
         symbols: HashMap::new(),
+        trits: HashSet::new(),
         array_dims: HashMap::new(),
         packed_arrays: HashMap::new(),
         builtin_insts: HashMap::new(),
@@ -397,6 +399,8 @@ pub(crate) struct Emitter<'a> {
     /// Modül içi sinyal tablosu: isim → genişlik/işaret. Dizi tipli
     /// reg'lerde ELEMAN imzası tutulur; boyut `array_dims`'tedir.
     pub(crate) symbols: HashMap<String, Sig>,
+    /// Trit tipli sinyaller (ADR-0003) — `Trit * x` seçicisi için.
+    pub(crate) trits: HashSet<String>,
     /// Dizi tipli reg'ler (ADR-0035): isim → eleman sayısı N.
     /// SV bildirimi `logic [W-1:0] ad [0:N-1]` biçimindedir.
     pub(crate) array_dims: HashMap<String, u32>,
@@ -442,13 +446,14 @@ pub(crate) struct Emitter<'a> {
 }
 
 impl<'a> Emitter<'a> {
+    /// Aynı düğüm birden çok geçişte sorgulanabilir (ör. port tipi hem
+    /// sembol tablosunda hem bildirimde `sig_of_typeref`'ten geçer);
+    /// birebir aynı tanı ikinci kez eklenmez.
     pub(crate) fn error(&mut self, code: ErrorCode, message: String, span: Span, help: &str) {
-        self.diagnostics.push(Diagnostic::error(
-            code,
-            message,
-            LabeledSpan::primary(span, ""),
-            help,
-        ));
+        let diag = Diagnostic::error(code, message, LabeledSpan::primary(span, ""), help);
+        if !self.diagnostics.contains(&diag) {
+            self.diagnostics.push(diag);
+        }
     }
 
     pub(crate) fn future(&mut self, span: Span, what: &str) {
@@ -492,6 +497,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, module: &'a ModuleDecl, doc: Option<&str>) -> String {
         let ast = self.ast;
         self.symbols.clear();
+        self.trits.clear();
         self.array_dims.clear();
         self.packed_arrays.clear();
         self.array_consts_used.clear();
@@ -501,6 +507,7 @@ impl<'a> Emitter<'a> {
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
+            self.note_trit(&port.name.text, port.ty);
             if let Some(sig) = self.signal_sig(&port.name.text, port.ty, port.span) {
                 self.symbols.insert(port.name.text.clone(), sig);
             }
@@ -508,11 +515,15 @@ impl<'a> Emitter<'a> {
         for &stmt_idx in &module.body {
             let span = ast.stmts[stmt_idx].span;
             if let StmtKind::Wire(w) = &ast.stmts[stmt_idx].kind {
+                self.note_trit(&w.name.text, w.ty);
                 if let Some(sig) = self.signal_sig(&w.name.text, w.ty, span) {
                     self.symbols.insert(w.name.text.clone(), sig);
                 }
             }
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {
+                if let Some(ty) = reg.ty {
+                    self.note_trit(&reg.name.text, ty);
+                }
                 match reg.ty {
                     // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
                     Some(ty) if matches!(&ast.types[ty].kind, TypeRefKind::Array { .. }) => {
@@ -710,6 +721,13 @@ impl<'a> Emitter<'a> {
                         .ty
                         .and_then(|t| self.sig_of_typeref(t, stmt.span))
                         .or_else(|| self.width_of(decl.value));
+                    let is_trit = match decl.ty {
+                        Some(t) => self.is_trit_typeref(t),
+                        None => self.is_trit(decl.value),
+                    };
+                    if is_trit {
+                        self.trits.insert(decl.name.text.clone());
+                    }
                     match sig {
                         Some(sig) => {
                             self.symbols.insert(decl.name.text.clone(), sig);
@@ -1496,16 +1514,11 @@ impl<'a> Emitter<'a> {
                     }
                 }
             }
-            TypeRefKind::Trit => {
-                self.future(
-                    span,
-                    &lstr!(
-                        en: "SV mapping of the 'Trit' type";
-                        tr: "'Trit' tipinin SV eşlemesi"
-                    ),
-                );
-                None
-            }
+            // ADR-0003: 2 bit işaretli depolama (+1 = 01, 0 = 00, -1 = 11).
+            TypeRefKind::Trit => Some(Sig {
+                width: 2,
+                signed: true,
+            }),
             TypeRefKind::Reset(_) => {
                 self.future(
                     span,
