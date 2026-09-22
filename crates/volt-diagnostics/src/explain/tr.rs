@@ -408,12 +408,13 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         E3003 => Explanation::new(
-            "Sıfırlama alanı uyumsuzluğu (RDC)",
-            "Sinyal, senkronize edilmemiş farklı sıfırlamalar kullanan register'lar arasında geçiyor.",
-            "Kaynak alanın sıfırlaması tetiklendiğinde hedef register değeri tam değişim anında yakalayabilir — saat geçişindekiyle aynı metastabilite riski, ama sıfırlamanın tetiklediği. Sıfırlama Alanı Geçişleri (RDC) CDC kadar gerçektir ve aynı şekilde denetlenir.",
-            "// kaynak register: reset = rst_a, hedef register: reset = rst_b\ndst <= src              // ✗ E3003",
-            "dst <= sync(src, dst_clk)    // ✓ geçişi senkronize edin",
+            "Sıfırlama alanı geçişi (RDC)",
+            "Bir reset bırakması ulaştığı her saate senkronlanmamış: tek bir asenkron reset portu birden çok saat alanınca paylaşılıyor, aynı ham reset bir saatte iki kez senkronlanıyor ya da bir ham reset portu beslediği alanla uyuşmuyor.",
+            "Reset'i asenkron olarak etkinleştirmek zararsızdır; BIRAKMAK değildir. Bir saate senkron olan bırakma diğer her saate asenkrondur; ikinci alanın register'ları reset'ten farklı çevrimlerde çıkabilir ya da metastabil olabilir (recovery/removal ihlali). Volt polarite başına tek reset portu üretir ('rst' / 'rst_n'); aynı polariteli iki 'reset = async' alan tek portu paylaşır ve bırakması en fazla bir saate senkron olabilir. Çözüm ham reset'i açıkça almaktır: 'in rst_n : reset(async, active_low)'. Derleyici portun beslediği her saat için iki aşamalı bir bırakma senkronizörü ekler (asenkron etkinleştirme, senkron bırakma) ve her alanı kendi zincirinden sıfırlar (ADR-0065). Aynı kod şunları da raporlar: bir saatte iki kez senkronlanan ham reset (ebeveyn ve bir örnek ayrı zincir ekler, iki bırakma farklı çevrimlere düşebilir), '(sync|async, polarite)' beslediği alandan farklı ham port ve başka bir alanın otomatik portuyla aynı adı taşıyan ham port.",
+            "domain Fast { clock = posedge, reset = async active_low }\ndomain Slow { clock = posedge, reset = async active_low }\nmodule Top {\n    in fast_clk : clock @Fast    // ✗ E3003: 'rst_n' iki saate hizmet ediyor\n    in slow_clk : clock @Slow\n}",
+            "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ saat başına bir senkronizör\n}",
         )
+        .with_note("İki alan arasındaki VERİ geçişleri hâlâ E3001'dir; E3003 yalnız reset'in kendisiyle ilgilidir. 'reset = sync' bir alanın 'rst'yi başka bir saatle paylaşması daha hafif olan W3010'dur.")
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         E3004 => Explanation::new(
             "Sıfırlama sekans ihlali",
@@ -1015,6 +1016,22 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, gerekçe kayıtlı",
             "// Çağrıyı koruyun, gerekçeyi gözden geçirin; uyarı bir kusur değil, iz kaydıdır.",
         ),
+        W3009 => Explanation::new(
+            "Asenkron reset'in senkron bırakıldığı varsayılıyor",
+            "Birimde hiçbir yerde örneklenmeyen bir modülün 'reset = async' alanı var ama ham reset portu yok; otomatik reset portunun bırakmasını Volt'ta hiçbir şey senkronlamıyor.",
+            "Otomatik 'rst' / 'rst_n' portu bir sözleşme taşır: aldığı reset, alanın saatine senkron bırakılır (ADR-0065 §1). Volt hiyerarşisi içinde derleyici bu sözü tutar — ebeveyn çocuğa kendi senkronlanmış reset'ini bağlar. Birimin kökünde bunu yapan yoktur: port bir pad'e ya da güç açılış reset'ine bağlanırsa bırakma asenkrondur ve alanın her flip-flop'u reset'ten farklı bir çevrimde çıkabilir. Uyarı bu varsayımı modül başına bir kez görünür kılar. Reset gerçekten dışarıdan geliyorsa ham port olarak bildirin, derleyici senkronizörü ekler; bir entegratör zaten senkronluyorsa (başka tasarıma teslim edilen IP) uyarı sözleşmeyi belgeler, değişiklik gerekmez.",
+            "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' 'clk'e senkron varsayılıyor\n}",
+            "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ derleyici bırakmayı senkronlar\n}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        W3010 => Explanation::new(
+            "Senkron reset birden çok saat alanınca paylaşılıyor",
+            "'reset = sync' (varsayılan) iki ya da daha çok saat alanı aynı üretilmiş 'rst' / 'rst_n' portunu kullanıyor; bırakması saatlerden en az birine asenkron.",
+            "Senkron reset veri gibi örneklenir: her flip-flop onu D girişinde görür. Tek bir reset portu ilişkisiz iki saatin flip-flop'larına ulaştığında bırakıldığı kenar en az birine asenkrondur — asenkron reset bırakmasıyla aynı tehlike, yalnız reset yolu zamanlandığı için daha hafif. Hata değil uyarıdır çünkü ADR-0065'ten önce yazılmış bütün çok saatli tasarımlar bu desendedir ve düzeltme tek satırdır: ham reset'i açıkça bildirin, derleyici bırakmayı her saate senkronlar. Uyarı geçicidir; ADR-0065 örnekler taşındıktan sonra hataya yükseltilmesini yeniden değerlendirecek.",
+            "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' hem 'sys_clk' hem 'pix_clk' tarafından örnekleniyor\n    in pix_clk : clock @Pix\n}",
+            "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ saat başına bir bırakma senkronizörü\n}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
             "Bu sinyal netlist'te bildirilmiş ama hiçbir şeyi sürmüyor.",

@@ -1367,6 +1367,48 @@ fn parameterized_reset_type() {
     assert_eq!(spec.sync, ResetSync::Async);
 }
 
+// ═══ ADR-0065: alan reset/saat değeri ifade olamaz ════════════════
+
+#[test]
+fn domain_reset_expression_is_e0001_not_silently_ignored() {
+    let result = p("domain D { clock = posedge, reset = rst_in }\nmodule M { in clk : clock @D }");
+    assert_eq!(result.error_codes(), ["E0001"]);
+    let diag = &result.diagnostics[0];
+    assert!(diag.message.contains("rst_in"), "{}", diag.message);
+    assert!(
+        diag.help.as_deref().unwrap_or_default().contains("reset("),
+        "help ham portu önermeli: {:?}",
+        diag.help
+    );
+    // Hata kurtarma: alan Error olur, ayrıştırma sonraki modülle sürer.
+    let ItemKind::Domain(domain) = &result.ast.items_arena[result.ast.items[0]].kind else {
+        panic!("domain bekleniyor")
+    };
+    assert!(matches!(domain.fields[1].value, DomainValue::Error));
+    assert!(result.ast.module(1).is_some());
+}
+
+#[test]
+fn domain_clock_expression_is_e0001() {
+    let result = p("domain D { clock = clk_in + 1 }");
+    assert_eq!(result.error_codes(), ["E0001"]);
+}
+
+#[test]
+fn reset_none_and_literal_keys_are_unchanged() {
+    let result = p("domain D { clock = posedge, reset = none, reset_cycles = 4, frequency = 100 }");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    let ItemKind::Domain(domain) = &result.ast.items_arena[result.ast.items[0]].kind else {
+        panic!("domain bekleniyor")
+    };
+    assert!(matches!(
+        domain.fields[1].value,
+        DomainValue::ClockEdge(ClockEdge::None)
+    ));
+    assert!(matches!(domain.fields[2].value, DomainValue::Literal(_)));
+    assert!(matches!(domain.fields[3].value, DomainValue::Literal(_)));
+}
+
 #[test]
 fn nested_generic_args_split_shr() {
     // 'Fifo<Entry<8>>' — lexer '>>' üretir, parser ikiye böler
@@ -2100,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 71, "ui/pass 71 dosya içermeli");
+    assert_eq!(total, 75, "ui/pass 75 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2127,10 +2169,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0056 ise 75-77'yi (for içinde örnekleme, iç içe for, bundle dizisi),
     // ADR-0058 ise 78-80'i (test dizisi, test for döngüsü, read_hex + load),
     // ADR-0060 ise 81'i (test bloğunda sabit yayılımı),
-    // ADR-0003 ise 82'yi (Trit SV eşlemesi) ekledi.
+    // ADR-0003 ise 82'yi (Trit SV eşlemesi),
+    // ADR-0065 ise 83-86'yı (ham reset portu, bırakma senkronizörü) ekledi.
     assert_eq!(
-        clean, 71,
-        "71/71 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 75,
+        "75/75 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2164,6 +2207,8 @@ fn ui_fail_files_produce_expected_codes() {
         ("56_declassify_no_reason.volt", "E0016"),
         // ADR-0056: bundle dizisi indeksi düzleştirmede (parse içinde) denetlenir.
         ("58_bundle_array_dynamic_index.volt", "E2008"),
+        // ADR-0065: domain alanında reset/clock ifadesi (sessiz yok sayma kalktı).
+        ("69_domain_reset_expression.volt", "E0001"),
     ];
     for (file, expected) in cases {
         let path = format!(

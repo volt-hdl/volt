@@ -396,10 +396,12 @@ fn doc_comments_transferred_as_line_comments() {
 
 #[test]
 fn trit_port_is_no_longer_e0003() {
-    // ADR-0003 eşlemesi eklendi (bkz. trit_emit_tests.rs); açık reset
-    // portu hâlâ kapsam dışı.
+    // ADR-0003 eşlemesi eklendi (bkz. trit_emit_tests.rs). ADR-0065: giriş
+    // yönlü açık reset (ham port) desteklenir; çıkış yönlü reset portu
+    // hâlâ kapsam dışı.
     assert!(emit_codes("module M { in t : Trit out y : bool y = true }").is_empty());
-    assert!(emit_codes("module M { in r : reset out y : bool y = true }").contains(&"E0003"));
+    assert!(emit_codes("module M { in r : reset out y : bool y = true }").is_empty());
+    assert!(emit_codes("module M { out r : reset out y : bool y = true }").contains(&"E0003"));
 }
 
 #[test]
@@ -612,6 +614,11 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         // ADR-0003: Trit (2 bit işaretli) + çarpansız ternary MAC.
         "16_trit_ternary_mac.volt",
         "82_trit_emit.volt",
+        // ADR-0065: ham reset portu + bırakma senkronizörü.
+        "83_rdc_raw_reset_two_clocks.volt",
+        "84_rdc_raw_reset_per_domain.volt",
+        "85_rdc_raw_reset_hierarchy.volt",
+        "86_rdc_raw_reset_sync_domains.volt",
     ];
 
     let mut clean = 0;

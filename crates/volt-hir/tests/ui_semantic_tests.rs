@@ -244,8 +244,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0056: 75-77 for içinde örnekleme, iç içe for, bundle dizisi,
     // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load,
     // ADR-0060: 81 test bloğunda sabit yayılımı,
-    // ADR-0003: 82 Trit SV eşlemesi.
-    assert_eq!(checked, 71);
+    // ADR-0003: 82 Trit SV eşlemesi,
+    // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron).
+    assert_eq!(checked, 75);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -264,11 +265,12 @@ fn ui_pass_73_sdc_single_clock_clean() {
 
 #[test]
 fn ui_pass_74_sdc_multi_clock_clean() {
-    // Yalnız W3005 (PulseSync darbe aralığı hatırlatması) — hata yok,
-    // E0017 yok, W0021 yok.
+    // Yalnız W3005 (PulseSync darbe aralığı hatırlatması) ve W3010
+    // (ADR-0065 R5': iki saat tek senkron `rst`'yi paylaşıyor, sınıf A) —
+    // hata yok, E0017 yok, W0021 yok.
     let result = analyze_file("pass/74_sdc_multi_clock.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
-    assert_eq!(result.error_codes(), vec!["W3005"]);
+    assert_eq!(result.error_codes(), vec!["W3005", "W3010"]);
 }
 
 #[test]
@@ -623,12 +625,14 @@ fn ui_fail_50_extern_clock_conflict_e3014() {
 fn ui_pass_65_async_dual_port_ram_warns_w3006_only() {
     // W3006 BEKLENEN davranıştır (ADR-0049): diğer saatten yazılan
     // adresin okunması tanımsızdır; her örneklemede hatırlatılır.
+    // W3010 (ADR-0065 R5'): iki saat tek senkron `rst`'yi paylaşıyor —
+    // sınıf A, uyarı olarak kalır.
     let result = analyze_file("pass/65_async_dual_port_ram.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
     assert_eq!(
         result.error_codes(),
-        vec!["W3006"],
-        "yalnız W3006 bekleniyor"
+        vec!["W3006", "W3010"],
+        "yalnız W3006 + W3010 bekleniyor"
     );
 }
 
@@ -661,4 +665,63 @@ fn ui_pass_71_declassify_warns_w3008_only() {
 #[test]
 fn ui_fail_55_trust_leak_e3009() {
     assert_ui_fail("fail/55_trust_leak.volt");
+}
+
+// ═══ RDC — reset alanı denetimi (ADR-0065) ════════════════════════
+
+#[test]
+fn ui_fail_62_async_reset_shared_e3003() {
+    assert_ui_fail("fail/62_rdc_async_reset_shared.volt");
+}
+
+#[test]
+fn ui_fail_63_raw_reset_kind_mismatch_e3003() {
+    assert_ui_fail("fail/63_rdc_raw_reset_kind_mismatch.volt");
+}
+
+#[test]
+fn ui_fail_64_raw_reset_name_clash_e3003() {
+    assert_ui_fail("fail/64_rdc_raw_reset_name_clash.volt");
+}
+
+#[test]
+fn ui_fail_65_reset_convergence_e3003() {
+    assert_ui_fail("fail/65_rdc_reset_convergence.volt");
+}
+
+#[test]
+fn ui_fail_66_raw_reset_ambiguous_e3010_without_cascade() {
+    assert_ui_fail("fail/66_rdc_raw_reset_ambiguous.volt");
+    // Belirsiz ham port paylaşım denetimini susturur (E3003 kaskadı yok).
+    let result = analyze_file("fail/66_rdc_raw_reset_ambiguous.volt");
+    assert_eq!(result.error_codes(), vec!["E3010", "E3010"]);
+}
+
+#[test]
+fn ui_fail_67_root_async_reset_w3009() {
+    assert_ui_fail("fail/67_rdc_root_async_reset.volt");
+}
+
+#[test]
+fn ui_fail_68_sync_reset_shared_w3010() {
+    assert_ui_fail("fail/68_rdc_sync_reset_shared.volt");
+}
+
+#[test]
+fn ui_pass_83_to_86_raw_reset_patterns_are_clean() {
+    // Her fail fixture'ının düzeltilmiş deseni: hiç tanı yok (W1001 dahil —
+    // ham port senkronizörce örtük okunur).
+    for file in [
+        "pass/83_rdc_raw_reset_two_clocks.volt",
+        "pass/84_rdc_raw_reset_per_domain.volt",
+        "pass/85_rdc_raw_reset_hierarchy.volt",
+        "pass/86_rdc_raw_reset_sync_domains.volt",
+    ] {
+        let result = analyze_file(file);
+        assert!(
+            result.diagnostics.is_empty(),
+            "{file}: {:?}",
+            result.error_codes()
+        );
+    }
 }

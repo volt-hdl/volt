@@ -159,6 +159,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3006 => "Aynı adrese port çakışması algılanmaz (DualPortRam yazma-yazma, AsyncDualPortRam yazma sırasında okuma)",
         W3007 => "Harici çift yönlü sinyal senkronizasyonsuz okunuyor (ADR-0051)",
         W3008 => "Bilinçli güven düşürme (declassify) — gözden geçirilmeli (ADR-0052)",
+        W3009 => "Asenkron reset bırakmasının birim dışında senkronlandığı varsayılıyor (ADR-0065)",
+        W3010 => "Senkron reset birden çok saat alanınca paylaşılıyor (ADR-0065)",
         W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
         W4002 => "Yazılıp hiç okunmayan register",
     }

@@ -95,6 +95,14 @@ Volt'ta OLUŞABİLEN durumlar ve karar:
 | E3005 Koşullu reset | `reset_requires` gramerde yok. | Kapsam dışı. | rezerve | gelecek |
 | `on clk.reset {}` | E0003. | Kapsam dışı (reset olayı bloğu bu ADR'ye bağlı değil). | — | gelecek |
 
+> **Not (R5', Aşama 2):** W3xxx-B'nin uyarı olması **geçicidir**. Aşama 4'te
+> örnekler (vga, hybrid_accel) ham reset portuna taşındıktan sonra hataya
+> yükseltilmesi değerlendirilecek.
+>
+> **Kod tahsisi (Aşama 2):** W3xxx-A → **W3009**, W3xxx-B → **W3010**
+> (W3008'den sonraki ilk boş numaralar). Bu belgedeki sembolik adlar
+> tasarım metninin parçası olarak korunur.
+
 Minimum beklenti (R1, R2, R5) karşılanıyor: R1 zincir + W3xxx-A, R2 yapısal
 (E3001), R5 E3003. Arch'ın beş fazı (rekabet raporu [38]) ile eşleme:
 "one async reset in two clock domains" → R5/E3003; "cross-async-reset-domain
@@ -431,3 +439,21 @@ değişikliği gerekirse ADR raporlanır.
 | 2 RDC denetimi | `domain/rdc.rs` (E3003 R5/R6/alt biçimler, W3xxx-A, W3xxx-B), parser `reset = ifade` hatası, sv-emit ham port + zincir + örnekleme bağlantısı, stdlib.md bölümü, `explain` EN/TR, ui pass/fail, mutasyon, golden (RDC'siz dosyalar bayt bayt aynı) | §1, §2, §3 |
 | 3 Hedefli SDC | `constraints/` + volt-sdc-emit: §4.2 tablosu, `--sdc-style`, XDC `ASYNC_REG` + `set_bus_skew`, hücre adı tutarlılık testi | §4, §5 |
 | 4 Doğrulama | OpenSTA CI adımı, README/CHANGELOG | Doğrulama planı |
+
+## Aşama 2 uygulama notları (2026-09-22)
+
+Uygulama `crates/volt-hir/src/domain/rdc/` (facts, binding, share,
+converge) ve `crates/volt-sv-emit/src/reset_sync.rs`. Karardan sapma yok;
+aşağıdakiler ADR'nin açık bıraktığı ya da ölçümle netleşen noktalardır.
+
+| Nokta | Uygulanan | Gerekçe / ölçüm |
+|---|---|---|
+| "İki saat alanı" (R5, R5', R1) | Yalnız modülde **kullanılan** saat portları sayılır (on bloğu, `reg(clk)`, `sync()`, örnek bağlaması). | Flop'u olmayan saat reset örneklemez; `tests/ui/pass/13` (kullanılmayan `fast_clk`) aksi hâlde W3010 alırdı (ADIM 2.4 sınıf C → kural daraltıldı). |
+| Etkin reset | `reset` yazılmamış alan ve örtük saat alanı `sync active_high` sayılır (sv-emit'in ürettiği). | HIR `DomainInfo.reset` bu durumda `None` taşır; denetim sv-emit'in gerçek çıktısına bakar. |
+| R6 yerel zincir | Modülün kendi zinciri, saat kullanıcı örneği bağlaması DIŞINDA kullanılıyorsa ya da bir çocuğun otomatik reset'li saatine bağlıysa sayılır. | Ham portu yalnız geçiren ara seviyenin zinciri ölü mantıktır; yakınsama sayılsaydı yanlış alarm olurdu (`rdc_tests::convergence_through_a_pass_through_level_is_found_at_the_top`). |
+| Kaskad | E3010 (belirsiz ham port) olan modülde paylaşım/kök denetimi koşmaz; E3003 (R5) olan modülde W3009 basılmaz. | Kullanıcının niyeti ham porttur; aynı sorun iki kez raporlanmaz. |
+| W1001 | Ham reset portu "kullanılmayan giriş" sayılmaz; süzgeç `rdc::without_raw_reset_unused` (analyze, sürücü, LSP). | Kullanım takibi `resolve/` içinde ve bu görevde DOKUNULMAZ; senkronizör portu örtük okur. |
+| Harness (§2 "gerekirse 2 → 4") | Reset süresi 2 çevrim kalır; ham portlu tasarımda bırakmadan sonra zincir uzunluğu (2) kadar çevrim daha koşulur. | Reset'i uzun tutmak gecikmeyi kapatmaz — gecikme bırakmadan SONRA oluşur. Ölçüm (Verilator 5.050, Docker): ham portlu sayaç `reset()` sonrası otomatik portlu eşiyle aynı başlar (`count` 0 → 1); ham port bırakıldıktan sonra register'lar 2 çevrim reset'te kalır, 3. çevrimde sayar. Ham portsuz tasarımların testbench'i bayt bayt aynı (`sim_golden_tests`). Otomatik `rst_n` portu (önceden de) harness'te sürülmüyordu; ham portlu modülde artık adıyla sürülür. |
+| `volt verify` | `initial assume` ve kontrat koruması zincir çıkışına uygulanır. | Ölçüm (sby, `hdlc/formal`): ham portlu sayaç `invariant: c <= 9` prove (k=8) ve bmc (16) geçti. |
+| Kod sayısı | 128 → 130 (§3'teki "120 → 122" o günün sayısını yanlış aktarmıştı). | `explain_tests::CODE_COUNT`. |
+| R5' sınıf A listesi | vga, hybrid_accel ve 9 ui fixture'ı W3010 alır; **soc almaz** (tek saatli). Async reset'li mevcut tek tasarım `tests/ui/pass/19` (W3009). | `build/rdc_golden.py cli`. |

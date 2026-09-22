@@ -30,6 +30,7 @@
 //! | `sync`             | `sync()` köprüsü, W3002, W3003                     | K9                 |
 //! | `instance`         | örnekleme haritası, E3014                          | K8, ADR-0047       |
 //! | `builtin_instance` | yerleşik CDC primitifleri, W3005, W3006            | ADR-0027/0029/0049 |
+//! | `rdc`              | reset alanı denetimi (ayrı geçit), E3003, W3009/10 | ADR-0065           |
 
 mod annotation;
 mod assign;
@@ -41,6 +42,7 @@ mod extern_decl;
 mod instance;
 mod join;
 mod module;
+mod rdc;
 mod reg;
 mod sync;
 mod tables;
@@ -52,6 +54,8 @@ use std::collections::{HashMap, HashSet};
 use volt_ast::{ClockEdge, Expr, Idx, ItemKind, ResetSpec, SourceFile, TrustLevel};
 use volt_diagnostics::Diagnostic;
 use volt_span::Span;
+
+pub use rdc::{check_rdc, without_raw_reset_unused};
 
 use crate::resolve::{DefId, ResolveResult};
 use crate::typeck::TypeckResult;

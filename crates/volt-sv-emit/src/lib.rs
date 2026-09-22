@@ -10,6 +10,7 @@ mod expr;
 mod generate;
 mod instance;
 mod past;
+mod reset_sync;
 mod sby;
 pub mod sim;
 mod sim_script;
@@ -33,7 +34,7 @@ pub use expr::Sig;
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, test_testbench_cpp,
-    SimPort, TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue,
+    SimPort, SimReset, TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue,
 };
 pub use sva::{SvaFile, SvaMode, SvaProp};
 
@@ -54,22 +55,27 @@ impl EmitResult {
 }
 
 /// Reset üretim varyantı (sv-mapping.md §7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResetCfg {
     pub(crate) sync: ResetSync, // None → reset yok
     pub(crate) polarity: ResetPolarity,
+    /// Ham reset portundan üretilen bırakma senkronizörünün çıkışı
+    /// (ADR-0065 §2, `rst_sync_<saat>_stage1`); `None` → otomatik port.
+    pub(crate) synced: Option<String>,
 }
 
 impl ResetCfg {
     const DEFAULT: ResetCfg = ResetCfg {
         sync: ResetSync::Sync,
         polarity: ResetPolarity::ActiveHigh,
+        synced: None,
     };
 
     pub(crate) fn is_none(&self) -> bool {
         self.sync == ResetSync::None
     }
 
+    /// Otomatik reset portunun adı (polariteye göre).
     pub(crate) fn port_name(&self) -> &'static str {
         match self.polarity {
             ResetPolarity::ActiveHigh => "rst",
@@ -77,23 +83,32 @@ impl ResetCfg {
         }
     }
 
-    pub(crate) fn condition(&self) -> &'static str {
+    /// Alanın register'larını sıfırlayan sinyal: zincir çıkışı ya da port.
+    pub(crate) fn signal(&self) -> &str {
+        self.synced.as_deref().unwrap_or(self.port_name())
+    }
+
+    pub(crate) fn condition(&self) -> String {
         match self.polarity {
-            ResetPolarity::ActiveHigh => "rst",
-            ResetPolarity::ActiveLow => "!rst_n",
+            ResetPolarity::ActiveHigh => self.signal().to_string(),
+            ResetPolarity::ActiveLow => format!("!{}", self.signal()),
         }
     }
 
-    fn async_sensitivity(&self) -> &'static str {
+    fn async_sensitivity(&self) -> String {
         match (self.sync, self.polarity) {
-            (ResetSync::Async, ResetPolarity::ActiveHigh) => " or posedge rst",
-            (ResetSync::Async, ResetPolarity::ActiveLow) => " or negedge rst_n",
-            _ => "",
+            (ResetSync::Async, ResetPolarity::ActiveHigh) => {
+                format!(" or posedge {}", self.signal())
+            }
+            (ResetSync::Async, ResetPolarity::ActiveLow) => {
+                format!(" or negedge {}", self.signal())
+            }
+            _ => String::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct DomainInfo {
     pub(crate) edge: ClockEdge,
     pub(crate) reset: ResetCfg,
@@ -110,18 +125,22 @@ pub(crate) struct ClockPort {
     pub(crate) name: String,
     pub(crate) domain: Option<String>,
     pub(crate) info: DomainInfo,
+    /// Alanını besleyen ham reset portu (ADR-0065 §1); varsa
+    /// `info.reset.synced` bu saatin zincir çıkışıdır.
+    pub(crate) raw_reset: Option<reset_sync::RawReset>,
 }
 
 /// Benzersiz reset portları, saat portu sırası korunarak (ada göre teklenir).
 fn reset_port_set(clocks: &[ClockPort]) -> Vec<ResetCfg> {
     let mut out: Vec<ResetCfg> = Vec::new();
     for clock in clocks {
-        let cfg = clock.info.reset;
-        if cfg.is_none() {
+        let cfg = &clock.info.reset;
+        // Ham portla beslenen alan otomatik port almaz (ADR-0065 §1).
+        if cfg.is_none() || cfg.synced.is_some() {
             continue;
         }
         if !out.iter().any(|c| c.port_name() == cfg.port_name()) {
-            out.push(cfg);
+            out.push(cfg.clone());
         }
     }
     out
@@ -136,7 +155,7 @@ fn domain_of_trigger(clocks: &[ClockPort], on: &OnBlock) -> DomainInfo {
     };
     name.and_then(|n| clocks.iter().find(|c| c.name == n))
         .or_else(|| clocks.first())
-        .map(|c| c.info)
+        .map(|c| c.info.clone())
         .unwrap_or(DEFAULT_DOMAIN)
 }
 
@@ -158,12 +177,12 @@ fn zero_of(sig: Sig) -> String {
 }
 
 /// Senkronizatör aşamaları için always_ff bloğu (§4 reset varyantları).
-fn sync_always_ff(clk: &str, info: DomainInfo, chain: &[(String, String)], zero: &str) -> String {
+fn sync_always_ff(clk: &str, info: &DomainInfo, chain: &[(String, String)], zero: &str) -> String {
     let edge = match info.edge {
         ClockEdge::Negedge => "negedge",
         _ => "posedge",
     };
-    let cfg = info.reset;
+    let cfg = &info.reset;
     let mut out = String::new();
     if cfg.is_none() {
         out.push_str(&format!("    always_ff @({edge} {clk}) begin\n"));
@@ -363,7 +382,39 @@ fn collect_consts(ast: &SourceFile) -> HashMap<String, (Idx<TypeRef>, Idx<Expr>)
     map
 }
 
-fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
+/// Modülün saat portları, alan bilgisi ve besleyen ham reset portuyla
+/// (ADR-0065 §1): beslenen alanın reset'i zincir çıkışıdır.
+pub(crate) fn clock_ports_of(
+    ast: &SourceFile,
+    domains: &HashMap<String, DomainInfo>,
+    module: &ModuleDecl,
+) -> Vec<ClockPort> {
+    module
+        .ports
+        .iter()
+        .filter(|p| matches!(ast.types[p.ty].kind, TypeRefKind::Clock))
+        .map(|p| {
+            let domain = p.domain.as_ref().map(|d| d.text.clone());
+            let mut info = domain
+                .as_ref()
+                .and_then(|d| domains.get(d).cloned())
+                .unwrap_or(DEFAULT_DOMAIN);
+            let raw_reset = reset_sync::feeding_raw(ast, module, domain.as_deref(), &info);
+            if raw_reset.is_some() {
+                let last = reset_sync::RESET_SYNC_STAGES - 1;
+                info.reset.synced = Some(reset_sync::stage_name(&p.name.text, last));
+            }
+            ClockPort {
+                name: p.name.text.clone(),
+                domain,
+                info,
+                raw_reset,
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
     let mut map = HashMap::new();
     for &item_idx in &ast.items {
         if let ItemKind::Domain(domain) = &ast.items_arena[item_idx].kind {
@@ -375,6 +426,7 @@ fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
                         info.reset = ResetCfg {
                             sync: spec.sync,
                             polarity: spec.polarity,
+                            synced: None,
                         };
                     }
                     (DomainKey::Reset, DomainValue::ClockEdge(ClockEdge::None)) => {
@@ -473,23 +525,7 @@ impl<'a> Emitter<'a> {
 
     /// Saat portları, port sırasıyla; `@Domain` yoksa varsayılan alan.
     fn collect_clock_ports(&self, module: &ModuleDecl) -> Vec<ClockPort> {
-        module
-            .ports
-            .iter()
-            .filter(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
-            .map(|p| {
-                let domain = p.domain.as_ref().map(|d| d.text.clone());
-                let info = domain
-                    .as_ref()
-                    .and_then(|d| self.domains.get(d).copied())
-                    .unwrap_or(DEFAULT_DOMAIN);
-                ClockPort {
-                    name: p.name.text.clone(),
-                    domain,
-                    info,
-                }
-            })
-            .collect()
+        clock_ports_of(self.ast, &self.domains, module)
     }
 
     // ═══ Modül ════════════════════════════════════════════════════
@@ -507,6 +543,11 @@ impl<'a> Emitter<'a> {
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
+            // Ham reset portu (ADR-0065): 1 bit, `reset` tip eşlemesi yok.
+            if reset_sync::is_raw_reset(ast, port) {
+                self.symbols.insert(port.name.text.clone(), Sig::BIT);
+                continue;
+            }
             self.note_trit(&port.name.text, port.ty);
             if let Some(sig) = self.signal_sig(&port.name.text, port.ty, port.span) {
                 self.symbols.insert(port.name.text.clone(), sig);
@@ -561,17 +602,23 @@ impl<'a> Emitter<'a> {
         self.collect_builtin_insts(module, &clocks);
         self.collect_user_insts(module);
         for cfg in &resets {
-            self.symbols.insert(
-                cfg.port_name().to_string(),
-                Sig {
-                    width: 1,
-                    signed: false,
-                },
-            );
+            self.symbols.insert(cfg.port_name().to_string(), Sig::BIT);
+        }
+        for clock in clocks.iter().filter(|c| c.raw_reset.is_some()) {
+            for i in 0..reset_sync::RESET_SYNC_STAGES {
+                self.symbols
+                    .insert(reset_sync::stage_name(&clock.name, i), Sig::BIT);
+            }
         }
 
         let ports_block = self.emit_ports(module, &resets);
         let mut body_chunks = self.emit_body(module, &clocks);
+        // ADR-0065 §2: bırakma senkronizörleri gövdenin başında.
+        let synchronizers: Vec<String> = clocks
+            .iter()
+            .filter_map(reset_sync::synchronizer_block)
+            .collect();
+        body_chunks.splice(0..0, synchronizers);
         if let Some(pre) = self.pre_decl_chunk() {
             body_chunks.insert(0, pre);
         }
@@ -644,6 +691,14 @@ impl<'a> Emitter<'a> {
         for cfg in resets {
             lines.push(("input", "logic".into(), cfg.port_name().into()));
         }
+        // Ham reset portları otomatik portlardan sonra (ADR-0065 §1).
+        for port in module
+            .ports
+            .iter()
+            .filter(|p| reset_sync::is_raw_reset(ast, p))
+        {
+            lines.push(("input", "logic".into(), port.name.text.clone()));
+        }
         for pass in [
             PortDir::In,
             PortDir::InOut,
@@ -651,7 +706,7 @@ impl<'a> Emitter<'a> {
             PortDir::Out,
         ] {
             for port in &module.ports {
-                if port.direction != pass || is_clock(port) {
+                if port.direction != pass || is_clock(port) || reset_sync::is_raw_reset(ast, port) {
                     continue;
                 }
                 let mut ty = match self.packed_arrays.get(&port.name.text) {
@@ -764,7 +819,7 @@ impl<'a> Emitter<'a> {
                     let reset = if clocks.is_empty() || info.reset.is_none() {
                         None
                     } else {
-                        Some(info.reset)
+                        Some(info.reset.clone())
                     };
                     Some((
                         Kind::Always,
@@ -1029,7 +1084,7 @@ impl<'a> Emitter<'a> {
         if let Some(cap) = &src_clock {
             out.push_str(&sync_always_ff(
                 &cap.name,
-                cap.info,
+                &cap.info,
                 &[(format!("{base}_src"), src.clone())],
                 &zero,
             ));
@@ -1046,7 +1101,7 @@ impl<'a> Emitter<'a> {
             chain.push((cur.clone(), prev));
             prev = cur;
         }
-        out.push_str(&sync_always_ff(&dst.name, dst.info, &chain, &zero));
+        out.push_str(&sync_always_ff(&dst.name, &dst.info, &chain, &zero));
         out.push_str("\n\n");
         out.push_str(&format!("    assign {dest} = {prev};"));
         Some(out)
@@ -1436,6 +1491,9 @@ impl<'a> Emitter<'a> {
     /// Bir hedef modül portunun bağlama imzası (örnekleme): dizi port
     /// paketlenmiş toplam genişlik (ADR-0056).
     pub(crate) fn port_sig(&mut self, port: &volt_ast::Port) -> Option<Sig> {
+        if reset_sync::is_raw_reset(self.ast, port) {
+            return Some(Sig::BIT);
+        }
         if !matches!(self.ast.types[port.ty].kind, TypeRefKind::Array { .. }) {
             return self.sig_of_typeref(port.ty, port.span);
         }

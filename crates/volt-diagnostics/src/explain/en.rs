@@ -408,12 +408,13 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         E3003 => Explanation::new(
-            "Reset domain mismatch (RDC)",
-            "The signal crosses between registers that use different, unsynchronized resets.",
-            "When the source domain's reset asserts, the destination register can capture the value mid-change — the same metastability risk as a clock crossing, but triggered by reset. Reset Domain Crossings are as real as CDCs and are checked the same way.",
-            "// src register: reset = rst_a, dst register: reset = rst_b\ndst <= src              // ✗ E3003",
-            "dst <= sync(src, dst_clk)    // ✓ synchronize the crossing",
+            "Reset domain crossing (RDC)",
+            "A reset release is not synchronized to every clock it reaches: one asynchronous reset port is shared by several clock domains, the same raw reset is synchronized twice on one clock, or a raw reset port does not match the domain it feeds.",
+            "Asserting a reset asynchronously is harmless; RELEASING it is not. A release that is synchronous to one clock is asynchronous to every other clock, so registers of a second domain may leave reset in different cycles or go metastable (a recovery/removal violation). Volt generates one reset port per polarity ('rst' / 'rst_n'), so two 'reset = async' domains with the same polarity share one port — its release can be synchronous to at most one of their clocks. The fix is to take the raw reset in explicitly as 'in rst_n : reset(async, active_low)': the compiler then adds a two-stage release synchronizer for every clock the port feeds (asynchronous assert, synchronous release) and resets each domain from its own chain (ADR-0065). The same code reports a raw reset synchronized twice on one clock (the parent and an instance each add a chain, so the two releases can land in different cycles), a raw port whose '(sync|async, polarity)' differs from the domain it feeds, and a raw port named like the automatic port of another domain.",
+            "domain Fast { clock = posedge, reset = async active_low }\ndomain Slow { clock = posedge, reset = async active_low }\nmodule Top {\n    in fast_clk : clock @Fast    // ✗ E3003: 'rst_n' serves both clocks\n    in slow_clk : clock @Slow\n}",
+            "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ one synchronizer per clock\n}",
         )
+        .with_note("Clock-domain crossings of DATA between the two domains are still E3001; E3003 is only about the reset itself. A domain with 'reset = sync' that shares 'rst' with another clock is the milder W3010.")
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         E3004 => Explanation::new(
             "Reset sequence violation",
@@ -1015,6 +1016,22 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, reason recorded",
             "// Keep the call and review the reason; the warning is the audit trail, not a defect.",
         ),
+        W3009 => Explanation::new(
+            "Asynchronous reset assumed to be released synchronously",
+            "A module that nothing in the unit instantiates has a 'reset = async' domain but no raw reset port, so nothing in Volt synchronizes the release of its automatic reset port.",
+            "The automatic 'rst' / 'rst_n' port carries a contract: the reset it receives is released synchronously to the clock of the domain (ADR-0065 §1). Inside a Volt hierarchy the compiler keeps that promise — a parent connects its own synchronized reset to the child. At the root of the unit nobody does: if the port is wired to a pad or a power-on reset, the release is asynchronous and every flip-flop of the domain can leave reset in a different cycle. The warning makes that assumption visible once per module. If the reset really comes from outside, declare it as a raw port and the compiler adds the synchronizer; if an integrator already synchronizes it (IP delivered to another design), the warning documents the contract and needs no change.",
+            "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' assumed synchronous to 'clk'\n}",
+            "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ compiler synchronizes the release\n}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        W3010 => Explanation::new(
+            "Synchronous reset shared by several clock domains",
+            "Two or more clock domains with 'reset = sync' (the default) use the same generated 'rst' / 'rst_n' port, so its release is asynchronous to at least one of their clocks.",
+            "A synchronous reset is sampled like data: every flip-flop sees it on its D input. When one reset port reaches flip-flops of two unrelated clocks, the edge on which it is released is asynchronous to at least one of them — the same hazard as an asynchronous reset release, only milder because the reset path itself is timed. It is a warning rather than an error because every multi-clock design written before ADR-0065 follows this pattern and the fix is one line: declare the raw reset explicitly and the compiler synchronizes its release to each clock. The warning is temporary; ADR-0065 plans to re-evaluate raising it to an error once the examples are migrated.",
+            "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' sampled by 'sys_clk' and 'pix_clk'\n    in pix_clk : clock @Pix\n}",
+            "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ one release synchronizer per clock\n}",
+        )
+        .with_docs(&["https://volthdl.org/guide/cdc"]),
         W4001 => Explanation::new(
             "Unused signal",
             "This signal is declared in the netlist but drives nothing.",

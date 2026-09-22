@@ -148,8 +148,17 @@ impl<'a> Emitter<'a> {
             ));
         }
         let parent_resets = reset_port_set(parent_clocks);
-        for cfg in reset_port_set(&self.collect_clock_ports(target)) {
+        let target_clocks = self.collect_clock_ports(target);
+        for cfg in reset_port_set(&target_clocks) {
             let rst = cfg.port_name();
+            // ADR-0065 §1: çocuğun saatine bağlanan ebeveyn saatinin alanı
+            // ham portla besleniyorsa zincir çıkışı bağlanır.
+            if let Some(synced) =
+                parent_synced_reset(&target_clocks, &cfg, &bindings, parent_clocks, ast)
+            {
+                conns.push((rst.to_string(), synced));
+                continue;
+            }
             if !parent_resets.iter().any(|c| c.port_name() == rst) {
                 self.error(
                     ErrorCode::E2005,
@@ -166,7 +175,13 @@ impl<'a> Emitter<'a> {
             }
             conns.push((rst.to_string(), rst.to_string()));
         }
-        for p in target.ports.iter().filter(|p| !is_clock(p)) {
+        // Çocuğun ham reset portları, SV port sırasıyla (otomatiklerden sonra).
+        let is_raw = |p: &Port| crate::reset_sync::is_raw_reset(ast, p);
+        for p in target.ports.iter().filter(|p| is_raw(p)) {
+            let value = self.input_binding(&name, p, &bindings, Sig::BIT, span);
+            conns.push((p.name.text.clone(), value));
+        }
+        for p in target.ports.iter().filter(|p| !is_clock(p) && !is_raw(p)) {
             let Some(sig) = self.port_sig(p) else {
                 continue;
             };
@@ -291,4 +306,31 @@ fn format_instance(module: &str, name: &str, conns: &[(String, String)]) -> Stri
         .map(|(p, v)| format!("        .{p:<w$}({v})"))
         .collect();
     format!("    {module} {name} (\n{}\n    );", lines.join(",\n"))
+}
+
+/// Çocuğun otomatik reset portuna bağlanacak ebeveyn zincir çıkışı
+/// (ADR-0065 §1): o porta bağlı çocuk saatlerinden biri, reset'i ham
+/// portla beslenen ve aynı polariteli bir ebeveyn saatine bağlıysa.
+fn parent_synced_reset(
+    target_clocks: &[ClockPort],
+    cfg: &crate::ResetCfg,
+    bindings: &HashMap<&str, Option<Idx<Expr>>>,
+    parent_clocks: &[ClockPort],
+    ast: &volt_ast::SourceFile,
+) -> Option<String> {
+    target_clocks
+        .iter()
+        .filter(|c| !c.info.reset.is_none() && c.info.reset.synced.is_none())
+        .filter(|c| c.info.reset.port_name() == cfg.port_name())
+        .find_map(|c| {
+            let parent_name = match bindings.get(c.name.as_str())? {
+                Some(e) => crate::path_single(ast, *e)?,
+                None => c.name.as_str(),
+            };
+            let parent = parent_clocks.iter().find(|p| p.name == parent_name)?;
+            let reset = &parent.info.reset;
+            (reset.polarity == cfg.polarity)
+                .then(|| reset.synced.clone())
+                .flatten()
+        })
 }

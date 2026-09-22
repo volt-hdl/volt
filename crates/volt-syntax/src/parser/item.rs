@@ -1599,7 +1599,7 @@ impl Parser<'_> {
         let value = if matches!(key, DomainKey::TrustLevel) {
             self.parse_trust_level_value()
         } else {
-            self.parse_domain_value(matches!(key, DomainKey::Reset))
+            self.parse_domain_value(&key)
         };
         Some(DomainField {
             span: self.span_from(start),
@@ -1629,7 +1629,8 @@ impl Parser<'_> {
         DomainValue::Error
     }
 
-    fn parse_domain_value(&mut self, in_reset: bool) -> DomainValue {
+    fn parse_domain_value(&mut self, key: &DomainKey) -> DomainValue {
+        let in_reset = matches!(key, DomainKey::Reset);
         match self.current() {
             Some(KwPosedge) => {
                 self.bump_any();
@@ -1679,6 +1680,14 @@ impl Parser<'_> {
                 self.bump_any();
                 DomainValue::Bool(false)
             }
+            // ADR-0065 §3: saat ve reset bir ifade almaz; `reset = rst_in`
+            // eskiden Literal olarak ayrışıp HİÇBİR geçitte okunmuyordu
+            // (sessiz yok sayma). İfade tanıdan sonra atlanır.
+            _ if matches!(key, DomainKey::Clock | DomainKey::Reset) && self.at_expr_start() => {
+                self.error_domain_expr(in_reset);
+                let _ = self.parse_expr();
+                DomainValue::Error
+            }
             _ if self.at_expr_start() => DomainValue::Literal(self.parse_expr()),
             _ => {
                 self.error_expected(
@@ -1687,6 +1696,27 @@ impl Parser<'_> {
                 );
                 DomainValue::Error
             }
+        }
+    }
+
+    /// `clock = <ifade>` / `reset = <ifade>` (ADR-0065 §3): Volt'ta saat
+    /// ve reset sinyal değil alan özelliğidir; bir veri sinyali reset
+    /// olarak bağlanamaz (R4). Ham reset portu için yol help'te.
+    fn error_domain_expr(&mut self, in_reset: bool) {
+        if in_reset {
+            self.error_expected(
+                &lstr!(en: "reset kind (sync or async with a polarity, or none)";
+                       tr: "reset türü (polariteli sync ya da async, veya none)"),
+                &lstr!(en: "write `reset = sync active_high`; to reset from a port, declare it raw: `in rst_n : reset(async, active_low)` (ADR-0065)";
+                       tr: "`reset = sync active_high` yazın; reset'i bir porttan almak için ham port bildirin: `in rst_n : reset(async, active_low)` (ADR-0065)"),
+            );
+        } else {
+            self.error_expected(
+                &lstr!(en: "clock edge (posedge, negedge or none)";
+                       tr: "saat kenarı (posedge, negedge ya da none)"),
+                &lstr!(en: "write `clock = posedge`; the clock itself is the port annotated with this domain";
+                       tr: "`clock = posedge` yazın; saatin kendisi bu alanla anotasyonlu porttur"),
+            );
         }
     }
 

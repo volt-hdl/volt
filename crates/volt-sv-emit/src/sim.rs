@@ -6,7 +6,7 @@
 //! satırları cargo biçimli rapora çevirir). Üretilen kod İngilizcedir
 //! (ADR-0026).
 
-use volt_ast::{ItemKind, ModuleDecl, PortDir, SourceFile, TestBinOp, TypeRefKind};
+use volt_ast::{ItemKind, ModuleDecl, PortDir, ResetPolarity, SourceFile, TestBinOp, TypeRefKind};
 
 use crate::sim_script::{
     printf_literal, uses_load, uses_port_check, uses_script_runtime, ScriptEmitter, LOAD_PRELUDE,
@@ -19,21 +19,64 @@ pub struct SimPort {
     pub name: String,
     pub is_input: bool,
     pub is_clock: bool,
+    /// Reset'i üreteç sürer (ADR-0065); veri gibi sıfırlanmaz/sürülmez.
+    pub reset: Option<SimReset>,
+}
+
+/// Üretecin sürdüğü reset girişi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimReset {
+    /// Ham reset portu (`in r : reset(...)`): etkinleşme polaritesiyle.
+    Raw(ResetPolarity),
+    /// Ham portlu modülde kalan otomatik `rst`/`rst_n` portu.
+    Auto(ResetPolarity),
+}
+
+impl SimReset {
+    fn polarity(self) -> ResetPolarity {
+        match self {
+            SimReset::Raw(p) | SimReset::Auto(p) => p,
+        }
+    }
 }
 
 /// Modülün portlarını testbench özetine indirger. Üretilen SV'deki
 /// örtük `rst` girişi listeye DAHİL DEĞİLDİR — reset'i üreteçler
-/// kendisi sürer.
+/// kendisi sürer. Ham reset portlu modülde (ADR-0065) otomatik reset
+/// portları `SimReset::Auto` olarak eklenir: üreteç hepsini adıyla sürer.
 pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> {
-    module
+    let mut ports: Vec<SimPort> = module
         .ports
         .iter()
         .map(|p| SimPort {
             name: p.name.text.clone(),
             is_input: p.direction == PortDir::In,
             is_clock: matches!(src.types[p.ty].kind, TypeRefKind::Clock),
+            reset: None,
         })
-        .collect()
+        .collect();
+    let clocks = crate::clock_ports_of(src, &crate::collect_domains(src), module);
+    for (port, sim) in module.ports.iter().zip(ports.iter_mut()) {
+        if crate::reset_sync::is_raw_reset(src, port) {
+            let polarity = clocks
+                .iter()
+                .filter_map(|c| c.raw_reset.as_ref())
+                .find(|r| r.name == port.name.text)
+                .map_or(ResetPolarity::ActiveHigh, |r| r.polarity);
+            sim.reset = Some(SimReset::Raw(polarity));
+        }
+    }
+    if ports.iter().any(|p| p.reset.is_some()) {
+        for cfg in crate::reset_port_set(&clocks) {
+            ports.push(SimPort {
+                name: cfg.port_name().to_string(),
+                is_input: false,
+                is_clock: false,
+                reset: Some(SimReset::Auto(cfg.polarity)),
+            });
+        }
+    }
+    ports
 }
 
 /// `sources` içinde adı verilen modülü bulur.
@@ -191,21 +234,48 @@ fn cycle_fn(ports: &[SimPort], trace: bool) -> String {
     )
 }
 
-/// 2 çevrimlik reset yardımcısı.
-fn reset_fn(trace: bool) -> String {
+/// 2 çevrimlik reset yardımcısı. Ham reset portlu modülde (ADR-0065)
+/// bütün reset girişleri polaritesiyle sürülür ve bırakmadan sonra
+/// senkronizör zinciri kadar çevrim beklenir: test, bugünkü gibi
+/// reset'ten çıkmış bir tasarımla başlar.
+fn reset_fn(ports: &[SimPort], trace: bool) -> String {
     let (param, arg) = if trace {
         (", VerilatedVcdC* tfp", ", tfp")
     } else {
         ("", "")
     };
-    format!(
-        "static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n\
-         \x20   dut->rst = 1;\n\
-         \x20   run_cycle(dut, ctx{arg});\n\
-         \x20   run_cycle(dut, ctx{arg});\n\
-         \x20   dut->rst = 0;\n\
-         }}\n"
-    )
+    let resets: Vec<(&str, ResetPolarity)> = ports
+        .iter()
+        .filter_map(|p| Some((p.name.as_str(), p.reset?.polarity())))
+        .collect();
+    if resets.is_empty() {
+        return format!(
+            "static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n\
+             \x20   dut->rst = 1;\n\
+             \x20   run_cycle(dut, ctx{arg});\n\
+             \x20   run_cycle(dut, ctx{arg});\n\
+             \x20   dut->rst = 0;\n\
+             }}\n"
+        );
+    }
+    let level =
+        |p: ResetPolarity, asserted: bool| u8::from((p == ResetPolarity::ActiveHigh) == asserted);
+    let mut out = format!("static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n");
+    for &(name, p) in &resets {
+        out.push_str(&format!("    dut->{name} = {};\n", level(p, true)));
+    }
+    out.push_str(&format!(
+        "    run_cycle(dut, ctx{arg});\n    run_cycle(dut, ctx{arg});\n"
+    ));
+    for &(name, p) in &resets {
+        out.push_str(&format!("    dut->{name} = {};\n", level(p, false)));
+    }
+    out.push_str("    // reset synchronizer release (ADR-0065)\n");
+    for _ in 0..crate::reset_sync::RESET_SYNC_STAGES {
+        out.push_str(&format!("    run_cycle(dut, ctx{arg});\n"));
+    }
+    out.push_str("}\n");
+    out
 }
 
 fn header(module: &str, trace: bool) -> String {
@@ -231,12 +301,15 @@ pub fn run_testbench_cpp(
     vcd_file: Option<&str>,
 ) -> String {
     let trace = vcd_file.is_some();
-    let cols: Vec<&SimPort> = ports.iter().filter(|p| !p.is_clock).collect();
+    let cols: Vec<&SimPort> = ports
+        .iter()
+        .filter(|p| !p.is_clock && p.reset.is_none())
+        .collect();
 
     let mut out = header(module, trace);
     out.push_str(&cycle_fn(ports, trace));
     out.push('\n');
-    out.push_str(&reset_fn(trace));
+    out.push_str(&reset_fn(ports, trace));
     out.push('\n');
 
     // Sütun genişlikleri üretim anında sabitlenir (deterministik çıktı).
@@ -326,7 +399,7 @@ pub fn test_testbench_cpp(module: &str, ports: &[SimPort], tests: &[TbTest]) -> 
     }
     out.push_str(&cycle_fn(ports, false));
     out.push('\n');
-    out.push_str(&reset_fn(false));
+    out.push_str(&reset_fn(ports, false));
     out.push('\n');
 
     for (i, test) in tests.iter().enumerate() {
@@ -343,7 +416,10 @@ pub fn test_testbench_cpp(module: &str, ports: &[SimPort], tests: &[TbTest]) -> 
         if test_loads {
             out.push_str("    std::vector<std::function<void()>> volt_loads;\n");
         }
-        for p in ports.iter().filter(|p| p.is_input && !p.is_clock) {
+        for p in ports
+            .iter()
+            .filter(|p| p.is_input && !p.is_clock && p.reset.is_none())
+        {
             out.push_str(&format!("    dut.{} = 0;\n", p.name));
         }
         out.push_str("    apply_reset(&dut, ctx);\n");
@@ -387,16 +463,19 @@ mod tests {
                 name: "clk".into(),
                 is_input: true,
                 is_clock: true,
+                reset: None,
             },
             SimPort {
                 name: "enable".into(),
                 is_input: true,
                 is_clock: false,
+                reset: None,
             },
             SimPort {
                 name: "count".into(),
                 is_input: false,
                 is_clock: false,
+                reset: None,
             },
         ]
     }
