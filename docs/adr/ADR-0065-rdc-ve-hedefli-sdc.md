@@ -541,7 +541,11 @@ ns, kurulum 0,10 ns). Ölçüm ortamı: OpenSTA 3.1.0 `f89887b596`
 (`openroad/opensta@sha256:e04e5f38a0bc…`), Yosys 0.36+42 (`hdlc/formal`,
 yerel) / OSS CAD Suite 2026-09-21 (CI). Aynı 31 beklenti Yosys 0.66
 (`hdlc/yosys`) ile de tutar (tek fark `worst slack max` 6,30 — farklı
-kapı eşlemesi). Loglar `build/sta/<Modül>/`.
+kapı eşlemesi). CI'daki Yosys 0.69+77 HybridTop netlistinde `signed`
+bildirimleri yazdı (0.36/0.66 yazmaz; AllBridges'te işaretli tip yok,
+o yüzden 87 geçti) ve OpenSTA `clean_named.v line 18, syntax error`
+verdi; `fixnames.py` `signed` sözcüğünü soyar (zamanlama işarete bağlı
+değil), ikinci koşu 7/7 yeşil. Loglar `build/sta/<Modül>/`.
 
 **Deney tasarımı:** `tests/ui/pass/87` (AllBridges — her köprü türü, iki
 ham reset, çocuk örnek `u`, 100 MHz / 25,175 MHz). Plan `examples/vga`'yı
