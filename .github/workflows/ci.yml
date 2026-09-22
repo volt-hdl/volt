@@ -166,6 +166,8 @@ jobs:
           path: |
             build/sta/*/summary.md
             build/sta/*/*.sta.log
+            build/sta/*/*.yosys.log
+            build/sta/*/*_named.v
             build/sta/*/*.sdc
 
   coverage:

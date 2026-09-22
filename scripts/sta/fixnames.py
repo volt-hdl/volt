@@ -51,8 +51,17 @@ def reg_name(q_expr: str) -> str | None:
 MODULE_RE = re.compile(r"^module\b", re.M)
 
 
+SIGNED_RE = re.compile(r"\bsigned\s+")
+
+
 def rename(text: str) -> tuple[str, int]:
-    """Rename per module: the same wire name may live in several modules."""
+    """Rename per module: the same wire name may live in several modules.
+
+    Also drops `signed` from declarations: Yosys 0.69 keeps the signedness of
+    the source (`wire signed [7:0] x`), OpenSTA's Verilog reader rejects the
+    keyword (`syntax error`), and timing analysis does not depend on it.
+    """
+    text = SIGNED_RE.sub("", text)
     parts = MODULE_RE.split(text)
     total = 0
     out = [parts[0]]
