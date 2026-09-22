@@ -32,6 +32,7 @@ cikis = ornek.cikis_portu
 | [HandshakeSync](#handshakesync-cdc) | çift (CDC) | `<T>` | — |
 | [PulseSync](#pulsesync-cdc) | çift (CDC) | — | W3005 |
 | [AsyncDualPortRam](#asyncdualportram-cdc) | çift (CDC) | `<T, DEPTH>` | E2025, W3006 |
+| [Reset senkronizörü](#reset-senkronizörü-ham-reset-portu-adr-0065) | saat başına | — | E3003, E3010, W3009, W3010 |
 
 Sabit generic kuralları: `DEPTH` 2..=65536 arası bir iki kuvveti
 (E2025); `WIDTH` 1..=64; `LEN` ve `N` 2..=64. Sabit argüman derleme
@@ -523,3 +524,71 @@ değildir: derleyici her yanlış alanlı bağlamayı reddeder.
 | (aynı saat — CDC değil) | `Handshake<T>` bundle'ı |
 | Sayaç | gray kodlama (`AsyncFifo` içinde hazır) |
 | Rastgele erişim | `AsyncDualPortRam<T, N>` |
+
+## Reset senkronizörü — ham reset portu (ADR-0065)
+
+Reset'in etkinleşmesi (assert) asenkron olabilir; **bırakılması**
+(deassert) her saate senkron gelmelidir, yoksa alanın flip-flop'ları
+reset'ten farklı çevrimlerde çıkar ya da metastabil olur
+(recovery/removal ihlali). Volt'ta reset bir değer değil, alan
+özelliğidir; senkronizör bu yüzden bir çağrı (`reset_sync(...)`) değil,
+**ham reset portunun** varlığından türetilir:
+
+```volt
+domain Fast { clock = posedge, reset = async active_low }
+domain Slow { clock = posedge, reset = async active_low }
+
+module Top {
+    in fast_clk : clock @Fast
+    in slow_clk : clock @Slow
+    in rst_n    : reset(async, active_low)   // ham: hiçbir saate senkron değil
+    ...
+}
+```
+
+Derleyici ham portun beslediği her saat portu için iki aşamalı bir
+zincir üretir (asenkron etkinleşme, senkron bırakma) ve alanın
+register'larını zincirin son aşamasıyla sıfırlar:
+
+```systemverilog
+    // reset synchronizer: rst_n -> fast_clk (async assert, sync release)
+    logic rst_sync_fast_clk_stage0;
+    logic rst_sync_fast_clk_stage1;
+    always_ff @(posedge fast_clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rst_sync_fast_clk_stage0 <= 1'b0;
+            rst_sync_fast_clk_stage1 <= 1'b0;
+        end else begin
+            rst_sync_fast_clk_stage0 <= 1'b1;
+            rst_sync_fast_clk_stage1 <= rst_sync_fast_clk_stage0;
+        end
+    end
+    always_ff @(posedge fast_clk or negedge rst_sync_fast_clk_stage1) ...
+```
+
+Bağlama kuralları:
+
+| Durum | Davranış |
+|---|---|
+| Tek, anotasyonsuz ham port | Modülün reset'li (`none` dışı) bütün alanlarını besler. |
+| `in r : reset(...) @D` | Yalnız `D` alanını besler. Birden çok ham port varsa hepsi anotasyonlu olmalı (E3010). |
+| `reset(sync\|async, polarite)` | Beslediği alanın `reset`'iyle aynı olmalı (E3003). Yazılmazsa (`in r : reset`) alandan alınır. |
+| Beslenmeyen alan | Otomatik `rst`/`rst_n` portunu alır; ham port o adı taşıyamaz (E3003). |
+| `sync` alan | Aynı zincir; flop'lar zincir çıkışını senkron reset olarak okur. |
+| Çocuk modül | Otomatik reset portuna ebeveynin zincir çıkışı bağlanır; çocuk yeniden senkronlamaz. |
+| Çocuğa ham portu geçirmek | Aynı ham reset aynı saatte ikinci kez senkronlanırsa E3003 (yakınsama). |
+
+İlgili tanılar:
+
+| Kod | Ne zaman |
+|---|---|
+| E3003 | Tek asenkron otomatik port iki saat alanınca paylaşılıyor; aynı ham reset bir saatte iki zincirle senkronlanıyor; ham port türü alanınkinden farklı; ham port adı otomatik portla çakışıyor. |
+| E3010 | Birden çok ham portta anotasyonsuz olan var. |
+| W3009 | Birimde örneklenmeyen (kök) modülün `async` alanı otomatik portla: bırakmanın dışarıda senkronlandığı varsayılıyor. |
+| W3010 | `sync` (varsayılan) reset iki saat alanınca paylaşılıyor. Geçici olarak uyarı (ADR-0065). |
+
+Simülasyon: `volt test` / `volt run` üreteci ham portu polaritesiyle
+2 çevrim etkin tutar, bıraktıktan sonra zincir uzunluğu kadar (2) çevrim
+daha bekler — test, reset'ten çıkmış bir tasarımla başlar. Formal: kontrat
+`disable iff` ve ilk çevrim reset varsayımı zincir çıkışına uygulanır.
+Zincir uzunluğu sabit 2'dir (`@reset_stages(N)` gelecek iş).

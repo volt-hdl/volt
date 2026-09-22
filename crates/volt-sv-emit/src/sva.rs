@@ -260,7 +260,7 @@ impl<'a> Emitter<'a> {
 
         let mut names: Vec<String> = vec![clock.name.clone()];
         if !clock.info.reset.is_none() {
-            names.push(clock.info.reset.port_name().to_string());
+            names.push(clock.info.reset.signal().to_string());
         }
         let mut referenced = Vec::new();
         for c in &module.contracts {

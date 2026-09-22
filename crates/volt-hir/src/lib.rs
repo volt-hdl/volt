@@ -34,7 +34,10 @@ pub use constraints::{
     check_constraints, collect_constraints, Bridge, ClockConstraint, ConstraintResult,
     ModuleConstraints, PathKind, PathRule, Target,
 };
-pub use domain::{infer_domains, DomainId, DomainInfo, DomainResult, DomainSource, InferVar};
+pub use domain::{
+    check_rdc, infer_domains, without_raw_reset_unused, DomainId, DomainInfo, DomainResult,
+    DomainSource, InferVar,
+};
 pub use handshake::check_handshakes;
 pub use manifest_search::{
     find_manifest_dir, find_manifest_dir_in, SearchEnv, SearchStop, MANIFEST_DIR_ENV, MANIFEST_FILE,
@@ -106,6 +109,9 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     // bilgi akışı denetimi; trust_level/declassify yoksa hiç koşmaz.
     let trust_diags = trust::check_trust(ast, &resolve, &typeck, &domain);
 
+    // Reset alanı denetimi (ADR-0065): saat çıkarımının sonucu üzerinde.
+    let rdc_diags = domain::check_rdc(ast, &resolve, &domain);
+
     // Test blokları (ADR-0033): dosyada hiç modül yoksa testler kardeş
     // dosyanın modüllerini kullanıyordur — modül-varlık denetimi atlanır
     // (sürücü, kardeş dosyayı yükleyip tam denetimi kendisi yapar).
@@ -129,11 +135,12 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
     // tek dosya API'sinde varsayılan politika uyarıdır.
     let mut diagnostics = attrs::check_attributes(ast, UnenforcedLint::Warn);
-    diagnostics.extend(resolve.diagnostics.iter().cloned());
+    diagnostics.extend(without_raw_reset_unused(ast, &resolve.diagnostics));
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
     diagnostics.extend(domain.diagnostics.iter().cloned());
     diagnostics.extend(trust_diags);
+    diagnostics.extend(rdc_diags);
     diagnostics.extend(test_diags);
     diagnostics.extend(timing_diags);
     diagnostics.extend(handshake_diags);

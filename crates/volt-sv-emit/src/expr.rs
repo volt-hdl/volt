@@ -23,6 +23,12 @@ pub struct Sig {
 }
 
 impl Sig {
+    /// Tek bitlik işaretsiz sinyal (reset, senkronizör aşaması).
+    pub(crate) const BIT: Sig = Sig {
+        width: 1,
+        signed: false,
+    };
+
     /// `logic [7:0]` / `logic signed [15:0]` / `logic` (§2).
     pub fn decl_type(&self) -> String {
         match (self.width, self.signed) {

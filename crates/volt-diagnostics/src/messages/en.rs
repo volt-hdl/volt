@@ -159,6 +159,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3006 => "Same-address port collision is not detected (DualPortRam write-write, AsyncDualPortRam read-during-write)",
         W3007 => "External bidirectional signal read without synchronization (ADR-0051)",
         W3008 => "Deliberate trust downgrade (declassify) — review it (ADR-0052)",
+        W3009 => "Asynchronous reset release assumed to be synchronized outside the unit (ADR-0065)",
+        W3010 => "Synchronous reset shared by several clock domains (ADR-0065)",
         W4001 => "Unused signal (silence with a '_' prefix)",
         W4002 => "Register written but never read",
     }

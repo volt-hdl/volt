@@ -87,6 +87,10 @@ impl Inferencer<'_> {
             if self.is_clock_def(def) {
                 continue;
             }
+            if self.is_raw_reset_port(p, def) {
+                self.assign_raw_reset_domain(p, def);
+                continue;
+            }
             if p.direction.is_bidirectional() {
                 self.bidir_ports.insert(def);
             }

@@ -13,8 +13,8 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// E5011-E5016, ADR-0038 ile; E3013/E4005, ADR-0039 ile; E5017, ADR-0040 ile; E0015/E4006, ADR-0044 ile; E3014, ADR-0047 ile; E4007, ADR-0050 ile;
 /// E4008/W3007, ADR-0051 ile; E0016/W3008, ADR-0052 ile; E0017/W0022,
 /// ADR-0054 ile; E8507-E8511, ADR-0058 ile; E8512, ADR-0059 ile; E9003/E9004,
-/// ADR-0063 ile eklendi.)
-const CODE_COUNT: usize = 128;
+/// ADR-0063 ile; W3009/W3010, ADR-0065 ile eklendi.)
+const CODE_COUNT: usize = 130;
 
 #[test]
 fn all_codes_present_120_of_120() {
@@ -406,4 +406,23 @@ fn e3009_message_no_longer_marked_v1() {
     assert!(!ErrorCode::E3009.description().contains("V1"));
     assert!(ErrorCode::E0016.description().contains("declassify"));
     assert!(ErrorCode::W3008.is_warning());
+}
+
+#[test]
+fn adr_0065_rdc_explanations_point_to_the_raw_reset_port() {
+    for lang in [Lang::En, Lang::Tr] {
+        let e = explanation(lang, ErrorCode::E3003);
+        // Eski metin bir CDC örneğiydi (dst <= sync(...)); yeni metin reset'in kendisi.
+        assert!(!e.fix.contains("sync(src"), "{}", e.fix);
+        assert!(e.fix.contains("reset(async, active_low)"), "{}", e.fix);
+        assert!(e.why.contains("ADR-0065"), "{}", e.why);
+        assert!(e.note.is_some_and(|n| n.contains("W3010")));
+        for w in [ErrorCode::W3009, ErrorCode::W3010] {
+            let x = explanation(lang, w);
+            assert!(x.fix.contains(": reset("), "{}: {}", w.as_str(), x.fix);
+            assert!(w.is_warning());
+        }
+        assert!(explanation(lang, ErrorCode::W3010).why.contains("ADR-0065"));
+    }
+    assert!(ErrorCode::W3009.description().contains("ADR-0065"));
 }

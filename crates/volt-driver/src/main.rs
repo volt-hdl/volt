@@ -750,7 +750,11 @@ fn run_semantic_stages(
     // ── Aşama 2: isim çözümleme (birim modu, ADR-0042) ──
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
     let resolve_failed = count_errors(&resolve.diagnostics) > 0;
-    out.extend(resolve.diagnostics.iter().cloned());
+    // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
+    out.extend(volt_hir::without_raw_reset_unused(
+        &parsed.ast,
+        &resolve.diagnostics,
+    ));
     if resolve_failed {
         return None;
     }
@@ -772,8 +776,11 @@ fn run_semantic_stages(
     let domain = volt_hir::infer_domains(&parsed.ast, &resolve, &typeck);
     // ── F2f güven seviyeleri (ADR-0052): E3009 / W3008 ──
     let trust = volt_hir::check_trust(&parsed.ast, &resolve, &typeck, &domain);
+    // ── Reset alanı denetimi (ADR-0065): E3003 / W3009 / W3010 ──
+    let rdc = volt_hir::check_rdc(&parsed.ast, &resolve, &domain);
     out.extend(domain.diagnostics);
     out.extend(trust);
+    out.extend(rdc);
 
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
     out.extend(volt_hir::check_timing(&parsed.ast, &resolve));

@@ -66,7 +66,11 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
         diagnostics.extend(volt_hir::check_constraints(&analysis.ast));
         let resolve = volt_hir::resolve_file(&analysis.ast);
         let resolve_failed = count_errors(&resolve.diagnostics) > 0;
-        diagnostics.extend(resolve.diagnostics.iter().cloned());
+        // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
+        diagnostics.extend(volt_hir::without_raw_reset_unused(
+            &analysis.ast,
+            &resolve.diagnostics,
+        ));
         if !resolve_failed {
             let mut evaluator = volt_hir::ConstEvaluator::new(&analysis.ast, &resolve);
             evaluator.eval_all_consts();
@@ -79,6 +83,8 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
             if !stage_failed {
                 let domain = volt_hir::infer_domains(&analysis.ast, &resolve, &typeck);
                 diagnostics.extend(domain.diagnostics.iter().cloned());
+                // ADR-0065: reset alanı denetimi sürücüyle aynı.
+                diagnostics.extend(volt_hir::check_rdc(&analysis.ast, &resolve, &domain));
                 analysis.domain = Some(domain);
             }
             analysis.typeck = Some(typeck);

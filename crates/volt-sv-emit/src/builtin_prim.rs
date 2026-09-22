@@ -959,13 +959,13 @@ impl<'a> Emitter<'a> {
         // içindir: tek saatli modelde her BMC adımı bir kenar örneklemesi
         // olduğundan aynı satır 0. adımda `initial assume` ile çelişir
         // (PREUNSAT) — ve tek alanda "kısmi reset" zaten imkânsızdır.
-        let mut assumed: Vec<&'static str> = Vec::new();
+        let mut assumed: Vec<String> = Vec::new();
         let mut edge_assumed: Vec<String> = Vec::new();
         for clock in [&info.src_clock, &info.dst_clock] {
             if !clock.info.reset.is_none() {
                 let cond = clock.info.reset.condition();
                 if !assumed.contains(&cond) {
-                    assumed.push(cond);
+                    assumed.push(cond.clone());
                     out.push_str(&format!("    initial assume ({cond});\n"));
                 }
                 if !info.prim.has_dst_clock() {
@@ -1432,7 +1432,7 @@ fn builtin_always_ff_no_reset(clock: &ClockPort, body: &[String]) -> String {
 fn builtin_always_ff(clock: &ClockPort, reset_lines: &[String], body: &[String]) -> String {
     let edge = edge_of(clock);
     let clk = &clock.name;
-    let cfg = clock.info.reset;
+    let cfg = &clock.info.reset;
     let mut out = String::new();
     if cfg.is_none() {
         out.push_str(&format!("    always_ff @({edge} {clk}) begin\n"));

@@ -141,8 +141,9 @@ fn trit_no_longer_e0003() {
 #[test]
 fn unsupported_port_type_is_reported_once() {
     // Port tipi hem sembol geçişinde hem bildirimde sorgulanır; tanı bir
-    // kez basılmalı (çift E0003 kök nedeni).
-    let src = "module M { in r : reset out y : bool y = true }";
+    // kez basılmalı (çift E0003 kök nedeni). ADR-0065: giriş yönlü reset
+    // (ham port) artık desteklenir; çıkış yönlüsü kapsam dışı kalır.
+    let src = "module M { out r : reset out y : bool y = true }";
     let codes: Vec<_> = compile(src)
         .diagnostics
         .iter()

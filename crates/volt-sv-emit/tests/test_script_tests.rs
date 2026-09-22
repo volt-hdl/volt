@@ -12,6 +12,7 @@ fn ports() -> Vec<SimPort> {
         name: name.into(),
         is_input,
         is_clock,
+        reset: None,
     };
     vec![
         port("clk", true, true),
