@@ -7,7 +7,8 @@
 //! üretilmesi ve W0021'in bu üç nitelik için susması.
 
 use volt_diagnostics::Diagnostic;
-use volt_hir::{analyze, collect_constraints, ConstraintResult, PathKind, Target};
+use volt_hir::constraints::RESET_SYNC_STAGES;
+use volt_hir::{analyze, collect_constraints, ConstraintResult, CrossingClass, PathKind, Target};
 use volt_syntax::{parse, FileId};
 
 fn parse_clean(src: &str) -> volt_ast::SourceFile {
@@ -474,4 +475,156 @@ fn enforced_timing_attributes_no_longer_warn_w0021() {
     let src = "@timing(clk = 100.mhz)\n@false_path(from = a, to = y)\n@multicycle(from = a, to = y, cycles = 2)\nmodule M {\n    in clk : clock\n    in a : u8\n    out y : u8\n    reg r : u8 = 0\n    on clk { r <= a }\n    y = r\n}\n";
     let a = analyze(&parse_clean(src));
     assert!(a.diagnostics.is_empty(), "{:?}", a.error_codes());
+}
+
+// ═══ ADR-0065: geçiş sınıfları ve ham reset zincirleri ═══════════
+
+fn all_bridges_src() -> String {
+    format!(
+        "{TWO_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in d : u8 @Fast\n    in go : bool @Fast\n    out q : u8 @Slow\n    out v : bool @Slow\n    out p : bool @Slow\n    out m : bool @Slow\n    \
+         let f = AsyncFifo<u8, 4> {{ wr_clk: fast_clk, wr_data: d, wr_en: go, rd_clk: slow_clk, rd_en: v }}\n    \
+         let h = HandshakeSync<u8> {{ src_clk: fast_clk, data_in: d, send: go, dst_clk: slow_clk }}\n    \
+         let ps = PulseSync {{ src_clk: fast_clk, pulse_in: go, dst_clk: slow_clk }}\n    \
+         let ram = AsyncDualPortRam<bool, 16> {{ wr_clk: fast_clk, wr_addr: 0, wr_data: go, wr_en: go, rd_clk: slow_clk, rd_addr: 1 }}\n    \
+         q = f.rd_data\n    v = h.valid\n    p = ps.pulse_out\n    m = ram.rd_data\n}}\n"
+    )
+}
+
+#[test]
+fn builtin_crossings_carry_class_and_their_own_source_clock() {
+    let r = collect(&all_bridges_src());
+    let got: Vec<(String, CrossingClass, Option<String>)> = r.modules[0]
+        .bridges
+        .iter()
+        .flat_map(|b| &b.rules)
+        .map(|rule| {
+            let c = rule.crossing.clone().expect("köprü kuralı sınıf taşır");
+            (
+                rule.from.as_ref().unwrap().name().to_string(),
+                c.class,
+                c.src_clock,
+            )
+        })
+        .collect();
+    let fast = Some("fast_clk".to_string());
+    let slow = Some("slow_clk".to_string());
+    assert_eq!(
+        got,
+        vec![
+            ("f_rgray".into(), CrossingClass::Gray, slow.clone()),
+            ("f_wgray".into(), CrossingClass::Gray, fast.clone()),
+            ("f_mem".into(), CrossingClass::Data, fast.clone()),
+            ("h_req".into(), CrossingClass::Control, fast.clone()),
+            ("h_ack".into(), CrossingClass::Control, slow.clone()),
+            ("h_data_q".into(), CrossingClass::Data, fast.clone()),
+            ("ps_toggle".into(), CrossingClass::Control, fast.clone()),
+            ("ram_mem".into(), CrossingClass::Data, fast),
+        ]
+    );
+}
+
+#[test]
+fn sync_crossing_is_control_from_the_source_domain() {
+    let r = collect(&two_clock_module("", "    y = sync(r, slow_clk)"));
+    let c = r.modules[0].bridges[0].rules[0].crossing.clone().unwrap();
+    assert_eq!(c.class, CrossingClass::Control);
+    assert_eq!(c.src_clock.as_deref(), Some("fast_clk"));
+}
+
+#[test]
+fn user_path_rules_are_not_crossings() {
+    let r = collect(&two_clock_module(
+        "@multicycle(from = a, to = r, cycles = 2)",
+        "    y = sync(r, slow_clk)",
+    ));
+    assert_eq!(r.modules[0].paths.len(), 1);
+    assert!(r.modules[0].paths[0].crossing.is_none());
+}
+
+const ASYNC_DOMAINS: &str =
+    "domain Fast { clock = posedge, reset = async active_low, frequency = 100.mhz }\n\
+     domain Slow { clock = posedge, reset = async active_low, frequency = 50.mhz }\n\
+     domain Free { clock = posedge, reset = none, frequency = 10.mhz }\n";
+
+#[test]
+fn unannotated_raw_reset_feeds_every_domain_with_a_reset() {
+    let src = format!(
+        "{ASYNC_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in free_clk : clock @Free\n    \
+         in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n"
+    );
+    let m = &collect(&src).modules[0];
+    assert_eq!(m.raw_resets, vec!["ext_rst_n"]);
+    let chains: Vec<(&str, Option<&str>, &Vec<String>)> = m
+        .reset_chains
+        .iter()
+        .map(|c| (c.raw_port.as_str(), c.clock.as_deref(), &c.stages))
+        .collect();
+    assert_eq!(
+        chains.len(),
+        2,
+        "reset = none alanı zincir almaz: {chains:?}"
+    );
+    assert_eq!(chains[0].0, "ext_rst_n");
+    assert_eq!(chains[0].1, Some("fast_clk"));
+    assert_eq!(
+        chains[0].2,
+        &vec![
+            "rst_sync_fast_clk_stage0".to_string(),
+            "rst_sync_fast_clk_stage1".to_string()
+        ]
+    );
+    assert_eq!(chains[1].1, Some("slow_clk"));
+    assert_eq!(m.reset_chains[0].stages.len(), RESET_SYNC_STAGES);
+}
+
+#[test]
+fn annotated_raw_resets_feed_only_their_domain() {
+    let src = format!(
+        "{ASYNC_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    \
+         in rf : reset(async, active_low) @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n"
+    );
+    let m = &collect(&src).modules[0];
+    assert_eq!(m.reset_chains.len(), 1, "yalnız @Fast beslenir");
+    assert_eq!(m.reset_chains[0].raw_port, "rf");
+    assert_eq!(m.reset_chains[0].clock.as_deref(), Some("fast_clk"));
+}
+
+#[test]
+fn module_without_raw_reset_has_no_chains() {
+    let src = format!(
+        "{ASYNC_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n"
+    );
+    let m = &collect(&src).modules[0];
+    assert!(m.raw_resets.is_empty());
+    assert!(m.reset_chains.is_empty());
+}
+
+#[test]
+fn child_chain_gets_instance_prefix_and_parent_clock_name() {
+    let src = format!(
+        "{ASYNC_DOMAINS}module Leaf {{\n    in c : clock @Fast\n    in r : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n\
+         module Top {{\n    in fast_clk : clock @Fast\n    in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         let u = Leaf {{ c: fast_clk, r: ext_rst_n, a: a }}\n    y = u.y\n}}\n"
+    );
+    let r = collect(&src);
+    let top = r.modules.iter().find(|m| m.module == "Top").unwrap();
+    assert_eq!(top.raw_resets, vec!["ext_rst_n"]);
+    let names: Vec<(&str, &str, Option<&str>)> = top
+        .reset_chains
+        .iter()
+        .map(|c| {
+            (
+                c.stages[0].as_str(),
+                c.raw_port.as_str(),
+                c.clock.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("rst_sync_fast_clk_stage0", "ext_rst_n", Some("fast_clk")),
+            ("u/rst_sync_c_stage0", "r", Some("fast_clk")),
+        ]
+    );
 }

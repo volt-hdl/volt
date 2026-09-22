@@ -25,7 +25,7 @@ use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
 use volt_hir::FileScope;
-use volt_sdc_emit::Dialect;
+use volt_sdc_emit::{Dialect, SdcStyle};
 use volt_span::FileId;
 use volt_span::SourceMap;
 use volt_sv_emit::{
@@ -112,6 +112,7 @@ enum Command {
     volt build --emit=sva design.volt
     volt build --sva inline --emit=sva design.volt
     volt build --emit=sdc,xdc design.volt
+    volt build --emit=sdc --sdc-style=clock-groups design.volt
     volt build --emit=c,rust,regmap --check-regmap design.volt
     volt build --format json --target-dir out design.volt")]
     Build {
@@ -137,6 +138,10 @@ enum Command {
         /// Compare the generated drivers with the generated RTL address decode (ADR-0063)
         #[arg(long)]
         check_regmap: bool,
+        /// Constraints between clock domains (--emit=sdc|xdc): targeted (per
+        /// synchronizer; other crossings stay timed) | clock-groups (ADR-0054)
+        #[arg(long, value_enum, default_value_t = SdcStyleArg::Targeted)]
+        sdc_style: SdcStyleArg,
     },
     /// Compare a generated driver (.h, .rs, regmap .json) with the design's register map (ADR-0063)
     #[command(after_help = "EXAMPLES:
@@ -306,6 +311,22 @@ enum SvaArg {
     Inline,
 }
 
+/// `--sdc-style` (ADR-0065 §4.3); varsayılan hedefli kısıtlar.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum SdcStyleArg {
+    Targeted,
+    ClockGroups,
+}
+
+impl SdcStyleArg {
+    fn style(self) -> SdcStyle {
+        match self {
+            SdcStyleArg::Targeted => SdcStyle::Targeted,
+            SdcStyleArg::ClockGroups => SdcStyle::ClockGroups,
+        }
+    }
+}
+
 /// `volt verify --engine` (F4b) — sby'ye geçen SMT çözücüsü.
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum EngineArg {
@@ -360,6 +381,7 @@ fn main() -> ExitCode {
             sva,
             single_file,
             check_regmap,
+            sdc_style,
         } => {
             let mode = if emit.contains(&EmitArg::Sva) {
                 match sva {
@@ -392,7 +414,10 @@ fn main() -> ExitCode {
                     kinds: &sw,
                     check_regmap,
                 },
-                &dialects,
+                &SdcRequest {
+                    dialects: &dialects,
+                    style: sdc_style.style(),
+                },
             )
         }
         Command::Check { file, format } => check(&file, format),
@@ -871,6 +896,13 @@ struct SwRequest<'a> {
     check_regmap: bool,
 }
 
+/// `volt build` kısıt isteği (ADR-0054 `--emit=sdc,xdc`, ADR-0065
+/// `--sdc-style`).
+struct SdcRequest<'a> {
+    dialects: &'a [Dialect],
+    style: SdcStyle,
+}
+
 fn build(
     file: &Path,
     target_dir: &Path,
@@ -878,8 +910,9 @@ fn build(
     sva_mode: SvaMode,
     single_file: bool,
     sw: &SwRequest<'_>,
-    dialects: &[Dialect],
+    sdc: &SdcRequest<'_>,
 ) -> ExitCode {
+    let dialects = sdc.dialects;
     let start = Instant::now();
     if format == OutputFormat::Human {
         eprintln!(
@@ -1041,6 +1074,7 @@ fn build(
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.display().to_string()),
             version: volt_sv_emit::VOLT_VERSION.to_string(),
+            style: sdc.style,
         };
         match write_constraint_outputs(target_dir, &compiled.constraints, dialects, &opts, format) {
             Ok(paths) => artifacts.extend(paths),

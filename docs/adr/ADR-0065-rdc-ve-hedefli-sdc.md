@@ -457,3 +457,76 @@ aşağıdakiler ADR'nin açık bıraktığı ya da ölçümle netleşen noktalar
 | `volt verify` | `initial assume` ve kontrat koruması zincir çıkışına uygulanır. | Ölçüm (sby, `hdlc/formal`): ham portlu sayaç `invariant: c <= 9` prove (k=8) ve bmc (16) geçti. |
 | Kod sayısı | 128 → 130 (§3'teki "120 → 122" o günün sayısını yanlış aktarmıştı). | `explain_tests::CODE_COUNT`. |
 | R5' sınıf A listesi | vga, hybrid_accel ve 9 ui fixture'ı W3010 alır; **soc almaz** (tek saatli). Async reset'li mevcut tek tasarım `tests/ui/pass/19` (W3009). | `build/rdc_golden.py cli`. |
+
+## Aşama 3 uygulama notları (2026-09-22)
+
+Uygulama: `crates/volt-hir/src/constraints/` (model: `CrossingClass`,
+`Crossing`, `ResetChain`, `RESET_SYNC_STAGES`; `walk.rs`: geçiş sınıfları
+ve `reset_chains`), `crates/volt-sdc-emit/` (`SdcStyle`, `crossing_rule`,
+`resets_section`, `domains_note`, `syntax_check` + `set_bus_skew`),
+`crates/volt-driver` (`--sdc-style`), `docs/spec/cli-contract.md §5`,
+`tests/ui/pass/87_sdc_targeted_all_bridges.volt`. §4.2 tablosundan sapma
+yok; aşağıdakiler ADR'nin açık bıraktığı ya da ölçümle netleşen
+noktalardır.
+
+| Nokta | Uygulanan | Gerekçe / ölçüm |
+|---|---|---|
+| "Tek saatli tasarımın çıktısı değişmez" (§4.2) | Kaynak saati OLMAYAN geçişte (alansız giriş portu; `examples/i2c`'de pad girişinin `sync()`'i) `set_false_path` yorumsuz yazılır ve köprü bölüm başlığı yalnız iki+ alanlı modülde değişir. | İlk uygulama her hedefli dosyaya yorum/başlık farkı koyuyordu; golden'da 20 tek alanlı kısıt dosyası değişmişti. Bağlanacak periyot yokken false path zaten doğru kısıttır. Şimdi tek alanlı modülün iki stildeki çıktısı bayt bayt aynı (`targeted_single_clock_output_equals_clock_groups_minus_style_line`). |
+| `T_src` (§4.2) | Geçiş başına kaynak saat: `Crossing.src_clock`. AsyncFifo okuma işaretçisi (`rgray → rgray_s0`) ve HandshakeSync `ack` ters yönlüdür; kaynakları köprünün HEDEF saatidir. | Ölçüm: fixture 87'de `f_wgray` 10.000 (fast), `f_rgray` 40.000 (slow). Yazma işaretçisinin periyodunu okuma tarafına vermek kısıtı 4 kat gevşetirdi. |
+| Komut biçimi | `.sdc`: `set_max_delay -ignore_clock_latency <T> -from ... -to ...`; `.xdc`: `set_max_delay -datapath_only <T> -from ... -to ...` + `set_bus_skew -from ... -to ... <T>` (değer Vivado sözdiziminde sonda). | OpenSTA 3.1.0 (`openroad/opensta`, Docker) fixture 87'nin üretilmiş `.sdc`'sini **hiç Error vermeden** okudu; `report_check_types -recovery -removal` iki `asynchronous` grubu listeledi. |
+| Hücre adı tutarlılığı (§5) | Paylaşılan sabit yerine TEST: `sdc_emit_tests::every_generated_cell_pattern_names_a_register_in_the_generated_sv` üretilen her `get_cells` desenini hiyerarşide çözüp (`<Modül> <örnek> (` satırı) hedef modülün SV'sinde `logic` bildirimi + `<=` ataması olan bir register arar. 8 kaynak × 2 stil = 318 desen; türler: sync, AsyncFifo, HandshakeSync, PulseSync, bellek, reset zinciri. | `volt-sv-emit` `volt-hir`'e bağımlı DEĞİL (ters bağımlılık katman ihlali olurdu); `RESET_SYNC_STAGES` iki yerde yaşar ve mutasyonla korunur (M1: SDC adı, M2: sv-emit adı — ikisi de yakalandı). Negatif denetim: `cell_name_check_rejects_a_misnamed_pattern`. |
+| Ham reset false path'i | Modülün KENDİ ham portları için bir kez (`set_false_path -from [get_ports r]`); alt modül zincirleri aynı portun `-from` kapsamındadır, ayrıca kısıt almaz. Zincir aşamaları yalnız yorumla (XDC'de ek `ASYNC_REG`) listelenir. | §4.4: zincir çıkışı → temizleme pinleri açık kalmalı. `reset_release_paths_are_never_excluded` testi `-to [get_pins`, `-from [get_cells {rst_sync` ve `[get_ports rst_n]` (otomatik port) satırlarının YOKLUĞUNU denetler. |
+| `--sdc-style` yeri | `volt-driver` `build` alt komutunda (`SdcRequest`); görev tanımının Aşama 3 kapsamında yazılı değildi. | Bayrak sürücüde tanımlanır; `volt-sdc-emit` yalnız `SdcStyle`'ı model olarak taşır (saf üretici). |
+| `reset = none` | Zincir üretilmez (hem sv-emit hem SDC). | `child_raw_reset_chain_is_prefixed_and_domain_without_reset_has_none`, `unannotated_raw_reset_feeds_every_domain_with_a_reset`. |
+
+Ölçümler:
+
+- **Golden** (`build/sdc_golden.py`, 788 dosya; temel Aşama 2 sonrası main
+  `f94f5be`): `--sdc-style=clock-groups` çıktısı ADR-0054 ile bayt bayt
+  aynı — tek fark `# Style:` satırı ve ham reset portlu 5 tasarımda
+  "Reset synchronizers" bölümü (10 dosya). Varsayılan hedefli stilde 748
+  dosya bayt bayt aynı, 86 kısıt dosyası değişti; hepsi ya iki+ alanlı ya
+  ham reset portlu. RTL, SVA ve sürücü çıktılarında fark YOK.
+- **Testler**: `cargo test --all` 0 başarısız; `just consistency` 130 kod,
+  2610 test (2577 → 2610, +33: 2471 `#[test]` + 76 pass + 63 fail).
+- **Mutasyon** (`build/sdc_mutate.py`, tek tek, `CARGO_BUILD_JOBS=2`):
+  19/19 yakalandı — zincir adı (SDC ve sv-emit tarafı ayrı), geçiş sınıfı
+  ve yönü (gray/kontrol/veri, rgray ve ack ters yön), varsayılan stil (CLI
+  ve `SdcStyle::default()`), `# Style:` satırı, `-ignore_clock_latency`,
+  `set_bus_skew`, ham reset false path'i, ASYNC_REG lehçesi, iki alan
+  eşiği (başlık ve yorum), `.sdc` kontrol geçişi, `syntax_check` sözlüğü,
+  `reset = none`, anotasyonlu ham port bağlaması. İlk koşuda ikisi
+  (CLI varsayılanı, hedefli köprü başlığı) KAÇTI; ikisi için test eklendi
+  (`default_style_is_targeted_and_multi_domain_bridge_header_says_so`).
+- **OpenSTA**: yukarıdaki satır; ayrıntı ve Aşama 4 devri `build/sdc-sta/`.
+
+Örneklerin eski/yeni çıktısı (ADIM 3.3; `--emit=sdc`, tam fark
+`build/sdc-golden/`):
+
+| Dosya | ESKİ (ADR-0054) | YENİ (hedefli) |
+|---|---|---|
+| `VgaTop.sdc` | `set_clock_groups -asynchronous -group {sys_clk} -group {pix_clk}` | grup yok; açıklayıcı yorum |
+| `VgaTop.sdc` `fb/mem` (RAM verisi) | `set_false_path` | `set_false_path` (değişmedi) |
+| `VgaTop.xdc` `sync_done_r` | `set_false_path -from done_r_reg* -to sync_done_r_stage0_reg*` | `set_max_delay -datapath_only 10.000 ...` |
+| `VgaTop.xdc` `sync_vs_active` | `set_false_path -from [get_clocks pix_clk] ...` | `set_max_delay -datapath_only 39.722 -from [get_clocks pix_clk] ...` |
+| `HybridTop.sdc` gray işaretçiler | iki `set_false_path` | `set_max_delay -ignore_clock_latency 5.000` (rgray, kaynak b_clk) ve `2.500` (wgray, kaynak t_clk) |
+| `HybridTop.xdc` gray işaretçiler | `set_false_path` + `ASYNC_REG` | `set_max_delay -datapath_only` + `set_bus_skew` + `ASYNC_REG` |
+| Her ikisi, alanlar arası başka yol | kapalı (grup) | **zamanlanır** |
+
+Aşama 4'e aktarılan açık noktalar:
+
+1. `fixnames.py` (ADR-0054 §7) yalnız TEK BİTLİK flop'ları
+   `<tel>_reg` yapar; çok bitli register'lar (`fifo_wgray[4:0]`,
+   `acc_r[7:0]`) Yosys'in `_NNN_` adıyla kalır. 4.4'teki "her desen bir
+   hücreye eşleşiyor" kanıtı için son işlemcinin `<tel>_reg[i]` biçimini
+   üretmesi gerekir.
+2. `flatten` hiyerarşik adları `u.x` yapar, SDC `u/x` bekler (ADR-0054'te
+   de not edilmişti): 4.4 ya hiyerarşiyi koruyarak (`link_design` ile
+   çoklu modül) okumalı ya da son işlemci `.` → `/` çevirmeli.
+3. Yosys `opt` özdeş register'ları birleştirir: fixture 87'de üst modülün
+   `go_r`/`sync_go_r_*` zinciri, aynı ifadeyi süren `u.level_r`/
+   `u.sync_level_r_*` ile tek flop'a indi. 4.4 deneyinde register'lar
+   ayırt edilebilir olmalı (farklı ifadeler) ya da `opt` sınırlandırılmalı.
+4. Aşama 2 notu (W3010 → hata yükseltmesi) SDC tarafını değiştirmez:
+   örnekler ham porta taşındığında dosyalara yalnız "Reset synchronizers"
+   bölümü eklenir (golden'da 5 tasarımda ölçüldü).

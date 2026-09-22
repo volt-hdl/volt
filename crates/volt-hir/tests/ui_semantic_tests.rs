@@ -245,8 +245,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0058: 78-80 test dizisi, test for döngüsü, read_hex + load,
     // ADR-0060: 81 test bloğunda sabit yayılımı,
     // ADR-0003: 82 Trit SV eşlemesi,
-    // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron).
-    assert_eq!(checked, 75);
+    // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron),
+    //           87 hedefli SDC (her köprü türü + ham reset + alt modül).
+    assert_eq!(checked, 76);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

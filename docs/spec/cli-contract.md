@@ -133,7 +133,7 @@ build/
 │   ├── counter.sby
 │   └── counter.sva
 ├── constraints/                  ADR-0054 (uygulandı): --emit=sdc,xdc
-│   ├── VgaTop.sdc                modül başına (create_clock, clock_groups, false_path)
+│   ├── VgaTop.sdc                modül başına (create_clock, senkronizör kısıtları; ADR-0065)
 │   └── VgaTop.xdc                Vivado lehçesi (+ ASYNC_REG)
 ├── sw/                           ADR-0053 (uygulandı): --emit=rust,c,regmap
 │                                 (her dosya regmap-hash imzalı, ADR-0063)
@@ -169,6 +169,8 @@ SEÇENEKLER:
                           json-ast | json-hir | none          [V1]
     --check-regmap        Üretilen sürücü ↔ üretilen RTL adres çözümlemesi
                           (uygulandı, ADR-0063; bkz. §6a)
+    --sdc-style=<stil>    targeted (varsayılan) | clock-groups — alanlar
+                          arası kısıtlar (uygulandı, ADR-0065 §4.3)
     --target=<hedef>      generic | fpga-xilinx | fpga-intel |
                           asic-generic | asic-sky130
     --optimize=<seviye>   structure | aggressive
@@ -213,18 +215,31 @@ Kurallar:
   insan biçiminde `Regmap drivers match the RTL address decode (N @mmio
   module(s))`; `@mmio` modülü yoksa `Note: ... --check-regmap checked nothing`.
 
-### Zamanlama kısıtları — `--emit=sdc,xdc` (ADR-0054)
+### Zamanlama kısıtları — `--emit=sdc,xdc` (ADR-0054, ADR-0065)
 
 > ADR-0054 (uygulandı). Saat portu olan her modül için, modül üst modül
 > kabul edilerek `build/constraints/<Modül>.sdc` (Synopsys/Quartus/
 > OpenSTA) ve/veya `.xdc` (Vivado) yazılır; dosya adı ADR-0024 ile aynı
 > (modül adı). Alt modül örnekleri `örnek/` önekiyle düzleştirilir.
+>
+> ADR-0065 (uygulandı): varsayılan `--sdc-style=targeted` saat grubu
+> YAZMAZ; yalnız üretilen senkronizörlerin ilk aşamasına giden yol ve ham
+> reset portunun etkinleşme yolu kısıtlanır. Alanlar arası başka her yol
+> zamanlanır (senkronizörsüz geçiş zamanlama aracında ihlal olarak
+> görünür), reset bırakma yolları recovery/removal olarak analiz edilir.
+> `--sdc-style=clock-groups` ADR-0054 çıktısını üretir ve başlığa
+> `# Style: clock-groups — paths between domains are NOT timed; see ADR-0065`
+> yazar.
 
-| Kaynak | Üretilen satır |
+| Kaynak | Üretilen satır (`targeted`) |
 |---|---|
 | `domain D { frequency = 100.mhz }` + `in clk : clock @D` | `create_clock -name clk -period 10.000 [get_ports clk]` |
-| iki+ farklı alan | `set_clock_groups -asynchronous -group [get_clocks {a}] -group [get_clocks {b}]` |
-| `sync()` / `sync3()` / `AsyncFifo` / `HandshakeSync` / `PulseSync` / `AsyncDualPortRam` | geçiş başına `set_false_path -from ... -to [get_cells {..._reg*}]`; XDC'de ek `set_property ASYNC_REG TRUE` |
+| iki+ farklı alan | `set_clock_groups` YOK; açıklayıcı yorum (`clock-groups` stilinde `set_clock_groups -asynchronous -group [get_clocks {a}] -group [get_clocks {b}]`) |
+| `sync()` / `sync3()`, `HandshakeSync` req/ack, `PulseSync` toggle | `.sdc`: `set_false_path -from ... -to [get_cells {<ilk aşama>_reg*}]`; `.xdc`: `set_max_delay -datapath_only <T_kaynak> -from ... -to ...` |
+| `AsyncFifo` gray işaretçiler | `.sdc`: `set_max_delay -ignore_clock_latency <T_kaynak>`; `.xdc`: `set_max_delay -datapath_only <T_kaynak>` + `set_bus_skew <T_kaynak>` |
+| `AsyncFifo` / `AsyncDualPortRam` belleği, `HandshakeSync` verisi | `set_false_path` (iki lehçe) |
+| ham reset portu `in r : reset(...)` | `set_false_path -from [get_ports r]`; zincir `rst_sync_<saat>_stage<i>` yorumla listelenir |
+| XDC, her senkronizör ve reset zinciri | `set_property ASYNC_REG TRUE [get_cells {..._reg*}]` |
 | `@timing(clk = F)` / `@timing(clk >= F)` | alan frekansı yoksa `create_clock` kaynağı; varsa tutarlılık denetimi (E0017) |
 | `@timing(max_delay(a, b) <= 5.ns)` / `min_delay(a, b) >= 1.ns` | `set_max_delay 5.000 -from ... -to ...` / `set_min_delay` |
 | `@false_path(from = a, to = b)` (modül, port, `reg`) | `set_false_path -from ... -to ...` |
@@ -236,7 +251,14 @@ Kurallar:
   `# DO NOT EDIT` / `# Module: <Modül>`; çıktı deterministiktir.
 - Frekansı bildirilmemiş alan **W0022** (alan başına bir kez, yalnız
   `--emit=sdc,xdc` istendiğinde) — `create_clock` üretilmez, yorum satırı
-  yazılır; o saat `set_clock_groups`'a girmez.
+  yazılır; o saat `set_clock_groups`'a girmez. `T_kaynak` geçişin kaynak
+  saatinin periyodudur (AsyncFifo okuma işaretçisi ve HandshakeSync ack
+  için hedef saat); kaynak saatin frekansı yoksa `set_false_path` yazılır
+  ve bir yorum satırı nedenini söyler; kaynak saat yoksa (alansız giriş
+  portu) `set_false_path` doğru kısıttır.
+- Otomatik reset portu (`rst`/`rst_n`) hiçbir kısıt almaz; zincir çıkışından
+  register temizleme pinlerine giden yollar hiçbir stilde kapatılmaz.
+- Tek alanlı modülün çıktısı iki stilde aynıdır (yalnız `# Style:` satırı).
 - Desteklenmeyen nitelik biçimi ya da alan frekansıyla çelişki **E0017**
   (her zaman, `volt check` dâhil); hata varsa kısıt dosyası yazılmaz.
 - Yollar JSON `artifacts` listesine RTL ve SVA'dan sonra girer; saat
