@@ -1,4 +1,6 @@
 /target
+# Legacy Linux (Docker) cargo output; Docker recipes now use target/linux
+/target-linux
 /build
 /fuzz/target
 /fuzz/corpus
@@ -23,3 +25,4 @@ obj_dir/
 obj_*/
 *.mk
 *.d
+*.vcd

@@ -80,7 +80,7 @@ image (the cargo caches live in named volumes):
 ```
 docker run --rm --entrypoint bash -v "$PWD:/work" \
     -v volt-cargo:/usr/local/cargo -v volt-rustup:/usr/local/rustup \
-    -v volt-target:/work/target-linux -e CARGO_TARGET_DIR=/work/target-linux \
+    -v volt-target:/work/target/linux -e CARGO_TARGET_DIR=/work/target/linux \
     -e RUSTUP_HOME=/usr/local/rustup -e CARGO_HOME=/usr/local/cargo \
     verilator/verilator -c 'export PATH=/usr/local/cargo/bin:$PATH; cd /work && cargo run -q -p volt-driver -- test examples/soc/top_test.volt'
 ```
