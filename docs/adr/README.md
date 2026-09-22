@@ -65,6 +65,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0047](ADR-0047-extern-domain-anotasyonu.md) | Extern modül sınırında domain anotasyonu — sembolik saat alanları | K | 2026-09-14 |
 | [0049](ADR-0049-domain-aware-bellek.md) | Domain-aware bellek — `AsyncDualPortRam<T, DEPTH>` | K | 2026-09-14 |
 | [0052](ADR-0052-guven-seviyeleri.md) | Güven seviyeleri — `trust_level`, bilgi akışı denetimi (E3009) ve `declassify` | K | 2026-09-15 |
+| [0065](ADR-0065-rdc-ve-hedefli-sdc.md) | RDC denetimi ve hedefli SDC — ham `reset` portu + üretilen bırakma senkronizörü, E3003 etkin (R5/R6), W3xxx-A/B, `set_clock_groups` yerine hedefli kısıtlar, `--sdc-style` | K (tasarım; uygulama Aşama 2–4) | 2026-09-22 |
 
 ## Kod üretimi
 
@@ -76,7 +77,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0024](ADR-0024-sv-cikti-adlandirma.md) | SV çıktı dosyası adlandırması — DECLFILENAME çakışması | K | 2026-09-03 |
 | [0026](ADR-0026-uretilen-kod-dili.md) | Üretilen kodun dili — her zaman İngilizce | K | 2026-09-08 |
 | [0053](ADR-0053-hw-sw-koprusu.md) | HW-SW köprüsü — `@mmio` haritasından sürücü, başlık, `regmap.json` ve belge üretimi | K | 2026-09-15 |
-| [0054](ADR-0054-sdc-uretimi.md) | SDC/XDC üretimi — `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden | K (ADR-0048 Bölüm 2'yi gerçekler) | 2026-09-16 |
+| [0054](ADR-0054-sdc-uretimi.md) | SDC/XDC üretimi — `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden | K (ADR-0048 Bölüm 2'yi gerçekler; §2/§6 ADR-0065 ile güncellendi) | 2026-09-16 |
 | [0057](ADR-0057-sv-operator-onceligi.md) | SV üretiminde operatör önceliği — parantez kararı IEEE 1800 tablosuyla (sessiz yanlış derleme düzeltmesi) | K | 2026-09-20 |
 
 ## Araç zinciri
