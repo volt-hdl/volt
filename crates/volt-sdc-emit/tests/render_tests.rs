@@ -1,18 +1,31 @@
-//! SDC / XDC metin üretimi testleri (ADR-0054): satır biçimleri, lehçe
-//! farkı (`ASYNC_REG`), determinizm ve `syntax_check` kapısı.
+//! SDC / XDC metin üretimi testleri (ADR-0054, ADR-0065): satır
+//! biçimleri, lehçe farkı (`ASYNC_REG`, `-datapath_only`,
+//! `set_bus_skew`), iki stil (`targeted` / `clock-groups`), ham reset
+//! senkronizörleri, determinizm ve `syntax_check` kapısı.
 
 use volt_hir::collect_constraints;
-use volt_sdc_emit::{syntax_check, Dialect, EmitOpts};
+use volt_sdc_emit::{syntax_check, Dialect, EmitOpts, SdcStyle};
 use volt_syntax::{parse, FileId};
 
-fn opts() -> EmitOpts {
+fn opts(style: SdcStyle) -> EmitOpts {
     EmitOpts {
         source: "t.volt".into(),
         version: "0.1.0".into(),
+        style,
     }
 }
 
+/// Varsayılan (hedefli) stil.
 fn render(src: &str, module: &str, dialect: Dialect) -> String {
+    render_style(src, module, dialect, SdcStyle::Targeted)
+}
+
+/// ADR-0054 stili (`--sdc-style=clock-groups`).
+fn render_groups(src: &str, module: &str, dialect: Dialect) -> String {
+    render_style(src, module, dialect, SdcStyle::ClockGroups)
+}
+
+fn render_style(src: &str, module: &str, dialect: Dialect, style: SdcStyle) -> String {
     let parsed = parse(FileId(0), src);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
     let r = collect_constraints(&parsed.ast);
@@ -22,7 +35,7 @@ fn render(src: &str, module: &str, dialect: Dialect) -> String {
         .iter()
         .find(|m| m.module == module)
         .unwrap_or_else(|| panic!("modül {module} yok"));
-    dialect.render(mc, &opts())
+    dialect.render(mc, &opts(style))
 }
 
 const MULTI: &str = "domain Fast { clock = posedge, frequency = 100.mhz }\n\
@@ -62,7 +75,7 @@ fn create_clock_period_100mhz_is_10_000_and_25_175khz_is_39_722() {
 
 #[test]
 fn clock_groups_asynchronous_between_domains() {
-    let s = render(MULTI, "M", Dialect::Sdc);
+    let s = render_groups(MULTI, "M", Dialect::Sdc);
     let expected = "set_clock_groups -asynchronous \\\n    -group [get_clocks {fast_clk}] \\\n    -group [get_clocks {slow_clk}]\n";
     assert!(s.contains(expected), "{s}");
 }
@@ -81,7 +94,7 @@ fn sync_bridge_gets_false_path_into_stage0() {
 
 #[test]
 fn xdc_adds_async_reg_property_on_synchronizer_chain() {
-    let s = render(MULTI, "M", Dialect::Xdc);
+    let s = render_groups(MULTI, "M", Dialect::Xdc);
     assert!(
         s.contains(
             "set_property ASYNC_REG TRUE [get_cells {sync_r_stage0_reg* sync_r_stage1_reg*}]"
@@ -92,9 +105,9 @@ fn xdc_adds_async_reg_property_on_synchronizer_chain() {
 }
 
 #[test]
-fn xdc_and_sdc_differ_only_in_header_and_async_reg() {
-    let sdc = render(MULTI, "M", Dialect::Sdc);
-    let xdc = render(MULTI, "M", Dialect::Xdc);
+fn clock_groups_xdc_and_sdc_differ_only_in_header_and_async_reg() {
+    let sdc = render_groups(MULTI, "M", Dialect::Sdc);
+    let xdc = render_groups(MULTI, "M", Dialect::Xdc);
     let strip = |s: &str| {
         s.lines()
             .filter(|l| !l.starts_with("# Dialect:") && !l.starts_with("set_property ASYNC_REG"))
@@ -191,12 +204,34 @@ fn output_path_is_constraints_module_extension() {
 
 #[test]
 fn generated_text_passes_syntax_check_in_both_dialects() {
-    let sdc = render(MULTI, "M", Dialect::Sdc);
+    let sdc = render_groups(MULTI, "M", Dialect::Sdc);
     let n = syntax_check(&sdc).unwrap_or_else(|e| panic!("{e}\n{sdc}"));
     // 2 create_clock + 1 clock_groups + 1 false_path + 1 max_delay + 2 multicycle
     assert_eq!(n, 7);
-    let xdc = render(MULTI, "M", Dialect::Xdc);
+    let xdc = render_groups(MULTI, "M", Dialect::Xdc);
     assert_eq!(syntax_check(&xdc).unwrap(), 8);
+}
+
+#[test]
+fn targeted_text_passes_syntax_check_in_both_dialects() {
+    let sdc = render(MULTI, "M", Dialect::Sdc);
+    // 2 create_clock + 1 false_path (sync) + 1 max_delay + 2 multicycle; grup yok
+    assert_eq!(
+        syntax_check(&sdc).unwrap_or_else(|e| panic!("{e}\n{sdc}")),
+        6
+    );
+    let xdc = render(MULTI, "M", Dialect::Xdc);
+    // sync() → set_max_delay -datapath_only + ASYNC_REG
+    assert_eq!(
+        syntax_check(&xdc).unwrap_or_else(|e| panic!("{e}\n{xdc}")),
+        7
+    );
+    for (name, text) in [
+        ("sdc", render(ALL, "Top", Dialect::Sdc)),
+        ("xdc", render(ALL, "Top", Dialect::Xdc)),
+    ] {
+        syntax_check(&text).unwrap_or_else(|e| panic!("{name}: {e}\n{text}"));
+    }
 }
 
 #[test]
@@ -222,4 +257,297 @@ fn syntax_check_rejects_unknown_command_unbalanced_and_bad_number() {
     assert!(syntax_check("set_clock_groups -asynchronous \\\n")
         .unwrap_err()
         .contains("unterminated"));
+}
+
+#[test]
+fn syntax_check_knows_set_bus_skew_and_requires_its_endpoints() {
+    assert_eq!(
+        syntax_check("set_bus_skew -from [get_cells {a_reg*}] -to [get_cells {b_reg*}] 10.000\n"),
+        Ok(1)
+    );
+    assert!(syntax_check("set_bus_skew 10.000\n")
+        .unwrap_err()
+        .contains("-from and/or -to"));
+}
+
+// ═══ Hedefli stil (ADR-0065 §4) ═══════════════════════════════════
+
+/// Her köprü türü + ham reset + alt modül: Fast 100 MHz, Slow 25 MHz.
+const ALL: &str = "domain Fast { clock = posedge, reset = async active_low, frequency = 100.mhz }\n\
+                   domain Slow { clock = posedge, reset = async active_low, frequency = 25.mhz }\n\
+                   module Sub {\n    in f : clock @Fast\n    in s : clock @Slow\n    in a : bool @Fast\n    out y : bool @Slow\n    \
+                   reg r : bool = false\n    on f { r <= a }\n    y = sync(r, s)\n}\n\
+                   module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    \
+                   in ext_rst_n : reset(async, active_low)\n    in x : bool @Fast\n    in d : u8 @Fast\n    \
+                   in pop : bool @Slow\n    out y : bool @Slow\n    out q : u8 @Slow\n    out h : u8 @Slow\n    out p : bool @Slow\n    \
+                   reg go : bool = false\n    on fast_clk { go <= x }\n    y = sync(go, slow_clk)\n    \
+                   let f = AsyncFifo<u8, 16> { wr_clk: fast_clk, wr_data: d, wr_en: x, rd_clk: slow_clk, rd_en: pop }\n    q = f.rd_data\n    \
+                   let hs = HandshakeSync<u8> { src_clk: fast_clk, data_in: d, send: x, dst_clk: slow_clk }\n    h = hs.data_out\n    \
+                   let ps = PulseSync { src_clk: fast_clk, pulse_in: x, dst_clk: slow_clk }\n    p = ps.pulse_out\n    \
+                   let u = Sub { f: fast_clk, s: slow_clk, a: x }\n}\n";
+
+#[test]
+fn targeted_has_no_clock_groups_and_says_why() {
+    for d in [Dialect::Sdc, Dialect::Xdc] {
+        let s = render(MULTI, "M", d);
+        assert!(!s.contains("set_clock_groups -asynchronous"), "{s}");
+        assert!(
+            s.contains("# ── Clock domains (no set_clock_groups; ADR-0065) ──"),
+            "{s}"
+        );
+        assert!(
+            s.contains("# synchronizer is reported by the timing tool, not hidden."),
+            "{s}"
+        );
+        assert!(
+            !s.contains("# Style:"),
+            "hedefli stil başlığa satır eklemez: {s}"
+        );
+    }
+}
+
+#[test]
+fn default_style_is_targeted_and_multi_domain_bridge_header_says_so() {
+    assert_eq!(SdcStyle::default(), SdcStyle::Targeted);
+    assert_eq!(SdcStyle::Targeted.flag(), "targeted");
+    assert_eq!(SdcStyle::ClockGroups.flag(), "clock-groups");
+    let s = render(MULTI, "M", Dialect::Sdc);
+    assert!(
+        s.contains("# ── CDC bridges (generated synchronizers; only the path into the first stage is constrained) ──"),
+        "{s}"
+    );
+    assert!(
+        render_groups(MULTI, "M", Dialect::Sdc).contains(
+            "# ── CDC bridges (generated synchronizers; paths into them are not timed) ──"
+        ),
+        "clock-groups başlığı ADR-0054 metnini korur"
+    );
+}
+
+#[test]
+fn targeted_sdc_sync_is_false_path_into_first_stage_only() {
+    let s = render(MULTI, "M", Dialect::Sdc);
+    assert!(
+        s.contains(
+            "set_false_path -from [get_cells {r_reg*}] -to [get_cells {sync_r_stage0_reg*}]"
+        ),
+        "{s}"
+    );
+    assert!(
+        !s.contains("stage1_reg*}]\n"),
+        "ikinci aşamaya kısıt yok: {s}"
+    );
+    assert!(
+        !s.contains("-datapath_only"),
+        "genel .sdc'de -datapath_only yok (OpenSTA Error 563): {s}"
+    );
+}
+
+#[test]
+fn targeted_xdc_sync_is_max_delay_datapath_only_source_period() {
+    let s = render(MULTI, "M", Dialect::Xdc);
+    assert!(
+        s.contains("set_max_delay -datapath_only 10.000 -from [get_cells {r_reg*}] -to [get_cells {sync_r_stage0_reg*}]"),
+        "kaynak fast_clk 100 MHz → 10 ns: {s}"
+    );
+    assert!(
+        s.contains(
+            "set_property ASYNC_REG TRUE [get_cells {sync_r_stage0_reg* sync_r_stage1_reg*}]"
+        ),
+        "{s}"
+    );
+    assert!(
+        !s.contains("set_false_path -from [get_cells {r_reg*}]"),
+        "{s}"
+    );
+}
+
+#[test]
+fn targeted_sdc_fifo_gray_pointers_use_ignore_clock_latency_with_their_own_source_clock() {
+    let s = render(ALL, "Top", Dialect::Sdc);
+    assert!(
+        s.contains("set_max_delay -ignore_clock_latency 10.000 -from [get_cells {f_wgray_reg*}] -to [get_cells {f_wgray_s0_reg*}]"),
+        "yazma işaretçisi: kaynak fast_clk 10 ns: {s}"
+    );
+    assert!(
+        s.contains("set_max_delay -ignore_clock_latency 40.000 -from [get_cells {f_rgray_reg*}] -to [get_cells {f_rgray_s0_reg*}]"),
+        "okuma işaretçisi: kaynak slow_clk 40 ns: {s}"
+    );
+    assert!(
+        !s.contains("set_bus_skew"),
+        "OpenSTA'da set_bus_skew yok: {s}"
+    );
+}
+
+#[test]
+fn targeted_xdc_fifo_gray_pointers_get_datapath_only_and_bus_skew() {
+    let s = render(ALL, "Top", Dialect::Xdc);
+    assert!(
+        s.contains("set_max_delay -datapath_only 10.000 -from [get_cells {f_wgray_reg*}] -to [get_cells {f_wgray_s0_reg*}]\nset_bus_skew -from [get_cells {f_wgray_reg*}] -to [get_cells {f_wgray_s0_reg*}] 10.000\n"),
+        "{s}"
+    );
+    assert!(
+        s.contains("set_bus_skew -from [get_cells {f_rgray_reg*}] -to [get_cells {f_rgray_s0_reg*}] 40.000"),
+        "{s}"
+    );
+}
+
+#[test]
+fn targeted_qualified_data_is_false_path_in_both_dialects() {
+    for d in [Dialect::Sdc, Dialect::Xdc] {
+        let s = render(ALL, "Top", d);
+        assert!(
+            s.contains(
+                "set_false_path -from [get_cells {f_mem_reg*}] -to [get_cells {f_rd_data_reg*}]"
+            ),
+            "{s}"
+        );
+        assert!(
+            s.contains("set_false_path -from [get_cells {hs_data_q_reg*}] -to [get_cells {hs_data_out_reg*}]"),
+            "{s}"
+        );
+    }
+}
+
+#[test]
+fn targeted_xdc_handshake_ack_is_bounded_by_the_destination_clock() {
+    let s = render(ALL, "Top", Dialect::Xdc);
+    assert!(
+        s.contains("set_max_delay -datapath_only 10.000 -from [get_cells {hs_req_reg*}] -to [get_cells {hs_req_s0_reg*}]"),
+        "{s}"
+    );
+    assert!(
+        s.contains("set_max_delay -datapath_only 40.000 -from [get_cells {hs_ack_reg*}] -to [get_cells {hs_ack_s0_reg*}]"),
+        "ack dst→src: kaynak slow_clk: {s}"
+    );
+    assert!(
+        s.contains("set_max_delay -datapath_only 10.000 -from [get_cells {ps_toggle_reg*}] -to [get_cells {ps_sync0_reg*}]"),
+        "{s}"
+    );
+}
+
+#[test]
+fn targeted_xdc_source_without_frequency_falls_back_to_false_path_with_a_comment() {
+    let src = "domain Fast { clock = posedge }\ndomain Slow { clock = posedge, frequency = 50.mhz }\n\
+               module M {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in a : bool @Fast\n    out y : bool @Slow\n    \
+               reg r : bool = false\n    on fast_clk { r <= a }\n    y = sync(r, slow_clk)\n}\n";
+    let s = render(src, "M", Dialect::Xdc);
+    assert!(
+        s.contains("# source clock 'fast_clk' has no frequency (W0022) -- set_false_path instead of set_max_delay\nset_false_path -from [get_cells {r_reg*}] -to [get_cells {sync_r_stage0_reg*}]"),
+        "{s}"
+    );
+}
+
+#[test]
+fn targeted_single_clock_output_equals_clock_groups_minus_style_line() {
+    let src = "domain D { clock = posedge, frequency = 50.mhz }\nmodule M {\n    in clk : clock @D\n    in pad : bool\n    out y : bool @D\n    y = sync(pad, clk)\n}\n";
+    for d in [Dialect::Sdc, Dialect::Xdc] {
+        let t = render(src, "M", d);
+        let g = render_groups(src, "M", d);
+        let g_wo: String = g
+            .lines()
+            .filter(|l| !l.starts_with("# Style:"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(t, g_wo, "tek alanlı modülde iki stil aynı kısıtı üretir");
+        assert!(
+            t.contains(
+                "set_false_path -from [get_ports pad] -to [get_cells {sync_pad_stage0_reg*}]"
+            ),
+            "asenkron pad girişi: kaynak saat yok, false path: {t}"
+        );
+    }
+}
+
+#[test]
+fn clock_groups_style_marks_the_header() {
+    let s = render_groups(MULTI, "M", Dialect::Sdc);
+    let head: Vec<&str> = s.lines().take(7).collect();
+    assert_eq!(
+        head[6],
+        "# Style: clock-groups — paths between domains are NOT timed; see ADR-0065"
+    );
+    assert!(!s.contains("Clock domains (no set_clock_groups"), "{s}");
+    assert!(!render_groups(ALL, "Top", Dialect::Xdc).contains("-datapath_only"));
+}
+
+#[test]
+fn raw_reset_port_gets_false_path_from_the_port_in_both_styles() {
+    for d in [Dialect::Sdc, Dialect::Xdc] {
+        for s in [render(ALL, "Top", d), render_groups(ALL, "Top", d)] {
+            assert!(
+                s.contains("# ── Reset synchronizers (raw reset ports; ADR-0065) ──"),
+                "{s}"
+            );
+            assert!(
+                s.contains("set_false_path -from [get_ports ext_rst_n]\n"),
+                "{s}"
+            );
+            assert!(
+                s.contains("# rst_sync_fast_clk: ext_rst_n -> fast_clk (2 stages)"),
+                "{s}"
+            );
+            assert!(
+                s.contains("# rst_sync_slow_clk: ext_rst_n -> slow_clk (2 stages)"),
+                "{s}"
+            );
+        }
+    }
+}
+
+#[test]
+fn raw_reset_chain_gets_async_reg_in_xdc_only() {
+    let x = render(ALL, "Top", Dialect::Xdc);
+    assert!(
+        x.contains("set_property ASYNC_REG TRUE [get_cells {rst_sync_fast_clk_stage0_reg* rst_sync_fast_clk_stage1_reg*}]"),
+        "{x}"
+    );
+    assert!(
+        x.contains("set_property ASYNC_REG TRUE [get_cells {rst_sync_slow_clk_stage0_reg* rst_sync_slow_clk_stage1_reg*}]"),
+        "{x}"
+    );
+    assert!(!render(ALL, "Top", Dialect::Sdc).contains("ASYNC_REG"));
+}
+
+#[test]
+fn reset_release_paths_are_never_excluded() {
+    // ADR-0065 §4.4: zincir çıkışı → temizleme pinleri recovery/removal
+    // için açık kalır; otomatik reset portu da false path almaz.
+    for d in [Dialect::Sdc, Dialect::Xdc] {
+        let s = render(ALL, "Top", d);
+        assert!(!s.contains("-to [get_pins"), "{s}");
+        assert!(!s.contains("rst_sync_fast_clk_stage1_reg*}] -to"), "{s}");
+        assert!(!s.contains("-from [get_cells {rst_sync"), "{s}");
+        assert!(!s.contains("[get_ports rst_n]"), "{s}");
+        let sub = render(ALL, "Sub", d);
+        assert!(
+            !sub.contains("Reset synchronizers"),
+            "otomatik portlu modül: {sub}"
+        );
+        assert!(!sub.contains("[get_ports rst_n]"), "{sub}");
+    }
+}
+
+#[test]
+fn child_raw_reset_chain_is_prefixed_and_domain_without_reset_has_none() {
+    let src = "domain A { clock = posedge, reset = async active_low, frequency = 100.mhz }\n\
+               domain N { clock = posedge, reset = none, frequency = 50.mhz }\n\
+               module Leaf {\n    in clk : clock @A\n    in nclk : clock @N\n    in r : reset(async, active_low)\n    in a : bool @A\n    out y : bool @A\n    \
+               reg q : bool = false\n    on clk { q <= a }\n    y = q\n}\n\
+               module Top {\n    in clk : clock @A\n    in nclk : clock @N\n    in r : reset(async, active_low)\n    in a : bool @A\n    out y : bool @A\n    \
+               let u = Leaf { clk: clk, nclk: nclk, r: r, a: a }\n    y = u.y\n}\n";
+    let x = render(src, "Top", Dialect::Xdc);
+    assert!(
+        x.contains("# u/rst_sync_clk: r -> clk (2 stages)\nset_property ASYNC_REG TRUE [get_cells {u/rst_sync_clk_stage0_reg* u/rst_sync_clk_stage1_reg*}]"),
+        "{x}"
+    );
+    assert!(
+        !x.contains("rst_sync_nclk"),
+        "reset = none alanı zincir almaz: {x}"
+    );
+    assert_eq!(
+        x.matches("set_false_path -from [get_ports r]").count(),
+        1,
+        "{x}"
+    );
 }

@@ -31,8 +31,8 @@ pub use attrs::{check_attributes, UnenforcedLint, UNENFORCED_ATTRIBUTES};
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
 pub use consteval::{ConstEvaluator, ConstValue, MAX_ARRAY_LEN, MAX_WIDTH};
 pub use constraints::{
-    check_constraints, collect_constraints, Bridge, ClockConstraint, ConstraintResult,
-    ModuleConstraints, PathKind, PathRule, Target,
+    check_constraints, collect_constraints, Bridge, ClockConstraint, ConstraintResult, Crossing,
+    CrossingClass, ModuleConstraints, PathKind, PathRule, ResetChain, Target,
 };
 pub use domain::{
     check_rdc, infer_domains, without_raw_reset_unused, DomainId, DomainInfo, DomainResult,

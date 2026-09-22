@@ -1,9 +1,10 @@
-// SDC generation, two clock domains (ADR-0054). Everything in
+// SDC generation, two clock domains (ADR-0054, ADR-0065). Everything in
 // build/constraints/Bridge.sdc comes from information the compiler
-// already has: two create_clock lines from the domain frequencies, a
-// `set_clock_groups -asynchronous` between the two domains, and a
-// `set_false_path` into every generated synchronizer (the sync() below
-// and the PulseSync). A multicycle path on the accumulator is declared
+// already has: two create_clock lines from the domain frequencies and a
+// constraint on the path into every generated synchronizer's first stage
+// (the sync() below and the PulseSync). No set_clock_groups: any other
+// path between the domains stays timed (--sdc-style=clock-groups gives
+// the ADR-0054 output). A multicycle path on the accumulator is declared
 // on the register itself: paths ending at `acc_r` get two cycles.
 domain Fast {
     clock = posedge,

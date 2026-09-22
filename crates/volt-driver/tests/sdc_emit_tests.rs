@@ -1,6 +1,8 @@
-//! `volt build --emit=sdc,xdc` (ADR-0054): kısıt dosyalarının yeri,
-//! içeriği (create_clock periyodu, set_clock_groups, sync() false path),
-//! W0022'nin yalnız istek üzerine verilmesi, E0017 ve JSON artifacts.
+//! `volt build --emit=sdc,xdc` (ADR-0054, ADR-0065): kısıt dosyalarının
+//! yeri, içeriği (create_clock periyodu, hedefli senkronizör kısıtları,
+//! `--sdc-style=clock-groups`), W0022'nin yalnız istek üzerine verilmesi,
+//! E0017, JSON artifacts ve üretilen her hücre deseninin üretilen SV'deki
+//! bir register'a eşleşmesi (hücre adı tutarlılığı, ADR-0065 §5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,11 +27,21 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 fn build(tag: &str, source: &Path, kinds: &str) -> (PathBuf, std::process::Output) {
+    build_with(tag, source, kinds, &[])
+}
+
+fn build_with(
+    tag: &str,
+    source: &Path,
+    kinds: &str,
+    extra: &[&str],
+) -> (PathBuf, std::process::Output) {
     let target = temp_dir(tag);
     let output = volt()
         .args(["build", "--target-dir"])
         .arg(&target)
         .arg(format!("--emit={kinds}"))
+        .args(extra)
         .arg(source)
         .env_remove("VOLT_LANG")
         .output()
@@ -69,7 +81,12 @@ fn single_clock_sdc_has_create_clock_with_period_20_000() {
 
 #[test]
 fn multi_clock_sdc_has_two_clocks_groups_and_bridge_false_paths() {
-    let (target, out) = build("multi", &ui("pass/74_sdc_multi_clock.volt"), "sdc,xdc");
+    let (target, out) = build_with(
+        "multi",
+        &ui("pass/74_sdc_multi_clock.volt"),
+        "sdc,xdc",
+        &["--sdc-style=clock-groups"],
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
     let sdc = read(&target.join("constraints/Bridge.sdc"));
@@ -121,18 +138,360 @@ fn multi_clock_sdc_has_two_clocks_groups_and_bridge_false_paths() {
 
 #[test]
 fn generated_files_pass_syntax_check() {
-    let (target, out) = build("syntax", &ui("pass/74_sdc_multi_clock.volt"), "sdc,xdc");
+    for style in ["targeted", "clock-groups"] {
+        let (target, out) = build_with(
+            &format!("syntax-{style}"),
+            &ui("pass/87_sdc_targeted_all_bridges.volt"),
+            "sdc,xdc",
+            &[&format!("--sdc-style={style}")],
+        );
+        assert_eq!(out.status.code(), Some(0));
+        for name in ["AllBridges.sdc", "AllBridges.xdc", "Relay.sdc", "Relay.xdc"] {
+            let text = read(&target.join("constraints").join(name));
+            volt_sdc_emit::syntax_check(&text)
+                .unwrap_or_else(|e| panic!("{style} {name}: {e}\n{text}"));
+        }
+        let _ = std::fs::remove_dir_all(&target);
+    }
+}
+
+#[test]
+fn default_style_is_targeted_without_clock_groups() {
+    let (target, out) = build("targeted", &ui("pass/74_sdc_multi_clock.volt"), "sdc,xdc");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    let sdc = read(&target.join("constraints/Bridge.sdc"));
+    assert!(!sdc.contains("set_clock_groups -asynchronous"), "{sdc}");
+    assert!(!sdc.contains("# Style:"), "{sdc}");
+    assert!(
+        sdc.contains(
+            "set_false_path -from [get_cells {go_r_reg*}] -to [get_cells {sync_go_r_stage0_reg*}]"
+        ),
+        "{sdc}"
+    );
+    let xdc = read(&target.join("constraints/Bridge.xdc"));
+    assert!(
+        xdc.contains("set_max_delay -datapath_only 10.000 -from [get_cells {go_r_reg*}] -to [get_cells {sync_go_r_stage0_reg*}]"),
+        "{xdc}"
+    );
+    assert!(
+        xdc.contains("set_max_delay -datapath_only 10.000 -from [get_cells {ps_toggle_reg*}] -to [get_cells {ps_sync0_reg*}]"),
+        "{xdc}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn clock_groups_style_keeps_adr0054_output_and_marks_it() {
+    let (target, out) = build_with(
+        "groups",
+        &ui("pass/74_sdc_multi_clock.volt"),
+        "sdc",
+        &["--sdc-style=clock-groups"],
+    );
     assert_eq!(out.status.code(), Some(0));
-    for name in ["Bridge.sdc", "Bridge.xdc"] {
-        let text = read(&target.join("constraints").join(name));
-        volt_sdc_emit::syntax_check(&text).unwrap_or_else(|e| panic!("{name}: {e}\n{text}"));
+    let sdc = read(&target.join("constraints/Bridge.sdc"));
+    assert!(
+        sdc.contains("# Style: clock-groups — paths between domains are NOT timed; see ADR-0065\n"),
+        "{sdc}"
+    );
+    assert!(sdc.contains("set_clock_groups -asynchronous"), "{sdc}");
+    assert!(!sdc.contains("set_max_delay -"), "{sdc}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn unknown_sdc_style_is_a_usage_error() {
+    let (target, out) = build_with(
+        "badstyle",
+        &ui("pass/74_sdc_multi_clock.volt"),
+        "sdc",
+        &["--sdc-style=quartus"],
+    );
+    assert_eq!(out.status.code(), Some(2), "clap kullanım hatası");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("targeted") && stderr.contains("clock-groups"),
+        "{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn raw_reset_design_gets_port_false_path_and_chain_async_reg() {
+    let (target, out) = build(
+        "rawrst",
+        &ui("pass/85_rdc_raw_reset_hierarchy.volt"),
+        "sdc,xdc",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let sdc = read(&target.join("constraints/Top.sdc"));
+    assert!(
+        sdc.contains("set_false_path -from [get_ports rst_n]\n"),
+        "{sdc}"
+    );
+    assert!(
+        sdc.contains("# rst_sync_clk: rst_n -> clk (2 stages)"),
+        "{sdc}"
+    );
+    let xdc = read(&target.join("constraints/Top.xdc"));
+    assert!(
+        xdc.contains("set_property ASYNC_REG TRUE [get_cells {rst_sync_clk_stage0_reg* rst_sync_clk_stage1_reg*}]"),
+        "{xdc}"
+    );
+    // Çocuk otomatik portlu: kendi dosyasında reset kısıtı yok.
+    let child = read(&target.join("constraints/Child.sdc"));
+    assert!(!child.contains("Reset synchronizers"), "{child}");
+    assert!(!child.contains("get_ports rst_n"), "{child}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+// ═══ Hücre adı tutarlılığı (ADR-0065 §5) ══════════════════════════
+
+/// SV modül gövdesi: `module <Ad>` ile `endmodule` arası.
+fn sv_module(rtl: &Path, module: &str) -> String {
+    read(&rtl.join(format!("{module}.sv")))
+}
+
+/// `<Modül> [#(...)] <örnek> (` satırından örneğin modül adı.
+fn instance_module(sv: &str, inst: &str) -> Option<String> {
+    sv.lines().find_map(|l| {
+        let t = l.trim();
+        let rest = t.strip_suffix('(')?.trim_end();
+        let (head, name) = rest.rsplit_once(' ')?;
+        if name != inst {
+            return None;
+        }
+        let module = head.split_whitespace().next()?;
+        module
+            .chars()
+            .next()
+            .filter(|c| c.is_ascii_uppercase())
+            .map(|_| module.to_string())
+    })
+}
+
+/// `logic ... ad;` / `logic ... ad [N];` bildirimi VE `ad <=` ya da
+/// `ad[...] <=` ataması: register.
+fn declares_register(sv: &str, name: &str) -> bool {
+    let declared = sv.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("logic")
+            && t.trim_end_matches(';')
+                .split_whitespace()
+                .any(|tok| tok == name)
+    });
+    let assigned = sv.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with(&format!("{name} <="))
+            || t.starts_with(&format!("{name}[")) && t.contains("<=")
+    });
+    declared && assigned
+}
+
+/// `[get_cells {a_reg* u/b_reg*}]` içindeki desenler.
+fn cell_patterns(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("[get_cells {") {
+        let after = &rest[i + "[get_cells {".len()..];
+        let end = after.find('}').expect("kapanmamış get_cells");
+        out.extend(after[..end].split_whitespace().map(str::to_string));
+        rest = &after[end..];
+    }
+    out
+}
+
+/// Bir desenin (`u/sync_a_stage0_reg*`) üst modülden başlayarak
+/// hiyerarşide çözülüp son modülde register olduğu.
+fn pattern_matches_register(rtl: &Path, top: &str, pattern: &str) -> Result<(), String> {
+    let path = pattern
+        .strip_suffix("_reg*")
+        .ok_or_else(|| format!("'{pattern}' _reg* ile bitmiyor"))?;
+    let mut module = top.to_string();
+    let mut segs: Vec<&str> = path.split('/').collect();
+    let reg = segs.pop().unwrap();
+    for inst in segs {
+        let sv = sv_module(rtl, &module);
+        module = instance_module(&sv, inst)
+            .ok_or_else(|| format!("'{module}' içinde '{inst}' örneği yok"))?;
+    }
+    if declares_register(&sv_module(rtl, &module), reg) {
+        Ok(())
+    } else {
+        Err(format!("'{module}.sv' içinde '{reg}' register'ı yok"))
+    }
+}
+
+#[test]
+fn every_generated_cell_pattern_names_a_register_in_the_generated_sv() {
+    let sources = [
+        ui("pass/87_sdc_targeted_all_bridges.volt"),
+        ui("pass/74_sdc_multi_clock.volt"),
+        ui("pass/83_rdc_raw_reset_two_clocks.volt"),
+        ui("pass/84_rdc_raw_reset_per_domain.volt"),
+        ui("pass/85_rdc_raw_reset_hierarchy.volt"),
+        ui("pass/86_rdc_raw_reset_sync_domains.volt"),
+        root().join("examples/vga/vga_top.volt"),
+        root().join("examples/hybrid_accel/hybrid_top.volt"),
+    ];
+    let mut checked = 0;
+    let mut kinds: Vec<&str> = Vec::new();
+    let mut failures = Vec::new();
+    for (i, src) in sources.iter().enumerate() {
+        for style in ["targeted", "clock-groups"] {
+            let (target, out) = build_with(
+                &format!("names-{i}-{style}"),
+                src,
+                "sdc,xdc",
+                &[&format!("--sdc-style={style}")],
+            );
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{}: {}",
+                src.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let rtl = target.join("rtl");
+            for entry in std::fs::read_dir(target.join("constraints")).unwrap() {
+                let file = entry.unwrap().path();
+                let top = file.file_stem().unwrap().to_string_lossy().into_owned();
+                let text = read(&file);
+                for pat in cell_patterns(&text) {
+                    checked += 1;
+                    for (needle, kind) in [
+                        ("rst_sync_", "reset chain"),
+                        ("sync_", "sync"),
+                        ("gray", "AsyncFifo"),
+                        ("req", "HandshakeSync"),
+                        ("toggle", "PulseSync"),
+                        ("mem_reg", "memory"),
+                    ] {
+                        if pat.contains(needle) && !kinds.contains(&kind) {
+                            kinds.push(kind);
+                        }
+                    }
+                    if let Err(e) = pattern_matches_register(&rtl, &top, &pat) {
+                        failures.push(format!(
+                            "{} {style} {}: {pat}: {e}",
+                            src.display(),
+                            file.display()
+                        ));
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir_all(&target);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "eşleşmeyen desenler:\n{}",
+        failures.join("\n")
+    );
+    kinds.sort_unstable();
+    assert_eq!(
+        kinds,
+        vec![
+            "AsyncFifo",
+            "HandshakeSync",
+            "PulseSync",
+            "memory",
+            "reset chain",
+            "sync"
+        ],
+        "her senkronizör türü ve reset zinciri denetlendi"
+    );
+    assert!(checked > 200, "denetlenen desen: {checked}");
+}
+
+#[test]
+fn cell_name_check_rejects_a_misnamed_pattern() {
+    // Testin kendisi için negatif: sv-emit'in üretmediği bir ad yakalanır.
+    let (target, out) = build(
+        "names-neg",
+        &ui("pass/87_sdc_targeted_all_bridges.volt"),
+        "sdc",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let rtl = target.join("rtl");
+    assert!(pattern_matches_register(&rtl, "AllBridges", "rst_sync_fast_clk_stage1_reg*").is_ok());
+    assert!(pattern_matches_register(&rtl, "AllBridges", "u/sync_level_r_stage0_reg*").is_ok());
+    for bad in [
+        "rst_sync_fast_clk_stage2_reg*",
+        "rst_sync_fast_stage0_reg*",
+        "fifo_wgray_sync0_reg*",
+        "v/sync_level_r_stage0_reg*",
+        "u_seen_reg*",
+    ] {
+        assert!(
+            pattern_matches_register(&rtl, "AllBridges", bad).is_err(),
+            "{bad} yanlışlıkla eşleşti"
+        );
     }
     let _ = std::fs::remove_dir_all(&target);
 }
 
 #[test]
+fn vga_example_targeted_constraints() {
+    let (target, out) = build(
+        "vga-t",
+        &root().join("examples/vga/vga_top.volt"),
+        "sdc,xdc",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let top = read(&target.join("constraints/VgaTop.sdc"));
+    assert!(!top.contains("set_clock_groups -asynchronous"), "{top}");
+    assert!(top.contains("set_false_path -from [get_cells {fb/mem_mem_reg*}] -to [get_cells {fb/mem_rd_data_reg*}]"), "{top}");
+    assert!(top.contains("set_false_path -from [get_clocks pix_clk] -to [get_cells {sync_vs_active_stage0_reg*}]"), "{top}");
+    let xdc = read(&target.join("constraints/VgaTop.xdc"));
+    // vs_active pix_clk (39.722 ns) alanından gelir; done_r sys_clk (10 ns).
+    assert!(xdc.contains("set_max_delay -datapath_only 39.722 -from [get_clocks pix_clk] -to [get_cells {sync_vs_active_stage0_reg*}]"), "{xdc}");
+    assert!(xdc.contains("set_max_delay -datapath_only 10.000 -from [get_cells {done_r_reg*}] -to [get_cells {sync_done_r_stage0_reg*}]"), "{xdc}");
+    // Bellek verisi nitelenmiş: iki lehçede de false path.
+    assert!(xdc.contains("set_false_path -from [get_cells {fb/mem_mem_reg*}] -to [get_cells {fb/mem_rd_data_reg*}]"), "{xdc}");
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn hybrid_accel_example_targeted_fifo_constraints() {
+    let (target, out) = build(
+        "hybrid-t",
+        &root().join("examples/hybrid_accel/hybrid_top.volt"),
+        "sdc,xdc",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let sdc = read(&target.join("constraints/HybridTop.sdc"));
+    assert!(!sdc.contains("set_clock_groups -asynchronous"), "{sdc}");
+    assert!(sdc.contains("set_max_delay -ignore_clock_latency"), "{sdc}");
+    assert!(
+        sdc.contains("-to [get_cells {fifo_wgray_s0_reg*}]"),
+        "{sdc}"
+    );
+    let xdc = read(&target.join("constraints/HybridTop.xdc"));
+    assert!(
+        xdc.contains(
+            "set_bus_skew -from [get_cells {fifo_wgray_reg*}] -to [get_cells {fifo_wgray_s0_reg*}]"
+        ),
+        "{xdc}"
+    );
+    assert!(
+        xdc.contains(
+            "set_bus_skew -from [get_cells {fifo_rgray_reg*}] -to [get_cells {fifo_rgray_s0_reg*}]"
+        ),
+        "{xdc}"
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
 fn vga_example_two_clocks_groups_and_cdc_false_paths() {
-    let (target, out) = build("vga", &root().join("examples/vga/vga_top.volt"), "sdc");
+    let (target, out) = build_with(
+        "vga",
+        &root().join("examples/vga/vga_top.volt"),
+        "sdc",
+        &["--sdc-style=clock-groups"],
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
     let top = read(&target.join("constraints/VgaTop.sdc"));

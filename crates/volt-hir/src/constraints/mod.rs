@@ -97,6 +97,48 @@ pub struct PathRule {
     pub to: Option<Target>,
     /// Kaynak açıklaması — üretilen dosyada yorum satırı.
     pub comment: String,
+    /// Köprü geçişi ise sınıfı ve kaynak saati (ADR-0065 §4.2); kullanıcı
+    /// niteliklerinde `None`. `kind` ADR-0054 anlamını (false path)
+    /// taşır; hedefli stil komutu bu sınıftan seçer.
+    pub crossing: Option<Crossing>,
+}
+
+/// Bir köprü geçişinin sınıfı (ADR-0065 §4.2) — hedefli SDC'de komutu
+/// belirler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrossingClass {
+    /// Tek bitlik senkronizör girişi: `sync()`/`sync3()`, req/ack, toggle.
+    Control,
+    /// Gray kodlu çok bitlik işaretçi (AsyncFifo) — bitler arası çarpıklık önemli.
+    Gray,
+    /// İşaretçi ya da el sıkışmayla nitelenmiş veri (bellek, handshake verisi).
+    Data,
+}
+
+/// Köprü geçişi: sınıf ve geçişin KAYNAK saati (üst modül adı). AsyncFifo
+/// okuma işaretçisi gibi ters yönlü geçişlerde köprünün `from_clock`'undan
+/// farklıdır.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Crossing {
+    pub class: CrossingClass,
+    pub src_clock: Option<String>,
+}
+
+/// Ham reset portu bırakma senkronizörünün aşama sayısı — sv-emit
+/// `reset_sync::RESET_SYNC_STAGES` ile aynı (ADR-0065 §2); tutarlılığı
+/// volt-driver `sdc_emit_tests` hücre adı testi denetler.
+pub const RESET_SYNC_STAGES: usize = 2;
+
+/// Ham reset portu bırakma senkronizörü (ADR-0065 §2): sv-emit
+/// `rst_sync_<saat>_stage<i>` zinciri.
+#[derive(Debug, Clone)]
+pub struct ResetChain {
+    /// Zinciri besleyen ham reset portu (zincirin modülündeki ad).
+    pub raw_port: String,
+    /// Zincirin saati (üst modül adı); eşlenemezse `None`.
+    pub clock: Option<String>,
+    /// Aşama register'ları (hiyerarşik ad, `_reg` eksiz), sırayla.
+    pub stages: Vec<String>,
 }
 
 /// Üretilen bir CDC köprüsü (sync(), AsyncFifo, ...): kuralları ve
@@ -127,6 +169,10 @@ pub struct ModuleConstraints {
     /// Kullanıcı nitelikleri (`@timing(max_delay)`, `@false_path`,
     /// `@multicycle`) — kaynak sırasında.
     pub paths: Vec<PathRule>,
+    /// Modülün ham reset portları (`in r : reset(...)`), kaynak sırasında.
+    pub raw_resets: Vec<String>,
+    /// Ham reset senkronizörleri — modülün kendi ve alt örneklerinin.
+    pub reset_chains: Vec<ResetChain>,
 }
 
 impl ModuleConstraints {

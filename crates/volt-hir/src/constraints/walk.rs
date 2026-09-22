@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
     Attribute, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, ExprKind, Idx,
-    InstanceDecl, ItemKind, MatchArmBody, ModuleDecl, PortDir, SourceFile, Stmt, StmtKind,
-    TypeRefKind,
+    InstanceDecl, ItemKind, MatchArmBody, ModuleDecl, Port, PortDir, ResetSync, SourceFile, Stmt,
+    StmtKind, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
@@ -19,15 +19,20 @@ use super::parse::{
     parse_false_path, parse_multicycle, parse_timing, unsupported, PathKind, TimingForm,
 };
 use super::{
-    Bridge, ClockConstraint, ConstraintResult, FreqSource, ModuleConstraints, PathRule, Target,
+    Bridge, ClockConstraint, ConstraintResult, Crossing, CrossingClass, FreqSource,
+    ModuleConstraints, PathRule, ResetChain, Target, RESET_SYNC_STAGES,
 };
 
-/// Yerleşik CDC bileşeninin geçiş tablosu: (tür adı, (kaynak, hedef)
-/// register çiftleri, senkronizatör register'ları, kaynak saat portu,
-/// hedef saat portu).
+/// Yerleşik CDC bileşeninin bir geçişi: kaynak ve hedef register,
+/// sınıf (ADR-0065 §4.2) ve yön (`true`: hedef saatten kaynak saate —
+/// AsyncFifo okuma işaretçisi, HandshakeSync ack).
+type PrimCrossing = (&'static str, &'static str, CrossingClass, bool);
+
+/// Yerleşik CDC bileşeninin geçiş tablosu: (tür adı, geçişler,
+/// senkronizatör register'ları, kaynak saat portu, hedef saat portu).
 type PrimSpec = (
     &'static str,
-    &'static [(&'static str, &'static str)],
+    &'static [PrimCrossing],
     &'static [&'static str],
     &'static str,
     &'static str,
@@ -41,9 +46,11 @@ const ATTR_TIMING: &str = "timing";
 const ATTR_FALSE_PATH: &str = "false_path";
 const ATTR_MULTICYCLE: &str = "multicycle";
 
-/// Domain bildiriminden okunan frekans (`None`: anahtar yok).
+/// Domain bildiriminden okunan frekans (`None`: anahtar yok) ve reset
+/// varlığı (`reset = none` → `false`).
 struct DomainDecl {
     freq_hz: Option<u64>,
+    has_reset: bool,
     span: Span,
 }
 
@@ -272,6 +279,14 @@ impl<'a> Collector<'a> {
                 continue;
             };
             let mut freq_hz = None;
+            let has_reset = !d.fields.iter().any(|f| {
+                f.key == DomainKey::Reset
+                    && match &f.value {
+                        DomainValue::ClockEdge(ClockEdge::None) => true,
+                        DomainValue::Reset(spec) => spec.sync == ResetSync::None,
+                        _ => false,
+                    }
+            });
             for field in &d.fields {
                 if field.key != DomainKey::Frequency {
                     continue;
@@ -293,6 +308,7 @@ impl<'a> Collector<'a> {
                 d.name.text.as_str(),
                 DomainDecl {
                     freq_hz,
+                    has_reset,
                     span: d.name.span,
                 },
             );
@@ -333,6 +349,7 @@ impl<'a> Collector<'a> {
 
         let mut paths = Vec::new();
         let mut bridges = Vec::new();
+        let mut reset_chains = Vec::new();
         let ctx = Ctx {
             prefix: String::new(),
             clock_map: None,
@@ -346,6 +363,7 @@ impl<'a> Collector<'a> {
             &clocks,
             &mut bridges,
             &mut paths,
+            &mut reset_chains,
             &mut Vec::new(),
         );
 
@@ -361,12 +379,20 @@ impl<'a> Collector<'a> {
             });
             groups[idx].push(c.port.clone());
         }
+        let raw_resets = m
+            .ports
+            .iter()
+            .filter(|p| is_raw_reset(self.ast, p))
+            .map(|p| p.name.text.clone())
+            .collect();
         Some(ModuleConstraints {
             module: m.name.text.clone(),
             clocks,
             groups,
             bridges,
             paths,
+            raw_resets,
+            reset_chains,
         })
     }
 
@@ -718,6 +744,7 @@ impl<'a> Collector<'a> {
                 from.unwrap_or("*"),
                 to.unwrap_or("*")
             ),
+            crossing: None,
         });
     }
 
@@ -767,8 +794,10 @@ impl<'a> Collector<'a> {
         clocks: &[ClockConstraint],
         bridges: &mut Vec<Bridge>,
         paths: &mut Vec<PathRule>,
+        chains: &mut Vec<ResetChain>,
         visiting: &mut Vec<&'a str>,
     ) {
+        chains.extend(self.reset_chains(m, scope, ctx));
         for &stmt_idx in &m.body {
             match &self.ast.stmts[stmt_idx].kind {
                 StmtKind::Assign(a) => {
@@ -789,7 +818,7 @@ impl<'a> Collector<'a> {
                         }
                     } else {
                         self.user_instance(
-                            inst, target, scope, ctx, clocks, bridges, paths, visiting,
+                            inst, target, scope, ctx, clocks, bridges, paths, chains, visiting,
                         );
                     }
                 }
@@ -858,6 +887,10 @@ impl<'a> Collector<'a> {
                     "{kind}(): {src} -> {} ({stages} stages)",
                     to_clock.as_deref().unwrap_or(dst_clk)
                 ),
+                crossing: Some(Crossing {
+                    class: CrossingClass::Control,
+                    src_clock: from_clock.clone(),
+                }),
             }],
             async_regs: (0..stages).map(|i| format!("{base}_stage{i}")).collect(),
         })
@@ -875,9 +908,9 @@ impl<'a> Collector<'a> {
             BuiltinPrim::AsyncFifo => (
                 "AsyncFifo",
                 &[
-                    ("rgray", "rgray_s0"),
-                    ("wgray", "wgray_s0"),
-                    ("mem", "rd_data"),
+                    ("rgray", "rgray_s0", CrossingClass::Gray, true),
+                    ("wgray", "wgray_s0", CrossingClass::Gray, false),
+                    ("mem", "rd_data", CrossingClass::Data, false),
                 ],
                 &["rgray_s0", "rgray_s1", "wgray_s0", "wgray_s1"],
                 "wr_clk",
@@ -885,21 +918,25 @@ impl<'a> Collector<'a> {
             ),
             BuiltinPrim::HandshakeSync => (
                 "HandshakeSync",
-                &[("req", "req_s0"), ("ack", "ack_s0"), ("data_q", "data_out")],
+                &[
+                    ("req", "req_s0", CrossingClass::Control, false),
+                    ("ack", "ack_s0", CrossingClass::Control, true),
+                    ("data_q", "data_out", CrossingClass::Data, false),
+                ],
                 &["req_s0", "req_s1", "ack_s0", "ack_s1"],
                 "src_clk",
                 "dst_clk",
             ),
             BuiltinPrim::PulseSync => (
                 "PulseSync",
-                &[("toggle", "sync0")],
+                &[("toggle", "sync0", CrossingClass::Control, false)],
                 &["sync0", "sync1", "sync2"],
                 "src_clk",
                 "dst_clk",
             ),
             BuiltinPrim::AsyncDualPortRam => (
                 "AsyncDualPortRam",
-                &[("mem", "rd_data")],
+                &[("mem", "rd_data", CrossingClass::Data, false)],
                 &[],
                 "wr_clk",
                 "rd_clk",
@@ -924,11 +961,19 @@ impl<'a> Collector<'a> {
         );
         let rules = crossings
             .iter()
-            .map(|(from, to)| PathRule {
+            .map(|&(from, to, class, reverse)| PathRule {
                 kind: PathKind::FalsePath,
                 from: Some(Target::Cells(format!("{name}_{from}"))),
                 to: Some(Target::Cells(format!("{name}_{to}"))),
                 comment: format!("{kind} '{}': {from} -> {to} ({arrow})", inst.name.text),
+                crossing: Some(Crossing {
+                    class,
+                    src_clock: if reverse {
+                        to_clock.clone()
+                    } else {
+                        from_clock.clone()
+                    },
+                }),
             })
             .collect();
         Some(Bridge {
@@ -953,6 +998,7 @@ impl<'a> Collector<'a> {
         clocks: &[ClockConstraint],
         bridges: &mut Vec<Bridge>,
         paths: &mut Vec<PathRule>,
+        chains: &mut Vec<ResetChain>,
         visiting: &mut Vec<&'a str>,
     ) {
         if ctx.depth >= MAX_DEPTH || visiting.contains(&target) {
@@ -990,8 +1036,58 @@ impl<'a> Collector<'a> {
         let mut sub_clocks: Vec<ClockConstraint> = clocks.to_vec();
         visiting.push(target_static(sub));
         self.module_attrs(sub, sub_attrs, &sub_scope, &sub_ctx, &mut sub_clocks, paths);
-        self.body(sub, &sub_scope, &sub_ctx, clocks, bridges, paths, visiting);
+        self.body(
+            sub, &sub_scope, &sub_ctx, clocks, bridges, paths, chains, visiting,
+        );
         visiting.pop();
+    }
+
+    /// Modülün ham reset senkronizörleri (ADR-0065 §1-§2) — sv-emit
+    /// `reset_sync::feeding_raw` ile aynı bağlama kuralı: tek anotasyonsuz
+    /// ham port reset'li bütün alanları besler; aksi hâlde `@D` anotasyonu
+    /// saat portunun alanıyla eşleşen. `reset = none` alanı zincir almaz.
+    fn reset_chains(&self, m: &'a ModuleDecl, scope: &Scope<'a>, ctx: &Ctx) -> Vec<ResetChain> {
+        let raws: Vec<&Port> = m
+            .ports
+            .iter()
+            .filter(|p| is_raw_reset(self.ast, p))
+            .collect();
+        if raws.is_empty() {
+            return Vec::new();
+        }
+        let mut chains = Vec::new();
+        for clk in scope.clock_ports() {
+            let domain = clk.domain.as_ref().map(|d| d.text.as_str());
+            let has_reset = domain
+                .and_then(|d| self.domains.get(d))
+                .is_none_or(|d| d.has_reset);
+            if !has_reset {
+                continue;
+            }
+            let raw = match raws.as_slice() {
+                [only] if only.domain.is_none() => Some(*only),
+                raws => raws
+                    .iter()
+                    .find(|r| {
+                        r.domain
+                            .as_ref()
+                            .is_some_and(|d| Some(d.text.as_str()) == domain)
+                    })
+                    .copied(),
+            };
+            let Some(raw) = raw else {
+                continue;
+            };
+            let local = clk.name.text.as_str();
+            chains.push(ResetChain {
+                raw_port: raw.name.text.clone(),
+                clock: ctx.map_clock(local),
+                stages: (0..RESET_SYNC_STAGES)
+                    .map(|i| format!("{}rst_sync_{local}_stage{i}", ctx.prefix))
+                    .collect(),
+            });
+        }
+        chains
     }
 
     fn module_named(&self, name: &str) -> Option<(&'a ModuleDecl, &'a [Attribute])> {
@@ -1003,6 +1099,12 @@ impl<'a> Collector<'a> {
             }
         })
     }
+}
+
+/// Ham reset portu: giriş yönlü `reset` tipli port (sv-emit
+/// `reset_sync::is_raw_reset`).
+fn is_raw_reset(ast: &SourceFile, port: &Port) -> bool {
+    port.direction == PortDir::In && matches!(ast.types[port.ty].kind, TypeRefKind::Reset(_))
 }
 
 /// Modül adının `'a` ömürlü dilimi (ziyaret yığını için).
