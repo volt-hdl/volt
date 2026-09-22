@@ -2142,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 76, "ui/pass 76 dosya içermeli");
+    assert_eq!(total, 77, "ui/pass 77 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2171,10 +2171,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0060 ise 81'i (test bloğunda sabit yayılımı),
     // ADR-0003 ise 82'yi (Trit SV eşlemesi),
     // ADR-0065 ise 83-86'yı (ham reset portu, bırakma senkronizörü) ve
-    // 87'yi (hedefli SDC) ekledi.
+    // 87'yi (hedefli SDC), R5' inceltmesi 88'i (reset'siz RAM yazma saati)
+    // ekledi.
     assert_eq!(
-        clean, 76,
-        "76/76 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 77,
+        "77/77 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

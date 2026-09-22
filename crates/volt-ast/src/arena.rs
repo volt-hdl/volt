@@ -56,6 +56,12 @@ impl<T> Arena<T> {
             _marker: PhantomData,
         }
     }
+
+    /// Bütün düğümler, ayırma sırasıyla (ADR-0065: sv-emit'in dosya
+    /// genelinde `sync(_, clk)` araması).
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.items.iter()
+    }
 }
 
 impl<T> std::ops::Index<Idx<T>> for Arena<T> {

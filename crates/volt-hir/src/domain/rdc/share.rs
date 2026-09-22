@@ -114,10 +114,9 @@ impl Rdc<'_> {
         diag = diag.with_note(
             NoteKind::Reason,
             lstr!(en: "every flip-flop samples a synchronous reset like data; the release edge of \
-                       one clock is asynchronous to the other (ADR-0065 R5'; a warning until the \
-                       examples are migrated)";
+                       one clock is asynchronous to the other (ADR-0065 R5')";
                   tr: "her flip-flop senkron reset'i veri gibi örnekler; bir saatin bırakma kenarı \
-                       diğerine asenkrondur (ADR-0065 R5'; örnekler taşınana kadar uyarı)"),
+                       diğerine asenkrondur (ADR-0065 R5')"),
         );
         self.diagnostics.push(diag);
     }

@@ -193,15 +193,72 @@ fn child_raw_port_is_connected_from_the_binding() {
 
 #[test]
 fn builtin_async_fifo_sides_reset_from_the_chains() {
-    let src = ASYNC_FIFO.replace(
-        "    in  din      : u8    @Fast",
-        "    in  rst      : reset(sync, active_high)\n    in  din      : u8    @Fast",
-    );
-    let out = sv(&src);
+    // Fixture 27 ham `rst` portuyla (ADR-0065 R5' taşıması).
+    let out = sv(ASYNC_FIFO);
     assert!(out.contains("if (rst_sync_fast_clk_stage1) begin"), "{out}");
     assert!(out.contains("if (rst_sync_slow_clk_stage1) begin"), "{out}");
     let ports = port_block(&out, "FifoBridge");
     assert_eq!(ports.matches("rst").count(), 1, "{ports}");
+}
+
+/// VGA deseni (ADR-0065 R5'): çocuğun `sys_clk`'i yalnız
+/// `AsyncDualPortRam` yazma tarafına gider (reset'siz bellek); tek `rst`
+/// portunu okuma register'ı (`pix_clk`) örnekler. Ebeveynin
+/// `sync(_, sys_clk)`'i (VgaTop `frame_tick`) çocuğu etkilemez. `EXTRA`
+/// çocuk gövdesine.
+const RAM_CHILD: &str = "domain Sys { clock = posedge }\ndomain Pix { clock = posedge }\n\
+    module Sub { in clk : clock out q : u8 reg r : u8 = 0 on clk { r <= r + 1 } q = r }\n\
+    module Fb { in sys_clk : clock @Sys in pix_clk : clock @Pix in wa : bits<4> @Sys \
+    in wd : bool @Sys in ra : bits<4> @Pix out rd : bool @Pix \
+    let m = AsyncDualPortRam<bool, 16> { wr_clk: sys_clk, wr_addr: wa, wr_data: wd, \
+    wr_en: true, rd_clk: pix_clk, rd_addr: ra } rd = m.rd_data EXTRA }\n\
+    module Top { in sys_clk : clock @Sys in pix_clk : clock @Pix \
+    in rst : reset(sync, active_high) in wa : bits<4> @Sys in ra : bits<4> @Pix \
+    in flag : bool @Pix out rd : bool @Pix out tick : bool @Sys let fb = Fb { sys_clk: sys_clk, \
+    pix_clk: pix_clk, wa: wa, wd: true, ra: ra } rd = fb.rd tick = sync(flag, sys_clk) }";
+
+/// `fb` örneğinin `.rst` bağlantısının değeri.
+fn fb_reset(extra: &str) -> String {
+    let out = sv(&RAM_CHILD.replace("EXTRA", extra));
+    let inst = &out[out.find("    Fb fb (").expect("örnek")..];
+    let line = inst
+        .lines()
+        .find(|l| l.trim_start().starts_with(".rst "))
+        .expect(".rst bağlantısı");
+    line[line.find('(').unwrap() + 1..line.rfind(')').unwrap()].to_string()
+}
+
+#[test]
+fn child_reset_comes_from_the_chain_of_the_clock_that_samples_it() {
+    assert_eq!(fb_reset(""), "rst_sync_pix_clk_stage1");
+}
+
+#[test]
+fn child_write_clock_with_flops_or_a_sync_samples_the_reset_too() {
+    // Tutucu kural: kendi register'ı, `sync(_, sys_clk)` ya da kullanıcı
+    // örneği bağlaması varsa sys de örnekler; ilk aday kalır (HIR bu
+    // durumda W3010 verir).
+    for extra in [
+        "reg(sys_clk) r : bool = false",
+        "reg r : bool = false on sys_clk { r <= wd }",
+        "wire s : bool s = sync(rd, sys_clk)",
+        "let g = Sub { clk: sys_clk }",
+    ] {
+        assert_eq!(fb_reset(extra), "rst_sync_sys_clk_stage1", "{extra}");
+    }
+}
+
+#[test]
+fn child_whose_only_clock_resets_nothing_still_gets_the_parent_chain() {
+    // PriorityArbiter kombinasyoneldir: aday kalmaz, bütün saatlere dönülür
+    // (otomatik `rst` ebeveynde yok — E2005'e düşmemeli).
+    let src = "module Arb { in clk : clock in req : bits<4> out g : bits<4> \
+               let a = PriorityArbiter<4> { clk: clk, req: req } g = a.grant }\n\
+               module Top { in clk : clock in rst : reset(sync, active_high) in req : bits<4> \
+               out g : bits<4> out q : u8 reg r : u8 = 0 on clk { r <= r + 1 } q = r \
+               let u = Arb { clk: clk, req: req } g = u.g }";
+    let out = sv(src);
+    assert!(out.contains(".rst(rst_sync_clk_stage1),"), "{out}");
 }
 
 const CONTRACT: &str = "domain D { clock = posedge, reset = async active_low }\n\

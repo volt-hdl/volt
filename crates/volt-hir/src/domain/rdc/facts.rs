@@ -5,8 +5,8 @@
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    ClockEdge, DomainKey, DomainValue, ItemKind, ModuleDecl, Port, ResetPolarity, ResetSpec,
-    ResetSync, SourceFile, TypeRefKind,
+    builtin::BuiltinPrim, ClockEdge, DomainKey, DomainValue, InstanceDecl, ItemKind, ModuleDecl,
+    Port, ResetPolarity, ResetSpec, ResetSync, SourceFile, StmtKind, TypeRefKind,
 };
 use volt_span::Span;
 
@@ -45,8 +45,11 @@ pub(super) struct ClockFact<'a> {
     pub(super) reset: Option<ResetSpec>,
     /// `reset = ...` alanı; yazılmamışsa alan adı (örtük alanda port adı).
     pub(super) reset_span: Span,
-    /// Saat modülde bir yerde kullanılıyor (flop'u olmayan saat reset
-    /// örneklemez — R5 yalnız kullanılan saatleri sayar).
+    /// Saat modülde reset'li flop sürebilecek bir yerde kullanılıyor
+    /// (flop'u olmayan saat reset örneklemez — R5 yalnız kullanılan
+    /// saatleri sayar). Reset'siz yerleşik saat bağlaması
+    /// (`AsyncDualPortRam.wr_clk`) ve extern örneği bağlaması kullanım
+    /// sayılmaz.
     pub(super) used: bool,
 }
 
@@ -61,7 +64,6 @@ pub(super) struct RawFact<'a> {
 
 impl<'a> UnitFacts<'a> {
     pub(super) fn collect(ast: &'a SourceFile, res: &ResolveResult, dom: &DomainResult) -> Self {
-        let used: HashSet<DefId> = res.use_spans.values().copied().collect();
         let instantiated: HashSet<DefId> = res.instance_module.values().copied().collect();
         let mut modules = Vec::new();
         let mut by_def = HashMap::new();
@@ -75,7 +77,7 @@ impl<'a> UnitFacts<'a> {
             by_def.insert(def, modules.len());
             modules.push(ModuleFacts {
                 decl: m,
-                clocks: clock_facts(ast, res, dom, m, &used),
+                clocks: clock_facts(ast, res, dom, m),
                 raws: raw_facts(ast, res, m),
                 is_root: !instantiated.contains(&def),
             });
@@ -93,8 +95,8 @@ fn clock_facts<'a>(
     res: &ResolveResult,
     dom: &DomainResult,
     m: &'a ModuleDecl,
-    used: &HashSet<DefId>,
 ) -> Vec<ClockFact<'a>> {
+    let reset_free = reset_free_bindings(ast, res, m);
     let mut out = Vec::new();
     for port in &m.ports {
         if !matches!(ast.types[port.ty].kind, TypeRefKind::Clock) {
@@ -121,7 +123,10 @@ fn clock_facts<'a>(
             decl,
             reset,
             reset_span,
-            used: used.contains(&def),
+            used: res
+                .use_spans
+                .iter()
+                .any(|(s, d)| *d == def && !reset_free.iter().any(|b| contains(b, s))),
         });
     }
     out
@@ -171,6 +176,58 @@ fn raw_facts<'a>(ast: &SourceFile, res: &ResolveResult, m: &'a ModuleDecl) -> Ve
             })
         })
         .collect()
+}
+
+/// Modülün reset'ini hiçbir flop'a taşımayan örnek bağlamalarının
+/// konumları (`wr_clk: sys_clk` bütünü; ADR-0065 R5'): reset'siz yerleşik
+/// saat portu (`BuiltinPrim::clock_resets_flops`) ve extern örneğinin her
+/// bağlaması (extern'in reset portu yok, ADR-0065 durum tespiti). Bu
+/// bağlamalardaki saat kullanımı saati reset örnekleyen yapmaz.
+pub(super) fn reset_free_bindings(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    m: &ModuleDecl,
+) -> Vec<Span> {
+    let mut out = Vec::new();
+    for &s in &m.body {
+        let StmtKind::Instance(inst) = &ast.stmts[s].kind else {
+            continue;
+        };
+        let prim = match inst.module_path.segments.as_slice() {
+            [seg] => BuiltinPrim::from_name(&seg.text),
+            _ => None,
+        };
+        match prim {
+            Some(prim) => out.extend(
+                inst.bindings
+                    .iter()
+                    .filter(|b| !prim.clock_resets_flops(&b.port_name.text))
+                    .map(|b| b.span),
+            ),
+            None if is_extern_instance(ast, res, inst) => {
+                out.extend(inst.bindings.iter().map(|b| b.span));
+            }
+            None => {}
+        }
+    }
+    out
+}
+
+/// Örneğin hedefi bir `extern module` mü (ADR-0047).
+fn is_extern_instance(ast: &SourceFile, res: &ResolveResult, inst: &InstanceDecl) -> bool {
+    res.decl_spans
+        .get(&inst.name.span)
+        .and_then(|d| res.instance_module.get(d))
+        .and_then(|t| res.item_of_def.get(t))
+        .is_some_and(|&i| matches!(ast.items_arena[i].kind, ItemKind::Extern(_)))
+}
+
+/// `inner` konumu `outer`'ın içinde mi (aynı dosya ve açılım bağlamı).
+pub(super) fn contains(outer: &Span, inner: &Span) -> bool {
+    outer.file == inner.file
+        && outer.ctx == inner.ctx
+        && outer.start <= inner.start
+        && inner.end <= outer.end
 }
 
 /// Otomatik reset portunun adı (sv-mapping.md §7): polariteye göre.

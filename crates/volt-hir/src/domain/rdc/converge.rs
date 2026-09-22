@@ -12,7 +12,7 @@ use volt_ast::{InstanceDecl, PortBinding, SourceFile, StmtKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use super::facts::{feeds_of, ModuleFacts};
+use super::facts::{contains, feeds_of, reset_free_bindings, ModuleFacts};
 use super::Rdc;
 use crate::resolve::DefId;
 
@@ -107,23 +107,21 @@ impl<'a> Rdc<'a> {
     }
 
     /// Modülün kendi zinciri bir şeyi sıfırlıyor mu: saat, kullanıcı
-    /// örneği bağlaması dışında da kullanılıyor (flop, `sync()`, yerleşik
-    /// primitif) ya da bir çocuğun OTOMATİK reset'li saatine bağlı (zincir
+    /// örneği bağlaması ve reset taşımayan bağlama
+    /// (`AsyncDualPortRam.wr_clk`, extern örneği) dışında da kullanılıyor (flop, `sync()`,
+    /// yerleşik primitif) ya da bir çocuğun OTOMATİK reset'li saatine bağlı (zincir
     /// çıkışı o porta gider). Yalnız ham port geçiren ara seviyenin
     /// zinciri ölü mantıktır, yakınsama sayılmaz.
     fn chain_used(&self, module: &ModuleFacts, clock: DefId) -> bool {
         let facts = self.facts;
         let insts = instances(facts.ast, module);
-        let user_bindings: Vec<Span> = insts
+        let mut skipped: Vec<Span> = insts
             .iter()
             .filter(|i| self.target_of(i).is_some())
             .flat_map(|i| i.bindings.iter().map(|b| b.span))
             .collect();
-        let inside = |s: &Span| {
-            user_bindings
-                .iter()
-                .any(|b| b.file == s.file && b.ctx == s.ctx && b.start <= s.start && s.end <= b.end)
-        };
+        skipped.extend(reset_free_bindings(facts.ast, self.res, module.decl));
+        let inside = |s: &Span| skipped.iter().any(|b| contains(b, s));
         if self
             .res
             .use_spans

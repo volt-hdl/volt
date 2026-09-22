@@ -619,6 +619,7 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         "84_rdc_raw_reset_per_domain.volt",
         "85_rdc_raw_reset_hierarchy.volt",
         "86_rdc_raw_reset_sync_domains.volt",
+        "88_rdc_ram_write_clock_no_reset.volt",
     ];
 
     let mut clean = 0;

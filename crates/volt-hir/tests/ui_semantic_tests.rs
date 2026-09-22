@@ -246,8 +246,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0060: 81 test bloğunda sabit yayılımı,
     // ADR-0003: 82 Trit SV eşlemesi,
     // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron),
-    //           87 hedefli SDC (her köprü türü + ham reset + alt modül).
-    assert_eq!(checked, 76);
+    //           87 hedefli SDC (her köprü türü + ham reset + alt modül),
+    //           88 reset'siz RAM yazma saati (R5' inceltmesi).
+    assert_eq!(checked, 77);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -266,12 +267,11 @@ fn ui_pass_73_sdc_single_clock_clean() {
 
 #[test]
 fn ui_pass_74_sdc_multi_clock_clean() {
-    // Yalnız W3005 (PulseSync darbe aralığı hatırlatması) ve W3010
-    // (ADR-0065 R5': iki saat tek senkron `rst`'yi paylaşıyor, sınıf A) —
-    // hata yok, E0017 yok, W0021 yok.
+    // Yalnız W3005 (PulseSync darbe aralığı hatırlatması) — hata yok,
+    // E0017 yok, W0021 yok; ham reset portu (ADR-0065) W3010'u kaldırır.
     let result = analyze_file("pass/74_sdc_multi_clock.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
-    assert_eq!(result.error_codes(), vec!["W3005", "W3010"]);
+    assert_eq!(result.error_codes(), vec!["W3005"]);
 }
 
 #[test]
@@ -626,14 +626,14 @@ fn ui_fail_50_extern_clock_conflict_e3014() {
 fn ui_pass_65_async_dual_port_ram_warns_w3006_only() {
     // W3006 BEKLENEN davranıştır (ADR-0049): diğer saatten yazılan
     // adresin okunması tanımsızdır; her örneklemede hatırlatılır.
-    // W3010 (ADR-0065 R5'): iki saat tek senkron `rst`'yi paylaşıyor —
-    // sınıf A, uyarı olarak kalır.
+    // W3010 YOK (ADR-0065 R5' inceltmesi): yazma tarafı reset'siz bellek
+    // dizisidir, `rst`'yi yalnız okuma register'ı örnekler.
     let result = analyze_file("pass/65_async_dual_port_ram.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
     assert_eq!(
         result.error_codes(),
-        vec!["W3006", "W3010"],
-        "yalnız W3006 + W3010 bekleniyor"
+        vec!["W3006"],
+        "yalnız W3006 bekleniyor"
     );
 }
 
@@ -706,6 +706,19 @@ fn ui_fail_67_root_async_reset_w3009() {
 #[test]
 fn ui_fail_68_sync_reset_shared_w3010() {
     assert_ui_fail("fail/68_rdc_sync_reset_shared.volt");
+}
+
+#[test]
+fn ui_fail_70_ram_write_side_register_w3010() {
+    assert_ui_fail("fail/70_rdc_ram_write_side_register.volt");
+}
+
+#[test]
+fn ui_pass_88_ram_write_clock_samples_no_reset() {
+    // Yazma saati yalnız reset'siz bellek dizisini sürer (ADR-0065 R5'
+    // inceltmesi): W3010 yok; W3006 ADR-0049'un beklenen hatırlatması.
+    let result = analyze_file("pass/88_rdc_ram_write_clock_no_reset.volt");
+    assert_eq!(result.error_codes(), vec!["W3006"]);
 }
 
 #[test]

@@ -7,7 +7,13 @@
 //! (`ResetCfg::synced`); o alan otomatik `rst`/`rst_n` portu almaz.
 //! Bağlama kuralı volt-hir `domain/rdc/facts.rs::feeds_of` ile aynıdır.
 
-use volt_ast::{ClockEdge, ModuleDecl, Port, PortDir, ResetPolarity, SourceFile, TypeRefKind};
+use volt_ast::builtin::BuiltinPrim;
+use volt_ast::{
+    ClockEdge, ExprKind, ModuleDecl, OnBlock, OnTrigger, Port, PortDir, RegDecl, ResetPolarity,
+    SourceFile, StmtKind, TypeRefKind,
+};
+
+use volt_span::Span;
 
 use crate::{ClockPort, DomainInfo};
 
@@ -63,6 +69,72 @@ pub(crate) fn feeding_raw(
     Some(RawReset {
         name: port.name.text.clone(),
         polarity,
+    })
+}
+
+/// Saat modülde yalnız reset'siz yerleşik saat bağlamasında mı
+/// kullanılıyor (ADR-0065 R5', `BuiltinPrim::clock_resets_flops`)?
+/// Tutucu: `on clk`, `reg(clk)`, başka bir örnek bağlaması ya da
+/// modül gövdesinde `sync(_, clk)` saati reset örnekleyen
+/// sayar. volt-hir `rdc::facts::ClockFact::used` ile aynı kural.
+pub(crate) fn reset_free_clock(ast: &SourceFile, module: &ModuleDecl, clk: &str) -> bool {
+    let mut reset_free_use = false;
+    for &s in &module.body {
+        match &ast.stmts[s].kind {
+            StmtKind::On(OnBlock {
+                trigger: OnTrigger::Clock(n),
+                ..
+            }) if n.text == clk => return false,
+            StmtKind::Reg(RegDecl {
+                domain: Some(n), ..
+            }) if n.text == clk => return false,
+            StmtKind::Instance(inst) => {
+                let prim = match inst.module_path.segments.as_slice() {
+                    [seg] => BuiltinPrim::from_name(&seg.text),
+                    _ => None,
+                };
+                for b in &inst.bindings {
+                    let value = match b.value {
+                        Some(e) => crate::path_single(ast, e),
+                        None => Some(b.port_name.text.as_str()),
+                    };
+                    if value != Some(clk) {
+                        continue;
+                    }
+                    match prim {
+                        Some(p) if !p.clock_resets_flops(&b.port_name.text) => {
+                            reset_free_use = true;
+                        }
+                        _ => return false,
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    reset_free_use && !synced_to(ast, module, clk)
+}
+
+/// Modülün gövde aralığında `sync(_, clk)` çağrısı var mı. Aralık
+/// deyim konumlarından: aynı dosyada, açılım bağlamı (`ctx`) gözetmeden
+/// — monomorf kardeş kopyaları da sayılır (tutucu yön).
+fn synced_to(ast: &SourceFile, module: &ModuleDecl, clk: &str) -> bool {
+    let spans: Vec<Span> = module.body.iter().map(|&s| ast.stmts[s].span).collect();
+    let Some(first) = spans.first() else {
+        return false;
+    };
+    let file = first.file;
+    let start = spans.iter().map(|s| s.start).min().unwrap_or(0);
+    let end = spans.iter().map(|s| s.end).max().unwrap_or(0);
+    ast.exprs.iter().any(|e| {
+        let ExprKind::Call { callee, args } = &e.kind else {
+            return false;
+        };
+        e.span.file == file
+            && start <= e.span.start
+            && e.span.end <= end
+            && crate::path_single(ast, *callee) == Some("sync")
+            && args.get(1).and_then(|&a| crate::path_single(ast, a)) == Some(clk)
     })
 }
 

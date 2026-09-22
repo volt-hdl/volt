@@ -5,6 +5,15 @@ use std::collections::HashSet;
 use volt_ast::{Arena, Idx};
 
 #[test]
+fn iter_visits_nodes_in_allocation_order() {
+    let mut arena: Arena<u8> = Arena::default();
+    arena.alloc(3);
+    arena.alloc(1);
+    arena.alloc(2);
+    assert_eq!(arena.iter().copied().collect::<Vec<_>>(), [3, 1, 2]);
+}
+
+#[test]
 fn alloc_returns_sequential_indices() {
     // Arrange
     let mut arena: Arena<&str> = Arena::default();

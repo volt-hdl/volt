@@ -5,7 +5,9 @@
 // (the sync() below and the PulseSync). No set_clock_groups: any other
 // path between the domains stays timed (--sdc-style=clock-groups gives
 // the ADR-0054 output). A multicycle path on the accumulator is declared
-// on the register itself: paths ending at `acc_r` get two cycles.
+// on the register itself: paths ending at `acc_r` get two cycles. The
+// reset comes in raw, so each clock gets its own release chain and the
+// file lists them under "Reset synchronizers" (ADR-0065).
 domain Fast {
     clock = posedge,
     reset = sync active_high,
@@ -25,6 +27,7 @@ pub module Bridge {
     out acc      : u8    @Fast
 
     in  slow_clk : clock @Slow
+    in  rst      : reset(sync, active_high)
     out started  : bool  @Slow
     out flag     : bool  @Slow
 
