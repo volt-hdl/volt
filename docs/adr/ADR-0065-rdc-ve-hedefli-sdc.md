@@ -530,3 +530,108 @@ Aşama 4'e aktarılan açık noktalar:
 4. Aşama 2 notu (W3010 → hata yükseltmesi) SDC tarafını değiştirmez:
    örnekler ham porta taşındığında dosyalara yalnız "Reset synchronizers"
    bölümü eklenir (golden'da 5 tasarımda ölçüldü).
+
+## Aşama 4 doğrulama notları (2026-09-22)
+
+Doğrulama planının 1-6. maddeleri Volt ÜRETİMİ SDC ile tekrarlandı ve CI'a
+alındı. Araç: `scripts/sta/run.py` (Volt → Yosys → `fixnames.py` →
+OpenSTA; beklentiler betiğin içinde, biri düşerse çıkış 1), `scripts/sta/
+min.lib` (§4.1'deki Liberty: `DFFR.RN` recovery/removal yayları, kapı 0,30
+ns, kurulum 0,10 ns). Ölçüm ortamı: OpenSTA 3.1.0 `f89887b596`
+(`openroad/opensta@sha256:e04e5f38a0bc…`), Yosys 0.36+42 (`hdlc/formal`,
+yerel) / OSS CAD Suite 2026-09-21 (CI). Aynı 31 beklenti Yosys 0.66
+(`hdlc/yosys`) ile de tutar (tek fark `worst slack max` 6,30 — farklı
+kapı eşlemesi). CI'daki Yosys 0.69+77 HybridTop netlistinde `signed`
+bildirimleri yazdı (0.36/0.66 yazmaz; AllBridges'te işaretli tip yok,
+o yüzden 87 geçti) ve OpenSTA `clean_named.v line 18, syntax error`
+verdi; `fixnames.py` `signed` sözcüğünü soyar (zamanlama işarete bağlı
+değil), ikinci koşu 7/7 yeşil. Loglar `build/sta/<Modül>/`.
+
+**Deney tasarımı:** `tests/ui/pass/87` (AllBridges — her köprü türü, iki
+ham reset, çocuk örnek `u`, 100 MHz / 25,175 MHz). Plan `examples/vga`'yı
+ya da §4.1'in `top.sv`'sini önermişti; 87 seçildi çünkü Volt'un kendi
+SDC'sini ve sv-emit'in gerçek adlarını sınar, 353 flop ile CI'a sığar ve
+saat oranı tam sayı olmadığından senkronizörsüz geçiş ihlal olarak
+görünür (VGA'nın 8239 flop'u yalnız 4.3 için yerelde koşuldu).
+
+**Sondalar (4.1/4.2):** üretilen `AllBridges.sv`'nin `build/` KOPYASINA
+iki flop eklendi (Volt kaynağında yazılamaz: E3001 ve E3003): P2
+`rdc_probe_cdc` (`slow_clk`, D = `go_r & sync_start_src`, ikisi
+`fast_clk`) ve P4 `rdc_probe_rst` (`slow_clk`, asenkron temizleme
+`rst_sync_fast_clk_stage1` — fast saatinin zinciri). `(* keep *)` ile
+`opt_clean`'den korunur.
+
+### 4.1 İkinci ağ kanıtı ve 4.2 recovery/removal (sondalı netlist, 355 flop)
+
+| Sorgu | `--sdc-style=clock-groups` (ESKİ) | `--sdc-style=targeted` (YENİ) |
+|---|---|---|
+| P2 `report_checks -from go_r_reg -to rdc_probe_cdc_reg` | `No paths found.` | `rdc_probe_cdc_reg/D 2820.16 2820.60 -0.44 (VIOLATED)` |
+| P4 `report_checks -to rdc_probe_rst_reg/RN` (recovery, fast zinciri → slow flop) | `No paths found.` | `rdc_probe_rst_reg/RN 2820.06 2820.30 -0.24 (VIOLATED)` — analiz ediliyor |
+| P3 `report_checks -to go_r_reg/RN` (aynı saat, zincir çıkışı → CLR) | `9.80 0.30 9.50 (MET)` | `9.80 0.30 9.50 (MET)` |
+| `report_checks -to [get_pins -hierarchical */RN]` uç sayısı | 35 | 36 (+P4) |
+| `report_tns` | `0.00` | `-0.68` |
+
+Kenar ilişkisi: OpenSTA `Warning 1010: No common period was found
+between clocks fast_clk and slow_clk` basar (10 / 39,722 ns) ve yine de
+en dar pencereyi bulur: fast kenarı 2820, slow kenarı 71 × 39,722 =
+2820,262 → 0,26 ns; clk→Q 0,30 + AND 0,30 + kurulum 0,10 sığmaz. Bu,
+ilişkisiz iki saat arasında senkronizörsüz yolun neden her zaman ihlal
+olduğunun ölçümüdür: geçerli bir kurulum penceresi yoktur.
+
+Ham reset ve otomatik port kararları (§4.4) doğrulandı: her iki stilde
+zincir çıkışı → temizleme pinleri (`go_r_reg/RN` dâhil 35 uç) recovery/
+removal olarak zamanlanır; yalnız YANLIŞ saatin zinciriyle temizlenen
+flop eski stilde kaybolur.
+
+### 4.3 Yanlış pozitif yok ve 4.4 hücre eşleşmesi (temiz netlistler, hedefli stil)
+
+| Tasarım | Flop | `get_cells` deseni → Yosys hücresi | Alanlar arası zamanlanan uç | `worst slack max` / `tns` |
+|---|---|---|---|---|
+| AllBridges (87) | 353 | 22/22 (1 … 128 hücre; `u/level_r_reg*`, `u/sync_level_r_stage0_reg*` hiyerarşik) | 10, hepsi MET (`fifo_wgray_s0_reg[0..4]/D 9.30`, `fifo_rgray_s0_reg[0..4]/D 39.32`, `path delay` grubu) | 6,60 / 0,00 |
+| HybridTop | 774 | 8/8 (`fifo_mem_reg*` 512, `fifo_rd_data_reg*` 32) | 10, hepsi MET (gray işaretçiler `path delay` 1.80 / 4.30) | −20,70 / −19 246 — TÜMÜ saat İÇİ (0,30 ns kapılı oyuncak kütüphanede 2,5 ns periyot); alanlar arası uçta ihlal yok |
+| VgaTop | 8239 | 7/7 (`fb/mem_mem_reg*` 8192) | 0 (tüm köprüler `set_false_path`) | 6,60 / 0,00 |
+| SocTop | 580 | desen yok (tek saat, `frequency` yok → `create_clock` yok) | — | — |
+
+Desen eşleşmesi, `.sdc`'yi okuyan OpenSTA'nın kendi `get_cells`
+sorgusuyla sayıldı (metin karşılaştırması değil). Bir desenin
+eşleşmemesi güvenli tarafa düşer ama gürültüdür: `fixnames.py`'nin ilk
+sürümü HybridTop'ta hiçbir flop'u adlandıramadığında (`\b` yerine
+backspace) `fifo_mem → fifo_rd_data` false path'i uygulanmadı ve 5 bellek
+verisi ucu `VIOLATED` göründü — 4.4 denetimi bu yüzden CI'da 4.3 ile
+birlikte koşar.
+
+Aşama 3'ten devralınan açık noktalar kapandı: (1) `fixnames.py` çok
+bitli ve bellek dizili register'ları `\<ad>_reg[i]` / `\<ad>_reg[w][b]`
+kaçışlı adla adlandırır, tekillik modül başına denetlenir (aynı `cnt`
+iki modülde olabilir); (2) `flatten` YOK — hiyerarşi Yosys'te korunur,
+`/` ayırıcı OpenSTA `link_design`'dan gelir; (3) `opt` YOK — yalnız
+`opt_expr`/`opt_clean`, özdeş register'lar birleşmez (87'de `go_r` ve
+`u/level_r` ayrı). SocTop'ta `stat` 584 / adlandırılan 580 farkı çok
+örnekli modülün hiyerarşik sayımıdır (`clean_named.v`'de adsız `DFF _`
+kalmadı).
+
+### 4.5 CI
+
+`.github/workflows/ci.yml` → `timing` işi (zorunlu): Yosys formal
+işiyle aynı sabit OSS CAD Suite önbelleğinden; OpenSTA `openroad/opensta`
+özet (digest) sabitli, `docker save` tar'ı `actions/cache` ile
+(`opensta-<digest>` anahtarı), `opensta:pinned` etiketi. Adımlar:
+`run.py --probe --require-zero-tns` (87: 4.1 + 4.2 + 4.3 + 4.4, 31
+beklenti) ve `run.py --design examples/hybrid_accel/hybrid_top.volt --top
+HybridTop` (9 beklenti); `summary.md`, `.sta.log` ve `.sdc` dosyaları
+artifact olarak yüklenir. Yerel koşum: `VOLT_STA_YOSYS="docker run --rm
+-v {work}:/work -w /work hdlc/formal yosys"`, `VOLT_STA_STA="docker run
+--rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta
+openroad/opensta"`.
+
+### 4.6 Belgeler ve sapmalar
+
+README "No RDC checking" satırı gerçek kapsamla (E3003 üç biçim, W3009,
+W3010; E3004/E3005 rezerve; extern reset yok; SDC'de saat grubu yok)
+değiştirildi; CHANGELOG'a ADR-0063/0064/0065 girdileri eklendi (0064 PR
+#11'de merge bekliyor, girdi bunu söyler). Karardan sapma yok. Kapsam
+notu: kalıcı CI betikleri gitignore'daki `build/` yerine `scripts/sta/`
+altında (görev tanımı `build/`'i geçici sayar; CI'ın izlediği dosyaya
+ihtiyacı var). Kalan sınırlar §"Sınırlar / Ertelenen"deki gibi: Vivado
+`.xdc` yalnız sözdizimi düzeyinde (`-datapath_only`, `set_bus_skew`
+OpenSTA'da yok), Quartus stili yok, örnekler hâlâ W3010 (otomatik port).

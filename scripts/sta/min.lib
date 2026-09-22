@@ -1,0 +1,104 @@
+/* Minimal Liberty for ADR-0065 RDC/SDC experiment: DFF with async clear (recovery/removal arcs) + basic gates */
+library(min) {
+  delay_model : table_lookup;
+  time_unit : "1ns";
+  voltage_unit : "1V";
+  current_unit : "1mA";
+  pulling_resistance_unit : "1kohm";
+  capacitive_load_unit(1, pf);
+  leakage_power_unit : "1nW";
+  nom_process : 1.0; nom_temperature : 25.0; nom_voltage : 1.0;
+  default_input_pin_cap : 0.01;
+  default_output_pin_cap : 0.0;
+  default_fanout_load : 1.0;
+  default_max_transition : 1.0;
+  slew_lower_threshold_pct_rise : 20.0; slew_upper_threshold_pct_rise : 80.0;
+  slew_lower_threshold_pct_fall : 20.0; slew_upper_threshold_pct_fall : 80.0;
+  input_threshold_pct_rise : 50.0; input_threshold_pct_fall : 50.0;
+  output_threshold_pct_rise : 50.0; output_threshold_pct_fall : 50.0;
+
+  cell(BUF) { area : 1;
+    pin(A) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "A";
+      timing() { related_pin : "A"; timing_sense : positive_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(INV) { area : 1;
+    pin(A) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "!A";
+      timing() { related_pin : "A"; timing_sense : negative_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(AND2) { area : 2;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "A&B";
+      timing() { related_pin : "A B"; timing_sense : positive_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(OR2) { area : 2;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "A|B";
+      timing() { related_pin : "A B"; timing_sense : positive_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(NAND2) { area : 2;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "!(A&B)";
+      timing() { related_pin : "A B"; timing_sense : negative_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(NOR2) { area : 2;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "!(A|B)";
+      timing() { related_pin : "A B"; timing_sense : negative_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(XOR2) { area : 3;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "A^B";
+      timing() { related_pin : "A B"; timing_sense : non_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+  cell(MUX2) { area : 3;
+    pin(A) { direction : input; capacitance : 0.01; } pin(B) { direction : input; capacitance : 0.01; }
+    pin(S) { direction : input; capacitance : 0.01; }
+    pin(Y) { direction : output; function : "(A&!S)|(B&S)";
+      timing() { related_pin : "A B S"; timing_sense : non_unate;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+
+  /* Plain DFF (no reset) */
+  cell(DFF) { area : 4;
+    ff(IQ, IQN) { clocked_on : "CK"; next_state : "D"; }
+    pin(CK) { direction : input; clock : true; capacitance : 0.01; }
+    pin(D) { direction : input; capacitance : 0.01;
+      timing() { related_pin : "CK"; timing_type : setup_rising;
+        rise_constraint(scalar) { values("0.10"); } fall_constraint(scalar) { values("0.10"); } }
+      timing() { related_pin : "CK"; timing_type : hold_rising;
+        rise_constraint(scalar) { values("0.05"); } fall_constraint(scalar) { values("0.05"); } } }
+    pin(Q) { direction : output; function : "IQ";
+      timing() { related_pin : "CK"; timing_type : rising_edge;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } } } }
+
+  /* DFF with active-low asynchronous clear: RN pin carries recovery/removal arcs */
+  cell(DFFR) { area : 5;
+    ff(IQ, IQN) { clocked_on : "CK"; next_state : "D"; clear : "!RN"; }
+    pin(CK) { direction : input; clock : true; capacitance : 0.01; }
+    pin(D) { direction : input; capacitance : 0.01;
+      timing() { related_pin : "CK"; timing_type : setup_rising;
+        rise_constraint(scalar) { values("0.10"); } fall_constraint(scalar) { values("0.10"); } }
+      timing() { related_pin : "CK"; timing_type : hold_rising;
+        rise_constraint(scalar) { values("0.05"); } fall_constraint(scalar) { values("0.05"); } } }
+    pin(RN) { direction : input; capacitance : 0.01;
+      timing() { related_pin : "CK"; timing_type : recovery_rising;
+        rise_constraint(scalar) { values("0.20"); } }
+      timing() { related_pin : "CK"; timing_type : removal_rising;
+        rise_constraint(scalar) { values("0.10"); } } }
+    pin(Q) { direction : output; function : "IQ";
+      timing() { related_pin : "CK"; timing_type : rising_edge;
+        cell_rise(scalar) { values("0.30"); } cell_fall(scalar) { values("0.30"); }
+        rise_transition(scalar) { values("0.10"); } fall_transition(scalar) { values("0.10"); } }
+      timing() { related_pin : "RN"; timing_type : clear; timing_sense : positive_unate;
+        cell_fall(scalar) { values("0.30"); } fall_transition(scalar) { values("0.10"); } } } }
+}

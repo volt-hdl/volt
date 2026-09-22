@@ -5,6 +5,76 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — RDC denetimi, ham reset portu senkronizörü ve hedefli SDC (2026-09-22, ADR-0065)
+
+- **E3003** artık üretilir: aynı `rst`/`rst_n` portunu paylaşan iki
+  `reset = async` alanı, aynı ham reset'in bir saatte iki kez
+  senkronlanması (yakınsama) ve beslediği alanla uyuşmayan ham port.
+  **W3009**: kökteki otomatik asenkron reset portunun bırakılışı birimin
+  dışında senkronlanmış sayılır (sözleşme görünür kılınır). **W3010**:
+  senkron reset'in birden çok saat alanınca paylaşılması (uyarı; örnekler
+  taşınınca hataya yükseltme yeniden değerlendirilecek). `volt explain`
+  iki dilde; parser `reset = <ifade>` yazımını E0001 ile reddeder (eskiden
+  sessizce yok sayılıyordu).
+- Ham reset portu `in rst_n : reset(async, active_low)`: derleyici
+  portun beslediği her saat için iki aşamalı bırakma senkronizörü
+  (`rst_sync_<saat>_stage0/1`, asenkron assert / senkron bırakma) üretir
+  ve alanı kendi zincirinden sıfırlar. Testbench ve `volt verify`
+  zincir çıkışını kullanır; ham portsuz tasarımların çıktısı bayt bayt
+  aynıdır.
+- `--emit=sdc,xdc` varsayılan stili **`--sdc-style=targeted`**:
+  `set_clock_groups -asynchronous` YAZILMAZ. Yalnız tanınan
+  senkronizörlerin ilk aşamasına giden yol kısıtlanır (`sync()`,
+  HandshakeSync, PulseSync, bellek verisi: `set_false_path`; AsyncFifo
+  gray işaretçileri: `.sdc` `set_max_delay -ignore_clock_latency T_src`,
+  `.xdc` `set_max_delay -datapath_only` + `set_bus_skew` + `ASYNC_REG`);
+  ham reset'in yalnız assert yolu `set_false_path -from [get_ports …]`
+  alır, zincir çıkışı → temizleme pinleri recovery/removal olarak
+  zamanlanır. Derleyicinin kaçırdığı alanlar arası yol zamanlama aracında
+  ihlal olarak görünür. `--sdc-style=clock-groups` ADR-0054 çıktısını
+  korur. Üretilen her `get_cells` deseni aynı derlemenin SV'sindeki bir
+  register'a eşleşir (test).
+- CI'da kalıcı **`timing`** işi (`scripts/sta/run.py`, Yosys + OpenSTA
+  3.1.0, özet sabitli imaj, önbellekli): `tests/ui/pass/87`'nin
+  `build/` kopyasına elle eklenen senkronizörsüz geçiş ve yanlış saatin
+  reset'i eski stilde `No paths found.`, hedefli stilde `VIOLATED` /
+  zamanlanmış recovery ucu; temiz tasarımda tns 0,00; 22/22 desen Yosys
+  netlistinde bir hücreye eşleşir. `examples/hybrid_accel` (AsyncFifo,
+  400/200 MHz) hedefli stille alanlar arası ihlal vermez.
+- README "No RDC checking" sınırı gerçek kapsama göre yeniden yazıldı.
+
+### Eklendi — Kontratlar simülasyonda izleyici olarak koşar (2026-09-21, ADR-0064; PR #11, merge bekliyor)
+
+- `volt test` kontratları (`invariant`, `assume`, `cover`, otomatik
+  primitif kontratları) VARSAYILAN AÇIK izler: `volt verify`'ın immediate
+  kalıbı + DPI geri çağrısı (`SvaMode::Simulation`); ihlal Volt kaynağına
+  eşlenmiş konumla raporlanır, süreç `$stop` ile ölmez, `assume` ihlali
+  testi düşürür. `--no-contracts` kapatır (SV ve testbench eski çıktının
+  aynısı). `volt run` varsayılan kapalı, `--contracts` açar; kontrat
+  ihlali çıkış kodu 5.
+- Reset ve `prev()` anlamı formal ile aynı (yardımcı register zinciri;
+  `$past`'in reset içi örneklemesi kullanılmaz).
+- **W5001**: SV'ye inemeyen kontrat simülasyonda atlanır (formal'de E0003
+  kalır). `volt explain W5001` iki dilde.
+- Kalıcı test: formal derinliğinin ötesinde (binlerce çevrim) yakalanan
+  ihlal. `volt verify` ve `volt build` çıktıları bayt bayt aynı.
+
+### Eklendi — Register haritası tutarlılık denetimi (2026-09-21, ADR-0063)
+
+- `volt check-regmap <tasarım> --against <dosya>...`: üretilmiş `.h`
+  (`--emit=c`), `.rs` (`--emit=rust`) ve `.json` (`--emit=regmap`)
+  dosyaları RTL'deki `@mmio` haritasıyla karşılaştırılır (taban adres;
+  register başına offset, erişim, bit maskesi, reset değeri; alan başına
+  lsb, maske, `W1C`/self-clearing davranışı — yorum ve sıra farkı ayrışma
+  değildir). Ayrışma **E9003** (`= note:`
+  satırlarında dosya/RTL değerleri, `= help: regenerate with volt build
+  --emit=c gpio.volt`); Volt'un üretmediği ya da imzasız dosya **E9004**.
+- `volt build --check-regmap`: her `@mmio` modülü için sürücü çıktıları
+  bellekte yeniden üretilip SV ile karşılaştırılır (derleyici iç
+  tutarlılığı).
+- Üretilen sürücü dosyaları imza taşır (`regmap-hash`); hash eşleşince
+  hızlı yol, `--format json` zarfına `regmap_check` nesnesi eklenir.
+
 ### Düzeltildi — Test bloğunda porta maskesiz yazım: SESSİZ YANLIŞ SİMÜLASYON (2026-09-20, ADR-0059)
 
 - Verilator giriş portlarını maskelemez: `addr : u3` portuna 8 yazınca

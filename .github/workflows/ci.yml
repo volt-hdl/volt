@@ -95,6 +95,81 @@ jobs:
       - name: SoC (137 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
 
+  timing:
+    name: Timing constraints (OpenSTA second net)
+    runs-on: ubuntu-latest
+    # ADR-0065 stage 4: the generated .sdc must keep every unsynchronized
+    # crossing and every wrong-clock reset VISIBLE to the timing tool
+    # (scripts/sta/run.py). Yosys comes from the same pinned OSS CAD Suite as
+    # the formal job; OpenSTA is a digest-pinned Docker image cached as a tar.
+    env:
+      OSS_CAD_SUITE_DATE: 2026-09-21
+      OPENSTA_DIGEST: sha256:e04e5f38a0bc371557ae50de26fa16a5bbfae7cb7772be054ab9d61a38f7e99b
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (yosys), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put OSS CAD Suite on PATH
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/yosys" -V
+      - name: Cache OpenSTA image (3.1.0, digest-pinned)
+        id: opensta-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/opensta-image.tar
+          key: opensta-${{ env.OPENSTA_DIGEST }}
+      - name: Pull OpenSTA image
+        if: steps.opensta-cache.outputs.cache-hit != 'true'
+        run: |
+          docker pull "openroad/opensta@${OPENSTA_DIGEST}"
+          docker tag "openroad/opensta@${OPENSTA_DIGEST}" opensta:pinned
+          docker save -o "$HOME/opensta-image.tar" opensta:pinned
+      - name: Load OpenSTA image
+        if: steps.opensta-cache.outputs.cache-hit == 'true'
+        run: docker load -i "$HOME/opensta-image.tar"
+      - name: OpenSTA version
+        run: docker run --rm --entrypoint /OpenSTA/build/sta opensta:pinned -exit /dev/null | head -1
+      - name: Build volt
+        run: cargo build --bin volt
+      # 4.1 / 4.2: the injected crossing and wrong-clock reset are "No paths
+      # found" with --sdc-style=clock-groups and VIOLATED / timed with the
+      # targeted style. 4.3 / 4.4: every get_cells pattern names a cell, no
+      # inter-clock violation, tns 0.00 on the clean design.
+      - name: Second-net proof - tests/ui/pass/87 (every bridge kind, raw resets)
+        env:
+          VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
+        run: python3 scripts/sta/run.py --probe --require-zero-tns
+      - name: No false positives - examples/hybrid_accel (AsyncFifo, 400/200 MHz)
+        env:
+          VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
+        run: python3 scripts/sta/run.py --design examples/hybrid_accel/hybrid_top.volt --top HybridTop
+      - name: Upload OpenSTA reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: opensta-reports
+          path: |
+            build/sta/*/summary.md
+            build/sta/*/*.sta.log
+            build/sta/*/*.yosys.log
+            build/sta/*/*_named.v
+            build/sta/*/*.sdc
+
   coverage:
     name: Coverage (informational)
     runs-on: ubuntu-latest

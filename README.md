@@ -226,8 +226,17 @@ More designs: [`examples/README.md`](examples/README.md).
 
 ## Limitations
 
-- **No RDC checking.** Reset-domain crossings are not checked; `E3003` is
-  reserved but never emitted.
+- **RDC checking covers reset release, not reset ordering.** `E3003`
+  reports an asynchronous reset port shared by several clock domains, a raw
+  reset synchronized twice on one clock, and a raw reset port that does not
+  match the domain it feeds. `W3009` marks an asynchronous reset whose
+  release is assumed to be synchronized outside the unit, `W3010` a
+  synchronous reset shared by several clocks (a warning, not an error).
+  Reset sequencing (`E3004`) and conditional resets (`E3005`) are reserved
+  and never emitted; `extern` modules carry no reset contract. The
+  generated `.sdc`/`.xdc` write no `set_clock_groups`, so a crossing the
+  checker misses stays visible to the timing tool; CI proves this with
+  OpenSTA on an injected crossing (ADR-0065).
 - **No built-in simulator.** `volt run` and `volt test` require Verilator.
 - **SystemVerilog is the sole output language.** No VHDL.
 - **Some constructs are not yet emitted.** A few constructs pass the type
@@ -235,7 +244,8 @@ More designs: [`examples/README.md`](examples/README.md).
 - **Sequential properties are limited to `prev()`.** No sequences, no
   liveness.
 - **Formal verification requires SymbiYosys** (Linux; WSL or Docker on
-  Windows). The formal CI job is non-blocking.
+  Windows); the timing proof requires Yosys and OpenSTA (Docker). Both CI
+  jobs are required.
 - **Register maps support AXI4-Lite with 32-bit registers**; reset values
   are always 0.
 - **CDC bridges are limited to `sync()` / `sync3()` and the built-in
