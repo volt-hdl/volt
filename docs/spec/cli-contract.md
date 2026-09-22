@@ -513,7 +513,13 @@ SEÇENEKLER:
     --cycles=<N>      Simülasyon döngü sayısı (varsayılan: 100)
     --vcd=<dosya>     Dalga formu kaydet
     --top=<modül>     Üst modül (varsayılan: tek modül)
+    --contracts       Kontratları izleyici olarak çalıştır (ADR-0064)
 ```
+
+`--contracts` (ADR-0064) varsayılan KAPALIDIR: duman uyarıcısı (saat
+dışı girişler 1) tasarımın varsayımlarını gözetmez. Açıkken koşu durmaz;
+tablodan sonra her ihlal ve cover özeti basılır (biçim §8). Kontrat
+ihlali çıkış kodu 5'tir; `requires`/`assume` ihlali yalnız raporlanır.
 
 ---
 
@@ -546,7 +552,47 @@ SEÇENEKLER:
     --filter=<desen>   Sadece eşleşen testler
     --update-snapshots Snapshot güncelle (dikkatli!)
     --nocapture        Test çıktısını göster
+    --no-contracts     Kontrat izleyicilerini kapat (ADR-0064)
 ```
+
+### Kontratlar simülasyonda (ADR-0064)
+
+Tasarımın kontratları (`invariant`, `assert`, `ensures`, `requires`,
+`assume`, `cover`; `Handshake<T>`, `@mmio` ve stdlib primitiflerinin
+otomatik kontratları, alt modül örnekleri dahil) varsayılan olarak her
+saat kenarında, reset dışında denetlenir. `prev(x)` reset sonrası ilk
+döngüde 0'dır (formal ile aynı, ADR-0040). İlk ihlal testi o döngüde
+düşürür; sonraki testler koşmaya devam eder:
+
+```
+---- counts_past_limit ----
+  contract violated: invariant (uart_tx.volt:18)
+    invariant: !busy -> tx == true
+  at cycle 47
+  in instance: dut.tx_unit
+  loop: i = 3
+```
+
+`requires`/`assume` ihlali de testi düşürür ama ayrı sınıflanır:
+`assumption violated by test stimulus: assume (<dosya>:<satır>)` + not
+(uyarıcıyı düzelt, tasarımı değil). `cover` hata değildir; test
+sonunda kimlik başına toplam basılır, hiç tetiklenmeyen `NEVER HIT`
+olarak listelenir ve çıkış kodunu etkilemez:
+
+```
+cover summary:
+  UartTx.cov_0 (uart_tx.volt:24)  hit 12 times
+  UartTx.cov_1 (uart_tx.volt:25)  NEVER HIT
+```
+
+Alt örneğin `requires`/`assume`'u uyarıcıya değil onu süren üst
+modüle yüklenir: `contract violated`. İfadesi SystemVerilog'a inemeyen
+kontrat (E0003) testi derlenemez kılmaz: **W5001** ile atlanır, diğer
+kontratlar izlenir.
+
+`--no-contracts` ile izleyici üretilmez; üretilen SV ve testbench
+kontratsız çıktının aynısıdır. `volt build` ve `volt verify` çıktıları
+bu özellikten etkilenmez.
 
 ---
 

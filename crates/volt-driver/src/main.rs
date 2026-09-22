@@ -205,7 +205,8 @@ enum Command {
     #[command(after_help = "EXAMPLES:
     volt run design.volt
     volt run --cycles 500 design.volt
-    volt run --vcd waves.vcd design.volt")]
+    volt run --vcd waves.vcd design.volt
+    volt run --contracts design.volt")]
     Run {
         /// Input .volt file
         file: PathBuf,
@@ -218,6 +219,9 @@ enum Command {
         /// Top module (default: the only module in the file)
         #[arg(long)]
         top: Option<String>,
+        /// Also run the design's contracts as simulation monitors (ADR-0064)
+        #[arg(long)]
+        contracts: bool,
         /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
@@ -226,13 +230,17 @@ enum Command {
     #[command(after_help = "EXAMPLES:
     volt test
     volt test my_design_test.volt
-    volt test uart --nocapture")]
+    volt test uart --nocapture
+    volt test --no-contracts")]
     Test {
         /// A .volt test file, or a substring filter over test names
         filter: Option<String>,
         /// Also stream the raw testbench output
         #[arg(long)]
         nocapture: bool,
+        /// Do not run contracts as simulation monitors (ADR-0064; on by default)
+        #[arg(long)]
+        no_contracts: bool,
         /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
@@ -453,13 +461,31 @@ fn main() -> ExitCode {
             cycles,
             vcd,
             top,
+            contracts,
             target_dir,
-        } => sim::run(&file, cycles, vcd.as_deref(), top.as_deref(), &target_dir),
+        } => sim::run(
+            &file,
+            sim::RunOptions {
+                cycles,
+                vcd: vcd.as_deref(),
+                top: top.as_deref(),
+                contracts,
+                target_dir: &target_dir,
+            },
+        ),
         Command::Test {
             filter,
             nocapture,
+            no_contracts,
             target_dir,
-        } => sim::test(filter.as_deref(), nocapture, &target_dir),
+        } => sim::test(
+            filter.as_deref(),
+            sim::TestOptions {
+                nocapture,
+                contracts: !no_contracts,
+                target_dir: &target_dir,
+            },
+        ),
         Command::Lsp => {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS

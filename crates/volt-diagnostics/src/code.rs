@@ -80,6 +80,8 @@ error_codes! {
     W0010, W0020, W0021, W0022, W1001, W1002, W1003, W1004, W1005, W2010, W2011,
     W2012, W2013, W2020, W2021, W3001, W3002, W3003, W3004, W3005, W3006,
     W3007, W3008, W3009, W3010, W4001, W4002,
+    // Simülasyonda izlenemeyen kontrat (ADR-0064)
+    W5001,
 }
 
 impl ErrorCode {

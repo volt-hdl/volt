@@ -13,10 +13,11 @@
 //! Modüller sorumluluğa göre ayrılır: `run_cmd` (`volt run` akışı),
 //! `test_cmd` (`volt test` akışı), `test_files` (test dosyası keşfi),
 //! `test_build` (derleme, denetim, gruplama), `verilator` (araç keşfi,
-//! derleme, koşturma), `tb_output` (VOLT-* çıktı protokolü), `report`
-//! (cargo biçimli rapor). C++ testbench metni burada değil
+//! derleme, koşturma), `tb_output` (VOLT-* çıktı protokolü), `contracts`
+//! (kontrat izleyici çıktısı, ADR-0064), `report` (cargo biçimli rapor). C++ testbench metni burada değil
 //! `volt_sv_emit::sim` içinde üretilir.
 
+mod contracts;
 mod report;
 mod run_cmd;
 mod tb_output;
@@ -31,8 +32,8 @@ use std::process::ExitCode;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile};
 use volt_diagnostics::lstr;
 
-pub(crate) use run_cmd::run;
-pub(crate) use test_cmd::test;
+pub(crate) use run_cmd::{run, RunOptions};
+pub(crate) use test_cmd::{test, TestOptions};
 
 // ═══ Ortak yardımcılar ════════════════════════════════════════════
 

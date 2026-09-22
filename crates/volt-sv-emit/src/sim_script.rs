@@ -192,6 +192,9 @@ pub(crate) struct ScriptEmitter {
     loc: String,
     loop_vars: Vec<String>,
     has_loads: bool,
+    /// Kontrat izleyicileri açık (ADR-0064): her saat ilerletan adımdan
+    /// sonra ihlal listesi denetlenir.
+    contracts: bool,
 }
 
 impl ScriptEmitter {
@@ -202,7 +205,14 @@ impl ScriptEmitter {
             loc: "?".to_string(),
             loop_vars: Vec::new(),
             has_loads,
+            contracts: false,
         }
+    }
+
+    /// Kontrat ihlali denetimini açar (ADR-0064).
+    pub(crate) fn with_contracts(mut self, contracts: bool) -> Self {
+        self.contracts = contracts;
+        self
     }
 
     pub(crate) fn finish(self) -> String {
@@ -251,6 +261,36 @@ impl ScriptEmitter {
         self.indent -= 1;
     }
 
+    /// Saat ilerleyen adımdan sonra: izleyici bir ihlal kaydettiyse test
+    /// düşer. Satır biçimi: `VOLT-CONTRACT-FAIL <kimlik> cycle=<n>
+    /// [loop=i=3] inst=<kapsam>` — kapsam satır sonuna kadar sürer.
+    fn contract_check(&mut self) {
+        if !self.contracts {
+            return;
+        }
+        let (ctx_fmt, ctx_args) = self.loop_context();
+        self.line("if (!volt_violations.empty()) {");
+        self.indent += 1;
+        self.line("const VoltViolation& volt_v = volt_violations.front();");
+        self.line(&format!(
+            "std::printf(\"VOLT-CONTRACT-FAIL %s cycle=%llu{ctx_fmt} inst=%s\\n\", volt_v.id.c_str(), volt_v.cycle{ctx_args}, volt_v.inst.c_str());"
+        ));
+        self.line("dut.final();");
+        self.line("return false;");
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    /// `step` döngüsünün gövdesi: izleyiciler açıksa ihlal çevriminde
+    /// durulur — test ihlalin olduğu çevrimde biter (ADR-0064).
+    fn cycle_body(&self) -> &'static str {
+        if self.contracts {
+            "{ run_cycle(&dut, ctx); if (!volt_violations.empty()) break; }"
+        } else {
+            "run_cycle(&dut, ctx);"
+        }
+    }
+
     fn fault_check(&mut self) {
         self.line("if (volt_fault) {");
         self.fail_block("%s", ", volt_fault_name()", "volt_fault_a", "volt_fault_b");
@@ -279,15 +319,21 @@ impl ScriptEmitter {
             TbStep::SetPortChecked { port, value, check } => {
                 self.emit_checked_port(port, value, check);
             }
-            TbStep::Step(n) => self.line(&format!(
-                "for (unsigned long long s = 0; s < {n}ULL; ++s) run_cycle(&dut, ctx);"
-            )),
-            TbStep::StepBy(count) => {
+            TbStep::Step(n) => {
+                let body = self.cycle_body();
                 self.line(&format!(
-                    "{{ const unsigned long long volt_n = {}; for (unsigned long long s = 0; s < volt_n; ++s) run_cycle(&dut, ctx); }}",
+                    "for (unsigned long long s = 0; s < {n}ULL; ++s) {body}"
+                ));
+                self.contract_check();
+            }
+            TbStep::StepBy(count) => {
+                let body = self.cycle_body();
+                self.line(&format!(
+                    "{{ const unsigned long long volt_n = {}; for (unsigned long long s = 0; s < volt_n; ++s) {body} }}",
                     cpp_value(count)
                 ));
                 self.fault_check_if(&[count]);
+                self.contract_check();
             }
             TbStep::Reset => {
                 self.line("apply_reset(&dut, ctx);");
@@ -297,6 +343,7 @@ impl ScriptEmitter {
                     self.line("for (auto& volt_l : volt_loads) volt_l();");
                     self.line("dut.eval();");
                 }
+                self.contract_check();
             }
             TbStep::Assert {
                 kind,

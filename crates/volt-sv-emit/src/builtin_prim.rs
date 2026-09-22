@@ -274,7 +274,7 @@ impl<'a> Emitter<'a> {
             BuiltinPrim::EdgeDetect => self.emit_edge_detect(name, &info),
             BuiltinPrim::AsyncDualPortRam => self.emit_async_dual_port_ram(name, &info),
         };
-        if self.sva_mode == SvaMode::Immediate {
+        if matches!(self.sva_mode, SvaMode::Immediate | SvaMode::Simulation) {
             out.push_str("\n\n");
             out.push_str(&self.builtin_contracts(module_name, name, &info, span));
         }
@@ -940,7 +940,17 @@ impl<'a> Emitter<'a> {
         info: &BuiltinInst,
         span: Span,
     ) -> String {
-        let mut out = format!("    // formal contracts: '{i}' ({})\n", info.prim.name());
+        // ADR-0064: simülasyon izleyicilerinde formal varsayımlar (reset
+        // assume'ları) ve init bloğu YOKTUR — reset'i testbench sürer.
+        let formal = self.sva_mode == SvaMode::Immediate;
+        let mut out = if formal {
+            format!("    // formal contracts: '{i}' ({})\n", info.prim.name())
+        } else {
+            format!(
+                "    // simulation contracts: '{i}' ({})\n",
+                info.prim.name()
+            )
+        };
 
         // BMC başlangıcı: ilk döngüde reset varsayılır (sva_immediate
         // gerekçesi). Aynı koşul iki alanda da olsa yinelenmesi zararsız.
@@ -962,7 +972,7 @@ impl<'a> Emitter<'a> {
         let mut assumed: Vec<String> = Vec::new();
         let mut edge_assumed: Vec<String> = Vec::new();
         for clock in [&info.src_clock, &info.dst_clock] {
-            if !clock.info.reset.is_none() {
+            if formal && !clock.info.reset.is_none() {
                 let cond = clock.info.reset.condition();
                 if !assumed.contains(&cond) {
                     assumed.push(cond.clone());
@@ -983,12 +993,14 @@ impl<'a> Emitter<'a> {
             }
         }
 
+        let primitive = info.prim.name();
         let push_prop = |emitter: &mut Emitter<'a>, name: String, keyword: &'static str| {
             emitter.sva_props.push(SvaProp {
                 module_name: module_name.to_string(),
                 name,
                 keyword,
                 span,
+                primitive: Some(primitive),
             });
         };
 
@@ -1000,21 +1012,24 @@ impl<'a> Emitter<'a> {
                 // 2^pw) gerçek doluluk sayısıdır. `!(full && empty)`
                 // bilinçli olarak ZAYIFLATILDI (ADR-0027): iki-flop
                 // gecikmesi bayrakları geçici olarak örtüştürebilir.
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("({i}_wbin - {i}_rbin) <= {pw}'d{depth}"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_wr_full"),
                     &format!("{i}_cov_0"),
                 ));
                 push_prop(self, format!("{i}_cov_0"), "cover");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.dst_clock,
                     "cover",
                     &format!("{i}_rd_empty"),
@@ -1034,14 +1049,16 @@ impl<'a> Emitter<'a> {
                     info.src_clock.name
                 ));
                 // req yüksek kaldığı sürece veri stabil.
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("!({i}_req && {i}_req_d) || ({i}_data_q == {i}_data_prev)"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.dst_clock,
                     "cover",
                     &format!("{i}_valid"),
@@ -1073,14 +1090,16 @@ impl<'a> Emitter<'a> {
                      {i}_pin_d <= {pulse_in};\n    end\n",
                     info.src_clock.name
                 ));
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("({i}_toggle == {i}_toggle_d) || {i}_pin_d"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.dst_clock,
                     "cover",
                     &format!("{i}_pulse_out"),
@@ -1094,28 +1113,32 @@ impl<'a> Emitter<'a> {
                 // Tek saatte iki-flop gecikmesi yoktur: hem doluluk sınırı
                 // hem bayrak ayrıklığı KANITLANABİLİR (AsyncFifo'daki
                 // zayıflatmanın tersine — ADR-0029).
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{i}_count <= {pw}'d{depth}"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("!({i}_full && {i}_empty)"),
                     &format!("{i}_inv_1"),
                 ));
                 push_prop(self, format!("{i}_inv_1"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_full"),
                     &format!("{i}_cov_0"),
                 ));
                 push_prop(self, format!("{i}_cov_0"), "cover");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_empty"),
@@ -1134,7 +1157,8 @@ impl<'a> Emitter<'a> {
                 let addr = self.builtin_input(info, "addr", addr_sig);
                 // DEPTH iki kuvveti olduğundan aw-bit adres tanım gereği
                 // aralıktadır; kontrat bu yapısal garantiyi belgeler.
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{addr} < {pw}'d{depth}"),
@@ -1152,14 +1176,16 @@ impl<'a> Emitter<'a> {
                 };
                 let a_addr = self.builtin_input(info, "a_addr", addr_sig);
                 let b_addr = self.builtin_input(info, "b_addr", addr_sig);
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{a_addr} < {pw}'d{depth}"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{b_addr} < {pw}'d{depth}"),
@@ -1185,21 +1211,24 @@ impl<'a> Emitter<'a> {
                 // Her adres KENDİ saatinde örneklenir (ADR-0049): alanlar arası
                 // kontrat yazılmaz. Cover: okuma portu her çevrim okuduğundan
                 // "eş zamanlı okuma ve yazma" = yazma etkin.
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{wr_addr} < {pw}'d{depth}"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.dst_clock,
                     "assert",
                     &format!("{rd_addr} < {pw}'d{depth}"),
                     &format!("{i}_inv_1"),
                 ));
                 push_prop(self, format!("{i}_inv_1"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &wr_en,
@@ -1211,14 +1240,16 @@ impl<'a> Emitter<'a> {
                 let width = info.dim;
                 let pw = width + 1;
                 let bound = 1u128 << width;
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{i}_count < {pw}'d{bound}"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_overflow"),
@@ -1232,7 +1263,8 @@ impl<'a> Emitter<'a> {
                     signed: false,
                 };
                 let shift_en = self.builtin_input(info, "shift_en", one_bit);
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &shift_en,
@@ -1245,14 +1277,16 @@ impl<'a> Emitter<'a> {
                 // popcount(grant) <= 1: en düşük set bit izolasyonu tanım
                 // gereği bir-sıcak-ya-da-sıfırdır; x & (x-1) == 0 biçimi
                 // $countones gerektirmez (her aracın desteklediği saf mantık).
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("({i}_grant & ({i}_grant - {n}'d1)) == {n}'d0"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("({i}_grant & {i}_req_v) == {i}_grant"),
@@ -1262,7 +1296,8 @@ impl<'a> Emitter<'a> {
                 // Her istekçi grant alabilir (sınırlı erişilebilirlik):
                 // istekçi başına bir cover.
                 for k in 0..n {
-                    out.push_str(&contract_line(
+                    out.push_str(&self.prim_contract_line(
+                        module_name,
                         &info.src_clock,
                         "cover",
                         &format!("{i}_grant[{k}]"),
@@ -1274,21 +1309,24 @@ impl<'a> Emitter<'a> {
             BuiltinPrim::EdgeDetect => {
                 // both, tanım gereği rising|falling'dir; kontrat üretilen
                 // mantığın tutarlılığını belgeler.
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "assert",
                     &format!("{i}_both == ({i}_rising | {i}_falling)"),
                     &format!("{i}_inv_0"),
                 ));
                 push_prop(self, format!("{i}_inv_0"), "invariant");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_rising"),
                     &format!("{i}_cov_0"),
                 ));
                 push_prop(self, format!("{i}_cov_0"), "cover");
-                out.push_str(&contract_line(
+                out.push_str(&self.prim_contract_line(
+                    module_name,
                     &info.src_clock,
                     "cover",
                     &format!("{i}_falling"),
@@ -1305,17 +1343,44 @@ impl<'a> Emitter<'a> {
         // karşı örnek). Tüm iç durum register'ları reset değerlerinden
         // başlatılır — Yosys `read -formal` bunu init değerine çevirir.
         // Gözlemciler dahildir; blok bildirimlerden SONRA üretilir.
-        out.push_str("    // formal init: start BMC from the reset state\n");
-        out.push_str("    initial begin\n");
-        for line in builtin_init_lines(i, info) {
-            out.push_str(&format!("        {line}\n"));
+        if formal {
+            out.push_str("    // formal init: start BMC from the reset state\n");
+            out.push_str("    initial begin\n");
+            for line in builtin_init_lines(i, info) {
+                out.push_str(&format!("        {line}\n"));
+            }
+            out.push_str("    end\n");
         }
-        out.push_str("    end\n");
         // Son satır sonu kaldırılır (chunk birleştirme boş satır ekler).
         while out.ends_with('\n') {
             out.pop();
         }
         out
+    }
+}
+
+impl<'a> Emitter<'a> {
+    /// Primitif kontrat satırı: Immediate'te `contract_line` (formal,
+    /// bayt bayt eski çıktı), Simulation'da DPI izleyicisi (ADR-0064) —
+    /// kimlik `Modül.<örnek>_<ad>`, `SvaProp` adıyla aynı.
+    fn prim_contract_line(
+        &mut self,
+        module_name: &str,
+        clock: &ClockPort,
+        verb: &str,
+        expr: &str,
+        name: &str,
+    ) -> String {
+        if self.sva_mode != SvaMode::Simulation {
+            return contract_line(clock, verb, expr, name);
+        }
+        // Primitif kontrat metinleri Yosys için yazılmıştır ve genişlikleri
+        // SV kuralıyla genişler (ör. 13 bit `addr < 14'd8192`); Verilator
+        // bunu WIDTHEXPAND uyarısıyla — varsayılan olarak ölümcül — reddeder.
+        // Formal çıktı değişmesin diye susturma yalnız izleyicidedir.
+        let id = format!("{module_name}.{name}");
+        let monitor = self.sim_monitor(clock, verb, expr, &id, 4);
+        format!("    // verilator lint_off WIDTH\n{monitor}\n    // verilator lint_on WIDTH\n")
     }
 }
 

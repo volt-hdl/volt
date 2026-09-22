@@ -25,7 +25,7 @@ donanım arayüzüne uyarlanmalıdır.
 - Kural seti: port kaldırma/tip değişikliği → MAJOR; kontrat
   güçlendirme → MINOR; iç implementasyon (FSM kodlaması) → PATCH.
   İhlal E7001, abi_version değişmeden arayüz değişimi E7002
-  (cli-contract.md:857-858).
+  (cli-contract.md:903-904).
 - `volt diff <v1> <v2>` anlamsal fark + etkilenen test listesi (plan).
 - Bugün: nitelikler ayrışır, hiçbir geçit okumaz → W0021 "uygulanmıyor"
   (ADR-0048); E7001/E7002 üretilmiyor.

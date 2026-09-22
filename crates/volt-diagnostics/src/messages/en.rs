@@ -163,5 +163,6 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3010 => "Synchronous reset shared by several clock domains (ADR-0065)",
         W4001 => "Unused signal (silence with a '_' prefix)",
         W4002 => "Register written but never read",
+        W5001 => "Contract cannot be monitored in simulation; skipped (ADR-0064)",
     }
 }

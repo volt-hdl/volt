@@ -1046,5 +1046,15 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "reg stat : u8 = 0\non clk { stat <= s }\n// its only reader was optimized away   // ⚠ W4002",
             "result = stat           // ✓ observed in the netlist",
         ),
+        W5001 => Explanation::new(
+            "Contract cannot be monitored in simulation",
+            "volt test runs contracts as simulation monitors (ADR-0064), but this contract's expression has no SystemVerilog form yet, so no monitor was generated for it.",
+            "The rest of the design is still tested and every other contract is still monitored; only this one is silently absent from simulation, which is why it is reported. 'volt verify' needs the same SystemVerilog form and rejects the expression with E0003. Rewrite the contract with constructs that lower to SystemVerilog (operators, if-expressions, prev()) so both flows can check it.",
+            "invariant: match a { 0 => true, _ => a != 7 }   // ⚠ W5001 in volt test",
+            "invariant: a == 0 || a != 7                     // ✓ monitored and provable",
+        )
+        .with_note(
+            "--no-contracts turns all monitors off and silences this warning.",
+        ),
     }
 }

@@ -40,6 +40,10 @@ jobs:
       # (build/rtl/Counter.sv), so ZERO warnings are expected, DECLFILENAME included.
       - name: Verilator lint - ZERO warnings expected
         run: verilator --lint-only -Wall build/rtl/Counter.sv
+      # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
+      # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
+      - name: Simulation contract monitors (volt test, real Verilator)
+        run: cargo test -p volt-driver --test sim_contract_tests
 
   consistency:
     name: Spec-code consistency
@@ -91,6 +95,10 @@ jobs:
           code=$?
           echo "volt verify exit code: $code"
           test "$code" -eq 6
+      # ADR-0064 proof: the violation happens at cycle 101, so a 20-step BMC
+      # cannot see it (exit 0) while `volt test` fails (integration job).
+      - name: Deep violation is invisible to BMC depth 20 -> exit 0
+        run: cargo run --bin volt -- verify --mode bmc --depth 20 tests/fixtures/sim_contracts/deep_violation.volt
       # ADR-0055: one sby process, one task per contract-bearing module, -j N.
       - name: SoC (137 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt

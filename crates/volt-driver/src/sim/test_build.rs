@@ -44,7 +44,9 @@ impl TestUnit {
 // ═══ Derleme ve denetim ═══════════════════════════════════════════
 
 /// Test dosyasını (+ kardeşini) derler ve test bloklarını denetler.
-pub(super) fn compile_unit(file: &Path) -> Result<TestUnit, ExitCode> {
+/// `sva_mode`: kontrat izleyicileri açıksa `Simulation` (ADR-0064),
+/// `--no-contracts` ile `None`.
+pub(super) fn compile_unit(file: &Path, sva_mode: SvaMode) -> Result<TestUnit, ExitCode> {
     eprintln!(
         "{}",
         lstr!(
@@ -52,11 +54,11 @@ pub(super) fn compile_unit(file: &Path) -> Result<TestUnit, ExitCode> {
             tr: "   Derleniyor {}", file.display()
         )
     );
-    let compiled = compile(file, true, SvaMode::None)?;
+    let compiled = compile(file, true, sva_mode)?;
     render_diagnostics(&compiled, OutputFormat::Human);
     let sibling = match sibling_path(file) {
         Some(sib) => {
-            let c = compile(&sib, true, SvaMode::None)?;
+            let c = compile(&sib, true, sva_mode)?;
             render_diagnostics(&c, OutputFormat::Human);
             Some(c)
         }

@@ -1,5 +1,7 @@
 //! Testbench çıktısının (sv-emit VOLT-* protokolü) ayrıştırılması.
 
+use super::contracts::{parse_contract_fail, ContractViolation};
+
 /// Bir test yürütülebilirinden ayrıştırılan tek test sonucu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TestOutcome {
@@ -7,6 +9,8 @@ pub(super) struct TestOutcome {
     pub passed: bool,
     /// `VOLT-ASSERT-FAIL <kind> <loc> left=<l> right=<r>` ayrıntısı.
     pub failure: Option<AssertFailure>,
+    /// `VOLT-CONTRACT-FAIL` — testi düşüren kontrat ihlali (ADR-0064).
+    pub contract: Option<ContractViolation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,9 +29,12 @@ pub(super) struct AssertFailure {
 pub(super) fn parse_tb_output(out: &str) -> Vec<TestOutcome> {
     let mut results = Vec::new();
     let mut pending_fail: Option<AssertFailure> = None;
+    let mut pending_contract: Option<ContractViolation> = None;
     for line in out.lines() {
         if let Some(rest) = line.strip_prefix("VOLT-ASSERT-FAIL ") {
             pending_fail = parse_assert_fail(rest);
+        } else if let Some(rest) = line.strip_prefix("VOLT-CONTRACT-FAIL ") {
+            pending_contract = parse_contract_fail(rest);
         } else if let Some(rest) = line.strip_prefix("VOLT-TEST-END ") {
             let (name, status) = match rest.rsplit_once(' ') {
                 Some(pair) => pair,
@@ -37,6 +44,7 @@ pub(super) fn parse_tb_output(out: &str) -> Vec<TestOutcome> {
                 name: name.to_string(),
                 passed: status == "ok",
                 failure: pending_fail.take(),
+                contract: pending_contract.take(),
             });
         }
     }
@@ -100,6 +108,20 @@ mod tests {
         assert_eq!((f.left, f.right), (8, 3));
         assert_eq!(f.loop_ctx.as_deref(), Some("i = 8, j = 1"));
         assert_eq!(f.port, Some(("addr".to_string(), "u3".to_string())));
+    }
+
+    #[test]
+    fn parse_tb_output_attaches_contract_violation_to_its_test() {
+        let out = "VOLT-TEST-BEGIN a\n\
+                   VOLT-CONTRACT-FAIL Cnt.inv_0 cycle=6 inst=TOP.Cnt\n\
+                   VOLT-TEST-END a fail\n\
+                   VOLT-TEST-BEGIN b\nVOLT-TEST-END b ok\nVOLT-COVER Cnt.cov_0 3\n";
+        let results = parse_tb_output(out);
+        assert_eq!(results.len(), 2);
+        let v = results[0].contract.as_ref().expect("ihlal");
+        assert_eq!((v.id.as_str(), v.cycle), ("Cnt.inv_0", 6));
+        assert!(results[0].failure.is_none());
+        assert!(results[1].contract.is_none());
     }
 
     #[test]
