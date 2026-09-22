@@ -2,6 +2,9 @@
 // transfer with a 4-phase req/ack handshake. The data register stays
 // stable in the source domain until the destination acknowledges, so
 // the multi-bit value crosses safely.
+//
+// The external reset comes in raw (ADR-0065): the compiler releases it
+// synchronously to each clock with its own two-stage chain.
 domain Fast {
     clock = posedge
     reset = sync active_high
@@ -15,6 +18,7 @@ domain Slow {
 module HsBridge {
     in  fast_clk : clock @Fast
     in  slow_clk : clock @Slow
+    in  rst      : reset(sync, active_high)
     in  din      : u8    @Fast
     in  send_req : bool  @Fast
     out busy     : bool  @Fast

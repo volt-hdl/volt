@@ -286,6 +286,18 @@ impl BuiltinPrim {
         self.ports().iter().find(|p| p.name == name)
     }
 
+    /// Bu saat portu reset'li bir flop sürüyor mu (ADR-0065 R5'):
+    /// `AsyncDualPortRam` yazma tarafı yalnız bellek dizisidir (reset'siz,
+    /// ADR-0049), `PriorityArbiter` kombinasyoneldir. Böyle bir bağlama
+    /// saati reset ÖRNEKLEYEN saat yapmaz; RDC denetimi ve sv-emit'in
+    /// çocuk reset bağlaması bu tabloyu okur.
+    pub fn clock_resets_flops(&self, port: &str) -> bool {
+        !matches!(
+            (self, port),
+            (BuiltinPrim::AsyncDualPortRam, "wr_clk") | (BuiltinPrim::PriorityArbiter, "clk")
+        )
+    }
+
     /// Beklenen tip argümanı sayısı (`T`).
     pub fn type_arg_count(&self) -> usize {
         match self {

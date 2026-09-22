@@ -2,6 +2,9 @@
 // between two clock domains via gray-coded pointers. The write side
 // lives in @Fast, the read side in @Slow; the compiler generates the
 // dual-clock FIFO body and its formal contracts.
+//
+// The external reset comes in raw (ADR-0065): the compiler releases it
+// synchronously to each clock with its own two-stage chain.
 domain Fast {
     clock = posedge
     reset = sync active_high
@@ -15,6 +18,7 @@ domain Slow {
 module FifoBridge {
     in  fast_clk : clock @Fast
     in  slow_clk : clock @Slow
+    in  rst      : reset(sync, active_high)
     in  din      : u8    @Fast
     in  push     : bool  @Fast
     in  pop      : bool  @Slow

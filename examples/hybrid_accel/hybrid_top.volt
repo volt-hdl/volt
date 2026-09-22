@@ -118,6 +118,11 @@ module BinaryFront {
 }
 
 pub module HybridTop {
+    // Reset, taken raw (ADR-0065): released synchronously to t_clk and
+    // to b_clk by a two-stage chain each; every single-clock child gets
+    // the chain of the clock it is bound to.
+    in  rst        : reset(sync, active_high)
+
     // ── Ternary domain ────────────────────────────────────────────
     in  t_clk      : clock @TernaryCore
     in  t_weight   : [Trit; TN * TN] @TernaryCore

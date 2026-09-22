@@ -86,6 +86,24 @@ fn only_modules_nobody_instantiates_are_roots() {
 }
 
 #[test]
+fn ram_write_clock_and_extern_bindings_are_not_reset_uses() {
+    let src = "domain A { clock = posedge }\ndomain B { clock = posedge }\n\
+               extern module X { in c : clock @S }\n\
+               module M { in a_clk : clock @A in b_clk : clock @B in x_clk : clock @A \
+               in ra : bits<2> @B out q : u8 @B \
+               let m = AsyncDualPortRam<u8, 4> { wr_clk: a_clk, wr_addr: 0, wr_data: 1, wr_en: true, \
+               rd_clk: b_clk, rd_addr: ra } q = m.rd_data let e = X { c: x_clk } }";
+    with_facts(src, |f| {
+        let used: Vec<bool> = f.modules[0].clocks.iter().map(|c| c.used).collect();
+        assert_eq!(
+            used,
+            [false, true, false],
+            "a: yazma tarafı, b: okuma, x: extern"
+        );
+    });
+}
+
+#[test]
 fn raw_port_spec_and_annotation_are_recorded() {
     let src = "domain D { clock = posedge, reset = async active_low }\n\
                module M { in clk : clock @D in r : reset(async, active_low) @D in s : reset }";

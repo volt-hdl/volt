@@ -1,6 +1,6 @@
 # ADR-0065: RDC Denetimi ve Hedefli SDC Kısıtları — İki Güvenlik Ağı, İki Ayrı Yırtık
 
-> Statü: KABUL EDİLDİ (tasarım; uygulama Aşama 2–4 ayrı PR'lar — bu ADR'de kod YOK)
+> Statü: KABUL EDİLDİ (tasarım; uygulama Aşama 2–5 ayrı PR'lar — bu ADR'de kod YOK)
 > Tarih: 2026-09-22
 > Etkilenen (plan): volt-hir (`domain/rdc.rs` YENİ; `domain/instance.rs`
 > minimum), volt-diagnostics (E3003 etkin, W3xxx-A, W3xxx-B YENİ —
@@ -98,6 +98,9 @@ Volt'ta OLUŞABİLEN durumlar ve karar:
 > **Not (R5', Aşama 2):** W3xxx-B'nin uyarı olması **geçicidir**. Aşama 4'te
 > örnekler (vga, hybrid_accel) ham reset portuna taşındıktan sonra hataya
 > yükseltilmesi değerlendirilecek.
+>
+> **Karar (Aşama 5, 2026-09-22):** değerlendirildi — W3010 **uyarı kalır**,
+> muafiyet niteliği yok. Gerekçe ve ölçümler §"Aşama 5".
 >
 > **Kod tahsisi (Aşama 2):** W3xxx-A → **W3009**, W3xxx-B → **W3010**
 > (W3008'den sonraki ilk boş numaralar). Bu belgedeki sembolik adlar
@@ -634,4 +637,166 @@ notu: kalıcı CI betikleri gitignore'daki `build/` yerine `scripts/sta/`
 altında (görev tanımı `build/`'i geçici sayar; CI'ın izlediği dosyaya
 ihtiyacı var). Kalan sınırlar §"Sınırlar / Ertelenen"deki gibi: Vivado
 `.xdc` yalnız sözdizimi düzeyinde (`-datapath_only`, `set_bus_skew`
-OpenSTA'da yok), Quartus stili yok, örnekler hâlâ W3010 (otomatik port).
+OpenSTA'da yok), Quartus stili yok, örnekler hâlâ W3010 (otomatik port;
+Aşama 5'te taşındı).
+
+## Aşama 5 — örneklerin ham porta taşınması ve W3010 kararı (2026-09-22)
+
+Aşama 2 notunun (R5' "geçici uyarı") kapanışı. Adımlar: (1) W3009/W3010
+üreten her dosyanın tespiti, (2) taşıma, (3) yükseltme kararı, (4)
+golden.
+
+### 5.1 Tespit
+
+`volt check` (180 dosya: `tests/ui`, `tests/fixtures`, `examples`;
+`build/rawreset_scan.py`) 20 dosyada E3003/W3009/W3010 buldu:
+
+| Sınıf | Dosyalar | Neden bu desende | İşlem |
+|---|---|---|---|
+| Tanının kendi testi | `fail/62–65`, `fail/67`, `fail/68` | Kural testleri | dokunulmadı |
+| Bilinçli W3009 | `pass/19` (async + negedge + active_low) | sv-mapping §7'nin otomatik port varyantını sınar; ham port SV'yi değiştirir, testin amacı kaybolur | gerekçeli kalır |
+| Gerçek paylaşım (iki alanda da reset'li flop) | `examples/vga/vga_top`, `examples/hybrid_accel/hybrid_top`, `hybrid_test` (HybridTb), `pass/27`, `28`, `29`, `74` | ADR-0065 öncesi yazıldılar; tek otomatik `rst` | ham porta taşındı |
+| **Yanlış pozitif** — saat reset'li flop sürmüyor | `examples/vga/frame_buffer`, `pass/65`, `fail/51` (`AsyncDualPortRam` yazma tarafı: yalnız bellek dizisi, reset'siz — ADR-0049); `pass/62`, `fail/49`, `fail/50` (saatler yalnız extern örneğine gider; extern'in reset portu yok) | Aşama 2'nin "kullanılan saat" kuralı her örnek bağlamasını sayıyordu | kural inceltildi (5.2), taşıma GEREKMEDİ |
+
+Taşıma denemesinde bir **derleyici hatası** çıktı: VgaTop ham porta
+geçince `FrameBuffer` örneğinin tek `rst` portuna `rst_sync_sys_clk_stage1`
+bağlanıyordu (`instance.rs::parent_synced_reset` ilk saati seçer), oysa
+FrameBuffer'ın tek reset'li flop'u `pix_clk` tarafındaki RAM okuma
+register'ıdır. Bırakma pix saatine asenkron kalırdı — taşınmış örnekte
+sessiz bir RDC hatası.
+
+### 5.2 Kural inceltmesi (kapsam sapması: volt-ast, volt-sv-emit)
+
+"Reset örnekleyen saat" = reset'li bir flop sürebilecek bir yerde
+kullanılan saat. Reset taşımayan bağlamalar:
+
+- `BuiltinPrim::clock_resets_flops(port)` (volt-ast, tablo):
+  `AsyncDualPortRam.wr_clk` (`builtin_always_ff_no_reset`) ve
+  `PriorityArbiter.clk` (yalnız `assign`) `false`; diğer her saat
+  portu ve bilinmeyen ad `true` (tutucu).
+- Extern örneğinin her bağlaması (extern'e reset gitmez).
+
+Uygulama: volt-hir `rdc/facts.rs::reset_free_bindings` (`ClockFact.used`
+bu bağlamaların İÇİNDEKİ kullanımları saymaz; `converge.rs::chain_used`
+aynı kümeyi atlar) ve volt-sv-emit `reset_sync.rs::reset_free_clock`
+(çocuğun otomatik portu için aday saatlerden yalnız reset'siz
+bağlamada kullanılanlar elenir; `on clk`, `reg(clk)`, kullanıcı örneği
+bağlaması ya da modül gövdesinde `sync(_, clk)` saati örnekleyen sayar;
+aday kalmazsa eski davranış). volt-sv-emit volt-hir'e bağımlı olmadığı
+için kural iki yerde yaşar; ortak tablo volt-ast'te, iki taraf mutasyonla
+korunur. `Arena::iter` (volt-ast) `sync()` araması için eklendi.
+
+Kapsam notu: görev tanımı volt-hir/volt-diagnostics'i sayıyordu; sv-emit
+hatası taşımayı yanlış yapacağı için kullanıcı onayıyla (ikisi birden)
+düzeltildi.
+
+### 5.3 Taşıma
+
+Her tasarıma `in rst : reset(sync, active_high)` eklendi (HybridTb ham
+portunu HybridTop'a geçirir). Alanlar `sync active_high` olduğu için
+tür/polarite aynı kalır; port adı `rst` kalır (harness adla sürer); tek
+davranış farkı bırakmadan sonraki 2 çevrimlik zincir gecikmesidir
+(harness bunu Aşama 2'den beri bekler).
+
+| Tasarım | Zincir | Çocuk bağlaması | Lint (Verilator 5, `-Wall`) | `volt test` | Formal | SDC |
+|---|---|---|---|---|---|---|
+| VgaTop (+FrameBuffer, VgaTiming) | `rst_sync_sys_clk`, `rst_sync_pix_clk` | FrameBuffer ve VgaTiming ← pix zinciri | temiz | 7/7 | `bmc 24` **15/15** (main: 14/15) | "Reset synchronizers" +7 satır |
+| HybridTop | `t_clk`, `b_clk` | TernaryArray/Ctl ← t, BinaryFront/Array ← b | temiz | 6/6 (hybrid_test) | `bmc 16` **32/32** (main: 31/32) | +7 |
+| HybridTb (test sarmalayıcısı) | `t_clk`, `b_clk` (ölü) | HybridTop ← ham `rst` | 5 UNUSEDSIGNAL: 3'ü main'de de var (`top_*` çıkışları), 2'si ölü zincir (aşağıda) | — | — | +9 |
+| pass/27 FifoBridge | fast, slow | — | temiz | — | `bmc 24` 3/3 | +7 |
+| pass/28 HsBridge | fast, slow | — | temiz | — | 2/2 | +7 |
+| pass/29 PulseBridge | fast, slow | — | temiz | — | 2/2 | +7 |
+| pass/74 Bridge | fast, slow | — | temiz | — | 2/2 | +7 |
+| pass/88 (yeni) Display + FrameStore | sys, pix | FrameStore ← pix zinciri | temiz | — | 3/3 | — |
+
+Ölçüm ortamı: Docker `verilator/verilator` (lint + `volt test`, 9 örnek
+test dosyası 123/123 geçti), `hdlc/formal` (sby); karşılaştırma main
+`314f5c5` ikilisi `build/wt-main` ağacında (`build/rawreset_formal.sh`).
+
+**Formal bulgusu:** main'de iki çok saatli tasarım `bmc`'de düşüyordu:
+VgaTop `invariant: wx_r < 80` ve HybridTop AsyncFifo değişmezi, ikisi de
+döngü 2'de. Bu, `examples/vga/README.md`'deki "formal sarmalayıcı reset
+sırası" açığıdır: `rst` bir saatin ilk kenarından önce bırakılır, o
+saatin register'ları hiç reset görmeden başlar. Ham portta `initial
+assume` zincir çıkışına uygulanır (Aşama 2) ve zincir bırakmayı saate
+senkronladığından her register ilk örneklenen kenarında reset'tedir —
+açık bu tasarımlar için kapanır. Otomatik portlu çok saatli tasarımlarda
+açık sürüyor.
+
+**Ölü zincir (sınır):** yalnız ham portu çocuğa geçiren ara seviye
+(HybridTb) yine de kendi zincirlerini üretir; Aşama 2 bunu yakınsama
+saymamıştı (`chain_used`), sv-emit ise hâlâ emit ediyor. İşlev etkisi
+yok (sentez budar); sv-emit'te "zincirsiz geçiş" ayrı iş.
+
+### 5.4 Yükseltme kararı: W3010 uyarı kalır
+
+**Soru:** bütün örnekler temizken W3010 hataya yükseltilsin mi?
+
+**Ölçüm (belirleyici):** iki alanda reset'li flop'u olan bir çocuk,
+aynı iki saatte kendi flop'ları olan bir ebeveynin altında
+(`rdc_tests::multi_domain_child_under_a_synchronizing_parent_has_no_error_free_form`):
+
+| Çocuğun reset'i | Sonuç |
+|---|---|
+| otomatik `rst` | çocukta W3010 (tek port iki saatin zincirini taşıyamaz — ebeveyn birini bağlar) |
+| ham `rst`, ebeveyn ham `rst`'yi geçirir | **E3003 ×2** (R6: aynı ham reset her saatte iki kez senkronlanır) |
+| iki anotasyonlu ham port | yine R6 (değer yalnız ebeveynin ham portu olabilir) |
+
+Yani bu yapının bugün **hatasız bir biçimi yok**. Yaygın bir yapı: tepe
+modülünde yapıştırıcı mantık + altında çift saatli bir alt blok (VGA'da
+FrameBuffer'ın yazma tarafında tek bir reset'li sayaç olsaydı VgaTop
+yazılamazdı).
+
+| Seçenek | Değerlendirme |
+|---|---|
+| Hataya yükselt | Yukarıdaki yapıyı yazılamaz kılar. **Reddedildi.** |
+| Hata + `@allow(shared_reset)` (ADR-0048 `@allow` mekanizması) | Tek geçerli kullanım durumu dil sınırıdır, tasarımcının bilinçli seçimi değil; susturma gerçek bir tehlikeyi (ikinci alanın asenkron bırakması) gizler ve kalıcı API yüzeyi ekler. Volt'ta "ilişkili saat" kavramı yok (her alanlar arası veri yolu E3001), bu yüzden "tasarımcı zamanlamayı garanti ediyor" durumu da dilde ifade edilemez. **Reddedildi.** |
+| Yalnız birim kökünde hata | Aynı modül bir birimde kök, diğerinde çocuktur (`volt check examples/vga/frame_buffer.volt` kökü FrameBuffer yapar): birime göre değişen önem derecesi. **Reddedildi.** |
+| **Uyarı kalır** (seçilen) | Kökte düzeltme tek satır ve tanının help'i onu söyler; `--deny-warnings` sıkı kullanıcıya hata davranışı verir. Mevcut kaçış yolları: ham port (önerilen), alan başına anotasyonlu ham port, ikinci alanı `reset = none`. |
+
+Geriye uyumluluk: kullanıcı yok; yine de uyarı kalması hiçbir kodu
+kırmaz. İnceltme (5.2) yalnız yanlış pozitifleri kaldırır; W3010'un
+kalan her örneği gerçek bir paylaşımdır.
+
+**Yeniden değerlendirme koşulu:** çok saatli çocuğa saat başına otomatik
+reset portu (`rst_<saat>` ya da eşdeğeri; sv-emit + RDC) geldiğinde her
+W3010'un hatasız bir biçimi olur; o zaman muafiyetsiz hataya yükseltme
+yeniden açılır. `explain W3010` ve tanı notundaki "geçici" dili kalktı
+(`explain_tests` bunu denetler).
+
+### 5.5 Golden (`build/rawreset_golden.py`, main `314f5c5` ↔ dal)
+
+791 dosya (`tests/ui`, `tests/fixtures`, `examples`, `build/` külliyatları)
+için `volt check --format=json` + `volt build --emit=sva,sdc,xdc`: **776
+bayt bayt aynı**, 15 fark (2'si yeni fixture):
+
+| Dosya | Fark | Açıklama |
+|---|---|---|
+| `vga/vga_top` | check `W3006,W3010,W3010 → W3006`; `VgaTop.sv` +34 −8; `.sdc` +7; `.xdc` +9; `vgatop.sva` 10 satır | iki zincir; `if (rst)` → zincir çıkışı; FrameBuffer/VgaTiming `.rst` ← pix zinciri; SVA `disable iff`/`initial assume` zincire, satır atıfları +6 (yorum) |
+| `vga/frame_buffer` | check `W3006,W3010 → W3006` | yalnız tanı (inceltme) |
+| `hybrid_accel/hybrid_top` | check `W3010 → —`; `HybridTop.sv` +36 −10; `.sdc` +7; `.xdc` +9; `.sva` 8 satır | aynı desen |
+| `hybrid_accel/hybrid_test` | check `W3010 ×2 → —`; `HybridTb.sv` +26; `HybridTb.sdc` +9 | sarmalayıcıya ham port + ölü zincir |
+| `pass/27`, `28`, `29` | check −W3010; `*.sv` +28 −2; `.sdc` +7; `.xdc` +9 | zincir; otomatik `rst` portu kalkar |
+| `pass/74` | check `W3005,W3010 → W3005`; `Bridge.sv` +30 −4; `.sdc` +7; `.xdc` +9 | aynı |
+| `pass/62`, `pass/65`, `fail/49`, `50`, `51` | yalnız check (−W3010) | inceltme; SV/SDC bayt bayt aynı |
+| `pass/88`, `fail/70` | yeni | 5.2 fixture'ları |
+
+Her `.sdc` farkı yalnız "Reset synchronizers" bölümüdür (Aşama 3 notu
+4'ün öngördüğü gibi): `set_false_path -from [get_ports rst]` + zincir
+yorumları; `.xdc`'de ek `ASYNC_REG`.
+
+### 5.6 Testler ve mutasyon
+
+- `cargo test --all` 0 başarısız; `just check`, `just consistency` (131
+  kod, 2665 → 2683 test: 2542 `#[test]` + 77 pass + 64 fail),
+  `just clippy-strict` temiz.
+- Yeni: `rdc_tests` 7 (RAM yazma tarafı, register'lı/`sync`'li yazma
+  saati, extern ±flop, ölü ebeveyn zinciri, hiyerarşi kararı; RDC dışı
+  hata güvencesi), `rdc/tests.rs` 1, `reset_sync_tests` 3 (pix zinciri,
+  dört tutucu durum, aday kalmayınca geri dönüş), volt-ast
+  `builtin_tests` 2 + `arena_tests` 1, `explain_tests` karar metni;
+  ui `pass/88`, `fail/70`.
+- Mutasyon (`build/rawreset_mutate.py`, tek tek): **16/16 yakalandı** —
+  tablo (her giriş ayrı ve tamamen), `used` süzgeci, extern dalı, konum
+  içerme, `chain_used`, sv-emit aday süzgeci, geri dönüş, `on`/`reg`/
+  yerleşik/kullanıcı örneği kolları, `sync` araması ve modül aralığı.

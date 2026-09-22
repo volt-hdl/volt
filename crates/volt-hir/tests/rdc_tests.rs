@@ -397,6 +397,146 @@ fn data_signal_cannot_drive_a_raw_reset_port() {
     assert!(codes.contains(&"E2003"), "{codes:?}");
 }
 
+// ═══ Reset taşımayan bağlamalar (ADR-0065 R5' inceltmesi) ═════════
+
+/// `rdc_codes` + kaynakta RDC dışı hata olmadığı güvencesi (yeni testler
+/// yalnız RDC kodlarına baktığı için gizli tip hatası sonucu bozmasın).
+fn checked_rdc_codes(src: &str) -> Vec<&'static str> {
+    let other: Vec<_> = diags(src)
+        .iter()
+        .map(|d| d.code.as_str())
+        .filter(|c| c.starts_with('E') && !matches!(*c, "E3003" | "E3010"))
+        .collect();
+    assert!(other.is_empty(), "RDC dışı hata: {other:?}");
+    rdc_codes(src)
+}
+
+/// `AsyncDualPortRam` yazma tarafı `fast_clk`'te, okuma `slow_clk`'te;
+/// `extra` gövdeye eklenir.
+fn ram_bridge(extra: &str) -> String {
+    format!(
+        "{SYNC_TWO}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n\
+         in wa : bits<4> @Fast\n    in wd : u8 @Fast\n    in ra : bits<4> @Slow\n\
+         out rd : u8 @Slow\n    out qa : u8 @Fast\n\
+         let m = AsyncDualPortRam<u8, 16> {{ wr_clk: fast_clk, wr_addr: wa, wr_data: wd, \
+         wr_en: true, rd_clk: slow_clk, rd_addr: ra }}\n    rd = m.rd_data\n{extra}}}\n"
+    )
+}
+
+#[test]
+fn clock_feeding_only_a_ram_write_side_samples_no_reset() {
+    // Yazma tarafı yalnız bellek dizisidir (reset'siz, ADR-0049): `rst`'yi
+    // yalnız okuma register'ı örnekler — paylaşım yok.
+    let src = ram_bridge("    qa = 0\n");
+    assert!(
+        checked_rdc_codes(&src).is_empty(),
+        "{:?}",
+        checked_rdc_codes(&src)
+    );
+}
+
+#[test]
+fn ram_write_clock_with_its_own_register_still_shares_the_reset() {
+    let src = ram_bridge("    reg(fast_clk) r : u8 = 0\n    on fast_clk { r <= wd }\n    qa = r\n");
+    assert_eq!(checked_rdc_codes(&src), ["W3010"]);
+}
+
+#[test]
+fn ram_write_clock_synchronizing_a_bit_samples_the_reset() {
+    // `sync(_, fast_clk)` aşamaları fast alanının reset'iyle sıfırlanır.
+    let src = ram_bridge("    qa = 0\n    wire f : bool\n    f = sync(rd[0], fast_clk)\n");
+    assert_eq!(checked_rdc_codes(&src), ["W3010"]);
+}
+
+const EXT: &str = "extern module Ext {\n    in wr_clk : clock @Src\n    in d : u8 @Src\n\
+                   in rd_clk : clock @Dst\n    out q : u8 @Dst\n}\n";
+
+#[test]
+fn clocks_bound_only_to_an_extern_sample_no_reset() {
+    // Extern'in reset portu yok (ADR-0065 durum tespiti): Volt'un `rst`'si
+    // oraya ulaşmaz, iki saat de reset örneklemez.
+    let src = format!(
+        "{SYNC_TWO}{EXT}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n\
+         in d : u8 @Fast\n    out q : u8 @Slow\n\
+         let e = Ext {{ wr_clk: fast_clk, d: d, rd_clk: slow_clk }}\n    q = e.q\n}}\n"
+    );
+    assert!(
+        checked_rdc_codes(&src).is_empty(),
+        "{:?}",
+        checked_rdc_codes(&src)
+    );
+}
+
+#[test]
+fn extern_module_next_to_flops_on_both_clocks_still_shares_the_reset() {
+    let src = format!(
+        "{SYNC_TWO}{EXT}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n\
+         in d : u8 @Fast\n    out q : u8 @Slow\n    out qa : u8 @Fast\n    out qb : u8 @Slow\n\
+         reg(fast_clk) ra : u8 = 0\n    reg(slow_clk) rb : u8 = 0\n\
+         on fast_clk {{ ra <= d }}\n    on slow_clk {{ rb <= rb + 1 }}\n    qa = ra\n    qb = rb\n\
+         let e = Ext {{ wr_clk: fast_clk, d: d, rd_clk: slow_clk }}\n    q = e.q\n}}\n"
+    );
+    assert_eq!(checked_rdc_codes(&src), ["W3010"]);
+}
+
+#[test]
+fn parent_chain_feeding_only_a_ram_write_side_does_not_converge() {
+    // Top'un `clk` zinciri yalnız reset'siz yazma tarafına gider (ölü
+    // mantık); aynı ham reset'i `clk`'te senkronlayan tek zincir çocuğunki.
+    let src = format!(
+        "{CORE_ASYNC}domain Rd {{ clock = posedge, reset = async active_low }}\n{RAW_CHILD}\
+         module Top {{\n    in clk : clock @Core\n    in rd_clk : clock @Rd\n\
+         in rst_n : reset(async, active_low)\n    in d : u8 @Core\n    in wa : bits<4> @Core\n\
+         in ra : bits<4> @Rd\n    out q : u8 @Core\n    out rd : u8 @Rd\n\
+         let m = AsyncDualPortRam<u8, 16> {{ wr_clk: clk, wr_addr: wa, wr_data: d, wr_en: true, \
+         rd_clk: rd_clk, rd_addr: ra }}\n    rd = m.rd_data\n\
+         let u = RawChild {{ clk: clk, rst_n: rst_n, d: d }}\n    q = u.q\n}}\n"
+    );
+    assert!(
+        checked_rdc_codes(&src).is_empty(),
+        "{:?}",
+        checked_rdc_codes(&src)
+    );
+}
+
+// ═══ ADR-0065 R5' yükseltme kararı: W3010 uyarı kalır ════════════
+
+const DUAL: &str = "module Dual {\n    in sys_clk : clock @Fast\n    in slow_clk : clock @Slow\n\
+                    RAW    in a : u8 @Fast\n    out qa : u8 @Fast\n    out qb : u8 @Slow\n\
+                    reg(sys_clk) ra : u8 = 0\n    reg(slow_clk) rb : u8 = 0\n\
+                    on sys_clk { ra <= a }\n    on slow_clk { rb <= rb + 1 }\n    qa = ra\n    qb = rb\n}\n";
+
+fn dual_under_parent(child_raw: bool) -> String {
+    let (raw, bind) = if child_raw {
+        ("in rst : reset(sync, active_high)\n", ", rst: rst")
+    } else {
+        ("", "")
+    };
+    format!(
+        "{SYNC_TWO}{}module Top {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n\
+         in rst : reset(sync, active_high)\n    in a : u8 @Fast\n    out qa : u8 @Fast\n\
+         out qb : u8 @Slow\n    out ta : u8 @Fast\n    out tb : u8 @Slow\n\
+         reg(fast_clk) ra : u8 = 0\n    reg(slow_clk) rb : u8 = 0\n\
+         on fast_clk {{ ra <= a }}\n    on slow_clk {{ rb <= rb + 1 }}\n    ta = ra\n    tb = rb\n\
+         let u = Dual {{ sys_clk: fast_clk, slow_clk: slow_clk, a: a{bind} }}\n\
+         qa = u.qa\n    qb = u.qb\n}}\n",
+        DUAL.replace("RAW", raw)
+    )
+}
+
+#[test]
+fn multi_domain_child_under_a_synchronizing_parent_has_no_error_free_form() {
+    // İki alanda da reset'li flop'u olan çocuk, aynı saatlerde kendi flop'u
+    // olan ebeveynin altında: otomatik portla W3010 (çocukta), ham portla
+    // R6 yakınsaması (her saat için E3003). W3010 hata olsaydı bu yaygın
+    // yapı yazılamazdı — ADR-0065 "Aşama 5" kararının ölçümü.
+    assert_eq!(checked_rdc_codes(&dual_under_parent(false)), ["W3010"]);
+    assert_eq!(
+        checked_rdc_codes(&dual_under_parent(true)),
+        ["E3003", "E3003"]
+    );
+}
+
 // ═══ Belirlenimcilik ══════════════════════════════════════════════
 
 #[test]

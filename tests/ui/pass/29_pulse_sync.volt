@@ -6,6 +6,9 @@
 // unknown at compile time, so the compiler reminds the designer on
 // every PulseSync instantiation: keep at least 3 destination clock
 // cycles between consecutive source pulses.
+//
+// The external reset comes in raw (ADR-0065): the compiler releases it
+// synchronously to each clock with its own two-stage chain.
 domain Fast {
     clock = posedge
     reset = sync active_high
@@ -19,6 +22,7 @@ domain Slow {
 module PulseBridge {
     in  fast_clk : clock @Fast
     in  slow_clk : clock @Slow
+    in  rst      : reset(sync, active_high)
     in  p_in     : bool  @Fast
     out p_out    : bool  @Slow
 

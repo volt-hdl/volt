@@ -20,6 +20,12 @@ use vga::vga_timing::{SysDomain, PixDomain, VgaTiming};
 use vga::frame_buffer::FrameBuffer;
 
 pub module VgaTop {
+    // Board reset, taken raw (ADR-0065): the compiler releases it
+    // synchronously to sys_clk and to pix_clk with a two-stage chain
+    // each. VgaTiming and FrameBuffer (whose only reset flop is the
+    // RAM read register) get the pix_clk chain.
+    in  rst        : reset(sync, active_high)
+
     // ── System domain ─────────────────────────────────────────────
     in  sys_clk    : clock @SysDomain
     in  invert     : bool  @SysDomain   // host control: invert colours

@@ -87,7 +87,10 @@ module BinaryArrayTb {
     east3 = east[BN - 1]
 }
 
+// HybridTop takes its reset raw; the wrapper passes its own raw port
+// through (the harness drives it by name, ADR-0065).
 module HybridTb {
+    in  rst      : reset(sync, active_high)
     in  t_clk    : clock @TernaryCore
     in  t_act    : i8    @TernaryCore
     in  t_start  : bool  @TernaryCore
@@ -108,7 +111,7 @@ module HybridTb {
 
     let top = HybridTop {
         t_clk: t_clk, t_weight: tw, t_act: ta, t_start: t_start,
-        b_clk: b_clk, b_weight: bw,
+        b_clk: b_clk, b_weight: bw, rst: rst,
     }
     t_busy    = top.t_busy
     t_full    = top.t_full

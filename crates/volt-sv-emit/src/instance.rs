@@ -154,7 +154,7 @@ impl<'a> Emitter<'a> {
             // ADR-0065 §1: çocuğun saatine bağlanan ebeveyn saatinin alanı
             // ham portla besleniyorsa zincir çıkışı bağlanır.
             if let Some(synced) =
-                parent_synced_reset(&target_clocks, &cfg, &bindings, parent_clocks, ast)
+                parent_synced_reset(target, &target_clocks, &cfg, &bindings, parent_clocks, ast)
             {
                 conns.push((rst.to_string(), synced));
                 continue;
@@ -311,26 +311,41 @@ fn format_instance(module: &str, name: &str, conns: &[(String, String)]) -> Stri
 /// Çocuğun otomatik reset portuna bağlanacak ebeveyn zincir çıkışı
 /// (ADR-0065 §1): o porta bağlı çocuk saatlerinden biri, reset'i ham
 /// portla beslenen ve aynı polariteli bir ebeveyn saatine bağlıysa.
+/// Çocukta reset örneklemeyen saat (`AsyncDualPortRam.wr_clk`'e
+/// giden) önce elenir: port, reset'li flop'ların saatinin zincirini
+/// almalı. Hiçbiri kalmazsa bütün saatlere bakılır.
 fn parent_synced_reset(
+    target: &ModuleDecl,
     target_clocks: &[ClockPort],
     cfg: &crate::ResetCfg,
     bindings: &HashMap<&str, Option<Idx<Expr>>>,
     parent_clocks: &[ClockPort],
     ast: &volt_ast::SourceFile,
 ) -> Option<String> {
-    target_clocks
+    let candidates: Vec<&ClockPort> = target_clocks
         .iter()
         .filter(|c| !c.info.reset.is_none() && c.info.reset.synced.is_none())
         .filter(|c| c.info.reset.port_name() == cfg.port_name())
-        .find_map(|c| {
-            let parent_name = match bindings.get(c.name.as_str())? {
-                Some(e) => crate::path_single(ast, *e)?,
-                None => c.name.as_str(),
-            };
-            let parent = parent_clocks.iter().find(|p| p.name == parent_name)?;
-            let reset = &parent.info.reset;
-            (reset.polarity == cfg.polarity)
-                .then(|| reset.synced.clone())
-                .flatten()
-        })
+        .collect();
+    let sampling: Vec<&ClockPort> = candidates
+        .iter()
+        .copied()
+        .filter(|c| !crate::reset_sync::reset_free_clock(ast, target, &c.name))
+        .collect();
+    let chosen = if sampling.is_empty() {
+        candidates
+    } else {
+        sampling
+    };
+    chosen.into_iter().find_map(|c| {
+        let parent_name = match bindings.get(c.name.as_str())? {
+            Some(e) => crate::path_single(ast, *e)?,
+            None => c.name.as_str(),
+        };
+        let parent = parent_clocks.iter().find(|p| p.name == parent_name)?;
+        let reset = &parent.info.reset;
+        (reset.polarity == cfg.polarity)
+            .then(|| reset.synced.clone())
+            .flatten()
+    })
 }

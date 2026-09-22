@@ -435,6 +435,17 @@ fn adr_0065_rdc_explanations_point_to_the_raw_reset_port() {
             assert!(w.is_warning());
         }
         assert!(explanation(lang, ErrorCode::W3010).why.contains("ADR-0065"));
+        // R5' kararı (ADR-0065): uyarı kalıcı, gerekçesi hatasız biçimi
+        // olmayan hiyerarşi (E3003 R6) — "geçici" dili kalktı.
+        let why = explanation(lang, ErrorCode::W3010).why;
+        assert!(
+            why.contains("E3003") && why.contains("AsyncDualPortRam"),
+            "{why}"
+        );
+        assert!(
+            !why.contains("temporary") && !why.contains("geçici"),
+            "{why}"
+        );
     }
     assert!(ErrorCode::W3009.description().contains("ADR-0065"));
 }

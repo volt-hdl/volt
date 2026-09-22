@@ -282,6 +282,11 @@ Two harness properties matter for multi-clock designs:
   the common clock. The generated RTL also has one `rst` input that
   both `always_ff` blocks use directly — no per-domain reset
   synchronizer is generated, which a real two-clock design needs.
+  *Update (ADR-0065):* `VgaTop` now takes `rst` as a raw port
+  (`in rst : reset(sync, active_high)`); the compiler releases it
+  to each clock through its own two-stage chain
+  (`rst_sync_sys_clk_stage1`, `rst_sync_pix_clk_stage1`) and the
+  harness waits for the chain after reset.
 
 The sibling rule (`X_test.volt` ↔ `X.volt`) also bit: the file was
 first named `vga_test.volt` (as the task said) and produced E8501 "no
@@ -348,8 +353,10 @@ Language features that would have made this easy, roughly by impact:
    the only type-checked route was "FIFO the writes".
 2. **Per-domain reset** (`reset = sync active_high` is declared per
    domain but a single `rst` is emitted) plus a generated reset
-   synchronizer; and the matching formal wrapper fix (hold reset until
-   each clock has ticked).
+   synchronizer -- DONE in ADR-0065: a raw `reset(...)` port gets one
+   release synchronizer per clock (W3010 flags the shared form);
+   the formal wrapper fix (hold reset until each clock has ticked) is
+   still open.
 3. **`@timing` / `frequency` semantics** with SDC output -- DONE in
    ADR-0054: `volt build --emit=sdc,xdc` writes `create_clock`,
    `set_clock_groups -asynchronous` and a `set_false_path` per generated
