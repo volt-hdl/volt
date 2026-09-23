@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Parser bellek taşması: özyineli bundle sonsuz açılım (2026-09-23, ADR-0067)
+
+- Fuzz'ın bulduğu ilk hata (PR #19 gecelik/PR fuzz'ı, tohum `tests/ui/`):
+  kendini içeren bir `struct port` (`struct port Req { in req : Req }`)
+  sessizce 8 seviye açılıyor, k kendine dönen alan k⁹ port üretiyordu —
+  2087 baytlık girdi 60 s'de bitmiyor, 10,5 GB bellek; CI'da libFuzzer
+  OOM. Aynı sınıf `Handshake<T>` sade struct payload'ında da vardı (k⁸).
+- **E4009** (yeni): kendini içeren `struct port` ya da Handshake payload'ı;
+  döngüdeki her struct için bir tanı (birincil: struct adı, ikincil:
+  döngüyü kapatan alan), döngüye ulaşan tanımlar düzleştirilmez. Eskiden
+  bu girdi HATASIZ derleniyor ve `req_req_req_addr` gibi portlar üretiyordu.
+- **E4010** (yeni): düzleştirme bütçesi — modül başına en çok 4096 düz
+  port (`[Bundle; 256]` × 16 alan) ve en çok 8 seviye iç içelik; aşım
+  açılım SIRASINDA durdurulur (sonradan saymak patlamayı önlemez).
+  `MAX_NESTING` aşımı eskiden sessiz kesmeydi.
+- `tests/fuzz_regressions/` (YENİ): her fuzz bulgusu ham haliyle; her
+  dosya 5 s süre sınırıyla ayrıştırılır (`fuzz_regression_tests`). Dizin
+  PR ve gecelik fuzz işlerinde salt okunur tohumdur.
+- `volt explain E4009/E4010` iki dilde; `tests/ui/fail/72-73`.
+
 ### Eklendi — RDC denetimi, ham reset portu senkronizörü ve hedefli SDC (2026-09-22, ADR-0065)
 
 - **E3003** artık üretilir: aynı `rst`/`rst_n` portunu paylaşan iki

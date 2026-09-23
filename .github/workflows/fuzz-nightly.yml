@@ -49,13 +49,14 @@ jobs:
           mkdir -p "$CORPUS"
           echo "restored key: ${{ steps.corpus.outputs.cache-matched-key || '(none)' }}"
           echo "corpus files before: $(find "$CORPUS" -type f | wc -l)"
-      # First corpus dir receives new inputs; tests/ui is a read-only seed.
+      # First corpus dir receives new inputs; tests/ui and the fuzz regression
+      # inputs (ADR-0067) are read-only seeds.
       - name: parse_never_panics (${{ env.FUZZ_SECONDS }} s)
         id: fuzz
         run: |
           cargo +nightly fuzz run parse_never_panics \
             "$GITHUB_WORKSPACE/$CORPUS" \
-            "$GITHUB_WORKSPACE/tests/ui" \
+            "$GITHUB_WORKSPACE/tests/ui" "$GITHUB_WORKSPACE/tests/fuzz_regressions" \
             -- -max_total_time="$FUZZ_SECONDS"
       - name: Corpus size after
         if: always()

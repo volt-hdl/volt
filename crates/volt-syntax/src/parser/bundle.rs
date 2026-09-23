@@ -20,10 +20,10 @@
 //! değişkeni açılımda literale iner) düz isme yeniden yazılır. Sabit
 //! olmayan ya da aralık dışı indeks E2008.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    BinOp, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
+    BinOp, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, Idx, IfStmt, Item, ItemKind,
     LValue, LValueSuffix, Name, Path, Port, PortDir, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
@@ -37,9 +37,72 @@ use super::Parser;
 /// Bundle dizisi portunun en fazla eleman sayısı (ADR-0056).
 const MAX_BUNDLE_ARRAY: i128 = 256;
 
-/// İç içe bundle derinlik sınırı — kendine referanslı tanımda sonsuz
-/// açılımı keser.
+/// İç içe bundle derinlik sınırı (ADR-0067): aşılırsa E4010. Kendine
+/// referanslı tanım buraya gelmez — döngü tespiti (E4009) onu
+/// düzleştirmeden önce eler; bu sınır yalnız yığını korur.
 pub(super) const MAX_NESTING: usize = 8;
+
+/// Bir modülün düzleştirme sonrası en fazla port sayısı (ADR-0067):
+/// 256 elemanlı bundle dizisi × 16 alanlık arayüz. Döngüsüz ama elmas
+/// biçimli bir bundle çizgesi de üstel açılır; bütçe aşımı E4010'dur.
+pub(super) const MAX_FLAT_PORTS: usize = 4096;
+
+/// Düzleştirme bütçesinin hangi yönde aşıldığı (E4010).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Overflow {
+    Ports,
+    Depth,
+}
+
+/// Tanım çizgesinde döngü analizi (ADR-0067).
+pub(super) struct Cycles {
+    /// Döngü üzerindeki adlar ve döngüyü kapatan ilk alan, bildirim sırasında.
+    pub on_cycle: Vec<(String, String)>,
+    /// Bir döngüye ulaşan tüm adlar (döngüdekiler dahil): düzleştirilemez.
+    pub reaches: HashSet<String>,
+}
+
+/// `edges`: ad → (alan adı, alanın tip adı) listesi; `order` bildirim
+/// sırası (tanılar ve sonuç deterministik). Tanım sayısı küçüktür
+/// (dosyadaki struct'lar), O(n²) yeterlidir.
+pub(super) fn find_cycles(
+    order: &[String],
+    edges: &HashMap<String, Vec<(String, String)>>,
+) -> Cycles {
+    fn reaches(edges: &HashMap<String, Vec<(String, String)>>, from: &str, target: &str) -> bool {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut stack = vec![from];
+        while let Some(n) = stack.pop() {
+            if n == target {
+                return true;
+            }
+            if !seen.insert(n) {
+                continue;
+            }
+            if let Some(fs) = edges.get(n) {
+                stack.extend(fs.iter().map(|(_, t)| t.as_str()));
+            }
+        }
+        false
+    }
+    let mut on_cycle = Vec::new();
+    for name in order {
+        let Some(fs) = edges.get(name) else { continue };
+        if let Some((field, _)) = fs.iter().find(|(_, t)| reaches(edges, t, name)) {
+            on_cycle.push((name.clone(), field.clone()));
+        }
+    }
+    let cyclic: Vec<&str> = on_cycle.iter().map(|(n, _)| n.as_str()).collect();
+    let reaches_cycle = order
+        .iter()
+        .filter(|n| cyclic.iter().any(|c| reaches(edges, n, c)))
+        .cloned()
+        .collect();
+    Cycles {
+        on_cycle,
+        reaches: reaches_cycle,
+    }
+}
 
 /// `struct port` alanı (düzleştirme girdisi).
 struct FieldInfo {
@@ -60,6 +123,9 @@ pub(super) struct Flat {
     /// Bundle dizisi portları (ADR-0056): ad → eleman sayısı; `ch[i]`
     /// indeksi sabit olmalı (E2008).
     pub arrays: HashMap<String, i128>,
+    /// Bütçe aşımı (ADR-0067): ilk aşım ve aşıldığı port; açılım durur,
+    /// modül başına bir E4010 üretilir.
+    pub budget: Option<(Overflow, Name)>,
 }
 
 /// Bir sanal alanın açılımı: `valid && ready` ya da `valid && !ready`.
@@ -217,6 +283,9 @@ impl Parser<'_> {
                         &mut handshakes,
                     );
                 }
+            }
+            if let Some((over, port_name)) = flat.budget.take() {
+                self.err_flatten_budget(item, over, &port_name);
             }
             let (body, contracts) = match &mut self.ast.items_arena[item].kind {
                 ItemKind::Module(m) => {
@@ -430,36 +499,142 @@ impl Parser<'_> {
         })
     }
 
-    /// Dosyadaki generic olmayan `struct port` bildirimleri.
-    fn collect_bundle_defs(&self) -> HashMap<String, Vec<FieldInfo>> {
+    /// Dosyadaki generic olmayan `struct port` bildirimleri. Bir döngüye
+    /// ulaşan tanımlar dışarıda bırakılır — döngüdekiler E4009 alır
+    /// (ADR-0067) — böylece açılım sonludur ve modül portu olduğu gibi kalır.
+    fn collect_bundle_defs(&mut self) -> HashMap<String, Vec<FieldInfo>> {
         let mut defs: HashMap<String, Vec<FieldInfo>> = HashMap::new();
-        let port_structs: Vec<&volt_ast::StructDecl> = self
-            .ast
-            .items
-            .iter()
-            .filter_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => Some(s),
-                _ => None,
-            })
-            .collect();
-        for s in &port_structs {
-            let fields = s
-                .fields
+        let mut recursive: Vec<(Name, Span, String)> = Vec::new();
+        {
+            let port_structs: Vec<&volt_ast::StructDecl> = self
+                .ast
+                .items
                 .iter()
-                .map(|f| FieldInfo {
-                    // Yönsüz alan parser hatası almıştır; kurtarma: out.
-                    dir: f.direction.unwrap_or(PortDir::Out),
-                    name: f.name.text.clone(),
-                    ty: f.ty,
-                    domain: f.domain.clone(),
-                    nested: simple_type_name(&self.ast.types, f.ty)
-                        .filter(|n| port_structs.iter().any(|p| p.name.text == *n))
-                        .map(str::to_string),
+                .filter_map(|&i| match &self.ast.items_arena[i].kind {
+                    ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => Some(s),
+                    _ => None,
                 })
                 .collect();
-            defs.insert(s.name.text.clone(), fields);
+            let order: Vec<String> = port_structs.iter().map(|s| s.name.text.clone()).collect();
+            let mut edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
+            for s in &port_structs {
+                let fields: Vec<FieldInfo> = s
+                    .fields
+                    .iter()
+                    .map(|f| FieldInfo {
+                        // Yönsüz alan parser hatası almıştır; kurtarma: out.
+                        dir: f.direction.unwrap_or(PortDir::Out),
+                        name: f.name.text.clone(),
+                        ty: f.ty,
+                        domain: f.domain.clone(),
+                        nested: simple_type_name(&self.ast.types, f.ty)
+                            .filter(|n| port_structs.iter().any(|p| p.name.text == *n))
+                            .map(str::to_string),
+                    })
+                    .collect();
+                edges.insert(
+                    s.name.text.clone(),
+                    fields
+                        .iter()
+                        .filter_map(|f| f.nested.clone().map(|n| (f.name.clone(), n)))
+                        .collect(),
+                );
+                defs.insert(s.name.text.clone(), fields);
+            }
+            let cycles = find_cycles(&order, &edges);
+            for (name, field) in &cycles.on_cycle {
+                // Aynı ad iki kez bildirilmişse `defs` sonuncuyu tutar; tanı da ona.
+                let Some(s) = port_structs.iter().rev().find(|s| s.name.text == *name) else {
+                    continue;
+                };
+                let field_span = s
+                    .fields
+                    .iter()
+                    .find(|f| f.name.text == *field)
+                    .map_or(s.name.span, |f| f.span);
+                recursive.push((s.name.clone(), field_span, field.clone()));
+            }
+            for name in &cycles.reaches {
+                defs.remove(name);
+            }
+        }
+        for (name, field_span, field) in recursive {
+            self.err_recursive_bundle(&name, field_span, &field);
         }
         defs
+    }
+
+    /// E4009 — `struct port` kendini içeriyor (ADR-0067).
+    fn err_recursive_bundle(&mut self, name: &Name, field_span: Span, field: &str) {
+        let n = name.text.as_str();
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E4009,
+                lstr!(
+                    en: "struct port '{n}' contains itself (field '{field}' leads back to '{n}')";
+                    tr: "'{n}' struct port'u kendini içeriyor ('{field}' alanı '{n}' tipine geri dönüyor)"
+                ),
+                LabeledSpan::primary(
+                    name.span,
+                    lstr!(en: "recursive port group"; tr: "özyineli port grubu"),
+                ),
+                lstr!(
+                    en: "a bundle is flattened to plain ports at compile time, so it cannot contain itself; remove the field or give it a leaf type";
+                    tr: "bundle derleme zamanında düz portlara açılır, kendini içeremez; alanı kaldırın ya da yaprak bir tip verin"
+                ),
+            )
+            .with_secondary(
+                field_span,
+                lstr!(en: "this field closes the cycle"; tr: "döngüyü bu alan kapatıyor"),
+            )
+            .with_note(NoteKind::Note, flatten_note()),
+        );
+    }
+
+    /// Modül / extern adı (E4010 konumu).
+    fn item_name(&self, item: Idx<Item>) -> Option<Name> {
+        match &self.ast.items_arena[item].kind {
+            ItemKind::Module(m) => Some(m.name.clone()),
+            ItemKind::Extern(x) => Some(x.name.clone()),
+            _ => None,
+        }
+    }
+
+    /// E4010 — düzleştirme bütçesi (port sayısı ya da derinlik) aşıldı (ADR-0067).
+    fn err_flatten_budget(&mut self, item: Idx<Item>, over: Overflow, port: &Name) {
+        let Some(owner) = self.item_name(item) else {
+            return;
+        };
+        let (span, message, label) = match over {
+            Overflow::Ports => (
+                owner.span,
+                lstr!(
+                    en: "flattening the bundle ports of '{}' would produce more than {MAX_FLAT_PORTS} flat ports", owner.text;
+                    tr: "'{}' modülünün bundle portlarını açmak {MAX_FLAT_PORTS}'dan çok düz port üretirdi", owner.text
+                ),
+                lstr!(en: "too many flat ports"; tr: "çok fazla düz port"),
+            ),
+            Overflow::Depth => (
+                port.span,
+                lstr!(
+                    en: "bundle port '{}' nests deeper than {MAX_NESTING} levels", port.text;
+                    tr: "'{}' bundle portu {MAX_NESTING} seviyeden derin iç içe", port.text
+                ),
+                lstr!(en: "nested too deep"; tr: "çok derin iç içe"),
+            ),
+        };
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E4010,
+                message,
+                LabeledSpan::primary(span, label),
+                lstr!(
+                    en: "shrink the bundle array, flatten the type hierarchy or split the interface into several modules";
+                    tr: "bundle dizisini küçültün, tip hiyerarşisini sadeleştirin ya da arayüzü birkaç modüle bölün"
+                ),
+            )
+            .with_note(NoteKind::Note, flatten_note()),
+        );
     }
 
     fn rw_bundle_stmt(&mut self, si: Idx<Stmt>, flat: &Flat) {
@@ -726,6 +901,14 @@ fn adr_note() -> String {
     )
 }
 
+/// E4009/E4010 notu: düzleştirme derleme zamanında ve sonludur (ADR-0067).
+pub(super) fn flatten_note() -> String {
+    lstr!(
+        en: "a port group is expanded field by field at compile time (ADR-0039); the expansion must be finite and bounded (ADR-0067)";
+        tr: "port grubu derleme zamanında alan alan açılır (ADR-0039); açılım sonlu ve sınırlı olmalıdır (ADR-0067)"
+    )
+}
+
 /// Bir bundle portunu düz portlara açar (iç içe bundle'larda özyineli).
 #[allow(clippy::too_many_arguments)]
 fn expand(
@@ -741,13 +924,20 @@ fn expand(
     counter: &mut u32,
     item_span: Span,
 ) {
+    if flat.budget.is_some() {
+        return;
+    }
     if depth > MAX_NESTING {
+        flat.budget = Some((Overflow::Depth, port.name.clone()));
         return;
     }
     let Some(fields) = defs.get(bundle) else {
         return;
     };
     for f in fields {
+        if flat.budget.is_some() {
+            return;
+        }
         let flat_name = format!("{prefix}_{}", f.name);
         let field_path = if path.is_empty() {
             f.name.clone()
@@ -769,6 +959,10 @@ fn expand(
                 item_span,
             );
             continue;
+        }
+        if out.len() >= MAX_FLAT_PORTS {
+            flat.budget = Some((Overflow::Ports, port.name.clone()));
+            return;
         }
         // Bildirim span'i benzersiz olmalı (decl_spans anahtarı).
         let name_span = fresh_name_span(port.span, item_span, counter);

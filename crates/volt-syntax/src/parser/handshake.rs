@@ -29,15 +29,19 @@
 //! Kullanıcı aynı adla `struct port Handshake` tanımlarsa kullanıcı
 //! tanımı kazanır ve yerleşik devre dışı kalır.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
     Attribute, AutoOrigin, AutoRule, BinOp, BundleOrigin, Contract, ContractKind, Expr, ExprKind,
     GenericArg, Idx, ItemKind, Name, Path, Port, PortDir, TypeRef, TypeRefKind, UnOp,
 };
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use super::bundle::{flip, fresh_name_span, Flat, Virtual, MAX_NESTING};
+use super::bundle::{
+    find_cycles, flatten_note, flip, fresh_name_span, Flat, Overflow, Virtual, MAX_FLAT_PORTS,
+    MAX_NESTING,
+};
 use super::Parser;
 
 /// Yerleşik bundle'ın adı.
@@ -53,7 +57,22 @@ const FIELD_STALLED: &str = "stalled";
 const PREV: &str = "prev";
 
 /// Sade (yönsüz, generic olmayan) struct tanımları: payload açılımı için.
-pub(super) type PlainDefs = HashMap<String, Vec<(String, Idx<TypeRef>)>>;
+pub(super) struct PlainDefs {
+    fields: HashMap<String, Vec<(String, Idx<TypeRef>)>>,
+    /// Bir döngüye ulaşan struct'lar (ADR-0067): payload olarak açılmaz,
+    /// port E4009 alır.
+    cyclic: HashSet<String>,
+}
+
+impl PlainDefs {
+    fn get(&self, name: &str) -> Option<&Vec<(String, Idx<TypeRef>)>> {
+        self.fields.get(name)
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.fields.contains_key(name)
+    }
+}
 
 /// Düzleştirilmiş bir Handshake portu — kontrat üretimi girdisi.
 pub(super) struct HandshakeInfo {
@@ -101,37 +120,49 @@ fn is_comparable(types: &volt_ast::Arena<TypeRef>, plain: &PlainDefs, ty: Idx<Ty
 }
 
 /// Payload'ı düz (yol, tip) çiftlerine açar: sade struct alanları
-/// özyineli (`data.i.x`), derinlik `MAX_NESTING` ile sınırlı.
+/// özyineli (`data.i.x`). Döngüye ulaşan struct çağrılmadan elenir
+/// (E4009); derinlik ya da port bütçesi aşılırsa `Err` (E4010, ADR-0067).
+/// `remaining`: modülün kalan port bütçesi.
 fn payload_fields(
     types: &volt_ast::Arena<TypeRef>,
     plain: &PlainDefs,
     ty: Idx<TypeRef>,
     path: &str,
     depth: usize,
+    remaining: usize,
     out: &mut Vec<(String, Idx<TypeRef>)>,
-) {
-    if depth < MAX_NESTING {
-        if let Some(fields) = plain_path_name(types, ty).and_then(|n| plain.get(n)) {
-            for (name, fty) in fields {
-                payload_fields(
-                    types,
-                    plain,
-                    *fty,
-                    &format!("{path}.{name}"),
-                    depth + 1,
-                    out,
-                );
-            }
-            return;
+) -> Result<(), Overflow> {
+    if depth > MAX_NESTING {
+        return Err(Overflow::Depth);
+    }
+    if let Some(fields) = plain_path_name(types, ty).and_then(|n| plain.get(n)) {
+        for (name, fty) in fields {
+            payload_fields(
+                types,
+                plain,
+                *fty,
+                &format!("{path}.{name}"),
+                depth + 1,
+                remaining,
+                out,
+            )?;
         }
+        return Ok(());
+    }
+    if out.len() >= remaining {
+        return Err(Overflow::Ports);
     }
     out.push((path.to_string(), ty));
+    Ok(())
 }
 
 impl Parser<'_> {
-    /// Dosyadaki sade struct'lar (`struct Aw { addr : u32, prot : u3 }`).
+    /// Dosyadaki sade struct'lar (`struct Aw { addr : u32, prot : u3 }`)
+    /// ve döngüye ulaşanların kümesi (ADR-0067).
     pub(super) fn collect_plain_struct_defs(&self) -> PlainDefs {
-        self.ast
+        let mut order = Vec::new();
+        let fields: HashMap<String, Vec<(String, Idx<TypeRef>)>> = self
+            .ast
             .items
             .iter()
             .filter_map(|&i| match &self.ast.items_arena[i].kind {
@@ -139,6 +170,7 @@ impl Parser<'_> {
                 _ => None,
             })
             .map(|s| {
+                order.push(s.name.text.clone());
                 let fields = s
                     .fields
                     .iter()
@@ -146,7 +178,46 @@ impl Parser<'_> {
                     .collect();
                 (s.name.text.clone(), fields)
             })
-            .collect()
+            .collect();
+        let edges: HashMap<String, Vec<(String, String)>> = fields
+            .iter()
+            .map(|(name, fs)| {
+                let targets = fs
+                    .iter()
+                    .filter_map(|(f, ty)| {
+                        plain_path_name(&self.ast.types, *ty)
+                            .filter(|n| fields.contains_key(*n))
+                            .map(|n| (f.clone(), n.to_string()))
+                    })
+                    .collect();
+                (name.clone(), targets)
+            })
+            .collect();
+        let cyclic = find_cycles(&order, &edges).reaches;
+        PlainDefs { fields, cyclic }
+    }
+
+    /// E4009 — Handshake payload'ı özyineli sade struct (ADR-0067).
+    fn err_recursive_payload(&mut self, port: &Port, payload: &str) {
+        let p = port.name.text.as_str();
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E4009,
+                lstr!(
+                    en: "the payload of Handshake port '{p}' is a recursive struct ('{payload}' contains itself)";
+                    tr: "'{p}' Handshake portunun payload'ı özyineli bir struct ('{payload}' kendini içeriyor)"
+                ),
+                LabeledSpan::primary(
+                    port.span,
+                    lstr!(en: "recursive payload"; tr: "özyineli payload"),
+                ),
+                lstr!(
+                    en: "a Handshake payload is flattened field by field (ADR-0050); use a struct that does not refer back to itself";
+                    tr: "Handshake payload'ı alan alan açılır (ADR-0050); kendine geri dönmeyen bir struct kullanın"
+                ),
+            )
+            .with_note(NoteKind::Note, flatten_note()),
+        );
     }
 
     /// Port tipi `Handshake<T>` (tam bir tip argümanı) ise `T`.
@@ -191,15 +262,29 @@ impl Parser<'_> {
         });
 
         // Payload: sade struct ise alan alan (özyineli), değilse tek `data`.
+        // Özyineli struct (E4009) ve bütçe aşımı (E4010) tek opak `data`
+        // olarak kalır — kaskad yok, modül zaten hatalı.
         let mut payload_paths = Vec::new();
-        payload_fields(
+        let recursive = plain_path_name(&self.ast.types, payload)
+            .filter(|n| plain.cyclic.contains(*n))
+            .map(str::to_string);
+        if let Some(name) = recursive {
+            self.err_recursive_payload(port, &name);
+            payload_paths.push((FIELD_DATA.to_string(), payload));
+        } else if let Err(over) = payload_fields(
             &self.ast.types,
             plain,
             payload,
             FIELD_DATA,
             0,
+            MAX_FLAT_PORTS.saturating_sub(out.len()),
             &mut payload_paths,
-        );
+        ) {
+            if flat.budget.is_none() {
+                flat.budget = Some((over, port.name.clone()));
+            }
+            payload_paths = vec![(FIELD_DATA.to_string(), payload)];
+        }
         let mut fields: Vec<(String, Idx<TypeRef>, PortDir)> = payload_paths
             .into_iter()
             .map(|(p, t)| (p, t, PortDir::Out))

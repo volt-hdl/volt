@@ -2211,6 +2211,9 @@ fn ui_fail_files_produce_expected_codes() {
         ("58_bundle_array_dynamic_index.volt", "E2008"),
         // ADR-0065: domain alanında reset/clock ifadesi (sessiz yok sayma kalktı).
         ("69_domain_reset_expression.volt", "E0001"),
+        // ADR-0067: özyineli bundle ve düzleştirme bütçesi (parse içinde).
+        ("72_recursive_struct_port.volt", "E4009"),
+        ("73_bundle_port_budget.volt", "E4010"),
     ];
     for (file, expected) in cases {
         let path = format!(

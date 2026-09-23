@@ -600,6 +600,24 @@ module Gpio {
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ register'lanmış sürücü niyeti\n    }\n    invariant: !en -> sda.released\n}",
         ),
 
+        E4009 => Explanation::new(
+            "Özyineli struct port ya da Handshake payload'ı",
+            "Bir 'struct port' (ya da 'Handshake<T>' payload'ı olan sade bir struct) doğrudan ya da başka struct'lar üzerinden kendini içeriyor.",
+            "Bundle çalışma zamanında bir değer değildir: derleyici onu derleme zamanında düz portlara açar, her yaprak alan bir port olur ('req_addr', 'req_ready', ...). Kendini içeren bir bundle'ın sonlu düz biçimi yoktur -- 'req_req_addr', 'req_req_req_addr', ... sonsuza dek sürer. ADR-0067'den önce derleyici 8. iç içelik seviyesinde sessizce duruyordu; özyineli bir bundle anlamsız portlarla derleniyor, birkaç kendine dönen alan varsa milyonlarca port üretiyordu (k^9 -- fuzzer bunu gigabaytlarca bellek tüketimi olarak buldu). Aynısı alan alan açılan 'Handshake<T>' sade struct payload'ı için de geçerlidir (ADR-0050).",
+            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req, Req içeriyor\n}\nmodule Slave {\n    in req : Req\n}",
+            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ yalnız yaprak alanlar ya da başka (özyineli olmayan) bir struct port\n}\nmodule Slave {\n    in req : Req\n}",
+        )
+        .with_note(
+            "Karşılıklı döngü (A B'yi, B A'yı içerir) döngüdeki her struct için bir kez raporlanır. Özyineli bir struct'a yalnızca başvuran tipler de açılmaz; önce döngüyü giderin.",
+        ),
+        E4010 => Explanation::new(
+            "Bundle düzleştirme bütçesi aşıldı",
+            "Bir modülün bundle portlarını açmak 4096'dan çok düz port üretirdi ya da bir bundle portu 8 seviyeden derin iç içe.",
+            "Bundle düzleştirmesi tip çizgesinin biçimine göre üsteldir: iki alanı olan bir struct port'un iki alanı olan bir struct port'un ... her seviyede ikiye katlanır; bundle dizisi ([Bundle; N], ADR-0056) N ile çarpar. Döngü (E4009) olmasa da kazara elmas biçimli bir çizge milyonlarca port isteyebilir. Bütçe bunu bellek patlaması yerine bir tanıya çevirir (ADR-0067): modül başına en çok 4096 düz port (16 alanlık bir arayüzün 256 elemanlı dizisi) ve en çok 8 seviye iç içelik. Gerçek arayüzler iki sınırın da çok altında kalır; daha fazlasına ihtiyaç duyan modül bölünmelidir.",
+            "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 düz port\n}",
+            "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 düz port, bütçe içinde\n}\n// ya da arayüzü birkaç modüle bölün",
+        ),
+
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",
             "Formal doğrulama, bu modülün bir kontratını bozan bir yürütme buldu.",

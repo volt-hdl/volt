@@ -641,3 +641,156 @@ fn user_generic_struct_port_named_handshake_disables_builtin() {
     assert_eq!(ports(&res, 1).len(), 1);
     assert!(contracts(&res, 1).is_empty());
 }
+
+// ═══ Özyineli bundle ve düzleştirme bütçesi (ADR-0067) ═════════════
+//
+// Fuzz bulgusu: `struct port Req { in req : Req }` sessizce 8 seviye
+// açılıyordu; k tane kendine dönen alan k^9 port üretip belleği
+// tüketiyordu. Döngü E4009'dur, bütçe (port sayısı / derinlik) E4010.
+
+fn count_code(res: &ParseResult, code: &str) -> usize {
+    res.error_codes().iter().filter(|c| **c == code).count()
+}
+
+#[test]
+fn self_referential_struct_port_is_e4009_and_not_flattened() {
+    let res = p(
+        "struct port Req {\n    out addr : u32\n    in  req  : Req\n}\nmodule M { in req : Req }",
+    );
+    assert_eq!(count_code(&res, "E4009"), 1, "{:?}", res.error_codes());
+    assert_eq!(ports(&res, 1), vec![(PortDir::In, "req".into())]);
+}
+
+#[test]
+fn mutually_recursive_struct_ports_are_e4009_once_each() {
+    let res = p("struct port A { in b : B }\nstruct port B { in a : A }\nmodule M { in x : A }");
+    assert_eq!(count_code(&res, "E4009"), 2, "{:?}", res.error_codes());
+    assert_eq!(ports(&res, 2), vec![(PortDir::In, "x".into())]);
+}
+
+#[test]
+fn recursive_bundle_with_many_fields_finishes_instantly() {
+    // Eski davranış: 8^9 port (saatler, >10 GB). Şimdi: tanı, açılım yok.
+    let mut src = String::from("struct port Req {\n    out addr : u32\n");
+    for i in 0..8 {
+        src.push_str(&format!("    in r{i} : Req\n"));
+    }
+    src.push_str("}\nmodule M { in req : Req }");
+    let t = std::time::Instant::now();
+    let res = p(&src);
+    assert!(t.elapsed().as_secs() < 1, "{:?}", t.elapsed());
+    assert_eq!(count_code(&res, "E4009"), 1);
+    assert_eq!(ports(&res, 1).len(), 1);
+}
+
+#[test]
+fn acyclic_bundle_chain_is_not_e4009() {
+    let res = p("struct port C { out d : u8 }\nstruct port B { in c : C }\nstruct port A { in b : B\n out c : C }\nmodule M { in x : A }");
+    assert!(
+        !res.error_codes().contains(&"E4009"),
+        "{:?}",
+        res.error_codes()
+    );
+    assert_eq!(
+        ports(&res, 3),
+        vec![
+            (PortDir::In, "x_b_c_d".into()),
+            (PortDir::In, "x_c_d".into())
+        ]
+    );
+}
+
+#[test]
+fn handshake_payload_recursive_struct_is_e4009_and_opaque() {
+    let res = p(
+        "struct P { d : u8, f : P }\nmodule M {\n    in clk : clock\n    in x : Handshake<P>\n}",
+    );
+    assert_eq!(count_code(&res, "E4009"), 1, "{:?}", res.error_codes());
+    let names: Vec<String> = ports(&res, 1).into_iter().map(|(_, n)| n).collect();
+    assert_eq!(names, vec!["clk", "x_data", "x_valid", "x_ready"]);
+}
+
+#[test]
+fn handshake_payload_recursive_struct_with_many_fields_finishes_instantly() {
+    let mut src = String::from("struct P {\n    d : u8,\n");
+    for i in 0..8 {
+        src.push_str(&format!("    f{i} : P,\n"));
+    }
+    src.push_str("}\nmodule M {\n    in clk : clock\n    in x : Handshake<P>\n}");
+    let t = std::time::Instant::now();
+    let res = p(&src);
+    assert!(t.elapsed().as_secs() < 1, "{:?}", t.elapsed());
+    assert_eq!(count_code(&res, "E4009"), 1);
+}
+
+#[test]
+fn bundle_array_over_port_budget_is_e4010() {
+    // 256 eleman × 17 alan = 4352 > 4096.
+    let mut src = String::from("struct port Big {\n");
+    for i in 0..17 {
+        src.push_str(&format!("    out f{i} : u8\n"));
+    }
+    src.push_str("}\nmodule M { in ch : [Big; 256] }");
+    let res = p(&src);
+    assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
+    assert!(ports(&res, 1).len() <= 4096);
+}
+
+#[test]
+fn bundle_array_within_port_budget_is_clean() {
+    // 256 × 16 = 4096: sınır dahil.
+    let mut src = String::from("struct port Big {\n");
+    for i in 0..16 {
+        src.push_str(&format!("    out f{i} : u8\n"));
+    }
+    src.push_str("}\nmodule M { in ch : [Big; 256] }");
+    let res = p(&src);
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    assert_eq!(ports(&res, 1).len(), 4096);
+}
+
+#[test]
+fn diamond_dag_expansion_is_bounded_by_budget() {
+    // Döngü yok ama 13 seviye × 2 alan = 2^13 = 8192 yaprak; bütçe keser.
+    let mut src = String::from("struct port L13 { out d : u8 }\n");
+    for i in (0..13).rev() {
+        let n = i + 1;
+        src.push_str(&format!(
+            "struct port L{i} {{ out a : L{n}\n out b : L{n} }}\n"
+        ));
+    }
+    src.push_str("module M { in x : L0 }");
+    let t = std::time::Instant::now();
+    let res = p(&src);
+    assert!(t.elapsed().as_secs() < 1, "{:?}", t.elapsed());
+    assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
+    assert!(!res.error_codes().contains(&"E4009"));
+    assert!(ports(&res, 14).len() <= 4096);
+}
+
+#[test]
+fn nesting_deeper_than_eight_is_e4010_not_silent_truncation() {
+    let mut src = String::from("struct port L10 { out d : u8 }\n");
+    for i in (0..10).rev() {
+        let n = i + 1;
+        src.push_str(&format!("struct port L{i} {{ out n : L{n} }}\n"));
+    }
+    src.push_str("module M { in x : L0 }");
+    let res = p(&src);
+    assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
+}
+
+#[test]
+fn handshake_payload_diamond_is_bounded_by_budget() {
+    let mut src = String::from("struct L13 { d : u8 }\n");
+    for i in (0..13).rev() {
+        let n = i + 1;
+        src.push_str(&format!("struct L{i} {{ a : L{n}, b : L{n} }}\n"));
+    }
+    src.push_str("module M {\n    in clk : clock\n    in x : Handshake<L0>\n}");
+    let t = std::time::Instant::now();
+    let res = p(&src);
+    assert!(t.elapsed().as_secs() < 1, "{:?}", t.elapsed());
+    assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
+    assert!(ports(&res, 14).len() <= 4096);
+}

@@ -600,6 +600,24 @@ module Gpio {
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ registered drive intent\n    }\n    invariant: !en -> sda.released\n}",
         ),
 
+        E4009 => Explanation::new(
+            "Recursive struct port or Handshake payload",
+            "A 'struct port' (or a plain struct used as a 'Handshake<T>' payload) contains itself, directly or through other structs.",
+            "A bundle is not a value at run time: the compiler flattens it to plain ports at compile time, one port per leaf field ('req_addr', 'req_ready', ...). A bundle that contains itself has no finite flat form -- 'req_req_addr', 'req_req_req_addr', ... would go on forever. Before ADR-0067 the compiler silently stopped at nesting depth 8, so a recursive bundle compiled into nonsense ports and, with several self-referencing fields, into millions of them (k^9 -- found by the fuzzer as a multi-gigabyte memory blow-up). The same applies to a plain struct payload of 'Handshake<T>', which is flattened field by field (ADR-0050).",
+            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req contains Req\n}\nmodule Slave {\n    in req : Req\n}",
+            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ leaf fields only, or another (non-recursive) struct port\n}\nmodule Slave {\n    in req : Req\n}",
+        )
+        .with_note(
+            "A mutual cycle (A contains B, B contains A) is reported once per struct on the cycle. Types that merely refer to a recursive struct are not flattened either; fix the cycle first.",
+        ),
+        E4010 => Explanation::new(
+            "Bundle flattening budget exceeded",
+            "Flattening the bundle ports of one module would produce more than 4096 plain ports, or a bundle port nests deeper than 8 levels.",
+            "Bundle flattening is exponential in the shape of the type graph: a struct port with two fields of a struct port with two fields of ... doubles at every level, and a bundle array ([Bundle; N], ADR-0056) multiplies by N. Even without a cycle (E4009) an accidental diamond-shaped graph can request millions of ports. The budget turns that into a diagnostic instead of a memory blow-up (ADR-0067): at most 4096 flat ports per module (a 256-element bundle array of a 16-field interface) and at most 8 levels of nesting. Real interfaces stay far below both limits; a module that needs more should be split.",
+            "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 flat ports\n}",
+            "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 flat ports, within the budget\n}\n// or split the interface across several modules",
+        ),
+
         E5001 => Explanation::new(
             "Contract violated",
             "Formal verification found an execution that breaks a contract of this module.",
