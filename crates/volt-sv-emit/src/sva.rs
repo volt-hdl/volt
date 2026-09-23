@@ -73,6 +73,22 @@ pub struct SvaProp {
     /// zaman `span` örneğin konumudur, kontrat metni kaynakta yoktur
     /// (ADR-0064 simülasyon raporu bunu ayrı anlatır).
     pub primitive: Option<&'static str>,
+    /// Derleyicinin ürettiği kontratın kökeni (Handshake, @mmio, FSM,
+    /// sayaç); raporların "generated from" satırı (ADR-0066 §4).
+    pub auto: Option<AutoProp>,
+}
+
+/// Otomatik kontratın kökeni — kullanıcı kontratı kaynakta yazmadı.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoProp {
+    /// Kural etiketi (`FSM transition`, `counter bound`, ...).
+    pub rule: &'static str,
+    /// Kontratın Volt sözdizimiyle metni.
+    pub text: String,
+    /// Kökenin kısa anlatımı (`match on state_r`).
+    pub subject: String,
+    /// Kontratı doğuran yapının konumu.
+    pub from: volt_span::Span,
 }
 
 /// `1'b0/1'b1` bağlamı: kontrat ifadeleri 1-bit boolean'dır.
@@ -128,23 +144,17 @@ impl<'a> Emitter<'a> {
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
             // F4b: property adı → kontrat eşlemesi (sby FAIL yorumu).
-            self.sva_props.push(SvaProp {
-                module_name: module.name.text.clone(),
-                name: name.clone(),
-                keyword: contract_keyword(c.kind),
-                span: self.ast.exprs[c.expr].span,
-                primitive: None,
-            });
-            let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
+            let prop = self.contract_prop(module, &name, c);
+            self.sva_props.push(prop);
+            let comment = self.contract_comment(c, &ind);
             let expr = self.sva_expr(c);
             blocks.push(format!(
-                "{ind}// {kw} from {source_name}:{line}\n\
+                "{comment}\n\
                  {ind}property {name};\n\
                  {ind}    {event}\n\
                  {ind}    {expr};\n\
                  {ind}endproperty\n\
                  {ind}{verb} property ({name});",
-                kw = contract_keyword(c.kind),
             ));
         }
         Some(blocks.join("\n\n"))
@@ -192,14 +202,9 @@ impl<'a> Emitter<'a> {
             let slot = kind_slot(c.kind);
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
-            self.sva_props.push(SvaProp {
-                module_name: module.name.text.clone(),
-                name: name.clone(),
-                keyword: contract_keyword(c.kind),
-                span: self.ast.exprs[c.expr].span,
-                primitive: None,
-            });
-            let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
+            let prop = self.contract_prop(module, &name, c);
+            self.sva_props.push(prop);
+            let comment = self.contract_comment(c, &ind);
             let expr = self.emit_expr(c.expr, ONE_BIT);
             let stmt = if clock.info.reset.is_none() {
                 format!("{verb} ({expr}); // volt:{name}")
@@ -210,11 +215,10 @@ impl<'a> Emitter<'a> {
                 )
             };
             blocks.push(format!(
-                "{ind}// {kw} from {source_name}:{line}\n\
+                "{comment}\n\
                  {ind}always @({edge} {})\n\
                  {ind}    {stmt}",
                 clock.name,
-                kw = contract_keyword(c.kind),
             ));
         }
         Some(blocks.join("\n\n"))
@@ -328,6 +332,46 @@ impl<'a> Emitter<'a> {
             checker_name,
             content,
         })
+    }
+}
+
+impl Emitter<'_> {
+    /// Kontratın `SvaProp` kaydı (sby FAIL / sim izleyici eşlemesi).
+    pub(crate) fn contract_prop(&self, module: &ModuleDecl, name: &str, c: &Contract) -> SvaProp {
+        SvaProp {
+            module_name: module.name.text.clone(),
+            name: name.to_string(),
+            keyword: contract_keyword(c.kind),
+            span: self.ast.exprs[c.expr].span,
+            primitive: None,
+            auto: c.auto.as_ref().map(|a| AutoProp {
+                rule: a.rule.label(),
+                text: a.text.clone(),
+                subject: a.subject.clone(),
+                from: a.from,
+            }),
+        }
+    }
+
+    /// Property üstündeki kaynak yorumu. Otomatik kontratta kural ve
+    /// köken yazılır, konum kökenin konumudur (ADR-0066 §4).
+    pub(crate) fn contract_comment(&self, c: &Contract, ind: &str) -> String {
+        let kw = contract_keyword(c.kind);
+        match &c.auto {
+            None => {
+                let (source_name, line) = self.location_of(self.ast.exprs[c.expr].span);
+                format!("{ind}// {kw} from {source_name}:{line}")
+            }
+            Some(a) => {
+                let (source_name, line) = self.location_of(a.from);
+                format!(
+                    "{ind}// {kw} (auto {}: {}) generated from {source_name}:{line} ({})",
+                    a.rule.label(),
+                    a.text,
+                    a.subject
+                )
+            }
+        }
     }
 }
 

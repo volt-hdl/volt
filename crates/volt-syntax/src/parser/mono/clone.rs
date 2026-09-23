@@ -146,6 +146,10 @@ impl<'a> Cloner<'a> {
                 span: self.tag(c.span),
                 kind: c.kind,
                 expr: self.clone_expr(c.expr),
+                auto: c.auto.as_ref().map(|a| volt_ast::AutoOrigin {
+                    from: self.tag(a.from),
+                    ..a.clone()
+                }),
             })
             .collect();
         let body = m.body.iter().map(|&s| self.clone_stmt(s)).collect();

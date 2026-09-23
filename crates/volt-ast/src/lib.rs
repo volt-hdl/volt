@@ -735,9 +735,57 @@ pub struct Contract {
     pub span: Span,
     pub kind: ContractKind,
     pub expr: Idx<Expr>,
+    /// Derleyicinin ürettiği kontratın kökeni (ADR-0050 Handshake,
+    /// ADR-0044 @mmio, ADR-0066 FSM/sayaç); kullanıcı kontratında None.
+    pub auto: Option<AutoOrigin>,
 }
 
+/// Otomatik kontratın kökeni: kullanıcı yazmadığı kontratın nereden
+/// geldiğini görmelidir ("generated from", ADR-0066).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoOrigin {
+    pub rule: AutoRule,
+    /// Kontratın Volt sözdizimiyle metni — kaynakta yazılı değildir.
+    pub text: String,
+    /// Kökenin kısa anlatımı (`match on state_r`, `Handshake port tx`).
+    pub subject: String,
+    /// Kontratı doğuran yapının konumu (match, sınır karşılaştırması,
+    /// port bildirimi, `@mmio` niteliği).
+    pub from: Span,
+}
+
+/// Otomatik kontrat kuralı.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoRule {
+    /// ADR-0050: valid/ready tutma ve veri kararlılığı.
+    Handshake,
+    /// ADR-0044: register haritası kontratları.
+    Mmio,
+    /// ADR-0066 F2: FSM durumu erişilebilir.
+    FsmState,
+    /// ADR-0066 F3: FSM geçişi kullanılabilir.
+    FsmTransition,
+    /// ADR-0066 C2: açık sınırlı sayaç sınırı aşmaz.
+    CounterBound,
+    /// ADR-0066 C3: sayacın sarma noktasına ulaşılır.
+    CounterWrap,
+}
+
+impl AutoRule {
+    /// Raporlardaki İngilizce etiket (makine-okur test çıktısı).
+    pub fn label(self) -> &'static str {
+        match self {
+            AutoRule::Handshake => "Handshake protocol",
+            AutoRule::Mmio => "@mmio register map",
+            AutoRule::FsmState => "FSM state",
+            AutoRule::FsmTransition => "FSM transition",
+            AutoRule::CounterBound => "counter bound",
+            AutoRule::CounterWrap => "counter wrap",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContractKind {
     Requires,
     Ensures,

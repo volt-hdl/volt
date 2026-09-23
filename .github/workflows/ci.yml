@@ -99,8 +99,17 @@ jobs:
       # cannot see it (exit 0) while `volt test` fails (integration job).
       - name: Deep violation is invisible to BMC depth 20 -> exit 0
         run: cargo run --bin volt -- verify --mode bmc --depth 20 tests/fixtures/sim_contracts/deep_violation.volt
+      # ADR-0066: an automatic FSM transition cover on a dead arm is
+      # unreachable -> cover mode fails with E5001 (exit 6).
+      - name: Unreachable auto FSM transition (cover mode) -> exit 6
+        run: |
+          set +e
+          cargo run --bin volt -- verify --mode cover tests/ui/fail/71_auto_fsm_unreachable_transition.volt
+          code=$?
+          echo "volt verify exit code: $code"
+          test "$code" -eq 6
       # ADR-0055: one sby process, one task per contract-bearing module, -j N.
-      - name: SoC (137 properties, 8 module tasks) -j 4 -> exit 0
+      - name: SoC (145 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
 
   timing:

@@ -303,7 +303,8 @@ impl Parser<'_> {
             let text = self.render(&module_name, base, &infos, clock.as_deref());
             let file = FileId(self.next_synthetic);
             self.next_synthetic += 1;
-            let Some(gen) = self.parse_generated(file, &module_name, text) else {
+            let from = self.ast.items_arena[item].attrs[attr_idx].span;
+            let Some(gen) = self.parse_generated(file, &module_name, text, from) else {
                 continue;
             };
             let doc = self.ast.items_arena[item].doc.clone();
@@ -730,7 +731,13 @@ impl Parser<'_> {
 
     // ═══ Sentetik metnin ayrıştırılması ═══════════════════════════
 
-    fn parse_generated(&mut self, file: FileId, module: &str, text: String) -> Option<Generated> {
+    fn parse_generated(
+        &mut self,
+        file: FileId,
+        module: &str,
+        text: String,
+        from: Span,
+    ) -> Option<Generated> {
         let mut sub = Parser::new(file, &text);
         sub.ast = std::mem::take(&mut self.ast);
         sub.parse_items_only();
@@ -746,11 +753,26 @@ impl Parser<'_> {
         // Sentetik modül listede son öğedir; arenada Error olarak kalır.
         let idx = self.ast.items.pop()?;
         let kind = std::mem::replace(&mut self.ast.items_arena[idx].kind, ItemKind::Error);
-        let ItemKind::Module(m) = kind else {
+        let ItemKind::Module(mut m) = kind else {
             return None;
         };
         if failed {
             return None;
+        }
+        // "generated from" kökeni (ADR-0066 §4): metin sentetik kaynaktan,
+        // konum kullanıcının `@mmio` niteliği.
+        let source = self.generated.last().map_or("", |g| g.text.as_str());
+        for c in &mut m.contracts {
+            let span = self.ast.exprs[c.expr].span;
+            let raw = source
+                .get(span.start as usize..span.end as usize)
+                .unwrap_or("?");
+            c.auto = Some(volt_ast::AutoOrigin {
+                rule: volt_ast::AutoRule::Mmio,
+                text: raw.split_whitespace().collect::<Vec<_>>().join(" "),
+                subject: format!("@mmio register map of {module}"),
+                from,
+            });
         }
         let mut head = Vec::new();
         let mut tail = Vec::new();

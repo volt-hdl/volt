@@ -20,11 +20,13 @@ fn temp_dir(tag: &str) -> PathBuf {
 
 /// Üç kontratlı modül (Alpha, Beta, Gamma — kaynak sırası): iş adı
 /// `three`, görevler `alpha/beta/gamma`, çalışma dizinleri `three_<görev>`.
+/// `@no_auto_contracts` (ADR-0066): bu dosya paralel görev akışını sınar,
+/// modül başına TEK özellik varsayar — otomatik sayaç cover'ı sayımı bozar.
 fn write_three(dir: &Path) -> PathBuf {
     let mut src = String::new();
     for name in ["Alpha", "Beta", "Gamma"] {
         src.push_str(&format!(
-            "module {name} {{\n    in  clk    : clock\n    in  enable : bool\n    out count  : u8\n\n    \
+            "@no_auto_contracts\nmodule {name} {{\n    in  clk    : clock\n    in  enable : bool\n    out count  : u8\n\n    \
              invariant: count_r <= 10\n\n    reg count_r : u8 = 0\n\n    on clk {{\n        if enable {{\n            \
              if count_r == 10 {{\n                count_r <= 0\n            }} else {{\n                \
              count_r <= count_r + 1\n            }}\n        }}\n    }}\n\n    count = count_r\n}}\n\n"
