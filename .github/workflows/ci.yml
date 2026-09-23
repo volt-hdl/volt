@@ -209,8 +209,12 @@ jobs:
           path: target/llvm-cov/html/
 
   fuzz:
-    name: Fuzz (5 min)
+    name: Fuzz (60 s)
     runs-on: ubuntu-latest
+    # Short smoke run on every push/PR. The long run (30 min, corpus carried
+    # over between nights) lives in fuzz-nightly.yml. The nightly corpus is
+    # restored read-only here (caches saved on main are visible to PRs), so
+    # the 60 s start from everything the nightly job has already found.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
@@ -221,5 +225,20 @@ jobs:
             fuzz
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
-      - name: parse_never_panics (300 s)
-        run: cargo +nightly fuzz run parse_never_panics -- -max_total_time=300
+      - name: Restore nightly corpus (read-only)
+        uses: actions/cache/restore@v6
+        with:
+          path: fuzz/corpus/parse_never_panics
+          key: fuzz-corpus-parse_never_panics-${{ github.run_id }}
+          restore-keys: fuzz-corpus-parse_never_panics-
+      # First corpus dir receives new inputs; tests/ui is a read-only seed.
+      - name: parse_never_panics (60 s)
+        run: |
+          mkdir -p fuzz/corpus/parse_never_panics
+          cargo +nightly fuzz run parse_never_panics             "$GITHUB_WORKSPACE/fuzz/corpus/parse_never_panics"             "$GITHUB_WORKSPACE/tests/ui"             -- -max_total_time=60
+      - name: Upload crash input
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crash-parse_never_panics
+          path: fuzz/artifacts/parse_never_panics/
