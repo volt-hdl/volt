@@ -39,6 +39,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0044](ADR-0044-mmio-register-haritasi.md) | `@mmio` register haritası — bellek eşlemeli register blokları | K | 2026-09-13 |
 | [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — yerleşik tek saatli el sıkışma bundle'ı | K | 2026-09-14 |
 | [0051](ADR-0051-cift-yonlu-portlar.md) | Çift yönlü portlar — `inout` yazma desteği ve `opendrain` tipi | K | 2026-09-15 |
+| [0069](ADR-0069-ozyineli-tip-ve-generic-struct-port.md) | Özyineli tiplerin tek tip çizgesi denetimi — E4009 her adlandırılmış tipe genişler (struct, struct port, enum payload'ı/temel tipi, takma ad; dizi/demet/generic argüman üzerinden), bundle/Handshake açılımı sonucunu kullanır; generic `struct port` → E0003; issue #21 | K | 2026-09-24 |
 | [0068](ADR-0068-tani-katlama-ve-ust-sinir.md) | Açılan kopyalarda özdeş tanı katlama (`for`/mono/bundle dizisi — "reported once; occurs in N …" notu), W0023 + `--max-diagnostics` (1000), açılım düğüm bütçesi `MAX_UNROLL_NODES`; fuzz'ın ikinci bulgusu, ADR-0067 §4'ü düzeltir | K | 2026-09-23 |
 | [0067](ADR-0067-bundle-dongu-ve-duzlestirme-butcesi.md) | Özyineli bundle tespiti ve düzleştirme bütçesi — E4009 (kendini içeren `struct port` / Handshake payload'ı), E4010 (4096 düz port / 8 seviye), `tests/fuzz_regressions/`; fuzz'ın bulduğu ilk hata | K | 2026-09-23 |
 | [0066](ADR-0066-otomatik-fsm-sayac-kontratlari.md) | Otomatik FSM ve sayaç kontratları — geçiş/durum cover'ı, sınırlı sayaç invariant'ı + sarma cover'ı, `@no_auto_contracts`, her otomatik kontratta "generated from" | K | 2026-09-23 |

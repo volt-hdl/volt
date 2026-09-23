@@ -33,6 +33,9 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "Volt reserves keywords for planned features so that code written today does not silently change meaning when the feature ships. Using a reserved keyword is an error until the corresponding language version supports it.",
             "trait Resettable {      // ✗ E0003: 'trait' is reserved\n}",
             "// Use the features of the current language version;\n// track the roadmap for when the keyword becomes available.",
+        )
+        .with_note(
+            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041) and generic struct ports (ADR-0069).",
         ),
         E0004 => Explanation::new(
             "Block end name does not match",
@@ -601,14 +604,14 @@ module Gpio {
         ),
 
         E4009 => Explanation::new(
-            "Recursive struct port or Handshake payload",
-            "A 'struct port' (or a plain struct used as a 'Handshake<T>' payload) contains itself, directly or through other structs.",
-            "A bundle is not a value at run time: the compiler flattens it to plain ports at compile time, one port per leaf field ('req_addr', 'req_ready', ...). A bundle that contains itself has no finite flat form -- 'req_req_addr', 'req_req_req_addr', ... would go on forever. Before ADR-0067 the compiler silently stopped at nesting depth 8, so a recursive bundle compiled into nonsense ports and, with several self-referencing fields, into millions of them (k^9 -- found by the fuzzer as a multi-gigabyte memory blow-up). The same applies to a plain struct payload of 'Handshake<T>', which is flattened field by field (ADR-0050).",
-            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req contains Req\n}\nmodule Slave {\n    in req : Req\n}",
-            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ leaf fields only, or another (non-recursive) struct port\n}\nmodule Slave {\n    in req : Req\n}",
+            "Recursive type",
+            "A type contains itself, directly or through other types: a struct or struct port field, an enum variant payload or base type, or a type alias target leads back to the type.",
+            "Every Volt type is a fixed number of bits, and a port group is flattened to plain ports at compile time, one port per leaf field ('req_addr', 'req_ready', ...). A type that contains itself has no finite width: 'struct P { d : u8, f : P }' would need 8 + width(P) bits, and a recursive bundle would expand to 'req_req_addr', 'req_req_req_addr', ... forever. The cycle may pass through arrays ('[S; 4]'), tuples, enum payloads, type aliases and generic arguments ('Box<P>' when Box stores its parameter).\n\nBefore ADR-0067 a recursive struct port was silently cut at nesting depth 8 (and, with several self-referencing fields, expanded into millions of ports -- found by the fuzzer as a multi-gigabyte memory blow-up). Before ADR-0069 a recursive plain struct, enum or alias passed 'volt check' without any diagnostic.",
+            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req contains Req\n}\nstruct P {\n    d : u8\n    f : [P; 2]          // ✗ E4009: through an array\n}\ntype T = T              // ✗ E4009",
+            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ leaf fields only, or another (non-recursive) type\n}\nstruct P {\n    d : u8\n    f : [u8; 2]\n}",
         )
         .with_note(
-            "A mutual cycle (A contains B, B contains A) is reported once per struct on the cycle. Types that merely refer to a recursive struct are not flattened either; fix the cycle first.",
+            "Every type on the cycle is reported once, with the member that closes the cycle and the cycle path ('A.b → B.a → A'). Types that merely refer to a recursive type are not reported and are not flattened either; fix the cycle first. A generic argument counts only if the generic type stores that parameter: 'Tag<P>' with 'struct Tag<T> { v : u8 }' is finite.",
         ),
         E4010 => Explanation::new(
             "Bundle flattening budget exceeded",

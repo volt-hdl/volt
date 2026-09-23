@@ -33,6 +33,9 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "Volt, planlanan özellikler için anahtar kelimeleri önceden ayırır; böylece bugün yazılan kod, özellik geldiğinde sessizce anlam değiştirmez. Ayrılmış kelimeyi kullanmak, ilgili dil sürümü destekleyene kadar hatadır.",
             "trait Resettable {      // ✗ E0003: 'trait' ayrılmış\n}",
             "// Geçerli dil sürümünün özelliklerini kullanın;\n// kelimenin ne zaman geleceği için yol haritasına bakın.",
+        )
+        .with_note(
+            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041) ve generic struct port (ADR-0069).",
         ),
         E0004 => Explanation::new(
             "Blok sonlandırma ismi uyuşmuyor",
@@ -601,14 +604,14 @@ module Gpio {
         ),
 
         E4009 => Explanation::new(
-            "Özyineli struct port ya da Handshake payload'ı",
-            "Bir 'struct port' (ya da 'Handshake<T>' payload'ı olan sade bir struct) doğrudan ya da başka struct'lar üzerinden kendini içeriyor.",
-            "Bundle çalışma zamanında bir değer değildir: derleyici onu derleme zamanında düz portlara açar, her yaprak alan bir port olur ('req_addr', 'req_ready', ...). Kendini içeren bir bundle'ın sonlu düz biçimi yoktur -- 'req_req_addr', 'req_req_req_addr', ... sonsuza dek sürer. ADR-0067'den önce derleyici 8. iç içelik seviyesinde sessizce duruyordu; özyineli bir bundle anlamsız portlarla derleniyor, birkaç kendine dönen alan varsa milyonlarca port üretiyordu (k^9 -- fuzzer bunu gigabaytlarca bellek tüketimi olarak buldu). Aynısı alan alan açılan 'Handshake<T>' sade struct payload'ı için de geçerlidir (ADR-0050).",
-            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req, Req içeriyor\n}\nmodule Slave {\n    in req : Req\n}",
-            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ yalnız yaprak alanlar ya da başka (özyineli olmayan) bir struct port\n}\nmodule Slave {\n    in req : Req\n}",
+            "Özyineli tip",
+            "Bir tip doğrudan ya da başka tipler üzerinden kendini içeriyor: bir struct ya da struct port alanı, bir enum varyant payload'ı ya da temel tipi, ya da bir tip takma adının hedefi tipe geri dönüyor.",
+            "Her Volt tipi sabit sayıda bittir ve port grubu derleme zamanında düz portlara açılır, her yaprak alan bir port olur ('req_addr', 'req_ready', ...). Kendini içeren bir tipin sonlu genişliği yoktur: 'struct P { d : u8, f : P }' 8 + genişlik(P) bit isterdi, özyineli bir bundle 'req_req_addr', 'req_req_req_addr', ... diye sonsuza dek açılırdı. Döngü dizilerden ('[S; 4]'), demetlerden, enum payload'larından, tip takma adlarından ve generic argümanlardan ('Box<P>', Box parametresini saklıyorsa) geçebilir.\n\nADR-0067'den önce özyineli bir struct port 8. iç içelik seviyesinde sessizce kesiliyordu (birkaç kendine dönen alanla milyonlarca porta açılıyordu -- fuzzer bunu gigabaytlarca bellek tüketimi olarak buldu). ADR-0069'dan önce özyineli sade struct, enum ya da takma ad 'volt check'ten hiçbir tanı almadan geçiyordu.",
+            "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req, Req içeriyor\n}\nstruct P {\n    d : u8\n    f : [P; 2]          // ✗ E4009: dizi üzerinden\n}\ntype T = T              // ✗ E4009",
+            "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ yalnız yaprak alanlar ya da başka (özyineli olmayan) bir tip\n}\nstruct P {\n    d : u8\n    f : [u8; 2]\n}",
         )
         .with_note(
-            "Karşılıklı döngü (A B'yi, B A'yı içerir) döngüdeki her struct için bir kez raporlanır. Özyineli bir struct'a yalnızca başvuran tipler de açılmaz; önce döngüyü giderin.",
+            "Döngüdeki her tip bir kez raporlanır; döngüyü kapatan üye ve döngü yolu ('A.b → B.a → A') ile. Özyineli bir tipe yalnızca başvuran tipler raporlanmaz ve açılmaz da; önce döngüyü giderin. Generic argüman ancak generic tip o parametreyi saklıyorsa sayılır: 'struct Tag<T> { v : u8 }' ile 'Tag<P>' sonludur.",
         ),
         E4010 => Explanation::new(
             "Bundle düzleştirme bütçesi aşıldı",

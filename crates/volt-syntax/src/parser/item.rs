@@ -83,6 +83,9 @@ impl Parser<'_> {
     /// dizisi indeksleri (`ch[i].valid`) literaldir; SONRA ADR-0051 çift
     /// yönlü port açılımı (bundle alanı inout olabilir).
     pub(crate) fn finish_unit_desugar(&mut self) {
+        // ADR-0069: özyineli tip (E4009) ve generic struct port (E0003)
+        // denetimi her açılımdan ÖNCE; açılımlar sonucunu kullanır.
+        self.check_type_graph();
         let mono_diags = super::mono::monomorphize(&mut self.ast);
         self.diagnostics.extend(mono_diags);
         self.flatten_bundles();

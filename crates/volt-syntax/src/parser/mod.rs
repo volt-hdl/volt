@@ -19,6 +19,7 @@ pub(crate) mod recovery;
 mod stmt;
 mod test;
 mod test_expr;
+mod type_graph;
 
 use std::collections::HashSet;
 
@@ -165,6 +166,9 @@ pub(crate) struct Parser<'s> {
     /// Üst düzey const'lar (ad → değer ifadesi) — bundle dizisi
     /// indekslerinin sabit değerlendirmesi için (ADR-0056).
     pub(crate) consts: std::collections::HashMap<String, Idx<Expr>>,
+    /// Bir döngüye ulaşan tip adları (ADR-0069, `type_graph`): bundle ve
+    /// Handshake açılımı bunları açmaz.
+    pub(crate) recursive_types: HashSet<String>,
 }
 
 impl<'s> Parser<'s> {
@@ -198,6 +202,7 @@ impl<'s> Parser<'s> {
             regmaps: Vec::new(),
             bidir: bidir::BidirState::default(),
             consts: std::collections::HashMap::new(),
+            recursive_types: HashSet::new(),
         }
     }
 

@@ -20,7 +20,7 @@
 //! değişkeni açılımda literale iner) düz isme yeniden yazılır. Sabit
 //! olmayan ya da aralık dışı indeks E2008.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use volt_ast::{
     BinOp, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, Idx, IfStmt, Item, ItemKind,
@@ -52,56 +52,6 @@ pub(super) const MAX_FLAT_PORTS: usize = 4096;
 pub(super) enum Overflow {
     Ports,
     Depth,
-}
-
-/// Tanım çizgesinde döngü analizi (ADR-0067).
-pub(super) struct Cycles {
-    /// Döngü üzerindeki adlar ve döngüyü kapatan ilk alan, bildirim sırasında.
-    pub on_cycle: Vec<(String, String)>,
-    /// Bir döngüye ulaşan tüm adlar (döngüdekiler dahil): düzleştirilemez.
-    pub reaches: HashSet<String>,
-}
-
-/// `edges`: ad → (alan adı, alanın tip adı) listesi; `order` bildirim
-/// sırası (tanılar ve sonuç deterministik). Tanım sayısı küçüktür
-/// (dosyadaki struct'lar), O(n²) yeterlidir.
-pub(super) fn find_cycles(
-    order: &[String],
-    edges: &HashMap<String, Vec<(String, String)>>,
-) -> Cycles {
-    fn reaches(edges: &HashMap<String, Vec<(String, String)>>, from: &str, target: &str) -> bool {
-        let mut seen: HashSet<&str> = HashSet::new();
-        let mut stack = vec![from];
-        while let Some(n) = stack.pop() {
-            if n == target {
-                return true;
-            }
-            if !seen.insert(n) {
-                continue;
-            }
-            if let Some(fs) = edges.get(n) {
-                stack.extend(fs.iter().map(|(_, t)| t.as_str()));
-            }
-        }
-        false
-    }
-    let mut on_cycle = Vec::new();
-    for name in order {
-        let Some(fs) = edges.get(name) else { continue };
-        if let Some((field, _)) = fs.iter().find(|(_, t)| reaches(edges, t, name)) {
-            on_cycle.push((name.clone(), field.clone()));
-        }
-    }
-    let cyclic: Vec<&str> = on_cycle.iter().map(|(n, _)| n.as_str()).collect();
-    let reaches_cycle = order
-        .iter()
-        .filter(|n| cyclic.iter().any(|c| reaches(edges, n, c)))
-        .cloned()
-        .collect();
-    Cycles {
-        on_cycle,
-        reaches: reaches_cycle,
-    }
 }
 
 /// `struct port` alanı (düzleştirme girdisi).
@@ -500,95 +450,38 @@ impl Parser<'_> {
     }
 
     /// Dosyadaki generic olmayan `struct port` bildirimleri. Bir döngüye
-    /// ulaşan tanımlar dışarıda bırakılır — döngüdekiler E4009 alır
-    /// (ADR-0067) — böylece açılım sonludur ve modül portu olduğu gibi kalır.
-    fn collect_bundle_defs(&mut self) -> HashMap<String, Vec<FieldInfo>> {
+    /// ulaşan tanımlar (`recursive_types`, E4009 — ADR-0069 tip çizgesi)
+    /// dışarıda bırakılır: açılım sonludur ve modül portu olduğu gibi kalır.
+    fn collect_bundle_defs(&self) -> HashMap<String, Vec<FieldInfo>> {
+        let port_structs: Vec<&volt_ast::StructDecl> = self
+            .ast
+            .items
+            .iter()
+            .filter_map(|&i| match &self.ast.items_arena[i].kind {
+                ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => Some(s),
+                _ => None,
+            })
+            .collect();
         let mut defs: HashMap<String, Vec<FieldInfo>> = HashMap::new();
-        let mut recursive: Vec<(Name, Span, String)> = Vec::new();
-        {
-            let port_structs: Vec<&volt_ast::StructDecl> = self
-                .ast
-                .items
+        for s in &port_structs {
+            let fields: Vec<FieldInfo> = s
+                .fields
                 .iter()
-                .filter_map(|&i| match &self.ast.items_arena[i].kind {
-                    ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => Some(s),
-                    _ => None,
+                .map(|f| FieldInfo {
+                    // Yönsüz alan parser hatası almıştır; kurtarma: out.
+                    dir: f.direction.unwrap_or(PortDir::Out),
+                    name: f.name.text.clone(),
+                    ty: f.ty,
+                    domain: f.domain.clone(),
+                    nested: simple_type_name(&self.ast.types, f.ty)
+                        .filter(|n| port_structs.iter().any(|p| p.name.text == *n))
+                        .map(str::to_string),
                 })
                 .collect();
-            let order: Vec<String> = port_structs.iter().map(|s| s.name.text.clone()).collect();
-            let mut edges: HashMap<String, Vec<(String, String)>> = HashMap::new();
-            for s in &port_structs {
-                let fields: Vec<FieldInfo> = s
-                    .fields
-                    .iter()
-                    .map(|f| FieldInfo {
-                        // Yönsüz alan parser hatası almıştır; kurtarma: out.
-                        dir: f.direction.unwrap_or(PortDir::Out),
-                        name: f.name.text.clone(),
-                        ty: f.ty,
-                        domain: f.domain.clone(),
-                        nested: simple_type_name(&self.ast.types, f.ty)
-                            .filter(|n| port_structs.iter().any(|p| p.name.text == *n))
-                            .map(str::to_string),
-                    })
-                    .collect();
-                edges.insert(
-                    s.name.text.clone(),
-                    fields
-                        .iter()
-                        .filter_map(|f| f.nested.clone().map(|n| (f.name.clone(), n)))
-                        .collect(),
-                );
-                defs.insert(s.name.text.clone(), fields);
-            }
-            let cycles = find_cycles(&order, &edges);
-            for (name, field) in &cycles.on_cycle {
-                // Aynı ad iki kez bildirilmişse `defs` sonuncuyu tutar; tanı da ona.
-                let Some(s) = port_structs.iter().rev().find(|s| s.name.text == *name) else {
-                    continue;
-                };
-                let field_span = s
-                    .fields
-                    .iter()
-                    .find(|f| f.name.text == *field)
-                    .map_or(s.name.span, |f| f.span);
-                recursive.push((s.name.clone(), field_span, field.clone()));
-            }
-            for name in &cycles.reaches {
-                defs.remove(name);
-            }
+            defs.insert(s.name.text.clone(), fields);
         }
-        for (name, field_span, field) in recursive {
-            self.err_recursive_bundle(&name, field_span, &field);
-        }
+        defs.retain(|name, _| !self.recursive_types.contains(name));
         defs
-    }
-
-    /// E4009 — `struct port` kendini içeriyor (ADR-0067).
-    fn err_recursive_bundle(&mut self, name: &Name, field_span: Span, field: &str) {
-        let n = name.text.as_str();
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E4009,
-                lstr!(
-                    en: "struct port '{n}' contains itself (field '{field}' leads back to '{n}')";
-                    tr: "'{n}' struct port'u kendini içeriyor ('{field}' alanı '{n}' tipine geri dönüyor)"
-                ),
-                LabeledSpan::primary(
-                    name.span,
-                    lstr!(en: "recursive port group"; tr: "özyineli port grubu"),
-                ),
-                lstr!(
-                    en: "a bundle is flattened to plain ports at compile time, so it cannot contain itself; remove the field or give it a leaf type";
-                    tr: "bundle derleme zamanında düz portlara açılır, kendini içeremez; alanı kaldırın ya da yaprak bir tip verin"
-                ),
-            )
-            .with_secondary(
-                field_span,
-                lstr!(en: "this field closes the cycle"; tr: "döngüyü bu alan kapatıyor"),
-            )
-            .with_note(NoteKind::Note, flatten_note()),
-        );
     }
 
     /// Modül / extern adı (E4010 konumu).
