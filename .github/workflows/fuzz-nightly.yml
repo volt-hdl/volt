@@ -6,6 +6,8 @@ name: Fuzz nightly
 # corpus under a new key (cache entries are immutable). A crash input is
 # uploaded as an artifact.
 on:
+  push: # TEMPORARY: registers the workflow so it can be dispatched from this branch
+    branches: [chore/fuzz-nightly]
   schedule:
     - cron: "0 3 * * *" # every day, 03:00 UTC
   workflow_dispatch:
