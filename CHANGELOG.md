@@ -5,6 +5,31 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Özyineli tipler ve generic struct port sessizce kabul ediliyordu (2026-09-24, ADR-0069)
+
+- Issue #21'in iki açığı (ADR-0067 kapsam dışı bırakmıştı): `struct P { d : u8, f : P }`
+  ve generic `struct port G<T>` portu (`g.d` erişimiyle) `volt check`'ten ve
+  LSP'den tanısız geçiyor, `volt build` ilgisiz bir E0003 ("user-defined
+  types") ile düşüyordu. Sınıf taraması: 31 örneğin 27'si sessizdi —
+  karşılıklı, dizi/demet üzerinden, enum payload'ı ve temel tipi, tip takma
+  adı, generic (`W<W<T>>`, `Box<P>`), dizi alanlı Handshake payload'ı ve
+  `struct port`, `struct port` ⇄ sade struct. Hiçbiri patlamıyordu (tanı
+  eksikliği, kaynak sorunu değil).
+- **E4009 artık "özyineli tip"**: her `struct`, `struct port`, `enum` ve
+  `type` tek bir tip çizgesinde denetlenir (`parser/type_graph.rs`,
+  yinelemeli Tarjan, doğrusal). Döngüdeki her tip bir tanı alır: birincil
+  etiket tip adında, ikincil etiket döngüyü kapatan üyede, not olarak döngü
+  yolu (`cycle: A.b → B.c → C.a → A`). Generic argüman yalnız parametre
+  gerçekten saklanıyorsa kenardır (`Tag<P>` sonlu kalır). ADR-0067'nin
+  bundle ve Handshake'teki iki ayrı döngü araması kalktı; açılımlar bu
+  denetimin sonucunu kullanır.
+- **Generic `struct port` → E0003** ("generic struct ports are not supported
+  yet"): bildirimde, kullanılmasa da; düzleştirme tip parametresi ikame
+  etmez (ADR-0041 yalnız modüllerde const generic).
+- Geçerli tasarımlar değişmedi: 187 dosyalık golden (`check` insan + JSON,
+  `build --emit=sva` çıktıları) PR #23 ile birebir. `tests/ui/fail/74-82`,
+  `tests/ui/pass/91`, `type_graph_tests.rs` (28 test).
+
 ### Düzeltildi — Tanı seli: `for` açılımı aynı hatayı her yinelemede yeniden tanılıyordu (2026-09-23, ADR-0068)
 
 - Fuzz'ın bulduğu ikinci hata (gecelik iş, run 35891532644): hata

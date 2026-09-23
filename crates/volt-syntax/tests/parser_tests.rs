@@ -2142,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 79, "ui/pass 79 dosya içermeli");
+    assert_eq!(total, 80, "ui/pass 80 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2172,10 +2172,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0003 ise 82'yi (Trit SV eşlemesi),
     // ADR-0065 ise 83-86'yı (ham reset portu, bırakma senkronizörü) ve
     // 87'yi (hedefli SDC), R5' inceltmesi 88'i (reset'siz RAM yazma saati),
-    // ADR-0066 ise 89-90'ı (otomatik FSM / sayaç kontratları) ekledi.
+    // ADR-0066 ise 89-90'ı (otomatik FSM / sayaç kontratları),
+    // ADR-0069 ise 91'i (sonlu tip çizgesi: elmas, generic, takma ad) ekledi.
     assert_eq!(
-        clean, 79,
-        "79/79 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 80,
+        "80/80 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2214,6 +2215,16 @@ fn ui_fail_files_produce_expected_codes() {
         // ADR-0067: özyineli bundle ve düzleştirme bütçesi (parse içinde).
         ("72_recursive_struct_port.volt", "E4009"),
         ("73_bundle_port_budget.volt", "E4010"),
+        // ADR-0069: tip çizgesi — özyineli tip ve generic struct port (parse içinde).
+        ("74_recursive_struct.volt", "E4009"),
+        ("75_recursive_struct_mutual.volt", "E4009"),
+        ("76_recursive_type_container.volt", "E4009"),
+        ("77_recursive_enum.volt", "E4009"),
+        ("78_recursive_type_alias.volt", "E4009"),
+        ("79_recursive_generic_struct.volt", "E4009"),
+        ("80_recursive_handshake_payload.volt", "E4009"),
+        ("81_recursive_bundle_via_plain.volt", "E4009"),
+        ("82_generic_struct_port.volt", "E0003"),
     ];
     for (file, expected) in cases {
         let path = format!(

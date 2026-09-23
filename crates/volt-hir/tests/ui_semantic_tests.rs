@@ -248,8 +248,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron),
     //           87 hedefli SDC (her köprü türü + ham reset + alt modül),
     //           88 reset'siz RAM yazma saati (R5' inceltmesi),
-    // ADR-0066: 89-90 otomatik FSM / sayaç kontratları.
-    assert_eq!(checked, 79);
+    // ADR-0066: 89-90 otomatik FSM / sayaç kontratları,
+    // ADR-0069: 91 sonlu tip çizgesi (E4009 yanlış pozitif yok).
+    assert_eq!(checked, 80);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

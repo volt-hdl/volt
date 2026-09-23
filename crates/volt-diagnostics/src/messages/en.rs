@@ -93,7 +93,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4006 => "Bus-owned MMIO register field written from RTL (ADR-0044)",
         E4007 => "Handshake valid depends combinationally on ready (ADR-0050)",
         E4008 => "Bidirectional port misuse: direct assignment, unknown member or drive call outside an on block (ADR-0051)",
-        E4009 => "Recursive struct port or Handshake payload: the bundle contains itself and has no finite flat form (ADR-0067)",
+        E4009 => "Recursive type: a struct, struct port, enum or type alias contains itself and has no finite width (ADR-0067, ADR-0069)",
         E4010 => "Bundle flattening budget exceeded: more than 4096 flat ports in one module or nesting deeper than 8 levels (ADR-0067)",
 
         // ─── Behavioral contracts ───

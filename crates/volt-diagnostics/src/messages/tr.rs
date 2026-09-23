@@ -93,7 +93,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4006 => "Bus'a ait MMIO register alanına RTL'den yazıldı (ADR-0044)",
         E4007 => "Handshake valid'i ready'ye kombinasyonel bağımlı (ADR-0050)",
         E4008 => "Çift yönlü port yanlış kullanımı: doğrudan atama, bilinmeyen üye ya da on bloğu dışında sürme (ADR-0051)",
-        E4009 => "Özyineli struct port ya da Handshake payload'ı: bundle kendini içeriyor, sonlu düz biçimi yok (ADR-0067)",
+        E4009 => "Özyineli tip: bir struct, struct port, enum ya da tip takma adı kendini içeriyor, sonlu genişliği yok (ADR-0067, ADR-0069)",
         E4010 => "Bundle düzleştirme bütçesi aşıldı: bir modülde 4096'dan çok düz port ya da 8'den derin iç içelik (ADR-0067)",
 
         // ─── Davranışsal kontratlar ───

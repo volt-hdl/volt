@@ -35,13 +35,9 @@ use volt_ast::{
     Attribute, AutoOrigin, AutoRule, BinOp, BundleOrigin, Contract, ContractKind, Expr, ExprKind,
     GenericArg, Idx, ItemKind, Name, Path, Port, PortDir, TypeRef, TypeRefKind, UnOp,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use super::bundle::{
-    find_cycles, flatten_note, flip, fresh_name_span, Flat, Overflow, Virtual, MAX_FLAT_PORTS,
-    MAX_NESTING,
-};
+use super::bundle::{flip, fresh_name_span, Flat, Overflow, Virtual, MAX_FLAT_PORTS, MAX_NESTING};
 use super::Parser;
 
 /// Yerleşik bundle'ın adı.
@@ -59,8 +55,8 @@ const PREV: &str = "prev";
 /// Sade (yönsüz, generic olmayan) struct tanımları: payload açılımı için.
 pub(super) struct PlainDefs {
     fields: HashMap<String, Vec<(String, Idx<TypeRef>)>>,
-    /// Bir döngüye ulaşan struct'lar (ADR-0067): payload olarak açılmaz,
-    /// port E4009 alır.
+    /// Bir döngüye ulaşan struct'lar (ADR-0069 tip çizgesi; struct'ın
+    /// kendisi E4009 alır): payload olarak açılmaz, `data` opak kalır.
     cyclic: HashSet<String>,
 }
 
@@ -158,9 +154,8 @@ fn payload_fields(
 
 impl Parser<'_> {
     /// Dosyadaki sade struct'lar (`struct Aw { addr : u32, prot : u3 }`)
-    /// ve döngüye ulaşanların kümesi (ADR-0067).
+    /// ve döngüye ulaşanların kümesi (ADR-0069 tip çizgesinden).
     pub(super) fn collect_plain_struct_defs(&self) -> PlainDefs {
-        let mut order = Vec::new();
         let fields: HashMap<String, Vec<(String, Idx<TypeRef>)>> = self
             .ast
             .items
@@ -170,7 +165,6 @@ impl Parser<'_> {
                 _ => None,
             })
             .map(|s| {
-                order.push(s.name.text.clone());
                 let fields = s
                     .fields
                     .iter()
@@ -179,45 +173,12 @@ impl Parser<'_> {
                 (s.name.text.clone(), fields)
             })
             .collect();
-        let edges: HashMap<String, Vec<(String, String)>> = fields
-            .iter()
-            .map(|(name, fs)| {
-                let targets = fs
-                    .iter()
-                    .filter_map(|(f, ty)| {
-                        plain_path_name(&self.ast.types, *ty)
-                            .filter(|n| fields.contains_key(*n))
-                            .map(|n| (f.clone(), n.to_string()))
-                    })
-                    .collect();
-                (name.clone(), targets)
-            })
+        let cyclic = fields
+            .keys()
+            .filter(|n| self.recursive_types.contains(*n))
+            .cloned()
             .collect();
-        let cyclic = find_cycles(&order, &edges).reaches;
         PlainDefs { fields, cyclic }
-    }
-
-    /// E4009 — Handshake payload'ı özyineli sade struct (ADR-0067).
-    fn err_recursive_payload(&mut self, port: &Port, payload: &str) {
-        let p = port.name.text.as_str();
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E4009,
-                lstr!(
-                    en: "the payload of Handshake port '{p}' is a recursive struct ('{payload}' contains itself)";
-                    tr: "'{p}' Handshake portunun payload'ı özyineli bir struct ('{payload}' kendini içeriyor)"
-                ),
-                LabeledSpan::primary(
-                    port.span,
-                    lstr!(en: "recursive payload"; tr: "özyineli payload"),
-                ),
-                lstr!(
-                    en: "a Handshake payload is flattened field by field (ADR-0050); use a struct that does not refer back to itself";
-                    tr: "Handshake payload'ı alan alan açılır (ADR-0050); kendine geri dönmeyen bir struct kullanın"
-                ),
-            )
-            .with_note(NoteKind::Note, flatten_note()),
-        );
     }
 
     /// Port tipi `Handshake<T>` (tam bir tip argümanı) ise `T`.
@@ -268,8 +229,7 @@ impl Parser<'_> {
         let recursive = plain_path_name(&self.ast.types, payload)
             .filter(|n| plain.cyclic.contains(*n))
             .map(str::to_string);
-        if let Some(name) = recursive {
-            self.err_recursive_payload(port, &name);
+        if recursive.is_some() {
             payload_paths.push((FIELD_DATA.to_string(), payload));
         } else if let Err(over) = payload_fields(
             &self.ast.types,
