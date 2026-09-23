@@ -101,8 +101,9 @@ saymak yetmez — patlama sayma anından önce olurdu. Maliyet O(bütçe).
 
 ### 3. Kalıcı regresyon ve tohum
 
-`tests/fuzz_regressions/` her fuzz bulgusunu ham haliyle saklar (bu ADR:
-`oom_recursive_struct_port_2087b.volt`); `fuzz_regression_tests.rs` her
+`tests/fuzz_regressions/` her fuzz bulgusunu ham ve küçültülmüş haliyle
+saklar (bu ADR: `oom_recursive_struct_port_2087b.volt` ve delta-debugging
+ile 81 bayta inen `..._min_81b.volt`; cargo-fuzz tmin Windows'ta yok); `fuzz_regression_tests.rs` her
 dosyayı ayrı iş parçacığında 5 saniyelik süre sınırıyla ayrıştırır, aşan
 düşer. Dizin CI fuzz işlerinde (PR ve gecelik) `tests/ui/` yanında salt
 okunur tohumdur — libFuzzer corpus'u gitignore'dadır, kalıcı tek yer
