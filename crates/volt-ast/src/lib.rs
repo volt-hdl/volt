@@ -76,7 +76,9 @@ pub struct GenerateIter {
     pub value: i128,
     /// `for` deyiminin span'i (kaynak satırı).
     pub for_span: Span,
-    /// İç içe döngüde dış yinelemenin ctx'i; en dışta 0.
+    /// İç içe döngüde dış yinelemenin ctx'i; monomorf klon gövdesinde
+    /// klonun ctx'i (tabloda yok — zincir orada biter, ADR-0068 notu
+    /// "N generic örneklemede" diyebilir); elle yazılmış modülde 0.
     pub parent: u16,
 }
 

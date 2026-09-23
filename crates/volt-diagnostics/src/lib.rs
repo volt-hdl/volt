@@ -5,6 +5,7 @@ pub mod code;
 pub mod diagnostic;
 pub mod emit;
 pub mod explain;
+pub mod fold;
 pub mod json;
 pub mod messages;
 
@@ -14,5 +15,6 @@ pub use diagnostic::{
 };
 pub use emit::{render_human, render_short};
 pub use explain::{render_explanation, render_list};
+pub use fold::{fold_duplicates, same_identity};
 pub use json::{to_json_string, to_json_value};
 pub use messages::{lang, set_lang, Lang};

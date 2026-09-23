@@ -15,7 +15,7 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// ADR-0054 ile; E8507-E8511, ADR-0058 ile; E8512, ADR-0059 ile; E9003/E9004,
 /// ADR-0063 ile; W5001, ADR-0064 ile; W3009/W3010, ADR-0065 ile;
 /// E4009/E4010, ADR-0067 ile eklendi.)
-const CODE_COUNT: usize = 133;
+const CODE_COUNT: usize = 134;
 
 #[test]
 fn all_codes_present_120_of_120() {

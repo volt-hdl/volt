@@ -62,6 +62,15 @@ impl<T> Arena<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.items.iter()
     }
+
+    /// Ayrılmış düğüm sayısı (ADR-0068: açılım düğüm bütçesi).
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
 }
 
 impl<T> std::ops::Index<Idx<T>> for Arena<T> {

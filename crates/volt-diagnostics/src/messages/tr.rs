@@ -142,6 +142,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0020 => "Bilinmeyen nitelik (attribute)",
         W0021 => "Nitelik ayrıştırılıyor ama henüz uygulanmıyor",
         W0022 => "Saat alanının frekansı yok; create_clock üretilmedi (ADR-0054)",
+        W0023 => "Çok fazla tanı; kalanlar gizlendi (ADR-0068)",
         W1001 => "Kullanılmayan sinyal / bağlama",
         W1002 => "Gölgeleme (iç kapsamda aynı isim)",
         W1003 => "Yerleşik ismin gölgelenmesi",
