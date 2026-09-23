@@ -5,6 +5,35 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Tanı seli: `for` açılımı aynı hatayı her yinelemede yeniden tanılıyordu (2026-09-23, ADR-0068)
+
+- Fuzz'ın bulduğu ikinci hata (gecelik iş, run 35891532644): hata
+  kurtarmanın iç içe geçirdiği iki `for i in 0..283` ve sabit olmayan bir
+  iç sınır, her yineleme çiftinde aynı E2005'i üretiyordu — 65 365 tanı
+  (65 303 × E2005), 347 MB, 67 MB çıktı; CI'da ASan ile 2 GB aşımı. Aynı
+  sınıf generic monomorfizasyonda (hatalı `W<K>` × N argüman) ve bundle
+  dizilerinde (`[Bus; 256]` × aynı E1001) da ölçüldü; pipeline, `@mmio`
+  ve test dili `for`u patlamıyor.
+- **Katlama**: `Span.ctx` dışında özdeş tanılar (kod + mesaj + etiketli
+  span'ler + notlar) bir kez raporlanır; kopyalar tek notta:
+  `reported once; occurs in 283 unrolled 'for' iterations (i = 0..282)`,
+  `… in 8 generic instantiations`, `… 257 identical occurrences`. Farklı
+  tanılar (yineleme değerini taşıyan mesaj) ayrı kalır. Mekanizma tek
+  (`volt_diagnostics::fold_duplicates`), toplayıcı tek
+  (`volt_hir::annotate_generate`); `for` açılımı bellek için her
+  yinelemeden sonra kendi kuyruğunu katlar. `summary.errors` artık kopya
+  değil hata sayar.
+- **W0023 + `--max-diagnostics N`** (yeni, varsayılan 1000, 0 = sınırsız):
+  katlama sonrası da sınır aşılırsa hatalar önce, ilk N gösterilir,
+  kapanış uyarısı gizlenen sayıyı söyler. ADR-0067 §4'ün "sınır yok"
+  kararı bu girdi karşısında eksik kaldı; düzeltildi.
+- **E2027 düğüm bütçesi**: açılım modül başına 262 144 AST düğümünü aşınca
+  durur (gövde × yineleme çarpımını hiçbir sınır yakalamıyordu; girdi
+  katlama sonrası da 274 MB AST kuruyordu → 73 MB).
+- Sonuç: artifact 6,3 s / 347 MB / 65 365 tanı → 0,27 s / 73 MB / 63 tanı.
+  `tests/fuzz_regressions/oom_nested_for_diag_flood_1157b.volt` 1 s
+  sınırıyla; 187 fixture'lık golden'da sıfır fark; 5 mutasyon 5/5.
+
 ### Düzeltildi — Parser bellek taşması: özyineli bundle sonsuz açılım (2026-09-23, ADR-0067)
 
 - Fuzz'ın bulduğu ilk hata (PR #19 gecelik/PR fuzz'ı, tohum `tests/ui/`):

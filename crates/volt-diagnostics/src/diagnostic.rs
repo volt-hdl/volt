@@ -7,7 +7,7 @@ use volt_span::Span;
 
 use crate::code::ErrorCode;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Severity {
     Error,
     Warning,
@@ -51,7 +51,7 @@ impl LabeledSpan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoteKind {
     /// İnsan çıktısında "= neden:" satırı.
     Reason,
@@ -71,7 +71,7 @@ impl NoteKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Note {
     pub kind: NoteKind,
     pub text: String,
@@ -117,6 +117,11 @@ pub struct Diagnostic {
     /// "= çözüm:" satırı — 5 parça kuralı gereği zorunlu.
     pub help: Option<String>,
     pub suggestions: Vec<Suggestion>,
+    /// Bu tanıya katlanmış özdeş kopyaların birincil `Span.ctx`'leri
+    /// (ADR-0068): açılmış `for` yinelemeleri, generic örneklemeler ya da
+    /// bundle dizisi elemanları aynı hatayı yeniden üretince kopya
+    /// burada sayılır, bir kez raporlanır. Kimliğe DAHİL DEĞİLDİR.
+    pub folded_ctxs: Vec<u16>,
 }
 
 impl Diagnostic {
@@ -140,6 +145,7 @@ impl Diagnostic {
             notes: Vec::new(),
             help: Some(help.into()),
             suggestions: Vec::new(),
+            folded_ctxs: Vec::new(),
         }
     }
 

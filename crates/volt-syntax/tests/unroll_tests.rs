@@ -277,11 +277,15 @@ fn empty_range_produces_nothing() {
 }
 
 #[test]
-fn if_and_match_in_module_for_are_e0003_per_iteration() {
+fn if_and_match_in_module_for_are_e0003_once_with_folded_iterations() {
+    // Her yineleme aynı E0003'ü üretir; ADR-0068 sonrası bir kez raporlanır,
+    // ikinci yineleme `folded_ctxs`'te.
     let r = p("module M { in c : bool\n in x : u8\n out y : [u8; 2]\n for i in 0..2 { if c { y[i] = x } } }");
-    assert_eq!(r.error_codes(), vec!["E0003", "E0003"]);
+    assert_eq!(r.error_codes(), vec!["E0003"]);
+    assert_eq!(r.diagnostics[0].folded_ctxs.len(), 1);
     let r = p("module M { in c : bool\n in x : u8\n out y : [u8; 2]\n for i in 0..2 { match c { _ => { y[i] = x } } } }");
-    assert_eq!(r.error_codes(), vec!["E0003", "E0003"]);
+    assert_eq!(r.error_codes(), vec!["E0003"]);
+    assert_eq!(r.diagnostics[0].folded_ctxs.len(), 1);
 }
 
 #[test]
@@ -323,4 +327,97 @@ fn block_level_for_is_left_to_the_emitter() {
     let r = p("module M { in clk : clock\n out y : u8\n reg r : [u8; 2] = [0; 2]\n on clk { for i in 0..2 { r[i] <= 1 } }\n y = r[0] }");
     assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
     assert!(r.ast.generate.iterations.is_empty());
+}
+
+// ═══ Özdeş tanı katlama (ADR-0068) ═══════════════════════════════════
+
+#[test]
+fn nested_for_with_non_constant_inner_bound_reports_e2005_once_with_folded_copies() {
+    // Fuzz bulgusu 2: iç `for`un sınırı sabit değil → her (dış, iç)
+    // yineleme çifti aynı E2005'i üretirdi (WIDTH²). Artık tek tanı,
+    // katlanan kopyaların ctx'leri tanıda.
+    let r = p("const N : u32 = 50\nmodule M { in a : u8\n out o : u8\n for i in 0..N { for j in 0..N { for k in 0..a { o = a } } } }");
+    let e2005: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E2005")
+        .collect();
+    assert_eq!(e2005.len(), 1, "{:?}", r.error_codes());
+    assert_eq!(e2005[0].folded_ctxs.len(), 50 * 50 - 1);
+    assert_eq!(r.diagnostics.len(), 1, "{:?}", r.error_codes());
+}
+
+#[test]
+fn iteration_specific_diagnostics_are_not_folded_together() {
+    // `j in i..1`: i = 0 boş-değil, i = 1 boş, i = 2..4 ters aralık — mesaj
+    // yineleme değerini taşır ("2..1", "3..1", "4..1"), üç AYRI E2028.
+    let r = p("module M { in a : u8\n out o : u8\n for i in 0..5 { for j in i..1 { o = a } } }");
+    let e2028: Vec<String> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E2028")
+        .map(|d| d.message.clone())
+        .collect();
+    assert_eq!(e2028.len(), 3, "{e2028:?}");
+    assert!(e2028.iter().all(|m| m.contains("..1")), "{e2028:?}");
+    assert!(r.diagnostics.iter().all(|d| d.folded_ctxs.is_empty()));
+}
+
+#[test]
+fn unsupported_body_statement_is_reported_once_per_source_statement() {
+    // Gövdede iki ayrı `if` → iki ayrı kaynak deyimi → iki E0003; her biri
+    // 8 yinelemeden 7 katlanmış kopya taşır.
+    let r = p("module M { in a : bool\n out o : u8\n for i in 0..8 { if a { o = 1 }\n if !a { o = 2 } } }");
+    let e0003: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E0003")
+        .collect();
+    assert_eq!(e0003.len(), 2, "{:?}", r.error_codes());
+    assert!(e0003.iter().all(|d| d.folded_ctxs.len() == 7));
+}
+
+#[test]
+fn for_inside_generic_clone_records_the_clone_ctx_as_parent() {
+    // Monomorf klondaki `for` yinelemesinin kökü klonun ctx'idir (0 değil):
+    // tanı notu "N generic örneklemede" diyebilsin.
+    let r = p("module W<const K : u32> { in a : u8\n out o : u8\n for i in 0..2 { o = a } }\nmodule T { in a : u8\n out o : u8\n let w = W<3> { a: a }\n o = w.o }");
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let iters: Vec<_> = r.ast.generate.iterations.values().collect();
+    assert_eq!(iters.len(), 2);
+    assert!(
+        iters.iter().all(|it| it.parent != 0),
+        "kök klon ctx'i olmalı: {iters:?}"
+    );
+    assert!(iters
+        .iter()
+        .all(|it| !r.ast.generate.iterations.contains_key(&it.parent)));
+}
+
+#[test]
+fn unroll_node_budget_stops_expansion_with_a_single_e2027() {
+    // Gövde ~200 düğüm × 2000 yineleme = 400k > MAX_UNROLL_NODES (262 144):
+    // açılım bütçede durur, tek E2027, kalan döngüler açılmaz (kaskad yok).
+    let terms = vec!["a"; 100].join(" + ");
+    let src = format!(
+        "module M {{ in a : u8\n out o : [u8; 2000]\n out p : [u8; 4]\n for i in 0..2000 {{ o[i] = {terms}\n o[i] = {terms} }}\n for j in 0..4 {{ p[j] = a }} }}"
+    );
+    let r = p(&src);
+    assert_eq!(r.error_codes(), vec!["E2027"], "{:?}", r.error_codes());
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message.contains("node budget") || d.message.contains("düğüm bütçesi"),
+        "{}",
+        d.message
+    );
+    assert!(
+        d.folded_ctxs.is_empty(),
+        "tek tanı, kaskad yok: {:?}",
+        d.folded_ctxs
+    );
+    assert!(
+        r.ast.stmts.len() + r.ast.exprs.len() < 300_000,
+        "AST bütçede kalmalı: {}",
+        r.ast.stmts.len() + r.ast.exprs.len()
+    );
 }

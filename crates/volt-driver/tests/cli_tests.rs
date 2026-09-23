@@ -1962,3 +1962,96 @@ fn volt_manifest_dir_without_volt_toml_is_reported_in_the_e1011_note() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// ═══ Tanı üst sınırı (ADR-0068, W0023) ═══════════════════════════════
+
+/// 1200 AYRI hata üreten dosya: her `let` farklı adla, hepsi işaret
+/// uyuşmazlığı (E2002) — katlama bunları birleştiremez.
+fn many_distinct_errors_file(tag: &str) -> PathBuf {
+    let dir = temp_dir(tag);
+    let mut src = String::from("module M { in a : u8\n out o : u8\n");
+    for k in 0..1200 {
+        src.push_str(&format!(" let t{k} : i8 = a\n"));
+    }
+    src.push_str(" o = a }\n");
+    let path = dir.join("many.volt");
+    std::fs::write(&path, src).expect("yazılmalı");
+    path
+}
+
+#[test]
+fn more_than_the_diagnostic_limit_is_truncated_with_w0023() {
+    let output = volt()
+        .args(["--lang", "en", "check", "--format", "json"])
+        .arg(many_distinct_errors_file("cap"))
+        .output()
+        .expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(1));
+    let envelope: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("JSON");
+    let diags = envelope["diagnostics"].as_array().unwrap();
+    // 1000 tanı + kapanış uyarısı.
+    assert_eq!(diags.len(), 1001, "summary: {}", envelope["summary"]);
+    let last = diags.last().unwrap();
+    assert_eq!(last["code"], "W0023");
+    assert_eq!(last["severity"], "warning");
+    // 1200 E2002 + 1200 W1001 (kullanılmayan bağlama) = 2400 tanı.
+    assert_eq!(
+        last["message"],
+        "too many diagnostics: 1000 shown, 1400 hidden"
+    );
+    assert_eq!(envelope["summary"]["errors"], 1000);
+}
+
+#[test]
+fn max_diagnostics_zero_disables_the_limit() {
+    let output = volt()
+        .args(["--max-diagnostics", "0", "check", "--format", "json"])
+        .arg(many_distinct_errors_file("nocap"))
+        .output()
+        .expect("volt çalışmalı");
+    let envelope: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("JSON");
+    assert_eq!(envelope["summary"]["errors"], 1200);
+    assert!(envelope["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["code"] != "W0023"));
+}
+
+#[test]
+fn max_diagnostics_flag_lowers_the_limit_in_human_output() {
+    let output = volt()
+        .args(["--max-diagnostics", "5", "check"])
+        .arg(many_distinct_errors_file("cap5"))
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.matches("error[E2002]").count(), 5, "{stderr}");
+    assert!(stderr.contains("warning[W0023]"), "{stderr}");
+    assert!(stderr.contains("--max-diagnostics"), "{stderr}");
+}
+
+#[test]
+fn unrolled_duplicate_diagnostics_are_folded_in_cli_output() {
+    let dir = temp_dir("fold");
+    let path = dir.join("fold.volt");
+    std::fs::write(
+        &path,
+        "const N : u32 = 40\nmodule M { in a : u8\n out o : [i8; N]\n for i in 0..N { o[i] = a } }\n",
+    )
+    .expect("yazılmalı");
+    let output = volt()
+        .args(["--lang", "en", "check"])
+        .arg(&path)
+        .output()
+        .expect("volt çalışmalı");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.matches("error[E2002]").count(), 1, "{stderr}");
+    assert!(
+        stderr.contains("occurs in 40 unrolled 'for' iterations (i = 0..39)"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Result 1 error(s)"), "{stderr}");
+}

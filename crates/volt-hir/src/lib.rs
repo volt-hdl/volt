@@ -154,50 +154,136 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     }
 }
 
-/// Açılmış `for` yinelemesine düşen tanılara bağlam notu ekler
-/// (ADR-0056): birincil span'in `ctx`'i `SourceFile::generate`
-/// tablosundaysa "'for' döngüsünün i = 2 yinelemesinde" notu ve döngü
-/// deyimine ikincil etiket. Kaynak konumu zaten kullanıcının yazdığı
-/// satırdır (klon span'leri korur); not hangi kopyada olduğunu söyler.
-/// Aynı tanıya ikinci kez uygulanmaz.
+/// Tanı toplayıcısının tek çıkış kapısı: önce özdeş tanılar katlanır
+/// (ADR-0068 — `Span.ctx` dışında aynı olan kopyalar bir kez kalır),
+/// sonra açılım bağlamı not olarak yazılır.
+///
+/// * Katlanmamış, açılmış `for` yinelemesine düşen tanı (ADR-0056):
+///   "'for' döngüsünün i = 2 yinelemesinde" notu ve döngü deyimine
+///   ikincil etiket. Kaynak konumu zaten kullanıcının yazdığı satırdır
+///   (klon span'leri korur); not hangi kopyada olduğunu söyler.
+/// * Katlanmış tanı: "bir kez raporlandı; N açılmış 'for' yinelemesinde
+///   (i = 0..282)" / "N generic örneklemede" / "N özdeş kopya" notu.
+///
+/// Aynı tanıya ikinci kez uygulanmaz (not imleri).
 pub fn annotate_generate(
     ast: &SourceFile,
     diagnostics: Vec<volt_diagnostics::Diagnostic>,
 ) -> Vec<volt_diagnostics::Diagnostic> {
-    use volt_diagnostics::NoteKind;
-    if ast.generate.iterations.is_empty() {
+    let mut diagnostics = diagnostics;
+    volt_diagnostics::fold_duplicates(&mut diagnostics, 0);
+    if ast.generate.iterations.is_empty() && diagnostics.iter().all(|d| d.folded_ctxs.is_empty()) {
         return diagnostics;
     }
     diagnostics
         .into_iter()
-        .map(|d| {
-            let Some(ctx) = d.primary_span().map(|s| s.span.ctx) else {
-                return d;
-            };
-            let chain = ast.generate.chain(ctx);
-            if chain.is_empty() || d.notes.iter().any(|n| n.text.contains(GENERATE_NOTE_MARK)) {
-                return d;
+        .map(|d| annotate_one(ast, d))
+        .collect()
+}
+
+fn annotate_one(ast: &SourceFile, d: volt_diagnostics::Diagnostic) -> volt_diagnostics::Diagnostic {
+    use volt_diagnostics::NoteKind;
+    let Some(ctx) = d.primary_span().map(|s| s.span.ctx) else {
+        return d;
+    };
+    if d.notes
+        .iter()
+        .any(|n| n.text.contains(GENERATE_NOTE_MARK) || n.text.contains(FOLD_NOTE_MARK))
+    {
+        return d;
+    }
+    let note = if d.folded_ctxs.is_empty() {
+        let chain = ast.generate.chain(ctx);
+        if chain.is_empty() {
+            return d;
+        }
+        let vars: Vec<String> = chain.iter().map(|(v, n)| format!("{v} = {n}")).collect();
+        let vars = vars.join(", ");
+        volt_diagnostics::lstr!(
+            en: "in the unrolled 'for' iteration {vars} {GENERATE_NOTE_MARK}";
+            tr: "'for' döngüsünün {vars} yinelemesinde {GENERATE_NOTE_MARK}"
+        )
+    } else {
+        fold_note(ast, ctx, &d.folded_ctxs)
+    };
+    let d = d.with_note(NoteKind::Note, note);
+    match ast.generate.outermost_span(ctx) {
+        Some(span) if !d.spans.iter().any(|s| s.span == span) => d.with_secondary(
+            span,
+            volt_diagnostics::lstr!(
+                en: "'for' loop unrolled at compile time here";
+                tr: "'for' döngüsü burada derleme zamanında açıldı"
+            ),
+        ),
+        _ => d,
+    }
+}
+
+/// Katlanmış tanının notu: kopyaların ctx'leri yineleme zincirine
+/// (değişken başına min..max) ve köklerine (0 = elle yazılmış, başka =
+/// monomorf klon) ayrıştırılır.
+fn fold_note(ast: &SourceFile, primary_ctx: u16, folded: &[u16]) -> String {
+    let n = folded.len() + 1;
+    let mut ranges: Vec<(String, i128, i128)> = Vec::new();
+    let mut roots: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    for &c in std::iter::once(&primary_ctx).chain(folded) {
+        for (k, (var, val)) in ast.generate.chain(c).iter().enumerate() {
+            match ranges.get_mut(k) {
+                Some(r) => {
+                    r.1 = r.1.min(*val);
+                    r.2 = r.2.max(*val);
+                }
+                None => ranges.push((var.clone(), *val, *val)),
             }
-            let vars: Vec<String> = chain.iter().map(|(v, n)| format!("{v} = {n}")).collect();
-            let vars = vars.join(", ");
-            let note = volt_diagnostics::lstr!(
-                en: "in the unrolled 'for' iteration {vars} {GENERATE_NOTE_MARK}";
-                tr: "'for' döngüsünün {vars} yinelemesinde {GENERATE_NOTE_MARK}"
-            );
-            let d = d.with_note(NoteKind::Note, note);
-            match ast.generate.outermost_span(ctx) {
-                Some(span) if !d.spans.iter().any(|s| s.span == span) => d.with_secondary(
-                    span,
-                    volt_diagnostics::lstr!(
-                        en: "'for' loop unrolled at compile time here";
-                        tr: "'for' döngüsü burada derleme zamanında açıldı"
-                    ),
-                ),
-                _ => d,
+        }
+        roots.insert(root_ctx(ast, c));
+    }
+    let instantiations = roots.iter().filter(|&&r| r != 0).count();
+    let ranges_txt = ranges
+        .iter()
+        .map(|(v, lo, hi)| {
+            if lo == hi {
+                format!("{v} = {lo}")
+            } else {
+                format!("{v} = {lo}..{hi}")
             }
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join(", ");
+    match (ranges.is_empty(), instantiations) {
+        (false, 0) => volt_diagnostics::lstr!(
+            en: "reported once; occurs in {n} unrolled 'for' iterations ({ranges_txt}) {FOLD_NOTE_MARK}";
+            tr: "bir kez raporlandı; {n} açılmış 'for' yinelemesinde geçiyor ({ranges_txt}) {FOLD_NOTE_MARK}"
+        ),
+        (false, k) => volt_diagnostics::lstr!(
+            en: "reported once; occurs in {n} copies: unrolled 'for' iterations ({ranges_txt}) across {k} generic instantiations {FOLD_NOTE_MARK}";
+            tr: "bir kez raporlandı; {n} kopyada geçiyor: {k} generic örneklemedeki açılmış 'for' yinelemeleri ({ranges_txt}) {FOLD_NOTE_MARK}"
+        ),
+        (true, k) if k == n => volt_diagnostics::lstr!(
+            en: "reported once; occurs in {n} generic instantiations {FOLD_NOTE_MARK}";
+            tr: "bir kez raporlandı; {n} generic örneklemede geçiyor {FOLD_NOTE_MARK}"
+        ),
+        (true, _) => volt_diagnostics::lstr!(
+            en: "reported once; {n} identical occurrences {FOLD_NOTE_MARK}";
+            tr: "bir kez raporlandı; {n} özdeş kopya {FOLD_NOTE_MARK}"
+        ),
+    }
+}
+
+/// Yineleme zincirinin kökü: tabloda olmayan ilk ctx (0 ya da monomorf
+/// klonun ctx'i); ctx tabloda değilse kendisi.
+fn root_ctx(ast: &SourceFile, ctx: u16) -> u16 {
+    let mut cur = ctx;
+    while let Some(it) = ast.generate.iterations.get(&cur) {
+        if it.parent == 0 || it.parent == cur {
+            return 0;
+        }
+        cur = it.parent;
+    }
+    cur
 }
 
 /// Bağlam notunun tanınma imi (çift uygulamaya karşı).
 const GENERATE_NOTE_MARK: &str = "(ADR-0056)";
+/// Katlama notunun tanınma imi.
+const FOLD_NOTE_MARK: &str = "(ADR-0068)";

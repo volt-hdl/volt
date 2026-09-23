@@ -114,8 +114,8 @@ budur.
 | Aday | Karar | Gerekçe |
 |---|---|---|
 | Hata kurtarmada "her adımda en az bir token" debug assert'i | **EKLENMEDİ** | Kurtarma döngülerinde koşu zamanı ilerleme garantisi zaten var (`parse_items_only`, `parse_struct_fields`, `recover_silent`: `pos == before → bump_any`). Aşama ölçümü lexer/parser'ı akladı (< 1 ms); assert eklemek bu hataya değmeyen ek yüzeydir. |
-| Tanı sayısına üst sınır (ör. 1000) | **EKLENMEDİ** | Girdi 608 tanı üretti, bellek etkisi yok; sınır gerçek hataları gizleyebilir ve `//~ ERROR` testlerini kırılganlaştırır. Tanı üretimi patlamanın kaynağı değildi. |
-| Açılım/mono'da üretilen düğüm sayısına sınır | **EKLENDİ (bundle için, E4010)** | Patlamanın sınıfı bu. Mono ve `for` açılımının kendi sınırları zaten var: `MAX_ROUNDS = 64`, `MAX_UNROLL = 4096`, `MAX_CONST_DEPTH = 64`, `MAX_BUNDLE_ARRAY = 256`; eksik olan bundle çizgesiydi. |
+| Tanı sayısına üst sınır (ör. 1000) | **EKLENMEDİ** → **ADR-0068 ile düzeltildi** | Girdi 608 tanı üretti, bellek etkisi yok; sınır gerçek hataları gizleyebilir ve `//~ ERROR` testlerini kırılganlaştırır. Tanı üretimi patlamanın kaynağı değildi. *Bu karar fuzz'ın ikinci girdisi karşısında eksik kaldı: iç içe `for` açılımı 65 303 özdeş E2005 üretti (347 MB). "Sınır gerçek hataları gizler" ilkesi FARKLI hatalar için doğrudur, aynı hatanın kopyaları için değil — ADR-0068 kopyaları katlar ve 1000'lik `--max-diagnostics` sınırını ekler.* |
+| Açılım/mono'da üretilen düğüm sayısına sınır | **EKLENDİ (bundle için, E4010)** | Patlamanın sınıfı bu. Mono ve `for` açılımının kendi sınırları zaten var: `MAX_ROUNDS = 64`, `MAX_UNROLL = 4096`, `MAX_CONST_DEPTH = 64`, `MAX_BUNDLE_ARRAY = 256`; eksik olan bundle çizgesiydi. *Eksik gözlem: bu sınırlar yineleme sayısını sınırlar, gövde × yineleme çarpımını değil — ADR-0068 `MAX_UNROLL_NODES` ekler.* |
 
 ## Sonuçlar
 

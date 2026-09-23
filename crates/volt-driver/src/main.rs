@@ -18,6 +18,7 @@ mod verify_report;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -47,9 +48,17 @@ struct Cli {
     /// Diagnostic language: en | tr (priority: flag > VOLT_LANG > Volt.toml [ui] lang > en)
     #[arg(long, global = true, value_enum)]
     lang: Option<LangArg>,
+    /// Stop reporting after this many diagnostics; 0 = unlimited (ADR-0068)
+    #[arg(long, global = true, default_value_t = DEFAULT_MAX_DIAGNOSTICS)]
+    max_diagnostics: usize,
     #[command(subcommand)]
     command: Option<Command>,
 }
+
+/// Tanı üst sınırı varsayılanı (ADR-0068 §4 — Clang `-ferror-limit`
+/// emsali, katlama sonrası yalnız FARKLI tanılar sayılır).
+const DEFAULT_MAX_DIAGNOSTICS: usize = 1000;
+static MAX_DIAGNOSTICS: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_DIAGNOSTICS);
 
 /// cli-contract.md §3 --lang değerleri.
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -374,6 +383,7 @@ impl From<VerifyModeArg> for SbyMode {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
+    MAX_DIAGNOSTICS.store(cli.max_diagnostics, Ordering::Relaxed);
     // Komutsuz çağrı hata DEĞİL, yol göstermedir (UX Anayasası:
     // en iyi onboarding olmayan onboarding) — sık görevler + çıkış 0.
     let Some(command) = cli.command else {
@@ -661,6 +671,52 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
 /// `check` emit koşmaz (§6 "çıktı üretmeden doğrulama") — sv-emit'in
 /// F0 sınırları (örn. sync() çağrısı E0003) analizi engellememeli.
 fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
+    let mut compiled = compile_all(file, want_sv, sva_mode)?;
+    cap_diagnostics(&mut compiled.diagnostics);
+    Ok(compiled)
+}
+
+/// Tanı üst sınırı (ADR-0068 §4, W0023): katlama kök nedeni çözer, bu
+/// bilinmeyen patlama sınıflarına karşı yedek güvencedir. Sınır aşılırsa
+/// hatalar önce (JSON zarfıyla aynı sıra), ilk `limit` tanı kalır, sonuna
+/// gizlenen sayıyı ve `--max-diagnostics` çözümünü söyleyen W0023 eklenir.
+fn cap_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
+    let limit = MAX_DIAGNOSTICS.load(Ordering::Relaxed);
+    if limit == 0 || diagnostics.len() <= limit {
+        return;
+    }
+    let total = diagnostics.len();
+    let mut ordered = std::mem::take(diagnostics);
+    ordered.sort_by_key(|d| d.severity != Severity::Error);
+    ordered.truncate(limit);
+    let hidden = total - limit;
+    let Some(anchor) = ordered
+        .last()
+        .and_then(|d| d.primary_span())
+        .map(|s| s.span)
+    else {
+        *diagnostics = ordered;
+        return;
+    };
+    ordered.push(Diagnostic::warning(
+        ErrorCode::W0023,
+        lstr!(
+            en: "too many diagnostics: {limit} shown, {hidden} hidden";
+            tr: "çok fazla tanı: {limit} gösterildi, {hidden} gizlendi"
+        ),
+        volt_diagnostics::LabeledSpan::primary(
+            anchor,
+            lstr!(en: "last diagnostic shown"; tr: "gösterilen son tanı"),
+        ),
+        lstr!(
+            en: "fix the reported diagnostics first, or raise the limit with --max-diagnostics=N (0 = unlimited)";
+            tr: "önce raporlanan tanıları düzeltin ya da sınırı --max-diagnostics=N ile yükseltin (0 = sınırsız)"
+        ),
+    ));
+    *diagnostics = ordered;
+}
+
+fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
     // ── Aşama 0+1: dosya keşfi (ADR-0042) + birim ayrıştırma ──
     let unit = match unit::load_unit(file) {
         Ok(u) => u,

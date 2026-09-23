@@ -888,6 +888,13 @@ module VgaTiming { /* ... */ }
         .with_note(
             "@timing, @false_path ve @multicycle ADR-0054 ile bu listeden çıktı: 'volt build --emit=sdc' (ya da xdc) onları build/constraints/<Modül>.sdc içinde create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir; hatalı yazılmış olanı E0017'dir. Onlar için yazılmış bir @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir. @budget (E6001) ve sürüm denetimleri (E7001/E7002) için yol haritası ADR-0048'dir.",
         ),
+        W0023 => Explanation::new(
+            "Çok fazla tanı; kalanlar gizlendi",
+            "Derleme raporlama sınırından (varsayılan 1000) fazla tanı üretti; yalnız ilkler gösteriliyor — hatalar uyarılardan önce, kaynak sırasında.",
+            "Çok kez açılan bir şablondaki tek hata (açılmış 'for', çok argümanla örneklenen generic modül, bundle dizisi) kaç kopya olduğunu söyleyen bir notla tek tanıya katlanır; sınıra yalnız gerçekten FARKLI tanılar ulaşır. Binin üstünde listeyi kimse okumaz; sınır terminali, CI günlüklerini ve JSON tüketicilerini kullanılır tutar, bilinmeyen patlamalara karşı emniyet kemeridir. Hiçbir şey sessizce kaybolmaz: bu uyarı kaç tanının gizlendiğini söyler.",
+            "$ volt check tasarim.volt\n...\nwarning[W0023]: çok fazla tanı: 1000 gösterildi, 64365 gizlendi",
+            "$ volt check --max-diagnostics=0 tasarim.volt   // ✓ tümü, sınırsız\n$ volt check --max-diagnostics=50 tasarim.volt  // ✓ daha kısa liste",
+        ),
         W0022 => Explanation::new(
             "Saat alanının frekansı yok; create_clock üretilmedi",
             "Kısıt dosyası istendi (--emit=sdc ya da xdc), ama bu saatin alanı 'frequency' bildirmiyor; create_clock satırı eksik.",

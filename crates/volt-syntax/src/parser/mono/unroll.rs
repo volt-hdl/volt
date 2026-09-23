@@ -32,7 +32,7 @@ use volt_ast::{
     AssignStmt, BlockStmt, ExprKind, ForStmt, GenerateIter, Idx, InstanceDecl, Item, ItemKind,
     LetDecl, PortBinding, SourceFile, Stmt, StmtKind,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{fold_duplicates, lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
 
 use super::clone::Cloner;
@@ -43,12 +43,27 @@ pub(crate) const MAX_UNROLL: i128 = 4096;
 /// Const ifade değerlendirmesinde derinlik sınırı (döngüsel const).
 const MAX_CONST_DEPTH: u32 = 64;
 
+/// Açılımın modül başına üretebileceği AST düğümü (deyim + ifade) bütçesi
+/// (ADR-0068 §4, E2027). `MAX_UNROLL` yineleme sayısını, u16 ctx toplam
+/// yinelemeyi sınırlar; gövde büyüklüğü × yineleme çarpımını hiçbiri
+/// sınırlamıyordu — fuzz girdisi 65 535 yinelemede 274 MB AST kurdu.
+/// 4096 yineleme × 64 düğümlük gövde sığar.
+pub(crate) const MAX_UNROLL_NODES: usize = 1 << 18;
+
 pub(super) struct Unroller<'a> {
     ast: &'a mut SourceFile,
     next_ctx: &'a mut u16,
     diagnostics: &'a mut Vec<Diagnostic>,
     /// Üst düzey `const AD = ...` değerleri (sınır ifadeleri için).
     consts: HashMap<String, Idx<volt_ast::Expr>>,
+    /// Açılım başındaki düğüm sayısı (bütçe tabanı).
+    nodes_start: usize,
+    /// Bütçe aşıldı: kalan döngüler açılmaz (tek E2027, kaskad yok).
+    budget_exhausted: bool,
+}
+
+fn node_count(ast: &SourceFile) -> usize {
+    ast.stmts.len() + ast.exprs.len()
 }
 
 /// Bir modülün gövdesindeki tüm modül seviyesi `for`ları açar.
@@ -73,11 +88,14 @@ pub(super) fn unroll_module(
         return;
     };
     let body = std::mem::take(&mut m.body);
+    let nodes_start = node_count(ast);
     let mut u = Unroller {
         ast,
         next_ctx,
         diagnostics,
         consts,
+        nodes_start,
+        budget_exhausted: false,
     };
     let mut out = Vec::with_capacity(body.len());
     for stmt in body {
@@ -120,10 +138,22 @@ impl Unroller<'_> {
         rename: &HashMap<String, String>,
         suffix: &str,
     ) -> Vec<Idx<Stmt>> {
+        if self.budget_exhausted {
+            return Vec::new();
+        }
         let Some((start, end)) = self.bounds(&f, span) else {
             return Vec::new();
         };
         let declared = declared_names(self.ast, f.body);
+        // Kök: dış yineleme; en dışta `for` deyiminin kendi ctx'i (monomorf
+        // klonda klonun ctx'i, elle yazılmış modülde 0) — ADR-0068 notu.
+        let parent = if parent_ctx != 0 {
+            parent_ctx
+        } else {
+            span.ctx
+        };
+        // Katlama işareti: bu döngünün ürettiği tanılar buradan başlar.
+        let mark = self.diagnostics.len();
         let mut out = Vec::new();
         for v in start..end {
             let Some(ctx) = self.alloc_ctx(span) else {
@@ -135,7 +165,7 @@ impl Unroller<'_> {
                     var: f.var.text.clone(),
                     value: v,
                     for_span: span,
-                    parent: parent_ctx,
+                    parent,
                 },
             );
             let suffix_v = format!("{suffix}_{v}");
@@ -151,8 +181,38 @@ impl Unroller<'_> {
             for bs in stmts {
                 self.lift(bs, ctx, &rename_v, &suffix_v, &mut out);
             }
+            // Her yinelemeden sonra: bu döngünün özdeş tanıları katlanır
+            // (ADR-0068). Sonradan katlamak yetmez — 283² kopya önce
+            // belleğe yığılırdı; bellek O(farklı tanı) kalır.
+            fold_duplicates(self.diagnostics, mark);
+            // Düğüm bütçesi (ADR-0068 §4): gövde × yineleme çarpımı da
+            // AÇILIM SIRASINDA denetlenir (E4010 ilkesi, ADR-0067 §2).
+            if node_count(self.ast) - self.nodes_start > MAX_UNROLL_NODES {
+                self.err_node_budget(&f.var.text, span);
+                return out;
+            }
         }
         out
+    }
+
+    /// Düğüm bütçesi aşımı: tek E2027, sonraki döngüler açılmaz.
+    fn err_node_budget(&mut self, var: &str, span: Span) {
+        self.budget_exhausted = true;
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2027,
+            lstr!(
+                en: "unrolling 'for {var}' exceeded the AST node budget ({MAX_UNROLL_NODES} statements and expressions per module)";
+                tr: "'for {var}' açılımı AST düğüm bütçesini aştı (modül başına {MAX_UNROLL_NODES} deyim ve ifade)"
+            ),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "the unrolled body is too large"; tr: "açılan gövde çok büyük"),
+            ),
+            lstr!(
+                en: "narrow the range or move the loop body into a submodule instantiated per iteration";
+                tr: "aralığı daraltın ya da döngü gövdesini yineleme başına örneklenen bir alt modüle taşıyın"
+            ),
+        ));
     }
 
     /// Klonlanmış gövde deyimini modül seviyesi deyime kaldırır.

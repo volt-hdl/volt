@@ -888,6 +888,13 @@ module VgaTiming { /* ... */ }
         .with_note(
             "@timing, @false_path and @multicycle left this list with ADR-0054: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path in build/constraints/<Module>.sdc, and a malformed one is E0017. An @allow(unenforced) written for them does nothing now and can be removed. ADR-0048 remains the roadmap for @budget (E6001) and the versioning checks (E7001/E7002).",
         ),
+        W0023 => Explanation::new(
+            "Too many diagnostics; the rest are hidden",
+            "The compilation produced more diagnostics than the reporting limit (default 1000), so only the first ones are shown — errors before warnings, in source order.",
+            "A single mistake in a template that is expanded many times (an unrolled 'for', a generic module instantiated with many arguments, a bundle array) is folded into one diagnostic with a note saying how many copies it stands for, so the limit is reached only by genuinely distinct diagnostics. Past a thousand of them nobody reads the list; the limit keeps the terminal, CI logs and JSON consumers usable and is a safety net against unknown blow-ups. Nothing is lost silently: this warning says exactly how many diagnostics were hidden.",
+            "$ volt check design.volt\n...\nwarning[W0023]: too many diagnostics: 1000 shown, 64365 hidden",
+            "$ volt check --max-diagnostics=0 design.volt   // ✓ everything, unlimited\n$ volt check --max-diagnostics=50 design.volt  // ✓ a shorter list",
+        ),
         W0022 => Explanation::new(
             "Clock domain has no frequency; no create_clock emitted",
             "A constraint file was requested (--emit=sdc or xdc), but this clock's domain declares no 'frequency', so its create_clock line is missing.",
