@@ -538,8 +538,14 @@ fn raw_reset_design_runs_monitors_after_the_synchronizer_release() {
         ),
         "{out}"
     );
+    // ADR-0066: `c` açık sınırlı sayaçtır; otomatik sarma cover'ı gerçek
+    // Verilator koşusunda sayılır ve özette kökeniyle etiketlenir.
     assert!(
-        out.contains("  RstCnt.cov_0 (rstcnt_test.volt:10)  hit 2 times"),
+        out.contains("  RstCnt.cov_0 (rstcnt_test.volt:10)                     hit 2 times"),
+        "{out}"
+    );
+    assert!(
+        out.contains("  RstCnt.cov_1 (rstcnt_test.volt:15, auto counter wrap)  hit 1 time"),
         "{out}"
     );
 }

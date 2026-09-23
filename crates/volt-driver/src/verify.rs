@@ -480,7 +480,11 @@ pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
         if let Some(step) = parse_step(line) {
             last_step = Some(step);
         }
-        if (line.contains("Assert failed in") || line.contains("Assume failed in"))
+        // Cover kipinde başarısızlık "Unreached cover statement at dosya.sv:N"
+        // satırıdır (ADR-0066: otomatik cover'lar bu kipi sık kullandırır).
+        if (line.contains("Assert failed in")
+            || line.contains("Assume failed in")
+            || line.contains("Unreached cover statement at"))
             && failure.is_none()
         {
             failure = Some(SbyFailure {
@@ -607,6 +611,22 @@ fn counterexample_diagnostic(
                 prop.keyword
         ),
     );
+    // ADR-0066 §4: kullanıcı yazmadığı kontratın nereden geldiğini görür.
+    if let Some(auto) = &prop.auto {
+        if auto.from != prop.span {
+            diag = diag.with_secondary(
+                auto.from,
+                lstr!(en: "generated from here"; tr: "buradan üretildi"),
+            );
+        }
+        diag = diag.with_note(
+            NoteKind::Note,
+            lstr!(
+                en: "auto-generated {} contract '{}', generated from {}", auto.rule, auto.text, auto.subject;
+                tr: "otomatik üretilmiş {} kontratı '{}', kaynağı: {}", auto.rule, auto.text, auto.subject
+            ),
+        );
+    }
     if let Some(cex) = cex {
         diag = diag.with_note(NoteKind::Counterexample, cex.display().to_string());
     }
@@ -653,6 +673,24 @@ SBY 12:00:01 [counter] DONE (PASS, rc=0)
         };
         assert_eq!(failure.sv_line, Some(23));
         assert_eq!(failure.step, Some(7));
+    }
+
+    /// Cover kipi (ADR-0066): ulaşılamayan cover'ın satırı okunur — E5001
+    /// modülün ilk kontratına değil, ulaşılamayan cover'a işaret eder.
+    #[test]
+    fn interpret_cover_log_extracts_the_unreached_cover_line() {
+        let log = "\
+SBY 14:36:54 [dead] engine_0: ##   0:00:00  Checking cover reachability in step 19..
+SBY 14:36:54 [dead] engine_0: ##   0:00:00  Unreached cover statement at dead.sv:59.20-59.96 ($cover$dead.sv:59$26).
+SBY 14:36:54 [dead] engine_0: ##   0:00:00  Unreached cover statement at dead.sv:55.20-55.70 ($cover$dead.sv:55$25).
+SBY 14:36:54 [dead] DONE (FAIL, rc=2)
+";
+        let SbyOutcome::Fail(failure) = interpret_sby_output(log) else {
+            panic!("FAIL bekleniyor");
+        };
+        assert_eq!(failure.sv_line, Some(59));
+        let sv = "a\nb\n        if (!(rst)) cover (x); // volt:cov_1\n";
+        assert_eq!(prop_name_at(sv, 3).as_deref(), Some("cov_1"));
     }
 
     #[test]
@@ -742,8 +780,49 @@ SBY 12:00:01 [counter] DONE (PASS, rc=0)
             keyword: "invariant",
             span: volt_span::Span::new(volt_span::FileId(0), 0, 0),
             primitive: None,
+            auto: None,
         };
         let props = [prop("B", "inv_0"), prop("A", "inv_0"), prop("B", "inv_1")];
         assert_eq!(contract_modules(&props), ["B", "A"]);
+    }
+
+    /// ADR-0066 §4: otomatik kontratın E5001'i kökenini söyler; köken
+    /// ifadeden farklı yerdeyse (ör. `@mmio` niteliği) ikincil etiket alır.
+    #[test]
+    fn auto_contract_counterexample_names_its_origin() {
+        let at = |s: u32| volt_span::Span::new(volt_span::FileId(0), s, s + 4);
+        let auto = |from| volt_sv_emit::AutoProp {
+            rule: "counter bound",
+            text: "r <= 9".to_string(),
+            subject: "wrap check on r".to_string(),
+            from,
+        };
+        let prop = |from| SvaProp {
+            module_name: "C".to_string(),
+            name: "inv_0".to_string(),
+            keyword: "invariant",
+            span: at(10),
+            primitive: None,
+            auto: Some(auto(from)),
+        };
+        let failure = SbyFailure {
+            sv_line: None,
+            step: Some(3),
+        };
+        let (name, diag) = counterexample_diagnostic("C", &failure, "", &[prop(at(10))], None);
+        assert_eq!(name, "inv_0");
+        assert_eq!(diag.spans.len(), 1, "köken = ifade: ikincil etiket yok");
+        let note = diag
+            .notes
+            .iter()
+            .find(|n| n.kind == NoteKind::Note)
+            .expect("köken notu");
+        assert!(note.text.contains("counter bound"), "{}", note.text);
+        assert!(note.text.contains("r <= 9"), "{}", note.text);
+        assert!(note.text.contains("wrap check on r"), "{}", note.text);
+
+        let (_, diag) = counterexample_diagnostic("C", &failure, "", &[prop(at(40))], None);
+        assert_eq!(diag.spans.len(), 2);
+        assert_eq!(diag.spans[1].span, at(40));
     }
 }

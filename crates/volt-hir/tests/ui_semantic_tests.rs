@@ -247,8 +247,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0003: 82 Trit SV eşlemesi,
     // ADR-0065: 83-86 ham reset portu (iki saat, alan başına, hiyerarşi, senkron),
     //           87 hedefli SDC (her köprü türü + ham reset + alt modül),
-    //           88 reset'siz RAM yazma saati (R5' inceltmesi).
-    assert_eq!(checked, 77);
+    //           88 reset'siz RAM yazma saati (R5' inceltmesi),
+    // ADR-0066: 89-90 otomatik FSM / sayaç kontratları.
+    assert_eq!(checked, 79);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -738,4 +739,70 @@ fn ui_pass_83_to_86_raw_reset_patterns_are_clean() {
             result.error_codes()
         );
     }
+}
+
+// ═══ Otomatik FSM / sayaç kontratları (ADR-0066) ════════════════════
+
+/// Fikstürün otomatik kontrat metinleri (parser desugar'ı).
+fn auto_texts(rel: &str) -> Vec<String> {
+    let path = format!("{}/../../tests/ui/{rel}", env!("CARGO_MANIFEST_DIR"));
+    let src = std::fs::read_to_string(&path).expect("ui dosyası okunmalı");
+    let parsed = parse(FileId(0), &src);
+    let m = parsed.ast.module(0).expect("modül");
+    m.contracts
+        .iter()
+        .filter_map(|c| c.auto.as_ref().map(|a| a.text.clone()))
+        .collect()
+}
+
+#[test]
+fn ui_pass_89_auto_fsm_contracts_type_check_without_diagnostics() {
+    // Üretilen prev()'li cover'lar isim çözümleme, tip ve domain
+    // denetiminden tanısız geçer (uyarı bile yok).
+    let result = analyze_file("pass/89_auto_fsm_contracts.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(
+        auto_texts("pass/89_auto_fsm_contracts.volt"),
+        [
+            "prev(state_r) == 0 && state_r == 1",
+            "prev(state_r) == 1 && state_r == 2",
+            "prev(state_r) != 0 && prev(state_r) != 1 && state_r == 0",
+            "state_r == 3",
+        ]
+    );
+}
+
+#[test]
+fn ui_pass_90_auto_counter_contracts_type_check_without_diagnostics() {
+    let result = analyze_file("pass/90_auto_counter_contracts.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    // free_r serbest sayaç, slow_r @no_auto_contracts: yalnız tick_r.
+    let path = format!(
+        "{}/../../tests/ui/pass/90_auto_counter_contracts.volt",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let src = std::fs::read_to_string(&path).expect("ui dosyası okunmalı");
+    let parsed = parse(FileId(0), &src);
+    let m = parsed.ast.module(1).expect("modül");
+    let texts: Vec<&str> = m
+        .contracts
+        .iter()
+        .filter_map(|c| c.auto.as_ref().map(|a| a.text.as_str()))
+        .collect();
+    assert_eq!(texts, ["tick_r <= DIVISOR - 1", "tick_r == DIVISOR - 1"]);
+}
+
+#[test]
+fn ui_fail_71_auto_fsm_unreachable_transition_compiles_cleanly() {
+    // E5001 derleyiciden değil `volt verify --mode cover`'dan gelir
+    // (CI formal işi); derleme temiz, iki ölü geçiş cover'ı üretilir.
+    let result = analyze_file("fail/71_auto_fsm_unreachable_transition.volt");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(
+        auto_texts("fail/71_auto_fsm_unreachable_transition.volt"),
+        [
+            "prev(state_r) == 1 && state_r == 2",
+            "prev(state_r) != 0 && prev(state_r) != 1 && state_r == 0",
+        ]
+    );
 }

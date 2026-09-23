@@ -1001,6 +1001,7 @@ impl<'a> Emitter<'a> {
                 keyword,
                 span,
                 primitive: Some(primitive),
+                auto: None,
             });
         };
 

@@ -26,8 +26,8 @@
 use volt_ast::{ClockEdge, ModuleDecl};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
-use crate::sva::{contract_keyword, kind_slot, sva_construct, ONE_BIT};
-use crate::{ClockPort, Emitter, SvaProp};
+use crate::sva::{kind_slot, sva_construct, ONE_BIT};
+use crate::{ClockPort, Emitter};
 
 /// İhlal geri çağrısı: `volt_contract_fail("Modül.ad")`.
 pub const SIM_FAIL_FN: &str = "volt_contract_fail";
@@ -126,22 +126,16 @@ impl<'a> Emitter<'a> {
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
             let span = self.ast.exprs[c.expr].span;
-            self.sva_props.push(SvaProp {
-                module_name: module.name.text.clone(),
-                name: name.clone(),
-                keyword: contract_keyword(c.kind),
-                span,
-                primitive: None,
-            });
-            let (source_name, line) = self.location_of(span);
+            let prop = self.contract_prop(module, &name, c);
+            self.sva_props.push(prop);
+            let comment = self.contract_comment(c, &ind);
             let Some(expr) = self.monitor_expr(c.expr, span) else {
                 continue;
             };
             let id = format!("{}.{name}", module.name.text);
             blocks.push(format!(
-                "{ind}// {kw} from {source_name}:{line}\n{}",
+                "{comment}\n{}",
                 self.sim_monitor(&clock, verb, &expr, &id, indent),
-                kw = contract_keyword(c.kind),
             ));
         }
         Some(blocks.join("\n\n"))

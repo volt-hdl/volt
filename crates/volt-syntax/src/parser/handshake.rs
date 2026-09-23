@@ -32,8 +32,8 @@
 use std::collections::HashMap;
 
 use volt_ast::{
-    Attribute, BinOp, BundleOrigin, Contract, ContractKind, Expr, ExprKind, GenericArg, Idx,
-    ItemKind, Name, Path, Port, PortDir, TypeRef, TypeRefKind, UnOp,
+    Attribute, AutoOrigin, AutoRule, BinOp, BundleOrigin, Contract, ContractKind, Expr, ExprKind,
+    GenericArg, Idx, ItemKind, Name, Path, Port, PortDir, TypeRef, TypeRefKind, UnOp,
 };
 use volt_span::Span;
 
@@ -287,6 +287,15 @@ impl Parser<'_> {
             counter,
         };
         let mut contracts = Vec::new();
+        // "generated from" kökeni (ADR-0066 §4): metin düzleşmiş adlarla.
+        let port = info.valid.strip_suffix("_valid").unwrap_or(&info.valid);
+        let origin = |text: String| AutoOrigin {
+            rule: AutoRule::Handshake,
+            text,
+            subject: format!("Handshake port {port}"),
+            from: span,
+        };
+        let pending_text = format!("prev({}) && !prev({})", info.valid, info.ready);
         // Tutma: valid, ready gelene dek düşmez.
         let pending = b.pending(&info.valid, &info.ready);
         let v = b.path(&info.valid);
@@ -295,6 +304,7 @@ impl Parser<'_> {
             span,
             kind,
             expr: hold,
+            auto: Some(origin(format!("{pending_text} -> {}", info.valid))),
         });
         // Kararlılık: veri, el sıkışma tamamlanana dek sabit.
         for d in &info.data {
@@ -307,6 +317,7 @@ impl Parser<'_> {
                 span,
                 kind,
                 expr: stable,
+                auto: Some(origin(format!("{pending_text} -> {d} == prev({d})"))),
             });
         }
         contracts

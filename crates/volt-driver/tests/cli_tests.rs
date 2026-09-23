@@ -1080,7 +1080,9 @@ fn verify_fake_sby_pass_exit_0() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("1 property verified"), "stderr: {stderr}");
+    // Elle yazılan `count_r <= 10` + otomatik sarma cover'ı `count_r == 10`
+    // (ADR-0066 C3; aynı metinli C2 invariant'ı tekilleştirilir).
+    assert!(stderr.contains("2 properties verified"), "stderr: {stderr}");
     let _ = std::fs::remove_dir_all(&target);
 }
 

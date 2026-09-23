@@ -39,7 +39,7 @@ pub use sim::{
     TbStep, TbTest, TbValue,
 };
 pub use sim_contract::uses_sim_contracts;
-pub use sva::{SvaFile, SvaMode, SvaProp};
+pub use sva::{AutoProp, SvaFile, SvaMode, SvaProp};
 
 pub const VOLT_VERSION: &str = "0.1.0";
 

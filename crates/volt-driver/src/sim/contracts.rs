@@ -19,6 +19,9 @@ pub(super) struct ContractSource {
     /// Kontrat ifadesi (tek satıra indirgenmiş); primitif kontratında
     /// `stdlib AsyncFifo contract 'f_inv_0'` açıklaması.
     pub text: String,
+    /// Derleyicinin ürettiği kontratta kural etiketi ve köken
+    /// (`dosya.volt:satır (match on state_r)`) — ADR-0066 §4.
+    pub auto: Option<(&'static str, String)>,
 }
 
 /// Bir testteki ilk kontrat ihlali.
@@ -62,13 +65,20 @@ impl ContractViolation {
         };
         match &self.source {
             Some(src) => {
-                lines.push(format!("  {heading}: {} ({})", src.keyword, src.loc));
+                let what = match &src.auto {
+                    Some((rule, _)) => format!("auto-generated {rule} {}", src.keyword),
+                    None => src.keyword.to_string(),
+                };
+                lines.push(format!("  {heading}: {what} ({})", src.loc));
                 lines.push(format!("    {}: {}", src.keyword, src.text));
             }
             None => lines.push(format!("  {heading}: {}", self.id)),
         }
         lines.push(format!("  at cycle {}", self.cycle));
         lines.push(format!("  in instance: {}", self.inst));
+        if let Some((_, from)) = self.source.as_ref().and_then(|s| s.auto.as_ref()) {
+            lines.push(format!("  generated from: {from}"));
+        }
         if let Some(ctx) = &self.loop_ctx {
             lines.push(format!("  loop: {ctx}"));
         }
@@ -118,6 +128,8 @@ pub(super) struct CoverCount {
     pub id: String,
     /// `dosya.volt:satır`; eşlenemediyse boş.
     pub loc: String,
+    /// Otomatik cover'ın kural etiketi (`FSM transition`) — ADR-0066.
+    pub auto: Option<&'static str>,
     pub hits: u64,
 }
 
@@ -172,6 +184,11 @@ impl ContractIndex {
                     .get(id)
                     .map(|s| s.loc.clone())
                     .unwrap_or_default(),
+                auto: self
+                    .by_id
+                    .get(id)
+                    .and_then(|s| s.auto.as_ref())
+                    .map(|(rule, _)| *rule),
                 hits: *hits,
             })
             .collect()
@@ -187,16 +204,27 @@ fn normalize_instance(scope: &str, top_scope: &str) -> String {
     }
 }
 
-fn source_of(p: &SvaProp, map: &SourceMap) -> ContractSource {
+/// `dosya.volt:satır` (yalnız dosya adı).
+fn loc_of(span: volt_span::Span, map: &SourceMap) -> String {
     let file = map
-        .path(p.span.file)
+        .path(span.file)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let (line, _) = map.line_col(p.span);
-    let text = match p.primitive {
-        Some(prim) => format!("stdlib {prim} contract '{}'", p.name),
-        None => {
+    let (line, _) = map.line_col(span);
+    format!("{file}:{line}")
+}
+
+fn source_of(p: &SvaProp, map: &SourceMap) -> ContractSource {
+    let auto = p
+        .auto
+        .as_ref()
+        .map(|a| (a.rule, format!("{} ({})", loc_of(a.from, map), a.subject)));
+    let text = match (&p.auto, p.primitive) {
+        // Otomatik kontrat kaynakta yazılı değil: metin derleyiciden.
+        (Some(a), _) => a.text.clone(),
+        (None, Some(prim)) => format!("stdlib {prim} contract '{}'", p.name),
+        (None, None) => {
             let src = map.source(p.span.file);
             let raw = src
                 .get(p.span.start as usize..p.span.end as usize)
@@ -206,8 +234,9 @@ fn source_of(p: &SvaProp, map: &SourceMap) -> ContractSource {
     };
     ContractSource {
         keyword: p.keyword,
-        loc: format!("{file}:{line}"),
+        loc: loc_of(p.span, map),
         text,
+        auto,
     }
 }
 
@@ -229,12 +258,10 @@ pub(super) fn cover_summary_lines(covers: &[CoverCount]) -> Vec<String> {
     }
     let labels: Vec<String> = covers
         .iter()
-        .map(|c| {
-            if c.loc.is_empty() {
-                c.id.clone()
-            } else {
-                format!("{} ({})", c.id, c.loc)
-            }
+        .map(|c| match (c.loc.is_empty(), c.auto) {
+            (true, _) => c.id.clone(),
+            (false, None) => format!("{} ({})", c.id, c.loc),
+            (false, Some(rule)) => format!("{} ({}, auto {rule})", c.id, c.loc),
         })
         .collect();
     let width = labels.iter().map(String::len).max().unwrap_or(0);
@@ -269,6 +296,7 @@ mod tests {
             keyword,
             span,
             primitive,
+            auto: None,
         };
         let props = [
             prop("inv_0", "invariant", at("count", 16), None),
@@ -367,6 +395,7 @@ mod tests {
         let cover = |id: &str, hits| CoverCount {
             id: id.to_string(),
             loc: "c.volt:3".to_string(),
+            auto: None,
             hits,
         };
         merge_covers(&mut all, vec![cover("A.cov_0", 2), cover("A.cov_10", 0)]);
@@ -383,5 +412,75 @@ mod tests {
         );
         assert!(cover_summary_lines(&[]).is_empty());
         assert_eq!(parse_cover("X.cov_0 nope"), None);
+    }
+
+    /// Otomatik sayaç kontratı (ADR-0066): ifade span'i sınır karşılaştırması.
+    fn auto_index() -> ContractIndex {
+        let mut map = SourceMap::new();
+        let text = "module Div {\n    on clk {\n        if tick_r == 5 {\n";
+        let file = map.add_file("dir/div.volt", text);
+        let start = text.find("tick_r == 5").expect("metin") as u32;
+        let span = Span::new(file, start, start + 11);
+        let prop = |name: &str, keyword, rule, text: &str| SvaProp {
+            module_name: "Div".to_string(),
+            name: name.to_string(),
+            keyword,
+            span,
+            primitive: None,
+            auto: Some(volt_sv_emit::AutoProp {
+                rule,
+                text: text.to_string(),
+                subject: "wrap check on tick_r".to_string(),
+                from: span,
+            }),
+        };
+        let props = [
+            prop("inv_0", "invariant", "counter bound", "tick_r <= 5"),
+            prop("cov_0", "cover", "counter wrap", "tick_r == 5"),
+        ];
+        ContractIndex::new(&props, &map, "Div")
+    }
+
+    #[test]
+    fn auto_contract_violation_says_where_it_was_generated_from() {
+        let v = auto_index()
+            .resolve(parse_contract_fail("Div.inv_0 cycle=47 inst=TOP.Div").expect("ayrışmalı"));
+        assert_eq!(
+            v.report_lines(),
+            [
+                "  contract violated: auto-generated counter bound invariant (div.volt:3)",
+                "    invariant: tick_r <= 5",
+                "  at cycle 47",
+                "  in instance: dut",
+                "  generated from: div.volt:3 (wrap check on tick_r)",
+            ]
+        );
+    }
+
+    #[test]
+    fn auto_contract_text_comes_from_the_compiler_not_the_source() {
+        // Kaynak span'i `tick_r == 5` karşılaştırmasıdır; metin kontratınki.
+        let src = &auto_index().by_id["Div.inv_0"];
+        assert_eq!(src.text, "tick_r <= 5");
+        assert_eq!(
+            src.auto,
+            Some((
+                "counter bound",
+                "div.volt:3 (wrap check on tick_r)".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn auto_cover_is_labelled_in_the_summary() {
+        let covers = auto_index().covers(&[("Div.cov_0".to_string(), 0)]);
+        assert_eq!(covers[0].auto, Some("counter wrap"));
+        assert_eq!(
+            cover_summary_lines(&covers),
+            [
+                "cover summary:",
+                "  Div.cov_0 (div.volt:3, auto counter wrap)  NEVER HIT",
+            ]
+        );
     }
 }

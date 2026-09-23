@@ -592,3 +592,48 @@ Simülasyon: `volt test` / `volt run` üreteci ham portu polaritesiyle
 daha bekler — test, reset'ten çıkmış bir tasarımla başlar. Formal: kontrat
 `disable iff` ve ilk çevrim reset varsayımı zincir çıkışına uygulanır.
 Zincir uzunluğu sabit 2'dir (`@reset_stages(N)` gelecek iş).
+
+## Otomatik FSM ve sayaç kontratları (ADR-0066)
+
+Handshake ve `@mmio` gibi, derleyici iki yaygın yapı için kontratı
+kendiliğinden yazar. Kontratlar yalnız SVA'ya (`volt verify`) ve
+simülasyon izleyicisine (`volt test`) gider; **üretilen RTL değişmez**.
+
+| Yapı | Tanıma | Üretilen |
+|---|---|---|
+| Durum makinesi | `reg s : uN`, her yazma sabit (`s <= 2`, `s <= IDLE`), `on clk { match s { 0 => ..., _ => ... } }` | kol `a` içindeki her `s <= b` için `cover: prev(s) == a && s == b` (geçiş); hiçbir geçişin hedefi olmayan durum için `cover: s == v` |
+| Sınırlı sayaç | `reg r : uN`, yazmalar sabit ya da `r + 1`; her artış `if r == E { ... } else { r <= r + 1 }` (ya da `r >= E` / `r < E` / `r != E`) korumasında, `E` sabit | `invariant: r <= E` ve `cover: r == E` (sarma noktası) |
+
+Üretilmeyenler: "durum geçerli" invariant'ı (`_` kolu E0014 ile zaten
+zorunlu), genişlik sınırı (`uN` sarar), serbest sayaçlar (korumasız
+`r <= r + 1`), 16'dan çok geçişli FSM'in geçiş cover'ları (yerine durum
+cover'ları; 16'dan çok durum varsa hiçbiri). Tanınan biçimin dışında TEK
+bir yazma bile register'ı aday dışı bırakır — yanlış alarm yerine kontrat
+yok. Yalnız modülün ilk saat portundaki register'lar aday olur. Elle
+yazılmış aynı kontrat varsa tekrar üretilmez.
+
+Kapatma: `@no_auto_contracts` modülün önünde (hepsi) ya da `reg`
+deyiminin önünde (o register). Handshake/@mmio kontratlarını etkilemez.
+
+```volt
+@no_auto_contracts
+reg scratch_r : u4 = 0        // bu sayaç için kontrat üretilmez
+```
+
+Kullanıcı yazmadığı kontratın nereden geldiğini her raporda görür:
+
+```
+---- frame ----
+  contract violated: auto-generated counter bound invariant (uart_tx.volt:66)
+    invariant: clk_count_r <= CLKS_PER_BIT - 1
+  at cycle 47
+  in instance: dut
+  generated from: uart_tx.volt:66 (wrap check on clk_count_r)
+```
+
+`volt test` cover özetinde otomatik cover'lar `auto FSM transition` /
+`auto counter wrap` etiketi taşır; `NEVER HIT` bir test kapsam boşluğuna
+işaret eder. `volt verify --mode cover` ulaşılamayan otomatik cover için
+E5001 verir (ölü kol, hiç sarmayan sayaç); çok derin sayaçlar (ör. VGA
+800 çevrim) BMC derinliğine sığmaz — kapsam kipinde o modülde
+`@no_auto_contracts` ya da daha büyük `--depth` gerekir.

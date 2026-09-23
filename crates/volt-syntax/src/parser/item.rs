@@ -48,6 +48,9 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     // ADR-0050: Handshake<T> otomatik protokol kontratlarını kapatır
     // (port ya da modül düzeyi); yorumu parser/bundle.rs + handshake.rs.
     "no_protocol_check",
+    // ADR-0066: otomatik FSM/sayaç kontratlarını kapatır (modül ya da
+    // `reg` düzeyi); yorumu parser/auto_contract.
+    "no_auto_contracts",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.
@@ -84,6 +87,8 @@ impl Parser<'_> {
         self.diagnostics.extend(mono_diags);
         self.flatten_bundles();
         self.expand_bidir_ports();
+        // ADR-0066: FSM/sayaç kontratları somut, düzleşmiş modülde.
+        self.add_auto_contracts();
     }
 
     /// Öğeleri okur, bundle düzleştirmesi YAPMAZ — derleme biriminde
@@ -819,6 +824,7 @@ impl Parser<'_> {
             span: self.span_from(start),
             kind,
             expr,
+            auto: None,
         }
     }
 

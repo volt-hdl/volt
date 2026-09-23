@@ -39,6 +39,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0044](ADR-0044-mmio-register-haritasi.md) | `@mmio` register haritası — bellek eşlemeli register blokları | K | 2026-09-13 |
 | [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — yerleşik tek saatli el sıkışma bundle'ı | K | 2026-09-14 |
 | [0051](ADR-0051-cift-yonlu-portlar.md) | Çift yönlü portlar — `inout` yazma desteği ve `opendrain` tipi | K | 2026-09-15 |
+| [0066](ADR-0066-otomatik-fsm-sayac-kontratlari.md) | Otomatik FSM ve sayaç kontratları — geçiş/durum cover'ı, sınırlı sayaç invariant'ı + sarma cover'ı, `@no_auto_contracts`, her otomatik kontratta "generated from" | K | 2026-09-23 |
 
 ## Tip sistemi
 
