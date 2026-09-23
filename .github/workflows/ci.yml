@@ -231,11 +231,16 @@ jobs:
           path: fuzz/corpus/parse_never_panics
           key: fuzz-corpus-parse_never_panics-${{ github.run_id }}
           restore-keys: fuzz-corpus-parse_never_panics-
-      # First corpus dir receives new inputs; tests/ui is a read-only seed.
+      # First corpus dir receives new inputs; tests/ui and the fuzz regression
+      # inputs (ADR-0067) are read-only seeds.
       - name: parse_never_panics (60 s)
         run: |
           mkdir -p fuzz/corpus/parse_never_panics
-          cargo +nightly fuzz run parse_never_panics             "$GITHUB_WORKSPACE/fuzz/corpus/parse_never_panics"             "$GITHUB_WORKSPACE/tests/ui"             -- -max_total_time=60
+          cargo +nightly fuzz run parse_never_panics \
+            "$GITHUB_WORKSPACE/fuzz/corpus/parse_never_panics" \
+            "$GITHUB_WORKSPACE/tests/ui" \
+            "$GITHUB_WORKSPACE/tests/fuzz_regressions" \
+            -- -max_total_time=60
       - name: Upload crash input
         if: failure()
         uses: actions/upload-artifact@v7

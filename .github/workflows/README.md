@@ -15,7 +15,8 @@
   büyüyen corpus'u yeni bir anahtarla kaydeder (önbellek girdileri değişmez).
   Çökme olsa da corpus kaydedilir.
 - PR fuzz işi aynı corpus'u yalnız okur (main'de kaydedilen önbellek PR'lara
-  görünür); `tests/ui/` her iki işte de salt okunur tohumdur.
+  görünür); `tests/ui/` ve `tests/fuzz_regressions/` (eski fuzz bulguları,
+  ADR-0067) her iki işte de salt okunur tohumdur.
 - Çökme bulunursa girdi `fuzz-crash-parse_never_panics*` artifact'ı olarak
   yüklenir. Yerelde yeniden üretmek için (Linux/WSL, nightly):
   `cargo +nightly fuzz run parse_never_panics <indirilen-dosya>`.
