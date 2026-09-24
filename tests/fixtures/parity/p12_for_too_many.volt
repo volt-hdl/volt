@@ -1,4 +1,4 @@
-// parity: E2005
+// parity: E2027
 module M {
     in  clk : clock
     out y   : u8

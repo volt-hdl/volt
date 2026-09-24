@@ -171,6 +171,18 @@ fn path_single(ast: &SourceFile, idx: Idx<Expr>) -> Option<&str> {
     }
 }
 
+/// `text` içinde `name` tanımlayıcısının tam sözcük geçiş sayısı.
+fn count_ident(text: &str, name: &str) -> usize {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    text.match_indices(name)
+        .filter(|&(i, _)| {
+            let before = text[..i].chars().next_back();
+            let after = text[i + name.len()..].chars().next();
+            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+        })
+        .count()
+}
+
 /// Reset değeri olarak sıfır literali (§10 boyutlandırması).
 fn zero_of(sig: Sig) -> String {
     match (sig.width, sig.signed) {
@@ -528,7 +540,8 @@ pub(crate) struct Emitter<'a> {
     /// gölgeleme; en son eklenen kazanır).
     pub(crate) loop_vars: Vec<(String, i128)>,
     /// Gövde başına konan ön bildirimler: örnek çıkış telleri.
-    pub(crate) pre_decls: Vec<String>,
+    /// Örnek çıkış telleri: (tel adı, bildirim satırı).
+    pub(crate) pre_decls: Vec<(String, String)>,
     /// Bir örneğin `inout`/`opendrain` portuna bağlanan üst modül
     /// telleri (ADR-0051): `wire` (inout) ya da `tri1` (opendrain —
     /// pull-up'lı kablolu-VE) olarak bildirilir, `logic` değil.
@@ -574,6 +587,16 @@ impl<'a> Emitter<'a> {
                 tr: "bu geçerli Volt ama henüz SystemVerilog eşlemesi yok; desteklenen yapılarla yazın (bkz. volt explain E0003)"
             ),
         );
+    }
+
+    /// `clk`'nin ham reset zinciri bu modülde tüketiliyor mu (ADR-0072;
+    /// kural volt-ast `reset_chain`, SDC tarafıyla ortak).
+    fn chain_consumed(&self, module: &ModuleDecl, clk: &str) -> bool {
+        volt_ast::reset_chain::chain_consumed(self.ast, module, clk, |child, port| {
+            clock_ports_of(self.ast, &self.domains, child)
+                .iter()
+                .any(|c| c.name == port && !c.info.reset.is_none() && c.info.reset.synced.is_none())
+        })
     }
 
     /// Saat portları, port sırasıyla; `@Domain` yoksa varsayılan alan.
@@ -672,21 +695,14 @@ impl<'a> Emitter<'a> {
 
         let ports_block = self.emit_ports(module, &resets);
         let mut body_chunks = self.emit_body(module, &clocks);
-        // ADR-0065 §2: bırakma senkronizörleri gövdenin başında.
-        let synchronizers: Vec<String> = clocks
-            .iter()
-            .filter_map(reset_sync::synchronizer_block)
-            .collect();
-        body_chunks.splice(0..0, synchronizers);
-        if let Some(pre) = self.pre_decl_chunk() {
-            body_chunks.insert(0, pre);
-        }
+        let const_lines = self.const_array_lines();
         // ADR-0051: çift yönlü portların üç durumlu tamponları.
         if let Some(chunk) = self.emit_bidir_drivers(module) {
             body_chunks.push(chunk);
         }
 
         // F4a — kontratlardan SVA üretimi (moda göre gömülü ya da ayrı).
+        let sva_before = self.sva_files.len();
         match self.sva_mode {
             SvaMode::None => {}
             SvaMode::Inline => {
@@ -708,11 +724,37 @@ impl<'a> Emitter<'a> {
                 if let Some(block) = self.sva_simulation(module, &clocks, 4) {
                     body_chunks.push(block);
                 }
-                // İzleyiciler (modül ve primitif kontratları) üretildikten
-                // SONRA: gövde başına yalnız kullanılan DPI bildirimleri.
-                if let Some(imports) = self.sim_dpi_imports() {
-                    body_chunks.insert(0, imports);
-                }
+            }
+        }
+        // ADR-0065 §2: bırakma senkronizörleri gövdenin başında — yalnız
+        // zincir tüketiliyorsa (ADR-0072); ham portu çocuğa geçiren ara
+        // seviyenin zinciri ölü mantıktı. Üretilen metinde (gövde, SVA,
+        // izleyiciler) zincir adı geçiyorsa her hâlükârda üretilir.
+        let sva_owned = self.sva_files.get(sva_before).map(|f| f.content.clone());
+        let sva_text = sva_owned.as_deref();
+        let synchronizers: Vec<String> = clocks
+            .iter()
+            .filter(|c| {
+                self.chain_consumed(module, &c.name)
+                    || reset_sync::chain_referenced(c, &body_chunks, sva_text)
+            })
+            .filter_map(reset_sync::synchronizer_block)
+            .collect();
+        // Bir örnek çıkış teli örnek bağlantısı dışında da geçiyorsa okunur.
+        let read = |wire: &str| {
+            let uses: usize = body_chunks.iter().map(|c| count_ident(c, wire)).sum();
+            uses > 1 || sva_text.is_some_and(|s| count_ident(s, wire) > 0)
+        };
+        let pre = self.pre_decl_chunk(const_lines, read);
+        body_chunks.splice(0..0, synchronizers);
+        if let Some(pre) = pre {
+            body_chunks.insert(0, pre);
+        }
+        // İzleyiciler (modül ve primitif kontratları) üretildikten SONRA:
+        // gövde başına yalnız kullanılan DPI bildirimleri.
+        if self.sva_mode == SvaMode::Simulation {
+            if let Some(imports) = self.sim_dpi_imports() {
+                body_chunks.insert(0, imports);
             }
         }
 
@@ -738,14 +780,39 @@ impl<'a> Emitter<'a> {
 
     /// Gövde başı ön bildirimleri (ADR-0041): değişken indeksli dizi
     /// sabitlerinin tabloları + kullanıcı örneklerinin çıkış telleri.
-    fn pre_decl_chunk(&mut self) -> Option<String> {
-        let used = std::mem::take(&mut self.array_consts_used);
-        let mut lines: Vec<String> = used
-            .iter()
-            .filter_map(|name| self.emit_const_array_decl(name))
-            .collect();
-        lines.extend(std::mem::take(&mut self.pre_decls));
+    /// Modülün okumadığı çıkış telleri (`read` yalnız örnek bağlantısında
+    /// geçiyorsa) Verilator `UNUSEDSIGNAL` susturmasıyla sarılır: Volt'ta
+    /// bir örnek çıkışını okumamak meşrudur, boş bağlantı (`.p()`) ise
+    /// `-Wall`'da PINCONNECTEMPTY verir (ADR-0072).
+    fn pre_decl_chunk(
+        &mut self,
+        const_lines: Vec<String>,
+        read: impl Fn(&str) -> bool,
+    ) -> Option<String> {
+        let mut lines = const_lines;
+        let mut unread = Vec::new();
+        for (wire, line) in std::mem::take(&mut self.pre_decls) {
+            if read(&wire) {
+                lines.push(line);
+            } else {
+                unread.push(line);
+            }
+        }
+        if !unread.is_empty() {
+            lines.push("    // instance outputs this module does not read".to_string());
+            lines.push("    // verilator lint_off UNUSEDSIGNAL".to_string());
+            lines.extend(unread);
+            lines.push("    // verilator lint_on UNUSEDSIGNAL".to_string());
+        }
         (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    /// Değişken indeksli dizi sabitlerinin tabloları (ADR-0041).
+    fn const_array_lines(&mut self) -> Vec<String> {
+        let used = std::mem::take(&mut self.array_consts_used);
+        used.iter()
+            .filter_map(|name| self.emit_const_array_decl(name))
+            .collect()
     }
 
     /// Port sırası (§1): clock'lar → reset'ler → in → inout → out.
@@ -1074,13 +1141,18 @@ impl<'a> Emitter<'a> {
         }
         let dest = assign.lhs.base.text.clone();
 
+        // Analiz (typeck) aynı tanıyı verir ve emit'i kapatır; burası
+        // yalnız HIR'siz `emit()` çağrıları için (aynı kod ve metin).
         if args.len() != 2 {
-            self.future(
+            let name = if stages == 3 { "sync3" } else { "sync" };
+            let got = args.len();
+            self.error(
+                ErrorCode::E2003,
+                lstr!(en: "'{name}()' takes 2 arguments (source, destination clock), {got} given";
+                      tr: "'{name}()' 2 argüman alır (kaynak, hedef saat), {got} verildi"),
                 span,
-                &lstr!(
-                    en: "sync() with {} argument(s), expected sync(src, dst_clock)", args.len();
-                    tr: "{} argümanlı sync() — beklenen sync(kaynak, hedef_saat)", args.len()
-                ),
+                &lstr!(en: "write it as: dest = {name}(src, dst_clk)";
+                       tr: "şöyle yazın: hedef = {name}(kaynak, hedef_saat)"),
             );
             return Some(String::new());
         }
@@ -1466,7 +1538,7 @@ impl<'a> Emitter<'a> {
             }
             if self.user_insts.contains_key(&lv.base.text) {
                 self.error(
-                    ErrorCode::E2005,
+                    ErrorCode::E4011,
                     lstr!(
                         en: "cannot assign to '{}.{}': instance ports are driven by the instance", lv.base.text, f.text;
                         tr: "'{}.{}' atanamaz: örnek portlarını örneğin kendisi sürer", lv.base.text, f.text
@@ -1569,6 +1641,15 @@ impl<'a> Emitter<'a> {
             width: elem.width * len,
             signed: false,
         })
+    }
+
+    /// Tanılarda gösterilecek bildirim adı: açılmış `for` gövdesinde
+    /// kaynaktaki ad (`pe_0` → `pe`), aksi hâlde kendisi.
+    pub(crate) fn shown_name(&self, name: &volt_ast::Name) -> String {
+        self.ast
+            .generate
+            .source_name(name.span, &name.text)
+            .to_string()
     }
 
     /// Bir hedef modül portunun bağlama imzası (örnekleme): dizi port

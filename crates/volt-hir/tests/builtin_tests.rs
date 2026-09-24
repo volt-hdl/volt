@@ -221,3 +221,50 @@ fn user_module_named_like_builtin_wins() {
         result.error_codes()
     );
 }
+
+// ═══ sync()/sync3() argüman sayısı (ADR-0072) ════════════════════════
+
+fn sync_call(call: &str) -> AnalysisResult {
+    let src = format!(
+        "domain A {{\n    clock = posedge\n    reset = sync active_high\n}}\ndomain B {{\n    clock = posedge\n    reset = sync active_high\n}}\nmodule M {{\n    in  ca : clock @A\n    in  cb : clock @B\n    in  x  : bool @A\n    out y  : bool @B\n    y = {call}\n}}\n"
+    );
+    let parsed = parse(FileId(0), &src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    analyze(&parsed.ast)
+}
+
+/// Yanlış argüman sayısı imza (tip) hatasıdır — E2003, "henüz
+/// desteklenmiyor" (E0003) değil; mesaj çağrılan yerleşiğin adını taşır.
+#[test]
+fn sync_wrong_arity_is_a_type_error_naming_the_builtin() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    for (call, name, got) in [
+        ("sync()", "sync", 0),
+        ("sync(x)", "sync", 1),
+        ("sync(x, cb, x)", "sync", 3),
+        ("sync3(x)", "sync3", 1),
+        ("sync3(x, cb, 3)", "sync3", 3),
+    ] {
+        let r = sync_call(call);
+        let errs: Vec<_> = r
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == volt_diagnostics::Severity::Error)
+            .collect();
+        assert_eq!(errs.len(), 1, "{call}: {errs:?}");
+        assert_eq!(errs[0].code.as_str(), "E2003", "{call}");
+        assert_eq!(
+            errs[0].message,
+            format!("'{name}()' takes 2 arguments (source, destination clock), {got} given"),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn sync_with_two_arguments_has_no_arity_error() {
+    for call in ["sync(x, cb)", "sync3(x, cb)"] {
+        let r = sync_call(call);
+        assert!(!r.has_errors(), "{call}: {:?}", r.error_codes());
+    }
+}

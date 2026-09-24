@@ -245,11 +245,11 @@ fn generic_instantiation_inside_for_is_monomorphised() {
 }
 
 #[test]
-fn non_constant_bound_is_e2005_and_loop_is_dropped() {
+fn non_constant_bound_is_e2021_and_loop_is_dropped() {
     let r = p(
         "module M { in n : u8\n in x : [u8; 4]\n out y : [u8; 4]\n for i in 0..n { y[i] = x[i] } }",
     );
-    assert_eq!(r.error_codes(), vec!["E2005"]);
+    assert_eq!(r.error_codes(), vec!["E2021"]);
     let m = module(&r.ast, "M");
     assert!(
         m.body.is_empty(),
@@ -332,15 +332,15 @@ fn block_level_for_is_left_to_the_emitter() {
 // ═══ Özdeş tanı katlama (ADR-0068) ═══════════════════════════════════
 
 #[test]
-fn nested_for_with_non_constant_inner_bound_reports_e2005_once_with_folded_copies() {
+fn nested_for_with_non_constant_inner_bound_reports_e2021_once_with_folded_copies() {
     // Fuzz bulgusu 2: iç `for`un sınırı sabit değil → her (dış, iç)
-    // yineleme çifti aynı E2005'i üretirdi (WIDTH²). Artık tek tanı,
+    // yineleme çifti aynı E2021'i üretirdi (WIDTH²). Artık tek tanı,
     // katlanan kopyaların ctx'leri tanıda.
     let r = p("const N : u32 = 50\nmodule M { in a : u8\n out o : u8\n for i in 0..N { for j in 0..N { for k in 0..a { o = a } } } }");
     let e2005: Vec<_> = r
         .diagnostics
         .iter()
-        .filter(|d| d.code.as_str() == "E2005")
+        .filter(|d| d.code.as_str() == "E2021")
         .collect();
     assert_eq!(e2005.len(), 1, "{:?}", r.error_codes());
     assert_eq!(e2005[0].folded_ctxs.len(), 50 * 50 - 1);

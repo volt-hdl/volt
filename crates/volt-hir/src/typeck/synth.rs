@@ -40,7 +40,7 @@ impl TypeChecker<'_, '_> {
                 let base_ty = self.synth(*base);
                 self.field_result(base_ty, field, span)
             }
-            ExprKind::Call { callee, args } => self.synth_call(*callee, args),
+            ExprKind::Call { callee, args } => self.synth_call(*callee, args, span),
             ExprKind::Cast { expr: inner, ty } => self.synth_cast(*inner, *ty, span),
             ExprKind::If {
                 cond,
@@ -104,12 +104,16 @@ impl TypeChecker<'_, '_> {
 
     /// prev(x[, N]) argümanının tipini taşır (ADR-0040); diğer yerleşik
     /// çağrı tipleri F2b (sync/zext/concat...).
-    fn synth_call(&mut self, callee: Idx<Expr>, args: &[Idx<Expr>]) -> TypeId {
-        let is_prev = self
+    fn synth_call(&mut self, callee: Idx<Expr>, args: &[Idx<Expr>], span: Span) -> TypeId {
+        let kind = self
             .res
             .resolutions
             .get(&callee)
-            .is_some_and(|&d| self.res.def_kind(d) == DefKind::Builtin(BuiltinKind::Prev));
+            .map(|&d| self.res.def_kind(d));
+        let is_prev = kind == Some(DefKind::Builtin(BuiltinKind::Prev));
+        if let Some(DefKind::Builtin(b @ (BuiltinKind::Sync | BuiltinKind::Sync3))) = kind {
+            self.check_sync_arity(b, args.len(), span);
+        }
         let mut first = None;
         for &a in args {
             let t = self.synth(a);
@@ -121,6 +125,29 @@ impl TypeChecker<'_, '_> {
             (true, Some(t)) => t,
             _ => self.types.error(),
         }
+    }
+
+    /// `sync(src, dst_clk)` / `sync3(src, dst_clk)`: iki argüman. Yanlış
+    /// sayı çağrının imzasına uymayan bir tip hatasıdır (E2003), "henüz
+    /// desteklenmiyor" (E0003) değil.
+    fn check_sync_arity(&mut self, kind: BuiltinKind, got: usize, span: Span) {
+        if got == 2 {
+            return;
+        }
+        let name = if kind == BuiltinKind::Sync3 {
+            "sync3"
+        } else {
+            "sync"
+        };
+        self.error(
+            ErrorCode::E2003,
+            span,
+            lstr!(en: "'{name}()' takes 2 arguments (source, destination clock), {got} given";
+                  tr: "'{name}()' 2 argüman alır (kaynak, hedef saat), {got} verildi"),
+            lstr!(en: "wrong number of arguments"; tr: "yanlış argüman sayısı"),
+            lstr!(en: "write it as: dest = {name}(src, dst_clk)";
+                  tr: "şöyle yazın: hedef = {name}(kaynak, hedef_saat)"),
+        );
     }
 
     fn synth_array_lit(&mut self, kind: &ArrayLitKind) -> TypeId {

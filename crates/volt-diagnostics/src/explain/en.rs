@@ -264,9 +264,9 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "y = (b as u8) + 1       // ✓",
         ),
         E2005 => Explanation::new(
-            "Literal width cannot be determined",
-            "There is no context from which this literal's bit width can be inferred.",
-            "Every hardware value must have a definite width. A literal usually takes its width from the surrounding context (the port or register it is assigned to); when there is no such context, state the type explicitly.",
+            "Width or length cannot be determined",
+            "The compiler cannot tell how many bits this value has (or how many elements an array has).",
+            "Every hardware value must have a definite width. A literal usually takes its width from the surrounding context (the port or register it is assigned to); when there is no such context, state the type explicitly. The same applies to the source of a cast, an untyped let, the source of sync(), the N of bits<N> or [T; N] when it is not a compile-time constant, and a constant array used as a whole value instead of indexed. Instance connection problems are E4011, non-constant loop bounds E2021.",
             "let x = 5               // ✗ E2005: 5 as how many bits?",
             "let x : u8 = 5          // ✓",
         ),
@@ -619,6 +619,13 @@ module Gpio {
             "Bundle flattening is exponential in the shape of the type graph: a struct port with two fields of a struct port with two fields of ... doubles at every level, and a bundle array ([Bundle; N], ADR-0056) multiplies by N. Even without a cycle (E4009) an accidental diamond-shaped graph can request millions of ports. The budget turns that into a diagnostic instead of a memory blow-up (ADR-0067): at most 4096 flat ports per module (a 256-element bundle array of a 16-field interface) and at most 8 levels of nesting. Real interfaces stay far below both limits; a module that needs more should be split.",
             "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 flat ports\n}",
             "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 flat ports, within the budget\n}\n// or split the interface across several modules",
+        ),
+        E4011 => Explanation::new(
+            "Instance port connection error",
+            "A port of a module, extern module or builtin instance is connected in a way that has no hardware meaning.",
+            "An instance literal connects the parent's signals to the child's ports: every input and clock must be bound (there is no default value), an output is read as inst.port and never bound in the literal, an inout/opendrain port shares a line and must be bound to a wire or a bidirectional port by name, and the child's ports are driven only by the child — the parent cannot assign inst.port. A child whose clock domain has a reset also needs a clock of that domain (with its reset) in the parent. This is a connection error, not a width problem (reported as E2005 before ADR-0072).",
+            "let f = Filter { clk }                         // ✗ E4011: input 'sample' is not bound\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: output bound in the literal",
+            "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
 
         E5001 => Explanation::new(

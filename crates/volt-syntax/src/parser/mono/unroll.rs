@@ -348,13 +348,13 @@ impl Unroller<'_> {
         Some(ctx)
     }
 
-    /// `[start, end)` — sabit değilse E2005, ters aralık E2028, sınır
+    /// `[start, end)` — sabit değilse E2021, ters aralık E2028, sınır
     /// üstü E2027.
     fn bounds(&mut self, f: &ForStmt, span: Span) -> Option<(i128, i128)> {
         let var = f.var.text.clone();
         let (Some(s), Some(e)) = (self.eval(f.start, 0), self.eval(f.end, 0)) else {
             self.diagnostics.push(Diagnostic::error(
-                ErrorCode::E2005,
+                ErrorCode::E2021,
                 lstr!(
                     en: "the bounds of 'for {var}' must be compile-time constants";
                     tr: "'for {var}' sınırları derleme zamanı sabiti olmalı"

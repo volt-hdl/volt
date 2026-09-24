@@ -64,7 +64,7 @@ fn recursive_bundle_fuzz_finding_reports_e4009_not_oom() {
 }
 
 /// Fuzz bulgusu 2 (ADR-0068): iç içe `for` açılımında sabit olmayan iç
-/// sınır her yineleme çiftinde aynı E2005'i üretiyordu (283² → 65 303
+/// sınır her yineleme çiftinde aynı E2005'i (ADR-0072'den beri E2021) üretiyordu (283² → 65 303
 /// tanı, 347 MB). Katlama sonrası: bir saniyenin altında, avuç içi tanı.
 #[test]
 fn nested_for_diagnostic_flood_fuzz_finding_parses_fast_with_few_diagnostics() {
@@ -80,5 +80,5 @@ fn nested_for_diagnostic_flood_fuzz_finding_parses_fast_with_few_diagnostics() {
         .recv_timeout(Duration::from_secs(1))
         .expect("1 s içinde ayrışmalı (tanı seli)");
     assert!(count < 100, "{count} tanı: {codes:?}");
-    assert!(codes.contains(&"E2005"), "{codes:?}");
+    assert!(codes.contains(&"E2021"), "{codes:?}");
 }

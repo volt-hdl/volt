@@ -122,11 +122,12 @@ impl Resolver<'_> {
     pub(super) fn report_duplicate(&mut self, name: &Name, scope: ScopeId) -> bool {
         if let Some(&prev) = self.scope(scope).bindings.get(&name.text) {
             let prev_span = self.def(prev).span;
+            let shown = self.ast.generate.source_name(name.span, &name.text);
             self.diagnostics.push(
                 Diagnostic::error(
                     ErrorCode::E1003,
-                    lstr!(en: "'{}' is already defined in this scope", name.text;
-                          tr: "'{}' bu kapsamda zaten tanımlı", name.text),
+                    lstr!(en: "'{}' is already defined in this scope", shown;
+                          tr: "'{}' bu kapsamda zaten tanımlı", shown),
                     LabeledSpan::primary(
                         name.span,
                         lstr!(en: "second definition here"; tr: "ikinci tanım burada"),
@@ -147,12 +148,13 @@ impl Resolver<'_> {
     /// Dış kapsam gölgelemesi W1002 / yerleşik gölgeleme W1003.
     fn warn_shadowing(&mut self, name: &Name, scope: ScopeId) {
         if let Some(outer) = self.lookup_in_parents(&name.text, scope) {
+            let shown = self.ast.generate.source_name(name.span, &name.text);
             let outer_data = &self.def(outer);
             if let DefKind::Builtin(_) = outer_data.kind {
                 self.diagnostics.push(Diagnostic::warning(
                     ErrorCode::W1003,
-                    lstr!(en: "builtin '{}' is shadowed", name.text;
-                          tr: "yerleşik '{}' gölgeleniyor", name.text),
+                    lstr!(en: "builtin '{}' is shadowed", shown;
+                          tr: "yerleşik '{}' gölgeleniyor", shown),
                     LabeledSpan::primary(
                         name.span,
                         lstr!(en: "this definition hides the builtin";
@@ -166,8 +168,8 @@ impl Resolver<'_> {
                 self.diagnostics.push(
                     Diagnostic::warning(
                         ErrorCode::W1002,
-                        lstr!(en: "'{}' shadows a definition in an outer scope", name.text;
-                              tr: "'{}' dış kapsamdaki tanımı gölgeliyor", name.text),
+                        lstr!(en: "'{}' shadows a definition in an outer scope", shown;
+                              tr: "'{}' dış kapsamdaki tanımı gölgeliyor", shown),
                         LabeledSpan::primary(
                             name.span,
                             lstr!(en: "inner definition here"; tr: "iç tanım burada"),

@@ -1047,38 +1047,26 @@ impl<'a> Collector<'a> {
     /// ham port reset'li bütün alanları besler; aksi hâlde `@D` anotasyonu
     /// saat portunun alanıyla eşleşen. `reset = none` alanı zincir almaz.
     fn reset_chains(&self, m: &'a ModuleDecl, scope: &Scope<'a>, ctx: &Ctx) -> Vec<ResetChain> {
-        let raws: Vec<&Port> = m
-            .ports
-            .iter()
-            .filter(|p| is_raw_reset(self.ast, p))
-            .collect();
-        if raws.is_empty() {
-            return Vec::new();
-        }
         let mut chains = Vec::new();
         for clk in scope.clock_ports() {
-            let domain = clk.domain.as_ref().map(|d| d.text.as_str());
-            let has_reset = domain
-                .and_then(|d| self.domains.get(d))
-                .is_none_or(|d| d.has_reset);
-            if !has_reset {
-                continue;
-            }
-            let raw = match raws.as_slice() {
-                [only] if only.domain.is_none() => Some(*only),
-                raws => raws
-                    .iter()
-                    .find(|r| {
-                        r.domain
-                            .as_ref()
-                            .is_some_and(|d| Some(d.text.as_str()) == domain)
-                    })
-                    .copied(),
-            };
-            let Some(raw) = raw else {
+            let Some(raw) = self.feeding_raw(m, clk) else {
                 continue;
             };
             let local = clk.name.text.as_str();
+            // Zinciri tüketilmeyen saat (yalnız ham portu çocuğa geçiren
+            // ara seviye) için sv-emit zincir üretmez (ADR-0072) — var
+            // olmayan hücreye kısıt yazılmaz. Kural volt-ast'te ortak.
+            let consumed =
+                volt_ast::reset_chain::chain_consumed(self.ast, m, local, |child, port| {
+                    child
+                        .ports
+                        .iter()
+                        .find(|p| p.name.text == port)
+                        .is_some_and(|p| self.has_reset(p) && self.feeding_raw(child, p).is_none())
+                });
+            if !consumed {
+                continue;
+            }
             chains.push(ResetChain {
                 raw_port: raw.name.text.clone(),
                 clock: ctx.map_clock(local),
@@ -1088,6 +1076,42 @@ impl<'a> Collector<'a> {
             });
         }
         chains
+    }
+
+    /// Saat portunun alanı reset'li mi (alansız saat varsayılan alanda,
+    /// reset'li).
+    fn has_reset(&self, clk: &Port) -> bool {
+        clk.domain
+            .as_ref()
+            .and_then(|d| self.domains.get(d.text.as_str()))
+            .is_none_or(|d| d.has_reset)
+    }
+
+    /// Saat portunu besleyen ham reset portu — sv-emit
+    /// `reset_sync::feeding_raw` ile aynı kural: tek anotasyonsuz ham port
+    /// reset'li bütün alanları besler; aksi hâlde `@D` anotasyonu saat
+    /// portunun alanıyla eşleşen. `reset = none` alanı zincir almaz.
+    fn feeding_raw(&self, m: &'a ModuleDecl, clk: &Port) -> Option<&'a Port> {
+        if !self.has_reset(clk) {
+            return None;
+        }
+        let domain = clk.domain.as_ref().map(|d| d.text.as_str());
+        let raws: Vec<&'a Port> = m
+            .ports
+            .iter()
+            .filter(|p| is_raw_reset(self.ast, p))
+            .collect();
+        match raws.as_slice() {
+            [only] if only.domain.is_none() => Some(*only),
+            raws => raws
+                .iter()
+                .find(|r| {
+                    r.domain
+                        .as_ref()
+                        .is_some_and(|d| Some(d.text.as_str()) == domain)
+                })
+                .copied(),
+        }
     }
 
     fn module_named(&self, name: &str) -> Option<(&'a ModuleDecl, &'a [Attribute])> {

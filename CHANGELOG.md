@@ -5,6 +5,30 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — küçük tanı hataları ve HybridTb Verilator uyarıları (2026-09-24, ADR-0072)
+
+- **Açılmış `for` gövdesinde kaynak adı**: W1001, E1003, W1002/W1003 ve
+  örnek bağlantı tanıları üretilmiş adı (`unused_0`, `pe_1`) değil
+  kullanıcının yazdığı adı gösterir; kopyalar tek tanıya katlanır ve
+  `_` önerisi kaynağa yazılabilir (önce `_unused_0`).
+- **YENİ E4011 — örnek portu bağlantı hatası**: bağlanmamış giriş/saat,
+  literalde bağlanan çıkış, ifadeye bağlanan inout, üst modülde eksik
+  reset, `inst.port = ...` artık E4011 (önce "Literal width cannot be
+  determined" başlıklı E2005). Sabit olmayan `for` sınırı ve sabit dizi
+  elemanı E2021, blok `for` sınır aşımı E2027, sabit dizi eleman sayısı
+  E2003. E2005 yalnız genişlik/uzunluk belirlenemeyen durumlar; başlığı ve
+  `volt explain` metni buna göre.
+- **Blok içi `for` ters aralık** (`for i in 5..2`) E2028 verir; önce
+  sessizce sıfır yineleme üretiyordu.
+- **`sync()`/`sync3()` argüman sayısı** E2003 ("'sync3()' takes 2
+  arguments (source, destination clock), 3 given"); önce E0003 "not
+  supported yet" ve `sync3` için de "sync()" diyordu.
+- **Ölü reset zinciri üretilmez**: ham reset'i yalnız çocuğa geçiren
+  flop'suz ara seviye (examples/hybrid_accel HybridTb) artık bırakma
+  zinciri üretmez ve SDC/XDC var olmayan hücreleri kısıtlamaz.
+- **Okunmayan örnek çıkışları** SV'de `verilator lint_off UNUSEDSIGNAL`
+  bloğunda bildirilir. HybridTb `verilator -Wall` temiz (önce 5 uyarı).
+
 ### Düzeltildi — `extern module` örnekleri SV'ye inmiyordu (2026-09-24, ADR-0071)
 
 - **Extern örneği derlenir**: `let f = Ext { ... }` artık adlandırılmış
