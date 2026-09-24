@@ -135,7 +135,7 @@ pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
 /// Geçerli kodlamalı enum tipinin genişliği (ADR-0074).
 fn enum_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
     let decl = volt_ast::enum_layout::enum_of_type(src, ty)?;
-    let eval = &mut |e| literal_or_const(src, e).and_then(|v| i128::try_from(v).ok());
+    let eval = &mut |e| const_value(src, e);
     volt_ast::enum_layout::valid_layout(src, decl, eval).map(|l| l.width)
 }
 
@@ -184,6 +184,54 @@ pub(crate) fn literal_or_const(src: &SourceFile, expr: Idx<Expr>) -> Option<u128
                 _ => None,
             })
     })
+}
+
+/// Enum açık değeri ve taban tipi genişliği için sabit değerlendirme
+/// (ADR-0074): literal, üst düzey `const`, tekli eksi ve aritmetik/
+/// kaydırma. HIR ve sv-emit'in kabul ettiği `A = K`, `A = 1 << 2`
+/// biçimleri test dilinde de aynı kodu verir.
+pub(crate) fn const_value(src: &SourceFile, expr: Idx<Expr>) -> Option<i128> {
+    const MAX_DEPTH: u32 = 64;
+    fn go(src: &SourceFile, expr: Idx<Expr>, depth: u32) -> Option<i128> {
+        use volt_ast::{BinOp, UnOp};
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        match &src.exprs[expr].kind {
+            ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
+            ExprKind::Unary {
+                op: UnOp::Neg,
+                operand,
+            } => go(src, *operand, depth + 1)?.checked_neg(),
+            ExprKind::Binary { op, lhs, rhs } => {
+                let (l, r) = (go(src, *lhs, depth + 1)?, go(src, *rhs, depth + 1)?);
+                match op {
+                    BinOp::Add => l.checked_add(r),
+                    BinOp::Sub => l.checked_sub(r),
+                    BinOp::Mul => l.checked_mul(r),
+                    BinOp::Div => l.checked_div(r),
+                    BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
+                    BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
+                    _ => None,
+                }
+            }
+            ExprKind::Path(path) => {
+                let [only] = path.segments.as_slice() else {
+                    return None;
+                };
+                let value = src
+                    .items
+                    .iter()
+                    .find_map(|idx| match &src.items_arena[*idx].kind {
+                        ItemKind::Const(c) if c.name.text == only.text => Some(c.value),
+                        _ => None,
+                    })?;
+                go(src, value, depth + 1)
+            }
+            _ => None,
+        }
+    }
+    go(src, expr, 0)
 }
 
 fn literal_value(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {

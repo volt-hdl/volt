@@ -526,6 +526,38 @@ assert_eq(dut.st, Mode::A);"
     }
 
     #[test]
+    fn enum_values_from_named_constants_are_test_values() {
+        // Bulgu: açık değer `const` ya da aritmetik olunca enum test
+        // dilinde görünmüyordu (yanlış E8506).
+        let src = "const K : u4 = 2
+enum S : u4 { A = K, B = 1 << 3 }
+module Fsm {
+    in  clk : clock
+    in  cmd : S
+    out st  : S
+    reg s : S = S::A
+    on clk { s <= cmd }
+    st = s
+}
+test \"t\" {
+let dut = Fsm { };
+dut.cmd = S::B;
+step(1);
+assert_eq(dut.st, S::B);
+}
+";
+        let ast = parse(src);
+        let codes: Vec<&str> = check_tests(&[&ast], &ast, false)
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect();
+        assert!(codes.is_empty(), "{codes:?}");
+        let consts = crate::sim_const::TestConsts::new(&[&ast]);
+        assert_eq!(consts.variant("S", "A"), Some(2));
+        assert_eq!(consts.variant("S", "B"), Some(8));
+    }
+
+    #[test]
     fn integer_into_enum_port_is_allowed_but_width_checked() {
         // Geçersiz kod enjeksiyonu testte bilerek yapılabilir (ADR-0074).
         assert!(check_enum(

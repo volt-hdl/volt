@@ -812,6 +812,11 @@ E2003 doğuruyordu.
   (E8512 genişlik denetimi).
 - İngilizce E2003 iletilerinde tamsayı literali "integer literal" (Aşama
   1 notu 3).
+- İnceleme bulguları (aynı PR): test dili ve port genişliği enum açık
+  değerlerini `const` ve aritmetikle de değerlendirir (`A = K`,
+  `B = 1 << 3`; önce yanlış E8506); tipsiz `let t = s` enum sınananı
+  olarak tanınır (önce yanlış E0003); aynı satırda birden çok iddia varsa
+  rapor enum adı eklemez (hangi iddianın düştüğü satırdan bilinemez).
 
 ### Sınırlar (bu tur)
 
@@ -820,13 +825,18 @@ E2003 doğuruyordu.
   literal/`const` literali olarak değerlendirir (`A = BASE + 1` biçiminde
   varyant test değeri olamaz, hover kodu göstermez; SV ve tip denetimi
   etkilenmez).
+- Ertelenen E0014 tip denetimine bağlıdır: `fn` gövdesindeki `match` (tip
+  denetimi `fn` gövdelerini koşmaz) ve çözümleme hatası olan birim (boru
+  hattı tip denetiminden önce durur) yol desenli `match` için E0014
+  almaz; önceki hatalar düzeltilince gelir. `fn` gövdeleri SV'ye zaten
+  inmez.
 - F1, ADR-0066'nın tanıdığı FSM'lere üretilir: durum register'ı sabit
   yazmalarla sürülmeli; `reg <= next` (comb `wire` üzerinden) FSM
   sayılmaz.
 
 ### Doğrulama
 
-- `cargo test --all`: 2925 test (baseline 2850 → 2925), hepsi geçti;
+- `cargo test --all`: 2929 test (baseline 2850 → 2929), hepsi geçti;
   clippy `-D warnings` temiz.
 - Golden (referans: `main` ef107ff = PR #28 + ADR belgesi; `build/parity/
   golden.py`, 370 dosya): enum kullanmayan bütün tasarımların `check`/

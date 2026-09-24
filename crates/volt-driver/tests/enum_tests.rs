@@ -329,3 +329,33 @@ module M {
         "{env:#}"
     );
 }
+
+#[test]
+fn untyped_let_of_enum_type_is_a_valid_match_scrutinee() {
+    // Bulgu: tipsiz `let t = s` enum tipli olduğu hâlde sv-emit onu enum
+    // saymıyor, yol desenlerine yanlış E0003 veriyordu.
+    let src = "enum State { Idle, Run }
+module M {
+    in  clk : clock
+    out y   : bool
+    reg s : State = State::Idle
+    reg r : bool = false
+    let t = s
+    on clk {
+        match t {
+            State::Idle => { r <= true }
+            State::Run => { r <= false }
+        }
+        s <= State::Run
+    }
+    y = r
+}
+";
+    let files = build("letscrut", src, None);
+    let m = sv_of(&files, "M.sv");
+    assert!(m.contains("State_Idle: begin"), "{m}");
+    assert!(
+        m.contains("default: begin // State_Run (and invalid codes)"),
+        "{m}"
+    );
+}

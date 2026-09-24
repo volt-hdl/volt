@@ -48,7 +48,7 @@ impl TestConsts {
                         globals.entry(decl.name.text.clone()).or_insert(value);
                     }
                     ItemKind::Enum(decl) => {
-                        let eval = &mut |e| plain_literal(src, e).map(i128::from);
+                        let eval = &mut |e| crate::sim_port::const_value(src, e);
                         let Some(layout) = enum_layout::valid_layout(src, decl, eval) else {
                             continue;
                         };

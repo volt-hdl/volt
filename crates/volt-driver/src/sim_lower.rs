@@ -442,6 +442,21 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
         consts: TestConsts::new(ctx.sources),
     };
     let steps = lowering.block(&test.stmts)?;
+    // Testbench iddiayı yalnız `dosya:satır` ile bildirir; aynı satırda
+    // birden çok iddia varsa hangisinin düştüğü bilinemez — enum adı
+    // yanlış iddiaya yapışmasın (ADR-0074 rapor adları).
+    let per_loc = |loc: &str| {
+        steps
+            .iter()
+            .filter(|s| matches!(s, TbStep::Assert { loc: l, .. } if l == loc))
+            .count()
+    };
+    let enum_asserts: Vec<(String, EnumLabels)> = lowering
+        .enum_asserts
+        .iter()
+        .filter(|(loc, _)| per_loc(loc) <= 1)
+        .cloned()
+        .collect();
     Some(LoweredTest {
         module: lowering.module?,
         tb: TbTest {
@@ -449,7 +464,7 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
             steps,
         },
         load_targets: lowering.load_targets,
-        enum_asserts: lowering.enum_asserts,
+        enum_asserts,
     })
 }
 
@@ -470,7 +485,11 @@ mod tests {
     const COUNTER: &str = "module Counter {\n    in  clk    : clock\n    in  enable : bool\n    out count  : u8\n    reg r : u8 = 0\n    reg mem : [u8; 4] = [0; 4]\n    on clk { if enable { r <= r + 1 } }\n    count = r\n}\n\n";
 
     fn lower_src(body: &str, files: &dyn TestFileLoader) -> Option<LoweredTest> {
-        let src = format!("{COUNTER}test \"t\" {{\n{body}\n}}\n");
+        lower_with(COUNTER, body, files)
+    }
+
+    fn lower_with(design: &str, body: &str, files: &dyn TestFileLoader) -> Option<LoweredTest> {
+        let src = format!("{design}test \"t\" {{\n{body}\n}}\n");
         let mut map = SourceMap::new();
         let fid = map.add_file("counter_test.volt", src.clone());
         let parsed = volt_syntax::parser::parse(fid, &src);
@@ -495,6 +514,40 @@ mod tests {
             files,
         };
         lower_test(&ctx, test)
+    }
+
+    const ENUM_DUT: &str = "enum S { A, B, C }\nmodule E {\n    in  clk : clock\n    in  d   : S\n    out q   : S\n    out n   : u8\n    reg r : S = S::A\n    on clk { r <= d }\n    q = r\n    n = 3\n}\n\n";
+
+    #[test]
+    fn enum_asserts_carry_variant_labels_by_location() {
+        let lowered = lower_with(
+            ENUM_DUT,
+            "    let dut = E { };\n    dut.d = S::C;\n    step(1);\n    assert_eq(dut.q, S::C);\n    assert_eq(dut.n, 3);",
+            &FakeFiles(""),
+        )
+        .expect("indirgenmeli");
+        assert_eq!(lowered.enum_asserts.len(), 1);
+        let (loc, labels) = &lowered.enum_asserts[0];
+        assert_eq!(labels.label(2), "S::C");
+        assert_eq!(labels.label(3), "S: invalid code");
+        assert!(lowered.tb.steps.contains(&TbStep::Assert {
+            kind: TbAssertKind::Eq,
+            left: TbValue::Port("q".into()),
+            right: TbValue::Lit(2),
+            loc: loc.clone(),
+        }));
+    }
+
+    #[test]
+    fn enum_labels_are_dropped_when_a_line_holds_several_asserts() {
+        // Testbench yalnız dosya:satır bildirir; sayısal iddia enum adı almasın.
+        let lowered = lower_with(
+            ENUM_DUT,
+            "    let dut = E { };\n    step(1);\n    assert_eq(dut.q, S::A); assert_eq(dut.n, 3);",
+            &FakeFiles(""),
+        )
+        .expect("indirgenmeli");
+        assert!(lowered.enum_asserts.is_empty());
     }
 
     #[test]

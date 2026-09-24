@@ -643,6 +643,20 @@ impl<'a> Emitter<'a> {
         }
         for &stmt_idx in &module.body {
             let span = ast.stmts[stmt_idx].span;
+            // ADR-0074: enum tipli `let` (tipli ya da enum ifadesinden
+            // çıkan) gövdedeki konumundan bağımsız bilinmeli — match
+            // sınananı olarak kendisinden önce kullanılabilir.
+            if let StmtKind::Let(l) = &ast.stmts[stmt_idx].kind {
+                match l.ty {
+                    Some(t) => self.note_enum_signal(&l.name.text, t),
+                    None => {
+                        if let Some(e) = self.enum_of_expr(l.value) {
+                            self.enum_sigs
+                                .insert(l.name.text.clone(), e.name.text.clone());
+                        }
+                    }
+                }
+            }
             if let StmtKind::Wire(w) = &ast.stmts[stmt_idx].kind {
                 self.note_trit(&w.name.text, w.ty);
                 self.note_enum_signal(&w.name.text, w.ty);
