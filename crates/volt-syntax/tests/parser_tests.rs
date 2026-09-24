@@ -2142,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 81, "ui/pass 81 dosya içermeli");
+    assert_eq!(total, 82, "ui/pass 82 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2174,10 +2174,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // 87'yi (hedefli SDC), R5' inceltmesi 88'i (reset'siz RAM yazma saati),
     // ADR-0066 ise 89-90'ı (otomatik FSM / sayaç kontratları),
     // ADR-0069 ise 91'i (sonlu tip çizgesi: elmas, generic, takma ad),
-    // ADR-0070 ise 92'yi (takma ad sinyal tipleri) ekledi.
+    // ADR-0070 ise 92'yi (takma ad sinyal tipleri),
+    // ADR-0073 ise 93'ü (ayrık kısmi sürücüler) ekledi.
     assert_eq!(
-        clean, 81,
-        "81/81 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 82,
+        "82/82 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

@@ -76,6 +76,7 @@ pub fn typecheck<'a>(
         drivers: DriverTable::default(),
         current_group: None,
         next_group: 0,
+        loop_bounds: HashMap::new(),
     };
     checker.run();
     TypeckResult {
@@ -103,6 +104,9 @@ struct TypeChecker<'a, 'ev> {
     /// İçinde bulunulan on/comb bloğunun sürücü grubu.
     current_group: Option<u32>,
     next_group: u32,
+    /// Sınırları sabit blok içi döngü değişkenleri → `[start, end)`
+    /// (sürücü analizinin eleman aralığı, ADR-0073).
+    loop_bounds: HashMap<DefId, (u32, u32)>,
 }
 
 impl TypeChecker<'_, '_> {
@@ -123,7 +127,8 @@ impl TypeChecker<'_, '_> {
             }
         }
         let mut diags = Vec::new();
-        self.drivers.check_multiple_drivers(self.res, &mut diags);
+        self.drivers
+            .check_multiple_drivers(self.res, &self.ast.generate, &mut diags);
         self.drivers.check_write_only(self.res, &mut diags);
         self.diagnostics.extend(diags);
     }

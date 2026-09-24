@@ -2,13 +2,14 @@
 //! ADR-0027/0029 stdlib primitifleri): port bağlamaları hedef portun
 //! tipiyle check modunda denetlenir.
 
-use volt_ast::{ExprKind, GenericArg, InstanceDecl, ItemKind};
+use volt_ast::{ExprKind, GenericArg, InstanceDecl, ItemKind, PortBinding, PortDir};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
 use super::TypeChecker;
 use crate::builtin::{BuiltinPrim, ConstRule, PortKind};
-use crate::resolve::DefId;
+use crate::drivers::DriverKind;
+use crate::resolve::{DefId, DefKind};
 use crate::ty::{ModuleId, Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
@@ -27,6 +28,9 @@ impl TypeChecker<'_, '_> {
             self.def_types.insert(def, ty);
         }
         for b in &inst.bindings {
+            if let Some(t) = target {
+                self.record_shared_line(inst, t, b);
+            }
             let Some(value) = b.value else { continue };
             match target.and_then(|t| self.port_type_of(t, &b.port_name.text)) {
                 Some(port_ty) => self.check(value, port_ty),
@@ -35,6 +39,42 @@ impl TypeChecker<'_, '_> {
                 }
             }
         }
+    }
+
+    /// Alt modülün inout/opendrain portuna bağlanan hat üç durumlu bir
+    /// sürücü alır (ADR-0073): aynı hatta push-pull atama E4001 olur.
+    fn record_shared_line(&mut self, inst: &InstanceDecl, module_def: DefId, b: &PortBinding) {
+        let ast = self.ast;
+        let Some(&item_idx) = self.res.item_of_def.get(&module_def) else {
+            return;
+        };
+        let ports = match &ast.items_arena[item_idx].kind {
+            ItemKind::Module(m) => &m.ports,
+            ItemKind::Extern(x) => &x.ports,
+            _ => return,
+        };
+        let Some(port) = ports.iter().find(|p| p.name.text == b.port_name.text) else {
+            return;
+        };
+        if !matches!(port.direction, PortDir::InOut | PortDir::OpenDrain) {
+            return;
+        }
+        let line_span = match b.value {
+            Some(v) => ast.exprs[v].span,
+            None => b.port_name.span,
+        };
+        let Some(&def) = self.res.use_spans.get(&line_span) else {
+            return;
+        };
+        if !matches!(self.res.def_kind(def), DefKind::Wire | DefKind::Port { .. }) {
+            return;
+        }
+        let group = self.new_group();
+        let kind = DriverKind::SharedLine {
+            instance: inst.name.text.clone(),
+            port: b.port_name.text.clone(),
+        };
+        self.drivers.record_kind(def, b.span, group, kind);
     }
 
     /// Yerleşik stdlib primitifi örneklemesi (ADR-0027/0029): generic
