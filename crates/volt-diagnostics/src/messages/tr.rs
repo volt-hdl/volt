@@ -24,7 +24,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0011 => "Beklenmeyen dosya sonu",
         E0012 => "Geçersiz escape dizisi",
         E0013 => "Kapanmamış blok yorumu",
-        E0014 => "match deyiminde '_' kolu eksik",
+        E0014 => "match deyimi her değeri kapsamıyor",
         E0015 => "MMIO register haritası yerleşim hatası (ADR-0044)",
         E0016 => "Gerekçesiz declassify (ADR-0052)",
         E0017 => "Desteklenmeyen ya da tutarsız zamanlama kısıtı (ADR-0054)",
@@ -67,6 +67,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2027 => "Döngü açma sınırı aşıldı",
         E2028 => "Geçersiz aralık (end < start)",
         E2029 => "Sabit dizi indeksi sınır dışı",
+        E2030 => "Geçersiz enum kodlaması",
 
         // ─── Saat/sıfırlama alanları (domain-inference.md) ───
         E3001 => "Saat alanı uyumsuzluğu (CDC)",
@@ -153,6 +154,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2011 => "Kullanılmayan tip parametresi",
         W2012 => "Tip belirtilmedi, varsayılan kullanıldı",
         W2013 => "Kaydırma miktarı genişliği aşıyor (sonuç hep 0)",
+        W2014 => "Erişilemez match kolu (varyant zaten kapsandı)",
         W2020 => "Sabit koşul — dal her zaman aynı sonuç veriyor",
         W2021 => "Kullanılmayan const bildirimi",
         W3001 => "Register hiç yazılmıyor",

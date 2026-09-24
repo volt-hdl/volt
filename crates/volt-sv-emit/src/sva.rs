@@ -270,7 +270,12 @@ impl<'a> Emitter<'a> {
         module: &'a ModuleDecl,
         clocks: &[ClockPort],
     ) -> Option<SvaFile> {
-        let props = self.sva_properties(module, clocks, 4)?;
+        // Ayrı dosyanın kullandığı enum varyantları kendi localparam'larını
+        // taşır; modülün kümesine karışmaz (UNUSEDPARAM, ADR-0074).
+        let saved = std::mem::take(&mut self.enum_used);
+        let props = self.sva_properties(module, clocks, 4);
+        let sva_used = std::mem::replace(&mut self.enum_used, saved);
+        let props = props?;
         let clock = clocks.first()?.clone();
         let module_name = module.name.text.clone();
         let checker_name = format!("{}_sva", module_name.to_lowercase());
@@ -320,6 +325,10 @@ impl<'a> Emitter<'a> {
         let mut content = header(self.source_name);
         content.push('\n');
         content.push_str(&format!("module {checker_name} (\n{ports}\n);\n\n"));
+        if let Some(params) = self.enum_localparams(&sva_used, module.name.span) {
+            content.push_str(&params);
+            content.push_str("\n\n");
+        }
         content.push_str(&props);
         content.push_str("\n\nendmodule\n\n");
         content.push_str(&format!(

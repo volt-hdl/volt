@@ -122,10 +122,28 @@ pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
         TypeRefKind::Bits(e) => from_expr(*e, ScalarKind::Bits),
         TypeRefKind::UIntN(e) => from_expr(*e, ScalarKind::UInt),
         TypeRefKind::SIntN(e) => from_expr(*e, ScalarKind::SInt),
-        // Tip takma adı / enum: sayı olabilir, burada çözülmez.
-        TypeRefKind::Path { .. } => ScalarWidth::Unknown,
+        // Enum (ADR-0074): kodlama genişliğinde işaretsiz sayı.
+        TypeRefKind::Path { .. } => match enum_width(src, ty) {
+            Some(bits) => known(bits, ScalarKind::UInt),
+            // Tip takma adı: sayı olabilir, burada çözülmez.
+            None => ScalarWidth::Unknown,
+        },
         _ => ScalarWidth::NotScalar,
     }
+}
+
+/// Geçerli kodlamalı enum tipinin genişliği (ADR-0074).
+fn enum_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
+    let decl = volt_ast::enum_layout::enum_of_type(src, ty)?;
+    let eval = &mut |e| literal_or_const(src, e).and_then(|v| i128::try_from(v).ok());
+    volt_ast::enum_layout::valid_layout(src, decl, eval).map(|l| l.width)
+}
+
+/// Portun enum tipi adı (ADR-0074): `assert_eq(dut.state, State::Idle)`
+/// başka enum'un varyantıyla karşılaştırılamaz; rapor varyant adını basar.
+pub fn port_enum(src: &SourceFile, module: &volt_ast::ModuleDecl, port: &str) -> Option<String> {
+    let p = module.ports.iter().find(|p| p.name.text == port)?;
+    volt_ast::enum_layout::enum_of_type(src, p.ty).map(|d| d.name.text.clone())
 }
 
 /// Port tipi: skaler ya da paketlenmiş vektör olarak üretilen skaler
@@ -287,6 +305,37 @@ pub(crate) fn check_assert_compare(
         let TestExprKind::PortRead { dut, port } = &read.kind else {
             continue;
         };
+        // Bilinmeyen enum E8506'yı zaten aldı (kaskad yok).
+        if let TestExprKind::Variant { enum_name, .. } = &other.kind {
+            if consts.enum_variants(&enum_name.text).is_none() {
+                continue;
+            }
+            let port_enum = duts
+                .get(dut.text.as_str())
+                .copied()
+                .flatten()
+                .and_then(|(src, m)| port_enum(src, m, &port.text));
+            if let Some(expected) = port_enum.filter(|e| *e != enum_name.text) {
+                diags.push(
+                    Diagnostic::error(
+                        ErrorCode::E8511,
+                        lstr!(en: "a value of enum '{}' is compared with port '{}' of enum '{expected}'", enum_name.text, port.text;
+                              tr: "'{}' enum değeri '{expected}' enum tipli '{}' portuyla karşılaştırılıyor", enum_name.text, port.text),
+                        LabeledSpan::primary(
+                            other.span,
+                            lstr!(en: "variant of another enum"; tr: "başka enum'un varyantı"),
+                        ),
+                        lstr!(en: "compare with a variant of '{expected}' ({expected}::...)";
+                              tr: "'{expected}' varyantıyla karşılaştırın ({expected}::...)"),
+                    )
+                    .with_secondary(
+                        port.span,
+                        lstr!(en: "port '{}' is {expected}", port.text; tr: "'{}' portu {expected}", port.text),
+                    ),
+                );
+                continue;
+            }
+        }
         let Some(width) = dut_port_width(duts, dut, port, PortDir::Out) else {
             continue;
         };

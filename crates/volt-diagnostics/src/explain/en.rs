@@ -108,12 +108,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* explanation of the module */\nmodule M {              // ✓",
         ),
         E0014 => Explanation::new(
-            "Missing '_' arm in the match statement",
-            "A 'match' statement inside an on/comb block must end with a wildcard '_' arm.",
-            "In hardware, a match lowers to a 'case'; a missing default arm would leave some encodings without a defined action. Full exhaustiveness analysis over enum variants arrives with F3 — until then the '_' arm is the explicit guarantee that every value is covered (ADR-0032). In a sequential block an empty '_ => { }' arm simply keeps the registers' values.",
-            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n}",
-            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n}",
-        ),
+            "The match statement does not cover every value",
+            "A 'match' statement inside an on/comb block leaves some values without an arm: a numeric match has no '_' arm, or an enum match misses a variant and has no '_' arm.",
+            "In hardware, a match lowers to a 'case'; a value without an arm would have no defined action (in a comb block that is a latch). A match on a number must end with a wildcard '_' arm (ADR-0032). A match on an enum is checked for exhaustiveness instead (ADR-0074): naming every variant is enough, '_' is optional. Then the LAST named arm becomes the SystemVerilog 'default' — so the encodings that belong to no variant (a 3-variant enum is 2 bits wide; code 3 is unused) take the last arm's action. Inside the design such a code cannot appear (an enum value only comes from its variants — 'uN as Enum' is rejected), and the auto-generated state-valid invariant proves it formally; an enum input port driven from outside is the only source. Write an explicit '_' arm when invalid codes need their own recovery action. In a sequential block an empty '_ => { }' arm keeps the registers' values.",
+            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: missing State::Done\n    }\n}",
+            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ every variant named; also taken by invalid codes\n    }\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md"]),
 
         E0015 => Explanation::new(
             "MMIO register map layout error",
@@ -391,6 +392,14 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "wire t : [u8; 4]\ny = t[4]                // ✗ E2029: valid indices 0..3",
             "y = t[3]                // ✓",
         ),
+        E2030 => Explanation::new(
+            "Invalid enum encoding",
+            "The enum's variants cannot be given a single, unambiguous hardware encoding.",
+            "An enum lowers to a plain bit vector: by default the variants are numbered 0, 1, 2 ... in declaration order and the width is max(1, clog2(n)). Explicit values ('Add = 0, Jal = 8') and a base type ('enum Op : u4') carry an external encoding (an opcode, a documented register code) into the design. The rules: either every variant has an explicit value or none does (a mixed list has two readings — the next value after 'A = 5' is 6 in SystemVerilog and Rust); values are distinct; the base type is an unsigned uN, uint<N> or bits<N> wide enough for every variant; the enum has at least one variant (ADR-0074).",
+            "enum Op : u4 { Add = 0, Sub, Jal = 8 }   // ✗ E2030: mixed explicit/implicit values\nenum Mode : i4 { A = 0, B = 1 }          // ✗ E2030: base type must be unsigned\nenum Dup { A = 1, B = 1 }                // ✗ E2030: duplicate value 1",
+            "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
+        )
+        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
 
         // ─── Clock/reset domains (domain-inference.md) ───
         E3001 => Explanation::new(
@@ -980,6 +989,14 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "in  a : u8\ny = a << 8              // ⚠ W2013: result is always 0",
             "y = a << 3              // ✓ (shift < 8)",
         ),
+        W2014 => Explanation::new(
+            "Unreachable match arm",
+            "An earlier arm of this enum 'match' already covers the same variant, so this arm never runs.",
+            "In a 'case' the first matching label wins; a second arm for the same variant is dead hardware and usually a copy-paste slip (the arm meant another variant). The compiler drops the arm from the generated SystemVerilog. Merge the two bodies or name the variant this arm was meant for (ADR-0074).",
+            "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: unreachable\n    _ => { }\n}",
+            "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
         W2020 => Explanation::new(
             "Constant condition",
             "This condition always evaluates to the same value, so the branch never changes.",

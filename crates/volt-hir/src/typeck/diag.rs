@@ -12,6 +12,11 @@ use super::TypeChecker;
 use crate::ty::{Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
+    /// Tanılardaki tip gösterimi — enum'lar adıyla (ADR-0074).
+    pub(super) fn show(&self, ty: TypeId) -> String {
+        self.types.display_enum_named(ty, &self.res.defs)
+    }
+
     /// Tek birincil konumlu hata tanısı ekler.
     pub(super) fn error(
         &mut self,
@@ -48,8 +53,8 @@ impl TypeChecker<'_, '_> {
 
     /// E2003 — beklenen/bulunan tip çifti.
     pub(super) fn err_type_mismatch(&mut self, expected: TypeId, actual: TypeId, span: Span) {
-        let exp = self.types.display(expected);
-        let act = self.types.display(actual);
+        let exp = self.show(expected);
+        let act = self.show(actual);
         self.err_type_mismatch_msg(
             span,
             &lstr!(en: "type mismatch: expected '{exp}', found '{act}'"; tr: "tip uyumsuzluğu: '{exp}' bekleniyor, '{act}' bulundu"),
@@ -138,7 +143,7 @@ impl TypeChecker<'_, '_> {
 
     /// E2010 — literal hedef tipin aralığına sığmıyor.
     pub(super) fn literal_overflow(&mut self, value: u128, ty: TypeId, span: Span) {
-        let shown = self.types.display(ty);
+        let shown = self.show(ty);
         let max = match *self.types.ty(ty) {
             Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } if width < 128 => {
                 (1u128 << width) - 1

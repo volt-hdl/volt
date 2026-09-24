@@ -44,7 +44,7 @@ mod usage;
 
 use std::collections::{HashMap, HashSet};
 
-use volt_ast::{BundleOrigin, Expr, Idx, Item, PortDir, SourceFile, TypeRef};
+use volt_ast::{BundleOrigin, Expr, Idx, Item, Pattern, PortDir, SourceFile, TypeRef};
 use volt_diagnostics::Diagnostic;
 use volt_span::{FileId, Span};
 
@@ -76,6 +76,9 @@ pub struct ResolveResult {
     pub use_spans: HashMap<Span, DefId>,
     /// Tip konumundaki Path → tanım (struct/enum/alias tipleri).
     pub type_resolutions: HashMap<Idx<TypeRef>, DefId>,
+    /// Yol deseni (`State::Idle =>`) → çözülen tanım (ADR-0074 desen
+    /// tiplemesi ve kapsayıcılık).
+    pub pattern_resolutions: HashMap<Idx<Pattern>, DefId>,
     /// Okunan tanımlar (W4001/W4002 sürücü analizi için).
     pub reads: HashSet<DefId>,
     /// Instance tanımı → hedef modül tanımı.
@@ -135,6 +138,7 @@ struct Resolver<'a> {
     decl_spans: HashMap<Span, DefId>,
     use_spans: HashMap<Span, DefId>,
     type_resolutions: HashMap<Idx<TypeRef>, DefId>,
+    pattern_resolutions: HashMap<Idx<Pattern>, DefId>,
 
     prelude: ScopeId,
     root: ScopeId,
@@ -184,6 +188,7 @@ impl<'a> Resolver<'a> {
             decl_spans: HashMap::new(),
             use_spans: HashMap::new(),
             type_resolutions: HashMap::new(),
+            pattern_resolutions: HashMap::new(),
             prelude: ScopeId(0),
             root: ScopeId(0),
             error_def: DefId(0),
@@ -237,6 +242,7 @@ impl<'a> Resolver<'a> {
             decl_spans: self.decl_spans,
             use_spans: self.use_spans,
             type_resolutions: self.type_resolutions,
+            pattern_resolutions: self.pattern_resolutions,
             reads: self.reads,
             instance_module: self.instance_module,
             instance_builtin: self.instance_builtin,

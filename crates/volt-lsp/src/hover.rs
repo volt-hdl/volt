@@ -105,6 +105,9 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
         .as_ref()
         .expect("def_at yalnız resolve varken eşleşir");
     let data = &res.defs[def.0 as usize];
+    if let Some(md) = enum_hover(analysis, def) {
+        return md;
+    }
 
     let ty = analysis.typeck.as_ref().and_then(|t| {
         t.def_types
@@ -128,6 +131,72 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
         md.push_str(&format!("\n\n{doc}"));
     }
     md
+}
+
+/// Enum ve varyant hover'ı (ADR-0074): varyantta
+/// `State::Run = 2'd1` + `enum State (2 bit)`; enum'da kodlama tablosu.
+fn enum_hover(analysis: &Analysis, def: DefId) -> Option<String> {
+    let res = analysis.resolve.as_ref()?;
+    let (enum_def, variant) = match res.def_kind(def) {
+        DefKind::Enum => (def, None),
+        DefKind::EnumVariant { parent } => (parent, Some(res.defs[def.0 as usize].name.clone())),
+        _ => return None,
+    };
+    let item = *res.item_of_def.get(&enum_def)?;
+    let volt_ast::ItemKind::Enum(decl) = &analysis.ast.items_arena[item].kind else {
+        return None;
+    };
+    let ast = &analysis.ast;
+    let layout =
+        volt_ast::enum_layout::valid_layout(ast, decl, &mut |e| match &ast.exprs[e].kind {
+            volt_ast::ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
+            _ => None,
+        });
+    let name = &decl.name.text;
+    let summary = match &layout {
+        Some(l) => format!("enum {name} ({} bit)", l.width),
+        None => format!("enum {name}"),
+    };
+    let code = |i: usize| {
+        layout.as_ref().map_or(String::new(), |l| {
+            format!(" = {}'d{}", l.width, l.values[i])
+        })
+    };
+    let mut md = match &variant {
+        Some(v) => {
+            let i = decl.variants.iter().position(|x| x.name.text == *v)?;
+            format!(
+                "```volt
+{name}::{v}{}
+```
+{summary}",
+                code(i)
+            )
+        }
+        None => {
+            let rows: Vec<String> = (0..decl.variants.len())
+                .map(|i| format!("- `{}{}`", decl.variants[i].name.text, code(i)))
+                .collect();
+            format!(
+                "```volt
+{summary}
+```
+{}",
+                rows.join(
+                    "
+"
+                )
+            )
+        }
+    };
+    if let Some(doc) = analysis.item_doc(enum_def).filter(|_| variant.is_none()) {
+        md.push_str(&format!(
+            "
+
+{doc}"
+        ));
+    }
+    Some(md)
 }
 
 /// "@SysDomain (posedge clk)" biçiminde domain satırı.

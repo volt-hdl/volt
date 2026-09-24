@@ -14,7 +14,9 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{Expr, ExprKind, Idx, ItemKind, SourceFile, TestExpr, TestExprKind, TestUnOp, UnOp};
+use volt_ast::{
+    enum_layout, Expr, ExprKind, Idx, ItemKind, SourceFile, TestExpr, TestExprKind, TestUnOp, UnOp,
+};
 
 use crate::sim_port::fold_binary;
 
@@ -27,6 +29,9 @@ pub struct TestConsts {
     globals: HashMap<String, Option<u64>>,
     /// Yerel adlar: `Some` = sabit, `None` = çalışma zamanı değeri.
     frames: Vec<HashMap<String, Option<u64>>>,
+    /// Geçerli kodlamalı enum'lar: ad → (varyant, kod) bildirim sırasıyla
+    /// (ADR-0074 — `State::Idle` test değeri ve rapordaki varyant adı).
+    enums: HashMap<String, Vec<(String, u64)>>,
 }
 
 impl TestConsts {
@@ -34,19 +39,52 @@ impl TestConsts {
     /// `collect_modules` ile aynı kural).
     pub fn new(sources: &[&SourceFile]) -> Self {
         let mut globals = HashMap::new();
+        let mut enums = HashMap::new();
         for src in sources {
             for idx in &src.items {
-                let ItemKind::Const(decl) = &src.items_arena[*idx].kind else {
-                    continue;
-                };
-                let value = plain_literal(src, decl.value);
-                globals.entry(decl.name.text.clone()).or_insert(value);
+                match &src.items_arena[*idx].kind {
+                    ItemKind::Const(decl) => {
+                        let value = plain_literal(src, decl.value);
+                        globals.entry(decl.name.text.clone()).or_insert(value);
+                    }
+                    ItemKind::Enum(decl) => {
+                        let eval = &mut |e| plain_literal(src, e).map(i128::from);
+                        let Some(layout) = enum_layout::valid_layout(src, decl, eval) else {
+                            continue;
+                        };
+                        let variants = decl
+                            .variants
+                            .iter()
+                            .zip(&layout.values)
+                            .filter_map(|(v, &c)| {
+                                Some((v.name.text.clone(), u64::try_from(c).ok()?))
+                            })
+                            .collect();
+                        enums.entry(decl.name.text.clone()).or_insert(variants);
+                    }
+                    _ => {}
+                }
             }
         }
         Self {
             globals,
             frames: Vec::new(),
+            enums,
         }
+    }
+
+    /// `Enum::Varyant`'ın kodu; enum ya da varyant yoksa `None`.
+    pub fn variant(&self, enum_name: &str, variant: &str) -> Option<u64> {
+        self.enums
+            .get(enum_name)?
+            .iter()
+            .find(|(n, _)| n == variant)
+            .map(|&(_, c)| c)
+    }
+
+    /// Enum'un varyantları (ad, kod); bilinmeyen enum'da `None`.
+    pub fn enum_variants(&self, enum_name: &str) -> Option<&[(String, u64)]> {
+        self.enums.get(enum_name).map(Vec::as_slice)
     }
 
     pub fn push(&mut self) {
@@ -100,6 +138,9 @@ impl TestConsts {
             TestExprKind::Int(n) => Some(*n),
             TestExprKind::Bool(b) => Some(u64::from(*b)),
             TestExprKind::Var(name) => self.lookup(&name.text),
+            TestExprKind::Variant { enum_name, variant } => {
+                self.variant(&enum_name.text, &variant.text)
+            }
             TestExprKind::Unary {
                 op: TestUnOp::Not,
                 operand,

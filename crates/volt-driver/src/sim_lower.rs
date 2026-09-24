@@ -72,6 +72,26 @@ pub(crate) struct LoweredTest {
     pub module: String,
     pub tb: TbTest,
     pub load_targets: Vec<(String, String)>,
+    /// Enum değerli `assert_eq`/`assert_ne` konumları: rapor sayının
+    /// yanında varyant adını basar (ADR-0074).
+    pub enum_asserts: Vec<(String, EnumLabels)>,
+}
+
+/// Bir enum'un varyant adları ve kodları — rapordaki `1 (State::Run)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EnumLabels {
+    pub enum_name: String,
+    pub variants: Vec<(String, u64)>,
+}
+
+impl EnumLabels {
+    /// `State::Run`; hiçbir varyantın kodu değilse `State: invalid code`.
+    pub fn label(&self, code: u64) -> String {
+        match self.variants.iter().find(|(_, c)| *c == code) {
+            Some((v, _)) => format!("{}::{v}", self.enum_name),
+            None => format!("{}: invalid code", self.enum_name),
+        }
+    }
 }
 
 /// İndirgeme bağlamı: `load` hedefi çözümü için birimin kaynakları,
@@ -95,6 +115,9 @@ fn lower_value(consts: &TestConsts, expr: &TestExpr) -> Option<TbValue> {
             Some(value) => TbValue::Lit(value?),
             None => TbValue::Var(name.text.clone()),
         },
+        TestExprKind::Variant { enum_name, variant } => {
+            TbValue::Lit(consts.variant(&enum_name.text, &variant.text)?)
+        }
         TestExprKind::Index { base, index } => TbValue::Index {
             array: base.text.clone(),
             index: Box::new(lower_value(consts, index)?),
@@ -151,6 +174,7 @@ struct Lowering<'a> {
     ctx: &'a LowerCtx<'a>,
     module: Option<String>,
     load_targets: Vec<(String, String)>,
+    enum_asserts: Vec<(String, EnumLabels)>,
     /// Derleme zamanında bilinen değerler (ADR-0060) — denetimdeki
     /// (`check_tests_with_files`) ortamın aynısı; E8512 kararıyla
     /// betiğe yazılan desen aynı değerden çıkar.
@@ -342,6 +366,11 @@ impl Lowering<'_> {
             Some(arg) => self.value(arg)?,
             None => TbValue::Lit(0),
         };
+        if matches!(kind, TbAssertKind::Eq | TbAssertKind::Ne) {
+            if let Some(labels) = self.enum_of_args(args) {
+                self.enum_asserts.push((self.loc(span), labels));
+            }
+        }
         steps.push(TbStep::Assert {
             kind,
             left,
@@ -349,6 +378,31 @@ impl Lowering<'_> {
             loc: self.loc(span),
         });
         Some(())
+    }
+
+    /// Karşılaştırmanın enum'u: bir taraf `Enum::Varyant` ya da enum
+    /// tipli DUT portu (ADR-0074).
+    fn enum_of_args(&self, args: &[TestExpr]) -> Option<EnumLabels> {
+        let module = self.module.as_deref();
+        let name = args.iter().find_map(|a| match &a.kind {
+            TestExprKind::Variant { enum_name, .. } => Some(enum_name.text.clone()),
+            TestExprKind::PortRead { port, .. } => self.ctx.sources.iter().find_map(|src| {
+                src.items
+                    .iter()
+                    .find_map(|&i| match &src.items_arena[i].kind {
+                        volt_ast::ItemKind::Module(m) if Some(m.name.text.as_str()) == module => {
+                            volt_hir::sim_port_enum(src, m, &port.text)
+                        }
+                        _ => None,
+                    })
+            }),
+            _ => None,
+        })?;
+        let variants = self.consts.enum_variants(&name)?.to_vec();
+        Some(EnumLabels {
+            enum_name: name,
+            variants,
+        })
     }
 
     fn load(
@@ -384,6 +438,7 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
         ctx,
         module: None,
         load_targets: Vec::new(),
+        enum_asserts: Vec::new(),
         consts: TestConsts::new(ctx.sources),
     };
     let steps = lowering.block(&test.stmts)?;
@@ -394,6 +449,7 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
             steps,
         },
         load_targets: lowering.load_targets,
+        enum_asserts: lowering.enum_asserts,
     })
 }
 

@@ -210,7 +210,7 @@ impl TypeChecker<'_, '_> {
                 }
             },
             _ => {
-                let shown = self.types.display(base_ty);
+                let shown = self.show(base_ty);
                 self.err_type_mismatch_msg(
                     span,
                     &lstr!(en: "no field access on type '{shown}'"; tr: "'{shown}' tipinde alan erişimi yok"),

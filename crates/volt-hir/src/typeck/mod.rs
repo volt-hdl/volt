@@ -29,7 +29,9 @@ mod cast;
 mod check;
 mod contract;
 mod diag;
+mod enums;
 mod instance;
+mod matching;
 mod select;
 mod stmt;
 mod synth;
@@ -112,6 +114,7 @@ struct TypeChecker<'a, 'ev> {
 impl TypeChecker<'_, '_> {
     fn run(&mut self) {
         let ast = self.ast;
+        self.check_enum_decls();
         for &item_idx in &ast.items {
             if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
                 let ty = self.resolve_type_ref(c.ty);

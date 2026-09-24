@@ -119,6 +119,9 @@ pub enum Ty {
 pub struct TypeArena {
     tys: Vec<Ty>,
     interned: HashMap<Ty, TypeId>,
+    /// Geçerli kodlamalı enum'ların sinyal genişliği (ADR-0074); kodlama
+    /// tablosu tip denetçisinde kurulur, arena yalnız genişliği taşır.
+    enum_widths: HashMap<EnumId, u16>,
 }
 
 impl TypeArena {
@@ -208,6 +211,27 @@ impl TypeArena {
         }
     }
 
+    /// Enum'un kodlama genişliğini kaydeder (tip denetçisi, ADR-0074).
+    pub fn set_enum_width(&mut self, e: EnumId, width: u16) {
+        self.enum_widths.insert(e, width);
+    }
+
+    /// Enum'un kodlama genişliği; kodlaması geçersizse `None`.
+    pub fn enum_width(&self, e: EnumId) -> Option<u16> {
+        self.enum_widths.get(&e).copied()
+    }
+
+    /// Sinyalin donanımdaki bit genişliği (saat alanı geçişi denetimi,
+    /// W3003): sayısal tiplerde `width_of`, enum'da kodlama genişliği
+    /// (ADR-0074 Karar 6). Bit seçimi `width_of`'u kullanır — enum
+    /// bit seçilemez (E2003).
+    pub fn signal_width(&self, id: TypeId) -> Option<u16> {
+        match self.ty(id) {
+            Ty::Enum(e) => self.enum_width(*e),
+            _ => self.width_of(id),
+        }
+    }
+
     /// Hata mesajlarındaki kullanıcı yüzü gösterim.
     ///
     /// Struct/enum/instance isimleri arena'da tutulmaz; isimli gösterim
@@ -224,6 +248,16 @@ impl TypeArena {
         self.display_with(id, &|ty| match ty {
             Ty::Struct(s) => name_of(s.0),
             Ty::Enum(e) => name_of(e.0),
+            _ => None,
+        })
+    }
+
+    /// Tip denetçisi tanıları: enum adları çözümleme tablosundan
+    /// (`'State' and 'Mode'`, `'enum' and 'enum'` değil — ADR-0074);
+    /// struct gösterimi değişmez.
+    pub fn display_enum_named(&self, id: TypeId, defs: &[crate::DefData]) -> String {
+        self.display_with(id, &|ty| match ty {
+            Ty::Enum(e) => defs.get(e.0 as usize).map(|d| d.name.clone()),
             _ => None,
         })
     }
@@ -255,7 +289,7 @@ impl TypeArena {
             Ty::Delayed { inner, cycles } => {
                 format!("Delayed<{}, {cycles}>", self.display_with(*inner, name))
             }
-            Ty::IntLit => "tamsayı literali".to_string(),
+            Ty::IntLit => volt_diagnostics::lstr!(en: "integer literal"; tr: "tamsayı literali"),
             // Kullanıcı yüzünde doğal genişlik gösterilir (§10 vektörleri).
             Ty::UIntFlex { hi, .. } => format!("u{hi}"),
             Ty::SIntFlex { hi, .. } => format!("i{hi}"),

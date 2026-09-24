@@ -199,6 +199,7 @@ impl<'a> Emitter<'a> {
                 width: 1,
                 signed: false,
             }),
+            ExprKind::Path(path) if path.segments.len() >= 2 => self.enum_variant_sig(path),
             ExprKind::Path(path) => {
                 let name = path.segments.first()?;
                 if let Some(sig) = self.symbols.get(&name.text).copied() {
@@ -472,6 +473,10 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::BoolLit(true) => ("1'b1".to_string(), PREC_ATOM),
             ExprKind::BoolLit(false) => ("1'b0".to_string(), PREC_ATOM),
+            ExprKind::Path(path) if self.enum_variant_of_path(path).is_some() => {
+                let name = self.emit_enum_variant(path).unwrap_or_default();
+                (name, PREC_ATOM)
+            }
             ExprKind::Path(path) => {
                 // Üst düzey const referansı boyutlandırılmış literale
                 // katlanır — üretilen RTL'de tanımsız isim kalmaz.
@@ -804,6 +809,10 @@ impl<'a> Emitter<'a> {
             );
             return None;
         }
+        // Enum tipli const kullanım yerinde varyant adıyla iner (ADR-0074).
+        if self.enum_of_type(ty).is_some() {
+            return Some(self.emit_prec(value_idx, None, PREC_ATOM, false));
+        }
         let value = self.eval_const(value_idx)?;
         let base = match &self.ast.exprs[value_idx].kind {
             ExprKind::IntLit { base, .. } => *base,
@@ -850,6 +859,14 @@ impl<'a> Emitter<'a> {
             return inner;
         };
 
+        // Enum kodu sıfır genişletmeyle çıkar: `N'(e)` (ADR-0074 kural 5).
+        if self.enum_of_expr(operand).is_some() {
+            return if target.width > src.width {
+                format!("{}'({inner})", target.width)
+            } else {
+                inner
+            };
+        }
         let simple = matches!(&self.ast.exprs[operand].kind, ExprKind::Path(_));
         if target.width > src.width {
             let n = target.width - src.width;

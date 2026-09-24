@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 enum S { A, B }
 module M {
     in  s : S

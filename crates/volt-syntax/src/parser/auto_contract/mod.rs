@@ -22,7 +22,7 @@ mod scan;
 
 use std::collections::HashSet;
 
-use volt_ast::{ContractKind, Expr, ExprKind, Idx, ItemKind, SourceFile, UnOp};
+use volt_ast::{enum_layout, ContractKind, Expr, ExprKind, Idx, ItemKind, SourceFile, UnOp};
 
 use super::handshake::has_attr;
 use super::mono::unroll::collect_consts;
@@ -95,6 +95,51 @@ fn user_contracts(ast: &SourceFile, m: &volt_ast::ModuleDecl) -> HashSet<(Contra
         .collect()
 }
 
+/// Sabit değer: `eval_const` + enum varyant yolu (`State::Run` → kodu,
+/// ADR-0074) ve enum tipli `const` (`START` → `State::Idle`).
+pub(super) fn value_of(
+    ast: &SourceFile,
+    consts: &std::collections::HashMap<String, Idx<Expr>>,
+    e: Idx<Expr>,
+) -> Option<i128> {
+    const MAX_DEPTH: u32 = 64;
+    let mut cur = e;
+    for _ in 0..MAX_DEPTH {
+        match &ast.exprs[cur].kind {
+            ExprKind::Path(p) if p.segments.len() >= 2 => {
+                let (decl, idx) = enum_variant(ast, p)?;
+                let layout = enum_layout::valid_layout(ast, decl, &mut |x| {
+                    super::mono::unroll::eval_const(ast, consts, x, 0)
+                })?;
+                return i128::try_from(layout.values[idx]).ok();
+            }
+            ExprKind::Path(p) if p.segments.len() == 1 => match consts.get(&p.segments[0].text) {
+                Some(&v) if matches!(&ast.exprs[v].kind, ExprKind::Path(q) if q.segments.len() >= 2) =>
+                {
+                    cur = v;
+                }
+                _ => return super::mono::unroll::eval_const(ast, consts, cur, 0),
+            },
+            _ => return super::mono::unroll::eval_const(ast, consts, cur, 0),
+        }
+    }
+    None
+}
+
+/// `A::B` yolunun adlandırdığı enum bildirimi ve varyant sırası.
+pub(super) fn enum_variant<'a>(
+    ast: &'a SourceFile,
+    p: &volt_ast::Path,
+) -> Option<(&'a volt_ast::EnumDecl, usize)> {
+    let n = p.segments.len();
+    let decl = enum_layout::enum_named(ast, &p.segments[n.checked_sub(2)?].text)?;
+    let idx = decl
+        .variants
+        .iter()
+        .position(|v| v.name.text == p.segments[n - 1].text)?;
+    Some((decl, idx))
+}
+
 /// `width` bitlik işaretsiz tipin en büyük değeri (width ≤ 64).
 pub(super) fn max_value(width: u32) -> i128 {
     (1i128 << width) - 1
@@ -106,6 +151,7 @@ pub(super) fn max_value(width: u32) -> i128 {
 pub(super) fn is_const_expr(ast: &SourceFile, locals: &HashSet<String>, e: Idx<Expr>) -> bool {
     match &ast.exprs[e].kind {
         ExprKind::IntLit { .. } => true,
+        ExprKind::Path(p) if p.segments.len() >= 2 => enum_variant(ast, p).is_some(),
         ExprKind::Path(p) => p.segments.len() == 1 && !locals.contains(&p.segments[0].text),
         ExprKind::Binary { lhs, rhs, .. } => {
             is_const_expr(ast, locals, *lhs) && is_const_expr(ast, locals, *rhs)

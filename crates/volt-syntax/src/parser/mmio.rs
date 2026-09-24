@@ -543,6 +543,20 @@ impl Parser<'_> {
         let mut lo = 0u32;
         let mut ok = true;
         for f in &r.fields {
+            // Enum alanı (ADR-0074 Karar 6): yazılım tarafının geçersiz
+            // kod tasarımı (Rust TryFrom, C doğrulama) ayrı ADR'de.
+            if let Some(e) = volt_ast::enum_layout::enum_of_type(&self.ast, f.ty) {
+                ok = false;
+                let name = e.name.text.clone();
+                self.push_error(err(
+                    ErrorCode::E0003,
+                    self.ast.types[f.ty].span,
+                    lstr!(en: "not supported yet: enum-typed register map field ('{name}')"; tr: "henüz desteklenmiyor: enum tipli register haritası alanı ('{name}')"),
+                    lstr!(en: "enum field"; tr: "enum alanı"),
+                    lstr!(en: "declare the field as uN and decode it with a match in the module (see volt explain E0003)"; tr: "alanı uN olarak bildirin ve modülde match ile çözün (bkz. volt explain E0003)"),
+                ));
+                continue;
+            }
             let Some(ty) = self.field_ty(f.ty) else {
                 ok = false;
                 self.push_error(err(

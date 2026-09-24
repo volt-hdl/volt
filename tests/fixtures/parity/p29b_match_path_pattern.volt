@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: E2003
 enum S { A, B }
 module M {
     in  clk : clock

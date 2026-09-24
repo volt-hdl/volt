@@ -17,11 +17,22 @@ use super::NO_AUTO_CONTRACTS;
 /// Sabit değerlendirme özyineleme başlangıç derinliği.
 const DEPTH0: u32 = 0;
 
+/// Enum tipli register'ın kodlaması (ADR-0074).
+pub(super) struct EnumInfo {
+    pub name: String,
+    /// Varyantlar bildirim sırasıyla: (ad, kod).
+    pub variants: Vec<(String, i128)>,
+    /// Bütün `2^W` kodlar bir varyant (F1 totoloji).
+    pub dense: bool,
+}
+
 /// Tanıyıcılara aday register.
 pub(super) struct RegInfo {
     pub name: String,
-    /// Bit genişliği (yalnız `uN` / `uint<N>`).
+    /// Bit genişliği (`uN` / `uint<N>` / geçerli kodlamalı enum).
     pub width: u32,
+    /// Enum tipli register'ın kodlaması.
+    pub enum_info: Option<EnumInfo>,
     pub init: Idx<Expr>,
     /// `@no_auto_contracts reg ...`
     pub opted_out: bool,
@@ -52,10 +63,28 @@ pub(super) struct Write {
     pub arms: Vec<ArmCtx>,
 }
 
-/// Match kolunun deseni (FSM için yalnız literal ve joker).
+/// Desendeki bir değerin kaynak yazımı.
+#[derive(Clone)]
+pub(super) enum Lit {
+    /// Literal ifade (`2`).
+    Expr(Idx<Expr>),
+    /// Enum varyant deseni (`State::Run`).
+    Path(Vec<String>),
+}
+
+impl Lit {
+    pub fn g(&self) -> super::gen::G {
+        match self {
+            Lit::Expr(e) => super::gen::G::Copy(*e),
+            Lit::Path(p) => super::gen::G::Path(p.clone()),
+        }
+    }
+}
+
+/// Match kolunun deseni (FSM için literal, enum varyantı ve joker).
 pub(super) enum ArmPat {
-    /// `1`, `1 | 2` — değerler ve her birinin literal ifadesi.
-    Values(Vec<(i128, Idx<Expr>)>),
+    /// `1`, `1 | 2`, `State::Run` — değerler ve kaynak yazımları.
+    Values(Vec<(i128, Lit)>),
     Wildcard,
 }
 
@@ -69,13 +98,13 @@ pub(super) struct RegMatch {
 
 impl RegMatch {
     /// Literal kollarda adı geçen tüm değerler (kaynak sırasıyla).
-    pub fn literal_values(&self) -> Vec<(i128, Idx<Expr>)> {
-        let mut out: Vec<(i128, Idx<Expr>)> = Vec::new();
+    pub fn literal_values(&self) -> Vec<(i128, Lit)> {
+        let mut out: Vec<(i128, Lit)> = Vec::new();
         for arm in self.arms.iter().flatten() {
             if let ArmPat::Values(vs) = arm {
-                for &(v, e) in vs {
-                    if !out.iter().any(|(x, _)| *x == v) {
-                        out.push((v, e));
+                for (v, e) in vs {
+                    if !out.iter().any(|(x, _)| x == v) {
+                        out.push((*v, e.clone()));
                     }
                 }
             }
@@ -112,6 +141,7 @@ pub(super) fn scan_module(
         .clone();
     let mut w = Walker {
         ast,
+        consts,
         clock,
         scan: Scan {
             regs: Vec::new(),
@@ -130,10 +160,16 @@ pub(super) fn scan_module(
         match &stmt.kind {
             StmtKind::Reg(r) => {
                 w.scan.locals.insert(r.name.text.clone());
-                if let Some(width) = r.ty.and_then(|t| uint_width(ast, consts, t)) {
+                let info = r.ty.and_then(|t| {
+                    uint_width(ast, consts, t)
+                        .map(|w| (w, None))
+                        .or_else(|| enum_width(ast, consts, t))
+                });
+                if let Some((width, enum_info)) = info {
                     w.scan.regs.push(RegInfo {
                         name: r.name.text.clone(),
                         width,
+                        enum_info,
                         init: r.init,
                         opted_out: has_attr(&stmt.attrs, NO_AUTO_CONTRACTS),
                     });
@@ -180,8 +216,39 @@ fn uint_width(
     u32::try_from(w).ok().filter(|w| (1..=64).contains(w))
 }
 
+/// Geçerli kodlamalı, birim varyantlı enum tipi (ADR-0074): genişlik
+/// ve varyant kodları.
+fn enum_width(
+    ast: &SourceFile,
+    consts: &HashMap<String, Idx<Expr>>,
+    ty: Idx<volt_ast::TypeRef>,
+) -> Option<(u32, Option<EnumInfo>)> {
+    let decl = volt_ast::enum_layout::enum_of_type(ast, ty)?;
+    let layout = volt_ast::enum_layout::valid_layout(ast, decl, &mut |e| {
+        eval_const(ast, consts, e, DEPTH0)
+    })?;
+    if !(1..=64).contains(&layout.width) {
+        return None;
+    }
+    let variants = decl
+        .variants
+        .iter()
+        .zip(&layout.values)
+        .map(|(v, &c)| (v.name.text.clone(), c as i128))
+        .collect();
+    Some((
+        layout.width,
+        Some(EnumInfo {
+            name: decl.name.text.clone(),
+            variants,
+            dense: layout.is_dense(),
+        }),
+    ))
+}
+
 struct Walker<'a> {
     ast: &'a SourceFile,
+    consts: &'a HashMap<String, Idx<Expr>>,
     clock: String,
     scan: Scan,
     conds: Vec<Cond>,
@@ -251,7 +318,7 @@ impl Walker<'_> {
                     if a.guard.is_some() {
                         return None;
                     }
-                    arm_pattern(self.ast, a.pattern)
+                    arm_pattern(self.ast, self.consts, a.pattern)
                 })
                 .collect::<Option<Vec<_>>>();
             self.scan.matches.push(RegMatch {
@@ -282,15 +349,28 @@ impl Walker<'_> {
     }
 }
 
-/// Literal / literal alternatifi / joker desen; başkası None.
-fn arm_pattern(ast: &SourceFile, p: Idx<volt_ast::Pattern>) -> Option<ArmPat> {
+/// Literal / enum varyantı / alternatif / joker desen; başkası None.
+fn arm_pattern(
+    ast: &SourceFile,
+    consts: &HashMap<String, Idx<Expr>>,
+    p: Idx<volt_ast::Pattern>,
+) -> Option<ArmPat> {
     match &ast.patterns[p].kind {
         PatternKind::Wildcard => Some(ArmPat::Wildcard),
-        PatternKind::Literal(e) => Some(ArmPat::Values(vec![(int_lit(ast, *e)?, *e)])),
+        PatternKind::Literal(e) => Some(ArmPat::Values(vec![(int_lit(ast, *e)?, Lit::Expr(*e))])),
+        PatternKind::Path { path, args: None } => {
+            let (decl, idx) = super::enum_variant(ast, path)?;
+            let layout = volt_ast::enum_layout::valid_layout(ast, decl, &mut |e| {
+                eval_const(ast, consts, e, DEPTH0)
+            })?;
+            let code = i128::try_from(layout.values[idx]).ok()?;
+            let segs = vec![decl.name.text.clone(), decl.variants[idx].name.text.clone()];
+            Some(ArmPat::Values(vec![(code, Lit::Path(segs))]))
+        }
         PatternKind::Or(alts) => {
             let mut vals = Vec::new();
             for &a in alts {
-                match arm_pattern(ast, a)? {
+                match arm_pattern(ast, consts, a)? {
                     ArmPat::Wildcard => return Some(ArmPat::Wildcard),
                     ArmPat::Values(vs) => vals.extend(vs),
                 }

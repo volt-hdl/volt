@@ -186,12 +186,7 @@ impl TypeChecker<'_, '_> {
             BlockStmt::NonBlockAssign { lhs, rhs, .. }
             | BlockStmt::BlockAssign { lhs, rhs, .. } => self.check_assign(lhs, *rhs),
             BlockStmt::If(if_stmt) => self.check_if(if_stmt),
-            BlockStmt::Match(m) => {
-                self.synth(m.scrutinee);
-                for arm in &m.arms {
-                    self.check_arm(arm);
-                }
-            }
+            BlockStmt::Match(m) => self.check_match_stmt(m),
             BlockStmt::Let(l) => self.handle_let(l),
             BlockStmt::For(f) => self.check_for(f),
             BlockStmt::Error => {}

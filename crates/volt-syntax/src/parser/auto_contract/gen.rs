@@ -25,6 +25,8 @@ pub(super) enum G {
     Prev(String),
     /// Kullanıcının yazdığı sabit ifade / literal (derin kopya).
     Copy(Idx<Expr>),
+    /// Üretilen yol (`State::Run` — ADR-0074 enum varyantı).
+    Path(Vec<String>),
     Bin(BinOp, Box<G>, Box<G>),
 }
 
@@ -164,6 +166,7 @@ impl Builder<'_, '_> {
                 }))
             }
             G::Copy(e) => self.copy(*e),
+            G::Path(segs) => self.path(segs),
             G::Bin(op, l, r) => {
                 let lhs = self.g(l)?;
                 let rhs = self.g(r)?;

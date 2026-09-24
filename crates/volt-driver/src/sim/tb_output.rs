@@ -23,6 +23,9 @@ pub(super) struct AssertFailure {
     pub loop_ctx: Option<String>,
     /// `port=addr:u3` — port genişlik hatasında (ad, tip) (ADR-0059).
     pub port: Option<(String, String)>,
+    /// Enum değerli karşılaştırmada varyant adları (ADR-0074); testbench
+    /// çıktısında yok, sürücü iddianın konumundan ekler.
+    pub labels: Option<crate::sim_lower::EnumLabels>,
 }
 
 /// Testbench stdout'unu sonuçlara çevirir (sv-emit VOLT-* protokolü).
@@ -74,6 +77,7 @@ pub(super) fn parse_assert_fail(rest: &str) -> Option<AssertFailure> {
         right,
         loop_ctx,
         port,
+        labels: None,
     })
 }
 

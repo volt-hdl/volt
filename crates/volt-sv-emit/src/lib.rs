@@ -7,6 +7,7 @@
 mod alias;
 mod builtin_prim;
 mod const_array;
+mod enums;
 mod expr;
 mod generate;
 mod instance;
@@ -359,6 +360,8 @@ pub fn emit_unit(
         sva_props: Vec::new(),
         past_regs: HashMap::new(),
         sim_dpi: sim_contract::SimDpiUse::default(),
+        enum_used: Vec::new(),
+        enum_sigs: HashMap::new(),
     };
 
     let mut modules = Vec::new();
@@ -558,6 +561,11 @@ pub(crate) struct Emitter<'a> {
     /// Simulation modunda bu modülün kullandığı DPI geri çağrıları
     /// (ADR-0064) — gövde başına yalnız gerekenlerin `import`'u konur.
     pub(crate) sim_dpi: sim_contract::SimDpiUse,
+    /// Modülde adı geçen enum varyantları (enum, varyant), ilk kullanım
+    /// sırasıyla — `localparam` yalnız bunlar için (ADR-0074).
+    pub(crate) enum_used: Vec<(String, String)>,
+    /// Enum tipli modül sinyalleri: ad → enum adı (ADR-0074).
+    pub(crate) enum_sigs: HashMap<String, String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -617,6 +625,8 @@ impl<'a> Emitter<'a> {
         self.pre_decls.clear();
         self.bus_wires.clear();
         self.sim_dpi = sim_contract::SimDpiUse::default();
+        self.enum_used.clear();
+        self.enum_sigs.clear();
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -626,6 +636,7 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             self.note_trit(&port.name.text, port.ty);
+            self.note_enum_signal(&port.name.text, port.ty);
             if let Some(sig) = self.signal_sig(&port.name.text, port.ty, port.span) {
                 self.symbols.insert(port.name.text.clone(), sig);
             }
@@ -634,6 +645,7 @@ impl<'a> Emitter<'a> {
             let span = ast.stmts[stmt_idx].span;
             if let StmtKind::Wire(w) = &ast.stmts[stmt_idx].kind {
                 self.note_trit(&w.name.text, w.ty);
+                self.note_enum_signal(&w.name.text, w.ty);
                 if let Some(sig) = self.signal_sig(&w.name.text, w.ty, span) {
                     self.symbols.insert(w.name.text.clone(), sig);
                 }
@@ -641,6 +653,7 @@ impl<'a> Emitter<'a> {
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {
                 if let Some(ty) = reg.ty {
                     self.note_trit(&reg.name.text, ty);
+                    self.note_enum_signal(&reg.name.text, ty);
                 }
                 match reg.ty {
                     // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
@@ -749,6 +762,11 @@ impl<'a> Emitter<'a> {
         body_chunks.splice(0..0, synchronizers);
         if let Some(pre) = pre {
             body_chunks.insert(0, pre);
+        }
+        // ADR-0074: gövdede ve gömülü SVA'da adı geçen enum varyantları.
+        let used = std::mem::take(&mut self.enum_used);
+        if let Some(params) = self.enum_localparams(&used, module.name.span) {
+            body_chunks.insert(0, params);
         }
         // İzleyiciler (modül ve primitif kontratları) üretildikten SONRA:
         // gövde başına yalnız kullanılan DPI bildirimleri.
@@ -874,7 +892,8 @@ impl<'a> Emitter<'a> {
             .enumerate()
             .map(|(i, (dir, ty, name))| {
                 let comma = if i + 1 < count { "," } else { "" };
-                format!("    {dir:<6} {ty:<ty_width$} {name}{comma}")
+                let note = self.enum_comment(name);
+                format!("    {dir:<6} {ty:<ty_width$} {name}{comma}{note}")
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -906,13 +925,21 @@ impl<'a> Emitter<'a> {
                     };
                     (
                         Kind::Decl,
-                        format!("    {} {}{dims};", sig.decl_type(), reg.name.text),
+                        format!(
+                            "    {} {}{dims};{}",
+                            sig.decl_type(),
+                            reg.name.text,
+                            self.enum_comment(&reg.name.text)
+                        ),
                     )
                 }),
                 StmtKind::Let(decl) => {
                     // Bildirilen tip wire genişliğini SÜRER (ADR-0041):
                     // `let p : i32 = a * b` → 32 bitlik wire; tip yoksa
                     // kaba çıkarım.
+                    if let Some(t) = decl.ty {
+                        self.note_enum_signal(&decl.name.text, t);
+                    }
                     let sig = decl
                         .ty
                         .and_then(|t| self.sig_of_typeref(t, stmt.span))
@@ -931,10 +958,11 @@ impl<'a> Emitter<'a> {
                             Some((
                                 Kind::Decl,
                                 format!(
-                                    "    wire {}{} = {};",
+                                    "    wire {}{} = {};{}",
                                     sig.wire_prefix(),
                                     decl.name.text,
-                                    value
+                                    value,
+                                    self.enum_comment(&decl.name.text)
                                 ),
                             ))
                         }
@@ -1006,7 +1034,12 @@ impl<'a> Emitter<'a> {
                                 format!("    tri1 {}{};", sig.wire_prefix(), w.name.text)
                             }
                             Some(_) => format!("    wire {}{};", sig.wire_prefix(), w.name.text),
-                            None => format!("    {} {};", sig.decl_type(), w.name.text),
+                            None => format!(
+                                "    {} {};{}",
+                                sig.decl_type(),
+                                w.name.text,
+                                self.enum_comment(&w.name.text)
+                            ),
                         },
                     )),
                     // Tip ön geçişte (`signal_sig`) zaten tanılandı (ADR-0070:
@@ -1427,9 +1460,27 @@ impl<'a> Emitter<'a> {
     fn emit_match(&mut self, m: &'a MatchStmt, indent: usize, lines: &mut Vec<String>) {
         let ind = " ".repeat(indent);
         let scrut_sig = self.width_of(m.scrutinee);
+        let scrut_enum = self.enum_of_expr(m.scrutinee);
         let scrut = self.emit_expr(m.scrutinee, scrut_sig);
+        // ADR-0074 Karar 4: erişilemez kol atlanır; kapsayıcı `_`'sız enum
+        // match'inde son adlı kol `default` olur (geçersiz kodlar dahil).
+        let plan = scrut_enum.map(|d| self.enum_match_plan(m, d));
         lines.push(format!("{ind}case ({scrut})"));
-        for arm in &m.arms {
+        for (i, arm) in m.arms.iter().enumerate() {
+            if plan.as_ref().is_some_and(|p| p.skip[i]) {
+                continue;
+            }
+            if let Some(names) = plan
+                .as_ref()
+                .and_then(|p| (p.default_arm == Some(i)).then(|| p.default_names.clone()))
+            {
+                lines.push(format!(
+                    "{ind}    default: begin // {names} (and invalid codes)"
+                ));
+                self.emit_arm_body(arm, indent, lines);
+                lines.push(format!("{ind}    end"));
+                continue;
+            }
             if arm.guard.is_some() {
                 self.future(
                     arm.span,
@@ -1440,33 +1491,73 @@ impl<'a> Emitter<'a> {
                 );
                 continue;
             }
-            let Some(label) = self.match_arm_label(arm.pattern, scrut_sig) else {
+            let Some(label) = self.match_arm_label(arm.pattern, scrut_sig, scrut_enum) else {
                 continue;
             };
             lines.push(format!("{ind}    {label}: begin"));
-            match &arm.body {
-                MatchArmBody::Block(b) => lines.extend(self.emit_block(*b, indent + 8)),
-                MatchArmBody::Expr(e) => {
-                    let span = self.ast.exprs[*e].span;
-                    self.future(
-                        span,
-                        &lstr!(
-                            en: "expression-bodied 'match' arms in statement position";
-                            tr: "deyim konumunda ifade gövdeli 'match' kolları"
-                        ),
-                    );
-                }
-            }
+            self.emit_arm_body(arm, indent, lines);
             lines.push(format!("{ind}    end"));
         }
         lines.push(format!("{ind}endcase"));
     }
 
-    /// Kol etiketi: literal(ler) virgülle ayrılır, joker `default` olur.
+    fn emit_arm_body(
+        &mut self,
+        arm: &'a volt_ast::MatchArm,
+        indent: usize,
+        lines: &mut Vec<String>,
+    ) {
+        match &arm.body {
+            MatchArmBody::Block(b) => lines.extend(self.emit_block(*b, indent + 8)),
+            MatchArmBody::Expr(e) => {
+                let span = self.ast.exprs[*e].span;
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "expression-bodied 'match' arms in statement position";
+                        tr: "deyim konumunda ifade gövdeli 'match' kolları"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Kol etiketi: literal(ler) virgülle ayrılır, joker `default` olur;
+    /// enum sınananda varyant yolu `<Enum>_<Varyant>` (ADR-0074).
     /// None → tanı üretildi ya da desen zaten hatalı, kol atlanır.
-    fn match_arm_label(&mut self, pattern: Idx<Pattern>, scrut_sig: Option<Sig>) -> Option<String> {
+    fn match_arm_label(
+        &mut self,
+        pattern: Idx<Pattern>,
+        scrut_sig: Option<Sig>,
+        scrut_enum: Option<&'a volt_ast::EnumDecl>,
+    ) -> Option<String> {
         let ast = self.ast;
         match &ast.patterns[pattern].kind {
+            PatternKind::Path { path, args: None }
+                if scrut_enum.is_some() && self.enum_variant_of_path(path).is_some() =>
+            {
+                self.emit_enum_variant(path)
+            }
+            PatternKind::Binding(name)
+                if scrut_enum
+                    .is_some_and(|d| d.variants.iter().any(|v| v.name.text == name.text)) =>
+            {
+                let enum_name = scrut_enum.map_or("", |d| d.name.text.as_str());
+                let variant = name.text.clone();
+                self.error(
+                    ErrorCode::E0003,
+                    lstr!(
+                        en: "not supported yet: binding pattern '{variant}' in 'match' (a bare name binds, it does not name the variant)";
+                        tr: "henüz desteklenmiyor: 'match' içinde bağlama deseni '{variant}' (çıplak ad bağlar, varyantı adlandırmaz)"
+                    ),
+                    ast.patterns[pattern].span,
+                    &lstr!(
+                        en: "write the variant path: {enum_name}::{variant}";
+                        tr: "varyant yolunu yazın: {enum_name}::{variant}"
+                    ),
+                );
+                None
+            }
             PatternKind::Wildcard => Some("default".to_string()),
             PatternKind::Literal(e) => Some(self.emit_expr(*e, scrut_sig)),
             PatternKind::Or(alts) => {
@@ -1478,7 +1569,7 @@ impl<'a> Emitter<'a> {
                 }
                 let mut labels = Vec::with_capacity(alts.len());
                 for &a in alts {
-                    labels.push(self.match_arm_label(a, scrut_sig)?);
+                    labels.push(self.match_arm_label(a, scrut_sig, scrut_enum)?);
                 }
                 Some(labels.join(", "))
             }
@@ -1681,6 +1772,17 @@ impl<'a> Emitter<'a> {
             return None;
         };
         let (elem, len) = (*elem, *len);
+        if let Some(decl) = self.enum_of_type(elem) {
+            let name = decl.name.text.clone();
+            self.future(
+                span,
+                &lstr!(
+                    en: "arrays of enum '{name}'";
+                    tr: "enum '{name}' dizileri"
+                ),
+            );
+            return None;
+        }
         let sig = self.sig_of_typeref(elem, span)?;
         match self.eval_const(len) {
             Some(n) if n >= 1 => Some((sig, n as u32)),
@@ -1776,6 +1878,9 @@ impl<'a> Emitter<'a> {
                 None
             }
             TypeRefKind::Path { .. } => {
+                if let Some(decl) = self.enum_of_type(ty) {
+                    return self.enum_sig(decl, span);
+                }
                 let what = alias::describe_user_type(self.ast, alias::resolve(self.ast, ty));
                 self.future(span, &what);
                 None
