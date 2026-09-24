@@ -184,6 +184,31 @@ fn count_ident(text: &str, name: &str) -> usize {
         .count()
 }
 
+/// Kullanılmayan otomatik reset portlarının satırı Verilator
+/// `UNUSEDSIGNAL` susturmasıyla sarılır (ADR-0076); port kalır.
+fn silence_unused_resets(ports_block: String, unused: &[&str]) -> String {
+    if unused.is_empty() {
+        return ports_block;
+    }
+    let mut out: Vec<String> = Vec::new();
+    for line in ports_block.lines() {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        let is_unused = matches!(tokens.as_slice(), ["input", "logic", name]
+            if unused.contains(&name.trim_end_matches(',')));
+        if is_unused {
+            out.push(
+                "    // domain reset kept in the interface; no register here uses it".to_string(),
+            );
+            out.push("    // verilator lint_off UNUSEDSIGNAL".to_string());
+            out.push(line.to_string());
+            out.push("    // verilator lint_on UNUSEDSIGNAL".to_string());
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    out.join("\n")
+}
+
 /// Reset değeri olarak sıfır literali (§10 boyutlandırması).
 fn zero_of(sig: Sig) -> String {
     match (sig.width, sig.signed) {
@@ -789,6 +814,20 @@ impl<'a> Emitter<'a> {
                 body_chunks.insert(0, imports);
             }
         }
+
+        // ADR-0076: alanının reset'ini hiçbir register kullanmayan modül
+        // (flop'suz) otomatik reset portunu arayüzde TUTAR — arayüz
+        // gövdeye değil bildirilen saat alanlarına bağlıdır (ADR-0012);
+        // yalnız Verilator -Wall UNUSEDSIGNAL susturulur.
+        let unused_resets: Vec<&str> = resets
+            .iter()
+            .map(ResetCfg::port_name)
+            .filter(|rst| {
+                body_chunks.iter().all(|c| count_ident(c, rst) == 0)
+                    && sva_text.is_none_or(|s| count_ident(s, rst) == 0)
+            })
+            .collect();
+        let ports_block = silence_unused_resets(ports_block, &unused_resets);
 
         let mut out = String::new();
         if let Some(doc) = doc {

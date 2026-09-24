@@ -41,6 +41,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1009 => "Modül portu bulunamadı",
         E1010 => "Belirsiz import (iki 'use' aynı ismi getiriyor)",
         E1011 => "Modül bulunamadı (import edilen paketi sağlayan dosya yok)",
+        E1012 => "Extern modülün SystemVerilog kaynağı yok, bulunamadı ya da proje dışında",
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => "Bit genişliği uyumsuzluğu",

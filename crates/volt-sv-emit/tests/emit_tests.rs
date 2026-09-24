@@ -1125,3 +1125,36 @@ fn widening_zero_extend_unchanged() {
     assert!(out.contains("{{24{1'b0}}, a}"), "{out}");
     assert!(!out.contains("$unsigned"), "{out}");
 }
+
+// ═══ ADR-0076: flop'suz modülün reset portu ═══════════════════════
+
+/// Flop'suz modül alanının reset portunu arayüzde TUTAR (arayüz gövdeye
+/// değil saat alanlarına bağlı); yalnız Verilator UNUSEDSIGNAL susturulur.
+#[test]
+fn flopless_module_keeps_reset_port_with_lint_waiver() {
+    let out = sv("module M {\n    in  clk : clock\n    in  a : u8\n    out y : u8\n    y = a\n}\n");
+    assert!(
+        out.contains(
+            "    // verilator lint_off UNUSEDSIGNAL\n    input  logic       rst,\n    // verilator lint_on UNUSEDSIGNAL\n"
+        ),
+        "{out}"
+    );
+}
+
+/// Register'lı modülde reset kullanılır: susturma yok.
+#[test]
+fn module_with_registers_has_no_reset_waiver() {
+    let out = sv("module M {\n    in  clk : clock\n    in  a : u8\n    out y : u8\n    reg r : u8 = 0\n    on clk { r <= a }\n    y = r\n}\n");
+    assert!(out.contains("input  logic       rst,"), "{out}");
+    assert!(!out.contains("lint_off UNUSEDSIGNAL"), "{out}");
+}
+
+/// Reset'i yalnız çocuğa geçiren flop'suz ara modül de reset'i kullanır
+/// (`.rst(rst)` bağlantısı): susturma yok.
+#[test]
+fn reset_passed_to_a_child_is_used() {
+    let out = sv("module C {\n    in  clk : clock\n    in  a : u8\n    out y : u8\n    reg r : u8 = 0\n    on clk { r <= a }\n    y = r\n}\nmodule P {\n    in  clk : clock\n    in  a : u8\n    out y : u8\n    let c = C { clk: clk, a: a }\n    y = c.y\n}\n");
+    let p = out.split("module P").nth(1).expect("P");
+    assert!(p.contains(".rst("), "{p}");
+    assert!(!p.contains("lint_off UNUSEDSIGNAL"), "{p}");
+}

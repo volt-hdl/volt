@@ -37,7 +37,10 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
 /// Çözümlemeden bağımsız ön denetimler: uygulanmayan nitelikler
 /// (ADR-0048, W0021). Parse hatasızsa, çözümlemeden önce koşar.
 pub fn pre_resolve_checks(ast: &SourceFile, lint: UnenforcedLint) -> Vec<Diagnostic> {
-    crate::check_attributes(ast, lint)
+    let mut out = crate::check_attributes(ast, lint);
+    // `@source` biçimi (ADR-0076) — dosya denetimi sürücüde.
+    out.extend(crate::extern_source::check_source_attributes(ast));
+    out
 }
 
 /// Aşama 2-4 + çözümleme sonrası denetimler. `resolve` çağıran

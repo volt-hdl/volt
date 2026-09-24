@@ -116,6 +116,9 @@ fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diag
         diags.extend(unit.diagnostics.iter().cloned());
         let imports = volt_hir::check_imports(ast, &unit.info);
         diags.extend(imports.diagnostics);
+        // `@source` dosyaları (ADR-0076) — `volt check` ile aynı E1012.
+        let locator = volt_hir::FsSourceLocator::new(&unit.files);
+        diags.extend(volt_hir::resolve_extern_sources(ast, &locator).1);
         if count_errors(&diags) == 0 {
             let resolve = volt_hir::resolve_unit(ast, &imports.scopes);
             // Test veri dosyaları (ADR-0058) editörde okunmaz: içerik

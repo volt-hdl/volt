@@ -234,6 +234,14 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "use soc::gpoi::Gpio     // ✗ E1011: hiçbir yerde soc/gpoi.volt yok",
             "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt 'package soc::gpio;' bildiriyor",
         ),
+        E1012 => Explanation::new(
+            "Extern modül kaynağı yok ya da proje dışında",
+            "Bir extern modülün SystemVerilog'u gerekiyor ama '@source' yok, var olmayan bir dosyayı adlandırıyor ya da projenin dışına çıkıyor.",
+            "'extern module' yalnız portları bildirir; gövdesi sizin yazdığınız ya da bir üreticinin verdiği SystemVerilog'dur. 'volt build' ve 'volt check' yalnız örneklemeyi üretir; ama 'volt run' ve 'volt test' tasarımı Verilator'a, 'volt verify' SymbiYosys'e verir ve ikisi de gövdesini hiç görmediği bir modülü simüle edemez, kanıtlayamaz. '@source(\"yol\")' dosyayı (ya da dosyaları) adlandırır; yol extern'ü bildiren .volt dosyasına göre görelidir ve proje içinde kalmalıdır — en yakın Volt.toml'un dizini, yoksa o dosyanın dizini (read_hex ile aynı kural). Eksik '@source' yalnız gövdeye ihtiyaç duyan komutlarda bildirilir.",
+            "extern module Fifo {          // ✗ 'volt test'te E1012: gövde yok\n    in  clk : clock\n    ...\n}",
+            "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator ve sby rtl/fifo.sv'yi okur\n    in  clk : clock\n    ...\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(

@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — extern modül kaynakları (2026-09-24, ADR-0076)
+
+- **`@source("rtl/foo.sv")` extern modülün SystemVerilog gövdesini
+  adlandırır**; `volt run`, `volt test` ve `volt verify` dosyayı
+  Verilator'a / SymbiYosys'e üretilen SV'den önce verir. Önce extern
+  kullanan tasarım simüle ya da doğrulanamıyordu (verify: Yosys "module
+  not part of the design" → "tool error", çıkış 3). Yol `.volt` dosyasına
+  göre göreli, proje kökünde kalmalı (`read_hex` kuralı, ADR-0061 tavanı).
+  Uçtan uca (gerçek Verilator + sby): `tests/fixtures/extern_source`.
+- YENİ **E1012**: `@source` dosyası yok ya da projenin dışında (`check`,
+  `build`, editör); örneklenen extern'ün `@source`'u yok (yalnız `run`,
+  `test`, `verify` — `build`/`check` kaynak istemez, çıktıları değişmedi).
+  Biçim hatası (`@source` extern dışında, string olmayan argüman) E0009.
+- **Flop'suz modülün reset portu**: alanında reset olan ama register'ı
+  olmayan modül `rst` portunu arayüzde tutar (arayüz gövdeden değil saat
+  alanlarından türer); yalnız o port satırı Verilator `UNUSEDSIGNAL`
+  susturmasıyla sarılır — `-Wall` temiz. 12 test tasarımında yalnız bu
+  yorum satırları değişti; `examples/` aynı.
+- Extern içi CDC için SDC kısıtı ÜRETİLMEZ (iç hücre adları bilinmez;
+  tahmini kısıt gerçek ihlali gizleyebilirdi): hedefli stilde yol
+  zamanlama aracında raporlanır, gizlenmez (ADR-0076 §2).
+
 ### Düzeltildi — yanıltıcı raporlar ve tanı kalitesi (2026-09-24, ADR-0075)
 
 - **`volt verify` sby'nin beş durumunu ayırır.** prove kipinde tümevarım

@@ -234,6 +234,14 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "use soc::gpoi::Gpio     // ✗ E1011: no soc/gpoi.volt anywhere",
             "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt declares 'package soc::gpio;'",
         ),
+        E1012 => Explanation::new(
+            "Extern module source missing or outside the project",
+            "An extern module's SystemVerilog is needed but '@source' is missing, names a file that does not exist, or leaves the project.",
+            "An 'extern module' only declares ports; its body is SystemVerilog you wrote or a vendor shipped. 'volt build' and 'volt check' only emit the instantiation, but 'volt run' and 'volt test' hand the design to Verilator and 'volt verify' to SymbiYosys, and neither can simulate or prove a module whose body it has never seen. '@source(\"path\")' names the file (or files); the path is relative to the .volt file that declares the extern and must stay inside the project — the directory of the nearest Volt.toml, or that file's directory when there is none (the same rule as read_hex). A missing '@source' is reported only by the commands that need the body.",
+            "extern module Fifo {          // ✗ E1012 in 'volt test': no body\n    in  clk : clock\n    ...\n}",
+            "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator and sby read rtl/fifo.sv\n    in  clk : clock\n    ...\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(

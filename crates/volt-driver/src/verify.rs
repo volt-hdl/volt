@@ -26,9 +26,10 @@ use volt_diagnostics::{
 };
 use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 
+use crate::extern_stage::{compile_for_tool, stage_extern_sources};
 use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
 use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
-use crate::{compile, render_diagnostics, OutputFormat};
+use crate::{render_diagnostics, OutputFormat};
 
 /// `sby` çıktısının tek görevdeki özeti (ADR-0075: sby'nin beş durumu
 /// ayrı raporlanır, ayrı çıkış koduyla).
@@ -84,7 +85,7 @@ pub(crate) fn verify(
         );
     }
 
-    let mut compiled = match compile(file, true, SvaMode::Immediate) {
+    let mut compiled = match compile_for_tool(file, SvaMode::Immediate, "verify") {
         Ok(c) => c,
         Err(code) => return code,
     };
@@ -142,9 +143,16 @@ pub(crate) fn verify(
     if let Err(err) = std::fs::write(&sv_path, &sv) {
         return io_error(&sv_path, &err);
     }
+    // Extern gövdeleri (ADR-0076) sby'nin [files]/[script] listesinde,
+    // üretilen SV'den önce.
+    let extern_files = match stage_extern_sources(&compiled.extern_sources, &formal_dir) {
+        Ok(names) => names,
+        Err(code) => return code,
+    };
     let tasks = sby_tasks(&modules, &compiled.multiclock_modules);
     let sby_path = formal_dir.join(&sby_name);
-    if let Err(err) = std::fs::write(&sby_path, sby_config_tasks(&tasks, &sv_name, &opts)) {
+    let sby_text = sby_config_tasks(&tasks, &sv_name, &extern_files, &opts);
+    if let Err(err) = std::fs::write(&sby_path, sby_text) {
         return io_error(&sby_path, &err);
     }
     let mut artifacts = vec![

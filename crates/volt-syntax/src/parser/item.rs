@@ -51,6 +51,8 @@ const KNOWN_ATTRIBUTES: &[&str] = &[
     // ADR-0066: otomatik FSM/sayaç kontratlarını kapatır (modül ya da
     // `reg` düzeyi); yorumu parser/auto_contract.
     "no_auto_contracts",
+    // ADR-0076: `extern module`'ün SV kaynağı; yorumu volt-hir/extern_source.rs.
+    "source",
 ];
 
 /// Kontrat anahtar kelimesi → tür eşlemesi.

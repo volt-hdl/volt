@@ -41,6 +41,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1009 => "Module port not found",
         E1010 => "Ambiguous import (two 'use' bring in the same name)",
         E1011 => "Module not found (no file provides the imported package)",
+        E1012 => "Extern module SystemVerilog source missing, not found or outside the project",
 
         // ─── Type inference (type-inference.md) ───
         E2001 => "Bit width mismatch",
