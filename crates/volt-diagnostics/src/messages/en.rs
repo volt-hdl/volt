@@ -100,6 +100,7 @@ pub fn description(code: ErrorCode) -> &'static str {
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",
+        E5002 => "Contract not proven (induction step failed; sby status UNKNOWN)",
         E5004 => "Contract expression is not Bool",
         E5010 => "Timing misalignment (values from different pipeline stages combined)",
         E5011 => "Invalid pipeline structure (stage count, duplicate stage, clock ports)",
@@ -167,8 +168,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3008 => "Deliberate trust downgrade (declassify) — review it (ADR-0052)",
         W3009 => "Asynchronous reset release assumed to be synchronized outside the unit (ADR-0065)",
         W3010 => "Synchronous reset shared by several clock domains (ADR-0065)",
-        W4001 => "Unused signal (silence with a '_' prefix)",
-        W4002 => "Register written but never read",
+        W4001 => "Signal unread in the netlist (reserved)",
+        W4002 => "Register unread in the netlist (reserved)",
         W5001 => "Contract cannot be monitored in simulation; skipped (ADR-0064)",
     }
 }

@@ -256,6 +256,21 @@ impl<'a> Emitter<'a> {
         conns
     }
 
+    /// Tanıdaki port adı: örnekleme literalinde yazılan (düzleştirilmiş)
+    /// ad; bundle alanıysa kaynak yolu da (`'hs_ready' (bundle field
+    /// 'hs.ready')`, ADR-0075) — anahtar yine düzleştirilmiş addır.
+    fn port_label(&self, port: &Port) -> String {
+        let shown = self.shown_name(&port.name);
+        if shown == port.name.text {
+            format!("'{shown}'")
+        } else {
+            lstr!(
+                en: "'{}' (bundle field '{shown}')", port.name.text;
+                tr: "'{}' (bundle alanı '{shown}')", port.name.text
+            )
+        }
+    }
+
     /// Giriş bağlaması: `port: expr` → hedef imzasıyla; `port` kısayolu
     /// → aynı adlı yerel sinyal; bağlanmamış → E4011.
     fn input_binding(
@@ -270,11 +285,12 @@ impl<'a> Emitter<'a> {
             Some(Some(e)) => self.emit_assigned(*e, Some(sig)),
             Some(None) => port.name.text.clone(),
             None => {
+                let label = self.port_label(port);
                 self.error(
                     ErrorCode::E4011,
                     lstr!(
-                        en: "input port '{}' of instance '{inst}' is not bound", port.name.text;
-                        tr: "'{inst}' örneğinin '{}' giriş portu bağlanmamış", port.name.text
+                        en: "input port {label} of instance '{inst}' is not bound";
+                        tr: "'{inst}' örneğinin {label} giriş portu bağlanmamış"
                     ),
                     span,
                     &lstr!(
@@ -305,11 +321,12 @@ impl<'a> Emitter<'a> {
         match simple {
             Some(wire) => wire,
             None => {
+                let label = self.port_label(port);
                 self.error(
                     ErrorCode::E4011,
                     lstr!(
-                        en: "{} port '{}' of instance '{inst}' must be bound to a wire or a bidirectional port of this module", port.direction.keyword(), port.name.text;
-                        tr: "'{inst}' örneğinin {} portu '{}' bu modülün bir wire'ına ya da çift yönlü portuna bağlanmalı", port.direction.keyword(), port.name.text
+                        en: "{} port {label} of instance '{inst}' must be bound to a wire or a bidirectional port of this module", port.direction.keyword();
+                        tr: "'{inst}' örneğinin {} portu {label} bu modülün bir wire'ına ya da çift yönlü portuna bağlanmalı", port.direction.keyword()
                     ),
                     span,
                     &lstr!(
@@ -333,11 +350,12 @@ impl<'a> Emitter<'a> {
         span: Span,
     ) -> String {
         if bindings.contains_key(port.name.text.as_str()) {
+            let label = self.port_label(port);
             self.error(
                 ErrorCode::E4011,
                 lstr!(
-                    en: "output port '{}' of instance '{shown}' cannot be bound in the instance literal", port.name.text;
-                    tr: "'{shown}' örneğinin '{}' çıkış portu örnekleme literalinde bağlanamaz", port.name.text
+                    en: "output port {label} of instance '{shown}' cannot be bound in the instance literal";
+                    tr: "'{shown}' örneğinin {label} çıkış portu örnekleme literalinde bağlanamaz"
                 ),
                 span,
                 &lstr!(

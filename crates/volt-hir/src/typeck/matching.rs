@@ -6,8 +6,9 @@
 //! varyantı ikinci kez adlandıran kol erişilemezdir (W2014).
 //!
 //! Sayısal sınananda kural değişmez (ADR-0032): E0014 parser'da tipsiz
-//! verilir. Parser, muhafızsız kollarından biri yol deseni olan `_`'sız
-//! `match`'lerde E0014'ü buraya erteler; sınanan enum değilse (yol deseni
+//! verilir; önceki kolların literal değerlerini yineleyen kol enum'daki
+//! gibi erişilemezdir (W2014, ADR-0075). Parser, muhafızsız kollarından
+//! biri yol deseni olan `_`'sız `match`'lerde E0014'ü buraya erteler; sınanan enum değilse (yol deseni
 //! + sayısal sınanan) desen E2003 alır ve parser'ın E0014'ü aynen verilir.
 
 use volt_ast::{MatchStmt, Pattern, PatternKind};
@@ -42,6 +43,7 @@ impl TypeChecker<'_, '_> {
     fn check_value_match(&mut self, m: &MatchStmt, scrut_ty: TypeId) {
         let mut deferred = false;
         let mut has_wildcard = false;
+        self.warn_unreachable_value_arms(m);
         for arm in &m.arms {
             let mut paths = Vec::new();
             let wild = self.collect_paths(arm.pattern, &mut paths);
@@ -67,6 +69,22 @@ impl TypeChecker<'_, '_> {
         }
         if deferred && !has_wildcard {
             self.diagnostics.push(numeric_missing_wildcard(m.span));
+        }
+    }
+
+    /// W2014: bütün literalleri önceki kollarda geçen sayısal kol (kural
+    /// `volt_ast::match_cover`, sv-emit aynı kolu `case`'e yazmaz).
+    fn warn_unreachable_value_arms(&mut self, m: &MatchStmt) {
+        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, m);
+        for (arm, _) in m.arms.iter().zip(unreachable).filter(|(_, u)| *u) {
+            let span = self.ast.patterns[arm.pattern].span;
+            self.warning(
+                ErrorCode::W2014,
+                span,
+                lstr!(en: "unreachable arm: an earlier arm already covers this value"; tr: "erişilemez kol: bu değeri önceki bir kol zaten kapsıyor"),
+                lstr!(en: "never taken"; tr: "hiç seçilmez"),
+                lstr!(en: "merge the arm into the earlier one or write the value it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği değeri yazın"),
+            );
         }
     }
 
@@ -110,23 +128,8 @@ impl TypeChecker<'_, '_> {
         if missing.is_empty() {
             return;
         }
-        let list = missing.join(", ");
-        let first = missing[0].clone();
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E0014,
-                lstr!(en: "'match' on enum '{enum_name}' does not cover every variant: missing {list}"; tr: "'{enum_name}' enum'u üzerindeki 'match' her varyantı kapsamıyor: eksik {list}"),
-                LabeledSpan::primary(
-                    m.span,
-                    lstr!(en: "not every variant is covered"; tr: "her varyant kapsanmıyor"),
-                ),
-                lstr!(en: "add an arm for each missing variant ({first} => {{ }}) or a final '_ => {{ }}' arm"; tr: "her eksik varyant için kol ({first} => {{ }}) ya da sona '_ => {{ }}' kolu ekleyin"),
-            )
-            .with_note(
-                NoteKind::Note,
-                lstr!(en: "an enum match that names every variant needs no '_' arm; its last arm also takes the codes no variant uses (ADR-0074)"; tr: "her varyantı adlandıran enum match'i '_' kolu gerektirmez; son kolu hiçbir varyantın kullanmadığı kodları da alır (ADR-0074)"),
-            ),
-        );
+        self.diagnostics
+            .push(enum_not_exhaustive(m.span, &enum_name, &missing));
     }
 
     /// Enum sınananda bir desenin kapsadığı varyantlar; yanlış desenler
@@ -213,6 +216,27 @@ impl TypeChecker<'_, '_> {
     }
 }
 
+/// Enum `match`'i her varyantı kapsamıyor (E0014, ADR-0074 Karar 4).
+/// `missing` boş olmamalı (`Enum::Varyant` biçiminde). Çözümleme hatalı
+/// birimdeki yedek denetim de aynı tanıyı verir (ADR-0075).
+pub(crate) fn enum_not_exhaustive(span: Span, enum_name: &str, missing: &[String]) -> Diagnostic {
+    let list = missing.join(", ");
+    let first = &missing[0];
+    Diagnostic::error(
+        ErrorCode::E0014,
+        lstr!(en: "'match' on enum '{enum_name}' does not cover every variant: missing {list}"; tr: "'{enum_name}' enum'u üzerindeki 'match' her varyantı kapsamıyor: eksik {list}"),
+        LabeledSpan::primary(
+            span,
+            lstr!(en: "not every variant is covered"; tr: "her varyant kapsanmıyor"),
+        ),
+        lstr!(en: "add an arm for each missing variant ({first} => {{ }}) or a final '_ => {{ }}' arm"; tr: "her eksik varyant için kol ({first} => {{ }}) ya da sona '_ => {{ }}' kolu ekleyin"),
+    )
+    .with_note(
+        NoteKind::Note,
+        lstr!(en: "an enum match that names every variant needs no '_' arm; its last arm also takes the codes no variant uses (ADR-0074)"; tr: "her varyantı adlandıran enum match'i '_' kolu gerektirmez; son kolu hiçbir varyantın kullanmadığı kodları da alır (ADR-0074)"),
+    )
+}
+
 /// Parser'ın sayısal `match` E0014'ü (ADR-0032) — ertelenen yol için
 /// birebir aynı tanı (golden: sayısal match'in tanısı değişmez).
 fn numeric_missing_wildcard(span: Span) -> Diagnostic {
@@ -227,7 +251,7 @@ fn numeric_missing_wildcard(span: Span) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "exhaustiveness analysis over enum variants arrives with F3 (ADR-0032); in a sequential block an empty '_' arm keeps the registers' values"; tr: "enum varyantları üzerinden kapsayıcılık analizi F3 ile gelecek (ADR-0032); sıralı blokta boş '_' kolu register değerlerini korur"),
+        lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
     )
 }
 
@@ -298,6 +322,113 @@ mod tests {
         let int =
             fsm("            0 => { s <= State::Run }\n            _ => { s <= State::Idle }");
         assert_eq!(codes(&int), ["E2003"]);
+    }
+
+    fn num(ty: &str, arms: &str) -> String {
+        format!(
+            "module M {{
+    in  clk : clock
+    in  x : {ty}
+    out y : u8
+    reg r : u8 = 0
+    on clk {{
+        match x {{
+{arms}
+        }}
+    }}
+    y = r
+}}
+"
+        )
+    }
+
+    /// ADR-0075: sayısal yinelenen kol enum'daki gibi W2014 alır.
+    #[test]
+    fn repeated_numeric_value_is_w2014_whatever_its_spelling() {
+        for dup in ["1", "0x1", "0b01"] {
+            let src = num(
+                "u2",
+                &format!(
+                    "            1 => {{ r <= 1 }}
+            {dup} => {{ r <= 2 }}
+            _ => {{ r <= 0 }}"
+                ),
+            );
+            assert_eq!(codes(&src), ["W2014"], "{dup}");
+        }
+        let d = diagnostics(&num(
+            "u2",
+            "            1 => { r <= 1 }
+            1 => { r <= 2 }
+            _ => { r <= 0 }",
+        ));
+        assert!(
+            d[0].message.contains("already covers this value"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    #[test]
+    fn repeated_or_pattern_values_are_unreachable_but_partial_overlap_is_not() {
+        let all = num(
+            "u2",
+            "            1 | 2 => { r <= 1 }
+            2 | 1 => { r <= 2 }
+            _ => { r <= 0 }",
+        );
+        assert_eq!(codes(&all), ["W2014"]);
+        let partial = num(
+            "u2",
+            "            1 => { r <= 1 }
+            0 | 1 => { r <= 2 }
+            _ => { r <= 0 }",
+        );
+        assert!(codes(&partial).is_empty(), "{:?}", codes(&partial));
+    }
+
+    #[test]
+    fn negative_zero_bool_and_signed_values_compare_by_value() {
+        let neg = num(
+            "i4",
+            "            -1 => { r <= 1 }
+            -1 => { r <= 2 }
+            1 => { r <= 3 }
+            _ => { r <= 0 }",
+        );
+        assert_eq!(codes(&neg), ["W2014"], "yalnız ikinci -1");
+        let zero = num(
+            "i4",
+            "            0 => { r <= 1 }
+            -0 => { r <= 2 }
+            _ => { r <= 0 }",
+        );
+        assert_eq!(codes(&zero), ["W2014"]);
+        let b = num(
+            "bool",
+            "            true => { r <= 1 }
+            true => { r <= 2 }
+            _ => { r <= 0 }",
+        );
+        assert_eq!(codes(&b), ["W2014"]);
+    }
+
+    #[test]
+    fn guarded_arms_and_arms_after_wildcard_are_not_judged() {
+        // Muhafızlı kol kapsamaya sayılmaz (enum kuralıyla aynı).
+        let guard = num(
+            "u2",
+            "            1 if x == 1 => { r <= 1 }
+            1 => { r <= 2 }
+            _ => { r <= 0 }",
+        );
+        assert!(!codes(&guard).contains(&"W2014"), "{:?}", codes(&guard));
+        let after = num(
+            "u2",
+            "            _ => { r <= 0 }
+            1 => { r <= 1 }",
+        );
+        assert!(!codes(&after).contains(&"W2014"), "{:?}", codes(&after));
     }
 
     #[test]

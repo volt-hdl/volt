@@ -28,7 +28,8 @@ pub(crate) struct ModuleOutcome {
     pub(crate) task: String,
     pub(crate) props: Vec<PropInfo>,
     pub(crate) status: TaskStatus,
-    /// FAIL'de karşı örneğe eşlenen kontrat adı (`inv_0`).
+    /// FAIL'de karşı örneğe, UNKNOWN'da tümevarım izine eşlenen kontrat
+    /// adı (`inv_0`).
     pub(crate) failed_prop: Option<String>,
 }
 
@@ -38,6 +39,26 @@ impl ModuleOutcome {
             self.status,
             TaskStatus::Done {
                 outcome: SbyOutcome::Fail(_),
+                ..
+            }
+        )
+    }
+
+    fn is_unknown(&self) -> bool {
+        matches!(
+            self.status,
+            TaskStatus::Done {
+                outcome: SbyOutcome::Unknown(_),
+                ..
+            }
+        )
+    }
+
+    fn is_timeout(&self) -> bool {
+        matches!(
+            self.status,
+            TaskStatus::Done {
+                outcome: SbyOutcome::Timeout,
                 ..
             }
         )
@@ -53,25 +74,43 @@ impl ModuleOutcome {
         )
     }
 
-    /// Kontratın JSON durumu: `pass | fail | unproven | skipped | error`.
+    /// Kontratın JSON durumu: `pass | fail | unknown | unproven | timeout |
+    /// skipped | error`.
     fn prop_status(&self, prop: &PropInfo) -> &'static str {
+        let named = self.failed_prop.as_deref() == Some(prop.name.as_str());
         match &self.status {
             TaskStatus::Done {
                 outcome: SbyOutcome::Pass,
                 ..
             } => "pass",
+            // BMC ilk ihlalde durur: aynı modülün diğer kontratları o
+            // döngüden sonra denetlenmedi. Tümevarım da bütün kontratları
+            // birlikte kanıtlar: biri tümevarımsal değilse diğerleri de
+            // kanıtlanmış sayılmaz.
             TaskStatus::Done {
                 outcome: SbyOutcome::Fail(_),
                 ..
             } => {
-                if self.failed_prop.as_deref() == Some(prop.name.as_str()) {
+                if named {
                     "fail"
                 } else {
-                    // BMC ilk ihlalde durur: aynı modülün diğer kontratları
-                    // o döngüden sonra denetlenmedi.
                     "unproven"
                 }
             }
+            TaskStatus::Done {
+                outcome: SbyOutcome::Unknown(_),
+                ..
+            } => {
+                if named {
+                    "unknown"
+                } else {
+                    "unproven"
+                }
+            }
+            TaskStatus::Done {
+                outcome: SbyOutcome::Timeout,
+                ..
+            } => "timeout",
             TaskStatus::Done {
                 outcome: SbyOutcome::Error,
                 ..
@@ -91,6 +130,14 @@ impl ModuleOutcome {
                 outcome: SbyOutcome::Fail(_),
                 ..
             } => "fail",
+            TaskStatus::Done {
+                outcome: SbyOutcome::Unknown(_),
+                ..
+            } => "unknown",
+            TaskStatus::Done {
+                outcome: SbyOutcome::Timeout,
+                ..
+            } => "timeout",
             TaskStatus::Done {
                 outcome: SbyOutcome::Error,
                 ..
@@ -132,6 +179,14 @@ pub(crate) fn progress_line(
             elapsed,
         } => lstr!(en: "FAIL ({})", secs(*elapsed); tr: "İHLAL ({})", secs(*elapsed)),
         TaskStatus::Done {
+            outcome: SbyOutcome::Unknown(_),
+            elapsed,
+        } => lstr!(en: "unknown ({})", secs(*elapsed); tr: "kanıtlanamadı ({})", secs(*elapsed)),
+        TaskStatus::Done {
+            outcome: SbyOutcome::Timeout,
+            elapsed,
+        } => lstr!(en: "timeout ({})", secs(*elapsed); tr: "zaman aşımı ({})", secs(*elapsed)),
+        TaskStatus::Done {
             outcome: SbyOutcome::Error,
             elapsed,
         } => lstr!(en: "error ({})", secs(*elapsed); tr: "hata ({})", secs(*elapsed)),
@@ -154,15 +209,17 @@ pub(crate) fn summary_block(
     total: Duration,
 ) -> String {
     let props: usize = outcomes.iter().map(|m| m.props.len()).sum();
-    let fails: Vec<&ModuleOutcome> = outcomes.iter().filter(|m| m.is_fail()).collect();
-    let errors: Vec<&ModuleOutcome> = outcomes.iter().filter(|m| m.is_error()).collect();
+    let fails = outcomes.iter().filter(|m| m.is_fail()).count();
+    let unknowns = outcomes.iter().filter(|m| m.is_unknown()).count();
+    let timeouts = outcomes.iter().filter(|m| m.is_timeout()).count();
+    let errors = outcomes.iter().filter(|m| m.is_error()).count();
     let skipped = outcomes
         .iter()
         .filter(|m| m.status == TaskStatus::Skipped)
         .count();
     let elapsed = format!("{:.1}s", total.as_secs_f64());
 
-    if fails.is_empty() && errors.is_empty() && skipped == 0 {
+    if fails + unknowns + timeouts + errors + skipped == 0 {
         return lstr!(
             en: "      Result {props} propert{} verified in {elapsed} ({jobs} job{}; {}, depth {})",
                 if props == 1 { "y" } else { "ies" },
@@ -174,7 +231,7 @@ pub(crate) fn summary_block(
     }
 
     let mut out = String::new();
-    if !fails.is_empty() || !errors.is_empty() {
+    if fails + unknowns + timeouts + errors > 0 {
         out.push_str(&lstr!(en: "    Failures:\n"; tr: "  Başarısız:\n"));
     }
     for m in outcomes {
@@ -195,6 +252,17 @@ pub(crate) fn summary_block(
                 en: "      {}.{prop}  E5001 contract violated{at}\n", m.module;
                 tr: "      {}.{prop}  E5001 kontrat ihlal edildi{at}\n", m.module
             ));
+        } else if m.is_unknown() {
+            let prop = m.failed_prop.clone().unwrap_or_else(|| "?".into());
+            out.push_str(&lstr!(
+                en: "      {}.{prop}  E5002 not proven (induction step failed)\n", m.module;
+                tr: "      {}.{prop}  E5002 kanıtlanamadı (tümevarım adımı başarısız)\n", m.module
+            ));
+        } else if m.is_timeout() {
+            out.push_str(&lstr!(
+                en: "      {}  timeout (no result; see --timeout)\n", m.module;
+                tr: "      {}  zaman aşımı (sonuç yok; bkz. --timeout)\n", m.module
+            ));
         } else if m.is_error() {
             out.push_str(&lstr!(
                 en: "      {}  tool error (see 'sby -f' hint above)\n", m.module;
@@ -208,11 +276,22 @@ pub(crate) fn summary_block(
             tr: "      {skipped} modül görevi atlandı (--fail-fast)\n"
         ));
     }
-    let failed_props = fails.len();
+    let mut extra = String::new();
+    if unknowns > 0 {
+        extra.push_str(
+            &lstr!(en: ", {unknowns} not proven"; tr: ", {unknowns} tanesi kanıtlanamadı"),
+        );
+    }
+    if timeouts > 0 {
+        extra.push_str(&lstr!(
+            en: ", {timeouts} module task(s) timed out";
+            tr: ", {timeouts} modül görevi zaman aşımına uğradı"
+        ));
+    }
     out.push_str(&lstr!(
-        en: "      Result {failed_props} of {props} properties failed in {elapsed} ({jobs} job{}; {}, depth {})",
+        en: "      Result {fails} of {props} properties failed{extra} in {elapsed} ({jobs} job{}; {}, depth {})",
             if jobs == 1 { "" } else { "s" }, opts.mode.as_str(), opts.depth;
-        tr: "       Sonuç {props} özellikten {failed_props} tanesi başarısız, {elapsed} ({jobs} iş; {}, derinlik {})",
+        tr: "       Sonuç {props} özellikten {fails} tanesi başarısız{extra}, {elapsed} ({jobs} iş; {}, derinlik {})",
             opts.mode.as_str(), opts.depth
     ));
     out
@@ -306,6 +385,52 @@ mod tests {
             }),
             elapsed: Duration::from_millis(500),
         }
+    }
+
+    fn unknown() -> TaskStatus {
+        TaskStatus::Done {
+            outcome: SbyOutcome::Unknown(SbyFailure::default()),
+            elapsed: Duration::from_millis(250),
+        }
+    }
+
+    fn timeout() -> TaskStatus {
+        TaskStatus::Done {
+            outcome: SbyOutcome::Timeout,
+            elapsed: Duration::from_millis(5000),
+        }
+    }
+
+    /// ADR-0075: UNKNOWN ve TIMEOUT kendi sözcükleriyle — "error" değil.
+    #[test]
+    fn unknown_and_timeout_have_their_own_verdicts() {
+        assert!(progress_line(1, 2, "M", 1, &unknown()).ends_with("... unknown (0.25s)"));
+        assert!(progress_line(1, 2, "M", 1, &timeout()).ends_with("... timeout (5.00s)"));
+        let outcomes = [
+            outcome("Alpha", &["inv_0", "inv_1"], unknown(), Some("inv_1")),
+            outcome("Beta", &["inv_0"], timeout(), None),
+        ];
+        let v = verify_json(&outcomes, &SbyOptions::default(), 2, false);
+        let props: Vec<&str> = v["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["status"].as_str().unwrap())
+            .collect();
+        assert_eq!(props, ["unproven", "unknown", "timeout"]);
+        let text = summary_block(&outcomes, &SbyOptions::default(), 2, Duration::from_secs(6));
+        assert!(text.contains("Alpha.inv_1  E5002 not proven"), "{text}");
+        assert!(
+            text.contains("Beta  timeout (no result; see --timeout)"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "Result 0 of 3 properties failed, 1 not proven, 1 module task(s) timed out in 6.0s"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("tool error"), "{text}");
     }
 
     #[test]

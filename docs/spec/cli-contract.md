@@ -67,10 +67,14 @@ KOD  ANLAM                          NE ZAMAN
 4    Yapılandırma hatası            Volt.toml bozuk/eksik
 5    Test başarısızlığı             Testler çalıştı, bazıları kaldı
 6    Doğrulama başarısızlığı        Formal karşı örnek buldu
+7    Kanıtlanamadı (ADR-0075)       verify --mode prove: tümevarım tamamlanamadı (sby UNKNOWN)
+8    Zaman aşımı (ADR-0075)         verify --timeout doldu (sby TIMEOUT)
 101  İç hata (panic)                Derleyici hatası — bug report
 ────────────────────────────────────────────────────────────
 
 Uyarılar çıkış kodunu ETKİLEMEZ (--deny-warnings hariç).
+`volt verify`'da birden çok görev farklı sonuçla biterse öncelik
+6 > 3 > 8 > 7 (ADR-0075: en kesin ve en eyleme dönük sonuç baskın).
 ```
 
 ```rust
@@ -83,6 +87,8 @@ pub enum ExitCode {
     ConfigError   = 4,
     TestFailure   = 5,
     VerifyFailure = 6,
+    VerifyUnknown = 7,   // ADR-0075
+    VerifyTimeout = 8,   // ADR-0075
     InternalError = 101,
 }
 ```
@@ -623,6 +629,7 @@ SEÇENEKLER:
         --mode=<m>       bmc | prove | cover           (varsayılan: bmc)
         --depth=<N>      Arama derinliği               (varsayılan: 20)
         --engine=<e>     z3 | boolector | yices        (varsayılan: z3)
+        --timeout=<sn>   Görev başına süre sınırı      (varsayılan: yok; ADR-0075)
 ```
 
 Çıktı dizini (`--target-dir`, §4):
@@ -632,14 +639,15 @@ build/formal/
 ├── <iş>.sv               tüm birimin SV'si (SVA gömülü, tek dosya)
 ├── <iş>.sby              [tasks] = kontratlı modüller, kaynak sırasında
 ├── <iş>_<görev>/         sby çalışma dizini (görev = küçük harf modül adı)
-└── <görev>_cex.vcd       karşı örnek izi (yalnız FAIL'de)
+├── <görev>_cex.vcd       karşı örnek izi (yalnız FAIL'de)
+└── <görev>_induct.vcd    tümevarım izi (yalnız prove UNKNOWN'da, ADR-0075)
 ```
 
 Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde).
 
 ### İlerleme ve determinizm
 
-- İlerleme satırları `[ k/N] <Modül> (<n> properties) ... ok|FAIL|error (<süre>)`
+- İlerleme satırları `[ k/N] <Modül> (<n> properties) ... ok|FAIL|unknown|timeout|error (<süre>)`
   TAMAMLANMA sırasında akar; `k` tamamlanan görev sayısıdır. `-j 1` ile
   sıra kaynak sırasına eşittir.
 - RAPOR her zaman KAYNAK SIRASINDADIR: E5001 tanıları, `Failures:`
@@ -653,8 +661,17 @@ Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde
   sonda kaynak sırasında listelenir; çıkış kodu 6.
 - `--fail-fast`: ilk `DONE (FAIL)` satırında sby süreci sonlandırılır,
   bitmemiş görevler `skipped` olur; çıkış kodu 6.
-- Görev `DONE` satırı basmadan biterse araç hatası (çıkış 3; karşı örnek
-  de varsa 6 baskındır) ve `sby -f <iş>.sby <görev>` ipucu yazılır.
+- sby'nin beş görev durumu ayrı raporlanır (ADR-0075):
+
+  | sby durumu | Anlam | Rapor | Çıkış |
+  |---|---|---|---|
+  | `PASS` | tüm kontratlar doğrulandı | `ok` | 0 |
+  | `FAIL` | karşı örnek | E5001 + `<görev>_cex.vcd` | 6 |
+  | `UNKNOWN` | prove: temel durum geçti, tümevarım adımı başarısız (kontrat tümevarımsal değil) | E5002 + `<görev>_induct.vcd`; yardım "try a larger --depth, or add an invariant that makes the property inductive" | 7 |
+  | `TIMEOUT` | `--timeout` doldu, sonuç yok | "timed out" iletisi | 8 |
+  | `ERROR` ya da `DONE` yok | aracın kendisi başarısız | "tool error" + `sby -f <iş>.sby <görev>` ipucu | 3 |
+
+  Birden çok durum varsa çıkış kodu önceliği 6 > 3 > 8 > 7.
 - `-j 0` ya da sayı/`auto` dışı değer kullanım hatasıdır (çıkış 2).
 
 ### JSON (`--format=json`)
@@ -675,12 +692,15 @@ Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde
 }
 ```
 
-- `modules[].status`: `pass | fail | error | skipped`.
-- `properties[].status`: `pass | fail | unproven | error | skipped`;
-  `unproven` = aynı modülde başka bir kontrat ihlal edildi, BMC o döngüde
-  durdu (bu kontrat o döngüden sonra denetlenmedi).
+- `modules[].status`: `pass | fail | unknown | timeout | error | skipped`
+  (`unknown`/`timeout` ADR-0075).
+- `properties[].status`: `pass | fail | unknown | unproven | timeout |
+  error | skipped`; `unproven` = aynı modülde başka bir kontrat ihlal
+  edildi ya da tümevarımsal çıkmadı, bu kontrat kanıtlanmış sayılmaz;
+  `unknown` = tümevarım izinde bozulan kontrat (E5002).
 - `duration_ms`: kontratın ait olduğu GÖREVİN süresi (modülün kontratları
-  tek koşuda birlikte kanıtlanır); `skipped`/`error` görevlerde `null`.
+  tek koşuda birlikte kanıtlanır); `skipped` ve `DONE` basmayan `error`
+  görevlerde `null`.
 
 ---
 

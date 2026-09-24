@@ -4,8 +4,10 @@
 //! gerekçesi) → `build/formal/<iş>.sv` + tek `<iş>.sby` (kontratlı modül
 //! başına bir sby GÖREVİ) üret → `sby -j N -f <iş>.sby` koştur →
 //! görev akışını yorumla → raporu KAYNAK SIRASINDA yaz. Çıkış kodları
-//! (cli-contract.md §2): 0 tüm özellikler doğrulandı, 1 derleme hatası,
-//! 3 sby yok / araç hatası (IoError), 6 karşı örnek (VerifyFailure).
+//! (cli-contract.md §2, ADR-0075): 0 tüm özellikler doğrulandı, 1 derleme
+//! hatası, 3 sby yok / araç hatası (sby ERROR), 6 karşı örnek (FAIL),
+//! 7 kanıtlanamadı (prove UNKNOWN: tümevarım tamamlanamadı), 8 zaman
+//! aşımı (TIMEOUT). Birden çok durumda öncelik 6 > 3 > 8 > 7.
 //!
 //! Paralellik birimi MODÜLDÜR, kontrat değil: bir modülün tüm kontratları
 //! tek BMC koşusunda birlikte denetlenir; kontrat başına ayrı koşu toplam
@@ -28,14 +30,21 @@ use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
 use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
 use crate::{compile, render_diagnostics, OutputFormat};
 
-/// `sby` çıktısının tek görevdeki özeti.
+/// `sby` çıktısının tek görevdeki özeti (ADR-0075: sby'nin beş durumu
+/// ayrı raporlanır, ayrı çıkış koduyla).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SbyOutcome {
     /// `DONE (PASS ...)` — tüm özellikler doğrulandı.
     Pass,
     /// `DONE (FAIL ...)` — karşı örnek bulundu.
     Fail(SbyFailure),
-    /// Statü satırı yok ya da `DONE (ERROR ...)` — araç hatası.
+    /// `DONE (UNKNOWN ...)` — prove kipi: temel durum geçti, tümevarım
+    /// adımı başarısız; özellik doğru olabilir ama tümevarımsal değil.
+    /// Konum tümevarım izindeki başarısız iddiadır.
+    Unknown(SbyFailure),
+    /// `DONE (TIMEOUT ...)` — `--timeout` süresi doldu.
+    Timeout,
+    /// Statü satırı yok ya da `DONE (ERROR ...)` — gerçek araç hatası.
     Error,
 }
 
@@ -200,6 +209,8 @@ pub(crate) fn verify(
     // ── ADIM 4: rapor — KAYNAK SIRASINDA (tamamlanma sırası değil) ──
     let mut outcomes: Vec<ModuleOutcome> = Vec::with_capacity(total);
     let mut any_fail = false;
+    let mut any_unknown = false;
+    let mut any_timeout = false;
     let mut any_error = false;
     for (idx, module) in modules.iter().enumerate() {
         let result = &report.tasks[idx];
@@ -224,7 +235,12 @@ pub(crate) fn verify(
                 ..
             } => {
                 any_fail = true;
-                let cex = copy_counterexample(&formal_dir, &specs[idx].workdir, &tasks[idx].name);
+                let cex = copy_trace(
+                    &formal_dir,
+                    &specs[idx].workdir,
+                    &tasks[idx].name,
+                    TraceKind::Counterexample,
+                );
                 if let Some(c) = &cex {
                     artifacts.push(c.display().to_string());
                 }
@@ -236,12 +252,41 @@ pub(crate) fn verify(
                     cex.as_deref(),
                 );
                 failed_prop = Some(prop);
-                match format {
-                    OutputFormat::Human => eprintln!("{}", render_human(&diag, &compiled.map)),
-                    OutputFormat::Short => eprintln!("{}", render_short(&diag, &compiled.map)),
-                    OutputFormat::Json => {}
-                }
+                emit_diagnostic(&diag, &compiled, format);
                 compiled.diagnostics.push(diag);
+            }
+            TaskStatus::Done {
+                outcome: SbyOutcome::Unknown(failure),
+                ..
+            } => {
+                any_unknown = true;
+                let trace = copy_trace(
+                    &formal_dir,
+                    &specs[idx].workdir,
+                    &tasks[idx].name,
+                    TraceKind::Induction,
+                );
+                if let Some(t) = &trace {
+                    artifacts.push(t.display().to_string());
+                }
+                let (prop, diag) = unproven_diagnostic(
+                    module,
+                    failure,
+                    &sv,
+                    &compiled.sva_props,
+                    trace.as_deref(),
+                    opts.depth,
+                );
+                failed_prop = Some(prop);
+                emit_diagnostic(&diag, &compiled, format);
+                compiled.diagnostics.push(diag);
+            }
+            TaskStatus::Done {
+                outcome: SbyOutcome::Timeout,
+                ..
+            } => {
+                any_timeout = true;
+                print_timeout(module, opts.timeout);
             }
             TaskStatus::Done {
                 outcome: SbyOutcome::Error,
@@ -296,15 +341,43 @@ pub(crate) fn verify(
                     tr: "    Sıradaki: volt explain E5001   (karşı örnek nasıl okunur)"
                 )
             );
+        } else if any_unknown {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "        Next: volt explain E5002   (why a true property can fail induction)";
+                    tr: "    Sıradaki: volt explain E5002   (doğru bir özellik tümevarımda neden kalır)"
+                )
+            );
         }
     }
-    if any_fail {
-        return ExitCode::from(6);
+    verify_exit_code(any_fail, any_error, any_timeout, any_unknown)
+}
+
+/// Çıkış kodu önceliği (ADR-0075, cli-contract.md §2): karşı örnek (6) >
+/// araç hatası (3) > zaman aşımı (8) > kanıtlanamadı (7) > başarı (0).
+/// En kesin ve en eyleme dönük sonuç baskındır.
+fn verify_exit_code(fail: bool, error: bool, timeout: bool, unknown: bool) -> ExitCode {
+    let code = if fail {
+        6
+    } else if error {
+        3
+    } else if timeout {
+        8
+    } else if unknown {
+        7
+    } else {
+        0
+    };
+    ExitCode::from(code)
+}
+
+fn emit_diagnostic(diag: &Diagnostic, compiled: &crate::Compiled, format: OutputFormat) {
+    match format {
+        OutputFormat::Human => eprintln!("{}", render_human(diag, &compiled.map)),
+        OutputFormat::Short => eprintln!("{}", render_short(diag, &compiled.map)),
+        OutputFormat::Json => {}
     }
-    if any_error {
-        return ExitCode::from(3);
-    }
-    ExitCode::SUCCESS
 }
 
 /// Kontratlı modüller, kaynak sırasında ve teklenmiş.
@@ -379,17 +452,41 @@ fn print_tool_error(
     formal_dir: &Path,
     exit_code: Option<i32>,
 ) {
+    let code = exit_code
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "-".into());
     eprintln!(
         "{}",
         lstr!(
             en: "error: SymbiYosys reported a tool error for module '{module}' \
-                 (exit code {:?})\n  = help: re-run '{} -f {sby_name} {task}' in '{}' \
-                 to see the full log",
-                exit_code, sby.display(), formal_dir.display();
+                 (sby status ERROR, exit code {code})\n  \
+                 = note: the tool itself failed; this says nothing about the contracts\n  \
+                 = help: re-run '{} -f {sby_name} {task}' in '{}' to see the full log",
+                sby.display(), formal_dir.display();
             tr: "hata: SymbiYosys '{module}' modülü için araç hatası bildirdi \
-                 (çıkış kodu {:?})\n  = çözüm: tam log için '{} -f {sby_name} {task}' \
-                 komutunu '{}' içinde yeniden çalıştırın",
-                exit_code, sby.display(), formal_dir.display()
+                 (sby durumu ERROR, çıkış kodu {code})\n  \
+                 = not: aracın kendisi başarısız oldu; bu kontratlar hakkında bir şey söylemez\n  \
+                 = çözüm: tam log için '{} -f {sby_name} {task}' komutunu '{}' içinde \
+                 yeniden çalıştırın",
+                sby.display(), formal_dir.display()
+        )
+    );
+}
+
+/// sby `DONE (TIMEOUT)`: süre doldu, sonuç yok (çıkış 8).
+fn print_timeout(module: &str, timeout: Option<u32>) {
+    let after = timeout
+        .map(|s| lstr!(en: " after {s}s"; tr: " {s} sn sonra"))
+        .unwrap_or_default();
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "error: SymbiYosys timed out for module '{module}'{after} (sby status TIMEOUT)\n  \
+                 = note: no result either way — the contracts were neither proven nor refuted\n  \
+                 = help: raise --timeout, lower --depth, or try another --engine (boolector is often faster)";
+            tr: "hata: SymbiYosys '{module}' modülü için{after} zaman aşımına uğradı (sby durumu TIMEOUT)\n  \
+                 = not: iki yönde de sonuç yok — kontratlar ne kanıtlandı ne çürütüldü\n  \
+                 = çözüm: --timeout değerini artırın, --depth değerini düşürün ya da başka bir --engine deneyin (boolector çoğu zaman daha hızlı)"
         )
     );
 }
@@ -472,7 +569,15 @@ fn find_sby() -> Option<PathBuf> {
 /// konum `Assert/Assume failed in ...: dosya.sv:SATIR...` satırından,
 /// döngü `... step N` izlerinden okunur.
 pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
-    let mut status: Option<bool> = None;
+    #[derive(Clone, Copy)]
+    enum Done {
+        Pass,
+        Fail,
+        Unknown,
+        Timeout,
+        Error,
+    }
+    let mut status: Option<Done> = None;
     let mut last_step: Option<u32> = None;
     let mut failure: Option<SbyFailure> = None;
 
@@ -492,16 +597,27 @@ pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
                 step: last_step,
             });
         }
-        if line.contains("DONE (PASS") {
-            status = Some(true);
-        } else if line.contains("DONE (FAIL") {
-            status = Some(false);
+        let done = [
+            ("DONE (PASS", Done::Pass),
+            ("DONE (FAIL", Done::Fail),
+            ("DONE (UNKNOWN", Done::Unknown),
+            ("DONE (TIMEOUT", Done::Timeout),
+            ("DONE (ERROR", Done::Error),
+        ];
+        if let Some(&(_, d)) = done.iter().find(|(tag, _)| line.contains(tag)) {
+            status = Some(d);
         }
     }
     match status {
-        Some(true) => SbyOutcome::Pass,
-        Some(false) => SbyOutcome::Fail(failure.unwrap_or_default()),
-        None => SbyOutcome::Error,
+        Some(Done::Pass) => SbyOutcome::Pass,
+        Some(Done::Fail) => SbyOutcome::Fail(failure.unwrap_or_default()),
+        // Tümevarım adım numarası kullanıcı döngüsü değildir: yalnız konum.
+        Some(Done::Unknown) => SbyOutcome::Unknown(SbyFailure {
+            sv_line: failure.and_then(|f| f.sv_line),
+            step: None,
+        }),
+        Some(Done::Timeout) => SbyOutcome::Timeout,
+        Some(Done::Error) | None => SbyOutcome::Error,
     }
 }
 
@@ -574,17 +690,7 @@ fn counterexample_diagnostic(
     props: &[SvaProp],
     cex: Option<&Path>,
 ) -> (String, Diagnostic) {
-    let by_name = failure
-        .sv_line
-        .and_then(|line| prop_name_at(sv, line))
-        .and_then(|name| {
-            props
-                .iter()
-                .find(|p| p.module_name == module && p.name == name)
-        });
-    let prop = by_name
-        .or_else(|| props.iter().find(|p| p.module_name == module))
-        .expect("kontratlı modülün en az bir SvaProp'u olmalı");
+    let prop = failed_prop(module, failure, sv, props);
 
     let label = match failure.step {
         Some(step) => lstr!(
@@ -611,6 +717,81 @@ fn counterexample_diagnostic(
                 prop.keyword
         ),
     );
+    diag = with_origin_and_trace(diag, prop, cex);
+    (prop.name.clone(), diag)
+}
+
+/// UNKNOWN → (kontrat adı, E5002 tanısı, ADR-0075). Konum tümevarım
+/// izindeki başarısız iddiadır; eşlenemezse modülün ilk kontratı.
+fn unproven_diagnostic(
+    module: &str,
+    failure: &SbyFailure,
+    sv: &str,
+    props: &[SvaProp],
+    trace: Option<&Path>,
+    depth: u32,
+) -> (String, Diagnostic) {
+    let prop = failed_prop(module, failure, sv, props);
+    let diag = Diagnostic::error(
+        ErrorCode::E5002,
+        lstr!(en: "contract not proven: the induction step failed"; tr: "kontrat kanıtlanamadı: tümevarım adımı başarısız"),
+        LabeledSpan::primary(
+            prop.span,
+            lstr!(en: "not inductive at depth {depth}"; tr: "{depth} derinliğinde tümevarımsal değil"),
+        ),
+        lstr!(
+            en: "try a larger --depth, or add an invariant that makes the property inductive";
+            tr: "daha büyük bir --depth deneyin ya da özelliği tümevarımsal yapan bir invariant ekleyin"
+        ),
+    )
+    .with_note(
+        NoteKind::Reason,
+        lstr!(
+            en: "no counterexample exists within {depth} cycles from reset, but the induction step starts from an arbitrary state — possibly unreachable — and the '{}' contract of module '{module}' fails from there (sby status UNKNOWN)",
+                prop.keyword;
+            tr: "reset'ten itibaren {depth} döngüde karşı örnek yok; ama tümevarım adımı keyfi — belki erişilemez — bir durumdan başlar ve '{module}' modülünün '{}' kontratı oradan bozulur (sby durumu UNKNOWN)",
+                prop.keyword
+        ),
+    );
+    let diag = with_origin_and_trace(diag, prop, None);
+    // Tümevarım izi karşı örnek DEĞİLDİR (erişilemez durumdan başlayabilir):
+    // "= counterexample:" etiketi yanıltırdı.
+    let diag = match trace {
+        Some(t) => diag.with_note(
+            NoteKind::Note,
+            lstr!(
+                en: "induction trace (may start from an unreachable state): {}", t.display();
+                tr: "tümevarım izi (erişilemez bir durumdan başlayabilir): {}", t.display()
+            ),
+        ),
+        None => diag,
+    };
+    (prop.name.clone(), diag)
+}
+
+/// sby'nin başarısız iddia satırını kontrata eşler; eşlenemezse modülün
+/// ilk kontratı (tanı yine 5 parça taşır).
+fn failed_prop<'p>(
+    module: &str,
+    failure: &SbyFailure,
+    sv: &str,
+    props: &'p [SvaProp],
+) -> &'p SvaProp {
+    let by_name = failure
+        .sv_line
+        .and_then(|line| prop_name_at(sv, line))
+        .and_then(|name| {
+            props
+                .iter()
+                .find(|p| p.module_name == module && p.name == name)
+        });
+    by_name
+        .or_else(|| props.iter().find(|p| p.module_name == module))
+        .expect("kontratlı modülün en az bir SvaProp'u olmalı")
+}
+
+/// Otomatik kontratın kökeni (ADR-0066 §4) ve iz dosyası notu.
+fn with_origin_and_trace(mut diag: Diagnostic, prop: &SvaProp, trace: Option<&Path>) -> Diagnostic {
     // ADR-0066 §4: kullanıcı yazmadığı kontratın nereden geldiğini görür.
     if let Some(auto) = &prop.auto {
         if auto.from != prop.span {
@@ -627,22 +808,34 @@ fn counterexample_diagnostic(
             ),
         );
     }
-    if let Some(cex) = cex {
-        diag = diag.with_note(NoteKind::Counterexample, cex.display().to_string());
+    if let Some(trace) = trace {
+        diag = diag.with_note(NoteKind::Counterexample, trace.display().to_string());
     }
-    (prop.name.clone(), diag)
+    diag
 }
 
-/// sby'nin `<iş>_<görev>/engine_0/trace.vcd` izini `<görev>_cex.vcd`
-/// olarak kopyalar; iz üretilmediyse `None`.
-fn copy_counterexample(formal_dir: &Path, workdir: &str, stem: &str) -> Option<PathBuf> {
-    let workdir = formal_dir.join(workdir);
-    let engine_dir = workdir.join("engine_0");
-    let trace = ["trace.vcd", "trace_tb.vcd"]
+/// Kopyalanacak sby izi.
+#[derive(Clone, Copy)]
+enum TraceKind {
+    /// BMC/temel durum karşı örneği → `<görev>_cex.vcd`.
+    Counterexample,
+    /// prove UNKNOWN'da tümevarım adımının izi → `<görev>_induct.vcd`.
+    Induction,
+}
+
+/// sby'nin `<iş>_<görev>/engine_0/` altındaki izini `build/formal/`
+/// köküne kopyalar; iz üretilmediyse `None`.
+fn copy_trace(formal_dir: &Path, workdir: &str, stem: &str, kind: TraceKind) -> Option<PathBuf> {
+    let (names, suffix): (&[&str], &str) = match kind {
+        TraceKind::Counterexample => (&["trace.vcd", "trace_tb.vcd"], "cex"),
+        TraceKind::Induction => (&["trace_induct.vcd"], "induct"),
+    };
+    let engine_dir = formal_dir.join(workdir).join("engine_0");
+    let trace = names
         .iter()
         .map(|n| engine_dir.join(n))
         .find(|p| p.is_file())?;
-    let dest = formal_dir.join(format!("{stem}_cex.vcd"));
+    let dest = formal_dir.join(format!("{stem}_{suffix}.vcd"));
     std::fs::copy(&trace, &dest).ok()?;
     Some(dest)
 }
@@ -704,6 +897,67 @@ SBY 14:36:54 [dead] DONE (FAIL, rc=2)
         assert_eq!(
             interpret_sby_output("SBY 12:00:01 [x] DONE (ERROR, rc=16)\n"),
             SbyOutcome::Error
+        );
+    }
+
+    /// ADR-0075: gerçek prove UNKNOWN çıktısı (hdlc/formal, sby 0.36) —
+    /// "tool error" değil; tümevarımda bozulan iddianın satırı okunur,
+    /// tümevarım adım numarası döngü sayılmaz.
+    #[test]
+    fn interpret_prove_unknown_log_names_the_non_inductive_assert() {
+        let log = "\
+SBY 16:34:39 [n_shadow] engine_0.basecase: ##   0:00:00  Checking assertions in step 7..
+SBY 16:34:39 [n_shadow] engine_0.induction: ##   0:00:00  Trying induction in step 8..
+SBY 16:34:39 [n_shadow] engine_0.induction: ##   0:00:00  Temporal induction failed!
+SBY 16:34:39 [n_shadow] engine_0.induction: ##   0:00:00  Assert failed in Shadow: n.sv:40.20-40.42 ($assert$n.sv:40$26)
+SBY 16:34:39 [n_shadow] summary: engine_0 (smtbmc z3) returned pass for basecase
+SBY 16:34:39 [n_shadow] summary: engine_0 (smtbmc z3) returned FAIL for induction
+SBY 16:34:39 [n_shadow] DONE (UNKNOWN, rc=4)
+";
+        assert_eq!(
+            interpret_sby_output(log),
+            SbyOutcome::Unknown(SbyFailure {
+                sv_line: Some(40),
+                step: None
+            })
+        );
+    }
+
+    #[test]
+    fn interpret_timeout_and_error_are_distinct() {
+        let timeout = "\
+SBY 16:34:51 [t_shadow] Reached TIMEOUT (2 seconds). Terminating all subprocesses.
+SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
+";
+        assert_eq!(interpret_sby_output(timeout), SbyOutcome::Timeout);
+        assert_eq!(
+            interpret_sby_output("SBY 16:34:57 [e_shadow] DONE (ERROR, rc=16)\n"),
+            SbyOutcome::Error
+        );
+    }
+
+    #[test]
+    fn exit_code_precedence() {
+        let code = |f, e, t, u| format!("{:?}", verify_exit_code(f, e, t, u));
+        assert_eq!(
+            code(false, false, false, false),
+            format!("{:?}", ExitCode::SUCCESS)
+        );
+        assert_eq!(
+            code(true, true, true, true),
+            format!("{:?}", ExitCode::from(6))
+        );
+        assert_eq!(
+            code(false, true, true, true),
+            format!("{:?}", ExitCode::from(3))
+        );
+        assert_eq!(
+            code(false, false, true, true),
+            format!("{:?}", ExitCode::from(8))
+        );
+        assert_eq!(
+            code(false, false, false, true),
+            format!("{:?}", ExitCode::from(7))
         );
     }
 

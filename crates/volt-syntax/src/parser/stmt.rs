@@ -667,7 +667,7 @@ impl Parser<'_> {
                 )
                 .with_note(
                     NoteKind::Note,
-                    lstr!(en: "exhaustiveness analysis over enum variants arrives with F3 (ADR-0032); in a sequential block an empty '_' arm keeps the registers' values"; tr: "enum varyantları üzerinden kapsayıcılık analizi F3 ile gelecek (ADR-0032); sıralı blokta boş '_' kolu register değerlerini korur"),
+                    lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
                 ),
             );
         }

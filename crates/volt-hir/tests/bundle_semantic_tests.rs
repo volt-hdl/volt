@@ -395,7 +395,7 @@ fn auto_contracts_count_as_reads_of_ready() {
     let unused_ready = |r: &volt_hir::AnalysisResult| {
         r.diagnostics
             .iter()
-            .any(|d| d.code.as_str() == "W1001" && d.message.contains("tx_ready"))
+            .any(|d| d.code.as_str() == "W1001" && d.message.contains("tx.ready"))
     };
     assert!(!unused_ready(&result), "{:?}", result.error_codes());
     // @no_protocol_check ile kontrat yok: tx_ready gerçekten okunmuyor.
@@ -437,4 +437,70 @@ fn no_protocol_check_attribute_is_enforced_no_w0021() {
         "{:?}",
         result.error_codes()
     );
+}
+
+// ═══ Kaynak adı (ADR-0075) ════════════════════════════════════════
+
+fn messages(result: &volt_hir::AnalysisResult) -> Vec<String> {
+    result
+        .diagnostics
+        .iter()
+        .map(|d| format!("{} {}", d.code.as_str(), d.message))
+        .collect()
+}
+
+/// Bundle alanı tanılarda düzleştirilmiş adla (`hs_data`) değil kaynak
+/// yoluyla (`hs.data`) görünür — W1001, E4001, E4002.
+#[test]
+fn bundle_field_diagnostics_use_the_source_path() {
+    let unused = analyze_src(&format!(
+        "{HANDSHAKE}module C {{\n    in  _clk : clock\n    in  hs  : Handshake\n    out y   : u8\n    hs.ready = true\n    y = 0\n}}\n"
+    ));
+    let m = messages(&unused);
+    assert!(
+        m.contains(&"W1001 unused input port: 'hs.data'".to_string()),
+        "{m:?}"
+    );
+    assert!(m.iter().all(|s| !s.contains("hs_")), "{m:?}");
+    let w = unused
+        .diagnostics
+        .iter()
+        .find(|d| d.message.contains("hs.data"))
+        .unwrap();
+    let help = w.help.as_deref().unwrap_or_default();
+    assert!(help.ends_with(": _hs"), "{help}");
+
+    let double = analyze_src(&format!(
+        "{HANDSHAKE}module P {{\n    in  _clk : clock\n    out hs  : Handshake\n    hs.data = 1\n    hs.data = 2\n    hs.valid = hs.ready\n}}\n"
+    ));
+    let m = messages(&double);
+    assert!(
+        m.contains(&"E4001 'hs.data' is already driven".to_string()),
+        "{m:?}"
+    );
+
+    let undriven = analyze_src(&format!(
+        "{HANDSHAKE}module P {{\n    in  _clk : clock\n    out hs  : Handshake\n    hs.valid = hs.ready\n}}\n"
+    ));
+    let m = messages(&undriven);
+    assert!(
+        m.contains(&"E4002 output port 'hs.data' is not driven".to_string()),
+        "{m:?}"
+    );
+    let e = undriven
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E4002")
+        .unwrap();
+    let help = e.help.as_deref().unwrap_or_default();
+    assert!(help.contains("hs.data = ..."), "{help}");
+}
+
+/// `_` önekli bundle portu bütün alanlarını susturur (öneri bunu söyler).
+#[test]
+fn underscore_bundle_port_silences_all_fields() {
+    let r = analyze_src(&format!(
+        "{HANDSHAKE}module C {{\n    in  _clk : clock\n    in  _hs : Handshake\n    out y   : u8\n    _hs.ready = true\n    y = 0\n}}\n"
+    ));
+    assert!(r.diagnostics.is_empty(), "{:?}", messages(&r));
 }

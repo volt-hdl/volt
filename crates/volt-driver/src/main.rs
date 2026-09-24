@@ -178,7 +178,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
     },
-    /// Formally verify contracts with SymbiYosys (F4b; exit 6 on counterexample)
+    /// Formally verify contracts with SymbiYosys (exit 6 counterexample, 7 unknown, 8 timeout)
     #[command(after_help = "EXAMPLES:
     volt verify design.volt
     volt verify --mode prove design.volt
@@ -203,6 +203,9 @@ enum Command {
         /// Verification mode: bmc | prove | cover
         #[arg(long, value_enum, default_value_t = VerifyModeArg::Bmc)]
         mode: VerifyModeArg,
+        /// Time limit per module task in seconds (exit 8 when reached; default: none)
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        timeout: Option<u32>,
         /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
@@ -254,7 +257,7 @@ enum Command {
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
     },
-    /// Start the Volt language server on stdio (F5a; editors connect here)
+    /// Start the Volt language server on stdio (editors connect here)
     Lsp,
     /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
     #[command(after_help = "EXAMPLES:
@@ -451,6 +454,7 @@ fn main() -> ExitCode {
             fail_fast,
             engine,
             mode,
+            timeout,
             target_dir,
             format,
         } => verify::verify(
@@ -463,6 +467,7 @@ fn main() -> ExitCode {
                 engine: engine.into(),
                 // Görev başına verify.rs'te ayarlanır (multiclock_modules).
                 multiclock: false,
+                timeout,
             },
             verify::VerifyArgs { jobs, fail_fast },
         ),

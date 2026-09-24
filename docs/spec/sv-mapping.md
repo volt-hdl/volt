@@ -354,7 +354,7 @@ assign busy = u_busy;
 - ADR-0041: çıkış telleri modül gövdesinin BAŞINDA bildirilir (kullanım
   sırasından bağımsız); reset, hedef modülün saat alanı yapılandırmasından
   üst modülün aynı adlı reset portuna bağlanır; bağlanmamış giriş portu
-  E2005; generic argümanlı örnekleme monomorfizasyonla somut modül adına
+  E4011 (ADR-0072); generic argümanlı örnekleme monomorfizasyonla somut modül adına
   (`FirFilter<8, 16>` → `FirFilter_8_16`) çevrilmiş olarak gelir
 
 ---
@@ -614,7 +614,7 @@ end
 ```
 
 - `for` sınırları derleme zamanı sabiti olmalı (const-eval.md §8); değilse
-  E2005. Gövde her iterasyon için açılır, döngü değişkeni literale ikame
+  E2021 (ADR-0072). Gövde her iterasyon için açılır, döngü değişkeni literale ikame
   edilir. Modül seviyesi `for` gövdesindeki `=` atamaları `assign`
   satırlarına açılır.
 - `wire x : T` → `logic ... x;` bildirimi; sürücüsü `comb` ya da `assign`.
@@ -682,7 +682,7 @@ endmodule
   yönlü portuna ADIYLA bağlanır (`.sda(sda_bus)`); bağlanan tel net
   olur — `inout` için `wire`, `opendrain` için `tri1` (pull-up +
   kablolu-VE; birden çok pad aynı tele bağlanabilir). `<örnek>_<port>`
-  çıkış teli üretilmez; ifade bağlamak / bağlamamak E2005.
+  çıkış teli üretilmez; ifade bağlamak / bağlamamak E4011 (ADR-0072).
 - Formal (`volt verify`, Immediate) çıktısı: Yosys serbest `'z` netini
   sabit 0 okur; bu modda dış aygıt `(* anyseq *) logic p_ext;` +
   `assign p = enable ? value : p_ext;` ile modellenir (serbestken

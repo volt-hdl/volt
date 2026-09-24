@@ -59,6 +59,8 @@ pub fn run_semantic_stages(
     // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
     out.extend(crate::without_raw_reset_unused(ast, &resolve.diagnostics));
     if count_errors(&resolve.diagnostics) > 0 {
+        // Tip denetimi koşmaz; ertelenmiş kesin enum E0014'leri (ADR-0075).
+        out.extend(crate::typeck::gated_enum_exhaustiveness(ast, resolve));
         return stages;
     }
 

@@ -18,7 +18,7 @@ use volt_ast::{GenerateInfo, ModuleDecl, PortDir};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use crate::resolve::{DefId, DefKind, ResolveResult};
+use crate::resolve::{DefId, ResolveResult};
 
 /// Sinyali süren kaynağın türü (ADR-0073 §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +105,7 @@ impl DriverTable {
         });
     }
 
-    /// Kullanıcı ataması var mı (E4002, W4001/W4002 yalnız atamalara bakar).
+    /// Kullanıcı ataması var mı (E4002 yalnız atamalara bakar).
     pub fn is_driven(&self, def: DefId) -> bool {
         self.drivers
             .get(&def)
@@ -145,6 +145,7 @@ impl DriverTable {
         &self,
         module: &ModuleDecl,
         res: &ResolveResult,
+        generate: &GenerateInfo,
         out: &mut Vec<Diagnostic>,
     ) {
         for port in module.ports.iter().filter(|p| p.direction == PortDir::Out) {
@@ -152,20 +153,22 @@ impl DriverTable {
                 continue;
             };
             if !self.is_driven(def) {
+                // Bundle alanı kaynak yoluyla (`hs.data`, ADR-0075).
+                let name = generate.source_name(port.name.span, &port.name.text);
                 out.push(
                     Diagnostic::error(
                         ErrorCode::E4002,
                         lstr!(
-                            en: "output port '{}' is not driven", port.name.text;
-                            tr: "'{}' çıkış portu sürülmüyor", port.name.text
+                            en: "output port '{name}' is not driven";
+                            tr: "'{name}' çıkış portu sürülmüyor"
                         ),
                         LabeledSpan::primary(
                             port.span,
                             lstr!(en: "this port is never assigned"; tr: "bu porta hiç atama yok"),
                         ),
                         lstr!(
-                            en: "add an assignment like {} = ...", port.name.text;
-                            tr: "{} = ... şeklinde bir atama ekleyin", port.name.text
+                            en: "add an assignment like {name} = ...";
+                            tr: "{name} = ... şeklinde bir atama ekleyin"
                         ),
                     )
                     .with_note(
@@ -177,44 +180,6 @@ impl DriverTable {
                     ),
                 );
             }
-        }
-    }
-
-    /// W4001/W4002 — atanan ama hiç okunmayan sinyaller (§11.6 adım 3).
-    pub fn check_write_only(&self, res: &ResolveResult, out: &mut Vec<Diagnostic>) {
-        let mut defs: Vec<&DefId> = self.drivers.keys().collect();
-        defs.sort_by_key(|d| d.0);
-        for &def in defs {
-            let data = &res.defs[def.0 as usize];
-            if !self.is_driven(def) || data.name.starts_with('_') || res.reads.contains(&def) {
-                continue;
-            }
-            let (code, what) = match data.kind {
-                DefKind::Register => (
-                    ErrorCode::W4002,
-                    lstr!(
-                        en: "register written but never read";
-                        tr: "yazılıp hiç okunmayan register"
-                    ),
-                ),
-                DefKind::Wire | DefKind::LocalBinding => (
-                    ErrorCode::W4001,
-                    lstr!(
-                        en: "unused signal: driven but never read";
-                        tr: "kullanılmayan sinyal: sürülüyor ama hiç okunmuyor"
-                    ),
-                ),
-                _ => continue,
-            };
-            out.push(Diagnostic::warning(
-                code,
-                format!("{what}: '{}'", data.name),
-                LabeledSpan::primary(data.span, lstr!(en: "defined here"; tr: "burada tanımlı")),
-                lstr!(
-                    en: "add a '_' prefix to silence: _{}", data.name;
-                    tr: "'_' öneki ile susturabilirsiniz: _{}", data.name
-                ),
-            ));
         }
     }
 }

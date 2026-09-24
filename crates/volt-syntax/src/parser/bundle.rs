@@ -237,6 +237,17 @@ impl Parser<'_> {
             if let Some((over, port_name)) = flat.budget.take() {
                 self.err_flatten_budget(item, over, &port_name);
             }
+            // Tanılar düzleştirilmiş adı (`hs_data`) değil kaynaktaki alan
+            // yolunu (`hs.data`) gösterir — ADR-0072 açılım adı deseni
+            // (ADR-0075). Anahtar düzleştirilmiş portun benzersiz ad span'i.
+            for p in &out {
+                if let Some(b) = &p.bundle {
+                    self.ast
+                        .generate
+                        .source_names
+                        .insert(p.name.span, format!("{}.{}", b.port.text, b.path));
+                }
+            }
             let (body, contracts) = match &mut self.ast.items_arena[item].kind {
                 ItemKind::Module(m) => {
                     m.ports = out;

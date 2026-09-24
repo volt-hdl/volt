@@ -81,6 +81,11 @@ fn ui_fail_89_enum_unreachable_arm_w2014() {
 }
 
 #[test]
+fn ui_fail_97_numeric_unreachable_arm_w2014() {
+    assert_ui_fail("97_numeric_unreachable_arm.volt");
+}
+
+#[test]
 fn ui_fail_90_enum_payload_signal_e0003() {
     assert_ui_fail("90_enum_payload_signal.volt");
 }
@@ -275,6 +280,33 @@ fn duplicate_arm_is_not_emitted() {
     assert_eq!(fsm.matches("State_Run: begin").count(), 1, "{fsm}");
 }
 
+/// ADR-0075: sayısal match'te erişilemez kol (W2014) enum'daki gibi
+/// `case`'e yazılmaz; kısmen yeni değer taşıyan kol kalır.
+#[test]
+fn unreachable_numeric_arm_is_not_emitted() {
+    let src = "module M {
+    in  clk : clock
+    in  x   : u2
+    out y   : u8
+    reg r : u8 = 0
+    on clk {
+        match x {
+            1 => { r <= 1 }
+            0x1 => { r <= 2 }
+            0 | 1 => { r <= 3 }
+            _ => { r <= 0 }
+        }
+    }
+    y = r
+}
+";
+    let files = build("numdup", src, None);
+    let m = sv_of(&files, "M.sv");
+    assert!(m.contains("2'd1: begin"), "{m}");
+    assert!(!m.contains("r <= 8'd2;"), "{m}");
+    assert!(m.contains("2'd0, 2'd1: begin"), "{m}");
+}
+
 #[test]
 fn enum_const_lowers_to_the_variant_localparam() {
     let src = "enum State { Idle, Run }
@@ -354,8 +386,60 @@ module M {
     let files = build("letscrut", src, None);
     let m = sv_of(&files, "M.sv");
     assert!(m.contains("State_Idle: begin"), "{m}");
+    // İki varyant tek biti doldurur: geçersiz kod yok, yorum da demez.
     assert!(
-        m.contains("default: begin // State_Run (and invalid codes)"),
+        m.contains(
+            "default: begin // State_Run
+"
+        ),
+        "{m}"
+    );
+    assert!(!m.contains("invalid codes"), "{m}");
+}
+
+/// 1.2: `(and invalid codes)` yalnız hiçbir varyanta ait olmayan kod
+/// varsa yazılır — 2^n varyantlı (yoğun) enum'da `default` yalnız son
+/// kolun varyantlarıdır; açık değerli seyrek enum'da boş kodlar vardır.
+#[test]
+fn default_comment_mentions_invalid_codes_only_when_they_exist() {
+    let src = |decl: &str, last: &str| {
+        format!(
+            "{decl}
+module M {{
+    in  clk : clock
+    out y   : bool
+    reg s : S = S::A
+    on clk {{
+        match s {{
+            S::A => {{ s <= S::B }}
+            S::{last} => {{ s <= S::A }}
+        }}
+    }}
+    y = s == S::A
+}}
+"
+        )
+    };
+    // Varsayılan kodlama, 4 varyant / 2 bit: yoğun.
+    let dense = build(
+        "dense4",
+        &src("enum S { A, B, C, D }", "B | S::C | S::D"),
+        None,
+    );
+    let m = sv_of(&dense, "M.sv");
+    assert!(
+        m.contains(
+            "default: begin // S_B, S_C, S_D
+"
+        ),
+        "{m}"
+    );
+    assert!(!m.contains("invalid codes"), "{m}");
+    // Açık değerli, 2 bitte 2 varyant (kod 1 ve 3 boş): seyrek.
+    let sparse = build("sparse", &src("enum S { A = 0, B = 2 }", "B"), None);
+    let m = sv_of(&sparse, "M.sv");
+    assert!(
+        m.contains("default: begin // S_B (and invalid codes)"),
         "{m}"
     );
 }
