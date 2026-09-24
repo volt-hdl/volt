@@ -648,6 +648,17 @@ module Gpio {
             "Karşı örnek .vcd dosyası build/formal/ altına, .sby dosyasının yanına yazılır. 'gtkwave' ya da 'surfer' ile açın. BMC yalnızca --depth döngüye kadar arar; N derinlikte geçmek tam kanıt değildir — sınırsız tümevarım için --mode prove kullanın.",
         )
         .with_docs(&["https://volthdl.org/guide/verify"]),
+        E5002 => Explanation::new(
+            "Kontrat kanıtlanamadı",
+            "--mode prove kipinde temel durum geçti ama tümevarım adımı başarısız oldu: kontrat doğru olabilir, ancak tümevarımsal değil (sby durumu UNKNOWN).",
+            "k-tümevarım bir özelliği iki adımda kanıtlar. Temel durum reset'ten itibaren ilk --depth döngüyü denetler — karşı örnek bulmadı, bu yüzden bu E5001 değildir. Tümevarım adımı özelliğin HERHANGİ bir durumdan başlayan --depth ardışık döngüde tuttuğunu varsayar ve bir döngü sonra da tutup tutmadığını sorar. O keyfi durum tasarımın asla ulaşamayacağı bir durum olabilir; ör. hep birlikte ilerleyen ama birbirinden kopuk başlayan iki register. Çözücü böyle bir durum buldu, kanıt sonuçsuz kaldı. Çıkış kodu 7 (6 değil: hiçbir şey çürütülmedi; 3 değil: araç çökmedi).",
+            "reg a : u8 = 0\nreg b : u8 = 0          // a ve b hep eşit\ninvariant: a <= 10      // ✗ E5002: tümevarım a != b durumundan başlayabilir",
+            "invariant: a == b      // ✓ güçlendirici invariant: erişilemez başlangıç\ninvariant: a <= 10     //   durumlarını dışlar — artık tümevarımsal",
+        )
+        .with_note(
+            "İki çare var: daha büyük bir --depth tümevarım adımına daha uzun geçmiş gösterir (kötü başlangıç durumu ihlale ancak çok döngü sonra dönüyorsa işe yarar); register'ları birbirine bağlayan ek bir invariant erişilemez başlangıç durumlarını ortadan kaldırır. Tümevarım izi build/formal/<görev>_induct.vcd dosyasına kopyalanır; ilk döngüleri çözücünün seçtiği erişilemez durumu gösterir.",
+        )
+        .with_docs(&["https://volthdl.org/guide/verify", "docs/adr/ADR-0075-yaniltici-rapor-ve-tani-temizligi.md"]),
         E5004 => Explanation::new(
             "Kontrat ifadesi Bool değil",
             "requires/ensures/invariant/cover/assert/assume koşulları Bool tipinde olmalıdır.",
@@ -686,7 +697,7 @@ module Gpio {
         E5014 => Explanation::new(
             "Boru hattında taşınan değere açık skaler tip gerekli",
             "Aşama sınırını geçen aşama-yerel let, bool, uN, iN veya bits<K> ile anotasyonlanmalı.",
-            "Bir aşamada tanımlanan değer sonraki bir aşamada okunduğunda derleyici, geçilen her sınır için bir register ve stall/flush için sıfır değerli bir bubble üretir. İkisi de somut tipe muhtaçtır: register bildirimi tipten yazılır, bubble tipin sıfırıdır (false ya da 0). Bu, F0'ın 'reg tipi açık yazılmalı' kuralının (E2012) pipeline karşılığıdır. Yalnız kendi aşamasında tüketilen değerler anotasyonsuz kalabilir.",
+            "Bir aşamada tanımlanan değer sonraki bir aşamada okunduğunda derleyici, geçilen her sınır için bir register ve stall/flush için sıfır değerli bir bubble üretir. İkisi de somut tipe muhtaçtır: register bildirimi tipten yazılır, bubble tipin sıfırıdır (false ya da 0). Bu, 'reg tipi açık yazılmalı' kuralının (E2012) pipeline karşılığıdır. Yalnız kendi aşamasında tüketilen değerler anotasyonsuz kalabilir.",
             "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a = x + 1 }\n    stage D { let b : u32 = a }   // ✗ E5014: 'a' sınırı geçiyor, tipi yok\n}",
             "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a : u32 = x + 1 }\n    stage D { let b : u32 = a }   // ✓",
         ),
@@ -1086,16 +1097,16 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
-            "Bu sinyal netlist'te bildirilmiş ama hiçbir şeyi sürmüyor.",
-            "Ayrıntılandırma (elaboration) sonrası sinyalin okuyucusu yok; sentez onu — ve yalnız onu besleyen mantığı — budayacak. Tutmak kasıtlıysa (debug probu, ayrılmış pin) uyarıyı açıkça susturmak için ismin başına '_' koyun.",
-            "wire spare : u4         // ⚠ W4001: okuyucu yok",
+            "Netlist düzeyinde kullanılmayan sinyal denetimi için ayrılmıştır; bu derleyici üretmez. Sürülüp okunmayan wire W1001 ile bildirilir (ADR-0075).",
+            "Okunmayan sinyal eskiden aynı kullanım verisinden iki kez, W1001 ve W4001 olarak bildiriliyordu. ADR-0075'ten beri tek bildirim kaynak düzeyindeki W1001'dir. Kod, ayrıntılandırılmış tasarım üzerinde koşacak — kendisi ölü olan okuyucuları da görecek — bir analiz için ayrılmış kalır. Sentez okunmayan sinyali ve yalnız onu besleyen mantığı budar; tutmak kasıtlıysa (debug probu, ayrılmış pin) ismin başına '_' koyun.",
+            "wire spare : u4         // ⚠ W1001: okuyucu yok",
             "wire _spare : u4        // ✓ açıkça tutuluyor",
         ),
         W4002 => Explanation::new(
             "Yazılıp hiç okunmayan register (netlist)",
-            "Ayrıntılandırma sonrası nihai netlist'te bu register'ın değerini hiçbir şey gözlemlemiyor.",
-            "Kaynağa bakan W1004'ten farklı olarak bu denetim ayrıntılandırılmış tasarım üzerinde koşar: register, kendisi ölü çıkan bir kodda okunuyor olabilir. Sentez flip-flop'ları söker; bu sizi şaşırtıyorsa yolun nerede öldüğünü bulmak için tüketici zincirini izleyin.",
-            "reg stat : u8 = 0\non clk { stat <= s }\n// tek okuyucusu optimizasyonla silindi   // ⚠ W4002",
+            "Netlist düzeyinde bir denetim için ayrılmıştır; bu derleyici üretmez. Yazılıp okunmayan register W1004 ile bildirilir (ADR-0075).",
+            "Yazılıp okunmayan register eskiden aynı kullanım verisinden aynı iletiyle iki kez, W1004 ve W4002 olarak bildiriliyordu. ADR-0075'ten beri tek bildirim kaynak düzeyindeki W1004'tür. Kod, ayrıntılandırılmış tasarım üzerinde koşacak bir analiz için ayrılmış kalır: orada register yalnız kendisi ölü çıkan bir kodda okunuyor olabilir. Sentez okunmayan register'ın flip-flop'larını söker.",
+            "reg stat : u8 = 0\non clk { stat <= s }   // ⚠ W1004: stat'ı kimse okumuyor",
             "result = stat           // ✓ netlist'te gözlemleniyor",
         ),
         W5001 => Explanation::new(

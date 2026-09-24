@@ -243,6 +243,9 @@ pub(crate) struct EnumMatchPlan {
     pub(crate) default_arm: Option<usize>,
     /// O kolun varyantlarının SV adları (yorum için).
     pub(crate) default_names: String,
+    /// Kodlamada hiçbir varyanta ait olmayan kod var mı; yoğun (`2^n`
+    /// varyantlı) enum'da `default` yalnız son kolun varyantlarıdır.
+    pub(crate) has_invalid_codes: bool,
 }
 
 impl<'a> Emitter<'a> {
@@ -288,10 +291,12 @@ impl<'a> Emitter<'a> {
             }
             _ => (None, String::new()),
         };
+        let has_invalid_codes = self.enum_layout(decl).is_none_or(|l| !l.is_dense());
         EnumMatchPlan {
             skip,
             default_arm,
             default_names,
+            has_invalid_codes,
         }
     }
 

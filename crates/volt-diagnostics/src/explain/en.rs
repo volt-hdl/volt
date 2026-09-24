@@ -648,6 +648,17 @@ module Gpio {
             "The counterexample .vcd is written next to the .sby file under build/formal/. Open it with 'gtkwave' or 'surfer'. BMC only explores up to --depth cycles; a pass at depth N is not a full proof — use --mode prove for unbounded induction.",
         )
         .with_docs(&["https://volthdl.org/guide/verify"]),
+        E5002 => Explanation::new(
+            "Contract not proven",
+            "In --mode prove the base case held but the induction step failed: the contract may be true, yet it is not inductive (sby status UNKNOWN).",
+            "k-induction proves a property in two steps. The base case checks the first --depth cycles from reset — it found no counterexample, so this is not E5001. The induction step assumes the property held for --depth consecutive cycles starting from ANY state and asks whether it still holds one cycle later. That arbitrary state may be one the design can never reach, e.g. two registers that always move together but start out of step. The solver found such a state, so the proof is inconclusive. Exit code 7 (not 6: nothing was refuted; not 3: the tool did not fail).",
+            "reg a : u8 = 0\nreg b : u8 = 0          // a and b always equal\ninvariant: a <= 10      // ✗ E5002: induction may start from a != b",
+            "invariant: a == b      // ✓ strengthening invariant: excludes the\ninvariant: a <= 10     //   unreachable start states — now inductive",
+        )
+        .with_note(
+            "Two remedies: a larger --depth lets the induction step see more history (it helps when the bad start state leads back to a violation only after many cycles), and an extra invariant that relates the registers removes the unreachable start states. The induction trace is copied to build/formal/<task>_induct.vcd; its first cycles show the unreachable state the solver chose.",
+        )
+        .with_docs(&["https://volthdl.org/guide/verify", "docs/adr/ADR-0075-yaniltici-rapor-ve-tani-temizligi.md"]),
         E5004 => Explanation::new(
             "Contract expression is not Bool",
             "requires/ensures/invariant/cover/assert/assume conditions must be Bool expressions.",
@@ -686,7 +697,7 @@ module Gpio {
         E5014 => Explanation::new(
             "Pipelined value needs an explicit scalar type",
             "A stage-local let that crosses a stage boundary must be annotated with bool, uN, iN or bits<K>.",
-            "When a value defined in one stage is read in a later one, the compiler materializes a register per crossed boundary and a zero-valued bubble for stall and flush. Both need the concrete type: the register declaration is emitted from it and the bubble is its zero (false or 0). This is the pipeline counterpart of F0's 'reg types must be written explicitly' rule (E2012). Values consumed only inside their own stage may stay unannotated.",
+            "When a value defined in one stage is read in a later one, the compiler materializes a register per crossed boundary and a zero-valued bubble for stall and flush. Both need the concrete type: the register declaration is emitted from it and the bubble is its zero (false or 0). This is the pipeline counterpart of the 'reg types must be written explicitly' rule (E2012). Values consumed only inside their own stage may stay unannotated.",
             "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a = x + 1 }\n    stage D { let b : u32 = a }   // ✗ E5014: 'a' crosses, no type\n}",
             "pipeline(2) P {\n    in clk : clock\n    in x : u32\n    stage F { let a : u32 = x + 1 }\n    stage D { let b : u32 = a }   // ✓",
         ),
@@ -1086,16 +1097,16 @@ Declare the frequency in the domain so that every module sharing it is constrain
         .with_docs(&["https://volthdl.org/guide/cdc"]),
         W4001 => Explanation::new(
             "Unused signal",
-            "This signal is declared in the netlist but drives nothing.",
-            "After elaboration the signal has no readers, so synthesis will prune it — along with any logic feeding only it. If keeping it is intentional (debug probe, reserved pin), prefix the name with '_' to silence the warning explicitly.",
-            "wire spare : u4         // ⚠ W4001: no readers",
+            "Reserved for a netlist-level unused-signal check; this compiler does not emit it. A driven wire nobody reads is reported as W1001 (ADR-0075).",
+            "An unread signal used to be reported twice, as W1001 and W4001, from the same usage data. Since ADR-0075 the source-level W1001 is the single report. The code stays reserved for an analysis on the elaborated design, which would also see readers that are themselves dead. Synthesis prunes an unread signal with any logic feeding only it; if keeping it is intentional (debug probe, reserved pin), prefix the name with '_'.",
+            "wire spare : u4         // ⚠ W1001: no readers",
             "wire _spare : u4        // ✓ explicitly kept",
         ),
         W4002 => Explanation::new(
             "Register written but never read (netlist)",
-            "After elaboration, nothing in the final netlist observes this register's value.",
-            "Unlike W1004 (which looks at the source), this check runs on the elaborated design: the register may be read in code that itself turned out to be dead. Synthesis will strip the flip-flops; if that surprises you, follow the chain of consumers to find where the path died.",
-            "reg stat : u8 = 0\non clk { stat <= s }\n// its only reader was optimized away   // ⚠ W4002",
+            "Reserved for a netlist-level check; this compiler does not emit it. A register written but never read is reported as W1004 (ADR-0075).",
+            "A write-only register used to be reported twice with the same message, as W1004 and W4002, from the same usage data. Since ADR-0075 the source-level W1004 is the single report. The code stays reserved for an analysis on the elaborated design, where a register may be read only by code that itself turned out to be dead. Synthesis strips the flip-flops of an unread register.",
+            "reg stat : u8 = 0\non clk { stat <= s }   // ⚠ W1004: nobody reads stat",
             "result = stat           // ✓ observed in the netlist",
         ),
         W5001 => Explanation::new(

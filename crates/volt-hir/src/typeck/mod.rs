@@ -30,6 +30,7 @@ mod check;
 mod contract;
 mod diag;
 mod enums;
+mod gated;
 mod instance;
 mod matching;
 mod select;
@@ -37,6 +38,8 @@ mod stmt;
 mod synth;
 mod type_ref;
 mod width;
+
+pub use gated::gated_enum_exhaustiveness;
 
 use std::collections::HashMap;
 
@@ -132,7 +135,6 @@ impl TypeChecker<'_, '_> {
         let mut diags = Vec::new();
         self.drivers
             .check_multiple_drivers(self.res, &self.ast.generate, &mut diags);
-        self.drivers.check_write_only(self.res, &mut diags);
         self.diagnostics.extend(diags);
     }
 

@@ -441,21 +441,32 @@ fn partial_bit_assigns_no_e4001() {
 }
 
 #[test]
-fn written_never_read_register_w4002() {
+fn written_never_read_register_is_one_w1004() {
+    // ADR-0075: aynı bulgu tek kodla — W4002 artık üretilmez.
     let c = codes("module M {\n    in  clk : clock\n    in  d : u8\n    out y : u8\n\n    reg r : u8 = 0\n\n    on clk { r <= d }\n\n    y = d\n}\n");
-    assert!(c.contains(&"W4002"), "{c:?}");
+    assert_eq!(c, ["W1004"], "{c:?}");
 }
 
 #[test]
-fn driven_never_read_wire_w4001() {
+fn unread_payload_enum_register_is_one_w1004() {
+    // Bulgu (ADR-0074 Aşama 3): payload'lı enum register'ı W1004 ve W4002
+    // ile aynı iletiyi iki kez alıyordu.
+    let c = codes("enum Cmd { Idle, Load(u8) }\nmodule M {\n    in  clk : clock\n    in  d : u8\n    out y : u8\n    reg c : Cmd = Cmd::Idle\n    on clk { c <= Cmd::Idle }\n    y = d\n}\n");
+    assert_eq!(c.iter().filter(|c| c.starts_with('W')).count(), 1, "{c:?}");
+    assert!(c.contains(&"W1004"), "{c:?}");
+}
+
+#[test]
+fn driven_never_read_wire_is_one_w1001() {
+    // ADR-0075: aynı bulgu tek kodla — W4001 artık üretilmez.
     let c = codes("module M {\n    in  a : u8\n    out y : u8\n\n    wire t : u8\n\n    t = a\n    y = a\n}\n");
-    assert!(c.contains(&"W4001"), "{c:?}");
+    assert_eq!(c, ["W1001"], "{c:?}");
 }
 
 #[test]
-fn underscore_prefix_silences_w4001() {
+fn underscore_prefix_silences_unread_wire() {
     let c = codes("module M {\n    in  a : u8\n    out y : u8\n\n    wire _t : u8\n\n    _t = a\n    y = a\n}\n");
-    assert!(!c.contains(&"W4001"), "{c:?}");
+    assert!(c.is_empty(), "{c:?}");
 }
 
 // ═══ Modül örnekleme ══════════════════════════════════════════════

@@ -36,7 +36,8 @@ impl TypeChecker<'_, '_> {
             self.check_contract(c);
         }
         let mut diags = Vec::new();
-        self.drivers.check_undriven_outputs(m, self.res, &mut diags);
+        self.drivers
+            .check_undriven_outputs(m, self.res, &self.ast.generate, &mut diags);
         self.diagnostics.extend(diags);
     }
 

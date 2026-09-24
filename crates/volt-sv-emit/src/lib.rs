@@ -1479,18 +1479,25 @@ impl<'a> Emitter<'a> {
         // ADR-0074 Karar 4: erişilemez kol atlanır; kapsayıcı `_`'sız enum
         // match'inde son adlı kol `default` olur (geçersiz kodlar dahil).
         let plan = scrut_enum.map(|d| self.enum_match_plan(m, d));
+        // Sayısal sınananda aynı kural (ADR-0075): değerleri önceki
+        // kollarda geçen kol yazılmaz (HIR W2014).
+        let value_skip = match plan {
+            Some(_) => Vec::new(),
+            None => volt_ast::match_cover::unreachable_value_arms(self.ast, m),
+        };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {
-            if plan.as_ref().is_some_and(|p| p.skip[i]) {
+            if plan.as_ref().is_some_and(|p| p.skip[i]) || value_skip.get(i) == Some(&true) {
                 continue;
             }
-            if let Some(names) = plan
-                .as_ref()
-                .and_then(|p| (p.default_arm == Some(i)).then(|| p.default_names.clone()))
-            {
-                lines.push(format!(
-                    "{ind}    default: begin // {names} (and invalid codes)"
-                ));
+            if let Some(p) = plan.as_ref().filter(|p| p.default_arm == Some(i)) {
+                let names = &p.default_names;
+                let invalid = if p.has_invalid_codes {
+                    " (and invalid codes)"
+                } else {
+                    ""
+                };
+                lines.push(format!("{ind}    default: begin // {names}{invalid}"));
                 self.emit_arm_body(arm, indent, lines);
                 lines.push(format!("{ind}    end"));
                 continue;

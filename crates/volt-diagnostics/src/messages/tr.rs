@@ -100,6 +100,7 @@ pub fn description(code: ErrorCode) -> &'static str {
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",
+        E5002 => "Kontrat kanıtlanamadı (tümevarım adımı başarısız; sby durumu UNKNOWN)",
         E5004 => "Kontrat ifadesi Bool değil",
         E5010 => "Zamanlama hizasızlığı (farklı boru hattı aşamalarının değerleri birleştirildi)",
         E5011 => "Geçersiz pipeline yapısı (aşama sayısı, yinelenen aşama, saat portları)",
@@ -167,8 +168,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3008 => "Bilinçli güven düşürme (declassify) — gözden geçirilmeli (ADR-0052)",
         W3009 => "Asenkron reset bırakmasının birim dışında senkronlandığı varsayılıyor (ADR-0065)",
         W3010 => "Senkron reset birden çok saat alanınca paylaşılıyor (ADR-0065)",
-        W4001 => "Kullanılmayan sinyal (_ öneki ile susturulur)",
-        W4002 => "Yazılıp hiç okunmayan register",
+        W4001 => "Netlist'te okunmayan sinyal (ayrılmış)",
+        W4002 => "Netlist'te okunmayan register (ayrılmış)",
         W5001 => "Kontrat simülasyonda izlenemiyor; atlandı (ADR-0064)",
     }
 }

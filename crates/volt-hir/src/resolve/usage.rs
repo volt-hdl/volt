@@ -23,6 +23,17 @@ impl Resolver<'_> {
             // kullanıcının yazdığı ad: kopyaların mesajı özdeş olur ve
             // katlanır (ADR-0068), `_` önerisi kaynağa yazılabilir.
             let name = self.ast.generate.source_name(data.span, &data.name);
+            // Bundle alanı (`hs.data`, ADR-0075): alan adı tek başına
+            // yeniden adlandırılamaz; bundle portunun `_` öneki bütün
+            // alanlarını susturur (düzleştirilmiş adlar `_hs_...` olur).
+            let help = match name.split_once('.') {
+                Some((port, _)) => lstr!(
+                    en: "add a '_' prefix to the bundle port to silence all its fields: _{port}";
+                    tr: "bundle portuna '_' öneki ekleyerek bütün alanlarını susturabilirsiniz: _{port}"
+                ),
+                None => lstr!(en: "add a '_' prefix to silence: _{}", name;
+                              tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", name),
+            };
             warnings.push(Diagnostic::warning(
                 code,
                 format!("{}: '{}'", msg, name),
@@ -30,8 +41,7 @@ impl Resolver<'_> {
                     data.span,
                     lstr!(en: "defined here, never read"; tr: "burada tanımlı, hiç okunmuyor"),
                 ),
-                lstr!(en: "add a '_' prefix to silence: _{}", name;
-                      tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", name),
+                help,
             ));
         }
         self.diagnostics.extend(warnings);

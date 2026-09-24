@@ -5,6 +5,44 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — yanıltıcı raporlar ve tanı kalitesi (2026-09-24, ADR-0075)
+
+- **`volt verify` sby'nin beş durumunu ayırır.** prove kipinde tümevarım
+  tamamlanamayınca (sby `UNKNOWN`) rapor "tool error (exit code Some(4))"
+  ve çıkış 3 idi. Artık: `PASS` 0, `FAIL` 6 (E5001), `UNKNOWN` **7**
+  (YENİ **E5002** "contract not proven: the induction step failed",
+  kanıtlanamayan kontrata işaret eder; yardım "try a larger --depth, or
+  add an invariant that makes the property inductive"; tümevarım izi
+  `<görev>_induct.vcd`), `TIMEOUT` **8**, `ERROR` 3 ("sby status ERROR" +
+  "this says nothing about the contracts"). Birden çok durumda öncelik
+  6 > 3 > 8 > 7. Yeni `--timeout <sn>` (görev başına; varsayılan yok,
+  `.sby` bayraksız aynı). JSON `status` alanları `unknown`/`timeout` alır.
+  `cli-contract.md` §2/§8a güncellendi.
+- **Enum `default` yorumu**: `2^n` varyantlı (yoğun) enum'da SV yorumu
+  artık "(and invalid codes)" demez — geçersiz kod yoktur. Yalnız yorum
+  değişti (UartTx, ui/fail/89).
+- **İki kod, tek bulgu**: yazılıp okunmayan register W1004 **ve** W4002
+  ile aynı iletiyi iki kez alıyordu (payload'a özgü değil — her register);
+  sürülüp okunmayan `wire` W1001 + W4001. W1001/W1004 kalır; W4001/W4002
+  kodları "ayrılmış, üretilmez" olarak belgelendi. Tarama: kaynak metni +
+  373 dosyada aynı konumda farklı kod — başka çift yok (W1004 + W3001 iki
+  ayrı bulgu).
+- **Çözümleme hatalı birimde enum E0014**: E1xxx tip denetimini
+  kapatınca yol desenli enum `match`'inin kapsayıcılık hatası kayboluyordu
+  (sayısalınki görünüyordu). Kesin durumlar artık kapı arkasında da
+  bildirilir; emin olunamayan desen sessiz kalır (parite sondaları
+  e26-e29). `fn` gövdesi tip denetiminden geçmediği için orada düzeltilmedi
+  (ADR-0075 §4).
+- **Sayısal `match`'te yinelenen kol W2014 alır** (`1 => a, 0x1 => b`),
+  enum'daki gibi; kol SV `case`'ine de yazılmaz. Kural `volt_ast::match_cover`.
+- **Aşama adları kullanıcı metninden kalktı**: sayısal E0014 notu ("...
+  arrives with F3"), E5014 açıklaması ("F0's rule"), `volt --help`
+  (`F4b`, `F5a`) — 5 ileti, 8 dizge.
+- **Bundle alanı kaynak adıyla**: W1001/E4001/E4002 `hs_data` yerine
+  `hs.data` der; W1001 önerisi `_hs` (bundle portu); E4011 literal anahtarını
+  (`hs_ready`) korur ve `(bundle field 'hs.ready')` ekler.
+- `docs/spec/` E2005 atıfları ADR-0072'ye göre güncellendi (6 yer).
+
 ### Değişti — örnek FSM'ler enum'lu (2026-09-24, ADR-0074 Aşama 3)
 
 - `examples/uart_tx.volt` (`enum TxState`, 4 durum) ve

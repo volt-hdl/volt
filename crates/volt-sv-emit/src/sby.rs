@@ -63,6 +63,9 @@ pub struct SbyOptions {
     /// İki+ saatli modüllerde `multiclock on` (Yosys clk2fflogic akışı,
     /// ADR-0027); tek saatli tasarımların çıktısı değişmez.
     pub multiclock: bool,
+    /// sby `timeout` (saniye, görev başına; ADR-0075). `None`: satır
+    /// yazılmaz, .sby çıktısı değişmez.
+    pub timeout: Option<u32>,
 }
 
 impl Default for SbyOptions {
@@ -72,6 +75,7 @@ impl Default for SbyOptions {
             depth: 20,
             engine: SbyEngine::Z3,
             multiclock: false,
+            timeout: None,
         }
     }
 }
@@ -99,10 +103,12 @@ pub fn sby_config(top_module: &str, sv_file: &str, opts: &SbyOptions) -> String 
     } else {
         ""
     };
+    let timeout = timeout_line(opts);
     format!(
         "[options]\n\
          mode {mode}\n\
          depth {depth}\n\
+         {timeout}\
          {multiclock}\
          \n\
          [engines]\n\
@@ -149,9 +155,10 @@ pub fn sby_config_tasks(tasks: &[SbyTask], sv_file: &str, opts: &SbyOptions) -> 
         out.push('\n');
     }
     out.push_str(&format!(
-        "\n[options]\nmode {}\ndepth {}\n",
+        "\n[options]\nmode {}\ndepth {}\n{}",
         opts.mode.as_str(),
-        opts.depth
+        opts.depth,
+        timeout_line(opts)
     ));
     for task in tasks.iter().filter(|t| t.multiclock) {
         out.push_str(&format!("{}: multiclock on\n", task.name));
@@ -167,9 +174,33 @@ pub fn sby_config_tasks(tasks: &[SbyTask], sv_file: &str, opts: &SbyOptions) -> 
     out
 }
 
+/// `timeout N` satırı (sby görev başına süre sınırı → `DONE (TIMEOUT)`).
+fn timeout_line(opts: &SbyOptions) -> String {
+    opts.timeout
+        .map(|secs| format!("timeout {secs}\n"))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timeout_line_only_when_requested() {
+        let plain = sby_config_tasks(&[task("m", "M", false)], "m.sv", &SbyOptions::default());
+        assert!(!plain.contains("timeout"), "{plain}");
+        let opts = SbyOptions {
+            timeout: Some(30),
+            ..SbyOptions::default()
+        };
+        let text = sby_config_tasks(&[task("m", "M", false)], "m.sv", &opts);
+        assert!(text.contains("\ndepth 20\ntimeout 30\n"), "{text}");
+        let single = sby_config("M", "m.sv", &opts);
+        assert!(
+            single.starts_with("[options]\nmode bmc\ndepth 20\ntimeout 30\n"),
+            "{single}"
+        );
+    }
 
     #[test]
     fn default_options_are_bmc_depth_20_z3() {
@@ -201,6 +232,7 @@ mod tests {
             depth: 40,
             engine: SbyEngine::Boolector,
             multiclock: false,
+            timeout: None,
         };
         let text = sby_config("Uart", "uart.sv", &opts);
         assert!(text.contains("mode prove\n"), "{text}");
@@ -287,6 +319,7 @@ mod tests {
             depth: 48,
             engine: SbyEngine::Yices,
             multiclock: false,
+            timeout: None,
         };
         let text = sby_config_tasks(&[task("uart", "Uart", false)], "uart.sv", &opts);
         assert!(text.contains("mode cover\ndepth 48\n"), "{text}");

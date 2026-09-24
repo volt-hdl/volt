@@ -644,7 +644,7 @@ E2001  Bit genişliği uyumsuzluğu
 E2002  İşaret uyumsuzluğu
 E2003  Tip uyumsuzluğu (genel)
 E2004  bits<N> tipinde aritmetik
-E2005  Literal genişliği belirlenemiyor
+E2005  Genişlik ya da uzunluk belirlenemiyor (ADR-0072)
 E2006  İndeks/aralık sınır dışı
 E2007  Ters aralık (hi < lo)
 E2008  Değişken aralık sınırı

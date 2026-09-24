@@ -223,3 +223,25 @@ fn builtin_handshake_rtl_output_has_no_past_registers() {
     let out = sv(PRODUCER);
     assert!(!out.contains("past_"), "{out}");
 }
+
+/// ADR-0075: bağlanmamış bundle alanı E4011'de literalde yazılacak
+/// (düzleştirilmiş) adla VE kaynak yoluyla anılır.
+#[test]
+fn unbound_bundle_field_e4011_names_flat_key_and_source_path() {
+    let src = format!(
+        "{HANDSHAKE}module P {{\n    in  clk : clock\n    out hs  : Handshake\n    hs.data = 1\n    hs.valid = true\n}}\nmodule Top {{\n    in  clk : clock\n    out y   : u8\n    let p = P {{ clk: clk }}\n    y = p.hs_data\n}}\n"
+    );
+    let parsed = volt_syntax::parser::parse(FileId(0), &src);
+    let result = emit(&parsed.ast, "test.volt");
+    let d = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E4011")
+        .expect("E4011");
+    assert_eq!(
+        d.message,
+        "input port 'hs_ready' (bundle field 'hs.ready') of instance 'p' is not bound"
+    );
+    let help = d.help.as_deref().unwrap_or_default();
+    assert!(help.contains("hs_ready: value"), "{help}");
+}
