@@ -219,12 +219,20 @@ impl<'a> Emitter<'a> {
                 },
                 _ => !inputs.contains_key(port.name),
             };
+            // Eksik zorunlu bağlama bir kullanıcı hatasıdır, "henüz
+            // desteklenmiyor" değil (ADR-0070); kullanıcı modülündeki
+            // bağlanmamış girişle aynı tanı.
             if missing {
-                self.future(
+                self.error(
+                    ErrorCode::E2005,
+                    lstr!(
+                        en: "port '{}' of '{}' instance '{}' is not bound", port.name, prim.name(), inst.name.text;
+                        tr: "'{}' örneği '{}'in '{}' portu bağlanmamış", prim.name(), inst.name.text, port.name
+                    ),
                     span,
                     &lstr!(
-                        en: "'{}' instance without a '{}' binding", prim.name(), port.name;
-                        tr: "'{}' bağlaması olmayan '{}' örneği", port.name, prim.name()
+                        en: "bind it: {} = {}<...> {{ {}: ..., }}", inst.name.text, prim.name(), port.name;
+                        tr: "bağlayın: {} = {}<...> {{ {}: ..., }}", inst.name.text, prim.name(), port.name
                     ),
                 );
                 return None;

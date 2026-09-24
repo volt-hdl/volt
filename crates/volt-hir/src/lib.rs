@@ -14,6 +14,7 @@ pub mod domain;
 pub mod drivers;
 pub mod handshake;
 pub mod manifest_search;
+pub mod pipeline;
 pub mod resolve;
 pub mod sim;
 mod sim_const;
@@ -26,6 +27,7 @@ pub mod trust;
 pub mod ty;
 pub mod typeck;
 pub mod unit;
+pub mod unit_load;
 
 pub use attrs::{check_attributes, UnenforcedLint, UNENFORCED_ATTRIBUTES};
 pub use builtin::{BuiltinPort, BuiltinPrim, DomainRole, PortKind};
@@ -42,6 +44,7 @@ pub use handshake::check_handshakes;
 pub use manifest_search::{
     find_manifest_dir, find_manifest_dir_in, SearchEnv, SearchStop, MANIFEST_DIR_ENV, MANIFEST_FILE,
 };
+pub use pipeline::{pre_resolve_checks, run_semantic_stages, SemanticStages};
 pub use resolve::{
     resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
     ScopeId, ScopeKind,

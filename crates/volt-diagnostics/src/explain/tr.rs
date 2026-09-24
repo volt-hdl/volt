@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Geçerli dil sürümünün özelliklerini kullanın;\n// kelimenin ne zaman geleceği için yol haritasına bakın.",
         )
         .with_note(
-            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041) ve generic struct port (ADR-0069).",
+            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070).",
         ),
         E0004 => Explanation::new(
             "Blok sonlandırma ismi uyuşmuyor",

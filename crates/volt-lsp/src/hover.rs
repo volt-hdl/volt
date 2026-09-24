@@ -18,6 +18,11 @@ pub fn hover(analysis: &Analysis, offset: u32) -> Option<(String, Span)> {
 
     if token.kind == volt_syntax::TokenKind::Ident {
         let text = &analysis.source()[token.span.start as usize..token.span.end as usize];
+        // Bundle portu (struct port / Handshake) düz portlara açılmıştır;
+        // kullanıcının yazdığı port adı hiçbir tanıma karşılık gelmez.
+        if let Some(md) = bundle_hover(analysis, token.span) {
+            return Some((md, token.span));
+        }
         if let Some(def) = analysis.def_at(offset) {
             return Some((def_hover(analysis, def), token.span));
         }
@@ -28,6 +33,65 @@ pub fn hover(analysis: &Analysis, offset: u32) -> Option<(String, Span)> {
     }
 
     docs::keyword_doc(token.kind).map(|doc| (doc.to_string(), token.span))
+}
+
+/// `bus : Bus` + açılan portlar (ADR-0070 §3.2). Tip, kullanıcının
+/// yazdığı biçimdir (`Handshake<u8>`); alan tipleri tip denetiminden.
+fn bundle_hover(analysis: &Analysis, name_span: Span) -> Option<String> {
+    let src = analysis.source();
+    let flat: Vec<&volt_ast::Port> = analysis
+        .ast
+        .items
+        .iter()
+        .filter_map(|&i| match &analysis.ast.items_arena[i].kind {
+            volt_ast::ItemKind::Module(m) => Some(m),
+            _ => None,
+        })
+        .flat_map(|m| m.ports.iter())
+        .filter(|p| p.bundle.as_ref().is_some_and(|b| b.port.span == name_span))
+        .collect();
+    let first = flat.first()?;
+    let origin = first.bundle.as_ref()?;
+    let decl = src
+        .get(first.span.start as usize..first.span.end as usize)
+        .unwrap_or("");
+    let ty = decl
+        .split_once(':')
+        .map(|(_, t)| t.lines().next().unwrap_or("").trim())
+        .filter(|t| !t.is_empty())
+        .unwrap_or(&origin.bundle);
+    let mut md = format!(
+        "```volt
+{} : {ty}
+```
+port bundle — flattened to:",
+        origin.port.text
+    );
+    for p in flat {
+        let dir = match p.direction {
+            PortDir::In => "in",
+            PortDir::Out => "out",
+            PortDir::InOut => "inout",
+            PortDir::OpenDrain => "opendrain",
+        };
+        let field_ty = analysis
+            .resolve
+            .as_ref()
+            .zip(analysis.typeck.as_ref())
+            .and_then(|(res, tc)| {
+                let def = res.decl_spans.iter().find(|(s, _)| **s == p.name.span)?.1;
+                tc.def_types
+                    .get(def)
+                    .map(|id| tc.types.display_named(*id, &res.defs))
+            })
+            .unwrap_or_else(|| "?".to_string());
+        md.push_str(&format!(
+            "
+- `{dir} {} : {field_ty}`",
+            p.name.text
+        ));
+    }
+    Some(md)
 }
 
 fn stdlib_hover(entry: &docs::StdlibDoc) -> String {
@@ -42,10 +106,11 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
         .expect("def_at yalnız resolve varken eşleşir");
     let data = &res.defs[def.0 as usize];
 
-    let ty = analysis
-        .typeck
-        .as_ref()
-        .and_then(|t| t.def_types.get(&def).map(|id| t.types.display(*id)));
+    let ty = analysis.typeck.as_ref().and_then(|t| {
+        t.def_types
+            .get(&def)
+            .map(|id| t.types.display_named(*id, &res.defs))
+    });
     let header = match ty {
         Some(ty) => format!("{} : {}", data.name, ty),
         None => data.name.clone(),

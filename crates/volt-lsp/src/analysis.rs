@@ -1,12 +1,20 @@
-//! Tek dosya analizi — aşama sırası ve kapılama volt-driver'daki
-//! `compile()` ile birebir aynıdır: parse → resolve → const+typeck →
-//! domain. Hatalı aşamadan sonrakiler koşmaz (kaskad tanı önlemi),
-//! ama parser hata kurtarma yaptığı için AST HER girdide üretilir —
-//! tamamlama ve sembol ağacı yarım kodda da çalışır.
+//! Belge analizi (ADR-0070). İki ürün:
+//!
+//! * Tanılar — `volt check` ile AYNI yol: birim yükleyicisi
+//!   (`volt_hir::unit_load`, ana dosya metni editör tamponundan) →
+//!   ortak kapılı boru hattı (`volt_hir::run_semantic_stages`) → çıktısız
+//!   emit doğrulaması (`volt_sv_emit::validate_unit`) → toplayıcı
+//!   (`annotate_generate`: katlama + yineleme notu) → editör üst sınırı.
+//!   Yalnız bu belgeye düşen tanılar yayımlanır.
+//! * Editör verisi (hover, tanım, tamamlama, semboller) — tek dosya
+//!   ayrıştırması + aynı boru hattı; parser hata kurtarma yaptığı için
+//!   AST HER girdide üretilir, tamamlama yarım kodda da çalışır.
 
+use std::path::Path;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile, StmtKind, TypeRefKind};
 use volt_diagnostics::{Diagnostic, Severity};
 use volt_hir::{DefId, DefKind, DomainResult, ResolveResult, TypeckResult};
+
 use volt_span::{FileId, SourceMap, Span};
 
 /// Bir belgenin tam analiz durumu. `resolve`/`typeck`/`domain` yalnız
@@ -57,44 +65,110 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
     };
 
     if count_errors(&diagnostics) == 0 {
-        // ADR-0048: uygulanmayan nitelikler editörde de görünür (W0021);
-        // politika sürücüyle aynı Volt.toml'dan (dosya dizininden yukarı).
-        let lint = volt_hir::UnenforcedLint::discover(std::path::Path::new(path).parent());
-        diagnostics.extend(volt_hir::check_attributes(&analysis.ast, lint));
-        // ADR-0054: @timing / @false_path / @multicycle biçim denetimi (E0017)
-        // sürücüyle aynı; W0022 yalnız `volt build --emit=sdc`'de.
-        diagnostics.extend(volt_hir::check_constraints(&analysis.ast));
+        let lint = volt_hir::UnenforcedLint::discover(Path::new(path).parent());
+        diagnostics.extend(volt_hir::pre_resolve_checks(&analysis.ast, lint));
         let resolve = volt_hir::resolve_file(&analysis.ast);
-        let resolve_failed = count_errors(&resolve.diagnostics) > 0;
-        // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
-        diagnostics.extend(volt_hir::without_raw_reset_unused(
-            &analysis.ast,
-            &resolve.diagnostics,
-        ));
-        if !resolve_failed {
-            let mut evaluator = volt_hir::ConstEvaluator::new(&analysis.ast, &resolve);
-            evaluator.eval_all_consts();
-            evaluator.check_type_positions();
-            let typeck = volt_hir::typecheck(&analysis.ast, &resolve, &mut evaluator);
-            let stage_failed =
-                count_errors(&evaluator.diagnostics) > 0 || count_errors(&typeck.diagnostics) > 0;
-            diagnostics.extend(evaluator.diagnostics.iter().cloned());
-            diagnostics.extend(typeck.diagnostics.iter().cloned());
-            if !stage_failed {
-                let domain = volt_hir::infer_domains(&analysis.ast, &resolve, &typeck);
-                diagnostics.extend(domain.diagnostics.iter().cloned());
-                // ADR-0065: reset alanı denetimi sürücüyle aynı.
-                diagnostics.extend(volt_hir::check_rdc(&analysis.ast, &resolve, &domain));
-                analysis.domain = Some(domain);
-            }
-            analysis.typeck = Some(typeck);
-        }
-        analysis.resolve = Some(resolve);
+        let stages = volt_hir::run_semantic_stages(&analysis.ast, resolve, None, &mut diagnostics);
+        analysis.resolve = Some(stages.resolve);
+        analysis.typeck = stages.typeck;
+        analysis.domain = stages.domain;
     }
 
-    analysis.diagnostics = diagnostics;
+    // Tanılar CLI yolundan; birim yüklenemezse (bağımlılık okunamadı)
+    // tek dosya boru hattının tanıları kalır.
+    let diagnostics = unit_diagnostics(Path::new(path), text, file_id)
+        .unwrap_or_else(|| volt_hir::annotate_generate(&analysis.ast, diagnostics));
+    analysis.diagnostics = cap_for_editor(diagnostics);
     analysis.build_refs();
     analysis
+}
+
+/// Editör üst sınırı (ADR-0070 §3): katlamadan sonra bile sınırı aşan
+/// FARKLI tanılar; W0023 çözümü `volt check`'i gösterir.
+fn cap_for_editor(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    volt_diagnostics::cap_diagnostics(
+        &mut diagnostics,
+        volt_diagnostics::LSP_MAX_DIAGNOSTICS,
+        &volt_diagnostics::lstr!(
+            en: "fix the reported diagnostics first; `volt check` lists them all (--max-diagnostics=0)";
+            tr: "önce raporlanan tanıları düzeltin; hepsi için `volt check` (--max-diagnostics=0)"
+        ),
+    );
+    diagnostics
+}
+
+/// `volt check` ile aynı aşamalar (sürücü `compile_all`'ın tanı yolu):
+/// birim yükleme → ön denetim → import → ortak boru hattı → çıktısız
+/// emit → toplayıcı. Dönen tanılar yalnız ana dosyaya düşenlerdir ve
+/// span'leri tek dosya haritasına (`file_id`) taşınmıştır.
+fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diagnostic>> {
+    let unit = volt_hir::unit_load::load_unit_with_text(path, Some(text.to_string())).ok()?;
+    let names = unit.source_names();
+    let main = unit.files.last().map(|(fid, _)| *fid)?;
+    let lint = unit
+        .manifest
+        .as_ref()
+        .map_or_else(Default::default, |m| m.lint_unenforced);
+    let ast = &unit.parsed.ast;
+    let mut diags = unit.parsed.diagnostics.clone();
+    if count_errors(&diags) == 0 {
+        diags.extend(volt_hir::pre_resolve_checks(ast, lint));
+        diags.extend(unit.diagnostics.iter().cloned());
+        let imports = volt_hir::check_imports(ast, &unit.info);
+        diags.extend(imports.diagnostics);
+        if count_errors(&diags) == 0 {
+            let resolve = volt_hir::resolve_unit(ast, &imports.scopes);
+            // Test veri dosyaları (ADR-0058) editörde okunmaz: içerik
+            // denetimleri (E8508/E8510) yalnız `volt check`/`build`'de.
+            volt_hir::run_semantic_stages(ast, resolve, None, &mut diags);
+            if count_errors(&diags) == 0 {
+                let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
+                let main_name = names.last().map_or("", |(_, n)| n.as_str());
+                diags.extend(volt_sv_emit::validate_unit(ast, main_name, &sources));
+            }
+        }
+    }
+    let diags = volt_hir::annotate_generate(ast, diags);
+    Some(
+        diags
+            .into_iter()
+            .filter_map(|d| to_main_file(d, main, file_id, &unit.map))
+            .collect(),
+    )
+}
+
+/// Birim tanısını tek dosya koordinatlarına taşır: birincil span'i ana
+/// dosyada değilse `None` (o dosya açılınca kendi tanısı görünür); başka
+/// dosyadaki ikincil span'ler "dosya:satır:sütun" notuna dönüşür.
+fn to_main_file(
+    mut d: Diagnostic,
+    main: FileId,
+    file_id: FileId,
+    map: &SourceMap,
+) -> Option<Diagnostic> {
+    if d.primary_span()?.span.file != main {
+        return None;
+    }
+    let mut elsewhere = Vec::new();
+    d.spans.retain_mut(|s| {
+        if s.span.file == main {
+            s.span.file = file_id;
+            true
+        } else {
+            let (line, col) = map.line_col(s.span);
+            let at = format!("{}:{}:{}", map.path(s.span.file).display(), line, col);
+            elsewhere.push(if s.label.is_empty() {
+                at
+            } else {
+                format!("{at}: {}", s.label)
+            });
+            false
+        }
+    });
+    for text in elsewhere {
+        d = d.with_note(volt_diagnostics::NoteKind::Note, text);
+    }
+    Some(d)
 }
 
 impl Analysis {

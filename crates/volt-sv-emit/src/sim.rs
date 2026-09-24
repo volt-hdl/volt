@@ -52,7 +52,10 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
         .map(|p| SimPort {
             name: p.name.text.clone(),
             is_input: p.direction == PortDir::In,
-            is_clock: matches!(src.types[p.ty].kind, TypeRefKind::Clock),
+            is_clock: matches!(
+                src.types[crate::alias::resolve(src, p.ty)].kind,
+                TypeRefKind::Clock
+            ),
             reset: None,
         })
         .collect();

@@ -1,6 +1,7 @@
 //! Hata/uyarı tanıları: kod tablosu, 5 parçalı tanı modeli ve
 //! insan/short/JSON çıktı üreticileri (cli-contract.md §5).
 
+pub mod cap;
 pub mod code;
 pub mod diagnostic;
 pub mod emit;
@@ -9,6 +10,7 @@ pub mod fold;
 pub mod json;
 pub mod messages;
 
+pub use cap::{cap_diagnostics, LSP_MAX_DIAGNOSTICS};
 pub use code::ErrorCode;
 pub use diagnostic::{
     Applicability, Diagnostic, LabeledSpan, Note, NoteKind, Severity, Suggestion,

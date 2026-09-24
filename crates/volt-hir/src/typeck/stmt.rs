@@ -115,7 +115,10 @@ impl TypeChecker<'_, '_> {
                         l.name.span,
                         lstr!(en: "type not specified, i32 assumed"; tr: "tip belirtilmedi, i32 varsayıldı"),
                         lstr!(en: "literal type could not be resolved from context"; tr: "literal tipi bağlamdan çözülemedi"),
-                        lstr!(en: "make it explicit by writing let {} : i32 = ...", l.name.text; tr: "let {} : i32 = ... yazarak açık belirtin", l.name.text),
+                        // Ad çözüme yazılmaz: `for` açılımında bağlama
+                        // yeniden adlandırılır (`t_0`) ve kullanıcının
+                        // yazmadığı ad sızardı (ADR-0070 §3.3).
+                        lstr!(en: "write the type explicitly after the name, e.g. let x : i32 = ..."; tr: "tipi adın ardına açıkça yazın, ör. let x : i32 = ..."),
                     );
                     self.types.intern(Ty::SInt { width: 32 })
                 } else {

@@ -48,10 +48,18 @@ pub struct Backend {
     docs: DocMap,
 }
 
+/// Belgenin dosya sistemi yolu (`file://` ise; birim yükleyicisi kardeş
+/// dosyaları buna göre arar — ADR-0070). Başka şemada URI yolu.
+fn doc_path(uri: &Url) -> String {
+    uri.to_file_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|()| uri.path().to_string())
+}
+
 /// Belge metnini analiz edip LSP tanılarına çevirir (push ve pull
 /// yolları ortak kullanır).
 fn compute_diagnostics(uri: &Url, text: &str) -> Vec<tower_lsp::lsp_types::Diagnostic> {
-    let analysis = analysis::analyze(uri.path(), text);
+    let analysis = analysis::analyze(&doc_path(uri), text);
     analysis
         .diagnostics
         .iter()
@@ -78,7 +86,7 @@ impl Backend {
     /// Konumdaki belgeyi analiz eder ve bayt offset döndürür.
     fn analyze_at(&self, uri: &Url, position: Position) -> Option<(analysis::Analysis, u32)> {
         let text = self.snapshot(uri)?;
-        let analysis = analysis::analyze(uri.path(), &text);
+        let analysis = analysis::analyze(&doc_path(uri), &text);
         let offset = analysis.map.byte_of_utf16_position(
             analysis.file_id,
             position.line,
@@ -279,7 +287,7 @@ impl LanguageServer for Backend {
         let Some(text) = self.snapshot(&uri) else {
             return Ok(None);
         };
-        let analysis = analysis::analyze(uri.path(), &text);
+        let analysis = analysis::analyze(&doc_path(&uri), &text);
         let syms = symbols::document_symbols(&analysis);
         Ok((!syms.is_empty()).then_some(DocumentSymbolResponse::Nested(syms)))
     }

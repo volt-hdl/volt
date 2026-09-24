@@ -309,6 +309,7 @@ impl Parser<'_> {
                 );
             }
             (None, Some(payload)) => {
+                let payload = self.reject_bundle_payload(payload, defs);
                 let no_check = no_check || has_attr(&port.attrs, NO_PROTOCOL_CHECK);
                 let info = self
                     .expand_handshake(&port, prefix, payload, plain, out, flat, counter, item_span);
@@ -319,6 +320,54 @@ impl Parser<'_> {
             }
             (None, None) => out.push(port),
         }
+    }
+
+    /// `Handshake<T>` payload'u yönlü bir bundle olamaz: iç içe
+    /// `Handshake<Handshake<_>>` ya da `Handshake<BirStructPort>` (ADR-0070
+    /// §3.1). Payload tek yönlü veridir (üretici sürer); içteki `ready`
+    /// ters yönde akardı. E0003 + payload hata tipine çevrilir ki çözümleme
+    /// açılmamış iç tipi "tanımsız ad" (E1001) diye raporlamasın.
+    fn reject_bundle_payload(
+        &mut self,
+        payload: Idx<TypeRef>,
+        defs: &HashMap<String, Vec<FieldInfo>>,
+    ) -> Idx<TypeRef> {
+        let inner = if self.handshake_payload(payload).is_some() {
+            HANDSHAKE.to_string()
+        } else if let Some(n) =
+            simple_type_name(&self.ast.types, payload).filter(|n| defs.contains_key(*n))
+        {
+            n.to_string()
+        } else {
+            return payload;
+        };
+        let span = self.ast.types[payload].span;
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E0003,
+            lstr!(
+                en: "a Handshake payload cannot be a port bundle ('{inner}')";
+                tr: "Handshake payload'u bir port bundle'ı olamaz ('{inner}')"
+            ),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "bundle used as payload"; tr: "payload olarak bundle"),
+            ),
+            lstr!(
+                en: "use separate Handshake ports, or a plain struct (no 'port') as the payload";
+                tr: "ayrı Handshake portları ya da payload olarak düz bir struct ('port' olmadan) kullanın"
+            ),
+        )
+        .with_note(
+            NoteKind::Note,
+            lstr!(
+                en: "the payload is data driven by the producer; a bundle has its own directions (e.g. 'ready' flows back), so it cannot be nested in 'data' (ADR-0050)";
+                tr: "payload üreticinin sürdüğü veridir; bundle'ın kendi yönleri vardır (ör. 'ready' geri akar), 'data' içine yerleşemez (ADR-0050)"
+            ),
+        ));
+        self.ast.types.alloc(TypeRef {
+            span,
+            kind: TypeRefKind::Error,
+        })
     }
 
     /// Eleman tipi bir bundle (kullanıcı `struct port` ya da yerleşik

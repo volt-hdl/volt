@@ -8,6 +8,5 @@ license.workspace = true
 volt-span = { path = "../volt-span" }
 volt-diagnostics = { path = "../volt-diagnostics" }
 volt-ast = { path = "../volt-ast" }
-
-[dev-dependencies]
+# ADR-0070: birim yükleyicisi (unit_load) volt-driver'dan taşındı.
 volt-syntax = { path = "../volt-syntax" }

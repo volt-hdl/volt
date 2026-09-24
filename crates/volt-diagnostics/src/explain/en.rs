@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Use the features of the current language version;\n// track the roadmap for when the keyword becomes available.",
         )
         .with_note(
-            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041) and generic struct ports (ADR-0069).",
+            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070).",
         ),
         E0004 => Explanation::new(
             "Block end name does not match",

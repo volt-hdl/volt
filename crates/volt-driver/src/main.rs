@@ -11,10 +11,11 @@
 mod regmap_check;
 mod sim;
 mod sim_lower;
-mod unit;
 mod verify;
 mod verify_jobs;
 mod verify_report;
+
+use volt_hir::unit_load as unit;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -30,8 +31,7 @@ use volt_sdc_emit::{Dialect, SdcStyle};
 use volt_span::FileId;
 use volt_span::SourceMap;
 use volt_sv_emit::{
-    ConstArrayStyle, SbyEngine, SbyMode, SbyOptions, SourceText, SvModule, SvaFile, SvaMode,
-    SvaProp,
+    ConstArrayStyle, SbyEngine, SbyMode, SbyOptions, SvModule, SvaFile, SvaMode, SvaProp,
 };
 use volt_sw_emit::{EmitOpts, SwKind};
 use volt_syntax::ParseResult;
@@ -668,52 +668,27 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
 /// atlanır: parse (E0xxx) → resolve (E1xxx) → const+typeck
 /// (E2xxx/E4xxx) → domain (E3xxx) → emit (yalnız `want_sv`).
 ///
-/// `check` emit koşmaz (§6 "çıktı üretmeden doğrulama") — sv-emit'in
-/// F0 sınırları (örn. sync() çağrısı E0003) analizi engellememeli.
+/// `check` emit geçişini de koşar ama çıktıyı atar (§6 "çıktı üretmeden
+/// doğrulama"; ADR-0070): SV eşlemesi henüz olmayan yapılar (E0003) ve
+/// emitter'ın diğer denetimleri `check`'te ve editörde de görünür. Emit
+/// yalnız önceki aşamalar hatasızsa koşar — analizi engellemez.
 fn compile(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
     let mut compiled = compile_all(file, want_sv, sva_mode)?;
     cap_diagnostics(&mut compiled.diagnostics);
     Ok(compiled)
 }
 
-/// Tanı üst sınırı (ADR-0068 §4, W0023): katlama kök nedeni çözer, bu
-/// bilinmeyen patlama sınıflarına karşı yedek güvencedir. Sınır aşılırsa
-/// hatalar önce (JSON zarfıyla aynı sıra), ilk `limit` tanı kalır, sonuna
-/// gizlenen sayıyı ve `--max-diagnostics` çözümünü söyleyen W0023 eklenir.
+/// Tanı üst sınırı (ADR-0068 §4, W0023) — ortak uygulama
+/// `volt_diagnostics::cap_diagnostics` (LSP de kullanır, ADR-0070).
 fn cap_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
-    let limit = MAX_DIAGNOSTICS.load(Ordering::Relaxed);
-    if limit == 0 || diagnostics.len() <= limit {
-        return;
-    }
-    let total = diagnostics.len();
-    let mut ordered = std::mem::take(diagnostics);
-    ordered.sort_by_key(|d| d.severity != Severity::Error);
-    ordered.truncate(limit);
-    let hidden = total - limit;
-    let Some(anchor) = ordered
-        .last()
-        .and_then(|d| d.primary_span())
-        .map(|s| s.span)
-    else {
-        *diagnostics = ordered;
-        return;
-    };
-    ordered.push(Diagnostic::warning(
-        ErrorCode::W0023,
-        lstr!(
-            en: "too many diagnostics: {limit} shown, {hidden} hidden";
-            tr: "çok fazla tanı: {limit} gösterildi, {hidden} gizlendi"
-        ),
-        volt_diagnostics::LabeledSpan::primary(
-            anchor,
-            lstr!(en: "last diagnostic shown"; tr: "gösterilen son tanı"),
-        ),
-        lstr!(
+    volt_diagnostics::cap_diagnostics(
+        diagnostics,
+        MAX_DIAGNOSTICS.load(Ordering::Relaxed),
+        &lstr!(
             en: "fix the reported diagnostics first, or raise the limit with --max-diagnostics=N (0 = unlimited)";
             tr: "önce raporlanan tanıları düzeltin ya da sınırı --max-diagnostics=N ile yükseltin (0 = sınırsız)"
         ),
-    ));
-    *diagnostics = ordered;
+    );
 }
 
 fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled, ExitCode> {
@@ -731,6 +706,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
             return Err(ExitCode::from(3));
         }
     };
+    let names = unit.source_names();
     let map = unit.map;
     let parsed = unit.parsed;
     let file_count = unit.files.len();
@@ -759,7 +735,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
 
     // ── Aşama 1b: uygulanmayan nitelikler (ADR-0048, W0021) — Volt.toml
     // `[lint] unenforced_attributes = "allow"` ile susturulabilir.
-    diagnostics.extend(volt_hir::check_attributes(&parsed.ast, lint_unenforced));
+    diagnostics.extend(volt_hir::pre_resolve_checks(&parsed.ast, lint_unenforced));
 
     // ── Aşama 2a: import çözümlemesi — bulunamayan dosya (E1011),
     // döngü (E1006), özel öğe (E1004), belirsizlik (E1010) ──
@@ -777,36 +753,17 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     else {
         return Ok(fail(map, diagnostics, parsed.ast));
     };
-    if count_errors(&diagnostics) > 0 || !want_sv {
+    if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
     }
 
-    // ── Aşama 5: emit (E2005 literal boyutlandırma; F4a SVA) ──
+    // ── Aşama 5: emit (E2005 literal boyutlandırma; F4a SVA). `check`
+    // için de koşar, çıktısı atılır (ADR-0070) ──
     let source_name = file
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| file.display().to_string());
-    let names: Vec<(FileId, String)> = unit
-        .files
-        .iter()
-        .map(|(fid, p)| {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| p.display().to_string());
-            (*fid, name)
-        })
-        .collect();
-    // Ana dosya birimde sonda; SourceText listesinde İLK olmalı (yedek).
-    let mut sources: Vec<SourceText<'_>> = names
-        .iter()
-        .map(|(fid, name)| SourceText {
-            file: *fid,
-            name,
-            text: map.source(*fid),
-        })
-        .collect();
-    sources.rotate_right(1);
+    let sources = volt_sv_emit::unit_source_texts(&names, &map);
     let emitted = volt_sv_emit::emit_unit(
         &parsed.ast,
         &source_name,
@@ -817,18 +774,18 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     diagnostics.extend(emitted.diagnostics);
     // Açılmış `for` yinelemelerine düşen tanılara bağlam notu (ADR-0056).
     let diagnostics = volt_hir::annotate_generate(&parsed.ast, diagnostics);
-    let (sv, modules, sva_files, sva_props, multiclock_modules) = if count_errors(&diagnostics) == 0
-    {
-        (
-            Some(emitted.sv),
-            emitted.modules,
-            emitted.sva_files,
-            emitted.sva_props,
-            emitted.multiclock_modules,
-        )
-    } else {
-        (None, Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    };
+    let (sv, modules, sva_files, sva_props, multiclock_modules) =
+        if want_sv && count_errors(&diagnostics) == 0 {
+            (
+                Some(emitted.sv),
+                emitted.modules,
+                emitted.sva_files,
+                emitted.sva_props,
+                emitted.multiclock_modules,
+            )
+        } else {
+            (None, Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        };
 
     Ok(Compiled {
         map,
@@ -845,77 +802,18 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     })
 }
 
-/// Aşama 2-4: resolve → const+typeck → domain. Tanılar `out`'a
-/// eklenir; bir aşama hata üretirse sonrakiler koşmaz (`None`).
-/// Başarıda zamanlama kısıtı modeli (ADR-0054) döner.
+/// Aşama 2-4: birim modu çözümleme (ADR-0042) + paylaşılan kapılı
+/// boru hattı (ADR-0070, LSP ile aynı fonksiyon). Tanılar `out`'a
+/// eklenir; bir aşama hata üretirse `None`. Başarıda zamanlama kısıtı
+/// modeli (ADR-0054) döner.
 fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
     test_files: &dyn volt_hir::TestFileLoader,
     out: &mut Vec<Diagnostic>,
 ) -> Option<volt_hir::ConstraintResult> {
-    // ── Aşama 2: isim çözümleme (birim modu, ADR-0042) ──
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
-    let resolve_failed = count_errors(&resolve.diagnostics) > 0;
-    // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
-    out.extend(volt_hir::without_raw_reset_unused(
-        &parsed.ast,
-        &resolve.diagnostics,
-    ));
-    if resolve_failed {
-        return None;
-    }
-
-    // ── Aşama 3: const eval + tip kontrolü ──
-    let mut evaluator = volt_hir::ConstEvaluator::new(&parsed.ast, &resolve);
-    evaluator.eval_all_consts();
-    evaluator.check_type_positions();
-    let typeck = volt_hir::typecheck(&parsed.ast, &resolve, &mut evaluator);
-    let stage_failed =
-        count_errors(&evaluator.diagnostics) > 0 || count_errors(&typeck.diagnostics) > 0;
-    out.extend(evaluator.diagnostics.iter().cloned());
-    out.extend(typeck.diagnostics.iter().cloned());
-    if stage_failed {
-        return None;
-    }
-
-    // ── Aşama 4: domain çıkarımı ve CDC (Volt'un vaadi) ──
-    let domain = volt_hir::infer_domains(&parsed.ast, &resolve, &typeck);
-    // ── F2f güven seviyeleri (ADR-0052): E3009 / W3008 ──
-    let trust = volt_hir::check_trust(&parsed.ast, &resolve, &typeck, &domain);
-    // ── Reset alanı denetimi (ADR-0065): E3003 / W3009 / W3010 ──
-    let rdc = volt_hir::check_rdc(&parsed.ast, &resolve, &domain);
-    out.extend(domain.diagnostics);
-    out.extend(trust);
-    out.extend(rdc);
-
-    // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
-    out.extend(volt_hir::check_timing(&parsed.ast, &resolve));
-
-    // ── Handshake protokolü (ADR-0050): valid, ready'ye bağlı olamaz ──
-    out.extend(volt_hir::check_handshakes(&parsed.ast, &resolve));
-
-    // ── Test blokları (ADR-0033) ── Dosyada hiç modül yoksa testler
-    // kardeş dosyanın modüllerini kullanıyordur; modül-varlık denetimi
-    // atlanır (sim.rs kardeş dosyayla tam denetimi yapar).
-    let has_modules = parsed.ast.items.iter().any(|i| {
-        matches!(
-            parsed.ast.items_arena[*i].kind,
-            volt_ast::ItemKind::Module(_)
-        )
-    });
-    out.extend(volt_hir::check_tests_with_files(
-        &[&parsed.ast],
-        &parsed.ast,
-        !has_modules,
-        Some(test_files),
-    ));
-
-    // ── Zamanlama kısıtları (ADR-0054): E0017 her zaman; model
-    // `--emit=sdc,xdc` için saklanır, W0022 orada üretilir ──
-    let constraints = volt_hir::collect_constraints(&parsed.ast);
-    out.extend(constraints.diagnostics.iter().cloned());
-    Some(constraints)
+    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), out).constraints
 }
 
 /// Tanıları seçilen formatta stderr'e yazar (JSON zarfı hariç — o

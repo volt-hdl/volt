@@ -250,7 +250,7 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           88 reset'siz RAM yazma saati (R5' inceltmesi),
     // ADR-0066: 89-90 otomatik FSM / sayaç kontratları,
     // ADR-0069: 91 sonlu tip çizgesi (E4009 yanlış pozitif yok).
-    assert_eq!(checked, 80);
+    assert_eq!(checked, 81);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -210,7 +210,10 @@ impl<'a> Emitter<'a> {
                 }
                 // Üst düzey const: genişlik bildirilen tipinden gelir.
                 let &(ty, _) = self.consts.get(&name.text)?;
-                if matches!(ast.types[ty].kind, TypeRefKind::Array { .. }) {
+                if matches!(
+                    ast.types[crate::alias::resolve(ast, ty)].kind,
+                    TypeRefKind::Array { .. }
+                ) {
                     return None; // dizi sabiti: yalnız indeksle kullanılır
                 }
                 let span = ast.exprs[idx].span;
@@ -583,8 +586,8 @@ impl<'a> Emitter<'a> {
                 self.future(
                     span,
                     &lstr!(
-                        en: "function calls (including sync)";
-                        tr: "fonksiyon çağrıları (sync dahil)"
+                        en: "function calls inside expressions (sync() only as the whole right-hand side of an assignment)";
+                        tr: "ifade içinde fonksiyon çağrıları (sync() yalnız atamanın tüm sağ tarafı olarak)"
                     ),
                 );
                 ("1'b0".to_string(), PREC_ATOM)
@@ -631,19 +634,28 @@ impl<'a> Emitter<'a> {
                     .join(", ");
                 (format!("'{{{parts}}}"), PREC_ATOM)
             }
-            // F1 parser yapıları — SV üretimi sonraki aşamalarda
+            // SV eşlemesi henüz olmayan ifade türleri (ADR-0070: türün adı).
             ExprKind::StringLit(_)
             | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::TupleLit(_)
             | ExprKind::Todo { .. } => {
-                self.future(
-                    span,
-                    &lstr!(
-                        en: "SV generation of this expression kind";
-                        tr: "bu ifade türünün SV üretimi"
-                    ),
-                );
+                let what = match &self.ast.exprs[idx].kind {
+                    ExprKind::StringLit(_) => {
+                        lstr!(en: "string literals in hardware"; tr: "donanımda string literalleri")
+                    }
+                    ExprKind::Match { .. } => {
+                        lstr!(en: "'match' expressions"; tr: "'match' ifadeleri")
+                    }
+                    ExprKind::StructLit { .. } => {
+                        lstr!(en: "struct literals"; tr: "struct literalleri")
+                    }
+                    ExprKind::TupleLit(_) => {
+                        lstr!(en: "tuple literals"; tr: "tuple literalleri")
+                    }
+                    _ => lstr!(en: "'todo!()' in hardware"; tr: "donanımda 'todo!()'"),
+                };
+                self.future(span, &what);
                 ("1'b0".to_string(), PREC_ATOM)
             }
         };
@@ -774,7 +786,10 @@ impl<'a> Emitter<'a> {
             return Some(self.fmt_int(v, NumBase::Dec, ctx, span));
         }
         let &(ty, value_idx) = self.consts.get(name)?;
-        if matches!(self.ast.types[ty].kind, TypeRefKind::Array { .. }) {
+        if matches!(
+            self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+            TypeRefKind::Array { .. }
+        ) {
             self.error(
                 ErrorCode::E2005,
                 lstr!(

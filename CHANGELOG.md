@@ -5,6 +5,43 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — `check`, LSP ve `build` farklı tanılar veriyordu (2026-09-24, ADR-0070)
+
+- **İlke**: analizde bilinebilen her hata `volt check`'te ve editörde
+  görünür; yalnız `build`'de çıkabilenler belirli bir çıktı kipine özgü
+  olanlardır (A sınıfı: `--emit=sva` kontrat ifadeleri, `volt test` W5001,
+  `--emit=sdc` W0022, yazılım çıktısı/regmap). Kural
+  `crates/volt-driver/tests/parity_tests.rs` ile sabitlendi.
+- **`volt check` emit doğrulamasını koşar, çıktıyı atar**: SV eşlemesi
+  henüz olmayan yapılar (E0003) ve emitter'ın diğer denetimleri artık
+  `check`'te de. Ölçüm: sv-emit'in 45 tanı noktasının 23'ü analizde
+  bilinebilir olduğu hâlde yalnız `build`'de görünüyordu; 301 dosyalık
+  külliyatta "check temiz, build hatalı" dosya 59 → 0. Geçerli tasarımların
+  build çıktısı değişmedi (golden 216 dosya birebir).
+- **LSP = check**: editör tanıları `volt check` ile aynı yoldan (birim
+  yükleyicisi `volt_hir::unit_load` volt-driver'dan taşındı, ortak kapılı
+  boru hattı `volt_hir::run_semantic_stages`, çıktısız emit, katlama).
+  Önce LSP'de güven seviyesi, zamanlama, Handshake, test ve import
+  denetimleri yoktu; `use`'lu dosyada sahte E2005 veriyordu.
+- **LSP tanı katlama (ADR-0068 açığı)**: 283 yinelemeli iki hatalı
+  tasarım editörde 566 → 2 tanı (168 KB → 1,3 KB); katlama notu mesajda.
+  Editör sınırı 200 tanı + W0023 ("`volt check` lists them all").
+- **Takma adlar SV'ye iner** (hata düzeltmesi): `type W = u8`, saat,
+  dizi ve zincir takma adlar port/reg/wire/let'te çalışır (önce hep
+  E0003). Struct/enum port tipi hâlâ desteklenmiyor — artık `check` de
+  söyler: "not supported yet: struct type 'P' as a signal type".
+- **E0003 metinleri** neyin desteklenmediğini söyler; eskimiş "F0 SV
+  generation / F1+" ifadeleri kalktı. Yanıltıcı mesajlar düzeldi: extern
+  modül örneği, struct literali, `let` kaskad E2005'i, çift wire E0003'ü,
+  eksik zorunlu primitif bağlaması (artık E2005, E0003 değil).
+- `Handshake<Handshake<u8>>` / `Handshake<BirStructPort>`: yanıltıcı E1001
+  yerine E0003 "a Handshake payload cannot be a port bundle".
+- LSP hover: `p : P` (struct/enum adı; önce `p : struct`); bundle portu
+  `hs : Handshake<u8>` + açılan portlar.
+- W2012 çözümünde üretilmiş ad (`t_0`) görünmüyor.
+- `tests/fixtures/parity/` (72 sonda), `tests/ui/pass/92`,
+  `tests/ui/fail/83`, `lsp_protocol_tests.rs` (gerçek `volt lsp` stdio).
+
 ### Düzeltildi — Özyineli tipler ve generic struct port sessizce kabul ediliyordu (2026-09-24, ADR-0069)
 
 - Issue #21'in iki açığı (ADR-0067 kapsam dışı bırakmıştı): `struct P { d : u8, f : P }`

@@ -4,6 +4,7 @@
 //! volt-lower devralacak. Tip bilgisi kaba çıkarımla gelir (F2'de HIR
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
+mod alias;
 mod builtin_prim;
 mod const_array;
 mod expr;
@@ -256,6 +257,43 @@ pub struct SourceText<'a> {
     pub text: &'a str,
 }
 
+/// Birim dosyalarından emit girdisi: `names` bağımlılık sırasıyla (ana
+/// dosya SONDA, `LoadedUnit::source_names`); dönen listede ana dosya
+/// İLK sıradadır (yedek kaynak). Sürücü ve LSP aynı listeyi kurar.
+pub fn unit_source_texts<'a>(
+    names: &'a [(FileId, String)],
+    map: &'a volt_span::SourceMap,
+) -> Vec<SourceText<'a>> {
+    let mut sources: Vec<SourceText<'a>> = names
+        .iter()
+        .map(|(fid, name)| SourceText {
+            file: *fid,
+            name,
+            text: map.source(*fid),
+        })
+        .collect();
+    sources.rotate_right(1);
+    sources
+}
+
+/// Çıktı üretmeden emit doğrulaması (ADR-0070): `volt check` ve LSP,
+/// `volt build`'in varsayılan emit'inin tanılarını aynen görür (SV
+/// eşlemesi henüz olmayan yapılar dahil). Üretilen SV atılır.
+pub fn validate_unit(
+    ast: &SourceFile,
+    source_name: &str,
+    sources: &[SourceText<'_>],
+) -> Vec<Diagnostic> {
+    emit_unit(
+        ast,
+        source_name,
+        sources,
+        SvaMode::None,
+        ConstArrayStyle::default(),
+    )
+    .diagnostics
+}
+
 /// Tüm modülleri üretir; `mode`'a göre kontratlardan SVA da çıkarır.
 pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMode) -> EmitOutput {
     emit_full_opts(ast, source_name, source, mode, ConstArrayStyle::default())
@@ -396,7 +434,12 @@ pub(crate) fn clock_ports_of(
     module
         .ports
         .iter()
-        .filter(|p| matches!(ast.types[p.ty].kind, TypeRefKind::Clock))
+        .filter(|p| {
+            matches!(
+                ast.types[crate::alias::resolve(ast, p.ty)].kind,
+                TypeRefKind::Clock
+            )
+        })
         .map(|p| {
             let domain = p.domain.as_ref().map(|d| d.text.clone());
             let mut info = domain
@@ -515,17 +558,20 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// E0003 — geçerli Volt ama SystemVerilog eşlemesi henüz yok. Mesaj
+    /// NEYİN desteklenmediğini söyler (ADR-0070); `check` ve editör de
+    /// aynı tanıyı görür (çıktısız emit doğrulaması).
     pub(crate) fn future(&mut self, span: Span, what: &str) {
         self.error(
             ErrorCode::E0003,
             lstr!(
-                en: "{what} is not supported in F0 SV generation";
-                tr: "{what} F0 SV üretiminde desteklenmiyor"
+                en: "not supported yet: {what}";
+                tr: "henüz desteklenmiyor: {what}"
             ),
             span,
             &lstr!(
-                en: "this construct will be added in F1+";
-                tr: "bu yapı F1+ sürümünde eklenecek"
+                en: "this is valid Volt but has no SystemVerilog mapping yet; express it with supported constructs (see volt explain E0003)";
+                tr: "bu geçerli Volt ama henüz SystemVerilog eşlemesi yok; desteklenen yapılarla yazın (bkz. volt explain E0003)"
             ),
         );
     }
@@ -575,7 +621,12 @@ impl<'a> Emitter<'a> {
                 }
                 match reg.ty {
                     // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
-                    Some(ty) if matches!(&ast.types[ty].kind, TypeRefKind::Array { .. }) => {
+                    Some(ty)
+                        if matches!(
+                            &ast.types[crate::alias::resolve(ast, ty)].kind,
+                            TypeRefKind::Array { .. }
+                        ) =>
+                    {
                         if let Some((sig, len)) = self.array_reg_sig(ty, span) {
                             self.symbols.insert(reg.name.text.clone(), sig);
                             self.array_dims.insert(reg.name.text.clone(), len);
@@ -594,8 +645,8 @@ impl<'a> Emitter<'a> {
                         ),
                         span,
                         &lstr!(
-                            en: "in F0 the reg type must be written explicitly: reg name : u8 = 0";
-                            tr: "F0'da reg tipi açık yazılmalı: reg isim : u8 = 0"
+                            en: "write the reg type explicitly: reg name : u8 = 0";
+                            tr: "reg tipini açık yazın: reg isim : u8 = 0"
                         ),
                     ),
                 }
@@ -700,7 +751,12 @@ impl<'a> Emitter<'a> {
     /// Port sırası (§1): clock'lar → reset'ler → in → inout → out.
     fn emit_ports(&mut self, module: &'a ModuleDecl, resets: &[ResetCfg]) -> String {
         let ast = self.ast;
-        let is_clock = |p: &volt_ast::Port| matches!(ast.types[p.ty].kind, TypeRefKind::Clock);
+        let is_clock = |p: &volt_ast::Port| {
+            matches!(
+                ast.types[crate::alias::resolve(ast, p.ty)].kind,
+                TypeRefKind::Clock
+            )
+        };
 
         let mut lines: Vec<(&'static str, String, String)> = Vec::new();
         for port in module.ports.iter().filter(|p| is_clock(p)) {
@@ -815,6 +871,19 @@ impl<'a> Emitter<'a> {
                                 ),
                             ))
                         }
+                        // Açık tip zaten tanılandı (sig_of_typeref); tipsizse
+                        // değer üretilir ki desteklenmeyen ifade (sync, match,
+                        // struct literali ...) kendi E0003'ünü versin — kaskad
+                        // E2005 yalnız başka tanı yoksa (ADR-0070).
+                        None if decl.ty.is_some() => None,
+                        None if {
+                            let before = self.diagnostics.len();
+                            let _ = self.emit_assigned(decl.value, None);
+                            self.diagnostics.len() > before
+                        } =>
+                        {
+                            None
+                        }
                         None => {
                             self.error(
                                 ErrorCode::E2005,
@@ -873,16 +942,9 @@ impl<'a> Emitter<'a> {
                             None => format!("    {} {};", sig.decl_type(), w.name.text),
                         },
                     )),
-                    None => {
-                        self.future(
-                            stmt.span,
-                            &lstr!(
-                                en: "SV generation of 'wire {}' with this type", w.name.text;
-                                tr: "bu tipteki 'wire {}' SV üretimi", w.name.text
-                            ),
-                        );
-                        None
-                    }
+                    // Tip ön geçişte (`signal_sig`) zaten tanılandı (ADR-0070:
+                    // aynı sorun için ikinci E0003 yok).
+                    None => None,
                 },
                 StmtKind::Instance(inst) => {
                     let is_builtin = inst.module_path.segments.len() == 1
@@ -1016,7 +1078,7 @@ impl<'a> Emitter<'a> {
             self.future(
                 span,
                 &lstr!(
-                    en: "sync() with {} argument(s) — expected sync(src, dst_clock)", args.len();
+                    en: "sync() with {} argument(s), expected sync(src, dst_clock)", args.len();
                     tr: "{} argümanlı sync() — beklenen sync(kaynak, hedef_saat)", args.len()
                 ),
             );
@@ -1027,7 +1089,7 @@ impl<'a> Emitter<'a> {
             self.future(
                 span,
                 &lstr!(
-                    en: "sync() with a compound source expression — bind it with let first";
+                    en: "sync() with a compound source expression (bind it with let first)";
                     tr: "bileşik kaynak ifadeli sync() — önce let ile bağlayın"
                 ),
             );
@@ -1140,8 +1202,8 @@ impl<'a> Emitter<'a> {
                 self.future(
                     span,
                     &lstr!(
-                        en: "the 'on clock.reset' block";
-                        tr: "'on saat.reset' blokları"
+                        en: "'on <clock>.reset' blocks";
+                        tr: "'on <saat>.reset' blokları"
                     ),
                 );
                 name.text.clone()
@@ -1300,8 +1362,8 @@ impl<'a> Emitter<'a> {
                 self.future(
                     arm.span,
                     &lstr!(
-                        en: "SV generation of match arm guards";
-                        tr: "match kolu muhafızlarının SV üretimi"
+                        en: "'match' arm guards ('if' after a pattern)";
+                        tr: "'match' kolu muhafızları (desenden sonra 'if')"
                     ),
                 );
                 continue;
@@ -1317,8 +1379,8 @@ impl<'a> Emitter<'a> {
                     self.future(
                         span,
                         &lstr!(
-                            en: "expression-bodied match arms in statement position";
-                            tr: "deyim konumunda ifade gövdeli match kolları"
+                            en: "expression-bodied 'match' arms in statement position";
+                            tr: "deyim konumunda ifade gövdeli 'match' kolları"
                         ),
                     );
                 }
@@ -1353,8 +1415,8 @@ impl<'a> Emitter<'a> {
                 self.future(
                     ast.patterns[pattern].span,
                     &lstr!(
-                        en: "SV generation of binding/path/tuple match patterns";
-                        tr: "bağlama/yol/tuple match desenlerinin SV üretimi"
+                        en: "binding, path and tuple patterns in 'match' (only literals and '_' map to SV)";
+                        tr: "'match' içinde bağlama, yol ve tuple desenleri (SV'ye yalnız literal ve '_' iner)"
                     ),
                 );
                 None
@@ -1495,7 +1557,10 @@ impl<'a> Emitter<'a> {
     /// paketlenmiş vektör olarak kaydedilir (ADR-0056) — toplam genişlik
     /// döner, eleman bilgisi `packed_arrays`'e yazılır.
     pub(crate) fn signal_sig(&mut self, name: &str, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
-        if !matches!(self.ast.types[ty].kind, TypeRefKind::Array { .. }) {
+        if !matches!(
+            self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+            TypeRefKind::Array { .. }
+        ) {
             return self.sig_of_typeref(ty, span);
         }
         let (elem, len) = self.array_reg_sig(ty, span)?;
@@ -1512,7 +1577,10 @@ impl<'a> Emitter<'a> {
         if reset_sync::is_raw_reset(self.ast, port) {
             return Some(Sig::BIT);
         }
-        if !matches!(self.ast.types[port.ty].kind, TypeRefKind::Array { .. }) {
+        if !matches!(
+            self.ast.types[crate::alias::resolve(self.ast, port.ty)].kind,
+            TypeRefKind::Array { .. }
+        ) {
             return self.sig_of_typeref(port.ty, port.span);
         }
         let (elem, len) = self.array_reg_sig(port.ty, port.span)?;
@@ -1526,7 +1594,9 @@ impl<'a> Emitter<'a> {
     /// Reg bildirimlerinde ve paketlenmiş port/wire dizilerinde
     /// çağrılır; iç içe dizi desteklenmez.
     pub(crate) fn array_reg_sig(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<(Sig, u32)> {
-        let TypeRefKind::Array { elem, len } = &self.ast.types[ty].kind else {
+        let TypeRefKind::Array { elem, len } =
+            &self.ast.types[crate::alias::resolve(self.ast, ty)].kind
+        else {
             return None;
         };
         let (elem, len) = (*elem, *len);
@@ -1552,7 +1622,7 @@ impl<'a> Emitter<'a> {
     }
 
     pub(crate) fn sig_of_typeref(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
-        match &self.ast.types[ty].kind {
+        match &self.ast.types[crate::alias::resolve(self.ast, ty)].kind {
             TypeRefKind::Bool | TypeRefKind::Clock => Some(Sig {
                 width: 1,
                 signed: false,
@@ -1567,7 +1637,10 @@ impl<'a> Emitter<'a> {
             }),
             TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => {
                 let e = *e;
-                let signed = matches!(&self.ast.types[ty].kind, TypeRefKind::SIntN(_));
+                let signed = matches!(
+                    &self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+                    TypeRefKind::SIntN(_)
+                );
                 match self.eval_const(e) {
                     Some(n) if n >= 1 => Some(Sig {
                         width: n as u32,
@@ -1595,36 +1668,35 @@ impl<'a> Emitter<'a> {
                 width: 2,
                 signed: true,
             }),
+            // Ham reset GİRİŞ portu (ADR-0065) buraya gelmez; kalan konumlar.
             TypeRefKind::Reset(_) => {
                 self.future(
                     span,
                     &lstr!(
-                        en: "the explicit 'reset' port";
-                        tr: "açık 'reset' portları"
+                        en: "values of type 'reset' outside an input port";
+                        tr: "giriş portu dışında 'reset' tipli değerler"
                     ),
                 );
                 None
             }
             TypeRefKind::Error => None, // parse tanısı zaten var
-            // F1 parser tipleri — SV eşlemesi sonraki aşamalarda
-            TypeRefKind::Array { .. } | TypeRefKind::Tuple(_) => {
+            TypeRefKind::Array { .. } => {
                 self.future(
                     span,
                     &lstr!(
-                        en: "SV mapping of array/tuple types";
-                        tr: "dizi/tuple tiplerinin SV eşlemesi"
+                        en: "array types here (arrays map to SV only as one-dimensional reg, port and wire types)";
+                        tr: "bu konumda dizi tipleri (SV'ye yalnız tek boyutlu reg, port ve wire dizisi iner)"
                     ),
                 );
                 None
             }
+            TypeRefKind::Tuple(_) => {
+                self.future(span, &lstr!(en: "tuple types"; tr: "tuple tipleri"));
+                None
+            }
             TypeRefKind::Path { .. } => {
-                self.future(
-                    span,
-                    &lstr!(
-                        en: "SV mapping of user-defined types";
-                        tr: "kullanıcı tanımlı tiplerin SV eşlemesi"
-                    ),
-                );
+                let what = alias::describe_user_type(self.ast, alias::resolve(self.ast, ty));
+                self.future(span, &what);
                 None
             }
         }

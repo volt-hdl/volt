@@ -9,6 +9,8 @@ volt-ast = { path = "../volt-ast" }
 volt-hir = { path = "../volt-hir" }
 volt-span = { path = "../volt-span" }
 volt-syntax = { path = "../volt-syntax" }
+# ADR-0070: editör tanıları `volt check` gibi çıktısız emit doğrulamasını koşar.
+volt-sv-emit = { path = "../volt-sv-emit" }
 volt-diagnostics = { path = "../volt-diagnostics" }
 tower-lsp.workspace = true
 tokio.workspace = true
