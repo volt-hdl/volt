@@ -5,6 +5,51 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — enum'lar donanıma iner (2026-09-24, ADR-0074 Aşama 2)
+
+- **Birim varyantlı enum sinyal tipi**: `enum State { Idle, Run, Done }`
+  port (modüller arası dahil), `reg`, `wire`, `let` ve `const` tipi olur;
+  önce `volt check`/`build` E0003 veriyordu. Kodlama ikili, bildirim
+  sırasıyla, genişlik `max(1, clog2(n))`. Açık değer + taban tipi
+  (`enum Op : u7 { Load = 0b0000011, ... }`) desteklenir.
+- **SV eşlemesi**: sinyal düz `logic [W-1:0]`, varyant modül yerel
+  `localparam <Enum>_<Varyant>` (yalnız modülde adı geçenler — Verilator
+  `-Wall` UNUSEDPARAM; enum başına kodlama tablosu yorumu), bildirimlerde
+  `// State` yorumu, `e as uN` → `N'(e)`. Ayrı `.sva` dosyası kendi
+  `localparam`'larını taşır. Enum kullanmayan tasarımların SV'si değişmez.
+- **Kapsayıcı `match`**: enum sınananında bütün varyantlar adlıysa `_`
+  isteğe bağlıdır; son adlı kol SV `default:` olur (geçersiz kodlar da
+  oraya gider — bilgi notu yerine SV yorumu ve `volt explain E0014`).
+  Eksik varyant E0014 ("missing State::Stop"); sayısal `match` kuralı
+  değişmez.
+- **Tip kuralları**: aynı enum ile `==`/`!=`; sıralama, aritmetik, bit
+  işlemleri, bit seçimi E2003; `enum as uN/bits<N>` (`N ≥ W`) serbest, dar
+  hedef ve `uN as Enum` E2009 (öneri: çözme `match`'i). Tanılar `'enum'`
+  yerine enum adını gösterir.
+- **YENİ E2030** (geçersiz enum kodlaması: karışık açık/örtük değer,
+  yinelenen değer, varyantsız enum, işaretli/dar taban tipi) ve **YENİ
+  W2014** (erişilemez `match` kolu); E1003 yinelenen varyant adı ve SV ad
+  çakışması, E2010 taban tipine sığmayan/negatif değer.
+- **E0003 kalanlar**: payload'lı, generic enum ve enum dizisi sinyal tipi
+  olarak; enum tipli `@mmio` alanı (önce E0015); çıplak varyant deseni
+  (`Idle =>`, öneri `State::Idle`).
+- **Otomatik kontratlar (ADR-0066)**: enum FSM'lerde F1 "durum geçerli"
+  değişmezi (`n < 2^W` ise), geçiş cover'ları varyant adlarıyla, joker
+  kaynağı adı geçmeyen varyantlar. Çok bitli enum `sync()` W3003 alır.
+- **Test dili ve rapor**: `State::Idle` test değeri; `assert_eq`
+  başarısızlığı `left: 1 (Phase::Go)`, geçersiz kodda `(State: invalid
+  code)`; başka enum'un varyantıyla karşılaştırma E8511.
+- **LSP**: varyant hover'ı `State::Run = 2'd1` + `enum State (2 bit)`,
+  `State::` sonrası varyant tamamlaması.
+
+### Düzeltildi — erişilemez `_` kolu için yanlış E5001 (2026-09-24, ADR-0074 yan bulgu 2)
+
+- ADR-0066 F3, sayısal FSM'de adı geçen literaller yazılan her değeri ve
+  reset değerini kapsıyorsa `_` kolundan geçiş cover'ı üretmez; önce doğru
+  tasarım `volt verify --mode cover`'da E5001 alıyordu.
+- İngilizce E2003 iletisinde tamsayı literali artık "integer literal"
+  (önce Türkçe "tamsayı literali").
+
 ### Düzeltildi — sessiz çift sürücüler E4001 verir (2026-09-24, ADR-0073)
 
 - **`let` başlangıç değeri bir sürücüdür**: `let v = a` sonrası `v = b`

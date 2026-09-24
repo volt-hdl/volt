@@ -20,6 +20,8 @@ pub enum Context {
     OnClock,
     /// `.` sonrası — taban ismin üyeleri.
     Member(String),
+    /// `::` sonrası — yolun ön eki (enum varyantları, ADR-0074).
+    Path(String),
     /// Satır başı — deyim anahtar kelimeleri.
     StmtStart,
     /// Diğer her yer — ifade bağlamı.
@@ -40,6 +42,16 @@ pub fn context_at(text: &str, offset: usize) -> Context {
     }
     if p > 0 && bytes[p - 1] == b'@' {
         return Context::Domain;
+    }
+    if p >= 2 && &bytes[p - 2..p] == b"::" {
+        let mut b = p - 2;
+        while b > 0 && is_ident_byte(bytes[b - 1]) {
+            b -= 1;
+        }
+        if b < p - 2 {
+            return Context::Path(text[b..p - 2].to_string());
+        }
+        return Context::Expr;
     }
     if p > 0 && bytes[p - 1] == b'.' && !(p >= 2 && bytes[p - 2] == b'.') {
         // '.' öncesindeki taban ismi oku.
@@ -149,6 +161,7 @@ pub fn completions(analysis: &Analysis, offset: u32) -> Vec<CompletionItem> {
             None => Vec::new(),
         },
         Context::Member(base) => member_completions(analysis, &base),
+        Context::Path(base) => path_completions(analysis, &base),
         Context::StmtStart => {
             let keywords = if analysis.module_at(offset).is_some() {
                 STMT_KEYWORDS
@@ -162,6 +175,30 @@ pub fn completions(analysis: &Analysis, offset: u32) -> Vec<CompletionItem> {
         }
         Context::Expr => expr_completions(analysis),
     }
+}
+
+/// `Enum::` sonrası: varyantlar, bildirim sırasıyla (ADR-0074).
+fn path_completions(analysis: &Analysis, base: &str) -> Vec<CompletionItem> {
+    analysis
+        .ast
+        .items
+        .iter()
+        .find_map(|&idx| match &analysis.ast.items_arena[idx].kind {
+            ItemKind::Enum(e) if e.name.text == base => Some(e),
+            _ => None,
+        })
+        .map(|e| {
+            e.variants
+                .iter()
+                .map(|v| CompletionItem {
+                    label: v.name.text.clone(),
+                    kind: Some(CompletionItemKind::ENUM_MEMBER),
+                    detail: Some(format!("{base}::{}", v.name.text)),
+                    ..CompletionItem::default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `.` sonrası: modül örneği portları veya struct alanları.

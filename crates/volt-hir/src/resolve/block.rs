@@ -90,7 +90,8 @@ impl Resolver<'_> {
                 self.declare_checked(&name.clone(), DefKind::PatternBinding, scope, false);
             }
             PatternKind::Path { path, args } => {
-                self.resolve_path(&path.clone(), scope);
+                let def = self.resolve_path(&path.clone(), scope);
+                self.pattern_resolutions.insert(pat_idx, def);
                 match args {
                     Some(PatternArgs::Tuple(pats)) => {
                         for &p in pats {

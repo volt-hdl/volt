@@ -129,15 +129,11 @@ fn fsm_self_loop_is_not_a_transition() {
         _ => { s <= 0 } } } }",
     );
     let t = texts(&res, 0, AutoRule::FsmTransition);
-    // `1 => s <= 1` öz-döngüdür, cover almaz; joker kolun `_ -> 0`'ı alır.
-    assert_eq!(
-        t,
-        [
-            "prev(s) == 0 && s == 1",
-            "prev(s) == 1 && s == 0",
-            "prev(s) != 0 && prev(s) != 1 && s == 0",
-        ]
-    );
+    // `1 => s <= 1` öz-döngüdür, cover almaz. Joker kolun `_ -> 0`'ı da
+    // almaz: yazılan değerler (0, 1) ve reset değeri adlı kollarda, `_`
+    // erişilemez — cover kipinde yanlış E5001 veriyordu (ADR-0074 yan
+    // bulgu 2; beklenti o hatayı kaydetmişti).
+    assert_eq!(t, ["prev(s) == 0 && s == 1", "prev(s) == 1 && s == 0"]);
 }
 
 #[test]
@@ -451,4 +447,152 @@ fn handshake_contracts_carry_their_origin() {
         texts(&res, 0, AutoRule::Handshake)[0],
         "prev(tx_valid) && !prev(tx_ready) -> tx_valid"
     );
+}
+
+// ═══ Enum FSM (ADR-0074 Karar 6) ═══════════════════════════════════
+
+/// Üç varyantlı enum (2 bit, kod 3 geçersiz), kapsayıcı `_`'sız match.
+const ENUM_FSM: &str = "enum State { Idle, Run, Done }
+module F {
+    in clk : clock
+    in go : bool
+    out busy : bool
+    reg s : State = State::Idle
+    on clk {
+        match s {
+            State::Idle => { if go { s <= State::Run } }
+            State::Run => { s <= State::Done }
+            State::Done => { s <= State::Idle }
+        }
+    }
+    busy = s != State::Idle
+}";
+
+#[test]
+fn enum_fsm_gets_state_valid_invariant() {
+    let res = p(ENUM_FSM);
+    assert_eq!(
+        texts(&res, 1, AutoRule::FsmValid),
+        ["s == State::Idle || s == State::Run || s == State::Done"]
+    );
+    assert!(autos(&res, 1)
+        .iter()
+        .any(|(r, k, _)| *r == AutoRule::FsmValid && *k == ContractKind::Invariant));
+}
+
+#[test]
+fn enum_fsm_transitions_name_the_variants() {
+    let res = p(ENUM_FSM);
+    assert_eq!(
+        texts(&res, 1, AutoRule::FsmTransition),
+        [
+            "prev(s) == State::Idle && s == State::Run",
+            "prev(s) == State::Run && s == State::Done",
+            "prev(s) == State::Done && s == State::Idle",
+        ]
+    );
+}
+
+#[test]
+fn dense_enum_fsm_has_no_state_valid_invariant() {
+    let src = ENUM_FSM
+        .replace(
+            "enum State { Idle, Run, Done }",
+            "enum State { Idle, Run, Done, Stop }",
+        )
+        .replace(
+            "State::Done => { s <= State::Idle }",
+            "State::Done => { s <= State::Stop }\n            State::Stop => { s <= State::Idle }",
+        );
+    let res = p(&src);
+    assert!(texts(&res, 1, AutoRule::FsmValid).is_empty());
+    assert_eq!(texts(&res, 1, AutoRule::FsmTransition).len(), 4);
+}
+
+#[test]
+fn enum_wildcard_source_is_the_unnamed_variants() {
+    let src = ENUM_FSM.replace(
+        "State::Run => { s <= State::Done }\n            State::Done => { s <= State::Idle }",
+        "_ => { s <= State::Idle }",
+    );
+    let res = p(&src);
+    let t = texts(&res, 1, AutoRule::FsmTransition);
+    assert!(
+        t.contains(
+            &"(prev(s) == State::Run || prev(s) == State::Done) && s == State::Idle".to_string()
+        ) || t.contains(
+            &"prev(s) == State::Run || prev(s) == State::Done && s == State::Idle".to_string()
+        ),
+        "{t:?}"
+    );
+}
+
+#[test]
+fn enum_recovery_wildcard_after_every_variant_gets_no_transition_cover() {
+    // Bütün varyantlar adlı + `_` kurtarma kolu: joker kaynağı boş.
+    let src = ENUM_FSM.replace(
+        "State::Done => { s <= State::Idle }",
+        "State::Done => { s <= State::Idle }\n            _ => { s <= State::Run }",
+    );
+    let res = p(&src);
+    let t = texts(&res, 1, AutoRule::FsmTransition);
+    assert!(t.iter().all(|x| !x.contains("!=")), "{t:?}");
+    assert_eq!(t.len(), 3, "{t:?}");
+}
+
+#[test]
+fn enum_fsm_opt_out_also_disables_state_valid() {
+    let src = ENUM_FSM.replace(
+        "    reg s : State",
+        "    @no_auto_contracts\n    reg s : State",
+    );
+    let res = p(&src);
+    assert!(autos(&res, 1).is_empty());
+}
+
+/// ADR-0074 yan bulgu 2: sayısal FSM'de adı geçen literaller yazılan her
+/// değeri kapsıyorsa `_` kolu erişilemez — geçiş cover'ı üretilmez (önce
+/// cover kipinde doğru tasarım E5001 alıyordu).
+#[test]
+fn numeric_unreachable_wildcard_gets_no_transition_cover() {
+    let src = FSM.replace(
+        "1 => { s <= 2 }",
+        "1 => { s <= 2 }\n            2 => { s <= 0 }",
+    );
+    let res = p(&src);
+    let t = texts(&res, 0, AutoRule::FsmTransition);
+    assert!(t.iter().all(|x| !x.contains("!=")), "{t:?}");
+    assert_eq!(
+        t,
+        [
+            "prev(s) == 0 && s == 1",
+            "prev(s) == 1 && s == 2",
+            "prev(s) == 2 && s == 0",
+        ]
+    );
+}
+
+#[test]
+fn numeric_reachable_wildcard_keeps_its_transition_cover() {
+    // Kod 3 yazılıyor ve adı geçmiyor: joker kolu erişilebilir.
+    let src = FSM.replace("1 => { s <= 2 }", "1 => { s <= 3 }");
+    let res = p(&src);
+    let t = texts(&res, 0, AutoRule::FsmTransition);
+    assert!(
+        t.iter()
+            .any(|x| x.starts_with("prev(s) != 0 && prev(s) != 1")),
+        "{t:?}"
+    );
+}
+
+#[test]
+fn mistyped_patterns_disable_fsm_contracts() {
+    // Enum register'ında tamsayı deseni (E2003) ve sayı register'ında
+    // enum deseni: kontrat ikinci bir tip hatası üretmemeli.
+    let int_on_enum = ENUM_FSM.replace("State::Idle => { if go", "0 => { if go");
+    let res = parse(FileId(0), &int_on_enum);
+    assert!(autos(&res, 1).is_empty());
+    let enum_on_int = "enum S { A, B }\nmodule F {\n    in clk : clock\n    reg r : u2 = 0\n    on clk {\n        match r {\n            S::A => { r <= 1 }\n            _ => { r <= 0 }\n        }\n    }\n}";
+    let res = parse(FileId(0), enum_on_int);
+    assert!(autos(&res, 1).is_empty());
 }

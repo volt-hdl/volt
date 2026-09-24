@@ -457,6 +457,123 @@ mod tests {
             .collect()
     }
 
+    const ENUM_DUT: &str = "enum State { Idle, Run, Done }
+enum Mode { A, B }
+module Fsm {
+    in  clk : clock
+    in  cmd : State
+    out st  : State
+    reg s : State = State::Idle
+    on clk { s <= cmd }
+    st = s
+}
+";
+
+    fn check_enum(test_body: &str) -> Vec<&'static str> {
+        let src = format!(
+            "{ENUM_DUT}
+test \"t\" {{
+{test_body}
+}}
+"
+        );
+        let ast = parse(&src);
+        check_tests(&[&ast], &ast, false)
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn enum_variants_are_test_values() {
+        let codes = check_enum(
+            "let dut = Fsm { };
+dut.cmd = State::Run;
+step(1);
+assert_eq(dut.st, State::Run);
+assert_ne(dut.st, State::Done);",
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+    }
+
+    #[test]
+    fn unknown_variant_is_e8511_and_unknown_enum_e8506() {
+        assert_eq!(
+            check_enum(
+                "let dut = Fsm { };
+assert_eq(dut.st, State::Stop);"
+            ),
+            ["E8511"]
+        );
+        assert_eq!(
+            check_enum(
+                "let dut = Fsm { };
+assert_eq(dut.st, Phase::Go);"
+            ),
+            ["E8506"]
+        );
+    }
+
+    #[test]
+    fn comparing_an_enum_port_with_another_enum_is_e8511() {
+        assert_eq!(
+            check_enum(
+                "let dut = Fsm { };
+assert_eq(dut.st, Mode::A);"
+            ),
+            ["E8511"]
+        );
+    }
+
+    #[test]
+    fn enum_values_from_named_constants_are_test_values() {
+        // Bulgu: açık değer `const` ya da aritmetik olunca enum test
+        // dilinde görünmüyordu (yanlış E8506).
+        let src = "const K : u4 = 2
+enum S : u4 { A = K, B = 1 << 3 }
+module Fsm {
+    in  clk : clock
+    in  cmd : S
+    out st  : S
+    reg s : S = S::A
+    on clk { s <= cmd }
+    st = s
+}
+test \"t\" {
+let dut = Fsm { };
+dut.cmd = S::B;
+step(1);
+assert_eq(dut.st, S::B);
+}
+";
+        let ast = parse(src);
+        let codes: Vec<&str> = check_tests(&[&ast], &ast, false)
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect();
+        assert!(codes.is_empty(), "{codes:?}");
+        let consts = crate::sim_const::TestConsts::new(&[&ast]);
+        assert_eq!(consts.variant("S", "A"), Some(2));
+        assert_eq!(consts.variant("S", "B"), Some(8));
+    }
+
+    #[test]
+    fn integer_into_enum_port_is_allowed_but_width_checked() {
+        // Geçersiz kod enjeksiyonu testte bilerek yapılabilir (ADR-0074).
+        assert!(check_enum(
+            "let dut = Fsm { };
+dut.cmd = 3;"
+        )
+        .is_empty());
+        assert_eq!(
+            check_enum(
+                "let dut = Fsm { };
+dut.cmd = 4;"
+            ),
+            ["E8512"]
+        );
+    }
+
     #[test]
     fn valid_test_produces_no_diagnostics() {
         let codes = check_one(

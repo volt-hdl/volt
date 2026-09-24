@@ -108,12 +108,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* modülün açıklaması */\nmodule M {              // ✓",
         ),
         E0014 => Explanation::new(
-            "match deyiminde '_' kolu eksik",
-            "on/comb bloğu içindeki bir 'match' deyimi joker '_' koluyla bitmelidir.",
-            "Donanımda match bir 'case' yapısına iner; varsayılan kol eksikse bazı kodlamaların tanımlı davranışı kalmaz. Enum varyantları üzerinden tam kapsayıcılık (exhaustiveness) analizi F3 ile gelecek — o zamana dek '_' kolu her değerin kapsandığının açık güvencesidir (ADR-0032). Sıralı blokta boş '_ => { }' kolu register değerlerini olduğu gibi korur.",
-            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n}",
-            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlamalar değerini korur\n    }\n}",
-        ),
+            "match deyimi her değeri kapsamıyor",
+            "on/comb bloğundaki bir 'match' deyimi bazı değerleri kolsuz bırakıyor: sayısal match'te '_' kolu yok ya da enum match'i bir varyantı atlıyor ve '_' kolu yok.",
+            "Donanımda match bir 'case' yapısına iner; kolu olmayan bir değerin tanımlı bir eylemi olmaz (comb bloğunda bu bir mandaldır). Sayı üzerindeki match joker '_' koluyla bitmelidir (ADR-0032). Enum üzerindeki match ise kapsayıcılık açısından denetlenir (ADR-0074): bütün varyantları adlandırmak yeter, '_' isteğe bağlıdır. Bu durumda SON adlı kol SystemVerilog 'default'u olur — hiçbir varyanta ait olmayan kodlar (3 varyantlı enum 2 bittir; kod 3 kullanılmaz) son kolun eylemini alır. Tasarımın içinde böyle bir kod oluşamaz (enum değeri yalnız varyantlarından gelir — 'uN as Enum' reddedilir) ve otomatik üretilen durum-geçerli değişmezi bunu formal olarak kanıtlar; tek kaynak dışarıdan sürülen bir enum giriş portudur. Geçersiz kodların kendi kurtarma eylemi gerekiyorsa açık bir '_' kolu yazın. Sıralı blokta boş '_ => { }' kolu register değerlerini korur.",
+            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: State::Done eksik\n    }\n}",
+            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlar değerini korur\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ her varyant adlı; geçersiz kodlar da buraya\n    }\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md"]),
 
         E0015 => Explanation::new(
             "MMIO register haritası yerleşim hatası",
@@ -391,6 +392,14 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "wire t : [u8; 4]\ny = t[4]                // ✗ E2029: geçerli indeksler 0..3",
             "y = t[3]                // ✓",
         ),
+        E2030 => Explanation::new(
+            "Geçersiz enum kodlaması",
+            "Enum'un varyantlarına tek ve belirsizliksiz bir donanım kodlaması verilemiyor.",
+            "Enum düz bir bit vektörüne iner: varsayılan olarak varyantlar bildirim sırasıyla 0, 1, 2 ... numaralanır ve genişlik max(1, clog2(n)) olur. Açık değerler ('Add = 0, Jal = 8') ve taban tipi ('enum Op : u4') dış bir kodlamayı (opcode, belgelenmiş register kodu) tasarıma taşır. Kurallar: ya bütün varyantların açık değeri vardır ya hiçbirinin (karışık liste iki türlü okunur — 'A = 5'ten sonraki değer SystemVerilog ve Rust'ta 6'dır); değerler birbirinden farklıdır; taban tipi her varyanta yetecek genişlikte işaretsiz uN, uint<N> ya da bits<N>'dir; enum'un en az bir varyantı vardır (ADR-0074).",
+            "enum Op : u4 { Add = 0, Sub, Jal = 8 }   // ✗ E2030: karışık açık/örtük değer\nenum Mode : i4 { A = 0, B = 1 }          // ✗ E2030: taban tipi işaretsiz olmalı\nenum Dup { A = 1, B = 1 }                // ✗ E2030: yinelenen değer 1",
+            "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
+        )
+        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
 
         // ─── Saat/sıfırlama alanları (domain-inference.md) ───
         E3001 => Explanation::new(
@@ -980,6 +989,14 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "in  a : u8\ny = a << 8              // ⚠ W2013: sonuç her zaman 0",
             "y = a << 3              // ✓ (kaydırma < 8)",
         ),
+        W2014 => Explanation::new(
+            "Erişilemez match kolu",
+            "Bu enum 'match'inin önceki bir kolu aynı varyantı zaten kapsıyor; bu kol hiç çalışmaz.",
+            "'case' yapısında ilk eşleşen etiket kazanır; aynı varyant için ikinci kol ölü donanımdır ve genellikle kopyala-yapıştır kaymasıdır (kol başka bir varyant için yazılmıştı). Derleyici kolu üretilen SystemVerilog'dan çıkarır. İki gövdeyi birleştirin ya da kolun kastettiği varyantı yazın (ADR-0074).",
+            "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: erişilemez\n    _ => { }\n}",
+            "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
         W2020 => Explanation::new(
             "Sabit koşul",
             "Bu koşul her zaman aynı değeri veriyor; dal hiç değişmiyor.",

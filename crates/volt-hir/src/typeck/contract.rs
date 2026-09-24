@@ -17,7 +17,7 @@ impl TypeChecker<'_, '_> {
     pub(super) fn check_contract(&mut self, c: &Contract) {
         let ty = self.synth(c.expr);
         if !self.types.is_error(ty) && !matches!(self.types.ty(ty), Ty::Bool) {
-            let shown = self.types.display(ty);
+            let shown = self.show(ty);
             let span = self.ast.exprs[c.expr].span;
             self.error(
                 ErrorCode::E5004,

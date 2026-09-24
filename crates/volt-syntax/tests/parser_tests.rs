@@ -2142,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 82, "ui/pass 82 dosya içermeli");
+    assert_eq!(total, 85, "ui/pass 85 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2175,10 +2175,12 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0066 ise 89-90'ı (otomatik FSM / sayaç kontratları),
     // ADR-0069 ise 91'i (sonlu tip çizgesi: elmas, generic, takma ad),
     // ADR-0070 ise 92'yi (takma ad sinyal tipleri),
-    // ADR-0073 ise 93'ü (ayrık kısmi sürücüler) ekledi.
+    // ADR-0073 ise 93'ü (ayrık kısmi sürücüler),
+    // ADR-0074 ise 94-96'yı (enum FSM, modüller arası enum portu, açık
+    // değerli enum) ekledi.
     assert_eq!(
-        clean, 82,
-        "82/82 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 85,
+        "85/85 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2672,4 +2674,21 @@ fn parse_unit_flattens_bundle_ports_across_files() {
         names.contains(&"l_v") && names.contains(&"l_r"),
         "{names:?}"
     );
+}
+
+// ═══ E0014 ertelemesi (ADR-0074 Karar 4) ═════════════════════════
+
+#[test]
+fn literal_match_without_wildcard_is_still_e0014_at_parse() {
+    let src = "module M {\n    in clk : clock\n    reg r : u2 = 0\n    on clk {\n        match r {\n            0 => { r <= 1 }\n        }\n    }\n}";
+    assert_eq!(p(src).error_codes(), ["E0014"]);
+}
+
+#[test]
+fn path_pattern_match_defers_coverage_to_type_checking() {
+    // Enum kapsayıcılığı sınananın tipine bağlıdır: parser E0014 vermez.
+    let src = "enum S { A, B }\nmodule M {\n    in clk : clock\n    reg s : S = S::A\n    on clk {\n        match s {\n            S::A => { s <= S::B }\n            S::B => { s <= S::A }\n        }\n    }\n}";
+    assert!(p(src).diagnostics.is_empty(), "{:?}", p(src).error_codes());
+    let or = src.replace("S::A => { s <= S::B }\n            S::B", "S::A | S::B");
+    assert!(p(&or).diagnostics.is_empty(), "{:?}", p(&or).error_codes());
 }

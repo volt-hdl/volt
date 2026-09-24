@@ -22,6 +22,9 @@ impl TypeChecker<'_, '_> {
         if src == dst || self.types.is_error(src) || self.types.is_error(dst) {
             return;
         }
+        if self.check_enum_cast(src, dst, span) {
+            return;
+        }
         let legal = match (self.types.ty(src).clone(), self.types.ty(dst).clone()) {
             // Literal açık dönüşümle her sayısal tipe gider.
             (Ty::IntLit, Ty::UInt { .. } | Ty::SInt { .. } | Ty::Bits { .. }) => true,
@@ -54,8 +57,8 @@ impl TypeChecker<'_, '_> {
             _ => false,
         };
         if !legal {
-            let src_s = self.types.display(src);
-            let dst_s = self.types.display(dst);
+            let src_s = self.show(src);
+            let dst_s = self.show(dst);
             self.error(
                 ErrorCode::E2009,
                 span,
@@ -63,6 +66,56 @@ impl TypeChecker<'_, '_> {
                 lstr!(en: "this cast is not defined"; tr: "bu dönüşüm tanımlı değil"),
                 lstr!(en: "an intermediate cast may be needed"; tr: "ara dönüşüm gerekebilir"),
             );
+        }
+    }
+}
+
+impl TypeChecker<'_, '_> {
+    /// Enum dönüşümleri (ADR-0074 Karar 3): `enum as uN/bits<N>` yalnız
+    /// `N ≥ W` (sıfır genişletme, bilgi kaybı yok); `uN as Enum` yasak —
+    /// geçersiz kod üretebilir, çözme `match` ile açık yazılır. Enum
+    /// tarafı yoksa `false` (genel kurallar).
+    fn check_enum_cast(&mut self, src: TypeId, dst: TypeId, span: Span) -> bool {
+        match (self.types.ty(src).clone(), self.types.ty(dst).clone()) {
+            (Ty::Enum(e), Ty::UInt { width } | Ty::Bits { width }) => {
+                let Some(w) = self.types.enum_width(e) else {
+                    return true; // geçersiz kodlama E2030'u aldı
+                };
+                if width < w {
+                    let (src_s, dst_s) = (self.show(src), self.show(dst));
+                    self.error(
+                        ErrorCode::E2009,
+                        span,
+                        lstr!(en: "cast '{src_s}' → '{dst_s}' loses information: the enum is {w} bits wide"; tr: "'{src_s}' → '{dst_s}' dönüşümü bilgi kaybeder: enum {w} bit genişliğinde"),
+                        lstr!(en: "target narrower than the encoding"; tr: "hedef kodlamadan dar"),
+                        lstr!(en: "cast to at least {w} bits: {src_s} as u{w}"; tr: "en az {w} bite dönüştürün: {src_s} as u{w}"),
+                    );
+                }
+                true
+            }
+            (_, Ty::Enum(_)) => {
+                let (src_s, dst_s) = (self.show(src), self.show(dst));
+                self.error(
+                    ErrorCode::E2009,
+                    span,
+                    lstr!(en: "cast '{src_s}' → '{dst_s}' is invalid: a number may hold a code that is no variant of '{dst_s}'"; tr: "'{src_s}' → '{dst_s}' dönüşümü geçersiz: sayı '{dst_s}' enum'unun hiçbir varyantı olmayan bir kod taşıyabilir"),
+                    lstr!(en: "no implicit decoding into an enum"; tr: "enum'a örtük çözme yok"),
+                    lstr!(en: "decode explicitly with a match and choose what invalid codes become: match raw {{ 0 => {{ s = {dst_s}::A }} ... _ => {{ s = {dst_s}::A }} }}"; tr: "match ile açıkça çözün ve geçersiz kodların ne olacağını seçin: match raw {{ 0 => {{ s = {dst_s}::A }} ... _ => {{ s = {dst_s}::A }} }}"),
+                );
+                true
+            }
+            (Ty::Enum(_), _) => {
+                let (src_s, dst_s) = (self.show(src), self.show(dst));
+                self.error(
+                    ErrorCode::E2009,
+                    span,
+                    lstr!(en: "cast '{src_s}' → '{dst_s}' is invalid"; tr: "'{src_s}' → '{dst_s}' dönüşümü geçersiz"),
+                    lstr!(en: "this cast is not defined"; tr: "bu dönüşüm tanımlı değil"),
+                    lstr!(en: "an enum converts only to an unsigned uN or bits<N> at least as wide as its encoding"; tr: "enum yalnız kodlaması kadar geniş işaretsiz uN ya da bits<N>'e dönüşür"),
+                );
+                true
+            }
+            _ => false,
         }
     }
 }

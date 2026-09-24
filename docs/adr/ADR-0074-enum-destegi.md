@@ -1,6 +1,6 @@
 # ADR-0074: Enum Desteği — Birim Varyantlı Enum'lar Donanıma İner
 
-> Statü: KABUL EDİLDİ (tasarım; uygulama Aşama 2 ve 3 ayrı PR'lar — bu ADR'de kod YOK)
+> Statü: KABUL EDİLDİ — Aşama 2 UYGULANDI (dal `feat/enum`; bkz. "Uygulama notları — Aşama 2"); Aşama 3 ayrı PR
 > Tarih: 2026-09-24
 > Etkilenen (plan): volt-syntax (`parser/stmt.rs` E0014 erteleme,
 > `parser/test_expr.rs` `Enum::Varyant`, ADR-0066 otomatik kontratları),
@@ -726,3 +726,130 @@ dilde mesaj + `volt explain`.
 3. İngilizce E2003 mesajı tamsayı literalini Türkçe yazıyor:
    `incompatible arithmetic operands: 'enum' and 'tamsayı literali'`.
 4. Sayısal `match`'te yinelenen literal kolu sessiz (`0 => …` iki kez).
+
+## Uygulama notları — Aşama 2 (2026-09-24, dal `feat/enum`)
+
+Kararların hepsi yazıldığı gibi uygulandı; aşağıdakiler tasarımın açık
+bıraktığı ayrıntılar ve ölçüm sonuçlarıdır.
+
+### Tanı numaraları
+
+| Sembolik | Kod | İleti (EN) |
+|---|---|---|
+| E2xxx-A | **E2030** | Invalid enum encoding — karışık açık/örtük değer, yinelenen değer, varyantsız enum, işaretsiz olmayan ya da dar taban tipi |
+| W2xxx-A | **W2014** | Unreachable match arm (variant already covered) |
+
+İkisi de iki dilde ileti + `volt explain`. E0014'ün kısa başlığı "The
+match statement does not cover every value" oldu; açıklaması enum
+kapsayıcılığını ve "son kol default" kuralını anlatır.
+
+### Katman yerleşimi
+
+- **Kodlama tablosu tek yerde:** `volt_ast::enum_layout` (`layout`,
+  `repr_of`, `valid_layout`, `enum_of_type`). HIR tanıları
+  (`typeck/enums.rs`), sv-emit (`enums.rs`), otomatik kontratlar
+  (`auto_contract/scan.rs`), test dili (`sim_const.rs`, `sim_port.rs`) ve
+  LSP hover aynı fonksiyonu çağırır; her katman kendi sabit
+  değerlendiricisini verir.
+- **`width_of` değil `signal_width`:** Karar 6 "`width_of` enum için W
+  döndürür" diyordu. `TypeArena::width_of` bit seçimini de besliyor
+  (`select.rs`); enum'da `Some(W)` dönmesi `s[0]`'ı yasal yapardı (Karar 3
+  ihlali). Davranış aynı kalacak biçimde ayrı `signal_width` eklendi
+  (sayısalda `width_of`, enum'da kodlama genişliği); W3003 onu kullanır.
+  Ölçüm: 3 varyantlı enum `sync()` → W3003, 2 varyantlı → uyarı yok.
+- **E0014 ertelemesi:** parser, muhafızsız kolunda yol deseni olan `_`'sız
+  `match`'te E0014 vermez; `typeck/matching.rs` sınanan enum ise
+  kapsayıcılığa, değilse yol desenlerine E2003 + parser'ın E0014'ünü
+  **aynı metinle** verir (golden). Deyim bağlamı dışındaki (tip denetimi
+  koşmayan) yerlerde yol desenli match E0014 almaz — o konumlarda yol
+  deseni zaten E0003'tür.
+- **Desen tiplemesi:** çözümleme `pattern_resolutions` (desen → tanım)
+  kaydeder; LSP de bu haritayla desen üzerinde hover verir.
+
+### "Son kol default" — bilgi notu gerekli mi? (Aşama 1 notu 1)
+
+**Hayır — tanı değil, SV yorumu + `volt explain`.** Kapsayıcı `_`'sız her
+enum `match`'i bu durumdadır; her birine not basmak doğru tasarımlarda
+kalıcı gürültü olur ve tanı üst sınırını (ADR-0068) boşa tüketir. Bilgi
+üç yerde: üretilen SV'de `default: begin // State_Done (and invalid
+codes)`, `volt explain E0014` metni ve E0014 tanısının notu ("its last arm
+also takes the codes no variant uses").
+
+### ADR-0066 düzeltmesi (Aşama 1 notu 2 — yan bulgu 2)
+
+F3, sayısal FSM'de adı geçen literaller yazılan her değeri ve reset
+değerini kapsıyorsa `_` kolundan geçiş cover'ı üretmez. Ölçüm
+(`build/enum-sv/f1/f1_without.volt`, `--mode cover --depth 12`):
+
+```
+önce:  [1/1] Fsm (5 properties) ... FAIL   Fsm.cov_3  E5001 contract violated at cycle 11
+sonra: [1/1] Fsm (4 properties) ... ok     Result 4 properties verified
+```
+
+Regresyon testleri `auto_contract_tests.rs`
+(`numeric_unreachable_wildcard_gets_no_transition_cover`,
+`numeric_reachable_wildcard_keeps_its_transition_cover`). Mevcut
+`fsm_self_loop_is_not_a_transition` testinin beklentisi bu hatayı
+kaydetmişti (yazılan değerler 0 ve 1 ikisi de adlı; `_ -> 0` cover'ı
+erişilemez) — beklenti güncellendi, testin amacı (öz-döngü geçiş
+sayılmaz) aynen denetleniyor. Ek: FSM tanıyıcı, desenleri register'ın
+tipine uymayan (`match` enum register'ında tamsayı deseni ya da tersi —
+zaten E2003) match'lerde kontrat üretmez; aksi hâlde kontrat ikinci bir
+E2003 doğuruyordu.
+
+### Diğer ayrıntılar
+
+- W2014 yalnız kolun **bütün** varyantları önceki kollarca kapsanmışsa;
+  `A | B` kolunda yalnız `A` yinelenirse kol erişilebilir, sessiz.
+- Enum `const`'u kullanım yerinde varyant adıyla iner (`START` →
+  `State_Run`).
+- Ayrı `.sva` dosyası (`--emit=sva`) kendi `localparam`'larını taşır;
+  modülün kümesine karışmaz (UNUSEDPARAM).
+- `@mmio` enum alanı önce E0015 ("field type must be bool, bits<N> or uN")
+  alıyordu; artık Karar 6'daki E0003 iletisi.
+- Test dilinde bilinmeyen enum E8506, bilinmeyen varyant ve başka enum'un
+  varyantıyla port karşılaştırması E8511; tamsayı enum portuna yazılabilir
+  (E8512 genişlik denetimi).
+- İngilizce E2003 iletilerinde tamsayı literali "integer literal" (Aşama
+  1 notu 3).
+- İnceleme bulguları (aynı PR): test dili ve port genişliği enum açık
+  değerlerini `const` ve aritmetikle de değerlendirir (`A = K`,
+  `B = 1 << 3`; önce yanlış E8506); tipsiz `let t = s` enum sınananı
+  olarak tanınır (önce yanlış E0003); aynı satırda birden çok iddia varsa
+  rapor enum adı eklemez (hangi iddianın düştüğü satırdan bilinemez).
+
+### Sınırlar (bu tur)
+
+- sv-emit ve test dili enum'u **ada göre** bulur (birleşik birimde öğe
+  adları tekil — ADR-0042); test dili ve LSP hover açık değerleri yalnız
+  literal/`const` literali olarak değerlendirir (`A = BASE + 1` biçiminde
+  varyant test değeri olamaz, hover kodu göstermez; SV ve tip denetimi
+  etkilenmez).
+- Ertelenen E0014 tip denetimine bağlıdır: `fn` gövdesindeki `match` (tip
+  denetimi `fn` gövdelerini koşmaz) ve çözümleme hatası olan birim (boru
+  hattı tip denetiminden önce durur) yol desenli `match` için E0014
+  almaz; önceki hatalar düzeltilince gelir. `fn` gövdeleri SV'ye zaten
+  inmez.
+- F1, ADR-0066'nın tanıdığı FSM'lere üretilir: durum register'ı sabit
+  yazmalarla sürülmeli; `reg <= next` (comb `wire` üzerinden) FSM
+  sayılmaz.
+
+### Doğrulama
+
+- `cargo test --all`: 2929 test (baseline 2850 → 2929), hepsi geçti;
+  clippy `-D warnings` temiz.
+- Golden (referans: `main` ef107ff = PR #28 + ADR belgesi; `build/parity/
+  golden.py`, 370 dosya): enum kullanmayan bütün tasarımların `check`/
+  `json`/`build --emit=sva` çıktısı byte-aynı; değişen yalnız beklenen iki
+  parite sondası (`p29b` E0003 → E2003, `p35c` E0003 → temiz).
+- Enum FSM (`tests/ui/pass/94_enum_fsm.volt`): `check`, `build`, Verilator
+  `-Wall` temiz; `volt test` (Docker) 1/1 geçti; `volt verify` prove/cover/
+  bmc (derinlik 16, Docker) 4/4 property, F1 dahil. Kasıtlı yanlış iddia
+  raporu: `left:  1 (Phase::Go)` / `right: 2 (Phase::Hold)`.
+- Mutasyon (tek tek, `CARGO_BUILD_JOBS=2`, `--test-threads=2`,
+  `build/enum2/mutate.py`): 13/13 yakalandı — enum == tamsayı/başka enum,
+  sıralama denetimi, `uN as Enum`, genişlik clog2 ±1, eksik varyantı
+  kapsanmış sayma, `_`'ı yeniden zorunlu kılma, SV `default` kolu,
+  kullanılmayan `localparam`, F1 yoğunluk koşulu, F3 sayısal erişilemez
+  joker, F3 enum boş joker kaynağı, W2014.
+

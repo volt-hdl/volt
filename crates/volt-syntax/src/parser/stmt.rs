@@ -608,9 +608,9 @@ impl Parser<'_> {
     }
 
     /// `match ifade { desen [if koşul] => gövde, ... }`
-    /// Enum varyantları üzerinden tam exhaustiveness F3'ün işi; o zamana
-    /// dek deyim bağlamındaki match'te joker '_' kolu zorunludur —
-    /// eksikse E0014 (ADR-0032).
+    /// Sayısal match'te joker '_' kolu zorunludur — eksikse E0014
+    /// (ADR-0032). Yol desenli match'in kapsamı tip denetimindedir (enum
+    /// kapsayıcılığı, ADR-0074).
     pub(crate) fn parse_match_stmt(&mut self, ctx: BlockContext) -> MatchStmt {
         let start = self.pos;
         self.bump_any(); // 'match'
@@ -647,7 +647,14 @@ impl Parser<'_> {
         let has_wildcard = arms
             .iter()
             .any(|arm| arm.guard.is_none() && self.pattern_has_wildcard(arm.pattern));
-        if !has_wildcard {
+        // Yol desenli (`State::Idle`) match'in kapsamı sınananın tipine
+        // bağlıdır: enum'da kapsayıcılık, sayıda `_` — karar tip
+        // denetimine ertelenir (ADR-0074 Karar 4). Yalnız literal/joker
+        // desenli match burada kalır.
+        let has_path = arms
+            .iter()
+            .any(|arm| arm.guard.is_none() && self.pattern_has_path(arm.pattern));
+        if !has_wildcard && !has_path {
             self.push_error(
                 Diagnostic::error(
                     ErrorCode::E0014,
@@ -678,6 +685,16 @@ impl Parser<'_> {
         match &self.ast.patterns[idx].kind {
             PatternKind::Wildcard => true,
             PatternKind::Or(alts) => alts.iter().any(|&p| self.pattern_has_wildcard(p)),
+            _ => false,
+        }
+    }
+
+    /// Desen bir yol deseni (`A::B`) içeriyor mu? `A::B | C::D` dahil.
+    fn pattern_has_path(&self, idx: Idx<volt_ast::Pattern>) -> bool {
+        use volt_ast::PatternKind;
+        match &self.ast.patterns[idx].kind {
+            PatternKind::Path { .. } => true,
+            PatternKind::Or(alts) => alts.iter().any(|&p| self.pattern_has_path(p)),
             _ => false,
         }
     }

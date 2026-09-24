@@ -30,7 +30,8 @@ impl TypeChecker<'_, '_> {
             Add | Sub | Mul | Div | Rem => self.synth_arith(op, lhs, rhs, span),
             BitAnd | BitOr | BitXor => self.synth_bitwise(lhs, rhs, span),
             Shl | Shr => self.synth_shift(lhs, rhs, span),
-            Eq | Ne | Lt | Gt | Le | Ge => self.synth_comparison(lhs, rhs, span),
+            Eq | Ne => self.synth_comparison(lhs, rhs, span),
+            Lt | Gt | Le | Ge => self.synth_ordering(op, lhs, rhs, span),
             // a -> b ≡ !a || b: iki operand da Bool, sonuç Bool (ADR-0034).
             And | Or | Imp => self.synth_logical(lhs, rhs),
         }
@@ -134,7 +135,7 @@ impl TypeChecker<'_, '_> {
                         return other;
                     }
                 }
-                let shown = self.types.display(other);
+                let shown = self.show(other);
                 self.err_type_mismatch_msg(
                     span,
                     &lstr!(en: "this operation is not defined between Trit and '{shown}'"; tr: "Trit ile '{shown}' arasında bu işlem tanımlı değil"),
@@ -212,7 +213,7 @@ impl TypeChecker<'_, '_> {
         let lhs_ok = self.types.int_range(lt).is_some()
             || matches!(self.types.ty(lt), Ty::Bits { .. } | Ty::IntLit);
         if !lhs_ok {
-            let shown = self.types.display(lt);
+            let shown = self.show(lt);
             self.err_type_mismatch_msg(
                 span,
                 &lstr!(en: "type '{shown}' cannot be shifted"; tr: "'{shown}' tipi kaydırılamaz"),
@@ -224,7 +225,7 @@ impl TypeChecker<'_, '_> {
             || self.types.is_int_lit(rt)
             || self.types.int_range(rt).is_some();
         if !rhs_ok {
-            let shown = self.types.display(rt);
+            let shown = self.show(rt);
             self.err_type_mismatch_msg(
                 span,
                 &lstr!(en: "shift amount must be numeric, found '{shown}'"; tr: "kaydırma miktarı sayısal olmalı, '{shown}' bulundu"),
@@ -256,6 +257,29 @@ impl TypeChecker<'_, '_> {
         self.types.bool_ty()
     }
 
+    /// Sıralama (§3.3) — enum değerleri sıralanamaz (ADR-0074 Karar 3):
+    /// sıra kodlamaya bağlıdır, açık değerli enum'da bildirim sırasından
+    /// ayrışır. Açık yazım `s as u4 < 8`.
+    fn synth_ordering(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+        let lt = self.synth(lhs);
+        let rt = self.synth(rhs);
+        let enum_side = [lt, rt]
+            .into_iter()
+            .find(|&t| matches!(self.types.ty(t), Ty::Enum(_)));
+        if let Some(t) = enum_side {
+            let shown = self.show(t);
+            let sym = op.symbol();
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "enum '{shown}' values cannot be ordered with '{sym}'"; tr: "'{shown}' enum değerleri '{sym}' ile sıralanamaz"),
+                &lstr!(en: "compare variants with == / !=, or compare the codes explicitly: (x as uN) {sym} ..."; tr: "varyantları == / != ile karşılaştırın ya da kodları açıkça karşılaştırın: (x as uN) {sym} ..."),
+            );
+        } else {
+            self.unify_for_comparison(lhs, rhs, lt, rt, span);
+        }
+        self.types.bool_ty()
+    }
+
     fn unify_for_comparison(
         &mut self,
         lhs: Idx<Expr>,
@@ -279,8 +303,8 @@ impl TypeChecker<'_, '_> {
         if matches!(self.meet_int_ranges(lt, rt), IntMeet::Common { .. }) {
             return;
         }
-        let l = self.types.display(lt);
-        let r = self.types.display(rt);
+        let l = self.show(lt);
+        let r = self.show(rt);
         self.err_type_mismatch_msg(
             span,
             &lstr!(en: "comparison operands must have the same type: '{l}' and '{r}'"; tr: "karşılaştırma operandları aynı tipte olmalı: '{l}' ile '{r}'"),
@@ -309,8 +333,8 @@ impl TypeChecker<'_, '_> {
     }
 
     fn err_arith_incompatible(&mut self, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
-        let l = self.types.display(lt);
-        let r = self.types.display(rt);
+        let l = self.show(lt);
+        let r = self.show(rt);
         self.err_type_mismatch_msg(
             span,
             &lstr!(en: "incompatible arithmetic operands: '{l}' and '{r}'"; tr: "aritmetik operandları uyumsuz: '{l}' ile '{r}'"),
@@ -320,8 +344,8 @@ impl TypeChecker<'_, '_> {
     }
 
     fn err_bitwise_incompatible(&mut self, lt: TypeId, rt: TypeId, span: Span) -> TypeId {
-        let l = self.types.display(lt);
-        let r = self.types.display(rt);
+        let l = self.show(lt);
+        let r = self.show(rt);
         self.err_type_mismatch_msg(
             span,
             &lstr!(en: "bitwise operator is not defined for '{l}' and '{r}'"; tr: "bit düzeyi operatör '{l}' ile '{r}' tipinde tanımlı değil"),

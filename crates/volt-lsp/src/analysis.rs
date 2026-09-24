@@ -260,6 +260,11 @@ impl Analysis {
         let mut refs: Vec<(Span, DefId)> = Vec::new();
         refs.extend(res.decl_spans.iter().map(|(s, d)| (*s, *d)));
         refs.extend(res.use_spans.iter().map(|(s, d)| (*s, *d)));
+        refs.extend(
+            res.pattern_resolutions
+                .iter()
+                .map(|(idx, d)| (self.ast.patterns[*idx].span, *d)),
+        );
         for (idx, def) in &res.resolutions {
             refs.push((self.ast.exprs[*idx].span, *def));
         }

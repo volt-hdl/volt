@@ -122,10 +122,28 @@ pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
         TypeRefKind::Bits(e) => from_expr(*e, ScalarKind::Bits),
         TypeRefKind::UIntN(e) => from_expr(*e, ScalarKind::UInt),
         TypeRefKind::SIntN(e) => from_expr(*e, ScalarKind::SInt),
-        // Tip takma adı / enum: sayı olabilir, burada çözülmez.
-        TypeRefKind::Path { .. } => ScalarWidth::Unknown,
+        // Enum (ADR-0074): kodlama genişliğinde işaretsiz sayı.
+        TypeRefKind::Path { .. } => match enum_width(src, ty) {
+            Some(bits) => known(bits, ScalarKind::UInt),
+            // Tip takma adı: sayı olabilir, burada çözülmez.
+            None => ScalarWidth::Unknown,
+        },
         _ => ScalarWidth::NotScalar,
     }
+}
+
+/// Geçerli kodlamalı enum tipinin genişliği (ADR-0074).
+fn enum_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
+    let decl = volt_ast::enum_layout::enum_of_type(src, ty)?;
+    let eval = &mut |e| const_value(src, e);
+    volt_ast::enum_layout::valid_layout(src, decl, eval).map(|l| l.width)
+}
+
+/// Portun enum tipi adı (ADR-0074): `assert_eq(dut.state, State::Idle)`
+/// başka enum'un varyantıyla karşılaştırılamaz; rapor varyant adını basar.
+pub fn port_enum(src: &SourceFile, module: &volt_ast::ModuleDecl, port: &str) -> Option<String> {
+    let p = module.ports.iter().find(|p| p.name.text == port)?;
+    volt_ast::enum_layout::enum_of_type(src, p.ty).map(|d| d.name.text.clone())
 }
 
 /// Port tipi: skaler ya da paketlenmiş vektör olarak üretilen skaler
@@ -166,6 +184,54 @@ pub(crate) fn literal_or_const(src: &SourceFile, expr: Idx<Expr>) -> Option<u128
                 _ => None,
             })
     })
+}
+
+/// Enum açık değeri ve taban tipi genişliği için sabit değerlendirme
+/// (ADR-0074): literal, üst düzey `const`, tekli eksi ve aritmetik/
+/// kaydırma. HIR ve sv-emit'in kabul ettiği `A = K`, `A = 1 << 2`
+/// biçimleri test dilinde de aynı kodu verir.
+pub(crate) fn const_value(src: &SourceFile, expr: Idx<Expr>) -> Option<i128> {
+    const MAX_DEPTH: u32 = 64;
+    fn go(src: &SourceFile, expr: Idx<Expr>, depth: u32) -> Option<i128> {
+        use volt_ast::{BinOp, UnOp};
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        match &src.exprs[expr].kind {
+            ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
+            ExprKind::Unary {
+                op: UnOp::Neg,
+                operand,
+            } => go(src, *operand, depth + 1)?.checked_neg(),
+            ExprKind::Binary { op, lhs, rhs } => {
+                let (l, r) = (go(src, *lhs, depth + 1)?, go(src, *rhs, depth + 1)?);
+                match op {
+                    BinOp::Add => l.checked_add(r),
+                    BinOp::Sub => l.checked_sub(r),
+                    BinOp::Mul => l.checked_mul(r),
+                    BinOp::Div => l.checked_div(r),
+                    BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
+                    BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
+                    _ => None,
+                }
+            }
+            ExprKind::Path(path) => {
+                let [only] = path.segments.as_slice() else {
+                    return None;
+                };
+                let value = src
+                    .items
+                    .iter()
+                    .find_map(|idx| match &src.items_arena[*idx].kind {
+                        ItemKind::Const(c) if c.name.text == only.text => Some(c.value),
+                        _ => None,
+                    })?;
+                go(src, value, depth + 1)
+            }
+            _ => None,
+        }
+    }
+    go(src, expr, 0)
 }
 
 fn literal_value(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {
@@ -287,6 +353,37 @@ pub(crate) fn check_assert_compare(
         let TestExprKind::PortRead { dut, port } = &read.kind else {
             continue;
         };
+        // Bilinmeyen enum E8506'yı zaten aldı (kaskad yok).
+        if let TestExprKind::Variant { enum_name, .. } = &other.kind {
+            if consts.enum_variants(&enum_name.text).is_none() {
+                continue;
+            }
+            let port_enum = duts
+                .get(dut.text.as_str())
+                .copied()
+                .flatten()
+                .and_then(|(src, m)| port_enum(src, m, &port.text));
+            if let Some(expected) = port_enum.filter(|e| *e != enum_name.text) {
+                diags.push(
+                    Diagnostic::error(
+                        ErrorCode::E8511,
+                        lstr!(en: "a value of enum '{}' is compared with port '{}' of enum '{expected}'", enum_name.text, port.text;
+                              tr: "'{}' enum değeri '{expected}' enum tipli '{}' portuyla karşılaştırılıyor", enum_name.text, port.text),
+                        LabeledSpan::primary(
+                            other.span,
+                            lstr!(en: "variant of another enum"; tr: "başka enum'un varyantı"),
+                        ),
+                        lstr!(en: "compare with a variant of '{expected}' ({expected}::...)";
+                              tr: "'{expected}' varyantıyla karşılaştırın ({expected}::...)"),
+                    )
+                    .with_secondary(
+                        port.span,
+                        lstr!(en: "port '{}' is {expected}", port.text; tr: "'{}' portu {expected}", port.text),
+                    ),
+                );
+                continue;
+            }
+        }
         let Some(width) = dut_port_width(duts, dut, port, PortDir::Out) else {
             continue;
         };

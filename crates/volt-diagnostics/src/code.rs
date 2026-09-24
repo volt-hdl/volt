@@ -45,6 +45,8 @@ error_codes! {
 
     // ─── Sabit değerlendirme (const-eval.md) ───
     E2020, E2021, E2022, E2023, E2024, E2025, E2026, E2027, E2028, E2029,
+    // Enum kodlaması (ADR-0074)
+    E2030,
 
     // ─── Saat/sıfırlama alanları (domain-inference.md) ───
     E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009, E3010,
@@ -82,7 +84,9 @@ error_codes! {
     // ─── Uyarılar ───
     // W0023: tanı üst sınırı (ADR-0068)
     W0010, W0020, W0021, W0022, W0023, W1001, W1002, W1003, W1004, W1005, W2010, W2011,
-    W2012, W2013, W2020, W2021, W3001, W3002, W3003, W3004, W3005, W3006,
+    W2012, W2013,
+    // Erişilemez enum match kolu (ADR-0074)
+    W2014, W2020, W2021, W3001, W3002, W3003, W3004, W3005, W3006,
     W3007, W3008, W3009, W3010, W4001, W4002,
     // Simülasyonda izlenemeyen kontrat (ADR-0064)
     W5001,

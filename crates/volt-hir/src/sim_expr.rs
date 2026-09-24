@@ -123,6 +123,9 @@ impl Scope<'_> {
                 check_port_read(&self.duts, dut, port, diags);
             }
             TestExprKind::Var(name) => self.expect_scalar_var(name, diags),
+            TestExprKind::Variant { enum_name, variant } => {
+                self.expect_variant(enum_name, variant, diags)
+            }
             TestExprKind::Index { base, index } => {
                 let info = self.expect_array(base, diags);
                 self.expect_scalar(index, diags);
@@ -156,6 +159,25 @@ impl Scope<'_> {
                 lstr!(en: "a path into a sub-instance is only valid as the load() target";
                       tr: "alt örneğe uzanan yol yalnız load() hedefi olarak geçerlidir"),
             )),
+        }
+    }
+
+    /// `Enum::Varyant`: enum birimde bildirilmiş ve varyantı var mı
+    /// (ADR-0074). Tek dosyalık analizde enum kardeş dosyada olabilir.
+    fn expect_variant(&self, enum_name: &Name, variant: &Name, diags: &mut Vec<Diagnostic>) {
+        let Some(variants) = self.consts.enum_variants(&enum_name.text) else {
+            if !self.assume_external_names {
+                diags.push(undefined_name(enum_name));
+            }
+            return;
+        };
+        if !variants.iter().any(|(n, _)| *n == variant.text) {
+            let names: Vec<&str> = variants.iter().map(|(n, _)| n.as_str()).collect();
+            diags.push(type_mismatch(
+                variant.span,
+                lstr!(en: "enum '{}' has no variant '{}' (variants: {})", enum_name.text, variant.text, names.join(", ");
+                      tr: "'{}' enum'unda '{}' varyantı yok (varyantlar: {})", enum_name.text, variant.text, names.join(", ")),
+            ));
         }
     }
 

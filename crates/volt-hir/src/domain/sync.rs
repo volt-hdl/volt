@@ -29,7 +29,7 @@ impl Inferencer<'_> {
 
         // Çok bitli veri uyarısı (W3003).
         if let Some(&ty) = self.tyck.expr_types.get(&data) {
-            if let Some(w) = self.tyck.types.width_of(ty) {
+            if let Some(w) = self.tyck.types.signal_width(ty) {
                 if w > 1 {
                     self.warn_multibit_sync(w, span);
                 }

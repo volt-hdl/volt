@@ -52,7 +52,10 @@ pub use resolve::{
 pub use sim::{check_tests, check_tests_with_files, collect_modules};
 pub use sim_const::TestConsts;
 pub use sim_load::{resolve_load_target, LoadTarget};
-pub use sim_port::{const_test_value, describe_value, test_port_width, PortWidth, ScalarKind};
+pub use sim_port::{
+    const_test_value, describe_value, port_enum as sim_port_enum, test_port_width, PortWidth,
+    ScalarKind,
+};
 pub use testdata::{
     normalize_data_path, parse_readmemh, HexError, HexErrorReason, HexImage, TestFileError,
     TestFileLoader,

@@ -723,3 +723,61 @@ fn stdlib_completion_offers_async_dual_port_ram() {
     assert_eq!(ram.detail.as_deref(), Some("AsyncDualPortRam<T, DEPTH>"));
     assert!(ram.documentation.is_some());
 }
+
+// ─── Enum (ADR-0074) ───
+
+const ENUM_FSM: &str = "enum State { Idle, Run, Done }\n\nmodule M {\n    in  clk : clock\n    out y   : bool\n\n    reg s : State = State::Idle\n\n    on clk {\n        match s {\n            State::Idle => { s <= State::Run }\n            State::Run => { s <= State::Done }\n            State::Done => { s <= State::Idle }\n        }\n    }\n\n    y = s == State::Done\n}\n";
+
+#[test]
+fn hover_on_enum_variant_shows_code_and_width() {
+    let a = analyze(ENUM_FSM);
+    let off = offset_of(ENUM_FSM, "Run", 1) + 1; // `s <= State::Run`
+    let (md, _) = hover::hover(&a, off).expect("hover içeriği");
+    assert!(
+        md.contains("State::Run = 2'd1"),
+        "varyant kodu görünmeli: {md}"
+    );
+    assert!(
+        md.contains("enum State (2 bit)"),
+        "enum genişliği görünmeli: {md}"
+    );
+}
+
+#[test]
+fn hover_on_enum_register_names_the_enum() {
+    let a = analyze(ENUM_FSM);
+    let off = offset_of(ENUM_FSM, "s <=", 0);
+    let (md, _) = hover::hover(&a, off).expect("hover içeriği");
+    assert!(md.contains("s : State"), "tip adı görünmeli: {md}");
+}
+
+#[test]
+fn hover_on_enum_declaration_lists_variants() {
+    let a = analyze(ENUM_FSM);
+    let off = offset_of(ENUM_FSM, "State", 0);
+    let (md, _) = hover::hover(&a, off).expect("hover içeriği");
+    assert!(
+        md.contains("Idle = 2'd0") && md.contains("Done = 2'd2"),
+        "{md}"
+    );
+}
+
+#[test]
+fn path_context_after_double_colon() {
+    assert_eq!(
+        context_at("    y = State::", 15),
+        Context::Path("State".to_string())
+    );
+    assert_eq!(
+        context_at("    y = State::Ru", 17),
+        Context::Path("State".to_string())
+    );
+}
+
+#[test]
+fn path_completion_offers_enum_variants_in_order() {
+    let src = "enum State { Idle, Run, Done }\n\nmodule M {\n    in  clk : clock\n    out y   : bool\n    y = State::";
+    let a = analyze(src);
+    let items = completions(&a, src.len() as u32);
+    assert_eq!(labels(&items), ["Idle", "Run", "Done"]);
+}

@@ -60,11 +60,17 @@ fn outcome_lines(o: &TestOutcome) -> Vec<String> {
 
 fn failure_lines(f: &AssertFailure) -> Vec<String> {
     let mut lines = match f.kind.as_str() {
-        "assert_eq" | "assert_ne" => vec![
-            format!("  {} failed at {}", f.kind, f.loc),
-            format!("    left:  {}", f.left),
-            format!("    right: {}", f.right),
-        ],
+        "assert_eq" | "assert_ne" => {
+            let named = |v: u64| match &f.labels {
+                Some(l) => format!("{v} ({})", l.label(v)),
+                None => v.to_string(),
+            };
+            vec![
+                format!("  {} failed at {}", f.kind, f.loc),
+                format!("    left:  {}", named(f.left)),
+                format!("    right: {}", named(f.right)),
+            ]
+        }
         "index_out_of_bounds" => vec![
             format!("  index out of bounds at {}", f.loc),
             format!("    index: {}", f.left),
@@ -163,6 +169,24 @@ mod tests {
         assert_eq!(
             port_overflow_lines(&f),
             vec!["  port 'word' cannot hold value 70000 at t_test.volt:9".to_string()]
+        );
+    }
+
+    #[test]
+    fn enum_assert_failure_shows_variant_names_and_invalid_codes() {
+        // ADR-0074: testbench sayı basar, sürücü varyant adını ekler.
+        let mut f = parse_assert_fail("assert_eq t.volt:9 left=3 right=0").expect("ayrışmalı");
+        f.labels = Some(crate::sim_lower::EnumLabels {
+            enum_name: "State".to_string(),
+            variants: vec![("Idle".into(), 0), ("Run".into(), 1), ("Done".into(), 2)],
+        });
+        assert_eq!(
+            failure_lines(&f),
+            [
+                "  assert_eq failed at t.volt:9",
+                "    left:  3 (State: invalid code)",
+                "    right: 0 (State::Idle)",
+            ]
         );
     }
 

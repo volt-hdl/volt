@@ -183,6 +183,16 @@ impl TypeChecker<'_, '_> {
     /// §3.4 — tekli operatörler.
     fn synth_unary(&mut self, op: UnOp, operand: Idx<Expr>, span: Span) -> TypeId {
         let ot = self.synth(operand);
+        if let (Ty::Enum(_), UnOp::BitNot | UnOp::Neg) = (self.types.ty(ot), op) {
+            let shown = self.show(ot);
+            let sym = op.symbol();
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "operator '{sym}' is not defined for enum '{shown}'"; tr: "'{sym}' operatörü '{shown}' enum'unda tanımlı değil"),
+                &lstr!(en: "an enum value is a name, not a number; convert explicitly with 'as uN' if the code is needed"; tr: "enum değeri sayı değil addır; kod gerekiyorsa 'as uN' ile açıkça dönüştürün"),
+            );
+            return self.types.error();
+        }
         match op {
             UnOp::Not => {
                 self.check_is_bool(ot, span);
@@ -259,8 +269,8 @@ impl TypeChecker<'_, '_> {
         if let IntMeet::Common { signed, lo, hi } = self.meet_int_ranges(then_ty, else_ty) {
             return self.flex(signed, lo, hi);
         }
-        let t = self.types.display(then_ty);
-        let e = self.types.display(else_ty);
+        let t = self.show(then_ty);
+        let e = self.show(else_ty);
         self.err_type_mismatch_msg(
             span,
             &lstr!(en: "if/else branches have different types: '{t}' and '{e}'"; tr: "if/else dalları farklı tipte: '{t}' ile '{e}'"),

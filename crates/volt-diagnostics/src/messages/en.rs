@@ -24,7 +24,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0011 => "Unexpected end of file",
         E0012 => "Invalid escape sequence",
         E0013 => "Unterminated block comment",
-        E0014 => "Missing '_' arm in the match statement",
+        E0014 => "The match statement does not cover every value",
         E0015 => "MMIO register map layout error (ADR-0044)",
         E0016 => "declassify without a reason string (ADR-0052)",
         E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
@@ -67,6 +67,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2027 => "Loop unrolling limit exceeded",
         E2028 => "Invalid range (end < start)",
         E2029 => "Constant array index out of bounds",
+        E2030 => "Invalid enum encoding",
 
         // ─── Clock/reset domains (domain-inference.md) ───
         E3001 => "Clock domain mismatch (CDC)",
@@ -153,6 +154,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2011 => "Unused type parameter",
         W2012 => "Type not specified, default used",
         W2013 => "Shift amount exceeds the width (result is always 0)",
+        W2014 => "Unreachable match arm (variant already covered)",
         W2020 => "Constant condition — the branch always takes the same path",
         W2021 => "Unused const declaration",
         W3001 => "Register is never written",

@@ -293,3 +293,26 @@ fn bad_expression_in_for_header_does_not_close_the_test_early() {
     assert_eq!(result.diagnostics.len(), 1, "{:?}", result.error_codes());
     assert_eq!(result.ast.items.len(), 1);
 }
+
+#[test]
+fn enum_variant_is_a_test_value() {
+    // ADR-0074: `State::Idle` test değeri.
+    let value = let_value("    let s = State::Idle;");
+    let TestExprKind::Variant { enum_name, variant } = &value.kind else {
+        panic!("Variant bekleniyor: {value:?}");
+    };
+    assert_eq!(
+        (enum_name.text.as_str(), variant.text.as_str()),
+        ("State", "Idle")
+    );
+}
+
+#[test]
+fn enum_path_without_variant_is_e0001() {
+    let res = parse(FileId(0), "test \"t\" {\n    let s = State::;\n}\n");
+    assert!(
+        res.error_codes().contains(&"E0001"),
+        "{:?}",
+        res.error_codes()
+    );
+}

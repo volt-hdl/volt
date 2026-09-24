@@ -201,7 +201,7 @@ impl Parser<'_> {
     }
 
     /// İsimle başlayan biçimler: `dut.port`, `dut.cpu.imem`, `f(...)`,
-    /// `ad[i]`, `ad`.
+    /// `ad[i]`, `Enum::Varyant`, `ad`.
     fn parse_test_name_expr(&mut self) -> Option<TestExpr> {
         let start = self.pos;
         let name = self.parse_name();
@@ -238,6 +238,21 @@ impl Parser<'_> {
                 TestExprKind::Index {
                     base: name,
                     index: Box::new(index),
+                }
+            }
+            // `State::Idle` (ADR-0074).
+            Some(ColonColon) => {
+                self.bump();
+                if !self.at(Ident) {
+                    self.error_expected(
+                        &lstr!(en: "variant name after '::'"; tr: "'::' sonrası varyant adı"),
+                        &lstr!(en: "write it as Enum::Variant"; tr: "Enum::Varyant biçiminde yazın"),
+                    );
+                    return None;
+                }
+                TestExprKind::Variant {
+                    enum_name: name,
+                    variant: self.parse_name(),
                 }
             }
             _ => TestExprKind::Var(name),

@@ -19,6 +19,8 @@ pub(super) struct TestGroup {
     pub tests: Vec<TbTest>,
     /// `load` ile yazılan bellekler: (sahip modül, yazmaç adı).
     pub load_targets: Vec<(String, String)>,
+    /// Enum değerli iddiaların konumları (ADR-0074 rapor adları).
+    pub enum_asserts: Vec<(String, crate::sim_lower::EnumLabels)>,
 }
 
 /// Tek test dosyasının derlenmiş hâli (+ varsa kardeşi).
@@ -184,11 +186,13 @@ fn add_to_group(groups: &mut Vec<TestGroup>, unit: usize, lowered: LoweredTest) 
                 unit,
                 tests: Vec::new(),
                 load_targets: Vec::new(),
+                enum_asserts: Vec::new(),
             });
             groups.len() - 1
         });
     let group = &mut groups[at];
     group.tests.push(lowered.tb);
+    group.enum_asserts.extend(lowered.enum_asserts);
     for target in lowered.load_targets {
         if !group.load_targets.contains(&target) {
             group.load_targets.push(target);
@@ -211,6 +215,7 @@ mod tests {
                 .iter()
                 .map(|(m, r)| (m.to_string(), r.to_string()))
                 .collect(),
+            enum_asserts: Vec::new(),
         }
     }
 

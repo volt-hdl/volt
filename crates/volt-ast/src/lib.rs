@@ -8,6 +8,7 @@
 
 pub mod arena;
 pub mod builtin;
+pub mod enum_layout;
 pub mod mmio;
 pub mod reset_chain;
 
@@ -588,6 +589,11 @@ pub enum TestExprKind {
     },
     /// Yerel değişken ya da döngü sayacı (ADR-0058).
     Var(Name),
+    /// `State::Idle` — enum varyantının kodu (ADR-0074).
+    Variant {
+        enum_name: Name,
+        variant: Name,
+    },
     /// `"hello.hex"` — yalnız `read_hex` argümanı olarak anlamlıdır.
     Str(String),
     /// `[0x63, 0x7c, 0x77]`
@@ -779,6 +785,8 @@ pub enum AutoRule {
     FsmState,
     /// ADR-0066 F3: FSM geçişi kullanılabilir.
     FsmTransition,
+    /// ADR-0074 (ADR-0066 F1): enum FSM durumu geçerli bir varyant.
+    FsmValid,
     /// ADR-0066 C2: açık sınırlı sayaç sınırı aşmaz.
     CounterBound,
     /// ADR-0066 C3: sayacın sarma noktasına ulaşılır.
@@ -793,6 +801,7 @@ impl AutoRule {
             AutoRule::Mmio => "@mmio register map",
             AutoRule::FsmState => "FSM state",
             AutoRule::FsmTransition => "FSM transition",
+            AutoRule::FsmValid => "FSM state valid",
             AutoRule::CounterBound => "counter bound",
             AutoRule::CounterWrap => "counter wrap",
         }
