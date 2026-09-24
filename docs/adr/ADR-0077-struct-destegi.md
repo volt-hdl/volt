@@ -969,3 +969,58 @@ denetleniyor.
   `build/struct2/mutate.py`): 5/5 yakalandı — alan tip denetimi kaldırıldı,
   bit sırası ters (ilk alan LSB), kısmi alan hedefi bütün sinyal, alan
   sürücüleri hiç çakışmaz, literalde eksik alan denetimi kaldırıldı.
+
+## Aşama 3 ölçümü (2026-09-25, PR #36, dal `feat/struct-examples`)
+
+`examples/riscv_core.volt` komut alanları struct'lı: `struct RType`
+(`funct7[31:25] rs2 rs1 funct3 rd opcode[6:0]`, ilk alan MSB) ve
+`let ins : RType = instr as RType`; `is_m` artık `ins.funct7 == 1`
+(önce `instr >> 25 == 1`). `riscv_pipeline` taşınmadı (struct kullanılmayan
+alanları da boru hattı register'ına taşır, donanım değişirdi); AXI/Handshake
+payload'larına dokunulmadı (Karar 1).
+
+### Davranış kanıtı
+
+| Denetim | Önce (main) | Sonra |
+|---|---|---|
+| `volt test` riscv_core (Docker) | 59/59 | 59/59 (C programı dahil) |
+| Diğer 8 örneğin `volt test`'i | — | hepsi geçti |
+| `volt verify` prove d3 / bmc d10 | 44/44 / 44/44 | 44/44 / 44/44 |
+| `volt verify` cover d12 | 14 erişildi, 2 derinlik dışı | aynı |
+| Verilator `-Wall` RiscvCore / HelloSoc | temiz | temiz |
+
+**Eşdeğerlik:** Yosys `equiv_make` + `equiv_induct` eski ve yeni
+`RiscvCore` arasında **2721/2721 `$equiv` hücresini kanıtladı**. Kasıtlı
+hata doğrulaması: yeni sürüme `funct7 == 2` mutantı sokulunca denetim
+1 unproven hücreyle düştü — yani kanıt boş geçmiyor.
+
+### Sentez (Yosys 0.66, `hdlc/yosys`)
+
+| Hedef | Önce | Sonra (struct) | Struct'sız, aynı adlar |
+|---|---|---|---|
+| iCE40 SB_LUT4 | 7418 | 7408 | 7408 |
+| iCE40 FF / CARRY | 1478 / 645 | 1478 / 645 | 1478 / 645 |
+| xc7 hücre toplamı | 6123 | 6112 | 6148 |
+| xc7 FDRE / CARRY4 / DSP48E1 | 1477 / 180 / 4 | aynı | aynı |
+
+Enum'daki (ADR-0074 Aşama 3) gibi birebir **değil**; fark ölçülerek
+açıklandı:
+
+1. Struct'lı SV, aynı adlarla elle yazılmış struct'sız kaynaktan üretilen
+   SV ile **yorum satırları dışında byte-aynı** (`// Source:` ve
+   `// struct RType ins : …` satırları).
+2. iCE40'ta bu iki sürüm aynı sayıyı verir (7408).
+3. xc7'de kalan fark tek düzen yorumu satırından gelir: o satır silinince
+   sayılar struct'sız sürümle birebir aynı (6148). Aynı dosyanın iki
+   koşusu deterministik.
+4. Önceki sürümle fark ad değişiminden (`opcode` → `ins_opcode`) ve `is_m`
+   yazımından gelir; mantığın aynı olduğunu eşdeğerlik kanıtı gösterir.
+   FF, CARRY ve DSP her sürümde aynı.
+
+**Bulgu — Yosys'in satır/ad duyarlılığı:** `synth_xilinx`'in LUT eşlemesi
+mantıksal olarak aynı netlistte bile kaynak satır numaralarına ve sinyal
+adlarına duyarlıdır (hücre sırası/adı sezgisel eşlemeyi etkiler). Sonuç:
+sentez hücre sayısı **donanım eşdeğerliği kanıtı değildir**; iki SV'nin
+aynı donanım olduğu `equiv_make` + `equiv_induct` ile gösterilmelidir.
+Aynı ölçümün yinelenmesinde sayı karşılaştırması yalnız aynı kaynak
+metni (yorumlar dahil) için anlamlıdır.
