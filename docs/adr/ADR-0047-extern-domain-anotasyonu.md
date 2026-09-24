@@ -173,7 +173,9 @@ denetleniyor, kara kutunun içi denetlenmiyor.
 
 ## Sınırlar
 
-- **volt-sv-emit** extern örneğini üretemiyor (E0003, `module_decl_named`
+- ~~**volt-sv-emit** extern örneğini üretemiyor~~ — ADR-0071 ile
+  kapandı (adlandırılmış bağlantılı örnekleme, örtük reset portu yok).
+  Özgün not: (E0003, `module_decl_named`
   yalnız `ItemKind::Module` arıyor). Bu ADR'nin kapsamı dışında;
   extern'in SV'ye eşlenmesi ayrı ADR ister (sv-mapping.md §9 eki:
   adlandırılmış port bağlantılı örnekleme + dış dosya referansı).
