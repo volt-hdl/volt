@@ -1,4 +1,4 @@
-// parity: E2005
+// parity: E4011
 module Child {
     in  a : u8
     in  b : u8

@@ -1,4 +1,4 @@
-// parity: E2005
+// parity: E4011
 module M {
     in  clk : clock
     in  a   : bits<8>

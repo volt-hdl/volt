@@ -142,6 +142,16 @@ fn synced_to(ast: &SourceFile, module: &ModuleDecl, clk: &str) -> bool {
     })
 }
 
+/// Üretilen metin `clock`'un zincir aşamalarından birini anıyor mu —
+/// kuralın kaçırdığı bir tüketiciye karşı son güvence (ADR-0072).
+pub(crate) fn chain_referenced(clock: &ClockPort, chunks: &[String], sva: Option<&str>) -> bool {
+    clock.raw_reset.is_some()
+        && (0..RESET_SYNC_STAGES).any(|i| {
+            let name = stage_name(&clock.name, i);
+            chunks.iter().any(|c| c.contains(&name)) || sva.is_some_and(|s| s.contains(&name))
+        })
+}
+
 /// Saat portunun bırakma senkronizörü (ADR-0065 §2). Zincir ham portun
 /// polaritesiyle etkinleşir; aşamaların değeri alanın polaritesidir
 /// (farklıysa ilk aşamada evrilir).

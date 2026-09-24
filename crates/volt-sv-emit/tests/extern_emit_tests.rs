@@ -128,7 +128,7 @@ module Top {
 }
 
 #[test]
-fn unbound_extern_input_is_e2005() {
+fn unbound_extern_input_is_e4011() {
     let result = run("
 extern module Ext {
     in  clk : clock
@@ -142,7 +142,7 @@ module M {
     y = e.q
 }
 ");
-    assert_eq!(codes(&result), ["E2005"]);
+    assert_eq!(codes(&result), ["E4011"]);
 }
 
 #[test]

@@ -130,3 +130,46 @@ fn examples_systolic_compiles_under_100_lines_of_source() {
     assert_eq!(out.matches("Pe pe_").count(), 16, "4x4 = 16 PE örneği");
     assert_has(&out, "Pe pe_3_3 (");
 }
+
+/// ADR-0072: açılmış gövdedeki örneğin bağlantı hatası (E4011) üretilmiş
+/// adı (`pe_0`, `pe_1`) değil kaynak adını gösterir; kopyalar özdeş
+/// mesaj taşır (katlama sürücü/HIR'de).
+#[test]
+fn instance_connection_error_in_unrolled_body_uses_source_name() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r = compile(
+        "module Inner {\n    in  a : u8\n    in  b : u8\n    out y : u8\n    y = a + b\n}\nmodule M {\n    in  bus : [u8; 2]\n    out o   : [u8; 2]\n    for i in 0..2 {\n        let pe = Inner { a: bus[i], y: 3 }\n        o[i] = pe.y\n    }\n}\n",
+    );
+    let msgs: Vec<&str> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E4011")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(
+        msgs,
+        [
+            "input port 'b' of instance 'pe' is not bound",
+            "output port 'y' of instance 'pe' cannot be bound in the instance literal",
+            "input port 'b' of instance 'pe' is not bound",
+            "output port 'y' of instance 'pe' cannot be bound in the instance literal",
+        ]
+    );
+    // SV'deki adlar (çıktı telleri) açılımın ürettiği adlar kalır.
+    assert!(
+        r.sv.contains("pe_0_y") && r.sv.contains("pe_1_y"),
+        "{}",
+        r.sv
+    );
+}
+
+/// Blok içi `for` (on/comb gövdesi) modül seviyesiyle aynı kodları
+/// verir: ters aralık E2028 (önce sessizce sıfır yineleme).
+#[test]
+fn reversed_block_for_range_is_e2028() {
+    let r = compile(
+        "module M {\n    in  clk : clock\n    out y   : u8\n    reg r : u8 = 0\n    on clk {\n        for i in 5..2 { r <= r + 1 }\n    }\n    y = r\n}\n",
+    );
+    let codes: Vec<&str> = r.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes, ["E2028"]);
+}

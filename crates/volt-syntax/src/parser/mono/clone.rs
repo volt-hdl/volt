@@ -60,6 +60,13 @@ impl<'a> Cloner<'a> {
         let mut name = self.tag_name(n);
         if let Some(new) = self.rename.get(&n.text) {
             name.text = new.clone();
+            // Kaynak adı tanılar için (ADR-0072). İç içe açılımda da `n`
+            // şablondaki addır: iç gövde dış yinelemede yeniden
+            // adlandırılmadan klonlanır.
+            self.ast
+                .generate
+                .source_names
+                .insert(name.span, n.text.clone());
         }
         name
     }

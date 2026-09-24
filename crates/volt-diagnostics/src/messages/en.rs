@@ -47,7 +47,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2002 => "Signedness mismatch",
         E2003 => "Type mismatch (general)",
         E2004 => "Arithmetic on a bits<N> type",
-        E2005 => "Literal width cannot be determined",
+        E2005 => "Width or length cannot be determined (literal, cast source, let, sync source, bits<N> / [T; N] size)",
         E2006 => "Index/range out of bounds",
         E2007 => "Reversed range (hi < lo)",
         E2008 => "Variable range bound",
@@ -95,6 +95,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4008 => "Bidirectional port misuse: direct assignment, unknown member or drive call outside an on block (ADR-0051)",
         E4009 => "Recursive type: a struct, struct port, enum or type alias contains itself and has no finite width (ADR-0067, ADR-0069)",
         E4010 => "Bundle flattening budget exceeded: more than 4096 flat ports in one module or nesting deeper than 8 levels (ADR-0067)",
+        E4011 => "Instance port connection error: input or clock not bound, output or bidirectional port bound wrongly, missing reset in the parent, or an instance port driven from outside (ADR-0072)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",

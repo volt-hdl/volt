@@ -264,9 +264,9 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "y = (b as u8) + 1       // ✓",
         ),
         E2005 => Explanation::new(
-            "Literal genişliği belirlenemiyor",
-            "Bu literalin bit genişliğinin çıkarılabileceği bir bağlam yok.",
-            "Her donanım değerinin kesin bir genişliği olmalıdır. Literal genişliğini genellikle çevresinden (atandığı port veya register'dan) alır; böyle bir bağlam yoksa tipi açıkça yazın.",
+            "Genişlik ya da uzunluk belirlenemiyor",
+            "Derleyici bu değerin kaç bit olduğunu (ya da dizinin kaç elemanı olduğunu) bilemiyor.",
+            "Her donanım değerinin kesin bir genişliği olmalıdır. Literal genişliğini genellikle çevresinden (atandığı port veya register'dan) alır; böyle bir bağlam yoksa tipi açıkça yazın. Aynısı dönüşüm kaynağı, tipsiz let, sync() kaynağı, derleme zamanı sabiti olmayan bits<N> / [T; N] boyu ve indekslenmeden bütün değer olarak kullanılan sabit dizi için geçerlidir. Örnek bağlantı sorunları E4011, sabit olmayan döngü sınırı E2021'dir.",
             "let x = 5               // ✗ E2005: 5 kaç bit?",
             "let x : u8 = 5          // ✓",
         ),
@@ -619,6 +619,13 @@ module Gpio {
             "Bundle düzleştirmesi tip çizgesinin biçimine göre üsteldir: iki alanı olan bir struct port'un iki alanı olan bir struct port'un ... her seviyede ikiye katlanır; bundle dizisi ([Bundle; N], ADR-0056) N ile çarpar. Döngü (E4009) olmasa da kazara elmas biçimli bir çizge milyonlarca port isteyebilir. Bütçe bunu bellek patlaması yerine bir tanıya çevirir (ADR-0067): modül başına en çok 4096 düz port (16 alanlık bir arayüzün 256 elemanlı dizisi) ve en çok 8 seviye iç içelik. Gerçek arayüzler iki sınırın da çok altında kalır; daha fazlasına ihtiyaç duyan modül bölünmelidir.",
             "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 düz port\n}",
             "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 düz port, bütçe içinde\n}\n// ya da arayüzü birkaç modüle bölün",
+        ),
+        E4011 => Explanation::new(
+            "Örnek portu bağlantı hatası",
+            "Bir modül, extern modül ya da yerleşik örneğin bir portu donanımda anlamı olmayan biçimde bağlanmış.",
+            "Örnekleme literali üst modülün sinyallerini alt modülün portlarına bağlar: her giriş ve saat bağlanmalıdır (varsayılan değer yok), çıkış inst.port olarak okunur ve literalde bağlanmaz, inout/opendrain port bir hattı paylaşır ve adıyla bir wire'a ya da çift yönlü porta bağlanmalıdır, alt modülün portlarını yalnız alt modül sürer — üst modül inst.port'a atayamaz. Saat alanında reset olan alt modül, üst modülde o alanın (reset'li) bir saatini de ister. Bu bir bağlantı hatasıdır, genişlik sorunu değil (ADR-0072 öncesi E2005 olarak raporlanıyordu).",
+            "let f = Filter { clk }                         // ✗ E4011: 'sample' girişi bağlanmamış\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: çıkış literalde bağlanmış",
+            "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
 
         E5001 => Explanation::new(

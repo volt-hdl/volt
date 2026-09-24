@@ -274,9 +274,9 @@ fn loop_var_in_arithmetic_is_sized_by_context() {
 }
 
 #[test]
-fn for_with_non_constant_bound_is_e2005() {
+fn for_with_non_constant_bound_is_e2021() {
     let c = codes("module M { in clk : clock\n in n : u8\n out y : u8\n reg r : [u8; 4] = [0; 4]\n on clk { for i in 0..n { r[i] <= 1 } }\n y = r[0] }");
-    assert!(c.contains(&"E2005"), "{c:?}");
+    assert!(c.contains(&"E2021"), "{c:?}");
 }
 
 #[test]
@@ -338,27 +338,27 @@ fn instance_output_read_has_port_width() {
 }
 
 #[test]
-fn instance_unbound_input_is_e2005() {
+fn instance_unbound_input_is_e4011() {
     let c = codes(&format!(
         "{CHILD}module Top {{ in clk : clock\n in x : u8\n out y : u8\n let f = Add {{ clk, a: x }}\n y = f.y }}"
     ));
-    assert!(c.contains(&"E2005"), "{c:?}");
+    assert!(c.contains(&"E4011"), "{c:?}");
 }
 
 #[test]
-fn instance_output_bound_in_literal_is_e2005() {
+fn instance_output_bound_in_literal_is_e4011() {
     let c = codes(&format!(
         "{CHILD}module Top {{ in clk : clock\n in x : u8\n out y : u8\n let f = Add {{ clk, a: x, b: x, y: x }}\n y = f.y }}"
     ));
-    assert!(c.contains(&"E2005"), "{c:?}");
+    assert!(c.contains(&"E4011"), "{c:?}");
 }
 
 #[test]
-fn writing_to_instance_port_is_e2005() {
+fn writing_to_instance_port_is_e4011() {
     let c = codes(&format!(
         "{CHILD}module Top {{ in clk : clock\n in x : u8\n out y : u8\n let f = Add {{ clk, a: x, b: x }}\n f.y = x\n y = x }}"
     ));
-    assert!(c.contains(&"E2005"), "{c:?}");
+    assert!(c.contains(&"E4011"), "{c:?}");
 }
 
 #[test]

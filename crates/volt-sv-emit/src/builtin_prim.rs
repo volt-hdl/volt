@@ -223,16 +223,17 @@ impl<'a> Emitter<'a> {
             // desteklenmiyor" değil (ADR-0070); kullanıcı modülündeki
             // bağlanmamış girişle aynı tanı.
             if missing {
+                let shown = self.shown_name(&inst.name);
                 self.error(
-                    ErrorCode::E2005,
+                    ErrorCode::E4011,
                     lstr!(
-                        en: "port '{}' of '{}' instance '{}' is not bound", port.name, prim.name(), inst.name.text;
-                        tr: "'{}' örneği '{}'in '{}' portu bağlanmamış", prim.name(), inst.name.text, port.name
+                        en: "port '{}' of '{}' instance '{}' is not bound", port.name, prim.name(), shown;
+                        tr: "'{}' örneği '{}'in '{}' portu bağlanmamış", prim.name(), shown, port.name
                     ),
                     span,
                     &lstr!(
-                        en: "bind it: {} = {}<...> {{ {}: ..., }}", inst.name.text, prim.name(), port.name;
-                        tr: "bağlayın: {} = {}<...> {{ {}: ..., }}", inst.name.text, prim.name(), port.name
+                        en: "bind it: {} = {}<...> {{ {}: ..., }}", shown, prim.name(), port.name;
+                        tr: "bağlayın: {} = {}<...> {{ {}: ..., }}", shown, prim.name(), port.name
                     ),
                 );
                 return None;

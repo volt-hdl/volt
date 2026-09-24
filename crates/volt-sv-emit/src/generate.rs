@@ -18,13 +18,13 @@ use crate::Emitter;
 const MAX_UNROLL: i128 = 4096;
 
 impl<'a> Emitter<'a> {
-    /// Döngü sınırları `[start, end)`; sabit değilse ya da çok genişse
-    /// E2005 ile None.
+    /// Döngü sınırları `[start, end)`; modül seviyesi açılımla aynı
+    /// kodlar: sabit değilse E2021, ters aralık E2028, sınır üstü E2027.
     fn for_bounds(&mut self, f: &'a ForStmt, span: Span) -> Option<(i128, i128)> {
         let (start, end) = (self.eval_const(f.start), self.eval_const(f.end));
         let (Some(s), Some(e)) = (start, end) else {
             self.error(
-                ErrorCode::E2005,
+                ErrorCode::E2021,
                 lstr!(
                     en: "the bounds of 'for {}' must be compile-time constants", f.var.text;
                     tr: "'for {}' sınırları derleme zamanı sabiti olmalı", f.var.text
@@ -37,9 +37,24 @@ impl<'a> Emitter<'a> {
             );
             return None;
         };
+        if e < s {
+            self.error(
+                ErrorCode::E2028,
+                lstr!(
+                    en: "'for {}' range is reversed: {s}..{e}", f.var.text;
+                    tr: "'for {}' aralığı ters: {s}..{e}", f.var.text
+                ),
+                span,
+                &lstr!(
+                    en: "write the smaller bound first: for {} in {e}..{s}", f.var.text;
+                    tr: "küçük sınırı önce yazın: for {} in {e}..{s}", f.var.text
+                ),
+            );
+            return None;
+        }
         if e - s > MAX_UNROLL {
             self.error(
-                ErrorCode::E2005,
+                ErrorCode::E2027,
                 lstr!(
                     en: "'for {}' unrolls {} iterations, the limit is {MAX_UNROLL}", f.var.text, e - s;
                     tr: "'for {}' {} iterasyona açılıyor, sınır {MAX_UNROLL}", f.var.text, e - s

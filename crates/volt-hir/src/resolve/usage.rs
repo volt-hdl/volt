@@ -19,15 +19,19 @@ impl Resolver<'_> {
             let Some((code, msg)) = self.unused_message(def, data.kind) else {
                 continue;
             };
+            // Açılmış `for` gövdesinde üretilmiş ad (`x_0`) değil,
+            // kullanıcının yazdığı ad: kopyaların mesajı özdeş olur ve
+            // katlanır (ADR-0068), `_` önerisi kaynağa yazılabilir.
+            let name = self.ast.generate.source_name(data.span, &data.name);
             warnings.push(Diagnostic::warning(
                 code,
-                format!("{}: '{}'", msg, data.name),
+                format!("{}: '{}'", msg, name),
                 LabeledSpan::primary(
                     data.span,
                     lstr!(en: "defined here, never read"; tr: "burada tanımlı, hiç okunmuyor"),
                 ),
-                lstr!(en: "add a '_' prefix to silence: _{}", data.name;
-                      tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", data.name),
+                lstr!(en: "add a '_' prefix to silence: _{}", name;
+                      tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", name),
             ));
         }
         self.diagnostics.extend(warnings);

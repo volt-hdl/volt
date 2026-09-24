@@ -51,8 +51,10 @@ error_codes! {
     E3011, E3012, E3013, E3014,
 
     // ─── Bağlantı/sürücü (type-inference.md) + bundle düzleştirme
-    //     sınırları (ADR-0067: E4009 özyineli bundle, E4010 bütçe) ───
+    //     sınırları (ADR-0067: E4009 özyineli bundle, E4010 bütçe)
+    //     + örnek portu bağlantısı (ADR-0072: E4011) ───
     E4001, E4002, E4003, E4004, E4005, E4006, E4007, E4008, E4009, E4010,
+    E4011,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)

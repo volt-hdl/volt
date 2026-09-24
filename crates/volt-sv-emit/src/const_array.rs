@@ -152,7 +152,7 @@ impl<'a> Emitter<'a> {
         let span = self.ast.exprs[value].span;
         let Some(elems) = self.const_array_elements(value) else {
             self.error(
-                ErrorCode::E2005,
+                ErrorCode::E2021,
                 lstr!(
                     en: "the elements of constant array '{name}' cannot be evaluated at compile time";
                     tr: "'{name}' sabit dizisinin elemanları derleme zamanında hesaplanamıyor"
@@ -164,7 +164,7 @@ impl<'a> Emitter<'a> {
         };
         if elems.len() as u32 != len {
             self.error(
-                ErrorCode::E2005,
+                ErrorCode::E2003,
                 lstr!(
                     en: "constant array '{name}' has {} elements, its type declares {len}", elems.len();
                     tr: "'{name}' sabit dizisinin {} elemanı var, tipi {len} bildiriyor", elems.len()

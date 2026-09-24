@@ -362,3 +362,91 @@ fn run_table_does_not_print_reset_inputs() {
     );
     assert!(cpp.contains("(unsigned long long)dut.qa"));
 }
+
+// ═══ Yalnız tüketilen zincir (ADR-0072) ══════════════════════════════
+
+const LEAF_RAW: &str = "domain Fast {\n    clock = posedge\n    reset = async active_low\n}\n\
+module Leaf {\n    in c : clock @Fast\n    in r : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+reg q : bool = false\n    on c { q <= a }\n    y = q\n}\n";
+
+/// `module X (` ile `endmodule` arası.
+fn module_text<'a>(sv: &'a str, module: &str) -> &'a str {
+    let start = sv.find(&format!("module {module} (")).expect("modül");
+    let end = start + sv[start..].find("endmodule").expect("modül sonu");
+    &sv[start..end]
+}
+
+/// Ham portu çocuğa geçiren flop'suz ara seviye (examples/hybrid_accel
+/// HybridTb deseni) zincir üretmez: kimse okumuyordu (Verilator
+/// UNUSEDSIGNAL). Çocuk kendi zincirini üretir.
+#[test]
+fn pass_through_level_emits_no_dead_reset_chain() {
+    let src = format!(
+        "{LEAF_RAW}module Top {{\n    in clk : clock @Fast\n    in rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         let u = Leaf {{ c: clk, r: rst_n, a: a }}\n    y = u.y\n}}\n"
+    );
+    let sv = sv(&src);
+    let top = module_text(&sv, "Top");
+    assert!(!top.contains("rst_sync_"), "{top}");
+    assert!(top.contains(".r(rst_n)"), "{top}");
+    assert!(
+        module_text(&sv, "Leaf").contains("rst_sync_c_stage1"),
+        "{sv}"
+    );
+}
+
+/// Aynı ara seviyede kendi flop'u varsa zincir kalır.
+#[test]
+fn level_with_its_own_flop_keeps_the_chain() {
+    let src = format!(
+        "{LEAF_RAW}module Top {{\n    in clk : clock @Fast\n    in rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg t : bool = false\n    on clk {{ t <= a }}\n    let u = Leaf {{ c: clk, r: rst_n, a: t }}\n    y = u.y\n}}\n"
+    );
+    let top = sv(&src);
+    let top = module_text(&top, "Top");
+    assert!(top.contains("logic rst_sync_clk_stage1;"), "{top}");
+}
+
+/// Çocuğun OTOMATİK reset portu ebeveyn zincirinin çıkışını alır: zincir
+/// tüketilir, ebeveynde flop olmasa da üretilir.
+#[test]
+fn chain_feeding_a_childs_automatic_reset_is_kept() {
+    let src = "domain Fast {\n    clock = posedge\n    reset = async active_low\n}\n\
+module Leaf {\n    in c : clock @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    reg q : bool = false\n    on c { q <= a }\n    y = q\n}\n\
+module Top {\n    in clk : clock @Fast\n    in rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+let u = Leaf { c: clk, a: a }\n    y = u.y\n}\n";
+    let sv = sv(src);
+    let top = module_text(&sv, "Top");
+    assert!(top.contains("logic rst_sync_clk_stage1;"), "{top}");
+    assert!(top.contains("(rst_sync_clk_stage1)"), "{top}");
+}
+
+// ═══ Okunmayan örnek çıkışları (ADR-0072) ════════════════════════════
+
+/// Modülün okumadığı örnek çıkış teli Verilator UNUSEDSIGNAL
+/// susturmasıyla sarılır; okunan tel sarılmaz.
+#[test]
+fn unread_instance_outputs_are_wrapped_in_a_lint_waiver() {
+    let src = "module Pair {\n    in a : u8\n    out lo : u8\n    out hi : u8\n    lo = a\n    hi = a\n}\n\
+module Top {\n    in a : u8\n    out y : u8\n    let p = Pair { a }\n    y = p.lo\n}\n";
+    let sv = sv(src);
+    let top = module_text(&sv, "Top");
+    let off = top
+        .find("// verilator lint_off UNUSEDSIGNAL")
+        .expect("susturma");
+    let on = top
+        .find("// verilator lint_on UNUSEDSIGNAL")
+        .expect("kapanış");
+    let waived = &top[off..on];
+    assert!(waived.contains("logic [7:0] p_hi;"), "{top}");
+    assert!(!waived.contains("p_lo"), "{top}");
+    assert!(top[..off].contains("logic [7:0] p_lo;"), "{top}");
+}
+
+#[test]
+fn all_outputs_read_means_no_lint_waiver() {
+    let src = "module Pair {\n    in a : u8\n    out lo : u8\n    out hi : u8\n    lo = a\n    hi = a\n}\n\
+module Top {\n    in a : u8\n    out y : u8\n    out z : u8\n    let p = Pair { a }\n    y = p.lo\n    z = p.hi\n}\n";
+    let sv = sv(src);
+    assert!(!sv.contains("lint_off UNUSEDSIGNAL"), "{sv}");
+}
