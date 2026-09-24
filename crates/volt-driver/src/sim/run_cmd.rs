@@ -62,7 +62,7 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
     create_sim_dir(&sim_dir)?;
     write_file(&sim_dir.join(&sv_name), &sv)?;
     // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
-    let mut inputs = stage_extern_sources(&compiled.extern_sources, &sim_dir)?;
+    let mut inputs = stage_extern_sources(&compiled.extern_sources, &sim_dir, &[sv_name.as_str()])?;
     inputs.push(sv_name);
     let contracts = uses_sim_contracts(&sv);
     let tb = run_testbench(&module_name, &ports, cycles, vcd, contracts);

@@ -80,8 +80,17 @@ Kurallar:
   kopyalanır (Docker sarmalayıcıları yalnız çalışma dizinini bağlar;
   mutlak Windows yolu konteynerde yoktur) ve üretilen SV'den ÖNCE
   verilir: Verilator girdi listesi (`.vlt` → extern → tasarım), sby
-  `[script]` `read -formal` sırası ve `[files]`. Aynı adlı iki farklı
-  dosyaya sıra eklenir (`extern_1_fifo.sv`).
+  `[script]` sırası ve `[files]`. Ad alınmışsa — önceki bir kopya ya da
+  aynı dizindeki üretilen dosya (`extern_fifo.volt` → `extern_fifo.sv`),
+  büyük/küçük harf duyarsız — `extern_<k>_<ad>` denenir, k boş ad
+  bulunana dek artar; hiçbir kopya başka dosyanın üzerine yazılmaz.
+- **Formal'de extern gövdesindeki iddialar yok sayılır**: sby extern
+  dosyasını `read_verilog -sv -noassert -noassume` ile okur (üretilen SV
+  `read -formal`). Yoksa üreticinin `assert`'i Volt kontratıymış gibi
+  raporlanır (sby konumu dosya adı taşısa da E5001 eşlemesi üretilen SV
+  satırına bakar) ve `assume`'u Volt kanıtlarını sessizce kısıtlar.
+  Ölçüm: `assert (y == 0)` içeren extern `read -formal` ile FAIL, bu
+  okumayla PASS.
 
 Uçtan uca (Docker, gerçek araçlar; `tests/fixtures/extern_source`):
 `volt test` 1/1 geçti; `volt run` extern çıktıları doğru; `volt verify`
@@ -144,13 +153,35 @@ Verilator 5 `-Wall` (Bridge, `main` → bu dal): `UNUSEDSIGNAL 'rst'` → yok.
 - `extern_stage.rs` birim testleri (aynı adlı dosyalar, kopyalanamayan
   dosya); `sby.rs` extern `[script]`/`[files]` sırası; `emit_tests.rs`
   flop'suz modül / register'lı modül / reset'i çocuğa geçiren modül.
-- Mutasyon (`build/cleanup/mutate3.py`): 12/12 yakalandı.
+- Mutasyon (`build/cleanup/mutate3.py` + inceleme düzeltmeleri `mutate3b.py`): 16/16 yakalandı.
 - Golden (ADR-0075 dalının ikilisi → bu dal, 381 dosya): build farkı
   YALNIZ 3.3 susturma satırları — `tests/ui/pass/17`, `18`, `20`, `62`,
   `tests/ui/multifile/basic/{lib,main}`, `multifile/pubpriv/lib`,
   parite `d08c`, `d08f`, `d13b`, `d13c`, `d17` (hepsi flop'suz). `examples/`
   değişmedi. Check farkı: W0020 "known attributes" listesinde `@source`
   (p19) ve fikstürün önceki W0020'si.
+
+## İnceleme
+
+Bağımsız inceleme üç hata buldu, üçü de bu ADR'de düzeltildi: kopya adı
+üretilen SV'yi ezebiliyordu (`extern_fifo.volt`), yedek ad yeniden
+denetlenmiyordu (`a/fifo.sv`, `b/1_fifo.sv`, `c/fifo.sv`; büyük/küçük
+harf duyarsız dosya sistemi), extern iddiaları Volt kontratına
+yükleniyordu. Birim testleri: `extern_stage.rs`
+`staged_names_never_overwrite_reserved_or_fallback_names`, `sby.rs`
+okuma satırı.
+
+Düşük önemli, düzeltilmeyen bulgular (ADR-0075 dahil):
+
+- Sayısal/enum erişilemez kol SV'ye inmediği için gövdesindeki
+  desteklenmeyen yapı (E0003) raporlanmaz; kullanıcı yalnız W2014 görür.
+- Kapı arkası E0014 (ADR-0075 §4) enum'u ada göre bulur; aynı adlı iki
+  enum (zaten E1003/E1010 olan birim) yanlış eksik listesi verebilir.
+- prove kipinde FAIL, tümevarım satırı temel durumdan önce basılırsa
+  E5001'in döngü/kontrat eşlemesini tümevarım izinden alabilir (önceden
+  vardı; UNKNOWN döngü taşımaz).
+- `FsSourceLocator` birim haritasında olmayan FileId'yi `.`'ya göre
+  çözer (normalde oluşmaz).
 
 ## Sınırlar
 

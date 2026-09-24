@@ -172,9 +172,11 @@ pub fn sby_config_tasks(
         "\n[engines]\nsmtbmc {}\n\n[script]\n",
         opts.engine.as_str()
     ));
-    // Extern gövdeleri (ADR-0076) üretilen SV'den önce okunur.
+    // Extern gövdeleri (ADR-0076) üretilen SV'den önce okunur; içlerindeki
+    // assert/assume YOK SAYILIR: bir üretici iddiası Volt kontratıymış
+    // gibi raporlanır, varsayımı ise Volt kanıtlarını sessizce kısıtlardı.
     for f in extern_files {
-        out.push_str(&format!("read -formal {f}\n"));
+        out.push_str(&format!("read_verilog -sv -noassert -noassume {f}\n"));
     }
     out.push_str(&format!("read -formal {sv_file}\n"));
     for task in tasks {
@@ -212,7 +214,7 @@ mod tests {
         );
         assert!(
             text.contains(
-                "[script]\nread -formal extern_fifo.sv\nread -formal extern_mem.sv\nread -formal m.sv\n"
+                "[script]\nread_verilog -sv -noassert -noassume extern_fifo.sv\nread_verilog -sv -noassert -noassume extern_mem.sv\nread -formal m.sv\n"
             ),
             "{text}"
         );

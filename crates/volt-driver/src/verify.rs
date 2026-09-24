@@ -145,7 +145,9 @@ pub(crate) fn verify(
     }
     // Extern gövdeleri (ADR-0076) sby'nin [files]/[script] listesinde,
     // üretilen SV'den önce.
-    let extern_files = match stage_extern_sources(&compiled.extern_sources, &formal_dir) {
+    let reserved = [sv_name.as_str(), sby_name.as_str()];
+    let extern_files = match stage_extern_sources(&compiled.extern_sources, &formal_dir, &reserved)
+    {
         Ok(names) => names,
         Err(code) => return code,
     };

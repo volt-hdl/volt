@@ -248,7 +248,7 @@ fn verify_hands_extern_source_to_sby() {
     assert!(copied.contains("module ExtInvert"), "{copied}");
     let sby_text = std::fs::read_to_string(formal.join("ext_top.sby")).expect(".sby");
     assert!(
-        sby_text.contains("[script]\nread -formal extern_ext_ops.sv\nread -formal ext_top.sv\n"),
+        sby_text.contains("[script]\nread_verilog -sv -noassert -noassume extern_ext_ops.sv\nread -formal ext_top.sv\n"),
         "{sby_text}"
     );
     assert!(

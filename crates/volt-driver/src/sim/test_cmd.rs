@@ -112,7 +112,11 @@ fn write_group_files(
         inputs.push(vlt_name);
     }
     // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
-    inputs.extend(crate::extern_stage::stage_extern_sources(externs, sim_dir)?);
+    inputs.extend(crate::extern_stage::stage_extern_sources(
+        externs,
+        sim_dir,
+        &[sv_name.as_str(), tb_name],
+    )?);
     inputs.push(sv_name);
     Ok(inputs)
 }
