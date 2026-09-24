@@ -5,6 +5,33 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — riscv_core komut alanları struct'lı (2026-09-25, ADR-0077 Aşama 3)
+
+- `examples/riscv_core.volt`: elle dilimlenen alanların (`opcode`,
+  `rd_i`, `f3`, `rs1_i`, `rs2_i`, `f7`) yerine RISC-V R-tipi şemasını
+  birebir okuyan `struct RType` ve `let ins : RType = instr as RType`
+  (ilk alan MSB: `funct7[31:25] … opcode[6:0]`); `is_m` artık
+  `ins.funct7 == 1`. Anlık değerler biçime göre dağınık bitlerdir, açık
+  kaydırma olarak kaldı. `riscv_pipeline` taşınmadı: aşama değerleri
+  alan alan iletilir, struct kullanılmayan alanları da boru hattı
+  register'ına taşırdı (donanım değişirdi); AXI/Handshake payload'larına
+  dokunulmadı (ADR-0077 Karar 1).
+- Kanıt: `volt test` riscv_core 59/59 (C programı dahil) ve diğer 8
+  örnek; `volt verify` prove 3 / bmc 10 (44 property) ve cover 12 (aynı
+  14 cover erişildi, aynı 2'si derinlik dışı) önce ve sonra aynı;
+  Verilator `-Wall` temiz (RiscvCore, HelloSoc). Yosys eşdeğerlik
+  denetimi (`equiv_make` + `equiv_induct`) eski ve yeni RiscvCore'un
+  2721/2721 `$equiv` hücresini kanıtladı; kasıtlı bir mutant yakalandı.
+- Sentez sayıları birebir değil (iCE40 7418 → 7408 SB_LUT4; xc7 6123 →
+  6112 hücre; FF, CARRY, DSP aynı). Struct'lı SV, aynı adlarla yazılmış
+  struct'sız sürümle yalnız yorum satırlarında ayrışır: iCE40 sayıları
+  ikisinde aynı; xc7'de kalan fark tek düzen yorumu satırının kaydırdığı
+  kaynak satır numaralarından gelir (yorum silinince sayılar aynı).
+  Yani fark struct'tan değil ad/satır değişiminden: Yosys'in LUT
+  eşlemesi bunlara duyarlı.
+- README Limitations: struct satırı güncellendi; struct dizisinin BRAM
+  ölçümüyle ertelendiği eklendi.
+
 ### Eklendi — struct sinyal tipi (2026-09-24, ADR-0077 Aşama 2)
 
 - **Düz `struct` artık bir sinyal tipidir**: port (modüller arası dahil),
