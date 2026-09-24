@@ -19,7 +19,7 @@ I2cTb       (i2c_test.volt)        wire sda_bus / scl_bus  ->  SV: tri1 (pull-up
 
 | File | Lines | Content |
 |---|---|---|
-| `i2c_master.volt` | 343 (248 code) | 7-state FSM as a `match` in the `on clk` block, 4-phase bit divider from `const CLKS_PER_BIT_*`, both lines read through `sync()`, 6 invariants + 7 covers |
+| `i2c_master.volt` | 349 (248 code) | 7-state FSM on an `enum I2cState` register as an exhaustive `match` in the `on clk` block (ADR-0074), 4-phase bit divider from `const CLKS_PER_BIT_*`, both lines read through `sync()`, 5 invariants + 7 covers written by hand (the state-valid invariant is generated from the enum) |
 | `i2c_test.volt` | 555 | `I2cSlaveModel`, `I2cTb`, 12 simulation tests; the master comes in through `use i2c::i2c_master::I2cMaster` |
 
 Before ADR-0051: 328 + 541 + `i2c_top.sv` 69 = 938 lines, four pad
@@ -40,7 +40,7 @@ docker run --rm -v "$PWD/build/rtl:/work" -w /work verilator/verilator:latest \
 
 volt test examples/i2c/i2c_test.volt                     # 12 tests (Docker Verilator image, see ../README.md)
 
-VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 12  --engine boolector examples/i2c/i2c_master.volt  # 13 props, 1.4 s
+VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 12  --engine boolector examples/i2c/i2c_master.volt  # 24 props (12 written, 12 generated), 1.4 s
 VOLT_SBY=build/sby-docker.cmd volt verify --mode prove --depth 3   --engine boolector examples/i2c/i2c_master.volt  # k-induction, 1.2 s
 VOLT_SBY=build/sby-docker.cmd volt verify --mode cover --depth 190 --engine boolector examples/i2c/i2c_master.volt  # 7/7 reached, 13.5 s
 ```
@@ -110,12 +110,15 @@ The slave sees every bus event three clocks late (two synchroniser
 clocks + one edge-detector register).
 
 **Contracts** (all on registers, the pad ones on the synthesised drive
-registers): `state_r < 7`, `bit_count_r <= 8`, `clk_count_r <
-CLKS_PER_PHASE_STD`, the idle-line rule `!busy_r -> (sda.released &&
-scl.released)`, two induction helpers (`state_r != 0 -> busy_r`,
-`!busy_r -> phase_r == 0 && clk_count_r == 0 && !stall_r`); covers for
-ACK, NACK, stretching, STOP, REPEATED START, a completed read and both
-lines held at once. In the formal model Yosys reads a released `'z`
+registers): `bit_count_r <= 8`, `clk_count_r < CLKS_PER_PHASE_STD`,
+the idle-line rule `!busy_r -> (sda.released && scl.released)`, two
+induction helpers (`state_r != I2cState::Idle -> busy_r`, `!busy_r ->
+phase_r == 0 && clk_count_r == 0 && !stall_r`); covers for ACK, NACK,
+stretching, STOP, REPEATED START, a completed read and both lines held
+at once. The numeric version's `state_r < 7` is gone from the source:
+with `state_r : I2cState` (seven variants in three bits) the compiler
+generates the same fact as the state-valid invariant (ADR-0066 F1,
+ADR-0074), so the property count is unchanged. In the formal model Yosys reads a released `'z`
 net as constant 0, which would freeze phase 1 forever; `volt verify`
 therefore models the external device as an unconstrained `(* anyseq *)`
 driver that owns the line while it is released (ADR-0051 §4). The
