@@ -148,7 +148,12 @@ pub struct SbyTask {
 /// (`mode`, `depth`, `[engines]`, `read -formal`, `[files]`) görev
 /// önekisiz; görevden görevi ayıran satırlar (`prep -top`, `multiclock`)
 /// `<görev>: ` önekiyle yazılır. Görev sırası kaynak sırasıdır.
-pub fn sby_config_tasks(tasks: &[SbyTask], sv_file: &str, opts: &SbyOptions) -> String {
+pub fn sby_config_tasks(
+    tasks: &[SbyTask],
+    sv_file: &str,
+    extern_files: &[String],
+    opts: &SbyOptions,
+) -> String {
     let mut out = String::from("[tasks]\n");
     for task in tasks {
         out.push_str(&task.name);
@@ -164,13 +169,24 @@ pub fn sby_config_tasks(tasks: &[SbyTask], sv_file: &str, opts: &SbyOptions) -> 
         out.push_str(&format!("{}: multiclock on\n", task.name));
     }
     out.push_str(&format!(
-        "\n[engines]\nsmtbmc {}\n\n[script]\nread -formal {sv_file}\n",
+        "\n[engines]\nsmtbmc {}\n\n[script]\n",
         opts.engine.as_str()
     ));
+    // Extern gövdeleri (ADR-0076) üretilen SV'den önce okunur; içlerindeki
+    // assert/assume YOK SAYILIR: bir üretici iddiası Volt kontratıymış
+    // gibi raporlanır, varsayımı ise Volt kanıtlarını sessizce kısıtlardı.
+    for f in extern_files {
+        out.push_str(&format!("read_verilog -sv -noassert -noassume {f}\n"));
+    }
+    out.push_str(&format!("read -formal {sv_file}\n"));
     for task in tasks {
         out.push_str(&format!("{}: prep -top {}\n", task.name, task.top));
     }
-    out.push_str(&format!("\n[files]\n{sv_file}\n"));
+    out.push_str("\n[files]\n");
+    for f in extern_files {
+        out.push_str(&format!("{f}\n"));
+    }
+    out.push_str(&format!("{sv_file}\n"));
     out
 }
 
@@ -185,15 +201,43 @@ fn timeout_line(opts: &SbyOptions) -> String {
 mod tests {
     use super::*;
 
+    /// ADR-0076: extern SV gövdeleri [files]'ta ve `read -formal` ile
+    /// üretilen SV'den ÖNCE.
+    #[test]
+    fn extern_sources_are_listed_and_read_first() {
+        let externs = ["extern_fifo.sv".to_string(), "extern_mem.sv".to_string()];
+        let text = sby_config_tasks(
+            &[task("m", "M", false)],
+            "m.sv",
+            &externs,
+            &SbyOptions::default(),
+        );
+        assert!(
+            text.contains(
+                "[script]\nread_verilog -sv -noassert -noassume extern_fifo.sv\nread_verilog -sv -noassert -noassume extern_mem.sv\nread -formal m.sv\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("[files]\nextern_fifo.sv\nextern_mem.sv\nm.sv\n"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn timeout_line_only_when_requested() {
-        let plain = sby_config_tasks(&[task("m", "M", false)], "m.sv", &SbyOptions::default());
+        let plain = sby_config_tasks(
+            &[task("m", "M", false)],
+            "m.sv",
+            &[],
+            &SbyOptions::default(),
+        );
         assert!(!plain.contains("timeout"), "{plain}");
         let opts = SbyOptions {
             timeout: Some(30),
             ..SbyOptions::default()
         };
-        let text = sby_config_tasks(&[task("m", "M", false)], "m.sv", &opts);
+        let text = sby_config_tasks(&[task("m", "M", false)], "m.sv", &[], &opts);
         assert!(text.contains("\ndepth 20\ntimeout 30\n"), "{text}");
         let single = sby_config("M", "m.sv", &opts);
         assert!(
@@ -282,7 +326,7 @@ mod tests {
             task("gpio", "Gpio", false),
             task("timer", "Timer", false),
         ];
-        let text = sby_config_tasks(&tasks, "top.sv", &SbyOptions::default());
+        let text = sby_config_tasks(&tasks, "top.sv", &[], &SbyOptions::default());
         assert!(
             text.starts_with("[tasks]\nsoctop\ngpio\ntimer\n\n[options]\nmode bmc\ndepth 20\n"),
             "{text}"
@@ -304,7 +348,7 @@ mod tests {
             task("fifobridge", "FifoBridge", true),
             task("counter", "Counter", false),
         ];
-        let text = sby_config_tasks(&tasks, "u.sv", &SbyOptions::default());
+        let text = sby_config_tasks(&tasks, "u.sv", &[], &SbyOptions::default());
         assert!(
             text.contains("[options]\nmode bmc\ndepth 20\nfifobridge: multiclock on\n\n"),
             "{text}"
@@ -321,7 +365,7 @@ mod tests {
             multiclock: false,
             timeout: None,
         };
-        let text = sby_config_tasks(&[task("uart", "Uart", false)], "uart.sv", &opts);
+        let text = sby_config_tasks(&[task("uart", "Uart", false)], "uart.sv", &[], &opts);
         assert!(text.contains("mode cover\ndepth 48\n"), "{text}");
         assert!(text.contains("smtbmc yices\n"), "{text}");
         assert!(text.contains("uart: prep -top Uart\n"), "{text}");
@@ -333,6 +377,7 @@ mod tests {
         let text = sby_config_tasks(
             &[task("boundedcounter", "BoundedCounter", false)],
             "x.sv",
+            &[],
             &SbyOptions::default(),
         );
         assert!(text.starts_with("[tasks]\nboundedcounter\n"), "{text}");

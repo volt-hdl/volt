@@ -9,8 +9,9 @@ use volt_diagnostics::{lstr, Diagnostic};
 use volt_sv_emit::{SvaMode, TbTest};
 
 use super::test_files::sibling_path;
+use crate::extern_stage::compile_for_tool;
 use crate::sim_lower::{lower_test, FsTestFiles, LowerCtx, LoweredTest};
-use crate::{compile, render_diagnostics, Compiled, OutputFormat};
+use crate::{render_diagnostics, Compiled, OutputFormat};
 
 /// Aynı yürütülebilirde koşan testler: (birim, DUT modülü) başına bir grup.
 pub(super) struct TestGroup {
@@ -56,11 +57,11 @@ pub(super) fn compile_unit(file: &Path, sva_mode: SvaMode) -> Result<TestUnit, E
             tr: "   Derleniyor {}", file.display()
         )
     );
-    let compiled = compile(file, true, sva_mode)?;
+    let compiled = compile_for_tool(file, sva_mode, "test")?;
     render_diagnostics(&compiled, OutputFormat::Human);
     let sibling = match sibling_path(file) {
         Some(sib) => {
-            let c = compile(&sib, true, sva_mode)?;
+            let c = compile_for_tool(&sib, sva_mode, "test")?;
             render_diagnostics(&c, OutputFormat::Human);
             Some(c)
         }

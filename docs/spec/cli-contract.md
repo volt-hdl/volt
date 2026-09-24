@@ -527,6 +527,12 @@ dışı girişler 1) tasarımın varsayımlarını gözetmez. Açıkken koşu du
 tablodan sonra her ihlal ve cover özeti basılır (biçim §8). Kontrat
 ihlali çıkış kodu 5'tir; `requires`/`assume` ihlali yalnız raporlanır.
 
+`extern module` (ADR-0076): örneklenen her extern'ün SV gövdesi
+`@source("yol")` ile bilinmelidir; `run`, `test` ve `verify` bu dosyaları
+aracın çalışma dizinine `extern_<ad>` olarak kopyalayıp üretilen SV'den
+ÖNCE verir. Kaynağı olmayan örneklenmiş extern E1012'dir (çıkış 1);
+`build`/`check` kaynak istemez.
+
 ---
 
 ## 8. `volt test`
@@ -640,7 +646,8 @@ build/formal/
 ├── <iş>.sby              [tasks] = kontratlı modüller, kaynak sırasında
 ├── <iş>_<görev>/         sby çalışma dizini (görev = küçük harf modül adı)
 ├── <görev>_cex.vcd       karşı örnek izi (yalnız FAIL'de)
-└── <görev>_induct.vcd    tümevarım izi (yalnız prove UNKNOWN'da, ADR-0075)
+├── <görev>_induct.vcd    tümevarım izi (yalnız prove UNKNOWN'da, ADR-0075)
+└── extern_<ad>.sv        extern gövdeleri (`@source`, ADR-0076; [script]'te önce okunur)
 ```
 
 Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde).

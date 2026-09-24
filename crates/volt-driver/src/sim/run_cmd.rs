@@ -13,7 +13,8 @@ use super::contracts::{
 };
 use super::verilator::{c_path, require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
-use crate::{compile, render_diagnostics, Compiled, OutputFormat};
+use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::{render_diagnostics, Compiled, OutputFormat};
 
 /// `volt run` seçenekleri (cli-contract.md §7).
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +61,9 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
     let sv_name = format!("{module_name}.sv");
     create_sim_dir(&sim_dir)?;
     write_file(&sim_dir.join(&sv_name), &sv)?;
+    // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
+    let mut inputs = stage_extern_sources(&compiled.extern_sources, &sim_dir, &[sv_name.as_str()])?;
+    inputs.push(sv_name);
     let contracts = uses_sim_contracts(&sv);
     let tb = run_testbench(&module_name, &ports, cycles, vcd, contracts);
     write_file(&sim_dir.join("tb.cpp"), &tb)?;
@@ -73,7 +77,7 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
     );
     let job = VerilateJob {
         sim_dir: &sim_dir,
-        inputs: &[sv_name],
+        inputs: &inputs,
         tb_file: "tb.cpp",
         module: &module_name,
         trace: vcd.is_some(),
@@ -156,7 +160,7 @@ fn compile_for_run(file: &Path, contracts: bool) -> Result<(Compiled, String), E
     } else {
         SvaMode::None
     };
-    let compiled = compile(file, true, mode)?;
+    let compiled = compile_for_tool(file, mode, "run")?;
     render_diagnostics(&compiled, OutputFormat::Human);
     let Some(sv) = compiled.sv.clone() else {
         eprintln!(

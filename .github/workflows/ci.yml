@@ -44,6 +44,12 @@ jobs:
       # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
       - name: Simulation contract monitors (volt test, real Verilator)
         run: cargo test -p volt-driver --test sim_contract_tests
+      # ADR-0076: extern bodies from @source reach Verilator (real-tool tests
+      # skip only when the tool is missing; the step below fails instead).
+      - name: Extern @source tests (real Verilator)
+        run: cargo test -p volt-driver --test extern_source_tests
+      - name: Extern @source simulation (volt test) -> exit 0
+        run: cargo run --bin volt -- test tests/fixtures/extern_source/ext_top_test.volt
 
   consistency:
     name: Spec-code consistency
@@ -111,6 +117,14 @@ jobs:
       # ADR-0055: one sby process, one task per contract-bearing module, -j N.
       - name: SoC (145 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
+      # ADR-0076: the extern body from @source is read by sby; the invariant
+      # is provable only with it.
+      - name: Extern @source (bmc + prove) -> exit 0
+        run: |
+          cargo run --bin volt -- verify tests/fixtures/extern_source/ext_top.volt
+          cargo run --bin volt -- verify --mode prove --depth 4 tests/fixtures/extern_source/ext_top.volt
+      - name: Extern @source tests (real sby)
+        run: cargo test -p volt-driver --test extern_source_tests
 
   timing:
     name: Timing constraints (OpenSTA second net)

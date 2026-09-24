@@ -90,7 +90,7 @@ fn write_group_files(
     sim_dir: &Path,
     group: &TestGroup,
     ports: &[SimPort],
-    sv: &str,
+    (sv, externs): (&str, &[volt_hir::ExternSourceFile]),
     tb_name: &str,
 ) -> Result<Vec<String>, ExitCode> {
     let module = &group.module;
@@ -111,6 +111,12 @@ fn write_group_files(
         write_file(&sim_dir.join(&vlt_name), &vlt)?;
         inputs.push(vlt_name);
     }
+    // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
+    inputs.extend(crate::extern_stage::stage_extern_sources(
+        externs,
+        sim_dir,
+        &[sv_name.as_str(), tb_name],
+    )?);
     inputs.push(sv_name);
     Ok(inputs)
 }
@@ -138,7 +144,13 @@ fn run_group(
     let stem = unit.file_label.trim_end_matches(".volt").to_string();
     let sim_dir = opts.target_dir.join("sim").join(&stem);
     let tb_name = format!("tb_{module}.cpp");
-    let inputs = write_group_files(&sim_dir, group, &ports, &sv, &tb_name)?;
+    let inputs = write_group_files(
+        &sim_dir,
+        group,
+        &ports,
+        (&sv, &compiled.extern_sources),
+        &tb_name,
+    )?;
 
     let job = VerilateJob {
         sim_dir: &sim_dir,

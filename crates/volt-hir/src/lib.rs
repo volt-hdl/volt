@@ -12,6 +12,7 @@ pub mod consteval;
 pub mod constraints;
 pub mod domain;
 pub mod drivers;
+pub mod extern_source;
 pub mod handshake;
 pub mod manifest_search;
 pub mod pipeline;
@@ -39,6 +40,10 @@ pub use constraints::{
 pub use domain::{
     check_rdc, infer_domains, without_raw_reset_unused, DomainId, DomainInfo, DomainResult,
     DomainSource, InferVar,
+};
+pub use extern_source::{
+    check_source_attributes, extern_source_decls, instantiated_externs, missing_sources,
+    resolve_extern_sources, ExternSourceFile, FsSourceLocator, SourceLocator,
 };
 pub use handshake::check_handshakes;
 pub use manifest_search::{

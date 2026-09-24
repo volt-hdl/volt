@@ -8,6 +8,7 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod extern_stage;
 mod regmap_check;
 mod sim;
 mod sim_lower;
@@ -647,6 +648,9 @@ struct Compiled {
     /// Zamanlama kısıtı modeli (ADR-0054) — `--emit=sdc,xdc` bundan
     /// üretilir; anlamsal aşama hatalıysa boş.
     constraints: volt_hir::ConstraintResult,
+    /// `@source`'lu extern modüllerin çözülmüş SV dosyaları (ADR-0076) —
+    /// `run`/`test`/`verify` bunları araca üretilen SV ile birlikte verir.
+    extern_sources: Vec<volt_hir::ExternSourceFile>,
 }
 
 impl Compiled {
@@ -733,6 +737,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         multiclock_modules: Vec::new(),
         regmaps: Vec::new(),
         constraints: Default::default(),
+        extern_sources: Vec::new(),
     };
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
@@ -747,6 +752,11 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     diagnostics.extend(unit.diagnostics);
     let imports = volt_hir::check_imports(&parsed.ast, &unit.info);
     diagnostics.extend(imports.diagnostics);
+    // ── Aşama 2b: extern SV kaynakları (ADR-0076) — `@source` yolu proje
+    // dışında ya da dosya yok: E1012 ──
+    let locator = volt_hir::FsSourceLocator::new(&unit.files);
+    let (extern_sources, extern_diags) = volt_hir::resolve_extern_sources(&parsed.ast, &locator);
+    diagnostics.extend(extern_diags);
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
     }
@@ -804,6 +814,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         multiclock_modules,
         regmaps: parsed.regmaps,
         constraints,
+        extern_sources,
     })
 }
 

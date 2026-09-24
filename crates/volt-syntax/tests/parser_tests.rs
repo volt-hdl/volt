@@ -2142,7 +2142,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 86, "ui/pass 86 dosya içermeli");
+    assert_eq!(total, 87, "ui/pass 87 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2179,8 +2179,8 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0074 ise 94-96'yı (enum FSM, modüller arası enum portu, açık
     // değerli enum) ekledi.
     assert_eq!(
-        clean, 86,
-        "86/86 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 87,
+        "87/87 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
