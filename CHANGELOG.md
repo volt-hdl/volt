@@ -5,6 +5,19 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — `extern module` örnekleri SV'ye inmiyordu (2026-09-24, ADR-0071)
+
+- **Extern örneği derlenir**: `let f = Ext { ... }` artık adlandırılmış
+  port bağlantılı SV örneklemesi üretir (bildirilen portlar, bildirim
+  sırasıyla; Volt modüllerinden farklı olarak örtük `rst` portu eklenmez).
+  Önce her extern örneği E0003 veriyordu; ADR-0047'nin domain denetimi
+  çalışıyordu ama denetlenen tasarım SV'ye inemiyordu. Generic extern
+  E0003 kalır, mesajı artık nedeni söyler.
+- **ui/pass fixture'ları build'den de geçer**: yeni harness her
+  `tests/ui/pass` dosyasını `volt build` ile derler; istisna yalnız
+  gerekçeli `//~ CHECK-ONLY: <neden>` işaretiyle. 81 dosyadan yalnız
+  62_extern_domains derlenemiyordu (gerçek derleyici eksiği).
+
 ### Düzeltildi — `check`, LSP ve `build` farklı tanılar veriyordu (2026-09-24, ADR-0070)
 
 - **İlke**: analizde bilinebilen her hata `volt check`'te ve editörde

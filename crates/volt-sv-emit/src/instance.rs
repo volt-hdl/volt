@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
-    Expr, Idx, InstanceDecl, ItemKind, ModuleDecl, Port, PortDir, StmtKind, TypeRefKind,
+    Expr, ExternDecl, Idx, InstanceDecl, ItemKind, ModuleDecl, Port, PortDir, StmtKind, TypeRefKind,
 };
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
@@ -28,14 +28,36 @@ pub(crate) struct UserInst {
     pub(crate) outputs: Vec<(String, Sig)>,
 }
 
+/// Örneklenebilir kullanıcı hedefi: Volt modülü ya da `extern module`.
+#[derive(Clone, Copy)]
+pub(crate) enum InstTarget<'a> {
+    Module(&'a ModuleDecl),
+    Extern(&'a ExternDecl),
+}
+
+impl<'a> InstTarget<'a> {
+    pub(crate) fn ports(self) -> &'a [Port] {
+        match self {
+            InstTarget::Module(m) => &m.ports,
+            InstTarget::Extern(e) => &e.ports,
+        }
+    }
+}
+
 impl<'a> Emitter<'a> {
-    /// Dosyadaki `module <name>` bildirimi.
-    pub(crate) fn module_decl_named(&self, name: &str) -> Option<&'a ModuleDecl> {
+    /// Örnekleme hedefi: aynı adlı `module` ya da generic'siz `extern
+    /// module`.
+    pub(crate) fn inst_target_named(&self, name: &str) -> Option<InstTarget<'a>> {
         self.ast
             .items
             .iter()
             .find_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Module(m) if m.name.text == name => Some(m),
+                ItemKind::Module(m) if m.name.text == name => Some(InstTarget::Module(m)),
+                // Extern generic'leri monomorfize edilmez (ADR-0047):
+                // hedefsiz kalır, deyim sırasında E0003.
+                ItemKind::Extern(e) if e.name.text == name && e.generics.is_empty() => {
+                    Some(InstTarget::Extern(e))
+                }
                 _ => None,
             })
     }
@@ -53,13 +75,13 @@ impl<'a> Emitter<'a> {
             let Some(target_name) = user_instance_target(inst) else {
                 continue;
             };
-            let Some(target) = self.module_decl_named(target_name) else {
+            let Some(target) = self.inst_target_named(target_name) else {
                 continue;
             };
             // Çift yönlü portlar (ADR-0051): üst modülün teli bağlanır,
             // `<örnek>_<port>` teli üretilmez; bağlanan tel net olur.
             for p in target
-                .ports
+                .ports()
                 .iter()
                 .filter(|p| p.direction.is_bidirectional())
             {
@@ -79,7 +101,11 @@ impl<'a> Emitter<'a> {
                 }
             }
             let mut outputs = Vec::new();
-            for p in target.ports.iter().filter(|p| p.direction == PortDir::Out) {
+            for p in target
+                .ports()
+                .iter()
+                .filter(|p| p.direction == PortDir::Out)
+            {
                 if let Some(sig) = self.port_sig(p) {
                     self.pre_decls.push(format!(
                         "    {} {}_{};",
@@ -124,12 +150,18 @@ impl<'a> Emitter<'a> {
             self.future(span, &what);
             return None;
         };
-        let target = self.module_decl_named(&info.module)?;
         let bindings: HashMap<&str, Option<Idx<Expr>>> = inst
             .bindings
             .iter()
             .map(|b| (b.port_name.text.as_str(), b.value))
             .collect();
+        let target = match self.inst_target_named(&info.module)? {
+            InstTarget::Module(m) => m,
+            InstTarget::Extern(e) => {
+                let conns = self.extern_conns(&name, e, &bindings, span);
+                return Some(format_instance(&info.module, &name, &conns));
+            }
+        };
         let ast = self.ast;
         let is_clock = |p: &Port| {
             matches!(
@@ -197,6 +229,31 @@ impl<'a> Emitter<'a> {
             conns.push((p.name.text.clone(), value));
         }
         Some(format_instance(&info.module, &name, &conns))
+    }
+
+    /// `extern module` bağlantıları (ADR-0071): bildirim sırasıyla, her
+    /// port adıyla; dış SV modülünün arayüzü bildirilen portlardır, Volt
+    /// modüllerindeki gibi alan reset'i için örtük port eklenmez.
+    fn extern_conns(
+        &mut self,
+        name: &str,
+        target: &'a ExternDecl,
+        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        span: Span,
+    ) -> Vec<(String, String)> {
+        let mut conns = Vec::new();
+        for p in &target.ports {
+            let Some(sig) = self.port_sig(p) else {
+                continue;
+            };
+            let value = match p.direction {
+                PortDir::In => self.input_binding(name, p, bindings, sig, span),
+                PortDir::Out => self.output_binding(name, p, bindings, span),
+                PortDir::InOut | PortDir::OpenDrain => self.bidir_binding(name, p, bindings, span),
+            };
+            conns.push((p.name.text.clone(), value));
+        }
+        conns
     }
 
     /// Giriş bağlaması: `port: expr` → hedef imzasıyla; `port` kısayolu

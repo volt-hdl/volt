@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 extern module Ext {
     in  d : u8
     out q : u8

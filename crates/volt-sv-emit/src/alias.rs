@@ -107,8 +107,8 @@ pub(crate) fn describe_missing_instance_target(
 ) -> String {
     match item_named(ast, target) {
         Some(ItemKind::Extern(_)) => lstr!(
-            en: "instances of extern module '{target}' (instance '{inst}'; ADR-0047)";
-            tr: "extern modül '{target}' örnekleri ('{inst}' örneği; ADR-0047)"
+            en: "instances of generic extern module '{target}' (instance '{inst}'; extern generics are not monomorphized)";
+            tr: "generic extern modül '{target}' örnekleri ('{inst}' örneği; extern generic'leri monomorfize edilmez)"
         ),
         Some(ItemKind::Struct(_)) => lstr!(
             en: "struct literals ('{inst} = {target} {{ ... }}')";
