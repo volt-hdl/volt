@@ -19,7 +19,7 @@ const TRIT_NEG: &str = "2'sb11";
 impl Emitter<'_> {
     /// Tip `Trit` ya da `[Trit; N]` mi (dizi elemanı da Trit taşır).
     pub(crate) fn is_trit_typeref(&self, ty: Idx<TypeRef>) -> bool {
-        match &self.ast.types[ty].kind {
+        match &self.ast.types[crate::alias::resolve(self.ast, ty)].kind {
             TypeRefKind::Trit => true,
             TypeRefKind::Array { elem, .. } => self.is_trit_typeref(*elem),
             _ => false,

@@ -46,7 +46,10 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let &(ty, value) = self.consts.get(name)?;
-        if !matches!(self.ast.types[ty].kind, TypeRefKind::Array { .. }) {
+        if !matches!(
+            self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+            TypeRefKind::Array { .. }
+        ) {
             return None;
         }
         let span = self.ast.types[ty].span;
@@ -58,7 +61,10 @@ impl<'a> Emitter<'a> {
     pub(crate) fn is_const_array(&self, name: &str) -> bool {
         !self.is_shadowed(name)
             && self.consts.get(name).is_some_and(|&(ty, _)| {
-                matches!(self.ast.types[ty].kind, TypeRefKind::Array { .. })
+                matches!(
+                    self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+                    TypeRefKind::Array { .. }
+                )
             })
     }
 

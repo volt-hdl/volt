@@ -16,6 +16,7 @@ use volt_ast::{
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
+use crate::alias;
 use crate::{reset_port_set, ClockPort, Emitter, Sig};
 
 /// Doğrulanmış kullanıcı modülü örneği.
@@ -118,13 +119,9 @@ impl<'a> Emitter<'a> {
     ) -> Option<String> {
         let name = inst.name.text.clone();
         let Some(info) = self.user_insts.get(&name).cloned() else {
-            self.future(
-                span,
-                &lstr!(
-                    en: "SV generation of module instance '{name}' (target module is not in this file)";
-                    tr: "'{name}' modül örneklemesinin SV üretimi (hedef modül bu dosyada değil)"
-                ),
-            );
+            let target = user_instance_target(inst).unwrap_or_default();
+            let what = alias::describe_missing_instance_target(self.ast, &name, target);
+            self.future(span, &what);
             return None;
         };
         let target = self.module_decl_named(&info.module)?;
@@ -134,7 +131,12 @@ impl<'a> Emitter<'a> {
             .map(|b| (b.port_name.text.as_str(), b.value))
             .collect();
         let ast = self.ast;
-        let is_clock = |p: &Port| matches!(ast.types[p.ty].kind, TypeRefKind::Clock);
+        let is_clock = |p: &Port| {
+            matches!(
+                ast.types[crate::alias::resolve(ast, p.ty)].kind,
+                TypeRefKind::Clock
+            )
+        };
 
         let mut conns: Vec<(String, String)> = Vec::new();
         for p in target.ports.iter().filter(|p| is_clock(p)) {

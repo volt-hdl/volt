@@ -1240,6 +1240,7 @@ dependencies = [
  "volt-diagnostics",
  "volt-hir",
  "volt-span",
+ "volt-sv-emit",
  "volt-syntax",
 ]
 

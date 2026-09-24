@@ -11,14 +11,18 @@
 //! Bulunamayan paket E1011 (denenen yollar not olarak), döngüsel import
 //! E1006 üretir; keşif hatada durmaz, tüm hatalar toplanır.
 //! Artımlı derleme yoktur — her build sıfırdan.
+//!
+//! volt-driver'dan taşındı (ADR-0070): LSP de birimi aynı yükleyiciyle
+//! kurar; ana dosya metni editör tamponundan verilebilir
+//! ([`load_unit_with_text`]).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::unit::{module_not_found, PackagePath, STD_PACKAGE};
+use crate::{SearchStop, UnenforcedLint, UnitInfo};
 use volt_ast::{SourceFile, UseTree};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
-use volt_hir::unit::{module_not_found, PackagePath, STD_PACKAGE};
-use volt_hir::{SearchStop, UnenforcedLint, UnitInfo};
 use volt_span::{FileId, SourceMap, Span};
 use volt_syntax::ParseResult;
 
@@ -34,6 +38,23 @@ pub struct LoadedUnit {
     pub diagnostics: Vec<Diagnostic>,
     /// Tüm dosyaların birleşik AST'si.
     pub parsed: ParseResult,
+}
+
+impl LoadedUnit {
+    /// Birim dosyalarının görünen adları (dosya adı), bağımlılık sırasıyla
+    /// — emit girdisi (`volt_sv_emit::unit_source_texts`) için.
+    pub fn source_names(&self) -> Vec<(FileId, String)> {
+        self.files
+            .iter()
+            .map(|(fid, p)| {
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.display().to_string());
+                (*fid, name)
+            })
+            .collect()
+    }
 }
 
 /// Volt.toml `[package]` bölümü. Tek anahtarlar için tam TOML
@@ -58,8 +79,8 @@ impl Manifest {
     /// `discover`; bulunamazsa aramanın nerede durduğunu döndürür.
     /// Okunamayan manifest yok sayılır (`Exhausted`).
     pub fn lookup(dir: &Path) -> Result<Manifest, SearchStop> {
-        let root = volt_hir::find_manifest_dir(dir)?;
-        let text = std::fs::read_to_string(root.join(volt_hir::MANIFEST_FILE))
+        let root = crate::find_manifest_dir(dir)?;
+        let text = std::fs::read_to_string(root.join(crate::MANIFEST_FILE))
             .map_err(|_| SearchStop::Exhausted)?;
         Ok(Manifest::parse(root, &text))
     }
@@ -187,7 +208,13 @@ impl Loader {
     }
 
     /// Dosyayı yükler; `reached_as` bu dosyaya varılan paket yolu.
-    fn visit(&mut self, path: &Path, reached_as: Option<PackagePath>) -> std::io::Result<FileId> {
+    /// `text` verilirse diskten okunmaz (LSP: kaydedilmemiş tampon).
+    fn visit(
+        &mut self,
+        path: &Path,
+        reached_as: Option<PackagePath>,
+        text: Option<String>,
+    ) -> std::io::Result<FileId> {
         let key = Self::canonical(path);
         if let Some(&fid) = self.seen.get(&key) {
             if let Some(p) = reached_as {
@@ -195,7 +222,10 @@ impl Loader {
             }
             return Ok(fid);
         }
-        let text = std::fs::read_to_string(path)?;
+        let text = match text {
+            Some(t) => t,
+            None => std::fs::read_to_string(path)?,
+        };
         let fid = self.map.add_file(path.display().to_string(), text.clone());
         self.seen.insert(key, fid);
         self.stack.push(fid);
@@ -255,7 +285,7 @@ impl Loader {
                         return Ok(());
                     }
                 }
-                self.visit(&found, Some(target.package))?;
+                self.visit(&found, Some(target.package), None)?;
             }
             None => {
                 if self.missing.insert(target.package.clone()) {
@@ -361,6 +391,12 @@ pub fn register_generated(map: &mut SourceMap, generated: &[volt_syntax::Generat
 /// Ana dosyadan başlayarak birimi yükler. G/Ç hatası (ana dosya ya da
 /// bulunan bir bağımlılık okunamadı) `Err` döner — çıkış kodu 3.
 pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
+    load_unit_with_text(main, None)
+}
+
+/// [`load_unit`]; `main_text` verilirse ana dosya diskten okunmaz
+/// (editör tamponu — LSP, ADR-0070). Bağımlılıklar yine diskten.
+pub fn load_unit_with_text(main: &Path, main_text: Option<String>) -> std::io::Result<LoadedUnit> {
     let dir = main
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
@@ -380,7 +416,7 @@ pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
         diagnostics: Vec::new(),
         missing: HashSet::new(),
     };
-    loader.visit(main, None)?;
+    loader.visit(main, None, main_text)?;
 
     let sources: Vec<(FileId, &str)> = loader
         .order

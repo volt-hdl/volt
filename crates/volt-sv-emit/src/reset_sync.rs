@@ -35,7 +35,11 @@ pub(crate) fn stage_name(clk: &str, stage: usize) -> String {
 
 /// Ham reset portu: giriş yönlü `reset` tipli port.
 pub(crate) fn is_raw_reset(ast: &SourceFile, port: &Port) -> bool {
-    port.direction == PortDir::In && matches!(ast.types[port.ty].kind, TypeRefKind::Reset(_))
+    port.direction == PortDir::In
+        && matches!(
+            ast.types[crate::alias::resolve(ast, port.ty)].kind,
+            TypeRefKind::Reset(_)
+        )
 }
 
 /// ADR-0065 §1: tek anotasyonsuz ham port reset'li bütün alanları
@@ -62,7 +66,7 @@ pub(crate) fn feeding_raw(
                 .is_some_and(|d| Some(d.text.as_str()) == clock_domain)
         })?,
     };
-    let polarity = match ast.types[port.ty].kind {
+    let polarity = match ast.types[crate::alias::resolve(ast, port.ty)].kind {
         TypeRefKind::Reset(Some(spec)) => spec.polarity,
         _ => info.reset.polarity,
     };

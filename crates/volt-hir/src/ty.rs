@@ -213,6 +213,27 @@ impl TypeArena {
     /// Struct/enum/instance isimleri arena'da tutulmaz; isimli gösterim
     /// için tip denetçisi `ResolveResult` üzerinden sarmalar.
     pub fn display(&self, id: TypeId) -> String {
+        self.display_with(id, &|_| None)
+    }
+
+    /// `display`; struct/enum adları çözümleme tablosundan (`StructId`
+    /// ve `EnumId` tanım kimliğidir). Hover `a : P` gösterir, `a : struct`
+    /// değil (ADR-0070 §3.2).
+    pub fn display_named(&self, id: TypeId, defs: &[crate::DefData]) -> String {
+        let name_of = |def: u32| defs.get(def as usize).map(|d| d.name.clone());
+        self.display_with(id, &|ty| match ty {
+            Ty::Struct(s) => name_of(s.0),
+            Ty::Enum(e) => name_of(e.0),
+            _ => None,
+        })
+    }
+
+    /// Ortak gösterim: `name` bir tipe ad verirse o kullanılır (iç içe
+    /// dizi/tuple elemanları dahil).
+    fn display_with(&self, id: TypeId, name: &dyn Fn(&Ty) -> Option<String>) -> String {
+        if let Some(n) = name(self.ty(id)) {
+            return n;
+        }
         match self.ty(id) {
             Ty::Bool => "bool".to_string(),
             Ty::UInt { width } => format!("u{width}"),
@@ -221,9 +242,10 @@ impl TypeArena {
             Ty::Trit => "Trit".to_string(),
             Ty::Clock => "clock".to_string(),
             Ty::Reset { .. } => "reset".to_string(),
-            Ty::Array { elem, len } => format!("[{}; {len}]", self.display(*elem)),
+            Ty::Array { elem, len } => format!("[{}; {len}]", self.display_with(*elem, name)),
             Ty::Tuple(items) => {
-                let parts: Vec<String> = items.iter().map(|&t| self.display(t)).collect();
+                let parts: Vec<String> =
+                    items.iter().map(|&t| self.display_with(t, name)).collect();
                 format!("({})", parts.join(", "))
             }
             Ty::Struct(_) => "struct".to_string(),
@@ -231,7 +253,7 @@ impl TypeArena {
             Ty::Instance(_) => "modül örneği".to_string(),
             Ty::Builtin { prim, .. } => format!("{} örneği", prim.name()),
             Ty::Delayed { inner, cycles } => {
-                format!("Delayed<{}, {cycles}>", self.display(*inner))
+                format!("Delayed<{}, {cycles}>", self.display_with(*inner, name))
             }
             Ty::IntLit => "tamsayı literali".to_string(),
             // Kullanıcı yüzünde doğal genişlik gösterilir (§10 vektörleri).

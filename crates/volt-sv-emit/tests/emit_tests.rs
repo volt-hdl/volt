@@ -872,8 +872,12 @@ fn builtin_missing_binding_is_diagnosed() {
     let src = format!(
         "{CDC_DOMAINS}module M {{ in fast_clk : clock @Fast in slow_clk : clock @Slow          in p : bool @Fast out q : bool @Slow          let u = PulseSync {{ src_clk: fast_clk, dst_clk: slow_clk }}          q = u.pulse_out }}"
     );
+    // ADR-0070: eksik zorunlu bağlama kullanıcı hatasıdır ("henüz
+    // desteklenmiyor" E0003 değil) — bağlanmamış kullanıcı modülü
+    // girişiyle aynı tanı (E2005).
     let codes = emit_codes(&src);
-    assert!(codes.contains(&"E0003"), "eksik bağlama tanısı: {codes:?}");
+    assert!(codes.contains(&"E2005"), "eksik bağlama tanısı: {codes:?}");
+    assert!(!codes.contains(&"E0003"), "{codes:?}");
 }
 
 #[test]

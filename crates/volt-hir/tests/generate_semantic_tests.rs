@@ -291,3 +291,21 @@ fn array_ports_and_wires_typecheck_with_element_access() {
     let r = analyze_src("module M { in a : [i8; 4]\n out c : [i16; 4]\n wire w : [i16; 4]\n for i in 0..4 { w[i] = a[i] as i16\n c[i] = w[i] } }");
     assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
 }
+
+/// ADR-0070 §3.3: açılım bağlamayı `t_0` diye yeniden adlandırır; W2012
+/// çözümü kullanıcının yazmadığı bu adı göstermemeli.
+#[test]
+fn w2012_help_in_unrolled_body_does_not_leak_generated_name() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r = analyze_src(
+        "module M {\n    out o : [i32; 4]\n    for i in 0..4 {\n        let t = 3\n        o[i] = t\n    }\n}\n",
+    );
+    let w = r
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "W2012")
+        .expect("W2012 beklenir");
+    let help = w.help.as_deref().unwrap_or_default();
+    assert!(!help.contains("t_0"), "üretilmiş ad sızdı: {help}");
+    assert!(help.contains(": i32"), "{help}");
+}
