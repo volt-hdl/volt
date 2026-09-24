@@ -45,6 +45,11 @@
 
 package i2c::i2c_master;
 
+// Master states (ADR-0074). Seven variants in a 3-bit binary encoding
+// (Idle = 0 .. Stop = 6); code 7 belongs to no variant, and the
+// compiler adds the state-valid invariant for it (ADR-0066 F1).
+pub enum I2cState { Idle, Start, Addr, AddrAck, Data, DataAck, Stop }
+
 // 3.2 MHz / 100 kHz and 3.2 MHz / 400 kHz.
 const CLKS_PER_BIT_STD  : u6 = 32
 const CLKS_PER_BIT_FAST : u6 = 8
@@ -71,14 +76,13 @@ pub module I2cMaster {
 
     // Observability for tests and formal: current state, whether a slave
     // stretched the clock, and whether the last START was a repeated one.
-    out state     : u3
+    out state     : I2cState
     out stretched : bool
     out repeated  : bool
 
     // ── Contracts ──────────────────────────────────────────────
-    // Seven states: 0 IDLE, 1 START, 2 ADDR, 3 ADDR_ACK, 4 DATA,
-    // 5 DATA_ACK, 6 STOP. The u3 encoding 7 is never reached.
-    invariant: state_r < 7
+    // "state_r is one of the seven variants" (code 7 is never reached)
+    // is not written here: the compiler generates it from I2cState.
     invariant: bit_count_r <= 8
     invariant: clk_count_r < CLKS_PER_PHASE_STD
     // An idle master leaves both lines to the pull-ups. This is the
@@ -87,14 +91,14 @@ pub module I2cMaster {
     invariant: !busy_r -> (sda.released && scl.released)
     // Induction helpers: outside IDLE the master is busy; the phase
     // counter only runs while busy.
-    invariant: state_r != 0 -> busy_r
+    invariant: state_r != I2cState::Idle -> busy_r
     invariant: !busy_r -> (phase_r == 0 && clk_count_r == 0 && !stall_r)
 
     cover: ack_seen_r                       // a slave acknowledged
     cover: nack_seen_r                      // a slave (or the master) did not
     cover: stretched_r                      // a slave stretched SCL
-    cover: state_r == 6                     // STOP reached
-    cover: state_r == 1 && repeated_r       // REPEATED START issued
+    cover: state_r == I2cState::Stop        // STOP reached
+    cover: state_r == I2cState::Start && repeated_r   // REPEATED START issued
     cover: done_r && rw_r                   // a read completed
     cover: sda.driving && scl.driving       // both lines held (START p3, STOP p0)
 
@@ -105,7 +109,7 @@ pub module I2cMaster {
     scl_s = sync(scl.read(), clk)
 
     // ── State ──────────────────────────────────────────────────
-    reg state_r     : u3  = 0
+    reg state_r     : I2cState = I2cState::Idle
     reg phase_r     : u2  = 0
     reg clk_count_r : u6  = 0
     reg stall_r     : bool = false       // phase 1 waited for scl_s last clock
@@ -164,7 +168,7 @@ pub module I2cMaster {
 
         match state_r {
             // IDLE: lines released, wait for a command.
-            0 => {
+            I2cState::Idle => {
                 sda.release()
                 scl.release()
                 if start {
@@ -175,13 +179,13 @@ pub module I2cMaster {
                     ack_ok_r    <= false
                     stretched_r <= false
                     repeated_r  <= false
-                    state_r     <= 1
+                    state_r     <= I2cState::Start
                 }
             }
             // START: SDA falls while SCL is high.
             //   p0 SCL low (or still high from idle), SDA released
             //   p1 SCL released   p2 SDA pulled low = START   p3 SCL low
-            1 => {
+            I2cState::Start => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -191,13 +195,13 @@ pub module I2cMaster {
                             shift_r     <= (addr_r as u8) << 1 | (if rw_r { 1 } else { 0 })
                             bit_count_r <= 0
                             if addr_r[6] { sda.release() } else { sda.drive_low() }
-                            state_r     <= 2
+                            state_r     <= I2cState::Addr
                         }
                     }
                 }
             }
             // ADDR: 7 address bits + R/W, MSB first, one bit per period.
-            2 => {
+            I2cState::Addr => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -207,7 +211,7 @@ pub module I2cMaster {
                             if bit_count_r >= 7 {
                                 bit_count_r <= 0
                                 sda.release()              // release SDA for the ACK slot
-                                state_r     <= 3
+                                state_r     <= I2cState::AddrAck
                             } else {
                                 bit_count_r <= bit_count_r + 1
                                 shift_r     <= shift_r << 1
@@ -218,7 +222,7 @@ pub module I2cMaster {
                 }
             }
             // ADDR_ACK: the slave pulls SDA low while SCL is high.
-            3 => {
+            I2cState::AddrAck => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -232,23 +236,23 @@ pub module I2cMaster {
                         _ => {
                             if !ack_r {
                                 sda.drive_low()            // NACK: go straight to STOP
-                                state_r  <= 6
+                                state_r  <= I2cState::Stop
                             } else if rw_r {
                                 sda.release()              // read: the slave drives SDA
                                 bit_count_r <= 0
-                                state_r     <= 4
+                                state_r     <= I2cState::Data
                             } else {
                                 shift_r     <= wr_data_r
                                 if wr_data_r[7] { sda.release() } else { sda.drive_low() }
                                 bit_count_r <= 0
-                                state_r     <= 4
+                                state_r     <= I2cState::Data
                             }
                         }
                     }
                 }
             }
             // DATA: write shifts wr_data out, read samples sda_s.
-            4 => {
+            I2cState::Data => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -263,7 +267,7 @@ pub module I2cMaster {
                             if bit_count_r >= 7 {
                                 bit_count_r <= 0
                                 sda.release()              // write: ACK slot; read: NACK (last byte)
-                                state_r     <= 5
+                                state_r     <= I2cState::DataAck
                             } else {
                                 bit_count_r <= bit_count_r + 1
                                 shift_r     <= shift_r << 1
@@ -276,7 +280,7 @@ pub module I2cMaster {
                 }
             }
             // DATA_ACK: write = slave ACK, read = master NACK (SDA left high).
-            5 => {
+            I2cState::DataAck => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -301,18 +305,20 @@ pub module I2cMaster {
                                 rw_r       <= rw
                                 wr_data_r  <= wr_data
                                 sda.release()              // START p0 wants SDA released
-                                state_r    <= 1
+                                state_r    <= I2cState::Start
                             } else {
                                 sda.drive_low()            // SDA low ahead of STOP
-                                state_r  <= 6
+                                state_r  <= I2cState::Stop
                             }
                         }
                     }
                 }
             }
-            // STOP (any unreachable encoding drains here): SDA rises
-            // while SCL is high, then both lines are left released.
-            _ => {
+            // STOP: SDA rises while SCL is high, then both lines are left
+            // released. The match names every variant, so there is no `_`
+            // arm: this last arm becomes the SV `default` and also takes
+            // the unused code 7, as the numeric `_ =>` arm did.
+            I2cState::Stop => {
                 if tick {
                     match phase_r {
                         0 => { scl.release() }
@@ -325,7 +331,7 @@ pub module I2cMaster {
                             scl.release()
                             busy_r   <= false
                             done_r   <= true
-                            state_r  <= 0
+                            state_r  <= I2cState::Idle
                         }
                     }
                 }

@@ -5,6 +5,29 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — örnek FSM'ler enum'lu (2026-09-24, ADR-0074 Aşama 3)
+
+- `examples/uart_tx.volt` (`enum TxState`, 4 durum) ve
+  `examples/i2c/i2c_master.volt` (`pub enum I2cState`, 7 durum) durum
+  register'ını enum'a taşıdı; `match`'ler kapsayıcı, `_` kolu yok (son kol
+  SV `default`). i2c'nin `out state` portu ve test tezgâhının `m_state`'i
+  `I2cState` tipli (modüller arası enum portu); testler
+  `assert_eq(dut.m_state, I2cState::Stop)` yazıyor.
+- **Donanım aynı** (Yosys `stat`, bütün hücre türleri birebir):
+  UartTx `synth_ice40` LUT 50 / FF 28, `synth_xilinx` LUT 34 / FF 28;
+  I2cMaster `synth_ice40` LUT 88 / FF 60, `synth_xilinx` LUT 58 / FF 60 —
+  sayılı ve enum'lu sürümde aynı. Simülasyon cover sayaçları da aynı
+  (uart 4/4, i2c 12/12 test).
+- i2c'nin elle yazılmış `state_r < 7` değişmezi kaldırıldı; aynı bilgi
+  otomatik F1 "durum geçerli" değişmezi olarak üretiliyor (property sayısı
+  24 → 24). uart 4 durumla 2 biti doldurduğu için F1 üretilmez. Formal
+  süreleri (3 tekrar) gürültü aralığında; en küçük `prove` derinliği iki
+  sürümde de 2.
+- `riscv_core` taşınmadı: opcode'lar komut bitlerinden `u7` dilim olarak
+  gelir, karşılaştırmalar `match` değil `==`; enum ile her kullanımda
+  `(Op::Lui as u7)` dökümü gerekirdi (`opcode == Op::Lui` E2003).
+- README: enum özelliği ve Limitations'ta struct/payload'lı enum ayrımı.
+
 ### Eklendi — enum'lar donanıma iner (2026-09-24, ADR-0074 Aşama 2)
 
 - **Birim varyantlı enum sinyal tipi**: `enum State { Idle, Run, Done }`

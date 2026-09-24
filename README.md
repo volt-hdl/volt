@@ -215,6 +215,7 @@ IP-XACT or UVM output.
 - `pipeline(N)` blocks with generated stage registers — [ADR-0038](docs/adr/ADR-0038-pipeline-sozdizimi.md), [`examples/fir_filter.volt`](examples/fir_filter.volt)
 - `Delayed<T, N>` latency types — [ADR-0037](docs/adr/ADR-0037-l1-zamanlama.md), [`tests/ui/pass/44_delayed_aligned.volt`](tests/ui/pass/44_delayed_aligned.volt)
 - Port bundles (`struct port`) — [ADR-0039](docs/adr/ADR-0039-bundle-port-gruplari.md), [`tests/ui/pass/47_bundle_basic.volt`](tests/ui/pass/47_bundle_basic.volt)
+- Enum state types with exhaustive `match` and a generated state-valid invariant — [ADR-0074](docs/adr/ADR-0074-enum-destegi.md), [`examples/uart_tx.volt`](examples/uart_tx.volt), [`examples/i2c/`](examples/i2c/)
 - `Handshake<T>` with generated valid/ready contracts — [ADR-0050](docs/adr/ADR-0050-handshake-primitifi.md), [`examples/axi4lite_slave.volt`](examples/axi4lite_slave.volt)
 - `inout` / `opendrain` ports — [ADR-0051](docs/adr/ADR-0051-cift-yonlu-portlar.md), [`examples/i2c/`](examples/i2c/)
 - SDC/XDC constraint output (`--emit=sdc,xdc`) — [ADR-0054](docs/adr/ADR-0054-sdc-uretimi.md), [`tests/ui/pass/74_sdc_multi_clock.volt`](tests/ui/pass/74_sdc_multi_clock.volt)
@@ -241,6 +242,11 @@ More designs: [`examples/README.md`](examples/README.md).
 - **SystemVerilog is the sole output language.** No VHDL.
 - **Some constructs are not yet emitted.** A few constructs pass the type
   checker but are rejected at SystemVerilog generation with `E0003`.
+  Structs are not a signal type yet (ports, `reg`, `wire`, `let`; port
+  bundles are the exception). Enums with plain variants are
+  (`enum State { Idle, Run }`, explicit codes with `enum Op : u7 { ... }`,
+  ADR-0074); enums with data-carrying variants, generic enums and enum
+  arrays are not.
 - **Sequential properties are limited to `prev()`.** No sequences, no
   liveness.
 - **Formal verification requires SymbiYosys** (Linux; WSL or Docker on

@@ -35,7 +35,7 @@
 
 package i2c::i2c_test;
 
-use i2c::i2c_master::I2cMaster;
+use i2c::i2c_master::{I2cMaster, I2cState};
 
 // System clocks a stretching slave holds SCL low after the address ACK.
 // The master's phase 0 + phase 1 already span 16 clocks after the ACK
@@ -202,7 +202,7 @@ module I2cTb {
     out done         : bool
     out ack_ok       : bool
     out rd_data      : u8
-    out m_state      : u3
+    out m_state      : I2cState
     out stretched    : bool
     out repeated     : bool
     // Resolved bus levels.
@@ -260,7 +260,7 @@ test "idle bus is released" {
     assert_true(dut.sda);
     assert_true(dut.scl);
     assert_false(dut.busy);
-    assert_eq(dut.m_state, 0);
+    assert_eq(dut.m_state, I2cState::Idle);
 }
 
 test "start condition" {
@@ -273,7 +273,7 @@ test "start condition" {
     step(1);
     dut.start = false;
     assert_true(dut.busy);
-    assert_eq(dut.m_state, 1);
+    assert_eq(dut.m_state, I2cState::Start);
     // Phase 1: SCL released, SDA still high.
     step(15);
     assert_true(dut.sda);
@@ -289,7 +289,7 @@ test "start condition" {
     step(5);
     assert_false(dut.scl);
     step(8);
-    assert_eq(dut.m_state, 2);
+    assert_eq(dut.m_state, I2cState::Addr);
 }
 
 test "address transmission" {
@@ -317,7 +317,7 @@ test "address transmission" {
     assert_eq(dut.s_got_byte, 0xA0);
     assert_true(dut.s_addr_hit);
     assert_eq(dut.s_byte_cnt, 1);
-    assert_eq(dut.m_state, 3);
+    assert_eq(dut.m_state, I2cState::AddrAck);
 }
 
 test "ack handling" {
@@ -334,11 +334,11 @@ test "ack handling" {
     step(300);
     assert_false(dut.sda);
     assert_true(dut.scl);
-    assert_eq(dut.m_state, 3);
+    assert_eq(dut.m_state, I2cState::AddrAck);
     // The master sampled the ACK at E+312 and moved on to the data byte
     // at E+320.
     step(20);
-    assert_eq(dut.m_state, 4);
+    assert_eq(dut.m_state, I2cState::Data);
     step(320);
     assert_true(dut.done);
     assert_true(dut.ack_ok);
@@ -360,7 +360,7 @@ test "nack handling" {
     assert_true(dut.scl);
     // NACK: straight to STOP at E+320, idle at E+352 with ack_ok low.
     step(20);
-    assert_eq(dut.m_state, 6);
+    assert_eq(dut.m_state, I2cState::Stop);
     step(32);
     assert_false(dut.busy);
     assert_true(dut.done);
@@ -422,7 +422,7 @@ test "stop condition" {
     dut.start = false;
     // STOP phase 0 (E+608 .. E+616): both lines low.
     step(612);
-    assert_eq(dut.m_state, 6);
+    assert_eq(dut.m_state, I2cState::Stop);
     assert_false(dut.sda);
     assert_false(dut.scl);
     // Phase 1 (from E+616): SCL released and high, SDA still low.
@@ -438,7 +438,7 @@ test "stop condition" {
     assert_eq(dut.s_stop_cnt, 1);
     step(13);
     assert_false(dut.busy);
-    assert_eq(dut.m_state, 0);
+    assert_eq(dut.m_state, I2cState::Idle);
 }
 
 test "read byte" {
@@ -477,7 +477,7 @@ test "clock stretching" {
     step(340);
     assert_true(dut.s_scl_held);
     assert_false(dut.scl);
-    assert_eq(dut.m_state, 4);
+    assert_eq(dut.m_state, I2cState::Data);
     assert_true(dut.stretched);
     // Without stretching the write would be over at E+640.
     step(300);
@@ -536,7 +536,7 @@ test "repeated start write then read" {
     // First byte delivered, then a START instead of a STOP.
     step(557);
     assert_eq(dut.s_got_byte, 0x3C);
-    assert_eq(dut.m_state, 1);
+    assert_eq(dut.m_state, I2cState::Start);
     assert_true(dut.repeated);
     assert_true(dut.busy);
     // Second START on the wire at E+624, seen by the slave at E+627; no

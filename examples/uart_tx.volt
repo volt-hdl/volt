@@ -14,6 +14,11 @@
 
 const CLKS_PER_BIT : u10 = 4
 
+// Transmitter states (ADR-0074). Four variants fill the 2-bit binary
+// encoding exactly (Idle = 0 .. Stop = 3), so every code is a valid
+// state and no state-valid invariant is needed.
+enum TxState { Idle, Start, Data, Stop }
+
 pub module UartTx {
     in  clk   : clock
     in  start : bool
@@ -26,20 +31,18 @@ pub module UartTx {
     // The line idles high: whenever the transmitter is not busy the
     // tx output is high (ADR-0034 implication, SVA: !busy_r |-> tx_r).
     invariant: !busy_r -> tx_r
-    // Induction helper: outside IDLE (state 0) the transmitter is
-    // always busy. Without this, the idle-line invariant alone is not
-    // inductive and `--mode prove` fails.
-    invariant: state_r != 0 -> busy_r
+    // Induction helper: outside Idle the transmitter is always busy.
+    // Without this, the idle-line invariant alone is not inductive and
+    // `--mode prove` fails.
+    invariant: state_r != TxState::Idle -> busy_r
 
     // Reachability targets: every one of the four states is visited.
-    cover: state_r == 0    // IDLE
-    cover: state_r == 1    // START
-    cover: state_r == 2    // DATA
-    cover: state_r == 3    // STOP
+    cover: state_r == TxState::Idle
+    cover: state_r == TxState::Start
+    cover: state_r == TxState::Data
+    cover: state_r == TxState::Stop
 
-    // State encoding (an enum would be the natural fit once [F3]
-    // enum patterns land): 0 IDLE, 1 START, 2 DATA, 3 STOP.
-    reg state_r     : u2   = 0
+    reg state_r     : TxState = TxState::Idle
     reg clk_count_r : u10  = 0
     reg bit_count_r : u4   = 0
     reg data_r      : u8   = 0
@@ -48,8 +51,8 @@ pub module UartTx {
 
     on clk {
         match state_r {
-            // IDLE: keep the line high, wait for a start pulse.
-            0 => {
+            // Idle: keep the line high, wait for a start pulse.
+            TxState::Idle => {
                 tx_r        <= true
                 busy_r      <= false
                 clk_count_r <= 0
@@ -57,31 +60,31 @@ pub module UartTx {
                 if start {
                     data_r  <= data
                     busy_r  <= true
-                    state_r <= 1
+                    state_r <= TxState::Start
                 }
             }
-            // START: drive the start bit (low) for one full bit period.
-            1 => {
+            // Start: drive the start bit (low) for one full bit period.
+            TxState::Start => {
                 tx_r <= false
                 if clk_count_r == CLKS_PER_BIT - 1 {
                     clk_count_r <= 0
-                    state_r     <= 2
+                    state_r     <= TxState::Data
                 } else {
                     clk_count_r <= clk_count_r + 1
                 }
             }
-            // DATA: shift the frame out LSB first.
-            2 => {
+            // Data: shift the frame out LSB first.
+            TxState::Data => {
                 tx_r <= data_r[0]
                 if clk_count_r == CLKS_PER_BIT - 1 {
                     clk_count_r <= 0
                     data_r      <= data_r >> 1
                     // `>=` instead of `==` keeps the bit_count invariant
                     // inductive: even from an unreachable count above 7
-                    // the machine falls through to STOP.
+                    // the machine falls through to Stop.
                     if bit_count_r >= 7 {
                         bit_count_r <= 0
-                        state_r     <= 3
+                        state_r     <= TxState::Stop
                     } else {
                         bit_count_r <= bit_count_r + 1
                     }
@@ -89,14 +92,15 @@ pub module UartTx {
                     clk_count_r <= clk_count_r + 1
                 }
             }
-            // STOP (any unreachable encoding also drains here):
-            // drive the stop bit (high), then release the bus.
-            _ => {
+            // Stop: drive the stop bit (high), then release the bus. The
+            // match names every variant, so no `_` arm is needed; this
+            // last arm becomes the SV `default`.
+            TxState::Stop => {
                 tx_r <= true
                 if clk_count_r == CLKS_PER_BIT - 1 {
                     clk_count_r <= 0
                     busy_r      <= false
-                    state_r     <= 0
+                    state_r     <= TxState::Idle
                 } else {
                     clk_count_r <= clk_count_r + 1
                 }
