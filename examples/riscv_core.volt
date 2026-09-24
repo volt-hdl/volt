@@ -5,7 +5,7 @@
 // except division.
 //
 // Rewritten with ADR-0035 features: the register file is one
-// `reg regs : [u32; 32]` with dynamic indexing (regs[rs1_i], regs[rd_i])
+// `reg regs : [u32; 32]` with dynamic indexing (regs[ins.rs1], regs[ins.rd])
 // instead of 32 separate registers plus two 32-arm match blocks, and
 // sub-word loads use an indexed part-select (mem_rdata[off8 +: 8])
 // instead of shift-and-mask workarounds.
@@ -89,6 +89,20 @@
 
 use uart_tx::UartTx;
 
+// The R-type field layout of the RISC-V base encoding, bit 31 first. A
+// struct packs its first field into the most significant bits (ADR-0077),
+// so `instr as RType` reads the spec table directly; every format shares
+// opcode, rd, funct3, rs1 and rs2 at these positions. Immediates are
+// scattered across the word per format and stay explicit shifts below.
+struct RType {
+    funct7 : u7   // [31:25]
+    rs2    : u5   // [24:20]
+    rs1    : u5   // [19:15]
+    funct3 : u3   // [14:12]
+    rd     : u5   // [11:7]
+    opcode : u7   // [6:0]
+}
+
 pub module RiscvCore {
     in  clk       : clock
     in  instr     : u32
@@ -107,7 +121,7 @@ pub module RiscvCore {
     out mret_o    : bool
     out uart_txd  : bool
 
-    // x0 reads as zero forever — the guard `rd_i != 0` below keeps
+    // x0 reads as zero forever — the guard `ins.rd != 0` below keeps
     // this inductive from the reset state [0; 32].
     invariant: regs[0] == 0
     // Instructions are 4-byte aligned in RV32I (no compressed
@@ -157,8 +171,7 @@ pub module RiscvCore {
     cover: mem_read
     cover: pc_r != 0
     // A MUL executed; a division by zero ran to completion.
-    cover: (instr[6:0] as u7) == 0x33 && (instr[31:25] as u7) == 1
-        && (instr[14:12] as u3) == 0
+    cover: ins.opcode == 0x33 && ins.funct7 == 1 && ins.funct3 == 0
     cover: div_done && div_d == 0
     // An ECALL trapped, an MRET ran, an interrupt was taken, and a
     // store to 0x2000_0000 pulled the UART line low (start bit).
@@ -191,41 +204,38 @@ pub module RiscvCore {
     reg cyc_wrap : bool = false
 
     // ── Decode ────────────────────────────────────────────────────
-    let opcode = instr[6:0] as u7
-    let rd_i   = instr[11:7] as u5
-    let f3     = instr[14:12] as u3
-    let rs1_i  = instr[19:15] as u5
-    let rs2_i  = instr[24:20] as u5
+    let ins : RType = instr as RType
+    // funct3 selects the operation in nearly every decoder below.
+    let f3 = ins.funct3
 
-    let is_lui    = opcode == 0x37
-    let is_auipc  = opcode == 0x17
-    let is_jal    = opcode == 0x6F
-    let is_jalr   = opcode == 0x67
-    let is_branch = opcode == 0x63
-    let is_load   = opcode == 0x03
-    let is_store  = opcode == 0x23
-    let is_alu_i  = opcode == 0x13
-    let is_alu_r  = opcode == 0x33
+    let is_lui    = ins.opcode == 0x37
+    let is_auipc  = ins.opcode == 0x17
+    let is_jal    = ins.opcode == 0x6F
+    let is_jalr   = ins.opcode == 0x67
+    let is_branch = ins.opcode == 0x63
+    let is_load   = ins.opcode == 0x03
+    let is_store  = ins.opcode == 0x23
+    let is_alu_i  = ins.opcode == 0x13
+    let is_alu_r  = ins.opcode == 0x33
     // M extension: R-type with funct7 == 1; f3[2] splits MUL* / DIV*.
-    let is_m      = is_alu_r && (instr >> 25) == 1
+    let is_m      = is_alu_r && ins.funct7 == 1
     let is_mul    = is_m && !f3[2]
     let is_div    = is_m && f3[2]
     // Zicsr: SYSTEM opcode with f3 != 0; f3 == 0 is the privileged group.
-    let is_csr    = opcode == 0x73 && f3 != 0
+    let is_csr    = ins.opcode == 0x73 && f3 != 0
     let is_ecall  = instr == 0x00000073
     let is_ebreak = instr == 0x00100073
     let is_mret   = instr == 0x30200073
     let is_wfi    = instr == 0x10500073   // NOP: the core never sleeps
-    let is_fence  = opcode == 0x0F        // FENCE / FENCE.I: NOP, no caches
+    let is_fence  = ins.opcode == 0x0F        // FENCE / FENCE.I: NOP, no caches
 
     // Everything else is an illegal instruction: unknown opcodes,
     // unassigned f3 values, shifts and R-type with a stray funct7.
-    let f7 = instr[31:25] as u7
     let sh_ok =
-        if f3 == 1 { f7 == 0
-        } else if f3 == 5 { f7 == 0 || f7 == 0x20
+        if f3 == 1 { ins.funct7 == 0
+        } else if f3 == 5 { ins.funct7 == 0 || ins.funct7 == 0x20
         } else { true }
-    let r_ok = f7 == 0 || f7 == 1 || (f7 == 0x20 && (f3 == 0 || f3 == 5))
+    let r_ok = ins.funct7 == 0 || ins.funct7 == 1 || (ins.funct7 == 0x20 && (f3 == 0 || f3 == 5))
     let legal = is_lui || is_auipc || is_jal || (is_jalr && f3 == 0)
              || (is_branch && f3 != 2 && f3 != 3)
              || (is_load && f3 != 3 && f3 < 6)
@@ -235,8 +245,8 @@ pub module RiscvCore {
              || is_ecall || is_ebreak || is_mret || is_wfi || is_fence
 
     // ── Register file read (dynamic indexing, ADR-0035) ───────────
-    let rs1_v = regs[rs1_i]
-    let rs2_v = regs[rs2_i]
+    let rs1_v = regs[ins.rs1]
+    let rs2_v = regs[ins.rs2]
 
     // ── Immediates (sign extension via arithmetic shift) ──────────
     let imm_i = ((instr as i32) >> 20) as u32
@@ -384,13 +394,13 @@ pub module RiscvCore {
     // f3[2]: source is the zero-extended rs1 field (CSRRWI/SI/CI).
     // f3[1:0]: 1 = write, 2 = set, 3 = clear. Set/clear with rs1 == x0
     // (or uimm == 0) must not write at all.
-    let csr_src = if f3[2] { rs1_i as u32 } else { rs1_v }
+    let csr_src = if f3[2] { ins.rs1 as u32 } else { rs1_v }
     let csr_op  = f3 & 3
     let csr_wdata =
         if csr_op == 1 { csr_src
         } else if csr_op == 2 { csr_rdata | csr_src
         } else { csr_rdata & (csr_src ^ 0xFFFFFFFF) }
-    let csr_we = is_csr && (csr_op == 1 || rs1_i != 0) && !take_trap
+    let csr_we = is_csr && (csr_op == 1 || ins.rs1 != 0) && !take_trap
 
     // ── Load data (memory or I/O) ─────────────────────────────────
     // Sub-word extraction with a variable-start part-select
@@ -439,10 +449,10 @@ pub module RiscvCore {
             pc_r <= pc_r + 4
         }
 
-        // Dynamic indexed write (ADR-0035); rd_i != 0 preserves x0.
+        // Dynamic indexed write (ADR-0035); ins.rd != 0 preserves x0.
         if wb_en {
-            if rd_i != 0 {
-                regs[rd_i] <= wb_val
+            if ins.rd != 0 {
+                regs[ins.rd] <= wb_val
             }
         }
 
