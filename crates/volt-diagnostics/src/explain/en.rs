@@ -527,10 +527,10 @@ extern module ExtRegFile {
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",
-            "The same signal is driven by two assignments.",
-            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time.",
-            "y = a\ny = b                   // ✗ E4001: who wins?",
-            "y = if sel { b } else { a }  // ✓ single driver",
+            "The same signal (or the same bits of it) is driven by two sources.",
+            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time. Every source counts: an assignment in another block, a 'let' initializer, an input port (the instantiating module drives it) and a wire bound to a child's inout/opendrain port (driven tri-state through that port). Partial targets conflict only when their bits overlap: y[7:4] and y[3:0] are fine, y = a and y[0] = b are not. Assignments inside one 'on' or 'comb' block are a single driver (ADR-0073).",
+            "y = a\ny = b                   // ✗ E4001: who wins?\nlet v = a\nv = b                   // ✗ E4001: the let initializer already drives v",
+            "y = if sel { b } else { a }  // ✓ single driver\nlet v = if sel { b } else { a }  // ✓",
         ),
         E4002 => Explanation::new(
             "Undriven output port",

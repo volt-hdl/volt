@@ -3,20 +3,30 @@
 //! tablosuna (§11.1) buradan kaydedilir; analiz `crate::drivers`'tadır.
 
 use volt_ast::{
-    Block, BlockStmt, ElseBranch, Expr, ExternDecl, ForStmt, Idx, IfStmt, LValue, LValueSuffix,
-    LetDecl, MatchArm, MatchArmBody, ModuleDecl, RegDecl, Stmt, StmtKind,
+    Block, BlockStmt, ElseBranch, Expr, ExprKind, ExternDecl, ForStmt, Idx, IfStmt, ItemKind,
+    LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, PortDir, RegDecl, Stmt,
+    StmtKind,
 };
 use volt_diagnostics::{lstr, ErrorCode};
 
 use super::TypeChecker;
+use crate::drivers::DriverKind;
 use crate::resolve::{DefId, DefKind};
-use crate::ty::{Ty, TypeId};
+use crate::ty::{StructId, Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
     pub(super) fn check_module(&mut self, m: &ModuleDecl) {
         for p in &m.ports {
             let ty = self.resolve_type_ref(p.ty);
             self.record_def_type(&p.name, ty);
+            // Giriş portunu üst modül sürer (ADR-0073): içeride atanırsa E4001.
+            if p.direction == PortDir::In {
+                if let Some(&def) = self.res.decl_spans.get(&p.name.span) {
+                    let group = self.new_group();
+                    self.drivers
+                        .record_kind(def, p.span, group, DriverKind::ParentInput);
+                }
+            }
         }
         for &stmt in &m.body {
             self.check_stmt(stmt);
@@ -127,6 +137,15 @@ impl TypeChecker<'_, '_> {
             }
         };
         self.record_def_type(&l.name, ty);
+        // Başlangıç değeri `let`in sürücüsüdür (ADR-0073): sonradan
+        // yapılan atama ikinci sürücüdür.
+        if let Some(&def) = self.res.decl_spans.get(&l.name.span) {
+            if self.res.def_kind(def) == DefKind::LocalBinding {
+                let group = self.current_group.unwrap_or_else(|| self.new_group());
+                self.drivers
+                    .record_kind(def, l.name.span, group, DriverKind::LetInit);
+            }
+        }
     }
 
     fn check_for(&mut self, f: &ForStmt) {
@@ -135,7 +154,20 @@ impl TypeChecker<'_, '_> {
         // Döngü değişkeni derleme zamanı tamsayısıdır (const-eval.md §8).
         let ty = self.types.int_lit();
         self.record_def_type(&f.var, ty);
+        // Blok içi döngü açılır: `arr[i]` hedefi [start, end) elemanlarını
+        // sürer (ADR-0073 §3). Sınırı sabit olmayan döngü kaydedilmez.
+        let var = self.res.decl_spans.get(&f.var.span).copied();
+        let bounds = match (self.try_const_eval(f.start), self.try_const_eval(f.end)) {
+            (Some(s), Some(e)) if s <= e => u32::try_from(s).ok().zip(u32::try_from(e).ok()),
+            _ => None,
+        };
+        if let (Some(var), Some(bounds)) = (var, bounds) {
+            self.loop_bounds.insert(var, bounds);
+        }
         self.check_block(f.body);
+        if let Some(var) = var {
+            self.loop_bounds.remove(&var);
+        }
     }
 
     fn check_block(&mut self, block_idx: Idx<Block>) {
@@ -193,7 +225,7 @@ impl TypeChecker<'_, '_> {
     // ═══ Atama ve sürücü kaydı (§6, §11) ══════════════════════════
 
     fn check_assign(&mut self, lhs: &LValue, rhs: Idx<Expr>) {
-        let (target, lhs_ty) = self.lvalue_type(lhs);
+        let (target, lhs_ty, bits) = self.lvalue_type(lhs);
         self.check(rhs, lhs_ty);
         let Some(def) = target else { return };
         if !matches!(
@@ -206,17 +238,23 @@ impl TypeChecker<'_, '_> {
             Some(g) => g,
             None => self.new_group(),
         };
+        let partial = !lhs.suffixes.is_empty();
         self.drivers
-            .record(def, lhs.span, group, !lhs.suffixes.is_empty());
+            .record(def, lhs.span, group, partial, bits.filter(|_| partial));
     }
 
-    fn lvalue_type(&mut self, lv: &LValue) -> (Option<DefId>, TypeId) {
+    /// Hedef tanım, hedef tipi ve sürülen bit aralığı `[lo, hi)`
+    /// (ADR-0073; derleme zamanında bilinmiyorsa `None` = bütün sinyal).
+    fn lvalue_type(&mut self, lv: &LValue) -> (Option<DefId>, TypeId, Option<(u32, u32)>) {
         let def = self.res.use_spans.get(&lv.base.span).copied();
         let mut ty = match def {
             Some(d) => self.def_type(d),
             None => self.types.error(),
         };
+        // Taban sinyal bit 0'dan başlar; sonekler aralığı daraltır.
+        let mut bits = Some((0, u32::MAX));
         for suffix in &lv.suffixes {
+            bits = bits.and_then(|(lo, _)| self.suffix_bits(ty, suffix, lo));
             ty = match suffix {
                 LValueSuffix::Index(e) => {
                     self.synth(*e);
@@ -235,10 +273,115 @@ impl TypeChecker<'_, '_> {
                 LValueSuffix::Field(name) => self.field_result(ty, name, lv.span),
             };
         }
-        (def, ty)
+        (def, ty, bits)
     }
 
-    fn new_group(&mut self) -> u32 {
+    /// Bir lvalue sonekinin `ty` içinde seçtiği bit aralığı; `lo` tabanın
+    /// başlangıç bitidir. Sabit olmayan indeks/aralık `None` verir.
+    fn suffix_bits(&mut self, ty: TypeId, suffix: &LValueSuffix, lo: u32) -> Option<(u32, u32)> {
+        let konst = |this: &mut Self, e: Idx<Expr>| {
+            this.try_const_eval(e).and_then(|v| u32::try_from(v).ok())
+        };
+        let (start, width) = match suffix {
+            LValueSuffix::Index(e) => {
+                // Sabit indeks tek eleman; çıplak döngü değişkeni döngü
+                // aralığındaki elemanların birleşimi.
+                let (first, count) = match konst(self, *e) {
+                    Some(i) => (i, 1),
+                    None => {
+                        let (start, end) = self.loop_var_bounds(*e)?;
+                        (start, end - start)
+                    }
+                };
+                let w = match *self.types.ty(ty) {
+                    Ty::Array { elem, .. } => self.bit_width(elem)?,
+                    _ => 1,
+                };
+                (first.checked_mul(w)?, count.checked_mul(w)?)
+            }
+            LValueSuffix::Range { hi, lo } => {
+                let (h, l) = (konst(self, *hi)?, konst(self, *lo)?);
+                (l, h.checked_sub(l)?.checked_add(1)?)
+            }
+            LValueSuffix::PartSelect {
+                start,
+                width,
+                ascending,
+            } => {
+                let (s, w) = (konst(self, *start)?, konst(self, *width)?);
+                let s = if *ascending {
+                    s
+                } else {
+                    s.checked_add(1)?.checked_sub(w)?
+                };
+                (s, w)
+            }
+            LValueSuffix::Field(name) => match self.types.ty(ty).clone() {
+                Ty::Struct(sid) => {
+                    let mut offset = 0u32;
+                    let mut found = None;
+                    for (field, fty) in self.struct_fields(sid) {
+                        let w = self.bit_width(fty)?;
+                        if field == name.text {
+                            found = Some((offset, w));
+                            break;
+                        }
+                        offset = offset.checked_add(w)?;
+                    }
+                    found?
+                }
+                _ => return None,
+            },
+        };
+        let begin = lo.checked_add(start)?;
+        Some((begin, begin.checked_add(width)?))
+    }
+
+    /// İfade, sınırları sabit bir blok içi döngünün değişkeniyse `[start, end)`.
+    fn loop_var_bounds(&self, e: Idx<Expr>) -> Option<(u32, u32)> {
+        let ExprKind::Path(path) = &self.ast.exprs[e].kind else {
+            return None;
+        };
+        let [seg] = path.segments.as_slice() else {
+            return None;
+        };
+        let def = self.res.use_spans.get(&seg.span)?;
+        self.loop_bounds.get(def).copied()
+    }
+
+    /// Sürücü analizi için depolama genişliği (bool 1, Trit 2, dizi
+    /// eleman × uzunluk); struct/enum gibi düzeni burada bilinmeyen
+    /// tipler `None`.
+    fn bit_width(&mut self, ty: TypeId) -> Option<u32> {
+        match self.types.ty(ty).clone() {
+            Ty::Bool => Some(1),
+            Ty::Trit => Some(2),
+            Ty::Array { elem, len } => self.bit_width(elem)?.checked_mul(len),
+            Ty::Struct(sid) => self
+                .struct_fields(sid)
+                .into_iter()
+                .try_fold(0u32, |acc, (_, fty)| acc.checked_add(self.bit_width(fty)?)),
+            _ => self.types.width_of(ty).map(u32::from),
+        }
+    }
+
+    /// Struct alanları bildirim sırasıyla (ad, tip) — sürücü analizinin
+    /// soyut bit düzeni yalnız ayrıklık için kullanılır, SV düzeni değildir.
+    fn struct_fields(&mut self, sid: StructId) -> Vec<(String, TypeId)> {
+        let ast = self.ast;
+        let Some(&item_idx) = self.res.item_of_def.get(&DefId(sid.0)) else {
+            return Vec::new();
+        };
+        let ItemKind::Struct(decl) = &ast.items_arena[item_idx].kind else {
+            return Vec::new();
+        };
+        decl.fields
+            .iter()
+            .map(|f| (f.name.text.clone(), self.resolve_type_ref(f.ty)))
+            .collect()
+    }
+
+    pub(super) fn new_group(&mut self) -> u32 {
         self.next_group += 1;
         self.next_group
     }

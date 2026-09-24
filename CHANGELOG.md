@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — sessiz çift sürücüler E4001 verir (2026-09-24, ADR-0073)
+
+- **`let` başlangıç değeri bir sürücüdür**: `let v = a` sonrası `v = b`
+  (modül seviyesi, `comb`, `on`, `for` gövdesi, boru hattı aşama `let`i)
+  artık E4001; önce SV `wire v = a; assign v = b;` sessizce üretiliyordu.
+- **Kısmi hedefler bit aralığıyla karşılaştırılır**: dizi elemanı, bit,
+  aralık ve parça seçimi (`+:`/`-:`) atamaları farklı bloklardan aynı
+  bitleri sürerse E4001 (`arr[0]` iki kez, `arr = a` + `arr[1]`, `y = a` +
+  `y[0]`, `y[7:4]` + `y[5:0]`, `comb { for … arr[i] }` + `arr[1]`); ayrık
+  bitler geçerlidir. Tanı çakışan bitleri not olarak verir.
+- **Giriş portuna atama** E4001 (ikincil etiket port bildirimi: "üst
+  modül sürüyor"); önce `assign a = b` üretiliyordu.
+- **inout/opendrain hattına push-pull atama** E4001: alt modülün çift
+  yönlü portuna bağlı wire ayrıca atanırsa; iki çift yönlü port aynı
+  hatta geçerli (üç durumlu veri yolu).
+- E4001 iletisi iki sürücünün konumunu, sürücü türüne göre öneriyi ve
+  `for` açılımında kaynak adını (`t_0` değil `t`) gösterir. Denetim tek
+  yerde (`volt_hir::drivers`); `check`, LSP ve `build` aynı tanıyı verir.
+  `examples/` ve `tests/ui/pass/` içinde gerçek çift sürücü çıkmadı.
+
 ### Düzeltildi — küçük tanı hataları ve HybridTb Verilator uyarıları (2026-09-24, ADR-0072)
 
 - **Açılmış `for` gövdesinde kaynak adı**: W1001, E1003, W1002/W1003 ve

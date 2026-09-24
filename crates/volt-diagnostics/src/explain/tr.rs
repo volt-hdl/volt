@@ -527,10 +527,10 @@ extern module ExtRegFile {
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",
-            "Aynı sinyal iki atama tarafından sürülüyor.",
-            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın.",
-            "y = a\ny = b                   // ✗ E4001: hangisi kazanır?",
-            "y = if sel { b } else { a }  // ✓ tek sürücü",
+            "Aynı sinyal (ya da aynı bitleri) iki kaynak tarafından sürülüyor.",
+            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın. Her kaynak sayılır: başka bloktaki atama, 'let' başlangıç değeri, giriş portu (örnekleyen üst modül sürer) ve alt modülün inout/opendrain portuna bağlı wire (o port üzerinden üç durumlu sürülür). Kısmi hedefler yalnız bitleri kesişirse çakışır: y[7:4] ve y[3:0] geçerli, y = a ve y[0] = b değil. Tek 'on' ya da 'comb' bloğundaki atamalar tek sürücüdür (ADR-0073).",
+            "y = a\ny = b                   // ✗ E4001: hangisi kazanır?\nlet v = a\nv = b                   // ✗ E4001: let başlangıcı v'yi zaten sürüyor",
+            "y = if sel { b } else { a }  // ✓ tek sürücü\nlet v = if sel { b } else { a }  // ✓",
         ),
         E4002 => Explanation::new(
             "Sürücüsüz çıkış portu",

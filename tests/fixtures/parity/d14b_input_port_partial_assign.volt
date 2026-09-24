@@ -1,0 +1,11 @@
+// parity: E4001
+// drivers: 9 5
+module M {
+    in  clk : clock
+    in  a : u8
+    in  b : u8
+    out y : u8
+
+    a[0] = true
+    y = a
+}
