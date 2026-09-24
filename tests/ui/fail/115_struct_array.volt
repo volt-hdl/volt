@@ -11,8 +11,8 @@ module M {
     in  t   : u4
     out y   : bool
 
-    reg table : [Entry; 4] = [Entry { tag: 0, valid: false }; 4]
+    reg entries : [Entry; 4] = [Entry { tag: 0, valid: false }; 4]
 //~^ ERROR arrays of structs
-    on clk { table[0] <= Entry { tag: t, valid: true } }
-    y = table[1].valid
+    on clk { entries[0] <= Entry { tag: t, valid: true } }
+    y = entries[1].valid
 }

@@ -23,6 +23,7 @@ mod sim_expr;
 mod sim_load;
 mod sim_port;
 mod sim_struct;
+mod sim_top;
 pub mod testdata;
 pub mod timing;
 pub mod trust;
@@ -65,6 +66,7 @@ pub use sim_port::{
 pub use sim_struct::{
     expand_struct_tests, struct_compare, struct_port_layout, sv_port_name, MAX_WHOLE_STRUCT_BITS,
 };
+pub use sim_top::verilator_top_clashes;
 pub use testdata::{
     normalize_data_path, parse_readmemh, HexError, HexErrorReason, HexImage, TestFileError,
     TestFileLoader,

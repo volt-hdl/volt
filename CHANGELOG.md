@@ -5,6 +5,52 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — hedef dilin ayrılmış sözcüğü olan adlar (2026-09-25, ADR-0078)
+
+- **SystemVerilog anahtar sözcüğü artık SV adı olamaz: YENİ E1013.**
+  Önce `out packed : u32` ya da `reg table` için `volt check` ve
+  `volt build` temizdi, üretilen SV her araçta sözdizimi hatasıydı. Denetim
+  IEEE 1800-2017 Annex B'nin 248 sözcüğüyle (Verilog-2005'i kapsar), adın
+  SV'de aynen geçtiği her bildirimde (modül, extern modül ve portu, port,
+  `reg`, `wire`, `let`, modül örneği, `const`) ve Volt'un `_` ile kurduğu
+  bileşik adlarda (struct yaprağı, bundle alanı, enum localparam'ı, örnek
+  çıkış teli — `pulsestyle` + `ondetect` → `pulsestyle_ondetect`; ileti
+  birleşimi adlandırır). Ad yeniden adlandırılmaz ya da kaçırılmaz: dış
+  port adı yazdığınız ad kalır. SV'ye adsız inen adlar reddedilmez
+  (`p_packed`, `release_force`, `edge_0`, yerleşik primitifin `buf_mem`'i);
+  büyük/küçük harf duyarlı (`Packed` geçerli). Emitter'da bir güvenlik ağı
+  üretilen metinde ad olarak yazılmış anahtar sözcüğü de yakalar.
+  `check` = `build` = LSP (ADR-0070).
+- **`@mmio` register/alan/modül adı Rust ya da C/C++ anahtar sözcüğü
+  olamaz (E1013):** `mod`, `loop`, `yield`, `default`, `class`, ...
+  üretilen sürücüde metot/parametre adıdır ve derlenmezdi.
+- **Verilator C++ sözcüğü olan portlar** (`interrupt`, `char`, `stack`):
+  SV geçerli, reddedilmez. Verilator bunları üst modülde `__SYM__<ad>` yapıp
+  SYMRSVDWORD ile (varsayılan ölümcül) duruyordu ve `volt test` düşüyordu.
+  Artık port bildirimi `verilator lint_off SYMRSVDWORD` ile sarılır (yorumla)
+  ve Volt'un testbench'i `__SYM__<ad>` üyesini kullanır.
+- **YENİ E8513:** üst modül portu Verilator'ın ürettiği model sınıfının bir
+  üyesiyle aynı adı taşıyorsa (`eval`, `name`, `trace`, `rootp`, ...)
+  model C++'ı derlenmez; `volt test` (test dosyasında `volt check` de) ve
+  `volt run` Verilator'dan önce bildirir.
+- İki dilde ileti + `volt explain E1013`/`E8513`.
+- Mevcut kod taraması: `tests/ui/pass/10_explicit_cast` (`small`/`large`
+  portları), `tests/ui/fail/54_inout_unsynchronized` (`out bit`) ve bir
+  struct testi (`out bit`) geçersiz SV üretiyordu; adları değiştirildi
+  (eski 10 → `ui/fail/122`). Örneklerin hiçbiri etkilenmedi.
+- Kanıt: golden (PR #36 sonrası `main`, `--emit=sva,rust,c,regmap,sdc`)
+  önceden var olan bütün geçerli tasarımlarda byte-aynı; Verilator 5.050
+  (Docker) lint `-Wall` temiz ve `volt test` C++ sözcüklü portlarla geçti;
+  mutasyon 14/14; Rust/C sürücüleri `rustc`/`gcc`/`g++` ile derlendi.
+- Yan bulgu (düzeltilmedi): `@mmio` alanı `raw`, Rust sürücüsünde
+  `{reg}_raw` erişimcisiyle çakışıyor (`ctrl_raw` iki kez).
+
+### Belgelendi — ADR-0077 Aşama 3 ölçümü (2026-09-25)
+
+- ADR-0077'ye riscv_core sentez tablosu, Yosys'in satır/ad duyarlılığı
+  bulgusu, 2721/2721 `$equiv` eşdeğerlik kanıtı ve kasıtlı mutantın
+  yakalanması eklendi.
+
 ### Değişti — riscv_core komut alanları struct'lı (2026-09-25, ADR-0077 Aşama 3)
 
 - `examples/riscv_core.volt`: elle dilimlenen alanların (`opcode`,

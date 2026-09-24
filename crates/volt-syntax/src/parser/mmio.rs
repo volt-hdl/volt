@@ -268,7 +268,44 @@ fn err(code: ErrorCode, span: Span, msg: String, label: String, help: String) ->
     Diagnostic::error(code, msg, LabeledSpan::primary(span, label), help)
 }
 
+/// Adın üretilen sürücüde nasıl göründüğü (E1013 etiketi).
+#[derive(Clone, Copy)]
+enum SwName {
+    Module,
+    Register,
+    Field,
+}
+
 impl Parser<'_> {
+    /// ADR-0078: `@mmio` adı üretilen Rust/C sürücüsünde işlev, parametre
+    /// ya da tip adı olur; Rust, C ya da C++ anahtar sözcüğüyse E1013.
+    fn check_sw_name(&mut self, name: &volt_ast::Name, kind: SwName) {
+        let Some(lang) = volt_ast::reserved::sw_keyword_language(&name.text) else {
+            return;
+        };
+        let n = &name.text;
+        let label = match kind {
+            SwName::Module => {
+                lstr!(en: "register map module (a Rust struct)"; tr: "register haritası modülü (Rust struct'ı)")
+            }
+            SwName::Register => {
+                lstr!(en: "register (driver method name)"; tr: "register (sürücü metot adı)")
+            }
+            SwName::Field => {
+                lstr!(en: "field (driver method and parameter name)"; tr: "alan (sürücü metot ve parametre adı)")
+            }
+        };
+        // Desugar ayrıştırma değil: kaskad bastırma penceresi (push_error)
+        // ardışık adları yutardı; her ad kendi tanısını alır.
+        self.diagnostics.push(err(
+            ErrorCode::E1013,
+            name.span,
+            lstr!(en: "'{n}' is a {lang} keyword; the generated register-map driver would not compile"; tr: "'{n}' bir {lang} anahtar sözcüğü; üretilen register haritası sürücüsü derlenmez"),
+            label,
+            lstr!(en: "rename it, for example '{n}_' (@mmio names reach the Rust and C drivers verbatim; see volt explain E1013)"; tr: "yeniden adlandırın, örneğin '{n}_' (@mmio adları Rust ve C sürücülerine aynen iner; bkz. volt explain E1013)"),
+        ));
+    }
+
     /// Birimdeki tüm `@mmio` modüllerini açar; `@mmio` olmayan modüldeki
     /// `@reg` bildirimlerini E0015 ile düşürür.
     pub(crate) fn desugar_mmio(&mut self) {
@@ -297,6 +334,10 @@ impl Parser<'_> {
             let Some((base, module_name)) = self.mmio_header(item, attr_idx) else {
                 continue;
             };
+            if let ItemKind::Module(m) = &self.ast.items_arena[item].kind {
+                let name = m.name.clone();
+                self.check_sw_name(&name, SwName::Module);
+            }
             let infos = self.collect_regs(regs, base);
             self.check_overlap(&infos);
             let clock = self.module_clock(item);
@@ -431,6 +472,7 @@ impl Parser<'_> {
 
     fn collect_reg(&mut self, r: &MmioRegDecl, base: u64) -> Option<RegInfo> {
         let reg_attr = r.attrs.iter().find(|a| a.name.text == "reg")?;
+        self.check_sw_name(&r.name, SwName::Register);
         let attr_span = reg_attr.span;
         let args = attr_args(&reg_attr.args);
         let mut offset: Option<u64> = None;
@@ -586,6 +628,9 @@ impl Parser<'_> {
                         ));
                     }
                 }
+            }
+            if let Some(n) = &f.name {
+                self.check_sw_name(n, SwName::Field);
             }
             let name = f.name.as_ref().map(|n| n.text.clone());
             if let Some(n) = &name {

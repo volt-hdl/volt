@@ -108,6 +108,11 @@ impl<'a> Emitter<'a> {
             {
                 if let Some(sig) = self.port_sig(p) {
                     let wire = format!("{}_{}", inst.name.text, p.name.text);
+                    self.check_sv_name(
+                        &wire,
+                        inst.name.span,
+                        crate::sv_names::NameKind::InstanceOutput,
+                    );
                     let line = format!("    {} {wire};", sig.decl_type());
                     self.pre_decls.push((wire, line));
                     outputs.push((p.name.text.clone(), sig));

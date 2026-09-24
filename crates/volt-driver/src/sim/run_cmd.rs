@@ -47,6 +47,14 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
 
     // Üst modül seçimi: --top > dosyadaki tek modül.
     let module = select_top(&modules_of(&compiled.ast), top, file)?;
+    // ADR-0078: Verilator model sınıfıyla çakışan üst port (E8513).
+    let clashes = volt_hir::verilator_top_clashes(&compiled.ast, module);
+    if !clashes.is_empty() {
+        for diag in &clashes {
+            eprintln!("{}", volt_diagnostics::render_human(diag, &compiled.map));
+        }
+        return Err(ExitCode::from(1));
+    }
     let module_name = module.name.text.clone();
     let ports = tbgen::collect_sim_ports(&compiled.ast, module);
 

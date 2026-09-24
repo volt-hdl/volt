@@ -42,6 +42,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1010 => "Belirsiz import (iki 'use' aynı ismi getiriyor)",
         E1011 => "Modül bulunamadı (import edilen paketi sağlayan dosya yok)",
         E1012 => "Extern modülün SystemVerilog kaynağı yok, bulunamadı ya da proje dışında",
+        E1013 => "Ad, üretilen bir dilin ayrılmış sözcüğü",
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => "Bit genişliği uyumsuzluğu",
@@ -137,6 +138,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8510 => "load() kaynağı hedef diziye sığmıyor",
         E8511 => "Test ifadesinde tip uyuşmazlığı",
         E8512 => "Değer port genişliğine sığmıyor",
+        E8513 => "Üst modül portu Verilator model arayüzüyle çakışıyor",
 
         // ─── Release disiplini ───
         E9001 => "todo! ile release build yapılamaz",
