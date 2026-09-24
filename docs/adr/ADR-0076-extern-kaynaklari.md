@@ -187,8 +187,8 @@ Düşük önemli, düzeltilmeyen bulgular (ADR-0075 dahil):
 
 - `volt build` extern kaynaklarını `build/rtl/`'e kopyalamaz (entegrasyon
   kullanıcının akışında); gerekirse ayrı karar.
-- CI'ın Verilator/formal işleri yalnız belirli test ikililerini ve
-  örnekleri koşar; `extern_source_tests`'in gerçek araç testleri CI'da
-  ancak iş listesine eklenince koşar (`.github/` bu ADR'nin kapsamı
-  dışında) — araçsız testler her ortamda koşar.
+- CI (`.github/workflows/ci.yml`): Verilator işi `extern_source_tests` ve
+  fikstürün `volt test`'ini, formal işi `volt verify` bmc + prove ve aynı
+  testleri koşar — mevcut apt Verilator ve önbellekli OSS CAD Suite ile,
+  yeni indirme yok.
 - Generic extern hâlâ E0003 (ADR-0071).
