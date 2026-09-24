@@ -781,3 +781,41 @@ fn path_completion_offers_enum_variants_in_order() {
     let items = completions(&a, src.len() as u32);
     assert_eq!(labels(&items), ["Idle", "Run", "Done"]);
 }
+
+// ─── Struct (ADR-0077) ───
+
+const STRUCT_REG: &str = "enum St { Idle, Run, Done }\nstruct Inner {\n    x : u3\n    y : i2\n}\nstruct P {\n    a : u4\n    s : St\n    b : bool\n    i : Inner\n}\n\nmodule M {\n    in  clk : clock\n    in  v   : u3\n    out y   : bool\n\n    reg p : P = P { a: 0, s: St::Idle, b: false, i: Inner { x: 0, y: 0 } }\n\n    on clk { p.i.x <= v }\n\n    y = p.i.x == 3\n}\n";
+
+#[test]
+fn hover_on_struct_register_shows_name_and_layout() {
+    let a = analyze(STRUCT_REG);
+    let off = offset_of(STRUCT_REG, "p : P", 0);
+    let (md, _) = hover::hover(&a, off).expect("hover içeriği");
+    assert!(md.contains("p : P"), "struct adı görünmeli: {md}");
+    assert!(md.contains("12 bits"), "düzen genişliği görünmeli: {md}");
+    assert!(
+        md.contains("`a: u4 [11:8]`") && md.contains("`i.y: i2 [1:0]`"),
+        "ilk alan MSB düzeni görünmeli: {md}"
+    );
+}
+
+#[test]
+fn hover_on_nested_field_shows_its_bits() {
+    let a = analyze(STRUCT_REG);
+    let off = offset_of(STRUCT_REG, "i.x == 3", 0) + 2; // `x`
+    let (md, _) = hover::hover(&a, off).expect("hover içeriği");
+    assert!(md.contains("p.i.x : u3"), "alan yolu ve tipi: {md}");
+    assert!(md.contains("bits [4:2] of `p`"), "alanın bitleri: {md}");
+}
+
+#[test]
+fn member_completion_follows_nested_struct_fields() {
+    let a = analyze(STRUCT_REG);
+    // İmleç `p.i.` sonrasında (yazılan önek `x` atlanır).
+    let off = offset_of(STRUCT_REG, "y = p.i.x", 0) + 8;
+    let items = completions(&a, off);
+    assert_eq!(labels(&items), ["x", "y"]);
+    let off = offset_of(STRUCT_REG, "y = p.i.x", 0) + 6;
+    let items = completions(&a, off);
+    assert_eq!(labels(&items), ["a", "s", "b", "i"]);
+}

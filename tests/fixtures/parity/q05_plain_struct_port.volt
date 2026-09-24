@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 struct P {
     a : u8
     b : bool

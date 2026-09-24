@@ -515,3 +515,23 @@ fn trust_level_ordering_is_public_confidential_secret() {
     assert_eq!(volt_ast::TrustLevel::parse("top_secret"), None);
     assert_eq!(Confidential.as_str(), "confidential");
 }
+
+// ═══ Struct (ADR-0077 Karar 6): struct tek seviye taşır ═══════════
+
+#[test]
+fn struct_register_takes_the_highest_level_written_to_any_field() {
+    // p.a <= key (secret), p.b <= ctl (public): p secret'tır (join) —
+    // public alanı okumak bile public çıkışa sızdırır.
+    let src = with_domains(
+        "struct P {\n    a : u8\n    b : u8\n}\nmodule M {\n    in  clk : clock\n    in  key : u8 @SecureCore\n    in  ctl : u8 @Debug\n    out dbg : u8 @Debug\n    reg p : P = P { a: 0, b: 0 }\n    on clk {\n        p.a <= key\n        p.b <= ctl\n    }\n    dbg = p.b\n}",
+    );
+    assert_eq!(codes(&src), vec!["E3009"]);
+}
+
+#[test]
+fn struct_register_fed_only_by_public_fields_stays_free() {
+    let src = with_domains(
+        "struct P {\n    a : u8\n    b : u8\n}\nmodule M {\n    in  clk : clock\n    in  ctl : u8 @Debug\n    out dbg : u8 @Debug\n    reg p : P = P { a: 0, b: 0 }\n    on clk {\n        p.a <= ctl\n        p.b <= ctl\n    }\n    dbg = p.b\n}",
+    );
+    assert!(codes(&src).is_empty(), "{:?}", codes(&src));
+}

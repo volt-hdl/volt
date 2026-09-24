@@ -154,6 +154,18 @@ impl Scope<'_> {
                 lstr!(en: "a string is only valid as the read_hex() argument";
                       tr: "string yalnız read_hex() argümanı olarak geçerlidir"),
             )),
+            // Tek dosyalık analiz: DUT kardeş dosyada, portun struct olup
+            // olmadığı bilinmez — tam denetime kalır.
+            TestExprKind::StructLit { .. } if self.assume_external_names => {}
+            TestExprKind::StructLit { name, .. } => diags.push(type_mismatch(
+                expr.span,
+                lstr!(en: "a '{}' struct literal is not a number; it is valid only as a whole struct port value (dut.p = {} {{ ... }}, assert_eq(dut.q, {} {{ ... }}))", name.text, name.text, name.text;
+                      tr: "'{}' struct literali sayı değildir; yalnız bütün struct portu değeri olarak geçerlidir (dut.p = {} {{ ... }}, assert_eq(dut.q, {} {{ ... }}))", name.text, name.text, name.text),
+            )),
+            // Dış DUT'ta `dut.q.a` bir struct portunun alanı olabilir
+            // (ADR-0077); karar kardeşli tam denetimde.
+            TestExprKind::MemberPath { dut, .. }
+                if matches!(self.duts.get(dut.text.as_str()), Some(None)) => {}
             TestExprKind::MemberPath { .. } => diags.push(type_mismatch(
                 expr.span,
                 lstr!(en: "a path into a sub-instance is only valid as the load() target";

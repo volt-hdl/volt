@@ -12,6 +12,7 @@ pub mod enum_layout;
 pub mod match_cover;
 pub mod mmio;
 pub mod reset_chain;
+pub mod struct_layout;
 
 pub use arena::{Arena, Idx};
 use std::collections::HashMap;
@@ -32,7 +33,7 @@ pub struct Path {
 }
 
 /// Bir dosyanın tam AST'si (ast-nodes.md §2).
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SourceFile {
     /// `package` bildirimleri — derleme biriminde dosya başına en çok
     /// bir tane (span.file ile ayrışır; ADR-0042).
@@ -59,7 +60,7 @@ pub struct SourceFile {
 /// (ADR-0041 mekanizması). Bu tablo ctx → (döngü değişkeni, değer,
 /// döngü span'i, dış yineleme ctx'i) eşlemesini tutar; tanılar
 /// "for i = 2 yinelemesinde" notunu buradan üretir.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct GenerateInfo {
     pub iterations: HashMap<u16, GenerateIter>,
     /// Blok içi `let w = W<8> { ... }` (modül seviyesi `for` gövdesi):
@@ -134,7 +135,7 @@ impl GenerateInfo {
 /// soyulur: AST'de yalnız `expr` yaşar (SV üretimi çağrıyı hiç görmez —
 /// "tip seviyesi" ilkesi, ADR-0037 `delay<K>` gibi); volt-hir'in güven
 /// geçidi buradan okur ve her kayıt için W3008 üretir.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TrustInfo {
     /// Anahtar: düşürülen iç ifadenin düğümü.
     pub declassify: HashMap<Idx<Expr>, DeclassifySite>,
@@ -155,7 +156,7 @@ pub struct DeclassifySite {
 /// `delay<K>(x)` ifadesi parser'da iç formlarına indirgenir — SV üretimi
 /// bunları hiç görmez ("tip seviyesi" ilkesi); volt-hir'in timing geçidi
 /// bu tablolardan okur.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TimingInfo {
     /// `Delayed<T, N>`: anahtar iç tipin (`T`) düğümü; değer `N` sabit
     /// ifadesi ve tüm `Delayed<...>` yazımının span'i.
@@ -189,20 +190,20 @@ impl SourceFile {
 
 // ═══ Program başı bildirimleri ════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PackageDecl {
     pub span: Span,
     pub path: Path,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UseDecl {
     pub span: Span,
     pub path: Path,
     pub tree: Option<UseTree>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UseTree {
     /// `use foo::*`
     Glob,
@@ -214,7 +215,7 @@ pub enum UseTree {
 
 // ═══ Öğeler ═══════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Item {
     pub span: Span,
     pub attrs: Vec<Attribute>,
@@ -229,7 +230,7 @@ pub enum Visibility {
     Public,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ItemKind {
     Module(ModuleDecl),
     Domain(DomainDecl),
@@ -245,7 +246,7 @@ pub enum ItemKind {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleDecl {
     pub name: Name,
     pub generics: Vec<GenericParam>,
@@ -263,7 +264,7 @@ pub struct ModuleDecl {
 
 /// `@reg(offset = 0x00, access = ReadWrite[, volatile]) ad : { ... }`
 /// (ADR-0044). `attrs` içinde `@reg` niteliği (ve varsa diğerleri) taşınır.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MmioRegDecl {
     pub span: Span,
     pub attrs: Vec<Attribute>,
@@ -275,7 +276,7 @@ pub struct MmioRegDecl {
 /// Register alanı: `pins : bits<8>`, `reset : bool @self_clearing`,
 /// `@reserved : bits<24>` (adı yok). Öndeki ve tip sonrası nitelikler
 /// tek listede birleşir.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MmioFieldDecl {
     pub span: Span,
     pub attrs: Vec<Attribute>,
@@ -290,7 +291,7 @@ pub struct MmioFieldDecl {
 /// biçimidir: parser desugar ile ModuleDecl'e indirger, AST arenasına
 /// Pipeline öğesi hiç girmez — isim çözümleme, tip denetimi ve SV
 /// üretimi pipeline'ı görmez (ADR-0037'nin silme ilkesinin L2 eşi).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PipelineDecl {
     pub name: Name,
     /// `pipeline(N)` — bildirilen aşama sayısı.
@@ -306,14 +307,14 @@ pub struct PipelineDecl {
 }
 
 /// `stage Ad { ... }` — gövde ardışık bağlamdır (let + `<=` + if/match).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StageDecl {
     pub name: Name,
     pub body: Idx<Block>,
 }
 
 /// `stall [S1, S2] when koşul` (ADR-0038 §4).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StallDecl {
     pub span: Span,
     /// Boş liste = aşama gövdesindeki listesiz biçim.
@@ -324,7 +325,7 @@ pub struct StallDecl {
 }
 
 /// `flush S1, S2 when koşul` (ADR-0038 §5).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FlushDecl {
     pub span: Span,
     pub stages: Vec<Name>,
@@ -332,7 +333,7 @@ pub struct FlushDecl {
     pub in_stage: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Port {
     pub span: Span,
     pub attrs: Vec<Attribute>,
@@ -426,7 +427,7 @@ pub const BIDIR_READ: &str = "read";
 pub const BIDIR_RELEASED: &str = "released";
 pub const BIDIR_DRIVING: &str = "driving";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FnDecl {
     pub name: Name,
     pub generics: Vec<GenericParam>,
@@ -436,14 +437,14 @@ pub struct FnDecl {
     pub body: Idx<Block>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub span: Span,
     pub name: Name,
     pub ty: Idx<TypeRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructDecl {
     pub name: Name,
     /// `struct port` — bundle / port grubu (ADR-0039): modül portu olarak
@@ -453,7 +454,7 @@ pub struct StructDecl {
     pub fields: Vec<StructField>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructField {
     pub span: Span,
     pub attrs: Vec<Attribute>,
@@ -467,7 +468,7 @@ pub struct StructField {
     pub domain: Option<Name>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumDecl {
     pub name: Name,
     pub generics: Vec<GenericParam>,
@@ -476,7 +477,7 @@ pub struct EnumDecl {
     pub variants: Vec<EnumVariant>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub span: Span,
     pub doc: Option<String>,
@@ -486,28 +487,28 @@ pub struct EnumVariant {
     pub discriminant: Option<Idx<Expr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VariantData {
     Unit,
     Tuple(Vec<Idx<TypeRef>>),
     Struct(Vec<StructField>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConstDecl {
     pub name: Name,
     pub ty: Idx<TypeRef>,
     pub value: Idx<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeAlias {
     pub name: Name,
     pub generics: Vec<GenericParam>,
     pub target: Idx<TypeRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternDecl {
     pub name: Name,
     pub generics: Vec<GenericParam>,
@@ -517,7 +518,7 @@ pub struct ExternDecl {
 /// `test "ad" { ... }` bloğu (ADR-0033). Gövde donanım değil doğrusal
 /// betik olduğundan modül deyim arenalarını kullanmaz; kendi küçük
 /// deyim/ifade türlerini taşır.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TestDecl {
     /// String literal içeriği (tırnaklar hariç), ör. `counter increments`.
     pub name: String,
@@ -533,7 +534,7 @@ impl TestDecl {
 }
 
 /// Test gövdesi deyimi (grammar-full.ebnf TestStmt).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TestStmt {
     /// `let dut = Counter { };`
     LetDut {
@@ -541,11 +542,13 @@ pub enum TestStmt {
         name: Name,
         module: Name,
     },
-    /// `dut.port = <ifade>;`
+    /// `dut.port = <ifade>;` — struct portunda alan yolu da olabilir:
+    /// `dut.p.a = 3;` (`fields = [a]`, ADR-0077).
     SetPort {
         span: Span,
         dut: Name,
         port: Name,
+        fields: Vec<Name>,
         value: TestExpr,
     },
     /// `step(1);`, `reset();`, `assert_eq(a, b);` ...
@@ -573,13 +576,13 @@ pub enum TestStmt {
 }
 
 /// Test gövdesi ifadesi (grammar-full.ebnf TestExpr).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TestExpr {
     pub span: Span,
     pub kind: TestExprKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TestExprKind {
     Int(u64),
     Bool(bool),
@@ -624,6 +627,12 @@ pub enum TestExprKind {
         func: Name,
         args: Vec<TestExpr>,
     },
+    /// `P { a: 1, b: true }` — struct portuna bütün yazma ve bütün
+    /// karşılaştırma değeri (ADR-0077).
+    StructLit {
+        name: Name,
+        fields: Vec<(Name, TestExpr)>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -656,13 +665,13 @@ pub enum TestBinOp {
     LogOr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DomainDecl {
     pub name: Name,
     pub fields: Vec<DomainField>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DomainField {
     pub span: Span,
     pub key: DomainKey,
@@ -682,7 +691,7 @@ pub enum DomainKey {
     Unknown(Name),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DomainValue {
     ClockEdge(ClockEdge),
     Reset(ResetSpec),
@@ -751,7 +760,7 @@ pub enum ResetPolarity {
 
 // ═══ Kontrat ve nitelik ═══════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Contract {
     pub span: Span,
     pub kind: ContractKind,
@@ -819,14 +828,14 @@ pub enum ContractKind {
     Assume,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attribute {
     pub span: Span,
     pub name: Name,
     pub args: Vec<AttrArg>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AttrArg {
     /// `@budget(lut = 5000)`
     Named { name: Name, value: Idx<Expr> },
@@ -836,13 +845,13 @@ pub enum AttrArg {
 
 // ═══ Generics ═════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GenericParam {
     pub span: Span,
     pub kind: GenericParamKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GenericParamKind {
     /// `<T: Bound + Other>`
     Type { name: Name, bounds: Vec<Path> },
@@ -850,7 +859,7 @@ pub enum GenericParamKind {
     Const { name: Name, ty: Idx<TypeRef> },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GenericArg {
     Type(Idx<TypeRef>),
     Const(Idx<Expr>),
@@ -858,13 +867,13 @@ pub enum GenericArg {
 
 // ═══ Tip referansları ═════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeRef {
     pub span: Span,
     pub kind: TypeRefKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeRefKind {
     Bool,
     Clock,
@@ -898,14 +907,14 @@ pub enum TypeRefKind {
 
 // ═══ Deyimler ═════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stmt {
     pub span: Span,
     pub attrs: Vec<Attribute>,
     pub kind: StmtKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StmtKind {
     Reg(RegDecl),
     Let(LetDecl),
@@ -919,7 +928,7 @@ pub enum StmtKind {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegDecl {
     pub name: Name,
     /// `reg(clk)` — açık domain; None ise çıkarım yapılır.
@@ -928,14 +937,14 @@ pub struct RegDecl {
     pub init: Idx<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LetDecl {
     pub name: Name,
     pub ty: Option<Idx<TypeRef>>,
     pub value: Idx<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WireDecl {
     pub name: Name,
     pub ty: Idx<TypeRef>,
@@ -944,7 +953,7 @@ pub struct WireDecl {
 /// `let u = Uart { clk: clk }` — grammar-full.ebnf §19 [N3]:
 /// geri izleme değil, '=' sonrası yapı literali görülünce
 /// yeniden sınıflandırma.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstanceDecl {
     pub name: Name,
     pub module_path: Path,
@@ -952,7 +961,7 @@ pub struct InstanceDecl {
     pub bindings: Vec<PortBinding>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PortBinding {
     pub span: Span,
     pub port_name: Name,
@@ -960,13 +969,13 @@ pub struct PortBinding {
     pub value: Option<Idx<Expr>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OnBlock {
     pub trigger: OnTrigger,
     pub body: Idx<Block>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OnTrigger {
     /// `on clk`
     Clock(Name),
@@ -975,7 +984,7 @@ pub enum OnTrigger {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AssignStmt {
     pub lhs: LValue,
     pub rhs: Idx<Expr>,
@@ -983,7 +992,7 @@ pub struct AssignStmt {
 
 /// `for i in 0..N { ... }` — yalnız derleme zamanı (generate) döngüsü;
 /// açma F2'de yapılır, burada yalnız ayrıştırılır.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForStmt {
     pub var: Name,
     pub start: Idx<Expr>,
@@ -991,14 +1000,14 @@ pub struct ForStmt {
     pub body: Idx<Block>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LValue {
     pub span: Span,
     pub base: Name,
     pub suffixes: Vec<LValueSuffix>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LValueSuffix {
     /// `x[3]`
     Index(Idx<Expr>),
@@ -1016,7 +1025,7 @@ pub enum LValueSuffix {
 
 // ═══ Bloklar ══════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub span: Span,
     pub stmts: Vec<BlockStmt>,
@@ -1036,7 +1045,7 @@ pub enum BlockContext {
     Function,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BlockStmt {
     /// `x <= expr`
     NonBlockAssign {
@@ -1057,7 +1066,7 @@ pub enum BlockStmt {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IfStmt {
     pub span: Span,
     pub cond: Idx<Expr>,
@@ -1065,20 +1074,20 @@ pub struct IfStmt {
     pub else_branch: Option<ElseBranch>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ElseBranch {
     Block(Idx<Block>),
     If(Box<IfStmt>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatchStmt {
     pub span: Span,
     pub scrutinee: Idx<Expr>,
     pub arms: Vec<MatchArm>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatchArm {
     pub span: Span,
     pub pattern: Idx<Pattern>,
@@ -1087,7 +1096,7 @@ pub struct MatchArm {
     pub body: MatchArmBody,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MatchArmBody {
     Block(Idx<Block>),
     Expr(Idx<Expr>),
@@ -1095,13 +1104,13 @@ pub enum MatchArmBody {
 
 // ═══ Desenler ═════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pattern {
     pub span: Span,
     pub kind: PatternKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PatternKind {
     /// `_`
     Wildcard,
@@ -1121,13 +1130,13 @@ pub enum PatternKind {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PatternArgs {
     Tuple(Vec<Idx<Pattern>>),
     Struct(Vec<FieldPattern>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldPattern {
     pub span: Span,
     pub name: Name,
@@ -1137,13 +1146,13 @@ pub struct FieldPattern {
 
 // ═══ İfadeler ═════════════════════════════════════════════════════
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub span: Span,
     pub kind: ExprKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     IntLit {
         value: u128,
@@ -1206,6 +1215,12 @@ pub enum ExprKind {
     },
     ArrayLit(ArrayLitKind),
     TupleLit(Vec<Idx<Expr>>),
+    /// `{a, b, ...}` bit birleştirmesi, MSB'den LSB'ye. Kaynakta
+    /// yazılamaz: yalnız SV üretiminin struct indirgemesi (ADR-0077 Karar
+    /// 5) kurar — bütün-struct `==`/`!=` ve `p as uN`. Her öğe yaprağın
+    /// bildirilen tipini taşır (boyutsuz literal yaprağı o genişlikte
+    /// yazılır). Ayrıştırıcı ve anlamsal aşamalar bu düğümü hiç görmez.
+    Concat(Vec<(Idx<Expr>, Idx<TypeRef>)>),
     /// `todo!("mesaj")` — tip kontrolünden geçer, sim'de durur.
     Todo {
         message: Option<String>,
@@ -1214,7 +1229,7 @@ pub enum ExprKind {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ArrayLitKind {
     /// `[a, b, c]`
     List(Vec<Idx<Expr>>),
@@ -1222,7 +1237,7 @@ pub enum ArrayLitKind {
     Repeat { value: Idx<Expr>, count: Idx<Expr> },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldInit {
     pub span: Span,
     pub name: Name,

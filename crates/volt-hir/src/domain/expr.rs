@@ -24,6 +24,7 @@ impl Inferencer<'_> {
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
             | ExprKind::Todo { .. }
+            | ExprKind::Concat(_)
             | ExprKind::Error => DomainId::Timeless,
             ExprKind::Path(_) => self.path_domain(e, expr.span),
             ExprKind::Binary { lhs, rhs, .. } => self.join_pair(*lhs, *rhs),

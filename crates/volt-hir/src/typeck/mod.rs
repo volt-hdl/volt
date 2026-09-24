@@ -13,6 +13,7 @@
 //! | `synth`    | literal, yol, tekli, if, dizi/struct literali  | §3.1-2,4,7   |
 //! | `binop`    | aritmetik, bit, kaydırma, karşılaştırma        | §3.3         |
 //! | `cast`     | `as` dönüşümü                                  | §3.6         |
+//! | `structs`  | struct bildirimi, literal, `as` (ADR-0077)     | §3.2, §3.6   |
 //! | `select`   | indeks, aralık, parça ve alan seçimi           | §3.5         |
 //! | `check`    | kontrol modu, literal çözümleme, atanabilirlik | §4, §5       |
 //! | `stmt`     | modül gövdesi, reg/let, bloklar, atama         | §6           |
@@ -35,6 +36,7 @@ mod instance;
 mod matching;
 mod select;
 mod stmt;
+mod structs;
 mod synth;
 mod type_ref;
 mod width;
@@ -47,7 +49,7 @@ use volt_ast::{Expr, Idx, ItemKind, Name, SourceFile, TypeRef};
 use volt_diagnostics::Diagnostic;
 
 use crate::consteval::{ConstEvaluator, ConstValue};
-use crate::drivers::DriverTable;
+use crate::drivers::{Coverage, DriverTable};
 use crate::resolve::{DefId, DefKind, ResolveResult};
 use crate::ty::{EnumId, ModuleId, Ty, TypeArena, TypeId};
 
@@ -82,6 +84,7 @@ pub fn typecheck<'a>(
         current_group: None,
         next_group: 0,
         loop_bounds: HashMap::new(),
+        coverage: HashMap::new(),
     };
     checker.run();
     TypeckResult {
@@ -112,12 +115,15 @@ struct TypeChecker<'a, 'ev> {
     /// Sınırları sabit blok içi döngü değişkenleri → `[start, end)`
     /// (sürücü analizinin eleman aralığı, ADR-0073).
     loop_bounds: HashMap<DefId, (u32, u32)>,
+    /// Parça parça sürülen sinyallerin kapsam bilgisi (E4012, ADR-0077).
+    coverage: HashMap<DefId, Coverage>,
 }
 
 impl TypeChecker<'_, '_> {
     fn run(&mut self) {
         let ast = self.ast;
         self.check_enum_decls();
+        self.check_struct_decls();
         for &item_idx in &ast.items {
             if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
                 let ty = self.resolve_type_ref(c.ty);
@@ -135,6 +141,12 @@ impl TypeChecker<'_, '_> {
         let mut diags = Vec::new();
         self.drivers
             .check_multiple_drivers(self.res, &self.ast.generate, &mut diags);
+        self.drivers.check_partial_coverage(
+            self.res,
+            &self.ast.generate,
+            &self.coverage,
+            &mut diags,
+        );
         self.diagnostics.extend(diags);
     }
 

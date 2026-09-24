@@ -525,7 +525,9 @@ fn cast_from_error_type_is_silent() {
 
 #[test]
 fn array_wire_index_yields_element_type() {
-    let result = check("module M {\n    in  a : bool\n    out y : bool\n\n    wire t : [bool; 4]\n\n    t[0] = a\n    y = t[1]\n}\n");
+    // Her eleman sürülür: yalnız t[0]'ı süren eski kaynak t[1..3]'ü
+    // sürücüsüz bırakıyordu (ADR-0077 E4012, Verilator UNDRIVEN).
+    let result = check("module M {\n    in  a : bool\n    out y : bool\n\n    wire t : [bool; 4]\n\n    t[0] = a\n    t[1] = a\n    t[2] = a\n    t[3] = a\n    y = t[1]\n}\n");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
     assert_eq!(def_ty(&result, "t"), "[bool; 4]");
 }

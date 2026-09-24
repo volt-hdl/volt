@@ -1,6 +1,6 @@
 # ADR-0077: Struct Desteği — Düz Struct Değerleri Donanıma İner
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım); Aşama 2 (uygulama) ve Aşama 3
+> Statü: KABUL EDİLDİ — Aşama 1 (tasarım) ve Aşama 2 (uygulama, notlar sonda); Aşama 3
 > (örnekler + kanıt) ayrı PR
 > Tarih: 2026-09-24
 > Etkilenen (plan): volt-ast (ortak struct düzeni `struct_layout`,
@@ -827,3 +827,145 @@ tanı enum'unda arar). Hepsi iki dilde mesaj + `volt explain`.
    (`extra/partial_vec.volt`).
 4. Yosys 0.66 struct tipli portu netlist port listesinin sonuna taşıyor
    (Karar 5 §3) — yalnız A seçilseydi önemliydi.
+
+## Uygulama notları — Aşama 2 (2026-09-24, dal `feat/struct`)
+
+Kararlar yazıldığı gibi uygulandı. Aşağıdakiler tasarımın açık bıraktığı
+ayrıntılar, kullanıcının Aşama 1 notlarıyla bu aşamaya alınan işler ve
+ölçüm sonuçlarıdır.
+
+### Tanı numaraları
+
+| Sembolik | Kod | İleti (EN) |
+|---|---|---|
+| E2xxx-A | **E2013** | Invalid struct declaration: no fields, a clock-domain annotation on a field, or a 'struct port' bundle as a field type |
+| E2xxx-B | **E2014** | Struct literal is missing a field or sets a field twice |
+| E4xxx-A | **E4012** | Part of a signal is never driven: a struct field or some bits of a vector assigned piece by piece |
+
+Üçü de iki dilde ileti + `volt explain` (`crates/volt-diagnostics`).
+Tip denetimi tanılarında struct adı görünür (`'P' and 'Q'`): `show()`
+artık `display_named` (Aşama 1 notu 4).
+
+### Katman yerleşimi
+
+- **Düzen tek yerde:** `volt_ast::struct_layout` (`layout`,
+  `struct_of_type`, `field_bits`, `describe`, bütçe `MAX_LEAVES = 4096`,
+  `MAX_NESTING = 8`). Tip denetimi (`typeck/structs.rs`: bildirim, literal,
+  `as`, reset sabitliği), sürücü analizi (`typeck/stmt.rs`: alan hedefinin
+  bitleri artık ortak düzenden — ilk alan MSB), `TypeArena::signal_width`
+  (W3003), sv-emit, hedefli SDC, test dili ve LSP aynı fonksiyonu çağırır.
+- **SV eşlemesi AST → AST indirgemesi olarak** (`volt-sv-emit/src/
+  structs/`): `emit_unit` önce birimin bir kopyasında struct tipli
+  sinyalleri yapraklara açar, emitter yalnız düz sinyaller görür. Karar 5
+  kuralları 1–15 birebir; tercih nedeni aynı kuralların SVA, `prev`/`sync`,
+  örnek bağlantısı ve sıfırlama üretimine ek kod olmadan uygulanması.
+  Birimde düz struct yoksa ya da hiçbir modül struct değeri kullanmıyorsa
+  indirgeme `None` döner ve emitter özgün AST'yi kullanır (kural 15).
+  `validate_unit` aynı yoldan geçer → `check` = `build` = LSP (ADR-0070).
+- **`ExprKind::Concat`** (yalnız indirgeme üretir; ayrıştırıcı ve anlamsal
+  aşamalar görmez): bütün-struct `==`/`!=` ve `p as uN`. Her öğe yaprağın
+  tipini taşır — boyutsuz literal yaprak kendi genişliğinde yazılır.
+- **Modül seviyesi `let p = P { … }`**: sözdizimi örnekleme ile literali
+  ayırmıyordu (örnekleme okunup tipsiz kalıyordu). Birim sonu desugar'ı
+  (`parser/struct_lit.rs`) hedef düz struct ise deyimi tipsiz `let`'e
+  çevirir.
+- **Düz struct alanında `@Domain`** artık ayrıştırılır (E2013 alır);
+  ardından gelen `in`/`out` yön ihlali E0001 alır (Aşama 1 notu 2, yan
+  bulgu 2).
+- **Bütün Handshake payload'ı** (`req.data`, `rsp.data = …`): çözümleme,
+  kapsamda olmayan taban adının bir düzleştirme kaynağının ara düğümü
+  olduğunu görünce E0003 verir (Aşama 1 notu 3).
+- **Parantezsiz literal** (`cover: p == P { a: 1 }`): başlık ifadesinden
+  sonra `Ad { alan:` görülünce E0001 + `(P { ... })` önerisi, literal
+  atlanır (kaskad yok).
+
+### E4012'nin sayısal vektörlere genişlemesi (Aşama 1 notu 1)
+
+Karar 6 "bu tur yalnız struct yaprakları" diyordu; kullanıcının Aşama 1
+notu genellemeyi bu aşamaya aldı (aynı kod yolu). Kural: bir `wire` ya da
+`out` portunun bütün atamaları kısmi ve aralığı derleme zamanında biliniyorsa
+aralıkların birleşimi `[0, W)`'yi örtmeli. Bütün-sinyal ataması, dinamik
+indeks, `let` başlangıcı, paylaşılan hat ya da giriş portu kapsamı belirsiz
+ya da tam sayar; register'lar muaftır. Struct'ta sürülmeyen yapraklar
+adıyla (`'p.b'`), vektörde bitler (`bits 4..=7 of 'y'`).
+
+Mevcut kod taraması: `tests/ui`, `tests/fixtures`, `examples` altındaki 381
+dosyanın hiçbirinde tetiklenmedi (golden). Tek gerçek eksik sürüm bir birim
+test kaynağındaydı: `typeck_tests.rs::array_wire_index_yields_element_type`
+yalnız `t[0]`'ı sürüp `t[1]`'i okuyordu (`t[1..3]` sürücüsüz); kaynak dört
+elemanı da sürecek biçimde düzeltildi, testin amacı (eleman tipi) aynen
+denetleniyor.
+
+### Diğer ayrıntılar
+
+- **Kısmen yazılan struct register'ı:** bir `on` bloğu yapraklardan birini
+  yazıyorsa register'ın bütün yaprakları o bloğun reset dalına girer —
+  yazılmayan yaprak reset değerini korur (Karar 4; önce hiç sürülmüyordu).
+- **Dizi alanı register'da da paketlenmiş vektördür** (`logic [15:0]
+  p_v`), unpacked dizi değil: `p as uN` birleştirmesi unpacked öğe alamaz.
+  Dizi literali yaprağa `{eN, …, e0}` birleştirmesi olarak iner (eleman 0
+  LSB — ADR-0056).
+- **`raw as P` kaynağı** adlandırılmış bir değer olmalı (sinyal, örnek
+  portu, dizi elemanı): SV'de `(a + b)[3:0]` yazılamaz. Hesaplanan değer
+  E0003 (öneri: önce `let raw : uN = …`).
+- **Bütün struct üzerinde `match`** (`match p { … }`) ve indirgenemeyen
+  konumdaki bütün struct değeri E0003 (Karar 2 tablosu); `match p.s`
+  çalışır.
+- **Okunmayan yaprak** (kural 13) modül gövdesindeki okumalarla belirlenir;
+  yalnız ayrı `.sva` dosyasında okunan yaprak da susturulur (zararsız).
+- **Struct dizisi, generic struct sinyali** E0003 metni neyin
+  desteklenmediğini söyler (`arrays of structs ('[P; N]' …)`, `generic
+  struct type 'G' as a signal type (ADR-0069)`); içindeki struct
+  literalinin ikinci E0003'ü kaskad sayılıp bastırılır.
+- **Bundle sinyal tipi** E0003 metni kalıcı kuralı söyler (Karar 1).
+- **SDC:** struct kaynaklı `sync()` yaprak başına köprü ve satır
+  (`sync_p_a_stage0_reg*`).
+- **Test dili:** yeni AST biçimleri `TestStmt::SetPort.fields` ve
+  `TestExprKind::StructLit`. `volt_hir::expand_struct_tests` yaprak
+  yollarını noktalı port adına (`q.a`) indirir; port araması noktalı adı
+  yaprak olarak çözer, SV adı `q_a`. Bütün karşılaştırmanın iki tarafı
+  Karar 3 düzeniyle paketlenmiş 64 bitlik betik değeridir — **`W > 64`
+  struct'ın bütün karşılaştırması E8511** (alan alan karşılaştırın).
+  Rapor: `left:  Cmd { op: Op::Add, a: 1, … }`, `differs: a`.
+- **LSP:** hover'da düzen (`a: u4 [11:8]`, …) ve alan erişiminde
+  `p.i.x : u3 — bits [4:2] of p`; tamamlama noktalı tabanı (`p.i.`,
+  `s0.q.`) izler.
+- **Güven seviyesi:** mevcut sinyal düzeyi çıkarım struct'ta Karar 6'yı
+  zaten sağlıyordu (join); `trust_tests.rs`'e iki test eklendi.
+- **ADR-0066:** struct alanlarına otomatik kontrat üretilmediği
+  `auto_contract_tests.rs::struct_fields_get_no_automatic_contracts` ile
+  sabitlendi.
+
+### Sınırlar (bu tur)
+
+- Karar 2 tablosu aynen (struct dizisi, generic struct, struct deseni,
+  `fn`'de struct, `@mmio`).
+- Yaprak adı SV anahtar sözcüğüne denk gelirse (`always` + alan `ff`) SV
+  geçersiz olur — Volt adlarında SV anahtar sözcüğü denetimi genel olarak
+  yok (yan bulgu: `out packed : u32` portu Verilator'da sözdizimi hatası;
+  struct'tan bağımsız, düzeltilmedi).
+
+### Doğrulama
+
+- `cargo test --all`: 3056 test (baseline 2982 → 3056), hepsi geçti;
+  clippy `-D warnings` temiz.
+- Golden (referans `main` ebc5ea9 = PR #34 + PR #33 kodu;
+  `build/struct2/golden.py`, `volt check` + `volt build` tanıları ve
+  üretilen her `.sv/.sva`): önceki 381 dosyadan değişen yalnız struct
+  kullanan 7 parite sondası (`d06c` E4001 iletisi `'s.x'`; `d06d`, `p02e`,
+  `p02f`, `p02h`, `p35b`, `q05` E0003 → temiz, `// parity:` başlıkları
+  güncellendi); Handshake payload'lı olanlar dahil bütün diğer tasarımlar
+  byte-aynı.
+- Verilator 5.050 `-Wall` (Docker): `tests/ui/pass/102–107`, Karar 5
+  deneyinin `Stage`/`Top` tasarımı ve sim tasarımı temiz (bundle alanı,
+  enum alanı, iç içe, `raw as P`, `sync`, kısmi kullanım susturması dahil).
+- `volt test` (Docker, gerçek Verilator; `struct_tests.rs` 29/29): alan
+  okuma/yazma, bütün yazma, bütün karşılaştırma (işaretli yaprak -1 dahil);
+  kasıtlı yanlış iddianın raporu alan adlarıyla.
+- `volt verify` (Docker, boolector): enum alanlı struct FSM'i 5 property
+  prove (k-induction) + cover (2 cover erişildi), `prev(c).n` dahil;
+  `107_struct_sync_contracts` `Keep` 3/3 prove + cover.
+- Mutasyon (tek tek, `CARGO_BUILD_JOBS=2`, `--test-threads=2`,
+  `build/struct2/mutate.py`): 5/5 yakalandı — alan tip denetimi kaldırıldı,
+  bit sırası ters (ilk alan LSB), kısmi alan hedefi bütün sinyal, alan
+  sürücüleri hiç çakışmaz, literalde eksik alan denetimi kaldırıldı.

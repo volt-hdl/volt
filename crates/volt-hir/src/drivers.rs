@@ -18,7 +18,7 @@ use volt_ast::{GenerateInfo, ModuleDecl, PortDir};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
-use crate::resolve::{DefId, ResolveResult};
+use crate::resolve::{DefId, DefKind, ResolveResult};
 
 /// Sinyali süren kaynağın türü (ADR-0073 §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,9 @@ struct DriverRecord {
     bits: Option<(u32, u32)>,
     /// Bit/aralık/eleman hedefi — E4002 için yine "sürülmüş" sayılır.
     partial: bool,
+    /// Struct alan hedefinin noktalı yolu (`a`, `i.x`; ADR-0077) —
+    /// E4001 iletisi alanı adlandırır.
+    field: Option<String>,
 }
 
 impl DriverRecord {
@@ -61,6 +64,15 @@ impl DriverRecord {
             && matches!(other.kind, DriverKind::SharedLine { .. });
         self.group != other.group && !both_shared && self.overlaps(other)
     }
+}
+
+/// Parça parça sürülen bir sinyalin kapsam bilgisi (ADR-0077, E4012):
+/// depolama genişliği ve struct ise yaprakları (noktalı yol, LSB,
+/// genişlik — `volt_ast::struct_layout` düzeni).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Coverage {
+    pub width: u32,
+    pub leaves: Option<Vec<(String, u32, u32)>>,
 }
 
 /// Sinyal → onu süren kaynakların kaydı.
@@ -80,6 +92,21 @@ impl DriverTable {
         bits: Option<(u32, u32)>,
     ) {
         self.push(target, span, group, DriverKind::Assign, partial, bits);
+    }
+
+    /// Struct alanına atama kaydı (ADR-0077): `field` noktalı alan yolu.
+    pub fn record_field(
+        &mut self,
+        target: DefId,
+        span: Span,
+        group: u32,
+        bits: Option<(u32, u32)>,
+        field: String,
+    ) {
+        self.push(target, span, group, DriverKind::Assign, true, bits);
+        if let Some(r) = self.drivers.get_mut(&target).and_then(|rs| rs.last_mut()) {
+            r.field = Some(field);
+        }
     }
 
     /// Atama dışı sürücü kaydı (`let` başlangıcı, giriş portu, paylaşılan hat).
@@ -102,6 +129,7 @@ impl DriverTable {
             kind,
             bits,
             partial,
+            field: None,
         });
     }
 
@@ -134,9 +162,68 @@ impl DriverTable {
             });
             if let Some((first, second)) = pair {
                 let data = &res.defs[def.0 as usize];
-                let name = generate.source_name(data.span, &data.name);
-                out.push(double_driver(name, first, second));
+                let base = generate.source_name(data.span, &data.name);
+                // Struct alanı: çakışan iki hedeften daha özgül olanın yolu
+                // (`p` + `p.a` → `p.a`; ADR-0077 Karar 6).
+                let field = [&first.field, &second.field]
+                    .into_iter()
+                    .flatten()
+                    .max_by_key(|f| f.split('.').count());
+                let name = match field {
+                    Some(f) => format!("{base}.{f}"),
+                    None => base.to_string(),
+                };
+                out.push(double_driver(&name, base, first, second));
             }
+        }
+    }
+
+    /// E4012 — parça parça sürülen wire / çıkış portunda hiç sürülmeyen
+    /// alan ya da bitler (ADR-0077 Karar 6; sayısal vektörler için Aşama
+    /// 1 notu). Yalnız bütün atamaları kısmi ve aralığı bilinen sinyaller
+    /// denetlenir: bütün-sinyal ya da dinamik indeksli sürücü, `let`
+    /// başlangıcı, paylaşılan hat ve giriş portu kapsamı belirsiz ya da
+    /// tam kılar. Register'lar muaftır (atanmayan bit değerini korur).
+    pub fn check_partial_coverage(
+        &self,
+        res: &ResolveResult,
+        generate: &GenerateInfo,
+        coverage: &HashMap<DefId, Coverage>,
+        out: &mut Vec<Diagnostic>,
+    ) {
+        let mut defs: Vec<&DefId> = coverage.keys().collect();
+        defs.sort_by_key(|d| d.0);
+        for &def in defs {
+            let cov = &coverage[&def];
+            let Some(records) = self.drivers.get(&def) else {
+                continue;
+            };
+            if !matches!(
+                res.def_kind(def),
+                DefKind::Wire | DefKind::Port { dir: PortDir::Out }
+            ) {
+                continue;
+            }
+            let mut ranges = Vec::with_capacity(records.len());
+            for r in records {
+                match (r.kind == DriverKind::Assign && r.partial, r.bits) {
+                    (true, Some(bits)) => ranges.push(bits),
+                    _ => {
+                        ranges.clear();
+                        break;
+                    }
+                }
+            }
+            if ranges.is_empty() {
+                continue;
+            }
+            let gaps = gaps(&mut ranges, cov.width);
+            if gaps.is_empty() {
+                continue;
+            }
+            let data = &res.defs[def.0 as usize];
+            let name = generate.source_name(data.span, &data.name);
+            out.push(undriven_part(name, data.span, records[0].span, cov, &gaps));
         }
     }
 
@@ -184,9 +271,109 @@ impl DriverTable {
     }
 }
 
+/// `[0, width)` içinde hiçbir aralığın örtmediği bölgeler `[lo, hi)`.
+fn gaps(ranges: &mut [(u32, u32)], width: u32) -> Vec<(u32, u32)> {
+    ranges.sort_unstable();
+    let mut out = Vec::new();
+    let mut next = 0u32;
+    for &(lo, hi) in ranges.iter() {
+        if lo > next {
+            out.push((next, lo.min(width)));
+        }
+        next = next.max(hi);
+        if next >= width {
+            break;
+        }
+    }
+    if next < width {
+        out.push((next, width));
+    }
+    out.retain(|(lo, hi)| lo < hi);
+    out
+}
+
+/// E4012 tanısı: struct'ta sürülmeyen alanlar adıyla, vektörde bitler.
+fn undriven_part(
+    name: &str,
+    decl: Span,
+    first: Span,
+    cov: &Coverage,
+    gaps: &[(u32, u32)],
+) -> Diagnostic {
+    let (message, help) = match &cov.leaves {
+        Some(leaves) => {
+            let missing: Vec<String> = leaves
+                .iter()
+                .filter(|(_, lsb, w)| gaps.iter().any(|&(lo, hi)| *lsb < hi && lo < lsb + w))
+                .map(|(path, _, _)| format!("'{name}.{path}'"))
+                .collect();
+            let list = missing.join(", ");
+            let example = leaves
+                .iter()
+                .find(|(_, lsb, w)| gaps.iter().any(|&(lo, hi)| *lsb < hi && lo < lsb + w))
+                .map_or_else(String::new, |(p, _, _)| format!("{name}.{p}"));
+            (
+                if missing.len() == 1 {
+                    lstr!(en: "struct field {list} is never driven"; tr: "{list} struct alanı hiç sürülmüyor")
+                } else {
+                    lstr!(en: "struct fields {list} are never driven"; tr: "{list} struct alanları hiç sürülmüyor")
+                },
+                lstr!(en: "drive every field ({example} = ...), or assign the whole struct once with a literal";
+                      tr: "her alanı sürün ({example} = ...) ya da struct'ın tamamını bir literalle bir kez atayın"),
+            )
+        }
+        None => {
+            let parts: Vec<String> = gaps
+                .iter()
+                .map(|&(lo, hi)| {
+                    if hi - lo == 1 {
+                        format!("{lo}")
+                    } else {
+                        format!("{lo}..={}", hi - 1)
+                    }
+                })
+                .collect();
+            let bits = parts.join(", ");
+            let (lo, hi) = gaps[0];
+            let slice = if hi - lo == 1 {
+                format!("{name}[{lo}]")
+            } else {
+                format!("{name}[{}:{lo}]", hi - 1)
+            };
+            (
+                lstr!(en: "bits {bits} of '{name}' are never driven"; tr: "'{name}' sinyalinin {bits} bitleri hiç sürülmüyor"),
+                lstr!(en: "drive the remaining bits ({slice} = ...), or assign the whole signal once";
+                      tr: "kalan bitleri sürün ({slice} = ...) ya da sinyalin tamamını bir kez atayın"),
+            )
+        }
+    };
+    Diagnostic::error(
+        ErrorCode::E4012,
+        message,
+        LabeledSpan::primary(decl, lstr!(en: "partly undriven"; tr: "kısmen sürülmüyor")),
+        help,
+    )
+    .with_secondary(
+        first,
+        lstr!(en: "driven piece by piece from here"; tr: "buradan parça parça sürülüyor"),
+    )
+    .with_note(
+        NoteKind::Reason,
+        lstr!(
+            en: "an undriven part is X/undriven in SystemVerilog (Verilator UNDRIVEN); Volt produces no X (ADR-0008, ADR-0077)";
+            tr: "sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN); Volt X üretmez (ADR-0008, ADR-0077)"
+        ),
+    )
+}
+
 /// E4001 tanısı: beş parça (kod, iki konum, açıklama, öneri, gerekçe +
 /// spec/ADR atfı). Öneri ve etiketler sürücü türlerine göre seçilir.
-fn double_driver(name: &str, first: &DriverRecord, second: &DriverRecord) -> Diagnostic {
+fn double_driver(
+    name: &str,
+    base: &str,
+    first: &DriverRecord,
+    second: &DriverRecord,
+) -> Diagnostic {
     let mut diag = Diagnostic::error(
         ErrorCode::E4001,
         lstr!(en: "'{name}' is already driven"; tr: "'{name}' zaten sürülüyor"),
@@ -205,8 +392,8 @@ fn double_driver(name: &str, first: &DriverRecord, second: &DriverRecord) -> Dia
         let (lo, hi) = (a_lo.max(b_lo), a_hi.min(b_hi) - 1);
         diag = diag.with_note(
             NoteKind::Note,
-            lstr!(en: "bits {lo}..={hi} of '{name}' are driven by both";
-                  tr: "'{name}' sinyalinin {lo}..={hi} bitlerini ikisi de sürüyor"),
+            lstr!(en: "bits {lo}..={hi} of '{base}' are driven by both";
+                  tr: "'{base}' sinyalinin {lo}..={hi} bitlerini ikisi de sürüyor"),
         );
     }
     diag.with_note(
@@ -295,6 +482,7 @@ mod tests {
             kind,
             bits,
             partial: bits.is_some(),
+            field: None,
         }
     }
 
@@ -309,6 +497,14 @@ mod tests {
         assert!(whole.conflicts_with(&low), "bilinmeyen aralık bütün sinyal");
         let same_block = rec(1, DriverKind::Assign, Some((0, 8)));
         assert!(!low.conflicts_with(&same_block), "aynı blok tek sürücü");
+    }
+
+    #[test]
+    fn gaps_are_the_uncovered_bit_ranges() {
+        assert_eq!(gaps(&mut [(0, 4)], 8), [(4, 8)]);
+        assert_eq!(gaps(&mut [(4, 8), (0, 2)], 8), [(2, 4)]);
+        assert!(gaps(&mut [(0, 5), (3, 8)], 8).is_empty());
+        assert_eq!(gaps(&mut [(1, 2)], 4), [(0, 1), (2, 4)]);
     }
 
     #[test]

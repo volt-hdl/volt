@@ -293,6 +293,7 @@ impl<'a> Checker<'a> {
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
             | ExprKind::Todo { .. }
+            | ExprKind::Concat(_)
             | ExprKind::Error => None,
             ExprKind::Path(_) => self
                 .res

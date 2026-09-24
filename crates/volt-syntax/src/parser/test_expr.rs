@@ -240,6 +240,28 @@ impl Parser<'_> {
                     index: Box::new(index),
                 }
             }
+            // `P { a: 1, b: true }` (ADR-0077). Yalnız `Ad { alan:` biçimi:
+            // `for i in 0..n {` gövdesi literal sanılmaz.
+            Some(LBrace) if self.peek(1) == Some(Ident) && self.peek(2) == Some(Colon) => {
+                let open = self.bump();
+                let mut fields = Vec::new();
+                while self.at(Ident) {
+                    let field = self.parse_name();
+                    if !self.eat(Colon) {
+                        self.error_expected(
+                            &lstr!(en: "':' after the field name"; tr: "alan adından sonra ':'"),
+                            &lstr!(en: "write it as P {{ a: 1, b: true }}"; tr: "P {{ a: 1, b: true }} biçiminde yazın"),
+                        );
+                        return None;
+                    }
+                    fields.push((field, self.parse_test_expr()?));
+                    if !self.eat(Comma) {
+                        break;
+                    }
+                }
+                self.expect_closing(RBrace, "}", open);
+                TestExprKind::StructLit { name, fields }
+            }
             // `State::Idle` (ADR-0074).
             Some(ColonColon) => {
                 self.bump();

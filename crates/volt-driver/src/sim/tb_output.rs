@@ -25,7 +25,7 @@ pub(super) struct AssertFailure {
     pub port: Option<(String, String)>,
     /// Enum değerli karşılaştırmada varyant adları (ADR-0074); testbench
     /// çıktısında yok, sürücü iddianın konumundan ekler.
-    pub labels: Option<crate::sim_lower::EnumLabels>,
+    pub labels: Option<crate::sim_lower::ValueLabels>,
 }
 
 /// Testbench stdout'unu sonuçlara çevirir (sv-emit VOLT-* protokolü).

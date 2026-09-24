@@ -96,6 +96,7 @@ impl Resolver<'_> {
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
             | ExprKind::Todo { .. }
+            | ExprKind::Concat(_)
             | ExprKind::Error => {}
         }
     }
@@ -122,6 +123,17 @@ impl Resolver<'_> {
     /// `taban.alan` — taban bir instance'a çözülüyorsa (uart.busy) port
     /// adı doğrulanır.
     fn resolve_field(&mut self, base: Idx<Expr>, field: &Name, scope: ScopeId) {
+        if let ExprKind::Path(p) = &self.ast.exprs[base].kind {
+            if let [seg] = p.segments.as_slice() {
+                let span = volt_span::Span {
+                    end: field.span.end,
+                    ..seg.span
+                };
+                if self.whole_bundle_field(&seg.text.clone(), field, span, scope) {
+                    return;
+                }
+            }
+        }
         self.resolve_expr(base, scope);
         if let Some(&base_def) = self.resolutions.get(&base) {
             if let Some(&target) = self.instance_module.get(&base_def) {
@@ -130,6 +142,51 @@ impl Resolver<'_> {
                 self.check_builtin_field(prim, field);
             }
         }
+    }
+
+    /// `req.data` — düzleştirilmiş bir Handshake/bundle portunun alt
+    /// alanının TAMAMI değer olarak (ADR-0077 Karar 1): parser yalnız
+    /// yaprakları porta açar (`req_data_a`), ara düğüm bir sinyal
+    /// değildir. Taban adı kapsamda yoksa ve bir düzleştirme kaynağının
+    /// yolu `alan.` ile başlıyorsa E0003 verilir (önceden yanıltıcı
+    /// `E1001 undefined name`); `true` → çözümleme atlanır.
+    pub(super) fn whole_bundle_field(
+        &mut self,
+        base: &str,
+        field: &Name,
+        span: volt_span::Span,
+        scope: ScopeId,
+    ) -> bool {
+        if self.lookup_visible(base, scope).is_some() {
+            return false;
+        }
+        let prefix = format!("{}.", field.text);
+        let Some(origin) = self
+            .bundle_origins
+            .iter()
+            .find(|o| o.port.text == base && o.path.starts_with(&prefix))
+        else {
+            return false;
+        };
+        let example = format!("{base}.{}", origin.path);
+        let whole = format!("{base}.{}", field.text);
+        let what = if origin.bundle == "Handshake" {
+            lstr!(en: "the whole Handshake payload '{whole}' as a value; access its fields ('{example}')";
+                  tr: "Handshake payload'ının tamamı ('{whole}') değer olarak; alanlarına erişin ('{example}')")
+        } else {
+            lstr!(en: "the whole bundle field '{whole}' as a value; access its fields ('{example}')";
+                  tr: "bundle alanının tamamı ('{whole}') değer olarak; alanlarına erişin ('{example}')")
+        };
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E0003,
+            lstr!(en: "not supported yet: {what}"; tr: "henüz desteklenmiyor: {what}"),
+            LabeledSpan::primary(span, String::new()),
+            lstr!(
+                en: "this is valid Volt but has no SystemVerilog mapping yet; express it with supported constructs (see volt explain E0003)";
+                tr: "bu geçerli Volt ama henüz SystemVerilog eşlemesi yok; desteklenen yapılarla yazın (bkz. volt explain E0003)"
+            ),
+        ));
+        true
     }
 
     fn resolve_struct_lit(

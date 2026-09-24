@@ -56,6 +56,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2010 => "Literal hedef tipe sığmıyor",
         E2011 => "Geçersiz Trit literali",
         E2012 => "Register tipi belirlenemiyor",
+        E2013 => "Geçersiz struct bildirimi: alansız struct, alanda saat alanı notasyonu ya da alan tipi olarak 'struct port' bundle'ı (ADR-0077)",
+        E2014 => "Struct literalinde eksik ya da iki kez verilmiş alan (ADR-0077)",
 
         // ─── Sabit değerlendirme (const-eval.md) ───
         E2020 => "Döngüsel sabit bağımlılığı",
@@ -98,6 +100,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4009 => "Özyineli tip: bir struct, struct port, enum ya da tip takma adı kendini içeriyor, sonlu genişliği yok (ADR-0067, ADR-0069)",
         E4010 => "Bundle düzleştirme bütçesi aşıldı: bir modülde 4096'dan çok düz port ya da 8'den derin iç içelik (ADR-0067)",
         E4011 => "Örnek portu bağlantı hatası: giriş ya da saat bağlanmamış, çıkış ya da çift yönlü port yanlış bağlanmış, üst modülde reset yok ya da örnek portu dışarıdan sürülüyor (ADR-0072)",
+        E4012 => "Sinyalin bir kısmı hiç sürülmüyor: parça parça atanan struct'ın bir alanı ya da vektörün bazı bitleri (ADR-0077)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

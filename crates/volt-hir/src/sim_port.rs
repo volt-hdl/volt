@@ -142,7 +142,7 @@ fn enum_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
 /// Portun enum tipi adı (ADR-0074): `assert_eq(dut.state, State::Idle)`
 /// başka enum'un varyantıyla karşılaştırılamaz; rapor varyant adını basar.
 pub fn port_enum(src: &SourceFile, module: &volt_ast::ModuleDecl, port: &str) -> Option<String> {
-    let p = module.ports.iter().find(|p| p.name.text == port)?;
+    let p = crate::sim_struct::find_port(src, module, port)?;
     volt_ast::enum_layout::enum_of_type(src, p.ty).map(|d| d.name.text.clone())
 }
 
@@ -246,7 +246,8 @@ fn literal_value(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {
 pub fn test_port_width(sources: &[&SourceFile], module: &str, port: &str) -> Option<PortWidth> {
     let modules = crate::sim::collect_modules(sources);
     let (src, decl) = *modules.get(module)?;
-    let found = decl.ports.iter().find(|p| p.name.text == port)?;
+    // Struct yaprağı noktalı adla (`q.a`, ADR-0077) ya da SV adıyla gelir.
+    let found = crate::sim_struct::find_port(src, decl, port)?;
     port_type_width(src, found.ty)
 }
 
@@ -257,7 +258,7 @@ pub fn const_test_value(expr: &TestExpr) -> Option<u64> {
     TestConsts::default().eval(expr)
 }
 
-pub(crate) fn fold_binary(op: TestBinOp, l: u64, r: u64) -> Option<u64> {
+pub fn fold_binary(op: TestBinOp, l: u64, r: u64) -> Option<u64> {
     let shift = |f: fn(u64, u32) -> u64| {
         u32::try_from(r)
             .ok()
@@ -297,10 +298,8 @@ pub fn describe_value(value: u64) -> String {
 /// DUT'un `dir` yönlü portunun genişliği (dış modül/çözülemeyen → `None`).
 fn dut_port_width(duts: &DutMap<'_>, dut: &Name, port: &Name, dir: PortDir) -> Option<PortWidth> {
     let (src, module) = (*duts.get(dut.text.as_str())?)?;
-    let found = module
-        .ports
-        .iter()
-        .find(|p| p.name.text == port.text && p.direction == dir)?;
+    let found =
+        crate::sim_struct::find_port(src, module, &port.text).filter(|p| p.direction == dir)?;
     port_type_width(src, found.ty)
 }
 

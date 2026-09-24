@@ -72,14 +72,16 @@ pub(crate) fn describe_user_type(ast: &SourceFile, ty: Idx<TypeRef>) -> String {
     };
     let name = path.segments.last().map_or("", |s| s.text.as_str());
     match item_named(ast, name) {
+        // ADR-0077 Karar 1: kalıcı kural — bundle bir değer değildir.
         Some(ItemKind::Struct(s)) if s.is_port => lstr!(
-            en: "'struct port' bundle '{name}' outside a module port";
-            tr: "modül portu dışında 'struct port' bundle '{name}'"
+            en: "'struct port' bundle '{name}' outside a module port: a 'struct port' groups directed port fields and is not a value; use a plain 'struct' for data";
+            tr: "modül portu dışında 'struct port' bundle '{name}': 'struct port' yönlü port alanlarını gruplar, bir değer değildir; veri için düz 'struct' kullanın"
         ),
-        Some(ItemKind::Struct(_)) => lstr!(
-            en: "struct type '{name}' as a signal type (ports, reg, wire, let)";
-            tr: "sinyal tipi olarak struct tipi '{name}' (port, reg, wire, let)"
+        Some(ItemKind::Struct(s)) if !s.generics.is_empty() => lstr!(
+            en: "generic struct type '{name}' as a signal type (ADR-0069)";
+            tr: "sinyal tipi olarak generic struct tipi '{name}' (ADR-0069)"
         ),
+        Some(ItemKind::Struct(s)) => describe_struct_layout(ast, s),
         Some(ItemKind::Enum(_)) => lstr!(
             en: "enum type '{name}' as a signal type (ports, reg, wire, let)";
             tr: "sinyal tipi olarak enum tipi '{name}' (port, reg, wire, let)"
@@ -95,6 +97,26 @@ pub(crate) fn describe_user_type(ast: &SourceFile, ty: Idx<TypeRef>) -> String {
         _ => lstr!(
             en: "user-defined type '{name}' as a signal type";
             tr: "sinyal tipi olarak kullanıcı tipi '{name}'"
+        ),
+    }
+}
+
+/// Düzeni kurulamayan düz struct (ADR-0077): hangi alan neden.
+fn describe_struct_layout(ast: &SourceFile, s: &volt_ast::StructDecl) -> String {
+    use volt_ast::struct_layout::{layout, LayoutError};
+    let name = &s.name.text;
+    match layout(ast, s, &mut |e| crate::structs::const_int(ast, e)) {
+        Err(LayoutError::ArrayOfStruct(f)) => lstr!(
+            en: "arrays of structs (field '{f}' of struct '{name}')";
+            tr: "struct dizileri ('{name}' struct'ının '{f}' alanı)"
+        ),
+        Err(LayoutError::Unsupported(f)) => lstr!(
+            en: "struct '{name}' as a signal type: field '{f}' has a type with no hardware mapping (enum arrays, payload enums, tuples, clock/reset)";
+            tr: "sinyal tipi olarak '{name}' struct'ı: '{f}' alanının tipinin donanım eşlemesi yok (enum dizisi, payload'lı enum, tuple, clock/reset)"
+        ),
+        _ => lstr!(
+            en: "struct type '{name}' as a signal type (ports, reg, wire, let)";
+            tr: "sinyal tipi olarak struct tipi '{name}' (port, reg, wire, let)"
         ),
     }
 }

@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 struct Pt { a : u8, b : u8 }
 module M {
     in  p : Pt

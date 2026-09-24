@@ -63,6 +63,19 @@ impl<T> Arena<T> {
         self.items.iter()
     }
 
+    /// Düğümler indeksleriyle (ADR-0077: LSP alan erişimi hover'ı).
+    pub fn iter_idx(&self) -> impl Iterator<Item = (Idx<T>, &T)> {
+        self.items.iter().enumerate().map(|(i, v)| {
+            (
+                Idx {
+                    raw: i as u32,
+                    _marker: PhantomData,
+                },
+                v,
+            )
+        })
+    }
+
     /// Ayrılmış düğüm sayısı (ADR-0068: açılım düğüm bütçesi).
     pub fn len(&self) -> usize {
         self.items.len()

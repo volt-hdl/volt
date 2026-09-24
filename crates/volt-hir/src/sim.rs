@@ -94,6 +94,8 @@ pub fn check_tests_with_files(
         {
             diags.push(missing_dut(test));
         }
+        // Struct portu yolları yaprak biçimine (ADR-0077).
+        let stmts = crate::sim_struct::expand_struct_tests(sources, &test.stmts, Some(&mut diags));
         let mut checker = Checker {
             modules: &modules,
             assume_external_modules,
@@ -101,7 +103,7 @@ pub fn check_tests_with_files(
             scope: Scope::with_consts(consts.clone(), assume_external_modules),
             diags: &mut diags,
         };
-        checker.check_block(&test.stmts, 0);
+        checker.check_block(&stmts, 0);
     }
     diags
 }
@@ -218,6 +220,20 @@ impl<'a> Checker<'a, '_> {
             "load" => {
                 sim_load::check_load(&self.scope, self.modules, &args[0], &args[1], self.diags)
             }
+            "assert_eq" | "assert_ne"
+                if args
+                    .iter()
+                    .any(|a| crate::sim_struct::is_whole_struct_arg(&self.scope.duts, a)) =>
+            {
+                // Bütün-struct karşılaştırması (ADR-0077).
+                let scope = &self.scope;
+                crate::sim_struct::check_struct_compare(
+                    &scope.duts,
+                    args,
+                    &mut |e, d| scope.expect_scalar(e, d),
+                    self.diags,
+                );
+            }
             _ => {
                 for arg in args {
                     self.scope.expect_scalar(arg, self.diags);
@@ -245,7 +261,7 @@ fn check_set_port(duts: &DutMap<'_>, dut: &Name, port: &Name, diags: &mut Vec<Di
     let Some((src, module)) = entry else {
         return; // dış modül varsayımı: port denetimi yapılamaz
     };
-    let Some(p) = module.ports.iter().find(|p| p.name.text == port.text) else {
+    let Some(p) = crate::sim_struct::find_port(src, module, &port.text) else {
         diags.push(unknown_port(port, &module.name.text));
         return;
     };
@@ -280,13 +296,22 @@ pub(crate) fn check_port_read(
         diags.push(undefined_dut(dut));
         return;
     };
-    let Some((_, module)) = entry else {
+    let Some((src, module)) = entry else {
         return; // dış modül varsayımı
     };
-    let Some(p) = module.ports.iter().find(|p| p.name.text == port.text) else {
+    let Some(p) = crate::sim_struct::find_port(src, module, &port.text) else {
         diags.push(unknown_port(port, &module.name.text));
         return;
     };
+    // Bütün struct portu sayı değildir (ADR-0077): alan ya da literal.
+    if let Some(layout) = crate::sim_struct::struct_port_layout(src, module, &port.text) {
+        diags.push(crate::sim_expr::type_mismatch(
+            port.span,
+            lstr!(en: "port '{}' is struct '{}', not a number; read a field (dut.{}.<field>) or compare it with a literal in assert_eq", port.text, layout.name, port.text;
+                  tr: "'{}' portu '{}' struct'ı, sayı değil; bir alanını okuyun (dut.{}.<alan>) ya da assert_eq içinde bir literalle karşılaştırın", port.text, layout.name, port.text),
+        ));
+        return;
+    }
     if p.direction != PortDir::Out {
         diags.push(Diagnostic::error(
             ErrorCode::E8504,

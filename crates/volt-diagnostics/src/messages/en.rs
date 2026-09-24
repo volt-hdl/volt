@@ -56,6 +56,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2010 => "Literal does not fit the target type",
         E2011 => "Invalid Trit literal",
         E2012 => "Register type cannot be determined",
+        E2013 => "Invalid struct declaration: no fields, a clock-domain annotation on a field, or a 'struct port' bundle as a field type (ADR-0077)",
+        E2014 => "Struct literal is missing a field or sets a field twice (ADR-0077)",
 
         // ─── Constant evaluation (const-eval.md) ───
         E2020 => "Cyclic constant dependency",
@@ -98,6 +100,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4009 => "Recursive type: a struct, struct port, enum or type alias contains itself and has no finite width (ADR-0067, ADR-0069)",
         E4010 => "Bundle flattening budget exceeded: more than 4096 flat ports in one module or nesting deeper than 8 levels (ADR-0067)",
         E4011 => "Instance port connection error: input or clock not bound, output or bidirectional port bound wrongly, missing reset in the parent, or an instance port driven from outside (ADR-0072)",
+        E4012 => "Part of a signal is never driven: a struct field or some bits of a vector assigned piece by piece (ADR-0077)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",

@@ -12,9 +12,10 @@ use super::TypeChecker;
 use crate::ty::{Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
-    /// Tanılardaki tip gösterimi — enum'lar adıyla (ADR-0074).
+    /// Tanılardaki tip gösterimi — enum (ADR-0074) ve struct (ADR-0077)
+    /// adlarıyla: `'P' and 'Q'`, `'struct' and 'struct'` değil.
     pub(super) fn show(&self, ty: TypeId) -> String {
-        self.types.display_enum_named(ty, &self.res.defs)
+        self.types.display_named(ty, &self.res.defs)
     }
 
     /// Tek birincil konumlu hata tanısı ekler.

@@ -200,7 +200,7 @@ impl Parser<'_> {
         })
     }
 
-    /// `dut.port = v;`
+    /// `dut.port = v;` ya da struct portunun alanı `dut.p.a = v;` (ADR-0077).
     fn parse_test_set_port(&mut self) -> Option<TestStmt> {
         let start = self.pos;
         let dut = self.parse_name();
@@ -210,6 +210,15 @@ impl Parser<'_> {
                 .test_stmt_error(&lstr!(en: "port name after '.'"; tr: "'.' sonrası port adı"));
         }
         let port = self.parse_name();
+        let mut fields = Vec::new();
+        while self.eat(Dot) {
+            if !self.at(Ident) {
+                return self.test_stmt_error(
+                    &lstr!(en: "field name after '.'"; tr: "'.' sonrası alan adı"),
+                );
+            }
+            fields.push(self.parse_name());
+        }
         if !self.eat(Eq) {
             return self.test_stmt_error(&lstr!(en: "'=' after the port"; tr: "porttan sonra '='"));
         }
@@ -219,6 +228,7 @@ impl Parser<'_> {
             span: self.span_from(start),
             dut,
             port,
+            fields,
             value,
         })
     }

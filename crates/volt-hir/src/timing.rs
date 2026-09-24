@@ -380,6 +380,7 @@ impl<'a> ModuleTiming<'a> {
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
             | ExprKind::Todo { .. }
+            | ExprKind::Concat(_)
             | ExprKind::Error => (Delay::Any, span),
             ExprKind::Path(_) => (self.path_delay(e), span),
             ExprKind::Unary { operand, .. } => {

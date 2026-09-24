@@ -17,6 +17,7 @@ mod sby;
 pub mod sim;
 mod sim_contract;
 mod sim_script;
+mod structs;
 mod sva;
 mod trit;
 
@@ -362,6 +363,14 @@ pub fn emit_unit(
     mode: SvaMode,
     const_array_style: ConstArrayStyle,
 ) -> EmitOutput {
+    // ADR-0077: struct tipli sinyaller yaprak sinyallere indirgenir; struct
+    // kullanmayan birimde özgün AST (çıktı byte-aynı).
+    let (lowered, struct_diags) = structs::lower(ast);
+    let no_notes = structs::StructNotes::default();
+    let (ast, struct_notes) = match &lowered {
+        Some(l) => (&l.ast, &l.notes),
+        None => (ast, &no_notes),
+    };
     let mut emitter = Emitter {
         ast,
         diagnostics: Vec::new(),
@@ -387,7 +396,10 @@ pub fn emit_unit(
         sim_dpi: sim_contract::SimDpiUse::default(),
         enum_used: Vec::new(),
         enum_sigs: HashMap::new(),
+        struct_notes,
+        module_name: String::new(),
     };
+    emitter.diagnostics = struct_diags;
 
     let mut modules = Vec::new();
     let mut per_module = Vec::new();
@@ -591,6 +603,11 @@ pub(crate) struct Emitter<'a> {
     pub(crate) enum_used: Vec<(String, String)>,
     /// Enum tipli modül sinyalleri: ad → enum adı (ADR-0074).
     pub(crate) enum_sigs: HashMap<String, String>,
+    /// Struct indirgemesinin notları (ADR-0077): düzen yorumu, okunmayan
+    /// yaprak, paketlenmiş dizi register'ı.
+    pub(crate) struct_notes: &'a structs::StructNotes,
+    /// Üretilmekte olan modülün adı (struct notlarının anahtarı).
+    pub(crate) module_name: String,
 }
 
 impl<'a> Emitter<'a> {
@@ -652,6 +669,7 @@ impl<'a> Emitter<'a> {
         self.sim_dpi = sim_contract::SimDpiUse::default();
         self.enum_used.clear();
         self.enum_sigs.clear();
+        self.module_name = module.name.text.clone();
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -695,6 +713,17 @@ impl<'a> Emitter<'a> {
                     self.note_enum_signal(&reg.name.text, ty);
                 }
                 match reg.ty {
+                    // Struct yaprağı olan dizi register'ı paketlenmiş vektördür
+                    // (ADR-0077 Karar 3: `p as uN` birleştirmesi) — wire gibi.
+                    Some(ty)
+                        if self
+                            .struct_notes
+                            .is_packed(&self.module_name, &reg.name.text) =>
+                    {
+                        if let Some(sig) = self.signal_sig(&reg.name.text, ty, span) {
+                            self.symbols.insert(reg.name.text.clone(), sig);
+                        }
+                    }
                     // Dizi tipli reg (ADR-0035): eleman imzası + boyut.
                     Some(ty)
                         if matches!(
@@ -946,10 +975,33 @@ impl<'a> Emitter<'a> {
             .map(|(i, (dir, ty, name))| {
                 let comma = if i + 1 < count { "," } else { "" };
                 let note = self.enum_comment(name);
-                format!("    {dir:<6} {ty:<ty_width$} {name}{comma}{note}")
+                self.struct_decl_lines(
+                    name,
+                    format!("    {dir:<6} {ty:<ty_width$} {name}{comma}{note}"),
+                )
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Struct yaprağının bildirim satırı (ADR-0077 Karar 5): grubun ilk
+    /// yaprağının üstünde düzen yorumu; modülün okumadığı yaprak
+    /// Verilator UNUSEDSIGNAL susturmasıyla sarılır (kural 2, 13).
+    pub(crate) fn struct_decl_lines(&self, name: &str, line: String) -> String {
+        let module = &self.module_name;
+        let mut out = String::new();
+        if let Some(note) = self.struct_notes.layout_of(module, name) {
+            out.push_str(&format!("    {note}\n"));
+        }
+        if self.struct_notes.is_unused(module, name) {
+            out.push_str("    // struct field unused in this module\n");
+            out.push_str("    // verilator lint_off UNUSEDSIGNAL\n");
+            out.push_str(&line);
+            out.push_str("\n    // verilator lint_on UNUSEDSIGNAL");
+        } else {
+            out.push_str(&line);
+        }
+        out
     }
 
     /// Gövde: ardışık aynı-tür tek satırlık bildirimler tek chunk'ta
@@ -978,11 +1030,14 @@ impl<'a> Emitter<'a> {
                     };
                     (
                         Kind::Decl,
-                        format!(
-                            "    {} {}{dims};{}",
-                            sig.decl_type(),
-                            reg.name.text,
-                            self.enum_comment(&reg.name.text)
+                        self.struct_decl_lines(
+                            &reg.name.text,
+                            format!(
+                                "    {} {}{dims};{}",
+                                sig.decl_type(),
+                                reg.name.text,
+                                self.enum_comment(&reg.name.text)
+                            ),
                         ),
                     )
                 }),
@@ -1010,12 +1065,15 @@ impl<'a> Emitter<'a> {
                             let value = self.emit_assigned(decl.value, Some(sig));
                             Some((
                                 Kind::Decl,
-                                format!(
-                                    "    wire {}{} = {};{}",
-                                    sig.wire_prefix(),
-                                    decl.name.text,
-                                    value,
-                                    self.enum_comment(&decl.name.text)
+                                self.struct_decl_lines(
+                                    &decl.name.text,
+                                    format!(
+                                        "    wire {}{} = {};{}",
+                                        sig.wire_prefix(),
+                                        decl.name.text,
+                                        value,
+                                        self.enum_comment(&decl.name.text)
+                                    ),
                                 ),
                             ))
                         }
@@ -1087,11 +1145,14 @@ impl<'a> Emitter<'a> {
                                 format!("    tri1 {}{};", sig.wire_prefix(), w.name.text)
                             }
                             Some(_) => format!("    wire {}{};", sig.wire_prefix(), w.name.text),
-                            None => format!(
-                                "    {} {};{}",
-                                sig.decl_type(),
-                                w.name.text,
-                                self.enum_comment(&w.name.text)
+                            None => self.struct_decl_lines(
+                                &w.name.text,
+                                format!(
+                                    "    {} {};{}",
+                                    sig.decl_type(),
+                                    w.name.text,
+                                    self.enum_comment(&w.name.text)
+                                ),
                             ),
                         },
                     )),
@@ -1408,6 +1469,16 @@ impl<'a> Emitter<'a> {
         let ast = self.ast;
         let mut written = Vec::new();
         collect_written(ast, &ast.blocks[on.body], &mut written);
+        // ADR-0077: yazılan struct yaprağının kardeşleri de reset alır.
+        for w in written.clone() {
+            if let Some(sibs) = self.struct_notes.siblings_of(&self.module_name, &w) {
+                for s in sibs {
+                    if !written.contains(s) {
+                        written.push(s.clone());
+                    }
+                }
+            }
+        }
 
         let mut lines = Vec::new();
         for &stmt_idx in &module.body {
@@ -1832,6 +1903,18 @@ impl<'a> Emitter<'a> {
             return None;
         };
         let (elem, len) = (*elem, *len);
+        // Struct dizisi ertelendi (ADR-0077 Karar 2: AoS eleman düzeni ayrı ADR).
+        if let Some(decl) = volt_ast::struct_layout::struct_of_type(self.ast, elem) {
+            let name = decl.name.text.clone();
+            self.future(
+                span,
+                &lstr!(
+                    en: "arrays of structs ('[{name}; N]'; use one signal per element or split the fields into arrays)";
+                    tr: "struct dizileri ('[{name}; N]'; eleman başına bir sinyal kullanın ya da alanları dizilere ayırın)"
+                ),
+            );
+            return None;
+        }
         if let Some(decl) = self.enum_of_type(elem) {
             let name = decl.name.text.clone();
             self.future(
@@ -1945,6 +2028,18 @@ impl<'a> Emitter<'a> {
                 self.future(span, &what);
                 None
             }
+        }
+    }
+
+    /// Struct yaprağının imzası (ADR-0077): dizi alanı paketlenmiş
+    /// vektördür (ADR-0056), diğerleri `sig_of_typeref`.
+    pub(crate) fn leaf_sig(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
+        match self.array_reg_sig(ty, span) {
+            Some((elem, len)) => Some(Sig {
+                width: elem.width * len,
+                signed: false,
+            }),
+            None => self.sig_of_typeref(ty, span),
         }
     }
 

@@ -72,9 +72,27 @@ pub(crate) struct LoweredTest {
     pub module: String,
     pub tb: TbTest,
     pub load_targets: Vec<(String, String)>,
-    /// Enum değerli `assert_eq`/`assert_ne` konumları: rapor sayının
-    /// yanında varyant adını basar (ADR-0074).
-    pub enum_asserts: Vec<(String, EnumLabels)>,
+    /// Enum ya da struct değerli `assert_eq`/`assert_ne` konumları: rapor
+    /// sayının yanında varyant adını (ADR-0074) ya da alanları (ADR-0077)
+    /// basar.
+    pub value_asserts: Vec<(String, ValueLabels)>,
+}
+
+/// İddia değerinin rapor biçimi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ValueLabels {
+    Enum(EnumLabels),
+    Struct(crate::sim_struct::StructLabels),
+}
+
+impl ValueLabels {
+    /// Enum'da varyant adı, struct'ta alan adlarıyla değer.
+    pub fn label(&self, v: u64) -> String {
+        match self {
+            ValueLabels::Enum(e) => e.label(v),
+            ValueLabels::Struct(s) => s.render(v),
+        }
+    }
 }
 
 /// Bir enum'un varyant adları ve kodları — rapordaki `1 (State::Run)`.
@@ -110,7 +128,8 @@ fn lower_value(consts: &TestConsts, expr: &TestExpr) -> Option<TbValue> {
     Some(match &expr.kind {
         TestExprKind::Int(n) => TbValue::Lit(*n),
         TestExprKind::Bool(b) => TbValue::Lit(u64::from(*b)),
-        TestExprKind::PortRead { port, .. } => TbValue::Port(port.text.clone()),
+        // Struct yaprağı noktalı adla gelir (`q.a` → SV `q_a`, ADR-0077).
+        TestExprKind::PortRead { port, .. } => TbValue::Port(volt_hir::sv_port_name(&port.text)),
         TestExprKind::Var(name) => match consts.global(&name.text) {
             Some(value) => TbValue::Lit(value?),
             None => TbValue::Var(name.text.clone()),
@@ -138,6 +157,7 @@ fn lower_value(consts: &TestConsts, expr: &TestExpr) -> Option<TbValue> {
         TestExprKind::Call { .. }
         | TestExprKind::Str(_)
         | TestExprKind::Array(_)
+        | TestExprKind::StructLit { .. }
         | TestExprKind::MemberPath { .. } => return None,
     })
 }
@@ -174,7 +194,9 @@ struct Lowering<'a> {
     ctx: &'a LowerCtx<'a>,
     module: Option<String>,
     load_targets: Vec<(String, String)>,
-    enum_asserts: Vec<(String, EnumLabels)>,
+    value_asserts: Vec<(String, ValueLabels)>,
+    /// dut adı → modül adı (bütün-struct karşılaştırması için).
+    duts: std::collections::HashMap<String, String>,
     /// Derleme zamanında bilinen değerler (ADR-0060) — denetimdeki
     /// (`check_tests_with_files`) ortamın aynısı; E8512 kararıyla
     /// betiğe yazılan desen aynı değerden çıkar.
@@ -207,10 +229,13 @@ impl Lowering<'_> {
 
     fn stmt(&mut self, stmt: &TestStmt, steps: &mut Vec<TbStep>) -> Option<()> {
         match stmt {
-            TestStmt::LetDut { module: m, .. } => {
+            TestStmt::LetDut {
+                name, module: m, ..
+            } => {
                 if self.module.is_none() {
                     self.module = Some(m.text.clone());
                 }
+                self.duts.insert(name.text.clone(), m.text.clone());
             }
             TestStmt::SetPort {
                 span, port, value, ..
@@ -274,13 +299,13 @@ impl Lowering<'_> {
                 return None; // E8512'den geçmiş olamaz
             }
             steps.push(TbStep::SetPort {
-                port: port.text.clone(),
+                port: volt_hir::sv_port_name(&port.text),
                 value: TbValue::Lit(width.to_pattern(constant)),
             });
             return Some(());
         }
         let value = self.value(value)?;
-        let port_name = port.text.clone();
+        let port_name = volt_hir::sv_port_name(&port.text);
         if self.fits_without_check(width, constant, &value) {
             self.push_loc(span, &value, steps);
             steps.push(TbStep::SetPort {
@@ -361,6 +386,19 @@ impl Lowering<'_> {
             "assert_false" => TbAssertKind::False,
             _ => return None,
         };
+        if matches!(kind, TbAssertKind::Eq | TbAssertKind::Ne) {
+            if let Some((left, right, labels)) = self.struct_compare(args) {
+                self.value_asserts
+                    .push((self.loc(span), ValueLabels::Struct(labels)));
+                steps.push(TbStep::Assert {
+                    kind,
+                    left,
+                    right,
+                    loc: self.loc(span),
+                });
+                return Some(());
+            }
+        }
         let left = self.value(args.first()?)?;
         let right = match args.get(1) {
             Some(arg) => self.value(arg)?,
@@ -368,7 +406,8 @@ impl Lowering<'_> {
         };
         if matches!(kind, TbAssertKind::Eq | TbAssertKind::Ne) {
             if let Some(labels) = self.enum_of_args(args) {
-                self.enum_asserts.push((self.loc(span), labels));
+                self.value_asserts
+                    .push((self.loc(span), ValueLabels::Enum(labels)));
             }
         }
         steps.push(TbStep::Assert {
@@ -378,6 +417,31 @@ impl Lowering<'_> {
             loc: self.loc(span),
         });
         Some(())
+    }
+
+    /// Bütün-struct karşılaştırması (ADR-0077): iki taraf Karar 3
+    /// düzeniyle paketlenmiş sayı; rapor etiketleri alan adlarıyla.
+    fn struct_compare(
+        &self,
+        args: &[TestExpr],
+    ) -> Option<(TbValue, TbValue, crate::sim_struct::StructLabels)> {
+        let (layout, port, other) = volt_hir::struct_compare(self.ctx.sources, &self.duts, args)?;
+        let left = crate::sim_struct::packed_port(&port.text, &layout);
+        let right = match &other.kind {
+            TestExprKind::PortRead { port: p2, .. } => {
+                crate::sim_struct::packed_port(&p2.text, &layout)
+            }
+            _ => crate::sim_struct::packed_literal(other, &layout, &|e| self.value(e))?,
+        };
+        let src = self.ctx.sources.iter().find(|s| {
+            s.items.iter().any(|&i| {
+                matches!(&s.items_arena[i].kind, volt_ast::ItemKind::Struct(d) if d.name.text == layout.name)
+            })
+        })?;
+        let labels = crate::sim_struct::labels(src, &layout, &|e| {
+            self.consts.enum_variants(e).map(<[_]>::to_vec)
+        });
+        Some((left, right, labels))
     }
 
     /// Karşılaştırmanın enum'u: bir taraf `Enum::Varyant` ya da enum
@@ -438,10 +502,13 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
         ctx,
         module: None,
         load_targets: Vec::new(),
-        enum_asserts: Vec::new(),
+        value_asserts: Vec::new(),
+        duts: std::collections::HashMap::new(),
         consts: TestConsts::new(ctx.sources),
     };
-    let steps = lowering.block(&test.stmts)?;
+    // Struct portu yolları yaprak biçimine (ADR-0077; denetimden geçmiş).
+    let stmts = volt_hir::expand_struct_tests(ctx.sources, &test.stmts, None);
+    let steps = lowering.block(&stmts)?;
     // Testbench iddiayı yalnız `dosya:satır` ile bildirir; aynı satırda
     // birden çok iddia varsa hangisinin düştüğü bilinemez — enum adı
     // yanlış iddiaya yapışmasın (ADR-0074 rapor adları).
@@ -451,8 +518,8 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
             .filter(|s| matches!(s, TbStep::Assert { loc: l, .. } if l == loc))
             .count()
     };
-    let enum_asserts: Vec<(String, EnumLabels)> = lowering
-        .enum_asserts
+    let value_asserts: Vec<(String, ValueLabels)> = lowering
+        .value_asserts
         .iter()
         .filter(|(loc, _)| per_loc(loc) <= 1)
         .cloned()
@@ -464,7 +531,7 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
             steps,
         },
         load_targets: lowering.load_targets,
-        enum_asserts,
+        value_asserts,
     })
 }
 
@@ -526,8 +593,8 @@ mod tests {
             &FakeFiles(""),
         )
         .expect("indirgenmeli");
-        assert_eq!(lowered.enum_asserts.len(), 1);
-        let (loc, labels) = &lowered.enum_asserts[0];
+        assert_eq!(lowered.value_asserts.len(), 1);
+        let (loc, labels) = &lowered.value_asserts[0];
         assert_eq!(labels.label(2), "S::C");
         assert_eq!(labels.label(3), "S: invalid code");
         assert!(lowered.tb.steps.contains(&TbStep::Assert {
@@ -547,7 +614,7 @@ mod tests {
             &FakeFiles(""),
         )
         .expect("indirgenmeli");
-        assert!(lowered.enum_asserts.is_empty());
+        assert!(lowered.value_asserts.is_empty());
     }
 
     #[test]

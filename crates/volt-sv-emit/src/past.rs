@@ -204,6 +204,7 @@ fn collect_prev_calls(ast: &volt_ast::SourceFile, e: Idx<Expr>, out: &mut Vec<Id
             v.extend(args.iter().copied());
             v
         }
+        ExprKind::Concat(parts) => parts.iter().map(|&(p, _)| p).collect(),
         _ => Vec::new(),
     };
     for c in children {

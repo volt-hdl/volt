@@ -1328,6 +1328,7 @@ pub(super) fn expr_children(kind: &ExprKind) -> (Vec<Idx<Expr>>, Vec<Idx<Block>>
             es.extend([*value, *count])
         }
         ExprKind::TupleLit(items) => es.extend(items.iter().copied()),
+        ExprKind::Concat(parts) => es.extend(parts.iter().map(|&(i, _)| i)),
     }
     (es, bs)
 }
