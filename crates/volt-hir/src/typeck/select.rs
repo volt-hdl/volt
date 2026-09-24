@@ -221,7 +221,7 @@ impl TypeChecker<'_, '_> {
         }
     }
 
-    /// Struct alanının bildirilen tipi; bilinmeyen alan sessiz Error.
+    /// Struct alanının bildirilen tipi; bilinmeyen alan E1008 (ADR-0077).
     fn struct_field_type(&mut self, s: StructId, field: &Name) -> TypeId {
         let ast = self.ast;
         let field_ty = self.res.item_of_def.get(&DefId(s.0)).and_then(|&item_idx| {
@@ -236,7 +236,10 @@ impl TypeChecker<'_, '_> {
         });
         match field_ty {
             Some(t) => self.resolve_type_ref(t),
-            None => self.types.error(),
+            None => {
+                self.unknown_struct_field(s, field);
+                self.types.error()
+            }
         }
     }
 }

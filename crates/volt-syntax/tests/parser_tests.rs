@@ -111,6 +111,10 @@ fn dump(ast: &SourceFile, idx: Idx<Expr>) -> String {
             let elems: Vec<String> = elems.iter().map(|e| dump(ast, *e)).collect();
             format!("(tuple {})", elems.join(" "))
         }
+        ExprKind::Concat(parts) => {
+            let parts: Vec<String> = parts.iter().map(|(e, _)| dump(ast, *e)).collect();
+            format!("(concat {})", parts.join(" "))
+        }
         ExprKind::Todo { .. } => "todo!".to_string(),
         ExprKind::Error => "<err>".to_string(),
     }
@@ -2142,7 +2146,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 87, "ui/pass 87 dosya içermeli");
+    assert_eq!(total, 93, "ui/pass 93 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2177,10 +2181,12 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0070 ise 92'yi (takma ad sinyal tipleri),
     // ADR-0073 ise 93'ü (ayrık kısmi sürücüler),
     // ADR-0074 ise 94-96'yı (enum FSM, modüller arası enum portu, açık
-    // değerli enum) ekledi.
+    // değerli enum), ADR-0077 ise 102-107'yi (struct portu, register +
+    // alan ataması, iç içe/enum alanı, bits dönüşümü, bundle alanı,
+    // sync + kontrat) ekledi.
     assert_eq!(
-        clean, 87,
-        "87/87 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 93,
+        "93/93 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

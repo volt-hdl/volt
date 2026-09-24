@@ -328,6 +328,22 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "reg r                   // ✗ E2012: genişlik bilinmiyor",
             "reg r : u8 = 0          // ✓",
         ),
+        E2013 => Explanation::new(
+            "Geçersiz struct bildirimi",
+            "Bu düz struct bir veri değerini tanımlayamaz.",
+            "Düz 'struct' tek yönlü bir veri değeridir: register'da tutulur, karşılaştırılır, 'as' ile dönüştürülür ve donanımda alan başına bir sinyale iner. Bu yüzden en az bir alanı olmalıdır (sıfır genişlikli değer sinyal değildir) ve alanları saat alanı ya da yön taşımaz — değerin tamamı onu tutan sinyalin alanındadır. Alan başına alan (domain), yön ve 'struct port' bundle'ları yönlü port alanlarını gruplayan, değer olmayan 'struct port'a aittir (ADR-0039, ADR-0077).",
+            "struct Empty { }                // ✗ E2013: alan yok\nstruct P { a : u4 @Fast }        // ✗ E2013: alanda domain\nstruct Q { bus : AxiLite }       // ✗ E2013: AxiLite bir 'struct port'",
+            "struct P { a : u4, b : bool }   // ✓\nin p : P @Fast                   // ✓ domain sinyalin üstünde\nstruct port Link { out d : P  in ready : bool }   // ✓ bundle struct taşıyabilir",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        E2014 => Explanation::new(
+            "Struct literalinde eksik ya da yinelenen alan",
+            "Struct'ın her alanı literalde tam bir kez verilmelidir.",
+            "Donanımda her bitin açık bir kaynağı olmalıdır. Örtük varsayılan değer reset değerinde bir alanı sessizce sıfırlar, kombinasyonel mantıkta unutulan alanı gizler; bu yüzden struct literali bütün alanları, her birini bir kez, herhangi bir sırayla listeler ('P { a, b }' kısa biçimi aynı adlı yerel değerleri alır). Register'ın tek alanını değiştirmek için alana atayın: 'p.a <= x' (ADR-0077).",
+            "reg p : P = P { a: 0 }                 // ✗ E2014: 'b' alanı eksik\nlet q : P = P { a: 1, a: 2, b: true }  // ✗ E2014: 'a' iki kez",
+            "reg p : P = P { a: 0, b: false }       // ✓\non clk { p.a <= x }                    // ✓ tek alanı güncelle",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
         // ─── Sabit değerlendirme (const-eval.md) ───
         E2020 => Explanation::new(
@@ -644,6 +660,14 @@ module Gpio {
             "let f = Filter { clk }                         // ✗ E4011: 'sample' girişi bağlanmamış\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: çıkış literalde bağlanmış",
             "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
+        E4012 => Explanation::new(
+            "Sinyalin bir kısmı hiç sürülmüyor",
+            "Sinyal parça parça atanıyor ve bazı parçalarının sürücüsü yok.",
+            "Alan alan (p.a = ..., p.b = ...) ya da dilim dilim (y[3:0] = ...) sürülen bir wire, çıkış portu ya da tipli 'let' in her alanı ve her biti sürülmelidir; sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN der) ve Volt X üretmez (ADR-0008). Bu, struct literalinin bütün alanları listelemesi kuralının (E2014) alan alan yazımdaki karşılığıdır. Register'lar muaftır: atanmayan alan değerini korur, reset değeri tamdır (ADR-0077).",
+            "wire p : P\np.a = x                 // ✗ E4012: 'p.b' alanı hiç sürülmüyor\nout y : u8\ny[3:0] = a              // ✗ E4012: 'y' sinyalinin 7..4 bitleri hiç sürülmüyor",
+            "wire p : P\np.a = x\np.b = go                // ✓\ny = (a as u8)           // ✓ ya da y[7:4]'ü de sürün",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",

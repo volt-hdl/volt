@@ -263,10 +263,22 @@ impl TypeChecker<'_, '_> {
     fn synth_ordering(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
         let lt = self.synth(lhs);
         let rt = self.synth(rhs);
+        let struct_side = [lt, rt]
+            .into_iter()
+            .find(|&t| matches!(self.types.ty(t), Ty::Struct(_)));
         let enum_side = [lt, rt]
             .into_iter()
             .find(|&t| matches!(self.types.ty(t), Ty::Enum(_)));
-        if let Some(t) = enum_side {
+        if let Some(t) = struct_side {
+            // ADR-0077 Karar 4: struct sıralamasının anlamı tanımsız.
+            let shown = self.show(t);
+            let sym = op.symbol();
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "struct '{shown}' values cannot be ordered with '{sym}'"; tr: "'{shown}' struct değerleri '{sym}' ile sıralanamaz"),
+                &lstr!(en: "compare structs with == / !=, compare a field (p.a {sym} ...), or convert explicitly: (p as uN) {sym} ..."; tr: "struct'ları == / != ile karşılaştırın, bir alanı karşılaştırın (p.a {sym} ...) ya da açıkça dönüştürün: (p as uN) {sym} ..."),
+            );
+        } else if let Some(t) = enum_side {
             let shown = self.show(t);
             let sym = op.symbol();
             self.err_type_mismatch_msg(

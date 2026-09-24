@@ -190,6 +190,16 @@ impl Resolver<'_> {
     }
 
     pub(super) fn resolve_lvalue(&mut self, lv: &LValue, scope: ScopeId) {
+        // `rsp.data = P { .. }` — bütün Handshake payload'ı hedef (ADR-0077).
+        if let Some(LValueSuffix::Field(field)) = lv.suffixes.first() {
+            let span = volt_span::Span {
+                end: field.span.end,
+                ..lv.base.span
+            };
+            if self.whole_bundle_field(&lv.base.text.clone(), &field.clone(), span, scope) {
+                return;
+            }
+        }
         let def = self.resolve_simple(&lv.base.clone(), scope, false);
         self.check_bundle_direction(def, &lv.base.clone());
         self.check_bidir_assign(def, &lv.base.clone());

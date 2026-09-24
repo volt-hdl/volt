@@ -124,6 +124,7 @@ impl Resolver<'_> {
     }
 
     fn declare_ports(&mut self, m: &ModuleDecl, scope: ScopeId) {
+        self.bundle_origins = m.ports.iter().filter_map(|p| p.bundle.clone()).collect();
         for p in &m.ports {
             let def = self.declare_checked(
                 &p.name.clone(),

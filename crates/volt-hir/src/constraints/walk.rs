@@ -800,11 +800,7 @@ impl<'a> Collector<'a> {
         chains.extend(self.reset_chains(m, scope, ctx));
         for &stmt_idx in &m.body {
             match &self.ast.stmts[stmt_idx].kind {
-                StmtKind::Assign(a) => {
-                    if let Some(b) = self.sync_bridge(a, scope, ctx, clocks) {
-                        bridges.push(b);
-                    }
-                }
+                StmtKind::Assign(a) => bridges.extend(self.sync_bridges(a, scope, ctx, clocks)),
                 StmtKind::Instance(inst) => {
                     let target = inst
                         .module_path
@@ -827,15 +823,46 @@ impl<'a> Collector<'a> {
         }
     }
 
+    /// Struct kaynaklı `sync()` SV'de yaprak başına bir senkronizördür
+    /// (ADR-0077 Karar 5 kural 12): kısıt satırları yaprak adlarıyla
+    /// (`sync_p_a_stage0`, …). Struct olmayan kaynakta tek köprü.
+    fn sync_bridges(
+        &self,
+        a: &'a volt_ast::AssignStmt,
+        scope: &Scope<'a>,
+        ctx: &Ctx,
+        clocks: &[ClockConstraint],
+    ) -> Vec<Bridge> {
+        let src = match &self.ast.exprs[a.rhs].kind {
+            ExprKind::Call { args, .. } => args.first().and_then(|&s| single(self.ast, s)),
+            _ => None,
+        };
+        let leaves = src
+            .and_then(|s| struct_leaf_suffixes(self.ast, scope.module, s))
+            .unwrap_or_default();
+        if leaves.is_empty() {
+            return self
+                .sync_bridge(a, scope, ctx, clocks, None)
+                .into_iter()
+                .collect();
+        }
+        leaves
+            .iter()
+            .filter_map(|suffix| self.sync_bridge(a, scope, ctx, clocks, Some(suffix)))
+            .collect()
+    }
+
     /// `dest = sync(src, dst_clk)` / `sync3(...)` — sv-emit
     /// `try_emit_sync_bridge` adlandırması: `sync_<src>_stage<i>` ve
     /// başka alandan gelen portta `sync_<src>_src` yakalama register'ı.
+    /// `leaf`: struct kaynağının yaprak soneki (`a` → `p_a`).
     fn sync_bridge(
         &self,
         a: &'a volt_ast::AssignStmt,
         scope: &Scope<'a>,
         ctx: &Ctx,
         clocks: &[ClockConstraint],
+        leaf: Option<&str>,
     ) -> Option<Bridge> {
         let ExprKind::Call { callee, args } = &self.ast.exprs[a.rhs].kind else {
             return None;
@@ -854,18 +881,20 @@ impl<'a> Collector<'a> {
             return None;
         }
         let src_clk = scope.driver_clock(src).filter(|c| *c != dst_clk);
-        let base = format!("{}sync_{src}", ctx.prefix);
+        // SV adı: struct yaprağında `p_a` (üyelik denetimi özgün adla).
+        let sv = leaf.map_or_else(|| src.to_string(), |l| format!("{src}_{l}"));
+        let base = format!("{}sync_{sv}", ctx.prefix);
         let capture = src_clk.is_some() && scope.ports.contains_key(src);
         let from = if capture {
             Some(Target::Cells(format!("{base}_src")))
         } else if scope.ports.contains_key(src) {
             Some(if ctx.prefix.is_empty() {
-                Target::Port(src.to_string())
+                Target::Port(sv.clone())
             } else {
-                Target::Pin(format!("{}{src}", ctx.prefix))
+                Target::Pin(format!("{}{sv}", ctx.prefix))
             })
         } else if scope.regs.contains(src) {
-            Some(Target::Cells(format!("{}{src}", ctx.prefix)))
+            Some(Target::Cells(format!("{}{sv}", ctx.prefix)))
         } else {
             src_clk
                 .and_then(|c| ctx.map_clock(c))
@@ -884,7 +913,7 @@ impl<'a> Collector<'a> {
                 from,
                 to: Some(Target::Cells(format!("{base}_stage0"))),
                 comment: format!(
-                    "{kind}(): {src} -> {} ({stages} stages)",
+                    "{kind}(): {sv} -> {} ({stages} stages)",
                     to_clock.as_deref().unwrap_or(dst_clk)
                 ),
                 crossing: Some(Crossing {
@@ -1151,6 +1180,25 @@ impl Ctx {
             Some(map) => map.get(local).cloned(),
         }
     }
+}
+
+/// Modülde struct tipli port/reg/wire/let ise yaprak sonekleri (`a`,
+/// `i_x`; ADR-0077 düzeni); değilse `None`.
+fn struct_leaf_suffixes(ast: &SourceFile, m: &ModuleDecl, name: &str) -> Option<Vec<String>> {
+    let port_ty = m.ports.iter().find(|p| p.name.text == name).map(|p| p.ty);
+    let ty = port_ty.or_else(|| {
+        m.body.iter().find_map(|&s| match &ast.stmts[s].kind {
+            StmtKind::Reg(r) if r.name.text == name => r.ty,
+            StmtKind::Wire(w) if w.name.text == name => Some(w.ty),
+            StmtKind::Let(l) if l.name.text == name => l.ty,
+            _ => None,
+        })
+    })?;
+    let decl = volt_ast::struct_layout::struct_of_type(ast, ty)?;
+    let layout =
+        volt_ast::struct_layout::layout(ast, decl, &mut |e| crate::sim_port::const_value(ast, e))
+            .ok()?;
+    Some(layout.leaves.iter().map(|l| l.suffix()).collect())
 }
 
 fn single(ast: &SourceFile, e: Idx<volt_ast::Expr>) -> Option<&str> {

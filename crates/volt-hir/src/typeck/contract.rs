@@ -149,6 +149,7 @@ fn child_exprs(kind: &ExprKind) -> Vec<Idx<Expr>> {
         | ExprKind::BoolLit(_)
         | ExprKind::StringLit(_)
         | ExprKind::Todo { .. }
+        | ExprKind::Concat(_)
         | ExprKind::Error => Vec::new(),
     }
 }

@@ -70,6 +70,23 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
             sim.reset = Some(SimReset::Raw(polarity));
         }
     }
+    // Struct portu SV'de yaprak başına bir porttur (ADR-0077): `p_a`, ...
+    let ports: Vec<SimPort> = module
+        .ports
+        .iter()
+        .zip(ports)
+        .flat_map(|(port, sim)| match struct_leaves(src, port) {
+            Some(leaves) => leaves
+                .into_iter()
+                .map(|suffix| SimPort {
+                    name: format!("{}_{suffix}", port.name.text),
+                    ..sim.clone()
+                })
+                .collect(),
+            None => vec![sim],
+        })
+        .collect();
+    let mut ports = ports;
     if ports.iter().any(|p| p.reset.is_some()) {
         for cfg in crate::reset_port_set(&clocks) {
             ports.push(SimPort {
@@ -81,6 +98,15 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
         }
     }
     ports
+}
+
+/// Struct tipli portun yaprak sonekleri (`a`, `i_x`); struct değilse `None`.
+fn struct_leaves(src: &SourceFile, port: &volt_ast::Port) -> Option<Vec<String>> {
+    let decl = volt_ast::struct_layout::struct_of_type(src, port.ty)?;
+    let layout =
+        volt_ast::struct_layout::layout(src, decl, &mut |e| crate::structs::const_int(src, e))
+            .ok()?;
+    Some(layout.leaves.iter().map(|l| l.suffix()).collect())
 }
 
 /// `sources` içinde adı verilen modülü bulur.

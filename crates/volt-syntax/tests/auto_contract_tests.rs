@@ -596,3 +596,33 @@ fn mistyped_patterns_disable_fsm_contracts() {
     let res = parse(FileId(0), enum_on_int);
     assert!(autos(&res, 1).is_empty());
 }
+
+// ═══ Struct alanları (ADR-0077 Karar 6) ════════════════════════════
+
+/// Struct register'ının enum alanı FSM gibi yazılsa da, sayısal alanı
+/// sayaç gibi artsa da bu turda otomatik kontrat ÜRETİLMEZ: tanıma düz
+/// register ister (yanlış kontrat da üretilmez). Gelecek iş.
+#[test]
+fn struct_fields_get_no_automatic_contracts() {
+    let res = p("enum State { Idle, Run, Done }
+struct Ctl {
+    s : State
+    n : u4
+}
+module S {
+    in clk : clock
+    in go : bool
+    out busy : bool
+    reg c : Ctl = Ctl { s: State::Idle, n: 0 }
+    on clk {
+        match c.s {
+            State::Idle => { if go { c.s <= State::Run } }
+            State::Run => { c.s <= State::Done }
+            State::Done => { c.s <= State::Idle }
+        }
+        if c.n < 9 { c.n <= c.n + 1 } else { c.n <= 0 }
+    }
+    busy = c.s != State::Idle
+}");
+    assert!(autos(&res, 2).is_empty(), "{:?}", autos(&res, 2));
+}

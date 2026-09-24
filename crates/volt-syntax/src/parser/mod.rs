@@ -17,6 +17,7 @@ mod pattern;
 mod pipeline;
 pub(crate) mod recovery;
 mod stmt;
+mod struct_lit;
 mod test;
 mod test_expr;
 mod type_graph;
@@ -394,6 +395,55 @@ impl<'s> Parser<'s> {
         self.allow_struct_lit = false;
         let expr = self.parse_expr();
         self.allow_struct_lit = prev;
+        self.reject_bare_struct_lit();
         expr
+    }
+
+    /// `if p == P { a: 1 } { ... }` / `cover: p == P { a: 1 }`: başlıkta
+    /// `{` bloğu başlatır (Rust'taki belirsizlik), literal yazılamaz.
+    /// `Ad { alan:` görülürse E0001 parantez önerisiyle verilir ve
+    /// literal atlanır (ADR-0077 Karar 6; kaskad yok).
+    fn reject_bare_struct_lit(&mut self) {
+        let prev_is_name = self
+            .pos
+            .checked_sub(1)
+            .and_then(|i| self.tokens.get(i))
+            .is_some_and(|t| t.kind == TokenKind::Ident);
+        if !(prev_is_name
+            && self.at(TokenKind::LBrace)
+            && self.peek(1) == Some(TokenKind::Ident)
+            && self.peek(2) == Some(TokenKind::Colon))
+        {
+            return;
+        }
+        let name = self.text_at(self.pos - 1).to_string();
+        let start = self.pos;
+        let mut depth = 0usize;
+        while !self.at_eof() {
+            match self.current() {
+                Some(TokenKind::LBrace) => depth += 1,
+                Some(TokenKind::RBrace) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        self.bump_any();
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            self.bump_any();
+        }
+        let span = self.span_from(start);
+        self.push_error(Diagnostic::error(
+            ErrorCode::E0001,
+            lstr!(en: "a struct literal here must be in parentheses: '{{' would start the block";
+                  tr: "burada struct literali parantez içinde olmalı: '{{' bloğu başlatırdı"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "read as the start of a block"; tr: "blok başlangıcı olarak okundu"),
+            ),
+            lstr!(en: "wrap the struct literal in parentheses: ({name} {{ ... }})";
+                  tr: "struct literalini parantez içine alın: ({name} {{ ... }})"),
+        ));
     }
 }

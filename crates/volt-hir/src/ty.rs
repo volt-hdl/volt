@@ -122,6 +122,9 @@ pub struct TypeArena {
     /// Geçerli kodlamalı enum'ların sinyal genişliği (ADR-0074); kodlama
     /// tablosu tip denetçisinde kurulur, arena yalnız genişliği taşır.
     enum_widths: HashMap<EnumId, u16>,
+    /// Geçerli düzenli struct'ların toplam genişliği `W` (ADR-0077 Karar
+    /// 3); düzen tip denetçisinde kurulur.
+    struct_widths: HashMap<StructId, u32>,
 }
 
 impl TypeArena {
@@ -221,13 +224,25 @@ impl TypeArena {
         self.enum_widths.get(&e).copied()
     }
 
+    /// Struct düzeninin toplam genişliğini kaydeder (ADR-0077).
+    pub fn set_struct_width(&mut self, s: StructId, width: u32) {
+        self.struct_widths.insert(s, width);
+    }
+
+    /// Struct'ın toplam genişliği `W`; düzeni geçersizse `None`.
+    pub fn struct_width(&self, s: StructId) -> Option<u32> {
+        self.struct_widths.get(&s).copied()
+    }
+
     /// Sinyalin donanımdaki bit genişliği (saat alanı geçişi denetimi,
     /// W3003): sayısal tiplerde `width_of`, enum'da kodlama genişliği
-    /// (ADR-0074 Karar 6). Bit seçimi `width_of`'u kullanır — enum
-    /// bit seçilemez (E2003).
+    /// (ADR-0074 Karar 6), struct'ta düzen genişliği `W` (ADR-0077 Karar
+    /// 6). Bit seçimi `width_of`'u kullanır — enum ve bütün struct bit
+    /// seçilemez (E2003).
     pub fn signal_width(&self, id: TypeId) -> Option<u16> {
         match self.ty(id) {
             Ty::Enum(e) => self.enum_width(*e),
+            Ty::Struct(s) => self.struct_width(*s).and_then(|w| u16::try_from(w).ok()),
             _ => self.width_of(id),
         }
     }
@@ -248,16 +263,6 @@ impl TypeArena {
         self.display_with(id, &|ty| match ty {
             Ty::Struct(s) => name_of(s.0),
             Ty::Enum(e) => name_of(e.0),
-            _ => None,
-        })
-    }
-
-    /// Tip denetçisi tanıları: enum adları çözümleme tablosundan
-    /// (`'State' and 'Mode'`, `'enum' and 'enum'` değil — ADR-0074);
-    /// struct gösterimi değişmez.
-    pub fn display_enum_named(&self, id: TypeId, defs: &[crate::DefData]) -> String {
-        self.display_with(id, &|ty| match ty {
-            Ty::Enum(e) => defs.get(e.0 as usize).map(|d| d.name.clone()),
             _ => None,
         })
     }

@@ -96,7 +96,7 @@ pub fn enum_of_type(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<&EnumDecl> {
 }
 
 /// Takma ad zincirinin sonu; döngüde `None`.
-fn follow_aliases(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Idx<TypeRef>> {
+pub(crate) fn follow_aliases(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Idx<TypeRef>> {
     const MAX_ALIAS_DEPTH: usize = 64;
     let mut cur = ty;
     for _ in 0..MAX_ALIAS_DEPTH {

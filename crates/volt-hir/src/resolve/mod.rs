@@ -165,6 +165,10 @@ struct Resolver<'a> {
     bundle_inputs: HashMap<DefId, BundleOrigin>,
     /// Çift yönlü portlar (ADR-0051) — doğrudan atama hedefi olursa E4008.
     bidir_ports: HashMap<DefId, PortDir>,
+    /// Çözümlenen modülün bundle/Handshake düzleştirmesinden gelen
+    /// portlarının kaynakları — bütün payload kullanımı (`req.data`)
+    /// E1001 değil E0003 alır (ADR-0077 Karar 1).
+    bundle_origins: Vec<BundleOrigin>,
     /// Kontrat ifadesi çözümleniyor mu? prev() yalnız burada geçerli
     /// (E5017, ADR-0040).
     in_contract: bool,
@@ -202,6 +206,7 @@ impl<'a> Resolver<'a> {
             instance_edges: Vec::new(),
             bundle_inputs: HashMap::new(),
             bidir_ports: HashMap::new(),
+            bundle_origins: Vec::new(),
             in_contract: false,
             file_scopes: None,
             current_file: FileId(0),

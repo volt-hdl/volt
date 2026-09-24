@@ -12,6 +12,7 @@ mod extern_stage;
 mod regmap_check;
 mod sim;
 mod sim_lower;
+mod sim_struct;
 mod verify;
 mod verify_jobs;
 mod verify_report;

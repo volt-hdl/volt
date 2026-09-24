@@ -60,17 +60,32 @@ fn outcome_lines(o: &TestOutcome) -> Vec<String> {
 
 fn failure_lines(f: &AssertFailure) -> Vec<String> {
     let mut lines = match f.kind.as_str() {
-        "assert_eq" | "assert_ne" => {
-            let named = |v: u64| match &f.labels {
-                Some(l) => format!("{v} ({})", l.label(v)),
-                None => v.to_string(),
-            };
-            vec![
-                format!("  {} failed at {}", f.kind, f.loc),
-                format!("    left:  {}", named(f.left)),
-                format!("    right: {}", named(f.right)),
-            ]
-        }
+        "assert_eq" | "assert_ne" => match &f.labels {
+            // ADR-0077: struct değeri alan adlarıyla, farklı alanlar ayrıca.
+            Some(crate::sim_lower::ValueLabels::Struct(s)) => {
+                let mut lines = vec![
+                    format!("  {} failed at {}", f.kind, f.loc),
+                    format!("    left:  {}", s.render(f.left)),
+                    format!("    right: {}", s.render(f.right)),
+                ];
+                let differs = s.differs(f.left, f.right);
+                if !differs.is_empty() {
+                    lines.push(format!("    differs: {}", differs.join(", ")));
+                }
+                lines
+            }
+            labels => {
+                let named = |v: u64| match labels {
+                    Some(l) => format!("{v} ({})", l.label(v)),
+                    None => v.to_string(),
+                };
+                vec![
+                    format!("  {} failed at {}", f.kind, f.loc),
+                    format!("    left:  {}", named(f.left)),
+                    format!("    right: {}", named(f.right)),
+                ]
+            }
+        },
         "index_out_of_bounds" => vec![
             format!("  index out of bounds at {}", f.loc),
             format!("    index: {}", f.left),
@@ -176,10 +191,12 @@ mod tests {
     fn enum_assert_failure_shows_variant_names_and_invalid_codes() {
         // ADR-0074: testbench sayı basar, sürücü varyant adını ekler.
         let mut f = parse_assert_fail("assert_eq t.volt:9 left=3 right=0").expect("ayrışmalı");
-        f.labels = Some(crate::sim_lower::EnumLabels {
-            enum_name: "State".to_string(),
-            variants: vec![("Idle".into(), 0), ("Run".into(), 1), ("Done".into(), 2)],
-        });
+        f.labels = Some(crate::sim_lower::ValueLabels::Enum(
+            crate::sim_lower::EnumLabels {
+                enum_name: "State".to_string(),
+                variants: vec![("Idle".into(), 0), ("Run".into(), 1), ("Done".into(), 2)],
+            },
+        ));
         assert_eq!(
             failure_lines(&f),
             [

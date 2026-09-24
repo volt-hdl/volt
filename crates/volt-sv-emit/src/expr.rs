@@ -317,6 +317,19 @@ impl<'a> Emitter<'a> {
                 self.width_of(x)
             }
             ExprKind::Call { .. } | ExprKind::Error => None,
+            // Struct indirgemesinin birleştirmesi (ADR-0077): yaprak
+            // genişliklerinin toplamı, işaretsiz.
+            ExprKind::Concat(parts) => {
+                let tys: Vec<_> = parts.iter().map(|&(_, t)| t).collect();
+                let mut width = 0;
+                for t in tys {
+                    width += self.leaf_sig(t, ast.exprs[idx].span)?.width;
+                }
+                Some(Sig {
+                    width,
+                    signed: false,
+                })
+            }
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
             | ExprKind::Match { .. }
@@ -623,6 +636,19 @@ impl<'a> Emitter<'a> {
                 (format!("{c} ? {t} : {e}"), PREC_TERNARY)
             }
             ExprKind::Error => ("1'b0".to_string(), PREC_ATOM), // parse tanısı zaten var
+            // Struct yaprakları MSB'den (ADR-0077 Karar 3/5): her öğe kendi
+            // yaprak genişliğinde yazılır (literal yaprak boyutlanır).
+            ExprKind::Concat(parts) => {
+                let parts = parts.clone();
+                let items: Vec<String> = parts
+                    .iter()
+                    .map(|&(e, t)| {
+                        let sig = self.leaf_sig(t, span);
+                        self.emit_prec(e, sig, PREC_TERNARY, false)
+                    })
+                    .collect();
+                (format!("{{{}}}", items.join(", ")), PREC_ATOM)
+            }
             // Dizi literalleri (ADR-0035): tekrar → '{default: v},
             // liste → '{a, b, ...}. Reg init/reset konumunda kullanılır.
             ExprKind::ArrayLit(volt_ast::ArrayLitKind::Repeat { value, .. }) => {
@@ -660,7 +686,14 @@ impl<'a> Emitter<'a> {
                     }
                     _ => lstr!(en: "'todo!()' in hardware"; tr: "donanımda 'todo!()'"),
                 };
-                self.future(span, &what);
+                // ADR-0077: struct literali yalnız indirgenemeyen bir
+                // sinyalin (struct dizisi, generic struct, bundle) içinde
+                // kalır — o sinyal E0003'ünü aldı; ikinci tanı kaskaddır.
+                let cascade = matches!(self.ast.exprs[idx].kind, ExprKind::StructLit { .. })
+                    && self.diagnostics.iter().any(|d| d.code == ErrorCode::E0003);
+                if !cascade {
+                    self.future(span, &what);
+                }
                 ("1'b0".to_string(), PREC_ATOM)
             }
         };

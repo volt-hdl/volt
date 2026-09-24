@@ -44,6 +44,8 @@ error_codes! {
     // ─── Tip çıkarımı (type-inference.md) ───
     E2001, E2002, E2003, E2004, E2005, E2006, E2007, E2008, E2009, E2010,
     E2011, E2012,
+    // Struct bildirimi ve literali (ADR-0077)
+    E2013, E2014,
 
     // ─── Sabit değerlendirme (const-eval.md) ───
     E2020, E2021, E2022, E2023, E2024, E2025, E2026, E2027, E2028, E2029,
@@ -59,6 +61,8 @@ error_codes! {
     //     + örnek portu bağlantısı (ADR-0072: E4011) ───
     E4001, E4002, E4003, E4004, E4005, E4006, E4007, E4008, E4009, E4010,
     E4011,
+    // Sürülmeyen struct alanı / eksik bit kapsamı (ADR-0077)
+    E4012,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)

@@ -253,8 +253,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0073: 93 ayrık kısmi sürücüler (E4001 yanlış pozitif yok),
     // ADR-0074: 94-96 enum FSM, modüller arası enum portu, açık değerli enum,
     // ADR-0075: 98 sayısal match'te kısmi örtüşen kol (W2014 yok),
-    // ADR-0076: 101 `@source`'lu extern.
-    assert_eq!(checked, 87);
+    // ADR-0076: 101 `@source`'lu extern,
+    // ADR-0077: 102-107 struct (portu, register, iç içe/enum alanı, bits
+    //           dönüşümü, bundle alanı, sync + kontrat).
+    assert_eq!(checked, 93);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

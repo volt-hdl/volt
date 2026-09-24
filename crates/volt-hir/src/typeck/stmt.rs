@@ -3,16 +3,15 @@
 //! tablosuna (§11.1) buradan kaydedilir; analiz `crate::drivers`'tadır.
 
 use volt_ast::{
-    Block, BlockStmt, ElseBranch, Expr, ExprKind, ExternDecl, ForStmt, Idx, IfStmt, ItemKind,
-    LValue, LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, PortDir, RegDecl, Stmt,
-    StmtKind,
+    Block, BlockStmt, ElseBranch, Expr, ExprKind, ExternDecl, ForStmt, Idx, IfStmt, LValue,
+    LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, PortDir, RegDecl, Stmt, StmtKind,
 };
 use volt_diagnostics::{lstr, ErrorCode};
 
 use super::TypeChecker;
-use crate::drivers::DriverKind;
+use crate::drivers::{Coverage, DriverKind};
 use crate::resolve::{DefId, DefKind};
-use crate::ty::{StructId, Ty, TypeId};
+use crate::ty::{Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
     pub(super) fn check_module(&mut self, m: &ModuleDecl) {
@@ -106,6 +105,7 @@ impl TypeChecker<'_, '_> {
                 }
             }
         };
+        self.check_struct_reset(r, ty);
         self.record_def_type(&r.name, ty);
     }
 
@@ -235,8 +235,56 @@ impl TypeChecker<'_, '_> {
             None => self.new_group(),
         };
         let partial = !lhs.suffixes.is_empty();
-        self.drivers
-            .record(def, lhs.span, group, partial, bits.filter(|_| partial));
+        let bits = bits.filter(|_| partial);
+        if partial {
+            self.note_coverage(def);
+        }
+        match self.field_path(def, lhs) {
+            Some(field) => self.drivers.record_field(def, lhs.span, group, bits, field),
+            None => self.drivers.record(def, lhs.span, group, partial, bits),
+        }
+    }
+
+    /// Struct hedefinin baştaki alan zinciri (`p.i.x[1]` → `i.x`).
+    fn field_path(&mut self, def: DefId, lhs: &LValue) -> Option<String> {
+        let ty = self.def_type(def);
+        if !matches!(self.types.ty(ty), Ty::Struct(_)) {
+            return None;
+        }
+        let fields: Vec<&str> = lhs
+            .suffixes
+            .iter()
+            .map_while(|s| match s {
+                LValueSuffix::Field(n) => Some(n.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        (!fields.is_empty()).then(|| fields.join("."))
+    }
+
+    /// E4012 için kısmen sürülen sinyalin genişliği ve (struct ise)
+    /// yaprakları — bir kez.
+    fn note_coverage(&mut self, def: DefId) {
+        if self.coverage.contains_key(&def) {
+            return;
+        }
+        let ty = self.def_type(def);
+        let leaves = match self.types.ty(ty).clone() {
+            Ty::Struct(sid) => match self.struct_layout(sid) {
+                Some(l) => Some(
+                    l.leaves
+                        .iter()
+                        .map(|leaf| (leaf.dotted(), leaf.lsb, leaf.width))
+                        .collect(),
+                ),
+                None => return,
+            },
+            _ => None,
+        };
+        let Some(width) = self.bit_width(ty) else {
+            return;
+        };
+        self.coverage.insert(def, Coverage { width, leaves });
     }
 
     /// Hedef tanım, hedef tipi ve sürülen bit aralığı `[lo, hi)`
@@ -312,20 +360,11 @@ impl TypeChecker<'_, '_> {
                 };
                 (s, w)
             }
+            // Struct alanı ortak düzenle (ADR-0077 Karar 3: ilk alan MSB).
             LValueSuffix::Field(name) => match self.types.ty(ty).clone() {
-                Ty::Struct(sid) => {
-                    let mut offset = 0u32;
-                    let mut found = None;
-                    for (field, fty) in self.struct_fields(sid) {
-                        let w = self.bit_width(fty)?;
-                        if field == name.text {
-                            found = Some((offset, w));
-                            break;
-                        }
-                        offset = offset.checked_add(w)?;
-                    }
-                    found?
-                }
+                Ty::Struct(sid) => self
+                    .struct_layout(sid)?
+                    .field_bits(std::slice::from_ref(&name.text))?,
                 _ => return None,
             },
         };
@@ -346,35 +385,17 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Sürücü analizi için depolama genişliği (bool 1, Trit 2, dizi
-    /// eleman × uzunluk); struct/enum gibi düzeni burada bilinmeyen
-    /// tipler `None`.
+    /// eleman × uzunluk, enum kodlama genişliği, struct düzen genişliği
+    /// `W` — ADR-0077); düzeni bilinmeyen tipler `None`.
     fn bit_width(&mut self, ty: TypeId) -> Option<u32> {
         match self.types.ty(ty).clone() {
             Ty::Bool => Some(1),
             Ty::Trit => Some(2),
             Ty::Array { elem, len } => self.bit_width(elem)?.checked_mul(len),
-            Ty::Struct(sid) => self
-                .struct_fields(sid)
-                .into_iter()
-                .try_fold(0u32, |acc, (_, fty)| acc.checked_add(self.bit_width(fty)?)),
+            Ty::Struct(sid) => self.struct_layout(sid).map(|l| l.width),
+            Ty::Enum(e) => self.types.enum_width(e).map(u32::from),
             _ => self.types.width_of(ty).map(u32::from),
         }
-    }
-
-    /// Struct alanları bildirim sırasıyla (ad, tip) — sürücü analizinin
-    /// soyut bit düzeni yalnız ayrıklık için kullanılır, SV düzeni değildir.
-    fn struct_fields(&mut self, sid: StructId) -> Vec<(String, TypeId)> {
-        let ast = self.ast;
-        let Some(&item_idx) = self.res.item_of_def.get(&DefId(sid.0)) else {
-            return Vec::new();
-        };
-        let ItemKind::Struct(decl) = &ast.items_arena[item_idx].kind else {
-            return Vec::new();
-        };
-        decl.fields
-            .iter()
-            .map(|f| (f.name.text.clone(), self.resolve_type_ref(f.ty)))
-            .collect()
     }
 
     pub(super) fn new_group(&mut self) -> u32 {

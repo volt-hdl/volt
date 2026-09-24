@@ -489,6 +489,11 @@ fn collect_signal_names(ast: &volt_ast::SourceFile, expr: Idx<Expr>, out: &mut V
             collect_signal_names(ast, *then_expr, out);
             collect_signal_names(ast, *else_expr, out);
         }
+        ExprKind::Concat(parts) => {
+            for &(p, _) in parts {
+                collect_signal_names(ast, p, out);
+            }
+        }
         _ => {}
     }
 }

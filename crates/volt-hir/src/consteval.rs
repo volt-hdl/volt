@@ -29,6 +29,11 @@ pub enum ConstValue {
         def: DefId,
         discriminant: i128,
     },
+    /// Struct değeri (ADR-0077): alanlar literaldeki sırayla (ad, değer).
+    Struct {
+        def: DefId,
+        fields: Vec<(String, ConstValue)>,
+    },
     /// Hesaplanamadı — hata zaten raporlandı.
     Error,
 }
@@ -405,6 +410,51 @@ impl<'a> ConstEvaluator<'a> {
                             ConstValue::Error
                         }
                     }
+                    _ => {
+                        self.error_not_constant(
+                            span,
+                            &lstr!(en: "this expression"; tr: "bu ifade"),
+                        );
+                        ConstValue::Error
+                    }
+                }
+            }
+
+            // `const K : P = P { a: 3, b: true }` ve `K.b` (ADR-0077 Karar 4).
+            ExprKind::StructLit { fields, .. } => {
+                let Some(&def) = self.res.resolutions.get(&expr) else {
+                    return ConstValue::Error;
+                };
+                let fields: Vec<_> = fields
+                    .iter()
+                    .map(|f| (f.name.text.clone(), f.value, f.span))
+                    .collect();
+                let mut vals = Vec::with_capacity(fields.len());
+                for (name, value, fspan) in fields {
+                    // `P { a }` kısayolu yerel bir değeri adlandırır — sabit değil.
+                    let Some(value) = value else {
+                        self.error_not_constant(
+                            fspan,
+                            &lstr!(en: "the local value '{name}'"; tr: "'{name}' yerel değeri"),
+                        );
+                        return ConstValue::Error;
+                    };
+                    match self.const_eval(value) {
+                        ConstValue::Error => return ConstValue::Error,
+                        v => vals.push((name, v)),
+                    }
+                }
+                ConstValue::Struct { def, fields: vals }
+            }
+
+            ExprKind::Field { base, field } => {
+                let (base, field) = (*base, field.text.clone());
+                match self.const_eval(base) {
+                    ConstValue::Error => ConstValue::Error,
+                    ConstValue::Struct { fields, .. } => fields
+                        .into_iter()
+                        .find(|(n, _)| *n == field)
+                        .map_or(ConstValue::Error, |(_, v)| v),
                     _ => {
                         self.error_not_constant(
                             span,

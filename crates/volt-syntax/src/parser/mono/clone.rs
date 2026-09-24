@@ -385,7 +385,8 @@ impl<'a> Cloner<'a> {
             ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_) => self.clone_aggregate_expr(e),
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_) => self.clone_aggregate_expr(e),
         }
     }
 
@@ -525,6 +526,15 @@ impl<'a> Cloner<'a> {
             ExprKind::TupleLit(items) => {
                 let items = items.clone();
                 ExprKind::TupleLit(items.iter().map(|&i| self.clone_expr(i)).collect())
+            }
+            ExprKind::Concat(parts) => {
+                let parts = parts.clone();
+                ExprKind::Concat(
+                    parts
+                        .iter()
+                        .map(|&(i, t)| (self.clone_expr(i), t))
+                        .collect(),
+                )
             }
             _ => unreachable!("clone_expr_kind yalnız bileşik literalleri yönlendirir"),
         }

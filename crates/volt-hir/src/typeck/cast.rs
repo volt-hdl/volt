@@ -22,7 +22,7 @@ impl TypeChecker<'_, '_> {
         if src == dst || self.types.is_error(src) || self.types.is_error(dst) {
             return;
         }
-        if self.check_enum_cast(src, dst, span) {
+        if self.check_struct_cast(src, dst, span) || self.check_enum_cast(src, dst, span) {
             return;
         }
         let legal = match (self.types.ty(src).clone(), self.types.ty(dst).clone()) {

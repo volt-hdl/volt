@@ -22,6 +22,7 @@ mod sim_const;
 mod sim_expr;
 mod sim_load;
 mod sim_port;
+mod sim_struct;
 pub mod testdata;
 pub mod timing;
 pub mod trust;
@@ -58,8 +59,11 @@ pub use sim::{check_tests, check_tests_with_files, collect_modules};
 pub use sim_const::TestConsts;
 pub use sim_load::{resolve_load_target, LoadTarget};
 pub use sim_port::{
-    const_test_value, describe_value, port_enum as sim_port_enum, test_port_width, PortWidth,
-    ScalarKind,
+    const_test_value, describe_value, fold_binary as fold_test_binary, port_enum as sim_port_enum,
+    test_port_width, PortWidth, ScalarKind,
+};
+pub use sim_struct::{
+    expand_struct_tests, struct_compare, struct_port_layout, sv_port_name, MAX_WHOLE_STRUCT_BITS,
 };
 pub use testdata::{
     normalize_data_path, parse_readmemh, HexError, HexErrorReason, HexImage, TestFileError,

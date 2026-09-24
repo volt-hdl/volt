@@ -23,6 +23,9 @@ pub fn hover(analysis: &Analysis, offset: u32) -> Option<(String, Span)> {
         if let Some(md) = bundle_hover(analysis, token.span) {
             return Some((md, token.span));
         }
+        if let Some(md) = field_hover(analysis, token.span) {
+            return Some((md, token.span));
+        }
         if let Some(def) = analysis.def_at(offset) {
             return Some((def_hover(analysis, def), token.span));
         }
@@ -123,6 +126,14 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
     if let Some(line) = domain_line(analysis, def) {
         md.push_str(&format!(" — {line}"));
     }
+    if let Some(layout) = struct_layout_of_def(analysis, def) {
+        md.push_str(&format!(
+            "\n\n{} ({} bits, first field most significant): {}",
+            layout.name,
+            layout.width,
+            layout_fields(analysis, &layout)
+        ));
+    }
 
     let doc = analysis
         .item_doc(def)
@@ -131,6 +142,116 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
         md.push_str(&format!("\n\n{doc}"));
     }
     md
+}
+
+/// Sabit genişlik (hover düzeni için): literal ya da düz `const`.
+fn const_int(ast: &volt_ast::SourceFile, e: volt_ast::Idx<volt_ast::Expr>) -> Option<i128> {
+    match &ast.exprs[e].kind {
+        volt_ast::ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
+        volt_ast::ExprKind::Path(p) if p.segments.len() == 1 => {
+            ast.items
+                .iter()
+                .find_map(|&i| match &ast.items_arena[i].kind {
+                    volt_ast::ItemKind::Const(c) if c.name.text == p.segments[0].text => {
+                        match &ast.exprs[c.value].kind {
+                            volt_ast::ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+        }
+        _ => None,
+    }
+}
+
+/// Struct tipli tanımın (ya da struct bildiriminin) bit düzeni (ADR-0077).
+fn struct_layout_of_def(
+    analysis: &Analysis,
+    def: DefId,
+) -> Option<volt_ast::struct_layout::StructLayout> {
+    let res = analysis.resolve.as_ref()?;
+    let struct_def = match res.def_kind(def) {
+        DefKind::Struct => def,
+        _ => {
+            let t = analysis.typeck.as_ref()?;
+            match t.types.ty(*t.def_types.get(&def)?) {
+                volt_hir::Ty::Struct(s) => DefId(s.0),
+                _ => return None,
+            }
+        }
+    };
+    let item = *res.item_of_def.get(&struct_def)?;
+    let volt_ast::ItemKind::Struct(decl) = &analysis.ast.items_arena[item].kind else {
+        return None;
+    };
+    if decl.is_port {
+        return None;
+    }
+    let ast = &analysis.ast;
+    volt_ast::struct_layout::layout(ast, decl, &mut |e| const_int(ast, e)).ok()
+}
+
+/// `a: u4 [11:8], s: St [7:6], …` — yaprak tipleri kaynak yazımıyla.
+fn layout_fields(analysis: &Analysis, layout: &volt_ast::struct_layout::StructLayout) -> String {
+    let src = analysis.source();
+    layout
+        .leaves
+        .iter()
+        .map(|l| {
+            let span = analysis.ast.types[l.ty].span;
+            let ty = src
+                .get(span.start as usize..span.end as usize)
+                .filter(|_| span.file == analysis.file_id)
+                .unwrap_or("?");
+            format!("`{}: {ty} {}`", l.dotted(), l.bits())
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Alan erişimi hover'ı: `p.i.x : u3 — bits [4:2] of p` (ADR-0077).
+fn field_hover(analysis: &Analysis, name_span: Span) -> Option<String> {
+    let ast = &analysis.ast;
+    let res = analysis.resolve.as_ref()?;
+    let tc = analysis.typeck.as_ref()?;
+    let (idx, _) = ast.exprs.iter_idx().find(|(_, e)| {
+        matches!(&e.kind, volt_ast::ExprKind::Field { field, .. } if field.span == name_span)
+    })?;
+    // Alan zinciri kökü: tek segmentli yol.
+    let mut path = Vec::new();
+    let mut cur = idx;
+    let root = loop {
+        match &ast.exprs[cur].kind {
+            volt_ast::ExprKind::Field { base, field } => {
+                path.push(field.text.clone());
+                cur = *base;
+            }
+            volt_ast::ExprKind::Path(p) if p.segments.len() == 1 => {
+                break p.segments[0].text.clone()
+            }
+            _ => return None,
+        }
+    };
+    path.reverse();
+    let def = *res.resolutions.get(&cur)?;
+    let layout = struct_layout_of_def(analysis, def)?;
+    let (lsb, width) = layout.field_bits(&path)?;
+    let ty = tc
+        .expr_types
+        .get(&idx)
+        .map(|t| tc.types.display_named(*t, &res.defs))
+        .unwrap_or_else(|| "?".to_string());
+    let bits = if width == 1 {
+        format!("[{lsb}]")
+    } else {
+        format!("[{}:{lsb}]", lsb + width - 1)
+    };
+    Some(format!(
+        "```volt\n{root}.{} : {ty}\n```\nfield of struct {} — bits {bits} of `{root}` (first field most significant, ADR-0077)",
+        path.join("."),
+        layout.name
+    ))
 }
 
 /// Enum ve varyant hover'ı (ADR-0074): varyantta

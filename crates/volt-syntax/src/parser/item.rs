@@ -88,6 +88,8 @@ impl Parser<'_> {
         // ADR-0069: özyineli tip (E4009) ve generic struct port (E0003)
         // denetimi her açılımdan ÖNCE; açılımlar sonucunu kullanır.
         self.check_type_graph();
+        // ADR-0077: `let p = P { .. }` (P düz struct) örnekleme değil literal.
+        self.reclassify_struct_literals();
         let mono_diags = super::mono::monomorphize(&mut self.ast);
         self.diagnostics.extend(mono_diags);
         self.flatten_bundles();
@@ -967,7 +969,8 @@ impl Parser<'_> {
 
     /// `{` sonrası alan listesi; `}` tüketmez. `struct port` alanları
     /// (ADR-0039) `in`/`out` yönü ile başlar ve `@Domain` alabilir:
-    /// `out addr : u32 @Bus,`.
+    /// `out addr : u32 @Bus,`. Düz struct alanındaki `@Domain` de AST'ye
+    /// yazılır; geçersizliği anlamsal tanıdır (E2013, ADR-0077).
     fn parse_struct_fields(&mut self, is_port: bool) -> Vec<StructField> {
         let mut fields = Vec::new();
         while !self.at(RBrace) && !self.at_eof() {
@@ -1006,11 +1009,11 @@ impl Parser<'_> {
                     &lstr!(en: "write it as field: u8"; tr: "alan: u8 biçiminde yazın"),
                 );
                 let ty = self.parse_type_or_error();
-                let domain = if is_port {
-                    self.parse_domain_annot()
-                } else {
-                    None
-                };
+                // Düz struct alanındaki `@Domain` de ayrıştırılır (ADR-0077):
+                // aksi hâlde sonraki alanın niteliği sanılır (W0020) ve
+                // ardından gelen yön ihlali gizlenir; anlamsal denetim
+                // (E2013) onu düz struct'ta reddeder.
+                let domain = self.parse_domain_annot();
                 fields.push(StructField {
                     span: self.span_from(start),
                     attrs,

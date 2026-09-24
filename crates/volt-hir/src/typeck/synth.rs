@@ -48,14 +48,17 @@ impl TypeChecker<'_, '_> {
                 else_expr,
             } => self.synth_if(*cond, *then_expr, *else_expr, span),
             ExprKind::Match { scrutinee, arms } => self.synth_match(*scrutinee, arms),
-            ExprKind::StructLit { fields, .. } => self.synth_struct_lit(expr, fields),
+            ExprKind::StructLit { fields, .. } => self.synth_struct_lit(expr, fields, span),
             ExprKind::ArrayLit(kind) => self.synth_array_lit(kind),
             ExprKind::TupleLit(items) => {
                 let tys: Vec<TypeId> = items.iter().map(|&i| self.synth(i)).collect();
                 self.types.intern(Ty::Tuple(tys))
             }
             // todo! her tiple uyumludur; string F2a'da tiplenmez.
-            ExprKind::Todo { .. } | ExprKind::StringLit(_) | ExprKind::Error => self.types.error(),
+            ExprKind::Todo { .. }
+            | ExprKind::StringLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Error => self.types.error(),
         }
     }
 
@@ -183,6 +186,16 @@ impl TypeChecker<'_, '_> {
     /// §3.4 — tekli operatörler.
     fn synth_unary(&mut self, op: UnOp, operand: Idx<Expr>, span: Span) -> TypeId {
         let ot = self.synth(operand);
+        if let (Ty::Struct(_), UnOp::BitNot | UnOp::Neg) = (self.types.ty(ot), op) {
+            let shown = self.show(ot);
+            let sym = op.symbol();
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "operator '{sym}' is not defined for struct '{shown}'"; tr: "'{sym}' operatörü '{shown}' struct'ında tanımlı değil"),
+                &lstr!(en: "operate on a field (p.a), or convert explicitly with 'as uN' (ADR-0077)"; tr: "bir alan üzerinde işlem yapın (p.a) ya da 'as uN' ile açıkça dönüştürün (ADR-0077)"),
+            );
+            return self.types.error();
+        }
         if let (Ty::Enum(_), UnOp::BitNot | UnOp::Neg) = (self.types.ty(ot), op) {
             let shown = self.show(ot);
             let sym = op.symbol();
@@ -288,7 +301,7 @@ impl TypeChecker<'_, '_> {
         self.types.error()
     }
 
-    fn synth_struct_lit(&mut self, expr: Idx<Expr>, fields: &[FieldInit]) -> TypeId {
+    fn synth_struct_lit(&mut self, expr: Idx<Expr>, fields: &[FieldInit], span: Span) -> TypeId {
         let ast = self.ast;
         let Some(&def) = self.res.resolutions.get(&expr) else {
             return self.types.error();
@@ -298,6 +311,9 @@ impl TypeChecker<'_, '_> {
         }
         if let Some(&item_idx) = self.res.item_of_def.get(&def) {
             if let ItemKind::Struct(s) = &ast.items_arena[item_idx].kind {
+                if !s.is_port {
+                    self.check_struct_lit_fields(s, fields, span);
+                }
                 for init in fields {
                     let Some(value) = init.value else { continue };
                     if let Some(f) = s.fields.iter().find(|f| f.name.text == init.name.text) {

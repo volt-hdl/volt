@@ -5,6 +5,52 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — struct sinyal tipi (2026-09-24, ADR-0077 Aşama 2)
+
+- **Düz `struct` artık bir sinyal tipidir**: port (modüller arası dahil),
+  `reg`, `wire`, `let` (tipli ve tipsiz), `const`, `struct port` bundle
+  alanı, kontrat, `prev()`, `sync()`. Alan tipleri `uN`/`iN`/`bits<N>`/
+  `bool`/`Trit`/enum/dizi/iç içe struct. Önce `volt check` "not supported
+  yet", `volt build` E0003 veriyordu.
+- **SV eşlemesi B — alan başına bir sinyal** (bundle kuralı): `p : P` →
+  `p_a`, `p_s`, `p_i_x`, …; grubun başında düzen yorumu
+  `// struct P p : a[11:8] s[7:6] …`. Bütün atama yaprak başına, `p == q`
+  → `{p_a, …} == {q_a, …}`, `p as uN` → birleştirme, `raw as P` → dilimler,
+  örnek bağlantısı yaprak başına, `sync(p)` yaprak başına senkronizör ve
+  hedefli SDC satırı. Modülün okumadığı yaprak alan başına Verilator
+  `UNUSEDSIGNAL` susturmasıyla sarılır. Struct kullanmayan tasarımların SV
+  ve tanıları byte-aynı (golden, 381 dosya).
+- **Bit düzeni: ilk alan MSB** (SV `packed struct` ile aynı) — `as`, test
+  raporu ve LSP hover'ının tek tanımı (`volt_ast::struct_layout`).
+- **Tip kuralları:** literalde her alan tam bir kez; `==`/`!=` aynı
+  struct; sıralama, aritmetik, bit düzeyi, `~`/`-` E2003; `p as uN`
+  yalnız `N ≥ W`; `raw as P` yalnız `N == W` ve enum/`Trit` alanı yoksa
+  (E2009, öneri: alan alan kur); struct register'ının reset değeri sabit
+  (E2021). Tanılarda struct'ın adı (`'P' and 'Q'`, `'struct'` değil).
+- YENİ **E2013** geçersiz struct bildirimi (alansız struct, alanda
+  `@Domain`, `struct port` tipli alan), **E2014** literalde eksik/yinelenen
+  alan, **E4012** parça parça sürülen sinyalin sürülmeyen alanı — sayısal
+  vektörlerin sürülmeyen bitleri de (`y[3:0] = a` → "bits 4..=7 of 'y' are
+  never driven"; Verilator'ın UNDRIVEN dediği ama Volt'un sessiz kaldığı
+  durum). Hepsi iki dilde + `volt explain`.
+- Genişleyen tanılar: bilinmeyen alan erişimi E1008 (önce sessiz),
+  yinelenen alan adı E1003, iç içelik bütçesi E4010, E4001 alan yolunu
+  adlandırır (`'p.a' is already driven`), W3003 çok bitli struct
+  `sync()`'ine de. Parantezsiz struct literali `if`/kontrat koşulunda E0001
+  + `(P { … })` önerisi. Bütün Handshake payload'ı değer olarak
+  (`p <= req.data`) E0003 — önce yanıltıcı "undefined name: 'req'".
+  Struct dizisi, generic struct sinyali, bütün struct üzerinde `match`
+  E0003 (ertelendi). Düz struct alanında `@Domain`'den sonra gelen `in`
+  yön ihlali artık E0001 (önce sessizdi).
+- **Test dili:** `dut.q.a` okuma, `dut.p.a = 3` yazma, `dut.p = P { … }`
+  bütün yazma, `assert_eq(dut.q, P { … })` bütün karşılaştırma (≤ 64 bit);
+  düşen iddianın raporu alan adlarıyla: `left:  P { a: 3, b: true }` …
+  `differs: a`.
+- **LSP:** struct sinyalinde hover düzeni (`a: u4 [11:8]`, …), alan
+  erişiminde `p.i.x : u3 — bits [4:2] of p`; iç içe `p.i.` tamamlaması.
+- Modül seviyesi `let p = P { … }` (P düz struct) artık struct literali
+  (önce örnekleme sanılıyor, tipsiz kalıyordu).
+
 ### Eklendi — extern modül kaynakları (2026-09-24, ADR-0076)
 
 - **`@source("rtl/foo.sv")` extern modülün SystemVerilog gövdesini

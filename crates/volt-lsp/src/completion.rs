@@ -54,15 +54,26 @@ pub fn context_at(text: &str, offset: usize) -> Context {
         return Context::Expr;
     }
     if p > 0 && bytes[p - 1] == b'.' && !(p >= 2 && bytes[p - 2] == b'.') {
-        // '.' öncesindeki taban ismi oku.
+        // '.' öncesindeki taban ismi oku; iç içe alan zinciri (`p.i.`,
+        // ADR-0077) noktalı taban olarak döner.
         let mut b = p - 1;
         while b > 0 && is_ident_byte(bytes[b - 1]) {
             b -= 1;
         }
-        if b < p - 1 {
-            return Context::Member(text[b..p - 1].to_string());
+        if b == p - 1 {
+            return Context::Expr;
         }
-        return Context::Expr;
+        while b >= 2 && bytes[b - 1] == b'.' && is_ident_byte(bytes[b - 2]) {
+            let mut c = b - 1;
+            while c > 0 && is_ident_byte(bytes[c - 1]) {
+                c -= 1;
+            }
+            if c > 0 && bytes[c - 1] == b'.' && c >= 2 && bytes[c - 2] == b'.' {
+                break; // `0..n` aralığı
+            }
+            b = c;
+        }
+        return Context::Member(text[b..p - 1].to_string());
     }
     // Boşlukları atlayıp ':' ve 'on ' desenlerine bak.
     let mut q = p;
@@ -201,11 +212,15 @@ fn path_completions(analysis: &Analysis, base: &str) -> Vec<CompletionItem> {
         .unwrap_or_default()
 }
 
-/// `.` sonrası: modül örneği portları veya struct alanları.
+/// `.` sonrası: modül örneği portları veya struct alanları; noktalı
+/// taban (`p.i`, `s0.q`) iç içe struct alanlarına iner (ADR-0077).
 fn member_completions(analysis: &Analysis, base: &str) -> Vec<CompletionItem> {
     let Some(res) = &analysis.resolve else {
         return Vec::new();
     };
+    if let Some((root, rest)) = base.split_once('.') {
+        return nested_field_completions(analysis, root, rest);
+    }
     let Some(def) = res
         .defs
         .iter()
@@ -265,6 +280,57 @@ fn member_completions(analysis: &Analysis, base: &str) -> Vec<CompletionItem> {
         }
     }
     Vec::new()
+}
+
+/// `p.i.` / `s0.q.`: kökün struct tipinden alan zinciri izlenir.
+fn nested_field_completions(analysis: &Analysis, root: &str, rest: &str) -> Vec<CompletionItem> {
+    let ast = &analysis.ast;
+    let Some(res) = &analysis.resolve else {
+        return Vec::new();
+    };
+    let Some(def) = res
+        .defs
+        .iter()
+        .position(|d| d.name == root && !matches!(d.kind, DefKind::Error))
+        .map(|i| DefId(i as u32))
+    else {
+        return Vec::new();
+    };
+    let mut parts = rest.split('.');
+    // Kökün struct bildirimi: struct tipli sinyal ya da örneğin struct portu.
+    let mut decl: Option<&volt_ast::StructDecl> = None;
+    if let Some(target) = res.instance_module.get(&def) {
+        let port = parts.next().unwrap_or("");
+        if let Some(item_idx) = res.item_of_def.get(target) {
+            if let ItemKind::Module(m) = &ast.items_arena[*item_idx].kind {
+                decl = m
+                    .ports
+                    .iter()
+                    .find(|p| p.name.text == port)
+                    .and_then(|p| volt_ast::struct_layout::struct_of_type(ast, p.ty));
+            }
+        }
+    } else if let Some(typeck) = &analysis.typeck {
+        if let Some(Ty::Struct(sid)) = typeck.def_types.get(&def).map(|t| typeck.types.ty(*t)) {
+            if let Some(item_idx) = res.item_of_def.get(&DefId(sid.0)) {
+                if let ItemKind::Struct(s) = &ast.items_arena[*item_idx].kind {
+                    decl = Some(s);
+                }
+            }
+        }
+    }
+    for field in parts {
+        decl = decl
+            .and_then(|d| d.fields.iter().find(|f| f.name.text == field))
+            .and_then(|f| volt_ast::struct_layout::struct_of_type(ast, f.ty));
+    }
+    decl.map(|d| {
+        d.fields
+            .iter()
+            .map(|f| item(&f.name.text, CompletionItemKind::FIELD))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// İfade bağlamı: kapsamdaki isimler + stdlib modülleri.

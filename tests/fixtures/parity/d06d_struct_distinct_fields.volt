@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 // drivers: ok
 struct P {
     x : u8,

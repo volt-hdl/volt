@@ -328,6 +328,22 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "reg r                   // ✗ E2012: width unknown",
             "reg r : u8 = 0          // ✓",
         ),
+        E2013 => Explanation::new(
+            "Invalid struct declaration",
+            "This plain struct cannot describe a data value.",
+            "A plain 'struct' is a one-directional data value: it is stored in a register, compared and converted with 'as', and it lowers to one hardware signal per field. So it needs at least one field (a zero-width value is no signal), and its fields carry no clock domain and no direction — the whole value lives in the domain of the signal that holds it. Per-field domains, directions and 'struct port' bundles belong to a 'struct port' (ADR-0039), which groups directed port fields and is not a value (ADR-0077).",
+            "struct Empty { }                // ✗ E2013: no fields\nstruct P { a : u4 @Fast }        // ✗ E2013: domain on a field\nstruct Q { bus : AxiLite }       // ✗ E2013: AxiLite is a 'struct port'",
+            "struct P { a : u4, b : bool }   // ✓\nin p : P @Fast                   // ✓ the domain goes on the signal\nstruct port Link { out d : P  in ready : bool }   // ✓ a bundle may carry a struct",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        E2014 => Explanation::new(
+            "Struct literal field missing or repeated",
+            "Every field of the struct must be given exactly once in the literal.",
+            "In hardware every bit needs an explicit source. An implicit default would silently zero a field in a reset value and hide a forgotten field in combinational logic, so a struct literal lists all fields, each once, in any order (the shorthand 'P { a, b }' takes same-named locals). To change a single field of a register, assign the field: 'p.a <= x' (ADR-0077).",
+            "reg p : P = P { a: 0 }                 // ✗ E2014: field 'b' missing\nlet q : P = P { a: 1, a: 2, b: true }  // ✗ E2014: 'a' given twice",
+            "reg p : P = P { a: 0, b: false }       // ✓\non clk { p.a <= x }                    // ✓ update one field",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
         // ─── Constant evaluation (const-eval.md) ───
         E2020 => Explanation::new(
@@ -644,6 +660,14 @@ module Gpio {
             "let f = Filter { clk }                         // ✗ E4011: input 'sample' is not bound\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: output bound in the literal",
             "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
+        E4012 => Explanation::new(
+            "Part of a signal is never driven",
+            "The signal is assigned piece by piece, and some of its pieces have no driver.",
+            "A wire, output port or typed 'let' that is driven field by field (p.a = ..., p.b = ...) or slice by slice (y[3:0] = ...) must have every field and every bit driven; an undriven part is X/undriven in SystemVerilog (Verilator reports UNDRIVEN) and Volt never produces X (ADR-0008). This is the field-by-field form of the rule that a struct literal lists every field (E2014). Registers are exempt: an unassigned field keeps its value, and the reset value is complete (ADR-0077).",
+            "wire p : P\np.a = x                 // ✗ E4012: field 'p.b' is never driven\nout y : u8\ny[3:0] = a              // ✗ E4012: bits 7..4 of 'y' are never driven",
+            "wire p : P\np.a = x\np.b = go                // ✓\ny = (a as u8)           // ✓ or drive y[7:4] too",
+        )
+        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
         E5001 => Explanation::new(
             "Contract violated",

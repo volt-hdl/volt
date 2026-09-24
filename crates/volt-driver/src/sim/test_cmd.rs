@@ -173,7 +173,7 @@ fn run_group(
             o.contract = o.contract.map(|v| index.resolve(v));
             if let Some(f) = o.failure.as_mut() {
                 f.labels = group
-                    .enum_asserts
+                    .value_asserts
                     .iter()
                     .find(|(loc, _)| *loc == f.loc)
                     .map(|(_, l)| l.clone());
