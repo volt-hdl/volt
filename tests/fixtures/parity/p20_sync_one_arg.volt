@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: E2003
 domain A { clock = posedge
  reset = sync active_high }
 domain B { clock = posedge

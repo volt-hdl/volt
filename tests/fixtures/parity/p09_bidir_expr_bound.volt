@@ -1,4 +1,4 @@
-// parity: E2005
+// parity: E4011
 module Child {
     inout sda : bool
     in    oe  : bool

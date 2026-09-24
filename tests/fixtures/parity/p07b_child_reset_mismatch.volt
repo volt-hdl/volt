@@ -1,4 +1,4 @@
-// parity: E2005
+// parity: E4011
 domain D { clock = posedge
  reset = async active_low }
 domain P { clock = posedge

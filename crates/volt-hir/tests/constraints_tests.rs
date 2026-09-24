@@ -550,7 +550,8 @@ const ASYNC_DOMAINS: &str =
 fn unannotated_raw_reset_feeds_every_domain_with_a_reset() {
     let src = format!(
         "{ASYNC_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in free_clk : clock @Free\n    \
-         in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n"
+         in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg f : bool = false\n    reg s : bool = false\n    on fast_clk {{ f <= a }}\n    on slow_clk {{ s <= a }}\n    y = f\n}}\n"
     );
     let m = &collect(&src).modules[0];
     assert_eq!(m.raw_resets, vec!["ext_rst_n"]);
@@ -581,7 +582,8 @@ fn unannotated_raw_reset_feeds_every_domain_with_a_reset() {
 fn annotated_raw_resets_feed_only_their_domain() {
     let src = format!(
         "{ASYNC_DOMAINS}module M {{\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    \
-         in rf : reset(async, active_low) @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n"
+         in rf : reset(async, active_low) @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg f : bool = false\n    reg s : bool = false\n    on fast_clk {{ f <= a }}\n    on slow_clk {{ s <= a }}\n    y = f\n}}\n"
     );
     let m = &collect(&src).modules[0];
     assert_eq!(m.reset_chains.len(), 1, "yalnız @Fast beslenir");
@@ -602,7 +604,8 @@ fn module_without_raw_reset_has_no_chains() {
 #[test]
 fn child_chain_gets_instance_prefix_and_parent_clock_name() {
     let src = format!(
-        "{ASYNC_DOMAINS}module Leaf {{\n    in c : clock @Fast\n    in r : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    y = a\n}}\n\
+        "{ASYNC_DOMAINS}module Leaf {{\n    in c : clock @Fast\n    in r : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg q : bool = false\n    on c {{ q <= a }}\n    y = q\n}}\n\
          module Top {{\n    in fast_clk : clock @Fast\n    in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
          let u = Leaf {{ c: fast_clk, r: ext_rst_n, a: a }}\n    y = u.y\n}}\n"
     );
@@ -620,11 +623,45 @@ fn child_chain_gets_instance_prefix_and_parent_clock_name() {
             )
         })
         .collect();
-    assert_eq!(
-        names,
-        vec![
-            ("rst_sync_fast_clk_stage0", "ext_rst_n", Some("fast_clk")),
-            ("u/rst_sync_c_stage0", "r", Some("fast_clk")),
-        ]
+    // Top'un kendi zinciri yok: flop'u yok, çocuk ham portu kendisi
+    // senkronlar — sv-emit o zinciri üretmez (ADR-0072), kısıt da yok.
+    assert_eq!(names, vec![("u/rst_sync_c_stage0", "r", Some("fast_clk"))]);
+}
+
+/// ADR-0072: flop'suz, yalnız ham portu çocuğa geçiren ara seviyenin
+/// zinciri tüketilmez; sv-emit onu üretmediği için SDC de kısıtlamaz.
+/// Çocuğun OTOMATİK reset'li saatine bağlanan saatin zinciri ise
+/// tüketilir (zincir çıkışı çocuğun `rst_n` portuna gider).
+#[test]
+fn reset_chain_only_where_consumed() {
+    let pass_through = format!(
+        "{ASYNC_DOMAINS}module Leaf {{\n    in c : clock @Fast\n    in r : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg q : bool = false\n    on c {{ q <= a }}\n    y = q\n}}\n\
+         module Top {{\n    in fast_clk : clock @Fast\n    in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         let u = Leaf {{ c: fast_clk, r: ext_rst_n, a: a }}\n    y = u.y\n}}\n"
     );
+    let r = collect(&pass_through);
+    let top = r.modules.iter().find(|m| m.module == "Top").unwrap();
+    assert!(
+        top.reset_chains
+            .iter()
+            .all(|c| c.stages[0].starts_with("u/")),
+        "{:?}",
+        top.reset_chains
+    );
+
+    let auto_child = format!(
+        "{ASYNC_DOMAINS}module Leaf {{\n    in c : clock @Fast\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         reg q : bool = false\n    on c {{ q <= a }}\n    y = q\n}}\n\
+         module Top {{\n    in fast_clk : clock @Fast\n    in ext_rst_n : reset(async, active_low)\n    in a : bool @Fast\n    out y : bool @Fast\n    \
+         let u = Leaf {{ c: fast_clk, a: a }}\n    y = u.y\n}}\n"
+    );
+    let r = collect(&auto_child);
+    let top = r.modules.iter().find(|m| m.module == "Top").unwrap();
+    let stages: Vec<&str> = top
+        .reset_chains
+        .iter()
+        .map(|c| c.stages[0].as_str())
+        .collect();
+    assert_eq!(stages, ["rst_sync_fast_clk_stage0"]);
 }

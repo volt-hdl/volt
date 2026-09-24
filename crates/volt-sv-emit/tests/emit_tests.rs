@@ -874,9 +874,9 @@ fn builtin_missing_binding_is_diagnosed() {
     );
     // ADR-0070: eksik zorunlu bağlama kullanıcı hatasıdır ("henüz
     // desteklenmiyor" E0003 değil) — bağlanmamış kullanıcı modülü
-    // girişiyle aynı tanı (E2005).
+    // girişiyle aynı tanı (E4011).
     let codes = emit_codes(&src);
-    assert!(codes.contains(&"E2005"), "eksik bağlama tanısı: {codes:?}");
+    assert!(codes.contains(&"E4011"), "eksik bağlama tanısı: {codes:?}");
     assert!(!codes.contains(&"E0003"), "{codes:?}");
 }
 

@@ -9,6 +9,7 @@
 pub mod arena;
 pub mod builtin;
 pub mod mmio;
+pub mod reset_chain;
 
 pub use arena::{Arena, Idx};
 use std::collections::HashMap;
@@ -65,6 +66,11 @@ pub struct GenerateInfo {
     /// seviyesine kaldırırken `InstanceDecl::generic_args`a taşır.
     /// Anahtar: yapı literali ifadesi.
     pub block_generic_args: HashMap<Idx<Expr>, Vec<GenericArg>>,
+    /// Açılımın yeniden adlandırdığı bildirimler: üretilmiş adın span'i
+    /// (yineleme ctx'li) → kullanıcının yazdığı ad (`pe_0` → `pe`).
+    /// Tanılar kaynak adı gösterir; aksi hâlde her kopyada farklı mesaj
+    /// katlanmaz ve `_pe_0` gibi yazılamayacak bir düzeltme önerilir.
+    pub source_names: HashMap<Span, String>,
 }
 
 /// Açılmış bir `for` yinelemesi.
@@ -83,6 +89,12 @@ pub struct GenerateIter {
 }
 
 impl GenerateInfo {
+    /// Bildirim adının kullanıcıya gösterilecek biçimi: açılımda
+    /// üretilmişse kaynaktaki ad, değilse kendisi.
+    pub fn source_name<'a>(&'a self, span: Span, name: &'a str) -> &'a str {
+        self.source_names.get(&span).map_or(name, String::as_str)
+    }
+
     /// `ctx` bir açılım yinelemesiyse dıştan içe (değişken, değer)
     /// zinciri: `for y { for x { } }` → `[("y", 1), ("x", 2)]`. Elle
     /// yazılmış kaynakta (ctx 0) ya da mono bağlamında boş.

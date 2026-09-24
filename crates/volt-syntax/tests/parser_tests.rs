@@ -1614,10 +1614,10 @@ fn for_range_with_const_names() {
 }
 
 #[test]
-fn for_range_with_unknown_names_is_e2005_at_parse() {
+fn for_range_with_unknown_names_is_e2021_at_parse() {
     // Modül seviyesi sınır parser'da değerlendirilir (ADR-0056).
     let result = p("module M { for i in BASLA..BITIS { t[i] = 0 } }");
-    assert_eq!(result.error_codes(), vec!["E2005"]);
+    assert_eq!(result.error_codes(), vec!["E2021"]);
     assert!(result.ast.module(0).unwrap().body.is_empty());
 }
 

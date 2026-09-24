@@ -107,12 +107,9 @@ impl<'a> Emitter<'a> {
                 .filter(|p| p.direction == PortDir::Out)
             {
                 if let Some(sig) = self.port_sig(p) {
-                    self.pre_decls.push(format!(
-                        "    {} {}_{};",
-                        sig.decl_type(),
-                        inst.name.text,
-                        p.name.text
-                    ));
+                    let wire = format!("{}_{}", inst.name.text, p.name.text);
+                    let line = format!("    {} {wire};", sig.decl_type());
+                    self.pre_decls.push((wire, line));
                     outputs.push((p.name.text.clone(), sig));
                 }
             }
@@ -144,9 +141,12 @@ impl<'a> Emitter<'a> {
         span: Span,
     ) -> Option<String> {
         let name = inst.name.text.clone();
+        // Tanılarda açılmış `for` gövdesinin ürettiği ad (`pe_0`) değil
+        // kaynaktaki ad: kopyaların mesajı özdeş olur ve katlanır.
+        let shown = self.shown_name(&inst.name);
         let Some(info) = self.user_insts.get(&name).cloned() else {
             let target = user_instance_target(inst).unwrap_or_default();
-            let what = alias::describe_missing_instance_target(self.ast, &name, target);
+            let what = alias::describe_missing_instance_target(self.ast, &shown, target);
             self.future(span, &what);
             return None;
         };
@@ -158,7 +158,7 @@ impl<'a> Emitter<'a> {
         let target = match self.inst_target_named(&info.module)? {
             InstTarget::Module(m) => m,
             InstTarget::Extern(e) => {
-                let conns = self.extern_conns(&name, e, &bindings, span);
+                let conns = self.extern_conns((&name, &shown), e, &bindings, span);
                 return Some(format_instance(&info.module, &name, &conns));
             }
         };
@@ -178,7 +178,7 @@ impl<'a> Emitter<'a> {
             };
             conns.push((
                 p.name.text.clone(),
-                self.input_binding(&name, p, &bindings, one, span),
+                self.input_binding(&shown, p, &bindings, one, span),
             ));
         }
         let parent_resets = reset_port_set(parent_clocks);
@@ -195,10 +195,10 @@ impl<'a> Emitter<'a> {
             }
             if !parent_resets.iter().any(|c| c.port_name() == rst) {
                 self.error(
-                    ErrorCode::E2005,
+                    ErrorCode::E4011,
                     lstr!(
-                        en: "instance '{name}' needs the reset port '{rst}' but module '{}' has no clock domain with that reset", parent.name.text;
-                        tr: "'{name}' örneği '{rst}' reset portunu ister ama '{}' modülünün o reset'e sahip bir saat alanı yok", parent.name.text
+                        en: "instance '{shown}' needs the reset port '{rst}' but module '{}' has no clock domain with that reset", parent.name.text;
+                        tr: "'{shown}' örneği '{rst}' reset portunu ister ama '{}' modülünün o reset'e sahip bir saat alanı yok", parent.name.text
                     ),
                     span,
                     &lstr!(
@@ -212,7 +212,7 @@ impl<'a> Emitter<'a> {
         // Çocuğun ham reset portları, SV port sırasıyla (otomatiklerden sonra).
         let is_raw = |p: &Port| crate::reset_sync::is_raw_reset(ast, p);
         for p in target.ports.iter().filter(|p| is_raw(p)) {
-            let value = self.input_binding(&name, p, &bindings, Sig::BIT, span);
+            let value = self.input_binding(&shown, p, &bindings, Sig::BIT, span);
             conns.push((p.name.text.clone(), value));
         }
         for p in target.ports.iter().filter(|p| !is_clock(p) && !is_raw(p)) {
@@ -220,10 +220,10 @@ impl<'a> Emitter<'a> {
                 continue;
             };
             let value = match p.direction {
-                PortDir::In => self.input_binding(&name, p, &bindings, sig, span),
-                PortDir::Out => self.output_binding(&name, p, &bindings, span),
+                PortDir::In => self.input_binding(&shown, p, &bindings, sig, span),
+                PortDir::Out => self.output_binding(&name, &shown, p, &bindings, span),
                 PortDir::InOut | PortDir::OpenDrain => {
-                    self.bidir_binding(&name, p, &bindings, span)
+                    self.bidir_binding(&shown, p, &bindings, span)
                 }
             };
             conns.push((p.name.text.clone(), value));
@@ -236,7 +236,7 @@ impl<'a> Emitter<'a> {
     /// modüllerindeki gibi alan reset'i için örtük port eklenmez.
     fn extern_conns(
         &mut self,
-        name: &str,
+        (name, shown): (&str, &str),
         target: &'a ExternDecl,
         bindings: &HashMap<&str, Option<Idx<Expr>>>,
         span: Span,
@@ -247,9 +247,9 @@ impl<'a> Emitter<'a> {
                 continue;
             };
             let value = match p.direction {
-                PortDir::In => self.input_binding(name, p, bindings, sig, span),
-                PortDir::Out => self.output_binding(name, p, bindings, span),
-                PortDir::InOut | PortDir::OpenDrain => self.bidir_binding(name, p, bindings, span),
+                PortDir::In => self.input_binding(shown, p, bindings, sig, span),
+                PortDir::Out => self.output_binding(name, shown, p, bindings, span),
+                PortDir::InOut | PortDir::OpenDrain => self.bidir_binding(shown, p, bindings, span),
             };
             conns.push((p.name.text.clone(), value));
         }
@@ -257,7 +257,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Giriş bağlaması: `port: expr` → hedef imzasıyla; `port` kısayolu
-    /// → aynı adlı yerel sinyal; bağlanmamış → E2005.
+    /// → aynı adlı yerel sinyal; bağlanmamış → E4011.
     fn input_binding(
         &mut self,
         inst: &str,
@@ -271,7 +271,7 @@ impl<'a> Emitter<'a> {
             Some(None) => port.name.text.clone(),
             None => {
                 self.error(
-                    ErrorCode::E2005,
+                    ErrorCode::E4011,
                     lstr!(
                         en: "input port '{}' of instance '{inst}' is not bound", port.name.text;
                         tr: "'{inst}' örneğinin '{}' giriş portu bağlanmamış", port.name.text
@@ -289,7 +289,7 @@ impl<'a> Emitter<'a> {
 
     /// Çift yönlü port (ADR-0051) üst modülün bir `wire`ına ya da kendi
     /// çift yönlü portuna ADIYLA bağlanır (net paylaşımı); ifade ya da
-    /// bağlanmamış port E2005.
+    /// bağlanmamış port E4011.
     fn bidir_binding(
         &mut self,
         inst: &str,
@@ -306,7 +306,7 @@ impl<'a> Emitter<'a> {
             Some(wire) => wire,
             None => {
                 self.error(
-                    ErrorCode::E2005,
+                    ErrorCode::E4011,
                     lstr!(
                         en: "{} port '{}' of instance '{inst}' must be bound to a wire or a bidirectional port of this module", port.direction.keyword(), port.name.text;
                         tr: "'{inst}' örneğinin {} portu '{}' bu modülün bir wire'ına ya da çift yönlü portuna bağlanmalı", port.direction.keyword(), port.name.text
@@ -323,25 +323,26 @@ impl<'a> Emitter<'a> {
     }
 
     /// Çıkış portu ön bildirilen tele bağlanır; literalde çıkışa değer
-    /// yazmak E2005 (çıkış `f.port` ile okunur).
+    /// yazmak E4011 (çıkış `f.port` ile okunur). `shown` tanıdaki ad.
     fn output_binding(
         &mut self,
         inst: &str,
+        shown: &str,
         port: &Port,
         bindings: &HashMap<&str, Option<Idx<Expr>>>,
         span: Span,
     ) -> String {
         if bindings.contains_key(port.name.text.as_str()) {
             self.error(
-                ErrorCode::E2005,
+                ErrorCode::E4011,
                 lstr!(
-                    en: "output port '{}' of instance '{inst}' cannot be bound in the instance literal", port.name.text;
-                    tr: "'{inst}' örneğinin '{}' çıkış portu örnekleme literalinde bağlanamaz", port.name.text
+                    en: "output port '{}' of instance '{shown}' cannot be bound in the instance literal", port.name.text;
+                    tr: "'{shown}' örneğinin '{}' çıkış portu örnekleme literalinde bağlanamaz", port.name.text
                 ),
                 span,
                 &lstr!(
-                    en: "read it as {inst}.{} instead", port.name.text;
-                    tr: "bunun yerine {inst}.{} olarak okuyun", port.name.text
+                    en: "read it as {shown}.{} instead", port.name.text;
+                    tr: "bunun yerine {shown}.{} olarak okuyun", port.name.text
                 ),
             );
         }

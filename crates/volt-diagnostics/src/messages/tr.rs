@@ -47,7 +47,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2002 => "İşaret uyumsuzluğu",
         E2003 => "Tip uyumsuzluğu (genel)",
         E2004 => "bits<N> tipinde aritmetik",
-        E2005 => "Literal genişliği belirlenemiyor",
+        E2005 => "Genişlik ya da uzunluk belirlenemiyor (literal, dönüşüm kaynağı, let, sync kaynağı, bits<N> / [T; N] boyu)",
         E2006 => "İndeks/aralık sınır dışı",
         E2007 => "Ters aralık (hi < lo)",
         E2008 => "Değişken aralık sınırı",
@@ -95,6 +95,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4008 => "Çift yönlü port yanlış kullanımı: doğrudan atama, bilinmeyen üye ya da on bloğu dışında sürme (ADR-0051)",
         E4009 => "Özyineli tip: bir struct, struct port, enum ya da tip takma adı kendini içeriyor, sonlu genişliği yok (ADR-0067, ADR-0069)",
         E4010 => "Bundle düzleştirme bütçesi aşıldı: bir modülde 4096'dan çok düz port ya da 8'den derin iç içelik (ADR-0067)",
+        E4011 => "Örnek portu bağlantı hatası: giriş ya da saat bağlanmamış, çıkış ya da çift yönlü port yanlış bağlanmış, üst modülde reset yok ya da örnek portu dışarıdan sürülüyor (ADR-0072)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

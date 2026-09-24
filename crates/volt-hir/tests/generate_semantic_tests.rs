@@ -309,3 +309,77 @@ fn w2012_help_in_unrolled_body_does_not_leak_generated_name() {
     assert!(!help.contains("t_0"), "üretilmiş ad sızdı: {help}");
     assert!(help.contains(": i32"), "{help}");
 }
+
+// ═══ Kaynak adı (ADR-0072) ═══════════════════════════════════════════
+
+/// Açılmış gövdedeki okunmayan `let` W1001'i üretilmiş adla (`unused_0`,
+/// `unused_1`, ...) değil kaynak adıyla verir: kopyaların mesajı özdeş
+/// olur, tek tanıya katlanır ve `_` önerisi kaynağa yazılabilir.
+#[test]
+fn w1001_in_unrolled_body_uses_source_name_and_folds() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r = analyze_src(
+        "module M {\n    in  bus : [u8; 3]\n    out o : [u8; 3]\n    for i in 0..3 {\n        let unused = bus[i] + 1\n        o[i] = bus[i]\n    }\n}\n",
+    );
+    let w: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "W1001")
+        .collect();
+    assert_eq!(w.len(), 1, "katlanmalı: {w:?}");
+    assert_eq!(w[0].message, "unused binding: 'unused'");
+    assert_eq!(
+        w[0].folded_ctxs.len(),
+        2,
+        "ilk kopya + 2 katlanan: {:?}",
+        w[0]
+    );
+    assert_eq!(
+        w[0].help.as_deref(),
+        Some("add a '_' prefix to silence: _unused")
+    );
+}
+
+/// İç içe açılımda iç adın kaynağı dış yinelemenin üretilmiş adı değil
+/// (`inner_0_1` → `inner`, `inner_0` değil).
+#[test]
+fn w1001_in_nested_unrolled_body_uses_source_name() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r = analyze_src(
+        "module M {\n    in  bus : [u8; 4]\n    out o : [u8; 4]\n    for i in 0..2 {\n        for j in 0..2 {\n            let inner = bus[i * 2 + j]\n            o[i * 2 + j] = bus[i * 2 + j]\n        }\n    }\n}\n",
+    );
+    let msgs: Vec<&str> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "W1001")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(msgs, ["unused binding: 'inner'"]);
+}
+
+/// Aynı ad gövdede iki kez: E1003 kaynak adını gösterir ve katlanır.
+#[test]
+fn e1003_in_unrolled_body_uses_source_name() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r = analyze_src(
+        "module M {\n    in  bus : [u8; 2]\n    out o : [u8; 2]\n    for i in 0..2 {\n        let v = bus[i]\n        let v = bus[i]\n        o[i] = v\n    }\n}\n",
+    );
+    let e: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E1003")
+        .collect();
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(e[0].message, "'v' is already defined in this scope");
+}
+
+/// Kullanıcının kendisi `x_0` yazdıysa ad olduğu gibi kalır (yan tablo
+/// yalnız açılımın ürettiği adları taşır).
+#[test]
+fn hand_written_suffixed_name_is_not_rewritten() {
+    volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+    let r =
+        analyze_src("module M {\n    in  a : u8\n    out o : u8\n    let x_0 = a\n    o = a\n}\n");
+    let msgs: Vec<&str> = r.diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert_eq!(msgs, ["unused binding: 'x_0'"]);
+}

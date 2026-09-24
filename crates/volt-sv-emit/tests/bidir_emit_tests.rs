@@ -144,14 +144,14 @@ fn parent_wire_bound_to_inout_instance_is_a_plain_wire() {
 }
 
 #[test]
-fn unbound_bidirectional_instance_port_is_e2005() {
+fn unbound_bidirectional_instance_port_is_e4011() {
     let src = format!(
         "{PAD}module Top {{\n    in clk : clock\n    in a : bool\n    out q : bool\n    let pa = Pad {{ clk, en: a }}\n    q = pa.q\n}}\n"
     );
     let ast = parse(&src);
     let result = emit(&ast, "test.volt");
     let codes: Vec<_> = result.diagnostics.iter().map(|d| d.code.as_str()).collect();
-    assert!(codes.contains(&"E2005"), "{codes:?}");
+    assert!(codes.contains(&"E4011"), "{codes:?}");
 }
 
 #[test]
