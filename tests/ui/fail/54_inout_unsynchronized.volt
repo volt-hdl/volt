@@ -9,15 +9,15 @@ module Sampler {
     in  clk : clock
     in  en  : bool
     opendrain sda : bool
-    out bit : bool
+    out sample : bool
 
     invariant: !en -> sda.released
 
-    reg bit_r : bool = false
+    reg sample_r : bool = false
     on clk {
-        bit_r <= sda.read()
+        sample_r <= sda.read()
         //~^ ERROR
         if en { sda.drive_low() } else { sda.release() }
     }
-    bit = bit_r
+    sample = sample_r
 }

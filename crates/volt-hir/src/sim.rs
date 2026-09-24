@@ -184,6 +184,12 @@ impl<'a> Checker<'a, '_> {
         match self.modules.get(&module.text) {
             Some(found) => {
                 self.scope.duts.insert(&name.text, Some(*found));
+                // ADR-0078: test, modülü Verilator üst modülü yapar.
+                for d in crate::sim_top::verilator_top_clashes(found.0, found.1) {
+                    if !self.diags.contains(&d) {
+                        self.diags.push(d);
+                    }
+                }
             }
             None if self.assume_external_modules => {
                 self.scope.duts.insert(&name.text, None);

@@ -332,12 +332,12 @@ module D {
     in  instr : u32
     out rd    : u5
     out op    : u7
-    out bit   : bool
+    out f3_is5 : bool
     out same  : u32
     let r : RType = instr as RType
     rd = r.rd
     op = r.opcode
-    bit = (instr as RType).funct3 == 5
+    f3_is5 = (instr as RType).funct3 == 5
     same = r as u32
 }
 ";
@@ -347,7 +347,7 @@ module D {
     assert!(d.contains("wire [6:0] r_funct7 = instr[31:25];"), "{d}");
     assert!(d.contains("wire [4:0] r_rd = instr[11:7];"), "{d}");
     assert!(d.contains("wire [6:0] r_opcode = instr[6:0];"), "{d}");
-    assert!(d.contains("assign bit = instr[14:12] == 3'd5;"), "{d}");
+    assert!(d.contains("assign f3_is5 = instr[14:12] == 3'd5;"), "{d}");
 }
 
 #[test]

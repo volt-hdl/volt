@@ -50,6 +50,11 @@ jobs:
         run: cargo test -p volt-driver --test extern_source_tests
       - name: Extern @source simulation (volt test) -> exit 0
         run: cargo run --bin volt -- test tests/fixtures/extern_source/ext_top_test.volt
+      # ADR-0078: keyword-safe names lint clean, C++-word ports simulate
+      # through Verilator's __SYM__ names (real-tool tests skip only when
+      # the tool is missing).
+      - name: Reserved-word names (real Verilator)
+        run: cargo test -p volt-driver --test reserved_name_tests
 
   consistency:
     name: Spec-code consistency

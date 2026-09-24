@@ -14,6 +14,12 @@ use crate::sim_script::{
     PORT_PRELUDE, SCRIPT_PRELUDE,
 };
 
+/// Portun Verilator C++ modelindeki adı (ADR-0078): Verilator C++
+/// sözcüğüyle çakışan üst modül portunu `__SYM__<ad>` diye adlandırır.
+pub(crate) fn cpp_port(name: &str) -> std::borrow::Cow<'_, str> {
+    volt_ast::reserved::verilator_symbol(name)
+}
+
 /// Testbench'in bilmesi gereken port özeti.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimPort {
@@ -249,8 +255,8 @@ fn cycle_fn(ports: &[SimPort], trace: bool, contracts: bool) -> String {
     let mut set_high = String::new();
     let mut set_low = String::new();
     for p in ports.iter().filter(|p| p.is_clock) {
-        set_high.push_str(&format!("    dut->{} = 1;\n", p.name));
-        set_low.push_str(&format!("    dut->{} = 0;\n", p.name));
+        set_high.push_str(&format!("    dut->{} = 1;\n", cpp_port(&p.name)));
+        set_low.push_str(&format!("    dut->{} = 0;\n", cpp_port(&p.name)));
     }
     let dump = if trace {
         "    ctx->timeInc(1);\n    tfp->dump(ctx->time());\n"
@@ -294,13 +300,21 @@ fn reset_fn(ports: &[SimPort], trace: bool) -> String {
         |p: ResetPolarity, asserted: bool| u8::from((p == ResetPolarity::ActiveHigh) == asserted);
     let mut out = format!("static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n");
     for &(name, p) in &resets {
-        out.push_str(&format!("    dut->{name} = {};\n", level(p, true)));
+        out.push_str(&format!(
+            "    dut->{} = {};\n",
+            cpp_port(name),
+            level(p, true)
+        ));
     }
     out.push_str(&format!(
         "    run_cycle(dut, ctx{arg});\n    run_cycle(dut, ctx{arg});\n"
     ));
     for &(name, p) in &resets {
-        out.push_str(&format!("    dut->{name} = {};\n", level(p, false)));
+        out.push_str(&format!(
+            "    dut->{} = {};\n",
+            cpp_port(name),
+            level(p, false)
+        ));
     }
     out.push_str("    // reset synchronizer release (ADR-0065)\n");
     for _ in 0..crate::reset_sync::RESET_SYNC_STAGES {
@@ -388,7 +402,7 @@ pub fn run_testbench_cpp_with(
     let tfp_arg = if trace { ", &vcd" } else { "" };
     // Girişler resetten önce sıfırlanır (belirsiz başlangıç yok).
     for p in cols.iter().filter(|p| p.is_input) {
-        out.push_str(&format!("    dut.{} = 0;\n", p.name));
+        out.push_str(&format!("    dut.{} = 0;\n", cpp_port(&p.name)));
     }
     out.push_str(&format!("    apply_reset(&dut, &ctx{tfp_arg});\n"));
     if contracts {
@@ -403,7 +417,7 @@ pub fn run_testbench_cpp_with(
     let mut args = String::new();
     for (p, w) in cols.iter().zip(&widths) {
         fmt.push_str(&format!("  %{w}llu"));
-        args.push_str(&format!(", (unsigned long long)dut.{}", p.name));
+        args.push_str(&format!(", (unsigned long long)dut.{}", cpp_port(&p.name)));
     }
     out.push_str(&format!(
         "    std::printf(\"{fmt}\\n\", (unsigned long long)0{args});\n\n"
@@ -411,7 +425,7 @@ pub fn run_testbench_cpp_with(
     // Duman stimulusu: saat dışı girişler 1 (ADR-0033 — gerçek
     // doğrulama volt test'indir).
     for p in cols.iter().filter(|p| p.is_input) {
-        out.push_str(&format!("    dut.{} = 1;\n", p.name));
+        out.push_str(&format!("    dut.{} = 1;\n", cpp_port(&p.name)));
     }
     out.push_str(&format!(
         "    for (unsigned long long c = 1; c <= {cycles}ULL; ++c) {{\n"
@@ -496,7 +510,7 @@ pub fn test_testbench_cpp_with(
             .iter()
             .filter(|p| p.is_input && !p.is_clock && p.reset.is_none())
         {
-            out.push_str(&format!("    dut.{} = 0;\n", p.name));
+            out.push_str(&format!("    dut.{} = 0;\n", cpp_port(&p.name)));
         }
         out.push_str("    apply_reset(&dut, ctx);\n");
         if contracts {
@@ -636,6 +650,56 @@ mod tests {
         assert!(cpp.contains("VerilatedContext uctx;"));
         assert_eq!(cpp.matches("apply_reset(&dut, ctx);").count(), 2);
         assert!(cpp.contains("return failed == 0 ? 0 : 1;"));
+    }
+
+    /// ADR-0078: Verilator C++ sözcüğü olan üst portu `__SYM__<ad>` diye
+    /// adlandırır; testbench her erişimde o üyeyi yazar.
+    #[test]
+    fn cpp_word_ports_use_verilator_symbol_names() {
+        let port = |name: &str, is_input: bool, is_clock: bool| SimPort {
+            name: name.into(),
+            is_input,
+            is_clock,
+            reset: None,
+        };
+        let ports = vec![
+            port("char", true, true),
+            port("interrupt", true, false),
+            port("stack", false, false),
+        ];
+        let tests = vec![TbTest {
+            name: "t".into(),
+            steps: vec![
+                TbStep::SetPort {
+                    port: "interrupt".into(),
+                    value: TbValue::Lit(1),
+                },
+                TbStep::Step(1),
+                TbStep::Assert {
+                    kind: TbAssertKind::Eq,
+                    left: TbValue::Port("stack".into()),
+                    right: TbValue::Lit(1),
+                    loc: "t.volt:3".into(),
+                },
+            ],
+        }];
+        let cpp = test_testbench_cpp("Irq", &ports, &tests);
+        assert!(cpp.contains("dut->__SYM__char = 1;"), "{cpp}");
+        assert!(cpp.contains("dut.__SYM__interrupt = 0;"), "{cpp}");
+        assert!(cpp.contains("dut.__SYM__interrupt = 1ULL;"), "{cpp}");
+        assert!(
+            cpp.contains("(unsigned long long)dut.__SYM__stack"),
+            "{cpp}"
+        );
+        for bare in ["dut->char ", "dut.interrupt ", "dut.stack)"] {
+            assert!(!cpp.contains(bare), "{bare}: {cpp}");
+        }
+        let run = run_testbench_cpp("Irq", &ports, 2, None);
+        assert!(run.contains("dut.__SYM__interrupt = 1;"), "{run}");
+        assert!(
+            run.contains("(unsigned long long)dut.__SYM__stack"),
+            "{run}"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@
 
 use volt_ast::TestBinOp;
 
-use super::sim::{TbAssertKind, TbPortCheck, TbStep, TbValue};
+use super::sim::{cpp_port, TbAssertKind, TbPortCheck, TbStep, TbValue};
 
 /// Betik yardımcıları; yalnız ihtiyaç duyan testbench'e eklenir.
 pub(crate) const SCRIPT_PRELUDE: &str = "\
@@ -128,7 +128,7 @@ pub(crate) fn uses_load(steps: &[TbStep]) -> bool {
 pub(crate) fn cpp_value(v: &TbValue) -> String {
     match v {
         TbValue::Lit(n) => format!("{n}ULL"),
-        TbValue::Port(p) => format!("(unsigned long long)dut.{p}"),
+        TbValue::Port(p) => format!("(unsigned long long)dut.{}", cpp_port(p)),
         TbValue::Var(name) => format!("v_{name}"),
         TbValue::Len(name) => format!("(unsigned long long)n_{name}"),
         TbValue::Index { array, index } => {
@@ -313,7 +313,7 @@ impl ScriptEmitter {
         match step {
             TbStep::Loc(loc) => self.loc.clone_from(loc),
             TbStep::SetPort { port, value } => {
-                self.line(&format!("dut.{port} = {};", cpp_value(value)));
+                self.line(&format!("dut.{} = {};", cpp_port(port), cpp_value(value)));
                 self.fault_check_if(&[value]);
             }
             TbStep::SetPortChecked { port, value, check } => {
@@ -388,7 +388,7 @@ impl ScriptEmitter {
                 format!("volt_port_bits(volt_pv, {bits}U)"),
             ),
             None => (
-                format!("volt_port_fits_type(dut.{port}, volt_pv)"),
+                format!("volt_port_fits_type(dut.{}, volt_pv)", cpp_port(port)),
                 "volt_pv".to_string(),
             ),
         };
@@ -402,7 +402,7 @@ impl ScriptEmitter {
             &format!(" port={port}:{}", check.type_name),
         );
         self.line("}");
-        self.line(&format!("dut.{port} = {stored}; }}"));
+        self.line(&format!("dut.{} = {stored}; }}", cpp_port(port)));
     }
 
     /// Sınırlar döngüden ÖNCE bir kez hesaplanır: gövde sınırı okuyan

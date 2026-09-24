@@ -18,6 +18,7 @@ pub mod sim;
 mod sim_contract;
 mod sim_script;
 mod structs;
+mod sv_names;
 mod sva;
 mod trit;
 
@@ -251,6 +252,21 @@ fn sync_always_ff(clk: &str, info: &DomainInfo, chain: &[(String, String)], zero
     out
 }
 
+/// Verilator'ın C++ sözcüğü saydığı port adı (ADR-0078): SV geçerlidir ama
+/// üst modülde Verilator portu `__SYM__<ad>` diye adlandırır ve varsayılan
+/// açık SYMRSVDWORD uyarısıyla durur. Bildirim susturmayla sarılır.
+fn verilator_cpp_word_port(name: &str, decl: String) -> String {
+    if !volt_ast::reserved::is_verilator_cpp_word(name) {
+        return decl;
+    }
+    format!(
+        "    // C++ word: as a Verilator top-level port this is __SYM__{name}\n    \
+         // verilator lint_off SYMRSVDWORD\n\
+         {decl}\n    \
+         // verilator lint_on SYMRSVDWORD"
+    )
+}
+
 /// Dosyadaki tüm modülleri tek SV dosyasına üretir (SVA'sız).
 pub fn emit(ast: &SourceFile, source_name: &str) -> EmitResult {
     let out = emit_full(ast, source_name, "", SvaMode::None);
@@ -398,8 +414,14 @@ pub fn emit_unit(
         enum_sigs: HashMap::new(),
         struct_notes,
         module_name: String::new(),
+        sv_name_reported: HashSet::new(),
     };
     emitter.diagnostics = struct_diags;
+    // ADR-0078: SV anahtar sözcüğü olan adlar (E1013) — bütün modüllerin
+    // kesin denetimi emit'ten ÖNCE: alt modülün portu üst modülün örnek
+    // bağlantısında (`.table(a)`) daha önce görünür, güvenlik ağı onu
+    // modül sırasına bağlı olarak ikinci kez bildirmesin.
+    emitter.audit_unit_names();
 
     let mut modules = Vec::new();
     let mut per_module = Vec::new();
@@ -411,6 +433,7 @@ pub fn emit_unit(
                 multiclock_modules.push(module.name.text.clone());
             }
             let body = emitter.emit_module(module, item.doc.as_deref());
+            emitter.audit_emitted_text(module, &body);
             // ADR-0024: her modül kendi dosyasında; başlık o modülün
             // kaynak dosyasını gösterir.
             let origin = emitter.source_name_of(item.span.file);
@@ -608,6 +631,9 @@ pub(crate) struct Emitter<'a> {
     pub(crate) struct_notes: &'a structs::StructNotes,
     /// Üretilmekte olan modülün adı (struct notlarının anahtarı).
     pub(crate) module_name: String,
+    /// E1013 verilmiş SV adları (ADR-0078) — güvenlik ağı aynı adı
+    /// ikinci kez bildirmez.
+    pub(crate) sv_name_reported: HashSet<String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -975,10 +1001,11 @@ impl<'a> Emitter<'a> {
             .map(|(i, (dir, ty, name))| {
                 let comma = if i + 1 < count { "," } else { "" };
                 let note = self.enum_comment(name);
-                self.struct_decl_lines(
+                let decl = self.struct_decl_lines(
                     name,
                     format!("    {dir:<6} {ty:<ty_width$} {name}{comma}{note}"),
-                )
+                );
+                verilator_cpp_word_port(name, decl)
             })
             .collect::<Vec<_>>()
             .join("\n")

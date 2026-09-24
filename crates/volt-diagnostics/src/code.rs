@@ -40,6 +40,8 @@ error_codes! {
     E1011,
     // extern module SV kaynağı (ADR-0076)
     E1012,
+    // Hedef dilin ayrılmış sözcüğü (ADR-0078)
+    E1013,
 
     // ─── Tip çıkarımı (type-inference.md) ───
     E2001, E2002, E2003, E2004, E2005, E2006, E2007, E2008, E2009, E2010,
@@ -81,6 +83,8 @@ error_codes! {
     E8507, E8508, E8509, E8510, E8511,
     // Test port genişlik denetimi (ADR-0059)
     E8512,
+    // Verilator model API çakışması (ADR-0078)
+    E8513,
 
     // ─── Release disiplini ───
     E9001, E9002,

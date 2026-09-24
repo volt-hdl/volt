@@ -242,6 +242,14 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator and sby read rtl/fifo.sv\n    in  clk : clock\n    ...\n}",
         )
         .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
+        E1013 => Explanation::new(
+            "Name is a reserved word of a generated language",
+            "A name Volt writes into generated SystemVerilog, or into the Rust/C driver of an @mmio register map, is a keyword there.",
+            "Volt keeps your names in its output so that an external integrator, a waveform and a constraint file all see the port you wrote. That only works if the name is legal in the target language. SystemVerilog reserves 248 words (IEEE 1800-2017 Annex B, which includes every Verilog-2005 keyword): a port named 'packed' or a register named 'table' makes the generated .sv a syntax error in every tool, although the Volt source is fine. Names Volt builds by joining two of yours with '_' are checked too: a struct port 'pulsestyle' with a field 'ondetect' becomes the SystemVerilog port 'pulsestyle_ondetect', which is a keyword; the same holds for enum localparams ('<Enum>_<Variant>') and instance output wires ('<instance>_<port>'). Volt does not escape (\\packed) or rename (packed_v) behind your back: either would change the port name an external module connects to. An @mmio register or field name also becomes a function or parameter name in the generated Rust and C drivers, so it must not be a Rust, C or C++ keyword ('mod', 'loop', 'default', 'class', ...). Words that are only C++ keywords in Verilator's own model ('interrupt', 'char') are not errors: the SystemVerilog is valid and Volt handles them (ADR-0078). Matching is case-sensitive: 'Packed' is fine.",
+            "module Timer {\n    in  packed : u8          // ✗ E1013: SystemVerilog keyword\n    out table  : u8          // ✗ E1013\n    table = packed\n}",
+            "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(
@@ -880,6 +888,14 @@ module Gpio {
             "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    dut.addr = 8;             // ✗ E8512: u3 holds 0..7\n}",
             "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    for i in 0..8 {\n        dut.addr = i;         // ✓ 0..7\n        step(1);\n    }\n}",
         ),
+        E8513 => Explanation::new(
+            "Top-level port collides with the Verilator model API",
+            "The module simulated by 'volt test' or 'volt run' has a port named like a member of the C++ class Verilator generates for it.",
+            "Verilator turns the top module into a C++ class V<Top> whose ports are data members next to its own API: eval(), final(), trace(), name(), contextp(), rootp and a few more. A port with one of those names produces a class that does not compile, and Verilator does not rename it (it renames only C++ keywords such as 'char' to '__SYM__char', which Volt's test bench follows). The SystemVerilog itself is valid, so 'volt check' and 'volt build' accept the module; only simulating it with this module as the top fails. Rename the port, or simulate a wrapper that instantiates the module.",
+            "module Probe {\n    in  clk  : clock\n    out name : u8            // ✗ E8513 in 'volt test': VProbe::name()\n}",
+            "module Probe {\n    in  clk     : clock\n    out name_id : u8         // ✓\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
 
         // ─── Release discipline ───
         E9001 => Explanation::new(

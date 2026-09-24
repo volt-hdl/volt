@@ -42,6 +42,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1010 => "Ambiguous import (two 'use' bring in the same name)",
         E1011 => "Module not found (no file provides the imported package)",
         E1012 => "Extern module SystemVerilog source missing, not found or outside the project",
+        E1013 => "Name is a reserved word of a generated language",
 
         // ─── Type inference (type-inference.md) ───
         E2001 => "Bit width mismatch",
@@ -137,6 +138,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E8510 => "load() source does not fit the target array",
         E8511 => "Type mismatch in a test expression",
         E8512 => "Value does not fit in port width",
+        E8513 => "Top-level port collides with the Verilator model API",
 
         // ─── Release discipline ───
         E9001 => "Release builds cannot contain todo!",

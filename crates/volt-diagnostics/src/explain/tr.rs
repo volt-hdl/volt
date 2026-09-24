@@ -242,6 +242,14 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator ve sby rtl/fifo.sv'yi okur\n    in  clk : clock\n    ...\n}",
         )
         .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
+        E1013 => Explanation::new(
+            "Ad, üretilen bir dilin ayrılmış sözcüğü",
+            "Volt'un üretilen SystemVerilog'a ya da bir @mmio register haritasının Rust/C sürücüsüne yazdığı bir ad, o dilde anahtar sözcük.",
+            "Volt adlarınızı çıktıda korur; böylece dış entegratör, dalga biçimi ve kısıt dosyası yazdığınız portu görür. Bu yalnız ad hedef dilde geçerliyse işler. SystemVerilog 248 sözcüğü ayırır (IEEE 1800-2017 Annex B; Verilog-2005'in bütün anahtar sözcüklerini kapsar): 'packed' adlı bir port ya da 'table' adlı bir register, Volt kaynağı doğru olsa bile üretilen .sv'yi her araçta sözdizimi hatası yapar. Volt'un sizin iki adınızı '_' ile birleştirerek kurduğu adlar da denetlenir: 'ondetect' alanlı 'pulsestyle' struct portu SystemVerilog'da 'pulsestyle_ondetect' portu olur ve bu bir anahtar sözcüktür; enum localparam'ları ('<Enum>_<Varyant>') ve örnek çıkış telleri ('<örnek>_<port>') için de aynısı geçerli. Volt adı arkanızdan kaçırmaz (\\packed) ya da değiştirmez (packed_v): ikisi de dış modülün bağlandığı port adını değiştirirdi. Bir @mmio register ya da alan adı üretilen Rust ve C sürücülerinde işlev ya da parametre adı da olur; bu yüzden Rust, C ya da C++ anahtar sözcüğü olamaz ('mod', 'loop', 'default', 'class', ...). Yalnız Verilator'ın kendi modelinde C++ sözcüğü olan adlar ('interrupt', 'char') hata değildir: SystemVerilog geçerlidir ve Volt bunları kendisi karşılar (ADR-0078). Eşleşme büyük/küçük harfe duyarlıdır: 'Packed' geçerlidir.",
+            "module Timer {\n    in  packed : u8          // ✗ E1013: SystemVerilog anahtar sözcüğü\n    out table  : u8          // ✗ E1013\n    table = packed\n}",
+            "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(
@@ -880,6 +888,14 @@ module Gpio {
             "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    dut.addr = 8;             // ✗ E8512: u3 0..7 tutar\n}",
             "test \"t\" {\n    let dut = Table { };      // in addr : u3\n    for i in 0..8 {\n        dut.addr = i;         // ✓ 0..7\n        step(1);\n    }\n}",
         ),
+        E8513 => Explanation::new(
+            "Üst modül portu Verilator model arayüzüyle çakışıyor",
+            "'volt test' ya da 'volt run' ile simüle edilen modülün bir portu, Verilator'ın onun için ürettiği C++ sınıfının bir üyesiyle aynı adı taşıyor.",
+            "Verilator üst modülü V<Üst> adlı bir C++ sınıfına çevirir; portlar bu sınıfın veri üyeleridir ve kendi arayüzünün yanında durur: eval(), final(), trace(), name(), contextp(), rootp ve birkaç tane daha. Bu adlardan birini taşıyan port derlenmeyen bir sınıf üretir ve Verilator onu yeniden adlandırmaz (yalnız 'char' gibi C++ anahtar sözcüklerini '__SYM__char' yapar; Volt'un test düzeneği buna uyar). SystemVerilog'un kendisi geçerlidir; 'volt check' ve 'volt build' modülü kabul eder, yalnız bu modül üst modül olarak simüle edilemez. Portu yeniden adlandırın ya da modülü örnekleyen bir sarmalayıcıyı simüle edin.",
+            "module Probe {\n    in  clk  : clock\n    out name : u8            // ✗ 'volt test'te E8513: VProbe::name()\n}",
+            "module Probe {\n    in  clk     : clock\n    out name_id : u8         // ✓\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
 
         // ─── Release disiplini ───
         E9001 => Explanation::new(
