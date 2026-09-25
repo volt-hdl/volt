@@ -414,7 +414,7 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
         E2027 => Explanation::new(
             "Döngü açma sınırı aşıldı",
             "Bu derleme zamanı 'for' döngüsü, açma (unrolling) sınırının ötesine genişliyor.",
-            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün.",
+            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün. Aynı kod bir derleme biriminde açılan her şeyin toplam boyunu da sınırlar — açılan döngü gövdeleri ve generic modül örneklemeleri tek bir AST düğüm bütçesini paylaşır (ADR-0068).",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ küçük bir sabitle sınırlı\n    t[i] = d[i]\n}",
         ),

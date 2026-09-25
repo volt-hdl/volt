@@ -35,6 +35,7 @@ use volt_ast::{
 use volt_diagnostics::{fold_duplicates, lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
 
+use super::budget::{ExpansionBudget, MAX_EXPANSION_NODES};
 use super::clone::Cloner;
 
 /// Açılabilecek en fazla yineleme (const-eval.md §8, E2027).
@@ -43,27 +44,17 @@ pub(crate) const MAX_UNROLL: i128 = 4096;
 /// Const ifade değerlendirmesinde derinlik sınırı (döngüsel const).
 const MAX_CONST_DEPTH: u32 = 64;
 
-/// Açılımın modül başına üretebileceği AST düğümü (deyim + ifade) bütçesi
-/// (ADR-0068 §4, E2027). `MAX_UNROLL` yineleme sayısını, u16 ctx toplam
-/// yinelemeyi sınırlar; gövde büyüklüğü × yineleme çarpımını hiçbiri
-/// sınırlamıyordu — fuzz girdisi 65 535 yinelemede 274 MB AST kurdu.
-/// 4096 yineleme × 64 düğümlük gövde sığar.
-pub(crate) const MAX_UNROLL_NODES: usize = 1 << 18;
-
 pub(super) struct Unroller<'a> {
     ast: &'a mut SourceFile,
     next_ctx: &'a mut u16,
+    /// Açılım düğüm bütçesi (ADR-0068 §4, §6): gövde büyüklüğü × yineleme
+    /// çarpımı. `MAX_UNROLL` yineleme sayısını, u16 ctx toplam yinelemeyi
+    /// sınırlar; çarpımı yalnız bu sınırlar. Aşılınca kalan döngüler
+    /// açılmaz (tek E2027, kaskad yok).
+    budget: &'a mut ExpansionBudget,
     diagnostics: &'a mut Vec<Diagnostic>,
     /// Üst düzey `const AD = ...` değerleri (sınır ifadeleri için).
     consts: HashMap<String, Idx<volt_ast::Expr>>,
-    /// Açılım başındaki düğüm sayısı (bütçe tabanı).
-    nodes_start: usize,
-    /// Bütçe aşıldı: kalan döngüler açılmaz (tek E2027, kaskad yok).
-    budget_exhausted: bool,
-}
-
-fn node_count(ast: &SourceFile) -> usize {
-    ast.stmts.len() + ast.exprs.len()
 }
 
 /// Bir modülün gövdesindeki tüm modül seviyesi `for`ları açar.
@@ -71,6 +62,7 @@ pub(super) fn unroll_module(
     ast: &mut SourceFile,
     item: Idx<Item>,
     next_ctx: &mut u16,
+    budget: &mut ExpansionBudget,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let has_for = match &ast.items_arena[item].kind {
@@ -88,14 +80,12 @@ pub(super) fn unroll_module(
         return;
     };
     let body = std::mem::take(&mut m.body);
-    let nodes_start = node_count(ast);
     let mut u = Unroller {
         ast,
         next_ctx,
+        budget,
         diagnostics,
         consts,
-        nodes_start,
-        budget_exhausted: false,
     };
     let mut out = Vec::with_capacity(body.len());
     for stmt in body {
@@ -138,7 +128,9 @@ impl Unroller<'_> {
         rename: &HashMap<String, String>,
         suffix: &str,
     ) -> Vec<Idx<Stmt>> {
-        if self.budget_exhausted {
+        // Bütçe başka bir açılımda (mono klonu dahil) dolmuş olabilir:
+        // döngü açılmadan atlanıyorsa tanı mutlaka verilmiş olmalı.
+        if self.over_budget(&f.var.text, span) {
             return Vec::new();
         }
         let Some((start, end)) = self.bounds(&f, span) else {
@@ -159,6 +151,8 @@ impl Unroller<'_> {
             let Some(ctx) = self.alloc_ctx(span) else {
                 return out;
             };
+            self.budget.charge(1);
+            self.budget.charge_text(f.var.text.len());
             self.ast.generate.iterations.insert(
                 ctx,
                 GenerateIter {
@@ -174,9 +168,10 @@ impl Unroller<'_> {
                 rename_v.insert(name.clone(), format!("{name}{suffix_v}"));
             }
             let subst = HashMap::from([(f.var.text.clone(), v)]);
-            let block = Cloner::new(self.ast, subst, ctx)
-                .with_rename(rename_v.clone())
-                .clone_block(f.body);
+            let mut cloner =
+                Cloner::new(self.ast, self.budget, subst, ctx).with_rename(rename_v.clone());
+            let block = cloner.clone_block(f.body);
+            let recovered = cloner.saw_recovery();
             let stmts = std::mem::take(&mut self.ast.blocks[block].stmts);
             for bs in stmts {
                 self.lift(bs, ctx, &rename_v, &suffix_v, &mut out);
@@ -185,24 +180,41 @@ impl Unroller<'_> {
             // (ADR-0068). Sonradan katlamak yetmez — 283² kopya önce
             // belleğe yığılırdı; bellek O(farklı tanı) kalır.
             fold_duplicates(self.diagnostics, mark);
-            // Düğüm bütçesi (ADR-0068 §4): gövde × yineleme çarpımı da
+            // Düğüm bütçesi (ADR-0068 §4, §6): gövde × yineleme çarpımı da
             // AÇILIM SIRASINDA denetlenir (E4010 ilkesi, ADR-0067 §2).
-            if node_count(self.ast) - self.nodes_start > MAX_UNROLL_NODES {
-                self.err_node_budget(&f.var.text, span);
+            if self.over_budget(&f.var.text, span) {
+                return out;
+            }
+            // Hata kurtarma düğümü taşıyan gövde bir kez açılır (ADR-0068
+            // §6): tanısı zaten verildi, kopyaları katlanırdı; parse hatası
+            // anlamsal aşamaları durdurduğundan ek kopyanın bilgi değeri
+            // yok. Tek kopya modülde kalır (LSP çözümlemesi için).
+            if recovered {
                 return out;
             }
         }
         out
     }
 
+    /// Bütçe dolu mu? İlk kez görülüyorsa (birimde tek) E2027 basar;
+    /// sonraki açılımlar sessizce durur — tanı zaten verildi.
+    fn over_budget(&mut self, var: &str, span: Span) -> bool {
+        if !self.budget.exhausted() {
+            return false;
+        }
+        if self.budget.take_report() {
+            self.err_node_budget(var, span);
+        }
+        true
+    }
+
     /// Düğüm bütçesi aşımı: tek E2027, sonraki döngüler açılmaz.
     fn err_node_budget(&mut self, var: &str, span: Span) {
-        self.budget_exhausted = true;
         self.diagnostics.push(Diagnostic::error(
             ErrorCode::E2027,
             lstr!(
-                en: "unrolling 'for {var}' exceeded the AST node budget ({MAX_UNROLL_NODES} statements and expressions per module)";
-                tr: "'for {var}' açılımı AST düğüm bütçesini aştı (modül başına {MAX_UNROLL_NODES} deyim ve ifade)"
+                en: "unrolling 'for {var}' exceeded the AST node budget ({MAX_EXPANSION_NODES} nodes per compilation unit)";
+                tr: "'for {var}' açılımı AST düğüm bütçesini aştı (derleme birimi başına {MAX_EXPANSION_NODES} düğüm)"
             ),
             LabeledSpan::primary(
                 span,
@@ -314,6 +326,7 @@ impl Unroller<'_> {
     }
 
     fn alloc_stmt(&mut self, span: Span, kind: StmtKind) -> Idx<Stmt> {
+        self.budget.charge(1);
         self.ast.stmts.alloc(Stmt {
             span,
             attrs: Vec::new(),

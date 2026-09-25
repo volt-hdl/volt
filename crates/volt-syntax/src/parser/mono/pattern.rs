@@ -36,7 +36,7 @@ impl Cloner<'_> {
         let span = self.tag(self.ast.patterns[p].span);
         let kind = match &self.ast.patterns[p].kind {
             PatternKind::Wildcard => PatternKind::Wildcard,
-            PatternKind::Error => PatternKind::Error,
+            PatternKind::Error => self.recovery(PatternKind::Error),
             PatternKind::Binding(n) => {
                 let n = n.clone();
                 PatternKind::Binding(self.tag_name(&n))
@@ -63,7 +63,8 @@ impl Cloner<'_> {
                 }
             }
         };
-        self.ast.patterns.alloc(Pattern { span, kind })
+        self.ast
+            .write(|ast| ast.patterns.alloc(Pattern { span, kind }))
     }
 
     fn copy_pattern_args(&self, args: Option<&PatternArgs>) -> Option<PatternArgs> {

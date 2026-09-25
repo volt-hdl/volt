@@ -179,7 +179,10 @@ fn lsp_folds_unrolled_duplicate_diagnostics_like_cli() {
     }
 }
 
-/// ADR-0068 fuzz regresyon girdisi editörde de katlama notunu taşır.
+/// ADR-0068 fuzz regresyon girdisi editörde de açılım notunu taşır. §6'dan
+/// beri kurtarma düğümlü gövde bir kez açılır: kopya kalmaz, not tekil
+/// yineleme notudur ("in the unrolled 'for' iteration i = 0, …"); katlama
+/// notu ("… iterations") da aynı alt dizgeyi içerir.
 #[test]
 fn lsp_fuzz_flood_input_carries_fold_note() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -192,8 +195,8 @@ fn lsp_fuzz_flood_input_carries_fold_note() {
         items.iter().any(|d| d["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("unrolled 'for' iterations")),
-        "katlama notu yok"
+            .contains("unrolled 'for' iteration")),
+        "açılım notu yok"
     );
 }
 

@@ -82,3 +82,30 @@ fn nested_for_diagnostic_flood_fuzz_finding_parses_fast_with_few_diagnostics() {
     assert!(count < 100, "{count} tanı: {codes:?}");
     assert!(codes.contains(&"E2021"), "{codes:?}");
 }
+
+/// Fuzz bulgusu 3 (ADR-0068 §6): üç iç içe süslüsüz `for`, gövdede hata
+/// kurtarmanın bıraktığı n düğümlük desen ağacı. Bütçe yalnız deyim +
+/// ifade sayıyordu; desen arenası 65 534 yinelemede kopyalandı (orijinal
+/// 2,8 M desen düğümü, n = 128'de 1,47 GB). Şimdi her yazım sayılır ve
+/// kurtarma düğümlü gövde bir kez açılır.
+#[test]
+fn pattern_clone_budget_fuzz_findings_parse_fast_with_a_bounded_ast() {
+    for name in [
+        "oom_for_pattern_clone_budget_min_84b.volt",
+        "oom_for_pattern_clone_budget_2318b.volt",
+    ] {
+        let src = std::fs::read_to_string(regression_dir().join(name)).expect("girdi okunmalı");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let res = parse(FileId(0), &src);
+            let a = &res.ast;
+            let _ = tx.send(
+                a.stmts.len() + a.exprs.len() + a.types.len() + a.patterns.len() + a.blocks.len(),
+            );
+        });
+        let nodes = rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or_else(|_| panic!("{name}: 1 s içinde ayrışmalı (desen klonu)"));
+        assert!(nodes < 300_000, "{name}: {nodes} AST düğümü");
+    }
+}
