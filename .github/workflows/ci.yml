@@ -28,12 +28,35 @@ jobs:
   integration:
     name: Verilator lint
     runs-on: ubuntu-latest
+    # ADR-0079: Verilator comes from the same pinned, cached OSS CAD Suite as
+    # the formal and timing jobs. The apt package floated with the runner
+    # image (5.020 on ubuntu-24.04) and cannot build valid SV such as a
+    # delayed array reset loop longer than 64 (BLKLOOPINIT,
+    # examples/riscv_sw/hello_soc.volt).
+    env:
+      OSS_CAD_SUITE_DATE: 2026-09-21
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install Verilator
-        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (verilator), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put Verilator on PATH
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/verilator" --version
       - name: Compile counter.volt
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
       # ADR-0024: the output file name derives from the module name
