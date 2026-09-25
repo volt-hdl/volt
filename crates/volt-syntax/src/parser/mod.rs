@@ -7,6 +7,7 @@
 mod auto_contract;
 mod bidir;
 mod bundle;
+mod depth;
 mod desugar;
 mod expr;
 mod handshake;
@@ -67,20 +68,29 @@ impl ParseResult {
 }
 
 /// Kaynak dosyayı tam AST'ye ayrıştırır. Hiçbir girdide panik etmez.
+/// Derleyici yığınında koşar (ADR-0080): derinlik sınırındaki girdi hangi
+/// iş parçacığından çağrılırsa çağrılsın yığını taşırmaz.
 pub fn parse(file: FileId, source: &str) -> ParseResult {
-    let mut parser = Parser::new(file, source);
-    // Monomorfizasyon (ADR-0041) ve `for` açılımı (ADR-0056) pipeline
-    // desugar'ı gibi parser katmanında, bundle düzleştirmesinden önce
-    // (`finish_unit_desugar`); alt geçitler somut, açılmış modül görür.
-    parser.parse_source_file();
-    parser.finish()
+    crate::with_compiler_stack(|| {
+        let mut parser = Parser::new(file, source);
+        // Monomorfizasyon (ADR-0041) ve `for` açılımı (ADR-0056) pipeline
+        // desugar'ı gibi parser katmanında, bundle düzleştirmesinden önce
+        // (`finish_unit_desugar`); alt geçitler somut, açılmış modül görür.
+        parser.parse_source_file();
+        parser.finish()
+    })
 }
 
 /// Birden çok dosyayı TEK derleme birimine ayrıştırır (ADR-0042).
 /// Dosyalar sırayla aynı arena'lara eklenir; her düğümün span'i kendi
 /// dosyasını taşır. Monomorfizasyon tüm dosyalar okunduktan sonra bir
 /// kez koşar — generic tanım ile örneklemesi farklı dosyalarda olabilir.
+/// [`parse`] gibi derleyici yığınında koşar.
 pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
+    crate::with_compiler_stack(|| parse_unit_on_stack(files))
+}
+
+fn parse_unit_on_stack(files: &[(FileId, &str)]) -> ParseResult {
     let mut ast = SourceFile::default();
     let mut diagnostics = Vec::new();
     let mut generated = Vec::new();
@@ -122,13 +132,14 @@ pub fn parse_items_only_for_tests(file: FileId, source: &str) -> ParseResult {
 
 /// Tek bir ifadeyi ayrıştırır (öncelik testleri için).
 pub fn parse_expr(file: FileId, source: &str) -> (ParseResult, Idx<Expr>) {
-    let mut parser = Parser::new(file, source);
-    let root = parser.parse_expr();
-    (parser.finish(), root)
+    crate::with_compiler_stack(|| {
+        let mut parser = Parser::new(file, source);
+        let root = parser.parse_expr();
+        (parser.finish(), root)
+    })
 }
 
-/// İfade/blok iç içeliği sınırı — patolojik girdide yığın taşmasını önler.
-const MAX_DEPTH: u32 = 200;
+pub use depth::MAX_DEPTH;
 
 /// Kaskad bastırma penceresi (token sayısı, error-recovery.md §5).
 const SUPPRESS_WINDOW: usize = 2;
@@ -141,7 +152,12 @@ pub(crate) struct Parser<'s> {
     pub(crate) ast: SourceFile,
     diagnostics: Vec<Diagnostic>,
     last_error_pos: Option<usize>,
+    /// Ağaç derinliği sayacı (ADR-0080, `depth.rs`).
     pub(crate) depth: u32,
+    /// E0018 bu ayrıştırmada raporlandı mı (tek tanı, kaskad yok).
+    pub(crate) depth_reported: bool,
+    /// Son derinlik atlamasının bittiği token (`depth::cut_by_depth`).
+    pub(crate) depth_skip_end: Option<usize>,
     eof_span: Span,
     /// StructLit'in yasak olduğu bağlamlar (if/match/for başlık ifadeleri):
     /// `if x { }` içindeki '{' blok başlangıcıdır, yapı literali değil.
@@ -192,6 +208,8 @@ impl<'s> Parser<'s> {
             diagnostics: lexed.errors,
             last_error_pos: None,
             depth: 0,
+            depth_reported: false,
+            depth_skip_end: None,
             eof_span: Span::new(file, len, len),
             allow_struct_lit: true,
             paren_exprs: HashSet::new(),
@@ -302,6 +320,11 @@ impl<'s> Parser<'s> {
 
     /// Kaskad bastırma penceresiyle hata ekler (error-recovery.md §5).
     pub(crate) fn push_error(&mut self, diag: Diagnostic) {
+        // Derinlik atlamasının bittiği yerdeki hata onun sonucudur: yapının
+        // kalanı zaten tek E0018 ile atlandı (ADR-0080).
+        if self.cut_by_depth() {
+            return;
+        }
         if let Some(last) = self.last_error_pos {
             if self.pos.saturating_sub(last) < SUPPRESS_WINDOW {
                 return;

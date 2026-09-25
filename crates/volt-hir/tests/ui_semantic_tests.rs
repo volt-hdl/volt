@@ -255,8 +255,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0075: 98 sayısal match'te kısmi örtüşen kol (W2014 yok),
     // ADR-0076: 101 `@source`'lu extern,
     // ADR-0077: 102-107 struct (portu, register, iç içe/enum alanı, bits
-    //           dönüşümü, bundle alanı, sync + kontrat).
-    assert_eq!(checked, 96);
+    //           dönüşümü, bundle alanı, sync + kontrat),
+    // ADR-0080: 111 sınırın çok altında derin iç içelik (E0018 yok).
+    assert_eq!(checked, 97);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

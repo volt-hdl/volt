@@ -157,6 +157,18 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
         .with_note(
             "Üretilen adlar Vivado / Design Compiler geleneğini izler: register'lar get_cells {ad_reg*} olur, alt modül sinyalleri örnek önekini alır (fb/mem_reg*). set_clock_groups -asynchronous hiçbir nitelik olmadan alanlardan türetilir; sync()/AsyncFifo/HandshakeSync/PulseSync/AsyncDualPortRam geçişleri kendiliğinden set_false_path alır.",
         ),
+        E0018 => Explanation::new(
+            "İç içelik ya da zincir çok derin",
+            "Bir ifade, blok, tip, desen ya da bildirim zinciri derleyicinin sınırından (256 kat) derin. Sınırın ötesindeki kısım atlanır ve derlenmez.",
+            "Derleyicinin parser'dan sonraki her aşaması sözdizimi ağacını özyinelemeyle yürür. Rust'ta yığın taşması derleyicinin raporlayabileceği bir hata değildir: süreç öldürülür, editörde dil sunucusu da onunla ölür. Bu yüzden derinlik tek yerde sınırlanır (ADR-0080): parser sınırdan derin ağaç kurmaz; sonraki aşamaların açtığı tip bildirimi zincirleri (tip takma adından tip takma adına, struct tipli struct alanı, enum varyant yükü) aynı biçimde sınırlanır.
+
+Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakta düz görünen zincirin her halkası. 'a + b + c + ...' her operatörde bir kat derinleşen bir ağaçtır; 'x[0][1]...', 'a.b.c...', 'a as u8 as u8' ve 'if ... else if ... else if ...' için de aynısı geçerlidir. Gerçek tasarımlar sınırın çok altında kalır: örneklerdeki ve test külliyatındaki en derin ifade birkaç düzine kattır. Yüzlerce terimlik zincir neredeyse her zaman üretilmiş koddur; dengeli biçim hem daha sığdır hem de daha iyi donanımdır (toplayıcı ağacının gecikmesi doğrusal değil logaritmiktir).",
+            "y = a0 ^ a1 ^ a2 ^ ... ^ a299        // ✗ E0018: tek zincirde 299 halka",
+            "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ iki yarı, her biri 149 halka\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
+        )
+        .with_note(
+            "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir.",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",

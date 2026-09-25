@@ -350,7 +350,14 @@ fn long_acyclic_chain_does_not_overflow_the_stack() {
     }
     src.push_str("struct S20000 { d : u8 }\nmodule M { in x : u8 }\n");
     let res = p(&src);
-    assert!(res.diagnostics.is_empty(), "{:?}", &res.error_codes()[..3]);
+    // Döngü yok (E4009 yok); açılmış derinlik sınırı (ADR-0080) zinciri
+    // aştığı TEK bildirimde E0018 verir — her halkada değil.
+    assert_eq!(res.error_codes(), ["E0018"]);
+    assert!(
+        res.diagnostics[0].message.contains("'S19872'"),
+        "{}",
+        res.diagnostics[0].message
+    );
 }
 
 #[test]

@@ -252,3 +252,109 @@ fn lsp_hover_shows_bundle_port_type_and_flattened_ports() {
     assert!(hs.contains("hs : Handshake<u8>"), "{hs}");
     assert!(hs.contains("`in hs_ready : bool`"), "{hs}");
 }
+
+// ═══ Derinlik sınırı (ADR-0080) ══════════════════════════════════════
+
+impl Lsp {
+    /// `didChange` → debounce sonrası tokio işçisinde analiz → push tanıları.
+    fn change_and_wait(&mut self, uri: &str, text: &str, version: i64) -> Vec<Value> {
+        self.notify(
+            "textDocument/didChange",
+            json!({
+                "textDocument": { "uri": uri, "version": version },
+                "contentChanges": [{ "text": text }],
+            }),
+        );
+        loop {
+            let msg = self
+                .rx
+                .recv_timeout(TIMEOUT)
+                .expect("push tanıları gelmeli");
+            if msg["method"] == "textDocument/publishDiagnostics"
+                && msg["params"]["uri"] == uri
+                && msg["params"]["version"] == version
+            {
+                return msg["params"]["diagnostics"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
+    }
+}
+
+fn stack_regression(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fuzz_regressions")
+        .join(name);
+    std::fs::read_to_string(path).expect("regresyon girdisi")
+}
+
+/// Derin girdi editörde tek E0018 alır; sunucu (analiz tokio işçisinde de
+/// koşar — `didChange`) ölmez ve sonraki isteklere yanıt verir. Düzeltmeden
+/// önce yığın taşması dil sunucusunu abort ettiriyordu.
+#[test]
+fn lsp_deep_inputs_get_e0018_and_the_server_survives() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_deep.volt");
+    for name in [
+        "stack_chain_generic_30000.volt",
+        "stack_else_if_3000.volt",
+        "stack_alias_chain_3000.volt",
+    ] {
+        let items = lsp.diagnostics(&u, &stack_regression(name));
+        assert_eq!(codes(&items), ["E0018"], "{name}");
+    }
+    let pushed = lsp.change_and_wait(&u, &stack_regression("stack_paren_20000.volt"), 2);
+    assert_eq!(codes(&pushed), ["E0018"]);
+    // Sunucu hâlâ ayakta: sıradan bir hover yanıtlanır.
+    let h = lsp.hover(&uri("lsp_deep_after.volt"), HOVER_SRC, "p : P", 0);
+    assert!(h.contains("p : P"), "{h}");
+}
+
+/// Sınırın hemen altındaki geçerli tasarım editörde tam analiz edilir
+/// (çözümleme, tip, saat alanı), en derin yaprakta hover ve belge
+/// sembolleri yanıtlanır — hepsi derleyici yığınında.
+#[test]
+fn lsp_design_just_below_the_limit_is_analyzed_and_hovered() {
+    let depth = volt_syntax::MAX_DEPTH as usize - 8;
+    let text = format!(
+        "module Top {{\n    in a : u8\n    out y : u8\n    y = {}\n}}\n",
+        vec!["a"; depth].join(" ^ ")
+    );
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_near_limit.volt");
+    let items = lsp.diagnostics(&u, &text);
+    assert!(items.is_empty(), "{:?}", codes(&items));
+    let pushed = lsp.change_and_wait(&u, &text, 2);
+    assert!(pushed.is_empty(), "{:?}", codes(&pushed));
+    let last_a = text.rfind('a').expect("en derin yaprak");
+    let line = text[..last_a].matches('\n').count();
+    let col = last_a - text[..last_a].rfind('\n').map_or(0, |i| i + 1);
+    let hover = lsp.request(
+        "textDocument/hover",
+        json!({ "textDocument": { "uri": u }, "position": { "line": line, "character": col } }),
+    );
+    assert!(
+        hover["contents"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .contains('a'),
+        "{hover}"
+    );
+    let symbols = lsp.request(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": u } }),
+    );
+    assert!(symbols.to_string().contains("Top"), "{symbols}");
+    // En ağır yapılar (ADR-0080 §1.2: SV doğrulaması `as` zincirinde kat
+    // başına ~7 KB) `didChange` yolunda, yani tokio işçisinde.
+    for (version, e) in [
+        (3, format!("a{}", " as u8".repeat(depth))),
+        (4, format!("{}a", "~".repeat(depth))),
+    ] {
+        let text = format!("module Top {{\n    in a : u8\n    out y : u8\n    y = {e}\n}}\n");
+        let pushed = lsp.change_and_wait(&u, &text, version);
+        assert!(pushed.is_empty(), "{:?}", codes(&pushed));
+    }
+}

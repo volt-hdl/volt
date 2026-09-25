@@ -5,6 +5,35 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — derin girdide yığın taşması (abort) (2026-09-25, ADR-0080)
+
+- **Derleyici derin girdide artık çökmüyor.** 30 000 terimlik `a + a + …`
+  zinciri (ADR-0068 §6 bulgusu) generic şablonda klonlayıcıda, düz
+  modülde denetimde yığını taşırıyordu; Rust'ta bu panik değil süreç
+  sonudur (abort) ve dil sunucusunu da öldürür. Kalıcı regresyon
+  girdilerinden 11'i eski ikiliyi abort ettiriyor (debug, Windows; eşikler
+  137–1 718 kat: sol zincir, `as`/alan zinciri, parantez, `if` ifadesi, iç
+  içe `match`, desen, dizi tipi, `else if` zinciri, tip takma adı zinciri,
+  generic şablon). Şimdi hepsi **tek bir E0018** ile < 0,15 s içinde
+  sonuçlanır.
+- **Yeni tanı E0018** (iki dilde, `volt explain E0018`): iç içelik ya da
+  zincir 256 katı aşıyor. Parser bu derinlikten fazla ağaç kurmaz; sol-
+  birleşimli operatör, `.`/`[]`/`as` ve `else if` zincirlerinde her halka
+  bir kat sayılır (eski sınır yalnız parser özyinelemesini sayıyordu).
+  Tip takma adı / struct / enum zinciri açıldığında sınırı aşan bildirim
+  de E0018 alır. Gerçek tasarımların en derini 18 kat.
+- **Sınırda kaskad yok:** eski sınır tek token atlayıp yüzlerce E0001
+  üretiyordu (iç içe `if` blokları 40 000 katta zaman aşımına giriyordu);
+  şimdi derin grup bütünüyle atlanır, dosya başına tek tanı.
+- **Derleyici her platformda 64 MB'lık yığında koşar** (`volt` komutları,
+  dil sunucusunun işçileri, `parse`): sınırdaki ağacı debug derlemede
+  yürümek ~1,8 MB ister, Windows ana iş parçacığı 1 MB'tır.
+- Geçerli tasarımların `check`/`build` çıktısı değişmedi (457 dosya, sıfır
+  fark). Test dili ifadelerinin derinlik sınırı 200'den 256'ya çıktı
+  (aynı sayaç).
+- Kalıcı regresyon: `tests/fuzz_regressions/stack_*` (14 girdi); sürücü
+  testleri `volt`'u ayrı süreçte koşturur, abort çıkış kodu olarak yakalanır.
+
 ### Düzeltildi — açılım bütçesindeki delik, fuzz bulgusu 3 (2026-09-25, ADR-0068 §6, #40)
 
 - **Açılım düğüm bütçesi artık açılımın yazdığı HER şeyi sayar.** Önce

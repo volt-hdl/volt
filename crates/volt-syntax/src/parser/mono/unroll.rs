@@ -365,6 +365,12 @@ impl Unroller<'_> {
     /// üstü E2027.
     fn bounds(&mut self, f: &ForStmt, span: Span) -> Option<(i128, i128)> {
         let var = f.var.text.clone();
+        // Hata kurtarmanın bıraktığı sınır (ör. E0018 ile kesilen ifade,
+        // ADR-0080) zaten raporlandı: E2021 kaskadı değil.
+        let recovered = |e: Idx<volt_ast::Expr>| matches!(self.ast.exprs[e].kind, ExprKind::Error);
+        if recovered(f.start) || recovered(f.end) {
+            return None;
+        }
         let (Some(s), Some(e)) = (self.eval(f.start, 0), self.eval(f.end, 0)) else {
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E2021,

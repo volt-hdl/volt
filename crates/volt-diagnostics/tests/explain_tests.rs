@@ -14,9 +14,9 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// E4008/W3007, ADR-0051 ile; E0016/W3008, ADR-0052 ile; E0017/W0022,
 /// ADR-0054 ile; E8507-E8511, ADR-0058 ile; E8512, ADR-0059 ile; E9003/E9004,
 /// ADR-0063 ile; W5001, ADR-0064 ile; W3009/W3010, ADR-0065 ile;
-/// E4009/E4010, ADR-0067 ile; E1013/E8513, ADR-0078 ile; E1014, ADR-0079 ile
-/// eklendi.)
-const CODE_COUNT: usize = 145;
+/// E4009/E4010, ADR-0067 ile; E1013/E8513, ADR-0078 ile; E1014, ADR-0079 ile;
+/// E0018, ADR-0080 ile eklendi.)
+const CODE_COUNT: usize = 146;
 
 #[test]
 fn all_codes_present_120_of_120() {
@@ -337,6 +337,21 @@ fn e0017_and_w0022_explanations_in_both_languages() {
     let tr = explanation(Lang::Tr, ErrorCode::W0022);
     assert!(tr.title.contains("create_clock"), "{}", tr.title);
     assert!(tr.fix.contains("frequency = 25_175.khz"), "{}", tr.fix);
+}
+
+#[test]
+fn e0018_explanation_in_both_languages() {
+    let en = explanation(Lang::En, ErrorCode::E0018);
+    assert!(en.title.contains("too deep"), "{}", en.title);
+    assert!(en.summary.contains("256"), "{}", en.summary);
+    assert!(en.why.contains("stack overflow"), "{}", en.why);
+    assert!(en.why.contains("else if"), "{}", en.why);
+    assert!(en.example.contains("E0018"), "{}", en.example);
+    assert!(en.note.unwrap().contains("64 MB"));
+    let tr = explanation(Lang::Tr, ErrorCode::E0018);
+    assert!(tr.title.contains("çok derin"), "{}", tr.title);
+    assert!(tr.why.contains("yığın taşması"), "{}", tr.why);
+    assert!(tr.example.contains("E0018"), "{}", tr.example);
 }
 
 #[test]

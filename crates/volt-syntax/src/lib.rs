@@ -5,10 +5,14 @@
 pub mod lexer;
 pub mod parser;
 pub mod span;
+pub mod stack;
 pub mod token;
 
 pub use lexer::{tokenize, tokenize_with_trivia, LexOutput};
-pub use parser::{monomorphize, parse, parse_expr, parse_unit, GeneratedSource, ParseResult};
+pub use parser::{
+    monomorphize, parse, parse_expr, parse_unit, GeneratedSource, ParseResult, MAX_DEPTH,
+};
+pub use stack::{with_compiler_stack, COMPILER_STACK_SIZE};
 pub use token::{Token, TokenKind};
 // Geriye uyumluluk re-export'u: Span tipleri volt-span'den gelir.
 pub use volt_span::{FileId, Span};

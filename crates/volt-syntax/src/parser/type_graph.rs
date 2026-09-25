@@ -27,6 +27,7 @@ use volt_ast::{
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use super::depth::{err_type_too_deep, MAX_DEPTH};
 use super::Parser;
 
 /// Tip bildiriminin türü (tanı metni için).
@@ -413,6 +414,66 @@ fn cycle_diagnostics(graph: &Graph) -> (Vec<Diagnostic>, Vec<usize>) {
     (diags, cyclic)
 }
 
+/// Açılmış tip derinliği (ADR-0080): bir tip, takma ad / alan / varyant
+/// zinciri boyunca açıldığında [`MAX_DEPTH`]'ten derin olamaz — tip
+/// denetimi, genişlik hesabı ve SV üretimi tipleri özyinelemeyle açar;
+/// parser'ın ağaç sınırı tek `TypeRef`'i sınırlar, bildirimden bildirime
+/// uzanan zinciri sınırlamaz. Döngüdeki kenarlar E4009 aldı, sayılmaz.
+/// Tanı zincirin sınırı İLK aştığı bildirimde (tek tanı / zincir).
+fn depth_diagnostics(types: &Arena<TypeRef>, graph: &Graph) -> Vec<Diagnostic> {
+    let comp = graph.components();
+    // Tarjan bileşenleri ters topolojik sırada numaralar: hedefler önce.
+    let mut order: Vec<usize> = (0..graph.nodes.len()).collect();
+    order.sort_by_key(|&i| comp[i]);
+    let mut depth = vec![0u32; graph.nodes.len()];
+    let mut diags = Vec::new();
+    for i in order {
+        let node = &graph.nodes[i];
+        let mut d = 1u32;
+        let mut inherited = false;
+        for (m, ts) in node.members.iter().zip(&node.targets) {
+            let own = m
+                .types
+                .iter()
+                .map(|&t| type_height(types, t))
+                .max()
+                .unwrap_or(0);
+            let below = ts
+                .iter()
+                .filter(|&&w| comp[w] != comp[i])
+                .map(|&w| depth[w])
+                .max()
+                .unwrap_or(0);
+            inherited |= below > MAX_DEPTH;
+            d = d.max(own.saturating_add(below).saturating_add(1));
+        }
+        depth[i] = d;
+        if d > MAX_DEPTH && !inherited {
+            diags.push(err_type_too_deep(&node.name));
+        }
+    }
+    diags
+}
+
+/// Tek `TypeRef` ağacının yüksekliği (yinelemeli).
+fn type_height(types: &Arena<TypeRef>, ty: Idx<TypeRef>) -> u32 {
+    let mut max = 0;
+    let mut stack = vec![(ty, 1u32)];
+    while let Some((t, h)) = stack.pop() {
+        max = max.max(h);
+        match &types[t].kind {
+            TypeRefKind::Array { elem, .. } => stack.push((*elem, h + 1)),
+            TypeRefKind::Tuple(items) => stack.extend(items.iter().map(|&i| (i, h + 1))),
+            TypeRefKind::Path { args, .. } => stack.extend(args.iter().filter_map(|a| match a {
+                GenericArg::Type(t) => Some((*t, h + 1)),
+                GenericArg::Const(_) => None,
+            })),
+            _ => {}
+        }
+    }
+    max
+}
+
 /// `cyclic` düğümlerine ulaşan her düğümün adı (ters kenarlarda BFS).
 fn reaching_names(graph: &Graph, cyclic: Vec<usize>) -> HashSet<String> {
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); graph.nodes.len()];
@@ -450,6 +511,11 @@ impl Parser<'_> {
             .filter_map(|&i| decl_of(types, &self.ast.items_arena[i].kind));
         let graph = Graph::build(types, decls);
         let (mut diags, cyclic) = cycle_diagnostics(&graph);
+        // Parser bu dosyada ağacı zaten kestiyse (derin tek tip de burada
+        // yeniden sayılırdı) ikinci E0018 yok: dosya başına bir (ADR-0080).
+        if !self.depth_reported {
+            diags.extend(depth_diagnostics(types, &graph));
+        }
         self.recursive_types = reaching_names(&graph, cyclic);
         for node in &graph.nodes {
             if node.kind == DeclKind::StructPort && !node.params.is_empty() {

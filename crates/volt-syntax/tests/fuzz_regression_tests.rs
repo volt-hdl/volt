@@ -109,3 +109,34 @@ fn pattern_clone_budget_fuzz_findings_parse_fast_with_a_bounded_ast() {
         assert!(nodes < 300_000, "{name}: {nodes} AST düğümü");
     }
 }
+
+/// Yığın taşması sınıfı (ADR-0080): `stack_*` girdilerinin her biri
+/// düzeltmeden önce derleyiciyi abort ettiriyordu (ADR-0068 §6 bulgusu:
+/// 30 000 terimlik zincir generic şablonda Cloner'da, düz modülde
+/// denetimde). Şimdi tek E0018, bir saniyenin altında.
+#[test]
+fn stack_depth_fuzz_findings_report_one_e0018_quickly() {
+    let inputs: Vec<PathBuf> = regression_inputs()
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("stack_")
+        })
+        .collect();
+    assert!(inputs.len() >= 14, "{} stack_ girdisi", inputs.len());
+    for path in inputs {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let src = std::fs::read_to_string(&path).expect("girdi okunmalı");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let res = parse(FileId(0), &src);
+            let _ = tx.send(res.error_codes());
+        });
+        let codes = rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or_else(|_| panic!("{name}: 1 s içinde ayrışmalı"));
+        assert_eq!(codes, ["E0018"], "{name}");
+    }
+}

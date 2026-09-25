@@ -157,6 +157,18 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
         .with_note(
             "The generated names follow the Vivado / Design Compiler convention: registers become get_cells {name_reg*}, sub-module signals get the instance prefix (fb/mem_reg*). set_clock_groups -asynchronous is derived from the domains without any attribute; sync()/AsyncFifo/HandshakeSync/PulseSync/AsyncDualPortRam crossings get set_false_path automatically.",
         ),
+        E0018 => Explanation::new(
+            "Nesting or chain too deep",
+            "An expression, block, type, pattern or declaration chain is deeper than the compiler's limit (256 levels). The part past the limit is skipped and not compiled.",
+            "Every stage of the compiler after the parser walks the syntax tree recursively. A stack overflow in Rust is not an error the compiler can report: the process is killed, and in an editor the language server dies with it. So the depth is bounded in one place (ADR-0080): the parser never builds a tree deeper than the limit, and the type declaration chains the later stages expand (type alias to type alias, struct field of struct type, enum variant payload) are bounded the same way.
+
+What counts as a level: every nested parenthesis, block, 'if', 'match' and type; and also every link of a chain that looks flat in the source. 'a + b + c + ...' is a tree whose depth grows by one per operator, and the same holds for 'x[0][1]...', 'a.b.c...', 'a as u8 as u8', and 'if ... else if ... else if ...'. Real designs stay far below the limit: the deepest expression in the examples and the test suite is a few dozen levels. A chain of hundreds of terms is almost always generated code, and a balanced form is both shallower and better hardware (a tree of adders has logarithmic, not linear, delay).",
+            "y = a0 ^ a1 ^ a2 ^ ... ^ a299        // ✗ E0018: 299 links in one chain",
+            "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ two halves, each 149 links\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
+        )
+        .with_note(
+            "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux).",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",

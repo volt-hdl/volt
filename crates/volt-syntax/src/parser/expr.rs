@@ -13,7 +13,7 @@ use volt_span::Span;
 use crate::token::TokenKind;
 use crate::token::TokenKind::*;
 
-use super::{Parser, MAX_DEPTH};
+use super::Parser;
 
 /// (left_bp, right_bp) — operator-precedence.md §3 değerleri.
 fn infix_binding_power(op: BinOp) -> (u8, u8) {
@@ -91,30 +91,39 @@ impl Parser<'_> {
     }
 
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Idx<Expr> {
-        // Derinlik sınırı: patolojik iç içelikte yığın taşması yerine tanı
-        if self.depth >= MAX_DEPTH {
-            let span = self.bump(); // ilerleme garantisi
-            self.push_error(Diagnostic::error(
-                ErrorCode::E0001,
-                lstr!(en: "expression is nested too deeply"; tr: "ifade çok derin iç içe"),
-                LabeledSpan::primary(
-                    span,
-                    lstr!(en: "nesting depth limit exceeded"; tr: "derinlik sınırı aşıldı"),
-                ),
-                lstr!(en: "split the expression using intermediate let bindings"; tr: "ifadeyi ara let bağlamalarıyla bölün"),
-            ));
+        // Derinlik sınırı (ADR-0080): sınırdaki alt ifade tek E0018 ile
+        // atlanır — yığın taşması yerine tanı.
+        let entry = self.depth;
+        if !self.descend(self.current_span()) {
+            let span = self.skip_nested_group();
             return self.alloc_error_expr(span);
         }
-        self.depth += 1;
-        let result = self.parse_expr_bp_inner(min_bp);
-        self.depth -= 1;
+        let result = self.parse_expr_bp_inner(min_bp, entry);
+        self.depth = entry;
         result
     }
 
-    fn parse_expr_bp_inner(&mut self, min_bp: u8) -> Idx<Expr> {
+    /// Zincirin bir halkası (ikili operatör ya da postfix) ağacı bir kat
+    /// derinleştirir. Sınırda zincir KESİLİR: `lhs` Error yaprağı olur ve
+    /// kalan halkalar girişteki derinlikte ayrıştırılıp atılır (ADR-0080).
+    fn chain_link(&mut self, entry: u32, lhs: &mut Idx<Expr>, cut: &mut Option<Idx<Expr>>) {
+        if cut.is_some() {
+            return;
+        }
+        if !self.descend(self.current_span()) {
+            let leaf = self.alloc_error_expr(self.ast.exprs[*lhs].span);
+            *lhs = leaf;
+            *cut = Some(leaf);
+            self.depth = entry + 1;
+        }
+    }
+
+    fn parse_expr_bp_inner(&mut self, min_bp: u8, entry: u32) -> Idx<Expr> {
         let start = self.pos;
         let mut lhs = self.parse_prefix();
         let mut lhs_is_comparison = false;
+        // Zincir kesildiyse Error yaprağı; her halkadan sonra lhs ona döner.
+        let mut cut: Option<Idx<Expr>> = None;
 
         while let Some(kind) = self.current() {
             // ─── Postfix: [] . () as — bp 23 ───
@@ -122,7 +131,9 @@ impl Parser<'_> {
                 if POSTFIX_BP < min_bp {
                     break;
                 }
+                self.chain_link(entry, &mut lhs, &mut cut);
                 lhs = self.parse_postfix(lhs, start);
+                lhs = cut.unwrap_or(lhs);
                 lhs_is_comparison = false;
                 continue;
             }
@@ -153,6 +164,7 @@ impl Parser<'_> {
                 );
             }
 
+            self.chain_link(entry, &mut lhs, &mut cut);
             let op_span = self.current_span();
             self.bump_any(); // operatörü tüket
 
@@ -178,6 +190,7 @@ impl Parser<'_> {
                 span,
                 kind: ExprKind::Binary { op, lhs, rhs },
             });
+            lhs = cut.unwrap_or(lhs);
             lhs_is_comparison = op.is_comparison();
         }
 
@@ -536,6 +549,10 @@ impl Parser<'_> {
             );
             self.alloc_error_expr(self.current_span())
         };
+        if self.cut_by_depth() {
+            // Gövde derinlik atlamasıyla gitti (ADR-0080): tek E0018 yeter.
+            return self.alloc_error_expr(self.span_from(start));
+        }
 
         let open = self.current_span();
         self.expect(
@@ -734,10 +751,61 @@ impl Parser<'_> {
     }
 
     /// `if cond { expr } else { expr }` — else ZORUNLU (E0008).
+    ///
+    /// `else if` zinciri döngüyle ayrıştırılır (ADR-0080): ağaçta her
+    /// halka bir kat derinleştirir, sınırda zincirin kalanı girişteki
+    /// derinlikte ayrıştırılıp atılır ve son `else` Error olur.
     fn parse_if_expr(&mut self) -> Idx<Expr> {
-        let start = self.pos;
-        self.bump_any(); // if
-        let cond = self.parse_expr_no_struct_lit();
+        let entry = self.depth;
+        // (başlangıç tokenı, koşul, then) — iç içe If düğümleri sondan kurulur.
+        let mut links: Vec<(usize, Idx<Expr>, Idx<Expr>)> = Vec::new();
+        let mut cut = false;
+        let else_expr = loop {
+            let start = self.pos;
+            self.bump_any(); // if
+            let cond = self.parse_expr_no_struct_lit();
+            let then_expr = self.parse_if_expr_body();
+            if !cut {
+                links.push((start, cond, then_expr));
+            }
+            if !self.eat(KwElse) {
+                break self.if_expr_missing_else(start);
+            }
+            if !self.at(KwIf) {
+                break self.parse_if_expr_else_body();
+            }
+            if !cut && !self.descend(self.current_span()) {
+                cut = true;
+                self.depth = entry;
+            }
+        };
+        self.depth = entry;
+        let else_expr = if cut {
+            self.alloc_error_expr(self.ast.exprs[else_expr].span)
+        } else {
+            else_expr
+        };
+        links
+            .into_iter()
+            .rev()
+            .fold(else_expr, |else_expr, (start, cond, then_expr)| {
+                let span = self.span_from(start);
+                self.ast.exprs.alloc(Expr {
+                    span,
+                    kind: ExprKind::If {
+                        cond,
+                        then_expr,
+                        else_expr,
+                    },
+                })
+            })
+    }
+
+    /// `{ değer }` — if ifadesinin then gövdesi.
+    fn parse_if_expr_body(&mut self) -> Idx<Expr> {
+        if self.cut_by_depth() {
+            return self.alloc_error_expr(self.current_span());
+        }
         let open = self.current_span();
         self.expect(
             LBrace,
@@ -746,50 +814,44 @@ impl Parser<'_> {
         );
         let then_expr = self.parse_expr();
         self.expect_closing(RBrace, "}", open);
+        then_expr
+    }
 
-        let else_expr = if self.eat(KwElse) {
-            if self.at(KwIf) {
-                self.parse_if_expr()
-            } else {
-                let open = self.current_span();
-                self.expect(
-                    LBrace,
-                    &lstr!(en: "'{{' for the 'else' body"; tr: "'else' gövdesi için '{{'"),
-                    &lstr!(en: "write it as else {{ value }}"; tr: "else {{ deger }} biçiminde yazın"),
-                );
-                let e = self.parse_expr();
-                self.expect_closing(RBrace, "}", open);
-                e
-            }
-        } else {
-            // E0008 — eksik else latch riski (error-recovery.md §6.3)
-            self.push_error(
-                Diagnostic::error(
-                    ErrorCode::E0008,
-                    lstr!(en: "'if' expression requires an 'else' branch"; tr: "'if' ifadesinde 'else' dalı zorunlu"),
-                    LabeledSpan::primary(
-                        self.span_from(start),
-                        lstr!(en: "missing else branch"; tr: "else dalı eksik"),
-                    ),
-                    lstr!(en: "add else {{ default_value }}"; tr: "else {{ varsayilan_deger }} ekleyin"),
-                )
-                .with_note(
-                    NoteKind::Reason,
-                    lstr!(en: "a missing branch produces a latch in hardware"; tr: "eksik dal donanımda latch üretir"),
+    /// `else { değer }` gövdesi.
+    fn parse_if_expr_else_body(&mut self) -> Idx<Expr> {
+        if self.cut_by_depth() {
+            return self.alloc_error_expr(self.current_span());
+        }
+        let open = self.current_span();
+        self.expect(
+            LBrace,
+            &lstr!(en: "'{{' for the 'else' body"; tr: "'else' gövdesi için '{{'"),
+            &lstr!(en: "write it as else {{ value }}"; tr: "else {{ deger }} biçiminde yazın"),
+        );
+        let e = self.parse_expr();
+        self.expect_closing(RBrace, "}", open);
+        e
+    }
+
+    /// E0008 — eksik else latch riski (error-recovery.md §6.3); `start`
+    /// else'i eksik olan `if`'in ilk tokenı.
+    fn if_expr_missing_else(&mut self, start: usize) -> Idx<Expr> {
+        self.push_error(
+            Diagnostic::error(
+                ErrorCode::E0008,
+                lstr!(en: "'if' expression requires an 'else' branch"; tr: "'if' ifadesinde 'else' dalı zorunlu"),
+                LabeledSpan::primary(
+                    self.span_from(start),
+                    lstr!(en: "missing else branch"; tr: "else dalı eksik"),
                 ),
-            );
-            self.alloc_error_expr(self.current_span())
-        };
-
-        let span = self.span_from(start);
-        self.ast.exprs.alloc(Expr {
-            span,
-            kind: ExprKind::If {
-                cond,
-                then_expr,
-                else_expr,
-            },
-        })
+                lstr!(en: "add else {{ default_value }}"; tr: "else {{ varsayilan_deger }} ekleyin"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a missing branch produces a latch in hardware"; tr: "eksik dal donanımda latch üretir"),
+            ),
+        );
+        self.alloc_error_expr(self.current_span())
     }
 
     pub(crate) fn parse_name(&mut self) -> Name {
