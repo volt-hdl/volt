@@ -839,6 +839,7 @@ impl<'a> Emitter<'a> {
         // izleyiciler) zincir adı geçiyorsa her hâlükârda üretilir.
         let sva_owned = self.sva_files.get(sva_before).map(|f| f.content.clone());
         let sva_text = sva_owned.as_deref();
+        self.silence_unread_builtin_outputs(&mut body_chunks, sva_text);
         let synchronizers: Vec<String> = clocks
             .iter()
             .filter(|c| {

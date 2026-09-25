@@ -45,3 +45,6 @@ module M {
     rx.ready = true
     seen = rx.valid && rx.data.x.b
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the fixture shows the type graph only; the ports are not read

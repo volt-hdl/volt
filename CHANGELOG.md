@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — çıktı doğrulama ağı (2026-09-25, ADR-0079 Bölüm 1)
+
+- **Üretilen her çıktı CI'da gerçek tüketicisine verilir** (`volt-driver`
+  `output_net_tests`, `scripts/sta/sweep.py`): korpus `tests/ui/pass`,
+  `examples/`, `tests/fixtures` (122 tasarım). SV ve SVA (`.sva` + bind,
+  satır içi) → Verilator `-Wall`; SV → Yosys (`hierarchy -check`, `proc`,
+  `check -assert`); XDC → Tcl kapısı; SDC (iki stil) → OpenSTA `read_sdc`,
+  her `get_cells` bir hücre bulmalı; C başlığı → `cc`/`c++ -Werror
+  -pedantic`; Rust → `rustc -D warnings`; regmap JSON → `volt-regmap/1`
+  şeması + `volt check-regmap`. Hata her zaman, `-Wall`/Yosys uyarısı
+  gerekçeli işaret yoksa düşürür (`//~ LINT-ALLOW`, `YOSYS-ALLOW`,
+  `SYNTH-SKIP`, `NET-SKIP`; bayat işaret de düşürür).
+- **Ağın ilk koşuda bulduğu derleyici hataları düzeltildi:** tekli işleç
+  + boyut dönüşümü (`-9'(a)`) Yosys'te hataydı → `-(9'(a))`; alt modül
+  portundan başlayan senkronizör kısıtı `-from [get_pins …]` OpenSTA'da
+  geçersiz başlangıç noktasıydı ve yok sayılıyordu → `-through`; `.sva`
+  kontrol modülü ve okunmayan yerleşik primitif çıkışı Verilator `-Wall`
+  kirliydi → susturma (ADR-0072 kuralı primitiflere).
+- **CI:** Verilator lint işi runner imajıyla kayan apt Verilator (5.020)
+  yerine formal/timing işleriyle aynı sabitlenmiş OSS CAD Suite'i kullanır
+  (5.020, geçerli SV olan 64'ten uzun dizi sıfırlama döngüsünü derleyemiyor).
+
 ### Düzeltildi — hedef dilin ayrılmış sözcüğü olan adlar (2026-09-25, ADR-0078)
 
 - **SystemVerilog anahtar sözcüğü artık SV adı olamaz: YENİ E1013.**

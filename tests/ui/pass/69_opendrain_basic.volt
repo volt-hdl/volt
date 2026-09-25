@@ -56,3 +56,7 @@ module OpenDrainBus {
     line  = sda_bus
     lvl_a = pa.level
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: 'pull_r' is a ghost register read only by the contracts
+//~ SYNTH-SKIP: the shared bus is a 'tri1' pull-up net (board-level pull-up of the open-drain line); Yosys cannot parse the 'tri1' net type

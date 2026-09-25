@@ -22,3 +22,6 @@ module PartSelect {
     one_bit   = data[bit_i]
     reg_byte  = acc
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: WIDTHEXPAND: 'bit_i : u3' deliberately indexes the 32-bit vector with a narrow index (bits 0..7 only)

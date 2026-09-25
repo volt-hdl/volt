@@ -22,3 +22,6 @@ module TwoAdders {
     out1 = add1.s
     out2 = add2.s
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the combinational top declares 'clk' for its interface and never reads it

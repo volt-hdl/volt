@@ -104,6 +104,12 @@ fn lit_prec(text: &str) -> u8 {
     }
 }
 
+/// `9'(a)` biçimi: ondalık genişlik + `'(` (boyut dönüşümü).
+fn starts_with_size_cast(text: &str) -> bool {
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && text[digits..].starts_with("'(")
+}
+
 fn is_arith(op: BinOp) -> bool {
     matches!(
         op,
@@ -517,7 +523,15 @@ impl<'a> Emitter<'a> {
                 } else {
                     self.emit_operand(operand, ctx, PREC_UNARY, false)
                 };
-                (format!("{sym}{inner}"), PREC_UNARY)
+                // Yosys (0.66) tekli işleçten hemen sonraki boyut
+                // dönüşümünü (`-9'(a)`, `~9'(a)`) "Static cast with zero or
+                // negative size" ile reddeder; parantez anlamı değiştirmez
+                // (ADR-0079 §1.3).
+                if starts_with_size_cast(&inner) {
+                    (format!("{sym}({inner})"), PREC_UNARY)
+                } else {
+                    (format!("{sym}{inner}"), PREC_UNARY)
+                }
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let (op, lhs, rhs) = (*op, *lhs, *rhs);

@@ -28,12 +28,35 @@ jobs:
   integration:
     name: Verilator lint
     runs-on: ubuntu-latest
+    # ADR-0079: Verilator comes from the same pinned, cached OSS CAD Suite as
+    # the formal and timing jobs. The apt package floated with the runner
+    # image (5.020 on ubuntu-24.04) and cannot build valid SV such as a
+    # delayed array reset loop longer than 64 (BLKLOOPINIT,
+    # examples/riscv_sw/hello_soc.volt).
+    env:
+      OSS_CAD_SUITE_DATE: 2026-09-21
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install Verilator
-        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (verilator), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put Verilator on PATH
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/verilator" --version
       - name: Compile counter.volt
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
       # ADR-0024: the output file name derives from the module name
@@ -55,6 +78,14 @@ jobs:
       # the tool is missing).
       - name: Reserved-word names (real Verilator)
         run: cargo test -p volt-driver --test reserved_name_tests
+      # ADR-0079 output net: every generated SV and SVA (.sva + bind, inline)
+      # through Verilator -Wall, every C header through cc/c++ -Werror, every
+      # Rust driver through rustc -D warnings. The tools are installed in this
+      # job, so a missing one FAILS instead of skipping.
+      - name: Output net - Verilator, cc, c++, rustc (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
+        run: cargo test -p volt-driver --test output_net_tests -- verilator cc_ cxx_ rustc_
 
   consistency:
     name: Spec-code consistency
@@ -130,6 +161,13 @@ jobs:
           cargo run --bin volt -- verify --mode prove --depth 4 tests/fixtures/extern_source/ext_top.volt
       - name: Extern @source tests (real sby)
         run: cargo test -p volt-driver --test extern_source_tests
+      # ADR-0079 output net: every generated SV elaborated by Yosys
+      # (hierarchy -check, proc, check -assert), every .xdc evaluated by Tcl
+      # against the Vivado command subset. Yosys is required here.
+      - name: Output net - Yosys elaboration + XDC Tcl gate (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: yosys
+        run: cargo test -p volt-driver --test output_net_tests -- yosys
 
   timing:
     name: Timing constraints (OpenSTA second net)
@@ -194,6 +232,12 @@ jobs:
         env:
           VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
         run: python3 scripts/sta/run.py --design examples/hybrid_accel/hybrid_top.volt --top HybridTop
+      # ADR-0079 output net: every .sdc the corpus produces (both styles)
+      # read by OpenSTA -- no Error/Warning, every get_cells pattern names a cell.
+      - name: Output net - every .sdc through OpenSTA read_sdc (ADR-0079)
+        env:
+          VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
+        run: python3 scripts/sta/sweep.py
       - name: Upload OpenSTA reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -205,6 +249,7 @@ jobs:
             build/sta/*/*.yosys.log
             build/sta/*/*_named.v
             build/sta/*/*.sdc
+            build/sta/sweep/summary.md
 
   coverage:
     name: Coverage (informational)

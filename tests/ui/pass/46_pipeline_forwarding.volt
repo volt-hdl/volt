@@ -36,3 +36,6 @@ pipeline(4) Fwd {
 
     q = stage(Wb).res
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the pipeline forwards only the low bits of the fetched instruction

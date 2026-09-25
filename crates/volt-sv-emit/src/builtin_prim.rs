@@ -1392,6 +1392,78 @@ impl<'a> Emitter<'a> {
         let monitor = self.sim_monitor(clock, verb, expr, &id, 4);
         format!("    // verilator lint_off WIDTH\n{monitor}\n    // verilator lint_on WIDTH\n")
     }
+
+    /// Hiçbir yerde okunmayan primitif çıkışının bildirimi Verilator
+    /// `UNUSEDSIGNAL` susturmasıyla sarılır (ADR-0079 §1.3): kullanıcı
+    /// modülü örnek çıkışlarında olduğu gibi (ADR-0072) bir çıkışı okumamak
+    /// meşrudur. Okuma: gövdede ya da gömülü SVA'da bildirim ve atama
+    /// hedefi dışındaki her geçiş; yalnız okunmayan çıkış değişir.
+    pub(crate) fn silence_unread_builtin_outputs(
+        &self,
+        chunks: &mut [String],
+        sva_text: Option<&str>,
+    ) {
+        let mut insts: Vec<(&String, &BuiltinInst)> = self.builtin_insts.iter().collect();
+        insts.sort_by(|a, b| a.0.cmp(b.0));
+        for (inst, info) in insts {
+            for port in info.prim.ports().iter().filter(|p| p.dir == PortDir::Out) {
+                let wire = format!("{inst}_{}", port.name);
+                let read = chunks.iter().any(|c| reads_ident(c, &wire))
+                    || sva_text.is_some_and(|s| crate::count_ident(s, &wire) > 0);
+                if read {
+                    continue;
+                }
+                for chunk in chunks.iter_mut() {
+                    if let Some(silenced) = silence_decl(chunk, &wire) {
+                        *chunk = silenced;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `    logic w;` / `    logic [7:0] w;` biçimindeki bildirim satırı mı?
+fn is_decl_of(line: &str, wire: &str) -> bool {
+    let t = line.trim();
+    t.ends_with(&format!(" {wire};")) && !t.contains('=') && !t.starts_with("assign ")
+}
+
+/// Satırın atama hedefi `wire` mı (`assign w =`, `w <=`, `w =`)?
+fn is_lhs_of(line: &str, wire: &str) -> bool {
+    let t = line.trim();
+    let t = t.strip_prefix("assign ").unwrap_or(t);
+    t.strip_prefix(wire)
+        .is_some_and(|rest| rest.starts_with(" <=") || rest.starts_with(" ="))
+}
+
+/// Metinde `wire` bildirim ve atama hedefi dışında geçiyor mu?
+fn reads_ident(text: &str, wire: &str) -> bool {
+    text.lines().any(|line| {
+        let n = crate::count_ident(line, wire);
+        let own = usize::from(is_decl_of(line, wire) || is_lhs_of(line, wire));
+        n > own
+    })
+}
+
+/// Bildirim satırını susturma yorumlarıyla sarar; satır yoksa `None`.
+fn silence_decl(chunk: &str, wire: &str) -> Option<String> {
+    let mut found = false;
+    let lines: Vec<String> = chunk
+        .split('\n')
+        .map(|line| {
+            if !found && is_decl_of(line, wire) {
+                found = true;
+                format!(
+                    "    // verilator lint_off UNUSEDSIGNAL\n{line}\n    // verilator lint_on UNUSEDSIGNAL"
+                )
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    found.then(|| lines.join("\n"))
 }
 
 /// SvaMode::Immediate formal init atamaları: primitifin tüm iç durum

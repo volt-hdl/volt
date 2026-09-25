@@ -62,3 +62,6 @@ module Bridge {
     }
     pix_d = dly.q
 }
+
+// Output net (ADR-0079):
+//~ NET-SKIP: the extern modules have no @source body on purpose (the fixture shows domain binding); the design is incomplete without external SV

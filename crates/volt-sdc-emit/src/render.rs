@@ -262,15 +262,25 @@ fn path_rule(r: &PathRule) -> String {
     }
 }
 
+/// Uç noktalar. Alt modül örneğinin portu (hiyerarşik pin) STA'da yolun
+/// başlangıcı ya da sonu olamaz — OpenSTA "not a valid start point" deyip
+/// kısıtı yok sayar, Vivado da aynı uyarıyı verir; yol o pinden GEÇER
+/// (`-through`, ADR-0079 §1.3).
 fn endpoints(r: &PathRule) -> String {
     let mut s = String::new();
+    let mut end = |flag: &str, t: &Target| {
+        let flag = if matches!(t, Target::Pin(_)) {
+            "-through"
+        } else {
+            flag
+        };
+        s.push_str(&format!(" {flag} {}", target(t)));
+    };
     if let Some(f) = &r.from {
-        s.push_str(" -from ");
-        s.push_str(&target(f));
+        end("-from", f);
     }
     if let Some(t) = &r.to {
-        s.push_str(" -to ");
-        s.push_str(&target(t));
+        end("-to", t);
     }
     s
 }
@@ -360,9 +370,11 @@ pub fn syntax_check(text: &str) -> Result<usize, String> {
             || cmd == "set_min_delay"
             || cmd == "set_multicycle_path"
             || cmd == "set_bus_skew")
-            && !(l.contains(" -from ") || l.contains(" -to "))
+            && !(l.contains(" -from ") || l.contains(" -to ") || l.contains(" -through "))
         {
-            return Err(format!("line {line_no}: {cmd} needs -from and/or -to"));
+            return Err(format!(
+                "line {line_no}: {cmd} needs -from and/or -to (or -through)"
+            ));
         }
         count += 1;
     }

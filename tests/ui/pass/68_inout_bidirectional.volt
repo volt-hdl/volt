@@ -71,3 +71,6 @@ module Board {
     rd_data = s.rd_data
     seen    = l.seen
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: 'write_r' is a ghost register read only by the driver-intent contracts

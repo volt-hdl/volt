@@ -26,3 +26,6 @@ module SpiCtrl {
     busy = busy_r
     done = done_r
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: 'speed' is read only by the requires/cover contracts, which live in the .sva file
