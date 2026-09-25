@@ -28,6 +28,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0015 => "MMIO register map layout error (ADR-0044)",
         E0016 => "declassify without a reason string (ADR-0052)",
         E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
+        E0018 => "Nesting or chain too deep (ADR-0080)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",

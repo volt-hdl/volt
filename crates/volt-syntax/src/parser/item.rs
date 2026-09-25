@@ -499,6 +499,11 @@ impl Parser<'_> {
         let open = self.bump(); // '<'
         let mut args = Vec::new();
         while !self.at(Gt) && !self.at(Shr) && !self.at_eof() && !self.at(LBrace) {
+            if self.cut_by_depth() {
+                // Argümanın kalanı derinlik atlamasıyla gitti (ADR-0080):
+                // `>` aranmaz, atlamanın durduğu token tüketilmez.
+                return args;
+            }
             let before = self.pos;
             match self.current() {
                 Some(
@@ -1300,8 +1305,20 @@ impl Parser<'_> {
     // ═══ Tipler ═══════════════════════════════════════════════════
 
     /// Tip ayrıştırma (grammar §6); tanınmazsa E0001 + Error tipi
-    /// (token TÜKETMEZ — çağıran bağlam kurtarır).
+    /// (token TÜKETMEZ — çağıran bağlam kurtarır). Derinlik sınırında
+    /// (ADR-0080) tip grubu tek E0018 ile atlanır.
     pub(crate) fn parse_type_or_error(&mut self) -> Idx<TypeRef> {
+        let entry = self.depth;
+        if !self.descend(self.current_span()) {
+            let span = self.skip_nested_group();
+            return self.alloc_error_type(span);
+        }
+        let ty = self.parse_type_inner();
+        self.depth = entry;
+        ty
+    }
+
+    fn parse_type_inner(&mut self) -> Idx<TypeRef> {
         let start = self.pos;
         let kind = match self.current() {
             Some(KwBool) => {

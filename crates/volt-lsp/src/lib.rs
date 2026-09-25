@@ -296,7 +296,10 @@ impl LanguageServer for Backend {
 /// Sunucuyu stdio üzerinden çalıştırır (`volt lsp` girişi). Kendi
 /// tokio çalışma zamanını kurar — driver senkron kalır.
 pub fn run_stdio() {
+    // İşçi iş parçacıkları analiz koşar (`did_change` → tokio::spawn):
+    // derleyici yığını (ADR-0080), tokio'nun 2 MB varsayılanı değil.
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        .thread_stack_size(volt_syntax::COMPILER_STACK_SIZE)
         .enable_all()
         .build()
         .expect("tokio çalışma zamanı kurulamalı");

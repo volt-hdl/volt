@@ -18,7 +18,7 @@ use crate::token::TokenKind::*;
 
 use super::expr::ABOVE_COMPARISON_BP;
 use super::recovery::{BLOCK_STMT_START, STMT_START};
-use super::{Parser, MAX_DEPTH};
+use super::Parser;
 
 /// `let` değeri iki üretimden birine gider (grammar §10 + §19 [N3]):
 /// düz bağlama ya da generic argümanlı modül örneklemesi.
@@ -530,18 +530,10 @@ impl Parser<'_> {
     pub(crate) fn parse_block(&mut self, ctx: BlockContext) -> Idx<Block> {
         let start = self.pos;
 
-        // Derinlik sınırı — patolojik iç içe blokta yığın koruması
-        if self.depth >= MAX_DEPTH {
-            let span = self.bump();
-            self.push_error(Diagnostic::error(
-                ErrorCode::E0001,
-                lstr!(en: "block is nested too deeply"; tr: "blok çok derin iç içe"),
-                LabeledSpan::primary(
-                    span,
-                    lstr!(en: "nesting depth limit exceeded"; tr: "derinlik sınırı aşıldı"),
-                ),
-                lstr!(en: "split the nested blocks into separate modules"; tr: "iç içe blokları ayrı modüllere bölün"),
-            ));
+        // Derinlik sınırı (ADR-0080): sınırdaki blok tek E0018 ile atlanır.
+        let entry = self.depth;
+        if !self.descend(self.current_span()) {
+            let span = self.skip_nested_group();
             return self.ast.blocks.alloc(Block {
                 span,
                 stmts: Vec::new(),
@@ -549,8 +541,16 @@ impl Parser<'_> {
                 context: ctx,
             });
         }
-        self.depth += 1;
 
+        if self.cut_by_depth() {
+            self.depth = entry;
+            return self.ast.blocks.alloc(Block {
+                span: self.current_span(),
+                stmts: Vec::new(),
+                tail: None,
+                context: ctx,
+            });
+        }
         let open = self.current_span();
         self.expect(
             LBrace,
@@ -570,7 +570,7 @@ impl Parser<'_> {
         }
 
         self.expect_closing(RBrace, "}", open);
-        self.depth -= 1;
+        self.depth = entry;
 
         let span = self.span_from(start);
         self.ast.blocks.alloc(Block {
@@ -624,6 +624,14 @@ impl Parser<'_> {
             );
             self.alloc_error_expr(self.current_span())
         };
+        if self.cut_by_depth() {
+            // Gövde derinlik atlamasıyla gitti (ADR-0080): tek E0018 yeter.
+            return MatchStmt {
+                span: self.span_from(start),
+                scrutinee,
+                arms: Vec::new(),
+            };
+        }
 
         let open = self.current_span();
         self.expect(
@@ -864,11 +872,56 @@ impl Parser<'_> {
         }
     }
 
+    /// `if` deyimi. `else if` zinciri döngüyle ayrıştırılır (ADR-0080):
+    /// ağaçta her halka bir kat (`ElseBranch::If`) derinleştirir; sınırda
+    /// zincirin kalanı girişteki derinlikte ayrıştırılıp atılır.
     pub(crate) fn parse_if_stmt(&mut self, ctx: BlockContext) -> IfStmt {
-        let start = self.pos;
-        self.bump_any(); // 'if'
+        let entry = self.depth;
+        // (başlangıç tokenı, koşul, then) — iç içe IfStmt'ler sondan kurulur.
+        let mut links: Vec<(usize, Idx<Expr>, Idx<Block>)> = Vec::new();
+        let mut cut = false;
+        let mut last_else = loop {
+            let start = self.pos;
+            self.bump_any(); // 'if'
+            let cond = self.parse_if_stmt_cond();
+            let then_block = self.parse_block(ctx);
+            if !cut {
+                links.push((start, cond, then_block));
+            }
+            if !self.eat(KwElse) {
+                break None; // deyim if'inde else opsiyonel (E0008 yalnız if-İFADESİ için)
+            }
+            if !self.at(KwIf) {
+                let block = self.parse_block(ctx);
+                break (!cut).then_some(ElseBranch::Block(block));
+            }
+            if !cut && !self.descend(self.current_span()) {
+                cut = true;
+                self.depth = entry;
+            }
+        };
+        self.depth = entry;
+        let mut links = links.into_iter().rev();
+        let (start, cond, then_block) = links.next().expect("en az bir halka");
+        let mut stmt = IfStmt {
+            span: self.span_from(start),
+            cond,
+            then_block,
+            else_branch: last_else.take(),
+        };
+        for (start, cond, then_block) in links {
+            stmt = IfStmt {
+                span: self.span_from(start),
+                cond,
+                then_block,
+                else_branch: Some(ElseBranch::If(Box::new(stmt))),
+            };
+        }
+        stmt
+    }
 
-        let cond = if self.at_expr_start() {
+    fn parse_if_stmt_cond(&mut self) -> Idx<Expr> {
+        if self.at_expr_start() {
             self.parse_expr_no_struct_lit()
         } else {
             self.error_expected(
@@ -876,25 +929,6 @@ impl Parser<'_> {
                 &lstr!(en: "write it as if cond {{ ... }}"; tr: "if koşul {{ ... }} biçiminde yazın"),
             );
             self.alloc_error_expr(self.current_span())
-        };
-
-        let then_block = self.parse_block(ctx);
-
-        let else_branch = if self.eat(KwElse) {
-            if self.at(KwIf) {
-                Some(ElseBranch::If(Box::new(self.parse_if_stmt(ctx))))
-            } else {
-                Some(ElseBranch::Block(self.parse_block(ctx)))
-            }
-        } else {
-            None // deyim if'inde else opsiyonel (E0008 yalnız if-İFADESİ için)
-        };
-
-        IfStmt {
-            span: self.span_from(start),
-            cond,
-            then_block,
-            else_branch,
         }
     }
 

@@ -2146,7 +2146,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 96, "ui/pass 96 dosya içermeli");
+    assert_eq!(total, 97, "ui/pass 97 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2183,10 +2183,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0074 ise 94-96'yı (enum FSM, modüller arası enum portu, açık
     // değerli enum), ADR-0077 ise 102-107'yi (struct portu, register +
     // alan ataması, iç içe/enum alanı, bits dönüşümü, bundle alanı,
-    // sync + kontrat) ekledi.
+    // sync + kontrat) ekledi; ADR-0080 ise 111'i (sınırın çok altında
+    // derin iç içelik).
     assert_eq!(
-        clean, 96,
-        "96/96 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 97,
+        "97/97 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2235,6 +2236,8 @@ fn ui_fail_files_produce_expected_codes() {
         ("80_recursive_handshake_payload.volt", "E4009"),
         ("81_recursive_bundle_via_plain.volt", "E4009"),
         ("82_generic_struct_port.volt", "E0003"),
+        // ADR-0080: ağaç derinliği sınırı
+        ("142_nesting_too_deep.volt", "E0018"),
     ];
     for (file, expected) in cases {
         let path = format!(

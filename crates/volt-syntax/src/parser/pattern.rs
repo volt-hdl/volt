@@ -15,6 +15,18 @@ impl Parser<'_> {
     /// `Pattern = Alternatif { "|" Alternatif }` — tek alternatif
     /// sarmalanmaz, birden çoğu `Or` düğümünde toplanır.
     pub(crate) fn parse_pattern(&mut self) -> Idx<Pattern> {
+        // Derinlik sınırı (ADR-0080): sınırdaki desen grubu tek E0018 ile atlanır.
+        let entry = self.depth;
+        if !self.descend(self.current_span()) {
+            let span = self.skip_nested_group();
+            return self.alloc_error_pattern(span);
+        }
+        let pat = self.parse_pattern_inner();
+        self.depth = entry;
+        pat
+    }
+
+    fn parse_pattern_inner(&mut self) -> Idx<Pattern> {
         let start = self.pos;
         let first = self.parse_pattern_atom();
         if !self.at(Pipe) {

@@ -386,6 +386,13 @@ impl From<VerifyModeArg> for SbyMode {
 }
 
 fn main() -> ExitCode {
+    // Tüm komutlar derleyici yığınında (ADR-0080): derinlik sınırındaki
+    // bir ağacı her geçit, her platformda yığını taşırmadan yürür
+    // (Windows ana iş parçacığı yalnız 1 MB).
+    volt_syntax::with_compiler_stack(run)
+}
+
+fn run() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
     MAX_DIAGNOSTICS.store(cli.max_diagnostics, Ordering::Relaxed);
