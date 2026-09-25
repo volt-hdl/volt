@@ -672,3 +672,27 @@ fn explain_e0017_and_w0022_in_both_languages() {
         assert!(stdout.contains(needle), "{code} {lang}: {stdout}");
     }
 }
+
+/// Alt modül portu (hiyerarşik pin) yolun başlangıcı değildir: OpenSTA
+/// `-from [get_pins {l/pin}]` için "not a valid start point" deyip kısıtı
+/// yok sayıyordu (ADR-0079 §1.3, SDC ağının ilk bulgusu). Yol pinden geçer.
+#[test]
+fn child_port_source_is_a_through_pin_not_a_start_point() {
+    let (target, out) = build("pin", &ui("pass/68_inout_bidirectional.volt"), "sdc,xdc");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for ext in ["sdc", "xdc"] {
+        let text = read(&target.join(format!("constraints/Board.{ext}")));
+        assert!(
+            text.contains(
+                "set_false_path -through [get_pins {l/pin}] -to [get_cells {l/sync_pin_stage0_reg*}]"
+            ),
+            "{ext}:\n{text}"
+        );
+        assert!(!text.contains("-from [get_pins"), "{ext}:\n{text}");
+    }
+    let _ = std::fs::remove_dir_all(&target);
+}

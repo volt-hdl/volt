@@ -38,3 +38,6 @@ module Lanes {
 
     invariant: sums[0] == sums[0]
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: only the low half of each generated 'plus1' lane reaches an output

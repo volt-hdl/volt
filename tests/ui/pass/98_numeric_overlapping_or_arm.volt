@@ -18,3 +18,6 @@ module M {
 
     y = r
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: CASEOVERLAP: the fixture keeps the overlapping '0 | 1' arm on purpose; SV case takes the first match, same as match

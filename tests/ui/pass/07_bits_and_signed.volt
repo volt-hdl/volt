@@ -17,3 +17,6 @@ module BitsAndSigned {
 
     sacc = acc
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the fixture shows bit selects; the unread bits of 'flags' are part of the example

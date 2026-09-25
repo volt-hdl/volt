@@ -51,3 +51,6 @@ module Responder {
     dbg.valid = rvalid_r
     dbg.data  = last_r
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the upper address bits and 'dbg_ready' are read only by the handshake contracts

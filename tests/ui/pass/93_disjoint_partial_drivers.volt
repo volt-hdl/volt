@@ -54,3 +54,6 @@ module Split {
     r0 = p0.r
     r1 = p1.r
 }
+
+// Output net (ADR-0079):
+//~ YOSYS-ALLOW: is assigned in a continuous assignment: ADR-0073 disjoint drivers -- 'lanes' elements 0..1 come from always_comb and 2..3 from assign (IEEE 1800 6.5 allows disjoint bits); Yosys only warns (open finding, ADR-0079)

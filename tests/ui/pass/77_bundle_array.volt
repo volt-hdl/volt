@@ -46,3 +46,6 @@ module Merge {
     invariant: rx[2].ready -> !rx[0].valid
     invariant: seen == prev(tx.valid)
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: 'seen' is a ghost register read only by the invariant

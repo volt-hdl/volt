@@ -2146,7 +2146,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 95, "ui/pass 95 dosya içermeli");
+    assert_eq!(total, 96, "ui/pass 96 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2185,8 +2185,8 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // alan ataması, iç içe/enum alanı, bits dönüşümü, bundle alanı,
     // sync + kontrat) ekledi.
     assert_eq!(
-        clean, 95,
-        "95/95 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 96,
+        "96/96 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

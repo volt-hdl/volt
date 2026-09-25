@@ -13,3 +13,6 @@ module WireAndWidths {
 
     big = (a as i64) - (b as i64)
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: the combinational module declares 'clk' for its interface and never reads it

@@ -324,7 +324,19 @@ impl<'a> Emitter<'a> {
 
         let mut content = header(self.source_name);
         content.push('\n');
-        content.push_str(&format!("module {checker_name} (\n{ports}\n);\n\n"));
+        // Verilator -Wall temizliği (ADR-0079): dosya adı build/formal/
+        // <modül>.sva düzenindedir, kontrol modülü `<modül>_sva` adını bind
+        // için taşır; portlar sinyalin tamamını gözler, özellik bir kısmını
+        // okuyabilir.
+        content.push_str(
+            "// checker for bind: the file keeps the <module>.sva name and the ports\n\
+             // observe whole signals of which a property may read only some bits\n\
+             // verilator lint_off DECLFILENAME\n\
+             // verilator lint_off UNUSEDSIGNAL\n",
+        );
+        content.push_str(&format!("module {checker_name} (\n{ports}\n);\n"));
+        content
+            .push_str("// verilator lint_on UNUSEDSIGNAL\n// verilator lint_on DECLFILENAME\n\n");
         if let Some(params) = self.enum_localparams(&sva_used, module.name.span) {
             content.push_str(&params);
             content.push_str("\n\n");

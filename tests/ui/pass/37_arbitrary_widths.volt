@@ -29,3 +29,6 @@ module ArbitraryWidths {
     y = acc
     z = a[0]
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: width examples; some bits of 'a' and the value 'neg' do not reach an output

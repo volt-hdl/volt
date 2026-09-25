@@ -51,3 +51,6 @@ module Keep {
 
     y = p.hi
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: CMPCONST: 'p.hi <= 3' is always true for 2 bits; the fixture shows contract syntax on struct fields

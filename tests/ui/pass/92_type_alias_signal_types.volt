@@ -19,3 +19,6 @@ module M {
     let z : Byte = w ^ (q[1] as u8)
     y = z
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: type alias example; some bits of 'q' are not read

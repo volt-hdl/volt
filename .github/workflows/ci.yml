@@ -55,6 +55,14 @@ jobs:
       # the tool is missing).
       - name: Reserved-word names (real Verilator)
         run: cargo test -p volt-driver --test reserved_name_tests
+      # ADR-0079 output net: every generated SV and SVA (.sva + bind, inline)
+      # through Verilator -Wall, every C header through cc/c++ -Werror, every
+      # Rust driver through rustc -D warnings. The tools are installed in this
+      # job, so a missing one FAILS instead of skipping.
+      - name: Output net - Verilator, cc, c++, rustc (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
+        run: cargo test -p volt-driver --test output_net_tests -- verilator cc_ cxx_ rustc_
 
   consistency:
     name: Spec-code consistency
@@ -130,6 +138,13 @@ jobs:
           cargo run --bin volt -- verify --mode prove --depth 4 tests/fixtures/extern_source/ext_top.volt
       - name: Extern @source tests (real sby)
         run: cargo test -p volt-driver --test extern_source_tests
+      # ADR-0079 output net: every generated SV elaborated by Yosys
+      # (hierarchy -check, proc, check -assert), every .xdc evaluated by Tcl
+      # against the Vivado command subset. Yosys is required here.
+      - name: Output net - Yosys elaboration + XDC Tcl gate (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: yosys
+        run: cargo test -p volt-driver --test output_net_tests -- yosys
 
   timing:
     name: Timing constraints (OpenSTA second net)
@@ -194,6 +209,12 @@ jobs:
         env:
           VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
         run: python3 scripts/sta/run.py --design examples/hybrid_accel/hybrid_top.volt --top HybridTop
+      # ADR-0079 output net: every .sdc the corpus produces (both styles)
+      # read by OpenSTA -- no Error/Warning, every get_cells pattern names a cell.
+      - name: Output net - every .sdc through OpenSTA read_sdc (ADR-0079)
+        env:
+          VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
+        run: python3 scripts/sta/sweep.py
       - name: Upload OpenSTA reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -205,6 +226,7 @@ jobs:
             build/sta/*/*.yosys.log
             build/sta/*/*_named.v
             build/sta/*/*.sdc
+            build/sta/sweep/summary.md
 
   coverage:
     name: Coverage (informational)
