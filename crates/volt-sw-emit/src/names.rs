@@ -1,47 +1,9 @@
 //! Ad dönüşümleri ve sayı biçimleri — dört üretici de bunları paylaşır.
 
-use volt_ast::mmio::{FieldDesc, FieldKind, RegDesc};
+use volt_ast::mmio::{FieldDesc, FieldKind};
 
-/// `GpioRegs` → `gpio_regs`, `UART2Ctrl` → `uart2_ctrl`, `gpio` → `gpio`.
-pub fn snake(name: &str) -> String {
-    let chars: Vec<char> = name.chars().collect();
-    let mut out = String::with_capacity(name.len() + 4);
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_ascii_uppercase() {
-            let prev_lower =
-                i > 0 && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
-            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_ascii_lowercase());
-            let prev_upper = i > 0 && chars[i - 1].is_ascii_uppercase();
-            if i > 0 && (prev_lower || (prev_upper && next_lower)) {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// `GpioRegs` → `GPIO_REGS`.
-pub fn upper_snake(name: &str) -> String {
-    snake(name).to_ascii_uppercase()
-}
-
-/// Rust/C dosya kökü: modül adının snake_case hali (`gpio_regs`).
-pub fn file_stem(module: &str) -> String {
-    snake(module)
-}
-
-/// Erişimci temel adı: tek adlandırılmış alanı olan register'da alan adı
-/// düşer (`direction`), birden çok alanda `reg_field` (`control_enable`).
-pub fn accessor(reg: &RegDesc, field: &FieldDesc) -> String {
-    if reg.named().count() == 1 {
-        reg.name.clone()
-    } else {
-        format!("{}_{}", reg.name, field.name)
-    }
-}
+// Ad kuralları parser'ın çarpışma denetimiyle (E1014) tek kaynaktan gelir.
+pub use volt_ast::mmio_names::{accessor, file_stem, rmw_local, upper_snake};
 
 /// Alanı taşıyan en dar Rust tam sayı tipi.
 pub fn rust_type(field: &FieldDesc) -> &'static str {

@@ -4,6 +4,8 @@
 //! dilim, örnek bağlantısı, lint susturması), parite ve golden ilkesi
 //! (struct kullanmayan tasarımın çıktısı değişmez).
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -497,16 +499,8 @@ fn designs_without_struct_signals_emit_the_same_sv() {
 // ═══ Simülasyon (Karar 6 — test dili; gerçek Verilator) ═══════════════
 
 fn have_verilator() -> bool {
-    if std::env::var_os("VOLT_VERILATOR").is_some_and(|p| Path::new(&p).is_file()) {
-        return true;
-    }
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|dir| {
-            ["verilator", "verilator.exe"]
-                .iter()
-                .any(|name| dir.join(name).is_file())
-        })
-    })
+    // ADR-0079 §3: VOLT_REQUIRE_TOOLS=verilator ise yokluk atlama değil hata.
+    tools::require(tools::Tool::Verilator).is_some()
 }
 
 const ALU: &str = "enum Op { Add, Sub, Pass }

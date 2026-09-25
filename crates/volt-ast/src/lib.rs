@@ -11,6 +11,7 @@ pub mod builtin;
 pub mod enum_layout;
 pub mod match_cover;
 pub mod mmio;
+pub mod mmio_names;
 pub mod reserved;
 pub mod reset_chain;
 pub mod struct_layout;

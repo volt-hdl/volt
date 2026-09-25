@@ -4,6 +4,8 @@
 //! (yalın), `tests/ui/pass/58` (her erişim türü), `tests/ui/pass/72`
 //! (doc yorumları + tüm alan nitelikleri).
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -263,19 +265,9 @@ fn generated_rust_drivers_pass_cargo_check_in_a_no_std_crate() {
 }
 
 /// Ortamdaki C derleyicisi (`CC`, gcc, cc, clang); yoksa None.
-fn find_cc() -> Option<String> {
-    let mut candidates: Vec<String> = Vec::new();
-    if let Ok(cc) = std::env::var("CC") {
-        candidates.push(cc);
-    }
-    candidates.extend(["gcc", "cc", "clang"].map(String::from));
-    candidates.into_iter().find(|c| {
-        Command::new(c)
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
+fn find_cc() -> Option<PathBuf> {
+    // ADR-0079 §3: `CC` > gcc > cc > clang; VOLT_REQUIRE_TOOLS=cc ise yokluk hata.
+    tools::require(tools::Tool::Cc)
 }
 
 /// Üretilen başlıklar `gcc -fsyntax-only` (C99, -Wall -Wextra -Werror)
@@ -333,7 +325,8 @@ fn generated_c_headers_pass_c_compiler_syntax_check() {
                 .expect("C derleyicisi çalışmalı");
             assert!(
                 output.status.success(),
-                "{cc} -fsyntax-only başarısız:\n{}",
+                "{} -fsyntax-only başarısız:\n{}",
+                cc.display(),
                 String::from_utf8_lossy(&output.stderr)
             );
         }

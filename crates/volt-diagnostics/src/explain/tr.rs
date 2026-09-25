@@ -250,6 +250,14 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
             "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
         )
         .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        E1014 => Explanation::new(
+            "İki @mmio adı register haritası sürücüsünde aynı tanımlayıcıyı üretiyor",
+            "Bir @mmio register haritası için üretilen Rust ya da C sürücüsü bu tanımlayıcıyı iki kez tanımlardı.",
+            "Sürücüler adlarını sizinkilerden kurar: 'ctrl' register'ı 'ctrl_raw()' / 'CTRL_OFFSET', çok alanlı bir register'ın 'en' alanı 'ctrl_en()' / 'CTRL_EN_SHIFT' alır; C başlığı her şeyin önüne modülü koyar ('GPIO_CTRL', 'gpio_get_ctrl_en'). İki farklı ad buluşabilir: 'ctrl'in 'raw' alanı ile ham sözcük erişimcisi 'ctrl_raw'; 'irq.status_rx' alanı ile 'irq_status.rx' alanı ('irq_status_rx'); 'ctrl' ve 'Ctrl' register'ları (ikisi de 'CTRL_OFFSET'); 'new', 'read' ya da 'write' adlı bir register ile sürücünün kendi metotları; 'h' ya da 'base' adlı bir register ile başlığın 'GPIO_H' koruması ya da 'GPIO_BASE'; C setter parametresi olarak 'uint32_t' ya da bir makroyla aynı adlı alan; snake_case adı aynı dosyaya inen iki @mmio modülü ('GpioRegs' ve 'GPIORegs' ikisi de build/sw/gpio_regs.* yazar). Rust sürücüsü derlenmez, C başlığı biri ötekinin yerine geçerek sessizce bile derlenebilir, iki modül birbirinin dosyasının üzerine yazar. Volt iki adı da arkanızdan değiştirmez (ADR-0078): sürücü API'si yazılımın çağırdığı şeydir. İkisinden birini yeniden adlandırın.",
+            "@reg(offset = 0x00, access = ReadWrite)\nctrl : { raw : u8, en : bool, @reserved : bits<23> }   // ✗ E1014: 'ctrl_raw' iki kez",
+            "@reg(offset = 0x00, access = ReadWrite)\nctrl : { data : u8, en : bool, @reserved : bits<23> }  // ✓",
+        )
+        .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(

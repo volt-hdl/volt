@@ -250,6 +250,14 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
             "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
         )
         .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        E1014 => Explanation::new(
+            "Two @mmio names generate the same identifier in the register-map driver",
+            "The Rust or C driver generated for an @mmio register map would define this identifier twice.",
+            "The drivers build their names from yours: register 'ctrl' gets 'ctrl_raw()' / 'CTRL_OFFSET', a field 'en' of a multi-field register gets 'ctrl_en()' / 'CTRL_EN_SHIFT', and the C header prefixes everything with the module ('GPIO_CTRL', 'gpio_get_ctrl_en'). Two different names can meet: a field 'raw' of 'ctrl' and the raw-word accessor 'ctrl_raw'; field 'irq.status_rx' and field 'irq_status.rx' ('irq_status_rx'); registers 'ctrl' and 'Ctrl' (both 'CTRL_OFFSET'); a register named 'new', 'read' or 'write' and the driver's own methods; a register 'h' or 'base' and the header's 'GPIO_H' guard or 'GPIO_BASE'; a field named 'uint32_t' or like a macro as a C setter parameter; two @mmio modules whose snake_case name is the same file ('GpioRegs' and 'GPIORegs' both write build/sw/gpio_regs.*). The Rust driver would not compile, the C header may even compile with one definition silently replacing the other, and two modules would overwrite each other's files. Volt does not rename either name behind your back (ADR-0078): the driver API is what firmware calls. Rename one of the two.",
+            "@reg(offset = 0x00, access = ReadWrite)\nctrl : { raw : u8, en : bool, @reserved : bits<23> }   // ✗ E1014: 'ctrl_raw' twice",
+            "@reg(offset = 0x00, access = ReadWrite)\nctrl : { data : u8, en : bool, @reserved : bits<23> }  // ✓",
+        )
+        .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(

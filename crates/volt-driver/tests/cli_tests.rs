@@ -1,6 +1,8 @@
 //! volt CLI entegrasyon testleri — cli-contract.md §2 çıkış kodları,
 //! §5 build/format, F2c aşamalı anlamsal boru hattı (CDC dahil).
 
+mod tools;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -807,12 +809,9 @@ fn build_target_dir_without_value_is_usage_error_exit_2() {
 
 /// PATH'te gerçek sby var mı? (Gerçek-araç testleri yoksa SKIP eder.)
 fn sby_on_path() -> bool {
-    std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .any(|d| d.join("sby").is_file() || d.join("sby.exe").is_file())
-        })
-        .unwrap_or(false)
+    // ADR-0079 §3: VOLT_REQUIRE_TOOLS=sby ise yokluk atlama değil hata;
+    // `volt verify` gibi önce VOLT_SBY'ye bakar.
+    tools::require(tools::Tool::Sby).is_some()
 }
 
 /// Sahte sby: verilen satırları basıp verilen kodla çıkan betik.

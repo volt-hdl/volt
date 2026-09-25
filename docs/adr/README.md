@@ -109,6 +109,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0064](ADR-0064-simulasyonda-kontratlar.md) | Simülasyonda kontratlar — `volt test` izleyicileri (immediate kalıbı + DPI), assume ihlali testi düşürür (ayrı sınıf), cover özeti, `--no-contracts` / `volt run --contracts` | K | 2026-09-21 |
 | [0061](ADR-0061-volt-toml-arama-tavani.md) | Volt.toml aramasına tavan — git kökü (kapsayıcı) + ev dizini (dışlayıcı), `VOLT_MANIFEST_DIR` geçersiz kılar | K | 2026-09-21 |
 | [0048](ADR-0048-zamanlama-kisitlari.md) | Zamanlama kısıtları — uygulanmayan nitelikler W0021 üretir, SDC üretimi V1 planı | K (2. bölüm ADR-0054 ile gerçeklendi) | 2026-09-14 |
+| [0079](ADR-0079-cikti-dogrulama-agi.md) | Çıktı doğrulama ağı — her çıktı gerçek tüketicisiyle (Verilator -Wall, Yosys, OpenSTA read_sdc, XDC Tcl kapısı, cc/c++/rustc, regmap şeması); uyarı yalnız gerekçeli fixture işaretiyle; `@mmio` sürücü ad çarpışması E1014; `VOLT_REQUIRE_TOOLS` (araçlı işte araç yoksa test düşer) | K | 2026-09-25 |
 
 ## Altyapı
 

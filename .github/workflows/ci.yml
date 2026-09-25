@@ -63,13 +63,25 @@ jobs:
       # (build/rtl/Counter.sv), so ZERO warnings are expected, DECLFILENAME included.
       - name: Verilator lint - ZERO warnings expected
         run: verilator --lint-only -Wall build/rtl/Counter.sv
+      # ADR-0079 section 3: the tools are installed in this job, so a test that
+      # needs one must FAIL when it is missing instead of skipping (the probe
+      # in require_tools_tests hides it on purpose). sim_bounds_tests and
+      # struct_tests ran only in the tool-less job before, i.e. never.
+      - name: Tool-required tests - missing tool fails (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator,cc
+        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests
       # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
       # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
       - name: Simulation contract monitors (volt test, real Verilator)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
         run: cargo test -p volt-driver --test sim_contract_tests
       # ADR-0076: extern bodies from @source reach Verilator (real-tool tests
       # skip only when the tool is missing; the step below fails instead).
       - name: Extern @source tests (real Verilator)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
         run: cargo test -p volt-driver --test extern_source_tests
       - name: Extern @source simulation (volt test) -> exit 0
         run: cargo run --bin volt -- test tests/fixtures/extern_source/ext_top_test.volt
@@ -77,6 +89,8 @@ jobs:
       # through Verilator's __SYM__ names (real-tool tests skip only when
       # the tool is missing).
       - name: Reserved-word names (real Verilator)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
         run: cargo test -p volt-driver --test reserved_name_tests
       # ADR-0079 output net: every generated SV and SVA (.sva + bind, inline)
       # through Verilator -Wall, every C header through cc/c++ -Werror, every
@@ -128,6 +142,12 @@ jobs:
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
           "$HOME/oss-cad-suite/bin/sby" --help > /dev/null
           "$HOME/oss-cad-suite/bin/yosys" -V
+      # ADR-0079 section 3: the real-sby CLI tests ran only in the tool-less
+      # job before (always skipped); sby is required here.
+      - name: Real-sby CLI tests - missing sby fails (ADR-0079)
+        env:
+          VOLT_REQUIRE_TOOLS: sby
+        run: cargo test -p volt-driver --test cli_tests real_sby
       - name: Provable invariant -> exit 0
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
       - name: Violated invariant -> exit 6 + counterexample
@@ -160,6 +180,8 @@ jobs:
           cargo run --bin volt -- verify tests/fixtures/extern_source/ext_top.volt
           cargo run --bin volt -- verify --mode prove --depth 4 tests/fixtures/extern_source/ext_top.volt
       - name: Extern @source tests (real sby)
+        env:
+          VOLT_REQUIRE_TOOLS: sby
         run: cargo test -p volt-driver --test extern_source_tests
       # ADR-0079 output net: every generated SV elaborated by Yosys
       # (hierarchy -check, proc, check -assert), every .xdc evaluated by Tcl
