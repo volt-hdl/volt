@@ -67,6 +67,8 @@ jobs:
       # needs one must FAIL when it is missing instead of skipping (the probe
       # in require_tools_tests hides it on purpose). sim_bounds_tests and
       # struct_tests ran only in the tool-less job before, i.e. never.
+      - name: MUTATION (temporary) - hide Verilator
+        run: sudo rm -f /usr/bin/verilator /usr/bin/verilator_bin /usr/bin/verilator_bin_dbg && ! command -v verilator
       - name: Tool-required tests - missing tool fails (ADR-0079)
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc
@@ -144,6 +146,8 @@ jobs:
           "$HOME/oss-cad-suite/bin/yosys" -V
       # ADR-0079 section 3: the real-sby CLI tests ran only in the tool-less
       # job before (always skipped); sby is required here.
+      - name: MUTATION (temporary) - hide sby
+        run: rm -f "$HOME/oss-cad-suite/bin/sby" && ! command -v sby
       - name: Real-sby CLI tests - missing sby fails (ADR-0079)
         env:
           VOLT_REQUIRE_TOOLS: sby
