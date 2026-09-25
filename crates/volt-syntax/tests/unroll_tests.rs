@@ -396,7 +396,7 @@ fn for_inside_generic_clone_records_the_clone_ctx_as_parent() {
 
 #[test]
 fn unroll_node_budget_stops_expansion_with_a_single_e2027() {
-    // Gövde ~200 düğüm × 2000 yineleme = 400k > MAX_UNROLL_NODES (262 144):
+    // Gövde ~200 düğüm × 2000 yineleme = 400k > MAX_EXPANSION_NODES (262 144):
     // açılım bütçede durur, tek E2027, kalan döngüler açılmaz (kaskad yok).
     let terms = vec!["a"; 100].join(" + ");
     let src = format!(

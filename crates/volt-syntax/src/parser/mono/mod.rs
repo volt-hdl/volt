@@ -17,6 +17,7 @@
 //! * İç içe generic örneklemeler (`A<8>` gövdesinde `B<TAPS>`) ikame
 //!   sonrası sonraki turda yakalanır; tur sınırı [`MAX_ROUNDS`].
 
+mod budget;
 mod clone;
 mod pattern;
 pub(crate) mod unroll;
@@ -31,6 +32,8 @@ use volt_ast::{
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use budget::ExpansionBudget;
+pub(crate) use budget::MAX_EXPANSION_NODES;
 use clone::Cloner;
 
 /// İç içe generic örnekleme derinliği sınırı.
@@ -44,6 +47,7 @@ pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
         expansions: HashMap::new(),
         diagnostics: Vec::new(),
         next_ctx: 1,
+        budget: ExpansionBudget::default(),
         ast,
     };
     mono.run();
@@ -98,6 +102,9 @@ struct Mono<'a> {
     diagnostics: Vec<Diagnostic>,
     /// Sonraki monomorfun span bağlamı (1'den başlar; 0 = orijinal).
     next_ctx: u16,
+    /// Açılım düğüm bütçesi (ADR-0068 §6): monomorf klonları ve `for`
+    /// açılımı AYNI sayaçtan düşer — derleme birimi başına bir tane.
+    budget: ExpansionBudget,
 }
 
 impl Mono<'_> {
@@ -135,7 +142,13 @@ impl Mono<'_> {
         // Modül seviyesi `for` açılımı (ADR-0056) önce: açılan gövdedeki
         // örneklemeler bu turun istekleri olur; klonlanmış generic
         // gövdede sınırlar ikame sonrası literaldir.
-        unroll::unroll_module(self.ast, item, &mut self.next_ctx, &mut self.diagnostics);
+        unroll::unroll_module(
+            self.ast,
+            item,
+            &mut self.next_ctx,
+            &mut self.budget,
+            &mut self.diagnostics,
+        );
         let requests = self.collect_requests(item);
         let mut created = Vec::new();
         for req in requests {
@@ -204,6 +217,15 @@ impl Mono<'_> {
         let (item, is_new) = match self.produced.get(&mangled) {
             Some(&existing) => (existing, false),
             None => {
+                // Bütçe (ADR-0068 §6): klon sayısı × şablon boyu da
+                // sınırlı — aşımda tek E2027, sonraki örneklemeler açılmaz.
+                if self.budget.exhausted() {
+                    if self.budget.take_report() {
+                        self.err_node_budget(req);
+                    }
+                    self.clear_generic_args(req.stmt);
+                    return None;
+                }
                 // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
                 // doyurulur.
                 let subst = params
@@ -270,12 +292,13 @@ impl Mono<'_> {
             let attrs_src = template_attrs(self.ast, template);
             let ctx = self.next_ctx;
             self.next_ctx = self.next_ctx.saturating_add(1);
-            let mut cloner = Cloner::new(self.ast, subst, ctx);
+            let mut cloner = Cloner::new(self.ast, &mut self.budget, subst, ctx);
             let module = cloner.clone_module(&template_decl, mangled);
             let attrs = cloner.clone_attrs(&attrs_src);
             (attrs, ItemKind::Module(module))
         };
         restore_module_shallow(self.ast, template, template_decl);
+        self.budget.charge(1);
         self.ast.items_arena.alloc(Item {
             span,
             attrs,
@@ -392,6 +415,26 @@ impl Mono<'_> {
             )
             .with_note(NoteKind::Note, adr_note()),
         );
+    }
+
+    /// Açılım düğüm bütçesi aşıldı (ADR-0068 §6) — birimde tek E2027.
+    fn err_node_budget(&mut self, req: &Request) {
+        let target = &req.target;
+        self.diagnostics.push(Diagnostic::error(
+            ErrorCode::E2027,
+            lstr!(
+                en: "instantiating generic module '{target}' exceeded the AST node budget ({MAX_EXPANSION_NODES} nodes per compilation unit)";
+                tr: "'{target}' generic modülünü örneklemek AST düğüm bütçesini aştı (derleme birimi başına {MAX_EXPANSION_NODES} düğüm)"
+            ),
+            LabeledSpan::primary(
+                req.target_span,
+                lstr!(en: "this instantiation is not expanded"; tr: "bu örnekleme açılmadı"),
+            ),
+            lstr!(
+                en: "use fewer distinct generic arguments, or shrink the generic module body";
+                tr: "daha az farklı generic argüman kullanın ya da generic modül gövdesini küçültün"
+            ),
+        ));
     }
 
     fn err_depth_exceeded(&mut self, items: &[Idx<Item>]) {

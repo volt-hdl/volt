@@ -5,6 +5,30 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — açılım bütçesindeki delik, fuzz bulgusu 3 (2026-09-25, ADR-0068 §6, #40)
+
+- **Açılım düğüm bütçesi artık açılımın yazdığı HER şeyi sayar.** Önce
+  yalnız deyim + ifade sayılıyordu; `for` açılımı desen, tip ve blok
+  arenalarını da her yinelemede kopyalıyordu. Gecelik fuzz girdisi (hata
+  kurtarmanın bıraktığı desen ağacı, üç iç içe `for`) 1,47 GB'a çıkıyordu;
+  şimdi 4 MB, 0,01 s. Sayaç bir arena listesi değil yazma kapısıdır
+  (`AstWriter`): klonlayıcı AST'ye yalnız sayılan kapıdan yazabilir,
+  yeni bir arena bütçenin dışında kalamaz.
+- **Generic monomorfizasyon aynı bütçeye bağlandı.** Monomorf klonları hiç
+  sayılmıyordu (`B<4096>` × 400 terimlik gövde: 429 MB). Bütçe
+  (`MAX_EXPANSION_NODES`, 262 144 düğüm) artık derleme birimi başına ve
+  `for` açılımıyla ortak; aşımda tek E2027, sonradan atlanan döngü ya da
+  örnekleme de tanısız kalmaz.
+- **Kopyalanan dizge baytı da bütçeden düşer** (64 bayt = bir düğüm):
+  3 900 karakterlik tek bir ad, düğüm bütçesine takılmadan 459 MB
+  kuruyordu; şimdi 10 MB, E2027.
+- **Hata kurtarma düğümü taşıyan `for` gövdesi bir kez açılır.** Parse
+  hatası anlamsal aşamaları durdurduğundan kopyaların bilgi değeri yoktu;
+  aynı tanılar zaten tek tanıya katlanıyordu.
+- Geçerli tasarımların `check`/`build` çıktısı değişmedi (457 dosya, 271
+  üretilmiş SV/SVA/SDC — 454'ünde sıfır fark; değişen üçü fuzz girdisi).
+- Kalıcı regresyon: `tests/fuzz_regressions/oom_for_pattern_clone_budget_*`.
+
 ### Eklendi — çıktı doğrulama ağı (2026-09-25, ADR-0079 Bölüm 1)
 
 - **Üretilen her çıktı CI'da gerçek tüketicisine verilir** (`volt-driver`

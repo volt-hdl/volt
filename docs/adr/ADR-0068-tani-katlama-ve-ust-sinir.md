@@ -11,6 +11,8 @@
 > `crates/volt-{diagnostics,syntax,hir,driver}/tests`.
 > DOKUNULMADI: volt-lsp, volt-sv-emit, examples/, README.md, docs/spec/.
 > Düzeltir: ADR-0067 §4 "Tanı sayısına üst sınır — EKLENMEDİ" satırı.
+> Ek: §6 (2026-09-25, #40) — bütçe desen/tip/blok arenalarını ve mono
+> klonlarını da sayar; `MAX_UNROLL_NODES` → `MAX_EXPANSION_NODES`.
 
 ## Sorun
 
@@ -219,3 +221,144 @@ katlanmış), mono (6 elle / 8 `for` içinden örnekleme), bundle dizisi
   seçildi; gerçek bir tasarım aşarsa yükseltilir (E2027 açıkça söyler).
 - Gecelik fuzz'ın 30 dakikayı bulgusuz tamamlaması merge sonrası elle
   tetiklenerek doğrulanacak; yeni bulgu ayrı ADR.
+
+## Ek — §6: Bütçe her yazımı sayar (2026-09-25, fuzz bulgusu 3, #40)
+
+> Etkilenen: volt-syntax (`parser/mono/budget.rs` YENİ — `ExpansionBudget`,
+> `AstWriter`, `MAX_EXPANSION_NODES`; `clone.rs`, `pattern.rs` yazma kapısı;
+> `unroll.rs`, `mod.rs` ortak bütçe), volt-diagnostics (E2027 `volt explain`
+> metni), `tests/fuzz_regressions/`, `crates/volt-syntax/tests`,
+> `crates/volt-driver/tests/lsp_protocol_tests.rs` (not beklentisi, bkz. Karar 4).
+> DOKUNULMADI: volt-ast, volt-hir, volt-driver kaynağı, examples/, README.md, docs/spec/.
+
+### Sorun
+
+§4'ün bütçesi yalnız `stmts + exprs` arenalarının büyümesini sayıyordu.
+Gecelik fuzz (run 36088712227, artifact `oom-1059f7be…`, 2318 B) ASan
+altında 2 GB'ı aştı. Küçültülmüş girdi (84 B):
+
+```
+const WIDTH 54module for 0..WIDTH for 0..WIDTH for 0WIDTH match e F([[[[[[[[[[[[[[[[
+```
+
+Hata kurtarma süslüsüz üç iç içe `for`un gövdesinde n düğümlük bir desen
+ağacı bırakır; `Cloner` onu her yinelemede **desen arenasına** kopyalar.
+İfade sayısı 133 553'te kalır, bütçe (262 144) hiç tetiklenmez; açılımı
+yalnız u16 ctx sınırı (65 534 yineleme) durdurur. Bellek ≈ 65 534 × n ×
+~170 B.
+
+Genel ders: **kaynağın bir kısmını sayan bütçe, sayılmayan kısımdan
+delinir.** Düzeltme bir arena eklemek değil, `Cloner`'ın yazdığı her şeyi
+saymaktır.
+
+### Sınıf taraması — kardeş açılım yolları
+
+| Yol | `Cloner`? | Bütçe (önce) | Sonda (önce) | Karar |
+|---|---|---|---|---|
+| `for` açılımı (ADR-0056) | evet | yalnız deyim + ifade, modül başına | desen: 8,45 M düğüm / 1 465 MB; ifadesiz tip `(u8, …128)`: 528 515 tip, E2027 yok; geçerli `_ \| … 128` deseni: 528 513, E2027 yok | ortak bütçe |
+| Generic mono (ADR-0041) | evet | **yok** — ctx `saturating_add` ile doyar, klonlama sürer | `B<K> { for i in 0..K { B<i> } }`, `B<4096>`, 400 terim: 3,4 M ifade / 429 MB (gövdeyle doğrusal) | ortak bütçe |
+| Bundle dizisi (ADR-0056/0039) | hayır | `MAX_FLAT_PORTS` 4096 + derinlik 8 (E4010), öğe başına | — (gövde klonlanmaz; kullanımlar yerinde yeniden yazılır, `.fired` başına +2 ifade) | ayrı bütçe yeterli: çarpım yok |
+| Pipeline desugar (ADR-0038), `@mmio`, bidir, handshake | hayır | — | her aşama/port bir kez yazılır | çarpım yok |
+
+Bundle dizisi dahil hepsi aynı kurala uyar: kopyalama sayısı × kopya
+boyu çarpımı olan her yol AÇILIM SIRASINDA denetlenen bir bütçeye tabidir
+(E4010 ilkesi, ADR-0067 §2). Çarpımı `Cloner` üzerinden kuran iki yol tek
+bütçeyi paylaşır; bundle'ınki düz port sayısıdır ve gövde kopyalamaz.
+
+### Karar
+
+1. **Yazma kapısı (`AstWriter`).** `Cloner` artık `&mut SourceFile`
+   tutmaz: okuma `Deref` ile serbest, yazma yalnız `AstWriter::write(|ast|
+   …)` ile ve her çağrı (arena `alloc`, yan tablo `insert`) bütçeden bir
+   düğüm düşer. Sayılan arena listesi YOK; ileride eklenen bir arenaya ya
+   da yan tabloya kapıdan geçmeden yazmak derlenmez. Açıcının kendi
+   yazımları (kaldırılan deyim, yineleme kaydı) ve monomorf öğesi de aynı
+   sayaçtan düşer.
+2. **Tek bütçe, derleme birimi başına.** `MAX_UNROLL_NODES` →
+   `MAX_EXPANSION_NODES` (değer aynı, 262 144); `monomorphize` başına bir
+   `ExpansionBudget`, `for` açılımı ve monomorf klonları paylaşır. Modül
+   başına değil: mono bütçesi modül sayısını da çarpan olarak alırdı.
+   Külliyatın en büyüğü (`examples/hybrid_accel/ternary_array.volt`) kaynak
+   dahil 3 838 düğüm — bütçenin %1,5'i; 452 dosyanın hiçbiri yaklaşmaz.
+3. **Tek E2027, sessiz atlama yok.** Aşımda birimde bir E2027 ("exceeded
+   the AST node budget (262144 nodes per compilation unit)"; mono için
+   "instantiating generic module 'B' …"). Bütçe başka bir yolda dolduktan
+   sonra atlanan her `for` ya da örnekleme, tanı henüz basılmadıysa basar
+   — mono klonu aşıp ardından bir döngü atlanırsa eksik donanım tanısız
+   kalamaz (inceleme sırasında bulunan boşluk; M7 mutasyonu).
+4. **Kurtarma düğümlü gövde bir kez açılır (ADIM 2 — ikinci savunma).**
+   `Cloner` bir `Error` türü (ifade, desen, tip, deyim, blok deyimi, `on`
+   tetikleyicisi) klonlarsa `saw_recovery` kalkar; açıcı o döngüyü ilk
+   yinelemeden sonra keser, tek kopya modülde kalır (LSP çözümlemesi
+   için). Bilgi değeri: parse hatası anlamsal aşamaları durdurur (ADR-0070
+   kapılı boru hattı), sonraki kopyaların üreteceği açıcı tanıları
+   `fold_duplicates` ile zaten tek tanıya katlanırdı. Kaybolan yalnız
+   yineleme değerine bağlı açıcı tanılarının (E2028 `j in i..1`) ikinci ve
+   sonraki kopyalarıdır — dosyada zaten sert bir parse hatası vardır.
+   `Error` türü geçerli programda for gövdesinde bulunmaz: pipeline
+   `stage(X).y` yer tutucusu for gövdesine giremez, `reclassify` artığı
+   erişilemez düğümdür; golden (aşağıda) bunu doğrular. Sözleşme değişikliği:
+   ADR-0068 fuzz girdisi (1157 B) artık katlama notu değil tekil yineleme
+   notu taşır; LSP testi buna güncellendi.
+5. **Dizge baytı da sayılır.** Bütçe düğüm sayar; klon her adı (ve
+   yeniden adı, `source_names` değerini, dizge literalini, yineleme
+   değişkenini) baytıyla kopyalar. Bağımsız inceleme bunu gösterdi ve
+   ölçüm doğruladı: 3 900 karakterlik tek bir ad, 4 KB'lık girdiden üç iç
+   içe `for` ile 52 225 yinelemede **459 MB** kuruyordu (düğüm bütçesi
+   aşılmadan). Kalıcı her dizge kopyası `len / 64` düğüm daha düşer
+   (`TEXT_BYTES_PER_NODE`; kısa adlar bedava, taşıyıcı düğüm zaten
+   sayıldı). Aynı girdi: 10 MB, E2027.
+
+### Sonuçlar
+
+Yeniden ölçüm (parser, release, `build/oom/budget_table.py`):
+
+| Girdi | Önce (tepe / süre) | Yalnız bütçe (ADIM 2 kapalı) | Sonra |
+|---|---|---|---|
+| desen n = 0 | 51 MB / 0,18 s | 31 MB / 0,12 s | 3 MB / 0,02 s |
+| desen n = 8 | 117 MB / 0,19 s | 32 MB / 0,05 s | 4 MB / 0,02 s |
+| desen n = 32 | 370 MB / 0,26 s | 26 MB / 0,04 s | 3 MB / 0,02 s |
+| desen n = 64 | 741 MB / 0,40 s | 27 MB / 0,05 s | 3 MB / 0,02 s |
+| desen n = 128 | **1 463 MB** / 0,72 s | 27 MB / 0,03 s | 4 MB / 0,01 s |
+| orijinal artifact 2318 B | 393 MB / 0,30 s | 28 MB / 0,03 s | 3 MB / 0,01 s |
+| küçültülmüş 84 B | 203 MB / 0,23 s | 30 MB / 0,05 s | 4 MB / 0,01 s |
+| tip `(u8, …128)` × 4096 | 73 MB, 528 515 tip, E2027 yok | — | 25 MB, E2027 |
+| geçerli desen `_ \| …128` × 4096 | 75 MB, 528 513 desen, E2027 yok | — | 28 MB, E2027 |
+| mono `B<4096>`, 400 terim | 429 MB, 3,4 M ifade | — | 34 MB, E2027 |
+| 3 900 karakterlik ad, üç iç içe `for` 0..54 | 459 MB, 52 225 yineleme | — | 10 MB, E2027 |
+
+Bellek artık n'den bağımsız: yalnız bütçeyle 26–32 MB (açılım bütçe
+dolunca durur), ADIM 2 ile kurtarmalı gövde üç kopyada kalır.
+
+- **Golden** (`build/oom/golden.py`, main 69ea186 = PR #39 sonrası ↔ dal):
+  `tests/ui`, `tests/fixtures`, `examples`, `tests/fuzz_regressions` — 457
+  dosya, `check` insan + JSON + `build --emit sva,sdc` (271 üretilmiş
+  SV/SVA/SDC dosyası). **454 dosyada sıfır fark**; değişen yalnız üç fuzz
+  girdisi: patolojik açılımın E2027'leri kalktı (1157 B: 63 → 61 tanı,
+  84 B: 19 → 16, 2318 B: 303 → 300), parse tanıları aynı.
+- **Testler:** `expansion_budget_tests` (8: desen, tip, mono, birim
+  paylaşımı, atlanan döngü tanısı, kurtarmalı gövde tek kopya (2), ad
+  baytı) — eski kodda 8/8 düşer; `fuzz_regression_tests` iki yeni girdi
+  (`oom_for_pattern_clone_budget_min_84b.volt`,
+  `oom_for_pattern_clone_budget_2318b.volt`), 1 s sınırı + AST tavanı.
+- **Mutasyon** (`build/oom/mutate.py`), 8/8 yakalandı: M1 desen yazımı
+  sayılmaz, M2 tip yazımı sayılmaz, M3 mono denetimsiz, M4 ADIM 2 kapalı,
+  M5 bütçe modül başına, M6 kapı saymaz, M7 atlanan döngü sessiz, M8
+  dizge baytı sayılmaz.
+
+### Sınırlar / Ertelenen
+
+- **Derin özyineleme ayrı bir sınıftır, bütçe onu kapsamaz:** 30 000
+  terimlik tek sol-birleşimli zincir (`o = a + a + …`) generic şablonda
+  `Cloner`'ın özyinelemeli klonunda yığın taşırır (parser katmanı — fuzz
+  hedefi bunu çökme olarak bulabilir); generic olmayan modülde parser
+  sağlam, `volt check` HIR'da taşar. Düğüm sayısı bütçenin altındadır;
+  gereken derinlik sınırı ya da yinelemeli yürüyüştür. Ayrı iş.
+- Dizge baytı yalnız KALICI kopyalarda sayılır; yineleme başına geçici
+  `rename` haritası kopyası (`rename.clone()`) sayılmaz — bellek
+  birikmez, ama dış bildirim sayısı × iç yineleme kadar CPU harcar
+  (zaman aşımı adayı, OOM değil; bu ADR'den önce de vardı).
+- `Unroller` doğrudan `&mut SourceFile` tutmaya devam eder (yerinde
+  `mem::replace`/`take` yapar); kendi iki yazımını elle sayar. Yeni bir
+  açıcı yazımı eklenirse sayım elle eklenmelidir — `Cloner`'daki derleyici
+  güvencesi burada yok.

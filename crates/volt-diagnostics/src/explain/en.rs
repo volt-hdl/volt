@@ -414,7 +414,7 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
         E2027 => Explanation::new(
             "Loop unrolling limit exceeded",
             "This compile-time 'for' loop expands past the unrolling limit.",
-            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process.",
+            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process. The same code also caps the total size of everything expanded in one compilation unit — unrolled loop bodies and generic module instantiations share one budget of AST nodes (ADR-0068).",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ bounded by a small const\n    t[i] = d[i]\n}",
         ),

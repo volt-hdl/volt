@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use volt_span::Span;
 
+use super::budget::{AstWriter, ExpansionBudget};
 use volt_ast::{
     ArrayLitKind, AttrArg, Attribute, Block, BlockStmt, BundleOrigin, Contract, ElseBranch, Expr,
     ExprKind, FieldInit, ForStmt, GenericArg, Idx, IfStmt, InstanceDecl, LValue, LValueSuffix,
@@ -20,7 +21,8 @@ use volt_ast::{
 };
 
 pub(super) struct Cloner<'a> {
-    pub(super) ast: &'a mut SourceFile,
+    /// Yazma kapısı (ADR-0068 §6): her yazım açılım bütçesinden düşer.
+    pub(super) ast: AstWriter<'a>,
     /// Monomorf bağlamı: klonlanan her span bu etiketi taşır (ADR-0041),
     /// resolve'un Span anahtarlı tabloları klonlar arasında çakışmaz.
     ctx: u16,
@@ -35,17 +37,37 @@ pub(super) struct Cloner<'a> {
     /// Her iki operandı literale inen aritmetik katlanır (`0*4+1` → `1`);
     /// yalnız döngü açılımında açık — SV çıktısı okunur kalsın.
     fold: bool,
+    /// Hata kurtarma düğümü (`Error` türü) klonlandı: şablon zaten
+    /// tanılanmış, açıcı onu yeniden çoğaltmaz (ADR-0068 §6).
+    saw_recovery: bool,
 }
 
 impl<'a> Cloner<'a> {
-    pub(super) fn new(ast: &'a mut SourceFile, subst: HashMap<String, i128>, ctx: u16) -> Self {
+    pub(super) fn new(
+        ast: &'a mut SourceFile,
+        budget: &'a mut ExpansionBudget,
+        subst: HashMap<String, i128>,
+        ctx: u16,
+    ) -> Self {
         Self {
-            ast,
+            ast: AstWriter::new(ast, budget),
             subst,
             ctx,
             rename: HashMap::new(),
             fold: false,
+            saw_recovery: false,
         }
+    }
+
+    /// Klonlanan ağaçta hata kurtarma düğümü vardı.
+    pub(super) fn saw_recovery(&self) -> bool {
+        self.saw_recovery
+    }
+
+    /// Kurtarma düğümü görüldü; türü aynen döner.
+    pub(super) fn recovery<T>(&mut self, kind: T) -> T {
+        self.saw_recovery = true;
+        kind
     }
 
     /// Döngü açılımı kipi: isim yeniden yazma + sabit katlama (ADR-0056).
@@ -60,13 +82,13 @@ impl<'a> Cloner<'a> {
         let mut name = self.tag_name(n);
         if let Some(new) = self.rename.get(&n.text) {
             name.text = new.clone();
+            self.ast.charge_text(new.len() + n.text.len());
             // Kaynak adı tanılar için (ADR-0072). İç içe açılımda da `n`
             // şablondaki addır: iç gövde dış yinelemede yeniden
             // adlandırılmadan klonlanır.
+            let source = n.text.clone();
             self.ast
-                .generate
-                .source_names
-                .insert(name.span, n.text.clone());
+                .write(|ast| ast.generate.source_names.insert(name.span, source));
         }
         name
     }
@@ -128,8 +150,9 @@ impl<'a> Cloner<'a> {
     pub(super) fn tag_name(&mut self, n: &Name) -> Name {
         let span = self.tag(n.span);
         if let Some(&pin) = self.ast.timing.pinned.get(&n.span) {
-            self.ast.timing.pinned.insert(span, pin);
+            self.ast.write(|ast| ast.timing.pinned.insert(span, pin));
         }
+        self.ast.charge_text(n.text.len());
         Name {
             text: n.text.clone(),
             span,
@@ -179,7 +202,10 @@ impl<'a> Cloner<'a> {
         Port {
             span: self.tag(p.span),
             attrs: self.clone_attrs(&p.attrs),
-            doc: p.doc.clone(),
+            doc: {
+                self.ast.charge_text(p.doc.as_ref().map_or(0, String::len));
+                p.doc.clone()
+            },
             direction: p.direction,
             name: self.tag_name(&p.name),
             ty: self.clone_type(p.ty),
@@ -226,7 +252,7 @@ impl<'a> Cloner<'a> {
             TypeRefKind::UInt(w) => TypeRefKind::UInt(*w),
             TypeRefKind::SInt(w) => TypeRefKind::SInt(*w),
             TypeRefKind::Trit => TypeRefKind::Trit,
-            TypeRefKind::Error => TypeRefKind::Error,
+            TypeRefKind::Error => self.recovery(TypeRefKind::Error),
             TypeRefKind::Bits(e) => {
                 let e = *e;
                 TypeRefKind::Bits(self.clone_expr(e))
@@ -257,12 +283,15 @@ impl<'a> Cloner<'a> {
                 TypeRefKind::Path { path, args }
             }
         };
-        let new = self.ast.types.alloc(TypeRef { span, kind });
+        let new = self
+            .ast
+            .write(|ast| ast.types.alloc(TypeRef { span, kind }));
         // `Delayed<T, N>` yan tablosu (ADR-0037): klon tip için yeni giriş.
         if let Some((n, dspan)) = self.ast.timing.delayed_types.get(&ty).copied() {
             let n = self.clone_expr(n);
             let dspan = self.tag(dspan);
-            self.ast.timing.delayed_types.insert(new, (n, dspan));
+            self.ast
+                .write(|ast| ast.timing.delayed_types.insert(new, (n, dspan)));
         }
         new
     }
@@ -301,17 +330,19 @@ impl<'a> Cloner<'a> {
         }
         let value = *self.subst.get(&path.segments[0].text)?;
         let kind = self.subst_expr_kind(value, span);
-        Some(self.ast.exprs.alloc(Expr { span, kind }))
+        Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
     }
 
     fn int_lit(&mut self, value: u128, span: volt_span::Span) -> Idx<Expr> {
-        self.ast.exprs.alloc(Expr {
-            span,
-            kind: ExprKind::IntLit {
-                value,
-                suffix: None,
-                base: NumBase::Dec,
-            },
+        self.ast.write(|ast| {
+            ast.exprs.alloc(Expr {
+                span,
+                kind: ExprKind::IntLit {
+                    value,
+                    suffix: None,
+                    base: NumBase::Dec,
+                },
+            })
         })
     }
 
@@ -320,12 +351,13 @@ impl<'a> Cloner<'a> {
     pub(super) fn clone_expr(&mut self, e: Idx<Expr>) -> Idx<Expr> {
         let span = self.tag(self.ast.exprs[e].span);
         let kind = self.clone_expr_kind(e);
-        let new = self.ast.exprs.alloc(Expr { span, kind });
+        let new = self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind }));
         // Blok içi generic örnekleme argümanları (ADR-0056).
         if let Some(args) = self.ast.generate.block_generic_args.get(&e) {
             let args = self.copy_generic_args(args);
             let args = args.iter().map(|a| self.clone_generic_arg(a)).collect();
-            self.ast.generate.block_generic_args.insert(new, args);
+            self.ast
+                .write(|ast| ast.generate.block_generic_args.insert(new, args));
         }
         // `delay<K>(x)` yan tablosu (ADR-0037).
         if let Some(entries) = self.ast.timing.delay_exprs.get(&e).cloned() {
@@ -333,7 +365,8 @@ impl<'a> Cloner<'a> {
                 .iter()
                 .map(|&(k, kspan)| (self.clone_expr(k), self.tag(kspan)))
                 .collect();
-            self.ast.timing.delay_exprs.insert(new, cloned);
+            self.ast
+                .write(|ast| ast.timing.delay_exprs.insert(new, cloned));
         }
         new
     }
@@ -350,11 +383,18 @@ impl<'a> Cloner<'a> {
                 base: *base,
             },
             ExprKind::BoolLit(b) => ExprKind::BoolLit(*b),
-            ExprKind::StringLit(s) => ExprKind::StringLit(s.clone()),
-            ExprKind::Todo { message } => ExprKind::Todo {
-                message: message.clone(),
-            },
-            ExprKind::Error => ExprKind::Error,
+            ExprKind::StringLit(s) => {
+                let s = s.clone();
+                self.ast.charge_text(s.len());
+                ExprKind::StringLit(s)
+            }
+            ExprKind::Todo { message } => {
+                let message = message.clone();
+                self.ast
+                    .charge_text(message.as_ref().map_or(0, |m| m.len()));
+                ExprKind::Todo { message }
+            }
+            ExprKind::Error => self.recovery(ExprKind::Error),
             ExprKind::Path(p) => {
                 // İkame: const generic parametre / döngü değişkeni → literal.
                 if p.segments.len() == 1 {
@@ -369,6 +409,7 @@ impl<'a> Cloner<'a> {
                 if p.segments.len() == 1 {
                     if let Some(new) = self.rename.get(&p.segments[0].text) {
                         p.segments[0].text = new.clone();
+                        self.ast.charge_text(new.len());
                     }
                 }
                 ExprKind::Path(p)
@@ -547,7 +588,8 @@ impl<'a> Cloner<'a> {
         let attrs = self.copy_attrs_shallow(s);
         let attrs = self.clone_attrs(&attrs);
         let kind = self.clone_stmt_kind(s);
-        self.ast.stmts.alloc(Stmt { span, attrs, kind })
+        self.ast
+            .write(|ast| ast.stmts.alloc(Stmt { span, attrs, kind }))
     }
 
     /// Nitelik listesinin sahipli kopyası — arena ödünç almasını kırar.
@@ -575,7 +617,7 @@ impl<'a> Cloner<'a> {
 
     fn clone_stmt_kind(&mut self, s: Idx<Stmt>) -> StmtKind {
         match &self.ast.stmts[s].kind {
-            StmtKind::Error => StmtKind::Error,
+            StmtKind::Error => self.recovery(StmtKind::Error),
             StmtKind::Expr(e) => {
                 let e = *e;
                 StmtKind::Expr(self.clone_expr(e))
@@ -595,7 +637,7 @@ impl<'a> Cloner<'a> {
                 let trigger = match trigger {
                     OnTrigger::Clock(n) => OnTrigger::Clock(self.tag_name(&n)),
                     OnTrigger::Reset(n) => OnTrigger::Reset(self.tag_name(&n)),
-                    OnTrigger::Error => OnTrigger::Error,
+                    OnTrigger::Error => self.recovery(OnTrigger::Error),
                 };
                 StmtKind::On(OnBlock {
                     trigger,
@@ -777,17 +819,19 @@ impl<'a> Cloner<'a> {
             stmts.push(cloned);
         }
         let tail = tail.map(|t| self.clone_expr(t));
-        self.ast.blocks.alloc(Block {
-            span,
-            stmts,
-            tail,
-            context,
+        self.ast.write(|ast| {
+            ast.blocks.alloc(Block {
+                span,
+                stmts,
+                tail,
+                context,
+            })
         })
     }
 
     fn clone_block_stmt(&mut self, b: Idx<Block>, i: usize) -> BlockStmt {
         match &self.ast.blocks[b].stmts[i] {
-            BlockStmt::Error => BlockStmt::Error,
+            BlockStmt::Error => self.recovery(BlockStmt::Error),
             BlockStmt::NonBlockAssign { lhs, rhs, span } => {
                 let (lhs, rhs, span) = (self.copy_lvalue(lhs), *rhs, self.tag(*span));
                 BlockStmt::NonBlockAssign {
