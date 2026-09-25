@@ -189,7 +189,12 @@ yani CI'da **hiç** koşmuyordu. Artık araçlı işte zorunlu olarak koşarlar.
 
 Mutasyon kalıcıdır: `require_tools_tests` kendi sonda testini alt süreçte
 PATH boşken koşturur — zorunlu değilse atlar (çıkış 0), zorunluysa ve yazım
-hatasında düşer.
+hatasında düşer. CI'da da gösterildi (PR #39, run 36150065520, geçici commit
+geri alındı): Verilator lint işinde `verilator` silinince "Tool-required
+tests" adımı `verilator bulunamadı ama VOLT_REQUIRE_TOOLS onu zorunlu
+kılıyor` ile, Formal işinde `sby` silinince "Real-sby CLI tests" adımı iki
+testte aynı iletiyle düştü; önce ikisi de yeşil ve atlamasızdı
+(`sim_bounds_tests` 21, `struct_tests` 29, gerçek sby 2 test).
 
 ## Reddedilenler
 
