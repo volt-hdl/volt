@@ -136,18 +136,22 @@ Sürücüler adlarını kullanıcının adlarından kurar. Taranan sınıf (Rust
 
 | # | Yol | Örnek | Ağ yakalar mı? |
 |---|---|---|---|
-| 1 | alan ↔ ham sözcük erişimcisi | `ctrl.raw` → `ctrl_raw` = `ctrl_raw()` / `set_ctrl_raw` | Rust derlenmez; fixture varsa |
-| 2 | register/alan yolu birleşmesi | `irq.status_rx` ↔ `irq_status.rx` → `irq_status_rx`, `IRQ_STATUS_RX_SHIFT` | Rust evet; C makroları AYNI değerdeyse sessiz |
+| 1 | alan ↔ ham sözcük erişimcisi | `ctrl.raw` → `ctrl_raw` = `ctrl_raw()` / `set_ctrl_raw` | Rust reddeder (C'de çakışma yok) — fixture varsa |
+| 2 | register/alan yolu birleşmesi | `irq.status_rx` ↔ `irq_status.rx` → `irq_status_rx`, `IRQ_STATUS_RX_SHIFT` | Rust ve C reddeder — fixture varsa; C makroları AYNI değerdeyse sessiz |
 | 3 | register ↔ alan sabiti | `ctrl_en` register'ının `CTRL_EN_MASK`'ı ↔ `ctrl.en`'in `CTRL_EN_MASK`'ı | C'de değer aynıysa sessiz |
 | 4 | büyük/küçük harf katlaması | `ctrl` ↔ `Ctrl` → `CTRL_OFFSET` | Rust evet |
-| 5 | üreticinin kendi adı | tek alanlı `new`/`read`/`write` register'ı ↔ Rust kurucusu/yardımcıları; `h`/`base` ↔ C `GPIO_H` koruması / `GPIO_BASE` | kısmen |
+| 5 | üreticinin kendi adı | tek alanlı `new`/`read`/`write` register'ı ↔ Rust kurucusu/yardımcıları; `h`/`base` ↔ C `GPIO_H` koruması / `GPIO_BASE` | Rust `read` reddeder; C'de makro yeniden tanımı yalnız `-Werror` ile |
 | 6 | C setter parametresi ↔ makro ya da `<stdint.h>` tipi | alan `uint32_t` → `uint32_t uint32_t` | C evet |
 | 7 | iki modül aynı dosya köküne | `GpioRegs` ↔ `GPIORegs` → `build/sw/gpio_regs.*` | **hayır** — ikinci sürücü birincinin dosyasının üzerine yazar, ikisi de geçerli |
-| 8 | setter parametresi ↔ gövde yereli | alan `word` → `set_r_word(word)` içinde `let word = self.read(..)` | **hayır (Rust)** — gölgeleme DERLENİR ve eski sözcüğü yazar; C'de yeniden bildirim hatası |
+| 8 | setter parametresi ↔ gövde yereli | alan `word` → `set_r_word(word)` içinde `let word = self.read(..)` | Rust yalnız `-D warnings` ile (kullanılmayan parametre uyarısı); bayraksız **derlenir ve eski sözcüğü yazar**; C'de yeniden bildirim hatası |
 
 **Ağ bu sınıfı tek başına kapatamaz:** yalnız fixture'ların gösterdiği
-adları derler; 7 ve 8 (Rust) hiçbir derleyicinin görmediği çarpışmalardır,
-2/3 C'de aynı değerli makro yeniden tanımı olarak sessizdir.
+adları derler. Ölçüm (E1014'süz ikiliyle ui/fail 138–141 ve `word`
+fixture'ının sürücüleri, rustc `-D warnings` / gcc `-Werror`): 138, 140
+Rust'ta; 139 Rust ve C'de; `word` Rust'ta yalnız uyarı yükseltilince ve
+C'de düşer; 141'in iki dosyası da GEÇERLİ derlenir — ikinci modül
+birincinin sürücüsünü sessizce siler. 2/3 C'de aynı değerli makro yeniden
+tanımı olarak sessizdir.
 
 **KARAR (ADR-0078 "sessizce ad değiştirme yok" ilkesiyle):**
 - 1–7: **reddet — YENİ E1014.** Tanı ikinci adın konumuna bağlanır, ilk ad
