@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
+use volt_ast::mmio_names::Origin;
 use volt_ast::{
     AttrArg, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, LValue,
     LValueSuffix, MatchArmBody, MmioRegDecl, Name, NumBase, Path, Stmt, StmtKind, TypeRef,
@@ -132,6 +133,8 @@ impl FieldTy {
 struct FieldInfo {
     /// `@reserved` alanında None.
     name: Option<String>,
+    /// Adın konumu (E1014); `@reserved` alanında None.
+    name_span: Option<Span>,
     lo: u32,
     ty: FieldTy,
     self_clearing: bool,
@@ -168,6 +171,8 @@ struct RegInfo {
     fields: Vec<FieldInfo>,
     owner: Owner,
     span: Span,
+    /// Register adının konumu (E1014).
+    name_span: Span,
     /// `///` doc yorumu — yazılım tarafına (ADR-0053) aktarılır.
     doc: Option<String>,
 }
@@ -235,6 +240,24 @@ fn regmap(module: &str, base: u64, doc: Option<String>, regs: &[RegInfo]) -> Reg
         bus: BUS_AXI4LITE.to_string(),
         doc,
         registers,
+    }
+}
+
+/// Çarpışma kaynağının okunur adı ve konumu; üretici adında `None`.
+fn origin_of(map: &RegMap, infos: &[RegInfo], o: Origin) -> Option<(String, Span)> {
+    match o {
+        Origin::Generator(_) => None,
+        Origin::Register(i) => Some((
+            format!("register '{}'", map.registers[i].name),
+            infos[i].name_span,
+        )),
+        Origin::Field(i, j) => Some((
+            format!(
+                "field '{}.{}'",
+                map.registers[i].name, map.registers[i].fields[j].name
+            ),
+            infos[i].fields[j].name_span?,
+        )),
     }
 }
 
@@ -306,10 +329,78 @@ impl Parser<'_> {
         ));
     }
 
+    /// ADR-0079 §2: iki `@mmio` adı (ya da bir ad ile üreticinin kendi adı)
+    /// Rust/C sürücüsünde aynı tanımlayıcıya inerse E1014. Kural
+    /// `volt_ast::mmio_names` — üreticilerle aynı kaynak.
+    fn check_driver_names(&mut self, map: &RegMap, infos: &[RegInfo]) {
+        for c in volt_ast::mmio_names::collisions(map) {
+            // Anahtar sözcük olan ad zaten E1013 aldı; aynı ada ikinci tanı yok.
+            if volt_ast::reserved::sw_keyword_language(&c.ident).is_some() {
+                continue;
+            }
+            let Some((second, second_span)) = origin_of(map, infos, c.second) else {
+                continue;
+            };
+            let (lang, ident) = (c.lang.name(), c.ident.as_str());
+            let first = origin_of(map, infos, c.first);
+            let (msg, label, help) = match (&first, c.first) {
+                (Some((f, _)), _) => (
+                    lstr!(en: "{second} and {f} both generate the {lang} identifier '{ident}' in the register-map driver"; tr: "{second} ve {f} register haritası sürücüsünde aynı {lang} tanımlayıcısını üretiyor: '{ident}'"),
+                    lstr!(en: "generates '{ident}' a second time"; tr: "'{ident}' tanımlayıcısını ikinci kez üretiyor"),
+                    lstr!(en: "rename one of them; Volt does not rename driver names behind your back (see volt explain E1014)"; tr: "ikisinden birini yeniden adlandırın; Volt sürücü adlarını arkanızdan değiştirmez (bkz. volt explain E1014)"),
+                ),
+                (None, Origin::Generator(what)) => (
+                    lstr!(en: "{second} generates the {lang} identifier '{ident}', which the register-map driver already uses for {what}"; tr: "{second} {lang} tanımlayıcısı '{ident}' üretiyor; register haritası sürücüsü bu adı zaten kullanıyor ({what})"),
+                    lstr!(en: "generates '{ident}'"; tr: "'{ident}' üretiyor"),
+                    lstr!(en: "rename it; the driver's own names are fixed (see volt explain E1014)"; tr: "yeniden adlandırın; sürücünün kendi adları sabittir (bkz. volt explain E1014)"),
+                ),
+                (None, _) => continue,
+            };
+            let mut d = err(ErrorCode::E1014, second_span, msg, label, help);
+            if let Some((_, span)) = first {
+                d = d.with_secondary(
+                    span,
+                    lstr!(en: "also generates '{ident}'"; tr: "'{ident}' tanımlayıcısını bu da üretiyor"),
+                );
+            }
+            // Kaskad penceresi ardışık tanıları yutmasın (check_sw_name gibi).
+            self.diagnostics.push(d);
+        }
+    }
+
+    /// İki `@mmio` modülü aynı sürücü dosyasına (`build/sw/<kök>.*`) inerse
+    /// ikincisi birincinin dosyalarının üzerine yazardı: E1014.
+    fn check_driver_stem(
+        &mut self,
+        item: Idx<volt_ast::Item>,
+        module: &str,
+        stems: &mut Vec<(String, String)>,
+    ) {
+        let stem = volt_ast::mmio_names::file_stem(module);
+        let ItemKind::Module(m) = &self.ast.items_arena[item].kind else {
+            return;
+        };
+        let span = m.name.span;
+        if let Some((_, other)) = stems.iter().find(|(s, _)| *s == stem) {
+            let other = other.clone();
+            self.diagnostics.push(err(
+                ErrorCode::E1014,
+                span,
+                lstr!(en: "@mmio modules '{other}' and '{module}' both write the driver files build/sw/{stem}.*"; tr: "@mmio modülleri '{other}' ve '{module}' aynı sürücü dosyalarını yazıyor: build/sw/{stem}.*"),
+                lstr!(en: "would overwrite the driver of '{other}'"; tr: "'{other}' sürücüsünün üzerine yazardı"),
+                lstr!(en: "rename one module so that the snake_case names differ (see volt explain E1014)"; tr: "snake_case adları ayrışacak şekilde bir modülü yeniden adlandırın (bkz. volt explain E1014)"),
+            ));
+        } else {
+            stems.push((stem, module.to_string()));
+        }
+    }
+
     /// Birimdeki tüm `@mmio` modüllerini açar; `@mmio` olmayan modüldeki
     /// `@reg` bildirimlerini E0015 ile düşürür.
     pub(crate) fn desugar_mmio(&mut self) {
         let items: Vec<_> = self.ast.items.clone();
+        // ADR-0079 §2: birimdeki sürücü dosya kökleri (`build/sw/<kök>.*`).
+        let mut stems: Vec<(String, String)> = Vec::new();
         for item in items {
             let regs = match &mut self.ast.items_arena[item].kind {
                 ItemKind::Module(m) => std::mem::take(&mut m.mmio_regs),
@@ -349,7 +440,10 @@ impl Parser<'_> {
                 continue;
             };
             let doc = self.ast.items_arena[item].doc.clone();
-            self.regmaps.push(regmap(&module_name, base, doc, &infos));
+            let map = regmap(&module_name, base, doc, &infos);
+            self.check_driver_names(&map, &infos);
+            self.check_driver_stem(item, &module_name, &mut stems);
+            self.regmaps.push(map);
             self.rewrite_user_side(item, &infos);
             self.splice(item, gen);
         }
@@ -575,6 +669,7 @@ impl Parser<'_> {
             fields,
             owner,
             span: r.span,
+            name_span: r.name.span,
             doc: r.doc.clone(),
         })
     }
@@ -677,6 +772,7 @@ impl Parser<'_> {
             }
             fields.push(FieldInfo {
                 name,
+                name_span: f.name.as_ref().map(|n| n.span),
                 lo,
                 ty,
                 self_clearing,

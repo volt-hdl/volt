@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
 
 use crate::check::{field_mask, reset_value};
-use crate::names::{accessor, doc_lines, hex32_rust, hex_short, rust_type, upper_snake};
+use crate::names::{accessor, doc_lines, hex32_rust, hex_short, rmw_local, rust_type, upper_snake};
 use crate::EmitOpts;
 
 pub fn emit(map: &RegMap, opts: &EmitOpts) -> String {
@@ -212,7 +212,9 @@ fn place(field: &FieldDesc, value: &str) -> String {
 }
 
 /// Okuma-değiştirme-yazma gövdesi; korunacak bit yoksa okuma atlanır.
-fn rmw_body(up: &str, keep: u32, placed: &str) -> String {
+/// `local`: okunan sözcüğün yereli ([`rmw_local`] — setter parametresini
+/// gölgelemez).
+fn rmw_body(up: &str, keep: u32, placed: &str, local: &str) -> String {
     if keep == 0 {
         format!("self.write(Self::{up}_OFFSET, {placed});")
     } else {
@@ -223,8 +225,8 @@ fn rmw_body(up: &str, keep: u32, placed: &str) -> String {
             placed.to_string()
         };
         format!(
-            "let word = self.read(Self::{up}_OFFSET) & {};\n        \
-             self.write(Self::{up}_OFFSET, word | {rhs});",
+            "let {local} = self.read(Self::{up}_OFFSET) & {};\n        \
+             self.write(Self::{up}_OFFSET, {local} | {rhs});",
             hex32_rust(u64::from(keep))
         )
     }
@@ -270,7 +272,7 @@ fn field_methods(s: &mut String, reg: &RegDesc, field: &FieldDesc) {
         doc_lines(s, "    ", "///", field.doc.as_deref());
         let bit = hex32_rust(u64::from(field.mask()));
         let body = if reg.access.readable() {
-            rmw_body(&up, keep_mask(reg, field), &bit)
+            rmw_body(&up, keep_mask(reg, field), &bit, rmw_local(field))
         } else {
             format!("self.write(Self::{up}_OFFSET, {bit});")
         };
@@ -299,7 +301,12 @@ fn field_methods(s: &mut String, reg: &RegDesc, field: &FieldDesc) {
     if reg.access.writable() {
         doc_lines(s, "    ", "///", field.doc.as_deref());
         let body = if reg.access.readable() {
-            rmw_body(&up, keep_mask(reg, field), &place(field, &field.name))
+            rmw_body(
+                &up,
+                keep_mask(reg, field),
+                &place(field, &field.name),
+                rmw_local(field),
+            )
         } else {
             format!(
                 "// WriteOnly register: the other fields are written as 0.\n        \

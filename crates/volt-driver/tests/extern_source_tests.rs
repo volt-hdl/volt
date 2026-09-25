@@ -7,6 +7,8 @@
 //! `VOLT_VERILATOR` — sürücü dosyaları yazar, araç başlatılamaz). Gerçek
 //! Verilator / sby testleri araç PATH'te yoksa atlanır.
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -357,11 +359,14 @@ fn run_and_test_stage_extern_source_for_verilator() {
 
 // ═══ Gerçek araçlar (PATH'te yoksa atlanır) ══════════════════════════
 
+/// ADR-0079 §3: `VOLT_REQUIRE_TOOLS` içindeki araç yoksa test düşer.
 fn on_path(tool: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|p| {
-        std::env::split_paths(&p)
-            .any(|d| d.join(tool).is_file() || d.join(format!("{tool}.exe")).is_file())
-    })
+    let tool = match tool {
+        "verilator" => tools::Tool::Verilator,
+        "sby" => tools::Tool::Sby,
+        other => panic!("bilinmeyen araç {other}"),
+    };
+    tools::require(tool).is_some()
 }
 
 #[test]

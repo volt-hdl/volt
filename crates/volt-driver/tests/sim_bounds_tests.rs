@@ -5,6 +5,8 @@
 //! yoksa atlanır — CI'ın `cargo test` işi Verilator kurmaz, bu testler
 //! Docker tarifinde (examples/README.md) koşar.
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -250,16 +252,8 @@ fn explain_covers_e8512_in_both_languages() {
 // ═══ Çalışma zamanı: gerçek Verilator ═════════════════════════════
 
 fn have_verilator() -> bool {
-    if std::env::var_os("VOLT_VERILATOR").is_some_and(|p| Path::new(&p).is_file()) {
-        return true;
-    }
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|dir| {
-            ["verilator", "verilator.exe"]
-                .iter()
-                .any(|name| dir.join(name).is_file())
-        })
-    })
+    // ADR-0079 §3: VOLT_REQUIRE_TOOLS=verilator ise yokluk atlama değil hata.
+    tools::require(tools::Tool::Verilator).is_some()
 }
 
 /// `volt test` koşturur; Verilator yoksa `None` (test atlanır).

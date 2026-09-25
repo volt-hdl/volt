@@ -5,6 +5,8 @@
 //! `@mmio` sürücülerinin Rust/C derlemesi. Gerçek Verilator/rustc/cc
 //! gerektiren testler araç yoksa atlanır (CI `integration` işi koşar).
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -291,19 +293,9 @@ fn safe_keyword_positions_build_clean() {
 
 // ═══ Gerçek araçlar ═════════════════════════════════════════════════
 
-fn tool_on_path(names: &[&str]) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .find_map(|dir| names.iter().map(|n| dir.join(n)).find(|p| p.is_file()))
-}
-
+/// ADR-0079 §3: `VOLT_REQUIRE_TOOLS=verilator` ise yokluk hata.
 fn verilator() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("VOLT_VERILATOR").map(PathBuf::from) {
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    tool_on_path(&["verilator", "verilator.exe"])
+    tools::require(tools::Tool::Verilator)
 }
 
 /// Reddedilmeyen konumlardaki anahtar sözcükler ve susturulmuş C++
@@ -447,7 +439,7 @@ fn near_keyword_mmio_names_compile_in_rust_and_c() {
     let rs = target.join("sw/near_regs.rs");
     let h = target.join("sw/near_regs.h");
     assert!(read(&rs).contains("pub fn set_ctrl_safe(&mut self, safe: bool)"));
-    if let Some(rustc) = tool_on_path(&["rustc", "rustc.exe"]) {
+    if let Some(rustc) = tools::require(tools::Tool::Rustc) {
         let out = Command::new(rustc)
             .args(["--edition", "2021", "--crate-type", "lib", "-o"])
             .arg(dir.join("near_regs.rlib"))
@@ -460,8 +452,11 @@ fn near_keyword_mmio_names_compile_in_rust_and_c() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    for (cc, std) in [("gcc", "-std=c11"), ("g++", "-std=c++17")] {
-        let Some(cc) = tool_on_path(&[cc, &format!("{cc}.exe")]) else {
+    for (tool, std) in [
+        (tools::Tool::Cc, "-std=c11"),
+        (tools::Tool::Cxx, "-std=c++17"),
+    ] {
+        let Some(cc) = tools::require(tool) else {
             continue;
         };
         let out = Command::new(cc)

@@ -67,6 +67,25 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 - Yan bulgu (düzeltilmedi): `@mmio` alanı `raw`, Rust sürücüsünde
   `{reg}_raw` erişimcisiyle çakışıyor (`ctrl_raw` iki kez).
 
+### Düzeltildi — `@mmio` sürücü ad çarpışmaları, araçsız CI atlaması (2026-09-25, ADR-0079 Bölüm 2–3)
+
+- **İki `@mmio` adı sürücüde aynı tanımlayıcıya inerse YENİ E1014.**
+  `ctrl.raw` ↔ `ctrl_raw()`, `irq.status_rx` ↔ `irq_status.rx`, `ctrl` ↔
+  `Ctrl` sabitleri, `new`/`read`/`write` register'ı ↔ Rust sürücüsünün
+  kendi adları, `h`/`base` ↔ C `<MOD>_H`/`<MOD>_BASE`, C setter parametresi
+  ↔ makro ya da `uint32_t`, snake_case adı aynı iki modül (birbirinin
+  `build/sw/` dosyasının üzerine yazıyordu). Ad sessizce değiştirilmez
+  (ADR-0078); kural `volt_ast::mmio_names`'te tek kaynak, üreticiler de
+  oradan adlandırır.
+- **`word` adlı alanın setter'ı artık doğru:** Rust'ta gövde yereli
+  `let word` parametreyi gölgeleyip ESKİ sözcüğü yazıyordu (derleniyordu),
+  C'de yeniden bildirim hatasıydı. Yerel bu durumda `current` olur; başka
+  hiçbir çıktı değişmez.
+- **`VOLT_REQUIRE_TOOLS`:** araçlı CI işlerinde zorunlu araç yoksa test
+  atlanmaz, düşer (yazım hatası da düşürür). Tarama, CI'da hiç koşmayan
+  testleri buldu: `sim_bounds_tests` ve `struct_tests`'in Verilator yolları
+  ile `cli_tests`'in gerçek sby testleri yalnız araçsız işte çalışıyordu.
+
 ### Belgelendi — ADR-0077 Aşama 3 ölçümü (2026-09-25)
 
 - ADR-0077'ye riscv_core sentez tablosu, Yosys'in satır/ad duyarlılığı

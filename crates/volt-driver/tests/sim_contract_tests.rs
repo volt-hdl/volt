@@ -6,6 +6,8 @@
 //! gerçek bir Verilator ister (`VOLT_VERILATOR` ya da `PATH`); yoksa
 //! atlanır — CI'ın Verilator'lu işi bunları koşturur.
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -302,16 +304,8 @@ fn raw_reset_monitor_is_guarded_by_the_synchronizer_output() {
 // ═══ Çalışma zamanı: gerçek Verilator ═════════════════════════════
 
 fn have_verilator() -> bool {
-    if std::env::var_os("VOLT_VERILATOR").is_some_and(|p| Path::new(&p).is_file()) {
-        return true;
-    }
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|dir| {
-            ["verilator", "verilator.exe"]
-                .iter()
-                .any(|name| dir.join(name).is_file())
-        })
-    })
+    // ADR-0079 §3: VOLT_REQUIRE_TOOLS=verilator ise yokluk atlama değil hata.
+    tools::require(tools::Tool::Verilator).is_some()
 }
 
 /// `volt <args>` koşturur (cwd: tasarımın dizini); Verilator yoksa None.

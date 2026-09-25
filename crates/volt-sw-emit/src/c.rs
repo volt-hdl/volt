@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
 
 use crate::check::reset_value;
-use crate::names::{c_type, doc_lines, hex32_c, hex_short, upper_snake};
+use crate::names::{c_type, doc_lines, hex32_c, hex_short, rmw_local, upper_snake};
 use crate::EmitOpts;
 
 pub fn emit(map: &RegMap, opts: &EmitOpts) -> String {
@@ -110,13 +110,15 @@ fn keep_mask(reg: &RegDesc, field: &FieldDesc) -> u32 {
 }
 
 /// Okuma-değiştirme-yazma gövdesi; korunacak bit yoksa okuma atlanır.
-fn rmw_body(up: &str, keep: u32, placed: &str) -> String {
+/// `local`: okunan sözcüğün yereli ([`rmw_local`] — parametreyle aynı
+/// kapsamda yeniden bildirilmez).
+fn rmw_body(up: &str, keep: u32, placed: &str, local: &str) -> String {
     if keep == 0 {
         format!("*(volatile uint32_t *){up} = {placed};")
     } else {
         format!(
-            "uint32_t word = *(volatile uint32_t *){up} & {};\n    \
-             *(volatile uint32_t *){up} = word | {placed};",
+            "uint32_t {local} = *(volatile uint32_t *){up} & {};\n    \
+             *(volatile uint32_t *){up} = {local} | {placed};",
             hex32_c(u64::from(keep))
         )
     }
@@ -154,7 +156,7 @@ fn field_fns(s: &mut String, mod_up: &str, reg: &RegDesc, up: &str, f: &FieldDes
     if f.self_clearing {
         doc(s);
         let body = if reg.access.readable() {
-            rmw_body(up, keep_mask(reg, f), &bit)
+            rmw_body(up, keep_mask(reg, f), &bit, rmw_local(f))
         } else {
             format!("*(volatile uint32_t *){up} = {bit};")
         };
@@ -179,7 +181,7 @@ fn field_fns(s: &mut String, mod_up: &str, reg: &RegDesc, up: &str, f: &FieldDes
         doc(s);
         let placed = format!("(((uint32_t){} << {fup}_SHIFT) & {bit})", f.name);
         let body = if reg.access.readable() {
-            rmw_body(up, keep_mask(reg, f), &placed)
+            rmw_body(up, keep_mask(reg, f), &placed, rmw_local(f))
         } else {
             format!(
                 "/* WriteOnly register: the other fields are written as 0 */\n    \

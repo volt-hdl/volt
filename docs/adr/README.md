@@ -91,6 +91,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0053](ADR-0053-hw-sw-koprusu.md) | HW-SW köprüsü — `@mmio` haritasından sürücü, başlık, `regmap.json` ve belge üretimi | K | 2026-09-15 |
 | [0054](ADR-0054-sdc-uretimi.md) | SDC/XDC üretimi — `@timing` uygulanıyor, zamanlama kısıtları domain bilgisinden | K (ADR-0048 Bölüm 2'yi gerçekler; §2/§6 ADR-0065 ile güncellendi) | 2026-09-16 |
 | [0057](ADR-0057-sv-operator-onceligi.md) | SV üretiminde operatör önceliği — parantez kararı IEEE 1800 tablosuyla (sessiz yanlış derleme düzeltmesi) | K | 2026-09-20 |
+| [0078](ADR-0078-hedef-dil-ayrilmis-sozcukleri.md) | Hedef dillerin ayrılmış sözcükleri — SV anahtar sözcüğü (IEEE 1800-2017 Annex B, 248) ad olamaz, `_` ile birleşen adlar da denetlenir (E1013); `@mmio` adları Rust/C/C++ anahtar sözcüğü olamaz; yalnız Verilator'ın C++ sözcüğü olan portlar SYMRSVDWORD susturmasıyla geçer, model üyesi adı port olamaz (E8513); sessizce kaçırma/yeniden adlandırma yok | K | 2026-09-25 |
 
 ## Araç zinciri
 
@@ -109,6 +110,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0064](ADR-0064-simulasyonda-kontratlar.md) | Simülasyonda kontratlar — `volt test` izleyicileri (immediate kalıbı + DPI), assume ihlali testi düşürür (ayrı sınıf), cover özeti, `--no-contracts` / `volt run --contracts` | K | 2026-09-21 |
 | [0061](ADR-0061-volt-toml-arama-tavani.md) | Volt.toml aramasına tavan — git kökü (kapsayıcı) + ev dizini (dışlayıcı), `VOLT_MANIFEST_DIR` geçersiz kılar | K | 2026-09-21 |
 | [0048](ADR-0048-zamanlama-kisitlari.md) | Zamanlama kısıtları — uygulanmayan nitelikler W0021 üretir, SDC üretimi V1 planı | K (2. bölüm ADR-0054 ile gerçeklendi) | 2026-09-14 |
+| [0079](ADR-0079-cikti-dogrulama-agi.md) | Çıktı doğrulama ağı — her çıktı gerçek tüketicisiyle (Verilator -Wall, Yosys, OpenSTA read_sdc, XDC Tcl kapısı, cc/c++/rustc, regmap şeması); uyarı yalnız gerekçeli fixture işaretiyle; `@mmio` sürücü ad çarpışması E1014; `VOLT_REQUIRE_TOOLS` (araçlı işte araç yoksa test düşer) | K | 2026-09-25 |
 
 ## Altyapı
 

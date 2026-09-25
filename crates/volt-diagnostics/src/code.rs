@@ -42,6 +42,8 @@ error_codes! {
     E1012,
     // Hedef dilin ayrılmış sözcüğü (ADR-0078)
     E1013,
+    // Üretilen sürücüde ad çarpışması (ADR-0079)
+    E1014,
 
     // ─── Tip çıkarımı (type-inference.md) ───
     E2001, E2002, E2003, E2004, E2005, E2006, E2007, E2008, E2009, E2010,
