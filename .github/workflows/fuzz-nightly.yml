@@ -50,14 +50,18 @@ jobs:
           echo "restored key: ${{ steps.corpus.outputs.cache-matched-key || '(none)' }}"
           echo "corpus files before: $(find "$CORPUS" -type f | wc -l)"
       # First corpus dir receives new inputs; tests/ui and the fuzz regression
-      # inputs (ADR-0067) are read-only seeds.
+      # inputs (ADR-0067) are read-only seeds. -max_len is fixed (ADR-0080 §6):
+      # otherwise libFuzzer takes the largest seed as the limit, and the 60 KB
+      # stack_* regressions made every mutated input up to 60 KB (1221 -> 713
+      # exec/s). Longer seeds are truncated to a 4 KB prefix, which still
+      # nests past the 256-level depth limit.
       - name: parse_never_panics (${{ env.FUZZ_SECONDS }} s)
         id: fuzz
         run: |
           cargo +nightly fuzz run parse_never_panics \
             "$GITHUB_WORKSPACE/$CORPUS" \
             "$GITHUB_WORKSPACE/tests/ui" "$GITHUB_WORKSPACE/tests/fuzz_regressions" \
-            -- -max_total_time="$FUZZ_SECONDS"
+            -- -max_total_time="$FUZZ_SECONDS" -max_len=4096
       - name: Corpus size after
         if: always()
         run: |

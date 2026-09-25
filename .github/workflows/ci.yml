@@ -318,7 +318,11 @@ jobs:
           key: fuzz-corpus-parse_never_panics-${{ github.run_id }}
           restore-keys: fuzz-corpus-parse_never_panics-
       # First corpus dir receives new inputs; tests/ui and the fuzz regression
-      # inputs (ADR-0067) are read-only seeds.
+      # inputs (ADR-0067) are read-only seeds. -max_len is fixed (ADR-0080 §6):
+      # otherwise libFuzzer takes the largest seed as the limit, and the 60 KB
+      # stack_* regressions made every mutated input up to 60 KB (1221 -> 713
+      # exec/s). Longer seeds are truncated to a 4 KB prefix, which still
+      # nests past the 256-level depth limit.
       - name: parse_never_panics (60 s)
         run: |
           mkdir -p fuzz/corpus/parse_never_panics
@@ -326,7 +330,7 @@ jobs:
             "$GITHUB_WORKSPACE/fuzz/corpus/parse_never_panics" \
             "$GITHUB_WORKSPACE/tests/ui" \
             "$GITHUB_WORKSPACE/tests/fuzz_regressions" \
-            -- -max_total_time=60
+            -- -max_total_time=60 -max_len=4096
       - name: Upload crash input
         if: failure()
         uses: actions/upload-artifact@v7
