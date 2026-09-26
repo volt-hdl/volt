@@ -9,6 +9,7 @@
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
 mod extern_stage;
+mod reach;
 mod regmap_check;
 mod sim;
 mod sim_lower;
@@ -644,6 +645,11 @@ struct Compiled {
     modules: Vec<SvModule>,
     /// Birimdeki dosya sayısı (ana dosya dahil; ADR-0042 ölçümü).
     file_count: usize,
+    /// `use` ile yüklenen dosyalar (ana dosya hariç) — çıktı kümesi
+    /// yalnız ana dosyanın modüllerinden başlar (`reach.rs`).
+    library_files: Vec<FileId>,
+    /// Birleşik SV başlığındaki kaynak adı (ana dosyanın adı).
+    source_name: String,
     /// `--emit=sva` ayrı modunda kontratlı modüllerin .sva içerikleri.
     sva_files: Vec<SvaFile>,
     /// Üretilen property kimlikleri (F4b `verify` — sby FAIL eşlemesi).
@@ -727,6 +733,17 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     let map = unit.map;
     let parsed = unit.parsed;
     let file_count = unit.files.len();
+    // Ana dosya ilk ziyaret edilir: FileId(0) (unit_load.rs).
+    let library_files: Vec<FileId> = unit
+        .files
+        .iter()
+        .map(|(fid, _)| *fid)
+        .filter(|fid| *fid != FileId(0))
+        .collect();
+    let source_name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.display().to_string());
     let lint_unenforced = unit
         .manifest
         .as_ref()
@@ -740,6 +757,8 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         sv: None,
         modules: Vec::new(),
         file_count,
+        library_files: library_files.clone(),
+        source_name: source_name.clone(),
         sva_files: Vec::new(),
         sva_props: Vec::new(),
         multiclock_modules: Vec::new(),
@@ -782,10 +801,6 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
 
     // ── Aşama 5: emit (E2005 literal boyutlandırma; F4a SVA). `check`
     // için de koşar, çıktısı atılır (ADR-0070) ──
-    let source_name = file
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| file.display().to_string());
     let sources = volt_sv_emit::unit_source_texts(&names, &map);
     let emitted = volt_sv_emit::emit_unit(
         &parsed.ast,
@@ -817,6 +832,8 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         sv,
         modules,
         file_count,
+        library_files,
+        source_name,
         sva_files,
         sva_props,
         multiclock_modules,
@@ -932,6 +949,8 @@ fn build(
         Ok(c) => c,
         Err(code) => return code,
     };
+    // ADR-0042 ek: çıktı = ana dosyanın modülleri + örnekleme kapanışı.
+    compiled.retain_reachable();
     // ADR-0054: W0022 yalnız kısıt dosyası istendiğinde — SDC istemeyen
     // bir tasarımdan frekans istenmez.
     if !dialects.is_empty() {
@@ -971,8 +990,12 @@ fn build(
         return ExitCode::from(3);
     }
     // ADR-0024: modül başına bir dosya (build/rtl/<Modül>.sv);
-    // `--single-file` eski düzeni (build/rtl/<kaynak>.sv) korur.
-    let outputs: Vec<(PathBuf, &str)> = if single_file || compiled.modules.is_empty() {
+    // `--single-file` eski düzeni (build/rtl/<kaynak>.sv) korur. Modülsüz
+    // birim (yalnız fn/const/tip — kütüphane) SV üretmez (ADR-0042 ek):
+    // modülsüz .sv'yi Verilator `--top-module` ile reddeder.
+    let outputs: Vec<(PathBuf, &str)> = if compiled.modules.is_empty() {
+        Vec::new()
+    } else if single_file {
         let stem = file
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -1133,20 +1156,48 @@ fn build(
         // Bağlama göre sonraki adım (UX Anayasası: kullanıcı belgeye
         // gitmeden bir sonraki komutu görür).
         let name = file.display();
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "       Next: volt run {name}      (simulate)\n             \
-                     volt verify {name}   (prove contracts)";
-                tr: "   Sıradaki: volt run {name}      (simüle et)\n             \
-                     volt verify {name}   (kontratları kanıtla)"
-            )
-        );
+        if compiled.modules.is_empty() {
+            print_library_note(file);
+        } else {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Next: volt run {name}      (simulate)\n             \
+                         volt verify {name}   (prove contracts)";
+                    tr: "   Sıradaki: volt run {name}      (simüle et)\n             \
+                         volt verify {name}   (kontratları kanıtla)"
+                )
+            );
+        }
     }
     if format == OutputFormat::Json {
         print_json_envelope("build", &compiled, &artifacts, start);
     }
     ExitCode::SUCCESS
+}
+
+/// Modülsüz birim (ADR-0042 ek): hata değil — fn/const/tip kütüphanesi
+/// başka bir dosyadan `use` ile kullanılır.
+fn print_library_note(file: &Path) {
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.display().to_string());
+    let stem = file
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "        Note no module in '{name}' — no SystemVerilog written\n        \
+                 Help this is a library file: call its pub fn from a module with \
+                 'use {stem}::<name>;'";
+            tr: "         Not '{name}' içinde modül yok — SystemVerilog yazılmadı\n      \
+                 Öneri bu bir kütüphane dosyası: pub fn'lerini bir modülden \
+                 'use {stem}::<ad>;' ile çağırın"
+        )
+    );
 }
 
 /// `--emit=rust,c,regmap,regmap-md` (ADR-0053): birimdeki her `@mmio`

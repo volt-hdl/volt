@@ -1553,11 +1553,12 @@ fn build_multifile_writes_one_sv_per_module() {
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
     let rtl = target.join("rtl");
     assert!(rtl.join("Ticker.sv").is_file(), "{stderr}");
-    assert!(rtl.join("Hidden.sv").is_file(), "{stderr}");
     assert!(rtl.join("Top.sv").is_file(), "{stderr}");
+    // lib.volt'taki Hidden örneklenmiyor: çıktıya girmez (ADR-0042 ek).
+    assert!(!rtl.join("Hidden.sv").exists(), "{stderr}");
     assert!(!rtl.join("main.sv").exists());
     assert!(
-        stderr.contains("2 source file(s), 3 SV file(s)"),
+        stderr.contains("2 source file(s), 2 SV file(s)"),
         "{stderr}"
     );
     let top = std::fs::read_to_string(rtl.join("Top.sv")).unwrap();
@@ -1602,7 +1603,7 @@ fn build_multifile_json_lists_every_sv_artifact() {
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap();
     let artifacts = json["artifacts"].as_array().unwrap();
-    assert_eq!(artifacts.len(), 3, "{artifacts:?}");
+    assert_eq!(artifacts.len(), 2, "{artifacts:?}");
     let _ = std::fs::remove_dir_all(&target);
 }
 

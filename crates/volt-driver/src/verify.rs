@@ -89,6 +89,8 @@ pub(crate) fn verify(
         Ok(c) => c,
         Err(code) => return code,
     };
+    // ADR-0042 ek: yalnız ana dosyadan erişilebilen modüllerin kontratları.
+    compiled.retain_reachable();
     render_diagnostics(&compiled, format);
 
     let Some(sv) = compiled.sv.clone() else {

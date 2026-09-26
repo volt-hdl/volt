@@ -162,6 +162,13 @@ build/
 > (başlıkta `// Module:` ve modülün kendi kaynak dosyası). `--single-file`
 > aşağıdaki `build/rtl/<kaynak>.sv` düzenini korur. Bu bölümdeki örnekler
 > `--single-file` çıktısını gösterir.
+>
+> **Çıktı kümesi (ADR-0042 Ek):** yalnız ana dosyanın modülleri ve onların
+> örnekleme kapanışı yazılır; `use` ile yüklenen dosyanın örneklenmeyen
+> modülleri (ve onların `.sva`, SDC/XDC, `@mmio` sürücüleri) çıktıya
+> girmez. Modülsüz birim (yalnız fn/const/tip — kütüphane) SV üretmez:
+> çıkış 0, `0 SV file(s)`, JSON `artifacts: []`, insan çıktısında
+> `Note no module in '<dosya>' — no SystemVerilog written`.
 
 ```bash
 volt build [SEÇENEKLER] [DOSYA]
@@ -610,8 +617,8 @@ bu özellikten etkilenmez.
 
 ## 8a. `volt verify` — paralel formal doğrulama (ADR-0055)
 
-> ADR-0055 (uygulandı). Birimdeki kontratlı her modül bir SymbiYosys
-> GÖREVİDİR: tek `build/formal/<iş>.sby` dosyası `[tasks]` bölümüyle
+> ADR-0055 (uygulandı). Ana dosyadan erişilebilen (ADR-0042 Ek; §5)
+> kontratlı her modül bir SymbiYosys GÖREVİDİR: tek `build/formal/<iş>.sby` dosyası `[tasks]` bölümüyle
 > üretilir (`<iş>` = girdi dosyasının kök adı), tek `sby -j N -f <iş>.sby`
 > süreci görevleri kendi görev döngüsünde paralel koşturur. Paralellik
 > birimi MODÜLDÜR, kontrat değil: bir modülün tüm kontratları tek BMC

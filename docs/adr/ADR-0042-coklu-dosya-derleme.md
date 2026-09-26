@@ -149,3 +149,115 @@ Kopyalanan kod yok: `UartTx` ve `Axi4LiteSlave` referansla kullanılır.
 - `volt explain E1011` iki dilde.
 - name-resolution.md §3.2'ye çoklu dosya notu, §10 tabloya E1011
   eklenir; cli-contract.md §5 çıktı adlandırması ADR-0024'e uyar.
+
+## Ek — Çıktı kümesi: ana dosyadan erişilebilen modüller (2026-09-26, ADR-0081 Aşama 3 bulgusu)
+
+### Sorun
+
+ADR-0081 Aşama 3 iki belirti gördü: (1) `use riscv_core::imm_i_of`
+diyen `riscv_pipeline`'ın `volt build` çıktısına `RiscvCore.sv` ve
+`UartTx.sv` de ekleniyordu; (2) yalnız fn içeren `riscv_imm.volt` tek
+başına derlenince modülsüz, boş bir `riscv_imm.sv` yazılıyordu ve çıktı
+ağının (ADR-0079) Verilator adımı reddediyordu (`%Error: Specified
+--top-module 'riscv_imm' was not found in design.`).
+
+### Kural (önceki durum, kodda)
+
+`volt_sv_emit::emit_unit` birimdeki **her** `ItemKind::Module`'ü üretiyordu
+— `use` ile yüklenen dosyalardaki modüller dahil, örneklensin ya da
+örneklenmesin. Birim ne istediğinden bağımsız dosyanın tamamını yükler
+(`use a::f` → `a.volt`'un tüm öğeleri). Sürücü modül listesi boşsa
+`--single-file` düzenine düşüp `build/rtl/<kök>.sv`'ye yalnız başlık
+yazıyordu. SVA (`.sva`), `verify` görevleri, SDC/XDC ve `@mmio`
+sürücüleri de aynı "birimdeki her modül" kümesinden üretiliyordu.
+
+Tüm korpus (`tests/ui/pass`, `examples/`, `tests/fixtures/`,
+`tests/ui/multifile/`; `--emit=sva,sdc,xdc,rust,c,regmap` ve
+`--single-file`) önce/sonra dökümünde fazla yazılan dosyalar:
+
+| Tasarım | Fazla yazılan (artık yok) | Neden yüklenmişti |
+|---|---|---|
+| `examples/soc/axi.volt` | `Axi4LiteSlave` .sv/.sva/.sdc/.xdc | `axi4lite_slave`'den yalnız struct tipleri |
+| `examples/soc/timer.volt` | aynı | aynı |
+| `examples/soc/uart.volt` | aynı | aynı |
+| `examples/vga/frame_buffer.volt` | `VgaTiming` .sv/.sva/.sdc/.xdc | `vga_timing`'den yalnız `domain`'ler |
+| `tests/ui/multifile/basic/main.volt` | `Hidden` .sv/.sdc/.xdc | `lib.volt`'ta örneklenmeyen özel modül |
+| `tests/ui/multifile/fn/fnlib.volt` | boş `fnlib.sv` (iki düzende) | modülsüz dosya |
+
+Kalan her dosyanın içeriği `// Source:` satırı dahil aynı; yalnız
+`--single-file` birleşik metinlerinden kalkan modüller düştü ve `.sva`
+yorumlarındaki kaynak satır numaraları taşınan fn'ler kadar kaydı
+(`riscv_core`, `riscv_pipeline`, `hello_soc`). Çıkış kodu değişen
+tasarım yok.
+
+### Karar
+
+**Çıktı kümesi = ana dosyanın modülleri + örnekleme kapanışı.** Ana dosya
+`FileId(0)`'dır (birim yükleyici onu ilk ziyaret eder); `use` ile yüklenen
+her dosya kütüphanedir. Parser'ın ürettiği sentetik kaynaklar (`@mmio`,
+ADR-0044) kütüphane sayılmaz. Kapanış emitter'ın örnek hedefiyle aynı
+kuralı izler: modül gövdesinin üst düzey `Instance` deyimleri, yerleşik
+primitifler hariç (`volt_sv_emit::reachable_modules`). Monomorfize örnek
+somut adı taşıdığından `Delay_4_8` gibi modüller kendiliğinden girer.
+
+Süzgeç tek noktada, sürücünün `Compiled::retain_reachable`'ında (yeni
+`reach.rs`) ve aynı küme şu çıktıların hepsine uygulanır:
+
+| Çıktı | Süzülür |
+|---|---|
+| `build/rtl/<Modül>.sv` ve `--single-file` birleşik metni | evet |
+| `--emit=sva` `.sva` dosyaları | evet |
+| `--emit=sdc,xdc` kısıtları (ve W0022 uyarıları) | evet |
+| `--emit=rust,c,regmap,regmap-md` `@mmio` sürücüleri, `--check-regmap` | evet |
+| `volt verify` görevleri ve `build/formal/<iş>.sv` | evet |
+| `volt run` / `volt test` | hayır — test dosyası modül tanımlamaz, test ettiği modülleri `use` ile alır |
+| Tanılar (`check`, `build`, LSP) | hayır — kütüphane dosyasının tamamı yine denetlenir (ADR-0070 paritesi) |
+
+**Modülsüz birim SV üretmez.** Yalnız fn/const/tip içeren dosya
+kütüphanedir: `volt build` çıkış 0, `0 SV file(s)`, JSON `artifacts: []`
+ve insan çıktısında bilgi notu (`volt run/verify` önerisi yerine):
+
+```text
+    Finished 0.00s (1 source file(s), 0 SV file(s))
+        Note no module in 'riscv_imm.volt' — no SystemVerilog written
+        Help this is a library file: call its pub fn from a module with 'use riscv_imm::<name>;'
+```
+
+Uyarı ya da hata DEĞİL: kütüphane dosyasını tek başına derlemek (örneğin
+çıktı ağının yaptığı gibi) geçerli bir kullanımdır.
+
+### Reddedilen
+
+- **emit_unit'e kök parametresi**: dört çağıran (build, check, LSP,
+  tek dosya testleri) var ve `check`/LSP'nin çıktıya ihtiyacı yok; üstelik
+  süzgeç SDC ve sürücü modellerini de kapsamalı — bunlar emitter'ın
+  dışında üretilir. Sürücüde tek nokta hepsini birden bağlar.
+- **Emit'i erişilemeyen modüller için atlamak**: kütüphanedeki bir
+  modülün E0003 gibi emitter tanıları `build`'de kaybolurdu (ADR-0070
+  paritesi bozulur).
+- **Modülsüz dosyaya boş bir sarmalayıcı modül yazmak**: Verilator'u
+  susturur ama kullanıcıya var olmayan bir üst modül sunar.
+
+### Kanıt
+
+- `riscv_pipeline.volt` immediate'leri artık `examples/riscv_imm.volt`
+  ortak dosyasından; `riscv_core.volt` da aynı dosyayı kullanır.
+  `RiscvPipeline.sv`, `RiscvCore.sv`, `UartTx.sv` **tamamen byte-aynı**
+  (`cmp`, `// Source:` satırı dahil). `volt test` riscv_core 59/59,
+  riscv_pipeline 15/15, diğer 7 örnek geçti (Docker, OSS CAD Suite
+  2026-09-21 Verilator).
+- Çıktı ağı: yeni `tests/fixtures/fn_library/` (`checksum.volt` modülsüz
+  kütüphane, `sum_top.volt` kullanıcısı) ve `examples/riscv_imm.volt`
+  korpusta. Eski ikiliyle `checksum.volt` → `%Error: Specified
+  --top-module 'checksum' was not found in design.`; yenisiyle SV yok,
+  koşu yok, bulgu yok.
+- Testler: `volt-sv-emit` `reach` birim testleri (4), `volt-driver`
+  `unit_output_tests` (6: modülsüz dosya iki düzende + JSON, yalnız fn
+  alan birimde her çıktı türü, örneklenen kütüphane modülü kalır,
+  `verify` görev listesi); `cli_tests`'in iki çoklu dosya testi yeni
+  kümeye güncellendi (`Hidden.sv` artık yazılmıyor, 3 → 2 SV).
+- Mutasyon (`build/fnlib/mutate.py`, tek tek): 14/14 öldü — kapanışı
+  izlememek, her dosyayı kök saymak, ana dosyayı kütüphane saymak,
+  modül/sva/prop/regmap/kısıt süzgeçlerinden her biri, birleşik SV'yi
+  yeniden kurmamak, hatalı derlemede erken dönmemek, build'de ya da
+  verify'da süzmemek, modülsüz birimde eski düzen, bilgi notunu atlamak.
