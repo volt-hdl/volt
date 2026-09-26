@@ -162,6 +162,27 @@ impl<'a> Emitter<'a> {
                 op: UnOp::Neg,
                 operand,
             } => self.eval_const_depth(*operand, depth + 1)?.checked_neg(),
+            // Mantıksal değer 0/1 (bool tipli const, `const N = if … `).
+            ExprKind::BoolLit(_) | ExprKind::Unary { op: UnOp::Not, .. } => {
+                self.eval_const_bool(idx, depth).map(i128::from)
+            }
+            ExprKind::Binary { op, .. } if is_comparison_or_logical(*op) => {
+                self.eval_const_bool(idx, depth).map(i128::from)
+            }
+            // `const N = if C { a } else { b }` (ADR-0083 Gelecek iş 6):
+            // HIR `consteval` ile aynı seçim; koşul çözülemezse `None`.
+            ExprKind::If {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                let taken = if self.eval_const_bool(*cond, depth + 1)? {
+                    *then_expr
+                } else {
+                    *else_expr
+                };
+                self.eval_const_depth(taken, depth + 1)
+            }
             ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.eval_const_depth(*lhs, depth + 1)?;
                 let r = self.eval_const_depth(*rhs, depth + 1)?;
@@ -170,6 +191,17 @@ impl<'a> Emitter<'a> {
                     BinOp::Sub => l.checked_sub(r),
                     BinOp::Mul => l.checked_mul(r),
                     BinOp::Div => l.checked_div(r),
+                    BinOp::Rem => l.checked_rem(r),
+                    // Bit işlemleri yalnız negatif olmayan değerde (genişlik
+                    // bağlamsız ikiye tümleyen belirsiz); `>>` mantıksal.
+                    _ if l < 0 || r < 0 => None,
+                    BinOp::BitAnd => Some(l & r),
+                    BinOp::BitOr => Some(l | r),
+                    BinOp::BitXor => Some(l ^ r),
+                    BinOp::Shl => l
+                        .checked_shl(u32::try_from(r).ok()?)
+                        .filter(|v| v >> r == l),
+                    BinOp::Shr => Some(if r >= 127 { 0 } else { l >> r }),
                     _ => None,
                 }
             }
@@ -211,6 +243,48 @@ impl<'a> Emitter<'a> {
                 None
             }
             _ => None,
+        }
+    }
+
+    /// Derleme zamanı mantıksal değer: literal, karşılaştırma, `&&`/`||`/
+    /// `->`, `!`, bool const'u. Başka bir şey 0/1 değerlendiriyorsa o.
+    fn eval_const_bool(&self, idx: Idx<Expr>, depth: u32) -> Option<bool> {
+        const MAX_CONST_DEPTH: u32 = 64;
+        if depth > MAX_CONST_DEPTH {
+            return None;
+        }
+        match &self.ast.exprs[idx].kind {
+            ExprKind::BoolLit(b) => Some(*b),
+            ExprKind::Unary {
+                op: UnOp::Not,
+                operand,
+            } => Some(!self.eval_const_bool(*operand, depth + 1)?),
+            ExprKind::Binary { op, lhs, rhs } if is_comparison_or_logical(*op) => {
+                if matches!(op, BinOp::And | BinOp::Or | BinOp::Imp) {
+                    let l = self.eval_const_bool(*lhs, depth + 1)?;
+                    let r = self.eval_const_bool(*rhs, depth + 1)?;
+                    return Some(match op {
+                        BinOp::And => l && r,
+                        BinOp::Or => l || r,
+                        _ => !l || r,
+                    });
+                }
+                let l = self.eval_const_depth(*lhs, depth + 1)?;
+                let r = self.eval_const_depth(*rhs, depth + 1)?;
+                Some(match op {
+                    BinOp::Eq => l == r,
+                    BinOp::Ne => l != r,
+                    BinOp::Lt => l < r,
+                    BinOp::Gt => l > r,
+                    BinOp::Le => l <= r,
+                    _ => l >= r,
+                })
+            }
+            _ => match self.eval_const_depth(idx, depth + 1)? {
+                0 => Some(false),
+                1 => Some(true),
+                _ => None,
+            },
         }
     }
 
@@ -963,7 +1037,18 @@ impl<'a> Emitter<'a> {
         if self.enum_of_type(ty).is_some() {
             return Some(self.emit_prec(value_idx, None, PREC_ATOM, false));
         }
-        let value = self.eval_const(value_idx)?;
+        // Skaler const SV'de bildirilmez; katlanamazsa çıplak ad tanımsız
+        // kalırdı ("Volt tamam, çıktı geçersiz") — açık tanı (ADR-0083).
+        let Some(value) = self.eval_const(value_idx) else {
+            self.future(
+                span,
+                &lstr!(
+                    en: "constant '{name}' whose value the SystemVerilog emitter cannot fold";
+                    tr: "değeri SystemVerilog üreticisinin katlayamadığı '{name}' sabiti"
+                ),
+            );
+            return None;
+        };
         let base = match &self.ast.exprs[value_idx].kind {
             ExprKind::IntLit { base, .. } => *base,
             _ => NumBase::Dec,
