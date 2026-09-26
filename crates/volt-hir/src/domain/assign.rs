@@ -76,8 +76,18 @@ impl Inferencer<'_> {
         lhs: &LValue,
         rhs: Idx<Expr>,
         ctx: Option<(DomainId, Span)>,
+        pc: Option<(DomainId, Span)>,
     ) {
-        let rhs_dom = self.expr_domain(rhs);
+        let mut rhs_dom = self.expr_domain(rhs);
+        let mut rhs_span = self.ast.exprs[rhs].span;
+        // Koşula bağlı atama koşulun alanını taşır (K5, ADR-0083 Karar 8):
+        // `comb { if fs { y = sa } }` ≡ `y = if fs { sa } else { y }`.
+        if let Some((p, p_span)) = pc {
+            if self.resolve_dom(rhs_dom) == DomainId::Timeless {
+                rhs_span = p_span;
+            }
+            rhs_dom = self.join(p, rhs_dom, p_span, rhs_span);
+        }
         let lhs_dom = self
             .use_def(lhs.base.span)
             .and_then(|def| self.signal_domains.get(&def).copied())
@@ -114,7 +124,7 @@ impl Inferencer<'_> {
             }
         }
 
-        self.check_compat(lhs_dom, rhs_dom, lhs.span, self.ast.exprs[rhs].span);
+        self.check_compat(lhs_dom, rhs_dom, lhs.span, rhs_span);
     }
 
     /// K6 — hedef ile kaynak aynı alanda mı? Timeless muaf.

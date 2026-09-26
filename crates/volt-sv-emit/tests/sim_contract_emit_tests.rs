@@ -425,7 +425,7 @@ mod testbench {
 
 #[test]
 fn unsupported_contract_is_skipped_with_w5001_keeping_verify_names() {
-    let src = "module M {\n    in clk : clock\n    in a : u4\n    invariant: match a { 0 => true, _ => a != 7 }\n    invariant: a != 9\n}\n";
+    let src = "module M {\n    in clk : clock\n    in a : u4\n    invariant: match a { 0 if a == 0 => true, _ => a != 7 }\n    invariant: a != 9\n}\n";
     let parsed = volt_syntax::parser::parse(FileId(0), src);
     let out = emit_full(&parsed.ast, "test.volt", src, SvaMode::Simulation);
     let codes: Vec<&str> = out.diagnostics.iter().map(|d| d.code.as_str()).collect();

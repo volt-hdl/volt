@@ -11,7 +11,7 @@
 //! biri yol deseni olan `_`'sız `match`'lerde E0014'ü buraya erteler; sınanan enum değilse (yol deseni
 //! + sayısal sınanan) desen E2003 alır ve parser'ın E0014'ü aynen verilir.
 
-use volt_ast::{MatchStmt, Pattern, PatternKind};
+use volt_ast::{MatchArm, MatchStmt, Pattern, PatternKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
@@ -29,22 +29,41 @@ struct ArmCover {
 impl TypeChecker<'_, '_> {
     pub(super) fn check_match_stmt(&mut self, m: &MatchStmt) {
         let scrut_ty = self.synth(m.scrutinee);
-        match *self.types.ty(scrut_ty) {
-            Ty::Enum(e) => self.check_enum_match(m, e),
-            _ => self.check_value_match(m, scrut_ty),
-        }
+        self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
         for arm in &m.arms {
             self.check_arm(arm);
         }
     }
 
+    /// Desen tipleri, kapsayıcılık ve erişilemez kollar — deyim ve ifade
+    /// `match`'inde aynı kural (ADR-0083 Karar 1, 3). `is_expr` yalnız
+    /// tanı metnini seçer.
+    pub(super) fn check_match_patterns(
+        &mut self,
+        span: Span,
+        scrut_ty: TypeId,
+        arms: &[MatchArm],
+        is_expr: bool,
+    ) {
+        match *self.types.ty(scrut_ty) {
+            Ty::Enum(e) => self.check_enum_match(span, arms, e, is_expr),
+            _ => self.check_value_match(span, arms, scrut_ty, is_expr),
+        }
+    }
+
     /// Sayısal (enum olmayan) sınanan: yol desenleri E2003; parser'ın
     /// ertelediği E0014 aynen.
-    fn check_value_match(&mut self, m: &MatchStmt, scrut_ty: TypeId) {
+    fn check_value_match(
+        &mut self,
+        span: Span,
+        arms: &[MatchArm],
+        scrut_ty: TypeId,
+        is_expr: bool,
+    ) {
         let mut deferred = false;
         let mut has_wildcard = false;
-        self.warn_unreachable_value_arms(m);
-        for arm in &m.arms {
+        self.warn_unreachable_value_arms(arms);
+        for arm in arms {
             let mut paths = Vec::new();
             let wild = self.collect_paths(arm.pattern, &mut paths);
             if arm.guard.is_none() {
@@ -68,15 +87,16 @@ impl TypeChecker<'_, '_> {
             }
         }
         if deferred && !has_wildcard {
-            self.diagnostics.push(numeric_missing_wildcard(m.span));
+            self.diagnostics
+                .push(numeric_missing_wildcard(span, is_expr));
         }
     }
 
     /// W2014: bütün literalleri önceki kollarda geçen sayısal kol (kural
     /// `volt_ast::match_cover`, sv-emit aynı kolu `case`'e yazmaz).
-    fn warn_unreachable_value_arms(&mut self, m: &MatchStmt) {
-        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, m);
-        for (arm, _) in m.arms.iter().zip(unreachable).filter(|(_, u)| *u) {
+    fn warn_unreachable_value_arms(&mut self, arms: &[MatchArm]) {
+        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, arms);
+        for (arm, _) in arms.iter().zip(unreachable).filter(|(_, u)| *u) {
             let span = self.ast.patterns[arm.pattern].span;
             self.warning(
                 ErrorCode::W2014,
@@ -89,12 +109,12 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Enum sınanan: desen tipi, kapsayıcılık, erişilemez kol.
-    fn check_enum_match(&mut self, m: &MatchStmt, e: EnumId) {
+    fn check_enum_match(&mut self, span: Span, arms: &[MatchArm], e: EnumId, is_expr: bool) {
         let variants = self.enum_variants(e);
         let enum_name = self.enum_name(e);
         let mut covered: Vec<DefId> = Vec::new();
         let mut has_wildcard = false;
-        for arm in &m.arms {
+        for arm in arms {
             let cover = self.enum_arm_cover(arm.pattern, e, &enum_name);
             if arm.guard.is_some() {
                 continue; // muhafızlı kol kapsamaya sayılmaz (E0003, ADR-0032)
@@ -129,7 +149,7 @@ impl TypeChecker<'_, '_> {
             return;
         }
         self.diagnostics
-            .push(enum_not_exhaustive(m.span, &enum_name, &missing));
+            .push(enum_not_exhaustive(span, &enum_name, &missing, is_expr));
     }
 
     /// Enum sınananda bir desenin kapsadığı varyantlar; yanlış desenler
@@ -219,9 +239,20 @@ impl TypeChecker<'_, '_> {
 /// Enum `match`'i her varyantı kapsamıyor (E0014, ADR-0074 Karar 4).
 /// `missing` boş olmamalı (`Enum::Varyant` biçiminde). Çözümleme hatalı
 /// birimdeki yedek denetim de aynı tanıyı verir (ADR-0075).
-pub(crate) fn enum_not_exhaustive(span: Span, enum_name: &str, missing: &[String]) -> Diagnostic {
+pub(crate) fn enum_not_exhaustive(
+    span: Span,
+    enum_name: &str,
+    missing: &[String],
+    is_expr: bool,
+) -> Diagnostic {
     let list = missing.join(", ");
     let first = &missing[0];
+    // İfadede her kol bir değer verir: öneri `=> <değer>` (ADR-0083 Karar 3).
+    let help = if is_expr {
+        lstr!(en: "add an arm for each missing variant ({first} => <value>) or a final '_ => <value>' arm"; tr: "her eksik varyant için kol ({first} => <değer>) ya da sona '_ => <değer>' kolu ekleyin")
+    } else {
+        lstr!(en: "add an arm for each missing variant ({first} => {{ }}) or a final '_ => {{ }}' arm"; tr: "her eksik varyant için kol ({first} => {{ }}) ya da sona '_ => {{ }}' kolu ekleyin")
+    };
     Diagnostic::error(
         ErrorCode::E0014,
         lstr!(en: "'match' on enum '{enum_name}' does not cover every variant: missing {list}"; tr: "'{enum_name}' enum'u üzerindeki 'match' her varyantı kapsamıyor: eksik {list}"),
@@ -229,7 +260,7 @@ pub(crate) fn enum_not_exhaustive(span: Span, enum_name: &str, missing: &[String
             span,
             lstr!(en: "not every variant is covered"; tr: "her varyant kapsanmıyor"),
         ),
-        lstr!(en: "add an arm for each missing variant ({first} => {{ }}) or a final '_ => {{ }}' arm"; tr: "her eksik varyant için kol ({first} => {{ }}) ya da sona '_ => {{ }}' kolu ekleyin"),
+        help,
     )
     .with_note(
         NoteKind::Note,
@@ -239,7 +270,22 @@ pub(crate) fn enum_not_exhaustive(span: Span, enum_name: &str, missing: &[String
 
 /// Parser'ın sayısal `match` E0014'ü (ADR-0032) — ertelenen yol için
 /// birebir aynı tanı (golden: sayısal match'in tanısı değişmez).
-fn numeric_missing_wildcard(span: Span) -> Diagnostic {
+fn numeric_missing_wildcard(span: Span, is_expr: bool) -> Diagnostic {
+    if is_expr {
+        return Diagnostic::error(
+            ErrorCode::E0014,
+            lstr!(en: "'match' expression has no '_' arm"; tr: "'match' ifadesinde '_' kolu yok"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "every value must be covered"; tr: "her değer kapsanmalı"),
+            ),
+            lstr!(en: "add a final '_ => <value>' arm"; tr: "sona '_ => <değer>' kolu ekleyin"),
+        )
+        .with_note(
+            NoteKind::Note,
+            lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out (ADR-0083); an enum match is checked variant by variant instead (ADR-0074)"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da (ADR-0083); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074)"),
+        );
+    }
     Diagnostic::error(
         ErrorCode::E0014,
         lstr!(en: "'match' statement has no '_' arm"; tr: "'match' deyiminde '_' kolu yok"),

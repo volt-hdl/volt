@@ -757,3 +757,109 @@ const'un değerine iner.
 **Bütçe:** açılım volt-hir'de önceden hesaplanır (ADR-0068 bütçesi,
 E2027 çağrı yerinde); emitter savunma olarak aynı sınırı uygular ve aşan
 çağrıyı açmaz.
+
+## 19. Match İfadesi ve Blok `let`'i (ADR-0083)
+
+### 19.1 Match ifadesi — yere göre biçim
+
+Match ifadesi bir atamanın ya da `let`'in **tüm** sağ tarafıysa (kök
+konum) deyim biçimine (§4, ADR-0032) iner; hedef her kolda tekrarlanır:
+
+```volt
+let r = match op { 0 => a, 1 | 2 => b, _ => a ^ b }
+q <= match mode { Mode::Idle => q, Mode::Load => d, Mode::Shift => q << 1 }
+```
+```systemverilog
+logic [7:0] r;
+always_comb begin
+    case (op)
+        2'd0: r = a;
+        2'd1, 2'd2: r = b;
+        default: r = a ^ b;
+    endcase
+end
+// on bloğunda:
+case (mode)
+    Mode_Idle: q <= q;
+    Mode_Load: q <= d;
+    default: q <= q << 1; // Mode_Shift (and invalid codes)
+endcase
+```
+
+Kök konumlar: modül `let`'i ve bütün sinyale modül ataması (`always_comb`
+süreci), `on`/`comb` içindeki atama (`<=`/`=`), blok `let`'i, fn'in tel
+kipindeki sonuç/`let` teli. Kısmi hedefli modül ataması (`y[3:0] = …`)
+iç biçimde kalır (aynı sinyalin `assign`'lı öteki parçalarıyla süreç
+karışmaz).
+
+Başka her konumda (operand, koşul, indeks, port bağlaması, kontrat, fn
+ikame kipi) `if` ifadesinin genellemesi olan üçlü zincirdir:
+
+```systemverilog
+assign r3 = ((op == 2'd0) ? ((eop == AluOp_Add) ? a : b) : 8'd20) + 8'd1;
+```
+
+- Alternatif `(s == k1 || s == k2)`; enum etiketi `localparam`'dır.
+- Kapsayıcı `_`'sız enum match'inde son adlı kol `default`'tur (case) ya
+  da zincirin son `else`'idir (üçlü) — geçersiz kodlar ikisinde de son
+  kolu alır (ADR-0074 Karar 4). İlk joker koldan sonraki kollar ve
+  önceki kolların kapsadığı kol yazılmaz (W2014).
+- İç konumdaki zincirin yüksekliği kol sayısıdır: 256'yı aşarsa **E0018**
+  ("match'i bir `let`'e verin" — kök konum her boyutta `case`'tir).
+  Sınanan her desen literali için bir kez yazılır; toplam kopya
+  `MAX_EXPANSION_NODES`'u aşarsa **E2027**. İki sınır `check`, `build` ve
+  LSP'de aynı emit'ten gelir (ADR-0070).
+
+### 19.2 Blok `let`'i — süreç yereli
+
+```volt
+on clk {
+    let s = a + b
+    if en { let t = s ^ a; r <= t }
+}
+comb { y = 0; let t = y; if c { y = a }; z = t }
+```
+```systemverilog
+always_ff @(posedge clk) begin : on_0
+    logic [7:0] s;
+    logic [7:0] t;
+    if (rst) begin
+        r <= 8'd0;
+    end else begin
+        s = a + b;
+        if (en) begin
+            t = s ^ a;
+            r <= t;
+        end
+    end
+end
+always_comb begin : comb_0
+    logic [7:0] t;
+    t = 8'd0;
+    y = 8'd0;
+    t = y;
+    if (c) begin
+        y = a;
+    end
+    z = t;
+end
+```
+
+- Yerel içeren süreç adlı bloktur: `on_<k>` / `comb_<k>` (`k`, modüldeki
+  `on` ya da `comb` bloklarının kaynak sırası; modül adıyla çakışırsa
+  `_2`). Yerel içermeyen sürecin çıktısı değişmez.
+- Bildirim süreç başında, **ilk değersiz** (bildirimde ilk değer Yosys'te
+  hata, Verilator'da IMPLICITSTATIC); değer bildirim noktasında blocking
+  atamadır. `on` bloğunda gövde sıfırlama dalının dışında (`else`) kalır;
+  bir register'ı okuyan `let` güncellenmeden önceki değeri görür.
+- `always_comb`'da her yerel süreç başında sıfırlanır: dal içindeki
+  yerel her yolda atanmazsa Yosys mandal hatası verir. Değer hiç okunmaz
+  (`let` bildiriminden önce görünmez).
+- Modül düzeyi bir SV adıyla (port, reg, tel, modül `let`'i, fn açılım
+  teli, örnek çıkışı, enum `localparam`'ı) ya da süreçteki başka bir
+  yerelle çakışan ad `<ad>_2`, `<ad>_3`… olur — gölgeleme SV'de ad
+  yakalamasına yol açmaz. `for` içindeki `let` her iterasyonda aynı yereli
+  yeniden atar. Blok `let` adı SV anahtar sözcüğüyse **E1013**.
+- Modül teline taşıma kullanılmaz: `comb` bloğunda `let`'i bloğun son
+  değerine bağlar ya da döngü kurar (ADR-0083 §5.5).
+

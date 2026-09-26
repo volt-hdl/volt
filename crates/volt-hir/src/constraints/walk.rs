@@ -194,6 +194,12 @@ fn collect_path_names<'a>(ast: &'a SourceFile, e: Idx<volt_ast::Expr>, out: &mut
             collect_path_names(ast, *then_expr, out);
             collect_path_names(ast, *else_expr, out);
         }
+        // Sınanan, muhafızlar ve kollar (ADR-0083).
+        ExprKind::Match { .. } => {
+            for c in volt_ast::visit::expr_children(&ast.exprs[e].kind) {
+                collect_path_names(ast, c, out);
+            }
+        }
         _ => {}
     }
 }

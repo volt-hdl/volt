@@ -86,10 +86,23 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// `comb { ... }` → `always_comb begin ... end`.
-    pub(crate) fn emit_comb(&mut self, block: Idx<Block>) -> String {
-        let mut out = String::from("    always_comb begin\n");
-        for line in self.emit_block(block, 8) {
+    /// `comb { ... }` → `always_comb begin ... end`; blok `let`'i varsa
+    /// adlı blok + süreç yerelleri (ADR-0083 Karar 11).
+    pub(crate) fn emit_comb(&mut self, block: Idx<Block>, index: usize) -> String {
+        let outer = self.begin_process();
+        let body = self.emit_block(block, 8);
+        let mut out = match self.end_process(outer, "comb", index, 8) {
+            Some((label, decls)) => {
+                let mut s = format!("    always_comb begin : {label}\n");
+                for d in decls {
+                    s.push_str(&d);
+                    s.push('\n');
+                }
+                s
+            }
+            None => String::from("    always_comb begin\n"),
+        };
+        for line in body {
             out.push_str(&line);
             out.push('\n');
         }

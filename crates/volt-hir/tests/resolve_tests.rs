@@ -100,7 +100,7 @@ fn enum_variant_resolves() {
 fn enum_variant_in_match_resolves() {
     assert_clean_of_errors(
         "enum Durum : bits<2> { Bekle = 0, Calis = 1 }
-         module M { in x : u8 out y : u8
+         module M { in x : Durum out y : u8
            y = match x { Durum::Bekle => 0, _ => 1 }
          }",
     );
@@ -131,7 +131,8 @@ fn loop_var_resolves() {
 
 #[test]
 fn match_pattern_binding_resolves() {
-    assert_clean_of_errors("module M { in x : u8 out y : u8 y = match x { n => n } }");
+    // Bağlama deseni joker sayılmaz: sayısal match `_` ister (ADR-0083 Karar 3).
+    assert_clean_of_errors("module M { in x : u8 out y : u8 y = match x { n => n, _ => 0 } }");
 }
 
 #[test]

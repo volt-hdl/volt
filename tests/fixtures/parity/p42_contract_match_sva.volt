@@ -7,5 +7,5 @@ module M {
     reg r : u2 = 0
     on clk { r <= x }
     y = r
-    invariant: match r { 0 => true, _ => true }
+    invariant: match r { 0 if x == 0 => true, _ => true }
 }

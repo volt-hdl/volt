@@ -1900,11 +1900,20 @@ fn match_arm_guard() {
 }
 
 #[test]
-fn match_exhaustiveness_not_checked_in_parser() {
-    // İFADE konumundaki match serbesttir (ADR-0032 yalnız deyimi bağlar);
-    // eksik kollar F2/F3 tip analizinin işi — parser tanı ÜRETMEZ.
+fn match_expr_missing_wildcard_is_e0014() {
+    // ADR-0083 Karar 3: ifade konumundaki sayısal match de deyimle AYNI
+    // kuralı izler — `_` kolu yoksa E0014 (önceden serbestti, ADR-0032
+    // yalnız deyimi bağlıyordu). Yol desenli match tip denetimine kalır.
     let result = p("module M { y = match x { 1 => 2 } }");
-    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    assert_eq!(result.error_codes(), ["E0014"]);
+    let with_wild = p("module M { y = match x { 1 => 2, _ => 3 } }");
+    assert!(
+        with_wild.diagnostics.is_empty(),
+        "{:?}",
+        with_wild.error_codes()
+    );
+    let path = p("module M { y = match s { S::A => 2 } }");
+    assert!(path.diagnostics.is_empty(), "{:?}", path.error_codes());
 }
 
 // ═══ E0014: deyim konumunda '_' kolu zorunlu (ADR-0032) ═══════════
@@ -2146,7 +2155,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 104, "ui/pass 104 dosya içermeli");
+    assert_eq!(total, 112, "ui/pass 112 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2186,10 +2195,13 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // sync + kontrat) ekledi; ADR-0080 ise 111'i (sınırın çok altında
     // derin iç içelik); ADR-0081 ise 112-117'yi (fn: basit, iç içe çağrı,
     // struct/enum parametre, on bloğu, comb + blok içi for, kontrat) ve
-    // 118'i (ikame kipinde let genişliği, üretilen ad tekilleştirme).
+    // 118'i (ikame kipinde let genişliği, üretilen ad tekilleştirme);
+    // ADR-0083 ise 119-123'ü (match ifadesi: modül, blok, fn, tip itme +
+    // struct, kontrat) ve 124-126'yı (blok let'i: on/comb, gölgeleme,
+    // comb sırası).
     assert_eq!(
-        clean, 104,
-        "104/104 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 112,
+        "112/112 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

@@ -652,39 +652,65 @@ impl Parser<'_> {
         self.expect_closing(RBrace, "}", open);
         let span = self.span_from(start);
 
-        let has_wildcard = arms
-            .iter()
-            .any(|arm| arm.guard.is_none() && self.pattern_has_wildcard(arm.pattern));
-        // Yol desenli (`State::Idle`) match'in kapsamı sınananın tipine
-        // bağlıdır: enum'da kapsayıcılık, sayıda `_` — karar tip
-        // denetimine ertelenir (ADR-0074 Karar 4). Yalnız literal/joker
-        // desenli match burada kalır.
-        let has_path = arms
-            .iter()
-            .any(|arm| arm.guard.is_none() && self.pattern_has_path(arm.pattern));
-        if !has_wildcard && !has_path {
-            self.push_error(
-                Diagnostic::error(
-                    ErrorCode::E0014,
-                    lstr!(en: "'match' statement has no '_' arm"; tr: "'match' deyiminde '_' kolu yok"),
-                    LabeledSpan::primary(
-                        span,
-                        lstr!(en: "every value must be covered"; tr: "her değer kapsanmalı"),
-                    ),
-                    lstr!(en: "add a final '_ => {{ }}' arm"; tr: "sona '_ => {{ }}' kolu ekleyin"),
-                )
-                .with_note(
-                    NoteKind::Note,
-                    lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
-                ),
-            );
-        }
+        self.check_match_wildcard(&arms, span, false);
 
         MatchStmt {
             span,
             scrutinee,
             arms,
         }
+    }
+
+    /// Sayısal match'te muhafızsız `_` kolu zorunlu — deyim ve ifade aynı
+    /// kural (ADR-0032, ADR-0083 Karar 3); yoksa E0014. Yol desenli
+    /// (`State::Idle`) match'in kapsamı sınananın tipine bağlıdır: enum'da
+    /// kapsayıcılık, sayıda `_` — karar tip denetimine ertelenir (ADR-0074
+    /// Karar 4). Yalnız literal/joker desenli match burada kalır.
+    pub(crate) fn check_match_wildcard(
+        &mut self,
+        arms: &[MatchArm],
+        span: volt_span::Span,
+        is_expr: bool,
+    ) {
+        let has_wildcard = arms
+            .iter()
+            .any(|arm| arm.guard.is_none() && self.pattern_has_wildcard(arm.pattern));
+        let has_path = arms
+            .iter()
+            .any(|arm| arm.guard.is_none() && self.pattern_has_path(arm.pattern));
+        if has_wildcard || has_path {
+            return;
+        }
+        let diag = if is_expr {
+            Diagnostic::error(
+                ErrorCode::E0014,
+                lstr!(en: "'match' expression has no '_' arm"; tr: "'match' ifadesinde '_' kolu yok"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "every value must be covered"; tr: "her değer kapsanmalı"),
+                ),
+                lstr!(en: "add a final '_ => <value>' arm"; tr: "sona '_ => <değer>' kolu ekleyin"),
+            )
+            .with_note(
+                NoteKind::Note,
+                lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out (ADR-0083); an enum match is checked variant by variant instead (ADR-0074)"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da (ADR-0083); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074)"),
+            )
+        } else {
+            Diagnostic::error(
+                ErrorCode::E0014,
+                lstr!(en: "'match' statement has no '_' arm"; tr: "'match' deyiminde '_' kolu yok"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "every value must be covered"; tr: "her değer kapsanmalı"),
+                ),
+                lstr!(en: "add a final '_ => {{ }}' arm"; tr: "sona '_ => {{ }}' kolu ekleyin"),
+            )
+            .with_note(
+                NoteKind::Note,
+                lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
+            )
+        };
+        self.push_error(diag);
     }
 
     /// Desen `_` içeriyor mu? `A | _` gibi alternatifler de sayılır.

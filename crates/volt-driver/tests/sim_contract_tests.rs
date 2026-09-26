@@ -145,7 +145,7 @@ fn unsupported_contract_expression_warns_w5001_and_still_builds() {
     let file = dir.join("m_test.volt");
     std::fs::write(
         &file,
-        "module M {\n    in clk : clock\n    in a : u4\n    invariant: match a { 0 => true, _ => a != 7 }\n    invariant: a != 9\n}\n\ntest \"t\" {\n    let dut = M { };\n    step(1);\n}\n",
+        "module M {\n    in clk : clock\n    in a : u4\n    invariant: match a { 0 if a == 0 => true, _ => a != 7 }\n    invariant: a != 9\n}\n\ntest \"t\" {\n    let dut = M { };\n    step(1);\n}\n",
     )
     .expect("yaz");
     let output = volt()

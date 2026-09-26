@@ -268,6 +268,11 @@ impl Lowerer {
             } => self
                 .struct_of_expr(*then_expr)
                 .or_else(|| self.struct_of_expr(*else_expr)),
+            // Match ifadesi `if` gibi: ilk struct tipli kol (ADR-0083 Karar 2).
+            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
+                MatchArmBody::Expr(e) => self.struct_of_expr(e),
+                MatchArmBody::Block(_) => None,
+            }),
             ExprKind::Call { callee, args } => match callee_name(&self.ast, *callee) {
                 Some("prev" | "sync" | "sync3") => self.struct_of_expr(*args.first()?),
                 _ => None,
@@ -374,6 +379,25 @@ impl Lowerer {
                         cond,
                         then_expr: t,
                         else_expr: e2,
+                    },
+                    span,
+                ))
+            }
+            // Alan başına match: desenler ve muhafızlar aynı, kollar
+            // izdüşürülür (`if` ile aynı kural, ADR-0083 Karar 2).
+            ExprKind::Match { scrutinee, arms } => {
+                let mut out = Vec::with_capacity(arms.len());
+                for arm in arms {
+                    let body = match arm.body {
+                        MatchArmBody::Expr(e) => MatchArmBody::Expr(self.project(e, sub)?),
+                        MatchArmBody::Block(_) => return None,
+                    };
+                    out.push(volt_ast::MatchArm { body, ..arm });
+                }
+                Some(self.alloc(
+                    ExprKind::Match {
+                        scrutinee,
+                        arms: out,
                     },
                     span,
                 ))

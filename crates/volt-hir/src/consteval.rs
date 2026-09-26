@@ -319,6 +319,13 @@ impl<'a> ConstEvaluator<'a> {
                 }
             }
 
+            // ADR-0083 Karar 5: desen eşleşmesi derleme zamanında; ilk
+            // eşleşen (muhafızı doğru) kolun değeri.
+            ExprKind::Match { scrutinee, arms } => {
+                let (scrutinee, arms) = (*scrutinee, arms.clone());
+                self.eval_match(scrutinee, &arms)
+            }
+
             ExprKind::Cast { expr: inner, .. } => {
                 // Sabit değer cast'te değişmez; sığdırma tip kontrolü işi.
                 self.const_eval(*inner)
@@ -471,6 +478,63 @@ impl<'a> ConstEvaluator<'a> {
                 self.error_not_constant(span, &lstr!(en: "this expression"; tr: "bu ifade"));
                 ConstValue::Error
             }
+        }
+    }
+
+    fn eval_match(&mut self, scrutinee: Idx<Expr>, arms: &[volt_ast::MatchArm]) -> ConstValue {
+        let value = self.const_eval(scrutinee);
+        if value == ConstValue::Error {
+            return ConstValue::Error;
+        }
+        for arm in arms {
+            match self.pattern_matches(arm.pattern, &value) {
+                Some(true) => {}
+                Some(false) => continue,
+                None => return ConstValue::Error,
+            }
+            if let Some(guard) = arm.guard {
+                match self.const_eval(guard) {
+                    ConstValue::Bool(true) => {}
+                    ConstValue::Bool(false) => continue,
+                    _ => return ConstValue::Error,
+                }
+            }
+            return match arm.body {
+                volt_ast::MatchArmBody::Expr(e) => self.const_eval(e),
+                volt_ast::MatchArmBody::Block(_) => ConstValue::Error,
+            };
+        }
+        // Kapsayıcılık E0014 ile denetlenir; buraya düşmek hatalı kaynaktır.
+        ConstValue::Error
+    }
+
+    /// Desen sabit değerle eşleşiyor mu? `None`: desen sabit
+    /// değerlendirilemez (tanısı başka katmanda — bağlama, tuple, hata).
+    fn pattern_matches(&mut self, pat: Idx<volt_ast::Pattern>, value: &ConstValue) -> Option<bool> {
+        use volt_ast::PatternKind;
+        let kind = self.ast.patterns[pat].kind.clone();
+        match kind {
+            PatternKind::Wildcard => Some(true),
+            PatternKind::Or(alts) => {
+                for a in alts {
+                    if self.pattern_matches(a, value)? {
+                        return Some(true);
+                    }
+                }
+                Some(false)
+            }
+            PatternKind::Literal(e) => match self.const_eval(e) {
+                ConstValue::Error => None,
+                v => Some(v == *value),
+            },
+            PatternKind::Path { .. } => {
+                let def = *self.res.pattern_resolutions.get(&pat)?;
+                match value {
+                    ConstValue::EnumVariant { def: d, .. } => Some(*d == def),
+                    _ => None,
+                }
+            }
+            PatternKind::Binding(_) | PatternKind::Tuple(_) | PatternKind::Error => None,
         }
     }
 

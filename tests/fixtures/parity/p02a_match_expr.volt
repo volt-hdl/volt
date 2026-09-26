@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 module M {
     in  x : u2
     out y : u8

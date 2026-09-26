@@ -7,7 +7,7 @@
 //! bağlama deseninden sonraki kollar ve literal olmayan alternatifli kollar
 //! (yol, tuple) değerlendirilmez.
 
-use crate::{Expr, ExprKind, Idx, MatchStmt, Pattern, PatternKind, SourceFile, UnOp};
+use crate::{Expr, ExprKind, Idx, MatchArm, Pattern, PatternKind, SourceFile, UnOp};
 
 /// Desen literalinin değeri: `(negatif, büyüklük)` ya da bool. Yazım
 /// biçimi (`1`, `0x1`) değeri değiştirmez; `-0` sıfırdır.
@@ -17,12 +17,13 @@ pub enum LitKey {
     Bool(bool),
 }
 
-/// Kol başına "erişilemez" bayrağı (sayısal ya da bool sınanan için).
-pub fn unreachable_value_arms(ast: &SourceFile, m: &MatchStmt) -> Vec<bool> {
+/// Kol başına "erişilemez" bayrağı (sayısal ya da bool sınanan için);
+/// deyim ve ifade `match`'i aynı kural (ADR-0083 Karar 1).
+pub fn unreachable_value_arms(ast: &SourceFile, arms: &[MatchArm]) -> Vec<bool> {
     let mut seen: Vec<LitKey> = Vec::new();
     let mut wildcard = false;
-    let mut out = vec![false; m.arms.len()];
-    for (i, arm) in m.arms.iter().enumerate() {
+    let mut out = vec![false; arms.len()];
+    for (i, arm) in arms.iter().enumerate() {
         if arm.guard.is_some() || wildcard {
             continue;
         }

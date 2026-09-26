@@ -119,6 +119,9 @@ impl<'a> Emitter<'a> {
         match &ast.exprs[idx].kind {
             ExprKind::Path(p) if p.segments.len() == 1 => {
                 let name = &p.segments[0].text;
+                if let Some(l) = self.local(name) {
+                    return enum_layout::enum_named(ast, l.enum_name.as_deref()?);
+                }
                 if let Some(e) = self.enum_sigs.get(name) {
                     return enum_layout::enum_named(ast, e);
                 }
@@ -139,6 +142,11 @@ impl<'a> Emitter<'a> {
             } => self
                 .enum_of_expr(*then_expr)
                 .or_else(|| self.enum_of_expr(*else_expr)),
+            // Match ifadesi `if` gibi: ilk enum tipli kol (ADR-0083).
+            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
+                volt_ast::MatchArmBody::Expr(e) => self.enum_of_expr(e),
+                volt_ast::MatchArmBody::Block(_) => None,
+            }),
             ExprKind::Field { base, field } => {
                 let inst = crate::path_single(ast, *base)?;
                 let module = &self.user_insts.get(inst)?.module;
@@ -254,14 +262,14 @@ impl<'a> Emitter<'a> {
     /// (E0003); joker ya da bağlama deseni sonrasında plan yapılmaz.
     pub(crate) fn enum_match_plan(
         &self,
-        m: &volt_ast::MatchStmt,
+        arms: &[volt_ast::MatchArm],
         decl: &EnumDecl,
     ) -> EnumMatchPlan {
-        let mut skip = vec![false; m.arms.len()];
+        let mut skip = vec![false; arms.len()];
         let mut covered: Vec<usize> = Vec::new();
         let mut wildcard = false;
         let mut last_named = None;
-        for (i, arm) in m.arms.iter().enumerate() {
+        for (i, arm) in arms.iter().enumerate() {
             if arm.guard.is_some() {
                 continue;
             }
