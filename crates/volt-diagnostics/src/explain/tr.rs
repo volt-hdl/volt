@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Geçerli dil sürümünün özelliklerini kullanın;\n// kelimenin ne zaman geleceği için yol haritasına bakın.",
         )
         .with_note(
-            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070).",
+            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070). Fonksiyonlarda (ADR-0081): generic `fn`, `fn` üzerinde `requires`/`ensures` ve `fn` gövdesinde `for` ya da `match` E0003'tür. `comb` bloğunda, blok içi `for`'da ve kontratta çağrı tel açılmadan yerinde açılır; bu yüzden fonksiyonun bitlerini seçtiği (`x[3:0]`) parametreye verilen argüman, parametre tipinde bir sinyal adı olmalıdır; orada `f(a ^ b)` E0003 verir. Çözüm: `fn`'i modül düzeyi bir `let`'ten çağırın (`let t = f(a ^ b)`, sonra `t`'yi kullanın) ya da argümanı modül düzeyi bir `let`'e bağlayıp adını verin.",
         ),
         E0004 => Explanation::new(
             "Blok sonlandırma ismi uyuşmuyor",

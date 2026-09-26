@@ -93,7 +93,8 @@ use uart_tx::UartTx;
 // struct packs its first field into the most significant bits (ADR-0077),
 // so `instr as RType` reads the spec table directly; every format shares
 // opcode, rd, funct3, rs1 and rs2 at these positions. Immediates are
-// scattered across the word per format and stay explicit shifts below.
+// scattered across the word per format and are decoded by the
+// functions below.
 struct RType {
     funct7 : u7   // [31:25]
     rs2    : u5   // [24:20]
@@ -101,6 +102,44 @@ struct RType {
     funct3 : u3   // [14:12]
     rd     : u5   // [11:7]
     opcode : u7   // [6:0]
+}
+
+// Immediate decoding, one function per format (RISC-V spec, Figure
+// "Types of immediate produced by RISC-V instructions"). A `fn` is pure
+// combinational logic and is expanded at each call site (ADR-0081); the
+// SystemVerilog has no function, only the expression. Sign extension goes
+// through the arithmetic shift `(x as i32) >> n` (ADR-0036).
+
+// I-type: inst[31:20], sign-extended.
+fn imm_i_of(instr: u32) -> u32 {
+    ((instr as i32) >> 20) as u32
+}
+
+// S-type: inst[31:25] | inst[11:7], sign-extended.
+fn imm_s_of(instr: u32) -> u32 {
+    ((((instr as i32) >> 25) << 5) as u32)
+    | ((instr >> 7) & 0x1F)
+}
+
+// B-type: inst[31] | inst[7] | inst[30:25] | inst[11:8] | 0, sign-extended.
+fn imm_b_of(instr: u32) -> u32 {
+    ((((instr as i32) >> 31) << 12) as u32)
+    | (((instr >> 7) & 1) << 11)
+    | (((instr >> 25) & 0x3F) << 5)
+    | (((instr >> 8) & 0xF) << 1)
+}
+
+// U-type: inst[31:12] | 12 zero bits.
+fn imm_u_of(instr: u32) -> u32 {
+    instr & 0xFFFFF000
+}
+
+// J-type: inst[31] | inst[19:12] | inst[20] | inst[30:21] | 0, sign-extended.
+fn imm_j_of(instr: u32) -> u32 {
+    ((((instr as i32) >> 31) << 20) as u32)
+    | (instr & 0xFF000)
+    | (((instr >> 20) & 1) << 11)
+    | (((instr >> 21) & 0x3FF) << 1)
 }
 
 pub module RiscvCore {
@@ -248,23 +287,12 @@ pub module RiscvCore {
     let rs1_v = regs[ins.rs1]
     let rs2_v = regs[ins.rs2]
 
-    // ── Immediates (sign extension via arithmetic shift) ──────────
-    let imm_i = ((instr as i32) >> 20) as u32
-
-    let imm_s = ((((instr as i32) >> 25) << 5) as u32)
-              | ((instr >> 7) & 0x1F)
-
-    let imm_b = ((((instr as i32) >> 31) << 12) as u32)
-              | (((instr >> 7) & 1) << 11)
-              | (((instr >> 25) & 0x3F) << 5)
-              | (((instr >> 8) & 0xF) << 1)
-
-    let imm_u = instr & 0xFFFFF000
-
-    let imm_j = ((((instr as i32) >> 31) << 20) as u32)
-              | (instr & 0xFF000)
-              | (((instr >> 20) & 1) << 11)
-              | (((instr >> 21) & 0x3FF) << 1)
+    // ── Immediates (fn per format, see the top of the file) ───────
+    let imm_i = imm_i_of(instr)
+    let imm_s = imm_s_of(instr)
+    let imm_b = imm_b_of(instr)
+    let imm_u = imm_u_of(instr)
+    let imm_j = imm_j_of(instr)
 
     // ── ALU ───────────────────────────────────────────────────────
     let alu_b = if is_alu_r { rs2_v } else { imm_i }

@@ -1,8 +1,8 @@
 # ADR-0081: Fonksiyon Desteği — Saf Kombinasyonel `fn` Donanıma İner
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım) ve Aşama 2 (uygulama, bkz.
-> "Aşama 2 — uygulama notları"). Aşama 3 (örnekler + eşdeğerlik kanıtı)
-> ayrı PR.
+> Statü: KABUL EDİLDİ — Aşama 1 (tasarım), Aşama 2 (uygulama, bkz.
+> "Aşama 2 — uygulama notları") ve Aşama 3 (örnekler + eşdeğerlik kanıtı,
+> bkz. "Aşama 3 ölçümü").
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-ast (paylaşılan çizge yardımcısı `graph` —
 > ADR-0069'un Tarjan'ı buraya taşınır), volt-syntax (fn gövdesinde
@@ -884,6 +884,112 @@ port'un gölgelediği const hijyeni, işaretli parametre (`>>>`), struct
 yanındaki tablo). `examples/riscv_core.volt`'un ALU işlemi ve dallanma
 koşulu `match` gerektirdiği için Aşama 3'te taşınmaz; immediate çözme
 (I/S/B/U/J) taşınır.
+
+## Aşama 3 ölçümü (2026-09-26, dal `feat/fn-examples`)
+
+`examples/riscv_core.volt`'un immediate çözmesi beş saf fn'e taşındı:
+`imm_i_of`, `imm_s_of`, `imm_b_of`, `imm_u_of`, `imm_j_of` (hepsi
+`fn …(instr: u32) -> u32`, gövde tek ifade — önceki elle yazılmış
+kaydırma/maske ifadesinin aynısı). Modül gövdesinde
+`let imm_i = imm_i_of(instr)` … beş satır kaldı. Çağrılar modül düzeyi
+`let`'ten ve argüman sinyal adı (`instr`), dolayısıyla "Aşama 3 için
+kısıt"taki `comb`/kontrat sınırına takılınmadı. ALU ve dallanma koşulu
+`match` gerektirdiği için taşınmadı (aynı bölüm).
+
+### Değerlendirilen diğer adaylar
+
+| Aday | Karar | Gerekçe (ölçüm) |
+|---|---|---|
+| `riscv_pipeline.volt` Decode aşamasındaki aynı beş immediate | taşınmadı | Aynı fn'ler dosyaya kopyalanınca `RiscvPipeline.sv` byte-aynı (pipeline aşama gövdesinde çağrı çalışıyor). Ama iki dosyada iki kopya tekrarı azaltmaz. Ortak kaynak iki yoldan denendi: (1) `use riscv_core::{imm_i_of, …}` çalışıyor (fn'ler `pub` olunca), fakat pipeline'ın derleme çıktısına `RiscvCore.sv` ve `UartTx.sv` de ekleniyor; (2) yalnız fn içeren `riscv_imm.volt` ile pipeline SV'si byte-aynı, ama bu dosya tek başına derlenince modülsüz boş bir `riscv_imm.sv` yazılıyor ve çıktı ağının (ADR-0079) Verilator adımı onu reddeder: `%Error: Specified --top-module 'riscv_imm' was not found in design.` Düzeltme derleyicide (Aşama 3 kapsamı dışı) — bkz. Bulgu. |
+| `fir_filter.volt` doyma | aday yok | Dosyada doyma mantığı yok (`grep -i "satur\|clamp"` boş). |
+| `uart_tx.volt` parite | aday yok | 8N1, parite biti yok. |
+| `axi4lite_slave.volt` yanıt kodu | taşınmadı | `if berr_r { 2 } else { 0 }` iki yerde; fn okunabilirliği artırmaz, isimli sabit (OKAY/SLVERR) daha doğru araç. |
+
+### Davranış kanıtı
+
+| Denetim | Önce (main, d81a476) | Sonra |
+|---|---|---|
+| `volt test` riscv_core (Docker) | 59/59 | 59/59 (C programı dahil) |
+| Diğer 8 örneğin `volt test`'i (Docker) | — | hepsi geçti: pipeline 15, uart_tx 4, axi4lite 5, fir 10, soc 5, i2c 12, vga 7, hybrid 6 |
+| `volt verify` prove d3 boolector / bmc d10 | 44/44 / 44/44 | 44/44 / 44/44 |
+| `volt verify` cover d12 | 44 özellikten 2'si başarısız: `RiscvCore.cov_4` ve `UartTx.cov_9` 12 adımda erişilemedi (E5001, döngü 11) | aynı |
+| Verilator `-Wall` RiscvCore + UartTx | temiz (0 satır) | temiz (0 satır) |
+
+**Üretilen SV:** `RiscvCore.sv` ve `UartTx.sv`, `// Source:` satırı
+dışında byte-aynı (`diff`). Tüm sağ taraflı `let` çağrısı sonuç teli
+yazmaz (Karar 12.2) ve fn'lerin iç `let`'i yok, bu yüzden açılım önceki
+ifadeyi aynen verir:
+
+```text
+wire [31:0] imm_s = $unsigned(($signed(instr) >>> 25 << 5)) | instr >> 7 & 32'h1F;
+```
+
+**Eşdeğerlik (ADR-0077 yöntemi, `build/fn3/eq/eq.ys`):** Yosys
+`prep; memory -nomap; memory_map; flatten` sonrası `equiv_make gold gate;
+equiv_simple -seq 1; equiv_induct -seq 1; equiv_status -assert`:
+
+```text
+Proved 2753 previously unproven $equiv cells.
+  Of those cells 2753 are proven and 0 are unproven.
+  Equivalence successfully proven!
+```
+
+Kasıtlı hata: `imm_s_of` gövdesinde `& 0x1F` → `& 0x0F` (Volt kaynağında,
+fn gövdesinde) ile üretilen SV aynı betiğe verilince:
+
+```text
+ERROR: Found 1 unproven $equiv cells in 'equiv_status -assert'.
+```
+
+— denetim boş geçmiyor, fn gövdesindeki farkı yakalıyor.
+
+Formal ayarları iki sürümde aynı (`build/fn3/verify.sh`): `volt verify -j 4
+--engine boolector --mode {prove 3, bmc 10, cover 12}`. Varsayılan motorla
+`bmc --depth 10` 21 dakikada bitmedi (`waiting for solver`) ve durduruldu;
+boolector ile 11 s. Cover sonucu main'deki ile aynı: iki hedef 12 adımda
+erişilemez.
+
+### Sentez (Yosys, `hdlc/yosys`)
+
+| Hedef | Önce | Sonra |
+|---|---|---|
+| iCE40 SB_LUT4 / FF (DFF*) / SB_CARRY | 7408 / 1478 / 645 | 7408 / 1478 / 645 |
+| iCE40 hücre toplamı | 9549 | 9549 |
+| xc7 hücre toplamı | 6112 | 6112 |
+| xc7 FDRE / CARRY4 / DSP48E1 / MUXF7 | 1477 / 180 / 4 / 724 | aynı |
+
+Birebir aynı; her hücre tipi eşit. ADR-0077'deki satır/ad duyarlılığı
+burada devreye girmez: SV'de sinyal adı ve satır sayısı değişmedi, fark
+yalnız `// Source:` yorumundaki dosya adı.
+
+### `volt explain E0003`
+
+Not 3 gereği ölçüldü: E0003 açıklaması fn sınırını anlatmıyordu (tanı
+mesajının `help`'i anlatıyordu). Açıklamanın NOTE'una iki dilde eklendi:
+fn'deki E0003 durumları (generic fn, `requires`/`ensures`, gövdede
+`for`/`match`) ve `comb`/blok içi `for`/kontratta bit seçilen parametreye
+sinyal adı olmayan argüman; çözüm "fn'i modül düzeyi `let`'ten çağır
+(`let t = f(a ^ b)`)" ya da argümanı modül düzeyi `let`'e bağlamak.
+Test: `explain_tests.rs::e0003_explains_the_fn_bit_select_limit_and_its_fix_in_both_languages`.
+Ölçülen sınır (bu dal, `build/fn3/lim.volt`):
+
+```text
+error[E0003]: not supported yet: an argument for 'x' of 'low4' that is not a signal name of the parameter's type, while the function selects bits of 'x', in a comb block, a block-level for or a contract
+  = help: bind the argument to a module-level let of the parameter's type and pass its name (ADR-0081)
+```
+
+Aynı dosyada `let t = low4(a ^ b)` (modül düzeyi) hatasız.
+
+### Bulgu — yalnız fn içeren dosya boş SV yazar (düzeltilmedi)
+
+`volt build riscv_imm.volt` (içinde yalnız `pub fn`'ler) başarıyla biter
+ve 10 satırlık, modül içermeyen `riscv_imm.sv` yazar (başlık yorumu +
+`` `default_nettype `` satırları). `use` ile içe aktarıldığında bu dosya
+üretilmez (kullanan birimin çıktısında yalnız kendi modülleri var).
+Etkisi: ortak fn kütüphanesi `examples/` ya da `tests/ui/pass` altına
+konamaz, çünkü çıktı ağı her `.sv`'yi `--top-module <kök>` ile lint eder.
+Olası düzeltme: modülü olmayan birim için SV dosyası yazmamak (ya da W
+uyarısı). Ayrı iş; bu PR'da derleyici davranışı değişmedi.
 
 ## Sonuçlar
 

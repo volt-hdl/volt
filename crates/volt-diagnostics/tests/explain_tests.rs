@@ -466,3 +466,20 @@ fn adr_0065_rdc_explanations_point_to_the_raw_reset_port() {
     }
     assert!(ErrorCode::W3009.description().contains("ADR-0065"));
 }
+
+#[test]
+fn e0003_explains_the_fn_bit_select_limit_and_its_fix_in_both_languages() {
+    // ADR-0081 Aşama 3: comb/blok içi for/kontratta bit seçilen parametreye
+    // sinyal adı olmayan argüman E0003 verir; çözüm modül düzeyi let.
+    for lang in [Lang::En, Lang::Tr] {
+        let note = explanation(lang, ErrorCode::E0003)
+            .note
+            .expect("E0003 notu");
+        assert!(note.contains("ADR-0081"), "{note}");
+        assert!(
+            note.contains("`comb`") && note.contains("`x[3:0]`"),
+            "{note}"
+        );
+        assert!(note.contains("`let t = f(a ^ b)`"), "{note}");
+    }
+}
