@@ -36,6 +36,9 @@ pub(super) struct FnInfo<'a> {
     /// Parametre bir seçim/alan tabanı olarak kullanılıyor (`p[3:0]`,
     /// `p.a`): yerine SV'de seçilemeyen bir ifade yazılamaz.
     pub(super) param_select_base: Vec<bool>,
+    /// `let` bir bit/aralık seçiminin tabanı (`s[8]`): ikame kipinde
+    /// yerine seçilemeyen bir ifade yazılamaz.
+    pub(super) let_select_base: Vec<bool>,
 }
 
 impl<'a> FnInfo<'a> {
@@ -56,6 +59,7 @@ impl<'a> FnInfo<'a> {
             bindings: HashMap::new(),
             shorthand: HashMap::new(),
             param_select_base: vec![false; decl.params.len()],
+            let_select_base: vec![false; lets.len()],
             lets: Vec::new(),
         };
         let mut scope: HashMap<String, Binding> = decl
@@ -98,13 +102,19 @@ impl<'a> FnInfo<'a> {
                 | ExprKind::Range { base, .. }
                 | ExprKind::PartSelect { base, .. }
                 | ExprKind::Field { base, .. } => {
+                    let is_field = matches!(ast.exprs[e].kind, ExprKind::Field { .. });
                     if let ExprKind::Path(p) = &ast.exprs[*base].kind {
-                        if let Some(Binding::Param(i)) =
-                            p.segments.first().and_then(|s| scope.get(&s.text)).copied()
-                        {
-                            if p.segments.len() == 1 {
+                        let bound = p.segments.first().and_then(|s| scope.get(&s.text)).copied();
+                        match bound {
+                            Some(Binding::Param(i)) if p.segments.len() == 1 => {
                                 self.param_select_base[i] = true;
                             }
+                            // Struct alanı (`s.a`) struct indirgemesiyle
+                            // yaprağa iner; yalnız bit seçimi sorun.
+                            Some(Binding::Let(j)) if p.segments.len() == 1 && !is_field => {
+                                self.let_select_base[j] = true;
+                            }
+                            _ => {}
                         }
                     }
                 }

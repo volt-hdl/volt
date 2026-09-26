@@ -91,6 +91,8 @@ pub(super) struct Expander<'a> {
     consts: HashSet<String>,
     /// Üretilen teller (bütçe aşımında geri almak için).
     wire_log: Vec<String>,
+    /// Modülde üretilmiş adlar + struct tipli tellerin yaprakları.
+    generated: HashSet<String>,
 }
 
 impl<'a> Expander<'a> {
@@ -118,6 +120,7 @@ impl<'a> Expander<'a> {
             headers: Vec::new(),
             consts,
             wire_log: Vec::new(),
+            generated: HashSet::new(),
         }
     }
 
@@ -128,6 +131,7 @@ impl<'a> Expander<'a> {
         self.counters.clear();
         self.pending.clear();
         self.wire_log.clear();
+        self.generated.clear();
     }
 
     // ═══ Çağıran ifadesinin gezilmesi ═════════════════════════════
@@ -200,6 +204,9 @@ impl<'a> Expander<'a> {
         }
         if self.notes.global_paths.contains(&repl) {
             self.notes.global_paths.insert(e);
+        }
+        if self.notes.self_sized.contains(&repl) {
+            self.notes.self_sized.insert(e);
         }
     }
 
@@ -286,7 +293,13 @@ impl<'a> Expander<'a> {
                         let wire = format!("{name}_{k}_{}", l.name.text);
                         self.add_wire(&wire, l.ty, v, call_span, info)
                     }
-                    Mode::Subst => v,
+                    Mode::Subst => match self.subst_let(info, j, v, call_span) {
+                        Some(t) => t,
+                        None => {
+                            failed = true;
+                            break;
+                        }
+                    },
                 });
             }
         }
@@ -378,6 +391,39 @@ impl<'a> Expander<'a> {
         }
     }
 
+    /// İkame kipinde `let` şablonu tel kipindeki telin genişliğinde
+    /// hesaplanır: tipliyse o tipe, tipsizse emitter'ın tel için
+    /// çıkaracağı genişliğe boyut dönüşümü (`W'(e)`). Aksi hâlde değer
+    /// çevresinin genişliğini alırdı (`let t = a + b` taşmayı korurdu).
+    /// Bitleri seçilen `let`in yerine seçilebilir bir ifade gerekir.
+    fn subst_let(
+        &mut self,
+        info: &FnInfo<'a>,
+        j: usize,
+        v: Idx<Expr>,
+        call_span: Span,
+    ) -> Option<Idx<Expr>> {
+        let l = info.lets[j];
+        let path_like = is_path_like(&self.out, v);
+        if info.let_select_base[j] && !(path_like && l.ty.is_none()) {
+            self.err_subst_let_select(call_span, &l.name.text, &info.name);
+            return None;
+        }
+        if path_like && l.ty.is_none() {
+            return Some(v);
+        }
+        match l.ty {
+            Some(t) if canon(self.src, t).is_some_and(|c| c.is_int_like()) => {
+                Some(self.cast(v, t, true))
+            }
+            Some(_) => Some(v),
+            None => {
+                self.notes.self_sized.insert(v);
+                Some(v)
+            }
+        }
+    }
+
     /// İkame kipinde sonucun genişliği dönüş tipine sabitlenir: çevresi
     /// geniş bir SV bağlamı `a + b`'yi taşırmadan hesaplardı.
     fn subst_result(&mut self, v: Idx<Expr>, info: &FnInfo<'a>, call_span: Span) -> Idx<Expr> {
@@ -399,8 +445,8 @@ impl<'a> Expander<'a> {
                 | ExprKind::Index { .. }
                 | ExprKind::Range { .. }
                 | ExprKind::PartSelect { .. }
-                | ExprKind::Cast { .. }
-        );
+        ) || matches!(self.out.exprs[v].kind,
+            ExprKind::Cast { ty, .. } if canon(&self.out, ty) == canon(self.src, ret));
         if self_determined || !canon(self.src, ret).is_some_and(|c| c.is_int_like()) {
             return v;
         }
@@ -535,6 +581,9 @@ impl<'a> Expander<'a> {
         if self.notes.global_paths.contains(&e) {
             self.notes.global_paths.insert(n);
         }
+        if self.notes.self_sized.contains(&e) {
+            self.notes.self_sized.insert(n);
+        }
         n
     }
 
@@ -596,10 +645,10 @@ impl<'a> Expander<'a> {
         call_span: Span,
         info: &FnInfo<'a>,
     ) -> Idx<Expr> {
+        let name = &self.fresh_name(name, ty);
         if self.module_names.contains(name) {
             self.err_name_clash(name, call_span, &info.name);
         }
-        self.module_names.insert(name.to_string());
         self.wire_log.push(name.to_string());
         if let Some(t) = ty {
             self.decls.types.insert(name.to_string(), t);
@@ -631,6 +680,30 @@ impl<'a> Expander<'a> {
                 segments: vec![ident],
             }),
         })
+    }
+
+    /// Üretilen adlar kendi aralarında çakışmaz: `let a` parametre `a`'yı
+    /// gölgeleyebilir, struct tipli telin yaprağı (`mk_0_a`) bir `let`
+    /// teliyle aynı olabilir. Çakışan ad `_2`, `_3`, … soneki alır
+    /// (kaynak sırası belirler, kararlı). Kullanıcı adıyla çakışma E1003.
+    fn fresh_name(&mut self, base: &str, ty: Option<Idx<TypeRef>>) -> String {
+        let leaves = ty
+            .map(|t| super::types::struct_leaves(self.src, t))
+            .unwrap_or_default();
+        let taken = |g: &HashSet<String>, n: &str| {
+            g.contains(n) || leaves.iter().any(|l| g.contains(&format!("{n}_{l}")))
+        };
+        let mut name = base.to_string();
+        let mut i = 2;
+        while taken(&self.generated, &name) {
+            name = format!("{base}_{i}");
+            i += 1;
+        }
+        self.generated.insert(name.clone());
+        for l in &leaves {
+            self.generated.insert(format!("{name}_{l}"));
+        }
+        name
     }
 
     fn is_struct(&self, name: &str) -> bool {
@@ -683,6 +756,21 @@ impl<'a> Expander<'a> {
             ),
             lstr!(en: "bind the argument to a module-level let of the parameter's type and pass its name (ADR-0081)";
                   tr: "argümanı parametrenin tipinde modül düzeyi bir let'e bağlayıp adını geçirin (ADR-0081)"),
+        ));
+    }
+
+    /// E0003 — ikame kipinde bitleri seçilen `let` (tel kurulamaz).
+    fn err_subst_let_select(&mut self, call: Span, let_name: &str, fn_name: &str) {
+        self.diags.push(Diagnostic::error(
+            ErrorCode::E0003,
+            lstr!(en: "not supported yet: calling '{fn_name}', which selects bits of its let '{let_name}', in a comb block, a block-level for or a contract";
+                  tr: "henüz desteklenmiyor: let'i '{let_name}' üzerinde bit seçen '{fn_name}' fonksiyonunu comb bloğunda, blok içi for'da ya da kontratta çağırmak"),
+            LabeledSpan::primary(
+                call,
+                lstr!(en: "no wire can be created here"; tr: "burada tel kurulamaz"),
+            ),
+            lstr!(en: "call it from a module-level let (each let becomes a wire there) and use that name here (ADR-0081)";
+                  tr: "fonksiyonu modül düzeyi bir let'ten çağırın (orada her let bir tel olur) ve burada o adı kullanın (ADR-0081)"),
         ));
     }
 

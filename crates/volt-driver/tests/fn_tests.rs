@@ -103,7 +103,7 @@ fn expectation(text: &str) -> (String, u64) {
 #[test]
 fn every_fn_fail_fixture_reports_its_code_on_the_marked_line() {
     let files = fn_fixtures("tests/ui/fail");
-    assert_eq!(files.len(), 21, "ADR-0081 ui/fail fixture sayısı");
+    assert_eq!(files.len(), 22, "ADR-0081 ui/fail fixture sayısı");
     let mut bad = Vec::new();
     for file in &files {
         let text = std::fs::read_to_string(file).expect("okunmalı");
@@ -268,11 +268,13 @@ fn comb_and_block_for_calls_substitute_without_wires() {
     assert!(!sv.contains("mix_"), "ikame kipinde tel yok: {sv}");
     // Parametre tipinde olmayan argüman ve sonuç boyut dönüşümüyle.
     assert!(
-        sv.contains("m = 8'((8'(xs[0 +: 8] + 8'd1) ^ k) + ((8'(xs[0 +: 8] + 8'd1) ^ k) >> 1));"),
+        sv.contains(
+            "m = 8'(8'(8'(xs[0 +: 8] + 8'd1) ^ k) + (8'(8'(xs[0 +: 8] + 8'd1) ^ k) >> 1));"
+        ),
         "{sv}"
     );
     assert!(
-        sv.contains("ys[24 +: 8] = 8'((xs[24 +: 8] ^ k) + ((xs[24 +: 8] ^ k) >> 1));"),
+        sv.contains("ys[24 +: 8] = 8'(8'(xs[24 +: 8] ^ k) + (8'(xs[24 +: 8] ^ k) >> 1));"),
         "{sv}"
     );
     let _ = std::fs::remove_dir_all(&target);
@@ -342,4 +344,33 @@ fn a_private_fn_cannot_be_imported_from_another_file() {
     let errs = errors(&check_json(&main));
     assert!(errs.iter().any(|(c, _)| c == "E1004"), "{errs:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// İkame kipinde `let` tel kipindeki telinin genişliğinde hesaplanır;
+/// iki kip aynı değeri üretir (inceleme bulgusu: `let t = a + b` comb'da
+/// taşmayı koruyordu). Üretilen adlar kendi aralarında çakışmaz.
+#[test]
+fn substitution_and_wire_mode_agree_on_let_widths_and_names_stay_unique() {
+    let target = temp_dir("letwidth");
+    let out = build(
+        &root().join("tests/ui/pass/118_fn_let_widths_and_names.volt"),
+        &target,
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let sv = read_sv(&target, "FnLetWidths");
+    // Tipsiz let: tel kipinde 8 bit tel, ikame kipinde 8'(…).
+    assert!(sv.contains("wire [7:0] addw_0_t = a + b;"), "{sv}");
+    assert!(sv.contains("yc = 9'(8'(a + b));"), "{sv}");
+    // Tipli let (u8) ve u16 dönüş.
+    assert!(sv.contains("tc = 16'(8'(a + b));"), "{sv}");
+    // let parametreyi gölgeler: _2 soneki, E1003 yok.
+    assert!(sv.contains("wire [7:0] sh_0_a_2 = sh_0_a ^ 8'd3;"), "{sv}");
+    // Struct sonucun yaprağı (mk_0_a) let teliyle çakışır: sonuç mk_0_2.
+    assert!(sv.contains("wire [7:0] mk_0_2_a = mk_0_a;"), "{sv}");
+    let _ = std::fs::remove_dir_all(&target);
 }

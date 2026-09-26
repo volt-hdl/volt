@@ -99,7 +99,7 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
     // Sayım, dizin okuması sessizce boş kalırsa testin boşuna geçmesini
     // önler; ui_semantic_tests.rs ve parser_tests.rs sayımlarıyla aynı.
-    assert_eq!((built, check_only), (103, 0));
+    assert_eq!((built, check_only), (104, 0));
 }
 
 #[test]

@@ -722,24 +722,29 @@ düzeyi adlar olan `on` bloğu çağrısı:
     wire [31:0] imm_b_0 = imm_b_0_sign | imm_b_0_mid | (instr0 >> 8 & 32'hF) << 1;
 ```
 
-- Üretilen ad modüldeki bir adla çakışırsa **E1003** çağrı yerinde.
+- Üretilen adlar kendi aralarında çakışırsa (`let` parametreyi gölgeler,
+  struct tipli telin yaprağı bir `let` teliyle aynı ad olur) sonraki ad
+  `_2`, `_3`, … soneki alır (`sh_0_a_2`, `mk_0_2_a`). Kullanıcının
+  bildirdiği bir adla çakışma **E1003** çağrı yerinde.
 
 **İkame kipi** — `comb` bloğu, blok içi `for`, blok yereline başvuran
 argümanlı `on` çağrısı, kontrat (her SVA kipi), `reg` başlangıcı: tel
 yok; parametreler argümanla, `let`'ler değerleriyle yer değiştirir.
-Parametre tipinde olmayan argüman ve bağlama duyarlı sonuç SV boyut
-dönüşümüyle (`W'(e)`) sarılır — Volt'ta argüman parametre tipine check
-edilir (ADR-0041), SV'de genişlik çevreden gelirdi:
+Parametre tipinde olmayan argüman, her `let` değeri (tel kipindeki
+telinin genişliğinde: tipliyse tipi, tipsizse telin çıkarılan genişliği)
+ve bağlama duyarlı sonuç SV boyut dönüşümüyle (`W'(e)`) sarılır — Volt'ta
+argüman parametre tipine check edilir (ADR-0041), SV'de genişlik
+çevreden gelirdi; iki kip aynı değeri üretir:
 
 ```systemverilog
     always_comb begin
-        m = 8'((8'(xs[0 +: 8] + 8'd1) ^ k) + ((8'(xs[0 +: 8] + 8'd1) ^ k) >> 1));
+        m = 8'(8'(8'(xs[0 +: 8] + 8'd1) ^ k) + (8'(8'(xs[0 +: 8] + 8'd1) ^ k) >> 1));
     end
 ```
 
-Bu kipte struct parametreye ad olmayan argüman ya da gövdenin bitlerini
-seçtiği parametreye parametre tipinde ad olmayan argüman **E0003**
-(tel kurulamaz); açılmış yükseklik 256'yı aşarsa **E0018** çağrı yerinde.
+Bu kipte struct parametreye ad olmayan argüman, gövdenin bitlerini
+seçtiği parametreye parametre tipinde ad olmayan argüman ya da bitleri
+seçilen bir `let` **E0003** (tel kurulamaz); açılmış yükseklik 256'yı aşarsa **E0018** çağrı yerinde.
 
 **Hijyen:** gövdedeki adlar fn kapsamında çözülür (parametre, önceki
 `let`, kök öğe); gövdedeki const çağıranın aynı adlı sinyaline değil

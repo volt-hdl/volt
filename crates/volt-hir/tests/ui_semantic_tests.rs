@@ -258,8 +258,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           dönüşümü, bundle alanı, sync + kontrat),
     // ADR-0080: 111 sınırın çok altında derin iç içelik (E0018 yok),
     // ADR-0081: 112-117 fn (basit, iç içe, struct/enum, on, comb + for,
-    //           kontrat).
-    assert_eq!(checked, 103);
+    //           kontrat), 118 let genişliği + üretilen ad tekilleştirme.
+    assert_eq!(checked, 104);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

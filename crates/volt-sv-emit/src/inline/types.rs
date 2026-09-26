@@ -188,3 +188,29 @@ fn struct_field(ast: &SourceFile, ty: Idx<TypeRef>, field: &str) -> Option<Idx<T
             _ => None,
         })
 }
+
+/// Struct tipinin yaprak ad sonekleri (`a`, `i_x`) — struct indirgemesinin
+/// `<ad>_<yol>` sinyal adları (ADR-0077). Struct değilse boş.
+pub(super) fn struct_leaves(ast: &SourceFile, ty: Idx<TypeRef>) -> Vec<String> {
+    let ty = crate::alias::resolve(ast, ty);
+    let TypeRefKind::Path { path, .. } = &ast.types[ty].kind else {
+        return Vec::new();
+    };
+    let Some(name) = path.segments.last().map(|s| s.text.as_str()) else {
+        return Vec::new();
+    };
+    let decl = ast
+        .items
+        .iter()
+        .find_map(|&i| match &ast.items_arena[i].kind {
+            ItemKind::Struct(s) if !s.is_port && s.name.text == name => Some(s),
+            _ => None,
+        });
+    let Some(decl) = decl else {
+        return Vec::new();
+    };
+    match volt_ast::struct_layout::layout(ast, decl, &mut |e| crate::structs::const_int(ast, e)) {
+        Ok(layout) => layout.leaves.iter().map(|l| l.path.join("_")).collect(),
+        Err(_) => Vec::new(),
+    }
+}

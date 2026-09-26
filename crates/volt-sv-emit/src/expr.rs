@@ -481,6 +481,17 @@ impl<'a> Emitter<'a> {
     ) -> String {
         let ast = self.ast;
         let span = ast.exprs[idx].span;
+        // ADR-0081 ikame kipi: tipsiz fn `let`i tel kipindeki telinin
+        // genişliğinde hesaplanır.
+        if self.inline_notes.self_sized.contains(&idx) && self.self_sizing.insert(idx) {
+            let sig = self.width_of(idx);
+            let inner = self.emit_prec(idx, sig, PREC_TERNARY, false);
+            self.self_sizing.remove(&idx);
+            return match sig {
+                Some(sig) => format!("{}'({inner})", sig.width),
+                None => inner,
+            };
+        }
         let (text, my_prec) = match &ast.exprs[idx].kind {
             ExprKind::IntLit {
                 value,

@@ -56,6 +56,9 @@ pub(crate) struct InlineNotes {
     /// Gövdedeki const başvuruları: çağıranın aynı adlı sinyaline değil
     /// const'a bağlanır (hijyen).
     pub global_paths: HashSet<Idx<Expr>>,
+    /// İkame kipinde tipsiz `let` değeri: emitter onu tel kipindeki telin
+    /// çıkarılacak genişliğinde `W'(e)` olarak yazar.
+    pub self_sized: HashSet<Idx<Expr>>,
 }
 
 impl InlineNotes {

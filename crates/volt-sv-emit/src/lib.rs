@@ -499,6 +499,7 @@ fn new_emitter<'a>(
         struct_notes,
         inline_notes,
         inline_headers_done: HashSet::new(),
+        self_sizing: HashSet::new(),
         module_name: String::new(),
         sv_name_reported: HashSet::new(),
     }
@@ -768,6 +769,8 @@ pub(crate) struct Emitter<'a> {
     pub(crate) inline_notes: &'a inline::InlineNotes,
     /// Başlığı yazılmış çağrılar (modül başına bir kez).
     pub(crate) inline_headers_done: HashSet<(String, String)>,
+    /// Yazılmakta olan `self_sized` düğümleri (özyinelemede bir kez sar).
+    pub(crate) self_sizing: HashSet<Idx<Expr>>,
     /// Üretilmekte olan modülün adı (struct notlarının anahtarı).
     pub(crate) module_name: String,
     /// E1013 verilmiş SV adları (ADR-0078) — güvenlik ağı aynı adı

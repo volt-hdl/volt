@@ -798,7 +798,20 @@ korunur (fn kontratı artık ek olarak E0003 alır, sayılan kod E5017).
    port` imzada E0003 (Karar 4).
 10. **`for` gövdesinde atama:** parser E2016 verir ve deyimi atar; `for`
     ayrıca HIR'da E0003 alır (ikisi de fn tanımında).
-11. **Çağrı yerleri (Karar 5):** modül `let`/atama/örnek bağlantısı ve
+11. **İkame kipinde `let` genişliği:** her `let` değeri tel kipindeki
+    telinin genişliğinde sarılır — tipliyse `as` tipine `W'(e)`, tipsizse
+    emitter'ın tel için çıkaracağı genişlikte `W'(e)`. İki kip aynı değeri
+    üretir (`let t = a + b` tel kipinde 8 bit sarıyor, ikame kipinde
+    taşmayı koruyordu). Bitleri seçilen `let` (`s[8]`) ikame kipinde E0003:
+    `(a + b)[8]` SV'de geçersiz.
+12. **Üretilen adların tekliği:** üretilen adlar kendi aralarında
+    çakışırsa (`let a` parametre `a`'yı gölgeler → `sh_0_a`; struct tipli
+    sonuç telinin yaprağı `mk_0_a` bir `let` teliyle aynı) sonraki ad `_2`,
+    `_3`, … soneki alır (`sh_0_a_2`, `mk_0_2_a`), kaynak sırasıyla kararlı.
+    E1003 yalnız kullanıcının bildirdiği adla çakışmada kalır (Karar
+    12.2'nin amacı). İlk sürüm bu durumlarda geçerli programa sahte E1003
+    veriyordu.
+13. **Çağrı yerleri (Karar 5):** modül `let`/atama/örnek bağlantısı ve
     argümanları modül düzeyi `on` çağrısı tel kipi; `comb`, blok içi
     `for`, blok yereline (döngü değişkeni, desen bağlaması) başvuran `on`
     çağrısı, kontrat ve `reg` başlangıcı ikame kipi.
@@ -807,9 +820,9 @@ korunur (fn kontratı artık ek olarak E0003 alır, sayılan kod E5017).
 
 - `cargo test --all` (Windows) yeşil; golden: önceki 473 dosya bayt-aynı,
   39 yeni dosya (fixture + sonda).
-- ui/pass 112-117 (basit, iç içe + const hijyeni, struct/enum parametre +
+- ui/pass 112-118 (basit, iç içe + const hijyeni, struct/enum parametre +
   struct literal argümanı + struct dönüşü, `on` bloğu + blok içi `for`,
-  `comb` + blok içi `for`, kontrat), ui/fail 143-163 (her yeni tanı,
+  `comb` + blok içi `for`, kontrat), ui/fail 143-164 (her yeni tanı,
   doğrudan/karşılıklı özyineleme, E3001, arity, tip, E0003 sınıfları,
   E1003, E2027), `tests/ui/multifile/fn` (`pub fn`, özel fn E1004),
   parite sondaları `fn01`-`fn10`.
@@ -845,10 +858,25 @@ korunur (fn kontratı artık ek olarak E0003 alır, sayılan kod E5017).
 | M13 doğrulama birimi yok | `a_function_body_is_validated_at_its_definition_even_uncalled` |
 | M14 tüm sağ taraf istisnası yok | `wire_mode_names_follow_fn_k_let_and_param`, `struct_literal_argument_becomes_a_per_field_param_wire` |
 
+| M15 ikame kipinde `let` genişliği korunmaz | `substitution_and_wire_mode_agree_on_let_widths_and_names_stay_unique`, `comb_and_block_for_calls_substitute_without_wires` |
+| M16 üretilen adlar tekilleştirilmez | `substitution_and_wire_mode_agree_on_let_widths_and_names_stay_unique` |
+
 M13 ilk koşuda hayatta kaldı: çağrılan hatalı fn açılınca aynı E0003
 kopyaları katlanıp tek tanıya iniyordu ve çağrılmayan fn'i sınayan test
 yoktu. Sonda `fn11_uncalled_match_body` ve katlama notu olmadığını
 (hatalı gövde açılmaz) denetleyen test eklendi; ikinci koşuda düştü.
+
+### Bağımsız inceleme
+
+PR'dan sonra ayrı bir inceleme ajanı açılımı repro'larla denedi ve dört
+hata doğruladı: (1) ikame kipinde `let` çevresinin genişliğini alıyordu
+(tel ve ikame kipi farklı değer), (2) `let` üzerinde bit seçimi ikame
+kipinde geçersiz SV (`(…)[1:0]`, Verilator sözdizimi hatası), (3) `let`
+parametreyi gölgeleyince, (4) struct sonucun yaprağı bir `let` teliyle
+aynı adı alınca geçerli programa sahte E1003. Düzeltmeler madde 11-12;
+ui/pass 118, ui/fail 164, mutasyon M15-M16. Doğrulanan doğru davranışlar:
+port'un gölgelediği const hijyeni, işaretli parametre (`>>>`), struct
+`let` + alan erişimi, modül düzeyi `for`, kullanılmayan parametre/let.
 
 ### Aşama 3 için kısıt
 

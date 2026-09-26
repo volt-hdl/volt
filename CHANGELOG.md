@@ -25,7 +25,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   formunda ve netlistte öngörülebilir adlarla görünür. `comb`, blok içi
   `for` ve kontratlarda ikame kipi (tel yok, genişlik SV boyut
   dönüşümüyle korunur). Hijyen çözüm tabanlı: gövdedeki const, çağıranın
-  aynı adlı sinyaline bağlanmaz. fn çağrılmayan tasarımların çıktısı
+  aynı adlı sinyaline bağlanmaz; iki kip aynı değeri üretir. fn çağrılmayan tasarımların çıktısı
   byte-aynı (golden, 473 dosya).
 - YENİ **E2015** fn'in sonucu yok (dönüş tipi ya da son ifade eksik),
   **E2016** fn kombinasyonel değil (gövdede `reg`/`on`/`comb`/atama/
@@ -43,7 +43,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 - İç: ADR-0069'un Tarjan algoritması ortak `volt_ast::graph`'a taşındı
   (tip çizgesi çıktısı bayt-aynı); `MAX_DEPTH` ve `MAX_EXPANSION_NODES`
   tek tanım `volt-ast`'te.
-- Testler: ui/pass 112-117, ui/fail 143-163, `tests/ui/multifile/fn`,
+- Testler: ui/pass 112-118, ui/fail 143-164, `tests/ui/multifile/fn`,
   parite sondaları `fn01`-`fn10`, `fn_tests.rs`, `fn_semantic_tests.rs`,
   `inline_emit_tests.rs`; Verilator `-Wall` + Yosys (çıktı ağı), `volt
   test` ve `volt verify` Docker'da.
