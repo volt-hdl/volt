@@ -16,8 +16,19 @@ pub mod mmio_names;
 pub mod reserved;
 pub mod reset_chain;
 pub mod struct_layout;
+pub mod visit;
 
 pub use arena::{Arena, Idx};
+
+/// Ağaç yüksekliği sınırı (ADR-0080). Gerçek tasarımların en derini
+/// bunun çok altındadır; derleyici yığın bütçesi bu değere göre seçildi.
+/// Parser ağaç kurarken, SV üretimi fn açılımında (ADR-0081) uygular.
+pub const MAX_DEPTH: u32 = 256;
+
+/// Derleme birimi başına açılım bütçesi (ADR-0068): parser'ın `for` ve
+/// generic açılımı ile fonksiyon çağrılarının açılımı (ADR-0081) aynı
+/// sınırı kullanır. 4096 yineleme × 64 düğümlük gövde sığar.
+pub const MAX_EXPANSION_NODES: usize = 1 << 18;
 use std::collections::HashMap;
 use volt_span::Span;
 

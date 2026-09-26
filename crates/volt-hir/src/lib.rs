@@ -13,6 +13,7 @@ pub mod constraints;
 pub mod domain;
 pub mod drivers;
 pub mod extern_source;
+pub mod functions;
 pub mod handshake;
 pub mod manifest_search;
 pub mod pipeline;
@@ -120,6 +121,8 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     evaluator.eval_all_consts();
     evaluator.check_type_positions();
     let typeck = typecheck(ast, &resolve, &mut evaluator);
+    // Fonksiyonlar (ADR-0081): saflık, özyineleme, açılım bütçesi.
+    let fn_diags = functions::check_functions(ast, &resolve);
     let domain = infer_domains(ast, &resolve, &typeck);
 
     // Güven seviyeleri (ADR-0052): saat çıkarımının sonucu üzerinde
@@ -155,6 +158,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     diagnostics.extend(without_raw_reset_unused(ast, &resolve.diagnostics));
     diagnostics.extend(evaluator.diagnostics);
     diagnostics.extend(typeck.diagnostics.iter().cloned());
+    diagnostics.extend(fn_diags);
     diagnostics.extend(domain.diagnostics.iter().cloned());
     diagnostics.extend(trust_diags);
     diagnostics.extend(rdc_diags);
