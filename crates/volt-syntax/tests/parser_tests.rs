@@ -2146,7 +2146,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 97, "ui/pass 97 dosya içermeli");
+    assert_eq!(total, 104, "ui/pass 104 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2184,10 +2184,12 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // değerli enum), ADR-0077 ise 102-107'yi (struct portu, register +
     // alan ataması, iç içe/enum alanı, bits dönüşümü, bundle alanı,
     // sync + kontrat) ekledi; ADR-0080 ise 111'i (sınırın çok altında
-    // derin iç içelik).
+    // derin iç içelik); ADR-0081 ise 112-117'yi (fn: basit, iç içe çağrı,
+    // struct/enum parametre, on bloğu, comb + blok içi for, kontrat) ve
+    // 118'i (ikame kipinde let genişliği, üretilen ad tekilleştirme).
     assert_eq!(
-        clean, 97,
-        "97/97 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 104,
+        "104/104 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

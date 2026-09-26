@@ -105,14 +105,18 @@ impl TypeChecker<'_, '_> {
         }
     }
 
-    /// prev(x[, N]) argümanının tipini taşır (ADR-0040); diğer yerleşik
-    /// çağrı tipleri F2b (sync/zext/concat...).
+    /// Kullanıcı fn'i imzasıyla (ADR-0081); prev(x[, N]) argümanının
+    /// tipini taşır (ADR-0040); diğer yerleşik çağrı tipleri F2b
+    /// (sync/zext/concat...).
     fn synth_call(&mut self, callee: Idx<Expr>, args: &[Idx<Expr>], span: Span) -> TypeId {
-        let kind = self
-            .res
-            .resolutions
-            .get(&callee)
-            .map(|&d| self.res.def_kind(d));
+        let def = self.res.resolutions.get(&callee).copied();
+        let kind = def.map(|d| self.res.def_kind(d));
+        if let (Some(def), Some(DefKind::Function)) = (def, kind) {
+            if let Some(sig) = self.fn_sig(def) {
+                let name = self.res.defs[def.0 as usize].name.clone();
+                return self.synth_fn_call(&sig, &name, args, span);
+            }
+        }
         let is_prev = kind == Some(DefKind::Builtin(BuiltinKind::Prev));
         if let Some(DefKind::Builtin(b @ (BuiltinKind::Sync | BuiltinKind::Sync3))) = kind {
             self.check_sync_arity(b, args.len(), span);

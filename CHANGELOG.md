@@ -5,6 +5,49 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — fonksiyonlar donanıma iner (2026-09-26, ADR-0081 Aşama 2)
+
+- **`fn` artık donanımda kullanılabilir**: modül `let`'i, atama, örnek
+  bağlantısı, `on` ve `comb` blokları, blok içi `for`, iç içe fn çağrısı
+  ve kontratlar (`invariant`/`cover`, her SVA kipi ve `volt test`
+  izleyicisi). Önce her çağrı `check`'te ve `build`'de E0003 veriyordu,
+  fn gövdeleri hiç tip denetiminden geçmiyordu.
+- **Anlam: saf kombinasyonel** — gövde `let`'ler + son ifade; dönüş tipi
+  ve son ifade zorunlu, `return` yok. Gövde imzaya karşı **bir kez,
+  tanımda** denetlenir; çağrı imzayla tiplenir (arity E2003, argüman
+  parametre tipine check, çağrının tipi dönüş tipi). Domain, trust ve L1
+  gecikmesi çağrı yerinde argümanların birleşimidir (farklı saat alanı
+  E3001, farklı gecikme E5010 çağrı yerinde).
+- **SV: çağrı yerinde açılım** — `function` üretilmez. Tel kipinde her
+  çağrı `<fn>_<k>`, fn'in `let`'leri `<fn>_<k>_<let>`, doğrudan
+  yazılamayan argüman `<fn>_<k>_<param>` telleri, başlarında
+  `// <fn>(<argümanlar>) — <dosya>:<satır>` yorumu; ara değerler dalga
+  formunda ve netlistte öngörülebilir adlarla görünür. `comb`, blok içi
+  `for` ve kontratlarda ikame kipi (tel yok, genişlik SV boyut
+  dönüşümüyle korunur). Hijyen çözüm tabanlı: gövdedeki const, çağıranın
+  aynı adlı sinyaline bağlanmaz; iki kip aynı değeri üretir. fn çağrılmayan tasarımların çıktısı
+  byte-aynı (golden, 473 dosya).
+- YENİ **E2015** fn'in sonucu yok (dönüş tipi ya da son ifade eksik),
+  **E2016** fn kombinasyonel değil (gövdede `reg`/`on`/`comb`/atama/
+  örnek/`sync()`, imzada `clock`/`reset`), **E3015** fn gövdesinde
+  `declassify` (düşürme çağıranda, sonuca yazılır), **E4013** özyineli fn
+  (doğrudan/karşılıklı; döngüdeki her fn, döngü yolu notuyla). Hepsi iki
+  dilde + `volt explain`; E2027 açılım bütçesi fn açılımını da kapsar
+  (çağrı yerinde, üstel çağrı ağacı `check`'te milisaniyede reddedilir).
+- Bu turda E0003: generic fn, fn kontratı (`requires`/`ensures`), fn
+  gövdesinde `for` ve `match` ifadesi (tanımda, çağrı sayısından bağımsız
+  bir kez), dizi dönüş tipi, imzada `Delayed`/`struct port`. Const
+  bağlamında çağrı E2021, test dilinde çağrı E8505 kalır.
+- LSP: hover ve tamamlamada fn imzası (`fn imm(instr: u32, f: Fmt) ->
+  u32`), tanıma git protokol testiyle.
+- İç: ADR-0069'un Tarjan algoritması ortak `volt_ast::graph`'a taşındı
+  (tip çizgesi çıktısı bayt-aynı); `MAX_DEPTH` ve `MAX_EXPANSION_NODES`
+  tek tanım `volt-ast`'te.
+- Testler: ui/pass 112-118, ui/fail 143-164, `tests/ui/multifile/fn`,
+  parite sondaları `fn01`-`fn10`, `fn_tests.rs`, `fn_semantic_tests.rs`,
+  `inline_emit_tests.rs`; Verilator `-Wall` + Yosys (çıktı ağı), `volt
+  test` ve `volt verify` Docker'da.
+
 ### Düzeltildi — derin girdide yığın taşması (abort) (2026-09-25, ADR-0080)
 
 - **Derleyici derin girdide artık çökmüyor.** 30 000 terimlik `a + a + …`

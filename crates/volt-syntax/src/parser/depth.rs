@@ -32,7 +32,8 @@ const SKIP_STOP: &[TokenKind] = &[
 /// Ağaç yüksekliği sınırı. Gerçek tasarımların en derini (ölçüm,
 /// ADR-0080 §1) bunun çok altındadır; yığın bütçesi
 /// [`crate::stack::COMPILER_STACK_SIZE`] bu değere göre seçilmiştir.
-pub const MAX_DEPTH: u32 = 256;
+/// Tek tanım `volt_ast`'te: SV üretiminin fn açılımı da uygular (ADR-0081).
+pub use volt_ast::MAX_DEPTH;
 
 impl Parser<'_> {
     /// Ağaçta bir kat iner. Sınırdaysa E0018 üretir ve `false` döner

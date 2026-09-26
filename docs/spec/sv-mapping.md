@@ -689,3 +689,71 @@ endmodule
   serbest değer), `tri1` yerine düz `wire` yazılır.
 - Verilator: `-Wall` lint temiz; `--cc` iç tri-state netlerini çözer,
   üst seviye `inout` için `--pins-inout-enables` gerekir.
+
+## 18. Fonksiyonlar — Çağrı Yerinde Açılım (ADR-0081)
+
+fn SV'de görünmez (`function` üretilmez): her çağrı, çağıran modülde
+kendi kombinasyonel devresine açılır. İndirgeme emit'ten ve struct
+indirgemesinden (§14, ADR-0077) ÖNCE, AST kopyası üzerinde koşar; fn
+çağrılmayan birimde yapılmaz (çıktı byte-aynı).
+
+**Tel kipi** — modül `let`'i, atama, örnek bağlantısı ve argümanları modül
+düzeyi adlar olan `on` bloğu çağrısı:
+
+| Üretilen tel | Ad |
+|---|---|
+| çağrı örneği (fn başına 0'dan, kaynak sırası; önce dış çağrı) | `<fn>_<k>` |
+| fn'in canlı her `let`'i | `<fn>_<k>_<let>` |
+| yerine doğrudan yazılamayan argüman | `<fn>_<k>_<param>` |
+
+- Sonuç teli `<fn>_<k>`; çağrı bir modül `let`inin ya da atamasının tüm
+  sağ tarafıysa ve hedefin tipi dönüş tipiyse yazılmaz (`k` yine ayrılır).
+- Argüman parametrenin tipinde yol/alan/dizi elemanıysa doğrudan yazılır;
+  literal parametre tipinde boyutlandırılır; diğerleri tel alır (örtük
+  genişleme telin tipinde korunur). Struct literal argümanı alan başına
+  telledir (`br_taken_0_o_a`, `br_taken_0_o_b`).
+- Teller çağrıyı içeren deyimden (ya da `always_ff`'ten) hemen önce,
+  bağımlılık sırasıyla, başlık yorumuyla:
+
+```systemverilog
+    // imm_b(instr0) — dec.volt:35
+    wire [31:0] imm_b_0_sign = $unsigned(($signed(instr0) >>> 31 << 12));
+    wire [31:0] imm_b_0_mid = (instr0 >> 7 & 32'd1) << 11 | (instr0 >> 25 & 32'h3F) << 5;
+    wire [31:0] imm_b_0 = imm_b_0_sign | imm_b_0_mid | (instr0 >> 8 & 32'hF) << 1;
+```
+
+- Üretilen adlar kendi aralarında çakışırsa (`let` parametreyi gölgeler,
+  struct tipli telin yaprağı bir `let` teliyle aynı ad olur) sonraki ad
+  `_2`, `_3`, … soneki alır (`sh_0_a_2`, `mk_0_2_a`). Kullanıcının
+  bildirdiği bir adla çakışma **E1003** çağrı yerinde.
+
+**İkame kipi** — `comb` bloğu, blok içi `for`, blok yereline başvuran
+argümanlı `on` çağrısı, kontrat (her SVA kipi), `reg` başlangıcı: tel
+yok; parametreler argümanla, `let`'ler değerleriyle yer değiştirir.
+Parametre tipinde olmayan argüman, her `let` değeri (tel kipindeki
+telinin genişliğinde: tipliyse tipi, tipsizse telin çıkarılan genişliği)
+ve bağlama duyarlı sonuç SV boyut dönüşümüyle (`W'(e)`) sarılır — Volt'ta
+argüman parametre tipine check edilir (ADR-0041), SV'de genişlik
+çevreden gelirdi; iki kip aynı değeri üretir:
+
+```systemverilog
+    always_comb begin
+        m = 8'(8'(8'(xs[0 +: 8] + 8'd1) ^ k) + (8'(8'(xs[0 +: 8] + 8'd1) ^ k) >> 1));
+    end
+```
+
+Bu kipte struct parametreye ad olmayan argüman, gövdenin bitlerini
+seçtiği parametreye parametre tipinde ad olmayan argüman ya da bitleri
+seçilen bir `let` **E0003** (tel kurulamaz); açılmış yükseklik 256'yı aşarsa **E0018** çağrı yerinde.
+
+**Hijyen:** gövdedeki adlar fn kapsamında çözülür (parametre, önceki
+`let`, kök öğe); gövdedeki const çağıranın aynı adlı sinyaline değil
+const'un değerine iner.
+
+**Doğrulama:** her fn gövdesi, çağrılmasa da, bir kez emit edilip atılır
+(iç çağrılar çağrılanın dönüş tipinde port); SV'ye inemeyen yapı (örn.
+`match` ifadesi) fn tanımında, çağrı sayısından bağımsız bir kez E0003.
+
+**Bütçe:** açılım volt-hir'de önceden hesaplanır (ADR-0068 bütçesi,
+E2027 çağrı yerinde); emitter savunma olarak aynı sınırı uygular ve aşan
+çağrıyı açmaz.

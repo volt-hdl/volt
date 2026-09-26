@@ -358,3 +358,70 @@ fn lsp_design_just_below_the_limit_is_analyzed_and_hovered() {
         assert!(pushed.is_empty(), "{:?}", codes(&pushed));
     }
 }
+
+// ═══ Fonksiyonlar (ADR-0081 Karar 13) ═══════════════════════════════
+
+const FN_SRC: &str = "enum Fmt { I, S }\n\n/// Immediate of an I-type instruction.\nfn imm(instr: u32, f: Fmt) -> u32 {\n    if f == Fmt::I { instr >> 20 } else { instr }\n}\n\nmodule M {\n    in  instr : u32\n    in  f     : Fmt\n    out y     : u32\n    y = imm(instr, f)\n}\n";
+
+/// Hover imzayı gösterir — tanımda ve çağrı yerinde aynı; doc yorumu da.
+#[test]
+fn lsp_hover_shows_the_fn_signature_at_definition_and_call() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_fn_hover.volt");
+    let sig = "fn imm(instr: u32, f: Fmt) -> u32";
+    let at_def = lsp.hover(&u, FN_SRC, "imm(", 0);
+    let at_call = lsp.hover(&u, FN_SRC, "imm(", 1);
+    assert!(at_def.contains(sig), "{at_def}");
+    assert!(
+        at_def.contains("Immediate of an I-type instruction."),
+        "{at_def}"
+    );
+    assert_eq!(at_def, at_call);
+}
+
+/// Tanıma git: çağrıdan fn tanımına (çözüm tabanlı `def_at`).
+#[test]
+fn lsp_goto_definition_jumps_from_a_call_to_the_fn() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_fn_def.volt");
+    lsp.open(&u, FN_SRC);
+    let call = FN_SRC.rfind("imm(").expect("çağrı");
+    let line = FN_SRC[..call].matches('\n').count();
+    let col = call - FN_SRC[..call].rfind('\n').map_or(0, |i| i + 1);
+    let res = lsp.request(
+        "textDocument/definition",
+        json!({ "textDocument": { "uri": u }, "position": { "line": line, "character": col } }),
+    );
+    let loc = if res.is_array() { res[0].clone() } else { res };
+    // `fn imm(` tanımı 4. satırda (0-tabanlı 3), ad sütun 3'te.
+    assert_eq!(loc["range"]["start"]["line"], 3, "{loc}");
+    assert_eq!(loc["range"]["start"]["character"], 3, "{loc}");
+}
+
+/// Tamamlama fn'i FUNCTION türüyle ve imzası `detail`'de önerir.
+#[test]
+fn lsp_completion_offers_fn_with_signature_detail() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_fn_completion.volt");
+    let src = FN_SRC.replace("    y = imm(instr, f)\n", "    y = im\n");
+    lsp.open(&u, &src);
+    let at = src.find("= im\n").expect("imleç") + 4;
+    let line = src[..at].matches('\n').count();
+    let col = at - src[..at].rfind('\n').map_or(0, |i| i + 1);
+    let res = lsp.request(
+        "textDocument/completion",
+        json!({ "textDocument": { "uri": u }, "position": { "line": line, "character": col } }),
+    );
+    let items = if res.is_array() {
+        res.as_array().cloned().unwrap_or_default()
+    } else {
+        res["items"].as_array().cloned().unwrap_or_default()
+    };
+    let imm = items
+        .iter()
+        .find(|i| i["label"] == "imm")
+        .unwrap_or_else(|| panic!("imm önerilmeli: {items:?}"));
+    // CompletionItemKind::FUNCTION = 3
+    assert_eq!(imm["kind"], 3, "{imm}");
+    assert_eq!(imm["detail"], "fn imm(instr: u32, f: Fmt) -> u32", "{imm}");
+}

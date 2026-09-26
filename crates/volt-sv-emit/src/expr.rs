@@ -173,13 +173,15 @@ impl<'a> Emitter<'a> {
                     _ => None,
                 }
             }
-            // Modül sinyalleri gölgeler; döngü değişkeni const'tan önce.
+            // Modül sinyalleri gölgeler; döngü değişkeni const'tan önce —
+            // açılmış fn gövdesinin const'u hariç (ADR-0081 hijyen).
             ExprKind::Path(p) if p.segments.len() == 1 => {
                 let name = &p.segments[0].text;
-                if self.symbols.contains_key(name) {
+                let global = self.inline_notes.global_paths.contains(&idx);
+                if !global && self.symbols.contains_key(name) {
                     return None;
                 }
-                if let Some(v) = self.loop_var(name) {
+                if let Some(v) = self.loop_var(name).filter(|_| !global) {
                     return Some(v);
                 }
                 let &(_, value) = self.consts.get(name)?;
@@ -208,11 +210,12 @@ impl<'a> Emitter<'a> {
             ExprKind::Path(path) if path.segments.len() >= 2 => self.enum_variant_sig(path),
             ExprKind::Path(path) => {
                 let name = path.segments.first()?;
-                if let Some(sig) = self.symbols.get(&name.text).copied() {
+                let global = self.inline_notes.global_paths.contains(&idx);
+                if let Some(sig) = self.symbols.get(&name.text).copied().filter(|_| !global) {
                     return Some(sig);
                 }
                 // Döngü değişkeni bağlamla boyutlanan literal gibidir.
-                if self.loop_var(&name.text).is_some() {
+                if !global && self.loop_var(&name.text).is_some() {
                     return None;
                 }
                 // Üst düzey const: genişlik bildirilen tipinden gelir.
@@ -478,6 +481,17 @@ impl<'a> Emitter<'a> {
     ) -> String {
         let ast = self.ast;
         let span = ast.exprs[idx].span;
+        // ADR-0081 ikame kipi: tipsiz fn `let`i tel kipindeki telinin
+        // genişliğinde hesaplanır.
+        if self.inline_notes.self_sized.contains(&idx) && self.self_sizing.insert(idx) {
+            let sig = self.width_of(idx);
+            let inner = self.emit_prec(idx, sig, PREC_TERNARY, false);
+            self.self_sizing.remove(&idx);
+            return match sig {
+                Some(sig) => format!("{}'({inner})", sig.width),
+                None => inner,
+            };
+        }
         let (text, my_prec) = match &ast.exprs[idx].kind {
             ExprKind::IntLit {
                 value,
@@ -498,8 +512,11 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Path(path) => {
                 // Üst düzey const referansı boyutlandırılmış literale
-                // katlanır — üretilen RTL'de tanımsız isim kalmaz.
-                match self.fold_const_path(path, ctx, span) {
+                // katlanır — üretilen RTL'de tanımsız isim kalmaz. Açılmış
+                // fn gövdesindeki const çağıranın aynı adlı sinyaline
+                // bağlanmaz (ADR-0081 hijyen).
+                let global = self.inline_notes.global_paths.contains(&idx);
+                match self.fold_const_path(path, ctx, span, global) {
                     Some(folded) => {
                         let prec = lit_prec(&folded);
                         (folded, prec)
@@ -626,7 +643,7 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Cast { expr, ty } => {
                 let (expr, ty) = (*expr, *ty);
-                (self.emit_cast(expr, ty, span), PREC_ATOM)
+                (self.emit_cast(idx, expr, ty, span), PREC_ATOM)
             }
             ExprKind::If {
                 cond,
@@ -823,18 +840,20 @@ impl<'a> Emitter<'a> {
         path: &volt_ast::Path,
         ctx: Option<Sig>,
         span: volt_span::Span,
+        global: bool,
     ) -> Option<String> {
         if path.segments.len() != 1 {
             return None;
         }
         let name = &path.segments[0].text;
-        if self.symbols.contains_key(name)
-            || self.builtin_insts.contains_key(name)
-            || self.user_insts.contains_key(name)
+        if !global
+            && (self.symbols.contains_key(name)
+                || self.builtin_insts.contains_key(name)
+                || self.user_insts.contains_key(name))
         {
             return None;
         }
-        if let Some(v) = self.loop_var(name) {
+        if let Some(v) = self.loop_var(name).filter(|_| !global) {
             return Some(self.fmt_int(v, NumBase::Dec, ctx, span));
         }
         let &(ty, value_idx) = self.consts.get(name)?;
@@ -875,6 +894,7 @@ impl<'a> Emitter<'a> {
     /// operandda SV boyut dönüşümü `W'(expr)` basılır (ADR-0041).
     fn emit_cast(
         &mut self,
+        cast_idx: Idx<Expr>,
         operand: Idx<Expr>,
         ty: Idx<volt_ast::TypeRef>,
         span: volt_span::Span,
@@ -882,6 +902,13 @@ impl<'a> Emitter<'a> {
         let Some(target) = self.sig_of_typeref(ty, span) else {
             return self.emit_prec(operand, None, PREC_ATOM, false);
         };
+        // ADR-0081 ikame kipi: argüman/sonuç parametre ya da dönüş
+        // tipinin genişliğinde hesaplanır — SV boyut dönüşümü işleneni
+        // atama bağlamında (hedef genişlikte) değerlendirir.
+        if self.inline_notes.sized_casts.contains(&cast_idx) {
+            let inner = self.emit_prec(operand, Some(target), PREC_TERNARY, false);
+            return format!("{}'({inner})", target.width);
+        }
         let src = self.width_of(operand);
         // Soneksiz literal (`0 as bits<8>`): hedef genişliğinde
         // boyutlandırılmış literal — ara genişlik yoktur (ADR-0051).

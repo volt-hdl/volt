@@ -250,6 +250,45 @@ impl Analysis {
         })
     }
 
+    /// fn imzası (ADR-0081 Karar 13): `fn imm(instr: u32, f: Fmt) -> u32`.
+    /// Tipler kaynakta yazıldığı gibi (takma ad, `bits<W>` korunur).
+    pub fn fn_signature(&self, def: DefId) -> Option<String> {
+        let res = self.resolve.as_ref()?;
+        let idx = res.item_of_def.get(&def)?;
+        let ItemKind::Fn(f) = &self.ast.items_arena[*idx].kind else {
+            return None;
+        };
+        let text = |span: Span| -> String {
+            let src = self.map.source(span.file);
+            src.get(span.start as usize..span.end as usize)
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let params: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name.text, text(self.ast.types[p.ty].span)))
+            .collect();
+        let generics = match (f.generics.first(), f.generics.last()) {
+            (Some(first), Some(last)) => format!(
+                "<{}>",
+                text(Span::new(first.span.file, first.span.start, last.span.end))
+            ),
+            _ => String::new(),
+        };
+        let ret = f
+            .return_ty
+            .map(|t| format!(" -> {}", text(self.ast.types[t].span)))
+            .unwrap_or_default();
+        Some(format!(
+            "fn {}{generics}({}){ret}",
+            f.name.text,
+            params.join(", ")
+        ))
+    }
+
     /// Öğe (modül/struct/enum/...) doc yorumu.
     pub fn item_doc(&self, def: DefId) -> Option<&str> {
         let res = self.resolve.as_ref()?;

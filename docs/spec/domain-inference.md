@@ -301,6 +301,17 @@ let bad = fast_signal & slow_signal;
 // Bu darbe sonraki register'da yanlış yakalanabilir.
 ```
 
+**Fonksiyon çağrısı (ADR-0081 Karar 9):** fn gövdesinin domain'i yoktur
+(parametreler çağrıdan alır, const'lar `Timeless`). Çağrının domain'i
+argüman domain'lerinin K5 join'idir; iki argüman farklı domain'den
+geliyorsa **E3001 çağrı yerinde**. Muhafazakâr yön: gövdede kullanılmayan
+parametre de join'e girer (parametre başına bağımlılık analizi yok;
+kullanılmayan parametre zaten W1001). Güven seviyesi (K11) aynı biçimde
+argümanların en yükseğidir; fn gövdesinde `declassify` **E3015** —
+düşürme çağıranın modülünde, çağrının sonucuna yazılır. L1 gecikmesi
+(ADR-0037) argümanların `combine`'ıdır (farklı gecikme E5010 çağrı
+yerinde).
+
 ### K6 — Atama Domain Uyumu
 
 ```volt
@@ -577,6 +588,7 @@ E3011  Register birden fazla domainden yazılıyor
 E3012  'on' bloğunda yabancı domain sinyali okunuyor
 E3013  Bundle alanları farklı saat alanlarında (ADR-0039)
 E3014  Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)
+E3015  Fonksiyon gövdesinde declassify (ADR-0081)
 
 W3001  Register hiç yazılmıyor
 W3002  Gereksiz sync() (aynı domain)

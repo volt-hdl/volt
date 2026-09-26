@@ -256,8 +256,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0076: 101 `@source`'lu extern,
     // ADR-0077: 102-107 struct (portu, register, iç içe/enum alanı, bits
     //           dönüşümü, bundle alanı, sync + kontrat),
-    // ADR-0080: 111 sınırın çok altında derin iç içelik (E0018 yok).
-    assert_eq!(checked, 97);
+    // ADR-0080: 111 sınırın çok altında derin iç içelik (E0018 yok),
+    // ADR-0081: 112-117 fn (basit, iç içe, struct/enum, on, comb + for,
+    //           kontrat), 118 let genişliği + üretilen ad tekilleştirme.
+    assert_eq!(checked, 104);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

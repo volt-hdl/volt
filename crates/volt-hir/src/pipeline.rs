@@ -72,10 +72,14 @@ pub fn run_semantic_stages(
     evaluator.eval_all_consts();
     evaluator.check_type_positions();
     let typeck = crate::typecheck(ast, resolve, &mut evaluator);
-    let stage_failed =
-        count_errors(&evaluator.diagnostics) > 0 || count_errors(&typeck.diagnostics) > 0;
+    // Fonksiyonlar (ADR-0081): saflık, özyineleme, açılım bütçesi.
+    let fn_diags = crate::functions::check_functions(ast, resolve);
+    let stage_failed = count_errors(&evaluator.diagnostics) > 0
+        || count_errors(&typeck.diagnostics) > 0
+        || count_errors(&fn_diags) > 0;
     out.extend(evaluator.diagnostics.iter().cloned());
     out.extend(typeck.diagnostics.iter().cloned());
+    out.extend(fn_diags);
     if stage_failed {
         stages.typeck = Some(typeck);
         return stages;

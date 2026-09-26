@@ -111,7 +111,7 @@ impl TypeChecker<'_, '_> {
 
     /// §6: `let` tipi bildirilmişse check, değilse synth; soneksiz
     /// literal i32 varsayılır (W2012).
-    fn handle_let(&mut self, l: &LetDecl) {
+    pub(super) fn handle_let(&mut self, l: &LetDecl) {
         let ty = match l.ty {
             Some(t) => {
                 let ty = self.resolve_type_ref(t);
@@ -141,7 +141,8 @@ impl TypeChecker<'_, '_> {
         // Başlangıç değeri `let`in sürücüsüdür (ADR-0073): sonradan
         // yapılan atama ikinci sürücüdür.
         if let Some(&def) = self.res.decl_spans.get(&l.name.span) {
-            if self.res.def_kind(def) == DefKind::LocalBinding {
+            // fn gövdesinin `let`'i sinyal değildir (ADR-0081).
+            if self.res.def_kind(def) == DefKind::LocalBinding && !self.in_fn {
                 let group = self.current_group.unwrap_or_else(|| self.new_group());
                 self.drivers
                     .record_kind(def, l.name.span, group, DriverKind::LetInit);

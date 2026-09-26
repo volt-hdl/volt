@@ -332,6 +332,11 @@ error[E2020]: döngüsel sabit bağımlılığı
 
 ## 6. Yerleşik Fonksiyonlar
 
+Yalnız yerleşikler sabit bağlamda değerlendirilir. Kullanıcı fonksiyonu
+çağrısı (ADR-0081) sabit değildir: `const N : u32 = dbl(4)` **E2021**.
+fn saf olduğu için ileride bir yorumlayıcıyla (test diliyle ortak)
+açılabilir; bu tur kapsamında değildir.
+
 ```rust
 fn eval_builtin_call(&mut self, callee: Idx<Expr>, args: &[Idx<Expr>],
                      span: Span) -> Result<ConstValue, EvalError> {

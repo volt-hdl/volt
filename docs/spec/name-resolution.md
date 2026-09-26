@@ -104,11 +104,19 @@ Root (paket seviyesi)
            ├── Generic parametreler
            ├── Portlar
            ├── Register/wire/instance bildirimleri
-           └── Block scope (on / comb / fn gövdesi)
+           └── Block scope (on / comb)
                 ├── Yerel let bağlamaları
                 ├── For döngü değişkeni
                 └── Nested block scope (if/else/match içi)
 ```
+
+**Fonksiyon kapsamı (ADR-0081):** `Function` kapsamının ebeveyni kök
+kapsamdır, modül değil — gövde yalnız parametreleri, gövdedeki `let`'leri
+(sırayla; sonraki aynı ad öncekini gölgeler) ve birimin öğelerini (const,
+enum varyantı, fn, tip) görür. Modül sinyaline başvuru E1001. SV
+üretiminin açılımı bu çözümü kullanır (ad değil): gövdedeki bir const,
+çağıran modüldeki aynı adlı bir `let`'e bağlanmaz. Çağrı çizgesi de
+çözüm tabanlıdır — fn adı bir `let` tarafından gölgelenebilir (W1002).
 
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

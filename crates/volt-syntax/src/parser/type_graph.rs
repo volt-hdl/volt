@@ -21,6 +21,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use volt_ast::graph;
 use volt_ast::{
     Arena, GenericArg, GenericParamKind, Idx, ItemKind, Name, TypeRef, TypeRefKind, VariantData,
 };
@@ -130,99 +131,16 @@ impl Graph {
         Graph { nodes }
     }
 
-    /// Kuvvetli bağlı bileşenler (yinelemeli Tarjan; derin zincirde yığın
-    /// taşmaz). Dönüş: düğüm → bileşen kimliği.
+    /// Kuvvetli bağlı bileşenler (ortak `volt_ast::graph`, ADR-0081).
+    /// Dönüş: düğüm → bileşen kimliği.
     fn components(&self) -> Vec<usize> {
-        let n = self.nodes.len();
-        let succ: Vec<Vec<usize>> = self
-            .nodes
-            .iter()
-            .map(|nd| nd.targets.iter().flatten().copied().collect())
-            .collect();
-        let mut idx = vec![usize::MAX; n];
-        let mut low = vec![0; n];
-        let mut on_stack = vec![false; n];
-        let mut comp = vec![usize::MAX; n];
-        let mut stack = Vec::new();
-        let mut next = 0;
-        let mut ncomp = 0;
-        for root in 0..n {
-            if idx[root] != usize::MAX {
-                continue;
-            }
-            // (düğüm, sıradaki ardıl konumu)
-            let mut work = vec![(root, 0usize)];
-            idx[root] = next;
-            low[root] = next;
-            next += 1;
-            stack.push(root);
-            on_stack[root] = true;
-            while let Some(&(v, k)) = work.last() {
-                if let Some(&w) = succ[v].get(k) {
-                    if let Some(top) = work.last_mut() {
-                        top.1 += 1;
-                    }
-                    if idx[w] == usize::MAX {
-                        idx[w] = next;
-                        low[w] = next;
-                        next += 1;
-                        stack.push(w);
-                        on_stack[w] = true;
-                        work.push((w, 0));
-                    } else if on_stack[w] {
-                        low[v] = low[v].min(idx[w]);
-                    }
-                    continue;
-                }
-                work.pop();
-                if let Some(&(parent, _)) = work.last() {
-                    low[parent] = low[parent].min(low[v]);
-                }
-                if low[v] == idx[v] {
-                    while let Some(w) = stack.pop() {
-                        on_stack[w] = false;
-                        comp[w] = ncomp;
-                        if w == v {
-                            break;
-                        }
-                    }
-                    ncomp += 1;
-                }
-            }
-        }
-        comp
+        graph::components(self.nodes.len(), |v| &self.nodes[v].targets)
     }
 
     /// `from`'dan `to`'ya, `comp` bileşeni içinde en kısa yol (bildirim
     /// sırasıyla BFS): (düğüm, üye) adımları.
     fn path_within(&self, comp: &[usize], from: usize, to: usize) -> Vec<(usize, usize)> {
-        if from == to {
-            return Vec::new();
-        }
-        let mut prev: HashMap<usize, (usize, usize)> = HashMap::new();
-        let mut queue = VecDeque::from([from]);
-        while let Some(v) = queue.pop_front() {
-            for (m, ts) in self.nodes[v].targets.iter().enumerate() {
-                for &w in ts {
-                    if comp[w] != comp[from] || w == from || prev.contains_key(&w) {
-                        continue;
-                    }
-                    prev.insert(w, (v, m));
-                    if w == to {
-                        let mut path = Vec::new();
-                        let mut cur = to;
-                        while let Some(&(p, pm)) = prev.get(&cur) {
-                            path.push((p, pm));
-                            cur = p;
-                        }
-                        path.reverse();
-                        return path;
-                    }
-                    queue.push_back(w);
-                }
-            }
-        }
-        Vec::new()
+        graph::path_within(|v| &self.nodes[v].targets, comp, from, to)
     }
 }
 
@@ -384,27 +302,15 @@ const MAX_PATH_COMPONENT: usize = 64;
 /// o düğümlerin listesi.
 fn cycle_diagnostics(graph: &Graph) -> (Vec<Diagnostic>, Vec<usize>) {
     let comp = graph.components();
-    let mut comp_size: HashMap<usize, usize> = HashMap::new();
-    for &c in &comp {
-        *comp_size.entry(c).or_default() += 1;
-    }
+    let edges = graph::cycle_edges(graph.nodes.len(), |v| &graph.nodes[v].targets, &comp);
     let mut diags = Vec::new();
     let mut cyclic = Vec::new();
-    for (i, node) in graph.nodes.iter().enumerate() {
-        let size = comp_size[&comp[i]];
-        let in_cycle = |w: usize| comp[w] == comp[i] && (size > 1 || w == i);
-        let Some((m, first)) = node
-            .targets
-            .iter()
-            .enumerate()
-            .find_map(|(m, ts)| ts.iter().copied().find(|&w| in_cycle(w)).map(|w| (m, w)))
-        else {
-            continue;
-        };
+    for e in edges {
+        let (i, m, size) = (e.node, e.member, e.size);
         cyclic.push(i);
         let path = if size <= MAX_PATH_COMPONENT {
             let mut steps = vec![(i, m)];
-            steps.extend(graph.path_within(&comp, first, i));
+            steps.extend(graph.path_within(&comp, e.target, i));
             cycle_path(graph, &steps)
         } else {
             lstr!(en: "{size} types"; tr: "{size} tip")

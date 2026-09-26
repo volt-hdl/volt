@@ -117,9 +117,11 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
             .get(&def)
             .map(|id| t.types.display_named(*id, &res.defs))
     });
-    let header = match ty {
-        Some(ty) => format!("{} : {}", data.name, ty),
-        None => data.name.clone(),
+    let header = match (analysis.fn_signature(def), ty) {
+        // ADR-0081 Karar 13: fn'in hover'ı imzasıdır.
+        (Some(sig), _) => sig,
+        (None, Some(ty)) => format!("{} : {}", data.name, ty),
+        (None, None) => data.name.clone(),
     };
 
     let mut md = format!("```volt\n{header}\n```\n{}", kind_label(data.kind));

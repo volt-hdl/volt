@@ -373,6 +373,23 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         )
         .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
+        E2015 => Explanation::new(
+            "Function has no result",
+            "A function must declare its return type and end its body with a final expression.",
+            "A Volt function is a named combinational expression: its body is 'let' bindings followed by the value it computes, and that value is the hardware the call becomes. A function without a return type or without a final expression computes nothing, so it has no hardware meaning. There is no 'return' statement: an early return is a priority encoder, which an if/else chain states explicitly (ADR-0081).",
+            "fn parity(x: u8) {              // ✗ E2015: no return type\n    popcount(x) & 1\n}\nfn inc(a: u8) -> u8 {\n    let t = a + 1                // ✗ E2015: no final expression\n}",
+            "fn inc(a: u8) -> u8 {\n    let t = a + 1\n    t                            // ✓ the final expression is the result\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        E2016 => Explanation::new(
+            "Function is not combinational",
+            "A function body may not hold state or drive a signal, and its signature may not take a clock or a reset.",
+            "A function call becomes a combinational circuit at every call site. A 'reg', an 'on' or 'comb' block, an instance or sync() in the body would create registers that nobody sees at the call site, and each call would silently create another copy. An assignment would drive a signal from inside an expression. A clock or reset parameter ties the function to a clock domain, which a combinational value does not have. If you need state, write a module (ADR-0081).",
+            "fn acc(x: u8) -> u8 {\n    reg s : u8 = 0               // ✗ E2016: state in a function\n    s\n}\nfn f(clk: clock, x: u8) -> u8 { x }   // ✗ E2016: clock parameter",
+            "fn sat_inc(a: u8) -> u8 {\n    if a == 255 { a } else { a + 1 }   // ✓ pure combinational\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+
         // ─── Constant evaluation (const-eval.md) ───
         E2020 => Explanation::new(
             "Cyclic constant dependency",
@@ -426,7 +443,7 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         E2027 => Explanation::new(
             "Loop unrolling limit exceeded",
             "This compile-time 'for' loop expands past the unrolling limit.",
-            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process. The same code also caps the total size of everything expanded in one compilation unit — unrolled loop bodies and generic module instantiations share one budget of AST nodes (ADR-0068).",
+            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process. The same code also caps the total size of everything expanded in one compilation unit — unrolled loop bodies, generic module instantiations and inlined function calls share one budget of AST nodes (ADR-0068, ADR-0081). A function whose body calls another function twice doubles at every level, so a short chain of such functions can request millions of nodes; the call site that crosses the budget is reported.",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ bounded by a small const\n    t[i] = d[i]\n}",
         ),
@@ -585,6 +602,15 @@ extern module ExtRegFile {
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
 
+        E3015 => Explanation::new(
+            "declassify inside a function",
+            "A trust-level downgrade cannot be written inside a function body.",
+            "declassify is a security decision, and ADR-0052 makes it visible where it happens, with its reason. A function body is inlined at every call site, so a declassify inside it would be an invisible downgrade in every caller. Call the function, then declassify its result in the calling module, where the reviewer sees it (ADR-0081).",
+            "fn reveal(k: u8) -> u8 {\n    declassify(k, \"debug\")      // ✗ E3015\n}",
+            "fn mix(k: u8) -> u8 { k ^ 0x5A }\n...\nlet shown = declassify(mix(key), \"masked value\")   // ✓ in the module",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",
@@ -647,6 +673,18 @@ module Gpio {
 }",
         )
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+
+        E4013 => Explanation::new(
+            "Recursive function",
+            "A function calls itself, directly or through other functions.",
+            "Every function call is inlined into hardware at compile time, one combinational copy per call. A recursive call has no bottom: 'f' would contain a copy of 'f', which contains a copy of 'f', forever. Hardware recursion with a compile-time bound is written with a loop or with separate functions per level (ADR-0081).",
+            "fn f(x: u8) -> u8 { f(x) }                  // ✗ E4013: f → f\nfn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { g(x) }                  // ✗ E4013: g → h → g",
+            "fn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { x ^ 1 }                 // ✓ the call graph has no cycle",
+        )
+        .with_note(
+            "Every function on the cycle is reported once, with the call that closes the cycle and the cycle path ('g → h → g'). Functions that only call a recursive function are not reported.",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
 
         // ─── Behavioral contracts ───
         E4007 => Explanation::new(

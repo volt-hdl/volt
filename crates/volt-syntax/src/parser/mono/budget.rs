@@ -20,8 +20,9 @@ use volt_ast::SourceFile;
 /// düğümü ya da yan tablo girişi) ve açıcının kendi deyim/yineleme
 /// kayıtları. 4096 yineleme × 64 düğümlük gövde sığar; `examples/` ve
 /// test külliyatının en büyüğü (hybrid_accel, 3 838 düğüm KAYNAK
-/// dahil) bütçenin %1,5'i.
-pub(crate) const MAX_EXPANSION_NODES: usize = 1 << 18;
+/// dahil) bütçenin %1,5'i. Tek tanım `volt_ast`'te: fonksiyon açılımı
+/// (ADR-0081, volt-hir) aynı sınırı kullanır.
+pub(crate) use volt_ast::MAX_EXPANSION_NODES;
 
 /// Kopyalanan dizgenin (ad, yeniden ad, dizge literali) düğüm karşılığı:
 /// her `TEXT_BYTES_PER_NODE` bayt bir düğüm daha. Bütçe düğüm sayarken

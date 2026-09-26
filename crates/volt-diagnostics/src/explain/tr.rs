@@ -373,6 +373,23 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         )
         .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
 
+        E2015 => Explanation::new(
+            "Fonksiyonun sonucu yok",
+            "Fonksiyon dönüş tipini bildirmeli ve gövdesini son ifadeyle bitirmelidir.",
+            "Volt fonksiyonu adlı bir kombinasyonel ifadedir: gövdesi 'let' bağlamaları ve ardından hesapladığı değerdir; çağrının donanımı o değerdir. Dönüş tipi ya da son ifadesi olmayan fonksiyon hiçbir şey hesaplamaz, donanım anlamı yoktur. 'return' deyimi yoktur: erken dönüş bir öncelik kodlayıcısıdır ve if/else zinciri bunu açıkça söyler (ADR-0081).",
+            "fn parity(x: u8) {              // ✗ E2015: dönüş tipi yok\n    popcount(x) & 1\n}\nfn inc(a: u8) -> u8 {\n    let t = a + 1                // ✗ E2015: son ifade yok\n}",
+            "fn inc(a: u8) -> u8 {\n    let t = a + 1\n    t                            // ✓ son ifade sonuçtur\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        E2016 => Explanation::new(
+            "Fonksiyon kombinasyonel değil",
+            "Fonksiyon gövdesi durum tutamaz, sinyal süremez; imzası saat ya da sıfırlama alamaz.",
+            "Fonksiyon çağrısı her çağrı yerinde bir kombinasyonel devreye dönüşür. Gövdedeki 'reg', 'on' ya da 'comb' bloğu, örnek ya da sync() çağrı yerinde görünmeyen register'lar kurar ve her çağrı sessizce bir kopya daha üretirdi. Atama bir ifadenin içinden sinyal sürerdi. Saat ya da sıfırlama parametresi fonksiyonu bir saat alanına bağlar; kombinasyonel bir değerin saat alanı yoktur. Durum gerekiyorsa modül yazın (ADR-0081).",
+            "fn acc(x: u8) -> u8 {\n    reg s : u8 = 0               // ✗ E2016: fonksiyonda durum\n    s\n}\nfn f(clk: clock, x: u8) -> u8 { x }   // ✗ E2016: saat parametresi",
+            "fn sat_inc(a: u8) -> u8 {\n    if a == 255 { a } else { a + 1 }   // ✓ saf kombinasyonel\n}",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+
         // ─── Sabit değerlendirme (const-eval.md) ───
         E2020 => Explanation::new(
             "Döngüsel sabit bağımlılığı",
@@ -426,7 +443,7 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         E2027 => Explanation::new(
             "Döngü açma sınırı aşıldı",
             "Bu derleme zamanı 'for' döngüsü, açma (unrolling) sınırının ötesine genişliyor.",
-            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün. Aynı kod bir derleme biriminde açılan her şeyin toplam boyunu da sınırlar — açılan döngü gövdeleri ve generic modül örneklemeleri tek bir AST düğüm bütçesini paylaşır (ADR-0068).",
+            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün. Aynı kod bir derleme biriminde açılan her şeyin toplam boyunu da sınırlar — açılan döngü gövdeleri, generic modül örneklemeleri ve açılan fonksiyon çağrıları tek bir AST düğüm bütçesini paylaşır (ADR-0068, ADR-0081). Gövdesinde başka bir fonksiyonu iki kez çağıran fonksiyon her seviyede ikiye katlanır; bu tür kısa bir zincir milyonlarca düğüm isteyebilir; bütçeyi aşan çağrı yeri raporlanır.",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ küçük bir sabitle sınırlı\n    t[i] = d[i]\n}",
         ),
@@ -585,6 +602,15 @@ extern module ExtRegFile {
         )
         .with_docs(&["https://volthdl.org/guide/cdc"]),
 
+        E3015 => Explanation::new(
+            "Fonksiyonda declassify",
+            "Güven seviyesi düşürme fonksiyon gövdesinde yazılamaz.",
+            "declassify bir güvenlik kararıdır ve ADR-0052 onu gerekçesiyle, yapıldığı yerde görünür kılar. Fonksiyon gövdesi her çağrı yerinde açılır; içindeki bir declassify her çağıranda görünmez bir düşürme olurdu. Fonksiyonu çağırın, sonucunu çağıran modülde, inceleyenin gördüğü yerde declassify edin (ADR-0081).",
+            "fn reveal(k: u8) -> u8 {\n    declassify(k, \"debug\")      // ✗ E3015\n}",
+            "fn mix(k: u8) -> u8 { k ^ 0x5A }\n...\nlet shown = declassify(mix(key), \"maskeli değer\")   // ✓ modülde",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",
@@ -647,6 +673,18 @@ module Gpio {
 }",
         )
         .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+
+        E4013 => Explanation::new(
+            "Özyineli fonksiyon",
+            "Fonksiyon kendini doğrudan ya da başka fonksiyonlar üzerinden çağırıyor.",
+            "Her fonksiyon çağrısı derleme zamanında donanıma açılır, çağrı başına bir kombinasyonel kopya. Özyineli çağrının dibi yoktur: 'f' bir 'f' kopyası içerir, o da bir 'f' kopyası, sonsuza dek. Derleme zamanı sınırlı donanım özyinelemesi döngüyle ya da her seviye için ayrı fonksiyonla yazılır (ADR-0081).",
+            "fn f(x: u8) -> u8 { f(x) }                  // ✗ E4013: f → f\nfn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { g(x) }                  // ✗ E4013: g → h → g",
+            "fn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { x ^ 1 }                 // ✓ çağrı çizgesinde döngü yok",
+        )
+        .with_note(
+            "Döngüdeki her fonksiyon bir kez raporlanır; döngüyü kapatan çağrı ve döngü yolu ('g → h → g') ile. Yalnız özyineli bir fonksiyonu çağıran fonksiyonlar raporlanmaz.",
+        )
+        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
 
         // ─── Davranışsal kontratlar ───
         E4007 => Explanation::new(

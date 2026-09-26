@@ -148,7 +148,15 @@ fn fn_params_and_body_resolve() {
 
 #[test]
 fn fn_generic_const_param_resolves() {
-    assert_clean_of_errors("fn f<const N: u32>(a: bits<N>) -> bool { a[0] }");
+    // Çözümleme temiz; generic fn'in bu turda SV eşlemesi yok — tek
+    // tanı fn tanımındaki E0003 (ADR-0081 Karar 7).
+    let result = check("fn f<const N: u32>(a: bits<N>) -> bool { a[0] }");
+    assert!(
+        result.resolve.diagnostics.is_empty(),
+        "{:?}",
+        result.resolve.error_codes()
+    );
+    assert_eq!(result.error_codes(), vec!["E0003"]);
 }
 
 #[test]
