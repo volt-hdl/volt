@@ -91,6 +91,9 @@ use uart_tx::UartTx;
 // Immediate decoding (one fn per format) lives in examples/riscv_imm.volt,
 // shared with the pipelined core.
 use riscv_imm::{imm_i_of, imm_s_of, imm_b_of, imm_u_of, imm_j_of};
+// The ALU result and the branch condition are fns with a `match` on
+// funct3, in examples/riscv_alu.volt.
+use riscv_alu::{alu_of, branch_taken};
 
 // The R-type field layout of the RISC-V base encoding, bit 31 first. A
 // struct packs its first field into the most significant bits (ADR-0077),
@@ -235,10 +238,11 @@ pub module RiscvCore {
 
     // Everything else is an illegal instruction: unknown opcodes,
     // unassigned f3 values, shifts and R-type with a stray funct7.
-    let sh_ok =
-        if f3 == 1 { ins.funct7 == 0
-        } else if f3 == 5 { ins.funct7 == 0 || ins.funct7 == 0x20
-        } else { true }
+    let sh_ok = match f3 {
+        1 => ins.funct7 == 0,
+        5 => ins.funct7 == 0 || ins.funct7 == 0x20,
+        _ => true
+    }
     let r_ok = ins.funct7 == 0 || ins.funct7 == 1 || (ins.funct7 == 0x20 && (f3 == 0 || f3 == 5))
     let legal = is_lui || is_auipc || is_jal || (is_jalr && f3 == 0)
              || (is_branch && f3 != 2 && f3 != 3)
@@ -259,33 +263,11 @@ pub module RiscvCore {
     let imm_u = imm_u_of(instr)
     let imm_j = imm_j_of(instr)
 
-    // ── ALU ───────────────────────────────────────────────────────
+    // ── ALU and branch decision (fn + match, see the top of the file) ──
     let alu_b = if is_alu_r { rs2_v } else { imm_i }
-    let shamt = alu_b & 31
     // Bit 30 selects SUB (R-type f3=0) and SRA (f3=5, R and I alike).
-    let alt_op = instr[30]
-
-    let alu_out =
-        if f3 == 0 {
-            if is_alu_r && alt_op { rs1_v - alu_b } else { rs1_v + alu_b }
-        } else if f3 == 1 { rs1_v << shamt
-        } else if f3 == 2 {                                      // SLT(I)
-            if (rs1_v as i32) < (alu_b as i32) { 1 } else { 0 }
-        } else if f3 == 3 { if rs1_v < alu_b { 1 } else { 0 }    // SLTU(I)
-        } else if f3 == 4 { rs1_v ^ alu_b
-        } else if f3 == 5 {                                      // SRA / SRL
-            if alt_op { ((rs1_v as i32) >> shamt) as u32 } else { rs1_v >> shamt }
-        } else if f3 == 6 { rs1_v | alu_b
-        } else { rs1_v & alu_b }
-
-    // ── Branch decision ───────────────────────────────────────────
-    let br_taken =
-        if f3 == 0 { rs1_v == rs2_v                          // BEQ
-        } else if f3 == 1 { rs1_v != rs2_v                   // BNE
-        } else if f3 == 4 { (rs1_v as i32) < (rs2_v as i32)  // BLT
-        } else if f3 == 5 { (rs1_v as i32) >= (rs2_v as i32) // BGE
-        } else if f3 == 6 { rs1_v < rs2_v                    // BLTU
-        } else { rs1_v >= rs2_v }                            // BGEU
+    let alu_out = alu_of(f3, is_alu_r, instr[30], rs1_v, alu_b)
+    let br_taken = branch_taken(f3, rs1_v, rs2_v)
 
     // ── Multiplier (single cycle) ─────────────────────────────────
     // Unsigned product; a signed operand a = au - 2^32*a31 takes
@@ -370,29 +352,31 @@ pub module RiscvCore {
 
     // ── CSR access ────────────────────────────────────────────────
     let csr_addr = instr[31:20] as u12
-    let csr_rdata =
-        if csr_addr == 0x300 { mstatus | 0x1800           // MPP = M
-        } else if csr_addr == 0x304 { if mie_meie { 0x800 } else { 0 }
-        } else if csr_addr == 0x305 { mtvec
-        } else if csr_addr == 0x340 { mscratch
-        } else if csr_addr == 0x341 { mepc
-        } else if csr_addr == 0x342 { mcause
-        } else if csr_addr == 0x344 { if irq { 0x800 } else { 0 }    // MEIP
-        } else if csr_addr == 0xB00 { mcycle[31:0] as u32
-        } else if csr_addr == 0xB80 { mcycle[63:32] as u32
-        } else if csr_addr == 0xB02 { minstret[31:0] as u32
-        } else if csr_addr == 0xB82 { minstret[63:32] as u32
-        } else { 0 }
+    let csr_rdata : u32 = match csr_addr {
+        0x300 => mstatus | 0x1800,                       // MPP = M
+        0x304 => if mie_meie { 0x800 } else { 0 },
+        0x305 => mtvec,
+        0x340 => mscratch,
+        0x341 => mepc,
+        0x342 => mcause,
+        0x344 => if irq { 0x800 } else { 0 },            // MEIP
+        0xB00 => mcycle[31:0] as u32,
+        0xB80 => mcycle[63:32] as u32,
+        0xB02 => minstret[31:0] as u32,
+        0xB82 => minstret[63:32] as u32,
+        _ => 0
+    }
 
     // f3[2]: source is the zero-extended rs1 field (CSRRWI/SI/CI).
     // f3[1:0]: 1 = write, 2 = set, 3 = clear. Set/clear with rs1 == x0
     // (or uimm == 0) must not write at all.
     let csr_src = if f3[2] { ins.rs1 as u32 } else { rs1_v }
     let csr_op  = f3 & 3
-    let csr_wdata =
-        if csr_op == 1 { csr_src
-        } else if csr_op == 2 { csr_rdata | csr_src
-        } else { csr_rdata & (csr_src ^ 0xFFFFFFFF) }
+    let csr_wdata = match csr_op {
+        1 => csr_src,
+        2 => csr_rdata | csr_src,
+        _ => csr_rdata & (csr_src ^ 0xFFFFFFFF)
+    }
     let csr_we = is_csr && (csr_op == 1 || ins.rs1 != 0) && !take_trap
 
     // ── Load data (memory or I/O) ─────────────────────────────────
@@ -404,12 +388,13 @@ pub module RiscvCore {
     let lh_u = rdata[((addr & 2) << 3) +: 16] as u16
     let lh_s = lh_u as i16
 
-    let load_val =
-        if f3 == 0 { (lb_s as i32) as u32      // LB
-        } else if f3 == 1 { (lh_s as i32) as u32  // LH
-        } else if f3 == 2 { rdata              // LW
-        } else if f3 == 4 { lb_u as u32        // LBU
-        } else { lh_u as u32 }                 // LHU
+    let load_val = match f3 {
+        0 => (lb_s as i32) as u32,      // LB
+        1 => (lh_s as i32) as u32,      // LH
+        2 => rdata,                     // LW
+        4 => lb_u as u32,               // LBU
+        _ => lh_u as u32                // LHU (5; 3, 6, 7 trap as illegal)
+    }
 
     // ── Write-back value ──────────────────────────────────────────
     let wb_val =

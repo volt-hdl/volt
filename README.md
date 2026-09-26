@@ -218,6 +218,7 @@ IP-XACT or UVM output.
 - Structs as signal types (first field in the most significant bits; one SV signal per field) — [ADR-0077](docs/adr/ADR-0077-struct-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (`instr as RType`)
 - Enum state types with exhaustive `match` and a generated state-valid invariant — [ADR-0074](docs/adr/ADR-0074-enum-destegi.md), [`examples/uart_tx.volt`](examples/uart_tx.volt), [`examples/i2c/`](examples/i2c/)
 - Functions (`fn`) as pure combinational logic, expanded at each call site (no SV `function`; intermediate `let`s become named wires) — [ADR-0081](docs/adr/ADR-0081-fonksiyon-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (immediate decoding, `imm_i_of` … `imm_j_of`)
+- `match` expressions (a `case` when the whole right-hand side) and block-level `let` in `on`/`comb` — [ADR-0083](docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md), [`examples/riscv_alu.volt`](examples/riscv_alu.volt) (ALU result and branch condition), CSR and load-data selection in [`examples/riscv_core.volt`](examples/riscv_core.volt)
 - `Handshake<T>` with generated valid/ready contracts — [ADR-0050](docs/adr/ADR-0050-handshake-primitifi.md), [`examples/axi4lite_slave.volt`](examples/axi4lite_slave.volt)
 - `inout` / `opendrain` ports — [ADR-0051](docs/adr/ADR-0051-cift-yonlu-portlar.md), [`examples/i2c/`](examples/i2c/)
 - SDC/XDC constraint output (`--emit=sdc,xdc`) — [ADR-0054](docs/adr/ADR-0054-sdc-uretimi.md), [`tests/ui/pass/74_sdc_multi_clock.volt`](tests/ui/pass/74_sdc_multi_clock.volt)
@@ -256,15 +257,26 @@ More designs: [`examples/README.md`](examples/README.md).
 - **Functions are pure combinational logic, expanded at every call
   site** (ADR-0081). A `fn` body is `let`s plus a final expression: no
   `reg`, `on`, assignment, `return` or recursion (E2016, E4013). Generic
-  functions, `requires`/`ensures` on a function, `for` and `match` inside a
-  function body and array return types are rejected with `E0003`. A
-  function cannot be called in a `const` initializer (`E2021`) or from the
-  test language (`E8505`). In a `comb` block, a block-level `for` or a
-  contract, an argument for a parameter whose bits the function selects
-  must be a plain signal name (`E0003`); call the function from a
-  module-level `let` instead. A file that holds only functions compiles,
-  but building it on its own writes an empty `.sv`, so shared functions
-  live next to the module that uses them.
+  functions, `requires`/`ensures` on a function, `for` inside a function
+  body and array return types are rejected with `E0003`. A function cannot
+  be called in a `const` initializer (`E2021`) or from the test language
+  (`E8505`). In a `comb` block, a block-level `for` or a contract, an
+  argument for a parameter whose bits the function selects must be a
+  plain signal name (`E0003`); call the function from a module-level `let`
+  instead. A file that holds only functions is a library: built on its
+  own it writes no SystemVerilog, and modules import its functions with
+  `use` ([`examples/riscv_imm.volt`](examples/riscv_imm.volt),
+  [`examples/riscv_alu.volt`](examples/riscv_alu.volt)).
+- **`match` expressions take literal, `A | B`, `_` and enum-variant
+  patterns** (ADR-0083). Guards (`0 if c =>`) are rejected with `E0003`;
+  range (`1..=3`), binding (`x @ …`) and struct patterns do not exist
+  yet. The test language has no `if`/`match` expressions. A `match` that
+  is the whole right-hand side of an assignment or `let` becomes a `case`;
+  anywhere else it becomes a `?:` chain, limited to 256 arms (`E0018`).
+  A scalar `const` used as a value is folded into a literal: integer
+  arithmetic, bit operations, shifts, comparisons, `&&`/`||`/`!`, `if`
+  and `match` fold; a `const` built from anything else (a cast, a builtin
+  call) is rejected with `E0003` rather than left undefined in the output.
 - **Sequential properties are limited to `prev()`.** No sequences, no
   liveness.
 - **Formal verification requires SymbiYosys** (Linux; WSL or Docker on

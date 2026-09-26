@@ -923,5 +923,146 @@ operand konumunda E0018.
 
 ### Gelecek iş (Aşama 2 eki)
 
-6. Emitter'ın sabit katlayıcısında `if` ifadesi (`const N = if … `
-   bugün SV'de tanımsız ad bırakıyor; HIR `consteval` doğru hesaplıyor).
+6. ~~Emitter'ın sabit katlayıcısında `if` ifadesi (`const N = if … `
+   bugün SV'de tanımsız ad bırakıyor; HIR `consteval` doğru hesaplıyor).~~
+   Aşama 3'te kapandı (aşağıda).
+
+## Aşama 3 — örnekler ve kanıt (2026-09-27, dal `feat/match-examples`)
+
+### Taşınanlar ve kararlar
+
+- **Yeni `examples/riscv_alu.volt`:** `alu_of(f3, is_r, alt, a, b) -> u32`
+  ve `branch_taken(f3, a, b) -> bool`, ikisi de `funct3` üzerinde `match`.
+  Ayrı dosya kararı: `riscv_imm.volt` tek iş yapar (immediate çözme) ve
+  `riscv_pipeline` bu iki fn'i kullanamaz (aşağıda) — ortak dosyada
+  birleştirmenin bir kullanıcısı yok. `riscv_core` ikisini de `use` eder.
+- **`riscv_core.volt`:** ALU ve dallanma koşulu fn çağrısı; ayrıca aynı
+  biçimdeki dört doğal aday (bir kod üzerinde değer seçimi): `sh_ok`
+  (`f3`), `csr_rdata` (`csr_addr`, 12 kol), `csr_wdata` (`csr_op`),
+  `load_val` (`f3`). Taşınmayanlar farklı boole'lar arasında öncelik
+  seçimi — `match` değil: `exc_cause`, `wb_val`, `alu_b`. Kaynak 524 → 509
+  satır (+ `riscv_alu.volt` 38).
+- **`riscv_pipeline.volt`:** yalnız `alu_op` `match` oldu. `alu_of` /
+  `branch_taken` kullanılamaz: pipeline'ın ALU'su alt küme (ADD/SUB, XOR,
+  OR, AND; `f3` 1/2/3/5 AND'e düşer), dallanması yalnız BEQ/BNE — ortak
+  fn donanımı değiştirirdi.
+- **Diğer örnekler** (`uart_tx`, `i2c`, `soc/timer`): değer üreten `else
+  if` zincirleri farklı boole'lara öncelik veriyor (`tick`, `stalling`,
+  `rw_r`, `enable_r`) — `match`'e taşınmadı.
+
+### Aşama 2 notu 1 — `const` başlangıcında `if` (Gelecek iş 6, kapandı)
+
+HIR `consteval` `if`/`match`'i hesaplıyordu; SV üreticisinin katlayıcısı
+(`expr.rs` `eval_const`) yalnız `+ - * /`, dizi elemanı ve `match`
+biliyordu. Katlanamayan skaler `const` çıplak adıyla basılıyordu — SV'de
+bildirilmediği için tanımsız ad ("Volt tamam, çıktı geçersiz"). Ölçüm
+(`build/m3/probe/`, önce → sonra):
+
+| Sonda | Önce | Sonra |
+|---|---|---|
+| `c1` `const N : u32 = if true { 20 } else { 3 }` | `assign z = N;` | `assign z = 32'd20;` |
+| `c2` `bits<M>`, `M = if W > 4 && !(W == 6) {…}` | E2005 ×2 (genişlik) | `[15:0]` portlar |
+| `c3` `const F : bool = 3 > 2`, `if !F … else if F -> …` | `assign b = F;` / `= Q;` | `1'd1` / `8'd2` |
+| `c4` `const S : u32 = 1 << 3` | `assign z = S;` | `32'd8` |
+| `c5` `const S : u32 = 5 as u32` | `assign z = S;` | E0003 "constant 'S' whose value the SystemVerilog emitter cannot fold" |
+
+Düzeltme: katlayıcı `if`, bool literali, karşılaştırmalar, `&&`/`||`/`->`/
+`!`, `%` ve negatif olmayan değerde `& | ^ << >>` hesaplar (HIR ile aynı
+seçim; koşul çözülemezse `None`). Hâlâ katlanamayan skaler `const` değer
+olarak kullanılınca **E0003** alır (`future()`; `check` = `build`,
+ADR-0070) — tanımsız ad bir daha yazılmaz. `volt explain E0003` iki dilde
+güncellendi. `tests/ui/pass/127_const_if_match.volt` çıktı ağına
+(ADR-0079) girer: `volt-net` Docker, Verilator + Yosys 13/13.
+
+Yan bulgu (aynı düzeltmeyle kapandı): `enum S : u4 { A = K, B = 1 << 3 }`
+düzeni hesaplanamayınca portlar **1 bit** iniyordu, tanısız
+(`build/m2/corpus/sim_f8bcd864a2.volt`: `input logic cmd` → `input logic
+[3:0] cmd`). Test: `enum_value_with_shift_keeps_declared_width`.
+
+Golden (PR #51 sonrası `main` ↔ bu dal, `build/m3/golden.py`: check insan
++ JSON + build SV/SVA/SDC): önceki 2004 dosyanın 1994'ü bayt-aynı. Farklı
+10: 5 sonda, yukarıdaki enum korpus dosyası ve taşınan örnekler
+(`riscv_core`, `riscv_core_test`, `riscv_sw/hello_soc` — `RiscvCore`'u
+içerir — ve `riscv_pipeline`).
+
+Mutasyon (tek tek, `build/m3/mutate.py`): `if` katlaması kaldırıldı →
+`const_if_expression_folds_to_literal` ve `const_condition_forms_fold`
+düştü; E0003 kaldırıldı → `unfoldable_const_is_explicit_e0003` düştü. 2/2.
+
+### Üretilen SV
+
+`RiscvCore.sv` 264 → 344 satır, **bayt-aynı değil**: altı blok iç içe
+üçlüden `always_comb` + `case`'e iner (Karar 10, atamanın tüm sağ tarafı).
+`alu_of`/`branch_taken` tel kipinde açılır (ADR-0081: `alu_of_0_a` …
+parametre telleri, sonuç `alu_out` doğrudan `case` hedefi); `shamt` ve
+`alt_op` telleri fn içine girdiği için kalktı. `UartTx.sv` bayt-aynı.
+`RiscvPipeline.sv` 214 → 224 satır (yalnız `alu_op`).
+
+### Eşdeğerlik kanıtı
+
+1. **Modüler (Yosys 0.66 `equiv_simple`, `build/m3/blocks/gen.py`):** fark
+   tam altı blok; bloklar konumla çıkarılınca kalan 244 satır iki dosyada
+   birebir (`// Source:` ve boş satırlar hariç). Her blok serbest girişli
+   ayrı modülde (girişler iki tarafta aynı adlı, değişmemiş teller):
+   `sh_ok` 2/2, `alu_out` 64/64, `br_taken` 2/2, `csr_rdata` 64/64,
+   `csr_wdata` 64/64, `load_val` 88/88 `$equiv` hücresi, toplam 1,6 sn.
+   Kasıtlı hata (her bloğa bir: kol kodu ya da işleç) **6/6 yakalandı**
+   (`alu_out` `^`→`|` 64 kanıtsız, `csr_rdata` `12'hB02`→`12'hB03` 64,
+   `load_val` `3'd4`→`3'd6` 32, …).
+2. **Tam çekirdek (ABC `dprove`, `build/m3/cec/seq.ys`):** eski ve yeni
+   `RiscvCore`+`UartTx` → `prep; memory_map; flatten; async2sync;
+   dffunmap` → `miter -equiv` → `techmap; dffunmap; aigmap; setundef
+   -zero -init` → AIGER; `yosys-abc "dprove"`: 67 giriş, 3012 latch, 65564
+   AND — **"Networks are equivalent", 32 sn** (latch eşlemesi 3979 →
+   1917, fraig). Kasıtlı hata (`alu_out` `^`→`|`): `bmc3 -F 8` **2.
+   çerçevede karşı örnek** (118 sn; yükle → XOR → sakla), `dprove` 631
+   sn'de UNDECIDED (kanıtlamadı). x sabitleri iki tarafta aynı (827'şer,
+   hepsi değişmemiş `+:` parça seçiminin `$shiftx` eşlemesi); `setundef`
+   bu yüzden simetrik. İlk denemede `write_aiger -zinit` başlangıcı
+   olmayan her FF'ye ayrı giriş ekledi (3079 giriş) → iki kopya farklı
+   durumdan başladı, 0. çerçevede "not equivalent"; Yosys `sat -seq 1
+   -set-init-zero` aynı miter'da SUCCESS verdi, `-init` ile düzeldi.
+3. **ADR-0081 yöntemi tam çekirdekte bitmedi (ölçüm):** `equiv_make` +
+   `equiv_simple -seq 1` + `equiv_induct -seq 1` (ADR-0081 Aşama 3'te SV
+   bayt-aynı olduğundan saniyeler sürmüştü) `alu_out[21]`de; `-seq 1`'siz
+   (`eq2`) aynı bitte, `equiv_struct` + `equiv_simple -short` (`eq3`)
+   `alu_out[3]`te ~24 dk ilerlemedi, durduruldu. Aynı ALU bloğu serbest
+   girişle 1 sn'nin altında kanıtlanıyor: tıkanma ALU'nun kendisinde
+   değil, konisindeki register dosyası okuma mux'u (32×32) üstünde.
+   Bu yüzden asıl kanıt 1 + 2.
+4. **`riscv_pipeline` (Yosys, ADR-0081 betiği):** 2103/2103 `$equiv`,
+   2,7 sn; kasıtlı hata (`3'd4` `^`→`|`) 32 kanıtsız hücre.
+
+### Diğer kanıtlar
+
+- **`volt test`** (Docker, taze Linux derlemesi): `riscv_core` 59/59
+  (C programı dahil), `riscv_pipeline` 15/15, `uart_tx` 4, `axi4lite_slave`
+  5, `fir_filter` 10, `soc` 5, `i2c` 12, `vga` 7, `hybrid_accel` 6 — hepsi
+  geçti. Not: `volt-rustup` biriminde araç zinciri yoktu, ilk koşu bayat
+  ikiliyle E0003 verdi; `build/m3/docker_test.sh` artık gerekirse
+  `rustup default stable` yapıyor.
+- **`volt verify`** (boolector, `-j 4`, önce ↔ sonra aynı):
+  `riscv_core` prove 3 44/44, bmc 10 44/44, cover 12'de 2 başarısız
+  (aynı ikisi önce de: `UartTx.cov_9`, `RiscvCore.cov_4` 12 adıma sığmaz);
+  `riscv_pipeline` prove/bmc/cover 14/14.
+- **Verilator 5.050 `--lint-only -Wall`:** `RiscvCore`+`UartTx` ve
+  `RiscvPipeline` 0 uyarı.
+- **Yosys `stat`** (FF, CARRY, DSP birebir; fark yalnız seçme mantığı):
+
+  | | önce | sonra |
+  |---|---|---|
+  | `RiscvCore` iCE40 `SB_LUT4` | 7408 | 7370 |
+  | `RiscvCore` xc7 LUT1-6 | 3169 | 3096 |
+  | `RiscvCore` xc7 MUXF7 / MUXF8 | 724 / 219 | 723 / 205 |
+  | `RiscvPipeline` iCE40 `SB_LUT4` | 2815 | 2811 |
+  | `RiscvPipeline` xc7 LUT1-6 | 1630 | 1524 |
+  | `RiscvPipeline` xc7 MUXF7 / MUXF8 | 143 / 35 | 140 / 4 |
+
+  Açıklama: aynı mantık fonksiyonu farklı başlangıç yapısından eşlenir —
+  `case` Yosys `proc`'ta tek `$pmux` (sabit kod karşılaştırmaları tek
+  seçicide), üçlü zincir sıralı `$mux` zinciri; ABC teknoloji eşlemesi
+  farklı ağdan farklı LUT kümesi bulur. Register ve aritmetik hücreleri
+  aynı; eşdeğerlik yukarıda kanıtlı. Fark iki tasarımda da küçülme
+  yönünde, ama iki tasarımda ölçüldü — genel bir iddia değil.
+- `cargo test --all`: 3015 geçti, 0 başarısız; tutarlılık 150 kod, 3292
+  test (baseline güncellendi); `ui/pass` sayımı 113 (dört assert).
