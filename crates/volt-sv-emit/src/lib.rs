@@ -13,6 +13,7 @@ mod generate;
 mod inline;
 mod instance;
 mod past;
+mod reach;
 mod reset_sync;
 mod sby;
 pub mod sim;
@@ -37,6 +38,7 @@ use volt_span::{FileId, Span};
 
 pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
+pub use reach::reachable_modules;
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, run_testbench_cpp_with,
@@ -302,6 +304,21 @@ pub struct EmitOutput {
 pub struct SvModule {
     pub name: String,
     pub sv: String,
+    /// Başlıksız modül gövdesi — birleşik metin ([`unit_sv`]) bundan
+    /// kurulur; çıktı kümesi süzülünce yeniden kurmak için saklanır.
+    pub body: String,
+}
+
+/// Birleşik (tek dosya) SV metni: birim başlığı + modül gövdeleri
+/// (kaynak sırası). `--single-file`, simülasyon ve formal bunu kullanır.
+pub fn unit_sv(source_name: &str, modules: &[SvModule]) -> String {
+    let bodies: Vec<&str> = modules.iter().map(|m| m.body.as_str()).collect();
+    let mut sv = header(source_name);
+    sv.push('\n');
+    sv.push_str(&bodies.join("\n"));
+    sv.push('\n');
+    sv.push_str("`default_nettype wire\n");
+    sv
 }
 
 /// Derleme birimindeki bir kaynak dosya — SVA yorumlarındaki
@@ -418,7 +435,6 @@ pub fn emit_unit(
     // modül sırasına bağlı olarak ikinci kez bildirmesin.
     emitter.audit_unit_names();
 
-    let mut modules = Vec::new();
     let mut per_module = Vec::new();
     let mut multiclock_modules = Vec::new();
     for &item_idx in &ast.items {
@@ -440,19 +456,13 @@ pub fn emit_unit(
             per_module.push(SvModule {
                 name: module.name.text.clone(),
                 sv,
+                body,
             });
-            modules.push(body);
         }
     }
 
-    let mut sv = header(source_name);
-    sv.push('\n');
-    sv.push_str(&modules.join("\n"));
-    sv.push('\n');
-    sv.push_str("`default_nettype wire\n");
-
     EmitOutput {
-        sv,
+        sv: unit_sv(source_name, &per_module),
         modules: per_module,
         sva_files: emitter.sva_files,
         sva_props: emitter.sva_props,

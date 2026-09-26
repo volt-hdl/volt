@@ -88,13 +88,16 @@
 // Only address bit 2 is decoded inside the I/O window.
 
 use uart_tx::UartTx;
+// Immediate decoding (one fn per format) lives in examples/riscv_imm.volt,
+// shared with the pipelined core.
+use riscv_imm::{imm_i_of, imm_s_of, imm_b_of, imm_u_of, imm_j_of};
 
 // The R-type field layout of the RISC-V base encoding, bit 31 first. A
 // struct packs its first field into the most significant bits (ADR-0077),
 // so `instr as RType` reads the spec table directly; every format shares
 // opcode, rd, funct3, rs1 and rs2 at these positions. Immediates are
 // scattered across the word per format and are decoded by the
-// functions below.
+// riscv_imm functions.
 struct RType {
     funct7 : u7   // [31:25]
     rs2    : u5   // [24:20]
@@ -102,44 +105,6 @@ struct RType {
     funct3 : u3   // [14:12]
     rd     : u5   // [11:7]
     opcode : u7   // [6:0]
-}
-
-// Immediate decoding, one function per format (RISC-V spec, Figure
-// "Types of immediate produced by RISC-V instructions"). A `fn` is pure
-// combinational logic and is expanded at each call site (ADR-0081); the
-// SystemVerilog has no function, only the expression. Sign extension goes
-// through the arithmetic shift `(x as i32) >> n` (ADR-0036).
-
-// I-type: inst[31:20], sign-extended.
-fn imm_i_of(instr: u32) -> u32 {
-    ((instr as i32) >> 20) as u32
-}
-
-// S-type: inst[31:25] | inst[11:7], sign-extended.
-fn imm_s_of(instr: u32) -> u32 {
-    ((((instr as i32) >> 25) << 5) as u32)
-    | ((instr >> 7) & 0x1F)
-}
-
-// B-type: inst[31] | inst[7] | inst[30:25] | inst[11:8] | 0, sign-extended.
-fn imm_b_of(instr: u32) -> u32 {
-    ((((instr as i32) >> 31) << 12) as u32)
-    | (((instr >> 7) & 1) << 11)
-    | (((instr >> 25) & 0x3F) << 5)
-    | (((instr >> 8) & 0xF) << 1)
-}
-
-// U-type: inst[31:12] | 12 zero bits.
-fn imm_u_of(instr: u32) -> u32 {
-    instr & 0xFFFFF000
-}
-
-// J-type: inst[31] | inst[19:12] | inst[20] | inst[30:21] | 0, sign-extended.
-fn imm_j_of(instr: u32) -> u32 {
-    ((((instr as i32) >> 31) << 20) as u32)
-    | (instr & 0xFF000)
-    | (((instr >> 20) & 1) << 11)
-    | (((instr >> 21) & 0x3FF) << 1)
 }
 
 pub module RiscvCore {

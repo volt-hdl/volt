@@ -1006,3 +1006,13 @@ uyarısı). Ayrı iş; bu PR'da derleyici davranışı değişmedi.
   taşınarak) reddedilir; açılım ADR-0068 bütçesiyle sınırlanır.
 - Kontratta fn çağrısı verify ve `--emit=sva`'da çalışır; ADR-0070'in
   A sınıfı listesinden bir kalem düşer.
+
+## Aşama 3 bulgusunun çözümü (2026-09-26, dal `fix/fn-library-output`)
+
+"Değerlendirilen diğer adaylar"daki iki belirti (yalnız fn alan birimin
+çıktısına kütüphane modüllerinin eklenmesi, modülsüz dosyanın boş `.sv`
+yazması) derleyicide düzeltildi: çıktı kümesi artık ana dosyanın
+modülleri + örnekleme kapanışıdır, modülsüz birim SV üretmez (ADR-0042
+"Ek — Çıktı kümesi"). `riscv_pipeline` immediate'leri ortak
+`examples/riscv_imm.volt`'tan alır; `riscv_core` da aynı dosyayı kullanır;
+üç SV dosyası da tamamen byte-aynı.

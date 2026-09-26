@@ -21,6 +21,11 @@
 //
 // Bubble encoding: generated bubbles are all-zeros; instruction word 0
 // decodes to no opcode class, and wb_en=false makes the slot inert.
+//
+// Immediates are decoded by the same functions as the single-cycle core
+// (examples/riscv_imm.volt).
+
+use riscv_imm::{imm_i_of, imm_s_of, imm_b_of, imm_u_of, imm_j_of};
 
 pipeline(5) RiscvPipeline {
     in  clk       : clock
@@ -84,13 +89,11 @@ pipeline(5) RiscvPipeline {
         // contracts provable and the forwarding comparators x0-free.
         let wb_en : bool = (is_lui || is_jal || is_load || is_alu_i || is_alu_r) && rd != 0
 
-        let imm_i = ((ir as i32) >> 20) as u32
-        let imm_s = ((((ir as i32) >> 25) << 5) as u32) | ((ir >> 7) & 0x1F)
-        let imm_b = ((((ir as i32) >> 31) << 12) as u32) | (((ir >> 7) & 1) << 11)
-                  | (((ir >> 25) & 0x3F) << 5) | (((ir >> 8) & 0xF) << 1)
-        let imm_u = ir & 0xFFFFF000
-        let imm_j = ((((ir as i32) >> 31) << 20) as u32) | (ir & 0xFF000)
-                  | (((ir >> 20) & 1) << 11) | (((ir >> 21) & 0x3FF) << 1)
+        let imm_i = imm_i_of(ir)
+        let imm_s = imm_s_of(ir)
+        let imm_b = imm_b_of(ir)
+        let imm_u = imm_u_of(ir)
+        let imm_j = imm_j_of(ir)
         let imm : u32 =
             if is_store { imm_s } else if is_branch { imm_b
             } else if is_jal { imm_j } else if is_lui { imm_u } else { imm_i }

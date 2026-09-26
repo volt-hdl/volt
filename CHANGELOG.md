@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — fn kütüphane dosyaları ve çıktı kümesi (2026-09-26, ADR-0042 Ek)
+
+- **Yalnız fn/const/tip içeren dosya artık SV yazmıyor.** Önce modülsüz,
+  boş bir `<dosya>.sv` üretiliyordu ve Verilator/Yosys `--top-module`
+  ile reddediyordu. Şimdi çıkış 0, `0 SV file(s)` ve "bu bir kütüphane
+  dosyası" notu (`use <dosya>::<ad>` önerisiyle).
+- **`build` ve `verify` yalnız ana dosyadan erişilebilen modülleri
+  üretir** (ana dosyanın modülleri + örnekleme kapanışı). `use a::f`
+  artık `a.volt`'taki örneklenmeyen modülleri çıktıya eklemiyor; RTL,
+  `.sva`, SDC/XDC (ve W0022), `@mmio` sürücüleri ve `verify` görevleri
+  aynı kümeye bağlı. Tanılar değişmedi — kütüphane dosyası yine tamamen
+  denetlenir. Kalkan fazla çıktılar: `soc/axi.volt`, `soc/timer.volt`,
+  `soc/uart.volt` → `Axi4LiteSlave`; `vga/frame_buffer.volt` →
+  `VgaTiming`; `tests/ui/multifile/basic` → `Hidden` (ADR-0042 Ek tablosu).
+- `examples/riscv_imm.volt`: RISC-V immediate fn'leri tek ortak dosyada;
+  `riscv_core` ve `riscv_pipeline` ikisi de oradan alır. Üretilen
+  `RiscvCore.sv`, `UartTx.sv`, `RiscvPipeline.sv` tamamen byte-aynı.
+- Çıktı ağına (ADR-0079) modülsüz kütüphane fixture'ı:
+  `tests/fixtures/fn_library/`.
+
 ### Değişti — riscv_core immediate çözmesi fn'lerle (2026-09-26, ADR-0081 Aşama 3)
 
 - `examples/riscv_core.volt`: beş immediate biçimi (I/S/B/U/J) birer saf
