@@ -10,7 +10,8 @@ pub mod token;
 
 pub use lexer::{tokenize, tokenize_with_trivia, LexOutput};
 pub use parser::{
-    monomorphize, parse, parse_expr, parse_unit, GeneratedSource, ParseResult, MAX_DEPTH,
+    monomorphize, parse, parse_expr, parse_on_current_stack, parse_unit, GeneratedSource,
+    ParseResult, MAX_DEPTH,
 };
 pub use stack::{with_compiler_stack, COMPILER_STACK_SIZE};
 pub use token::{Token, TokenKind};

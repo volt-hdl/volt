@@ -71,14 +71,22 @@ impl ParseResult {
 /// Derleyici yığınında koşar (ADR-0080): derinlik sınırındaki girdi hangi
 /// iş parçacığından çağrılırsa çağrılsın yığını taşırmaz.
 pub fn parse(file: FileId, source: &str) -> ParseResult {
-    crate::with_compiler_stack(|| {
-        let mut parser = Parser::new(file, source);
-        // Monomorfizasyon (ADR-0041) ve `for` açılımı (ADR-0056) pipeline
-        // desugar'ı gibi parser katmanında, bundle düzleştirmesinden önce
-        // (`finish_unit_desugar`); alt geçitler somut, açılmış modül görür.
-        parser.parse_source_file();
-        parser.finish()
-    })
+    crate::with_compiler_stack(|| parse_on_current_stack(file, source))
+}
+
+/// [`parse`]'ın iş parçacığı açmayan biçimi: çağıranın yığınında koşar.
+/// Derinlik sınırındaki girdi debug derlemede 2 MB'tan az yığın ister
+/// (`depth_limit_tests::parse_on_current_stack_fits_in_two_megabytes`).
+/// Yığını bilinen ve parse başına iş parçacığı açılışının (Linux ~160 µs)
+/// pahalı olduğu çağıranlar içindir — fuzz hedefi (libFuzzer ana iş
+/// parçacığı, Linux 8 MB); diğerleri [`parse`] kullanır (ADR-0080 §6).
+pub fn parse_on_current_stack(file: FileId, source: &str) -> ParseResult {
+    let mut parser = Parser::new(file, source);
+    // Monomorfizasyon (ADR-0041) ve `for` açılımı (ADR-0056) pipeline
+    // desugar'ı gibi parser katmanında, bundle düzleştirmesinden önce
+    // (`finish_unit_desugar`); alt geçitler somut, açılmış modül görür.
+    parser.parse_source_file();
+    parser.finish()
 }
 
 /// Birden çok dosyayı TEK derleme birimine ayrıştırır (ADR-0042).

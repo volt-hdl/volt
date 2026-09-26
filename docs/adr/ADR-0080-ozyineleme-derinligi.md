@@ -12,6 +12,8 @@
 > derleyici yığınında), volt-lsp (tokio işçileri derleyici yığınıyla),
 > volt-diagnostics (E0018, iki dilde + `volt explain`), tests
 > (`fuzz_regressions/stack_*` 14 girdi, ui pass 111 / fail 142)
+> Güncelleme (2026-09-26, #44): fuzz hedefi iş parçacığı açmaz, `-max_len=4096`
+> — bkz. §8.
 > İlgili: ADR-0067 (fuzz regresyonları), ADR-0068 §6 "Sınırlar" (bu ADR'nin
 > konusu olan bulgu), ADR-0058 (test dili derinlik sınırı — aynı sayacı
 > kullanır), ADR-0069 (tip çizgesi), ADR-0070 (CLI/LSP ortak boru hattı)
@@ -288,3 +290,43 @@ etkisi CI fuzz işinin exec/s değeriyle izlenir (PR açıklaması).
   reddeder; öneri dengeli biçim ya da ara `let`. Gerçek ihtiyaç doğarsa
   parser dengeli ağaç kurabilir (değerlendirme sırası birleşme özelliğine
   bağlı) — bu ADR'nin kapsamı dışında.
+
+## 8. Güncelleme — fuzz hızı (2026-09-26, PR #44)
+
+§6'daki maliyet fuzz'da önemsiz çıkmadı: CI `Fuzz (60 s)` işi PR #41'de
+1221, bu ADR'den sonra 713 exec/s idi. İki neden vardı:
+
+- **Tohum boyutu.** 60 KB'lık `stack_*` regresyon girdileri fuzz tohumu
+  olarak da veriliyor; libFuzzer azami girdi boyunu en büyük tohumdan
+  aldığı için `max_len` 2974'ten 60143'e çıktı. Karar: iki iş akışında
+  (`ci.yml`, `fuzz-nightly.yml`) sabit **`-max_len=4096`**. Boyut filtresi
+  derin tohumları fuzz'dan tümüyle düşürürdü. `max_len` ise onları 4 KB'lık
+  öneklerine kırpar; önek yine 256 katı aşar, yani derin yol fuzz'da kalır.
+  Fuzz yapılandırması artık tohum boyutundan bağımsız.
+- **Parse başına iş parçacığı.** Linux'ta açılış ~160 µs, kalıcı bir işçiye
+  kanalla devir bile ~49 µs; küçük bir girdinin ayrıştırılması ~20 µs.
+  Karar: yeni **`volt_syntax::parse_on_current_stack`**, `parse`'ın iş
+  parçacığı açmayan biçimi (`parse` artık onu `with_compiler_stack` ile
+  sarar). Fuzz hedefi onu libFuzzer'ın **ana iş parçacığında** (Linux 8 MB)
+  çağırır; §2.3'teki "`parse` kendi yığınını açar" güvencesi diğer bütün
+  çağıranlar için geçerlidir. Sözleşme testi
+  (`parse_on_current_stack_fits_in_two_megabytes`): sınırdaki her girdi
+  debug derlemede 2 MB yığında ayrışır, 1 MB'ta taşar.
+
+Yan kazanç: fuzz artık 64 MB'ın arkasına saklanmaz, parser'ın derinlik
+korumasındaki bir gerileme fuzz'da yığın taşması olarak görünür. Ters
+deneyde `descend` sınırı kaldırılınca fuzz ikilisi tam parantez girdisinde ve
+4 KB'lık önekinde ASan stack-overflow verdi. Sınır yerindeyken kırpılmamış
+19 regresyon girdisi 8 MB'lık ana iş parçacığında çökmeden geçer.
+
+| Ölçüm | lim | exec/s |
+|---|---|---|
+| Yerel (Linux/ASan, 60 s, aynı tohumlar), bu ADR'den sonra | 60143 | 428 |
+| … yalnız `-max_len=4096` | 4096 | 775 |
+| … `max_len` + `parse_on_current_stack` | 4096 | 1669 |
+| CI: PR #41 / bu ADR / #44 (iki koşu) | | 1221 / 713 / 1095, 1150 |
+
+Kalan ~%8 `max_len`'den gelmiyor: yerelde 4096 ile 2974 ayırt edilemedi
+(1912/1889'a karşı 1808/2031). Olası nedenler CI koşuları arasındaki
+dalgalanma ve bu ADR'nin her ayrıştırmaya eklediği iş (tip çizgesinde
+ikinci derinlik geçişi); ayrıştırılmadı.

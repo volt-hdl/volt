@@ -538,3 +538,40 @@ fn parse_is_safe_from_a_small_caller_stack() {
         .expect("panik yok");
     assert_eq!(codes, ["E0018"]);
 }
+
+/// `parse_on_current_stack` sözleşmesi: sınırdaki her regresyon girdisi
+/// (ve her derin yapı) 2 MB'lık yığında, iş parçacığı açmadan ayrışır —
+/// fuzz hedefi bunu Linux'un 8 MB'lık ana iş parçacığında çağırır.
+#[test]
+fn parse_on_current_stack_fits_in_two_megabytes() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fuzz_regressions");
+    let mut inputs: Vec<(String, String)> = std::fs::read_dir(dir)
+        .expect("tests/fuzz_regressions")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("stack_")
+        })
+        .map(|p| {
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            (name, std::fs::read_to_string(&p).expect("girdi"))
+        })
+        .collect();
+    inputs.extend(
+        CASES
+            .iter()
+            .map(|&(name, gen)| (name.to_string(), gen(20_000))),
+    );
+    for (name, src) in inputs {
+        let codes = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || volt_syntax::parse_on_current_stack(FileId(0), &src).error_codes())
+            .expect("iş parçacığı")
+            .join()
+            .expect("panik yok");
+        assert_eq!(codes, ["E0018"], "{name}");
+    }
+}
