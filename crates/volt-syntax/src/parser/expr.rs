@@ -572,6 +572,7 @@ impl Parser<'_> {
 
         self.expect_closing(RBrace, "}", open);
         let span = self.span_from(start);
+        self.check_match_wildcard(&arms, span, true);
         self.ast.exprs.alloc(Expr {
             span,
             kind: ExprKind::Match { scrutinee, arms },

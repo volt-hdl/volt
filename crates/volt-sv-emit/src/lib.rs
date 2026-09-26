@@ -12,6 +12,7 @@ mod expr;
 mod generate;
 mod inline;
 mod instance;
+mod match_expr;
 mod past;
 mod reach;
 mod reset_sync;
@@ -512,6 +513,8 @@ fn new_emitter<'a>(
         self_sizing: HashSet::new(),
         module_name: String::new(),
         sv_name_reported: HashSet::new(),
+        proc: match_expr::ProcScope::default(),
+        ternary_depth: 0,
     }
 }
 
@@ -609,6 +612,17 @@ fn validate_functions(
         }
     }
     (invalid, diags)
+}
+
+/// Kök konum match'inin modül düzeyi süreci (ADR-0083 Karar 10.1).
+fn always_comb(case: &[String]) -> String {
+    let mut out = String::from("    always_comb begin\n");
+    for line in case {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("    end");
+    out
 }
 
 /// sv-mapping.md §12 — deterministik başlık (tarih yok).
@@ -786,6 +800,10 @@ pub(crate) struct Emitter<'a> {
     /// E1013 verilmiş SV adları (ADR-0078) — güvenlik ağı aynı adı
     /// ikinci kez bildirmez.
     pub(crate) sv_name_reported: HashSet<String>,
+    /// Üretilmekte olan sürecin blok `let` yerelleri (ADR-0083 Karar 11).
+    pub(crate) proc: match_expr::ProcScope,
+    /// İç içe üçlü match üretimi derinliği (sınırlar en dışta denetlenir).
+    pub(crate) ternary_depth: usize,
 }
 
 impl<'a> Emitter<'a> {
@@ -1195,9 +1213,13 @@ impl<'a> Emitter<'a> {
         }
         let ast = self.ast;
         let mut chunks: Vec<(Kind, String)> = Vec::new();
+        // Adlı süreç etiketleri `on_<k>` / `comb_<k>` (ADR-0083 Karar 11).
+        let (mut on_count, mut comb_count) = (0usize, 0usize);
 
         for &stmt_idx in &module.body {
             let stmt = &ast.stmts[stmt_idx];
+            // Kök konumdaki match ifadesinin `always_comb` süreci (Karar 10.1).
+            let mut extra: Option<(Kind, String)> = None;
             let entry = match &stmt.kind {
                 // Sembolde yoksa E2012 zaten üretildi
                 StmtKind::Reg(reg) => self.symbols.get(&reg.name.text).copied().map(|sig| {
@@ -1240,6 +1262,28 @@ impl<'a> Emitter<'a> {
                         self.trits.insert(decl.name.text.clone());
                     }
                     match sig {
+                        Some(sig) if self.as_match(decl.value).is_some() => {
+                            self.symbols.insert(decl.name.text.clone(), sig);
+                            let header = self.inline_header(&decl.name.text);
+                            let case = self.emit_match_case(
+                                &decl.name.text,
+                                "=",
+                                Some(sig),
+                                decl.value,
+                                8,
+                            );
+                            extra = Some((Kind::Always, always_comb(&case)));
+                            Some((
+                                Kind::Decl,
+                                header
+                                    + &format!(
+                                        "    {} {};{}",
+                                        sig.decl_type(),
+                                        decl.name.text,
+                                        self.enum_comment(&decl.name.text)
+                                    ),
+                            ))
+                        }
                         Some(sig) => {
                             self.symbols.insert(decl.name.text.clone(), sig);
                             let value = self.emit_assigned(decl.value, Some(sig));
@@ -1290,6 +1334,8 @@ impl<'a> Emitter<'a> {
                     }
                 }
                 StmtKind::On(on) => {
+                    let on_index = on_count;
+                    on_count += 1;
                     let info = domain_of_trigger(clocks, on);
                     let reset = if clocks.is_empty() || info.reset.is_none() {
                         None
@@ -1298,12 +1344,23 @@ impl<'a> Emitter<'a> {
                     };
                     Some((
                         Kind::Always,
-                        self.emit_on_block(module, on, info, reset, stmt.span),
+                        self.emit_on_block(module, on, info, reset, stmt.span, on_index),
                     ))
                 }
                 StmtKind::Assign(assign) => {
                     match self.try_emit_sync_bridge(module, clocks, assign, stmt.span) {
                         Some(chunk) => Some((Kind::Always, chunk)),
+                        // Bütün sinyale kök match → `always_comb` + `case`;
+                        // kısmi hedef (`y[3:0] = …`) üçlü kalır: aynı sinyalin
+                        // `assign`'lı öteki parçalarıyla süreç karışmaz.
+                        None if assign.lhs.suffixes.is_empty()
+                            && self.as_match(assign.rhs).is_some() =>
+                        {
+                            let lhs_sig = self.lvalue_sig(&assign.lhs);
+                            let lhs = self.emit_lvalue(&assign.lhs);
+                            let case = self.emit_match_case(&lhs, "=", lhs_sig, assign.rhs, 8);
+                            Some((Kind::Always, always_comb(&case)))
+                        }
                         None => {
                             let lhs_sig = self.lvalue_sig(&assign.lhs);
                             let lhs = self.emit_lvalue(&assign.lhs);
@@ -1355,13 +1412,17 @@ impl<'a> Emitter<'a> {
                             .map(|chunk| (Kind::Always, chunk))
                     }
                 }
-                StmtKind::Comb(block) => Some((Kind::Always, self.emit_comb(*block))),
+                StmtKind::Comb(block) => {
+                    let comb_index = comb_count;
+                    comb_count += 1;
+                    Some((Kind::Always, self.emit_comb(*block, comb_index)))
+                }
                 // Modül seviyesi `for` parser'da açıldı (ADR-0056);
                 // sınırı sabit olmayan döngü tanıyla birlikte düşürüldü.
                 StmtKind::For(_) => None,
             };
 
-            if let Some((kind, text)) = entry {
+            for (kind, text) in entry.into_iter().chain(extra) {
                 match chunks.last_mut() {
                     Some((last_kind, chunk)) if *last_kind == kind && kind != Kind::Always => {
                         chunk.push('\n');
@@ -1596,6 +1657,7 @@ impl<'a> Emitter<'a> {
         domain: DomainInfo,
         reset: Option<ResetCfg>,
         span: Span,
+        index: usize,
     ) -> String {
         let clk = match &on.trigger {
             OnTrigger::Clock(name) => name.text.clone(),
@@ -1617,32 +1679,43 @@ impl<'a> Emitter<'a> {
         };
 
         let mut out = String::new();
-        match reset {
+        let outer = self.begin_process();
+        let (sensitivity, body) = match reset {
             Some(cfg) => {
-                out.push_str(&format!(
-                    "    always_ff @({edge} {clk}{}) begin\n",
-                    cfg.async_sensitivity()
-                ));
-                out.push_str(&format!("        if ({}) begin\n", cfg.condition()));
+                let mut body = format!("        if ({}) begin\n", cfg.condition());
                 for line in self.reset_assignments(module, on) {
-                    out.push_str(&format!("            {line}\n"));
+                    body.push_str(&format!("            {line}\n"));
                 }
-                out.push_str("        end else begin\n");
+                body.push_str("        end else begin\n");
                 for line in self.emit_block(on.body, 12) {
-                    out.push_str(&line);
-                    out.push('\n');
+                    body.push_str(&line);
+                    body.push('\n');
                 }
-                out.push_str("        end\n    end");
+                body.push_str("        end\n");
+                (format!("{edge} {clk}{}", cfg.async_sensitivity()), body)
             }
             None => {
-                out.push_str(&format!("    always_ff @({edge} {clk}) begin\n"));
+                let mut body = String::new();
                 for line in self.emit_block(on.body, 8) {
-                    out.push_str(&line);
+                    body.push_str(&line);
+                    body.push('\n');
+                }
+                (format!("{edge} {clk}"), body)
+            }
+        };
+        // Yerel içeren süreç adlı bloktur (ADR-0083 Karar 11).
+        match self.end_process(outer, "on", index, 8) {
+            Some((label, decls)) => {
+                out.push_str(&format!("    always_ff @({sensitivity}) begin : {label}\n"));
+                for d in decls {
+                    out.push_str(&d);
                     out.push('\n');
                 }
-                out.push_str("    end");
             }
+            None => out.push_str(&format!("    always_ff @({sensitivity}) begin\n")),
         }
+        out.push_str(&body);
+        out.push_str("    end");
         out
     }
 
@@ -1726,37 +1799,39 @@ impl<'a> Emitter<'a> {
         let ast = self.ast;
         let ind = " ".repeat(indent);
         let mut lines = Vec::new();
+        // Blok `let`'inin kapsamı içinde bulunduğu `{ }` (ADR-0083 Karar 8).
+        self.push_local_scope();
         for stmt in &ast.blocks[block].stmts {
             match stmt {
                 BlockStmt::NonBlockAssign { lhs, rhs, .. } => {
                     let sig = self.lvalue_sig(lhs);
                     let lhs_s = self.emit_lvalue(lhs);
+                    if self.as_match(*rhs).is_some() {
+                        lines.extend(self.emit_match_case(&lhs_s, "<=", sig, *rhs, indent));
+                        continue;
+                    }
                     let rhs_s = self.emit_assigned(*rhs, sig);
                     lines.push(format!("{ind}{lhs_s} <= {rhs_s};"));
                 }
                 BlockStmt::BlockAssign { lhs, rhs, .. } => {
                     let sig = self.lvalue_sig(lhs);
                     let lhs_s = self.emit_lvalue(lhs);
+                    if self.as_match(*rhs).is_some() {
+                        lines.extend(self.emit_match_case(&lhs_s, "=", sig, *rhs, indent));
+                        continue;
+                    }
                     let rhs_s = self.emit_assigned(*rhs, sig);
                     lines.push(format!("{ind}{lhs_s} = {rhs_s};"));
                 }
                 BlockStmt::If(if_stmt) => self.emit_if(if_stmt, indent, &mut lines),
-                BlockStmt::Let(decl) => {
-                    let span = ast.blocks[block].span;
-                    self.future(
-                        span,
-                        &lstr!(
-                            en: "'let {}' inside a block", decl.name.text;
-                            tr: "blok içi 'let {}'", decl.name.text
-                        ),
-                    );
-                }
+                BlockStmt::Let(decl) => lines.extend(self.emit_block_let(decl, indent)),
                 BlockStmt::Error => {}
                 BlockStmt::Match(m) => self.emit_match(m, indent, &mut lines),
                 // Derleme zamanı döngüsü: gövde iterasyon başına açılır.
                 BlockStmt::For(f) => self.emit_for_in_block(f, indent, &mut lines),
             }
         }
+        self.pop_local_scope();
         lines
     }
 
@@ -1770,12 +1845,12 @@ impl<'a> Emitter<'a> {
         let scrut = self.emit_expr(m.scrutinee, scrut_sig);
         // ADR-0074 Karar 4: erişilemez kol atlanır; kapsayıcı `_`'sız enum
         // match'inde son adlı kol `default` olur (geçersiz kodlar dahil).
-        let plan = scrut_enum.map(|d| self.enum_match_plan(m, d));
+        let plan = scrut_enum.map(|d| self.enum_match_plan(&m.arms, d));
         // Sayısal sınananda aynı kural (ADR-0075): değerleri önceki
         // kollarda geçen kol yazılmaz (HIR W2014).
         let value_skip = match plan {
             Some(_) => Vec::new(),
-            None => volt_ast::match_cover::unreachable_value_arms(self.ast, m),
+            None => volt_ast::match_cover::unreachable_value_arms(self.ast, &m.arms),
         };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {

@@ -220,6 +220,21 @@ impl Emitter<'_> {
             };
             self.check_sv_name(&name.text, name.span, kind);
         }
+        // Blok `let`'leri süreç yereli olarak SV'ye adıyla iner (ADR-0083
+        // Karar 11) — çakışmada yeniden adlandırılır ama anahtar sözcük
+        // olarak kalabilir.
+        for &stmt in &module.body {
+            let block = match &ast.stmts[stmt].kind {
+                StmtKind::On(on) => on.body,
+                StmtKind::Comb(b) => *b,
+                _ => continue,
+            };
+            let mut lets = Vec::new();
+            block_lets(ast, block, &mut lets);
+            for name in lets {
+                self.check_sv_name(&name.text, name.span, NameKind::Let);
+            }
+        }
     }
 
     /// Güvenlik ağı: üretilen modül metninde emitter sözdizimi olmayan
@@ -250,6 +265,44 @@ impl Emitter<'_> {
                     ),
                 ));
             }
+        }
+    }
+}
+
+/// Bloktaki (iç içe dallar, `match` kolları, `for` gövdeleri dahil)
+/// `let` adları, kaynak sırasıyla.
+fn block_lets<'a>(
+    ast: &'a volt_ast::SourceFile,
+    block: volt_ast::Idx<volt_ast::Block>,
+    out: &mut Vec<&'a volt_ast::Name>,
+) {
+    use volt_ast::{BlockStmt, ElseBranch, MatchArmBody};
+    for stmt in &ast.blocks[block].stmts {
+        match stmt {
+            BlockStmt::Let(l) => out.push(&l.name),
+            BlockStmt::If(i) => {
+                let mut cur = Some(i);
+                while let Some(i) = cur {
+                    block_lets(ast, i.then_block, out);
+                    cur = match &i.else_branch {
+                        Some(ElseBranch::Block(b)) => {
+                            block_lets(ast, *b, out);
+                            None
+                        }
+                        Some(ElseBranch::If(nested)) => Some(nested),
+                        None => None,
+                    };
+                }
+            }
+            BlockStmt::Match(m) => {
+                for arm in &m.arms {
+                    if let MatchArmBody::Block(b) = arm.body {
+                        block_lets(ast, b, out);
+                    }
+                }
+            }
+            BlockStmt::For(f) => block_lets(ast, f.body, out),
+            _ => {}
         }
     }
 }

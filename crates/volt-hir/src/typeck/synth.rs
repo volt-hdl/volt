@@ -47,7 +47,7 @@ impl TypeChecker<'_, '_> {
                 then_expr,
                 else_expr,
             } => self.synth_if(*cond, *then_expr, *else_expr, span),
-            ExprKind::Match { scrutinee, arms } => self.synth_match(*scrutinee, arms),
+            ExprKind::Match { scrutinee, arms } => self.synth_match(*scrutinee, arms, span),
             ExprKind::StructLit { fields, .. } => self.synth_struct_lit(expr, fields, span),
             ExprKind::ArrayLit(kind) => self.synth_array_lit(kind),
             ExprKind::TupleLit(items) => {
@@ -296,13 +296,72 @@ impl TypeChecker<'_, '_> {
         self.types.error()
     }
 
-    /// Match ifadesi F2a'da tiplenmez; kollar yine denetlenir.
-    fn synth_match(&mut self, scrutinee: Idx<Expr>, arms: &[MatchArm]) -> TypeId {
-        self.synth(scrutinee);
-        for arm in arms {
-            self.check_arm(arm);
+    /// ADR-0083 Karar 2 — sentez kipinde `match` ifadesi `if`'in kuralını
+    /// izler: literal kollar somut kola uyarlanır, somut kollar aynı tipte
+    /// olmalı (esnek aralıklar kesişiyorsa ortak aralık), yoksa E2003.
+    fn synth_match(&mut self, scrutinee: Idx<Expr>, arms: &[MatchArm], span: Span) -> TypeId {
+        let bodies = self.match_expr_head(scrutinee, arms, span);
+        let tys: Vec<TypeId> = bodies.iter().map(|&b| self.synth(b)).collect();
+        if tys.is_empty() || tys.iter().any(|&t| self.types.is_error(t)) {
+            return self.types.error();
         }
-        self.types.error()
+        let concrete: Vec<TypeId> = tys
+            .iter()
+            .copied()
+            .filter(|&t| !self.types.is_int_lit(t))
+            .collect();
+        let Some(&first) = concrete.first() else {
+            return tys[0]; // hepsi tipsiz literal: `if` gibi (W2012 atamada)
+        };
+        let mut result = first;
+        for &t in &concrete[1..] {
+            if t == result {
+                continue;
+            }
+            if let IntMeet::Common { signed, lo, hi } = self.meet_int_ranges(result, t) {
+                result = self.flex(signed, lo, hi);
+                continue;
+            }
+            let (a, b) = (self.show(result), self.show(t));
+            self.err_type_mismatch_msg(
+                span,
+                &lstr!(en: "match arms have different types: '{a}' and '{b}'"; tr: "match kolları farklı tipte: '{a}' ile '{b}'"),
+                &lstr!(en: "make the arms the same type; convert with as if needed"; tr: "kolları aynı tipe getirin; gerekirse as ile dönüştürün"),
+            );
+            return self.types.error();
+        }
+        for (&b, &t) in bodies.iter().zip(&tys) {
+            if self.types.is_int_lit(t) {
+                self.check(b, result);
+            }
+        }
+        result
+    }
+
+    /// Match ifadesinin ortak başı (sentez ve check kipi): sınanan,
+    /// desenler ve kapsayıcılık (deyimle aynı, ADR-0083 Karar 3),
+    /// muhafızlar `bool`. Kol gövdelerini döndürür.
+    pub(super) fn match_expr_head(
+        &mut self,
+        scrutinee: Idx<Expr>,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> Vec<Idx<Expr>> {
+        let scrut_ty = self.synth(scrutinee);
+        self.check_match_patterns(span, scrut_ty, arms, true);
+        let bool_ty = self.types.bool_ty();
+        let mut bodies = Vec::with_capacity(arms.len());
+        for arm in arms {
+            if let Some(guard) = arm.guard {
+                self.check(guard, bool_ty);
+            }
+            match arm.body {
+                volt_ast::MatchArmBody::Expr(e) => bodies.push(e),
+                // Gramer ifade kolunda blok gövdesine izin vermez (E0001).
+                volt_ast::MatchArmBody::Block(b) => self.check_block(b),
+            }
+        }
+        bodies
     }
 
     fn synth_struct_lit(&mut self, expr: Idx<Expr>, fields: &[FieldInit], span: Span) -> TypeId {

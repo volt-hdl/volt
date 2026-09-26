@@ -10,7 +10,7 @@
 //! Verilator `-Wall` WIDTHEXPAND uyarısı üretmez ve genişleme SV
 //! bağlam kurallarına değil metne yazılır.
 
-use volt_ast::{BinOp, Expr, ExprKind, Idx, NumBase, TypeRefKind, UnOp};
+use volt_ast::{BinOp, Expr, ExprKind, Idx, MatchArmBody, NumBase, TypeRefKind, UnOp};
 use volt_diagnostics::{lstr, ErrorCode};
 
 use crate::Emitter;
@@ -93,7 +93,7 @@ fn is_comparison(op: BinOp) -> bool {
 
 pub(crate) const PREC_TERNARY: u8 = 0;
 pub(crate) const PREC_UNARY: u8 = 11;
-const PREC_ATOM: u8 = 12;
+pub(crate) const PREC_ATOM: u8 = 12;
 
 /// Negatif literal (`-16'sd2`) operand konumunda parantezlenir.
 fn lit_prec(text: &str) -> u8 {
@@ -193,6 +193,75 @@ impl<'a> Emitter<'a> {
                 let i = self.eval_const_depth(*index, depth + 1)?;
                 self.const_array_element(name, i)
             }
+            // `const N : u32 = match K { … }` (ADR-0083 Karar 5): ilk
+            // eşleşen kolun değeri; muhafızlı ya da çözülemeyen desen `None`.
+            ExprKind::Match { scrutinee, arms } => {
+                let key = self.const_match_key(*scrutinee, depth + 1)?;
+                for arm in arms {
+                    if arm.guard.is_some() {
+                        return None;
+                    }
+                    if self.const_pattern_matches(arm.pattern, key, depth + 1)? {
+                        let volt_ast::MatchArmBody::Expr(body) = arm.body else {
+                            return None;
+                        };
+                        return self.eval_const_depth(body, depth + 1);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Sabit match'in sınananı: tamsayı sabiti ya da enum varyantının
+    /// kodu (varyant yolu veya enum tipli `const`).
+    fn const_match_key(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
+        if let ExprKind::BoolLit(b) = self.ast.exprs[idx].kind {
+            return Some(i128::from(b));
+        }
+        if let ExprKind::Path(p) = &self.ast.exprs[idx].kind {
+            if let Some((decl, i)) = self.enum_variant_of_path(p) {
+                return i128::try_from(*self.enum_layout(decl)?.values.get(i)?).ok();
+            }
+            if let [seg] = p.segments.as_slice() {
+                if !self.symbols.contains_key(&seg.text) {
+                    if let Some(&(ty, value)) = self.consts.get(&seg.text) {
+                        if self.enum_of_type(ty).is_some() {
+                            return self.const_match_key(value, depth + 1);
+                        }
+                    }
+                }
+            }
+        }
+        self.eval_const_depth(idx, depth)
+    }
+
+    /// Desen sabit değerle eşleşiyor mu? (`None`: değerlendirilemez.)
+    fn const_pattern_matches(
+        &self,
+        pat: Idx<volt_ast::Pattern>,
+        key: i128,
+        depth: u32,
+    ) -> Option<bool> {
+        match &self.ast.patterns[pat].kind {
+            volt_ast::PatternKind::Wildcard => Some(true),
+            volt_ast::PatternKind::Or(alts) => {
+                for &a in alts {
+                    if self.const_pattern_matches(a, key, depth)? {
+                        return Some(true);
+                    }
+                }
+                Some(false)
+            }
+            volt_ast::PatternKind::Literal(e) => Some(self.const_match_key(*e, depth)? == key),
+            volt_ast::PatternKind::Path {
+                path: p,
+                args: None,
+            } => {
+                let (decl, i) = self.enum_variant_of_path(p)?;
+                Some(i128::try_from(*self.enum_layout(decl)?.values.get(i)?).ok()? == key)
+            }
             _ => None,
         }
     }
@@ -211,6 +280,10 @@ impl<'a> Emitter<'a> {
             ExprKind::Path(path) => {
                 let name = path.segments.first()?;
                 let global = self.inline_notes.global_paths.contains(&idx);
+                // Blok `let`'i (süreç yereli) modül adlarını gölgeler.
+                if let Some(l) = self.local(&name.text).filter(|_| !global) {
+                    return Some(l.sig);
+                }
                 if let Some(sig) = self.symbols.get(&name.text).copied().filter(|_| !global) {
                     return Some(sig);
                 }
@@ -339,9 +412,13 @@ impl<'a> Emitter<'a> {
                     signed: false,
                 })
             }
+            // Match ifadesi `if` gibi: ilk genişliği bilinen kol (ADR-0083).
+            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
+                MatchArmBody::Expr(e) => self.width_of(e),
+                MatchArmBody::Block(_) => None,
+            }),
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
@@ -510,6 +587,15 @@ impl<'a> Emitter<'a> {
                 let name = self.emit_enum_variant(path).unwrap_or_default();
                 (name, PREC_ATOM)
             }
+            // Blok `let`'i: sürecin yeniden adlandırılmış yereli (ADR-0083).
+            ExprKind::Path(path)
+                if path.segments.len() == 1
+                    && !self.inline_notes.global_paths.contains(&idx)
+                    && self.local(&path.segments[0].text).is_some() =>
+            {
+                let sv = self.local(&path.segments[0].text).map(|l| l.sv.clone());
+                (sv.unwrap_or_default(), PREC_ATOM)
+            }
             ExprKind::Path(path) => {
                 // Üst düzey const referansı boyutlandırılmış literale
                 // katlanır — üretilen RTL'de tanımsız isim kalmaz. Açılmış
@@ -666,6 +752,8 @@ impl<'a> Emitter<'a> {
                 };
                 (format!("{c} ? {t} : {e}"), PREC_TERNARY)
             }
+            // İç konum → üçlü zincir (ADR-0083 Karar 10.2).
+            ExprKind::Match { .. } => self.emit_match_ternary(idx, ctx),
             ExprKind::Error => ("1'b0".to_string(), PREC_ATOM), // parse tanısı zaten var
             // Struct yaprakları MSB'den (ADR-0077 Karar 3/5): her öğe kendi
             // yaprak genişliğinde yazılır (literal yaprak boyutlanır).
@@ -698,16 +786,12 @@ impl<'a> Emitter<'a> {
             }
             // SV eşlemesi henüz olmayan ifade türleri (ADR-0070: türün adı).
             ExprKind::StringLit(_)
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::TupleLit(_)
             | ExprKind::Todo { .. } => {
                 let what = match &self.ast.exprs[idx].kind {
                     ExprKind::StringLit(_) => {
                         lstr!(en: "string literals in hardware"; tr: "donanımda string literalleri")
-                    }
-                    ExprKind::Match { .. } => {
-                        lstr!(en: "'match' expressions"; tr: "'match' ifadeleri")
                     }
                     ExprKind::StructLit { .. } => {
                         lstr!(en: "struct literals"; tr: "struct literalleri")

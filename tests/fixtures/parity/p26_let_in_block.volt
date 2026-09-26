@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: ok
 module M {
     in  clk : clock
     in  x   : u8

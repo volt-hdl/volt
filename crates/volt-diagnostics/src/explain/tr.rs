@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Geçerli dil sürümünün özelliklerini kullanın;\n// kelimenin ne zaman geleceği için yol haritasına bakın.",
         )
         .with_note(
-            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070). Fonksiyonlarda (ADR-0081): generic `fn`, `fn` üzerinde `requires`/`ensures` ve `fn` gövdesinde `for` ya da `match` E0003'tür. `comb` bloğunda, blok içi `for`'da ve kontratta çağrı tel açılmadan yerinde açılır; bu yüzden fonksiyonun bitlerini seçtiği (`x[3:0]`) parametreye verilen argüman, parametre tipinde bir sinyal adı olmalıdır; orada `f(a ^ b)` E0003 verir. Çözüm: `fn`'i modül düzeyi bir `let`'ten çağırın (`let t = f(a ^ b)`, sonra `t`'yi kullanın) ya da argümanı modül düzeyi bir `let`'e bağlayıp adını verin.",
+            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070). Fonksiyonlarda (ADR-0081): generic `fn`, `fn` üzerinde `requires`/`ensures` ve `fn` gövdesinde `for` E0003'tür (`fn` gövdesindeki `match` ifadesi ADR-0083'ten beri iner; match kolu muhafızı hâlâ E0003). `comb` bloğunda, blok içi `for`'da ve kontratta çağrı tel açılmadan yerinde açılır; bu yüzden fonksiyonun bitlerini seçtiği (`x[3:0]`) parametreye verilen argüman, parametre tipinde bir sinyal adı olmalıdır; orada `f(a ^ b)` E0003 verir. Çözüm: `fn`'i modül düzeyi bir `let`'ten çağırın (`let t = f(a ^ b)`, sonra `t`'yi kullanın) ya da argümanı modül düzeyi bir `let`'e bağlayıp adını verin.",
         ),
         E0004 => Explanation::new(
             "Blok sonlandırma ismi uyuşmuyor",
@@ -108,13 +108,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* modülün açıklaması */\nmodule M {              // ✓",
         ),
         E0014 => Explanation::new(
-            "match deyimi her değeri kapsamıyor",
-            "on/comb bloğundaki bir 'match' deyimi bazı değerleri kolsuz bırakıyor: sayısal match'te '_' kolu yok ya da enum match'i bir varyantı atlıyor ve '_' kolu yok.",
-            "Donanımda match bir 'case' yapısına iner; kolu olmayan bir değerin tanımlı bir eylemi olmaz (comb bloğunda bu bir mandaldır). Sayı üzerindeki match joker '_' koluyla bitmelidir (ADR-0032). Enum üzerindeki match ise kapsayıcılık açısından denetlenir (ADR-0074): bütün varyantları adlandırmak yeter, '_' isteğe bağlıdır. Bu durumda SON adlı kol SystemVerilog 'default'u olur — hiçbir varyanta ait olmayan kodlar (3 varyantlı enum 2 bittir; kod 3 kullanılmaz) son kolun eylemini alır. Tasarımın içinde böyle bir kod oluşamaz (enum değeri yalnız varyantlarından gelir — 'uN as Enum' reddedilir) ve otomatik üretilen durum-geçerli değişmezi bunu formal olarak kanıtlar; tek kaynak dışarıdan sürülen bir enum giriş portudur. Geçersiz kodların kendi kurtarma eylemi gerekiyorsa açık bir '_' kolu yazın. Sıralı blokta boş '_ => { }' kolu register değerlerini korur.",
-            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: State::Done eksik\n    }\n}",
-            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlar değerini korur\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ her varyant adlı; geçersiz kodlar da buraya\n    }\n}",
+            "match her değeri kapsamıyor",
+            "Bir 'match' deyimi ya da ifadesi bazı değerleri kolsuz bırakıyor: sayısal match'te '_' kolu yok ya da enum match'i bir varyantı atlıyor ve '_' kolu yok.",
+            "Donanımda match bir 'case' yapısına iner; kolu olmayan bir değerin tanımlı bir eylemi olmaz (comb bloğunda bu bir mandaldır). Sayı üzerindeki match joker '_' koluyla bitmelidir (ADR-0032). Enum üzerindeki match ise kapsayıcılık açısından denetlenir (ADR-0074): bütün varyantları adlandırmak yeter, '_' isteğe bağlıdır. Bu durumda SON adlı kol SystemVerilog 'default'u olur — hiçbir varyanta ait olmayan kodlar (3 varyantlı enum 2 bittir; kod 3 kullanılmaz) son kolun eylemini alır. Tasarımın içinde böyle bir kod oluşamaz (enum değeri yalnız varyantlarından gelir — 'uN as Enum' reddedilir) ve otomatik üretilen durum-geçerli değişmezi bunu formal olarak kanıtlar; tek kaynak dışarıdan sürülen bir enum giriş portudur. Geçersiz kodların kendi kurtarma eylemi gerekiyorsa açık bir '_' kolu yazın. Sıralı blokta boş '_ => { }' kolu register değerlerini korur. 'match' ifadesi aynı kuralları izler (ADR-0083): her kol bir değer verir, bu yüzden '_' kolunun da değeri vardır — u2'nin bütün değerlerini yazan match de '_' ister.",
+            "y = match op { 0 => a, 1 => b }       // ✗ E0014: '_'sız ifade\non clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: State::Done eksik\n    }\n}",
+            "y = match op { 0 => a, 1 => b, _ => 0 }   // ✓\non clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlar değerini korur\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ her varyant adlı; geçersiz kodlar da buraya\n    }\n}",
         )
-        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md"]),
+        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md", "docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md"]),
 
         E0015 => Explanation::new(
             "MMIO register haritası yerleşim hatası",
@@ -167,7 +167,7 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
             "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ iki yarı, her biri 149 halka\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
         )
         .with_note(
-            "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir.",
+            "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir. Başka bir ifadenin içindeki (operand, koşul, port bağlaması, kontrat) 'match' ifadesi kol sayısı kadar derin bir koşullu zincire iner (ADR-0083): orada 256'dan fazla kol E0018'dir. Match'i kendi let'ine verin (let v = match ...): bir let'in ya da atamanın tüm sağ tarafı olarak her boyutta bir SystemVerilog 'case'i olur.",
         ),
         E1001 => Explanation::new(
             "Tanımsız isim",
@@ -292,6 +292,9 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
             "Her bağlam belirli bir tip bekler: koşul bool ister, port bağlantısı portun bildirilen tipini ister. Başka bir şey vermek zorlanarak dönüştürülmek yerine reddedilir; çünkü örtük dönüşüm kuralları tam da ince hataların saklandığı yerdir.",
             "in  count : u8\ny = if count { a } else { b }   // ✗ E2003: u8 bool değil",
             "y = if count != 0 { a } else { b }   // ✓",
+        )
+        .with_note(
+            "Çevresi tip bildirmediğinde (tipsiz let) 'if' ifadesinin dalları ve 'match' ifadesinin kolları tek tipte olmalı: 'let r = match op { 0 => a, _ => true }' E2003 \"match kolları farklı tipte\" verir. Tip bildirildiğinde (tipli let, atama hedefi, port) o tip 'if'teki gibi her kola itilir (ADR-0041, ADR-0083): 'let r : u9 = match op { 0 => a + b, _ => b }' a + b'yi 9 bitte hesaplar.",
         ),
         E2004 => Explanation::new(
             "bits<N> tipinde aritmetik",
@@ -615,7 +618,7 @@ extern module ExtRegFile {
         E4001 => Explanation::new(
             "Çift sürücü",
             "Aynı sinyal (ya da aynı bitleri) iki kaynak tarafından sürülüyor.",
-            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın. Her kaynak sayılır: başka bloktaki atama, 'let' başlangıç değeri, giriş portu (örnekleyen üst modül sürer) ve alt modülün inout/opendrain portuna bağlı wire (o port üzerinden üç durumlu sürülür). Kısmi hedefler yalnız bitleri kesişirse çakışır: y[7:4] ve y[3:0] geçerli, y = a ve y[0] = b değil. Tek 'on' ya da 'comb' bloğundaki atamalar tek sürücüdür (ADR-0073).",
+            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın. Her kaynak sayılır: başka bloktaki atama, 'let' başlangıç değeri, giriş portu (örnekleyen üst modül sürer) ve alt modülün inout/opendrain portuna bağlı wire (o port üzerinden üç durumlu sürülür). Kısmi hedefler yalnız bitleri kesişirse çakışır: y[7:4] ve y[3:0] geçerli, y = a ve y[0] = b değil. Tek 'on' ya da 'comb' bloğundaki atamalar tek sürücüdür (ADR-0073). Blok içindeki 'let' de bir değerin adıdır, değişken değildir: ona atama (t = b, t <= b) E4001'dir (ADR-0083).",
             "y = a\ny = b                   // ✗ E4001: hangisi kazanır?\nlet v = a\nv = b                   // ✗ E4001: let başlangıcı v'yi zaten sürüyor",
             "y = if sel { b } else { a }  // ✓ tek sürücü\nlet v = if sel { b } else { a }  // ✓",
         ),

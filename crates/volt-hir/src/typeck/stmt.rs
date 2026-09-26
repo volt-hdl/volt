@@ -143,7 +143,9 @@ impl TypeChecker<'_, '_> {
         if let Some(&def) = self.res.decl_spans.get(&l.name.span) {
             // fn gövdesinin `let`'i sinyal değildir (ADR-0081).
             if self.res.def_kind(def) == DefKind::LocalBinding && !self.in_fn {
-                let group = self.current_group.unwrap_or_else(|| self.new_group());
+                // Kendi grubunda: blok `let`'i de bir değerin adıdır, aynı
+                // bloktaki atama ikinci sürücüdür (E4001, ADR-0083 Karar 6).
+                let group = self.new_group();
                 self.drivers
                     .record_kind(def, l.name.span, group, DriverKind::LetInit);
             }
@@ -172,7 +174,7 @@ impl TypeChecker<'_, '_> {
         }
     }
 
-    fn check_block(&mut self, block_idx: Idx<Block>) {
+    pub(super) fn check_block(&mut self, block_idx: Idx<Block>) {
         let ast = self.ast;
         let block = &ast.blocks[block_idx];
         for stmt in &block.stmts {

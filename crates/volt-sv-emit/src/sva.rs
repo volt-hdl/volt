@@ -501,6 +501,12 @@ fn collect_signal_names(ast: &volt_ast::SourceFile, expr: Idx<Expr>, out: &mut V
             collect_signal_names(ast, *then_expr, out);
             collect_signal_names(ast, *else_expr, out);
         }
+        // Sınanan, muhafızlar ve kollar (ADR-0083: kontratta üçlü zincir).
+        ExprKind::Match { .. } => {
+            for c in volt_ast::visit::expr_children(&ast.exprs[expr].kind) {
+                collect_signal_names(ast, c, out);
+            }
+        }
         ExprKind::Concat(parts) => {
             for &(p, _) in parts {
                 collect_signal_names(ast, p, out);

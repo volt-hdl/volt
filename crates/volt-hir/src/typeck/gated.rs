@@ -99,7 +99,7 @@ impl Walker<'_> {
             .filter(|v| !covered.contains(&v.name.text))
             .map(|v| format!("{}::{}", decl.name.text, v.name.text))
             .collect();
-        (!missing.is_empty()).then(|| enum_not_exhaustive(m.span, &decl.name.text, &missing))
+        (!missing.is_empty()).then(|| enum_not_exhaustive(m.span, &decl.name.text, &missing, false))
     }
 
     /// Desenin kapsadığı varyant adları. `Some(false)`: joker (kapsayıcı);

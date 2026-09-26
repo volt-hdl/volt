@@ -43,6 +43,14 @@ impl TypeChecker<'_, '_> {
                 self.check(else_expr, expected);
                 self.expr_types.insert(expr, expected);
             }
+            // ADR-0083 Karar 2: beklenen tip her kola itilir (`if` gibi).
+            ExprKind::Match { scrutinee, arms } => {
+                let bodies = self.match_expr_head(*scrutinee, arms, span);
+                for b in bodies {
+                    self.check(b, expected);
+                }
+                self.expr_types.insert(expr, expected);
+            }
             // ADR-0041: beklenen somut uN/iN aritmetik operandlara itilir.
             ExprKind::Binary { op, lhs, rhs }
                 if matches!(

@@ -125,7 +125,7 @@ fn every_fn_fail_fixture_reports_its_code_on_the_marked_line() {
 fn a_function_body_error_is_reported_once_regardless_of_call_count() {
     let file = root().join("tests/ui/fail/160_fn_match_body.volt");
     let errs = errors(&check_json(&file));
-    assert_eq!(errs, vec![("E0003".to_string(), 5)], "{errs:?}");
+    assert_eq!(errs, vec![("E0003".to_string(), 6)], "{errs:?}");
 }
 
 /// Karar 12.4: gövde çağrılmasa da tanımda doğrulanır; çağrılan hatalı

@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Use the features of the current language version;\n// track the roadmap for when the keyword becomes available.",
         )
         .with_note(
-            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070). For functions (ADR-0081): generic `fn`, `requires`/`ensures` on a `fn`, and `for` or `match` in a `fn` body are E0003. Inside a `comb` block, a block-level `for` or a contract a call is expanded in place with no wires, so an argument for a parameter whose bits the function selects (`x[3:0]`) must be a signal name of the parameter's type; `f(a ^ b)` there is E0003. Fix: call the `fn` from a module-level `let` (`let t = f(a ^ b)`, then use `t`), or bind the argument to a module-level `let` and pass its name.",
+            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070). For functions (ADR-0081): generic `fn`, `requires`/`ensures` on a `fn`, and `for` in a `fn` body are E0003 (a `match` expression in a `fn` body lowers since ADR-0083; a match arm guard is still E0003). Inside a `comb` block, a block-level `for` or a contract a call is expanded in place with no wires, so an argument for a parameter whose bits the function selects (`x[3:0]`) must be a signal name of the parameter's type; `f(a ^ b)` there is E0003. Fix: call the `fn` from a module-level `let` (`let t = f(a ^ b)`, then use `t`), or bind the argument to a module-level `let` and pass its name.",
         ),
         E0004 => Explanation::new(
             "Block end name does not match",
@@ -108,13 +108,13 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "/* explanation of the module */\nmodule M {              // ✓",
         ),
         E0014 => Explanation::new(
-            "The match statement does not cover every value",
-            "A 'match' statement inside an on/comb block leaves some values without an arm: a numeric match has no '_' arm, or an enum match misses a variant and has no '_' arm.",
-            "In hardware, a match lowers to a 'case'; a value without an arm would have no defined action (in a comb block that is a latch). A match on a number must end with a wildcard '_' arm (ADR-0032). A match on an enum is checked for exhaustiveness instead (ADR-0074): naming every variant is enough, '_' is optional. Then the LAST named arm becomes the SystemVerilog 'default' — so the encodings that belong to no variant (a 3-variant enum is 2 bits wide; code 3 is unused) take the last arm's action. Inside the design such a code cannot appear (an enum value only comes from its variants — 'uN as Enum' is rejected), and the auto-generated state-valid invariant proves it formally; an enum input port driven from outside is the only source. Write an explicit '_' arm when invalid codes need their own recovery action. In a sequential block an empty '_ => { }' arm keeps the registers' values.",
-            "on clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: missing State::Done\n    }\n}",
-            "on clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ every variant named; also taken by invalid codes\n    }\n}",
+            "The match does not cover every value",
+            "A 'match' statement or expression leaves some values without an arm: a numeric match has no '_' arm, or an enum match misses a variant and has no '_' arm.",
+            "In hardware, a match lowers to a 'case'; a value without an arm would have no defined action (in a comb block that is a latch). A match on a number must end with a wildcard '_' arm (ADR-0032). A match on an enum is checked for exhaustiveness instead (ADR-0074): naming every variant is enough, '_' is optional. Then the LAST named arm becomes the SystemVerilog 'default' — so the encodings that belong to no variant (a 3-variant enum is 2 bits wide; code 3 is unused) take the last arm's action. Inside the design such a code cannot appear (an enum value only comes from its variants — 'uN as Enum' is rejected), and the auto-generated state-valid invariant proves it formally; an enum input port driven from outside is the only source. Write an explicit '_' arm when invalid codes need their own recovery action. In a sequential block an empty '_ => { }' arm keeps the registers' values. A 'match' expression follows the same rules (ADR-0083): every arm gives a value, so its '_' arm has a value too — even a match that writes out every value of a u2 needs '_'.",
+            "y = match op { 0 => a, 1 => b }       // ✗ E0014: expression without '_'\non clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: missing State::Done\n    }\n}",
+            "y = match op { 0 => a, 1 => b, _ => 0 }   // ✓\non clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ every variant named; also taken by invalid codes\n    }\n}",
         )
-        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md"]),
+        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md", "docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md"]),
 
         E0015 => Explanation::new(
             "MMIO register map layout error",
@@ -167,7 +167,7 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
             "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ two halves, each 149 links\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
         )
         .with_note(
-            "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux).",
+            "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux). A 'match' expression inside another expression (an operand, a condition, a port connection, a contract) becomes a conditional chain as deep as it has arms (ADR-0083): more than 256 arms there is E0018. Give the match its own let (let v = match ...): as the whole right-hand side of a let or an assignment it becomes a SystemVerilog 'case' of any size.",
         ),
         E1001 => Explanation::new(
             "Undefined name",
@@ -292,6 +292,9 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
             "Each context expects a specific type: a condition needs bool, a port connection needs the port's declared type. Passing something else is rejected instead of being coerced, because coercion rules are exactly where subtle bugs hide.",
             "in  count : u8\ny = if count { a } else { b }   // ✗ E2003: u8 is not bool",
             "y = if count != 0 { a } else { b }   // ✓",
+        )
+        .with_note(
+            "The branches of an 'if' expression and the arms of a 'match' expression must have one type when nothing around them states it (an untyped let): 'let r = match op { 0 => a, _ => true }' is E2003 \"match arms have different types\". With a stated type (a typed let, an assignment target, a port) that type is pushed into every arm, like 'if' (ADR-0041, ADR-0083): 'let r : u9 = match op { 0 => a + b, _ => b }' computes a + b in 9 bits.",
         ),
         E2004 => Explanation::new(
             "Arithmetic on a bits<N> type",
@@ -615,7 +618,7 @@ extern module ExtRegFile {
         E4001 => Explanation::new(
             "Double driver",
             "The same signal (or the same bits of it) is driven by two sources.",
-            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time. Every source counts: an assignment in another block, a 'let' initializer, an input port (the instantiating module drives it) and a wire bound to a child's inout/opendrain port (driven tri-state through that port). Partial targets conflict only when their bits overlap: y[7:4] and y[3:0] are fine, y = a and y[0] = b are not. Assignments inside one 'on' or 'comb' block are a single driver (ADR-0073).",
+            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time. Every source counts: an assignment in another block, a 'let' initializer, an input port (the instantiating module drives it) and a wire bound to a child's inout/opendrain port (driven tri-state through that port). Partial targets conflict only when their bits overlap: y[7:4] and y[3:0] are fine, y = a and y[0] = b are not. Assignments inside one 'on' or 'comb' block are a single driver (ADR-0073). A 'let' inside a block is a name for a value too, not a variable: assigning to it (t = b, t <= b) is E4001 (ADR-0083).",
             "y = a\ny = b                   // ✗ E4001: who wins?\nlet v = a\nv = b                   // ✗ E4001: the let initializer already drives v",
             "y = if sel { b } else { a }  // ✓ single driver\nlet v = if sel { b } else { a }  // ✓",
         ),

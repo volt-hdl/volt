@@ -1,5 +1,5 @@
-// parity: E0003
-// drivers: ok
+// parity: E4001
+// drivers: 11 10
 module M {
     in  clk : clock
     in  a : u8

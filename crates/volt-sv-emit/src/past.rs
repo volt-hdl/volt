@@ -199,6 +199,7 @@ fn collect_prev_calls(ast: &volt_ast::SourceFile, e: Idx<Expr>, out: &mut Vec<Id
             then_expr,
             else_expr,
         } => vec![*cond, *then_expr, *else_expr],
+        ExprKind::Match { .. } => volt_ast::visit::expr_children(&ast.exprs[e].kind),
         ExprKind::Call { callee, args } => {
             let mut v = vec![*callee];
             v.extend(args.iter().copied());
