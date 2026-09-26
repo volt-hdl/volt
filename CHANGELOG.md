@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — riscv_core immediate çözmesi fn'lerle (2026-09-26, ADR-0081 Aşama 3)
+
+- `examples/riscv_core.volt`: beş immediate biçimi (I/S/B/U/J) birer saf
+  `fn` (`imm_i_of` … `imm_j_of`); modül gövdesi `let imm_i = imm_i_of(instr)`
+  satırlarına indi. Üretilen `RiscvCore.sv` `// Source:` satırı dışında
+  byte-aynı; Yosys `equiv_make`/`equiv_induct` eski ↔ yeni **2753/2753
+  `$equiv` hücresini kanıtladı**, fn gövdesine sokulan kasıtlı hata 1
+  kanıtlanamayan hücreyle yakalandı. iCE40 ve xc7 `stat` birebir aynı.
+  `volt test` 59/59 (ve diğer 8 örnek), `volt verify` sonuçları değişmedi,
+  Verilator `-Wall` temiz. ALU ve dallanma koşulu `match` gerektirdiği için
+  taşınmadı.
+- `volt explain E0003` (iki dil) fn sınırlarını ve çözümünü anlatır:
+  `comb`/blok içi `for`/kontratta bit seçilen parametreye sinyal adı olmayan
+  argüman → fn'i modül düzeyi `let`'ten çağır.
+- README: özellik listesinde `fn`, "Limitations"ta fn sınırları.
+- Bulgu (düzeltilmedi): yalnız fn içeren bir dosya tek başına derlenince
+  modülsüz boş bir `.sv` yazılır; Verilator `--top-module` ile reddeder.
+  Bu yüzden `riscv_pipeline`'ın aynı immediate'leri ortak dosyadan
+  alınmadı (ADR-0081 "Aşama 3 ölçümü").
+
 ### Eklendi — fonksiyonlar donanıma iner (2026-09-26, ADR-0081 Aşama 2)
 
 - **`fn` artık donanımda kullanılabilir**: modül `let`'i, atama, örnek

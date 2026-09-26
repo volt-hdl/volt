@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Use the features of the current language version;\n// track the roadmap for when the keyword becomes available.",
         )
         .with_note(
-            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070).",
+            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070). For functions (ADR-0081): generic `fn`, `requires`/`ensures` on a `fn`, and `for` or `match` in a `fn` body are E0003. Inside a `comb` block, a block-level `for` or a contract a call is expanded in place with no wires, so an argument for a parameter whose bits the function selects (`x[3:0]`) must be a signal name of the parameter's type; `f(a ^ b)` there is E0003. Fix: call the `fn` from a module-level `let` (`let t = f(a ^ b)`, then use `t`), or bind the argument to a module-level `let` and pass its name.",
         ),
         E0004 => Explanation::new(
             "Block end name does not match",
