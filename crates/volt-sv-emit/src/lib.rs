@@ -10,6 +10,7 @@ mod const_array;
 mod enums;
 mod expr;
 mod generate;
+mod inline;
 mod instance;
 mod past;
 mod reset_sync;
@@ -379,6 +380,17 @@ pub fn emit_unit(
     mode: SvaMode,
     const_array_style: ConstArrayStyle,
 ) -> EmitOutput {
+    // ADR-0081 Karar 12.4: fn gövdeleri tanımda, çağrı sayısından
+    // bağımsız bir kez doğrulanır; doğrulanamayanın çağrıları açılmaz.
+    let (invalid_fns, fn_diags) = validate_functions(ast, source_name, sources, const_array_style);
+    // ADR-0081: fn çağrıları çağrı yerinde açılır (struct indirgemesinden
+    // ÖNCE); çağrı yoksa özgün AST (çıktı byte-aynı).
+    let (inlined, inline_diags) = inline::lower(ast, &invalid_fns);
+    let no_inline = inline::InlineNotes::default();
+    let (ast, inline_notes) = match &inlined {
+        Some(l) => (&l.ast, &l.notes),
+        None => (ast, &no_inline),
+    };
     // ADR-0077: struct tipli sinyaller yaprak sinyallere indirgenir; struct
     // kullanmayan birimde özgün AST (çıktı byte-aynı).
     let (lowered, struct_diags) = structs::lower(ast);
@@ -387,36 +399,19 @@ pub fn emit_unit(
         Some(l) => (&l.ast, &l.notes),
         None => (ast, &no_notes),
     };
-    let mut emitter = Emitter {
+    let mut emitter = new_emitter(
         ast,
-        diagnostics: Vec::new(),
-        domains: collect_domains(ast),
-        symbols: HashMap::new(),
-        trits: HashSet::new(),
-        array_dims: HashMap::new(),
-        packed_arrays: HashMap::new(),
-        builtin_insts: HashMap::new(),
-        user_insts: HashMap::new(),
-        consts: collect_consts(ast),
-        const_array_style,
-        array_consts_used: Vec::new(),
-        loop_vars: Vec::new(),
-        pre_decls: Vec::new(),
-        bus_wires: HashMap::new(),
-        sources,
         source_name,
-        sva_mode: mode,
-        sva_files: Vec::new(),
-        sva_props: Vec::new(),
-        past_regs: HashMap::new(),
-        sim_dpi: sim_contract::SimDpiUse::default(),
-        enum_used: Vec::new(),
-        enum_sigs: HashMap::new(),
+        sources,
+        mode,
+        const_array_style,
         struct_notes,
-        module_name: String::new(),
-        sv_name_reported: HashSet::new(),
-    };
-    emitter.diagnostics = struct_diags;
+        inline_notes,
+    );
+    let mut diagnostics = fn_diags;
+    diagnostics.extend(inline_diags);
+    diagnostics.extend(struct_diags);
+    emitter.diagnostics = diagnostics;
     // ADR-0078: SV anahtar sözcüğü olan adlar (E1013) — bütün modüllerin
     // kesin denetimi emit'ten ÖNCE: alt modülün portu üst modülün örnek
     // bağlantısında (`.table(a)`) daha önce görünür, güvenlik ağı onu
@@ -464,6 +459,151 @@ pub fn emit_unit(
         multiclock_modules,
         diagnostics: emitter.diagnostics,
     }
+}
+
+/// Emitter'ı kurar (asıl emit ve fn doğrulaması aynı kurulumu kullanır).
+fn new_emitter<'a>(
+    ast: &'a SourceFile,
+    source_name: &'a str,
+    sources: &'a [SourceText<'a>],
+    mode: SvaMode,
+    const_array_style: ConstArrayStyle,
+    struct_notes: &'a structs::StructNotes,
+    inline_notes: &'a inline::InlineNotes,
+) -> Emitter<'a> {
+    Emitter {
+        ast,
+        diagnostics: Vec::new(),
+        domains: collect_domains(ast),
+        symbols: HashMap::new(),
+        trits: HashSet::new(),
+        array_dims: HashMap::new(),
+        packed_arrays: HashMap::new(),
+        builtin_insts: HashMap::new(),
+        user_insts: HashMap::new(),
+        consts: collect_consts(ast),
+        const_array_style,
+        array_consts_used: Vec::new(),
+        loop_vars: Vec::new(),
+        pre_decls: Vec::new(),
+        bus_wires: HashMap::new(),
+        sources,
+        source_name,
+        sva_mode: mode,
+        sva_files: Vec::new(),
+        sva_props: Vec::new(),
+        past_regs: HashMap::new(),
+        sim_dpi: sim_contract::SimDpiUse::default(),
+        enum_used: Vec::new(),
+        enum_sigs: HashMap::new(),
+        struct_notes,
+        inline_notes,
+        inline_headers_done: HashSet::new(),
+        module_name: String::new(),
+        sv_name_reported: HashSet::new(),
+    }
+}
+
+impl Emitter<'_> {
+    /// fn açılımının çağrı başlığı (ADR-0081 Karar 12.2): çağrının ilk
+    /// telinin üstüne `// <fn>(<argümanlar>) — <dosya>:<satır>`.
+    fn inline_header(&mut self, name: &str) -> String {
+        let Some(key) = self.inline_notes.header_key(&self.module_name, name) else {
+            return String::new();
+        };
+        if !self.inline_headers_done.insert(key.clone()) {
+            return String::new();
+        }
+        let h = &self.inline_notes.headers[&key];
+        let args: Vec<String> = h.args.iter().map(|&a| self.source_snippet(a)).collect();
+        let (file, line) = self.location_of(h.call);
+        format!(
+            "    // {}({}) — {file}:{line}\n",
+            h.fn_name,
+            args.join(", ")
+        )
+    }
+
+    /// Span'in kaynak metni, boşlukları tek boşluğa indirgenmiş.
+    fn source_snippet(&self, span: Span) -> String {
+        let src = self
+            .sources
+            .iter()
+            .find(|s| s.file == span.file)
+            .or_else(|| self.sources.first());
+        let text = src
+            .and_then(|s| s.text.get(span.start as usize..span.end as usize))
+            .unwrap_or("…");
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+}
+
+/// ADR-0081 Karar 12.4: her fn gövdesini, onu ikame kipinde süren
+/// sentetik bir modülle bir kez emit eder (metin atılır). Tanımın
+/// içine düşen tanılar fn'e aittir; hatalı fn'in çağrıları açılmaz.
+fn validate_functions(
+    ast: &SourceFile,
+    source_name: &str,
+    sources: &[SourceText<'_>],
+    const_array_style: ConstArrayStyle,
+) -> (HashSet<String>, Vec<Diagnostic>) {
+    let mut invalid = HashSet::new();
+    let mut diags = Vec::new();
+    let Some((unit, fns)) = inline::validation_unit(ast) else {
+        return (invalid, diags);
+    };
+    // Doğrulama açılımının kendi tanıları (ör. ikame kipine özgü sınırlar)
+    // fn'in değil bu sentetik çağrının; atılır.
+    let (inlined, _) = inline::lower(&unit, &HashSet::new());
+    let no_inline = inline::InlineNotes::default();
+    let (unit, inline_notes) = match &inlined {
+        Some(l) => (&l.ast, &l.notes),
+        None => (&unit, &no_inline),
+    };
+    // Struct bildirimi tanıları asıl geçişte raporlanır.
+    let (lowered, _) = structs::lower(unit);
+    let no_notes = structs::StructNotes::default();
+    let (unit, struct_notes) = match &lowered {
+        Some(l) => (&l.ast, &l.notes),
+        None => (unit, &no_notes),
+    };
+    let mut emitter = new_emitter(
+        unit,
+        source_name,
+        sources,
+        SvaMode::None,
+        const_array_style,
+        struct_notes,
+        inline_notes,
+    );
+    for &item in &unit.items {
+        let ItemKind::Module(m) = &unit.items_arena[item].kind else {
+            continue;
+        };
+        let Some(name) = m.name.text.strip_prefix(inline::VALIDATION_PREFIX) else {
+            continue;
+        };
+        let Some(&(_, fn_span)) = fns.iter().find(|(n, _)| n == name) else {
+            continue;
+        };
+        let before = emitter.diagnostics.len();
+        let _ = emitter.emit_module(m, None);
+        for d in emitter.diagnostics.drain(before..) {
+            let inside = d.primary_span().is_some_and(|l| {
+                l.span.file == fn_span.file
+                    && l.span.start >= fn_span.start
+                    && l.span.end <= fn_span.end
+            });
+            if !inside {
+                continue;
+            }
+            if !d.code.is_warning() {
+                invalid.insert(name.to_string());
+            }
+            diags.push(d);
+        }
+    }
+    (invalid, diags)
 }
 
 /// sv-mapping.md §12 — deterministik başlık (tarih yok).
@@ -629,6 +769,11 @@ pub(crate) struct Emitter<'a> {
     /// Struct indirgemesinin notları (ADR-0077): düzen yorumu, okunmayan
     /// yaprak, paketlenmiş dizi register'ı.
     pub(crate) struct_notes: &'a structs::StructNotes,
+    /// fn açılımının notları (ADR-0081): çağrı başlığı yorumu, boyut
+    /// dönüşümleri, const'a bağlı gövde yolları.
+    pub(crate) inline_notes: &'a inline::InlineNotes,
+    /// Başlığı yazılmış çağrılar (modül başına bir kez).
+    pub(crate) inline_headers_done: HashSet<(String, String)>,
     /// Üretilmekte olan modülün adı (struct notlarının anahtarı).
     pub(crate) module_name: String,
     /// E1013 verilmiş SV adları (ADR-0078) — güvenlik ağı aynı adı
@@ -1091,18 +1236,20 @@ impl<'a> Emitter<'a> {
                         Some(sig) => {
                             self.symbols.insert(decl.name.text.clone(), sig);
                             let value = self.emit_assigned(decl.value, Some(sig));
+                            let header = self.inline_header(&decl.name.text);
                             Some((
                                 Kind::Decl,
-                                self.struct_decl_lines(
-                                    &decl.name.text,
-                                    format!(
-                                        "    wire {}{} = {};{}",
-                                        sig.wire_prefix(),
-                                        decl.name.text,
-                                        value,
-                                        self.enum_comment(&decl.name.text)
+                                header
+                                    + &self.struct_decl_lines(
+                                        &decl.name.text,
+                                        format!(
+                                            "    wire {}{} = {};{}",
+                                            sig.wire_prefix(),
+                                            decl.name.text,
+                                            value,
+                                            self.enum_comment(&decl.name.text)
+                                        ),
                                     ),
-                                ),
                             ))
                         }
                         // Açık tip zaten tanılandı (sig_of_typeref); tipsizse
