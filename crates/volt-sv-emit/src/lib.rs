@@ -552,20 +552,14 @@ fn validate_functions(
     let Some((unit, fns)) = inline::validation_unit(ast) else {
         return (invalid, diags);
     };
-    // Doğrulama açılımının kendi tanıları (ör. ikame kipine özgü sınırlar)
-    // fn'in değil bu sentetik çağrının; atılır.
-    let (inlined, _) = inline::lower(&unit, &HashSet::new());
-    let no_inline = inline::InlineNotes::default();
-    let (unit, inline_notes) = match &inlined {
-        Some(l) => (&l.ast, &l.notes),
-        None => (&unit, &no_inline),
-    };
+    // Birimde çağrı kalmadı (iç çağrılar port): açılım notu yok.
+    let inline_notes = inline::InlineNotes::default();
     // Struct bildirimi tanıları asıl geçişte raporlanır.
-    let (lowered, _) = structs::lower(unit);
+    let (lowered, _) = structs::lower(&unit);
     let no_notes = structs::StructNotes::default();
     let (unit, struct_notes) = match &lowered {
         Some(l) => (&l.ast, &l.notes),
-        None => (unit, &no_notes),
+        None => (&unit, &no_notes),
     };
     let mut emitter = new_emitter(
         unit,
@@ -574,7 +568,7 @@ fn validate_functions(
         SvaMode::None,
         const_array_style,
         struct_notes,
-        inline_notes,
+        &inline_notes,
     );
     for &item in &unit.items {
         let ItemKind::Module(m) = &unit.items_arena[item].kind else {

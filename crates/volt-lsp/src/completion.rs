@@ -346,7 +346,7 @@ fn expr_completions(analysis: &Analysis) -> Vec<CompletionItem> {
         );
         return items;
     };
-    for data in &res.defs {
+    for (i, data) in res.defs.iter().enumerate() {
         let kind = match data.kind {
             DefKind::Port { .. } | DefKind::Register | DefKind::Wire => {
                 CompletionItemKind::VARIABLE
@@ -362,7 +362,12 @@ fn expr_completions(analysis: &Analysis) -> Vec<CompletionItem> {
             DefKind::Struct => CompletionItemKind::STRUCT,
             _ => continue,
         };
-        items.push(item(&data.name, kind));
+        let mut it = item(&data.name, kind);
+        // ADR-0081 Karar 13: fn'in ayrıntısı imzasıdır.
+        if data.kind == DefKind::Function {
+            it.detail = analysis.fn_signature(volt_hir::DefId(i as u32));
+        }
+        items.push(it);
     }
     // Tip detaylarını ekle (def sırası defs ile aynı DEĞİL; ada göre).
     if let Some(typeck) = &analysis.typeck {

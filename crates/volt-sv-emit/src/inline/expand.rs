@@ -89,6 +89,8 @@ pub(super) struct Expander<'a> {
     /// Birimin const adları (hijyen: gövdedeki const, çağıranın aynı adlı
     /// sinyaline bağlanmamalı).
     consts: HashSet<String>,
+    /// Üretilen teller (bütçe aşımında geri almak için).
+    wire_log: Vec<String>,
 }
 
 impl<'a> Expander<'a> {
@@ -115,6 +117,7 @@ impl<'a> Expander<'a> {
             stack: Vec::new(),
             headers: Vec::new(),
             consts,
+            wire_log: Vec::new(),
         }
     }
 
@@ -124,6 +127,7 @@ impl<'a> Expander<'a> {
         self.decls = decls;
         self.counters.clear();
         self.pending.clear();
+        self.wire_log.clear();
     }
 
     // ═══ Çağıran ifadesinin gezilmesi ═════════════════════════════
@@ -232,6 +236,9 @@ impl<'a> Expander<'a> {
         let Some(tail) = info.tail(src) else {
             return self.error_node(call_span);
         };
+        // Bütçe aşılırsa bu çağrının bıraktığı teller geri alınır.
+        let pending_mark = self.pending.len();
+        let wires_mark = self.wire_log.len();
         let k = match mode {
             Mode::Wire => {
                 let c = self.counters.entry(name.to_string()).or_default();
@@ -298,6 +305,15 @@ impl<'a> Expander<'a> {
         };
         self.stack.pop();
         self.headers.pop();
+        // Bütçe bu açılım sırasında aşıldıysa kısmi ağaç atılır: yarım
+        // açılım ne doğru ne de emit edilmeye değer (tanı zaten var).
+        if self.budget_reported {
+            self.pending.truncate(pending_mark);
+            for name in self.wire_log.drain(wires_mark..) {
+                self.notes.headers.remove(&(self.module.clone(), name));
+            }
+            return self.error_node(call_span);
+        }
         result
     }
 
@@ -317,8 +333,12 @@ impl<'a> Expander<'a> {
         let p = &info.decl.params[i];
         let pty = canon(self.src, p.ty);
         let int_like = pty.as_ref().is_some_and(Canon::is_int_like);
-        let simple = is_path_like(&self.out, arg);
         let arg_kind = &self.out.exprs[arg].kind;
+        // Dizi elemanı paketlenmiş vektörde `a[W*i +: W]` olur; SV bir
+        // parça seçimi yeniden seçemez: gövde bitlerini seçiyorsa doğrudan
+        // yazılmaz.
+        let simple = is_path_like(&self.out, arg)
+            && !(info.param_select_base[i] && matches!(arg_kind, ExprKind::Index { .. }));
         // Dizi parametre argümanın adıyla yer değiştirir (Karar 4; yalın
         // ad olmayan dizi argümanı HIR'da E0003).
         if matches!(pty, Some(Canon::Array(..))) || matches!(arg_kind, ExprKind::BoolLit(_)) {
@@ -361,7 +381,9 @@ impl<'a> Expander<'a> {
     /// İkame kipinde sonucun genişliği dönüş tipine sabitlenir: çevresi
     /// geniş bir SV bağlamı `a + b`'yi taşırmadan hesaplardı.
     fn subst_result(&mut self, v: Idx<Expr>, info: &FnInfo<'a>, call_span: Span) -> Idx<Expr> {
-        if height(&self.out, v) > MAX_DEPTH as usize {
+        // Yükseklik çağıranın yazdığı çağrıda denetlenir (tanı çağrı
+        // yerinde; iç çağrıların ağaçları onun alt ağacıdır).
+        if self.stack.len() == 1 && height(&self.out, v) > MAX_DEPTH as usize {
             self.err_too_deep(call_span, &info.name);
             return self.error_node(call_span);
         }
@@ -578,6 +600,7 @@ impl<'a> Expander<'a> {
             self.err_name_clash(name, call_span, &info.name);
         }
         self.module_names.insert(name.to_string());
+        self.wire_log.push(name.to_string());
         if let Some(t) = ty {
             self.decls.types.insert(name.to_string(), t);
         }
@@ -648,8 +671,8 @@ impl<'a> Expander<'a> {
             lstr!(en: "a struct argument that is not a name for '{param}' of '{fn_name}' in a comb block, a block-level for or a contract";
                   tr: "comb bloğunda, blok içi for'da ya da kontratta '{fn_name}' fonksiyonunun '{param}' parametresine ad olmayan struct argümanı")
         } else {
-            lstr!(en: "an argument of another width for '{param}' of '{fn_name}', which the function selects bits of, in a comb block, a block-level for or a contract";
-                  tr: "comb bloğunda, blok içi for'da ya da kontratta '{fn_name}' fonksiyonunun bitlerini seçtiği '{param}' parametresine farklı genişlikte argüman")
+            lstr!(en: "an argument for '{param}' of '{fn_name}' that is not a signal name of the parameter's type, while the function selects bits of '{param}', in a comb block, a block-level for or a contract";
+                  tr: "comb bloğunda, blok içi for'da ya da kontratta '{fn_name}' fonksiyonunun bitlerini seçtiği '{param}' parametresine, parametre tipinde bir sinyal adı olmayan argüman")
         };
         self.diags.push(Diagnostic::error(
             ErrorCode::E0003,
@@ -679,11 +702,12 @@ impl<'a> Expander<'a> {
     }
 }
 
-/// Yol ya da alan zinciri (`x`, `s.a`, `u.q`).
+/// Yol, alan zinciri ya da dizi elemanı (`x`, `s.a`, `u.q`, `arr[i]`):
+/// genişliği kendi tipi olan, SV'de seçilebilen ifade.
 fn is_path_like(ast: &SourceFile, e: Idx<Expr>) -> bool {
     match &ast.exprs[e].kind {
         ExprKind::Path(_) => true,
-        ExprKind::Field { base, .. } => is_path_like(ast, *base),
+        ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => is_path_like(ast, *base),
         _ => false,
     }
 }

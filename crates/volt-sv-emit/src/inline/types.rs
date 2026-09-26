@@ -122,8 +122,8 @@ impl DeclTypes {
         d
     }
 
-    /// Yalın ad, struct alan yolu ya da kullanıcı modülü çıkışı olan
-    /// ifadenin bildirilen tipi. Blok yerelleri (`locals`) bilinmez.
+    /// Yalın ad, struct alan yolu, dizi elemanı ya da kullanıcı modülü
+    /// çıkışı olan ifadenin bildirilen tipi. Blok yerelleri (`locals`) bilinmez.
     pub(super) fn type_of(
         &self,
         ast: &SourceFile,
@@ -148,6 +148,14 @@ impl DeclTypes {
                 }
                 let base_ty = self.type_of(ast, *base, locals)?;
                 struct_field(ast, base_ty, &field.text)
+            }
+            // Dizi elemanı (`arr[i]`): eleman tipi.
+            ExprKind::Index { base, .. } => {
+                let base_ty = crate::alias::resolve(ast, self.type_of(ast, *base, locals)?);
+                match &ast.types[base_ty].kind {
+                    TypeRefKind::Array { elem, .. } => Some(*elem),
+                    _ => None,
+                }
             }
             _ => None,
         }

@@ -62,15 +62,16 @@ impl InlineNotes {
     /// `name` teli (ya da struct indirgemesinin ondan türettiği ilk
     /// yaprak `name_<alan>`) bir çağrı başlığı taşıyor mu.
     pub(crate) fn header_key(&self, module: &str, name: &str) -> Option<(String, String)> {
-        let exact = (module.to_string(), name.to_string());
-        if self.headers.contains_key(&exact) {
-            return Some(exact);
+        // Önce tam ad, sonra alt çizgi sınırlarında en uzun ön ek
+        // (`br_taken_0_o_a` → `br_taken_0_o`): O(ad uzunluğu) arama.
+        let mut prefix = name;
+        loop {
+            let key = (module.to_string(), prefix.to_string());
+            if self.headers.contains_key(&key) {
+                return Some(key);
+            }
+            prefix = &prefix[..prefix.rfind('_')?];
         }
-        self.headers
-            .keys()
-            .filter(|(m, n)| m == module && name.starts_with(&format!("{n}_")))
-            .max_by_key(|(_, n)| n.len())
-            .cloned()
     }
 }
 
@@ -373,12 +374,21 @@ fn pattern_names(ast: &SourceFile, p: Idx<Pattern>, out: &mut Vec<String>) {
     }
 }
 
-/// Karar 12.4 — doğrulama birimi: birimin modülleri çıkarılır, her
-/// (generic olmayan, sonuçlu) fn için gövdesini ikame kipinde süren bir
-/// sentetik modül eklenir:
+/// Karar 12.4 — doğrulama birimi: birimin modülleri çıkarılır; her
+/// (generic olmayan, sonuçlu) fn için gövdesini fn kapsamında (portlar =
+/// parametreler, `let`'ler = modül `let`'leri) süren bir sentetik modül
+/// eklenir. Doğrulama fn'in KENDİ gövdesidir: gövdedeki her iç çağrı
+/// çağrılanın dönüş tipinde bir giriş portuyla (`__c<j>`) temsil edilir,
+/// argümanları parametre tipinde tellerle (`__a<j>_<m>`) ayrıca emit
+/// edilir — iç içe açılım olmadığı için doğrulama gövde boyutunda
+/// doğrusaldır (üstel çağrı ağacı çağrılanın kendi doğrulamasında kalır).
 ///
 /// ```text
-/// module __volt_fn_<fn> { in p0 : T0 … out r : R   r = <fn>(p0, …) }
+/// module __volt_fn_<fn> {
+///     in <param> : T …   in __c0 : R(g) …
+///     let <let> = …      let __a0_0 : P(g, 0) = <arg> …
+///     out __r : R        __r = <son ifade>
+/// }
 /// ```
 ///
 /// Dönüş: (birim, fn adı → tanım span'i).
@@ -396,58 +406,77 @@ pub(crate) fn validation_unit(ast: &SourceFile) -> Option<(SourceFile, Vec<(Stri
     for name in names {
         let info = &fns[name];
         let f = info.decl;
-        let (Some(ret), Some(_)) = (f.return_ty, info.tail(ast)) else {
+        let (Some(ret), Some(tail)) = (f.return_ty, info.tail(ast)) else {
             continue;
         };
+        // İç çağrılar (kaynak sırasıyla); sonucu olmayan çağrılan (E2015)
+        // temsil edilemez — bu fn doğrulanmaz, tanı çağrılanda.
+        let calls = nested_calls(ast, info, &fns);
+        if calls
+            .iter()
+            .any(|(_, g, _)| fns[g].decl.return_ty.is_none())
+        {
+            continue;
+        }
         let span = f.name.span;
         let ident = |text: String| Name { text, span };
-        let path_expr = |out: &mut SourceFile, text: &str| {
-            out.exprs.alloc(Expr {
-                span,
+        let mut ports: Vec<Port> = f
+            .params
+            .iter()
+            .map(|p| port(PortDir::In, p.name.clone(), p.ty, p.span))
+            .collect();
+        let mut body = Vec::new();
+        let mut arg_lets = Vec::new();
+        for (j, (call, g, args)) in calls.iter().enumerate() {
+            let callee = fns[g].decl;
+            let c = format!("__c{j}");
+            if let Some(r) = callee.return_ty {
+                ports.push(port(PortDir::In, ident(c.clone()), r, span));
+            }
+            for (m, (&a, p)) in args.iter().zip(&callee.params).enumerate() {
+                arg_lets.push(let_stmt(
+                    &mut out,
+                    ident(format!("__a{j}_{m}")),
+                    Some(p.ty),
+                    a,
+                ));
+            }
+            let call_span = out.exprs[*call].span;
+            out.exprs[*call] = Expr {
+                span: call_span,
                 kind: ExprKind::Path(Path {
-                    span,
-                    segments: vec![ident(text.to_string())],
+                    span: call_span,
+                    segments: vec![Name {
+                        text: c,
+                        span: call_span,
+                    }],
                 }),
-            })
-        };
-        let mut ports = Vec::new();
-        let mut args = Vec::new();
-        for (i, p) in f.params.iter().enumerate() {
-            let pname = format!("p{i}");
-            ports.push(port(PortDir::In, ident(pname.clone()), p.ty, span));
-            args.push(path_expr(&mut out, &pname));
+            };
         }
-        ports.push(port(PortDir::Out, ident("r".to_string()), ret, span));
-        let callee = path_expr(&mut out, name);
-        let call = out.exprs.alloc(Expr {
-            span,
-            kind: ExprKind::Call { callee, args },
-        });
-        let comb = out.blocks.alloc(Block {
-            span,
-            stmts: vec![BlockStmt::BlockAssign {
-                lhs: LValue {
-                    span,
-                    base: ident("r".to_string()),
-                    suffixes: Vec::new(),
-                },
-                rhs: call,
-                span,
-            }],
-            tail: None,
-            context: volt_ast::BlockContext::Combinational,
-        });
-        let stmt = out.stmts.alloc(Stmt {
+        for l in &info.lets {
+            body.push(let_stmt(&mut out, l.name.clone(), l.ty, l.value));
+        }
+        body.extend(arg_lets);
+        ports.push(port(PortDir::Out, ident("__r".to_string()), ret, span));
+        let assign = out.stmts.alloc(Stmt {
             span,
             attrs: Vec::new(),
-            kind: StmtKind::Comb(comb),
+            kind: StmtKind::Assign(volt_ast::AssignStmt {
+                lhs: LValue {
+                    span,
+                    base: ident("__r".to_string()),
+                    suffixes: Vec::new(),
+                },
+                rhs: tail,
+            }),
         });
+        body.push(assign);
         let module = ModuleDecl {
             name: ident(format!("{VALIDATION_PREFIX}{name}")),
             generics: Vec::new(),
             ports,
             contracts: Vec::new(),
-            body: vec![stmt],
+            body,
             closing_name: None,
             mmio_regs: Vec::new(),
         };
@@ -462,6 +491,51 @@ pub(crate) fn validation_unit(ast: &SourceFile) -> Option<(SourceFile, Vec<(Stri
         spans.push((name.clone(), info.item_span));
     }
     Some((out, spans))
+}
+
+/// Gövdedeki kullanıcı fn çağrıları: (çağrı, çağrılan, argümanlar).
+fn nested_calls(
+    ast: &SourceFile,
+    info: &FnInfo<'_>,
+    fns: &HashMap<String, FnInfo<'_>>,
+) -> Vec<(Idx<Expr>, String, Vec<Idx<Expr>>)> {
+    let mut roots: Vec<Idx<Expr>> = info.lets.iter().map(|l| l.value).collect();
+    roots.extend(info.tail(ast));
+    let mut out = Vec::new();
+    for root in roots {
+        volt_ast::visit::walk_expr(ast, root, |e| {
+            let ExprKind::Call { callee, args } = &ast.exprs[e].kind else {
+                return;
+            };
+            let ExprKind::Path(p) = &ast.exprs[*callee].kind else {
+                return;
+            };
+            let global = matches!(
+                info.bindings.get(callee),
+                None | Some(scope::Binding::Global)
+            );
+            if let [seg] = p.segments.as_slice() {
+                if global && fns.contains_key(&seg.text) {
+                    out.push((e, seg.text.clone(), args.clone()));
+                }
+            }
+        });
+    }
+    out
+}
+
+fn let_stmt(
+    out: &mut SourceFile,
+    name: Name,
+    ty: Option<Idx<volt_ast::TypeRef>>,
+    value: Idx<Expr>,
+) -> Idx<Stmt> {
+    let span = name.span;
+    out.stmts.alloc(Stmt {
+        span,
+        attrs: Vec::new(),
+        kind: StmtKind::Let(volt_ast::LetDecl { name, ty, value }),
+    })
 }
 
 fn port(direction: PortDir, name: Name, ty: Idx<volt_ast::TypeRef>, span: Span) -> Port {
