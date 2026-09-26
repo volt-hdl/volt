@@ -113,6 +113,7 @@ kodlar tanımlı, mekanizma V1+.
 | [0061](ADR-0061-volt-toml-arama-tavani.md) | Volt.toml aramasına tavan — git kökü (kapsayıcı) + ev dizini (dışlayıcı), `VOLT_MANIFEST_DIR` geçersiz kılar | K | 2026-09-21 |
 | [0048](ADR-0048-zamanlama-kisitlari.md) | Zamanlama kısıtları — uygulanmayan nitelikler W0021 üretir, SDC üretimi V1 planı | K (2. bölüm ADR-0054 ile gerçeklendi) | 2026-09-14 |
 | [0079](ADR-0079-cikti-dogrulama-agi.md) | Çıktı doğrulama ağı — her çıktı gerçek tüketicisiyle (Verilator -Wall, Yosys, OpenSTA read_sdc, XDC Tcl kapısı, cc/c++/rustc, regmap şeması); uyarı yalnız gerekçeli fixture işaretiyle; `@mmio` sürücü ad çarpışması E1014; `VOLT_REQUIRE_TOOLS` (araçlı işte araç yoksa test düşer) | K | 2026-09-25 |
+| [0082](ADR-0082-varsayilan-formal-motoru.md) | Varsayılan formal motoru — boolector (62 tasarım × 3 kip × 4 çözücü ölçümü: z3'ün 2-4 katı hızlı, zaman aşımı 15 → 4, apt/hdlc/formal/OSS CAD Suite'te var); `--engine bitwuzla` eklendi (büyük tasarımlarda en hızlısı, apt'de yok); eksik çözücüde yönlendirme; sby çok motorlu portföyü `-j` < görev×motor iken askıda kaldığı için ve tasarıma göre otomatik seçim öngörücü olmadığı için reddedildi; kararlar dört çözücüde aynı, prove UNKNOWN'da adlandırılan kontrat çözücüye bağlı (rapor) | K | 2026-09-26 |
 
 ## Altyapı
 

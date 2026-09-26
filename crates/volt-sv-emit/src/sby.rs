@@ -34,13 +34,16 @@ impl SbyMode {
     }
 }
 
-/// SMT çözücüsü (`volt verify --engine`).
+/// SMT çözücüsü (`volt verify --engine`). Varsayılan boolector
+/// (ADR-0082): ölçümde z3'ün 2-4 katı hızlı, zaman aşımı en az olanlardan
+/// ve her kurulum yolunda (apt, hdlc/formal, OSS CAD Suite) mevcut.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SbyEngine {
-    #[default]
     Z3,
+    #[default]
     Boolector,
     Yices,
+    Bitwuzla,
 }
 
 impl SbyEngine {
@@ -49,12 +52,13 @@ impl SbyEngine {
             SbyEngine::Z3 => "z3",
             SbyEngine::Boolector => "boolector",
             SbyEngine::Yices => "yices",
+            SbyEngine::Bitwuzla => "bitwuzla",
         }
     }
 }
 
 /// `.sby` üretim seçenekleri; varsayılanlar goal/F4b sözleşmesi:
-/// bmc + derinlik 20 + z3.
+/// bmc + derinlik 20; motor ADR-0082 ile boolector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SbyOptions {
     pub mode: SbyMode,
@@ -73,7 +77,7 @@ impl Default for SbyOptions {
         SbyOptions {
             mode: SbyMode::Bmc,
             depth: 20,
-            engine: SbyEngine::Z3,
+            engine: SbyEngine::default(),
             multiclock: false,
             timeout: None,
         }
@@ -247,11 +251,12 @@ mod tests {
     }
 
     #[test]
-    fn default_options_are_bmc_depth_20_z3() {
+    fn default_options_are_bmc_depth_20_boolector() {
+        // ADR-0082: varsayılan motor ölçümle boolector.
         let opts = SbyOptions::default();
         assert_eq!(opts.mode, SbyMode::Bmc);
         assert_eq!(opts.depth, 20);
-        assert_eq!(opts.engine, SbyEngine::Z3);
+        assert_eq!(opts.engine, SbyEngine::Boolector);
     }
 
     #[test]
@@ -261,7 +266,7 @@ mod tests {
             text.starts_with("[options]\nmode bmc\ndepth 20\n"),
             "{text}"
         );
-        assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
+        assert!(text.contains("[engines]\nsmtbmc boolector\n"), "{text}");
         assert!(
             text.contains("[script]\nread -formal counter.sv\nprep -top Counter\n"),
             "{text}"
@@ -274,20 +279,24 @@ mod tests {
         let opts = SbyOptions {
             mode: SbyMode::Prove,
             depth: 40,
-            engine: SbyEngine::Boolector,
+            engine: SbyEngine::Z3,
             multiclock: false,
             timeout: None,
         };
         let text = sby_config("Uart", "uart.sv", &opts);
         assert!(text.contains("mode prove\n"), "{text}");
         assert!(text.contains("depth 40\n"), "{text}");
-        assert!(text.contains("smtbmc boolector\n"), "{text}");
+        assert!(text.contains("smtbmc z3\n"), "{text}");
     }
 
     #[test]
-    fn cover_mode_and_yices_engine_spell_correctly() {
+    fn cover_mode_and_every_engine_spell_as_smtbmc_solver_names() {
         assert_eq!(SbyMode::Cover.as_str(), "cover");
+        // yosys-smtbmc `-s <solver>` adları.
+        assert_eq!(SbyEngine::Z3.as_str(), "z3");
+        assert_eq!(SbyEngine::Boolector.as_str(), "boolector");
         assert_eq!(SbyEngine::Yices.as_str(), "yices");
+        assert_eq!(SbyEngine::Bitwuzla.as_str(), "bitwuzla");
     }
 
     #[test]
@@ -308,7 +317,7 @@ mod tests {
             text.starts_with("[options]\nmode bmc\ndepth 20\nmulticlock on\n"),
             "{text}"
         );
-        assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
+        assert!(text.contains("[engines]\nsmtbmc boolector\n"), "{text}");
     }
 
     fn task(name: &str, top: &str, multiclock: bool) -> SbyTask {
@@ -331,7 +340,7 @@ mod tests {
             text.starts_with("[tasks]\nsoctop\ngpio\ntimer\n\n[options]\nmode bmc\ndepth 20\n"),
             "{text}"
         );
-        assert!(text.contains("[engines]\nsmtbmc z3\n"), "{text}");
+        assert!(text.contains("[engines]\nsmtbmc boolector\n"), "{text}");
         assert!(
             text.contains(
                 "[script]\nread -formal top.sv\nsoctop: prep -top SocTop\n\

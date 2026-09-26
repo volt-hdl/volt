@@ -304,6 +304,45 @@ fn error_exit_3_names_the_sby_status_and_says_nothing_about_contracts() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ADR-0082: varsayılan motor boolector; yalnız z3 kurulu eski bir
+/// ortamda sby "çözücü yok" der — volt çözücüyü ve `--engine`'i adlandırır.
+#[test]
+fn missing_solver_tool_error_names_the_solver_and_the_engine_flag() {
+    let (out, dir) = run(
+        "nosolver",
+        vec![
+            pass("alpha"),
+            echo(
+                "SBY 18:04:50 [three_beta] engine_0: ## 0:00:00 SMT Solver boolector not found in path.",
+            ),
+            error("beta"),
+            pass("gamma"),
+        ],
+        16,
+        &[],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(3), "{err}");
+    assert!(
+        err.contains("the SMT solver 'boolector' is not installed where sby runs"),
+        "{err}"
+    );
+    assert!(
+        err.contains("--engine boolector|bitwuzla|yices|z3"),
+        "{err}"
+    );
+    assert!(err.contains("volt explain verify-setup"), "{err}");
+    // Yalnız çözücüsü eksik görev için: diğer görevler geçti.
+    assert_eq!(
+        err.matches("is not installed where sby runs").count(),
+        1,
+        "{err}"
+    );
+    let sby = std::fs::read_to_string(dir.join("formal").join("three.sby")).expect(".sby");
+    assert!(sby.contains("[engines]\nsmtbmc boolector\n"), "{sby}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn json_reports_each_status_separately() {
     let mut steps = vec![pass("alpha")];
