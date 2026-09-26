@@ -128,6 +128,29 @@ fn a_function_body_error_is_reported_once_regardless_of_call_count() {
     assert_eq!(errs, vec![("E0003".to_string(), 5)], "{errs:?}");
 }
 
+/// Karar 12.4: gövde çağrılmasa da tanımda doğrulanır; çağrılan hatalı
+/// fn açılmaz — tanı açılmış kopyaların katlanması değil, tanımın kendisi
+/// (katlama notu yok).
+#[test]
+fn a_function_body_is_validated_at_its_definition_even_uncalled() {
+    let uncalled = root().join("tests/fixtures/parity/fn11_uncalled_match_body.volt");
+    let errs = errors(&check_json(&uncalled));
+    assert_eq!(errs, vec![("E0003".to_string(), 3)], "{errs:?}");
+
+    let called = check_json(&root().join("tests/ui/fail/160_fn_match_body.volt"));
+    let notes: Vec<String> = called["diagnostics"]
+        .as_array()
+        .expect("tanılar")
+        .iter()
+        .flat_map(|d| d["notes"].as_array().cloned().unwrap_or_default())
+        .filter_map(|n| n["text"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        !notes.iter().any(|n| n.contains("reported once")),
+        "hatalı gövde açılmamalı (katlanan kopya yok): {notes:?}"
+    );
+}
+
 /// Karşılıklı özyinelemede döngüdeki her fn raporlanır (E4009 biçimi).
 #[test]
 fn every_function_on_a_call_cycle_gets_e4013() {

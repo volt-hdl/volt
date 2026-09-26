@@ -1,18 +1,19 @@
 # ADR-0081: Fonksiyon Desteği — Saf Kombinasyonel `fn` Donanıma İner
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım). Aşama 2 (uygulama) ve Aşama 3
-> (örnekler + eşdeğerlik kanıtı) ayrı PR'lar.
+> Statü: KABUL EDİLDİ — Aşama 1 (tasarım) ve Aşama 2 (uygulama, bkz.
+> "Aşama 2 — uygulama notları"). Aşama 3 (örnekler + eşdeğerlik kanıtı)
+> ayrı PR.
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-ast (paylaşılan çizge yardımcısı `graph` —
 > ADR-0069'un Tarjan'ı buraya taşınır), volt-syntax (fn gövdesinde
-> saf olmayan deyimler için E2xxx-B), volt-hir (fn gövdesi tip denetimi,
-> çağrı tip kuralları, çağrı çizgesi: özyineleme E4xxx-A ve açılım bütçesi,
+> saf olmayan deyimler için E2016), volt-hir (fn gövdesi tip denetimi,
+> çağrı tip kuralları, çağrı çizgesi: özyineleme E4013 ve açılım bütçesi,
 > `sync`/örnek/`declassify` saflık denetimleri, fn imzası kısıtları),
 > volt-sv-emit (YENİ `inline/`: çağrı yerinde açılım, `structs/`'tan
-> önce), volt-diagnostics (dört YENİ kod — numaralar Aşama 2'de: E2xxx-A, E2xxx-B, E3xxx-A, E4xxx-A;
+> önce), volt-diagnostics (dört YENİ kod: E2015, E2016, E3015, E4013;
 > `volt explain` iki dil), volt-lsp (hover'da imza, tamamlamada imza
 > ayrıntısı), `tests/`, `docs/spec/` (Aşama 2), `examples/` (Aşama 3).
-> DOKUNULMADI: kod, docs/spec/, docs/research/.
+> Aşama 1'de DOKUNULMADI: kod, docs/spec/; hiçbir aşamada: docs/research/.
 > Genişletir: `grammar-full.ebnf` §8 (FnDecl, "[F2] — kombinasyonel
 > mantık"), `domain-inference.md` K5, ADR-0034 (fn kontrat ayrıştırması),
 > ADR-0068 (açılım bütçesi), ADR-0069 (çizge döngüsü), ADR-0070 (parite),
@@ -85,14 +86,14 @@ argümanlı iki çağrıyı yine birleştirebilir).
 
 - **Durum yok:** `reg`, `on`, `comb`, örnek (`let u = M { … }`),
   `sync()`/`sync3()` (register zinciri kurar) yasak — çağrının kendisi
-  E2xxx-B alır, argüman tip denetiminden önce (hedef saat bir fn'de zaten
+  E2016 alır, argüman tip denetiminden önce (hedef saat bir fn'de zaten
   bulunamaz: modül saatleri görünmez, `clock` parametresi Karar 4 ile
   yasak). `prev()` zaten yalnız
   kontratta (E5017) — fn gövdesi kontrat değildir.
 - **Yan etki yok:** gövde hiçbir sinyale atama yapamaz. Modül sinyalleri
   zaten görünmez (fn kapsamının ebeveyni kök kapsamdır, `p10` E1001);
   yalnız sözdizimsel olarak mümkün olan atama biçimleri (`y = a` deyimi,
-  `for` gövdesindeki atama) E2xxx-B ile reddedilir.
+  `for` gövdesindeki atama) E2016 ile reddedilir.
 - **Okuma:** parametreler, gövdedeki `let`'ler, birim `const`'ları,
   enum varyantları, diğer fn'ler ve saf yerleşikler (`zext`, `sext`,
   `trunc`, `concat`, `replicate`, `popcount`, `clog2`).
@@ -113,7 +114,7 @@ semantiği)") korunur. `return` anahtar sözcüğü eklenmez.
   kapsayıcılığı mevcut `match` kurallarıyla denetlenir. Erken dönüş
   olmadığı için "dönmeyen yol" analizi gerekmez.
 - Dönüş tipi **zorunlu**; son ifade **zorunlu**. İkisinden biri yoksa
-  **E2xxx-A** (fn tanımında). Değer döndürmeyen saf fn'in donanım anlamı
+  **E2015** (fn tanımında). Değer döndürmeyen saf fn'in donanım anlamı
   yoktur (`p29` bugün sessiz geçiyor).
 - `let` çıkarımı modül `let`'iyle birebir aynı kurallar
   (`type-inference.md`, ADR-0041); son ifade dönüş tipine `check` edilir
@@ -131,7 +132,7 @@ izin veriyor (`p19`: tanısız). Bu, `let`'i değiştirilebilir biriktirici
 yapan tanımsız bir anlamdır; modülde `let`'e atama çift sürücüdür
 (ADR-0073). Biriktirici anlamı (katlama) ayrı bir tasarım ister → **E0003**
 (geçerli Volt, bu turda eşlemesi yok). `for` gövdesindeki atamanın hedefi
-fn dışı bir adsa E2xxx-B (Karar 1).
+fn dışı bir adsa E2016 (Karar 1).
 
 Parite/doyma gibi tipik kullanımlar yerleşiklerle yazılabilir
 (`popcount(x) & 1`, `if` zinciri); ertelemenin maliyeti düşük.
@@ -147,7 +148,7 @@ Parite/doyma gibi tipik kullanımlar yerleşiklerle yazılabilir
 | enum | ✓ | ✓ | ADR-0074 `localparam`'ları açılımdan sonra toplanır |
 | düz struct | ✓ | ✓ | açılım `structs/` indirgemesinden önce koşar (Karar 12) |
 | dizi `[T; N]` | ✓ (argüman yalın ad olmalı, değilse E0003) | E0003 | parametre argümanın adıyla yer değiştirir; dizi tipli ara telin (argüman ya da dönüş) emit'i ölçülmedi |
-| `clock`, `reset` | E2xxx-B | E2xxx-B | saat parametresi fn'i bir saat alanına bağlar; kombinasyonel değer değildir (modülde `let c : clock` kabul ediliyor, `p36` — bu yasak fn'e özgü) |
+| `clock`, `reset` | E2016 | E2016 | saat parametresi fn'i bir saat alanına bağlar; kombinasyonel değer değildir (modülde `let c : clock` kabul ediliyor, `p36` — bu yasak fn'e özgü) |
 | `Delayed<T, N>` | E0003 | E0003 | gecikme çağrı yerinde çıkarılır (Karar 10) |
 | `struct port` / `Handshake` | E0003 | E0003 | bundle bir değer değildir (ADR-0077 "struct ≠ struct port") |
 
@@ -163,9 +164,9 @@ modül düzeyi `for` (parser açar, ADR-0056), iç içe fn çağrısı ve
   port bağlantısıyla aynı); uyuşmazlık mevcut E2001/E2002/E2003.
 - Çağrının tipi dönüş tipidir.
 
-### Karar 6: Özyineleme — E4xxx-A, çağrı çizgesinde
+### Karar 6: Özyineleme — E4013, çağrı çizgesinde
 
-Doğrudan ya da karşılıklı her özyineleme **E4xxx-A**. Çizge volt-hir'de,
+Doğrudan ya da karşılıklı her özyineleme **E4013**. Çizge volt-hir'de,
 çözümlemeden sonra kurulur: düğüm = fn tanımı (`DefKind::Function`),
 kenar = gövdedeki (ve fn kontratlarındaki) çağrı. Ad tabanlı değil
 çözüm tabanlı, çünkü fn adı bir `let` tarafından gölgelenebilir (`p24`).
@@ -176,7 +177,7 @@ Tarjan'ı (`components`, yinelemeli, derin zincirde yığın taşmaz) ve
 bağımsız algoritmalardır; ardıl listesi alan ortak bir yardımcıya
 (`volt_ast::graph`) taşınır. Tip çizgesi ve çağrı çizgesi ikisi de onu
 kullanır. Taşıma saf yeniden düzenlemedir (golden değişmez). Tanı biçimi
-E4009 ile aynı: döngüdeki **her** fn E4xxx-A alır (birincil etiket fn
+E4009 ile aynı: döngüdeki **her** fn E4013 alır (birincil etiket fn
 adında, ikincil etiket döngüyü kapatan çağrıda, not olarak döngü yolu
 `f → g → f`).
 
@@ -214,7 +215,7 @@ analizi eklenmez (K5 basit ve sağlam kalır).
 - **trust_level:** sonuç = argümanların en yüksek seviyesi (`trust.rs:351`
   `join`). Güven, açılımdan önce imza düzeyinde hesaplanır; açılım bir
   bilgi akışını gizleyemez.
-- **`declassify` fn gövdesinde yasak — E3xxx-A.** `declassify` bir güvenlik
+- **`declassify` fn gövdesinde yasak — E3015.** `declassify` bir güvenlik
   kararıdır ve ADR-0052 onu kullanım yerinde gerekçeyle görünür kılar. fn
   içindeki bir `declassify` her çağrı yerinde görünmez bir düşürme olurdu
   (bugün `p27b` yalnız fn tanımında bir W3008 veriyor, çağrı sayısından
@@ -259,8 +260,8 @@ sürücülüdür; sürücü tablosu değişmez.
 
 ### Parite (ADR-0070)
 
-Tüm yeni tanılar ya HIR analizinde (E2003, E2xxx-A, E2xxx-B'nın anlamsal
-kısmı, E3xxx-A, E4xxx-A, E2027) ya parser'da (E2xxx-B'nın sözdizimsel kısmı)
+Tüm yeni tanılar ya HIR analizinde (E2003, E2015, E2016'nın anlamsal
+kısmı, E3015, E4013, E2027) ya parser'da (E2016'nın sözdizimsel kısmı)
 ya da emitter doğrulamasında (E0018, E1003 sentetik ad) doğar; üçü de
 `check`, `build` ve LSP'nin ortak boru hattında. Kontrattaki çağrı artık
 `--emit=sva`'ya özgü E0003 vermez (ADR-0070 A sınıfı listesinden bir
@@ -602,10 +603,10 @@ reddettiği paket sırası sorununu ekler. **A seçildi.**
 
 | Kod | Yeni/mevcut | Anlam | Konum |
 |---|---|---|---|
-| **E2xxx-A** | YENİ | fn'in sonucu yok: dönüş tipi yazılmamış ya da gövde son ifadeyle bitmiyor | fn tanımı (ad / kapanış `}`) |
-| **E2xxx-B** | YENİ | fn kombinasyonel değil: gövdede `reg`, `on`, `comb`, atama, örnek, `sync()`/`sync3()`; imzada `clock`/`reset` | gövdedeki yapı / imza; not: "durum gerekiyorsa modül yazın" |
-| **E3xxx-A** | YENİ | fn gövdesinde `declassify` | gövdedeki `declassify` |
-| **E4xxx-A** | YENİ | özyineli fn (doğrudan/karşılıklı) | döngüdeki her fn tanımı; ikincil etiket kapatan çağrı; not döngü yolu |
+| **E2015** | YENİ | fn'in sonucu yok: dönüş tipi yazılmamış ya da gövde son ifadeyle bitmiyor | fn tanımı (ad / kapanış `}`) |
+| **E2016** | YENİ | fn kombinasyonel değil: gövdede `reg`, `on`, `comb`, atama, örnek, `sync()`/`sync3()`; imzada `clock`/`reset` | gövdedeki yapı / imza; not: "durum gerekiyorsa modül yazın" |
+| **E3015** | YENİ | fn gövdesinde `declassify` | gövdedeki `declassify` |
+| **E4013** | YENİ | özyineli fn (doğrudan/karşılıklı) | döngüdeki her fn tanımı; ikincil etiket kapatan çağrı; not döngü yolu |
 | E2001 / E2002 / E2003 | mevcut | argüman sayısı (E2003); argüman ↔ parametre, son ifade ↔ dönüş tipi | çağrı / argüman / son ifade |
 | E3001 | mevcut | farklı domain'den argümanlar | çağrı |
 | E5010 | mevcut | farklı gecikmeli argümanlar | çağrı |
@@ -659,7 +660,7 @@ sayısıyla çoğaltmasından kaçınır (ADR-0068 katlamasına gerek kalmaz).
 
 1. **ADIM 2.1 — gövde tip denetimi (önce, tek başına commit):**
    `typeck/mod.rs:134` döngüsüne `ItemKind::Fn` — imza tiplerinin
-   çözümü, gövde `let`'leri, son ifadenin dönüş tipine `check`'i, E2xxx-A.
+   çözümü, gövde `let`'leri, son ifadenin dönüş tipine `check`'i, E2015.
    Önce/sonra tanı karşılaştırması: `tests/ui/**`, `examples/**`,
    `tests/fixtures/**` ve §1'deki gömülü Rust test kaynakları (golden
    betiği ADR-0080'in `build/depth/golden.py` desenini izler). Yeni tanı
@@ -668,11 +669,11 @@ sayısıyla çoğaltmasından kaçınır (ADR-0068 katlamasına gerek kalmaz).
    PR açıklamasında.
 2. Çağrı tip kuralları (Karar 5): `synth_call` kullanıcı fn'inde arity
    (E2003), argüman `check`'i, dönüş tipi.
-3. Saflık: parser'da E2xxx-B (fn gövdesinde `reg`/`on`/`comb`/atama
-   deyimi, `for` gövdesinde atama); HIR'da `sync`/örnek (E2xxx-B),
-   `declassify` (E3xxx-A); `for` E0003; imza kısıtları (Karar 4; `clock`/`reset` E2xxx-B).
+3. Saflık: parser'da E2016 (fn gövdesinde `reg`/`on`/`comb`/atama
+   deyimi, `for` gövdesinde atama); HIR'da `sync`/örnek (E2016),
+   `declassify` (E3015); `for` E0003; imza kısıtları (Karar 4; `clock`/`reset` E2016).
 4. `volt_ast::graph` (Tarjan + `path_within`, `type_graph.rs`'ten taşıma
-   — önce, davranış değişmeden, golden ile); çağrı çizgesi, E4xxx-A;
+   — önce, davranış değişmeden, golden ile); çağrı çizgesi, E4013;
    açılım bütçesi, E2027.
 5. Generic fn ve fn kontratı E0003 (Karar 7, 8).
 6. `volt-sv-emit/src/inline/` (Karar 12): tel ve ikame kipleri, ad
@@ -684,7 +685,7 @@ sayısıyla çoğaltmasından kaçınır (ADR-0068 katlamasına gerek kalmaz).
 9. Tanılar: dört yeni kod iki dilde + `volt explain`; `explain_tests`
    `CODE_COUNT` ve kod listesi; parite sondaları
    (`tests/fixtures/parity/`), her yeni tanı için.
-10. Spec (ADR kaynaklı): `grammar-full.ebnf` §8 yorumu (saflık, E2xxx-A,
+10. Spec (ADR kaynaklı): `grammar-full.ebnf` §8 yorumu (saflık, E2015,
     `for`), `type-inference.md` (fn kuralları), `domain-inference.md` K5
     (fn çağrısı), `sv-mapping.md` (açılım biçimi), `name-resolution.md`
     (fn kapsamı yalnız öğeleri görür), `const-eval.md` (fn çağrısı sabit
@@ -722,6 +723,139 @@ karşılaştırması (fark varsa ad/satır duyarlılığıyla açıklanır). Bek
 SV farkı: `let imm_i = sext_i(instr)` biçiminde sonuç teli yazılmaz
 (Karar 12.2), fn'in `let`'leri `<fn>_<k>_<let>` telleri olarak çıkar.
 README "Limitations" ve CHANGELOG güncellenir.
+
+## Aşama 2 — uygulama notları (2026-09-26, dal `feat/fn`)
+
+Kodlar: E2xxx-A → **E2015**, E2xxx-B → **E2016**, E3xxx-A → **E3015**,
+E4xxx-A → **E4013** (iki dilde kısa metin + `volt explain`; E2027
+açıklaması fn açılımını da anlatır). Karar 1-13 uygulandı; aşağıdaki
+maddeler kararın uygulamada netleşen biçimidir (anlam değişmedi) ya da
+ölçümle bulunan bir sınırdır.
+
+### ADIM 2.1 — gövde tip denetimi önce/sonra
+
+Golden aracı `build/fn2/golden.py` (ADR-0080 `golden.py` deseni: `check`
+insan + JSON, `build --emit sva --emit sdc` çıktıları), referans PR #44
+sonrası `main` (PR #45 yalnız belge). Gövde denetimi tek başına commit'lendi
+(b5779b4) ve ölçüldü:
+
+| Küme | Dosya | Yeni tanı | Sınıf |
+|---|---|---|---|
+| `tests/ui`, `tests/fixtures`, `examples`, `tests/fuzz_regressions` | 473 | 0 (golden bayt-aynı) | — |
+| §1'deki gömülü Rust kaynakları (`parser_tests.rs` 289/309/1150/1166/1178/1190, `resolve_tests.rs` 146/151, `prev_tests.rs` 114) | 9 | 0 | — |
+
+Gövde denetimi hiçbir mevcut kaynakta yeni tanı üretmedi; A (gerçek hata)
+ya da B (yanlış alarm) sınıfına giren dosya yok. Sonraki adımda
+`resolve_tests.rs:151` (generic fn) Karar 7 gereği tek E0003 verir; test
+silinmedi, çözümleme temizliğini ayrıca doğrulayacak biçimde güncellendi
+(ADR'nin §1'de öngördüğü aday). `prev_tests.rs:114` E5017 beklentisi
+korunur (fn kontratı artık ek olarak E0003 alır, sayılan kod E5017).
+
+### Uygulamada netleşenler
+
+1. **Hijyen (Karar 12.1):** emitter volt-hir'in çözüm tablosunu görmez
+   (`emit_unit` yalnız AST alır). Gövdenin bağlamaları emitter'da fn
+   kapsamının kuralıyla — volt-hir `resolve_fn_body` ile aynı: ebeveyn kök,
+   parametreler, sırayla `let`'ler, geri kalan kök öğe — bir kez kurulur
+   (`inline/scope.rs`). Bu çözüm tabanlı kuraldır (çağıranın adlarına
+   bakılmaz): gövdedeki const, çağıranın aynı adlı `let`'ine bağlanmaz
+   (`global_paths`, ui/pass 113).
+2. **Doğrudan yazılan argüman (Karar 12.2):** yalın ad/alan yolu/dizi
+   elemanı argüman, tipi parametrenin tipiyle **aynıysa** doğrudan yazılır.
+   Örtük genişleme (ör. `u8` ad, `u16` parametre) doğrudan yazılsa
+   genişliği SV bağlamından alırdı (`p << 8`); bu yüzden tel alır.
+   Literal parametre tipinde boyutlandırılır. Gövdenin bitlerini seçtiği
+   (`p[3:0]`) parametreye dizi elemanı doğrudan yazılmaz: paketlenmiş
+   dizide eleman `a[W*i +: W]` olur ve SV bir parça seçimi yeniden seçemez.
+3. **Tüm sağ taraf (Karar 12.2):** sonuç teli yalnız hedefin tipi dönüş
+   tipiyse atlanır; tipsiz `let`'in tipi dönüş tipi olur (tip denetimiyle
+   aynı). Aksi hâlde sonuç teli `<fn>_<k>` yazılır — hedef dönüş tipinden
+   genişse taşma bitleri SV'de korunurdu.
+4. **İkame kipinde genişlik (Karar 12.3):** parametre tipinde olmayan (ya
+   da tipi bilinmeyen: blok yereli, döngü değişkeni) argüman ve bağlama
+   duyarlı sonuç SV boyut dönüşümüyle `W'(e)` sarılır; bu, ADR-0041'in
+   check kipindeki genişlemesinin SV karşılığıdır (işlenen hedef
+   genişliğinde hesaplanır). Seçim tabanı parametreye tel kurulamayan
+   argüman ve struct parametreye ad olmayan argüman E0003 (Karar 12.3'ün
+   struct kuralının genişlik eşi).
+5. **Canlı tanımlar:** yalnız son ifadeden ulaşılan `let`'ler ve
+   parametreler tel alır — okunmayan tel Verilator `-Wall`'da UNUSEDSIGNAL
+   olurdu; fn saf olduğundan okunmayan değerin anlamı yoktur.
+6. **Doğrulama (Karar 12.4):** her fn'in KENDİ gövdesi, portları
+   parametreler ve `let`'leri modül `let`'leri olan bir sentetik modülle
+   bir kez emit edilir; gövdedeki iç çağrı çağrılanın dönüş tipinde bir
+   port, argümanları parametre tipinde tellerdir. İç içe açılım olmadığı
+   için doğrulama gövde boyutunda doğrusaldır (ilk sürüm iç çağrıları
+   açıyordu; §5.8 zincirinde doğrulama da üstel oldu — ölçüldü, 78 s).
+7. **E0018** yalnız çağıranın yazdığı (en dış) çağrıda denetlenir: tanı
+   çağrı yerinde, iç çağrıların ağaçları onun alt ağacıdır.
+8. **Bütçe savunması:** emitter bütçeyi aşan çağrının kısmi açılımını ve
+   o çağrının ürettiği telleri geri alır (aksi hâlde ~65 bin yarım tel
+   emit ediliyordu). HIR bütçesi (E2027) parser'ın mono bütçesiyle aynı
+   sabiti (`volt_ast::MAX_EXPANSION_NODES`) kullanır; sayaçlar ayrıdır.
+9. **Handshake imzada:** `Handshake<T>` fn imzasında çözümde E1001 alır
+   (Handshake yalnız port konumunda tanınır), E0003'e ulaşmaz. `struct
+   port` imzada E0003 (Karar 4).
+10. **`for` gövdesinde atama:** parser E2016 verir ve deyimi atar; `for`
+    ayrıca HIR'da E0003 alır (ikisi de fn tanımında).
+11. **Çağrı yerleri (Karar 5):** modül `let`/atama/örnek bağlantısı ve
+    argümanları modül düzeyi `on` çağrısı tel kipi; `comb`, blok içi
+    `for`, blok yereline (döngü değişkeni, desen bağlaması) başvuran `on`
+    çağrısı, kontrat ve `reg` başlangıcı ikame kipi.
+
+### Ölçüm (Aşama 2 tamamlanma)
+
+- `cargo test --all` (Windows) yeşil; golden: önceki 473 dosya bayt-aynı,
+  39 yeni dosya (fixture + sonda).
+- ui/pass 112-117 (basit, iç içe + const hijyeni, struct/enum parametre +
+  struct literal argümanı + struct dönüşü, `on` bloğu + blok içi `for`,
+  `comb` + blok içi `for`, kontrat), ui/fail 143-163 (her yeni tanı,
+  doğrudan/karşılıklı özyineleme, E3001, arity, tip, E0003 sınıfları,
+  E1003, E2027), `tests/ui/multifile/fn` (`pub fn`, özel fn E1004),
+  parite sondaları `fn01`-`fn10`.
+- Çıktı ağı (ADR-0079): `volt-net` imajında `VOLT_REQUIRE_TOOLS=verilator,yosys`
+  ile `verilator_lints_sv_and_sva` ve `yosys_elaborates_sv` geçti — Aşama 1
+  notunun "hiç ölçülmemiş" dediği `comb` bloğu içi ve blok içi `for` içi
+  çağrılar dahil (ui/pass 115, 116).
+- Simülasyon (Docker, `verilator/verilator`): I/S/B immediate fn'leri, `on`
+  bloğunda çağrı ve `comb` + blok içi `for` çağrısı olan tasarımda `volt
+  test` 3/3 (kontrat izleyicileri dahil).
+- Formal (Docker, `hdlc/formal`): aynı tasarımda fn çağıran iki invariant
+  + bir cover `prove 4 --engine boolector` ve `cover 8` geçti; kasıtlı
+  yanlış invariant (`imm_b(instr) & 2`) E5001 ile düştü (kanıt boş değil).
+
+### Mutasyon (tek tek, `CARGO_BUILD_JOBS=2`, `--test-threads=2`)
+
+`build/fn2/mutate.py`; her mutasyonda en az bir test düştü:
+
+| Mutasyon | Düşen test |
+|---|---|
+| M1 saflık (parser): `reg`/`on`/`comb`/atama E2016 yok | `fn_tests` ui/fail kod+satır |
+| M2 saflık (HIR): `sync()`/örnek E2016 yok | `fn_tests` ui/fail kod+satır |
+| M3 özyineleme tespiti yok | `fn_tests` ui/fail + `every_function_on_a_call_cycle_gets_e4013` |
+| M4 fn çağrısında domain join'i atlanır (yalnız ilk argüman) | `fn_semantic_tests` CDC: `arguments_from_two_domains_are_e3001_at_the_call`, `an_unused_parameter_still_joins_the_call_domain` |
+| M5 arity denetimi yok | `fn_tests` ui/fail (154) |
+| M6 son ifade dönüş tipine check edilmez | `fn_tests` ui/fail (155) |
+| M7 HIR açılım bütçesi yok | `fn_tests` ui/fail (162; emitter savunması başka konumda) |
+| M8 E2015 yok | `fn_tests` ui/fail (143, 144) |
+| M9 fn'de `declassify` E3015 yok | `fn_semantic_tests` |
+| M10 const hijyeni yok | `a_const_in_a_function_body_is_not_captured_by_a_caller_signal` |
+| M11 ikame kipinde genişlik korunmaz | `inline_emit_tests`, `fn_tests` comb |
+| M12 üretilen ad çakışması E1003 yok | `fn_tests` ui/fail (161) |
+| M13 doğrulama birimi yok | `a_function_body_is_validated_at_its_definition_even_uncalled` |
+| M14 tüm sağ taraf istisnası yok | `wire_mode_names_follow_fn_k_let_and_param`, `struct_literal_argument_becomes_a_per_field_param_wire` |
+
+M13 ilk koşuda hayatta kaldı: çağrılan hatalı fn açılınca aynı E0003
+kopyaları katlanıp tek tanıya iniyordu ve çağrılmayan fn'i sınayan test
+yoktu. Sonda `fn11_uncalled_match_body` ve katlama notu olmadığını
+(hatalı gövde açılmaz) denetleyen test eklendi; ikinci koşuda düştü.
+
+### Aşama 3 için kısıt
+
+`match` ifadesi fn gövdesinde de E0003 (modülde olduğu gibi, Karar 7'nin
+yanındaki tablo). `examples/riscv_core.volt`'un ALU işlemi ve dallanma
+koşulu `match` gerektirdiği için Aşama 3'te taşınmaz; immediate çözme
+(I/S/B/U/J) taşınır.
 
 ## Sonuçlar
 

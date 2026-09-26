@@ -304,6 +304,15 @@ Param           = Ident ":" Type ;
 
 FnBlock         = "{" { Stmt } [ Expr ] "}" ;
 (* Son ifade dönüş değeridir (Rust semantiği) *)
+(* ADR-0081: fn saf kombinasyonel bir ifadedir.
+   - Dönüş tipi ve son ifade zorunlu; biri yoksa E2015. `return` yok.
+   - Gövde yalnız `let` ve son ifade: `reg`, `on`, `comb` ve atama
+     (for gövdesindeki dahil) E2016 — deyim ayrıştırılıp atılır.
+   - Gövdede `for` bu turda E0003 (katlama anlamı ayrı tasarım).
+   - Generic fn (`fn f<const W: u32>`) ve fn kontratı (`requires`/
+     `ensures`) ayrıştırılır, bu turda E0003.
+   - Gövde yalnız parametreleri, gövdedeki let'leri ve birimin öğelerini
+     (const, enum varyantı, fn) görür; modül sinyalleri görünmez. *)
 
 
 (* ═══ 9. DİĞER BİLDİRİMLER ════════════════════════════════════ *)

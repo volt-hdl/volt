@@ -450,6 +450,34 @@ ExprKind::If { cond, then_expr, else_expr } => {
 }
 ```
 
+### 3.8 Fonksiyon Gövdesi ve Çağrısı (ADR-0081)
+
+fn gövdesi imzaya karşı **bir kez, tanımda** denetlenir; çağrı imzayla
+tiplenir. Açılım (SV) gövde hatası üretemez — tanılar çağrı sayısıyla
+çoğalmaz.
+
+- **İmza:** parametre ve dönüş tipleri çözülür. `clock`/`reset`
+  parametre ya da dönüş tipi **E2016** (fn'i bir saat alanına bağlar);
+  `Delayed<T, N>`, `struct port` ve dizi dönüş tipi bu turda **E0003**.
+- **Gövde:** `let`'ler modül `let`'iyle aynı kurallar (tipli: check,
+  tipsiz: synth, soneksiz literal W2012) — sürücü kaydı yapılmaz (fn'de
+  sinyal yoktur). Son ifade dönüş tipine **check** edilir (yazılı hedef
+  kuralı, §5: aynı işaretli genişleme örtük, daralma `as` ister). Dönüş
+  tipi ya da son ifade yoksa **E2015**.
+- **Çağrı:** argüman sayısı imzayla eşit değilse **E2003**; her argüman
+  parametre tipine **check** edilir (port bağlantısıyla aynı kural;
+  uyuşmazlık E2001/E2002/E2003); çağrının tipi dönüş tipidir. Dizi
+  parametrenin argümanı yalın ad olmalı, değilse E0003.
+
+```rust
+ExprKind::Call { callee, args } if is_user_fn(callee) => {
+    let sig = self.fn_sig(def);           // tanım sırasından bağımsız
+    if args.len() != sig.params.len() { E2003; synth(args) }
+    else { for (a, t) in args.zip(sig.params) { self.check(a, t) } }
+    sig.ret                                 // yoksa Error (E2015 tanımda)
+}
+```
+
 ---
 
 ## 4. Kontrol Modu ve Literal Çözümleme
@@ -652,6 +680,9 @@ E2009  Geçersiz tip dönüşümü
 E2010  Literal hedef tipe sığmıyor
 E2011  Geçersiz Trit literali
 E2012  Register tipi belirlenemiyor
+E2015  Fonksiyonun sonucu yok: dönüş tipi ya da son ifade eksik (ADR-0081)
+E2016  Fonksiyon kombinasyonel değil: gövdede reg/on/comb/atama/örnek/sync(),
+       imzada clock/reset (ADR-0081)
 
 W2010  Daraltıcı dönüşüm (bilgi kaybı)
 W2011  Kullanılmayan tip parametresi
@@ -818,6 +849,7 @@ E4001  Çift sürücü
 E4002  Sürücüsüz çıkış portu
 E4003  Lineer port çift tüketim [V1]
 E4004  Lineer port tüketilmedi [V1]
+E4013  Özyineli fonksiyon: çağrı çizgesinde döngü (ADR-0081)
 
 W4001  Kullanılmayan sinyal (_ öneki ile susturulur)
 W4002  Yazılıp hiç okunmayan register
