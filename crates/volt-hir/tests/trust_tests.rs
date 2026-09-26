@@ -535,3 +535,25 @@ fn struct_register_fed_only_by_public_fields_stays_free() {
     );
     assert!(codes(&src).is_empty(), "{:?}", codes(&src));
 }
+
+// ═══ ADR-0083 Karar 8 — muhafızın örtük akışı ═════════════════════
+
+#[test]
+fn implicit_flow_through_a_match_guard_is_e3009() {
+    let stmt = with_domains(
+        "module M {\n    in  clk : clock\n    in  a : u2 @Debug\n    in  key : u8 @SecureCore\n    reg(Debug) dbg_r : bool = false\n    on clk {\n        match a {\n            0 if key[0] => { dbg_r <= true }\n            _ => { dbg_r <= false }\n        }\n    }\n}",
+    );
+    assert_eq!(count(&stmt, "E3009"), 1);
+    let expr = with_domains(
+        "module M {\n    in  a : u2 @Debug\n    in  key : u8 @SecureCore\n    out dbg : bool @Debug\n    dbg = match a { 0 if key[0] => true, _ => false }\n}",
+    );
+    assert_eq!(codes(&expr), vec!["E3009"]);
+}
+
+#[test]
+fn a_public_match_guard_is_free() {
+    let src = with_domains(
+        "module M {\n    in  a : u2 @Debug\n    out dbg : bool @Debug\n    dbg = match a { 0 if a[1] => true, _ => false }\n}",
+    );
+    assert!(codes(&src).is_empty(), "{:?}", codes(&src));
+}

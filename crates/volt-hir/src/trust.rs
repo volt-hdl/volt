@@ -368,11 +368,16 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee = *scrutinee;
+                // Muhafız seçime katılır: sonuç onun bilgisini de taşır
+                // (ADR-0083 Karar 8).
                 let arm_exprs: Vec<Idx<Expr>> = arms
                     .iter()
-                    .filter_map(|a| match &a.body {
-                        MatchArmBody::Expr(e) => Some(*e),
-                        MatchArmBody::Block(_) => None,
+                    .flat_map(|a| {
+                        let body = match &a.body {
+                            MatchArmBody::Expr(e) => Some(*e),
+                            MatchArmBody::Block(_) => None,
+                        };
+                        a.guard.into_iter().chain(body)
                     })
                     .collect();
                 let mut tag = self.expr_tag(scrutinee);
@@ -487,6 +492,14 @@ impl<'a> Checker<'a> {
                     let s = self.expr_tag(mt.scrutinee);
                     let pc = join(pc, s);
                     for arm in &mt.arms {
+                        // Muhafızın koşulu da kolun `pc`'sidir (örtük akış).
+                        let pc = match arm.guard {
+                            Some(g) => {
+                                let t = self.expr_tag(g);
+                                join(pc, t)
+                            }
+                            None => pc,
+                        };
                         match &arm.body {
                             MatchArmBody::Block(b) => self.walk_block(*b, pc),
                             MatchArmBody::Expr(e) => {

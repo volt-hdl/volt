@@ -942,3 +942,94 @@ fn w3003_lists_async_dual_port_ram_for_random_access_data() {
         assert!(help.contains(alt), "{alt} eksik: {help}");
     }
 }
+
+// ═══ ADR-0083 Karar 8 — `comb` koşulunun örtük akışı (K5) ═════════
+
+/// Yalnız saat alanı tanıları (E3001/E3012); port uyarıları gürültüdür.
+fn cdc_codes(body: &str) -> Vec<&'static str> {
+    codes(&two_clock_module(body))
+        .into_iter()
+        .filter(|c| matches!(*c, "E3001" | "E3012"))
+        .collect()
+}
+
+const FLOW_PORTS: &str = "    in  fs : bool @Fast\n    in  fv : u2 @Fast\n    \
+                          in  sa : u8 @Slow\n    in  sb : bool @Slow\n    out y : u8 @Slow\n";
+
+#[test]
+fn comb_if_condition_from_a_foreign_domain_is_e3001() {
+    // `comb { if fs { y = sa } else { y = 0 } }` ≡ `y = if fs { sa } else { 0 }`
+    // — ikisi de aynı donanım, ikisi de E3001 (ADR-0083 §2.2).
+    let stmt = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ if fs {{ y = sa }} else {{ y = 0 }} }}"
+    ));
+    assert!(
+        !stmt.is_empty() && stmt.iter().all(|c| *c == "E3001"),
+        "{stmt:?}"
+    );
+    let expr = cdc_codes(&format!("{FLOW_PORTS}    y = if fs {{ sa }} else {{ 0 }}"));
+    assert_eq!(expr, ["E3001"]);
+}
+
+#[test]
+fn comb_constant_under_a_foreign_condition_is_e3001() {
+    // Sağ taraf sabit olsa da değer koşulu taşır.
+    let c = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ y = 0; if fs {{ y = 1 }} }}"
+    ));
+    assert_eq!(c, ["E3001"]);
+}
+
+#[test]
+fn comb_match_scrutinee_from_a_foreign_domain_is_e3001() {
+    let c = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ match fv {{ 0 => {{ y = sa }}, _ => {{ y = 0 }} }} }}"
+    ));
+    assert!(!c.is_empty() && c.iter().all(|c| *c == "E3001"), "{c:?}");
+}
+
+#[test]
+fn comb_nested_and_else_if_conditions_are_joined() {
+    let nested = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ if sb {{ if fs {{ y = 1 }} else {{ y = 0 }} }} else {{ y = 0 }} }}"
+    ));
+    assert_eq!(nested, ["E3001"]);
+    let else_if = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ if sb {{ y = sa }} else if fs {{ y = 1 }} else {{ y = 0 }} }}"
+    ));
+    assert_eq!(else_if, ["E3001"]);
+}
+
+#[test]
+fn comb_for_body_carries_the_condition() {
+    let c = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ for i in 0..4 {{ if fs {{ y = sa }} else {{ y = 0 }} }} }}"
+    ));
+    assert!(!c.is_empty() && c.iter().all(|c| *c == "E3001"), "{c:?}");
+}
+
+#[test]
+fn comb_same_domain_condition_is_clean() {
+    let c = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ if sb {{ y = sa }} else {{ y = 0 }} }}"
+    ));
+    assert!(c.is_empty(), "{c:?}");
+}
+
+#[test]
+fn match_guard_domain_is_checked_in_comb_and_on() {
+    // Muhafız da seçimdir (ADR-0083 Karar 8 madde 2): `comb`'da E3001,
+    // `on`'da E3012.
+    let comb = cdc_codes(&format!(
+        "{FLOW_PORTS}    comb {{ match sa {{ 0 if fs => {{ y = 1 }}, _ => {{ y = 0 }} }} }}"
+    ));
+    assert_eq!(comb, ["E3001"]);
+    let on = cdc_codes(&format!(
+        "{FLOW_PORTS}    reg q : u8 = 0\n    on slow_clk {{ match sa {{ 0 if fs => {{ q <= 1 }}, _ => {{ q <= 0 }} }} }}\n    y = q"
+    ));
+    assert_eq!(on, ["E3012"]);
+    let expr = cdc_codes(&format!(
+        "{FLOW_PORTS}    y = match sa {{ 0 if fs => 1, _ => 0 }}"
+    ));
+    assert_eq!(expr, ["E3001"]);
+}

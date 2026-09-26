@@ -144,11 +144,16 @@ impl Inferencer<'_> {
     fn match_domain(&mut self, scrutinee: Idx<Expr>, arms: &[MatchArm]) -> DomainId {
         let mut dom = self.expr_domain(scrutinee);
         let s_span = self.ast.exprs[scrutinee].span;
+        // Muhafız da seçimdir: sonuç sınanan ⊔ muhafızlar ⊔ kollar
+        // (ADR-0083 Karar 8).
         let arm_exprs: Vec<Idx<Expr>> = arms
             .iter()
-            .filter_map(|a| match &a.body {
-                MatchArmBody::Expr(e) => Some(*e),
-                MatchArmBody::Block(_) => None,
+            .flat_map(|a| {
+                let body = match &a.body {
+                    MatchArmBody::Expr(e) => Some(*e),
+                    MatchArmBody::Block(_) => None,
+                };
+                a.guard.into_iter().chain(body)
             })
             .collect();
         for a in arm_exprs {

@@ -34,14 +34,14 @@ impl Inferencer<'_> {
             StmtKind::Instance(inst) => self.check_instance(inst),
             StmtKind::On(on) => {
                 let (dom, span) = self.on_block_domain(&on.trigger);
-                self.walk_block(on.body, Some((dom, span)));
+                self.walk_block(on.body, Some((dom, span)), None);
             }
-            StmtKind::Comb(block) => self.walk_block(*block, None),
-            StmtKind::Assign(a) => self.check_assign(&a.lhs, a.rhs, None),
+            StmtKind::Comb(block) => self.walk_block(*block, None, None),
+            StmtKind::Assign(a) => self.check_assign(&a.lhs, a.rhs, None, None),
             StmtKind::For(f) => {
                 self.expr_domain(f.start);
                 self.expr_domain(f.end);
-                self.walk_block(f.body, None);
+                self.walk_block(f.body, None, None);
             }
             StmtKind::Expr(e) => {
                 self.expr_domain(*e);
@@ -50,21 +50,37 @@ impl Inferencer<'_> {
         }
     }
 
-    fn walk_block(&mut self, block_idx: Idx<Block>, ctx: Option<(DomainId, Span)>) {
+    /// `ctx`: 'on' bloğunun alanı (K7, E3012). `pc`: 'on' dışındaki
+    /// (`comb`, modül `for`'u) dalların koşul alanı — koşula bağlı her
+    /// atama koşulun alanını taşır (K5, ADR-0083 Karar 8).
+    fn walk_block(
+        &mut self,
+        block_idx: Idx<Block>,
+        ctx: Option<(DomainId, Span)>,
+        pc: Option<(DomainId, Span)>,
+    ) {
         let block = &self.ast.blocks[block_idx];
         for stmt in &block.stmts {
             match stmt {
                 BlockStmt::NonBlockAssign { lhs, rhs, .. }
-                | BlockStmt::BlockAssign { lhs, rhs, .. } => self.check_assign(lhs, *rhs, ctx),
-                BlockStmt::If(if_stmt) => self.walk_if(if_stmt, ctx),
+                | BlockStmt::BlockAssign { lhs, rhs, .. } => {
+                    self.check_assign(lhs, *rhs, ctx, pc);
+                }
+                BlockStmt::If(if_stmt) => self.walk_if(if_stmt, ctx, pc),
                 BlockStmt::Match(mt) => {
                     let dom = self.expr_domain(mt.scrutinee);
-                    if let Some(ctx) = ctx {
-                        self.check_foreign_read(dom, self.ast.exprs[mt.scrutinee].span, ctx);
-                    }
+                    let s_span = self.ast.exprs[mt.scrutinee].span;
+                    let pc = self.branch_pc(dom, s_span, ctx, pc);
                     for arm in &mt.arms {
+                        let pc = match arm.guard {
+                            Some(g) => {
+                                let gd = self.expr_domain(g);
+                                self.branch_pc(gd, self.ast.exprs[g].span, ctx, pc)
+                            }
+                            None => pc,
+                        };
                         match &arm.body {
-                            MatchArmBody::Block(b) => self.walk_block(*b, ctx),
+                            MatchArmBody::Block(b) => self.walk_block(*b, ctx, pc),
                             MatchArmBody::Expr(e) => {
                                 self.expr_domain(*e);
                             }
@@ -80,7 +96,7 @@ impl Inferencer<'_> {
                 BlockStmt::For(f) => {
                     self.expr_domain(f.start);
                     self.expr_domain(f.end);
-                    self.walk_block(f.body, ctx);
+                    self.walk_block(f.body, ctx, pc);
                 }
                 BlockStmt::Error => {}
             }
@@ -90,16 +106,39 @@ impl Inferencer<'_> {
         }
     }
 
-    fn walk_if(&mut self, if_stmt: &IfStmt, ctx: Option<(DomainId, Span)>) {
+    fn walk_if(
+        &mut self,
+        if_stmt: &IfStmt,
+        ctx: Option<(DomainId, Span)>,
+        pc: Option<(DomainId, Span)>,
+    ) {
         let dom = self.expr_domain(if_stmt.cond);
-        if let Some(ctx) = ctx {
-            self.check_foreign_read(dom, self.ast.exprs[if_stmt.cond].span, ctx);
-        }
-        self.walk_block(if_stmt.then_block, ctx);
+        let pc = self.branch_pc(dom, self.ast.exprs[if_stmt.cond].span, ctx, pc);
+        self.walk_block(if_stmt.then_block, ctx, pc);
         match &if_stmt.else_branch {
-            Some(ElseBranch::Block(b)) => self.walk_block(*b, ctx),
-            Some(ElseBranch::If(nested)) => self.walk_if(nested, ctx),
+            Some(ElseBranch::Block(b)) => self.walk_block(*b, ctx, pc),
+            Some(ElseBranch::If(nested)) => self.walk_if(nested, ctx, pc),
             None => {}
+        }
+    }
+
+    /// Dal koşulu (`if` koşulu, sınanan, muhafız): 'on' bloğunda yabancı
+    /// alan E3012 (K7); dışında koşulun alanı `pc`'ye `join` edilir (K5 —
+    /// iç içe koşulların karışması da E3001'dir).
+    fn branch_pc(
+        &mut self,
+        dom: DomainId,
+        span: Span,
+        ctx: Option<(DomainId, Span)>,
+        pc: Option<(DomainId, Span)>,
+    ) -> Option<(DomainId, Span)> {
+        if let Some(ctx) = ctx {
+            self.check_foreign_read(dom, span, ctx);
+            return None;
+        }
+        match pc {
+            None => Some((dom, span)),
+            Some((p, p_span)) => Some((self.join(p, dom, p_span, span), span)),
         }
     }
 }
