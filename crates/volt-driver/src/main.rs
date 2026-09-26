@@ -185,7 +185,7 @@ enum Command {
     #[command(after_help = "EXAMPLES:
     volt verify design.volt
     volt verify --mode prove design.volt
-    volt verify --depth 40 --engine boolector design.volt
+    volt verify --depth 40 --engine bitwuzla design.volt
     volt verify -j 8 examples/soc/top.volt
     volt verify -j 1 --fail-fast design.volt")]
     Verify {
@@ -200,8 +200,8 @@ enum Command {
         /// Stop at the first counterexample (default: every module task completes)
         #[arg(long)]
         fail_fast: bool,
-        /// SMT engine: z3 | boolector | yices
-        #[arg(long, value_enum, default_value_t = EngineArg::Z3)]
+        /// SMT solver: boolector | bitwuzla | yices | z3 (ADR-0082)
+        #[arg(long, value_enum, default_value_t = EngineArg::Boolector)]
         engine: EngineArg,
         /// Verification mode: bmc | prove | cover
         #[arg(long, value_enum, default_value_t = VerifyModeArg::Bmc)]
@@ -353,9 +353,10 @@ impl SdcStyleArg {
 /// `volt verify --engine` (F4b) — sby'ye geçen SMT çözücüsü.
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum EngineArg {
-    Z3,
     Boolector,
+    Bitwuzla,
     Yices,
+    Z3,
 }
 
 impl From<EngineArg> for SbyEngine {
@@ -364,6 +365,7 @@ impl From<EngineArg> for SbyEngine {
             EngineArg::Z3 => SbyEngine::Z3,
             EngineArg::Boolector => SbyEngine::Boolector,
             EngineArg::Yices => SbyEngine::Yices,
+            EngineArg::Bitwuzla => SbyEngine::Bitwuzla,
         }
     }
 }

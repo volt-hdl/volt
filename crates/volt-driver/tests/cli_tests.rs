@@ -917,7 +917,7 @@ fn verify_without_sby_prints_install_help_exit_3() {
     assert!(stderr.contains("SymbiYosys not found"), "stderr: {stderr}");
     assert!(stderr.contains("= reason:"), "stderr: {stderr}");
     assert!(
-        stderr.contains("apt install yosys z3, then pip install symbiyosys"),
+        stderr.contains("apt install yosys boolector, then pip install symbiyosys"),
         "stderr: {stderr}"
     );
     assert!(
@@ -961,6 +961,40 @@ fn verify_without_sby_turkish_install_help() {
     let _ = std::fs::remove_dir_all(&target);
 }
 
+/// ADR-0082: her `--engine` değeri `.sby`'ye tek `smtbmc <çözücü>` satırı
+/// olarak yazılır (portföy yok); varsayılan boolector.
+#[test]
+fn verify_engine_flag_writes_one_smtbmc_line_per_solver() {
+    for (flag, line) in [
+        (None, "smtbmc boolector"),
+        (Some("boolector"), "smtbmc boolector"),
+        (Some("bitwuzla"), "smtbmc bitwuzla"),
+        (Some("yices"), "smtbmc yices"),
+        (Some("z3"), "smtbmc z3"),
+    ] {
+        let target = temp_dir(&format!("verify-engine-{}", flag.unwrap_or("default")));
+        let mut cmd = volt();
+        cmd.args(["verify", "--target-dir"]).arg(&target);
+        if let Some(e) = flag {
+            cmd.args(["--engine", e]);
+        }
+        let output = cmd
+            .arg(ui("pass/23_provable_invariant.volt"))
+            .env("PATH", "")
+            .env_remove("VOLT_SBY")
+            .output()
+            .expect("volt çalışmalı");
+        assert_eq!(output.status.code(), Some(3), "{flag:?}: sby yok → 3");
+        let sby = std::fs::read_to_string(target.join("formal").join("23_provable_invariant.sby"))
+            .expect(".sby");
+        assert!(
+            sby.contains(&format!("[engines]\n{line}\n\n[script]")),
+            "{flag:?}: {sby}"
+        );
+        let _ = std::fs::remove_dir_all(&target);
+    }
+}
+
 #[test]
 fn verify_writes_sby_and_formal_sv_before_tool_lookup() {
     // Yapıtlar sby aranmadan ÖNCE üretilir — sby'siz ortam da .sby görür.
@@ -983,7 +1017,7 @@ fn verify_writes_sby_and_formal_sv_before_tool_lookup() {
         sby.starts_with("[tasks]\nboundedcounter\n\n[options]\nmode bmc\ndepth 20\n"),
         "{sby}"
     );
-    assert!(sby.contains("[engines]\nsmtbmc z3\n"), "{sby}");
+    assert!(sby.contains("[engines]\nsmtbmc boolector\n"), "{sby}");
     assert!(
         sby.contains("read -formal 23_provable_invariant.sv"),
         "{sby}"
@@ -1263,6 +1297,13 @@ fn explain_verify_setup_topic_exit_0() {
         "stdout: {stdout}"
     );
     assert!(stdout.contains("VOLT_SBY"), "stdout: {stdout}");
+    // ADR-0082: varsayılan çözücü ve seçim yolu.
+    assert!(stdout.contains("boolector (default)"), "stdout: {stdout}");
+    assert!(stdout.contains("SOLVERS"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("apt install yosys boolector"),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -1275,6 +1316,11 @@ fn explain_verify_setup_turkish() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("KURULUM"), "stdout: {stdout}");
     assert!(stdout.contains("WSL ya da Docker"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("boolector (varsayılan)"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("ÇÖZÜCÜLER"), "stdout: {stdout}");
 }
 
 #[test]

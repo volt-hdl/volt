@@ -5,6 +5,26 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — varsayılan formal motoru boolector (2026-09-26, ADR-0082)
+
+- **`volt verify` varsayılan çözücüsü z3 → boolector.** 62 kontratlı
+  tasarım × bmc/prove/cover × 4 çözücü (OSS CAD Suite 2026-09-21, 120 sn
+  sınır) ölçüldü: toplam süre bmc 1026 → 435 s, prove 1028 → 529 s, cover
+  550 → 133 s; zaman aşımı z3'te 15, boolector'de 4. Kararlar
+  (PASS/FAIL/UNKNOWN), karşı örnek döngüleri ve cover adımları dört
+  çözücüde aynı (tek istisna ADR-0082'de: prove UNKNOWN'da adlandırılan
+  kontrat çözücüye bağlı).
+- **`--engine bitwuzla`** eklendi: büyük tasarımlarda en hızlısı
+  (`riscv_pipeline` bmc d20: z3 zaman aşımı, boolector 99 s, bitwuzla 6 s)
+  ama apt'de ve hdlc/formal'da yok — bu yüzden varsayılan değil.
+- Seçilen çözücü kurulu değilse (ör. eski belgeye göre yalnız z3 kurulu)
+  araç hatası artık çözücüyü adlandırır ve `--engine` önerir.
+- `volt explain verify-setup`: çözücüler bölümü, kurulum `apt install yosys
+  boolector`. Zaman aşımı yardımı bitwuzla'yı önerir.
+- Değerlendirilip reddedilen: sby çok motorlu portföyü (`-j` < görev×motor
+  iken askıda kalıyor, `-j 1` dahil — ölçüldü) ve tasarıma göre otomatik
+  seçim (öngörücü yok; kazanan tasarım büyüklüğüyle değişiyor).
+
 ### Düzeltildi — fn kütüphane dosyaları ve çıktı kümesi (2026-09-26, ADR-0042 Ek)
 
 - **Yalnız fn/const/tip içeren dosya artık SV yazmıyor.** Önce modülsüz,

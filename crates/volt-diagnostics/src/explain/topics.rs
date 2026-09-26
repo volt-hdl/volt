@@ -81,12 +81,25 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "WHAT YOU NEED",
                     "  yosys          synthesis front-end\n\
                      \x20 sby            SymbiYosys verification driver\n\
-                     \x20 an SMT solver  z3 (default), boolector or yices",
+                     \x20 an SMT solver  boolector (default), bitwuzla, yices or z3",
+                ),
+                (
+                    "SOLVERS",
+                    "Pick one with --engine. Across every example and ui/pass design \
+                     (ADR-0082) the solvers gave the same pass/fail/unknown verdicts and \
+                     the same counterexample cycles; only the time differed (and, in prove \
+                     mode, which non-inductive contract an 'unknown' report names first).\n\n\
+                     \x20 boolector  default: fast, and in apt, hdlc/formal and OSS CAD Suite\n\
+                     \x20 bitwuzla   often fastest on large designs (CPU cores, pipelines); OSS CAD Suite\n\
+                     \x20 yices      fast on small designs; OSS CAD Suite, hdlc/formal\n\
+                     \x20 z3         2-4x slower than the others here; kept for compatibility\n\n\
+                     If sby reports that the solver is not installed, install it or pass \
+                     --engine with one that is.",
                 ),
                 (
                     "INSTALL",
                     "Linux:\n\
-                     \x20 apt install yosys z3\n\
+                     \x20 apt install yosys boolector\n\
                      \x20 pip install symbiyosys\n\n\
                      Docker:\n\
                      \x20 docker pull hdlc/formal\n\
@@ -116,12 +129,25 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "GEREKENLER",
                     "  yosys          sentez ön ucu\n\
                      \x20 sby            SymbiYosys doğrulama sürücüsü\n\
-                     \x20 bir SMT çözücü z3 (varsayılan), boolector ya da yices",
+                     \x20 bir SMT çözücü boolector (varsayılan), bitwuzla, yices ya da z3",
+                ),
+                (
+                    "ÇÖZÜCÜLER",
+                    "--engine ile seçilir. Her örnekte ve ui/pass tasarımında (ADR-0082) \
+                     çözücüler aynı geçti/başarısız/bilinmiyor kararını ve aynı karşı örnek \
+                     döngüsünü verdi; yalnız süre farklıydı (bir de prove kipinde 'bilinmiyor' \
+                     raporunun ilk adlandırdığı tümevarımsal olmayan kontrat).\n\n\
+                     \x20 boolector  varsayılan: hızlı; apt, hdlc/formal ve OSS CAD Suite'te var\n\
+                     \x20 bitwuzla   büyük tasarımlarda (işlemci çekirdeği, boru hattı) çoğu zaman en hızlısı; OSS CAD Suite\n\
+                     \x20 yices      küçük tasarımlarda hızlı; OSS CAD Suite, hdlc/formal\n\
+                     \x20 z3         burada diğerlerinden 2-4 kat yavaş; uyumluluk için duruyor\n\n\
+                     sby çözücünün kurulu olmadığını söylerse kurun ya da kurulu olanı \
+                     --engine ile verin.",
                 ),
                 (
                     "KURULUM",
                     "Linux:\n\
-                     \x20 apt install yosys z3\n\
+                     \x20 apt install yosys boolector\n\
                      \x20 pip install symbiyosys\n\n\
                      Docker:\n\
                      \x20 docker pull hdlc/formal\n\

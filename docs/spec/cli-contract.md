@@ -641,7 +641,8 @@ SEÇENEKLER:
         --fail-fast      İlk karşı örnekte dur (varsayılan: her görev tamamlanır)
         --mode=<m>       bmc | prove | cover           (varsayılan: bmc)
         --depth=<N>      Arama derinliği               (varsayılan: 20)
-        --engine=<e>     z3 | boolector | yices        (varsayılan: z3)
+        --engine=<e>     boolector | bitwuzla | yices | z3
+                                                       (varsayılan: boolector; ADR-0082)
         --timeout=<sn>   Görev başına süre sınırı      (varsayılan: yok; ADR-0075)
 ```
 
@@ -658,6 +659,15 @@ build/formal/
 ```
 
 Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde).
+
+**Motor (ADR-0082):** `.sby`'nin `[engines]` bölümü tek satırdır:
+`smtbmc <çözücü>`. Varsayılan boolector (ölçüm: z3'ün 2-4 katı hızlı ve
+apt / hdlc/formal / OSS CAD Suite'in hepsinde var). Seçilen çözücü sby'nin
+çalıştığı yerde kurulu değilse görev araç hatasıdır (çıkış 3) ve volt
+çözücüyü adlandırır: `= reason: the SMT solver '<ad>' is not installed
+where sby runs` + `--engine` önerisi. Çok motorlu sby portföyü (birden çok
+`smtbmc` satırı) KULLANILMAZ: sby'nin iş sunucusu `-j` < görev×motor
+iken askıda kalır (ADR-0082 ölçümü).
 
 ### İlerleme ve determinizm
 
@@ -694,7 +704,7 @@ Tek görevi elle yinelemek: `sby -f <iş>.sby <görev>` (`build/formal/` içinde
 
 ```json
 "verify": {
-  "mode": "bmc", "depth": 12, "engine": "z3", "jobs": 8, "fail_fast": false,
+  "mode": "bmc", "depth": 12, "engine": "boolector", "jobs": 8, "fail_fast": false,
   "modules": [
     { "module": "SocTop", "task": "soctop", "status": "pass",
       "properties": 19, "duration_ms": 11614 }

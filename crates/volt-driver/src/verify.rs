@@ -314,6 +314,9 @@ pub(crate) fn verify(
                     &formal_dir,
                     report.exit_code,
                 );
+                if let Some(solver) = missing_solver(&result.log) {
+                    print_missing_solver(&solver);
+                }
             }
         }
         outcomes.push(ModuleOutcome {
@@ -485,6 +488,41 @@ fn print_tool_error(
     );
 }
 
+/// yosys-smtbmc'nin "çözücü yok" satırı (ADR-0082): `SMT Solver
+/// 'boolector' not found in path.` → `boolector`. Varsayılan motor
+/// değişince eski kurulumda (yalnız z3) ilk görülen hata budur.
+fn missing_solver(log: &str) -> Option<String> {
+    log.lines().find_map(|line| {
+        let rest = &line[line.find("SMT Solver ")? + "SMT Solver ".len()..];
+        if !rest.contains("not found in path") {
+            return None;
+        }
+        let name: String = rest
+            .trim_start_matches('\'')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        (!name.is_empty()).then_some(name)
+    })
+}
+
+/// Eksik çözücü için yardım: kur ya da kurulu olanı `--engine` ile seç.
+fn print_missing_solver(solver: &str) {
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "  = reason: the SMT solver '{solver}' is not installed where sby runs\n  \
+                 = help: install it, or pick an installed solver with \
+                 --engine boolector|bitwuzla|yices|z3\n  \
+                 = for more: volt explain verify-setup";
+            tr: "  = neden: '{solver}' SMT çözücüsü sby'nin çalıştığı yerde kurulu değil\n  \
+                 = çözüm: kurun ya da kurulu bir çözücüyü \
+                 --engine boolector|bitwuzla|yices|z3 ile seçin\n  \
+                 = daha fazla: volt explain verify-setup"
+        )
+    );
+}
+
 /// sby `DONE (TIMEOUT)`: süre doldu, sonuç yok (çıkış 8).
 fn print_timeout(module: &str, timeout: Option<u32>) {
     let after = timeout
@@ -495,10 +533,10 @@ fn print_timeout(module: &str, timeout: Option<u32>) {
         lstr!(
             en: "error: SymbiYosys timed out for module '{module}'{after} (sby status TIMEOUT)\n  \
                  = note: no result either way — the contracts were neither proven nor refuted\n  \
-                 = help: raise --timeout, lower --depth, or try another --engine (boolector is often faster)";
+                 = help: raise --timeout, lower --depth, or try another --engine (bitwuzla is often fastest on large designs)";
             tr: "hata: SymbiYosys '{module}' modülü için{after} zaman aşımına uğradı (sby durumu TIMEOUT)\n  \
                  = not: iki yönde de sonuç yok — kontratlar ne kanıtlandı ne çürütüldü\n  \
-                 = çözüm: --timeout değerini artırın, --depth değerini düşürün ya da başka bir --engine deneyin (boolector çoğu zaman daha hızlı)"
+                 = çözüm: --timeout değerini artırın, --depth değerini düşürün ya da başka bir --engine deneyin (büyük tasarımlarda çoğu zaman en hızlısı bitwuzla)"
         )
     );
 }
@@ -540,7 +578,7 @@ fn print_sby_not_found() {
             en: "error: SymbiYosys not found\n\n  \
                  = reason: 'volt verify' uses SymbiYosys for formal verification\n  \
                  = help: install options:\n      \
-                 Linux:   apt install yosys z3, then pip install symbiyosys\n      \
+                 Linux:   apt install yosys boolector, then pip install symbiyosys\n      \
                  Docker:  docker pull hdlc/formal\n      \
                  Windows: use WSL or Docker\n  \
                  = note: 'volt build' and 'volt check' do not need SymbiYosys\n  \
@@ -548,7 +586,7 @@ fn print_sby_not_found() {
             tr: "hata: SymbiYosys bulunamadı\n\n  \
                  = neden: 'volt verify' formal doğrulama için SymbiYosys kullanır\n  \
                  = çözüm: kurulum seçenekleri:\n      \
-                 Linux:   apt install yosys z3, ardından pip install symbiyosys\n      \
+                 Linux:   apt install yosys boolector, ardından pip install symbiyosys\n      \
                  Docker:  docker pull hdlc/formal\n      \
                  Windows: WSL ya da Docker kullanın\n  \
                  = not: 'volt build' ve 'volt check' SymbiYosys gerektirmez\n  \
@@ -946,6 +984,21 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
             interpret_sby_output("SBY 16:34:57 [e_shadow] DONE (ERROR, rc=16)\n"),
             SbyOutcome::Error
         );
+    }
+
+    #[test]
+    fn missing_solver_is_read_from_the_smtbmc_line() {
+        let log = "SBY 18:04:50 [t_m] engine_0: ##   0:00:00  Solver: bitwuzla\n\
+                   SBY 18:04:50 [t_m] engine_0: ##   0:00:00  SMT Solver 'bitwuzla' not found in path.\n\
+                   SBY 18:04:50 [t_m] DONE (ERROR, rc=16)\n";
+        assert_eq!(missing_solver(log).as_deref(), Some("bitwuzla"));
+        // Kabuk tırnakları yutmuş olabilir (sahte sby, eski sürümler).
+        assert_eq!(
+            missing_solver("SMT Solver yices not found in path.").as_deref(),
+            Some("yices")
+        );
+        assert_eq!(missing_solver("SBY [t_m] DONE (ERROR, rc=16)\n"), None);
+        assert_eq!(missing_solver("SMT Solver 'z3' returned an error"), None);
     }
 
     #[test]

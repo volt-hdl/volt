@@ -545,7 +545,7 @@ fn json_has_per_property_status_and_duration() {
     assert_eq!(v["verify"]["jobs"], 4);
     assert_eq!(v["verify"]["mode"], "bmc");
     assert_eq!(v["verify"]["depth"], 20);
-    assert_eq!(v["verify"]["engine"], "z3");
+    assert_eq!(v["verify"]["engine"], "boolector");
     let props = v["verify"]["properties"].as_array().expect("properties");
     assert_eq!(props.len(), 3);
     for p in props {
