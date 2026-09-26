@@ -52,6 +52,8 @@ error_codes! {
     E2011, E2012,
     // Struct bildirimi ve literali (ADR-0077)
     E2013, E2014,
+    // Fonksiyon sonucu ve saflığı (ADR-0081)
+    E2015, E2016,
 
     // ─── Sabit değerlendirme (const-eval.md) ───
     E2020, E2021, E2022, E2023, E2024, E2025, E2026, E2027, E2028, E2029,
@@ -61,6 +63,8 @@ error_codes! {
     // ─── Saat/sıfırlama alanları (domain-inference.md) ───
     E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009, E3010,
     E3011, E3012, E3013, E3014,
+    // fn gövdesinde declassify (ADR-0081)
+    E3015,
 
     // ─── Bağlantı/sürücü (type-inference.md) + bundle düzleştirme
     //     sınırları (ADR-0067: E4009 özyineli bundle, E4010 bütçe)
@@ -69,6 +73,8 @@ error_codes! {
     E4011,
     // Sürülmeyen struct alanı / eksik bit kapsamı (ADR-0077)
     E4012,
+    // Özyineli fonksiyon (ADR-0081)
+    E4013,
 
     // ─── Davranışsal kontratlar (contracts) + L1 zamanlama (ADR-0037)
     //     + L2 pipeline sözdizimi (ADR-0038: E5011–E5016)

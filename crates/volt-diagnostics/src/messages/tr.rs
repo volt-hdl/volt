@@ -61,6 +61,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2012 => "Register tipi belirlenemiyor",
         E2013 => "Geçersiz struct bildirimi: alansız struct, alanda saat alanı notasyonu ya da alan tipi olarak 'struct port' bundle'ı (ADR-0077)",
         E2014 => "Struct literalinde eksik ya da iki kez verilmiş alan (ADR-0077)",
+        E2015 => "Fonksiyonun sonucu yok: dönüş tipi yazılmamış ya da gövde son ifadeyle bitmiyor (ADR-0081)",
+        E2016 => "Fonksiyon kombinasyonel değil: gövdede reg, on, comb, atama, örnek ya da sync(); imzada clock/reset (ADR-0081)",
 
         // ─── Sabit değerlendirme (const-eval.md) ───
         E2020 => "Döngüsel sabit bağımlılığı",
@@ -90,6 +92,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3012 => "'on' bloğunda yabancı domain sinyali okunuyor",
         E3013 => "Bundle alanları farklı saat alanlarında çıkarıldı (ADR-0039)",
         E3014 => "Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)",
+        E3015 => "Fonksiyon gövdesinde declassify (ADR-0081)",
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => "Çift sürücü",
@@ -104,6 +107,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4010 => "Bundle düzleştirme bütçesi aşıldı: bir modülde 4096'dan çok düz port ya da 8'den derin iç içelik (ADR-0067)",
         E4011 => "Örnek portu bağlantı hatası: giriş ya da saat bağlanmamış, çıkış ya da çift yönlü port yanlış bağlanmış, üst modülde reset yok ya da örnek portu dışarıdan sürülüyor (ADR-0072)",
         E4012 => "Sinyalin bir kısmı hiç sürülmüyor: parça parça atanan struct'ın bir alanı ya da vektörün bazı bitleri (ADR-0077)",
+        E4013 => "Özyineli fonksiyon: fonksiyon kendini doğrudan ya da başka fonksiyonlar üzerinden çağırıyor (ADR-0081)",
 
         // ─── Davranışsal kontratlar ───
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",

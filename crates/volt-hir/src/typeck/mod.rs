@@ -19,6 +19,7 @@
 //! | `stmt`     | modül gövdesi, reg/let, bloklar, atama         | §6           |
 //! | `instance` | modül ve yerleşik primitif örneklemesi         | §6           |
 //! | `contract` | kontrat ifadesi ve kapsamı                     | F4a          |
+//! | `func`     | fn imzası, gövdesi ve çağrısı (ADR-0081)       | §3.8         |
 //! | `width`    | tam sayı aralığı buluşması, genişlik sınırları | §1, §3.3     |
 //! | `diag`     | ortak tanı yardımcıları                        | §7, §8       |
 //!
@@ -31,6 +32,7 @@ mod check;
 mod contract;
 mod diag;
 mod enums;
+mod func;
 mod gated;
 mod instance;
 mod matching;
@@ -85,6 +87,8 @@ pub fn typecheck<'a>(
         next_group: 0,
         loop_bounds: HashMap::new(),
         coverage: HashMap::new(),
+        fn_sigs: HashMap::new(),
+        in_fn: false,
     };
     checker.run();
     TypeckResult {
@@ -117,6 +121,10 @@ struct TypeChecker<'a, 'ev> {
     loop_bounds: HashMap<DefId, (u32, u32)>,
     /// Parça parça sürülen sinyallerin kapsam bilgisi (E4012, ADR-0077).
     coverage: HashMap<DefId, Coverage>,
+    /// fn imzaları (ADR-0081) — çağrı tanımdan önce gelebilir.
+    fn_sigs: HashMap<DefId, func::FnSig>,
+    /// fn gövdesi denetleniyor: `let` sürücü kaydı yapılmaz.
+    in_fn: bool,
 }
 
 impl TypeChecker<'_, '_> {
@@ -135,6 +143,7 @@ impl TypeChecker<'_, '_> {
             match &ast.items_arena[item_idx].kind {
                 ItemKind::Module(m) => self.check_module(m),
                 ItemKind::Extern(x) => self.type_extern_ports(x),
+                ItemKind::Fn(f) => self.check_fn(f),
                 _ => {}
             }
         }

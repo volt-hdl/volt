@@ -61,6 +61,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2012 => "Register type cannot be determined",
         E2013 => "Invalid struct declaration: no fields, a clock-domain annotation on a field, or a 'struct port' bundle as a field type (ADR-0077)",
         E2014 => "Struct literal is missing a field or sets a field twice (ADR-0077)",
+        E2015 => "Function has no result: the return type is missing or the body does not end with a final expression (ADR-0081)",
+        E2016 => "Function is not combinational: reg, on, comb, an assignment, an instance or sync() in the body, or a clock/reset in the signature (ADR-0081)",
 
         // ─── Constant evaluation (const-eval.md) ───
         E2020 => "Cyclic constant dependency",
@@ -90,6 +92,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3012 => "Foreign-domain signal read inside an 'on' block",
         E3013 => "Bundle fields inferred in different clock domains (ADR-0039)",
         E3014 => "Same symbolic domain bound to two different clocks (ADR-0047)",
+        E3015 => "declassify inside a function body (ADR-0081)",
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => "Double driver",
@@ -104,6 +107,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E4010 => "Bundle flattening budget exceeded: more than 4096 flat ports in one module or nesting deeper than 8 levels (ADR-0067)",
         E4011 => "Instance port connection error: input or clock not bound, output or bidirectional port bound wrongly, missing reset in the parent, or an instance port driven from outside (ADR-0072)",
         E4012 => "Part of a signal is never driven: a struct field or some bits of a vector assigned piece by piece (ADR-0077)",
+        E4013 => "Recursive function: a function calls itself, directly or through other functions (ADR-0081)",
 
         // ─── Behavioral contracts ───
         E5001 => "Contract violated (formal verification found a counterexample)",
