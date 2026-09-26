@@ -9,6 +9,7 @@
 pub mod arena;
 pub mod builtin;
 pub mod enum_layout;
+pub mod graph;
 pub mod match_cover;
 pub mod mmio;
 pub mod mmio_names;

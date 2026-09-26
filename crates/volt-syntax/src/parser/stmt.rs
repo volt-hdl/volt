@@ -779,6 +779,19 @@ impl Parser<'_> {
             }
         };
 
+        // ADR-0081 Karar 1: fn gövdesindeki (for içi) atama bir sinyal
+        // sürerdi — E2016, deyim atılır.
+        if ctx == BlockContext::Function && (self.at(Eq) || self.at(Le)) {
+            self.bump_any();
+            if self.at_expr_start() {
+                self.parse_expr();
+            }
+            self.eat(Semi);
+            let span = self.span_from(start);
+            let what = lstr!(en: "an assignment"; tr: "atama");
+            self.err_fn_not_combinational(span, &what);
+            return BlockStmt::Error;
+        }
         let op_span = self.current_span();
         let non_blocking = match (ctx, self.current()) {
             (BlockContext::Sequential, Some(Le)) => {

@@ -10,7 +10,7 @@ use volt_ast::{
     ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TrustLevel, TypeAlias, TypeRef,
     TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::token::TokenKind::*;
@@ -1776,9 +1776,34 @@ impl Parser<'_> {
                 Some(KwFor) => {
                     stmts.push(BlockStmt::For(self.parse_for_stmt(BlockContext::Function)));
                 }
+                // ADR-0081 Karar 1: durum ve sürücü blokları fn'de yok.
+                // Modül deyimi olarak ayrıştırılıp atılır (kaskad yok).
+                Some(kw @ (KwReg | KwOn | KwComb)) => {
+                    let what = match kw {
+                        KwReg => lstr!(en: "a register ('reg')"; tr: "register ('reg')"),
+                        KwOn => lstr!(en: "an 'on' block"; tr: "'on' bloğu"),
+                        _ => lstr!(en: "a 'comb' block"; tr: "'comb' bloğu"),
+                    };
+                    let stmt = self.parse_stmt(Vec::new());
+                    let span = self.ast.stmts[stmt].span;
+                    self.err_fn_not_combinational(span, &what);
+                    stmts.push(BlockStmt::Error);
+                }
                 _ if self.at_expr_start() => {
+                    let start = self.pos;
                     let expr = self.parse_expr();
-                    if self.at(RBrace) {
+                    if self.at(Eq) {
+                        // `y = a` — fn hiçbir sinyali süremez (Karar 1).
+                        self.bump_any();
+                        if self.at_expr_start() {
+                            self.parse_expr();
+                        }
+                        self.eat(Semi);
+                        let span = self.span_from(start);
+                        let what = lstr!(en: "an assignment"; tr: "atama");
+                        self.err_fn_not_combinational(span, &what);
+                        stmts.push(BlockStmt::Error);
+                    } else if self.at(RBrace) {
                         tail = Some(expr);
                     } else {
                         self.error_expected(
@@ -1820,6 +1845,28 @@ impl Parser<'_> {
 }
 
 impl Parser<'_> {
+    /// E2016 — fn gövdesinde durum ya da sürücü (ADR-0081 Karar 1).
+    pub(crate) fn err_fn_not_combinational(&mut self, span: Span, what: &str) {
+        self.push_error(
+            Diagnostic::error(
+                ErrorCode::E2016,
+                lstr!(en: "a function must be combinational: {what} is not allowed in a function body";
+                      tr: "fonksiyon kombinasyonel olmalı: fonksiyon gövdesinde {what} kullanılamaz"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "state or a driver inside a function"; tr: "fonksiyonda durum ya da sürücü"),
+                ),
+                lstr!(en: "compute the value with let bindings and a final expression; if you need state, write a module";
+                      tr: "değeri let bağlamaları ve son ifadeyle hesaplayın; durum gerekiyorsa modül yazın"),
+            )
+            .with_note(
+                NoteKind::Note,
+                lstr!(en: "a function call is inlined as combinational logic at every call site (ADR-0081)";
+                      tr: "fonksiyon çağrısı her çağrı yerinde kombinasyonel mantık olarak açılır (ADR-0081)"),
+            ),
+        );
+    }
+
     /// `<N>` genişlik argümanı — `bits<N>`, `uint<N>`, `sint<N>`
     /// (ADR-0041). `'>'`/`'>>'` kapanış sanılsın diye kaydırma-üstü bp
     /// ile ayrıştırılır; `what` tanı metinlerindeki tip adıdır.
