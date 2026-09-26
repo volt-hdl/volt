@@ -478,6 +478,35 @@ ExprKind::Call { callee, args } if is_user_fn(callee) => {
 }
 ```
 
+### 3.9 Match İfadesi (ADR-0083)
+
+Match ifadesi çok kollu `if` ifadesidir (§3.7) — genişlik davranışı
+ayrışmaz:
+
+- **Sınanan** sentezlenir; desenler ve kapsayıcılık deyim `match`'iyle
+  **aynı** denetimden geçer (ADR-0032, ADR-0074): sayısal sınananda
+  muhafızsız `_` yoksa **E0014** (parser), enum'da eksik varyant ve `_`
+  yoksa **E0014** (tip denetimi), yabancı enum / yol deseni **E2003**,
+  önceki kolların kapsadığı kol **W2014**. Muhafız `bool`'a check edilir.
+- **Check kipi** (tipli `let`, atama hedefi, port bağlaması, fn dönüşü,
+  argüman): beklenen tip **her kola** itilir, sonuç o tiptir —
+  `let r : u9 = match op { 0 => a + b, _ => b }` toplamayı 9 bitte yapar
+  (ADR-0041).
+- **Sentez kipi:** literal olmayan kollar aynı tipte olmalı (esnek
+  aralıklar kesişiyorsa ortak aralık); değilse **E2003** "match arms have
+  different types: 'u8' and 'bool'". Tipsiz literal kollar somut kola
+  uyarlanır; hepsi tipsiz literalse `if` gibi (W2012 + i32 atamada).
+- Struct tipli sonuç alan başına indirgenir (`if` gibi).
+
+```rust
+ExprKind::Match { scrutinee, arms } => {
+    let s = self.synth(scrutinee);
+    self.check_match_patterns(span, s, arms, /*is_expr*/ true);
+    // check kipi: for body in bodies { self.check(body, expected) }
+    // sentez kipi: somut kolların birleşimi, literal kollar ona check
+}
+```
+
 ---
 
 ## 4. Kontrol Modu ve Literal Çözümleme

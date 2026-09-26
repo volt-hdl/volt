@@ -118,6 +118,16 @@ enum varyantı, fn, tip) görür. Modül sinyaline başvuru E1001. SV
 çağıran modüldeki aynı adlı bir `let`'e bağlanmaz. Çağrı çizgesi de
 çözüm tabanlıdır — fn adı bir `let` tarafından gölgelenebilir (W1002).
 
+**Blok `let`'i (ADR-0083 Karar 8):** `on`/`comb` gövdesindeki `let`
+bildirim noktasından içinde bulunduğu `{ }` bloğunun sonuna kadar
+görünür: `if`/`else` dalı, match kolu ya da `for` gövdesi içinde
+bildirilen ad dışarıda **E1001**, bildirimden önce kullanım **E1002**.
+İç kapsamda modül adını ya da dış blok `let`'ini gölgeleyebilir
+(**W1002**, §6); aynı kapsamda ikinci bildirim **E1003** (yeniden bağlama
+yok). `let` bir değerin adıdır: ona atama **E4001** (tip denetimi,
+type-inference.md §11). SV'de süreç yerelidir ve gölgeleme adı
+yeniden adlandırılır (sv-mapping.md §19).
+
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(u32);

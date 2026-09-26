@@ -312,6 +312,19 @@ düşürme çağıranın modülünde, çağrının sonucuna yazılır. L1 gecikm
 (ADR-0037) argümanların `combine`'ıdır (farklı gecikme E5010 çağrı
 yerinde).
 
+**Koşul ve seçim de operanddır (ADR-0083 Karar 8):** `if` ifadesinin
+koşulu, match ifadesinin sınananı ve kol muhafızları sonucun join'ine
+girer (`match fs { true => sa, _ => 0 }` = `fs ⊔ sa`). Aynı kural deyim
+biçiminde de geçerlidir: `on` dışındaki blokta (`comb`) `if` koşulunun,
+deyim `match`'inin sınananının ve kol muhafızının alanı dal içindeki her
+atamanın sağ tarafına join edilir; hedefle uyuşmazlık K6'nın E3001'idir
+— `comb { if fs { y = sa } else { y = 0 } }` ile `y = if fs { sa } else { 0 }`
+aynı donanımdır, aynı tanıyı alır. İç içe koşulların farklı alanları da
+join'de E3001'dir. `on` bloğunda koşul/sınanan/muhafız K7'nin E3012'si
+kalır. Güven seviyesinde (K11) aynı akış: muhafız etiketi deyimde kolun
+`pc`'sine, ifadede sonuca katılır. L1 gecikmesinde (ADR-0037) sınanan ve
+muhafız kontrol sinyalidir, yalnız kollar `combine` edilir.
+
 ### K6 — Atama Domain Uyumu
 
 ```volt

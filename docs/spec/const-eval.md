@@ -65,6 +65,9 @@ DEĞERLENDİRİLEBİLİR:
   ✓ Karşılaştırma                ==, !=, <, >, <=, >=
   ✓ Mantıksal                    &&, ||, !
   ✓ Koşullu                      if c { a } else { b }
+  ✓ Match (ADR-0083)             match K { 1 | 2 => 10, _ => 0 }
+                                 ilk eşleşen kol; desen literal, `|`,
+                                 `_`, enum varyantı; muhafız sabit bool
   ✓ Dizi literali                [1, 2, 3]
   ✓ Dizi indeksi (sabit)         ARR[2]
   ✓ Enum varyantı                State::Idle

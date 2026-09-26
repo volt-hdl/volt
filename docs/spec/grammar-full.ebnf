@@ -493,6 +493,13 @@ IfExpr          = "if" Expr "{" Expr "}"
 
 MatchExpr       = "match" Expr "{" { MatchArmExpr } "}" ;
 MatchArmExpr    = Pattern [ "if" Expr ] "=>" Expr [ "," ] ;
+(* ADR-0083: ifade match'i deyimle AYNI kuralları izler — sayısal
+   sınananda muhafızsız '_' kolu zorunlu (E0014, bütün değerler yazılmış
+   olsa da); enum'da her varyant ya da '_' (E0014 tip denetiminde).
+   Desenler: literal, 'A | B', '_', argümansız enum varyantı. Muhafız
+   ('if' Expr), bağlama, tuple ve argümanlı yol deseni ayrışır ama SV'ye
+   inmez (E0003). Kol gövdesi yalnız ifadedir; blok ara adı için blok
+   içi 'let' (LetDecl, on/comb gövdesinde) kullanılır. *)
 
 StructLit       = Path "{" [ FieldInit { "," FieldInit } [ "," ] ] "}" ;
 FieldInit       = Ident ":" Expr | Ident ;

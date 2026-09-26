@@ -1,7 +1,8 @@
 # ADR-0083: `match` İfadesi ve Blok İçi `let`
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım). Aşama 2 (uygulama) ve Aşama 3
-> (örnekler + eşdeğerlik kanıtı) bu belgeye not olarak eklenecek.
+> Statü: KABUL EDİLDİ — Aşama 1 (tasarım), Aşama 2 (uygulama, bkz.
+> "Aşama 2 — uygulama notları"). Aşama 3 (örnekler + eşdeğerlik kanıtı)
+> bu belgeye not olarak eklenecek.
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-syntax (ifade `match`'inde E0014), volt-hir
 > (match ifadesinin tip kuralları ve kapsayıcılığı, `comb` koşulunun
@@ -741,3 +742,186 @@ diğerleri), `volt verify` (boolector), Verilator `-Wall`, Yosys
 `equiv_make`/`equiv_induct` eski ↔ yeni (tüm hücreler + kasıtlı hata),
 Yosys `stat` karşılaştırması, mümkünse SV bayt karşılaştırması. README
 "Limitations" ve CHANGELOG.
+
+## Aşama 2 — uygulama notları (2026-09-27, dal `feat/match-expr-let`)
+
+Karar 1-11 uygulandı; yeni tanı kodu yok. Aşağıdaki maddeler kararın
+uygulamada netleşen biçimidir (anlam değişmedi) ya da ölçümle bulunan
+bir sınırdır. Golden referansı PR #50 sonrası `main` (36fd93d; PR #50
+yalnız belge, kod PR #49 ile aynı). Araçlar `build/m2/` (gitignore'da):
+`golden.py` + `golden_cmp.py` + `golden_diff.py`, `corpus.py` (gömülü
+Rust test kaynakları), `p21/gen.py` (ADIM 2.1 taraması), `t/gen.py`
+(emitter sondaları), `sv/` (Verilator + Yosys), `eq/` (eşdeğerlik),
+`sim/` (volt test + verify), `mutate.py`.
+
+### ADIM 2.1 — örtük akış (ayrı commit 93db141)
+
+Karar 8 madde 1-2: `domain/walk.rs` `on` dışındaki blokları koşul alanı
+(`pc`) ile yürür; `if` koşulu, deyim `match`'inin sınananı ve kol
+muhafızı `pc`'ye `join` edilir (iç içe koşulların karışması da E3001),
+atamanın sağ tarafı `pc` ile birleşir, K6 E3001'i verir. Sağ taraf sabitse
+ikincil etiket koşulu gösterir. `on` bloğunda aynı yol E3012'dir (değişmedi).
+Muhafız: trust `walk_block` (kolun `pc`'si) ve `expr_tag`/`match_domain`
+(ifade sonucu).
+
+Tarama (`build/m2/p21/gen.py`, önce = `main`, sonra = 93db141):
+
+| Sonda | Önce | Sonra |
+|---|---|---|
+| `comb { for … { if fs { y = sa } … } }` | temiz | E3001 |
+| `comb { if sb { y = sa } else if fs { … } }` | temiz | E3001 |
+| `comb { if sb { if fs { … } } }` (iç içe) | temiz | E3001 |
+| `comb { match fv { 0 => { y = sa }, … } }` | temiz | E3001 |
+| `comb { y = 0; if fs { y = 1 } }` | temiz | E3001 |
+| `comb { match sa { 0 if fs => … } }` | E0003 | E3001 |
+| `on sclk { match sa { 0 if fs => … } }` | E0003 | E3012 |
+| `y = match sa { 0 if fs => 1, _ => 0 }` | E0003 | E3001 |
+| muhafız `key[0]` (deyim / ifade / comb) | E0003 | E3009 |
+| `comb { if sb { y = sa } … }` (aynı alan) | temiz | temiz |
+| modül `for` içinde `if` | E0003 | E0003 (yalnız ifade biçimi var) |
+
+Sınıflandırma: önce/sonra golden 1966 dosya — `tests/ui`,
+`tests/fixtures`, `examples`, `tests/fuzz_regressions`, gömülü Rust test
+kaynakları (`build/m2/corpus.py`: `module` içeren 1358 dizge sabiti) ve
+`build/domain_corpus.py`'nin 88 iki saatli kaynağı. **Tanı ve SV çıktısı
+bayt-aynı: yeni E3001 / E3009 yok**; A (gerçek CDC) / B (yanlış alarm)
+tablosu boş, kural daraltılmadı.
+
+### Uygulamada netleşenler
+
+1. **E0018 / E2027 emitter'da** (§6 "emitter doğrulamasında"). Uygulama
+   planı madde 5'teki "hesap volt-hir'de" ifadesinin amacı `check = build
+   = LSP` idi; ADR-0070 ortak boru hattı emit'i üçünde de koştuğu için
+   hesap, konumu kesin bilen emitter'da (`match_expr.rs`
+   `check_ternary_limits`). Yalnız en dıştaki iç match denetlenir (tek
+   tanı). Yükseklik: iç match kol sayısı kadar derin; kopya: sınanan
+   düğümü × desen literali (iç içe match kendi kopyasıyla).
+2. **Kısmi hedefli modül ataması iç biçimde.** `y[3:0] = match …` üçlü
+   zincirle `assign` kalır: aynı sinyalin öteki parçaları `assign` ile
+   sürülürken bir parçayı `always_comb`'a almak değişkeni iki süreç
+   türüne böler. Kök `case` bütün sinyale atamada.
+3. **`comb` yerelleri süreç başında sıfırlanır.** `comb { if c { let t =
+   a + b; y = t } else { y = b } }` ilk uygulamada Yosys 0.66'da
+   `ERROR: Latch inferred for signal '\M.\comb_0.t' from always_comb
+   process`, Verilator 5.050'de `%Warning-LATCH` verdi (dal içindeki
+   yerel her yolda atanmıyor). Süreç başına `t = 8'd0;` eklendi — değer
+   hiç okunmaz (`let` bildiriminden önce görünmez; Karar 7 değişmez).
+   Bildirimde ilk değer değil (Karar 11, §5.1/§5.2). `always_ff`'te
+   gerekmiyor (`l07`, `n10`: iki araç temiz).
+4. **Adlı blok etiketi türe göre sayılır:** `on_<k>` k'ıncı `on` bloğu,
+   `comb_<k>` k'ıncı `comb` bloğu (kaynak sırası). Yerel içermeyen
+   süreç adsız kalır — yeni yapıyı kullanmayan tasarımın SV'si değişmez.
+5. **İfadede ilk joker koldan sonrası yazılmaz.** Deyim biçimi (ADR-0032)
+   değişmedi. Kapsayıcı `_`'sız enum'da son adlı kol `default` / zincirin
+   son `else`'i (Karar 4); W2014'lü kol yazılmaz (deyimle aynı
+   `match_cover` kuralı, artık kollar üzerinden).
+6. **Yerel ad çakışması kümesi:** sembol tablosu (port, reg, tel, modül
+   `let`'i, fn açılım telleri), örnek adları, `<örnek>_<port>` çıkış
+   telleri, `<Enum>_<Varyant>` `localparam`'ları ve süreçteki yereller.
+7. **Sabit match iki katmanda:** HIR `consteval` (tip/genişlik bağlamı)
+   ve emitter'ın kendi sabit katlayıcısı (SV'ye literal). Bulgu (bu işin
+   dışında, düzeltilmedi — golden kuralı): emitter katlayıcısı `if`
+   ifadesini değerlendirmiyor; `const N : u32 = if true { 20 } else { 3 }`
+   bugün `assign z = N;` (tanımsız ad) üretiyor. Gelecek iş 6.
+8. **Match'i bilmeyen gezginler:** SVA modülünün port toplayıcısı
+   (`sva.rs`), `prev()` toplayıcısı (`past.rs`), SDC saat izleme
+   (`constraints/walk.rs`) ve `enum_of_expr` `Match`'i görmüyordu —
+   kontrattaki match'in adları bağlanan SVA modülüne port olmuyordu
+   (ölçüldü: `m09` `m_sva (clk, rst)`); dördü de alt ifadeleri gezer.
+9. **Kontrat kol sınırı (Aşama 1 notu 4):** ek sınır ya da uyarı yok.
+   Kontrat iç konumdur; E0018 (256 kol) orada da geçerli ve §5.8'de 256
+   kol iki araçta da güvenli (Verilator 92 ms, Yosys 264 ms). Daha büyük
+   seçim modül `let`'ine yazılıp kontratta adıyla kullanılır.
+10. **Eski beklentisi değişen testler** (ADR kararının sonucu, silme yok):
+    `parser_tests::match_exhaustiveness_not_checked_in_parser` →
+    `match_expr_missing_wildcard_is_e0014` (Karar 3); resolve testlerinde
+    `match x { n => n }` `_` kolu aldı, enum desenli sınanan enum tipli
+    oldu; E0003 örneği olarak match kullanan fixture'lar muhafıza geçti
+    (`ui/fail/160`, `parity/fn11`, `p42`, `p43`, iki W5001 testi —
+    niyetleri korundu); `parity/d13` (blok `let`'ine atama) `drivers: ok`
+    → E4001 11/10 (Karar 6).
+
+### Ölçümler
+
+- **Golden:** önceki 1966 dosyanın 1950'si bayt-aynı; farklı 16'nın hepsi
+  match ifadesi ya da blok `let`'i kullanıyor (E0003 → temiz/yeni tanı;
+  `build/m2/golden_diff.py`).
+- **Araçlar** (`build/m2/sv/`): 33 sonda tasarımı (m1 sondaları + 20 yeni)
+  Verilator 5.050 `--lint-only -Wall` (UNUSED dışında) temiz, Yosys 0.66
+  `prep; check -assert` temiz, mandal yok.
+- **Çıktı ağı** (ADR-0079, `volt-net` Docker, `VOLT_REQUIRE_TOOLS=
+  verilator,yosys`): 13/13. İlk koşuda tek bulgu fixture'ın kendi
+  kullanılmayan biti idi (`typed[8:1]`), düzeltildi.
+- **Simülasyon** (`build/m2/sim/mx_sim.volt`, Docker `volt test`): 2/2 —
+  kök/iç match, fn tel kipi, enum son kol, `on`'da eski register değeri,
+  `comb`'da §5.5 karşı örneği (`z == 0`).
+- **Formal** (`volt verify`, boolector): 6 kontrat prove ve bmc kanıtlı;
+  kontrattaki match'in kolu bozulunca `MxSim.inv_4 E5001 contract violated
+  at cycle 2`.
+- **Eşdeğerlik** (Yosys 0.66, `build/m2/eq/`; RV32I ALU 10 işlem + 5 kollu
+  enum dallanma + `on`'da ALU): deyim biçimi S, kök ifade E1 (`let alu =
+  match`, blok `let s = match`), iç ifade E2 (`if k { match … }`,
+  `(match …) ^ a`):
+
+  ```
+  S  <-> E1: rc=0   Of those cells 97 are proven and 0 are unproven.
+  S  <-> E2: rc=0   Of those cells 97 are proven and 0 are unproven.
+  E1 <-> E2: rc=0   Of those cells 97 are proven and 0 are unproven.
+  S  <-> Em: rc=1   Of those cells 66 are proven and 31 are unproven.   (SRA → SRL)
+  E2 <-> Em: rc=1   Of those cells 66 are proven and 31 are unproven.
+  ```
+
+### Mutasyon (tek tek, `CARGO_BUILD_JOBS=2`, `--test-threads=2`; `build/m2/mutate.py`)
+
+| # | Kaldırılan koruma | Düşen test |
+|---|---|---|
+| M1 | comb koşulunun alanı atamaya katılmaz (ADIM 2.1) | `domain_tests`: comb_constant_under_a_foreign_condition_is_e3001, comb_for_body_carries_the_condition, comb_if_condition_from_a_foreign_domain_is_e3001, comb_match_scrutinee_from_a_foreign_domain_is_e3001 |
+| M2 | muhafız güven etiketine katılmaz (deyim + ifade) | `trust_tests`: implicit_flow_through_a_match_guard_is_e3009 |
+| M3 | ifade match'inde sayısal E0014 yok (parser) | `parser_tests`: match_expr_missing_wildcard_is_e0014 |
+| M4 | ifade match'inde enum kapsayıcılığı yok (typeck) | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line |
+| M5 | blok let'i dal dışına sızar (çözümleme kapsamı) | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line, shadowing_block_let_is_renamed_in_sv |
+| M6 | emitter yerel kapsamı kapanmaz | `match_expr_tests`: shadowing_block_let_is_renamed_in_sv |
+| M7 | yerel yerine tel anlamı (let bloğun son değerini okur) | `match_expr_tests`: block_let_is_a_process_local_in_a_named_block, comb_block_let_keeps_the_value_at_its_declaration, shadowing_block_let_is_renamed_in_sv |
+| M8 | gölgeleyen yerel yeniden adlandırılmaz | `match_expr_tests`: shadowing_block_let_is_renamed_in_sv |
+| M9 | blok let'ine atama E4001 değil (aynı sürücü grubu) | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line |
+| M10 | blok let adı E1013 denetimine girmez | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line |
+| M11 | iç match yükseklik/kopya sınırı yok | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line |
+| M12 | comb yerelleri süreç başında sıfırlanmaz | `match_expr_tests`: block_let_is_a_process_local_in_a_named_block |
+| M13 | kök konum case değil (her yer üçlü) | `match_expr_tests`: contract_match_lowers_to_a_ternary_in_sva, every_fail_fixture_reports_its_code_on_the_marked_line, expected_type_is_pushed_into_every_arm_and_structs_split_per_field, match_in_a_function_body_follows_the_call_mode, match_in_blocks_repeats_the_target_per_arm |
+| M14 | enum geçersiz kodları son kola gitmez (son kol etiketli) | `match_expr_tests`: match_in_blocks_repeats_the_target_per_arm, whole_right_hand_side_is_a_case_and_an_operand_is_a_ternary |
+| M15 | match ifadesi kol tipleri denetlenmez (E2003) | `match_expr_tests`: every_fail_fixture_reports_its_code_on_the_marked_line |
+| M16 | yerel anahtarı yalnız span (struct yaprakları tek yerele düşer) | `match_expr_tests`: struct_block_let_splits_into_one_local_per_leaf |
+
+16/16 yakalandı (M16, uygulama sırasında bulunan struct yaprağı hatasının — iki yaprak aynı bildirim span'ini paylaşıp tek yerele düşüyordu — regresyon testi). Her koşudan sonra kaynak geri yüklendi (`git diff --stat crates` değişmedi).
+
+### Aşama 1 sondalarının yeniden koşusu (Aşama 1 notu 5)
+
+`build/m1/gen.py` uygulamayla (§1-§2 tabloları):
+
+| Sonda | Aşama 1 | Aşama 2 |
+|---|---|---|
+| `m01`-`m05`, `m08`, `m08b`, `m10`, `m15` | E0003 | temiz, build rc=0 |
+| `m06` (sayısal, `_` yok) | yalnız E0003 | E0014 "'match' expression has no '_' arm" |
+| `m07` (u8/bool kol, beklenen u8) | yalnız E0003 | E2003 (check kipi, kola itilen tip) |
+| `m14` (enum eksik) | yalnız E0003 | E0014 "missing Op::And, Op::Or" |
+| `m13` (bağlama `x => a`) | E0003 | E0014 (bağlama joker sayılmaz — deyimle aynı) |
+| `m12` (muhafız) | E0003 | E0003 "'match' arm guards" |
+| `m09` (kontrat) | `--emit=sva`'da E0003 | SVA'da üçlü, bağlanan modül portları tam |
+| `m11`, `m16`, `t10`, `z01` | E0001 | E0001 (gramer değişmedi) |
+| `l01`, `l02`, `l04`, `l05`, `l07`-`l09` | E0003 | temiz; `l04`/`l07` W1002 + SV'de `a_2`/`t_2` |
+| `l03` | E1001 | E1001 |
+| `l06` (blok `let`'ine atama) | yalnız E0003 | E4001 |
+| `t01`-`t11`, `t06`/`t06b` (muhafız) | t06/t06b E0003 | hepsi E3009 |
+| `d06`, `x03`, `x04` (`comb` koşulu) | temiz | E3001 |
+| `d01`, `d02`, `x08` | E3012 | E3012 |
+| `e04` (sınanan gecikmeli) / kollar farklı gecikme | E0003 | temiz / E5010 (ADR-0037 kuralı) |
+
+4096 kollu kök match (`let v = match op { 0 => a ^ 0, … }`): `volt build`
+363 ms, Verilator 5.050 `-Wall` 0,34 sn (walltime), Yosys 0.66 `prep`
+~2,7 sn (Docker açılışı dahil) — §5.8 `deepc4096` ile tutarlı; aynı match
+operand konumunda E0018.
+
+### Gelecek iş (Aşama 2 eki)
+
+6. Emitter'ın sabit katlayıcısında `if` ifadesi (`const N = if … `
+   bugün SV'de tanımsız ad bırakıyor; HIR `consteval` doğru hesaplıyor).

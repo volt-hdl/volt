@@ -5,6 +5,41 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — `match` ifadesi ve blok içi `let` (2026-09-27, ADR-0083 Aşama 2)
+
+- **`match` ifadesi donanıma iner** — modül `let`'i/ataması, `on`/`comb`
+  içinde, `if` koşulunda, port bağlamasında, fn gövdesinde, kontratta ve
+  `const` bağlamında. Yere göre biçim: atamanın ya da `let`'in tüm sağ
+  tarafıysa `always_comb`/süreç içinde `case` (hedef her kolda; 4096 kol
+  Verilator 0,3 sn), başka konumda `if` ifadesi gibi üçlü zincir.
+  Desenler deyimle aynı (literal, `A | B`, `_`, enum varyantı).
+- **Tip ve kapsayıcılık deyimle aynı:** sayısal sınananda `_` zorunlu
+  (E0014 — önceden ifade match'inde denetlenmiyordu), enum'da her varyant
+  ya da `_` (son kol geçersiz kodları da alır), beklenen tip her kola
+  itilir (`let r : u9 = match … { 0 => a + b, … }` 9 bitte toplar), tipsiz
+  `let`'te farklı tipli kollar E2003 "match arms have different types".
+  İç konumda 256'dan fazla kol E0018 ("match'i bir `let`'e verin"),
+  sınanan kopyası bütçeyi aşarsa E2027.
+- **Blok içi `let`:** `on`/`comb` içinde ara ad — register değil, süreç
+  yereli (`always_ff … begin : on_0` / `always_comb begin : comb_0`,
+  ayrı bildirim, bildirim noktasında blocking atama). `on`'da register
+  okuyan `let` eski değeri görür; `comb`'da bildirim noktasındaki değeri
+  tutar. Gölgeleyen ad SV'de yeniden adlandırılır (`a_2`); `let`'e atama
+  E4001, SV anahtar sözcüğü adı E1013, struct tipli `let` yapraklara iner.
+- **Güvenlik/CDC açığı kapandı:** `comb { if fs { y = sa } else { y = 0 } }`
+  koşulun saat alanını denetlemiyordu (aynı donanım `y = if fs { sa } else { 0 }`
+  E3001 alıyordu). `comb`'da `if` koşulu, deyim `match`'inin sınananı ve
+  kol muhafızı artık atamaya katılır (E3001); muhafız güven seviyesine de
+  katılır (E3009). Mevcut 1966 kaynakta (örnekler, testler, gömülü test
+  kaynakları) yeni tanı çıkmadı.
+- Kontrattaki match'in adları bağlanan SVA modülüne port olur (önce
+  eksik kalıyordu); `volt explain` E0014/E2003/E0018/E4001/E0003 iki dilde
+  güncellendi. Muhafız (`0 if c =>`) hâlâ E0003.
+- Kanıt: çıktı ağı (Verilator + Yosys) 13/13, `volt test` ve `volt verify`
+  (boolector, kasıtlı hata yakalandı), Yosys `equiv` deyim ↔ kök ↔ iç
+  biçim 97/97 hücre, 16/16 mutasyon; yeni yapıları kullanmayan
+  tasarımların çıktısı bayt-aynı.
+
 ### Değişti — varsayılan formal motoru boolector (2026-09-26, ADR-0082)
 
 - **`volt verify` varsayılan çözücüsü z3 → boolector.** 62 kontratlı
