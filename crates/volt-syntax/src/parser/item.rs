@@ -779,7 +779,7 @@ impl Parser<'_> {
     }
 
     /// `@DomainName` anotasyonu (port ve `struct port` alanı).
-    fn parse_domain_annot(&mut self) -> Option<Name> {
+    pub(crate) fn parse_domain_annot(&mut self) -> Option<Name> {
         if !self.at(At) {
             return None;
         }

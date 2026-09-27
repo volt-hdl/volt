@@ -49,6 +49,9 @@ impl Resolver<'_> {
                 if let Some(ty) = l.ty {
                     self.resolve_type(ty, scope);
                 }
+                if let Some(domain) = &l.domain {
+                    self.resolve_domain_ref(&domain.clone(), scope);
+                }
                 self.resolve_expr(l.value, scope);
                 self.declare_local(&l.name.clone(), DefKind::LocalBinding, scope);
             }

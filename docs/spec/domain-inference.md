@@ -67,6 +67,14 @@ in data : u8 @Fast
 
 Anotasyon varsa çıkarım yapılmaz. Kullanıcı ne dediyse o.
 
+Anotasyon portta ve (ADR-0088) `wire`, `let` (modül ve blok) ve `reg`
+bildiriminde yazılabilir: `wire s : bool @Slow`, `let x : u8 @Fast = e`,
+`reg r : u4 @Slow = 0` (≡ `reg(<Slow saati>)`). Bildirimdeki anotasyon
+sinyalin alanını SABİTLER ve DENETLENİR: sürücü ya da değer başka bir
+alandaysa E3001 (sabit değer her alana uyar), tanımsız ad E3002. Struct
+alanı (E2013) ve fn parametresi anotasyon almaz; bundle (port struct)
+alanı alır.
+
 ### K2 — Tek Saat Kuralı (En Önemli)
 
 ```volt

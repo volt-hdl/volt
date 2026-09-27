@@ -178,6 +178,22 @@ impl Parser<'_> {
         } else {
             None
         };
+        // `reg x : T @Alan = 0` (ADR-0088) ≡ `reg(Alan)`; ikisi birden
+        // hangisinin geçerli olduğunu belirsiz bırakır.
+        let domain = match (domain, self.parse_domain_annot()) {
+            (Some(clk), Some(ann)) => {
+                self.push_error(Diagnostic::error(
+                    ErrorCode::E0001,
+                    lstr!(en: "register '{}' has two domain annotations: 'reg({})' and '@{}'", name.text, clk.text, ann.text;
+                          tr: "'{}' register'ının iki alan açıklaması var: 'reg({})' ve '@{}'", name.text, clk.text, ann.text),
+                    LabeledSpan::primary(ann.span, lstr!(en: "second annotation"; tr: "ikinci açıklama")),
+                    lstr!(en: "keep one: reg({}) {} : ... or reg {} : ... @{}", clk.text, name.text, name.text, ann.text;
+                          tr: "birini bırakın: reg({}) {} : ... ya da reg {} : ... @{}", clk.text, name.text, name.text, ann.text),
+                ));
+                Some(clk)
+            }
+            (clk, ann) => clk.or(ann),
+        };
 
         let init = if self.eat(Eq) {
             if self.at_expr_start() {
@@ -239,6 +255,7 @@ impl Parser<'_> {
                 Some(LetDecl {
                     name: inst.name,
                     ty: None,
+                    domain: None,
                     value,
                 })
             }
@@ -266,9 +283,12 @@ impl Parser<'_> {
         } else {
             None
         };
+        // `let x : T @Alan = e` — denetlenen alan açıklaması (ADR-0088).
+        let domain = self.parse_domain_annot();
 
         let value = if self.eat(Eq) {
-            if allow_instance && ty.is_none() && self.instance_generics_ahead() {
+            if allow_instance && ty.is_none() && domain.is_none() && self.instance_generics_ahead()
+            {
                 return Some(LetOrInstance::Instance(self.parse_generic_instance(name)));
             }
             if self.at_expr_start() {
@@ -289,7 +309,12 @@ impl Parser<'_> {
         };
 
         self.eat(Semi);
-        Some(LetOrInstance::Let(LetDecl { name, ty, value }))
+        Some(LetOrInstance::Let(LetDecl {
+            name,
+            ty,
+            domain,
+            value,
+        }))
     }
 
     /// Sınırlı ileri bakış: mevcut konum `Ident (:: Ident)* <` ile
@@ -429,9 +454,12 @@ impl Parser<'_> {
             &lstr!(en: "write it as wire {} : u8", name.text; tr: "wire {} : u8 biçiminde yazın", name.text),
         );
         let ty = self.parse_type_or_error();
+        // `wire x : T @Alan` — denetlenen alan açıklaması (ADR-0088);
+        // önce sonraki öğenin niteliği sanılıp W0020 ile düşüyordu.
+        let domain = self.parse_domain_annot();
         self.eat(Semi);
 
-        StmtKind::Wire(WireDecl { name, ty })
+        StmtKind::Wire(WireDecl { name, ty, domain })
     }
 
     /// `for i in başlangıç..bitiş { ... }` — derleme zamanı generate

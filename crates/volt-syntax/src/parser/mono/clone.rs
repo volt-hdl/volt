@@ -677,13 +677,21 @@ impl<'a> Cloner<'a> {
             }
             StmtKind::Let(l) => {
                 let (name, ty, value) = (l.name.clone(), l.ty, l.value);
-                StmtKind::Let(self.clone_let(name, ty, value))
+                let domain = l.domain.clone();
+                let domain = domain.map(|d| self.tag_name(&d));
+                StmtKind::Let(LetDecl {
+                    domain,
+                    ..self.clone_let(name, ty, value)
+                })
             }
             StmtKind::Wire(w) => {
                 let (name, ty) = (w.name.clone(), w.ty);
+                let domain = w.domain.clone();
+                let domain = domain.map(|d| self.tag_name(&d));
                 StmtKind::Wire(WireDecl {
                     name: self.tag_name(&name),
                     ty: self.clone_type(ty),
+                    domain,
                 })
             }
             _ => unreachable!("clone_stmt_kind yalnız bildirimleri yönlendirir"),
@@ -694,6 +702,7 @@ impl<'a> Cloner<'a> {
         LetDecl {
             name: self.declared_name(&name),
             ty: ty.map(|t| self.clone_type(t)),
+            domain: None,
             value: self.clone_expr(value),
         }
     }

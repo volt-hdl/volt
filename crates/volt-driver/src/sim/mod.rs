@@ -11,13 +11,15 @@
 //! çıktısı, cargo ile birebir); çevresel iletiler `lstr!` ile yereldir.
 //!
 //! Modüller sorumluluğa göre ayrılır: `run_cmd` (`volt run` akışı),
-//! `test_cmd` (`volt test` akışı), `test_files` (test dosyası keşfi),
+//! `test_cmd` (`volt test` akışı), `test_files` (süzgeç, kardeş kuralı),
+//! `discover` (proje kökünden test dosyası keşfi, ADR-0089),
 //! `test_build` (derleme, denetim, gruplama), `verilator` (araç keşfi,
 //! derleme, koşturma), `tb_output` (VOLT-* çıktı protokolü), `contracts`
 //! (kontrat izleyici çıktısı, ADR-0064), `report` (cargo biçimli rapor). C++ testbench metni burada değil
 //! `volt_sv_emit::sim` içinde üretilir.
 
 mod contracts;
+mod discover;
 mod report;
 mod run_cmd;
 mod tb_output;

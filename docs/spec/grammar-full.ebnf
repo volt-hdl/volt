@@ -342,12 +342,15 @@ StmtKind        = RegDecl                                     (* [F0] *)
                 | ExprStmt ;
 
 RegDecl         = "reg" [ "(" Ident ")" ] Ident
-                  [ ":" Type ] "=" Expr [ ";" ] ;
-(* reg(clk) veya reg — tek saat varsa domain çıkarılır *)
+                  [ ":" Type ] [ DomainAnnot ] "=" Expr [ ";" ] ;
+(* reg(clk) veya reg — tek saat varsa domain çıkarılır; `@Alan`
+   (ADR-0088) reg(clk) ile birlikte yazılamaz (E0001) *)
 
-LetDecl         = "let" Ident [ ":" Type ] "=" Expr [ ";" ] ;
+LetDecl         = "let" Ident [ ":" Type ] [ DomainAnnot ] "=" Expr [ ";" ] ;
 
-WireDecl        = "wire" Ident ":" Type [ ";" ] ;
+WireDecl        = "wire" Ident ":" Type [ DomainAnnot ] [ ";" ] ;
+(* DomainAnnot bildirimde denetlenen açıklamadır (ADR-0088): çıkarılan
+   alanla çelişirse E3001, tanımsız ad E3002 *)
 (* Bildirim; atama ayrı AssignStmt ile yapılır *)
 
 InstanceDecl    = "let" Ident "=" Path

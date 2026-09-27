@@ -5,6 +5,7 @@
 #   1. spec → ErrorCode  2. ErrorCode → spec  3. 5 parça kuralı bypass
 #   4. CIRCT/melior yalnızca volt-lower (ADR-0005)  5. ui/fail ilk satır
 #   6. test sayısı gerilemesi (.test-baseline; --update ile yenile)
+#   7. ui/pass ve ui/fail'de sayısal önek tekil
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -81,6 +82,25 @@ else
         echo "Not: test sayısı arttı ($total > $baseline) — '--update' ile baseline'ı yenileyebilirsin."
     fi
 fi
+
+# ── 7: ui fixture sayısal öneki tekil ─────────────────────────────────
+# Paralel dallar aynı sıradaki numarayı alır; yalnız .volt sayılır.
+for dir in pass fail; do
+    prefixes=""
+    for f in "$ROOT/tests/ui/$dir"/[0-9]*_*.volt; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" | grep -oE '^[0-9]+')
+        prefixes="$prefixes$((10#$n))\n"
+    done
+    for n in $(printf "$prefixes" | sort -n | uniq -d); do
+        names=""
+        for f in "$ROOT/tests/ui/$dir"/[0-9]*_*.volt; do
+            b=$(basename "$f")
+            [ "$((10#$(echo "$b" | grep -oE '^[0-9]+')))" = "$n" ] && names="$names${names:+, }$b"
+        done
+        violation "tests/ui/$dir aynı numarayı paylaşıyor: $names (kontrol 7)"
+    done
+done
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then

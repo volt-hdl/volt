@@ -499,7 +499,13 @@ impl Lowerer {
                     &w.name,
                     &s,
                     declared,
-                    |name, leaf, _| StmtKind::Wire(WireDecl { name, ty: leaf.ty }),
+                    |name, leaf, _| {
+                        StmtKind::Wire(WireDecl {
+                            name,
+                            ty: leaf.ty,
+                            domain: None,
+                        })
+                    },
                     None,
                 )
             }
@@ -514,6 +520,7 @@ impl Lowerer {
                         StmtKind::Let(LetDecl {
                             name,
                             ty: Some(leaf.ty),
+                            domain: None,
                             value: value.expect("let değeri"),
                         })
                     },
@@ -814,6 +821,7 @@ impl Lowerer {
                                 span: l.name.span,
                             },
                             ty: Some(leaf.ty),
+                            domain: None,
                             value: v,
                         }));
                     }

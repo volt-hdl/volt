@@ -67,6 +67,9 @@ pub struct Manifest {
     pub src: PathBuf,
     /// `[lint] unenforced_attributes` (ADR-0048); varsayılan `warn`.
     pub lint_unenforced: UnenforcedLint,
+    /// `[test] paths = ["tests", ...]` (ADR-0089): `volt test`'in tarayacağı
+    /// dizinler, `root`'a göre. `None`: bütün proje (varsayılan).
+    pub test_paths: Option<Vec<PathBuf>>,
 }
 
 impl Manifest {
@@ -93,10 +96,19 @@ impl Manifest {
         // güvenli yön: susturma kazara açılamaz, yalnız kapanır.
         let lint_unenforced = UnenforcedLint::from_manifest(text);
         let mut in_package = false;
+        let mut in_test = false;
+        let mut test_paths = None;
         for raw in text.lines() {
             let line = raw.split('#').next().unwrap_or("").trim();
             if line.starts_with('[') {
                 in_package = line == "[package]";
+                in_test = line == "[test]";
+                continue;
+            }
+            if in_test {
+                if let Some(("paths", value)) = line.split_once('=').map(|(k, v)| (k.trim(), v)) {
+                    test_paths = Some(string_array(value));
+                }
                 continue;
             }
             if !in_package {
@@ -117,12 +129,36 @@ impl Manifest {
             name,
             src,
             lint_unenforced,
+            test_paths,
         }
     }
 
     pub fn src_dir(&self) -> PathBuf {
         self.root.join(&self.src)
     }
+}
+
+/// Dosyanın dizini; çıplak ad (`x.volt`, `parent()` = "") çalışma dizini.
+/// Boş yol manifest aramasını (ADR-0061) ve `use` çözümünü bozuyordu:
+/// proje alt dizininde `volt check x.volt` E1011 veriyordu (ADR-0089).
+fn parent_dir(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+/// Tek satırlık TOML dize dizisi: `["tests", "rtl/fifo"]` → yollar.
+/// Tırnaksız ya da boş öğeler atlanır.
+fn string_array(value: &str) -> Vec<PathBuf> {
+    value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .split(',')
+        .map(|item| item.trim().trim_matches('"').trim())
+        .filter(|item| !item.is_empty())
+        .map(PathBuf::from)
+        .collect()
 }
 
 /// Ön ayrıştırmadan çıkarılan bir `use` hedefi: paket yolu + span.
@@ -250,9 +286,7 @@ impl Loader {
             self.info.files.entry(d).or_insert(fid);
         }
 
-        let dir = path
-            .parent()
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        let dir = parent_dir(path);
         for target in use_targets(&pre.ast) {
             self.resolve_target(&dir, target)?;
         }
@@ -397,9 +431,7 @@ pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {
 /// [`load_unit`]; `main_text` verilirse ana dosya diskten okunmaz
 /// (editör tamponu — LSP, ADR-0070). Bağımlılıklar yine diskten.
 pub fn load_unit_with_text(main: &Path, main_text: Option<String>) -> std::io::Result<LoadedUnit> {
-    let dir = main
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    let dir = parent_dir(main);
     let (manifest, search_stop) = match Manifest::lookup(&dir) {
         Ok(m) => (Some(m), None),
         Err(stop) => (None, Some(stop)),

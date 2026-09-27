@@ -766,6 +766,7 @@ impl Parser<'_> {
                 span: nspan,
             },
             ty: Some(ty),
+            domain: None,
             value,
         }
     }
@@ -840,6 +841,7 @@ impl Parser<'_> {
                                     span: pl_span,
                                 },
                                 ty: None,
+                                domain: None,
                                 value: self.alloc_error_expr(pl_span),
                             },
                         ),
@@ -875,6 +877,7 @@ impl Parser<'_> {
                                     span: pl_span,
                                 },
                                 ty: None,
+                                domain: None,
                                 value: self.alloc_error_expr(pl_span),
                             },
                         ),
@@ -1356,6 +1359,7 @@ fn clone_block_stmt_shallow(bs: &BlockStmt) -> BlockStmt {
         BlockStmt::Let(l) => BlockStmt::Let(LetDecl {
             name: l.name.clone(),
             ty: l.ty,
+            domain: l.domain.clone(),
             value: l.value,
         }),
         BlockStmt::For(f) => BlockStmt::For(volt_ast::ForStmt {

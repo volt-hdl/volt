@@ -1,5 +1,5 @@
-//! `volt test` dosya keşfi: süzgeç çözümü, `*_test.volt` taraması ve
-//! kardeş (`X_test.volt` → `X.volt`) dosya kuralı.
+//! `volt test` dosya seçimi: süzgeç çözümü ve kardeş (`X_test.volt` →
+//! aynı dizindeki `X.volt`) dosya kuralı; tarama `discover`'da.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -25,7 +25,7 @@ pub(super) fn resolve_files(
             }
             Ok((vec![p], None))
         }
-        other => Ok((discover_test_files(), other)),
+        other => Ok((super::discover::discover_test_files(), other)),
     }
 }
 
@@ -35,23 +35,6 @@ pub(super) fn sibling_path(file: &Path) -> Option<PathBuf> {
     let base = stem.strip_suffix("_test")?;
     let sibling = file.with_file_name(format!("{base}.volt"));
     sibling.is_file().then_some(sibling)
-}
-
-/// Çalışma dizinindeki `*_test.volt` dosyaları (ad sırasıyla).
-fn discover_test_files() -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(".")
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.file_name()
-                    .is_some_and(|n| n.to_string_lossy().ends_with("_test.volt"))
-        })
-        .collect();
-    files.sort();
-    files
 }
 
 #[cfg(test)]

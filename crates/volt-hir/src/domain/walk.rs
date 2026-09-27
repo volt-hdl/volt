@@ -13,20 +13,16 @@ impl Inferencer<'_> {
                 // init sabittir; yine de yayılım için hesaplanır.
                 self.expr_domain(r.init);
             }
-            StmtKind::Let(l) => {
-                let dom = self.expr_domain(l.value);
-                if let Some(def) = self.decl_def(&l.name) {
-                    self.signal_domains.insert(def, dom);
-                }
-            }
+            StmtKind::Let(l) => self.walk_let(l),
             StmtKind::Wire(w) => {
-                // Anotasyon sözdizimi yok: çoklu saatte kısıt değişkeni,
-                // tek saatte varsayılan alan.
+                // Açıklama varsa alan odur (ADR-0088) — sürücüler K6 ile
+                // ona göre denetlenir (E3001); yoksa çoklu saatte kısıt
+                // değişkeni, tek saatte varsayılan alan.
                 if let Some(def) = self.decl_def(&w.name) {
-                    let dom = if self.multi_clock {
-                        self.fresh_var()
-                    } else {
-                        self.default_domain
+                    let dom = match &w.domain {
+                        Some(ann) => self.signal_annotation_domain(ann),
+                        None if self.multi_clock => self.fresh_var(),
+                        None => self.default_domain,
                     };
                     self.signal_domains.insert(def, dom);
                 }
@@ -47,6 +43,33 @@ impl Inferencer<'_> {
                 self.expr_domain(*e);
             }
             StmtKind::Error => {}
+        }
+    }
+
+    /// `let` (modül ya da blok): alanı değerinin alanıdır. `@Alan`
+    /// açıklaması (ADR-0088) değerle K6 kuralıyla denetlenir — çelişki
+    /// E3001 (sabit değer her alana uyar) — ve bağlamanın alanı olur.
+    fn walk_let(&mut self, l: &volt_ast::LetDecl) {
+        let dom = self.expr_domain(l.value);
+        let dom = match &l.domain {
+            Some(ann) => {
+                let declared = self.signal_annotation_domain(ann);
+                let conflict = matches!(
+                    (self.resolve_dom(declared), self.resolve_dom(dom)),
+                    (DomainId::Explicit(x), DomainId::Explicit(y)) if x != y
+                );
+                self.check_compat(declared, dom, ann.span, self.ast.exprs[l.value].span);
+                // Çelişki bir kez raporlanır; kullanımlar kaskad üretmez.
+                if conflict {
+                    DomainId::Error
+                } else {
+                    declared
+                }
+            }
+            None => dom,
+        };
+        if let Some(def) = self.decl_def(&l.name) {
+            self.signal_domains.insert(def, dom);
         }
     }
 
@@ -87,12 +110,7 @@ impl Inferencer<'_> {
                         }
                     }
                 }
-                BlockStmt::Let(l) => {
-                    let dom = self.expr_domain(l.value);
-                    if let Some(def) = self.decl_def(&l.name) {
-                        self.signal_domains.insert(def, dom);
-                    }
-                }
+                BlockStmt::Let(l) => self.walk_let(l),
                 BlockStmt::For(f) => {
                     self.expr_domain(f.start);
                     self.expr_domain(f.end);

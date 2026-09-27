@@ -398,6 +398,7 @@ impl Parser<'_> {
                     span: synthetic_span(span, &mut counter),
                 },
                 ty: Some(bool_ty),
+                domain: None,
                 value,
             }),
         })

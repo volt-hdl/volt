@@ -974,6 +974,9 @@ pub struct RegDecl {
 pub struct LetDecl {
     pub name: Name,
     pub ty: Option<Idx<TypeRef>>,
+    /// `let x : T @Alan = e` — denetlenen saat alanı açıklaması (ADR-0088);
+    /// değerin alanıyla çelişirse E3001.
+    pub domain: Option<Name>,
     pub value: Idx<Expr>,
 }
 
@@ -981,6 +984,8 @@ pub struct LetDecl {
 pub struct WireDecl {
     pub name: Name,
     pub ty: Idx<TypeRef>,
+    /// `wire x : T @Alan` — denetlenen saat alanı açıklaması (ADR-0088).
+    pub domain: Option<Name>,
 }
 
 /// `let u = Uart { clk: clk }` — grammar-full.ebnf §19 [N3]:

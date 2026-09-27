@@ -5,6 +5,31 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — sinyal bildirimlerinde `@Domain` (2026-09-27, ADR-0088)
+
+- `wire s : bool @Slow`, `let x : u8 @Fast = e` (modül ve blok),
+  `reg r : u4 @Slow = 0` — portta olduğu gibi alan açıklaması. Açıklama
+  DENETLENİR: sürücü/değer başka alandaysa E3001, tanımsız alan adı
+  E3002, `reg(clk)` ile birlikte E0001. Önce `@Slow` bir sonraki satırın
+  bilinmeyen niteliği sayılıp W0020 ile atılıyordu — yazım hatalı alan
+  adı dahil hiçbir şey denetlenmiyordu. SV değişmez.
+- `cdc` şablonunun geçiş teli `wire toggle_s : bool @Slow`. ADR-0084 §5
+  bulgu 3 kapandı.
+
+### Değişti — `volt test` proje kökünden özyinelemeli (2026-09-27, ADR-0089)
+
+- Argümansız `volt test` Volt.toml'u bulur ve proje kökünden bütün alt
+  dizinlerdeki `*_test.volt`'u koşar; alt dizinden çalıştırmak da bütün
+  projeyi koşar. `build/`, `target/`, gizli dizinler, iç içe projeler ve
+  kökteki `.gitignore`'un düz dizin girdileri atlanır; `[test] paths =
+  ["tests"]` taramayı daraltır. Proje yoksa eski düz tarama.
+- Aynı adlı alt dizin testleri ayrı çıktı dizinine
+  (`build/sim/<göreli yol>/`).
+- Düzeltildi: proje alt dizininde çıplak dosya adıyla `volt check
+  x_test.volt` `use` hedefini bulamıyordu (E1011) — manifest araması
+  göreli yolun başında duruyordu.
+- Şablonlar düz kalır (gerekçe ADR-0089); `Volt.toml` yorumu güncellendi.
+
 ### Eklendi — yerleşik primitiflerde struct öğe tipi (2026-09-27, ADR-0087)
 
 - `SyncFifo<Packet, 8>`, `AsyncFifo`, `Ram`, `DualPortRam`,

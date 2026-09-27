@@ -176,7 +176,9 @@ düzeltme ayrı iş):
    bkz. ADR-0085** — desendeki çıplak ad bir değerdir; bağlama deseni
    yok (sinyal adı E1015, tanımsız ad E1001).
 3. `wire x : bool @Slow` — alan ek açıklaması W0020 "unknown attribute";
-   tel alanı çıkarımla bulunur, şablon açıklamasız yazar.
+   tel alanı çıkarımla bulunur, şablon açıklamasız yazar. **Kapatıldı,
+   bkz. ADR-0088** — `wire`/`let`/`reg` `@Alan` taşır, denetlenir (E3001,
+   tanımsız ad E3002); `cdc` şablonunun geçiş teli açıklamalı.
 4. `let x = sync(...)` E0003 (bilinen; yalnız atamanın tüm sağ tarafı);
    şablon `wire` + atama kullanır.
 5. Doygun sayaç (`if c != 255 { c <= c + 1 }`) ADR-0066'nın otomatik
@@ -197,6 +199,15 @@ saatli kullanımı `cdc` ile birlikte anlatır.
 `*_test.volt`'u tarar (`sim/test_files.rs`) ve `X_test.volt` kardeşi
 `X.volt`'u aynı dizinde arar; `src/` ile "cd <ad>; volt test" hiçbir
 test bulamazdı. `examples/` de düzdür (`src = "."`).
+
+**Güncelleme (ADR-0089):** `volt test` artık proje kökünden
+özyinelemeli tarar; alt dizin engeli kalktı. Yapı yine DÜZ kalır —
+gerekçe artık araç sınırı değil sadelik: tek tasarım + tek test için
+`src/`/`tests/` bölmesi `use` ve paket yolu kavramını ilk dakikaya
+ekler; README/`Next:` komutları çalışma dizininden aynen çalışır;
+büyüyen proje alt dizinlere yapılandırmasız geçer. Şablon `Volt.toml`
+yorumu buna göre güncellendi. Bulgu 4 (`let x = sync(...)`) bu görevin
+kapsamı dışında, açık.
 
 Yorumlar İngilizce (ADR-0026 — üretilen/dağıtılan kod). Şablonlar
 `templates/<ad>/` altında gerçek dosyalardır ve ikiliye `include_str!`

@@ -101,12 +101,12 @@ sözcüktür.
 
 ## Doğrulama
 
-- `prim_struct_tests.rs`: ui/pass 128 (SyncFifo, AsyncFifo, Ram,
+- `prim_struct_tests.rs`: ui/pass 129 (SyncFifo, AsyncFifo, Ram,
   ShiftRegister<Cmd>, HandshakeSync<Cmd>) SV biçimi — tek bellek dizisi,
   `({pkt_tag, pkt_data})`, yaprak dilimleri; ui/fail 184 E2009 işaretli
   satırda; açık değerli enum varsayılan reset'i; sıfır varsayılan eski
   literal. `stdlib_tests.rs`: struct öğe temiz, RAM ailesi (üçü) E2009,
-  `taps` 36 bit. Verilator `-Wall` (ui/pass 128) temiz.
+  `taps` 36 bit. Verilator `-Wall` (ui/pass 129) temiz.
 - Şablon zinciri (Docker `volt-eng`): `fifo` lint temiz, `volt test` 3/3,
   `volt verify` bmc/prove/cover 7/7; dört şablon üç kipte geçti.
 - Golden (`build/c5`, 2048 kaynak): değişen yalnız yeni fixture'lar;
@@ -132,5 +132,5 @@ sözcüktür.
 2. Başlatılmış RAM (`Ram<T, D> = [init; D]`) — o zaman enum yapraklı `T`
    RAM ailesinde de güvenli olur.
 3. Örnek adı + port adı çakışması (`hs` + `valid` → `hs_valid` kullanıcı
-   portuyla aynı SV adı; ui/pass 128 yazılırken Verilator "Duplicate
+   portuyla aynı SV adı; ui/pass 129 yazılırken Verilator "Duplicate
    declaration" ile görüldü) — ayrı iş, `volthdl-soc-kesif` bulgusuyla aynı.

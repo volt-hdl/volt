@@ -537,7 +537,12 @@ fn let_stmt(
     out.stmts.alloc(Stmt {
         span,
         attrs: Vec::new(),
-        kind: StmtKind::Let(volt_ast::LetDecl { name, ty, value }),
+        kind: StmtKind::Let(volt_ast::LetDecl {
+            name,
+            ty,
+            domain: None,
+            value,
+        }),
     })
 }
 

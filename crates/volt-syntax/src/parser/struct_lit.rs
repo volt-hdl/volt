@@ -87,6 +87,7 @@ impl Parser<'_> {
             self.ast.stmts[stmt].kind = StmtKind::Let(LetDecl {
                 name,
                 ty: None,
+                domain: None,
                 value,
             });
         }
