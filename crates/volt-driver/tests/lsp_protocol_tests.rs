@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -14,13 +14,21 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 
 struct Lsp {
     child: Child,
-    stdin: ChildStdin,
+    /// `Drop` kapatır (EOF): tower-lsp 0.20 `exit`ten sonra ancak EOF'ta döner.
+    stdin: Option<ChildStdin>,
     rx: Receiver<Value>,
     next_id: i64,
+    /// `initialize` yanıtı (sunucu yetenekleri).
+    init: Value,
 }
 
 impl Lsp {
     fn start() -> Self {
+        Self::start_with(json!(null))
+    }
+
+    /// `initializationOptions` ile başlatır (ADR-0091 ipucu ayarları).
+    fn start_with(options: Value) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_volt"))
             .arg("lsp")
             .env("VOLT_LANG", "en")
@@ -62,20 +70,25 @@ impl Lsp {
         });
         let mut lsp = Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             rx,
             next_id: 1,
+            init: Value::Null,
         };
-        lsp.request("initialize", json!({ "capabilities": {}, "rootUri": null }));
+        lsp.init = lsp.request(
+            "initialize",
+            json!({ "capabilities": {}, "rootUri": null, "initializationOptions": options }),
+        );
         lsp.notify("initialized", json!({}));
         lsp
     }
 
     fn send(&mut self, msg: &Value) {
         let body = serde_json::to_vec(msg).expect("json");
-        write!(self.stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("yazılmalı");
-        self.stdin.write_all(&body).expect("yazılmalı");
-        self.stdin.flush().expect("flush");
+        let stdin = self.stdin.as_mut().expect("stdin açık");
+        write!(stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("yazılmalı");
+        stdin.write_all(&body).expect("yazılmalı");
+        stdin.flush().expect("flush");
     }
 
     fn notify(&mut self, method: &str, params: Value) {
@@ -134,7 +147,29 @@ impl Lsp {
 }
 
 impl Drop for Lsp {
+    /// Protokole uygun kapanış (shutdown + exit + EOF): sunucu kendiliğinden
+    /// çıkar. `kill` kapsam profilini (süreç çıkışında yazılır) yok
+    /// ediyordu — lib.rs %0 görünüyordu (ADR-0091). tower-lsp 0.20 `exit`
+    /// sonrası stdin EOF'unu bekler; yanıt vermeyen sunucu yine öldürülür.
     fn drop(&mut self) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let id = self.next_id;
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": "shutdown" }));
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match self.rx.recv_timeout(left) {
+                Ok(msg) if msg.get("id") == Some(&json!(id)) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        self.notify("exit", json!(null));
+        drop(self.stdin.take());
+        while Instant::now() < deadline {
+            if let Ok(Some(_)) = self.child.try_wait() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -424,4 +459,98 @@ fn lsp_completion_offers_fn_with_signature_detail() {
     // CompletionItemKind::FUNCTION = 3
     assert_eq!(imm["kind"], 3, "{imm}");
     assert_eq!(imm["detail"], "fn imm(instr: u32, f: Fmt) -> u32", "{imm}");
+}
+
+// ═══ Inlay ipuçları ve quick fix (ADR-0091) ══════════════════════════
+
+const TWO_CLOCKS: &str = "domain Fast {\n    clock = posedge\n    reset = sync active_high\n}\n\ndomain Slow {\n    clock = posedge\n    reset = sync active_high\n}\n\nmodule Two {\n    in  fclk : clock @Fast\n    in  sclk : clock @Slow\n    in  a    : u8    @Fast\n    out y    : u9    @Fast\n    out z    : u8    @Slow\n\n    let s = a + 1\n    reg q : u8 = 0\n    on sclk {\n        q <= q + 1\n    }\n    y = s\n    z = q\n}\n";
+
+fn range_all(src: &str) -> Value {
+    json!({ "start": { "line": 0, "character": 0 },
+            "end": { "line": src.lines().count(), "character": 0 } })
+}
+
+fn inlay_labels(lsp: &mut Lsp, u: &str, src: &str) -> Vec<String> {
+    let res = lsp.request(
+        "textDocument/inlayHint",
+        json!({ "textDocument": { "uri": u }, "range": range_all(src) }),
+    );
+    res.as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|h| h["label"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[test]
+fn lsp_advertises_inlay_hints_and_quick_fixes() {
+    let lsp = Lsp::start();
+    let caps = &lsp.init["capabilities"];
+    assert_eq!(caps["inlayHintProvider"], true, "{caps}");
+    assert_eq!(
+        caps["codeActionProvider"]["codeActionKinds"],
+        json!(["quickfix"])
+    );
+}
+
+#[test]
+fn lsp_inlay_hints_show_type_and_domain_on_the_wire() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_inlay.volt");
+    lsp.open(&u, TWO_CLOCKS);
+    let labels = inlay_labels(&mut lsp, &u, TWO_CLOCKS);
+    assert_eq!(labels, [": u9", "@Fast", "@Slow"], "{labels:?}");
+    let res = lsp.request(
+        "textDocument/inlayHint",
+        json!({ "textDocument": { "uri": u }, "range": range_all(TWO_CLOCKS) }),
+    );
+    // InlayHintKind::TYPE = 1; `let s` 17. satırda (0-tabanlı), adın sonu.
+    assert_eq!(res[0]["kind"], 1, "{res}");
+    assert_eq!(res[0]["position"], json!({ "line": 17, "character": 9 }));
+}
+
+#[test]
+fn lsp_initialization_options_switch_off_domain_hints() {
+    let mut lsp = Lsp::start_with(json!({ "inlayHints": { "clockDomains": false } }));
+    let u = uri("lsp_inlay_opts.volt");
+    lsp.open(&u, TWO_CLOCKS);
+    assert_eq!(inlay_labels(&mut lsp, &u, TWO_CLOCKS), [": u9"]);
+    lsp.notify(
+        "workspace/didChangeConfiguration",
+        json!({ "settings": { "volt": { "inlayHints": { "types": false } } } }),
+    );
+    assert!(inlay_labels(&mut lsp, &u, TWO_CLOCKS).is_empty());
+}
+
+#[test]
+fn lsp_code_action_offers_the_certain_fix_only() {
+    let mut lsp = Lsp::start();
+    let u = uri("lsp_code_action.volt");
+    let src = "module Count {\n    in  clk : clock\n    in  data : u8\n    out q   : u8\n\n    reg c : u8 = 0\n    on clk {\n        c = data\n    }\n    q = c\n}\n";
+    lsp.open(&u, src);
+    let res = lsp.request(
+        "textDocument/codeAction",
+        json!({ "textDocument": { "uri": u }, "range": range_all(src),
+                "context": { "diagnostics": [] } }),
+    );
+    let actions = res.as_array().cloned().unwrap_or_default();
+    assert_eq!(actions.len(), 1, "{res}");
+    assert_eq!(actions[0]["kind"], "quickfix");
+    let edit = &actions[0]["edit"]["changes"][&u][0];
+    assert_eq!(edit["newText"], "<=");
+    assert_eq!(
+        edit["range"]["start"],
+        json!({ "line": 7, "character": 10 })
+    );
+
+    // Benzer ad tahmini (maybe-incorrect) quick fix değildir.
+    let typo = src.replace("c = data", "c <= dta");
+    lsp.open(&u, &typo);
+    let res = lsp.request(
+        "textDocument/codeAction",
+        json!({ "textDocument": { "uri": u }, "range": range_all(&typo),
+                "context": { "diagnostics": [] } }),
+    );
+    assert!(res.is_null(), "{res}");
 }

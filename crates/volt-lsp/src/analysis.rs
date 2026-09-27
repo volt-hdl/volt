@@ -6,10 +6,13 @@
 //!   emit doğrulaması (`volt_sv_emit::validate_unit`) → toplayıcı
 //!   (`annotate_generate`: katlama + yineleme notu) → editör üst sınırı.
 //!   Yalnız bu belgeye düşen tanılar yayımlanır.
-//! * Editör verisi (hover, tanım, tamamlama, semboller) — tek dosya
-//!   ayrıştırması + aynı boru hattı; parser hata kurtarma yaptığı için
-//!   AST HER girdide üretilir, tamamlama yarım kodda da çalışır.
+//! * Editör verisi (hover, tanım, tamamlama, semboller, inlay ipuçları)
+//!   — tek dosya ayrıştırması + aynı boru hattı; parser hata kurtarma
+//!   yaptığı için AST HER girdide üretilir, tamamlama yarım kodda da
+//!   çalışır. Yalnız editör verisi isteyen istekler `analyze_editor`
+//!   kullanır: tanı yolu (birim + çıktısız emit) koşmaz (ADR-0091).
 
+use std::collections::HashMap;
 use std::path::Path;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile, StmtKind, TypeRefKind};
 use volt_diagnostics::{Diagnostic, Severity};
@@ -26,7 +29,13 @@ pub struct Analysis {
     pub resolve: Option<ResolveResult>,
     pub typeck: Option<TypeckResult>,
     pub domain: Option<DomainResult>,
+    /// `@strict_timing` kesin gecikmeleri (`domain` ile aynı kapı).
+    pub delays: Option<HashMap<DefId, u32>>,
+    /// Yayımlanan tanılar (`volt check` yolu). `analyze_editor`'da boş.
     pub diagnostics: Vec<Diagnostic>,
+    /// Editör verisinin türetildiği tek dosya boru hattındaki HATALARIN
+    /// birincil span'leri — ipuçları bu hataların modülünde susar.
+    pub editor_errors: Vec<Span>,
     /// Referans dizini: kullanım/bildirim span'i → tanım. Hover ve
     /// go-to-definition span kapsama sorgusuyla arar.
     refs: Vec<(Span, DefId)>,
@@ -39,8 +48,25 @@ fn count_errors(diags: &[Diagnostic]) -> usize {
         .count()
 }
 
-/// Kaynağı driver ile aynı aşama sırasında analiz eder.
+/// Kaynağı driver ile aynı aşama sırasında analiz eder; tanılar
+/// `volt check` yolundan.
 pub fn analyze(path: &str, text: &str) -> Analysis {
+    let (mut analysis, stage_diags) = editor_analysis(path, text);
+    // Tanılar CLI yolundan; birim yüklenemezse (bağımlılık okunamadı)
+    // tek dosya boru hattının tanıları kalır.
+    let diagnostics = unit_diagnostics(Path::new(path), text, analysis.file_id)
+        .unwrap_or_else(|| volt_hir::annotate_generate(&analysis.ast, stage_diags));
+    analysis.diagnostics = cap_for_editor(diagnostics);
+    analysis
+}
+
+/// Yalnız editör verisi: tanı yolu koşmaz, `diagnostics` boştur.
+pub fn analyze_editor(path: &str, text: &str) -> Analysis {
+    editor_analysis(path, text).0
+}
+
+/// Tek dosya boru hattı: analiz + aşama tanıları (yayımlanmaz).
+fn editor_analysis(path: &str, text: &str) -> (Analysis, Vec<Diagnostic>) {
     let mut map = SourceMap::new();
     let file_id = map.add_file(path.to_string(), text.to_string());
     let parsed = volt_syntax::parse(file_id, text);
@@ -60,7 +86,9 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
         resolve: None,
         typeck: None,
         domain: None,
+        delays: None,
         diagnostics: Vec::new(),
+        editor_errors: Vec::new(),
         refs: Vec::new(),
     };
 
@@ -72,15 +100,16 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
         analysis.resolve = Some(stages.resolve);
         analysis.typeck = stages.typeck;
         analysis.domain = stages.domain;
+        analysis.delays = stages.delays;
     }
 
-    // Tanılar CLI yolundan; birim yüklenemezse (bağımlılık okunamadı)
-    // tek dosya boru hattının tanıları kalır.
-    let diagnostics = unit_diagnostics(Path::new(path), text, file_id)
-        .unwrap_or_else(|| volt_hir::annotate_generate(&analysis.ast, diagnostics));
-    analysis.diagnostics = cap_for_editor(diagnostics);
+    analysis.editor_errors = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .filter_map(|d| d.primary_span().map(|s| s.span))
+        .collect();
     analysis.build_refs();
-    analysis
+    (analysis, diagnostics)
 }
 
 /// Editör üst sınırı (ADR-0070 §3): katlamadan sonra bile sınırı aşan
@@ -171,6 +200,12 @@ fn to_main_file(
     for text in elsewhere {
         d = d.with_note(volt_diagnostics::NoteKind::Note, text);
     }
+    // Düzeltmeler (quick fix) yalnız bu belgeye uygulanabilir.
+    d.suggestions.retain_mut(|s| {
+        let here = s.span.file == main;
+        s.span.file = file_id;
+        here
+    });
     Some(d)
 }
 

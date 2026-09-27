@@ -679,3 +679,59 @@ module M {
         0
     );
 }
+
+/// Ada göre kesin gecikme (ADR-0091: editör gecikme ipucunun kaynağı).
+fn delays_by_name(src: &str) -> std::collections::BTreeMap<String, u32> {
+    let parsed = parse(FileId(0), src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let res = volt_hir::resolve_file(&parsed.ast);
+    let timing = volt_hir::analyze_timing(&parsed.ast, &res);
+    timing
+        .delays
+        .iter()
+        .map(|(def, n)| (res.defs[def.0 as usize].name.clone(), *n))
+        .collect()
+}
+
+const CHAIN_BODY: &str = "
+    in  clk : clock
+    in  x   : u32
+    out y   : u32
+
+    reg a : u32 = 0
+    reg b : u32 = 0
+    let s = a + 1
+    reg cnt : u8 = 0
+
+    on clk {
+        a <= x
+        b <= s
+        cnt <= cnt + 1
+    }
+
+    y = b
+}
+";
+
+#[test]
+fn analyze_timing_exposes_exact_delays_of_a_strict_module() {
+    let d = delays_by_name(&format!("@strict_timing\nmodule M {{ {CHAIN_BODY}"));
+    assert_eq!(d.get("x"), Some(&0));
+    assert_eq!(d.get("a"), Some(&1));
+    assert_eq!(d.get("s"), Some(&1));
+    assert_eq!(d.get("b"), Some(&2));
+    assert_eq!(d.get("y"), Some(&2));
+    // Saat serbest, geri beslemeli sayaç sabit gecikmeye oturmaz.
+    assert_eq!(d.get("clk"), None);
+    assert_eq!(d.get("cnt"), None);
+}
+
+#[test]
+fn analyze_timing_has_no_delays_outside_strict_modules() {
+    let src = format!("module M {{ {CHAIN_BODY}");
+    assert!(delays_by_name(&src).is_empty());
+    // Tanılar check_timing ile aynı kaynaktan.
+    let parsed = parse(FileId(0), &src);
+    let res = volt_hir::resolve_file(&parsed.ast);
+    assert!(volt_hir::check_timing(&parsed.ast, &res).is_empty());
+}

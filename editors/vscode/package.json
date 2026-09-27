@@ -1,7 +1,7 @@
 {
   "name": "volt-hdl",
   "displayName": "Volt HDL",
-  "description": "Volt HDL language support: syntax highlighting, diagnostics, hover, completion (via volt lsp)",
+  "description": "Volt HDL language support: syntax highlighting, diagnostics, quick fixes, inlay hints, hover, completion (via volt lsp)",
   "version": "0.1.0",
   "publisher": "volthdl",
   "license": "(MIT OR Apache-2.0)",
@@ -41,6 +41,21 @@
           "type": "string",
           "default": "volt",
           "description": "Path to the volt executable (the language server runs as 'volt lsp')."
+        },
+        "volt.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the inferred type after an untyped let or reg (let s = a + b  : u9)."
+        },
+        "volt.inlayHints.clockDomains": {
+          "type": "boolean",
+          "default": true,
+          "description": "In a module with more than one clock, show the inferred clock domain of signals without an @Domain annotation."
+        },
+        "volt.inlayHints.latency": {
+          "type": "boolean",
+          "default": true,
+          "description": "In a @strict_timing module, show the inferred pipeline latency in cycles (+2)."
         }
       }
     }

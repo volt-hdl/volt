@@ -7,7 +7,9 @@ use volt_ast::{
     ArrayLitKind, BinOp, DeclassifySite, Expr, ExprKind, FieldInit, Idx, IntSuffix, Name, NumBase,
     Path, UnOp,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use crate::token::TokenKind;
@@ -211,7 +213,8 @@ impl Parser<'_> {
                 continue;
             };
             // Mevcut yorum: daha sıkı bağlanan (çocuk) ifade parantezlenir.
-            let child_text = self.text_of(self.ast.exprs[child].span).to_string();
+            let child_span = self.ast.exprs[child].span;
+            let child_text = self.text_of(child_span).to_string();
             let other = if child == lhs { rhs } else { lhs };
             let other_text = self.text_of(self.ast.exprs[other].span).to_string();
             let interpretation = if child == lhs {
@@ -232,7 +235,13 @@ impl Parser<'_> {
                 .with_note(
                     NoteKind::Reason,
                     lstr!(en: "even when the precedence is correct, readers will doubt it"; tr: "öncelik doğru olsa bile okuyucu bundan şüphe eder"),
-                ),
+                )
+                // ADR-0091: mevcut yorumu yazmak anlamı korur.
+                .with_suggestion(Suggestion {
+                    span: child_span,
+                    replacement: format!("({child_text})"),
+                    applicability: Applicability::MachineApplicable,
+                }),
             );
             return; // düğüm başına tek uyarı yeter
         }

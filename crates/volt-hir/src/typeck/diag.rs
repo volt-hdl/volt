@@ -5,7 +5,7 @@
 //! yanında kalır. `error`/`warning` beş parçalı tanı şablonunu (kod,
 //! konum, açıklama, etiket, öneri) tek çağrıya indirir.
 
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -50,6 +50,13 @@ impl TypeChecker<'_, '_> {
             LabeledSpan::primary(span, label),
             help,
         ));
+    }
+
+    /// Son eklenen tanıya düzeltme önerisi (ADR-0091).
+    pub(super) fn suggest_last(&mut self, suggestion: Suggestion) {
+        if let Some(d) = self.diagnostics.last_mut() {
+            d.suggestions.push(suggestion);
+        }
     }
 
     /// E2003 — beklenen/bulunan tip çifti.

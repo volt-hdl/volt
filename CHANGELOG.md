@@ -5,6 +5,27 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — LSP inlay ipuçları, quick fix ve protokol testleri (ADR-0091, 2026-09-27)
+
+- Inlay ipuçları: tipsiz `let`/`reg`'in çıkarılan tipi (`: u9`), çok
+  saatli modülde açıklamasız sinyalin saat alanı (`@Fast`),
+  `@strict_timing` modülünde gecikme (`+2`). Bilgi `volt check`'in kendi
+  analizinden (`def_types`, `signal_domains`, yeni `analyze_timing`);
+  hatalı modülde, modül dışı hatada, güvenilmez tipte ve uyuşmayan
+  açılmış kopyalarda ipucu yok. Tür başına ayar: `volt.inlayHints.types`,
+  `.clockDomains`, `.latency` (VS Code) / `initializationOptions`.
+- Quick fix: yalnız `machine-applicable` ve tanı başına tek öneri.
+  Yeni kesin öneriler: E0004 (sonlandırıcı adı), W0010 (mevcut yorumu
+  parantezle), W2012 (`: i32`), E4008 (`.read` → `.read()`); E0006/E0007
+  vardı. Öneriler `volt check --format=json` `suggestions` alanında
+  (cli-contract §5 değişmedi); insan çıktısı aynı.
+- Hover, tamamlama, tanıma git, semboller ve ipuçları tanı yolunu
+  (birim + çıktısız emit) artık koşmaz (`analyze_editor`); sonuçlar aynı.
+- Düzeltildi: birim tanısı ana dosyaya taşınırken öneri span'i
+  taşınmıyordu; protokol testleri sunucuyu `kill` ettiği için (tower-lsp
+  `exit` sonrası EOF bekler) `lib.rs` kapsamı %0 görünüyordu. volt-lsp
+  satır kapsamı %68,7 → %90,1.
+
 ### Değişti — kendiliğinden güncellenen rozetler; `.gitattributes` (2026-09-27)
 
 - README'deki `tests` ve `diagnostic codes` rozetleri artık sabit sayı

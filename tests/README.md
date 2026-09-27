@@ -14,6 +14,10 @@ tests/
 ├── ui/
 │   ├── pass/           Derlenmesi GEREKEN dosyalar
 │   └── fail/           Hata vermesi GEREKEN dosyalar
+├── quickfix/           Quick fix fikstürleri (ADR-0091): `// quickfix: KOD`
+│                       önerisi uygulanınca tanı gider, yeni hata çıkmaz;
+│                       `// no-quickfix: KOD` kesin düzeltme taşımaz.
+│                       Kasıtlı hatalıdır — çıktı ağı derleminde DEĞİL.
 └── README.md           (bu dosya)
 ```
 

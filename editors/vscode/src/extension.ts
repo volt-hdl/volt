@@ -19,8 +19,19 @@ export function activate(context: vscode.ExtensionContext): void {
     args: ["lsp"],
   };
 
+  // Inlay ipucu türleri (ADR-0091): başlangıçta initializationOptions,
+  // değişince workspace/didChangeConfiguration ({ volt: { inlayHints } }).
+  const inlayHints = vscode.workspace.getConfiguration("volt.inlayHints");
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "volt" }],
+    initializationOptions: {
+      inlayHints: {
+        types: inlayHints.get<boolean>("types", true),
+        clockDomains: inlayHints.get<boolean>("clockDomains", true),
+        latency: inlayHints.get<boolean>("latency", true),
+      },
+    },
+    synchronize: { configurationSection: "volt" },
   };
 
   client = new LanguageClient(
