@@ -5,6 +5,7 @@
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
 mod alias;
+mod builtin_data;
 mod builtin_prim;
 mod const_array;
 mod enums;

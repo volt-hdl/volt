@@ -362,3 +362,68 @@ fn user_module_named_sync_fifo_wins_over_builtin() {
     let result = analyze(&parsed.ast);
     assert!(!result.has_errors(), "{:?}", result.error_codes());
 }
+
+// ═══ Struct / enum öğe tipi (ADR-0087) ═══════════════════════════
+
+const TYPES: &str = "enum Mode { Off, Slow, Fast }\nstruct Packet {\n    tag  : u4\n    data : u8\n}\nstruct Cmd {\n    mode : Mode\n    arg  : u6\n}\n";
+
+/// `T` öğeli `prim` örneği; `q` çıkışı `T`.
+fn element_module(inst: &str, t: &str) -> String {
+    format!(
+        "{TYPES}module M {{\n    in  clk  : clock\n    in  addr : bits<4>\n    in  d    : {t}\n    \
+         in  we   : bool\n    out q    : {t}\n\n{inst}\n\n    q = m.rd_data\n}}\n"
+    )
+}
+
+#[test]
+fn fifo_and_ram_of_a_plain_struct_typecheck_clean() {
+    for t in ["Packet", "Cmd"] {
+        assert_clean(&element_module(
+            &format!(
+                "    let m = SyncFifo<{t}, 8> {{ clk: clk, wr_data: d, wr_en: we, rd_en: we }}"
+            ),
+            t,
+        ));
+    }
+    assert_clean(&element_module(
+        "    let m = Ram<Packet, 16> { clk: clk, addr: addr, wr_data: d, wr_en: we }",
+        "Packet",
+    ));
+}
+
+#[test]
+fn ram_family_of_an_enum_bearing_type_is_e2009() {
+    // Hiç yazılmamış adres ham bit döndürür: geçerli varyant olmayabilir.
+    for (t, what) in [("Cmd", "field 'mode'"), ("Mode", "'Mode' is an enum")] {
+        let result = check(&element_module(
+            &format!("    let m = Ram<{t}, 16> {{ clk: clk, addr: addr, wr_data: d, wr_en: we }}"),
+            t,
+        ));
+        assert_eq!(result.error_codes(), ["E2009"], "{t}");
+        let d = result
+            .diagnostics
+            .iter()
+            .find(|d| d.code.as_str() == "E2009")
+            .expect("E2009");
+        assert!(d.message.contains(what), "{}", d.message);
+    }
+    let dual =
+        "    let m = DualPortRam<Cmd, 16> { clk: clk, a_addr: addr, a_wr_data: d, a_wr_en: we, \
+                b_addr: addr, b_wr_data: d, b_wr_en: we }\n    let _unused = m.b_rd_data";
+    let src = element_module(dual, "Cmd").replace("q = m.rd_data", "q = m.a_rd_data");
+    assert!(codes(&src).contains(&"E2009"), "{:?}", codes(&src));
+    let async_ram = "    let m = AsyncDualPortRam<Cmd, 16> { wr_clk: clk, wr_addr: addr, wr_data: d,                      wr_en: we, rd_clk: clk, rd_addr: addr }";
+    let src = element_module(async_ram, "Cmd");
+    assert!(codes(&src).contains(&"E2009"), "{:?}", codes(&src));
+}
+
+#[test]
+fn shift_register_taps_are_len_times_the_packed_width() {
+    // Packet 12 bit × 3 aşama = 36 bit (önce `width_of` struct'ta 1 bit sayıyordu).
+    let src = format!(
+        "{TYPES}module M {{\n    in  clk : clock\n    in  d   : Packet\n    in  we  : bool\n    \
+         out t   : bits<36>\n\n    let s = ShiftRegister<Packet, 3> {{ clk: clk, data_in: d, shift_en: we }}\n\n    \
+         t = s.taps\n}}\n"
+    );
+    assert_clean(&src);
+}

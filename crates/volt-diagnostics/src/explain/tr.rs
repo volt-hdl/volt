@@ -353,7 +353,7 @@ match x {
         E2009 => Explanation::new(
             "Geçersiz tip dönüşümü",
             "'as' bu iki tip arasında dönüşüm yapamaz.",
-            "Dönüşümler yalnız yapısı uyuşan sayısal/bit tipleri (u/i/bits) arasında tanımlıdır. Bir bool'u veya clock'u sayıya çevirmenin (ya da tersinin) tek ve açık bir anlamı yoktur — niyeti açık bir ifadeyle yazın.",
+            "Dönüşümler yalnız yapısı uyuşan sayısal/bit tipleri (u/i/bits) arasında tanımlıdır. Bir bool'u veya clock'u sayıya çevirmenin (ya da tersinin) tek ve açık bir anlamı yoktur — niyeti açık bir ifadeyle yazın.\n\nHam bitler asla örtük olarak enum'a (ya da enum veya Trit alanlı struct'a) dönmez: bitler hiçbir varyanta ait olmayan bir kod taşıyabilir. Aynı kural belleklere de uygulanır: Ram, DualPortRam ve AsyncDualPortRam böyle bir T'yi reddeder, çünkü hiç yazılmamış adres ham bit döndürür (ADR-0087); bitleri saklayın (Ram<u8, ...>) ve alanı açıkça çözün.",
             "in  ck : clock\ny = ck as u1            // ✗ E2009: clock veri değildir",
             "y = if flag { 1 } else { 0 }    // ✓ (bool → sayı, açıkça)",
         ),

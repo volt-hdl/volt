@@ -22,13 +22,13 @@ pub module PacketBuffer {
     out empty   : bool
     out overflow : bool  // a push was refused because the buffer was full
 
-    // The FIFO stores raw bits: `as u12` packs the 12 bits of a Packet
-    // (fields in declaration order, the first field in the high bits)
-    // and `as Packet` unpacks them again.
+    // The FIFO holds whole packets. In hardware each one is stored as one
+    // 12-bit word (fields in declaration order, the first field in the
+    // high bits), so the memory still maps to a block RAM.
     // A pop shows the oldest packet on rd_data one clock later.
-    let fifo = SyncFifo<u12, 8> {
+    let fifo = SyncFifo<Packet, 8> {
         clk: clk,
-        wr_data: in_pkt as u12,
+        wr_data: in_pkt,
         wr_en: push,
         rd_en: pop,
     }
@@ -46,7 +46,7 @@ pub module PacketBuffer {
     cover: full
     cover: overflow_r
 
-    out_pkt = fifo.rd_data as Packet
+    out_pkt = fifo.rd_data
     full    = fifo.full
     empty   = fifo.empty
     overflow = overflow_r

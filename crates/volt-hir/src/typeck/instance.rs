@@ -87,6 +87,7 @@ impl TypeChecker<'_, '_> {
         prim: BuiltinPrim,
     ) {
         let (data, dim) = self.builtin_generic_args(inst, prim);
+        self.check_memory_element(inst, prim, data);
         let ty = self.types.intern(Ty::Builtin { prim, data, dim });
         if let Some(def) = def {
             self.def_types.insert(def, ty);
@@ -136,13 +137,60 @@ impl TypeChecker<'_, '_> {
                 if self.types.is_error(data) || dim == 0 {
                     return self.types.error();
                 }
-                // Bool `width_of`'ta None döner ama 1 bit taşır.
-                let w = self.types.width_of(data).unwrap_or(1) as u32;
+                // Bool `width_of`'ta None döner ama 1 bit taşır; struct/enum
+                // T paketlenmiş genişliğiyle (ADR-0087).
+                let w = self.types.signal_width(data).unwrap_or(1) as u32;
                 self.types.intern(Ty::Bits {
                     width: (dim * w) as u16,
                 })
             }
         }
+    }
+
+    /// RAM ailesinin (`Ram`, `DualPortRam`, `AsyncDualPortRam`) öğesi enum
+    /// ya da `Trit` yaprağı taşıyamaz (ADR-0087): hiç yazılmamış adres
+    /// belleğin başlangıç içeriğini — ham bitleri — döndürür, bu da
+    /// geçerli bir varyant olmayabilir. ADR-0077'nin `raw as P` yasağıyla
+    /// (E2009) aynı gerekçe; FIFO ailesi yalnız yazılmış değerleri ve
+    /// T'nin varsayılan kodlamasıyla reset'lenen register'ı gösterir.
+    fn check_memory_element(&mut self, inst: &InstanceDecl, prim: BuiltinPrim, data: TypeId) {
+        if !matches!(
+            prim,
+            BuiltinPrim::Ram | BuiltinPrim::DualPortRam | BuiltinPrim::AsyncDualPortRam
+        ) {
+            return;
+        }
+        let leaf = match *self.types.ty(data) {
+            Ty::Enum(_) | Ty::Trit => Some(String::new()),
+            Ty::Struct(s) => self.struct_layout(s).and_then(|l| {
+                l.leaves
+                    .iter()
+                    .find(|l| l.kind != volt_ast::struct_layout::LeafKind::Plain)
+                    .map(|l| l.dotted())
+            }),
+            _ => None,
+        };
+        let Some(field) = leaf else {
+            return;
+        };
+        let (name, t) = (prim.name(), self.show(data));
+        let w = self.types.signal_width(data).unwrap_or(1);
+        let span = match inst.generic_args.first() {
+            Some(GenericArg::Type(ty)) => self.ast.types[*ty].span,
+            _ => inst.name.span,
+        };
+        let what = if field.is_empty() {
+            lstr!(en: "'{t}' is an enum or Trit"; tr: "'{t}' bir enum ya da Trit")
+        } else {
+            lstr!(en: "field '{field}' of '{t}' is an enum or Trit"; tr: "'{t}' tipinin '{field}' alanı enum ya da Trit")
+        };
+        self.error(
+            ErrorCode::E2009,
+            span,
+            lstr!(en: "{name}<{t}, ...> is invalid: {what}, and a never-written address reads back raw bits that may be no valid value"; tr: "{name}<{t}, ...> geçersiz: {what} ve hiç yazılmamış adres geçerli olmayabilecek ham bitler döndürür"),
+            lstr!(en: "memory contents are not initialised"; tr: "bellek içeriği başlatılmaz"),
+            lstr!(en: "store the raw bits ({name}<u{w}, ...> with 'value as u{w}') and decode the enum field explicitly after reading (ADR-0077)"; tr: "ham bitleri saklayın ({name}<u{w}, ...>, 'değer as u{w}') ve okuduktan sonra enum alanını açıkça çözün (ADR-0077)"),
+        );
     }
 
     /// Generic argümanları çözer: `T` veri tipi + sabit boyut

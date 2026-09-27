@@ -169,6 +169,8 @@ düzeltme ayrı iş):
 
 1. `SyncFifo<Packet, 8>` — struct öğe tipi E0003 ("struct type as a
    signal type"); şablon `as u12` ile paketler, `as Packet` ile açar.
+   **Kapatıldı, bkz. ADR-0087** — struct `T` bütün generic primitiflerde;
+   şablon `SyncFifo<Packet, 8>` (SV elle paketlenmişle bayt aynı).
 2. `match` kolunda `const` adı sabitle karşılaştırılmaz, yeni bağlama
    olur (W1002 "shadows"); şablon literal desen kullanır. **Kapatıldı,
    bkz. ADR-0085** — desendeki çıplak ad bir değerdir; bağlama deseni
