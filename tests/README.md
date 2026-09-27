@@ -146,3 +146,5 @@ ls tests/ui/fail/*.volt | wc -l > .test-baseline-fail
 ```
 
 Test sayısının düşmesi CI hatası olarak işaretlenir.
+
+Rebase/merge çakışmasında `.test-baseline` ve `.github/badges.json` (README rozetleri) elle düzeltilmez: `scripts/check-consistency.ps1 -Update` (Unix: `scripts/check-consistency.sh --update`) ile yeniden üretilir.

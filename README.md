@@ -7,8 +7,8 @@ An HDL where clock domain crossing bugs won't compile.
 
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
 [![coverage](https://codecov.io/gh/volt-hdl/volt/graph/badge.svg)](https://codecov.io/gh/volt-hdl/volt)
-![tests](https://img.shields.io/badge/tests-2420-brightgreen)
-![diagnostics](https://img.shields.io/badge/diagnostic_codes-126-blue)
+![tests](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvolt-hdl%2Fvolt%2Fmain%2F.github%2Fbadges.json&query=%24.tests&label=tests&color=brightgreen)
+![diagnostics](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvolt-hdl%2Fvolt%2Fmain%2F.github%2Fbadges.json&query=%24.diagnostic_codes&label=diagnostic%20codes&color=blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
 
 Volt has a Rust-like syntax and compiles to readable SystemVerilog. Clock
@@ -96,7 +96,7 @@ error[E3009]: secret data flows to a public output
    = for more: volt explain E3009
 ```
 
-All 126 diagnostic codes have a long-form explanation built into the
+Every diagnostic code has a long-form explanation built into the
 compiler, in English and Turkish: `volt explain E3009`, `volt explain
 E3009 --lang=tr`.
 
@@ -224,7 +224,7 @@ IP-XACT or UVM output.
 - `inout` / `opendrain` ports — [ADR-0051](docs/adr/ADR-0051-cift-yonlu-portlar.md), [`examples/i2c/`](examples/i2c/)
 - SDC/XDC constraint output (`--emit=sdc,xdc`) — [ADR-0054](docs/adr/ADR-0054-sdc-uretimi.md), [`tests/ui/pass/74_sdc_multi_clock.volt`](tests/ui/pass/74_sdc_multi_clock.volt)
 - Test language (`test` blocks, `read_hex`, `load`) run on Verilator — [ADR-0033](docs/adr/ADR-0033-test-bloklari-ve-simulasyon.md), [ADR-0058](docs/adr/ADR-0058-test-dili-genisletme.md), [`examples/uart_tx_test.volt`](examples/uart_tx_test.volt)
-- 12 built-in standard library primitives (FIFOs, RAMs, arbiters, synchronizers) — [ADR-0027](docs/adr/ADR-0027-stdlib-mimarisi.md), [docs/stdlib.md](docs/stdlib.md)
+- Built-in standard library primitives (FIFOs, RAMs, arbiters, synchronizers) — [ADR-0027](docs/adr/ADR-0027-stdlib-mimarisi.md), [docs/stdlib.md](docs/stdlib.md)
 - Language server (`volt lsp`) and a VS Code extension — [`editors/vscode/`](editors/vscode/)
 
 More designs: [`examples/README.md`](examples/README.md).
@@ -354,7 +354,7 @@ verified in CI.
 
 - [docs/spec/](docs/spec/): the binding language specification (grammar,
   type inference, domain inference, SV mapping, CLI contract)
-- [docs/adr/](docs/adr/): 57 architecture decision records (in Turkish)
+- [docs/adr/](docs/adr/): architecture decision records (in Turkish)
 - [docs/stdlib.md](docs/stdlib.md): standard library reference
 - [examples/README.md](examples/README.md): example designs with
   verification results

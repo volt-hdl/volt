@@ -5,6 +5,27 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — kendiliğinden güncellenen rozetler; `.gitattributes` (2026-09-27)
+
+- README'deki `tests` ve `diagnostic codes` rozetleri artık sabit sayı
+  değil: shields.io `dynamic/json`, main dalındaki `.github/badges.json`
+  dosyasını okur. Dosyayı `check-consistency -Update`/`--update` yazar
+  (iki betik bayt bayt aynı çıktı); sayılar betiğin zaten hesapladığı
+  test toplamı (`.test-baseline` ile aynı tanım) ve spec/ADR kod
+  sayısıdır. Denetim kipinde dosya uyuşmazsa ihlal (kontrol 8).
+  README gövdesindeki elle yazılmış sayılar (126 tanı kodu, 57 ADR,
+  12 primitif) sayısız yazıldı.
+- `.gitattributes`: golden/fixture dosya türleri (`.cpp`, `.vlt`, `.hex`,
+  `.c`, `.S`, `.ld`, `.lib`, `.py`, `.ts`, `justfile`, `Makefile`)
+  açıkça `text eol=lf`; `.ps1` CRLF'den LF'ye (PowerShell LF'yi okur);
+  `.cmd` CRLF istisnası; `tests/fuzz_regressions/` bayt bayt korunur
+  (`-text`) ve `linguist-generated` (makine üretimi girdi, dil
+  istatistiğine girmez). Dosya başındaki UTF-8 BOM kaldırıldı: BOM
+  ilk satırı (`* text=auto eol=lf`) checkout'ta etkisiz kılıyordu,
+  `core.autocrlf=true` ile temiz Windows clone'unda golden dosyalar
+  dahil 25 dosya CRLF geliyor, `sim_golden_tests` düşüyordu.
+  Renormalize içerik değiştirmedi.
+
 ### Eklendi — Codecov kapsam rozeti (2026-09-27)
 
 - CI'daki Coverage işi `target/llvm-cov/lcov.info` üretir ve Codecov'a
