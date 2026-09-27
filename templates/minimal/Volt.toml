@@ -1,5 +1,6 @@
 # Volt package manifest (volt new --template minimal).
 [package]
 name = "{{name}}"
-# Sources live next to this file; `volt test` looks for *_test.volt here.
+# Sources live next to this file; `volt test` finds every *_test.volt
+# in this project, subdirectories included (build/ is skipped).
 src = "."

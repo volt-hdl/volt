@@ -50,7 +50,7 @@ fn assert_contains(sv: &str, parts: &[&str]) {
 fn struct_elements_are_one_packed_word_per_entry() {
     let sv = build(
         "pass",
-        &root().join("tests/ui/pass/128_prim_struct_elements.volt"),
+        &root().join("tests/ui/pass/129_prim_struct_elements.volt"),
         "PrimStructs",
     );
     assert_contains(
@@ -143,7 +143,7 @@ fn zero_default_keeps_the_old_reset_literal() {
     // Kodu 0 olan ilk varyant (varsayılan): çıktı eskisiyle aynı.
     let sv = build(
         "zero",
-        &root().join("tests/ui/pass/128_prim_struct_elements.volt"),
+        &root().join("tests/ui/pass/129_prim_struct_elements.volt"),
         "PrimStructs",
     );
     assert_contains(&sv, &["fifo_rd_data <= 12'd0;", "line_shift <= 24'd0;"]);

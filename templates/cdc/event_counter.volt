@@ -35,7 +35,9 @@ pub module EventCounter {
 
     // sync() is a two-flop synchronizer for a single-bit signal. For
     // multi-bit data use the built-in AsyncFifo (`volt explain stdlib`).
-    wire toggle_s : bool
+    // `@Slow` states which domain the wire belongs to; the compiler
+    // checks it (a value from @Fast here would be E3001).
+    wire toggle_s : bool @Slow
     toggle_s = sync(toggle_r, slow_clk)
 
     reg seen_r  : bool = false

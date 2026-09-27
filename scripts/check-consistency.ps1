@@ -9,6 +9,7 @@
 #      Yorum satırları hariç — yalnızca kod ve bağımlılık tanımları sayılır.
 #   5. tests/ui/fail/ dosyalarının ilk satırı "//~ E/W####" ile başlıyor mu?
 #   6. Test sayısı .test-baseline'dan düşmüş mü? (-Update baseline'ı yeniler)
+#   7. tests/ui/pass ve tests/ui/fail'de iki .volt aynı sayısal öneki mi taşıyor?
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -99,6 +100,21 @@ if ($Update) {
     } elseif ($total -gt $baseline) {
         Write-Host "Not: test sayısı arttı ($total > $baseline) — '-Update' ile baseline'ı yenileyebilirsin."
     }
+}
+
+# ── 7: ui fixture sayısal öneki tekil ─────────────────────────────────
+# Paralel dallar aynı sıradaki numarayı alır (#55/#56/#57 üç tane 128_);
+# git çakışma vermez, sayım testleri de yakalamaz. Yalnız .volt sayılır
+# (80_test_read_hex.hex eşlik dosyasıdır).
+foreach ($dir in 'pass', 'fail') {
+    Get-ChildItem (Join-Path $root "tests\ui\$dir") -Filter *.volt |
+        Where-Object { $_.Name -match '^\d+_' } |
+        Group-Object { [int]($_.Name -replace '^(\d+)_.*', '$1') } |
+        Where-Object { $_.Count -gt 1 } |
+        ForEach-Object {
+            $names = ($_.Group | ForEach-Object { $_.Name }) -join ', '
+            Add-Violation "tests/ui/$dir aynı numarayı paylaşıyor: $names (kontrol 7)"
+        }
 }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

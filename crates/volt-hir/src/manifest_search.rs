@@ -17,7 +17,7 @@
 //! Sürücü (`Manifest::discover`), test veri kökü ve LSP (`UnenforcedLint`)
 //! aynı kararı buradan alır.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Paket manifest'inin dosya adı.
 pub const MANIFEST_FILE: &str = "Volt.toml";
@@ -62,7 +62,7 @@ pub enum SearchStop {
     GitRoot(PathBuf),
     /// Ev dizini (dışlayıcı tavan).
     Home(PathBuf),
-    /// Dosya sistemi kökü ya da göreli yolun başı — tavan görülmedi.
+    /// Dosya sistemi kökü — tavan görülmedi.
     Exhausted,
 }
 
@@ -81,25 +81,60 @@ pub fn find_manifest_dir_in(start: &Path, env: &SearchEnv) -> Result<PathBuf, Se
         };
     }
     let homes: Vec<PathBuf> = env.homes.iter().map(|h| canonical(h)).collect();
-    let mut cur = Some(start);
+    let mut cur = Some(start.to_path_buf());
     while let Some(dir) = cur {
-        let here = canonical(dir);
+        let here = canonical(&dir);
         let is_home = homes.contains(&here);
         if is_home && dir != start {
-            return Err(SearchStop::Home(dir.to_path_buf()));
+            return Err(SearchStop::Home(dir));
         }
         if dir.join(MANIFEST_FILE).is_file() {
-            return Ok(dir.to_path_buf());
+            return Ok(dir);
         }
         if dir.join(".git").exists() {
-            return Err(SearchStop::GitRoot(dir.to_path_buf()));
+            return Err(SearchStop::GitRoot(dir));
         }
         if is_home {
-            return Err(SearchStop::Home(dir.to_path_buf()));
+            return Err(SearchStop::Home(dir));
         }
-        cur = dir.parent();
+        cur = parent_of(&dir);
     }
     Err(SearchStop::Exhausted)
+}
+
+/// Bir üst dizin. Göreli yol önce kendi önekinde yükselir (`a/b` → `a`),
+/// tek parçalı ad çalışma dizinine (`build` → "" — eski biçim, iletiler
+/// değişmez); oradan sonra (ya da `.`/`..` başlangıcında) arama çalışma
+/// dizinine göre sözcüksel mutlak yoldan sürer: proje alt dizininde çıplak
+/// dosya adıyla (`volt check x.volt`) da manifest bulunur (ADR-0089).
+fn parent_of(dir: &Path) -> Option<PathBuf> {
+    match dir.parent() {
+        Some(p) if !p.as_os_str().is_empty() => return Some(p.to_path_buf()),
+        Some(_) if matches!(dir.components().next(), Some(Component::Normal(_))) => {
+            return Some(PathBuf::new());
+        }
+        _ => {}
+    }
+    if dir.is_absolute() {
+        return None;
+    }
+    let absolute = lexical_normalize(&std::env::current_dir().ok()?.join(dir));
+    absolute.parent().map(Path::to_path_buf)
+}
+
+/// `.` ve `..` bileşenlerini sözcüksel çözer (sembolik bağlantı izlenmez).
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// Karşılaştırma için kanonik yol; boş göreli yol çalışma dizinidir.

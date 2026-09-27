@@ -377,12 +377,16 @@ pub struct RegDecl {
 pub struct LetDecl {
     pub name: Name,
     pub ty: Option<Idx<TypeRef>>,
+    /// `@Alan` — denetlenen alan açıklaması (ADR-0088)
+    pub domain: Option<Name>,
     pub value: Idx<Expr>,
 }
 
 pub struct WireDecl {
     pub name: Name,
     pub ty: Idx<TypeRef>,
+    /// `@Alan` — denetlenen alan açıklaması (ADR-0088)
+    pub domain: Option<Name>,
 }
 
 pub struct InstanceDecl {

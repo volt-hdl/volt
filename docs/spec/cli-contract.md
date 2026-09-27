@@ -569,6 +569,19 @@ test result: FAILED. 38 passed; 1 failed
 
 Çıkış kodu: 5
 
+**Test dosyası keşfi (ADR-0089):** argümansız `volt test`, çalışma
+dizininden yukarı ilk `Volt.toml`'u (ADR-0061) bulur ve proje kökünden
+ÖZYİNELEMELİ olarak `*_test.volt` arar — alt dizinden çalıştırmak da
+bütün projeyi koşar. Atlananlar: `.` ile başlayan dizinler, `build/` ve
+`target/` (her düzeyde), kendi `Volt.toml`'u olan alt dizin (iç içe
+proje), kökteki `.gitignore`'un düz dizin girdileri (joker ve `!`
+satırları yok sayılır). `Volt.toml` `[test] paths = ["tests", "rtl"]`
+taramayı bu dizinlere (kökten göreli) daraltır. Proje yoksa yalnız
+çalışma dizini (özyinelemesiz). Kardeş kuralı her dizinde aynı:
+`X_test.volt` AYNI dizindeki `X.volt`'u görür; başka dizindeki tasarım
+`use` ile gelir. Aynı adlı iki alt dizin testi ayrı çıktı dizinine
+yazılır: `build/sim/<göreli yol>/<ad>_test/`.
+
 ```
 SEÇENEKLER:
     --filter=<desen>   Sadece eşleşen testler
@@ -907,7 +920,8 @@ saat alanı, `sync()`), `fifo` (`SyncFifo` üstünde paket tamponu),
 gömülüdür (kurulumdan bağımsız) ve her biri CI'da üretilip `check`,
 `build`, çıktı doğrulama ağı (ADR-0079), `test` ve `verify`'dan geçer.
 
-Düzen düzdür (`volt test` yalnız çalışma dizinini tarar):
+Düzen düzdür (ADR-0084; `volt test` artık alt dizinleri de tarar —
+ADR-0089 — ama başlangıç projesi düz kalır):
 
 ```
 <ad>/

@@ -30,11 +30,17 @@ impl Resolver<'_> {
                 if let Some(ty) = l.ty {
                     self.resolve_type(ty, scope);
                 }
+                if let Some(domain) = &l.domain {
+                    self.resolve_domain_ref(&domain.clone(), scope);
+                }
                 self.resolve_expr(l.value, scope);
                 self.declare_local(&l.name.clone(), DefKind::LocalBinding, scope);
             }
             StmtKind::Wire(w) => {
                 self.resolve_type(w.ty, scope);
+                if let Some(domain) = &w.domain {
+                    self.resolve_domain_ref(&domain.clone(), scope);
+                }
                 self.declare_local(&w.name.clone(), DefKind::Wire, scope);
             }
             StmtKind::Instance(inst) => self.resolve_instance_stmt(inst, scope, module_def),

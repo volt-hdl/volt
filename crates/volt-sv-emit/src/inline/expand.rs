@@ -663,6 +663,7 @@ impl<'a> Expander<'a> {
             kind: StmtKind::Let(LetDecl {
                 name: ident.clone(),
                 ty,
+                domain: None,
                 value,
             }),
         });

@@ -92,6 +92,12 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: verilator
         run: cargo test -p volt-driver --test template_tests
+      # ADR-0089: `volt test` finds tests in every project subdirectory;
+      # same-named tests in two directories get separate build/sim dirs.
+      - name: Test discovery from the project root (real Verilator, ADR-0089)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
+        run: cargo test -p volt-driver --test test_discovery_tests
       # ADR-0078: keyword-safe names lint clean, C++-word ports simulate
       # through Verilator's __SYM__ names (real-tool tests skip only when
       # the tool is missing).

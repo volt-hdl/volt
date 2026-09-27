@@ -141,8 +141,8 @@ fn run_group(
         return Err(ExitCode::from(3));
     };
 
-    let stem = unit.file_label.trim_end_matches(".volt").to_string();
-    let sim_dir = opts.target_dir.join("sim").join(&stem);
+    // Alt dizindeki aynı adlı testler ayrı dizine (ADR-0089).
+    let sim_dir = opts.target_dir.join("sim").join(unit.sim_key());
     let tb_name = format!("tb_{module}.cpp");
     let inputs = write_group_files(
         &sim_dir,

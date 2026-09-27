@@ -34,6 +34,11 @@ pub(super) struct TestUnit {
 }
 
 impl TestUnit {
+    /// `build/sim/` altındaki çıktı dizini: dosyanın göreli yolu (ADR-0089).
+    pub fn sim_key(&self) -> PathBuf {
+        super::discover::sim_key(&self.path)
+    }
+
     /// Test dosyasının AST'si + varsa kardeşininki.
     fn sources(&self) -> Vec<&SourceFile> {
         let mut sources: Vec<&SourceFile> = vec![&self.compiled.ast];
