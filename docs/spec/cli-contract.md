@@ -3,7 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: UX Anayasası, `error-recovery.md`
 > Aşama: F0'dan itibaren — CI için ÖNKOŞUL
-> Karar kayıtları: ADR-0021 (çıkış kodları §2, `build/` dizini §4, stdout/stderr §11), ADR-0004 (`--lang` §3, tanı biçimi §5), ADR-0015 (determinizm İ3, `--release` planı), ADR-0019 (E9001), ADR-0022 (E7001/E7002), ADR-0063 (`check-regmap` §6a, E9003/E9004)
+> Karar kayıtları: ADR-0021 (çıkış kodları §2, `build/` dizini §4, stdout/stderr §11), ADR-0004 (`--lang` §3, tanı biçimi §5), ADR-0015 (determinizm İ3, `--release` planı), ADR-0019 (E9001), ADR-0022 (E7001/E7002), ADR-0063 (`check-regmap` §6a, E9003/E9004), ADR-0084 (`doctor` §9a, `new`/`init` §9b, araç keşfi §10)
 
 ---
 
@@ -31,8 +31,9 @@
 ## 1. Komut Listesi
 
 ```
-volt new <isim>              Yeni proje oluştur
-volt init                    Mevcut dizinde proje başlat
+volt new <isim>              Yeni proje oluştur (ADR-0084 §9b)
+volt init                    Mevcut dizinde proje başlat (ADR-0084 §9b)
+volt doctor                  Kurulum teşhisi: hangi komut çalışır (ADR-0084 §9a)
 
 volt build [dosya]           Derle → SystemVerilog
 volt check [dosya]           Sadece kontrol (çıktı üretme)
@@ -73,6 +74,8 @@ KOD  ANLAM                          NE ZAMAN
 ────────────────────────────────────────────────────────────
 
 Uyarılar çıkış kodunu ETKİLEMEZ (--deny-warnings hariç).
+Eksik dış araç (Verilator, sby) 3'tür: `volt test`/`run`/`verify` ve
+`volt doctor --strict` (ADR-0084 §3).
 `volt verify`'da birden çok görev farklı sonuçla biterse öncelik
 6 > 3 > 8 > 7 (ADR-0075: en kesin ve en eyleme dönük sonuç baskın).
 ```
@@ -786,6 +789,136 @@ DAHA FAZLA
 
 ---
 
+## 9a. `volt doctor` — kurulum teşhisi (ADR-0084)
+
+Hangi komutun bu makinede çalışacağını ve eksik için ne kurulacağını
+söyler. Rapor araç listesi değil yetenek listesidir. Araçlar `volt test`,
+`volt verify` ve CI testleriyle AYNI aramayla bulunur (§10).
+
+```
+volt doctor [--format human|json] [--strict] [--timeout <sn>]
+```
+
+| Yetenek | Komutlar | Zorunlu | İsteğe bağlı |
+|---|---|---|---|
+| core | build, check, explain | — | — |
+| simulation | test, run | Verilator ≥ 5.0, C++ derleyicisi, make | — |
+| verify | verify | sby, Yosys, bir çözücü (boolector varsayılan) | bitwuzla, yices, z3 |
+| timing | — | — | OpenSTA (`sta`) |
+| driver checks | — | — | cc, rustc |
+| docker | — | — | docker + çalışan daemon |
+
+Ek olarak proje bağlamı: `Volt.toml` kökü (ADR-0061 araması) ve WSL'de
+`/mnt/<sürücü>` altında çalışma uyarısı.
+
+İnsan çıktısı (stdout, `--lang` izler; Windows, araçsız, Docker açık):
+
+```
+volt 0.1.0 (windows-x86_64)
+
+✓ build, check, explain — no external tools needed
+✗ test, run — Verilator, C++ compiler, make not found
+    install (Windows): use WSL or Docker (no native binaries are distributed)
+    see: volt explain simulation-setup
+✗ verify — sby, Yosys not found; no SMT solver found (boolector, bitwuzla, yices, z3)
+    install (Windows): use WSL or Docker (no native binaries are distributed)
+    see: volt explain verify-setup
+- timing (optional) — OpenSTA not found; checks generated .sdc files (ADR-0065)
+- driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust (ADR-0053)
+✓ docker — 29.7.2, daemon running
+- project — no Volt.toml (search stopped at the git root C:\Dev\volthdl); single .volt files still work
+```
+
+İşaretler: `✓` tam, `!` çalışır ama eksikle (eski sürüm, varsayılan
+çözücü yok → `--engine <ad>` önerisi, daemon kapalı, WSL `/mnt`), `✗`
+zorunlu yetenek eksik, `-` isteğe bağlı olan yok. Kurulum satırları
+`volt explain simulation-setup`/`verify-setup` konusunun INSTALL
+bölümünden, bu işletim sisteminin paragrafıdır (metin kopyalanmaz).
+
+Her sürüm sorgusu paralel ve zaman sınırlıdır (`--timeout`, varsayılan
+5 sn, 1–60); süresi dolan araç öldürülür ve `unresponsive` raporlanır.
+
+**Çıkış kodu:** 0 — rapor üretildi (eksik araç yalnız bildirilir; Volt
+tek başına build/check/explain yapar). `--strict`: zorunlu yetenek
+(simulation, verify) tam değilse 3 (§2; `volt test`/`verify`'ın eksik
+araç kodu). İsteğe bağlı yetenekler `--strict`'i etkilemez.
+
+**JSON** (`--format=json`, `schema: "volt-doctor/1"`, metin içermez):
+
+```json
+{
+  "schema": "volt-doctor/1",
+  "volt_version": "0.1.0", "os": "windows", "arch": "x86_64",
+  "timeout_secs": 5,
+  "required_ok": false,
+  "capabilities": [
+    {"id": "simulation", "commands": ["test", "run"], "optional": false,
+     "status": "missing", "tools": ["verilator", "cxx", "make"],
+     "setup_topic": "simulation-setup"}
+  ],
+  "solver": null,
+  "tools": [
+    {"name": "verilator", "status": "missing", "path": null,
+     "version": null, "min_version": "5.0"}
+  ],
+  "docker_daemon": {"status": "running", "version": "29.7.2"},
+  "project": {"manifest_dir": null, "search_stop": "git_root",
+              "stop_dir": "C:\Dev\volthdl", "wsl_mount": false}
+}
+```
+
+`status`: yetenekte `ok | degraded | missing`; araçta `ok | missing |
+unresponsive | broken | too_old`. `search_stop`: `override | git_root |
+home | exhausted` (manifest bulunduysa `null`).
+
+---
+
+## 9b. `volt new` / `volt init` — proje başlatma (ADR-0084)
+
+```
+volt new <ad> [--template <t>]          <ad>/ dizinini oluşturur
+volt init [--template <t>] [--name <ad>] çalışma dizinine yazar (ad: dizin adı)
+volt new --list                          şablonları listeler
+```
+
+Şablonlar: `minimal` (varsayılan; sayaç + test + kontrat), `cdc` (iki
+saat alanı, `sync()`), `fifo` (`SyncFifo` üstünde paket tamponu),
+`mmio` (`@mmio` register haritası + sürücü üretimi). Şablonlar ikiliye
+gömülüdür (kurulumdan bağımsız) ve her biri CI'da üretilip `check`,
+`build`, çıktı doğrulama ağı (ADR-0079), `test` ve `verify`'dan geçer.
+
+Düzen düzdür (`volt test` yalnız çalışma dizinini tarar):
+
+```
+<ad>/
+  Volt.toml          [package] name = "<ad>", src = "."
+  counter.volt       (şablona göre ana dosya)
+  counter_test.volt
+  README.md
+  .gitignore         build/
+```
+
+- **Ad:** geçerli Volt tanımlayıcısı (`[A-Za-z_][A-Za-z0-9_]*`, Volt
+  anahtar sözcüğü değil), ADR-0078 tablosunda ayrılmış değil (SV, Rust,
+  C/C++). Aksi 2; tire için `_` önerilir.
+- **Üzerine yazma YOK, `--force` YOK:** `volt new` dizini varsa ve boş
+  değilse 2. `volt init`, `Volt.toml` ya da yazılacak bir dosya zaten
+  varsa 2 ve çakışan dosyaları listeler; başka dosyaya dokunmaz.
+- Çıkış kodları: 0 başarı, 2 ad/şablon/dizin/çakışma, 3 yazma hatası.
+
+İnsan çıktısı (stderr, §11):
+
+```
+$ volt new blinky
+    Created minimal project 'blinky' in blinky
+             Volt.toml, counter.volt, counter_test.volt, README.md, .gitignore
+       Next: cd blinky
+             volt check counter.volt
+             volt test
+```
+
+---
+
 ## 10. Ortam Değişkenleri
 
 ```
@@ -795,7 +928,15 @@ VOLT_TARGET_DIR=<yol>   Varsayılan çıktı dizini
 VOLT_COLOR=<mod>        --color varsayılanı
 NO_COLOR=1              Renk kapalı (standart)
 CI=true                 CI modu: renksiz, ilerleme çubuğu yok
+VOLT_VERILATOR=<yol|ad> Verilator (test, run, doctor) — PATH'ten önce
+VOLT_SBY=<yol|ad>       sby (verify, doctor) — PATH'ten önce
+CC / CXX                C / C++ derleyicisi (doctor)
+VOLT_REQUIRE_TOOLS=<l>  Araç bağımlı testlerde listedeki araç yoksa DÜŞ (ADR-0079 §3)
 ```
+
+Araç keşfi tek kaynaktır (`volt-tools`, ADR-0084 §1): değişken dosya
+yolu ya da PATH'teki ad olabilir; bulunamayan yol PATH aramasına düşer;
+PATH'te `""`, `.exe`, `.bat`, `.cmd` ekleri denenir.
 
 ---
 
@@ -876,6 +1017,8 @@ KULLANIM:
 
 KOMUTLAR:
     new       Yeni proje oluştur
+    init      Mevcut dizinde proje başlat
+    doctor    Kurulum teşhisi
     build     Derle ve SystemVerilog üret
     check     Hızlı kontrol (çıktı üretmez)
     run       Derle ve simüle et
