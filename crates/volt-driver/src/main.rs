@@ -8,6 +8,7 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod doctor;
 mod extern_stage;
 mod reach;
 mod regmap_check;
@@ -259,6 +260,23 @@ enum Command {
         /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
+    },
+    /// Report which commands work on this machine and what to install (ADR-0084)
+    #[command(after_help = "EXAMPLES:
+    volt doctor
+    volt doctor --format json
+    volt doctor --strict            # exit 3 if test, run or verify lacks a tool
+    volt --lang tr doctor")]
+    Doctor {
+        /// Output format: human | json
+        #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+        format: OutputFormat,
+        /// Exit 3 when a required capability (test/run, verify) is not fully available
+        #[arg(long)]
+        strict: bool,
+        /// Time limit per tool version query, in seconds
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=60))]
+        timeout: u64,
     },
     /// Start the Volt language server on stdio (editors connect here)
     Lsp,
@@ -513,6 +531,15 @@ fn run() -> ExitCode {
                 target_dir: &target_dir,
             },
         ),
+        Command::Doctor {
+            format,
+            strict,
+            timeout,
+        } => doctor::doctor(doctor::DoctorOptions {
+            format,
+            strict,
+            timeout: std::time::Duration::from_secs(timeout),
+        }),
         Command::Lsp => {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS

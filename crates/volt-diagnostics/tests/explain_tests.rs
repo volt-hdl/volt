@@ -483,3 +483,35 @@ fn e0003_explains_the_fn_bit_select_limit_and_its_fix_in_both_languages() {
         assert!(note.contains("`let t = f(a ^ b)`"), "{note}");
     }
 }
+
+/// `volt doctor` kurulum ipucunu konu metninden okur (ADR-0084 §2):
+/// her işletim sistemi paragrafı iki dilde bulunur, olmayan boş döner.
+#[test]
+fn install_steps_come_from_the_setup_topics() {
+    use volt_diagnostics::explain::topics::install_steps;
+    assert_eq!(
+        install_steps("simulation-setup", Lang::En, "Linux"),
+        ["apt install verilator"]
+    );
+    assert_eq!(
+        install_steps("simulation-setup", Lang::Tr, "macOS"),
+        ["brew install verilator"]
+    );
+    assert_eq!(
+        install_steps("verify-setup", Lang::En, "Linux"),
+        ["apt install yosys boolector", "pip install symbiyosys"]
+    );
+    for (topic, lang) in [
+        ("simulation-setup", Lang::En),
+        ("simulation-setup", Lang::Tr),
+        ("verify-setup", Lang::En),
+        ("verify-setup", Lang::Tr),
+    ] {
+        let windows = install_steps(topic, lang, "Windows");
+        assert_eq!(windows.len(), 1, "{topic}");
+        assert!(windows[0].contains("WSL"), "{topic}: {windows:?}");
+    }
+    assert!(install_steps("verify-setup", Lang::En, "macOS").is_empty());
+    assert!(install_steps("domains", Lang::En, "Linux").is_empty());
+    assert!(install_steps("no-such-topic", Lang::En, "Linux").is_empty());
+}
