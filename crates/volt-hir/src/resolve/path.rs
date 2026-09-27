@@ -94,13 +94,7 @@ impl Resolver<'_> {
 
     /// E1002 (ileride bildirilmiş) veya E1001 (hiç yok) üretir.
     fn error_unresolved(&mut self, name: &Name, scope: ScopeId) {
-        let later_decl = self
-            .pending
-            .iter()
-            .rev()
-            .find_map(|later| later.get(&name.text).copied());
-        if let Some(decl_span) = later_decl {
-            self.err_used_before_decl(name, decl_span);
+        if self.report_used_before_decl(name) {
             return;
         }
 
@@ -122,6 +116,22 @@ impl Resolver<'_> {
         );
         self.diagnostics
             .push(with_rename(diag, name.span, suggestion));
+    }
+
+    /// Ad sıralı gövdede daha aşağıda bildirilmişse E1002 verir (true).
+    pub(super) fn report_used_before_decl(&mut self, name: &Name) -> bool {
+        let later_decl = self
+            .pending
+            .iter()
+            .rev()
+            .find_map(|later| later.get(&name.text).copied());
+        match later_decl {
+            Some(decl_span) => {
+                self.err_used_before_decl(name, decl_span);
+                true
+            }
+            None => false,
+        }
     }
 
     /// E1002 — ad, içinde bulunulan sıralı gövdede daha AŞAĞIDA bildirilmiş.

@@ -206,6 +206,12 @@ impl<'a> Checker<'a, '_> {
             self.scope.consts.bind(&name.text, None);
             return;
         }
+        // Tasarım dilindeki gibi (spec §6): tasarım sabitini gölgeleyen
+        // test adı W1002 — aksi halde `LIMIT` sessizce başka değer olur
+        // (ADR-0085 sınıf taraması).
+        if self.scope.consts.global(&name.text).is_some() {
+            self.diags.push(shadows_design_const(name));
+        }
         self.scope.define(&name.text, kind, constant);
     }
 
@@ -411,6 +417,21 @@ fn duplicate_name(name: &Name) -> Diagnostic {
         ),
         lstr!(en: "test names cannot be shadowed; pick another name";
               tr: "test adları gölgelenemez; başka bir ad seçin"),
+    )
+}
+
+fn shadows_design_const(name: &Name) -> Diagnostic {
+    Diagnostic::warning(
+        ErrorCode::W1002,
+        lstr!(en: "'{}' shadows a constant of the design", name.text;
+              tr: "'{}' tasarımın bir sabitini gölgeliyor", name.text),
+        LabeledSpan::primary(
+            name.span,
+            lstr!(en: "from here on '{}' is the test's value", name.text;
+                  tr: "buradan sonra '{}' testin değeri", name.text),
+        ),
+        lstr!(en: "use a different name to avoid confusion";
+              tr: "karışıklığı önlemek için farklı bir isim kullanın"),
     )
 }
 
@@ -702,5 +723,17 @@ dut.cmd = 4;"
             .map(|d| d.code.as_str())
             .collect::<Vec<_>>();
         assert_eq!(codes, vec!["E8502"]);
+    }
+    #[test]
+    fn test_let_shadowing_a_design_const_is_w1002() {
+        // ADR-0085 sınıf taraması: tasarım dilinde `let` const'u gölgelerse
+        // W1002; test dili sessizdi.
+        let lib = parse("const LIMIT : u8 = 10\nmodule M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg r : u8 = 0\n    on clk { r <= x }\n    y = r\n}\n");
+        let test = parse("test \"t\" {\n    let dut = M { };\n    let LIMIT = 3;\n    let other = 4;\n    dut.x = LIMIT + other;\n    step(1);\n}\n");
+        let codes: Vec<_> = check_tests(&[&test, &lib], &test, false)
+            .iter()
+            .map(|d| d.code.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(codes, vec!["W1002"]);
     }
 }

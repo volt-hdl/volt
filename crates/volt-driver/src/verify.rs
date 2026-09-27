@@ -57,6 +57,10 @@ pub(crate) struct SbyFailure {
     pub(crate) sv_line: Option<usize>,
     /// İhlalin görüldüğü BMC adımı (döngü).
     pub(crate) step: Option<u32>,
+    /// Cover kipinde ulaşılamayan BÜTÜN cover satırları (log sırasıyla);
+    /// `sv_line` bunların ilkidir. Derinlik sınırlı otomatik cover'lar
+    /// buradan ayrılır (ADR-0086, `verify_depth`).
+    pub(crate) unreached: Vec<usize>,
 }
 
 /// `volt verify` paralellik ayarları (cli-contract.md §8a).
@@ -190,12 +194,20 @@ pub(crate) fn verify(
         })
         .collect();
     let total = specs.len();
+    // ADR-0086: cover kipinde derinliğin yetmediği otomatik cover'lar
+    // başarısızlık sayılmaz (ilerleme satırı ve --fail-fast da buna göre).
+    let cover_props = compiled.sva_props.clone();
+    let settle_cover = |idx: usize, outcome: SbyOutcome| {
+        crate::verify_depth::settle(outcome, &modules[idx], &sv, &cover_props, opts.depth)
+    };
     let run = RunConfig {
         sby: &sby,
         sby_file: &sby_name,
         cwd: &formal_dir,
         jobs,
         fail_fast: args.fail_fast,
+        settle: (opts.mode == volt_sv_emit::SbyMode::Cover)
+            .then_some(&settle_cover as &dyn Fn(usize, SbyOutcome) -> SbyOutcome),
     };
     let report = match run_sby_tasks(&run, &specs, |done, idx, status| {
         if human {
@@ -236,6 +248,12 @@ pub(crate) fn verify(
             })
             .collect();
         let mut failed_prop = None;
+        let auto_unreached = auto_unreached_of(&result.log, module, &sv, &compiled, &opts);
+        if human {
+            for d in &auto_unreached {
+                eprintln!("{}", crate::verify_depth::note_line(module, d, opts.depth));
+            }
+        }
         match &result.status {
             TaskStatus::Done {
                 outcome: SbyOutcome::Pass,
@@ -325,6 +343,7 @@ pub(crate) fn verify(
             props,
             status: result.status.clone(),
             failed_prop,
+            auto_unreached,
         });
     }
     if any_error && !report.global_log.trim().is_empty() {
@@ -367,6 +386,33 @@ pub(crate) fn verify(
         }
     }
     verify_exit_code(any_fail, any_error, any_timeout, any_unknown)
+}
+
+/// Cover kipinde ulaşılmayan, ölü olduğu kanıtlanmamış otomatik
+/// cover'lar (ADR-0086); ham sby logundan (düzeltilmemiş sonuç).
+fn auto_unreached_of(
+    log: &str,
+    module: &str,
+    sv: &str,
+    compiled: &crate::Compiled,
+    opts: &SbyOptions,
+) -> Vec<crate::verify_depth::AutoUnreached> {
+    if opts.mode != volt_sv_emit::SbyMode::Cover {
+        return Vec::new();
+    }
+    match interpret_sby_output(log) {
+        SbyOutcome::Fail(f) => {
+            crate::verify_depth::split_unreached(
+                module,
+                &f.unreached,
+                sv,
+                &compiled.sva_props,
+                opts.depth,
+            )
+            .1
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// Çıkış kodu önceliği (ADR-0075, cli-contract.md §2): karşı örnek (6) >
@@ -616,6 +662,7 @@ pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
     let mut status: Option<Done> = None;
     let mut last_step: Option<u32> = None;
     let mut failure: Option<SbyFailure> = None;
+    let mut unreached: Vec<usize> = Vec::new();
 
     for line in log.lines() {
         if let Some(step) = parse_step(line) {
@@ -631,7 +678,13 @@ pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
             failure = Some(SbyFailure {
                 sv_line: parse_sv_line(line),
                 step: last_step,
+                unreached: Vec::new(),
             });
+        }
+        if line.contains("Unreached cover statement at") {
+            if let Some(l) = parse_sv_line(line).filter(|l| !unreached.contains(l)) {
+                unreached.push(l);
+            }
         }
         let done = [
             ("DONE (PASS", Done::Pass),
@@ -646,11 +699,15 @@ pub(crate) fn interpret_sby_output(log: &str) -> SbyOutcome {
     }
     match status {
         Some(Done::Pass) => SbyOutcome::Pass,
-        Some(Done::Fail) => SbyOutcome::Fail(failure.unwrap_or_default()),
+        Some(Done::Fail) => SbyOutcome::Fail(SbyFailure {
+            unreached,
+            ..failure.unwrap_or_default()
+        }),
         // Tümevarım adım numarası kullanıcı döngüsü değildir: yalnız konum.
         Some(Done::Unknown) => SbyOutcome::Unknown(SbyFailure {
             sv_line: failure.and_then(|f| f.sv_line),
             step: None,
+            unreached: Vec::new(),
         }),
         Some(Done::Timeout) => SbyOutcome::Timeout,
         Some(Done::Error) | None => SbyOutcome::Error,
@@ -828,6 +885,19 @@ fn failed_prop<'p>(
 
 /// Otomatik kontratın kökeni (ADR-0066 §4) ve iz dosyası notu.
 fn with_origin_and_trace(mut diag: Diagnostic, prop: &SvaProp, trace: Option<&Path>) -> Diagnostic {
+    if prop
+        .auto
+        .as_ref()
+        .is_some_and(|a| a.reach == volt_sv_emit::CoverReach::Never)
+    {
+        diag = diag.with_note(
+            NoteKind::Note,
+            lstr!(
+                en: "structurally unreachable: no sequence of states from reset leads here, at any depth (ADR-0086)";
+                tr: "yapısal olarak ulaşılamaz: resetten buraya varan bir durum dizisi yok, hiçbir derinlikte (ADR-0086)"
+            ),
+        );
+    }
     // ADR-0066 §4: kullanıcı yazmadığı kontratın nereden geldiğini görür.
     if let Some(auto) = &prop.auto {
         if auto.from != prop.span {
@@ -918,6 +988,8 @@ SBY 14:36:54 [dead] DONE (FAIL, rc=2)
             panic!("FAIL bekleniyor");
         };
         assert_eq!(failure.sv_line, Some(59));
+        // ADR-0086: cover kipinde bütün ulaşılamayan satırlar, log sırasıyla.
+        assert_eq!(failure.unreached, [59, 55]);
         let sv = "a\nb\n        if (!(rst)) cover (x); // volt:cov_1\n";
         assert_eq!(prop_name_at(sv, 3).as_deref(), Some("cov_1"));
     }
@@ -954,7 +1026,8 @@ SBY 16:34:39 [n_shadow] DONE (UNKNOWN, rc=4)
             interpret_sby_output(log),
             SbyOutcome::Unknown(SbyFailure {
                 sv_line: Some(40),
-                step: None
+                step: None,
+                unreached: Vec::new(),
             })
         );
     }
@@ -1101,6 +1174,7 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
             text: "r <= 9".to_string(),
             subject: "wrap check on r".to_string(),
             from,
+            reach: volt_sv_emit::CoverReach::Unknown,
         };
         let prop = |from| SvaProp {
             module_name: "C".to_string(),
@@ -1113,6 +1187,7 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
         let failure = SbyFailure {
             sv_line: None,
             step: Some(3),
+            unreached: Vec::new(),
         };
         let (name, diag) = counterexample_diagnostic("C", &failure, "", &[prop(at(10))], None);
         assert_eq!(name, "inv_0");

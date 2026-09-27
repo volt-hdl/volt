@@ -1808,7 +1808,8 @@ fn match_expr_in_assignment() {
 }
 
 #[test]
-fn pattern_path_variant_and_binding() {
+fn pattern_path_variant_and_bare_name_value() {
+    // Çıplak ad bağlama değil, değer ifadesidir (ADR-0085).
     let result = p("module M { y = match x { Durum::Bekle => 0, diger => diger } }");
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
     let module = result.ast.module(0).unwrap();
@@ -1823,10 +1824,10 @@ fn pattern_path_variant_and_binding() {
     };
     assert_eq!(path.segments.len(), 2);
     assert!(args.is_none());
-    assert!(matches!(
-        result.ast.patterns[arms[1].pattern].kind,
-        PatternKind::Binding(_)
-    ));
+    let PatternKind::Literal(e) = result.ast.patterns[arms[1].pattern].kind else {
+        panic!("çıplak ad değer deseni olmalı")
+    };
+    assert!(matches!(&result.ast.exprs[e].kind, ExprKind::Path(p) if p.segments.len() == 1));
 }
 
 #[test]
@@ -2155,7 +2156,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 113, "ui/pass 113 dosya içermeli");
+    assert_eq!(total, 114, "ui/pass 114 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2200,8 +2201,8 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // struct, kontrat) ve 124-126'yı (blok let'i: on/comb, gölgeleme,
     // comb sırası), Aşama 3 ise 127'yi (const'ta if/match ifadesi).
     assert_eq!(
-        clean, 113,
-        "113/113 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 114,
+        "114/114 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

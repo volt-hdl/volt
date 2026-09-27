@@ -796,6 +796,25 @@ pub struct AutoOrigin {
     /// Kontratı doğuran yapının konumu (match, sınır karşılaştırması,
     /// port bildirimi, `@mmio` niteliği).
     pub from: Span,
+    /// Cover'ın yapısal erişilebilirliği (ADR-0086): sayaç sarması ve FSM
+    /// geçiş/durum cover'ı için tanıyıcı hesaplar; `volt verify --mode
+    /// cover` ulaşılamayan otomatik cover'ı yalnız `Never` ise E5001 sayar.
+    pub reach: AutoReach,
+}
+
+/// Otomatik cover'ın reset'ten itibaren yapısal erişilebilirliği
+/// (ADR-0086). Girişler her kenarda en elverişli seçilir; register'ın
+/// kendi yazmaları dışındaki koşullar yok sayılır — `AtLeast` bir ALT
+/// sınırdır, `Never` bir kanıttır.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AutoReach {
+    /// Bilinmiyor (cover değil ya da çözümleme yok).
+    #[default]
+    Unknown,
+    /// Reset bırakıldıktan sonra en az bu kadar saat kenarı gerekir.
+    AtLeast(u32),
+    /// Resetten ulaşılamaz: kaynak durum hiçbir yoldan girilmez.
+    Never,
 }
 
 /// Otomatik kontrat kuralı.
@@ -1128,10 +1147,9 @@ pub struct Pattern {
 pub enum PatternKind {
     /// `_`
     Wildcard,
-    /// `42`, `true`
+    /// `42`, `true`, sabit adı `LIMIT` — değerle karşılaştırılan ifade.
+    /// Volt'ta bağlama deseni yok: çıplak ad bir değerdir (ADR-0085).
     Literal(Idx<Expr>),
-    /// `x` — bağlama
-    Binding(Name),
     /// `State::Idle` veya `Some(x)`
     Path {
         path: Path,

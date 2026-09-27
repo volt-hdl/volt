@@ -177,6 +177,12 @@ jobs:
           code=$?
           echo "volt verify exit code: $code"
           test "$code" -eq 6
+      # ADR-0086: auto covers are E5001 only when structurally dead; the
+      # harness offset (3 sby steps) is measured against the real sby.
+      - name: Auto cover reachability (real sby, ADR-0086)
+        env:
+          VOLT_REQUIRE_TOOLS: sby
+        run: cargo test -p volt-driver --test verify_cover_depth_tests
       # ADR-0055: one sby process, one task per contract-bearing module, -j N.
       - name: SoC (145 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt

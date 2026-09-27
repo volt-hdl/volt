@@ -45,6 +45,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1012 => "Extern modülün SystemVerilog kaynağı yok, bulunamadı ya da proje dışında",
         E1013 => "Ad, üretilen bir dilin ayrılmış sözcüğü",
         E1014 => "İki @mmio adı register haritası sürücüsünde aynı tanımlayıcıyı üretiyor",
+        E1015 => "Desendeki ad bir sabit olmalı",
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => "Bit genişliği uyumsuzluğu",

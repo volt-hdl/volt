@@ -12,6 +12,7 @@ use volt_diagnostics::lstr;
 use volt_sv_emit::SbyOptions;
 
 use crate::verify::SbyOutcome;
+use crate::verify_depth::AutoUnreached;
 use crate::verify_jobs::TaskStatus;
 
 /// Bir kontratın rapordaki kimliği.
@@ -31,6 +32,9 @@ pub(crate) struct ModuleOutcome {
     /// FAIL'de karşı örneğe, UNKNOWN'da tümevarım izine eşlenen kontrat
     /// adı (`inv_0`).
     pub(crate) failed_prop: Option<String>,
+    /// Cover kipinde ulaşılmayan, ölü olduğu kanıtlanmamış otomatik
+    /// cover'lar (ADR-0086) — başarısızlık değil.
+    pub(crate) auto_unreached: Vec<AutoUnreached>,
 }
 
 impl ModuleOutcome {
@@ -77,6 +81,13 @@ impl ModuleOutcome {
     /// Kontratın JSON durumu: `pass | fail | unknown | unproven | timeout |
     /// skipped | error`.
     fn prop_status(&self, prop: &PropInfo) -> &'static str {
+        if let Some(n) = self.auto_unreached_of(prop) {
+            return if n.min_depth.is_some() {
+                "needs-depth"
+            } else {
+                "not-reached"
+            };
+        }
         let named = self.failed_prop.as_deref() == Some(prop.name.as_str());
         match &self.status {
             TaskStatus::Done {
@@ -118,6 +129,11 @@ impl ModuleOutcome {
             | TaskStatus::Missing => "error",
             TaskStatus::Skipped => "skipped",
         }
+    }
+
+    /// Kontrat ulaşılmayan (kanıtsız) otomatik cover mı?
+    fn auto_unreached_of(&self, prop: &PropInfo) -> Option<&AutoUnreached> {
+        self.auto_unreached.iter().find(|d| d.prop == prop.name)
     }
 
     fn module_status(&self) -> &'static str {
@@ -218,14 +234,32 @@ pub(crate) fn summary_block(
         .filter(|m| m.status == TaskStatus::Skipped)
         .count();
     let elapsed = format!("{:.1}s", total.as_secs_f64());
+    // ADR-0086: ulaşılmayan (ölü olduğu kanıtlanmamış) otomatik cover'lar
+    // doğrulanmış sayılmaz, başarısız da değildir.
+    let deep: usize = outcomes.iter().map(|m| m.auto_unreached.len()).sum();
+    let deep_note = if deep == 0 {
+        String::new()
+    } else {
+        lstr!(en: ", {deep} auto cover(s) not reached at this depth"; tr: ", {deep} otomatik cover bu derinlikte ulaşılmadı")
+    };
 
     if fails + unknowns + timeouts + errors + skipped == 0 {
+        let verified = props - deep;
+        if deep == 0 {
+            return lstr!(
+                en: "      Result {props} propert{} verified in {elapsed} ({jobs} job{}; {}, depth {})",
+                    if props == 1 { "y" } else { "ies" },
+                    if jobs == 1 { "" } else { "s" },
+                    opts.mode.as_str(), opts.depth;
+                tr: "       Sonuç {props} özellik {elapsed} içinde doğrulandı ({jobs} iş; {}, derinlik {})",
+                    opts.mode.as_str(), opts.depth
+            );
+        }
         return lstr!(
-            en: "      Result {props} propert{} verified in {elapsed} ({jobs} job{}; {}, depth {})",
-                if props == 1 { "y" } else { "ies" },
+            en: "      Result {verified} of {props} properties verified{deep_note} in {elapsed} ({jobs} job{}; {}, depth {})",
                 if jobs == 1 { "" } else { "s" },
                 opts.mode.as_str(), opts.depth;
-            tr: "       Sonuç {props} özellik {elapsed} içinde doğrulandı ({jobs} iş; {}, derinlik {})",
+            tr: "       Sonuç {props} özellikten {verified} tanesi doğrulandı{deep_note}, {elapsed} ({jobs} iş; {}, derinlik {})",
                 opts.mode.as_str(), opts.depth
         );
     }
@@ -276,7 +310,7 @@ pub(crate) fn summary_block(
             tr: "      {skipped} modül görevi atlandı (--fail-fast)\n"
         ));
     }
-    let mut extra = String::new();
+    let mut extra = deep_note;
     if unknowns > 0 {
         extra.push_str(
             &lstr!(en: ", {unknowns} not proven"; tr: ", {unknowns} tanesi kanıtlanamadı"),
@@ -323,13 +357,17 @@ pub(crate) fn verify_json(
         .iter()
         .flat_map(|m| {
             m.props.iter().map(move |p| {
-                serde_json::json!({
+                let mut prop = serde_json::json!({
                     "module": m.module,
                     "name": p.name,
                     "keyword": p.keyword,
                     "status": m.prop_status(p),
                     "duration_ms": m.duration_ms(),
-                })
+                });
+                if let Some(d) = m.auto_unreached_of(p).and_then(|n| n.min_depth) {
+                    prop["min_depth"] = serde_json::json!(d);
+                }
+                prop
             })
         })
         .collect();
@@ -367,7 +405,65 @@ mod tests {
                 .collect(),
             status,
             failed_prop: failed.map(str::to_string),
+            auto_unreached: Vec::new(),
         }
+    }
+
+    fn deep(module: &str, props: &[&str], status: TaskStatus, limited: &[&str]) -> ModuleOutcome {
+        let mut m = outcome(module, props, status, None);
+        m.auto_unreached = limited
+            .iter()
+            .map(|p| AutoUnreached {
+                prop: p.to_string(),
+                text: "c == 255".to_string(),
+                subject: "wrap check on c".to_string(),
+                min_depth: (*p != "cov_2").then_some(258),
+            })
+            .collect();
+        m
+    }
+
+    #[test]
+    fn depth_limited_cover_is_neither_verified_nor_failed() {
+        // ADR-0086: 2 kontrat, biri derinliği yetmeyen otomatik cover.
+        let outcomes = [deep(
+            "C",
+            &["inv_0", "cov_0", "cov_2"],
+            pass(),
+            &["cov_0", "cov_2"],
+        )];
+        let opts = SbyOptions {
+            mode: volt_sv_emit::SbyMode::Cover,
+            depth: 12,
+            ..SbyOptions::default()
+        };
+        let text = summary_block(&outcomes, &opts, 1, Duration::from_millis(900));
+        assert!(text.contains("1 of 3 properties verified"), "{text}");
+        assert!(
+            text.contains("2 auto cover(s) not reached at this depth"),
+            "{text}"
+        );
+        assert!(!text.contains("Failures"), "{text}");
+        let json = verify_json(&outcomes, &opts, 1, false);
+        let props = json["properties"].as_array().expect("dizi");
+        assert_eq!(props[0]["status"], "pass");
+        assert_eq!(props[1]["status"], "needs-depth");
+        assert_eq!(props[1]["min_depth"], 258);
+        assert_eq!(props[2]["status"], "not-reached");
+        assert!(props[0].get("min_depth").is_none() && props[2].get("min_depth").is_none());
+    }
+
+    #[test]
+    fn depth_limited_cover_next_to_a_real_failure_is_counted_apart() {
+        let outcomes = [deep("C", &["cov_0", "cov_1"], fail(Some(3)), &["cov_0"])];
+        let opts = SbyOptions {
+            mode: volt_sv_emit::SbyMode::Cover,
+            depth: 12,
+            ..SbyOptions::default()
+        };
+        let text = summary_block(&outcomes, &opts, 1, Duration::from_millis(900));
+        assert!(text.contains("not reached at this depth"), "{text}");
+        assert!(text.contains("Failures"), "{text}");
     }
 
     fn pass() -> TaskStatus {
@@ -382,6 +478,7 @@ mod tests {
             outcome: SbyOutcome::Fail(SbyFailure {
                 sv_line: None,
                 step,
+                unreached: Vec::new(),
             }),
             elapsed: Duration::from_millis(500),
         }

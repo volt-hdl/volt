@@ -19,7 +19,8 @@
 //! | `domain_ref` | `@Ad` çözümü, extern gövdesi, sembolik alan       | ADR-0047       |
 //! | `stmt`       | modül deyimleri, lvalue, atama yönü denetimleri   | §5, ADR-0039/51|
 //! | `instance`   | örnekleme hedefi, port adı denetimi (E1009)       | ADR-0027       |
-//! | `block`      | bloklar, if/match kolları, desenler               | §2, §5         |
+//! | `block`      | bloklar, if/match kolları                         | §2, §5         |
+//! | `pattern`    | desenler: çıplak ad = sabit (E1015, E1001 öneri)  | ADR-0085       |
 //! | `expr`       | ifadeler, tip referansları, struct alanı, prev()  | §3, ADR-0040   |
 //! | `path`       | yalın ve nitelikli yol, E1001/E1002               | §3.1, §3.2, §8 |
 //! | `cycles`     | modül örnekleme döngüsü (E1006)                   | §10            |
@@ -36,6 +37,7 @@ mod expr;
 mod imports;
 mod instance;
 mod path;
+mod pattern;
 mod prelude;
 mod scope;
 mod stmt;

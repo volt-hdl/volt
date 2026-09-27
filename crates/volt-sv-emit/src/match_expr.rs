@@ -256,7 +256,9 @@ impl<'a> Emitter<'a> {
         let enum_plan = scrut_enum.map(|d| self.enum_match_plan(arms, d));
         let value_skip = match enum_plan {
             Some(_) => Vec::new(),
-            None => volt_ast::match_cover::unreachable_value_arms(self.ast, arms),
+            None => volt_ast::match_cover::unreachable_value_arms(self.ast, arms, &mut |e| {
+                self.eval_const(e)
+            }),
         };
         let mut out = Vec::with_capacity(arms.len());
         let mut default_comment = None;

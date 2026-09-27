@@ -927,6 +927,7 @@ impl Parser<'_> {
                 text: raw.split_whitespace().collect::<Vec<_>>().join(" "),
                 subject: format!("@mmio register map of {module}"),
                 from,
+                reach: volt_ast::AutoReach::Unknown,
             });
         }
         let mut head = Vec::new();

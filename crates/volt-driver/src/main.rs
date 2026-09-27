@@ -17,6 +17,7 @@ mod sim;
 mod sim_lower;
 mod sim_struct;
 mod verify;
+mod verify_depth;
 mod verify_jobs;
 mod verify_report;
 

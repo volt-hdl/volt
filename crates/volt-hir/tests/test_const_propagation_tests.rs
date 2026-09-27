@@ -124,7 +124,12 @@ fn loop_counter_is_not_constant() {
 
 #[test]
 fn loop_counter_shadows_a_top_level_const() {
-    assert!(codes("for LIMIT in 0..4 {\n    dut.addr = LIMIT;\n}").is_empty());
+    // Sayaç const'u gölgeler (sahte E8512 yok); gölgeleme tasarım dilindeki
+    // gibi W1002 (ADR-0085 sınıf taraması).
+    assert_eq!(
+        codes("for LIMIT in 0..4 {\n    dut.addr = LIMIT;\n}"),
+        vec!["W1002"]
+    );
 }
 
 #[test]

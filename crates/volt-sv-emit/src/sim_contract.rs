@@ -126,7 +126,7 @@ impl<'a> Emitter<'a> {
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
             let span = self.ast.exprs[c.expr].span;
-            let prop = self.contract_prop(module, &name, c);
+            let prop = self.contract_prop(module, &name, c, !clock.info.reset.is_none());
             self.sva_props.push(prop);
             let comment = self.contract_comment(c, &ind);
             let Some(expr) = self.monitor_expr(c.expr, span) else {

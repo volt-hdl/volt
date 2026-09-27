@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{AutoRule, BinOp, ContractKind, Expr, Idx, SourceFile};
+use volt_ast::{AutoReach, AutoRule, BinOp, ContractKind, Expr, Idx, SourceFile};
 
 use super::gen::{Spec, G};
 use super::scan::{ArmPat, Lit, RegInfo, RegMatch, Scan};
@@ -46,6 +46,7 @@ pub(super) fn specs(
     let name = &reg.name;
     let first = &scan.matches[fsm.first_match];
     let subject = format!("match on {name}");
+    let dist = distances(&fsm);
     let mut out = Vec::new();
     let mut targets = Vec::new();
     if fsm.transitions.len() <= MAX_TRANSITIONS {
@@ -64,6 +65,7 @@ pub(super) fn specs(
                     show(reg, t.target)
                 ),
                 from: t.span,
+                reach: transition_reach(&scan.matches[t.match_id], t.arm, &dist),
             });
             targets.push(t.target);
         }
@@ -83,6 +85,7 @@ pub(super) fn specs(
                 expr,
                 subject: format!("enum {}", e.name),
                 from: first.span,
+                reach: AutoReach::Unknown,
             });
         }
     }
@@ -92,13 +95,16 @@ pub(super) fn specs(
         .filter(|(v, _)| *v != fsm.init && !targets.contains(v))
         .collect();
     if states.len() <= MAX_STATES {
-        for &&(_, e) in &states {
+        for &&(v, e) in &states {
             out.push(Spec {
                 kind: ContractKind::Cover,
                 rule: AutoRule::FsmState,
                 expr: G::bin(BinOp::Eq, G::Name(name.clone()), G::Copy(e)),
                 subject: subject.clone(),
                 from: first.span,
+                reach: dist
+                    .get(&v)
+                    .map_or(AutoReach::Never, |&d| AutoReach::AtLeast(d)),
             });
         }
     }
@@ -119,6 +125,77 @@ struct Fsm {
     values: Vec<(i128, Idx<Expr>)>,
     transitions: Vec<Transition>,
     first_match: usize,
+    /// Her yazma: kaynak kümesi ve yazılan değer (ADR-0086 grafiği).
+    edges: Vec<(Source, i128)>,
+}
+
+/// Bir yazmanın hangi durumlarda yapılabildiği (durum grafiği kenarı).
+#[derive(Clone)]
+enum Source {
+    /// Durum match'inin dışında: her durumda.
+    Any,
+    /// Adı geçen değerlerin kolunda.
+    Values(Vec<i128>),
+    /// Joker kolda: adı geçen değerler DIŞINDAKİ her durumda.
+    NotIn(Vec<i128>),
+}
+
+impl Source {
+    fn of(m: &RegMatch, arm: usize) -> Option<Source> {
+        Some(match &m.arms.as_ref()?[arm] {
+            ArmPat::Values(vs) => Source::Values(vs.iter().map(|(v, _)| *v).collect()),
+            ArmPat::Wildcard => Source::NotIn(m.literal_values().iter().map(|(v, _)| *v).collect()),
+        })
+    }
+
+    fn admits(&self, v: i128) -> bool {
+        match self {
+            Source::Any => true,
+            Source::Values(vs) => vs.contains(&v),
+            Source::NotIn(vs) => !vs.contains(&v),
+        }
+    }
+
+    /// Kaynağın ulaşılabilir değerlerinden en yakını (kenar sayısı).
+    fn nearest(&self, dist: &HashMap<i128, u32>) -> Option<u32> {
+        dist.iter()
+            .filter(|(v, _)| self.admits(**v))
+            .map(|(_, d)| *d)
+            .min()
+    }
+}
+
+/// Reset değerinden her ulaşılabilir duruma en az kenar sayısı (ADR-0086).
+/// Durum register'ı yalnız sabit yazılır (tanıma kuralı); diğer
+/// koşullar yok sayılır (her kenarda en elverişli giriş) — mesafe bir
+/// ALT sınırdır, haritada olmayan değer resetten hiç girilmez.
+fn distances(fsm: &Fsm) -> HashMap<i128, u32> {
+    let mut dist: HashMap<i128, u32> = HashMap::from([(fsm.init, 0)]);
+    loop {
+        let mut changed = false;
+        for (src, v) in &fsm.edges {
+            let Some(d) = src.nearest(&dist) else {
+                continue;
+            };
+            let cand = d.saturating_add(1);
+            if dist.get(v).is_none_or(|&old| cand < old) {
+                dist.insert(*v, cand);
+                changed = true;
+            }
+        }
+        if !changed {
+            return dist;
+        }
+    }
+}
+
+/// Geçiş cover'ı `prev(s) == a && s == b`: kaynak `a`'ya varış + bir kenar;
+/// kaynağın hiçbir değeri ulaşılabilir değilse `Never`.
+fn transition_reach(m: &RegMatch, arm: usize, dist: &HashMap<i128, u32>) -> AutoReach {
+    match Source::of(m, arm).and_then(|s| s.nearest(dist)) {
+        Some(d) => AutoReach::AtLeast(d.saturating_add(1)),
+        None => AutoReach::Never,
+    }
 }
 
 fn recognize(
@@ -158,6 +235,7 @@ fn recognize(
     }
     let mut values: Vec<(i128, Idx<Expr>)> = Vec::new();
     let mut transitions: Vec<Transition> = Vec::new();
+    let mut edges: Vec<(Source, i128)> = Vec::new();
     for w in writes {
         if !super::is_const_expr(ast, &scan.locals, w.rhs) {
             return None;
@@ -172,9 +250,13 @@ fn recognize(
             .rev()
             .find(|a| a.scrutinee.as_deref() == Some(name.as_str()))
         else {
+            edges.push((Source::Any, v));
             continue;
         };
         let m = &scan.matches[ctx.match_id];
+        // Çözümlenemeyen desenli match: kaynak bilinmez, her durumda say
+        // (alt sınır ve "hiç girilmez" kanıtı bozulmaz).
+        edges.push((Source::of(m, ctx.arm).unwrap_or(Source::Any), v));
         let Some(arms) = &m.arms else { continue };
         let is_self = match &arms[ctx.arm] {
             ArmPat::Values(vs) => vs.iter().any(|(x, _)| *x == v),
@@ -201,6 +283,7 @@ fn recognize(
         values,
         transitions,
         first_match,
+        edges,
     })
 }
 

@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn inner_binding_shadowing_an_outer_definition_is_w1002() {
-        let c = codes("module M { in x : u8 out y : u8 y = match x { x => x, _ => 0 } }");
+        let c = codes("fn f(v: u8) -> u8 { let v = v + 1 v }");
         assert!(c.contains(&"W1002"), "{c:?}");
     }
 

@@ -45,6 +45,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1012 => "Extern module SystemVerilog source missing, not found or outside the project",
         E1013 => "Name is a reserved word of a generated language",
         E1014 => "Two @mmio names generate the same identifier in the register-map driver",
+        E1015 => "A name in a pattern must be a constant",
 
         // ─── Type inference (type-inference.md) ───
         E2001 => "Bit width mismatch",

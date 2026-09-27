@@ -1,7 +1,7 @@
 //! Desen ayrıştırma (grammar-full.ebnf §12, ast-nodes.md §8).
 //!
-//! Kapsam: joker `_`, literal, bağlama, yol (enum varyantı), tuple ve
-//! `|` alternatifleri. Exhaustiveness kontrolü F2'ye aittir — burada
+//! Kapsam: joker `_`, literal, sabit adı (ADR-0085), yol (enum varyantı),
+//! tuple ve `|` alternatifleri. Exhaustiveness kontrolü F2'ye aittir — burada
 //! yalnız ayrıştırılır.
 
 use volt_ast::{Expr, ExprKind, FieldPattern, Idx, Pattern, PatternArgs, PatternKind, UnOp};
@@ -61,9 +61,16 @@ impl Parser<'_> {
                     _ => None,
                 };
                 let span = self.span_from(start);
-                // Tek parçalı, argümansız isim → bağlama; aksi yol deseni.
+                // Tek parçalı, argümansız isim bir DEĞERDİR (const, generic
+                // parametre) — Volt'ta bağlama deseni yok (ADR-0085):
+                // `LIMIT =>` sabitle karşılaştırır, her şeyi yakalamaz. Ad
+                // çözümleme sinyali E1015, tanımsız adı E1001 ile reddeder.
                 let kind = if args.is_none() && path.segments.len() == 1 {
-                    PatternKind::Binding(path.segments.into_iter().next().unwrap())
+                    let expr = self.ast.exprs.alloc(Expr {
+                        span,
+                        kind: ExprKind::Path(path),
+                    });
+                    PatternKind::Literal(expr)
                 } else {
                     PatternKind::Path { path, args }
                 };

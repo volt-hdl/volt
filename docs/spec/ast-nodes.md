@@ -637,10 +637,10 @@ pub struct Pattern {
 pub enum PatternKind {
     /// _
     Wildcard,
-    /// 42, true
+    /// 42, true, LIMIT — değerle karşılaştırılan ifade. Çıplak ad bir
+    /// sabittir (const / generic parametre); Volt'ta bağlama deseni yok
+    /// (ADR-0085).
     Literal(Idx<Expr>),
-    /// x — bağlama
-    Binding(Name),
     /// State::Idle veya Some(x)
     Path { path: Path, args: Option<PatternArgs> },
     /// (a, b)

@@ -271,6 +271,25 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         )
         .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
 
+        E1015 => Explanation::new(
+            "A name in a pattern must be a constant",
+            "A 'match' arm pattern names a port, register, wire, 'let', loop variable or other non-constant.",
+            "In Volt a name in a pattern is a VALUE that the scrutinee is compared with — 'LIMIT => ...' means 'x == LIMIT' — never a new variable (Volt has no binding patterns, ADR-0085). The value must be known at compile time: a 'const' or a generic parameter. A signal changes every cycle, so it cannot be a case label; in Rust the same name would silently bind a new variable and catch every value, which is why Volt rejects it instead. Compare explicitly with 'if', or match a constant. A name that is not defined at all is E1001 (for an enum variant the fix-it writes 'Enum::Variant').",
+            "in  lim : u8
+match x {
+    lim => { hit <= true }     // ✗ E1015: 'lim' is a port
+    _   => { }
+}",
+            "if x == lim { hit <= true }     // ✓ explicit comparison
+
+const LIMIT : u8 = 10
+match x {
+    LIMIT => { hit <= true }   // ✓ constant
+    _     => { }
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0085-desen-adlari.md"]),
+
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(
             "Bit width mismatch",
@@ -741,7 +760,7 @@ module Gpio {
         E5001 => Explanation::new(
             "Contract violated",
             "Formal verification found an execution that breaks a contract of this module.",
-            "A contract (invariant/ensures/assert) is a promise about every reachable state of the design. 'volt verify' asked SymbiYosys to prove it; instead the solver constructed a concrete input sequence — a counterexample — that drives the design into a state where the contract is false. This is not a tool artifact: the RTL as written really can reach that state.\n\nInspect the counterexample waveform (.vcd) to see the exact cycle-by-cycle path, then either fix the logic or, if the scenario is genuinely impossible in the real environment, exclude it with a 'requires'/'assume' contract on the inputs.",
+            "A contract (invariant/ensures/assert) is a promise about every reachable state of the design. 'volt verify' asked SymbiYosys to prove it; instead the solver constructed a concrete input sequence — a counterexample — that drives the design into a state where the contract is false. This is not a tool artifact: the RTL as written really can reach that state.\n\nInspect the counterexample waveform (.vcd) to see the exact cycle-by-cycle path, then either fix the logic or, if the scenario is genuinely impossible in the real environment, exclude it with a 'requires'/'assume' contract on the inputs.\n\nIn '--mode cover' the roles flip: E5001 means a cover you wrote was not reached within --depth. A cover the compiler generated (FSM transition, counter wrap, ADR-0066) is an error only when Volt proves that no path from reset reaches it; otherwise it is a note that names the depth it needs, or says it was not reached (ADR-0086).",
             "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: violated at cycle 7\n}",
             "// 1) Fix the logic so busy and done are never high together, or\n// 2) constrain the environment:\nrequires: !(start && abort)",
         )

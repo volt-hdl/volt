@@ -1,11 +1,9 @@
 //! Bloklar (name-resolution.md §2, §5): blok kapsamı, blok içi
-//! deyimler, if/match kolları ve desen bağlamaları.
+//! deyimler ve if/match kolları (desenler `pattern`, ADR-0085).
 
 use std::collections::HashMap;
 
-use volt_ast::{
-    Block, BlockStmt, ElseBranch, Idx, MatchArm, MatchArmBody, Pattern, PatternArgs, PatternKind,
-};
+use volt_ast::{Block, BlockStmt, ElseBranch, Idx, MatchArm, MatchArmBody};
 use volt_span::Span;
 
 use super::def::DefKind;
@@ -80,50 +78,6 @@ impl Resolver<'_> {
             MatchArmBody::Expr(e) => self.resolve_expr(*e, arm_scope),
         }
     }
-
-    fn resolve_pattern(&mut self, pat_idx: Idx<Pattern>, scope: ScopeId) {
-        let pat = &self.ast.patterns[pat_idx];
-        match &pat.kind {
-            PatternKind::Wildcard | PatternKind::Error => {}
-            PatternKind::Literal(e) => self.resolve_expr(*e, scope),
-            PatternKind::Binding(name) => {
-                self.declare_checked(&name.clone(), DefKind::PatternBinding, scope, false);
-            }
-            PatternKind::Path { path, args } => {
-                let def = self.resolve_path(&path.clone(), scope);
-                self.pattern_resolutions.insert(pat_idx, def);
-                match args {
-                    Some(PatternArgs::Tuple(pats)) => {
-                        for &p in pats {
-                            self.resolve_pattern(p, scope);
-                        }
-                    }
-                    Some(PatternArgs::Struct(fields)) => {
-                        for f in fields {
-                            match f.pattern {
-                                Some(p) => self.resolve_pattern(p, scope),
-                                // `Foo { x }` kısayolu x'i bağlar.
-                                None => {
-                                    self.declare_checked(
-                                        &f.name.clone(),
-                                        DefKind::PatternBinding,
-                                        scope,
-                                        false,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    None => {}
-                }
-            }
-            PatternKind::Tuple(pats) | PatternKind::Or(pats) => {
-                for &p in pats.clone().iter() {
-                    self.resolve_pattern(p, scope);
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -132,14 +86,13 @@ mod tests {
     use super::super::DefKind;
 
     #[test]
-    fn match_arm_binding_is_scoped_to_its_arm() {
+    fn match_arm_name_is_a_value_not_a_binding() {
+        // ADR-0085: `n` bağlanmaz — tanımsız ad tek E1001 (muhafız ve
+        // gövdedeki kullanım kaskad üretmez), PatternBinding tanımı yok.
         let r =
             resolved("module M { in x : u8 out y : u8 y = match x { n if n > 4 => n, _ => 0 } }");
-        assert!(r.error_codes().is_empty(), "{:?}", r.error_codes());
-        assert_eq!(
-            r.def_by_name("n").expect("n").1.kind,
-            DefKind::PatternBinding
-        );
+        assert_eq!(r.error_codes(), ["E1001"]);
+        assert!(r.defs.iter().all(|d| d.kind != DefKind::PatternBinding));
     }
 
     #[test]

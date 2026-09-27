@@ -339,6 +339,7 @@ impl Parser<'_> {
             text,
             subject: format!("Handshake port {port}"),
             from: span,
+            reach: volt_ast::AutoReach::Unknown,
         };
         let pending_text = format!("prev({}) && !prev({})", info.valid, info.ready);
         // Tutma: valid, ready gelene dek düşmez.

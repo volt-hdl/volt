@@ -170,14 +170,19 @@ düzeltme ayrı iş):
 1. `SyncFifo<Packet, 8>` — struct öğe tipi E0003 ("struct type as a
    signal type"); şablon `as u12` ile paketler, `as Packet` ile açar.
 2. `match` kolunda `const` adı sabitle karşılaştırılmaz, yeni bağlama
-   olur (W1002 "shadows"); şablon literal desen kullanır.
+   olur (W1002 "shadows"); şablon literal desen kullanır. **Kapatıldı,
+   bkz. ADR-0085** — desendeki çıplak ad bir değerdir; bağlama deseni
+   yok (sinyal adı E1015, tanımsız ad E1001).
 3. `wire x : bool @Slow` — alan ek açıklaması W0020 "unknown attribute";
    tel alanı çıkarımla bulunur, şablon açıklamasız yazar.
 4. `let x = sync(...)` E0003 (bilinen; yalnız atamanın tüm sağ tarafı);
    şablon `wire` + atama kullanır.
 5. Doygun sayaç (`if c != 255 { c <= c + 1 }`) ADR-0066'nın otomatik
    "counter wrap" cover'ını erişilemez kılar → `--mode cover` E5001.
-   Şablon sayaç yerine yapışkan bayrak kullanır.
+   Şablon sayaç yerine yapışkan bayrak kullanır. **Kapatıldı, bkz.
+   ADR-0086** — neden doygunluk değil derinlikti (255 artış, derinlik
+   20); otomatik cover yalnız yapısal olarak ölüyse E5001, aksi hâlde
+   "--depth ≥ N" / "ulaşılmadı" notu.
 
 Dörtten fazlası reddedildi: UART/VGA/RISC-V `examples/`'ta zaten var ve
 proje başlangıcı değil, örnek; her şablon CI'da dört araçla doğrulanır,
