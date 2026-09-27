@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use volt_ast::{AutoRule, ContractKind, ExprKind, ItemKind, ModuleDecl};
+use volt_ast::{AutoReach, AutoRule, ContractKind, ExprKind, ItemKind, ModuleDecl};
 use volt_span::FileId;
 use volt_syntax::parser::{parse, ParseResult};
 
@@ -77,6 +77,27 @@ fn fsm_literal_arms_get_one_transition_cover_each() {
             "prev(s) == 0 && s == 1",
             "prev(s) == 1 && s == 2",
             "prev(s) != 0 && prev(s) != 1 && s == 0",
+        ]
+    );
+}
+
+#[test]
+fn fsm_const_name_arms_are_recognized_by_value() {
+    // ADR-0085: `IDLE =>` sabitle karşılaştırır (bağlama değil); FSM
+    // tanıyıcısı değeri const'tan okur, kontrata adı kopyalar.
+    let src = format!(
+        "const IDLE : u2 = 0\nconst RUN : u2 = 1\n{}",
+        FSM.replace("            0 => {", "            IDLE => {")
+            .replace("            1 => {", "            RUN => {")
+    );
+    let res = p(&src);
+    let t = texts(&res, 2, AutoRule::FsmTransition);
+    assert_eq!(
+        t,
+        [
+            "prev(s) == IDLE && s == 1",
+            "prev(s) == RUN && s == 2",
+            "prev(s) != IDLE && prev(s) != RUN && s == 0",
         ]
     );
 }
@@ -272,6 +293,125 @@ fn counter_else_of_equality_gives_bound_and_wrap() {
     assert_eq!(texts(&res, 1, AutoRule::CounterWrap), ["r == 9"]);
     let kinds: Vec<ContractKind> = autos(&res, 1).iter().map(|(_, k, _)| *k).collect();
     assert_eq!(kinds, [ContractKind::Invariant, ContractKind::Cover]);
+}
+
+/// Otomatik kontratların (kural, yapısal erişilebilirlik) çiftleri (ADR-0086).
+fn reach(res: &ParseResult, idx: usize) -> Vec<(AutoRule, AutoReach)> {
+    module(res, idx)
+        .contracts
+        .iter()
+        .filter_map(|c| c.auto.as_ref().map(|a| (a.rule, a.reach)))
+        .collect()
+}
+
+#[test]
+fn counter_wrap_cover_carries_its_structural_minimum_steps() {
+    // ADR-0086: 0'dan 9'a +1 ile en az 9 kenar; invariant'ta sınır yok.
+    let res = p(&counter(
+        "reg r : u8 = 0",
+        "if r == 9 { r <= 0 } else { r <= r + 1 }",
+    ));
+    assert_eq!(
+        reach(&res, 1),
+        [
+            (AutoRule::CounterBound, AutoReach::Unknown),
+            (AutoRule::CounterWrap, AutoReach::AtLeast(9))
+        ]
+    );
+}
+
+#[test]
+fn counter_minimum_steps_count_a_constant_load_and_the_reset_value() {
+    // Sabit yükleme 7: bir kenar + 2 artış = 3 < 9 (reset'ten).
+    let res = p(&counter(
+        "reg r : u8 = 0",
+        "if en { r <= 7 } else if r == 9 { r <= 0 } else { r <= r + 1 }",
+    ));
+    assert_eq!(
+        reach(&res, 1)[1],
+        (AutoRule::CounterWrap, AutoReach::AtLeast(3))
+    );
+    // Doygun sayaç (sarmaz): sınır yine 9 kenarda — cover erişilebilir.
+    let res = p(&counter("reg r : u8 = 0", "if r != 9 { r <= r + 1 }"));
+    assert_eq!(
+        reach(&res, 1)[1],
+        (AutoRule::CounterWrap, AutoReach::AtLeast(9))
+    );
+    // Reset değeri sınırda: 0 kenar.
+    let res = p(&counter("reg r : u8 = 9", "if r != 9 { r <= r + 1 }"));
+    assert_eq!(
+        reach(&res, 1)[1],
+        (AutoRule::CounterWrap, AutoReach::AtLeast(0))
+    );
+}
+
+#[test]
+fn fsm_transition_covers_carry_their_distance_from_reset() {
+    // ADR-0086: 0 -go-> 1 -> 2 -> 0. Kaynağa varış + bir kenar; ölçüm:
+    // sby derinliği 4, 5, 6 (koşum ofseti 3).
+    let res = p(FSM);
+    assert_eq!(
+        reach(&res, 0),
+        [
+            (AutoRule::FsmTransition, AutoReach::AtLeast(1)),
+            (AutoRule::FsmTransition, AutoReach::AtLeast(2)),
+            (AutoRule::FsmTransition, AutoReach::AtLeast(3)),
+        ]
+    );
+}
+
+#[test]
+fn fsm_arm_whose_state_is_never_entered_is_never_reached() {
+    // tests/ui/fail/71: hiçbir yol 1'e girmez; `1 -> 2` ve `_ -> 0` ölü.
+    let res = p("module D {
+    in clk : clock
+    in go : bool
+    out busy : bool
+    reg s : u2 = 0
+    on clk {
+        match s {
+            0 => { if go { s <= 0 } }
+            1 => { s <= 2 }
+            _ => { s <= 0 }
+        }
+    }
+    busy = s != 0
+}");
+    assert_eq!(
+        reach(&res, 0),
+        [
+            (AutoRule::FsmTransition, AutoReach::Never),
+            (AutoRule::FsmTransition, AutoReach::Never),
+        ]
+    );
+}
+
+#[test]
+fn fsm_write_outside_the_match_reaches_its_state_in_one_edge() {
+    // Durum match'i dışındaki yazma her durumdan yapılabilir: 3 bir
+    // kenarda girilir, `3 -> 0` geçişi en az 2 kenar.
+    let res = p("module D {
+    in clk : clock
+    in go : bool
+    in kick : bool
+    out busy : bool
+    reg s : u2 = 0
+    on clk {
+        match s {
+            0 => { if go { s <= 1 } }
+            3 => { s <= 0 }
+            _ => { s <= 0 }
+        }
+        if kick { s <= 3 }
+    }
+    busy = s != 0
+}");
+    let r = reach(&res, 0);
+    assert!(
+        r.contains(&(AutoRule::FsmTransition, AutoReach::AtLeast(2))),
+        "{r:?}"
+    );
+    assert!(r.iter().all(|(_, x)| *x != AutoReach::Never), "{r:?}");
 }
 
 #[test]

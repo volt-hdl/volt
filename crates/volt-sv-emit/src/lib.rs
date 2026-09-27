@@ -47,7 +47,7 @@ pub use sim::{
     TbStep, TbTest, TbValue,
 };
 pub use sim_contract::uses_sim_contracts;
-pub use sva::{AutoProp, SvaFile, SvaMode, SvaProp};
+pub use sva::{AutoProp, CoverReach, SvaFile, SvaMode, SvaProp, COVER_HARNESS_STEPS};
 
 pub const VOLT_VERSION: &str = "0.1.0";
 
@@ -1850,7 +1850,9 @@ impl<'a> Emitter<'a> {
         // kollarda geçen kol yazılmaz (HIR W2014).
         let value_skip = match plan {
             Some(_) => Vec::new(),
-            None => volt_ast::match_cover::unreachable_value_arms(self.ast, &m.arms),
+            None => volt_ast::match_cover::unreachable_value_arms(self.ast, &m.arms, &mut |e| {
+                self.eval_const(e)
+            }),
         };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {
@@ -1910,8 +1912,9 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Kol etiketi: literal(ler) virgülle ayrılır, joker `default` olur;
-    /// enum sınananda varyant yolu `<Enum>_<Varyant>` (ADR-0074).
+    /// Kol etiketi: literal(ler) ve sabit adları (ADR-0085, değeri basılır)
+    /// virgülle ayrılır, joker `default` olur; enum sınananda varyant yolu
+    /// `<Enum>_<Varyant>` (ADR-0074).
     /// None → tanı üretildi ya da desen zaten hatalı, kol atlanır.
     fn match_arm_label(
         &mut self,
@@ -1926,28 +1929,18 @@ impl<'a> Emitter<'a> {
             {
                 self.emit_enum_variant(path)
             }
-            PatternKind::Binding(name)
-                if scrut_enum
-                    .is_some_and(|d| d.variants.iter().any(|v| v.name.text == name.text)) =>
-            {
-                let enum_name = scrut_enum.map_or("", |d| d.name.text.as_str());
-                let variant = name.text.clone();
-                self.error(
-                    ErrorCode::E0003,
-                    lstr!(
-                        en: "not supported yet: binding pattern '{variant}' in 'match' (a bare name binds, it does not name the variant)";
-                        tr: "henüz desteklenmiyor: 'match' içinde bağlama deseni '{variant}' (çıplak ad bağlar, varyantı adlandırmaz)"
-                    ),
-                    ast.patterns[pattern].span,
-                    &lstr!(
-                        en: "write the variant path: {enum_name}::{variant}";
-                        tr: "varyant yolunu yazın: {enum_name}::{variant}"
-                    ),
-                );
-                None
-            }
             PatternKind::Wildcard => Some("default".to_string()),
-            PatternKind::Literal(e) => Some(self.emit_expr(*e, scrut_sig)),
+            // Sabit adı (ADR-0085) katlanmış değeriyle, sınananın
+            // genişliğinde basılır: `16'd7` değil `8'd7` (Verilator WIDTH).
+            PatternKind::Literal(e) => match (&ast.exprs[*e].kind, scrut_sig) {
+                (volt_ast::ExprKind::Path(_), Some(sig)) => match self.eval_const(*e) {
+                    Some(v) => {
+                        Some(self.fmt_int(v, volt_ast::NumBase::Dec, Some(sig), ast.exprs[*e].span))
+                    }
+                    None => Some(self.emit_expr(*e, scrut_sig)),
+                },
+                _ => Some(self.emit_expr(*e, scrut_sig)),
+            },
             PatternKind::Or(alts) => {
                 if alts
                     .iter()
@@ -1962,12 +1955,12 @@ impl<'a> Emitter<'a> {
                 Some(labels.join(", "))
             }
             PatternKind::Error => None, // parse tanısı zaten var
-            PatternKind::Binding(_) | PatternKind::Path { .. } | PatternKind::Tuple(_) => {
+            PatternKind::Path { .. } | PatternKind::Tuple(_) => {
                 self.future(
                     ast.patterns[pattern].span,
                     &lstr!(
-                        en: "binding, path and tuple patterns in 'match' (only literals and '_' map to SV)";
-                        tr: "'match' içinde bağlama, yol ve tuple desenleri (SV'ye yalnız literal ve '_' iner)"
+                        en: "path and tuple patterns in 'match' (only constants and '_' map to SV)";
+                        tr: "'match' içinde yol ve tuple desenleri (SV'ye yalnız sabitler ve '_' iner)"
                     ),
                 );
                 None

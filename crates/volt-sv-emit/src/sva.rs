@@ -89,7 +89,33 @@ pub struct AutoProp {
     pub subject: String,
     /// Kontratı doğuran yapının konumu.
     pub from: volt_span::Span,
+    /// Formal koşumda cover'ın yapısal erişilebilirliği (ADR-0086).
+    /// Yalnız reset'li alanda bilinir (başlangıç reset'le sabitlenir);
+    /// reset'siz alanda başlangıç serbest, her zaman `Unknown`.
+    pub reach: CoverReach,
 }
+
+/// Otomatik cover'ın formal koşumdaki yapısal erişilebilirliği (ADR-0086).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoverReach {
+    /// Bilinmiyor.
+    #[default]
+    Unknown,
+    /// En az bu sby derinliğinde ulaşılabilir: yapısal kenar alt sınırı +
+    /// [`COVER_HARNESS_STEPS`].
+    MinDepth(u32),
+    /// Hiçbir derinlikte ulaşılamaz (resetten yol yok).
+    Never,
+}
+
+/// Formal koşumun (`initial assume (rst)` + saat kenarında örneklenen
+/// `if (!rst) cover (...)`) ilk saat kenarından sonraki değere eklediği
+/// sby adımı. Ölçüldü (ADR-0086): reset değeri zaten sınırda olan sayaç
+/// derinlik 3'te, 5 artışlık sayaç 8'de, sabit yüklemeli 6 adımlık sayaç
+/// 9'da ulaşılır; senkron ve asenkron (negedge, aktif düşük) reset aynı.
+/// Çok saatli koşum (`multiclock on`) kenar başına daha çok adım
+/// harcar — değer yine alt sınırdır.
+pub const COVER_HARNESS_STEPS: u32 = 3;
 
 /// `1'b0/1'b1` bağlamı: kontrat ifadeleri 1-bit boolean'dır.
 pub(crate) const ONE_BIT: Option<Sig> = Some(Sig {
@@ -144,7 +170,7 @@ impl<'a> Emitter<'a> {
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
             // F4b: property adı → kontrat eşlemesi (sby FAIL yorumu).
-            let prop = self.contract_prop(module, &name, c);
+            let prop = self.contract_prop(module, &name, c, !clock.info.reset.is_none());
             self.sva_props.push(prop);
             let comment = self.contract_comment(c, &ind);
             let expr = self.sva_expr(c);
@@ -202,7 +228,7 @@ impl<'a> Emitter<'a> {
             let slot = kind_slot(c.kind);
             let name = format!("{prefix}_{}", counters[slot]);
             counters[slot] += 1;
-            let prop = self.contract_prop(module, &name, c);
+            let prop = self.contract_prop(module, &name, c, !clock.info.reset.is_none());
             self.sva_props.push(prop);
             let comment = self.contract_comment(c, &ind);
             let expr = self.emit_expr(c.expr, ONE_BIT);
@@ -358,7 +384,15 @@ impl<'a> Emitter<'a> {
 
 impl Emitter<'_> {
     /// Kontratın `SvaProp` kaydı (sby FAIL / sim izleyici eşlemesi).
-    pub(crate) fn contract_prop(&self, module: &ModuleDecl, name: &str, c: &Contract) -> SvaProp {
+    /// `has_reset`: kontratın saat alanında reset var mı? Yoksa formal
+    /// başlangıç durumu serbesttir, cover derinlik alt sınırı bilinmez.
+    pub(crate) fn contract_prop(
+        &self,
+        module: &ModuleDecl,
+        name: &str,
+        c: &Contract,
+        has_reset: bool,
+    ) -> SvaProp {
         SvaProp {
             module_name: module.name.text.clone(),
             name: name.to_string(),
@@ -370,6 +404,14 @@ impl Emitter<'_> {
                 text: a.text.clone(),
                 subject: a.subject.clone(),
                 from: a.from,
+                reach: match a.reach {
+                    _ if !has_reset => CoverReach::Unknown,
+                    volt_ast::AutoReach::Unknown => CoverReach::Unknown,
+                    volt_ast::AutoReach::AtLeast(n) => {
+                        CoverReach::MinDepth(n.saturating_add(COVER_HARNESS_STEPS))
+                    }
+                    volt_ast::AutoReach::Never => CoverReach::Never,
+                },
             }),
         }
     }

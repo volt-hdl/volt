@@ -348,10 +348,10 @@ fn rewrite_if(ex: &mut Expander<'_>, i: &IfStmt, ctx: &Ctx) {
     }
 }
 
-/// Desenin bağladığı adlar (match kolu yerelleri).
+/// Desenin bağladığı adlar (match kolu yerelleri). Çıplak ad bağlamaz,
+/// değerdir (ADR-0085); yalnız struct deseni kısayolu `{ x }` ad getirir.
 fn pattern_names(ast: &SourceFile, p: Idx<Pattern>, out: &mut Vec<String>) {
     match &ast.patterns[p].kind {
-        PatternKind::Binding(n) => out.push(n.text.clone()),
         PatternKind::Tuple(ps) | PatternKind::Or(ps) => {
             for &q in ps {
                 pattern_names(ast, q, out);

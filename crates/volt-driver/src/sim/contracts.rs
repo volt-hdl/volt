@@ -432,6 +432,7 @@ mod tests {
                 text: text.to_string(),
                 subject: "wrap check on tick_r".to_string(),
                 from: span,
+                reach: volt_sv_emit::CoverReach::Unknown,
             }),
         };
         let props = [

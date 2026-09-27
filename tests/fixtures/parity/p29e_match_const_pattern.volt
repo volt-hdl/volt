@@ -1,4 +1,6 @@
-// parity: E0003
+// parity: ok
+// A const name in a pattern is a value, not a binding (ADR-0085).
+const LIMIT : u2 = 2
 module M {
     in  clk : clock
     in  x   : u2
@@ -6,7 +8,7 @@ module M {
     reg r : u8 = 0
     on clk {
         match x {
-            (0, 1) => { r <= 2 }
+            LIMIT => { r <= 2 }
             _ => { r <= 1 }
         }
     }

@@ -701,6 +701,24 @@ iken askıda kalır (ADR-0082 ölçümü).
   Birden çok durum varsa çıkış kodu önceliği 6 > 3 > 8 > 7.
 - `-j 0` ya da sayı/`auto` dışı değer kullanım hatasıdır (çıkış 2).
 
+### Cover kipinde otomatik cover'lar (ADR-0086)
+
+`--mode cover`'da sby'nin bütün "Unreached cover" satırları okunur.
+Ulaşılmayan KULLANICI cover'ı E5001'dir. Ulaşılmayan OTOMATİK cover
+(ADR-0066) yalnız derleyici onun resetten hiçbir yoldan ulaşılamadığını
+kanıtladıysa (FSM durum grafiği) E5001'dir — tanıya "structurally
+unreachable" notu eklenir. Diğerleri başarısızlık değil, nottur:
+
+```
+        Note VgaTiming.cov_3: auto cover 'h_cnt_r == H_TOTAL - 1' (wrap check on h_cnt_r) needs --depth 802 or more; unreachable at depth 12 by construction, not a design error
+        Note UartTx.cov_5: auto cover '...' (...) not reached within depth 12; not proven unreachable, so not an error (ADR-0086) — try a deeper run or 'volt test'
+      Result 10 of 12 properties verified, 2 auto cover(s) not reached at this depth in 1.1s (1 job; cover, depth 12)
+```
+
+Yalnız not varsa görev `ok`, çıkış 0; `--fail-fast` ve ilerleme satırı
+düzeltilmiş sonucu görür. `--depth` önerisi yapısal alt sınırdır (sayaç:
+sınır − başlangıç; + koşum ofseti 3).
+
 ### JSON (`--format=json`)
 
 §5 zarfına `verify` nesnesi eklenir:
@@ -722,9 +740,11 @@ iken askıda kalır (ADR-0082 ölçümü).
 - `modules[].status`: `pass | fail | unknown | timeout | error | skipped`
   (`unknown`/`timeout` ADR-0075).
 - `properties[].status`: `pass | fail | unknown | unproven | timeout |
-  error | skipped`; `unproven` = aynı modülde başka bir kontrat ihlal
-  edildi ya da tümevarımsal çıkmadı, bu kontrat kanıtlanmış sayılmaz;
-  `unknown` = tümevarım izinde bozulan kontrat (E5002).
+  error | skipped | needs-depth | not-reached`; `unproven` = aynı modülde
+  başka bir kontrat ihlal edildi ya da tümevarımsal çıkmadı, bu kontrat
+  kanıtlanmış sayılmaz; `unknown` = tümevarım izinde bozulan kontrat
+  (E5002); `needs-depth` (+ `min_depth`) / `not-reached` = cover kipinde
+  ulaşılmayan, ölü olduğu kanıtlanmamış otomatik cover (ADR-0086).
 - `duration_ms`: kontratın ait olduğu GÖREVİN süresi (modülün kontratları
   tek koşuda birlikte kanıtlanır); `skipped` ve `DONE` basmayan `error`
   görevlerde `null`.

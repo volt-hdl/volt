@@ -87,7 +87,7 @@ impl Walker<'_> {
         let mut any_path = false;
         for arm in m.arms.iter().filter(|a| a.guard.is_none()) {
             if !self.cover(arm.pattern, &decl.name.text, &mut covered, &mut any_path)? {
-                return None; // joker/bağlama: kapsayıcı
+                return None; // joker: kapsayıcı
             }
         }
         if !any_path {
@@ -112,7 +112,7 @@ impl Walker<'_> {
         any_path: &mut bool,
     ) -> Option<bool> {
         match &self.ast.patterns[pat].kind {
-            PatternKind::Wildcard | PatternKind::Binding(_) => Some(false),
+            PatternKind::Wildcard => Some(false),
             PatternKind::Or(alts) => {
                 for &a in alts {
                     if !self.cover(a, enum_name, covered, any_path)? {

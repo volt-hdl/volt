@@ -5,7 +5,7 @@
 //! metnini ve kökenini ("generated from") taşır.
 
 use volt_span::FileId;
-use volt_sv_emit::{emit_full, EmitOutput, SvaMode};
+use volt_sv_emit::{emit_full, CoverReach, EmitOutput, SvaMode};
 
 fn emit(src: &str, mode: SvaMode) -> EmitOutput {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
@@ -152,4 +152,40 @@ module Regs {
         "{sva}"
     );
     assert!(!sva.contains("from <mmio:"), "{sva}");
+}
+
+#[test]
+fn cover_reach_adds_the_harness_offset_only_under_a_reset() {
+    // ADR-0086: tick_r 0 → 9 = 9 kenar + koşum ofseti 3; FSM 0 → 1 bir
+    // kenar (+3), `_ → 0` iki kenar (+3). İnvariant'ta sınır yok.
+    let out = emit(DIV, SvaMode::Immediate);
+    let reach: Vec<CoverReach> = out
+        .sva_props
+        .iter()
+        .map(|p| p.auto.as_ref().expect("otomatik").reach)
+        .collect();
+    assert_eq!(
+        reach,
+        [
+            CoverReach::Unknown,
+            CoverReach::MinDepth(12),
+            CoverReach::MinDepth(4),
+            CoverReach::MinDepth(5),
+        ]
+    );
+    // Reset'siz alanda başlangıç serbest: resetten sınır anlamsız.
+    let free = format!(
+        "domain Free {{\n    reset = none\n}}\n{}",
+        DIV.replace("in  clk   : clock", "in  clk   : clock @Free")
+            .replace("in  go    : bool", "in  go    : bool @Free")
+            .replace("out pulse : bool", "out pulse : bool @Free")
+    );
+    let out = emit(&free, SvaMode::Immediate);
+    assert!(
+        out.sva_props
+            .iter()
+            .all(|p| p.auto.as_ref().expect("otomatik").reach == CoverReach::Unknown),
+        "{:?}",
+        out.sva_props
+    );
 }

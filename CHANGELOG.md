@@ -5,6 +5,42 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — desendeki ad bir değerdir (2026-09-27, ADR-0085)
+
+- `match` kolunda çıplak ad artık **sabittir**: `const LIMIT` ya da
+  generic `const N` ile karşılaştırılır (`LIMIT => ...` ≡ `x == LIMIT`);
+  SV etiketi katlanmış değer, sınananın genişliğinde. Volt'ta bağlama
+  deseni yok (önceden bağlama sayılıp sv-emit'te E0003 alıyordu; ileride
+  bağlama gelse yazım hatası her şeyi yakalayan kola dönüşecekti).
+- **E1015** (yeni): desendeki ad port / register / wire / `let` / döngü
+  değişkeni. Tanımsız ad E1001 — ad bir enum varyantıysa fix-it
+  `State::Idle` (önce sv-emit E0003); kol gövdesindeki aynı ad ikinci
+  E1001 üretmez.
+- Desen `x == P` gibi tiplenir: `u8` üzerinde `300` artık **E2010**
+  (önceden tanısız `8'd300` = 44 — sessiz yanlış donanım); `const`
+  değeri sınanana sığmalı (E2010), enum tipli `const` sayıda E2003, aynı
+  enum'da varyantını kapsar; `10 => .., LIMIT => ..` W2014.
+- Test dilinde tasarım sabitini gölgeleyen `let`/`for` W1002 (tasarım
+  diliyle aynı; önce sessiz). Otomatik FSM kontratları sabit adlı kolları
+  tanır.
+- Sınıf taraması ve golden: examples/templates/tests/ui çıktısı bayt
+  aynı; ADR-0084 §5 bulgu 2 kapandı.
+
+### Düzeltildi — cover kipinde otomatik cover yanlış E5001'i (2026-09-27, ADR-0086)
+
+- `volt verify --mode cover` sby'nin bütün "Unreached cover" satırlarını
+  okur. Otomatik cover (ADR-0066) yalnız yapısal olarak ölüyse (FSM durum
+  grafiğinde resetten yol yok) E5001 + "structurally unreachable" notu;
+  sayaç sarma cover'ının yapısal alt sınırı derinliği aşıyorsa "needs
+  --depth N" notu (örn. VGA 802/527), diğer kanıtsız otomatik cover'lar
+  "not reached within depth" notu — çıkış 0. Kullanıcı cover'ı her zaman
+  E5001. JSON `properties[].status` `needs-depth` (+ `min_depth`) /
+  `not-reached`.
+- Ölçüm: doygun sayacın cover'ı erişilebilir; sorun derinlikti (sarmalı
+  255 de düşüyordu). Koşum ofseti 3 (257'de ulaşılamaz, 258'de ulaşılır).
+  Korpusta (derinlik 12) otomatik cover'dan E5001 veren dosya 10 → 0;
+  kasıtlı ölü kol (ui/fail/71) E5001 kalır. ADR-0084 §5 bulgu 5 kapandı.
+
 ### Eklendi — `volt new` / `volt init` ve CI'da doğrulanan şablonlar (2026-09-27, ADR-0084 Bölüm 2)
 
 - **`volt new <ad> [--template <t>]`** yeni dizinde, **`volt init

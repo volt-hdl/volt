@@ -52,7 +52,8 @@ pub enum DefKind {
     // ── Yerel ──
     LocalBinding,  // blok içi let
     LoopVar,       // for i in 0..N
-    PatternBinding,// match Some(x) => ...
+    PatternBinding,// struct deseni kısayolu Foo { x } (çıplak ad bağlamaz,
+                   // ADR-0085)
     GenericParam,
     DomainParam,   // extern module içinde tanımsız @Ad — sembolik saat
                    // alanı, örneklemede saat bağlantısıyla bağlanır
@@ -338,6 +339,23 @@ fn resolve_module_body(&mut self, m: &ModuleDecl, parent: ScopeId) {
 **Portlar neden sıralı değil:** Port listesi bir arayüz
 tanımıdır, sıralama anlamsal bilgi taşımaz.
 
+### 5.1 Desenlerdeki Adlar (ADR-0085)
+
+`match` kolundaki çıplak ad bir DEĞERDİR, bağlama değil — sınanan onunla
+karşılaştırılır (`LIMIT => ...` ≡ `x == LIMIT`). Ad kapsam zincirinde
+aranır:
+
+| Çözülen tanım | Sonuç |
+|---|---|
+| `const`, generic parametre | değer deseni |
+| port, register, wire, `let`, döngü değişkeni, örnek, fn, tip, saat alanı | **E1015** (desen sabit ister) |
+| yok | **E1001**; ad bir enum'un varyantıysa fix-it `Enum::Varyant`; ad kol kapsamında hata tanımına bağlanır — gövdedeki aynı ad ikinci E1001 üretmez |
+
+Varyantlar kök kapsama bağlanmadığı için (ADR-0074) çıplak `Idle`
+tanımsız addır. Değer deseni `x == P` gibi tiplenir: literal ve sabitin
+değeri sınananın aralığına sığmalı (E2010), enum tipli sabit sayısal
+sınananda E2003.
+
 ---
 
 ## 6. Gölgeleme (Shadowing)
@@ -390,6 +408,11 @@ fn declare_checked(&mut self, name: Name, kind: DefKind,
 
 **Neden aynı kapsamda yasak:** Donanımda iki farklı sinyal
 aynı isme sahip olamaz — SV çıktısında çakışır.
+
+**Desen gölgeleyemez (ADR-0085):** desendeki ad yeni tanım değildir
+(§5.1); dış sinyali "gölgeleyen" desen adı W1002 değil E1015'tir.
+Test dilinde `let`/`for` adı tasarım sabitini gölgelerse W1002
+(tasarım diliyle aynı kural).
 
 ---
 
@@ -545,6 +568,7 @@ E1008  Struct alanı bulunamadı
 E1009  Modül portu bulunamadı
 E1010  Ambiguous import (iki 'use' aynı ismi getiriyor)
 E1011  Module not found (import edilen paketi sağlayan dosya yok — ADR-0042)
+E1015  Desendeki ad sabit değil (sinyal, örnek, döngü değişkeni — ADR-0085)
 
 W1001  Kullanılmayan sinyal / bağlama
 W1002  Gölgeleme (iç kapsamda aynı isim)

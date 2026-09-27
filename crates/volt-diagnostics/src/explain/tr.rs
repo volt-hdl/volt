@@ -271,6 +271,25 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         )
         .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
 
+        E1015 => Explanation::new(
+            "Desendeki ad bir sabit olmalı",
+            "Bir 'match' kolu deseni bir port, register, wire, 'let', döngü değişkeni ya da sabit olmayan başka bir şeyi adlandırıyor.",
+            "Volt'ta desendeki ad, sınananın karşılaştırıldığı bir DEĞERDİR — 'LIMIT => ...' 'x == LIMIT' demektir — asla yeni bir değişken değildir (Volt'ta bağlama deseni yok, ADR-0085). Değer derleme zamanında bilinmeli: bir 'const' ya da generic parametre. Bir sinyal her çevrim değişir, case etiketi olamaz; Rust'ta aynı ad sessizce yeni bir değişken bağlar ve her değeri yakalardı, Volt bu yüzden onu reddeder. Açıkça 'if' ile karşılaştırın ya da bir sabitle eşleyin. Hiç tanımlı olmayan ad E1001'dir (enum varyantı için fix-it 'Enum::Varyant' yazar).",
+            "in  lim : u8
+match x {
+    lim => { hit <= true }     // ✗ E1015: 'lim' bir port
+    _   => { }
+}",
+            "if x == lim { hit <= true }     // ✓ açık karşılaştırma
+
+const LIMIT : u8 = 10
+match x {
+    LIMIT => { hit <= true }   // ✓ sabit
+    _     => { }
+}",
+        )
+        .with_docs(&["docs/adr/ADR-0085-desen-adlari.md"]),
+
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(
             "Bit genişliği uyumsuzluğu",
@@ -741,7 +760,7 @@ module Gpio {
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",
             "Formal doğrulama, bu modülün bir kontratını bozan bir yürütme buldu.",
-            "Bir kontrat (invariant/ensures/assert) tasarımın erişilebilir her durumu için verilmiş bir sözdür. 'volt verify' bunu SymbiYosys'e kanıtlatmak istedi; çözücü ise kontratın yanlış olduğu bir duruma tasarımı sürükleyen somut bir girdi dizisi — bir karşı örnek — kurdu. Bu bir araç yanılsaması değildir: yazılmış RTL o duruma gerçekten ulaşabilir.\n\nDöngü döngü izlenen yolu görmek için karşı örnek dalga formunu (.vcd) inceleyin; ardından ya mantığı düzeltin ya da senaryo gerçek ortamda sahiden imkânsızsa girişleri 'requires'/'assume' kontratıyla kısıtlayın.",
+            "Bir kontrat (invariant/ensures/assert) tasarımın erişilebilir her durumu için verilmiş bir sözdür. 'volt verify' bunu SymbiYosys'e kanıtlatmak istedi; çözücü ise kontratın yanlış olduğu bir duruma tasarımı sürükleyen somut bir girdi dizisi — bir karşı örnek — kurdu. Bu bir araç yanılsaması değildir: yazılmış RTL o duruma gerçekten ulaşabilir.\n\nDöngü döngü izlenen yolu görmek için karşı örnek dalga formunu (.vcd) inceleyin; ardından ya mantığı düzeltin ya da senaryo gerçek ortamda sahiden imkânsızsa girişleri 'requires'/'assume' kontratıyla kısıtlayın.\n\n'--mode cover'da roller yer değiştirir: E5001, yazdığınız bir cover'ın --depth içinde ulaşılmadığı demektir. Derleyicinin ürettiği cover (FSM geçişi, sayaç sarması, ADR-0066) yalnız Volt resetten ona hiçbir yolun varmadığını kanıtlarsa hatadır; aksi hâlde gereken derinliği söyleyen ya da ulaşılmadığını bildiren bir nottur (ADR-0086).",
             "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: 7. döngüde ihlal\n}",
             "// 1) busy ve done'ın aynı anda yükselmediği mantığı kurun, ya da\n// 2) ortamı kısıtlayın:\nrequires: !(start && abort)",
         )

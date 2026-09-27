@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{AutoRule, BinOp, ContractKind, Expr, ExprKind, Idx, SourceFile};
+use volt_ast::{AutoReach, AutoRule, BinOp, ContractKind, Expr, ExprKind, Idx, SourceFile};
 
 use super::super::mono::unroll::eval_const;
 use super::gen::{Spec, G};
@@ -45,6 +45,7 @@ pub(super) fn specs(
             expr: G::bin(BinOp::Le, G::Name(name.clone()), G::Copy(c.bound_expr)),
             subject: subject.clone(),
             from: c.from,
+            reach: AutoReach::Unknown,
         });
     }
     out.push(Spec {
@@ -53,6 +54,7 @@ pub(super) fn specs(
         expr: G::bin(BinOp::Eq, G::Name(name.clone()), G::Copy(c.bound_expr)),
         subject,
         from: c.from,
+        reach: AutoReach::AtLeast(c.min_steps),
     });
     out
 }
@@ -62,6 +64,10 @@ struct Counter {
     bound_expr: Idx<Expr>,
     /// İlk artışı koruyan karşılaştırma.
     from: volt_span::Span,
+    /// `r == E`'ye en az kaç saat kenarında varılır (ADR-0086): sayaç
+    /// yalnız +1 artar ya da sabit yazılır (tanıma kuralı), yani reset
+    /// değerinden `E - init` artış, bir sabit yazmadan `1 + E - k`.
+    min_steps: u32,
 }
 
 fn recognize(
@@ -73,7 +79,8 @@ fn recognize(
     let name = reg.name.as_str();
     let writes = scan.writes.get(name)?;
     let max = super::max_value(reg.width);
-    let mut consts_written = vec![eval_const(ast, consts, reg.init, DEPTH0)?];
+    let init = eval_const(ast, consts, reg.init, DEPTH0)?;
+    let mut consts_written = vec![init];
     let mut found: Option<Counter> = None;
     for w in writes {
         if is_increment(ast, name, w.rhs) {
@@ -89,6 +96,7 @@ fn recognize(
                         bound: v,
                         bound_expr: e,
                         from: ast.exprs[cond].span,
+                        min_steps: 0,
                     })
                 }
                 Some(c) if c.bound == v => {}
@@ -100,10 +108,26 @@ fn recognize(
             return None;
         }
     }
-    let c = found?;
+    let mut c = found?;
     let ok =
         (0..=max).contains(&c.bound) && consts_written.iter().all(|&k| (0..=c.bound).contains(&k));
+    c.min_steps = min_steps_to_bound(c.bound, init, &consts_written[1..]);
     ok.then_some(c)
+}
+
+/// `r == bound`'a en az kaç saat kenarında varılır: reset değerinden
+/// `bound - init` artış; bir sabit yazma `k` bir kenar + `bound - k`
+/// artış. Yapısal ALT sınırdır (girişler her kenarda en elverişli
+/// seçilir); cover kipinde bu sınır derinliği aşarsa cover o derinlikte
+/// ulaşılamaz — tasarım hatası değil (ADR-0086).
+fn min_steps_to_bound(bound: i128, init: i128, writes: &[i128]) -> u32 {
+    let from_init = bound - init;
+    let best = writes
+        .iter()
+        .map(|&k| 1 + bound - k)
+        .fold(from_init, i128::min)
+        .max(0);
+    u32::try_from(best).unwrap_or(u32::MAX)
 }
 
 /// `r + 1` ya da `1 + r`.

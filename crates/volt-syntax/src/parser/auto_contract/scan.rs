@@ -349,7 +349,8 @@ impl Walker<'_> {
     }
 }
 
-/// Literal / enum varyantı / alternatif / joker desen; başkası None.
+/// Literal / sabit adı / enum varyantı / alternatif / joker desen; başkası
+/// None.
 fn arm_pattern(
     ast: &SourceFile,
     consts: &HashMap<String, Idx<Expr>>,
@@ -357,7 +358,14 @@ fn arm_pattern(
 ) -> Option<ArmPat> {
     match &ast.patterns[p].kind {
         PatternKind::Wildcard => Some(ArmPat::Wildcard),
-        PatternKind::Literal(e) => Some(ArmPat::Values(vec![(int_lit(ast, *e)?, Lit::Expr(*e))])),
+        // Sabit adı deseni (`LIMIT`, ADR-0085) değeriyle; kontrata ad kopyalanır.
+        PatternKind::Literal(e) => {
+            let value = match &ast.exprs[*e].kind {
+                ExprKind::Path(_) => eval_const(ast, consts, *e, DEPTH0)?,
+                _ => int_lit(ast, *e)?,
+            };
+            Some(ArmPat::Values(vec![(value, Lit::Expr(*e))]))
+        }
         PatternKind::Path { path, args: None } => {
             let (decl, idx) = super::enum_variant(ast, path)?;
             let layout = volt_ast::enum_layout::valid_layout(ast, decl, &mut |e| {

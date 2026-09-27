@@ -130,15 +130,20 @@ fn loop_var_resolves() {
 }
 
 #[test]
-fn match_pattern_binding_resolves() {
-    // Bağlama deseni joker sayılmaz: sayısal match `_` ister (ADR-0083 Karar 3).
-    assert_clean_of_errors("module M { in x : u8 out y : u8 y = match x { n => n, _ => 0 } }");
+fn match_pattern_const_name_resolves_as_a_value() {
+    // ADR-0085: desendeki çıplak ad bağlama değil, sabittir.
+    assert_clean_of_errors(
+        "const N : u8 = 3
+module M { in x : u8 out y : u8 y = match x { N => 1, _ => 0 } }",
+    );
 }
 
 #[test]
-fn match_guard_sees_binding() {
-    assert_clean_of_errors(
-        "module M { in x : u8 out y : u8 y = match x { n if n > 4 => n, _ => 0 } }",
+fn match_pattern_name_never_binds() {
+    // Eskiden `n` bağlanıyordu (sonra sv-emit E0003); artık tek E1001.
+    assert_eq!(
+        codes("module M { in x : u8 out y : u8 y = match x { n if n > 4 => n, _ => 0 } }"),
+        ["E1001"]
     );
 }
 

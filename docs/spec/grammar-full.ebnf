@@ -416,7 +416,9 @@ LValueSuffix    = "[" Expr [ ":" Expr ] "]"    (* bit / aralık *)
 
 Pattern         = "_"                          (* joker *)
                 | Literal
-                | Ident                         (* bağlama *)
+                | Ident                         (* sabit adı — değer, bağlama
+                                                   DEĞİL (ADR-0085): const ya
+                                                   da generic parametre *)
                 | Path [ PatternArgs ]          (* enum varyantı *)
                 | "(" Pattern { "," Pattern } ")"
                 | Pattern "|" Pattern ;         (* alternatif *)

@@ -509,7 +509,8 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     /// Desen sabit değerle eşleşiyor mu? `None`: desen sabit
-    /// değerlendirilemez (tanısı başka katmanda — bağlama, tuple, hata).
+    /// değerlendirilemez (tanısı başka katmanda — tuple, hata). Sabit adı
+    /// (`LIMIT`) literal gibi değerlendirilir (ADR-0085).
     fn pattern_matches(&mut self, pat: Idx<volt_ast::Pattern>, value: &ConstValue) -> Option<bool> {
         use volt_ast::PatternKind;
         let kind = self.ast.patterns[pat].kind.clone();
@@ -534,7 +535,7 @@ impl<'a> ConstEvaluator<'a> {
                     _ => None,
                 }
             }
-            PatternKind::Binding(_) | PatternKind::Tuple(_) | PatternKind::Error => None,
+            PatternKind::Tuple(_) | PatternKind::Error => None,
         }
     }
 

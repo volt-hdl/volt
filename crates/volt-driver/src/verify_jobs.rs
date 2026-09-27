@@ -103,6 +103,9 @@ pub(crate) struct RunConfig<'a> {
     pub(crate) cwd: &'a Path,
     pub(crate) jobs: usize,
     pub(crate) fail_fast: bool,
+    /// Görev sonucunu düzelten kanca (cover kipi derinlik sınırı,
+    /// ADR-0086); ilerleme satırı ve --fail-fast düzeltilmiş sonucu görür.
+    pub(crate) settle: Option<&'a dyn Fn(usize, SbyOutcome) -> SbyOutcome>,
 }
 
 /// sby'yi koşturur; her görev bittiğinde `on_done(bitmiş sayısı, görev
@@ -160,7 +163,11 @@ pub(crate) fn run_sby_tasks(
             continue;
         }
         let elapsed = starts[idx].unwrap_or(started).elapsed();
-        let outcome = interpret_sby_output(&results[idx].log);
+        let raw = interpret_sby_output(&results[idx].log);
+        let outcome = match cfg.settle {
+            Some(settle) => settle(idx, raw),
+            None => raw,
+        };
         let is_fail = matches!(outcome, SbyOutcome::Fail(_));
         results[idx].status = TaskStatus::Done { outcome, elapsed };
         finished += 1;

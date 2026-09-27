@@ -73,6 +73,7 @@ impl TypeChecker<'_, '_> {
             if self.types.is_error(scrut_ty) {
                 continue;
             }
+            self.check_value_pattern(arm.pattern, scrut_ty);
             for (span, def) in paths {
                 let Some(def) = def else { continue };
                 if let DefKind::EnumVariant { parent } = self.res.def_kind(def) {
@@ -92,10 +93,97 @@ impl TypeChecker<'_, '_> {
         }
     }
 
+    /// Sayısal sınananda değer deseni `x == P` gibi tiplenir (ADR-0085):
+    /// literal sınananın tipine sığmalı (E2010 — `u8` üzerinde `300`
+    /// SV'de `8'd300` = 44 olurdu), `const` adı sınanana atanabilir olmalı
+    /// (E2001/E2002), enum tipli `const` adı yol deseniyle aynı E2003'ü
+    /// alır. Tamsayı olmayan sınanan (bits, bool) eski kuralda kalır.
+    fn check_value_pattern(&mut self, pat: volt_ast::Idx<Pattern>, scrut_ty: TypeId) {
+        let ast = self.ast;
+        match &ast.patterns[pat].kind {
+            PatternKind::Or(alts) => {
+                for &a in alts {
+                    self.check_value_pattern(a, scrut_ty);
+                }
+            }
+            PatternKind::Literal(lit) => {
+                let lit = *lit;
+                let numeric = self.types.int_range(scrut_ty).is_some();
+                if !matches!(ast.exprs[lit].kind, volt_ast::ExprKind::Path(_)) {
+                    if numeric {
+                        self.check(lit, scrut_ty);
+                    }
+                    return;
+                }
+                let t = self.synth(lit);
+                if let Ty::Enum(found) = *self.types.ty(t) {
+                    let found = self.enum_name(found);
+                    let expected = self.show(scrut_ty);
+                    self.err_type_mismatch_msg(
+                        ast.patterns[pat].span,
+                        &lstr!(en: "pattern of enum '{found}' cannot match a value of type '{expected}'"; tr: "'{found}' enum'unun deseni '{expected}' tipinde bir değerle eşleşemez"),
+                        &lstr!(en: "match on a value of type '{found}', or use integer literal patterns"; tr: "'{found}' tipinde bir değer üzerinde match yazın ya da tamsayı literal desenleri kullanın"),
+                    );
+                } else if numeric {
+                    self.check_const_pattern_fits(lit, t, scrut_ty, ast.patterns[pat].span);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `const` adı deseninin değeri sınananın aralığında mı (E2010)?
+    /// Sayı olmayan const (bool, bits) tip uyuşmazlığıdır (E2003).
+    fn check_const_pattern_fits(
+        &mut self,
+        lit: volt_ast::Idx<volt_ast::Expr>,
+        t: TypeId,
+        scrut_ty: TypeId,
+        span: Span,
+    ) {
+        if self.types.is_error(t) {
+            return;
+        }
+        if self.types.int_range(t).is_none() {
+            self.err_type_mismatch(scrut_ty, t, span);
+            return;
+        }
+        let Some((signed, _, width)) = self.types.int_range(scrut_ty) else {
+            return;
+        };
+        let Some(value) = self.try_const_eval(lit) else {
+            return; // sabit değil: E1015 ad çözümlemede
+        };
+        if int_fits(value, signed, width) {
+            return;
+        }
+        let name = match &self.ast.exprs[lit].kind {
+            volt_ast::ExprKind::Path(p) => p.segments[0].text.clone(),
+            _ => String::new(),
+        };
+        let shown = self.show(scrut_ty);
+        self.error(
+            ErrorCode::E2010,
+            span,
+            lstr!(en: "constant '{name}' = {value} does not fit in type {shown} of the matched value"; tr: "'{name}' sabiti = {value}, eşlenen değerin {shown} tipine sığmıyor"),
+            lstr!(en: "this arm could never be taken"; tr: "bu kol hiç seçilemez"),
+            lstr!(en: "match on a wider value, or remove the arm"; tr: "daha geniş bir değer üzerinde eşleyin ya da kolu kaldırın"),
+        );
+    }
+
     /// W2014: bütün literalleri önceki kollarda geçen sayısal kol (kural
     /// `volt_ast::match_cover`, sv-emit aynı kolu `case`'e yazmaz).
     fn warn_unreachable_value_arms(&mut self, arms: &[MatchArm]) {
-        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, arms);
+        let ev = &mut *self.ev;
+        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, arms, &mut |e| {
+            let before = ev.diagnostics.len();
+            let value = ev.const_eval(e);
+            ev.diagnostics.truncate(before);
+            match value {
+                crate::ConstValue::Int(n) => Some(n),
+                _ => None,
+            }
+        });
         for (arm, _) in arms.iter().zip(unreachable).filter(|(_, u)| *u) {
             let span = self.ast.patterns[arm.pattern].span;
             self.warning(
@@ -153,8 +241,9 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Enum sınananda bir desenin kapsadığı varyantlar; yanlış desenler
-    /// E2003 alır. Bağlama deseni (çıplak `Idle`) her şeyi eşler — SV
-    /// üretimi onu E0003 + `State::Idle` önerisiyle reddeder.
+    /// E2003 alır. Aynı enum tipinde `const` adı (ADR-0085) değerinin
+    /// varyantını kapsar; çıplak varyant adı (`Idle`) ad çözümlemede E1001
+    /// + `State::Idle` önerisi alır.
     fn enum_arm_cover(
         &mut self,
         pat: volt_ast::Idx<Pattern>,
@@ -165,7 +254,7 @@ impl TypeChecker<'_, '_> {
         let mut cover = ArmCover::default();
         let span = ast.patterns[pat].span;
         match &ast.patterns[pat].kind {
-            PatternKind::Wildcard | PatternKind::Binding(_) => cover.wildcard = true,
+            PatternKind::Wildcard => cover.wildcard = true,
             PatternKind::Error => cover.wildcard = true, // parse tanısı zaten var
             PatternKind::Or(alts) => {
                 for &a in alts {
@@ -187,14 +276,23 @@ impl TypeChecker<'_, '_> {
                 },
                 None => cover.wildcard = true,
             },
-            PatternKind::Literal(_) | PatternKind::Tuple(_) => {
-                let found = match &ast.patterns[pat].kind {
-                    PatternKind::Literal(lit) => {
-                        let t = self.synth(*lit);
-                        self.show(t)
-                    }
-                    _ => lstr!(en: "tuple"; tr: "tuple"),
-                };
+            PatternKind::Literal(lit) => {
+                let t = self.synth(*lit);
+                let same_enum = matches!(*self.types.ty(t), Ty::Enum(pe) if pe == e);
+                if let Some(variant) = self.const_variant_of(*lit, t, e) {
+                    cover.variants.push(variant);
+                } else if self.types.is_error(t) || same_enum {
+                    // E1001/E1015 zaten var ya da değer sabit değil
+                    // (E1015); kaskad yok.
+                    cover.wildcard = true;
+                } else {
+                    let found = self.show(t);
+                    self.err_pattern_type(span, &found, enum_name);
+                    cover.wildcard = true;
+                }
+            }
+            PatternKind::Tuple(_) => {
+                let found = lstr!(en: "tuple"; tr: "tuple");
                 self.err_pattern_type(span, &found, enum_name);
                 cover.wildcard = true;
             }
@@ -208,6 +306,27 @@ impl TypeChecker<'_, '_> {
             &lstr!(en: "pattern of type '{found}' cannot match a value of enum '{enum_name}'"; tr: "'{found}' tipindeki desen '{enum_name}' enum'unun değeriyle eşleşemez"),
             &lstr!(en: "use the variants of '{enum_name}' as patterns ({enum_name}::...)"; tr: "desen olarak '{enum_name}' varyantlarını kullanın ({enum_name}::...)"),
         );
+    }
+
+    /// `const` adı deseni sınananla aynı enum tipindeyse değerinin
+    /// varyantı (ADR-0085). Değerlendirme sessizdir: sabit değilse E1015
+    /// ad çözümlemede verildi.
+    fn const_variant_of(
+        &mut self,
+        lit: volt_ast::Idx<volt_ast::Expr>,
+        t: TypeId,
+        e: EnumId,
+    ) -> Option<DefId> {
+        if !matches!(*self.types.ty(t), Ty::Enum(pe) if pe == e) {
+            return None;
+        }
+        let before = self.ev.diagnostics.len();
+        let value = self.ev.const_eval(lit);
+        self.ev.diagnostics.truncate(before);
+        match value {
+            crate::ConstValue::EnumVariant { def, .. } => Some(def),
+            _ => None,
+        }
     }
 
     /// Desendeki yol desenleri (span, tanım) ve joker içerip içermediği.
@@ -299,6 +418,24 @@ fn numeric_missing_wildcard(span: Span, is_expr: bool) -> Diagnostic {
         NoteKind::Note,
         lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
     )
+}
+
+/// `value`, `signed`/`width` tamsayı tipinin aralığında mı?
+fn int_fits(value: i128, signed: bool, width: u16) -> bool {
+    let w = u32::from(width);
+    if signed {
+        if w >= 128 {
+            return true;
+        }
+        let half = 1i128 << (w - 1);
+        (-half..half).contains(&value)
+    } else if value < 0 {
+        false
+    } else if w >= 127 {
+        true
+    } else {
+        value < (1i128 << w)
+    }
 }
 
 #[cfg(test)]
@@ -486,5 +623,60 @@ mod tests {
         let d = diagnostics(src);
         let e = d.iter().find(|d| d.code.as_str() == "E0014").unwrap();
         assert!(e.message.contains("no '_' arm"), "{}", e.message);
+    }
+
+    // ═══ ADR-0085: çıplak ad desen DEĞERİdir ═══
+
+    fn value_match(head: &str, arms: &str) -> String {
+        format!("{head}module M {{\n    in  x : u8\n    in  s : S\n    out y : u8\n    out z : u8\n    y = match x {{ {arms} }}\n    z = match s {{ S::A => 1, _ => 2 }}\n}}\n")
+    }
+
+    const CONSTS: &str = "enum S { A, B }\nconst LIMIT : u8 = 10\nconst BIG : u16 = 300\nconst SMALL : u16 = 7\nconst NEG : i8 = -1\nconst START : S = S::B\n";
+
+    #[test]
+    fn const_pattern_is_clean_and_wider_declared_const_fits_by_value() {
+        let c = codes(&value_match(CONSTS, "LIMIT => 1, SMALL => 3, _ => 2"));
+        assert!(c.is_empty(), "{c:?}");
+    }
+
+    #[test]
+    fn const_pattern_value_must_fit_the_scrutinee() {
+        assert_eq!(codes(&value_match(CONSTS, "BIG => 1, _ => 2")), ["E2010"]);
+        assert_eq!(codes(&value_match(CONSTS, "NEG => 1, _ => 2")), ["E2010"]);
+        assert_eq!(codes(&value_match(CONSTS, "300 => 1, _ => 2")), ["E2010"]);
+    }
+
+    #[test]
+    fn enum_const_on_number_is_e2003() {
+        assert_eq!(codes(&value_match(CONSTS, "START => 1, _ => 2")), ["E2003"]);
+    }
+
+    #[test]
+    fn const_repeating_a_literal_is_unreachable_w2014() {
+        let d = diagnostics(&value_match(CONSTS, "10 => 1, LIMIT => 2, _ => 3"));
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert_eq!(d[0].code.as_str(), "W2014");
+    }
+
+    #[test]
+    fn enum_const_covers_its_variant() {
+        let src = "enum S { A, B }\nconst START : S = S::B\nmodule M {\n    in  s : S\n    out y : u8\n    y = match s { START => 1, S::A => 2 }\n}\n";
+        assert!(codes(src).is_empty(), "{:?}", codes(src));
+        let missing = "enum S { A, B, C }\nconst START : S = S::B\nmodule M {\n    in  s : S\n    out y : u8\n    y = match s { START => 1, S::A => 2 }\n}\n";
+        let d = diagnostics(missing);
+        assert!(
+            d.iter().any(|d| d.code.as_str() == "E0014"
+                && d.message.contains("S::C")
+                && !d.message.contains("S::B")),
+            "{d:?}"
+        );
+    }
+
+    #[test]
+    fn int_fits_bounds() {
+        use super::int_fits;
+        assert!(int_fits(255, false, 8) && !int_fits(256, false, 8) && !int_fits(-1, false, 8));
+        assert!(int_fits(-128, true, 8) && !int_fits(-129, true, 8) && !int_fits(128, true, 8));
+        assert!(int_fits(i128::MAX, false, 128) && int_fits(i128::MIN, true, 128));
     }
 }

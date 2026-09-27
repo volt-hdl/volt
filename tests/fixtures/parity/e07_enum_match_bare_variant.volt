@@ -1,4 +1,4 @@
-// parity: E0003
+// parity: E1001
 enum State { Idle, Run, Done }
 module M {
     in  clk : clock

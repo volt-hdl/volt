@@ -37,10 +37,6 @@ impl Cloner<'_> {
         let kind = match &self.ast.patterns[p].kind {
             PatternKind::Wildcard => PatternKind::Wildcard,
             PatternKind::Error => self.recovery(PatternKind::Error),
-            PatternKind::Binding(n) => {
-                let n = n.clone();
-                PatternKind::Binding(self.tag_name(&n))
-            }
             PatternKind::Literal(e) => {
                 let e = *e;
                 PatternKind::Literal(self.clone_expr(e))

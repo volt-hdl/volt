@@ -8,8 +8,8 @@
 use std::collections::HashSet;
 
 use volt_ast::{
-    AutoOrigin, AutoRule, BinOp, BlockStmt, Contract, ContractKind, Expr, ExprKind, Idx, Name,
-    Path, SourceFile, StmtKind,
+    AutoOrigin, AutoReach, AutoRule, BinOp, BlockStmt, Contract, ContractKind, Expr, ExprKind, Idx,
+    Name, Path, SourceFile, StmtKind,
 };
 use volt_span::Span;
 
@@ -43,6 +43,8 @@ pub(super) struct Spec {
     pub expr: G,
     pub subject: String,
     pub from: Span,
+    /// Cover'ın yapısal erişilebilirliği (ADR-0086).
+    pub reach: AutoReach,
 }
 
 /// Birimde zaten kullanılan sıfır uzunluklu ad span'leri (başka
@@ -122,6 +124,7 @@ pub(super) fn build(ast: &mut SourceFile, spans: &mut Spans, spec: &Spec) -> Opt
             text,
             subject: spec.subject.clone(),
             from: spec.from,
+            reach: spec.reach,
         }),
     })
 }
