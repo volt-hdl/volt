@@ -1,7 +1,8 @@
 //! Çıktı doğrulama ağı (ADR-0079): Volt'un ürettiği her çıktı, "Volt
 //! tamam dedi" yerine GERÇEK tüketicisine verilir. Korpus: `tests/ui/pass`,
-//! `examples/` (`*_test.volt` hariç) ve `tests/fixtures/` (parite
-//! negatifleri ve testler hariç).
+//! `examples/` (`*_test.volt` hariç), `tests/fixtures/` (parite
+//! negatifleri ve testler hariç) ve `volt new` şablonları (`templates/`,
+//! ADR-0084 §6 — işaretsiz: şablon hiçbir uyarı muafiyeti taşımaz).
 //!
 //! | Çıktı | Tüketici | Test |
 //! |---|---|---|
@@ -141,7 +142,7 @@ fn corpus() -> &'static [Design] {
     CORPUS.get_or_init(|| {
         let root = root();
         let mut files = Vec::new();
-        for dir in ["tests/ui/pass", "examples", "tests/fixtures"] {
+        for dir in ["tests/ui/pass", "examples", "tests/fixtures", "templates"] {
             volt_files(&root.join(dir), &mut files);
         }
         files

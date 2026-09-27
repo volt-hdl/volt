@@ -1,0 +1,5 @@
+# Volt package manifest (volt new --template mmio).
+[package]
+name = "{{name}}"
+# Sources live next to this file; `volt test` looks for *_test.volt here.
+src = "."

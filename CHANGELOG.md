@@ -5,6 +5,38 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — `volt new` / `volt init` ve CI'da doğrulanan şablonlar (2026-09-27, ADR-0084 Bölüm 2)
+
+- **`volt new <ad> [--template <t>]`** yeni dizinde, **`volt init
+  [--template <t>] [--name <ad>]`** çalışma dizininde proje başlatır;
+  `volt new --list` şablonları listeler. Sonrasında `Next:` satırları
+  (`cd <ad>`, `volt check <ana>.volt`, `volt test`).
+- **Şablonlar** (`templates/`, ikiliye `include_str!` ile gömülü):
+  `minimal` (sayaç, `fn`, invariant + cover; varsayılan), `cdc` (iki saat
+  alanı, ham reset, toggle + `sync()`), `fifo` (`SyncFifo` üstünde
+  `struct Packet` tamponu, yapışkan taşma bayrağı), `mmio` (`@mmio` LED
+  yanıp söndürücü, `match`, C/Rust sürücüleri, AXI4-Lite testi). Yapı
+  düz (`Volt.toml` `src = "."`, `volt test` yalnız çalışma dizinini
+  tarar), yorumlar İngilizce (ADR-0026), `.gitignore` + README.
+- **Ad doğrulaması:** Volt tanımlayıcısı, Volt anahtar sözcüğü değil
+  (lexer), ADR-0078 tablosunda (SV, Rust, C/C++) ayrılmış değil; tireye
+  `_` önerisi. **Üzerine yazma ve `--force` yok:** dolu dizin ya da
+  mevcut şablon dosyası çıkış 2 (çakışanlar listelenir).
+- **Kalıcı doğrulama:** `template_tests.rs` her şablonu `volt new` ile
+  üretir — gömülü kaynakla bayt aynı, `check`/`build` tanısız (uyarı da
+  yok), mmio sürücüleri `check-regmap` ile eşleşir, `volt test` geçer
+  (integration işi, `VOLT_REQUIRE_TOOLS=verilator`), `volt verify`
+  bmc/prove/cover geçer (verify işi, `VOLT_REQUIRE_TOOLS=sby`).
+  `templates/` çıktı doğrulama ağı korpusunda (Verilator `-Wall`, Yosys,
+  cc/c++/rustc; işaretsiz). Mutasyon: şablona uyarı üreten satır ve
+  yanlış test beklentisi ayrı ayrı testi düşürür.
+- README: kısa "Getting started" (`volt doctor` → `volt new` →
+  `volt test`).
+- Şablonları yazarken bulunan dil sınırları ADR-0084 §5'te:
+  `SyncFifo<struct>` E0003, `match` kolunda `const` adı gölgeler (W1002),
+  `wire x : T @Domain` W0020, doygun sayacın otomatik wrap cover'ı
+  erişilemez.
+
 ### Eklendi — `volt doctor`; araç keşfi tek kaynakta (2026-09-27, ADR-0084 Bölüm 1)
 
 - **`volt doctor`**: hangi komutun bu makinede çalışacağını yetenek
@@ -32,6 +64,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   yalnız z3, çözücüsüz, takılan araç, `VOLT_VERILATOR` önceliği,
   manifest, Türkçe), `volt-tools` birim testleri, `install_steps`.
   Mutasyon: Verilator aday adı bozulunca 3 doctor testi düşer.
+
 
 ### Değişti — riscv_core ALU ve dallanma fn + match ile; const'ta if katlanır (2026-09-27, ADR-0083 Aşama 3)
 

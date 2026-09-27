@@ -10,6 +10,7 @@
 
 mod doctor;
 mod extern_stage;
+mod new;
 mod reach;
 mod regmap_check;
 mod sim;
@@ -278,6 +279,34 @@ enum Command {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=60))]
         timeout: u64,
     },
+    /// Create a new project in a new directory (ADR-0084)
+    #[command(after_help = "EXAMPLES:
+    volt new blinky
+    volt new my_fifo --template fifo
+    volt new --list")]
+    New {
+        /// Project name (a Volt identifier); also the directory name
+        #[arg(required_unless_present = "list")]
+        name: Option<String>,
+        /// Template: minimal | cdc | fifo | mmio
+        #[arg(long, default_value = new::templates::DEFAULT)]
+        template: String,
+        /// List the templates
+        #[arg(long)]
+        list: bool,
+    },
+    /// Create a project in the current directory; never overwrites files (ADR-0084)
+    #[command(after_help = "EXAMPLES:
+    volt init
+    volt init --template cdc --name my_bridge")]
+    Init {
+        /// Template: minimal | cdc | fifo | mmio
+        #[arg(long, default_value = new::templates::DEFAULT)]
+        template: String,
+        /// Project name (default: the directory name)
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Start the Volt language server on stdio (editors connect here)
     Lsp,
     /// Explain a diagnostic code or topic in detail (cli-contract.md §9)
@@ -540,6 +569,25 @@ fn run() -> ExitCode {
             strict,
             timeout: std::time::Duration::from_secs(timeout),
         }),
+        Command::New {
+            name,
+            template,
+            list,
+        } => match name {
+            Some(name) if !list => new::new(
+                &name,
+                new::NewOptions {
+                    template: &template,
+                },
+            ),
+            _ => new::list(),
+        },
+        Command::Init { template, name } => new::init(
+            name.as_deref(),
+            new::NewOptions {
+                template: &template,
+            },
+        ),
         Command::Lsp => {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS
