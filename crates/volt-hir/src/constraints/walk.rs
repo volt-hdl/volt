@@ -806,7 +806,14 @@ impl<'a> Collector<'a> {
         chains.extend(self.reset_chains(m, scope, ctx));
         for &stmt_idx in &m.body {
             match &self.ast.stmts[stmt_idx].kind {
-                StmtKind::Assign(a) => bridges.extend(self.sync_bridges(a, scope, ctx, clocks)),
+                StmtKind::Assign(a) => {
+                    let sliced = !a.lhs.suffixes.is_empty();
+                    bridges.extend(self.sync_bridges(a.rhs, sliced, scope, ctx, clocks));
+                }
+                // ADR-0090 §3: `let s = sync(..)` aynı köprüdür.
+                StmtKind::Let(l) => {
+                    bridges.extend(self.sync_bridges(l.value, false, scope, ctx, clocks));
+                }
                 StmtKind::Instance(inst) => {
                     let target = inst
                         .module_path
@@ -834,12 +841,13 @@ impl<'a> Collector<'a> {
     /// (`sync_p_a_stage0`, …). Struct olmayan kaynakta tek köprü.
     fn sync_bridges(
         &self,
-        a: &'a volt_ast::AssignStmt,
+        rhs: Idx<volt_ast::Expr>,
+        sliced: bool,
         scope: &Scope<'a>,
         ctx: &Ctx,
         clocks: &[ClockConstraint],
     ) -> Vec<Bridge> {
-        let src = match &self.ast.exprs[a.rhs].kind {
+        let src = match &self.ast.exprs[rhs].kind {
             ExprKind::Call { args, .. } => args.first().and_then(|&s| single(self.ast, s)),
             _ => None,
         };
@@ -848,29 +856,31 @@ impl<'a> Collector<'a> {
             .unwrap_or_default();
         if leaves.is_empty() {
             return self
-                .sync_bridge(a, scope, ctx, clocks, None)
+                .sync_bridge(rhs, sliced, scope, ctx, clocks, None)
                 .into_iter()
                 .collect();
         }
         leaves
             .iter()
-            .filter_map(|suffix| self.sync_bridge(a, scope, ctx, clocks, Some(suffix)))
+            .filter_map(|suffix| self.sync_bridge(rhs, sliced, scope, ctx, clocks, Some(suffix)))
             .collect()
     }
 
-    /// `dest = sync(src, dst_clk)` / `sync3(...)` — sv-emit
+    /// `dest = sync(src, dst_clk)` / `sync3(...)` (ya da `let dest = …`,
+    /// ADR-0090 §3; `sliced`: indeksli hedef, köprü yok) — sv-emit
     /// `try_emit_sync_bridge` adlandırması: `sync_<src>_stage<i>` ve
     /// başka alandan gelen portta `sync_<src>_src` yakalama register'ı.
     /// `leaf`: struct kaynağının yaprak soneki (`a` → `p_a`).
     fn sync_bridge(
         &self,
-        a: &'a volt_ast::AssignStmt,
+        rhs: Idx<volt_ast::Expr>,
+        sliced: bool,
         scope: &Scope<'a>,
         ctx: &Ctx,
         clocks: &[ClockConstraint],
         leaf: Option<&str>,
     ) -> Option<Bridge> {
-        let ExprKind::Call { callee, args } = &self.ast.exprs[a.rhs].kind else {
+        let ExprKind::Call { callee, args } = &self.ast.exprs[rhs].kind else {
             return None;
         };
         let (kind, stages) = match single(self.ast, *callee)? {
@@ -878,7 +888,7 @@ impl<'a> Collector<'a> {
             "sync3" => ("sync3", 3),
             _ => return None,
         };
-        if !a.lhs.suffixes.is_empty() || args.len() != 2 {
+        if sliced || args.len() != 2 {
             return None;
         }
         let src = single(self.ast, args[0])?;

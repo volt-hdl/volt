@@ -117,9 +117,12 @@ impl TypeChecker<'_, '_> {
                 return self.synth_fn_call(&sig, &name, args, span);
             }
         }
-        let is_prev = kind == Some(DefKind::Builtin(BuiltinKind::Prev));
+        // `prev(x)` ve `sync(x, clk)` / `sync3(x, clk)` x'in tipini taşır
+        // (ADR-0090 §3: `let s = sync(..)` genişliği denetlenir).
+        let mut passes_type = kind == Some(DefKind::Builtin(BuiltinKind::Prev));
         if let Some(DefKind::Builtin(b @ (BuiltinKind::Sync | BuiltinKind::Sync3))) = kind {
             self.check_sync_arity(b, args.len(), span);
+            passes_type = args.len() == 2;
         }
         let mut first = None;
         for &a in args {
@@ -128,7 +131,7 @@ impl TypeChecker<'_, '_> {
                 first = Some(t);
             }
         }
-        match (is_prev, first) {
+        match (passes_type, first) {
             (true, Some(t)) => t,
             _ => self.types.error(),
         }

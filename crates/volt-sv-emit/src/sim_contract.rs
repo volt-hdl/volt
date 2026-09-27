@@ -193,7 +193,11 @@ impl<'a> Emitter<'a> {
         };
         let is_cover = verb == "cover";
         // Sayaç adı kimliğin modül içi kısmından: `volt_hits_cov_0`.
-        let counter = format!("volt_hits_{}", id.rsplit('.').next().unwrap_or(id));
+        // Kullanıcı adıyla çakışırsa `_2`, `_3`… (ADR-0090 §2): sayaç
+        // yalnız bu modülde yaşar, rapor kimlikle (`id`) yapılır.
+        let base = format!("volt_hits_{}", id.rsplit('.').next().unwrap_or(id));
+        let counter = crate::sv_collisions::fresh_name(&base, |n| self.helper_name_taken(n));
+        self.helper_taken.insert(counter.clone());
         let check = if is_cover {
             self.sim_dpi.cover = true;
             format!("if ({expr}) {counter} <= {counter} + 1;")

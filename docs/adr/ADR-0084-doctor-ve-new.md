@@ -180,7 +180,9 @@ düzeltme ayrı iş):
    bkz. ADR-0088** — `wire`/`let`/`reg` `@Alan` taşır, denetlenir (E3001,
    tanımsız ad E3002); `cdc` şablonunun geçiş teli açıklamalı.
 4. `let x = sync(...)` E0003 (bilinen; yalnız atamanın tüm sağ tarafı);
-   şablon `wire` + atama kullanır.
+   şablon `wire` + atama kullanır. **Kapatıldı, bkz. ADR-0090** — `let`
+   `wire` + atama ile bayt bayt aynı SV ve SDC/XDC köprüsünü üretir
+   (`sync3` dahil); şablon `wire` ile kalır (geçerli, `@Alan` gösterir).
 5. Doygun sayaç (`if c != 255 { c <= c + 1 }`) ADR-0066'nın otomatik
    "counter wrap" cover'ını erişilemez kılar → `--mode cover` E5001.
    Şablon sayaç yerine yapışkan bayrak kullanır. **Kapatıldı, bkz.
@@ -206,8 +208,8 @@ gerekçe artık araç sınırı değil sadelik: tek tasarım + tek test için
 `src/`/`tests/` bölmesi `use` ve paket yolu kavramını ilk dakikaya
 ekler; README/`Next:` komutları çalışma dizininden aynen çalışır;
 büyüyen proje alt dizinlere yapılandırmasız geçer. Şablon `Volt.toml`
-yorumu buna göre güncellendi. Bulgu 4 (`let x = sync(...)`) bu görevin
-kapsamı dışında, açık.
+yorumu buna göre güncellendi. Bulgu 4 (`let x = sync(...)`) ADR-0090 ile
+kapandı.
 
 Yorumlar İngilizce (ADR-0026 — üretilen/dağıtılan kod). Şablonlar
 `templates/<ad>/` altında gerçek dosyalardır ve ikiliye `include_str!`

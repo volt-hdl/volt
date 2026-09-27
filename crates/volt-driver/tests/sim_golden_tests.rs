@@ -15,7 +15,7 @@ use std::process::Command;
 const DESIGN: &str = "\
 module Table {
     in  clk  : clock
-    in  rst  : bool
+    in  clr  : bool
     in  addr : u3
     in  sv   : i8
     in  we   : bool
@@ -28,7 +28,7 @@ module Table {
     reg hits : u8 = 0
 
     on clk {
-        if rst {
+        if clr {
             hits <= 0
         } else if we {
             hits <= hits + 1

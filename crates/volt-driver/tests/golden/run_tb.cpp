@@ -25,23 +25,23 @@ int main(int argc, char** argv) {
     VerilatedContext ctx;
     ctx.commandArgs(argc, argv);
     TOP dut(&ctx);
-    dut.rst = 0;
+    dut.clr = 0;
     dut.addr = 0;
     dut.sv = 0;
     dut.we = 0;
     apply_reset(&dut, &ctx);
 
-    std::printf("cycle    rst   addr     sv     we   data  secho  wrote  empty\n");
+    std::printf("cycle    clr   addr     sv     we   data  secho  wrote  empty\n");
     std::printf("-----  -----  -----  -----  -----  -----  -----  -----  -----\n");
-    std::printf("%5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu\n", (unsigned long long)0, (unsigned long long)dut.rst, (unsigned long long)dut.addr, (unsigned long long)dut.sv, (unsigned long long)dut.we, (unsigned long long)dut.data, (unsigned long long)dut.secho, (unsigned long long)dut.wrote, (unsigned long long)dut.empty);
+    std::printf("%5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu\n", (unsigned long long)0, (unsigned long long)dut.clr, (unsigned long long)dut.addr, (unsigned long long)dut.sv, (unsigned long long)dut.we, (unsigned long long)dut.data, (unsigned long long)dut.secho, (unsigned long long)dut.wrote, (unsigned long long)dut.empty);
 
-    dut.rst = 1;
+    dut.clr = 1;
     dut.addr = 1;
     dut.sv = 1;
     dut.we = 1;
     for (unsigned long long c = 1; c <= 12ULL; ++c) {
         run_cycle(&dut, &ctx);
-        std::printf("%5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu\n", c, (unsigned long long)dut.rst, (unsigned long long)dut.addr, (unsigned long long)dut.sv, (unsigned long long)dut.we, (unsigned long long)dut.data, (unsigned long long)dut.secho, (unsigned long long)dut.wrote, (unsigned long long)dut.empty);
+        std::printf("%5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu  %5llu\n", c, (unsigned long long)dut.clr, (unsigned long long)dut.addr, (unsigned long long)dut.sv, (unsigned long long)dut.we, (unsigned long long)dut.data, (unsigned long long)dut.secho, (unsigned long long)dut.wrote, (unsigned long long)dut.empty);
     }
     dut.final();
     return 0;

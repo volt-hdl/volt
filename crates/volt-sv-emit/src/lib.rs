@@ -22,6 +22,7 @@ pub mod sim;
 mod sim_contract;
 mod sim_script;
 mod structs;
+mod sv_collisions;
 mod sv_names;
 mod sva;
 mod trit;
@@ -30,10 +31,10 @@ use std::collections::{HashMap, HashSet};
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
-    ArrayLitKind, AssignStmt, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch,
-    Expr, ExprKind, Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt,
-    ModuleDecl, OnBlock, OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync,
-    SourceFile, StmtKind, TypeRef, TypeRefKind,
+    ArrayLitKind, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
+    Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock,
+    OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind,
+    TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::{FileId, Span};
@@ -131,6 +132,16 @@ const DEFAULT_DOMAIN: DomainInfo = DomainInfo {
     reset: ResetCfg::DEFAULT,
 };
 
+/// `sync()`/`sync3()` köprüsünün hedefi: `dest = sync(..)` ataması ya da
+/// `let dest = sync(..)` bağlaması (ADR-0090 §3).
+#[derive(Clone, Copy)]
+struct SyncTarget<'s> {
+    dest: &'s str,
+    /// Hedef indeksli/dilimli mi (`y[0] = sync(..)`, E0003)?
+    sliced: bool,
+    rhs: Idx<Expr>,
+}
+
 /// Modülün bir saat portu: adı, `@Domain` anotasyonu ve alan bilgisi.
 #[derive(Debug, Clone)]
 pub(crate) struct ClockPort {
@@ -172,6 +183,12 @@ fn domain_of_trigger(clocks: &[ClockPort], on: &OnBlock) -> DomainInfo {
 }
 
 /// Tek segmentli Path ifadesinin metni.
+/// `sync(..)` / `sync3(..)` çağrısı mı (köprü üreten ifade)?
+fn is_sync_call(ast: &SourceFile, e: Idx<Expr>) -> bool {
+    matches!(&ast.exprs[e].kind,
+        ExprKind::Call { callee, .. } if matches!(path_single(ast, *callee), Some("sync" | "sync3")))
+}
+
 fn path_single(ast: &SourceFile, idx: Idx<Expr>) -> Option<&str> {
     match &ast.exprs[idx].kind {
         ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
@@ -447,6 +464,7 @@ pub fn emit_unit(
             }
             let body = emitter.emit_module(module, item.doc.as_deref());
             emitter.audit_emitted_text(module, &body);
+            emitter.audit_duplicate_decls(module, &body);
             // ADR-0024: her modül kendi dosyasında; başlık o modülün
             // kaynak dosyasını gösterir.
             let origin = emitter.source_name_of(item.span.file);
@@ -514,6 +532,8 @@ fn new_emitter<'a>(
         self_sizing: HashSet::new(),
         module_name: String::new(),
         sv_name_reported: HashSet::new(),
+        sync_bridges: Vec::new(),
+        helper_taken: HashSet::new(),
         proc: match_expr::ProcScope::default(),
         ternary_depth: 0,
     }
@@ -801,6 +821,12 @@ pub(crate) struct Emitter<'a> {
     /// E1013 verilmiş SV adları (ADR-0078) — güvenlik ağı aynı adı
     /// ikinci kez bildirmez.
     pub(crate) sv_name_reported: HashSet<String>,
+    /// Modülün `sync()` köprülerinin ürettiği adlar (ADR-0090 çakışma
+    /// iletisinde köken).
+    pub(crate) sync_bridges: Vec<sv_collisions::SyncBridgeNames>,
+    /// Yardımcı adların (`past_*`, `volt_hits_*`) kaçındığı modül adları
+    /// (ADR-0090 §2).
+    pub(crate) helper_taken: HashSet<String>,
     /// Üretilmekte olan sürecin blok `let` yerelleri (ADR-0083 Karar 11).
     pub(crate) proc: match_expr::ProcScope,
     /// İç içe üçlü match üretimi derinliği (sınırlar en dışta denetlenir).
@@ -863,10 +889,12 @@ impl<'a> Emitter<'a> {
         self.loop_vars.clear();
         self.pre_decls.clear();
         self.bus_wires.clear();
+        self.sync_bridges.clear();
         self.sim_dpi = sim_contract::SimDpiUse::default();
         self.enum_used.clear();
         self.enum_sigs.clear();
         self.module_name = module.name.text.clone();
+        self.seed_helper_taken(module);
 
         // Sembol tablosu: portlar + reg'ler + wire'lar (let'ler sırayla eklenir)
         for port in &module.ports {
@@ -973,6 +1001,19 @@ impl<'a> Emitter<'a> {
 
         let ports_block = self.emit_ports(module, &resets);
         let mut body_chunks = self.emit_body(module, &clocks);
+        // ADR-0090 §2: yardımcı adlar (`past_*`, `volt_hits_*`) gövdede ve
+        // başlıkta bildirilen her addan (ve reset zincirinden) kaçınır.
+        let seen: Vec<&str> = body_chunks
+            .iter()
+            .map(String::as_str)
+            .chain([ports_block.as_str()])
+            .collect();
+        self.extend_helper_taken(&seen);
+        for c in clocks.iter().filter(|c| c.raw_reset.is_some()) {
+            for i in 0..reset_sync::RESET_SYNC_STAGES {
+                self.helper_taken.insert(reset_sync::stage_name(&c.name, i));
+            }
+        }
         let const_lines = self.const_array_lines();
         // ADR-0051: çift yönlü portların üç durumlu tamponları.
         if let Some(chunk) = self.emit_bidir_drivers(module) {
@@ -1244,6 +1285,17 @@ impl<'a> Emitter<'a> {
                         ),
                     )
                 }),
+                // ADR-0090 §3: `let s = sync(x, clk)` — `wire s` + atama ile
+                // aynı donanım (bildirim + köprü).
+                StmtKind::Let(decl) if is_sync_call(ast, decl.value) => {
+                    match self.emit_let_sync(module, clocks, decl, stmt.span) {
+                        Some((line, bridge)) => {
+                            extra = Some((Kind::Always, bridge));
+                            line.map(|l| (Kind::Decl, l))
+                        }
+                        None => None,
+                    }
+                }
                 StmtKind::Let(decl) => {
                     // Bildirilen tip wire genişliğini SÜRER (ADR-0041):
                     // `let p : i32 = a * b` → 32 bitlik wire; tip yoksa
@@ -1349,7 +1401,12 @@ impl<'a> Emitter<'a> {
                     ))
                 }
                 StmtKind::Assign(assign) => {
-                    match self.try_emit_sync_bridge(module, clocks, assign, stmt.span) {
+                    let target = SyncTarget {
+                        dest: &assign.lhs.base.text,
+                        sliced: !assign.lhs.suffixes.is_empty(),
+                        rhs: assign.rhs,
+                    };
+                    match self.try_emit_sync_bridge(module, clocks, target, stmt.span) {
                         Some(chunk) => Some((Kind::Always, chunk)),
                         // Bütün sinyale kök match → `always_comb` + `case`;
                         // kısmi hedef (`y[3:0] = …`) üçlü kalır: aynı sinyalin
@@ -1496,6 +1553,51 @@ impl<'a> Emitter<'a> {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
+    /// `let dest = sync(src, clk)` (ADR-0090 §3): `wire dest` + `dest =
+    /// sync(..)` ile aynı çıktı — `logic dest;` bildirimi ve köprü.
+    /// Genişlik açık tipten, yoksa kaynaktan. Köprü üretilemezse (tanı
+    /// verildi) None; genişlik bulunamazsa köprünün E2005'i.
+    fn emit_let_sync(
+        &mut self,
+        module: &'a ModuleDecl,
+        clocks: &[ClockPort],
+        decl: &'a volt_ast::LetDecl,
+        span: Span,
+    ) -> Option<(Option<String>, String)> {
+        let name = &decl.name.text;
+        if let Some(t) = decl.ty {
+            self.note_enum_signal(name, t);
+        }
+        let sig = match decl.ty {
+            Some(t) => self.sig_of_typeref(t, span),
+            None => self.sync_source_sig(decl.value),
+        };
+        if let Some(sig) = sig {
+            self.symbols.insert(name.clone(), sig);
+        }
+        let target = SyncTarget {
+            dest: name,
+            sliced: false,
+            rhs: decl.value,
+        };
+        let bridge = self.try_emit_sync_bridge(module, clocks, target, span)?;
+        if bridge.is_empty() {
+            return None;
+        }
+        let line =
+            sig.map(|sig| format!("    {} {name};{}", sig.decl_type(), self.enum_comment(name)));
+        Some((line, bridge))
+    }
+
+    /// `sync(src, ..)` kaynağının imzası (yalın ad ise).
+    fn sync_source_sig(&self, call: Idx<Expr>) -> Option<Sig> {
+        let ExprKind::Call { args, .. } = &self.ast.exprs[call].kind else {
+            return None;
+        };
+        let src = path_single(self.ast, *args.first()?)?;
+        self.symbols.get(src).copied()
+    }
+
     /// sv-mapping.md §8 — `dest = sync(src, dst_clk)` / `sync3(...)` köprüsü.
     ///
     /// Kaynak alanda bir yakalama register'ı, hedef alanda N aşama üretir;
@@ -1507,11 +1609,11 @@ impl<'a> Emitter<'a> {
         &mut self,
         module: &'a ModuleDecl,
         clocks: &[ClockPort],
-        assign: &'a AssignStmt,
+        target: SyncTarget<'_>,
         span: Span,
     ) -> Option<String> {
         let ast = self.ast;
-        let ExprKind::Call { callee, args } = &ast.exprs[assign.rhs].kind else {
+        let ExprKind::Call { callee, args } = &ast.exprs[target.rhs].kind else {
             return None;
         };
         let stages: usize = match path_single(ast, *callee) {
@@ -1520,7 +1622,7 @@ impl<'a> Emitter<'a> {
             _ => return None,
         };
 
-        if !assign.lhs.suffixes.is_empty() {
+        if target.sliced {
             self.future(
                 span,
                 &lstr!(
@@ -1530,7 +1632,7 @@ impl<'a> Emitter<'a> {
             );
             return Some(String::new());
         }
-        let dest = assign.lhs.base.text.clone();
+        let dest = target.dest.to_string();
 
         // Analiz (typeck) aynı tanıyı verir ve emit'i kapatır; burası
         // yalnız HIR'siz `emit()` çağrıları için (aynı kod ve metin).
@@ -1611,6 +1713,12 @@ impl<'a> Emitter<'a> {
             .cloned();
 
         let base = format!("sync_{src}");
+        self.sync_bridges.push(sv_collisions::SyncBridgeNames {
+            base: base.clone(),
+            span,
+            capture: src_clock.is_some(),
+            stages,
+        });
         let ty = sig.decl_type();
         let zero = zero_of(sig);
         let src_label = src_clock.as_ref().map_or(src.as_str(), |c| c.name.as_str());
