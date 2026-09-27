@@ -332,6 +332,23 @@ Requires stable Rust. `volt build`, `volt check`, `volt explain` and
   `hdlc/formal`); `volt explain simulation-setup` and `volt explain
   verify-setup` print the setup guides
 
+## Getting started
+
+```console
+$ volt doctor                 # which commands work here, what to install
+$ volt new blinky             # counter + test + contracts (volt new --list)
+$ cd blinky
+$ volt check counter.volt
+$ volt test                   # needs Verilator
+$ volt verify counter.volt    # needs SymbiYosys
+```
+
+Templates: `minimal` (default), `cdc` (two clock domains, `sync()`),
+`fifo` (`SyncFifo`, struct values), `mmio` (`@mmio` register map, C/Rust
+drivers). `volt init` does the same in an existing directory and never
+overwrites a file. Every template is generated, simulated and formally
+verified in CI.
+
 ## Documentation
 
 - [docs/spec/](docs/spec/): the binding language specification (grammar,

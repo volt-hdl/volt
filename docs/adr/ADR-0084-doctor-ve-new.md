@@ -155,10 +155,29 @@ izler.
 
 | Şablon | İçerik | Dil yapıları | Kontrat |
 |---|---|---|---|
-| `minimal` (varsayılan) | sayaç + test | `const`, `fn`, `enum`'suz sade | invariant + cover |
-| `cdc` | iki saat alanı, `sync()` köprüsü, test | `domain`, `sync()` | invariant |
-| `fifo` | stdlib `SyncFifo` üstünde paket tamponu, test | `struct`, `SyncFifo` | invariant + cover |
+| `minimal` (varsayılan) | sayaç + test | `const`, `fn` | invariant + cover |
+| `cdc` | iki saat alanı, ham reset, `sync()` köprüsü (toggle), test | `domain`, `wire`, `sync()` | cover |
+| `fifo` | stdlib `SyncFifo` üstünde paket tamponu, test | `struct` + `as u12`/`as Packet`, `SyncFifo` | invariant + cover |
 | `mmio` | `@mmio` register haritası + sürücü üretimi, AXI4-Lite testi | `@mmio`/`@reg`, `match` | üretilen kontratlar + cover |
+
+Her şablon üç kipte (bmc, prove, cover; derinlik 20) kanıtlanır; bir
+şablon cover'ı erişilemez olsaydı kullanıcının ilk `--mode cover`
+denemesi E5001 verirdi.
+
+**Şablonları yazarken çıkan bulgular** (şablonlar etrafından dolaşır,
+düzeltme ayrı iş):
+
+1. `SyncFifo<Packet, 8>` — struct öğe tipi E0003 ("struct type as a
+   signal type"); şablon `as u12` ile paketler, `as Packet` ile açar.
+2. `match` kolunda `const` adı sabitle karşılaştırılmaz, yeni bağlama
+   olur (W1002 "shadows"); şablon literal desen kullanır.
+3. `wire x : bool @Slow` — alan ek açıklaması W0020 "unknown attribute";
+   tel alanı çıkarımla bulunur, şablon açıklamasız yazar.
+4. `let x = sync(...)` E0003 (bilinen; yalnız atamanın tüm sağ tarafı);
+   şablon `wire` + atama kullanır.
+5. Doygun sayaç (`if c != 255 { c <= c + 1 }`) ADR-0066'nın otomatik
+   "counter wrap" cover'ını erişilemez kılar → `--mode cover` E5001.
+   Şablon sayaç yerine yapışkan bayrak kullanır.
 
 Dörtten fazlası reddedildi: UART/VGA/RISC-V `examples/`'ta zaten var ve
 proje başlangıcı değil, örnek; her şablon CI'da dört araçla doğrulanır,
