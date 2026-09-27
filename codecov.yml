@@ -1,0 +1,21 @@
+# Codecov configuration. Coverage is informational: nothing here may block
+# a PR, and nothing is excluded from the production code (no `ignore:`
+# list; tests/ and examples/ are not Rust sources in the lcov report).
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# PR comment off: the informational status checks already carry the
+# project and patch numbers on every PR, and the full per-file view is one
+# click away on codecov.io. A comment would repeat them on each push.
+comment: false
