@@ -15,9 +15,12 @@ check:
     cargo clippy --all-targets -- -D warnings
     cargo test --all
 
-# Kod kapsamı ölçümü; HTML rapor: target/llvm-cov/html/
+# Kod kapsamı ölçümü: testler BİR kez koşar, üç rapor aynı profilden.
+# HTML: target/llvm-cov/html/, lcov (Codecov): target/llvm-cov/lcov.info
 coverage:
-    cargo llvm-cov --workspace --html
+    cargo llvm-cov --workspace --no-report
+    cargo llvm-cov report --html
+    cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
     cargo llvm-cov report --summary-only
 
 # Spec-kod tutarlılık denetimi (ihlal varsa çıkış kodu 1)

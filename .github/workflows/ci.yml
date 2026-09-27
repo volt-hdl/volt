@@ -302,6 +302,11 @@ jobs:
     name: Coverage (informational)
     runs-on: ubuntu-latest
     # Informational: no threshold yet, a failure does not break CI.
+    # Tool-less on purpose: with the OSS CAD Suite and VOLT_REQUIRE_TOOLS the
+    # line total rose 90.56% -> 91.30% (sim_struct.rs, sim/run_cmd.rs,
+    # sim/test_cmd.rs) but the coverage step took 4m12s instead of 1m04s
+    # (warm caches, PR #59), over the +2 min budget. Those paths still run
+    # against the real tools in the Verilator lint job.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -318,6 +323,18 @@ jobs:
         with:
           name: coverage-html
           path: target/llvm-cov/html/
+      # A Codecov outage must not break CI, but a failed upload must be
+      # visible: fail_ci_if_error turns it into a red step, and the
+      # step-level continue-on-error keeps the job (and the run) green.
+      - name: Upload lcov to Codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@2320916714171c258d01dbd81040d64d798c6f8e # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/llvm-cov/lcov.info
+          disable_search: true
+          fail_ci_if_error: true
+          verbose: true
 
   fuzz:
     name: Fuzz (60 s)

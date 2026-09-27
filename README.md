@@ -6,6 +6,7 @@ An HDL where clock domain crossing bugs won't compile.
 > No silicon. See [Limitations](#limitations).
 
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
+[![coverage](https://codecov.io/gh/volt-hdl/volt/graph/badge.svg)](https://codecov.io/gh/volt-hdl/volt)
 ![tests](https://img.shields.io/badge/tests-2420-brightgreen)
 ![diagnostics](https://img.shields.io/badge/diagnostic_codes-126-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
