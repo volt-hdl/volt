@@ -13,6 +13,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   (iki betik bayt bayt aynı çıktı); sayılar betiğin zaten hesapladığı
   test toplamı (`.test-baseline` ile aynı tanım) ve spec/ADR kod
   sayısıdır. Denetim kipinde dosya uyuşmazsa ihlal (kontrol 8).
+  README gövdesindeki "All 126 diagnostic codes" sayısız yazıldı.
 - `.gitattributes`: golden/fixture dosya türleri (`.cpp`, `.vlt`, `.hex`,
   `.c`, `.S`, `.ld`, `.lib`, `.py`, `.ts`, `justfile`, `Makefile`)
   açıkça `text eol=lf`; `.ps1` CRLF'den LF'ye (PowerShell LF'yi okur);

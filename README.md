@@ -96,7 +96,7 @@ error[E3009]: secret data flows to a public output
    = for more: volt explain E3009
 ```
 
-All 126 diagnostic codes have a long-form explanation built into the
+Every diagnostic code has a long-form explanation built into the
 compiler, in English and Turkish: `volt explain E3009`, `volt explain
 E3009 --lang=tr`.
 
