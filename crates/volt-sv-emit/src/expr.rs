@@ -791,12 +791,24 @@ impl<'a> Emitter<'a> {
                 let args = args.clone();
                 (self.emit_prev(idx, &args, ctx), PREC_ATOM)
             }
+            // ADR-0090 §3: köprü yalnız modül düzeyinde, bağlamanın ya da
+            // atamanın bütün sağ tarafıyken üretilir.
+            ExprKind::Call { .. } if crate::is_sync_call(self.ast, idx) => {
+                self.future(
+                    span,
+                    &lstr!(
+                        en: "sync() inside an expression or a block (write it at module level as the whole right-hand side: 'let s = sync(x, clk)' or 's = sync(x, clk)')";
+                        tr: "ifade ya da blok içinde sync() (modül düzeyinde sağ tarafın tamamı olarak yazın: 'let s = sync(x, clk)' ya da 's = sync(x, clk)')"
+                    ),
+                );
+                ("1'b0".to_string(), PREC_ATOM)
+            }
             ExprKind::Call { .. } => {
                 self.future(
                     span,
                     &lstr!(
-                        en: "function calls inside expressions (sync() only as the whole right-hand side of an assignment)";
-                        tr: "ifade içinde fonksiyon çağrıları (sync() yalnız atamanın tüm sağ tarafı olarak)"
+                        en: "function calls inside expressions";
+                        tr: "ifade içinde fonksiyon çağrıları"
                     ),
                 );
                 ("1'b0".to_string(), PREC_ATOM)

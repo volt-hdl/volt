@@ -186,9 +186,9 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         E1003 => Explanation::new(
             "Aynı kapsamda çift tanım",
             "Aynı kapsamdaki iki bildirim aynı ismi kullanıyor.",
-            "Bir kapsam içinde her isim benzersiz olmalıdır — aksi halde isme yapılan her başvuru belirsiz olurdu. İki bildirim de kasıtlıysa birini yeniden adlandırın; İÇ kapsamda gölgeleme serbesttir (ayrıca W1002 olarak raporlanır).",
-            "reg state : u2 = 0\nwire state : u2         // ✗ E1003",
-            "reg state      : u2 = 0\nwire state_next : u2    // ✓",
+            "Bir kapsam içinde her isim benzersiz olmalıdır — aksi halde isme yapılan her başvuru belirsiz olurdu. İki bildirim de kasıtlıysa birini yeniden adlandırın; İÇ kapsamda gölgeleme serbesttir (ayrıca W1002 olarak raporlanır).\n\nÜretilen SystemVerilog modülü de bir kapsamdır. Volt bazı adları kendisi kurar: örnek çıkışı '<örnek>_<port>', yerleşik primitifin sinyalleri '<örnek>_<ad>', otomatik reset portu 'rst'/'rst_n', ham reset senkronizörü 'rst_sync_<saat>_stage<i>', sync() köprüsü 'sync_<kaynak>_src'/'sync_<kaynak>_stage<i>'. Böyle bir ad sizin bir adınıza (ya da kurulan başka bir ada) eşitse ileti adın nasıl kurulduğunu söyler ve iki yeri gösterir. Volt bu adları değiştirmez: portlar arayüzdür, senkronizör ve örnek sinyalleri zamanlama kısıtlarında ve dalga biçimlerinde adıyla geçer (ADR-0090). Yalnız 'volt verify' ve 'volt test' çıktısında yaşayan yardımcı adlar (prev() register'ları, cover sayaçları) bunun yerine '_2' soneki alır.",
+            "reg state : u2 = 0\nwire state : u2          // ✗ E1003\n\nlet timer = Timer { clk }\nout timer_irq : bool     // ✗ E1003: 'timer' + 'irq' de 'timer_irq'",
+            "reg state      : u2 = 0\nwire state_next : u2     // ✓\n\nlet timer = Timer { clk }\nout irq_out : bool       // ✓",
         ),
         E1004 => Explanation::new(
             "Özel öğeye erişim",

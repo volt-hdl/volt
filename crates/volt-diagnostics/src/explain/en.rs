@@ -186,9 +186,9 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         E1003 => Explanation::new(
             "Duplicate definition in the same scope",
             "Two declarations in the same scope use the same name.",
-            "Within one scope every name must be unique — otherwise any reference to it would be ambiguous. If both declarations are intentional, rename one of them; shadowing in an *inner* scope is allowed (and reported separately as W1002).",
-            "reg state : u2 = 0\nwire state : u2         // ✗ E1003",
-            "reg state      : u2 = 0\nwire state_next : u2    // ✓",
+            "Within one scope every name must be unique — otherwise any reference to it would be ambiguous. If both declarations are intentional, rename one of them; shadowing in an *inner* scope is allowed (and reported separately as W1002).\n\nThe generated SystemVerilog module is a scope too. Volt builds some names itself: an instance output is '<instance>_<port>', a built-in primitive's signals are '<instance>_<name>', the automatic reset port is 'rst'/'rst_n', a raw reset's synchronizer is 'rst_sync_<clock>_stage<i>' and a sync() bridge is 'sync_<source>_src'/'sync_<source>_stage<i>'. When such a name equals one of yours (or another built name), the message says how it was built and points at both places. Volt does not rename these names: ports are the interface, and synchronizer and instance signals are named in timing constraints and in waveforms (ADR-0090). Helper names that only live in 'volt verify' and 'volt test' output (prev() registers, cover counters) get a '_2' suffix instead.",
+            "reg state : u2 = 0\nwire state : u2          // ✗ E1003\n\nlet timer = Timer { clk }\nout timer_irq : bool     // ✗ E1003: 'timer' + 'irq' is also 'timer_irq'",
+            "reg state      : u2 = 0\nwire state_next : u2     // ✓\n\nlet timer = Timer { clk }\nout irq_out : bool       // ✓",
         ),
         E1004 => Explanation::new(
             "Access to a private item",

@@ -9,7 +9,7 @@
 module Table (
     input  logic              clk,
     input  logic              rst,
-    input  logic              rst,
+    input  logic              clr,
     input  logic [2:0]        addr,
     input  logic signed [7:0] sv,
     input  logic              we,
@@ -26,7 +26,7 @@ module Table (
         if (rst) begin
             hits <= 8'd0;
         end else begin
-            if (rst) begin
+            if (clr) begin
                 hits <= 8'd0;
             end else if (we) begin
                 hits <= hits + 8'd1;

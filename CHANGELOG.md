@@ -5,6 +5,27 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — üretilen ad çarpışmaları; `let x = sync(...)` (2026-09-27, ADR-0090)
+
+- Volt'un kurduğu SV adı (örnek çıkışı `<örnek>_<port>`, yerleşik
+  primitif sinyali `<örnek>_<ad>`, otomatik `rst`/`rst_n` portu, reset
+  zinciri `rst_sync_<saat>_stage<i>`, `sync()` köprüsü
+  `sync_<k>_src`/`_stage<i>`) bir kullanıcı adıyla ya da başka bir
+  kurulan adla aynıysa artık E1003: "'timer_irq' is both port
+  'timer_irq' and output 'irq' of instance 'timer'", iki konum. Önce
+  `volt check` temizdi, Verilator "Duplicate declaration" veriyordu,
+  Yosys ise iki bildirimi SESSİZCE tek tele birleştiriyordu. Adlar
+  yeniden adlandırılmaz (port arayüzdür; senkronizör ve primitif
+  register'ları SDC/XDC'de geçer).
+- `volt verify`/`volt test` yardımcıları (`past_<x>_<n>`,
+  `volt_hits_<id>`) kullanıcı adıyla çakışırsa `_2`, `_3`… alır.
+- `let s = sync(x, clk)` / `sync3` desteklenir: `wire s` + atama ile
+  bayt bayt aynı SV ve aynı SDC/XDC köprü kısıtı. ADR-0084 §5 bulgu 4
+  kapandı. İfade içindeki `sync()` E0003 iletisi `let` biçimini önerir.
+- `sync(x, clk)` x'in tipini taşır: `o : bool = sync(x8, clk)` önce
+  sessizce 8→1 bit kesiliyordu, artık E2003.
+- `volt explain E1003` üretilen adları anlatır (iki dil).
+
 ### Eklendi — sinyal bildirimlerinde `@Domain` (2026-09-27, ADR-0088)
 
 - `wire s : bool @Slow`, `let x : u8 @Fast = e` (modül ve blok),

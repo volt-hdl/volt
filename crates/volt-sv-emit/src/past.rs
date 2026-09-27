@@ -101,13 +101,20 @@ impl<'a> Emitter<'a> {
             let idx = match chains.iter().position(|c| c.src == src) {
                 Some(i) => i,
                 None => {
-                    let base = match &self.ast.exprs[x].kind {
+                    let wanted = match &self.ast.exprs[x].kind {
                         ExprKind::Path(p) if p.segments.len() == 1 => format!("past_{src}"),
                         _ => {
                             anon += 1;
                             format!("past_e{anon}")
                         }
                     };
+                    // `<taban>_<k>` bir modül adıyla çakışırsa taban `_2`,
+                    // `_3`… alır (ADR-0090 §2): zincir yalnız formal/sim
+                    // çıktısında yaşar, kontrat metni aynı adı kullanır.
+                    let others: Vec<&str> = chains.iter().map(|c| c.base.as_str()).collect();
+                    let base = crate::sv_collisions::fresh_name(&wanted, |b| {
+                        self.chain_base_taken(b, &others)
+                    });
                     chains.push(PastChain {
                         base,
                         src,

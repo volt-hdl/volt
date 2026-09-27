@@ -92,7 +92,7 @@ static bool test_0() {
     TOP dut(ctx);
     volt_fault = 0;
     std::vector<std::function<void()>> volt_loads;
-    dut.rst = 0;
+    dut.clr = 0;
     dut.addr = 0;
     dut.sv = 0;
     dut.we = 0;
@@ -140,7 +140,7 @@ static bool test_1() {
     VerilatedContext* ctx = &uctx;
     TOP dut(ctx);
     volt_fault = 0;
-    dut.rst = 0;
+    dut.clr = 0;
     dut.addr = 0;
     dut.sv = 0;
     dut.we = 0;
