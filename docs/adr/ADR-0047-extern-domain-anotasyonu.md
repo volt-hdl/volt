@@ -1,6 +1,7 @@
 # ADR-0047: Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0071 (extern SV eşlemesi), ADR-0076 (extern kaynakları).
 > Tarih: 2026-09-14
 > Etkilenen: domain-inference.md K8a/§5/§8, name-resolution.md §2
 > (DefKind::DomainParam), volt-hir (resolve.rs extern gövdesi +

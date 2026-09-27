@@ -1,6 +1,7 @@
 # ADR-0033: Test blokları ve Verilator simülasyon köprüsü
 
-> Statü: KABUL EDİLDİ
+> Statü: Kısmen yerini aldı: ADR-0089 — test dosyası keşfi (yalnız çalışma dizini) proje kökünden özyinelemeli keşfe geçti
+> İlgili: ADR-0058 (test dili genişletme).
 > Tarih: 2026-09-09
 > Etkilenen: volt-syntax, volt-ast, volt-hir, volt-sv-emit, volt-driver,
 > docs/spec/grammar-full.ebnf, docs/spec/cli-contract.md

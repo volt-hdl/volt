@@ -1,11 +1,11 @@
 # ADR-0029: Stdlib Genişletmesi — Tek Saatli Günlük Yapı Taşları
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0027 (stdlib mimarisi — Rust'ta yerleşik), ADR-0049 (çift saatli bellek), ADR-0087 (struct/enum öğe tipi).
 > Tarih: 2026-09-08
 > Etkilenen: volt-ast (builtin tablosu), volt-hir (E2025 genellemesi,
 > W3006, port tipleri), volt-diagnostics (W3006), volt-sv-emit
 > (primitif SV/kontrat üretimi), tests/ui/pass/30-35, docs/stdlib.md
-> Önceki karar: ADR-0027 (stdlib mimarisi — Rust'ta yerleşik)
 
 ## Sorun
 

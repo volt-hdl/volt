@@ -1,6 +1,6 @@
 # ADR-0025: Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-03
 > Etkilenen: type-inference.md §3.3/§5 yorumu, volt-hir (typeck), W2013
 > Uygulama aşaması: F2b

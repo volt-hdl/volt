@@ -1,6 +1,6 @@
 # ADR-0034: İmplikasyon Operatörü `->`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-09
 > Etkilenen: grammar-full.ebnf §13, operator-precedence.md §1/§3/§4,
 > volt-ast (BinOp::Imp), volt-syntax (Pratt tablosu), volt-hir

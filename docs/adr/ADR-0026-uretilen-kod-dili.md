@@ -1,6 +1,6 @@
 # ADR-0026: Üretilen Kodun Dili — Her Zaman İngilizce
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-08
 > Etkilenen: sv-mapping.md §12, volt-sv-emit, tests/fixtures/counter.expected.sv
 > Uygulama aşaması: F4 sonu

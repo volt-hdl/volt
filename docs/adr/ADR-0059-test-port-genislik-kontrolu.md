@@ -1,6 +1,7 @@
 # ADR-0059: Test Bloğunda Port Genişlik Denetimi (E8512)
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0033 (test blokları), ADR-0058 (test dili genişletme — bu ADR onun "bilinen sınır"ını kapatır), ADR-0056 (paketlenmiş dizi portları), ADR-0026 (üretilen kod İngilizce), ADR-0060 ("bilinen sınır" kapandı).
 > Tarih: 2026-09-20
 > Etkilenen: volt-hir (`sim_port.rs` YENİ, `sim.rs`, `sim_load.rs`),
 > volt-sv-emit (`sim.rs` `TbStep::SetPortChecked` / `TbPortCheck`,
@@ -8,9 +9,6 @@
 > rapor), volt-diagnostics (E8512), tests/ui/fail/60, `.test-baseline`,
 > CHANGELOG.md.
 > DOKUNULMADI: README.md, examples/, docs/spec/.
-> İlgili: ADR-0033 (test blokları), ADR-0058 (test dili genişletme — bu
-> ADR onun "bilinen sınır"ını kapatır), ADR-0056 (paketlenmiş dizi
-> portları), ADR-0026 (üretilen kod İngilizce).
 
 ## Sorun
 

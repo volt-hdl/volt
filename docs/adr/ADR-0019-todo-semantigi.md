@@ -1,6 +1,6 @@
 # ADR-0019: `todo!` Semantiği — Kısmi Derleme
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); release engeli ve simülasyon durması uygulanmadı
 > Tarih: 2026-09-03 (karar); parser/typeck F1-F2
 > Etkilenen: grammar-full.ebnf (TodoExpr, §17 `todo`), volt-syntax/src/parser/expr.rs,
 > volt-hir/src/typeck.rs, volt-sv-emit/src/expr.rs, cli-contract.md §6/§17 (E9001)

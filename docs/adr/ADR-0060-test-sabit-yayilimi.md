@@ -1,15 +1,13 @@
 # ADR-0060: Test Bloğunda Sabit Yayılımı
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0059 (port genişlik denetimi — bu ADR onun "bilinen sınır"ını kapatır), ADR-0058 (test dili: `let`, `for`), ADR-0033 (test denetimi isim çözümlemeden bağımsızdır).
 > Tarih: 2026-09-20
 > Etkilenen: volt-hir (`sim_const.rs` YENİ — `TestConsts`; `sim.rs`,
 > `sim_expr.rs`, `sim_port.rs`), volt-driver (`sim_lower.rs`),
 > volt-diagnostics (E8512 açıklaması), tests/ui/fail/61, tests/ui/pass/81,
 > `.test-baseline`.
 > DOKUNULMADI: README.md, examples/, docs/spec/.
-> İlgili: ADR-0059 (port genişlik denetimi — bu ADR onun "bilinen
-> sınır"ını kapatır), ADR-0058 (test dili: `let`, `for`), ADR-0033 (test
-> denetimi isim çözümlemeden bağımsızdır).
 
 ## Sorun
 

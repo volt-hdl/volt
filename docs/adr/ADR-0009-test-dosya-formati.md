@@ -1,6 +1,7 @@
 # ADR-0009: Test Dosya Formatı — `tests/ui/{pass,fail}`, `//~` Anotasyonları, Birebir Fixture
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0042 (`tests/ui/multifile`).
 > Tarih: 2026-09-03
 > Etkilenen: tests/README.md, tests/ui/, tests/fixtures/, error-recovery.md §8,
 > crates/volt-hir/tests/ui_semantic_tests.rs, scripts/check-consistency (kontrol 5-6)

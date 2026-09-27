@@ -1,6 +1,7 @@
 # ADR-0014: Kontrat Sistemi Kademeli Benimseme — Hiçbir Kontrat Zorunlu Değil
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0048 (W0021 ve `@allow(unenforced)`).
 > Tarih: 2026-09-03
 > Etkilenen: grammar-full.ebnf §4 (`{ Contract }` opsiyonel), volt-hir/src/attrs.rs
 > (W0021 kapsamı), volt-driver `check` çıktısı, docs/stdlib.md

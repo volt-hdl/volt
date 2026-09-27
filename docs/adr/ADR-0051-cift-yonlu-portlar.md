@@ -1,6 +1,6 @@
 # ADR-0051: Çift Yönlü Portlar — `inout` Yazma Desteği ve `opendrain` Tipi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-15
 > Etkilenen: volt-ast (PortDir::OpenDrain, BidirRegs), volt-syntax
 > (parser/bidir.rs YENİ, item.rs `opendrain` bağlamsal anahtar kelime,

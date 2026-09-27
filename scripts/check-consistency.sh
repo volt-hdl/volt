@@ -7,6 +7,8 @@
 #   6. test sayısı gerilemesi (.test-baseline; --update ile yenile)
 #   7. ui/pass ve ui/fail'de sayısal önek tekil
 #   8. .github/badges.json (README rozetleri) güncel (--update ile yenile)
+#   9. her ADR'de sözlükten tek Statü satırı  10. ADR bağlantı hedefleri var
+#  11. yerini alma ↔ Önceki karar iki yönlü  12. her ADR dizinde tam bir kez
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -117,6 +119,90 @@ elif [ ! -f "$badge_file" ]; then
     violation ".github/badges.json yok — 'scripts/check-consistency.sh --update' ile oluştur (kontrol 8)"
 elif [ "$(tr -d '\r' < "$badge_file")" != "$badge_json" ]; then
     violation ".github/badges.json güncel değil (beklenen: $total test, $code_count kod) — '--update' ile yeniden üret, elle yazma (kontrol 8)"
+fi
+
+# ── 9-12: ADR durum satırları ve konu dizini ──────────────────────────
+# Sözlük ve biçim docs/adr/README.md "Durum sözlüğü"nde. Başlık bloğu:
+# başlıktan sonraki ilk ardışık '>' satırları. Tek awk geçişi (dosya başına
+# süreç açmak Windows'ta dakikalar sürüyordu); mawk uyumlu: {n} yok.
+adr_dir="$ROOT/docs/adr"
+adr_hits=$(awk '
+function refs(s, arr,   k) {
+    k = 0
+    while (match(s, /ADR-[0-9][0-9][0-9][0-9]/)) {
+        arr[++k] = substr(s, RSTART + 4, 4); s = substr(s, RSTART + RLENGTH)
+    }
+    return k
+}
+function value(s,   i) { i = index(s, " — "); return i ? substr(s, 1, i - 1) : s }
+function link(n, line,   a, k, i) {
+    k = refs(line, a)
+    for (i = 1; i <= k; i++) target[n, a[i]] = 1
+}
+{ sub(/\r$/, "") }
+FILENAME ~ /README\.md$/ {
+    if ($0 ~ /^\| \[[0-9][0-9][0-9][0-9]\]\(/) { r = substr($0, 4, 4); rows[r]++; row[r] = $0 }
+    next
+}
+FNR == 1 {
+    base = FILENAME; sub(/.*\//, "", base)
+    n = substr(base, 5, 4); file[n] = base; statuses[n] = 0; inhdr = 0; done = 0
+    next
+}
+done { next }
+!inhdr && $0 == "" { next }
+/^>/ {
+    inhdr = 1
+    if (index($0, "> Statü: ") == 1) { statuses[n]++; status[n] = substr($0, length("> Statü: ") + 1); link(n, $0) }
+    else if (index($0, "> İlgili: ") == 1) link(n, $0)
+    else if (index($0, "> Önceki karar: ") == 1) {
+        link(n, $0)
+        k = refs(value($0), a)
+        for (i = 1; i <= k; i++) prev[a[i], n] = 1
+    }
+    next
+}
+{ done = 1 }
+END {
+    for (i = 1; i <= 9999; i++) {
+        n = sprintf("%04d", i)
+        if (n in rows && !(n in file)) print "dizinde var olmayan ADR-" n " satırı (kontrol 12)"
+        if (!(n in file)) continue
+        if (statuses[n] != 1) { print "ADR-" n " başlık bloğunda tam olarak bir Statü satırı yok (kontrol 9)"; continue }
+        v = value(status[n])
+        if (v !~ /^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|(Kısmen yerini aldı|Yerini aldı): ADR-[0-9][0-9][0-9][0-9](, ADR-[0-9][0-9][0-9][0-9])*)$/ \
+            || status[n] ~ / — $/)
+            print "ADR-" n " Statü değeri durum sözlüğünde değil: \047" status[n] "\047 (kontrol 9)"
+        if (v ~ /^(Kısmen yerini aldı|Yerini aldı): /) {
+            k = refs(v, a)
+            for (j = 1; j <= k; j++) sup[n, a[j]] = 1
+        }
+        if (rows[n] + 0 != 1) print "ADR-" n " dizinde " rows[n] + 0 " kez geçiyor, tam olarak bir kez olmalı (kontrol 12)"
+        else {
+            if (index(row[n], "[" n "](" file[n] ")") == 0) print "ADR-" n " dizin satırının bağlantısı " file[n] " değil (kontrol 12)"
+            cell = row[n]; sub(/ \|$/, "", cell); sub(/.* \| /, "", cell)
+            if (cell != v) print "ADR-" n " dizindeki durum \047" cell "\047, başlıktaki \047" v "\047 (kontrol 12)"
+        }
+    }
+    for (key in target) {
+        split(key, p, SUBSEP)
+        if (!(p[2] in file)) print "ADR-" p[1] " başlığı var olmayan ADR-" p[2] "\047ye bağlanıyor (kontrol 10)"
+    }
+    for (key in sup) {
+        split(key, p, SUBSEP)
+        if (!((p[1], p[2]) in prev))
+            print "ADR-" p[1] " Statü\047sü ADR-" p[2] "\047yi yerini alan diye adlandırıyor, ama ADR-" p[2] "\047de \047Önceki karar: ADR-" p[1] "\047 yok (kontrol 11)"
+    }
+    for (key in prev) {
+        split(key, p, SUBSEP)
+        if (!((p[1], p[2]) in sup))
+            print "ADR-" p[2] " \047Önceki karar: ADR-" p[1] "\047 diyor, ama ADR-" p[1] " Statü\047sü \047(Kısmen) yerini aldı: ADR-" p[2] "\047 değil (kontrol 11)"
+    }
+}' "$adr_dir"/ADR-[0-9][0-9][0-9][0-9]-*.md "$adr_dir/README.md" | sort)
+if [ -n "$adr_hits" ]; then
+    while IFS= read -r line; do
+        violation "$line"
+    done <<< "$adr_hits"
 fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

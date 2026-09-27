@@ -1,6 +1,6 @@
 # ADR-0082: Varsayılan Formal Motoru — boolector; bitwuzla Seçeneği, Portföy ve Otomatik Seçim Reddedildi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-26
 > Etkilenen: volt-sv-emit (`sby.rs` — `SbyEngine` varsayılanı `Boolector`,
 > yeni `Bitwuzla`), volt-driver (`main.rs` `--engine` varsayılanı ve

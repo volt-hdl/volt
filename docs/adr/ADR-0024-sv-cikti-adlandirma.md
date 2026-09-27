@@ -1,6 +1,7 @@
 # ADR-0024: SV Çıktı Dosyası Adlandırması — DECLFILENAME Çakışması
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0042 (uygulama).
 > Tarih: 2026-09-03
 > Etkilenen: cli-contract.md §5, sv-mapping.md §12, volt-driver, volt-sv-emit
 > Uygulama aşaması: F1 sonu

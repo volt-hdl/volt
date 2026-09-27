@@ -5,6 +5,25 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — ADR durum satırları ve konu dizini (2026-09-28)
+
+- Her ADR'nin başlık bloğunda sözlükten tek bir `Statü` satırı:
+  Uygulandı / Kabul edildi / Rezerve / Kısmen yerini aldı: ADR-X /
+  Yerini aldı: ADR-X / Reddedildi (+ isteğe bağlı açıklama). Bağlantılar
+  tek satırlık `Önceki karar:` (yerini almanın ters yönü, iki yönlü) ve
+  `İlgili:` (uygulama, genişletme, "Sınırlar" kapatma) alanlarında.
+  Yerini alma bağlantıları: 0048 → 0054 → 0065, 0067 → 0068,
+  0018 → 0075, 0033 → 0089, 0058 → 0080, 0066 → 0074 ve 0086. Karar
+  metinleri değişmedi; farkın yalnız başlık bloklarında olduğu otomatik
+  denetlendi.
+- `docs/adr/README.md` konu dizini: 15 konu grubu, her ADR tam bir
+  grupta (numara, başlık, tek cümlelik özet, durum); "Buradan başla"
+  listesi (10 ADR); durum sözlüğü ve gerekçesi. Dizinde eksik olan
+  ADR-0055, ADR-0056 ve ADR-0084 eklendi.
+- `check-consistency` (ps1 ve sh) kontrol 9-12: Statü satırı sözlükte,
+  bağlantı hedefleri var, yerini alma ↔ Önceki karar iki yönlü, her ADR
+  dizinde tam bir kez ve durumu başlıkla aynı.
+
 ### Eklendi — LSP inlay ipuçları, quick fix ve protokol testleri (ADR-0091, 2026-09-27)
 
 - Inlay ipuçları: tipsiz `let`/`reg`'in çıkarılan tipi (`: u9`), çok

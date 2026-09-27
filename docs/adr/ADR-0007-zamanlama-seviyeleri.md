@@ -1,6 +1,7 @@
 # ADR-0007: L0/L1/L2 Zamanlama Seviyeleri
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); L1 ADR-0037 ile uygulandı, L2 (V2) uygulanmadı
+> İlgili: ADR-0037 (L1 uygulaması), ADR-0038 (pipeline, L1 üzerine).
 > Tarih: 2026-09-03 (karar); L1 uygulaması ADR-0037 (2026-09-10)
 > Etkilenen: type-inference.md §12, grammar-full.ebnf (PipelineDecl, §17),
 > volt-hir/src/timing.rs, ADR-0037, ADR-0038

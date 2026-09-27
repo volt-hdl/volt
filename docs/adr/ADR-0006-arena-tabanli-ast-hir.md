@@ -1,6 +1,6 @@
 # ADR-0006: Arena Tabanlı AST/HIR — `Idx<T>` Handle Deseni, Tip Bilgisi HIR'da
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
 > Tarih: 2026-09-03
 > Etkilenen: ast-nodes.md §0-§1, volt-ast/src/arena.rs, volt-ast/src/lib.rs,
 > volt-hir/src/ty.rs (TypeArena), name-resolution.md §0

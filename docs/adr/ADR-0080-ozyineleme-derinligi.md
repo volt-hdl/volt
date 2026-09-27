@@ -1,6 +1,8 @@
 # ADR-0080: Özyineleme Derinliği — Parser Ağacı Sınırlar, Derleyici Bilinen Yığında Koşar
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> Önceki karar: ADR-0058 — test dili derinlik sınırı
+> İlgili: ADR-0067 (fuzz regresyonları), ADR-0068 §6 "Sınırlar" (bu ADR'nin konusu olan bulgu), ADR-0058 (test dili derinlik sınırı — aynı sayacı kullanır), ADR-0069 (tip çizgesi), ADR-0070 (CLI/LSP ortak boru hattı).
 > Tarih: 2026-09-25
 > Etkilenen: volt-syntax (`parser/depth.rs` — YENİ: `MAX_DEPTH` = 256,
 > `descend`, sınırda grup atlama; `stack.rs` — YENİ: `COMPILER_STACK_SIZE`
@@ -14,9 +16,6 @@
 > (`fuzz_regressions/stack_*` 14 girdi, ui pass 111 / fail 142)
 > Güncelleme (2026-09-26, #44): fuzz hedefi iş parçacığı açmaz, `-max_len=4096`
 > — bkz. §8.
-> İlgili: ADR-0067 (fuzz regresyonları), ADR-0068 §6 "Sınırlar" (bu ADR'nin
-> konusu olan bulgu), ADR-0058 (test dili derinlik sınırı — aynı sayacı
-> kullanır), ADR-0069 (tip çizgesi), ADR-0070 (CLI/LSP ortak boru hattı)
 
 ## Sorun
 

@@ -1,6 +1,7 @@
 # ADR-0008: SV Çıktı Stili — `always_ff`, Açık Genişlik, Yasak Liste (x/z Üretilmez)
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0024 (dosya adı), ADR-0026 (başlık dili), ADR-0051 (`'z` istisnası).
 > Tarih: 2026-09-03
 > Etkilenen: sv-mapping.md §0/§11/§13, volt-sv-emit, .github/workflows/ci.yml
 > (Verilator lint), tests/fixtures/counter.expected.sv

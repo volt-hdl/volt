@@ -1,6 +1,7 @@
 # ADR-0086: Otomatik Cover'ların Yapısal Erişilebilirliği — Cover Kipinde Yanlış E5001 Yok
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> Önceki karar: ADR-0066 — cover kipinde otomatik cover E5001
 > Tarih: 2026-09-27
 > Etkilenen: volt-ast (`AutoOrigin::reach`, `AutoReach`), volt-syntax
 > (`auto_contract/counter.rs`, `fsm.rs`, `gen.rs`), volt-sv-emit

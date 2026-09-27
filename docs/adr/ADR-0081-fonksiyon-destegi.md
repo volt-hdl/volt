@@ -1,8 +1,7 @@
 # ADR-0081: Fonksiyon Desteği — Saf Kombinasyonel `fn` Donanıma İner
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım), Aşama 2 (uygulama, bkz.
-> "Aşama 2 — uygulama notları") ve Aşama 3 (örnekler + eşdeğerlik kanıtı,
-> bkz. "Aşama 3 ölçümü").
+> Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler + eşdeğerlik kanıtı); notlar sonda
+> İlgili: ADR-0083 (fn gövdesinde `match`).
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-ast (paylaşılan çizge yardımcısı `graph` —
 > ADR-0069'un Tarjan'ı buraya taşınır), volt-syntax (fn gövdesinde

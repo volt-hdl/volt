@@ -1,6 +1,6 @@
 # ADR-0023: Bağlamsal Anahtar Kelimeler — `sync` Çakışması
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-03
 > Etkilenen: lexer (volt-syntax), parser (volt-syntax), grammar-full.ebnf §17
 > Uygulama aşaması: F1

@@ -1,6 +1,7 @@
 # ADR-0039: Bundle (Port Grubu) Desteği — `struct port`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0056 (bundle dizileri), ADR-0067 (özyineli bundle tespiti), ADR-0077 (struct değerleri).
 > Tarih: 2026-09-13
 > Etkilenen: grammar-full.ebnf §7 (StructField), sv-mapping.md §14,
 > volt-syntax (parser/bundle.rs düzleştirme, struct port alan yönü),

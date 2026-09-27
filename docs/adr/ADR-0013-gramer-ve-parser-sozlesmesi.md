@@ -1,6 +1,7 @@
 # ADR-0013: Gramer ve Parser Sözleşmesi — LL(2), Geri İzleme Yasağı, Hata Kurtarma, Öncelik Kararları
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0023 (bağlamsal anahtar kelimeler), ADR-0028 (ayrılmış kelime revizyonu), ADR-0034 (`->` LL(2) sınırında).
 > Tarih: 2026-09-03
 > Etkilenen: grammar-full.ebnf (başlık, §17), operator-precedence.md,
 > error-recovery.md §1-§5, volt-syntax/src/parser/{mod,expr,recovery}.rs

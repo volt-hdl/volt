@@ -1,6 +1,7 @@
 # ADR-0064: Simülasyonda Kontratlar — İzleyici Olarak `volt test`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0066 (otomatik kontratlar izleyicide).
 > Tarih: 2026-09-21
 > Etkilenen: volt-sv-emit (`sim_contract.rs` YENİ — `SvaMode::Simulation`,
 > DPI izleyicileri, C++ prelude; `sva.rs` mod + `SvaProp::primitive`;

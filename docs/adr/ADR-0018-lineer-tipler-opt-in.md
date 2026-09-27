@@ -1,6 +1,6 @@
 # ADR-0018: Lineer Tipler — Opt-in (`&inv`), Normal Portlarda Sürücü Analizi
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16) — kodlar rezerve, denetim V1
+> Statü: Kısmen yerini aldı: ADR-0075 — geriye dönük belgelendi (2026-09-16); W4001/W4002 artık üretilmez; lineer denetim (E4003/E4004) rezerve, V1
 > Tarih: 2026-09-03
 > Etkilenen: type-inference.md §11 (E4001/E4002 uygulandı, §11.4 E4003/E4004 [V1]),
 > volt-hir/src/drivers.rs, volt-diagnostics messages (E4003, E4004)

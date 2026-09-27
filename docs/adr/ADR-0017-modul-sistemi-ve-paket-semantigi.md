@@ -1,6 +1,7 @@
 # ADR-0017: Modül Sistemi ve Paket Semantiği — `package` / `use` / `pub`
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16); uygulama ADR-0042
+> İlgili: ADR-0042 (uygulama).
 > Tarih: 2026-09-03 (karar); uygulama ADR-0042 (2026-09-13)
 > Etkilenen: grammar-full.ebnf §1 (PackageDecl, UseDecl, `pub`), name-resolution.md
 > §3.2/§3.3/§10, volt-driver/src/unit.rs, E1004/E1006/E1010/E1011

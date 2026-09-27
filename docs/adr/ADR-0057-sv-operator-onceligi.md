@@ -1,6 +1,7 @@
 # ADR-0057: SV Üretiminde Operatör Önceliği — Parantez Kararı Hedef Dilin Tablosuyla Verilir
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0013 §2.2 (bit düzeyi operatörler karşılaştırmadan sıkı), ADR-0012 (okunabilir SV), ADR-0034 (implikasyon açılımı).
 > Tarih: 2026-09-20
 > Etkilenen: volt-sv-emit (`expr.rs`: `sv_prec` IEEE tablosuna geçti,
 > `is_bitwise` / `is_comparison` / `paren_comparison_under_bitwise` YENİ;
@@ -10,8 +11,6 @@
 > Üretilen çıktısı değişen depo dosyası: yalnız
 > `tests/ui/pass/04_operator_precedence.volt` (kaynak değişmedi).
 > DOKUNULMADI: examples/, README.md, docs/spec/ (bkz. "Spec notu").
-> İlgili: ADR-0013 §2.2 (bit düzeyi operatörler karşılaştırmadan sıkı),
-> ADR-0012 (okunabilir SV), ADR-0034 (implikasyon açılımı).
 
 ## Sorun
 

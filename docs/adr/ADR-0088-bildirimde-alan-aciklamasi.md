@@ -1,6 +1,6 @@
 # ADR-0088: Sinyal Bildirimlerinde Saat Alanı Açıklaması
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-27
 > Etkilenen: volt-ast (`WireDecl::domain`, `LetDecl::domain`), volt-syntax
 > (`parser/stmt.rs` — `wire`/`let`/`reg`, `parse_domain_annot` ortak,

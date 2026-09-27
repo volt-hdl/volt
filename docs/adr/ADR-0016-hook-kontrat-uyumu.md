@@ -1,6 +1,6 @@
 # ADR-0016: Hook Mekanizması — Kontrat Altında Politika Enjeksiyonu (`hook` Rezerve)
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16) — yalnız rezervasyon uygulandı
+> Statü: Rezerve — geriye dönük belgelendi (2026-09-16); yalnız `hook` anahtar kelimesi rezerve, mekanizma V1+
 > Tarih: 2026-09-03
 > Etkilenen: grammar-full.ebnf §17 (ayrılmış: `hook`), volt-syntax/src/token.rs:167,
 > E0003 davranışı

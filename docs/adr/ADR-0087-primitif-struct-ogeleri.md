@@ -1,6 +1,6 @@
 # ADR-0087: Yerleşik Primitiflerde Struct / Enum Öğe Tipi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-27
 > Etkilenen: volt-sv-emit (`structs/prim.rs` yeni, `builtin_data.rs` yeni,
 > `builtin_prim.rs`, `structs/mod.rs`), volt-hir (`typeck/instance.rs`),

@@ -1,6 +1,7 @@
 # ADR-0040: Ardışık Kontratlar — `prev()` Yerleşiği
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0064 (`prev()` simülasyonda).
 > Tarih: 2026-09-13
 > Etkilenen: sv-mapping.md §15, volt-hir (resolve.rs prelude `prev` +
 > E5017, typeck.rs tip taşıma, domain.rs alan kuralı), volt-sv-emit

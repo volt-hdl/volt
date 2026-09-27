@@ -1,6 +1,6 @@
 # ADR-0010: Arka Uç — CIRCT Dialect Seçimi Ertelendi, Doğrudan SystemVerilog Üretimi
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
 > Tarih: 2026-09-03
 > Etkilenen: volt-sv-emit (string template), volt-lower (yer tutucu),
 > scripts/check-consistency kontrol 4, grammar-full.ebnf aşama etiketi [F3]

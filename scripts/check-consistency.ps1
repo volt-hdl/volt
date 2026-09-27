@@ -12,6 +12,13 @@
 #   7. tests/ui/pass ve tests/ui/fail'de iki .volt aynı sayısal öneki mi taşıyor?
 #   8. .github/badges.json (README rozetleri) 6'daki test ve 1'deki kod
 #      sayısıyla aynı mı? (-Update dosyayı yeniden yazar)
+#   9. Her ADR'nin başlık bloğunda tam olarak bir Statü satırı var ve değeri
+#      durum sözlüğünde mi? (docs/adr/README.md "Durum sözlüğü")
+#  10. Statü / Önceki karar / İlgili satırlarındaki ADR'ler var mı?
+#  11. "(Kısmen) yerini aldı: B" (A'da) ile "Önceki karar: A" (B'de) iki
+#      yönlü tutarlı mı?
+#  12. Her ADR docs/adr/README.md dizininde tam olarak bir tablo satırında,
+#      doğru dosyaya bağlı ve başlıktaki durumla mı geçiyor?
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -133,6 +140,84 @@ if ($Update) {
 } elseif (([IO.File]::ReadAllText($badgeFile) -replace "`r", '').TrimEnd("`n") -ne $badgeJson.TrimEnd("`n")) {
     Add-Violation ".github/badges.json güncel değil (beklenen: $total test, $($specCodes.Count) kod) — '-Update' ile yeniden üret, elle yazma (kontrol 8)"
 }
+
+# ── 9-12: ADR durum satırları ve konu dizini ──────────────────────────
+# Sözlük ve biçim docs/adr/README.md "Durum sözlüğü"nde. Başlık bloğu:
+# başlıktan sonraki ilk ardışık '>' satırları. İhlaller .sh ile aynı sırada.
+$adrDir = Join-Path $root 'docs\adr'
+$statusValueRe = '^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|(Kısmen yerini aldı|Yerini aldı): ADR-\d{4}(, ADR-\d{4})*)$'
+function Get-AdrRefs([string]$s) { [regex]::Matches($s, 'ADR-(\d{4})') | ForEach-Object { $_.Groups[1].Value } }
+function Get-StatusValue([string]$s) { $i = $s.IndexOf(' — '); if ($i -ge 0) { $s.Substring(0, $i) } else { $s } }
+
+$adrs = [ordered]@{}
+foreach ($f in Get-ChildItem $adrDir -Filter 'ADR-*.md' | Where-Object { $_.Name -match '^ADR-\d{4}-' } | Sort-Object Name) {
+    $lines = [IO.File]::ReadAllLines($f.FullName, [Text.Encoding]::UTF8)
+    $hdr = @()
+    $i = 1
+    while ($i -lt $lines.Count -and $lines[$i] -eq '') { $i++ }
+    while ($i -lt $lines.Count -and $lines[$i].StartsWith('>')) { $hdr += $lines[$i]; $i++ }
+    $adrs[$f.Name.Substring(4, 4)] = @{ File = $f.Name; Header = $hdr }
+}
+
+$hits = @()
+$targets = @(); $sup = @(); $prev = @()
+$rows = @{}
+foreach ($l in [IO.File]::ReadAllLines((Join-Path $adrDir 'README.md'), [Text.Encoding]::UTF8)) {
+    if ($l -match '^\| \[(\d{4})\]\(') {
+        $n = $Matches[1]
+        if (-not $rows.ContainsKey($n)) { $rows[$n] = @() }
+        $rows[$n] += $l
+    }
+}
+foreach ($n in $rows.Keys) {
+    if (-not $adrs.Contains($n)) { $hits += "dizinde var olmayan ADR-$n satırı (kontrol 12)" }
+}
+foreach ($n in $adrs.Keys) {
+    $a = $adrs[$n]
+    foreach ($l in $a.Header) {
+        if ($l -match '^> (Statü|İlgili|Önceki karar): ') {
+            foreach ($r in Get-AdrRefs $l) { $targets += ,@($n, $r) }
+        }
+        if ($l.StartsWith('> Önceki karar: ')) {
+            foreach ($r in Get-AdrRefs (Get-StatusValue $l)) { $prev += "$r $n" }
+        }
+    }
+    $status = @($a.Header | Where-Object { $_.StartsWith('> Statü: ') })
+    if ($status.Count -ne 1) { $hits += "ADR-$n başlık bloğunda tam olarak bir Statü satırı yok (kontrol 9)"; continue }
+    $full = $status[0].Substring('> Statü: '.Length)
+    $v = Get-StatusValue $full
+    if ($v -cnotmatch $statusValueRe -or $full.EndsWith(' — ')) {
+        $hits += "ADR-$n Statü değeri durum sözlüğünde değil: '$full' (kontrol 9)"
+    }
+    if ($v -cmatch '^(Kısmen yerini aldı|Yerini aldı): ') {
+        foreach ($r in Get-AdrRefs $v) { $sup += "$n $r" }
+    }
+    $count = if ($rows.ContainsKey($n)) { $rows[$n].Count } else { 0 }
+    if ($count -ne 1) {
+        $hits += "ADR-$n dizinde $count kez geçiyor, tam olarak bir kez olmalı (kontrol 12)"
+    } else {
+        $row = $rows[$n][0]
+        if (-not $row.Contains("[$n]($($a.File))")) { $hits += "ADR-$n dizin satırının bağlantısı $($a.File) değil (kontrol 12)" }
+        $cell = ($row -replace ' \|$', '') -replace '^.* \| ', ''
+        if ($cell -cne $v) { $hits += "ADR-$n dizindeki durum '$cell', başlıktaki '$v' (kontrol 12)" }
+    }
+}
+foreach ($t in $targets) {
+    if (-not $adrs.Contains($t[1])) { $hits += "ADR-$($t[0]) başlığı var olmayan ADR-$($t[1])'ye bağlanıyor (kontrol 10)" }
+}
+foreach ($p in $sup | Sort-Object -Unique) {
+    if ($prev -notcontains $p) {
+        $x = $p.Split(' ')
+        $hits += "ADR-$($x[0]) Statü'sü ADR-$($x[1])'yi yerini alan diye adlandırıyor, ama ADR-$($x[1])'de 'Önceki karar: ADR-$($x[0])' yok (kontrol 11)"
+    }
+}
+foreach ($p in $prev | Sort-Object -Unique) {
+    if ($sup -notcontains $p) {
+        $x = $p.Split(' ')
+        $hits += "ADR-$($x[1]) 'Önceki karar: ADR-$($x[0])' diyor, ama ADR-$($x[0]) Statü'sü '(Kısmen) yerini aldı: ADR-$($x[1])' değil (kontrol 11)"
+    }
+}
+foreach ($h in $hits | Sort-Object -Unique) { Add-Violation $h }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {

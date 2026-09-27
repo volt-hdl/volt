@@ -1,6 +1,6 @@
 # ADR-0031: Keyfi Bit Genişlikli Tamsayı Tipleri (u1..u64 / i1..i64)
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-09
 > Etkilenen: grammar-full.ebnf §6/§17, volt-syntax (lexer + parser),
 > volt-sv-emit (const katlama)

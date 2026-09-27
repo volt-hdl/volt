@@ -1,6 +1,6 @@
 # ADR-0001: Lisans Politikası — Apache-2.0 OR MIT
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
 > Tarih: 2026-09-03 (karar, F0 öncesi); LICENSE dosyaları 2026-09-07
 > Etkilenen: Cargo.toml `[workspace.package] license`, LICENSE-APACHE,
 > LICENSE-MIT, README.md "License", bağımlılık politikası (CLAUDE.md)

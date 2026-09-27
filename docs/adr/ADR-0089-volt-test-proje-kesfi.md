@@ -1,6 +1,7 @@
 # ADR-0089: `volt test` — Proje Kökünden Özyinelemeli Test Keşfi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> Önceki karar: ADR-0033 — test dosyası keşfi
 > Tarih: 2026-09-27
 > Etkilenen: volt-driver (`sim/discover.rs` yeni, `sim/test_files.rs`,
 > `sim/test_cmd.rs`, `sim/test_build.rs`), volt-hir (`unit_load.rs`:

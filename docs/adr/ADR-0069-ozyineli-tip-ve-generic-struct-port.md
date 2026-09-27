@@ -1,6 +1,7 @@
 # ADR-0069: Özyineli Tiplerin Tek Tip Çizgesi Denetimi ve Generic Struct Port Reddi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0070 (sade tip portları), ADR-0081 (Tarjan ortak yardımcıya).
 > Tarih: 2026-09-24
 > Etkilenen: volt-syntax (`parser/type_graph.rs` — YENİ: tip çizgesi,
 > yinelemeli Tarjan, E4009 ve generic struct port E0003 üretimi;

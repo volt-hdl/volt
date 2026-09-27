@@ -1,6 +1,7 @@
 # ADR-0002: Domain Semantiği — `@Domain` Anotasyonu ve Birleşik Domain (Saat + Sıfırlama + Güç + Güven)
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); RDC ADR-0065 ile uygulandı, PDC (E3006) uygulanmadı
+> İlgili: ADR-0052 (trust_level uygulaması), ADR-0054 (`frequency` → SDC), ADR-0065 (RDC uygulaması).
 > Tarih: 2026-09-03 (karar, F0 öncesi); CDC uygulaması F2c (2026-09-03)
 > Etkilenen: grammar-full.ebnf §3 (DomainDecl), domain-inference.md §1-§2,
 > volt-hir/src/domain.rs, volt-hir/src/trust.rs, E3xxx kod ailesi

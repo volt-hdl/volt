@@ -1,6 +1,7 @@
 # ADR-0028: Ayrılmış Kelime Revizyonu — Stdlib'e Taşınanlar Serbest
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0078 (hedef dillerin ayrılmış sözcükleri).
 > Tarih: 2026-09-08
 > Etkilenen: volt-syntax (token.rs Reserved listesi, lexer testleri),
 > docs/spec/grammar-full.ebnf §17 (bu ADR kaynaklı güncelleme),

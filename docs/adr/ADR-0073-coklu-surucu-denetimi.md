@@ -1,6 +1,7 @@
 # ADR-0073: Çoklu Sürücü Denetimi — Tek Tablo, Sürücü Türleri, Bit Aralıkları
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0075 ("Açık bulgular" kapandı).
 > Tarih: 2026-09-24
 > Etkilenen: volt-hir (`drivers.rs` — `DriverKind`, bit aralığı, çakışma
 > kuralı, E4001 etiket/öneri seçimi, birim testleri; `typeck/stmt.rs` —
