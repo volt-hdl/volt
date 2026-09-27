@@ -6,6 +6,7 @@
 #   4. CIRCT/melior yalnızca volt-lower (ADR-0005)  5. ui/fail ilk satır
 #   6. test sayısı gerilemesi (.test-baseline; --update ile yenile)
 #   7. ui/pass ve ui/fail'de sayısal önek tekil
+#   8. .github/badges.json (README rozetleri) güncel (--update ile yenile)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -102,11 +103,27 @@ for dir in pass fail; do
     done
 done
 
+# ── 8: README rozet sayıları ──────────────────────────────────────────
+# shields.io main dalındaki bu dosyayı okur; sayı README'ye elle yazılmaz.
+# Biçim .ps1 ile bayt bayt aynı: LF, BOM yok.
+badge_file="$ROOT/.github/badges.json"
+code_count=$(echo "$spec_codes" | wc -w | tr -d ' ')
+badge_json=$(printf '{\n  "tests": %s,\n  "diagnostic_codes": %s\n}' "$total" "$code_count")
+
+if [ "${1:-}" = "--update" ]; then
+    printf '%s\n' "$badge_json" > "$badge_file"
+    echo "Rozet dosyası güncellendi: $total test, $code_count kod"
+elif [ ! -f "$badge_file" ]; then
+    violation ".github/badges.json yok — 'scripts/check-consistency.sh --update' ile oluştur (kontrol 8)"
+elif [ "$(tr -d '\r' < "$badge_file")" != "$badge_json" ]; then
+    violation ".github/badges.json güncel değil (beklenen: $total test, $code_count kod) — '--update' ile yeniden üret, elle yazma (kontrol 8)"
+fi
+
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then
     echo ""
     echo "$VIOLATIONS ihlal bulundu." >&2
     exit 1
 fi
-echo "Tutarlılık denetimi temiz: $(echo "$spec_codes" | wc -w | tr -d ' ') kod, $total test."
+echo "Tutarlılık denetimi temiz: $code_count kod, $total test."
 exit 0

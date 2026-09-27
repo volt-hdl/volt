@@ -7,8 +7,8 @@ An HDL where clock domain crossing bugs won't compile.
 
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
 [![coverage](https://codecov.io/gh/volt-hdl/volt/graph/badge.svg)](https://codecov.io/gh/volt-hdl/volt)
-![tests](https://img.shields.io/badge/tests-2420-brightgreen)
-![diagnostics](https://img.shields.io/badge/diagnostic_codes-126-blue)
+![tests](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvolt-hdl%2Fvolt%2Fmain%2F.github%2Fbadges.json&query=%24.tests&label=tests&color=brightgreen)
+![diagnostics](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvolt-hdl%2Fvolt%2Fmain%2F.github%2Fbadges.json&query=%24.diagnostic_codes&label=diagnostic%20codes&color=blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)
 
 Volt has a Rust-like syntax and compiles to readable SystemVerilog. Clock

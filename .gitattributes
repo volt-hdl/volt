@@ -1,7 +1,19 @@
-﻿* text=auto eol=lf
+# Satır sonları: depoda ve çalışma kopyasında LF (core.autocrlf=true olsa da).
+# Golden testler (sim_golden_tests) ve fixture karşılaştırmaları bayt bayt
+# yapılır; CRLF çalışma kopyası bunları düşürür.
+* text=auto eol=lf
 
+# Satır sonuna duyarlı: golden/beklenen çıktılar, test girdileri, betikler.
+# text=auto içerik sezgisine bırakılmaz, açıkça metin.
 *.volt text eol=lf
 *.sv   text eol=lf
+*.cpp  text eol=lf
+*.vlt  text eol=lf
+*.hex  text eol=lf
+*.c    text eol=lf
+*.S    text eol=lf
+*.ld   text eol=lf
+*.lib  text eol=lf
 *.ebnf text eol=lf
 *.rs   text eol=lf
 *.md   text eol=lf
@@ -9,10 +21,23 @@
 *.json text eol=lf
 *.yml  text eol=lf
 *.lock text eol=lf
-
-*.ps1  text eol=crlf
-*.bat  text eol=crlf
+*.py   text eol=lf
+*.ts   text eol=lf
 *.sh   text eol=lf
+*.ps1  text eol=lf
+justfile       text eol=lf
+Makefile       text eol=lf
+.test-baseline text eol=lf
+
+# cmd.exe CRLF ister (LF'li .bat/.cmd'de etiket/goto kırılır).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Fuzz bulguları bayt bayt korunur: bazıları NUL içerir, gelecekteki bir
+# bulgu CR içerebilir; metin dönüşümü girdiyi sessizce değiştirirdi.
+# linguist-generated: makine üretimi girdiler (~577 KB) GitHub dil
+# istatistiğine Volt kodu diye girmez, PR diff'lerinde katlanır.
+tests/fuzz_regressions/** -text linguist-generated
 
 *.png  binary
 *.zip  binary

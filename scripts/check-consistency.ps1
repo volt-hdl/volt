@@ -10,6 +10,8 @@
 #   5. tests/ui/fail/ dosyalarının ilk satırı "//~ E/W####" ile başlıyor mu?
 #   6. Test sayısı .test-baseline'dan düşmüş mü? (-Update baseline'ı yeniler)
 #   7. tests/ui/pass ve tests/ui/fail'de iki .volt aynı sayısal öneki mi taşıyor?
+#   8. .github/badges.json (README rozetleri) 6'daki test ve 1'deki kod
+#      sayısıyla aynı mı? (-Update dosyayı yeniden yazar)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -115,6 +117,21 @@ foreach ($dir in 'pass', 'fail') {
             $names = ($_.Group | ForEach-Object { $_.Name }) -join ', '
             Add-Violation "tests/ui/$dir aynı numarayı paylaşıyor: $names (kontrol 7)"
         }
+}
+
+# ── 8: README rozet sayıları ──────────────────────────────────────────
+# shields.io main dalındaki bu dosyayı okur; sayı README'ye elle yazılmaz.
+# Biçim .sh ile bayt bayt aynı: LF, BOM yok.
+$badgeFile = Join-Path $root '.github\badges.json'
+$badgeJson = "{`n  `"tests`": $total,`n  `"diagnostic_codes`": $($specCodes.Count)`n}`n"
+
+if ($Update) {
+    [IO.File]::WriteAllText($badgeFile, $badgeJson, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "Rozet dosyası güncellendi: $total test, $($specCodes.Count) kod"
+} elseif (-not (Test-Path $badgeFile)) {
+    Add-Violation ".github/badges.json yok — 'scripts/check-consistency.ps1 -Update' ile oluştur (kontrol 8)"
+} elseif (([IO.File]::ReadAllText($badgeFile) -replace "`r", '').TrimEnd("`n") -ne $badgeJson.TrimEnd("`n")) {
+    Add-Violation ".github/badges.json güncel değil (beklenen: $total test, $($specCodes.Count) kod) — '-Update' ile yeniden üret, elle yazma (kontrol 8)"
 }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
