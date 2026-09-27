@@ -1211,6 +1211,7 @@ dependencies = [
  "volt-sv-emit",
  "volt-sw-emit",
  "volt-syntax",
+ "volt-tools",
 ]
 
 [[package]]
@@ -1288,6 +1289,10 @@ dependencies = [
  "volt-diagnostics",
  "volt-span",
 ]
+
+[[package]]
+name = "volt-tools"
+version = "0.1.0"
 
 [[package]]
 name = "walkdir"

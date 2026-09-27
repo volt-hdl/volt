@@ -587,6 +587,32 @@ pub fn render_topic(name: &str, lang: Lang, width: usize, color: bool) -> Option
     Some(out)
 }
 
+/// Kurulum konusunun (`simulation-setup`, `verify-setup`) INSTALL /
+/// KURULUM bölümünden tek işletim sisteminin komutları. `os_label`
+/// bölümdeki paragraf başlığıdır ("Linux", "macOS", "Windows",
+/// "Docker"). `volt doctor` eksik araç ipucunu buradan alır — metin tek
+/// yerde yaşar (ADR-0084 §2). Konu, bölüm ya da paragraf yoksa boş.
+pub fn install_steps(name: &str, lang: Lang, os_label: &str) -> Vec<&'static str> {
+    let Some(topic) = lookup(name, lang) else {
+        return Vec::new();
+    };
+    let Some((_, body)) = topic
+        .sections
+        .iter()
+        .find(|(header, _)| matches!(*header, "INSTALL" | "KURULUM"))
+    else {
+        return Vec::new();
+    };
+    let heading = format!("{os_label}:");
+    body.split("\n\n")
+        .find_map(|paragraph| {
+            let mut lines = paragraph.lines();
+            (lines.next()?.trim() == heading)
+                .then(|| lines.map(str::trim).filter(|l| !l.is_empty()).collect())
+        })
+        .unwrap_or_default()
+}
+
 /// Gövdeyi paragraf paragraf işler: kod satırı içeren paragraflar
 /// `indent_code` disipliniyle aynen kalır, düz paragraflar sarılır.
 fn render_body(body: &str, width: usize) -> String {

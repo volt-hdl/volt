@@ -19,29 +19,10 @@ pub(super) fn require_verilator(command: &str) -> Result<PathBuf, ExitCode> {
     })
 }
 
-/// Verilator yürütülebiliri: önce VOLT_VERILATOR, sonra PATH.
+/// Verilator yürütülebiliri: önce VOLT_VERILATOR, sonra PATH (tek
+/// kaynak `volt-tools`, ADR-0084).
 fn find_verilator() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("VOLT_VERILATOR") {
-        let p = PathBuf::from(p);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        for name in [
-            "verilator",
-            "verilator.exe",
-            "verilator.bat",
-            "verilator.cmd",
-        ] {
-            let cand = dir.join(name);
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    None
+    volt_tools::find(volt_tools::Tool::Verilator)
 }
 
 /// UX Anayasası biçiminde kurulum yardımı (goal ADIM 2).

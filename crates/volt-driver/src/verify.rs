@@ -595,24 +595,10 @@ fn print_sby_not_found() {
     );
 }
 
-/// `sby` çalıştırılabilir dosyası: önce VOLT_SBY, sonra PATH.
+/// `sby` çalıştırılabilir dosyası: önce VOLT_SBY, sonra PATH (tek
+/// kaynak `volt-tools`, ADR-0084).
 fn find_sby() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("VOLT_SBY") {
-        let p = PathBuf::from(p);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        for name in ["sby", "sby.exe", "sby.bat", "sby.cmd"] {
-            let cand = dir.join(name);
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    None
+    volt_tools::find(volt_tools::Tool::Sby)
 }
 
 /// sby log metnini özetler. Statü `DONE (PASS/FAIL/...)` satırından,

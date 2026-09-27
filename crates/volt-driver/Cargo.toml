@@ -19,8 +19,10 @@ volt-sw-emit = { path = "../volt-sw-emit" }
 volt-sdc-emit = { path = "../volt-sdc-emit" }
 volt-diagnostics = { path = "../volt-diagnostics" }
 volt-lsp = { path = "../volt-lsp" }
+volt-tools = { path = "../volt-tools" }
 clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+volt-tools = { path = "../volt-tools" }

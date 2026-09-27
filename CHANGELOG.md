@@ -5,6 +5,34 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — `volt doctor`; araç keşfi tek kaynakta (2026-09-27, ADR-0084 Bölüm 1)
+
+- **`volt doctor`**: hangi komutun bu makinede çalışacağını yetenek
+  gruplarıyla raporlar — build/check/explain (Volt yeterli), test/run
+  (Verilator ≥ 5.0, C++ derleyicisi, make), verify (sby, Yosys,
+  boolector; yalnız bitwuzla/yices/z3 varsa `--engine` önerisi), isteğe
+  bağlı timing (OpenSTA) ve sürücü denetimi (cc, rustc), Docker (daemon
+  çalışıyor mu), proje (`Volt.toml` kökü, WSL `/mnt` uyarısı). Eksik
+  yeteneğin altına `volt explain simulation-setup`/`verify-setup`
+  konusunun bu işletim sistemine ait kurulum satırı basılır (metin
+  kopyalanmaz: `topics::install_steps`). Sürüm sorguları paralel, araç
+  başına 5 sn sınırlı (`--timeout`); takılan araç "unresponsive".
+  `--format json` (`volt-doctor/1`), `--lang tr`.
+- **Çıkış kodu:** 0 (eksik araç yalnız bildirilir); `--strict` ile
+  zorunlu yetenek eksik/eski/yanıtsızsa 3 — `volt test`/`verify`'ın eksik
+  araç kodu.
+- **Araç keşfi tek kaynak — yeni `volt-tools` crate'i:** önceden üç
+  bağımsız uygulama vardı (`sim/verilator.rs`, `verify.rs`,
+  `tests/tools/mod.rs`) ve ayrışmıştı (sürücü `.bat`'ı tanıyor, ortam
+  değişkenindeki çıplak adı tanımıyordu; testler tersi). Şimdi `volt
+  test`/`run`/`verify`, `volt doctor` ve `VOLT_REQUIRE_TOOLS` testleri
+  aynı fonksiyonu çağırır; arama iki kopyanın birleşimidir, mevcut komut
+  çıktısı değişmedi. `VOLT_REQUIRE_TOOLS` 13 aracın adını tanır.
+- Testler: `doctor_tests.rs` (sahte PATH: araçsız, tam, eski Verilator,
+  yalnız z3, çözücüsüz, takılan araç, `VOLT_VERILATOR` önceliği,
+  manifest, Türkçe), `volt-tools` birim testleri, `install_steps`.
+  Mutasyon: Verilator aday adı bozulunca 3 doctor testi düşer.
+
 ### Değişti — riscv_core ALU ve dallanma fn + match ile; const'ta if katlanır (2026-09-27, ADR-0083 Aşama 3)
 
 - **`examples/riscv_alu.volt`** (yeni kütüphane dosyası): `alu_of` (RV32I

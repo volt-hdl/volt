@@ -1,0 +1,10 @@
+[package]
+name = "volt-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# External tool discovery (ADR-0084): the single place where `volt test`,
+# `volt run`, `volt verify`, `volt doctor` and the tool-dependent tests
+# (VOLT_REQUIRE_TOOLS, ADR-0079 §3) look up Verilator, sby, Yosys, ...
+[dependencies]

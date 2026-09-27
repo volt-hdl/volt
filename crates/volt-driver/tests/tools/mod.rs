@@ -10,99 +10,17 @@
 // Her test ikilisi bu modülün yalnız bir kısmını kullanır.
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+pub use volt_tools::Tool;
 
 /// Ortam değişkeni: zorunlu araçlar (`verilator,sby,...` ya da `all`).
 pub const REQUIRE_ENV: &str = "VOLT_REQUIRE_TOOLS";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tool {
-    Verilator,
-    Sby,
-    Yosys,
-    /// C derleyicisi (`CC`, gcc, cc, clang).
-    Cc,
-    /// C++ derleyicisi (`CXX`, g++, c++, clang++).
-    Cxx,
-    Rustc,
-}
-
-impl Tool {
-    pub const ALL: [Tool; 6] = [
-        Tool::Verilator,
-        Tool::Sby,
-        Tool::Yosys,
-        Tool::Cc,
-        Tool::Cxx,
-        Tool::Rustc,
-    ];
-
-    /// `VOLT_REQUIRE_TOOLS` içindeki ad.
-    pub fn name(self) -> &'static str {
-        match self {
-            Tool::Verilator => "verilator",
-            Tool::Sby => "sby",
-            Tool::Yosys => "yosys",
-            Tool::Cc => "cc",
-            Tool::Cxx => "cxx",
-            Tool::Rustc => "rustc",
-        }
-    }
-
-    /// Volt'un kendi araç araması da bu değişkene bakar (sim, verify);
-    /// `CC`/`CXX` yerleşik derleyici değişkenleridir.
-    fn env_override(self) -> Option<&'static str> {
-        match self {
-            Tool::Verilator => Some("VOLT_VERILATOR"),
-            Tool::Sby => Some("VOLT_SBY"),
-            Tool::Cc => Some("CC"),
-            Tool::Cxx => Some("CXX"),
-            Tool::Yosys | Tool::Rustc => None,
-        }
-    }
-
-    fn candidates(self) -> &'static [&'static str] {
-        match self {
-            Tool::Verilator => &["verilator"],
-            Tool::Sby => &["sby"],
-            Tool::Yosys => &["yosys"],
-            Tool::Cc => &["gcc", "cc", "clang"],
-            Tool::Cxx => &["g++", "c++", "clang++"],
-            Tool::Rustc => &["rustc"],
-        }
-    }
-}
-
-/// `PATH` üzerinde ad (Windows'ta `.exe`/`.cmd` ekiyle de).
-fn on_path(name: &str) -> Option<PathBuf> {
-    let direct = Path::new(name);
-    if direct.components().count() > 1 {
-        return direct.is_file().then(|| direct.to_path_buf());
-    }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).find_map(|dir| {
-        ["", ".exe", ".cmd"]
-            .iter()
-            .map(|ext| dir.join(format!("{name}{ext}")))
-            .find(|p| p.is_file())
-    })
-}
-
-/// Aracın yolu: önce ortam değişkeni (dosya yolu ya da PATH'teki ad),
-/// sonra adaylar PATH'te sırayla.
+/// Aracın yolu — `volt test`/`volt verify`/`volt doctor` ile AYNI arama
+/// (`volt-tools`, ADR-0084 §1): önce ortam değişkeni, sonra PATH.
 pub fn find(tool: Tool) -> Option<PathBuf> {
-    if let Some(var) = tool.env_override() {
-        if let Some(value) = std::env::var_os(var).filter(|v| !v.is_empty()) {
-            let as_path = PathBuf::from(&value);
-            if as_path.is_file() {
-                return Some(as_path);
-            }
-            if let Some(found) = on_path(&value.to_string_lossy()) {
-                return Some(found);
-            }
-        }
-    }
-    tool.candidates().iter().find_map(|name| on_path(name))
+    volt_tools::find(tool)
 }
 
 /// `VOLT_REQUIRE_TOOLS` değerini ayrıştırır; bilinmeyen ad `Err`.
