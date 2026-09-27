@@ -302,6 +302,11 @@ jobs:
     name: Coverage (informational)
     runs-on: ubuntu-latest
     # Informational: no threshold yet, a failure does not break CI.
+    # Tool-less on purpose: with the OSS CAD Suite and VOLT_REQUIRE_TOOLS the
+    # line total rose 90.56% -> 91.30% (sim_struct.rs, sim/run_cmd.rs,
+    # sim/test_cmd.rs) but the coverage step took 4m12s instead of 1m04s
+    # (warm caches, PR #59), over the +2 min budget. Those paths still run
+    # against the real tools in the Verilator lint job.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -330,49 +335,6 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
           verbose: true
-
-  # TEMPORARY (measurement for the Codecov PR, removed before merge):
-  # the same coverage run with the OSS CAD Suite on PATH and the tools
-  # required, to see what the tool-less job misses and what it costs.
-  coverage-tools:
-    name: Coverage with tools (measurement)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    env:
-      OSS_CAD_SUITE_DATE: 2026-09-21
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: extractions/setup-just@v2
-      - uses: Swatinem/rust-cache@v2
-      - name: Cache OSS CAD Suite
-        id: oss-cad-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/oss-cad-suite
-          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite, with retries
-        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
-        run: |
-          stamp="${OSS_CAD_SUITE_DATE//-/}"
-          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
-          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
-          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
-          rm /tmp/oss-cad-suite.tgz
-      - name: Put OSS CAD Suite on PATH
-        run: echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
-      - name: Coverage report (tools required)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator,sby,yosys,boolector,cc,cxx,rustc
-        run: just coverage
-      - name: Upload lcov (measurement)
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-tools-lcov
-          path: target/llvm-cov/lcov.info
 
   fuzz:
     name: Fuzz (60 s)

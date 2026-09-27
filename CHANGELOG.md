@@ -5,6 +5,20 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Codecov kapsam rozeti (2026-09-27)
+
+- CI'daki Coverage işi `target/llvm-cov/lcov.info` üretir ve Codecov'a
+  yükler (`codecov/codecov-action` v7.1.1, SHA ile sabit). Yükleme
+  hatası adımı kırmızıya boyar ama CI'ı kırmaz; HTML raporu artifact
+  olarak kalır. `just coverage` testleri bir kez koşar, HTML, lcov ve
+  özet aynı profilden çıkar.
+- `codecov.yml`: proje ve yama durumları yalnız bilgi amaçlı, PR yorumu
+  kapalı, hiçbir üretim dosyası hariç tutulmaz.
+- README'de Codecov rozeti (sayı elle yazılmaz).
+- Araçlı kapsam ölçüldü, eklenmedi: OSS CAD Suite + `VOLT_REQUIRE_TOOLS`
+  ile satır kapsamı %90,56 → %91,30, ama kapsam adımı 1 dk 04 sn →
+  4 dk 12 sn (+2 dk bütçesinin üstünde).
+
 ### Düzeltildi — üretilen ad çarpışmaları; `let x = sync(...)` (2026-09-27, ADR-0090)
 
 - Volt'un kurduğu SV adı (örnek çıkışı `<örnek>_<port>`, yerleşik

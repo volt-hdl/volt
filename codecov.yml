@@ -1,6 +1,6 @@
 # Codecov configuration. Coverage is informational: nothing here may block
 # a PR, and nothing is excluded from the production code (no `ignore:`
-# list; tests/ and examples/ are not Rust sources in the lcov report).
+# list; test code is already left out by cargo-llvm-cov's defaults).
 codecov:
   require_ci_to_pass: false
 
