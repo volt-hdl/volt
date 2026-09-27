@@ -387,3 +387,53 @@ fn uint_n_and_sint_n_ports_have_constant_widths() {
     assert_has(&out, "input  logic signed [11:0] a");
     assert_has(&out, "output logic [23:0]        y");
 }
+
+// ═══ Sabit katlayıcıda if/karşılaştırma/bit işlemleri (ADR-0083 Aşama 3) ═══
+
+#[test]
+fn const_if_expression_folds_to_literal() {
+    // ADR-0083 Gelecek iş 6: katlayıcı `if`'i bilmiyordu, çıktıda
+    // tanımsız `N` kalıyordu.
+    let out = sv("const N : u32 = if true { 20 } else { 3 }\n\
+                  module M {\n    out z : u32\n    z = N\n}\n");
+    assert_has(&out, "assign z = 32'd20;");
+    assert!(!out.contains("= N;"), "tanımsız ad kalmamalı:\n{out}");
+}
+
+#[test]
+fn const_condition_forms_fold() {
+    let out = sv("const W : u32 = 8\n\
+                  const F : bool = W > 4 && !(W == 6)\n\
+                  const Q : u8 = if !F { 1 } else if F -> (W >= 9) { 2 } else { 3 }\n\
+                  const K : u32 = match W { 8 => 7, _ => 0 }\n\
+                  module M {\n    in a : bits<W>\n    out f : bool\n    out q : u8\n    out k : u32\n    out y : bits<W>\n\
+                  f = F\n    q = Q\n    k = K\n    y = a\n}\n");
+    assert_has(&out, "assign f = 1'd1;");
+    assert_has(&out, "assign q = 8'd3;");
+    assert_has(&out, "assign k = 32'd7;");
+}
+
+#[test]
+fn const_bitwise_and_shift_fold() {
+    let out = sv("const S : u32 = ((1 << 4) | 3) ^ (12 & 5) >> 2\n\
+                  module M {\n    out z : u32\n    z = S\n}\n");
+    // (16 | 3) ^ ((12 & 5) >> 2) = 19 ^ 1 = 18
+    assert_has(&out, "assign z = 32'd18;");
+}
+
+#[test]
+fn enum_value_with_shift_keeps_declared_width() {
+    // Önce `1 << 3` katlanamıyordu: düzen hesaplanamayınca enum portu
+    // 1 bit iniyordu (sessizce yanlış genişlik).
+    let out = sv("enum S : u4 { A = 2, B = 1 << 3 }\n\
+                  module M {\n    in a : S\n    out y : S\n    y = a\n}\n");
+    assert_has(&out, "input  logic [3:0] a");
+    assert_has(&out, "output logic [3:0] y");
+}
+
+#[test]
+fn unfoldable_const_is_explicit_e0003() {
+    // Katlayıcının bilmediği biçim (cast) sessizce tanımsız ad bırakmaz.
+    let c = codes("const S : u32 = 5 as u32\nmodule M {\n    out z : u32\n    z = S\n}\n");
+    assert_eq!(c, vec!["E0003"]);
+}

@@ -260,8 +260,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0081: 112-117 fn (basit, iç içe, struct/enum, on, comb + for,
     //           kontrat), 118 let genişliği + üretilen ad tekilleştirme,
     // ADR-0083: 119-123 match ifadesi (modül, blok, fn, tip itme + struct,
-    //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası).
-    assert_eq!(checked, 112);
+    //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
+    //           127 const'ta if/match ifadesi (Aşama 3).
+    assert_eq!(checked, 113);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

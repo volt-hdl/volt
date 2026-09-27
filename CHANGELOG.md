@@ -5,6 +5,40 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — riscv_core ALU ve dallanma fn + match ile; const'ta if katlanır (2026-09-27, ADR-0083 Aşama 3)
+
+- **`examples/riscv_alu.volt`** (yeni kütüphane dosyası): `alu_of` (RV32I
+  OP/OP-IMM sonucu) ve `branch_taken` (dallanma koşulu), ikisi de `funct3`
+  üzerinde `match` ifadesi. `riscv_core` ALU'yu ve dallanmayı bunlarla
+  hesaplar (ADR-0081'de ertelenen taşıma); aynı biçimdeki `sh_ok`,
+  `csr_rdata`, `csr_wdata` ve `load_val` de `match` oldu. `riscv_pipeline`'da
+  `alu_op` `match`; ortak fn'ler orada kullanılmadı (pipeline ALU'su alt
+  küme, dallanması yalnız BEQ/BNE — donanım değişirdi).
+- **Kanıt:** üretilen `RiscvCore.sv` bayt-aynı değil (altı blok üçlü
+  zincirden `always_comb` + `case`'e iner). Eşdeğerlik iki yoldan: blok
+  başına Yosys `equiv` (6/6 blok, blok dışı 244 satır birebir, 6/6 kasıtlı
+  hata yakalandı) ve tam çekirdek ABC `dprove` ("Networks are equivalent",
+  3012 latch, 32 sn; kasıtlı hata `bmc3` ile 2. çerçevede). ADR-0081'in
+  `equiv_simple` akışı tam çekirdekte ALU bitinde ~24 dk ilerlemedi (ölçüm
+  ADR'de). `riscv_pipeline` Yosys `equiv` 2103/2103. `volt test` 59/59
+  (riscv_core) ve diğer 8 örnek, `volt verify` önce ↔ sonra aynı, Verilator
+  `-Wall` temiz. Yosys `stat`: FF/CARRY/DSP aynı, LUT'lar az farklı (iCE40
+  `SB_LUT4` 7408 → 7370, xc7 LUT1-6 3169 → 3096; `case` → `$pmux` ile
+  üçlü → `$mux` zinciri farklı eşleniyor).
+- **Düzeltildi — `const` başlangıcında `if`:** `const N : u32 = if … { 20 }
+  else { 3 }` SV'de tanımsız `N` bırakıyordu (ADR-0083 Gelecek iş 6). SV
+  üreticisinin sabit katlayıcısı artık `if`, karşılaştırmalar,
+  `&&`/`||`/`->`/`!`, `%`, bit işlemleri ve kaydırmaları hesaplar;
+  yine de katlanamayan skaler `const` (ör. cast) tanımsız ad yerine
+  **E0003** alır (`check` de görür). Aynı düzeltmeyle `enum S : u4 { …,
+  B = 1 << 3 }` portlarının tanısız 1 bit inmesi de kapandı.
+  `tests/ui/pass/127_const_if_match.volt` çıktı ağında (Verilator + Yosys).
+  Bu yapıları kullanmayan 1994 dosyanın çıktısı bayt-aynı.
+- README: özellik listesinde `match` ifadesi; "Limitations"ta fn (`match`
+  artık fn'de iner, kütüphane dosyası SV yazmaz) ve `match`/`const`
+  sınırları güncellendi. `volt explain E0003` (iki dil) katlanamayan
+  sabiti anlatır.
+
 ### Eklendi — `match` ifadesi ve blok içi `let` (2026-09-27, ADR-0083 Aşama 2)
 
 - **`match` ifadesi donanıma iner** — modül `let`'i/ataması, `on`/`comb`

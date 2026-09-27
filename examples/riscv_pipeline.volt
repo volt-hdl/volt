@@ -126,11 +126,12 @@ pipeline(5) RiscvPipeline {
             } else { rs2_v }
 
         let alu_b = if use_imm { imm } else { fwd_b }
-        let alu_op =
-            if f3 == 0 { if alt { fwd_a - alu_b } else { fwd_a + alu_b }
-            } else if f3 == 4 { fwd_a ^ alu_b
-            } else if f3 == 6 { fwd_a | alu_b
-            } else { fwd_a & alu_b }
+        let alu_op = match f3 {
+            0 => if alt { fwd_a - alu_b } else { fwd_a + alu_b },
+            4 => fwd_a ^ alu_b,
+            6 => fwd_a | alu_b,
+            _ => fwd_a & alu_b
+        }
 
         // LW/SW carry f3 == 2 — the effective address bypasses the mux.
         let alu : u32 = if is_load || is_store { fwd_a + imm
