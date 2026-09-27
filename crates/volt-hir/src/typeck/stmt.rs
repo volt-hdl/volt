@@ -6,7 +6,8 @@ use volt_ast::{
     Block, BlockStmt, ElseBranch, Expr, ExprKind, ExternDecl, ForStmt, Idx, IfStmt, LValue,
     LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, PortDir, RegDecl, Stmt, StmtKind,
 };
-use volt_diagnostics::{lstr, ErrorCode};
+use volt_diagnostics::{lstr, Applicability, ErrorCode, Suggestion};
+use volt_span::Span;
 
 use super::TypeChecker;
 use crate::drivers::{Coverage, DriverKind};
@@ -131,6 +132,15 @@ impl TypeChecker<'_, '_> {
                         // yazmadığı ad sızardı (ADR-0070 §3.3).
                         lstr!(en: "write the type explicitly after the name, e.g. let x : i32 = ..."; tr: "tipi adın ardına açıkça yazın, ör. let x : i32 = ..."),
                     );
+                    // ADR-0091: varsayılan tipi yazmak anlamı korur.
+                    self.suggest_last(Suggestion {
+                        span: Span {
+                            start: l.name.span.end,
+                            ..l.name.span
+                        },
+                        replacement: " : i32".to_string(),
+                        applicability: Applicability::MachineApplicable,
+                    });
                     self.types.intern(Ty::SInt { width: 32 })
                 } else {
                     ty

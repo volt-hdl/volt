@@ -10,7 +10,9 @@ use volt_ast::{
     ResetPolarity, ResetSpec, ResetSync, StructDecl, StructField, TrustLevel, TypeAlias, TypeRef,
     TypeRefKind, UseDecl, UseTree, VariantData, Visibility,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use crate::token::TokenKind::*;
@@ -633,7 +635,14 @@ impl Parser<'_> {
                     .with_secondary(
                         name.span,
                         lstr!(en: "module defined here"; tr: "modül burada tanımlandı"),
-                    ),
+                    )
+                    // ADR-0091: sonlandırıcı yalnız addır — değiştirmek
+                    // anlamı değiştirmez, kesin düzeltme.
+                    .with_suggestion(Suggestion {
+                        span: cname.span,
+                        replacement: name.text.clone(),
+                        applicability: Applicability::MachineApplicable,
+                    }),
                 );
             }
             closing_name = Some(cname);

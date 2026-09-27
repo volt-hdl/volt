@@ -143,7 +143,7 @@ fn every_machine_applicable_fix_removes_its_diagnostic_without_new_ones() {
     fixed_codes.sort();
     assert_eq!(
         fixed_codes,
-        ["E0006", "E0007"],
+        ["E0004", "E0006", "E0007", "E4008", "W0010", "W2012"],
         "ADR-0091 kesin düzeltme listesi"
     );
 }

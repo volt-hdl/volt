@@ -35,7 +35,9 @@ use volt_ast::{
     TypeRefKind, UnOp, BIDIR_DRIVE, BIDIR_DRIVE_LOW, BIDIR_DRIVING, BIDIR_READ, BIDIR_RELEASE,
     BIDIR_RELEASED,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
@@ -587,7 +589,13 @@ impl Parser<'_> {
                         lstr!(en: "'{}.read' is a method: write {}.read()", port.text, port.text;
                               tr: "'{}.read' bir yöntemdir: {}.read() yazın", port.text, port.text),
                         lstr!(en: "add the parentheses"; tr: "parantezleri ekleyin"),
-                    ));
+                    )
+                    // ADR-0091: tek anlamlı, kesin düzeltme.
+                    .with_suggestion(Suggestion {
+                        span: Span { start: span.end, ..span },
+                        replacement: "()".to_string(),
+                        applicability: Applicability::MachineApplicable,
+                    }));
                 }
                 _ => self
                     .diagnostics
