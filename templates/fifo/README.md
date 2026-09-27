@@ -1,8 +1,8 @@
 # {{name}}
 
 A Volt project created with `volt new --template fifo`: a packet buffer
-on the built-in `SyncFifo`. A `struct Packet` is packed into the FIFO
-with `as u12` and unpacked with `as Packet`; a sticky `overflow` flag
+on the built-in `SyncFifo`. The FIFO stores whole `struct Packet`
+values (one 12-bit word each in hardware); a sticky `overflow` flag
 records a push into a full buffer.
 
 ```
@@ -16,7 +16,7 @@ volt verify packet_buffer.volt    # prove the contracts (needs SymbiYosys)
 
 | File | What |
 |---|---|
-| `packet_buffer.volt` | `struct`, `SyncFifo<u12, 8>`, an `invariant`, `cover`s |
+| `packet_buffer.volt` | `struct`, `SyncFifo<Packet, 8>`, an `invariant`, `cover`s |
 | `packet_buffer_test.volt` | simulation tests with whole-struct values |
 | `Volt.toml` | package manifest |
 

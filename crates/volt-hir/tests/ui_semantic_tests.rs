@@ -262,7 +262,7 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0083: 119-123 match ifadesi (modül, blok, fn, tip itme + struct,
     //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
     //           127 const'ta if/match ifadesi (Aşama 3).
-    assert_eq!(checked, 114);
+    assert_eq!(checked, 115);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -505,7 +505,12 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "  let f = SyncFifo<u8, 16> { clk: clk, ... }\n\
                      \x20 ... f.rd_data ...\n\n\
                      Wrong generic arguments produce E2003 with the expected shape; \
-                     DEPTH must be a power of two where noted.",
+                     DEPTH must be a power of two where noted.\n\n\
+                     T may be a number, bool, enum or struct (ADR-0087): a struct is \
+                     stored as one packed word (first field in the high bits), so a \
+                     memory still maps to block RAM. Ram, DualPortRam and \
+                     AsyncDualPortRam reject a T with an enum or Trit field (E2009): a \
+                     never-written address would read back raw bits.",
                 ),
             ],
             more: &["https://volthdl.org/guide/stdlib"],
@@ -538,7 +543,12 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "  let f = SyncFifo<u8, 16> { clk: clk, ... }\n\
                      \x20 ... f.rd_data ...\n\n\
                      Yanlış generic argüman, beklenen kalıbı gösteren E2003 üretir; \
-                     belirtilen yerlerde DEPTH iki kuvveti olmalıdır.",
+                     belirtilen yerlerde DEPTH iki kuvveti olmalıdır.\n\n\
+                     T sayı, bool, enum ya da struct olabilir (ADR-0087): struct tek \
+                     paketlenmiş sözcük olarak saklanır (ilk alan yüksek bitlerde), \
+                     bellek yine blok RAM'e iner. Ram, DualPortRam ve AsyncDualPortRam \
+                     enum ya da Trit alanlı T'yi reddeder (E2009): hiç yazılmamış adres \
+                     ham bit döndürürdü.",
                 ),
             ],
             more: &["https://volthdl.org/guide/stdlib"],

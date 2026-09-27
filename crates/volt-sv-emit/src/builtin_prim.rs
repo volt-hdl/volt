@@ -26,8 +26,12 @@ use crate::{zero_of, ClockPort, Emitter};
 #[derive(Debug, Clone)]
 pub(crate) struct BuiltinInst {
     pub(crate) prim: BuiltinPrim,
-    /// `T`'nin genişlik/işaret bilgisi (veri portu olmayanlarda 1 bit).
+    /// `T`'nin genişlik/işaret bilgisi (veri portu olmayanlarda 1 bit);
+    /// struct `T` paketlenmiş genişliğiyle (ADR-0087).
     pub(crate) data: Sig,
+    /// Veri register'larının reset/başlangıç değeri: `T`'nin varsayılan
+    /// kodlaması (enum yaprağı ilk varyant, ADR-0087), sıfırsa `zero_of`.
+    reset: String,
     /// Sabit generic argüman: DEPTH/WIDTH/LEN/N (yoksa 0).
     pub(crate) dim: u64,
     /// Yazma/kaynak alanının saat portu.
@@ -85,12 +89,22 @@ impl<'a> Emitter<'a> {
     ) -> Option<BuiltinInst> {
         let ast = self.ast;
 
-        // T — ilk generic argüman (veri portlu primitifler).
+        // T — ilk generic argüman (veri portlu primitifler). Struct T
+        // paketlenmiş vektördür (ADR-0087; paketleme `structs`'ta).
+        let mut reset = None;
         let data = if prim.type_arg_count() == 1 {
             match inst.generic_args.first() {
                 Some(GenericArg::Type(t)) => {
                     let t = *t;
-                    self.sig_of_typeref(t, span)?
+                    let sig = match crate::builtin_data::struct_width(ast, t) {
+                        Some(w) => Sig {
+                            width: w?,
+                            signed: false,
+                        },
+                        None => self.sig_of_typeref(t, span)?,
+                    };
+                    reset = crate::builtin_data::default_literal(ast, t, sig.width);
+                    sig
                 }
                 _ => {
                     self.future(
@@ -251,6 +265,7 @@ impl<'a> Emitter<'a> {
         Some(BuiltinInst {
             prim,
             data,
+            reset: reset.unwrap_or_else(|| zero_of(data)),
             dim,
             src_clock,
             dst_clock,
@@ -316,7 +331,7 @@ impl<'a> Emitter<'a> {
         let wr_data = self.builtin_input(info, "wr_data", info.data);
         let src = info.src_clock.clone();
         let dst = info.dst_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
 
         let mut out = format!(
             "    // AsyncFifo '{i}': {} -> {}, depth {depth} (gray-code pointers)\n",
@@ -422,7 +437,7 @@ impl<'a> Emitter<'a> {
         let data_in = self.builtin_input(info, "data_in", info.data);
         let src = info.src_clock.clone();
         let dst = info.dst_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
 
         let mut out = format!(
             "    // HandshakeSync '{i}': {} -> {} (4-phase req/ack, data held in source domain)\n",
@@ -547,7 +562,7 @@ impl<'a> Emitter<'a> {
         let rd_en = self.builtin_input(info, "rd_en", one_bit);
         let wr_data = self.builtin_input(info, "wr_data", info.data);
         let clk = info.src_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
         let idx_hi = aw - 1;
 
         let mut out = format!(
@@ -620,7 +635,7 @@ impl<'a> Emitter<'a> {
         let wr_en = self.builtin_input(info, "wr_en", one_bit);
         let wr_data = self.builtin_input(info, "wr_data", info.data);
         let clk = info.src_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
 
         let mut out = format!(
             "    // Ram '{i}': single-port synchronous RAM on {}, depth {depth} (read-first)\n",
@@ -664,7 +679,7 @@ impl<'a> Emitter<'a> {
         let b_wr_en = self.builtin_input(info, "b_wr_en", one_bit);
         let b_wr_data = self.builtin_input(info, "b_wr_data", info.data);
         let clk = info.src_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
 
         let mut out = format!(
             "    // DualPortRam '{i}': two independent ports on {}, depth {depth} \
@@ -717,7 +732,7 @@ impl<'a> Emitter<'a> {
         let rd_addr = self.builtin_input(info, "rd_addr", addr_sig);
         let src = info.src_clock.clone();
         let dst = info.dst_clock.clone();
-        let zero = zero_of(info.data);
+        let zero = info.reset.clone();
 
         let mut out = format!(
             "    // AsyncDualPortRam '{i}': write on {}, read on {}, depth {depth} \
@@ -827,7 +842,12 @@ impl<'a> Emitter<'a> {
             ),
             "end".to_string(),
         ];
-        let reset = vec![format!("{i}_shift <= {tw}'d0;")];
+        // Her aşama T'nin varsayılanıyla (ADR-0087); sıfırsa eski biçim.
+        let reset = if info.reset == zero_of(info.data) {
+            vec![format!("{i}_shift <= {tw}'d0;")]
+        } else {
+            vec![format!("{i}_shift <= {{{len}{{{}}}}};", info.reset)]
+        };
         out.push_str(&builtin_always_ff(&clk, &reset, &body));
         out.push_str("\n\n");
 
@@ -1470,7 +1490,7 @@ fn silence_decl(chunk: &str, wire: &str) -> Option<String> {
 /// register'ları (bellek dizisi hariç — kontratlar ona bakmaz) ve
 /// yalnız-formal gözlemci register'ları reset değerlerine çekilir.
 fn builtin_init_lines(i: &str, info: &BuiltinInst) -> Vec<String> {
-    let zero = zero_of(info.data);
+    let zero = info.reset.clone();
     match info.prim {
         BuiltinPrim::AsyncFifo => {
             let pw = info.dim.trailing_zeros() + 1;

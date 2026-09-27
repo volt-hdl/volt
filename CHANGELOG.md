@@ -5,6 +5,27 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — yerleşik primitiflerde struct öğe tipi (2026-09-27, ADR-0087)
+
+- `SyncFifo<Packet, 8>`, `AsyncFifo`, `Ram`, `DualPortRam`,
+  `AsyncDualPortRam`, `ShiftRegister`, `HandshakeSync` artık struct `T`
+  alır (önce E0003 "a whole struct value in this position"): veri girişi
+  bütün struct, veri çıkışı bütün struct. Bellekte ADR-0077 Karar 3
+  düzeniyle TEK paketlenmiş sözcük (ilk alan MSB) — alan başına bellek
+  değil; Yosys `synth_xilinx`/`synth_ice40` `Packet` ile `u12` için hücre
+  hücre aynı (xc7 1×RAMB18E1, iCE40 3×SB_RAM40_4K), BRAM korunur.
+- Veri register'ları `T`'nin **varsayılan kodlamasıyla** reset'lenir: enum
+  yaprağı ilk varyantın kodu (önce hep 0 — ilk kodu 0 olmayan enum'da
+  reset'te geçersiz değer). FIFO ailesinin çıkışı böylece hep geçerli bir
+  `T`'dir; RAM ailesinde enum ya da `Trit` yapraklı `T` **E2009** (hiç
+  yazılmamış adres ham bit döndürür — ADR-0077 `raw as P` yasağının
+  gerekçesi; önce enum `T` sessizce kabul ediliyordu).
+- `ShiftRegister<Struct, LEN>.taps` genişliği paketli (`LEN × W`; önce
+  struct'ta yanlış 1 bit sayılıyordu).
+- `fifo` şablonu elle paketlemeden kurtuldu (`SyncFifo<Packet, 8>`);
+  üretilen SV `as u12`/`as Packet` sürümüyle bayt aynı. ADR-0084 §5
+  bulgu 1 kapandı.
+
 ### Değişti — desendeki ad bir değerdir (2026-09-27, ADR-0085)
 
 - `match` kolunda çıplak ad artık **sabittir**: `const LIMIT` ya da

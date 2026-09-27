@@ -353,7 +353,7 @@ match x {
         E2009 => Explanation::new(
             "Invalid cast",
             "'as' cannot convert between these two types.",
-            "Casts are only defined between numeric/bit types of matching structure (u/i/bits). Converting a bool or a clock into a number, or vice versa, has no single obvious meaning — express the intent with an explicit expression instead.",
+            "Casts are only defined between numeric/bit types of matching structure (u/i/bits). Converting a bool or a clock into a number, or vice versa, has no single obvious meaning — express the intent with an explicit expression instead.\n\nRaw bits never become an enum (or a struct with an enum or Trit field) implicitly: the bits may hold a code that is no variant. The same rule covers memories: Ram, DualPortRam and AsyncDualPortRam reject such a T, because a never-written address reads back raw bits (ADR-0087); store the bits (Ram<u8, ...>) and decode the field explicitly.",
             "in  ck : clock\ny = ck as u1            // ✗ E2009: clocks are not data",
             "y = if flag { 1 } else { 0 }    // ✓ (bool → number, explicit)",
         ),

@@ -24,6 +24,7 @@
 //! (`StructNotes`): grup başındaki düzen yorumu ve modülün hiç okumadığı
 //! yaprakların lint susturması (kural 2, 13).
 
+mod prim;
 mod value;
 
 /// Genişlik sabiti (takma ad ve E0003 metni için).
@@ -237,8 +238,12 @@ impl Lowerer {
         let module = m.clone();
         self.module = module.name.text.clone();
         self.env = ModEnv::default();
+        // ADR-0087: struct öğeli primitif örnekleri paketlenmiş vektör;
+        // giriş `as uint<W>`, çıkış `as P` — aşağıdaki kurallar indirger.
+        let packed_prims = prim::pack_struct_prims(&mut self.ast, &module);
         self.build_env(&module);
-        let uses_structs = !self.env.sigs.is_empty()
+        let uses_structs = packed_prims
+            || !self.env.sigs.is_empty()
             || self.touches_struct_ports(&module)
             || self.mentions_struct_values(&module);
         if !uses_structs {
