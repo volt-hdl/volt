@@ -1,6 +1,7 @@
 # ADR-0067: Özyineli Bundle Tespiti ve Düzleştirme Bütçesi
 
-> Statü: KABUL EDİLDİ
+> Statü: Kısmen yerini aldı: ADR-0068 — §4 "tanı sayısına üst sınır eklenmedi" kararı
+> İlgili: ADR-0069 (E4009 kapsamı genişledi).
 > Tarih: 2026-09-23
 > Etkilenen: volt-syntax (`parser/bundle.rs` — `find_cycles`, `MAX_FLAT_PORTS`,
 > `Overflow`, `Flat::budget`, E4009/E4010 üretimi; `parser/handshake.rs` —

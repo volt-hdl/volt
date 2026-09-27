@@ -1,6 +1,7 @@
 # ADR-0032: Sıralı/Kombinasyonel Blokta `match` ve E0014
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0074 (enum kapsayıcılığı), ADR-0083 (`match` ifadesi).
 > Tarih: 2026-09-09
 > Etkilenen: grammar-full.ebnf §11/§18, volt-syntax (parser),
 > volt-sv-emit (case üretimi), E0014

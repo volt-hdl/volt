@@ -1,6 +1,7 @@
 # ADR-0091: LSP — Inlay İpuçları, Quick Fix ve Protokol Testleri
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0070 (tanı paritesi: LSP = check), ADR-0037 (Delayed / gecikme), ADR-0068 (katlama), ADR-0088 (bildirimde alan açıklaması), cli-contract.md §5 (JSON `suggestions`).
 > Tarih: 2026-09-27
 > Etkilenen: volt-lsp (`inlay.rs`, `code_action.rs` — YENİ; `lib.rs`
 > inlayHint/codeAction/didChangeConfiguration işleyicileri, `service()`,
@@ -11,9 +12,6 @@
 > (E0004, W0010, E4008 önerileri), volt-driver testleri
 > (`quickfix_tests.rs` YENİ, `lsp_protocol_tests.rs` kapanış + yeni
 > testler), tests/quickfix (YENİ), editors/vscode (ayarlar)
-> İlgili: ADR-0070 (tanı paritesi: LSP = check), ADR-0037 (Delayed /
-> gecikme), ADR-0068 (katlama), ADR-0088 (bildirimde alan açıklaması),
-> cli-contract.md §5 (JSON `suggestions`)
 
 ## Sorun
 

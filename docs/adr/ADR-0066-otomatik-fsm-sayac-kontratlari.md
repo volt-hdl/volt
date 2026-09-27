@@ -1,6 +1,6 @@
 # ADR-0066: Otomatik FSM ve Sayaç Kontratları
 
-> Statü: KABUL EDİLDİ
+> Statü: Kısmen yerini aldı: ADR-0074, ADR-0086 — sayısal FSM'de erişilemez `_` kolu cover'ı (ADR-0074) ve cover kipinde otomatik cover E5001 kuralı (ADR-0086)
 > Tarih: 2026-09-23
 > Etkilenen: volt-syntax (`parser/auto_contract/` YENİ — scan, fsm,
 > counter, gen, print; `item.rs` desugar zinciri + `KNOWN_ATTRIBUTES`;

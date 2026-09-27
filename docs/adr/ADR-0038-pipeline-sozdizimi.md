@@ -1,6 +1,6 @@
 # ADR-0038: Pipeline Sözdizimi — `pipeline`, `stage`, `stall`, `flush`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-10
 > Etkilenen: grammar-full.ebnf §1/§4a/§17 (PipelineDecl, StageDecl,
 > StallStmt, FlushStmt, StageRef), volt-syntax (keyword terfisi, parser,

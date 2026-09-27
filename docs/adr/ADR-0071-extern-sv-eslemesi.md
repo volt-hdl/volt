@@ -1,6 +1,7 @@
 # ADR-0071: `extern module` Örneklemesinin SV Eşlemesi ve ui/pass Build Denetimi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0076 (§"Sınırlar" kapandı).
 > Tarih: 2026-09-24
 > Etkilenen: volt-sv-emit (`instance.rs` — `InstTarget` (modül | extern),
 > `inst_target_named`, `extern_conns`; `alias.rs` — generic extern E0003

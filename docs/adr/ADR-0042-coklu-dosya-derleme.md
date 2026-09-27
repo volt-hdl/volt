@@ -1,6 +1,7 @@
 # ADR-0042: Çoklu Dosya Derleme ve Import Sistemi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0061 (Volt.toml arama tavanı), ADR-0081 (çıktı kümesi eki), ADR-0089 (proje kökünden test keşfi).
 > Tarih: 2026-09-13
 > Etkilenen: name-resolution.md §3.2/§10, cli-contract.md §5, ADR-0024,
 > volt-syntax, volt-ast, volt-hir, volt-sv-emit, volt-driver

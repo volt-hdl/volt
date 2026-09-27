@@ -1,6 +1,8 @@
 # ADR-0065: RDC Denetimi ve Hedefli SDC Kısıtları — İki Güvenlik Ağı, İki Ayrı Yırtık
 
-> Statü: KABUL EDİLDİ (tasarım; uygulama Aşama 2–5 ayrı PR'lar — bu ADR'de kod YOK)
+> Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2–5 (uygulama, ayrı PR'lar); notlar sonda
+> Önceki karar: ADR-0054 — §2 ve §6
+> İlgili: ADR-0072 (§5.3 ölü zincir kapandı).
 > Tarih: 2026-09-22
 > Etkilenen (plan): volt-hir (`domain/rdc.rs` YENİ; `domain/instance.rs`
 > minimum), volt-diagnostics (E3003 etkin, W3xxx-A, W3xxx-B YENİ —

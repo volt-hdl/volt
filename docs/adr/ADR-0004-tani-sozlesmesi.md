@@ -1,6 +1,6 @@
 # ADR-0004: Tanı Sözleşmesi — Hata Kodu Formatı, 5 Parçalı Mesaj, Tanı Dili
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
 > Tarih: 2026-09-03 (kod formatı + 5 parça); 2026-09-07 (İngilizce varsayılan, commit 1dc21b6)
 > Etkilenen: volt-diagnostics (code.rs, diagnostic.rs, emit.rs, messages/),
 > cli-contract.md §3/§5/§17, GLOSSARY.md §7, scripts/check-consistency

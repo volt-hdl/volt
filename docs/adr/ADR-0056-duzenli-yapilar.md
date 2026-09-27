@@ -1,6 +1,6 @@
 # ADR-0056: Düzenli Yapılar — `for` İçinde Örnekleme, Bundle Dizileri, Paketlenmiş Dizi Portları
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-17
 > Etkilenen: volt-ast (`SourceFile::generate`: `GenerateInfo`,
 > `GenerateIter`, `block_generic_args`), volt-syntax (`parser/mono/unroll.rs`

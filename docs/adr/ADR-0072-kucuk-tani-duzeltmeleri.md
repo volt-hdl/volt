@@ -1,6 +1,7 @@
 # ADR-0072: Küçük Tanı Düzeltmeleri — Kaynak Adı, E4011, Yerleşik Argüman Sayısı, Ölü Reset Zinciri
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0075 (§"Sınırlar" kapandı), ADR-0076 (§"Sınırlar" kapandı).
 > Tarih: 2026-09-24
 > Etkilenen: volt-ast (`GenerateInfo::source_names`/`source_name`;
 > `reset_chain.rs` — YENİ: `chain_consumed`, `syncs_to`), volt-syntax

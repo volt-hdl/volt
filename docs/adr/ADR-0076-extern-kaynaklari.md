@@ -1,6 +1,6 @@
 # ADR-0076: extern Modül Kaynakları — `@source`, Extern İçi CDC ve Flop'suz Modülün Reset Portu
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-24
 > Etkilenen: volt-hir (`extern_source.rs` — YENİ: `@source` biçim, dosya
 > ve kullanım denetimi, `resolve_in_project`, `FsSourceLocator`;

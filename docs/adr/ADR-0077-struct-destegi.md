@@ -1,7 +1,7 @@
 # ADR-0077: Struct Desteği — Düz Struct Değerleri Donanıma İner
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım) ve Aşama 2 (uygulama, notlar sonda); Aşama 3
-> (örnekler + kanıt) ayrı PR
+> Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler, PR #36); notlar sonda
+> İlgili: ADR-0087 (primitif öğe tipi).
 > Tarih: 2026-09-24
 > Etkilenen (plan): volt-ast (ortak struct düzeni `struct_layout`,
 > `enum_layout`'un yanında), volt-syntax (bildirimde alan domain

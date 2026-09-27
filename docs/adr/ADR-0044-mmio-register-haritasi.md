@@ -1,6 +1,7 @@
 # ADR-0044: `@mmio` Register Haritası — Bellek Eşlemeli Register Blokları
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0053 (HW-SW köprüsü), ADR-0063 (regmap tutarlılığı).
 > Tarih: 2026-09-13
 > Etkilenen: grammar-full.ebnf §2/§4/§18, sv-mapping.md §17,
 > volt-ast (ModuleDecl.mmio_regs, MmioRegDecl, MmioFieldDecl),

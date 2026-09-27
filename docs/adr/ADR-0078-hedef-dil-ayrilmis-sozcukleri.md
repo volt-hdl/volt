@@ -1,6 +1,7 @@
 # ADR-0078: Hedef Dillerin Ayrılmış Sözcükleri — SV Anahtar Sözcüğü Ad Olamaz
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0028 (Volt'un kendi ayrılmış sözcükleri), ADR-0053 (HW-SW köprüsü), ADR-0065 (SDC hücre adları), ADR-0070 (tanı paritesi), ADR-0077 (struct yaprak adları; yan bulgu buradan), ADR-0079 (çıktı doğrulama ağı), ADR-0090 (üretilen ad çarpışmaları).
 > Tarih: 2026-09-25
 > Etkilenen: volt-ast (`reserved.rs` — YENİ: SV/Rust/C/C++/Verilator
 > sözcük tabloları), volt-sv-emit (`sv_names.rs` — YENİ: E1013 kesin
@@ -12,9 +13,6 @@
 > volt-diagnostics (E1013, E8513), tests/ui (pass 108–109, fail 122–137;
 > pass/10 ve fail/54, fail/115 adları), tests/fixtures/parity (kw01–kw05),
 > CI (`integration` işine gerçek Verilator adımı)
-> İlgili: ADR-0028 (Volt'un kendi ayrılmış sözcükleri), ADR-0053 (HW-SW
-> köprüsü), ADR-0065 (SDC hücre adları), ADR-0070 (tanı paritesi),
-> ADR-0077 (struct yaprak adları; yan bulgu buradan)
 
 ## Sorun
 

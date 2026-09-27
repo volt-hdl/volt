@@ -1,6 +1,7 @@
 # ADR-0090: Üretilen Ad Çarpışmaları ve `let x = sync(...)`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0070 (tanı paritesi), ADR-0078 (ad değiştirmeme ilkesi), ADR-0065/ADR-0054 (SDC hücre adları), ADR-0084 §5 bulgu 4, ADR-0079 (çıktı doğrulama ağı).
 > Tarih: 2026-09-27
 > Etkilenen: volt-sv-emit (`sv_collisions.rs` — YENİ: modül metninde
 > çift bildirim denetimi + köken iletisi + yardımcı ad seçimi; `lib.rs`
@@ -11,9 +12,6 @@
 > volt-diagnostics (E1003 açıklaması iki dilde), tests/ui (pass 131,
 > fail 189–197), tests/fixtures/parity (gn01–gn14, p24 artık `ok`),
 > volt-sv-emit/volt-driver testleri
-> İlgili: ADR-0070 (tanı paritesi), ADR-0078 (ad değiştirmeme ilkesi),
-> ADR-0065/ADR-0054 (SDC hücre adları), ADR-0084 §5 bulgu 4, ADR-0079
-> (çıktı doğrulama ağı)
 
 ## Sorun
 

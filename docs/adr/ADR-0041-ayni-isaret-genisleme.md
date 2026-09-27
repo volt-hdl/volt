@@ -1,6 +1,7 @@
 # ADR-0041: Aritmetik Ergonomisi — Aynı-İşaret Genişleme, Const Diziler, Generic Örnekleme
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0056 (`for` açılımı parser'da), ADR-0069 (generic struct port reddi), ADR-0083 (check kipi).
 > Tarih: 2026-09-13
 > Etkilenen: type-inference.md §5, const-eval.md §8, sv-mapping.md §2/§5/§9/§16,
 > grammar-full.ebnf (PrimitiveType), ast-nodes.md (TypeRefKind),

@@ -1,6 +1,7 @@
 # ADR-0075: Yanıltıcı Raporlar ve Tanı Kalitesi — verify Durumları, Tek Kod Tek Bulgu, Kapı Arkasında E0014
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> Önceki karar: ADR-0018 — W4001/W4002 sürülen-ama-okunmayan uyarıları
 > Tarih: 2026-09-24
 > Etkilenen: volt-driver (`verify.rs`, `verify_report.rs`, `main.rs` —
 > sby durumları, E5002, `--timeout`, çıkış kodları 7/8), volt-sv-emit

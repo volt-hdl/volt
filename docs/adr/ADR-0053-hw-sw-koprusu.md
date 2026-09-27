@@ -1,6 +1,7 @@
 # ADR-0053: HW-SW Köprüsü — `@mmio` Haritasından Sürücü, Başlık, `regmap.json` ve Belge Üretimi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0063 (regmap tutarlılığı), ADR-0079 (E1014 sürücü ad çarpışması).
 > Tarih: 2026-09-15
 > Etkilenen: volt-ast (`mmio.rs` YENİ: `RegMap`/`RegDesc`/`FieldDesc`;
 > `MmioFieldDecl.doc`), volt-syntax (item.rs alan doc yorumu; mmio.rs

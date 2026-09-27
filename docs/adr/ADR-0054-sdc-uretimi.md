@@ -1,6 +1,7 @@
 # ADR-0054: SDC/XDC Üretimi — `@timing` Uygulanıyor, Zamanlama Kısıtları Domain Bilgisinden Türetiliyor
 
-> Statü: KABUL EDİLDİ (ADR-0048 Bölüm 2'yi gerçekler ve günceller; §2 `set_clock_groups -asynchronous` ve §6 `-datapath_only` kararları ADR-0065 ile GÜNCELLENDİ — hedefli kısıtlar varsayılan, eski davranış `--sdc-style=clock-groups`)
+> Statü: Kısmen yerini aldı: ADR-0065 — §2 `set_clock_groups -asynchronous` ve §6 `-datapath_only` kararları; eski davranış `--sdc-style=clock-groups`
+> Önceki karar: ADR-0048 — Bölüm 2 (SDC üretim planı)
 > Tarih: 2026-09-16
 > Etkilenen: volt-hir (`constraints/` YENİ: mod.rs, parse.rs, walk.rs;
 > `attrs.rs` listesi ve W0021 notu; `lib.rs` `analyze`), volt-sdc-emit

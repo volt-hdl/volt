@@ -1,6 +1,7 @@
 # ADR-0055: Paralel Formal Doğrulama — `volt verify -j`, Modül Başına sby Görevi, Kaynak Sıralı Rapor
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0082 (varsayılan formal motoru).
 > Tarih: 2026-09-16
 > Etkilenen: volt-sv-emit (`sby.rs`: `SbyTask`, `sby_config_tasks`;
 > `lib.rs` dışa aktarım), volt-driver (`verify.rs` yeniden düzenlendi;

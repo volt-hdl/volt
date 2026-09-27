@@ -1,6 +1,7 @@
 # ADR-0037: L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0091 (gecikme inlay ipucu).
 > Tarih: 2026-09-10
 > Etkilenen: type-inference.md §12 (yeni bölüm), volt-syntax (parser
 > desugar + `strict_timing` niteliği), volt-ast (`TimingInfo` yan

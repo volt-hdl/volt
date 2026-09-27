@@ -1,6 +1,7 @@
 # ADR-0070: Tanı Tutarlılığı — `check`, LSP ve `build` Aynı Şeyi Söyler
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0072 (§"Sınırlar" 1-3 kapandı), ADR-0091 (LSP = check).
 > Tarih: 2026-09-24
 > Etkilenen: volt-hir (`pipeline.rs` — YENİ: kapılı ortak boru hattı
 > `run_semantic_stages`/`pre_resolve_checks`; `unit_load.rs` — volt-driver'ın

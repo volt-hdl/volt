@@ -1,6 +1,7 @@
 # ADR-0049: Domain-Aware Bellek — `AsyncDualPortRam<T, DEPTH>`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0027 (CDC primitifleri), ADR-0029 (DualPortRam), ADR-0047 (sembolik `@Src`/`@Dst` alanları).
 > Tarih: 2026-09-14
 > Etkilenen: volt-ast (builtin tablosu), volt-hir (domain.rs W3006 çift
 > saatli biçim, W3003 dördüncü alternatif), volt-sv-emit (primitif
@@ -8,8 +9,6 @@
 > açıklamaları, stdlib konu sayfası), volt-lsp (docs.rs),
 > docs/stdlib.md, examples/vga/frame_buffer.volt, tests/ui pass/65 +
 > fail/51
-> Önceki kararlar: ADR-0027 (CDC primitifleri), ADR-0029 (DualPortRam),
-> ADR-0047 (sembolik `@Src`/`@Dst` alanları)
 
 ## Sorun
 

@@ -1,6 +1,6 @@
 # ADR-0085: Desendeki Çıplak Ad Bir Değerdir — Bağlama Deseni Yok
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-27
 > Etkilenen: volt-syntax (`parser/pattern.rs`, `mono/pattern.rs`,
 > `auto_contract/scan.rs`), volt-ast (`PatternKind::Binding` kaldırıldı,

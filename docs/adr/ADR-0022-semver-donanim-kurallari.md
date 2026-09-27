@@ -1,6 +1,6 @@
 # ADR-0022: SemVer Donanım Kuralları — `@version`, `@abi_version`, Anlamsal Diff (Rezerve)
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16) — nitelikler ayrışıyor, denetim V1
+> Statü: Rezerve — geriye dönük belgelendi (2026-09-16); nitelikler ayrışır, denetim V1
 > Tarih: 2026-09-03
 > Etkilenen: grammar-full.ebnf §2 (`@version`, `@abi_version` [F5]), cli-contract.md §17
 > (E7001, E7002), volt-hir/src/attrs.rs (W0021 listesi, ADR-0048)

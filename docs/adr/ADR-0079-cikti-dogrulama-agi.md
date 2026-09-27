@@ -1,6 +1,7 @@
 # ADR-0079: Çıktı Doğrulama Ağı — Her Çıktı Gerçek Tüketicisiyle Denetlenir
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0053 (HW-SW köprüsü), ADR-0063 (regmap tutarlılığı), ADR-0065 (SDC ikinci ağ), ADR-0070 (tanı paritesi), ADR-0071 (ui/pass build), ADR-0072 (örnek çıkışı susturması), ADR-0078 (ayrılmış sözcükler).
 > Tarih: 2026-09-25
 > Etkilenen: volt-driver/tests (`output_net_tests.rs` — YENİ: ağ;
 > `tools/mod.rs` — YENİ: `VOLT_REQUIRE_TOOLS`; `require_tools_tests.rs` —
@@ -13,9 +14,6 @@
 > (`parser/mmio.rs` E1014), volt-diagnostics (E1014), tests/ui (pass 110,
 > ağ işaretli 19 fixture; fail 138–141), CI (`integration`, `verify`,
 > `timing` işleri)
-> İlgili: ADR-0053 (HW-SW köprüsü), ADR-0063 (regmap tutarlılığı),
-> ADR-0065 (SDC ikinci ağ), ADR-0070 (tanı paritesi), ADR-0071 (ui/pass
-> build), ADR-0072 (örnek çıkışı susturması), ADR-0078 (ayrılmış sözcükler)
 
 ## Sorun
 

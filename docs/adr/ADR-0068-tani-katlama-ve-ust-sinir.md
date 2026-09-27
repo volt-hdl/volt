@@ -1,6 +1,8 @@
 # ADR-0068: Açılan Kopyalarda Özdeş Tanı Katlama, Tanı Üst Sınırı ve Açılım Düğüm Bütçesi
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı — §6 eki (2026-09-25) sonda
+> Önceki karar: ADR-0067 — §4 tanı üst sınırı
+> İlgili: ADR-0070 (LSP katlama açığı kapandı), ADR-0072 (üretilmiş ad sızması kapandı), ADR-0080 (§6 yığın taşması bulgusu).
 > Tarih: 2026-09-23
 > Etkilenen: volt-diagnostics (`fold.rs` — `fold_duplicates`, `Identity`;
 > `Diagnostic::folded_ctxs`; W0023 mesaj + `volt explain` iki dilde),

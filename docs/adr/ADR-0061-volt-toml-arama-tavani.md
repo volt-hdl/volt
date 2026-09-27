@@ -1,14 +1,13 @@
 # ADR-0061: Volt.toml Aramasına Tavan
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0042 (Volt.toml kök keşfi), ADR-0048 (`[lint]` politikası), ADR-0058 (test veri kökü — bu ADR onun "bilinen sınır"ını kapatır).
 > Tarih: 2026-09-21
 > Etkilenen: volt-hir (`manifest_search.rs` YENİ — `find_manifest_dir`,
 > `SearchStop`; `attrs.rs` `UnenforcedLint::discover`), volt-driver
 > (`unit.rs` `Manifest::lookup`, E1011 notu; `sim_lower.rs` test veri kökü
 > dolaylı), volt-lsp (dolaylı, `UnenforcedLint::discover` üzerinden).
 > DOKUNULMADI: README.md, examples/, docs/spec/.
-> İlgili: ADR-0042 (Volt.toml kök keşfi), ADR-0048 (`[lint]` politikası),
-> ADR-0058 (test veri kökü — bu ADR onun "bilinen sınır"ını kapatır).
 
 ## Sorun
 

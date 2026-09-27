@@ -1,6 +1,7 @@
 # ADR-0012: SV Çıktı Öngörülebilirlik Garantisi — 1:1 Modül, İsim Korunumu, ECO Uyumu
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0024 (dosya adlandırması), ADR-0042 (modül başına SV), ADR-0054 (SDC hücre adları).
 > Tarih: 2026-09-03
 > Etkilenen: sv-mapping.md §0 İ1/İ2, volt-sv-emit, volt-syntax/src/parser/desugar.rs,
 > ADR-0024, ADR-0038, ADR-0042, ADR-0054

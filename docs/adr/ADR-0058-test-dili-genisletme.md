@@ -1,6 +1,7 @@
 # ADR-0058: Test Dili Genişletme — Yerel Değişken, Dizi, `for`, `read_hex`, `load`
 
-> Statü: KABUL EDİLDİ
+> Statü: Kısmen yerini aldı: ADR-0080 — test dili derinlik sınırı 200 → 256
+> İlgili: ADR-0033 (test blokları — bu ADR onu genişletir, geçersiz kılmaz), ADR-0026 (üretilen kod İngilizce), ADR-0042 (Volt.toml proje kökü), ADR-0035 (dizi yazmaçları), ADR-0015 (determinizm), ADR-0059 ("bilinen sınır" kapandı), ADR-0060 (sabit yayılımı), ADR-0061 (test veri kökü tavanı).
 > Tarih: 2026-09-20
 > Etkilenen: volt-ast (`TestStmt::LetVar/For`, `TestExprKind` yeni
 > biçimler, `TestBinOp`/`TestUnOp`), volt-syntax (`parser/test.rs`,
@@ -11,9 +12,6 @@
 > docs/spec/grammar-full.ebnf (TestStmt/TestExpr), examples/riscv_sw/,
 > tests/ui/ (pass 78–80, fail 59), `.test-baseline`, CHANGELOG.md.
 > DOKUNULMADI: README.md.
-> İlgili: ADR-0033 (test blokları — bu ADR onu genişletir, geçersiz
-> kılmaz), ADR-0026 (üretilen kod İngilizce), ADR-0042 (Volt.toml proje
-> kökü), ADR-0035 (dizi yazmaçları), ADR-0015 (determinizm).
 
 ## Sorun
 

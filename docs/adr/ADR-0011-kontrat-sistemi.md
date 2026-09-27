@@ -1,6 +1,7 @@
 # ADR-0011: Kontrat Sistemi — `requires` / `ensures` / `invariant` / `cover`
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0014 (kademeli benimseme), ADR-0034 (`->`), ADR-0040 (`prev()`), ADR-0050 (Handshake otomatik kontratları).
 > Tarih: 2026-09-03 (karar); uygulama F4a/F4b (2026-09-07, commit 5120b2a, bfad616)
 > Etkilenen: grammar-full.ebnf §4 (Contract), volt-sv-emit/src/sva.rs,
 > volt-sv-emit/src/sby.rs, volt-driver/src/verify.rs, cli-contract.md §2/§17

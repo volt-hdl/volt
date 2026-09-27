@@ -1,8 +1,7 @@
 # ADR-0083: `match` İfadesi ve Blok İçi `let`
 
-> Statü: KABUL EDİLDİ — Aşama 1 (tasarım), Aşama 2 (uygulama, bkz.
-> "Aşama 2 — uygulama notları"). Aşama 3 (örnekler + eşdeğerlik kanıtı)
-> bu belgeye not olarak eklenecek.
+> Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler + kanıt, PR #52); notlar sonda
+> İlgili: ADR-0085 (bağlama deseni yok).
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-syntax (ifade `match`'inde E0014), volt-hir
 > (match ifadesinin tip kuralları ve kapsayıcılığı, `comb` koşulunun

@@ -1,6 +1,7 @@
 # ADR-0020: Güvenlik Akış Denetimi — `trust_level` Domain'in Dördüncü Boyutu
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16); uygulama ADR-0052
+> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16); uygulama ADR-0052
+> İlgili: ADR-0052 (uygulama).
 > Tarih: 2026-09-03 (karar); uygulama 2026-09-15 (ADR-0052)
 > Etkilenen: grammar-full.ebnf §3 (`trust_level`), domain-inference.md K11,
 > volt-hir/src/trust.rs, E3009 / E0016 / W3008

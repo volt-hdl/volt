@@ -1,6 +1,7 @@
 # ADR-0063: Register Haritası Tutarlılık Denetimi — `check-regmap` ve `--check-regmap`
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
+> İlgili: ADR-0044 (`@mmio` haritası, reset hep 0), ADR-0053 (HW-SW köprüsü; `volt-regmap/1`, "reset anahtarı eklemeli gelecek"), ADR-0021 (çıkış kodları), ADR-0004 (tanı sözleşmesi).
 > Tarih: 2026-09-21
 > Etkilenen: volt-sw-emit (`check/` YENİ — `mod.rs`, `decls.rs`,
 > `parse_c.rs`, `parse_rust.rs`, `parse_json.rs`, `diff.rs`, `hash.rs`,
@@ -10,9 +11,6 @@
 > (E9003, E9004), cli-contract.md (§1, §4, §5, §6a, §17).
 > DOKUNULMADI: volt-syntax (`desugar_mmio`, RTL üretimi aynı), volt-hir,
 > examples/ (kayıtlı üretilmiş sürücü dosyası yok).
-> İlgili: ADR-0044 (`@mmio` haritası, reset hep 0), ADR-0053 (HW-SW
-> köprüsü; `volt-regmap/1`, "reset anahtarı eklemeli gelecek"),
-> ADR-0021 (çıkış kodları), ADR-0004 (tanı sözleşmesi).
 
 ## Sorun
 

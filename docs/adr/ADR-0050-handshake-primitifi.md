@@ -1,6 +1,6 @@
 # ADR-0050: `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-14
 > Etkilenen: volt-syntax (parser/handshake.rs YENİ, parser/bundle.rs
 > sanal alan + otomatik kontrat, item.rs `@no_protocol_check`),

@@ -1,6 +1,6 @@
 # ADR-0015: Determinizm Garantisi Kapsamı — Aynı Kaynak, Byte-Aynı Çıktı
 
-> Statü: KABUL EDİLDİ (geriye dönük belgelendi, 2026-09-16)
+> Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); `--release` / `volt.lock` uygulanmadı
 > Tarih: 2026-09-03
 > Etkilenen: cli-contract.md §0 İ3/§5, sv-mapping.md §12, volt-sv-emit `header()`,
 > volt-hir/src/consteval.rs (sıralama), volt-diagnostics/src/messages/mod.rs

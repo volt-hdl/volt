@@ -1,6 +1,6 @@
 # ADR-0035: Değişken Dizi İndeksi ve Indexed Part-Select
 
-> Statü: KABUL EDİLDİ
+> Statü: Uygulandı
 > Tarih: 2026-09-10
 > Etkilenen: grammar-full.ebnf §11/§13 (PostfixSuffix, LValueSuffix),
 > type-inference.md §3.5, sv-mapping.md §2/§5, volt-ast
