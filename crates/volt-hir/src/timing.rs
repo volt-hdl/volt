@@ -47,9 +47,27 @@ struct Source {
     span: Span,
 }
 
+/// Zamanlama geçidinin ürünleri: tanılar ve çıkarılan kesin gecikmeler.
+#[derive(Debug, Default)]
+pub struct TimingResult {
+    pub diagnostics: Vec<Diagnostic>,
+    /// `@strict_timing` modüllerinde sabit bir gecikmeye oturan tanımlar
+    /// (port, register, let, wire) → çevrim. Serbest (`Any`) olanlar
+    /// yoktur. Editör gecikme ipucu (ADR-0091) buradan okur — ikinci bir
+    /// çıkarım yazılmaz.
+    pub delays: HashMap<DefId, u32>,
+}
+
 /// `@strict_timing` modüllerini denetler; diğerlerine hiç dokunmaz.
 pub fn check_timing(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic> {
+    analyze_timing(ast, res).diagnostics
+}
+
+/// `check_timing` ile aynı geçit; tanılara ek olarak kesin gecikmeleri
+/// de döndürür.
+pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult) -> TimingResult {
     let mut diags = Vec::new();
+    let mut delays = HashMap::new();
     for &item_idx in &ast.items {
         let item = &ast.items_arena[item_idx];
         if !item.attrs.iter().any(|a| a.name.text == "strict_timing") {
@@ -67,9 +85,16 @@ pub fn check_timing(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic> {
                 order: Vec::new(),
             };
             mt.run(m);
+            delays.extend(mt.delays.into_iter().filter_map(|(def, d)| match d {
+                Delay::Exact(n) => Some((def, n)),
+                Delay::Todo | Delay::Any => None,
+            }));
         }
     }
-    diags
+    TimingResult {
+        diagnostics: diags,
+        delays,
+    }
 }
 
 struct ModuleTiming<'a> {

@@ -12,11 +12,13 @@
 //! aşamadan sonrakiler koşmaz (kaskad tanı önlemi); çözümleme sonucu
 //! her zaman döner (LSP hover/tanım bunu kullanır).
 
+use std::collections::HashMap;
+
 use volt_ast::SourceFile;
 use volt_diagnostics::{Diagnostic, Severity};
 
 use crate::{ConstEvaluator, ConstraintResult, DomainResult, ResolveResult, TestFileLoader};
-use crate::{TypeckResult, UnenforcedLint};
+use crate::{DefId, TypeckResult, UnenforcedLint};
 
 /// Aşama ürünleri: `typeck`/`domain`/`constraints` yalnız önceki
 /// aşamalar hatasızsa doludur.
@@ -25,6 +27,9 @@ pub struct SemanticStages {
     pub typeck: Option<TypeckResult>,
     pub domain: Option<DomainResult>,
     pub constraints: Option<ConstraintResult>,
+    /// `@strict_timing` kesin gecikmeleri (ADR-0037); `domain` ile aynı
+    /// kapıdan geçer. Editör gecikme ipucu kaynağı (ADR-0091).
+    pub delays: Option<HashMap<DefId, u32>>,
 }
 
 fn count_errors(diags: &[Diagnostic]) -> usize {
@@ -57,6 +62,7 @@ pub fn run_semantic_stages(
         typeck: None,
         domain: None,
         constraints: None,
+        delays: None,
     };
     let resolve = &stages.resolve;
     // ADR-0065: ham reset portu senkronizörce örtük okunur (W1001 değil).
@@ -95,7 +101,8 @@ pub fn run_semantic_stages(
     out.extend(rdc);
 
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
-    out.extend(crate::check_timing(ast, resolve));
+    let timing = crate::analyze_timing(ast, resolve);
+    out.extend(timing.diagnostics);
     // ── Handshake protokolü (ADR-0050) ──
     out.extend(crate::check_handshakes(ast, resolve));
 
@@ -120,5 +127,6 @@ pub fn run_semantic_stages(
     stages.typeck = Some(typeck);
     stages.domain = Some(domain);
     stages.constraints = Some(constraints);
+    stages.delays = Some(timing.delays);
     stages
 }

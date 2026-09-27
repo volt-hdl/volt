@@ -72,7 +72,7 @@ pub use testdata::{
     normalize_data_path, parse_readmemh, HexError, HexErrorReason, HexImage, TestFileError,
     TestFileLoader,
 };
-pub use timing::check_timing;
+pub use timing::{analyze_timing, check_timing, TimingResult};
 pub use trust::check_trust;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
 pub use typeck::{typecheck, TypeckResult};
