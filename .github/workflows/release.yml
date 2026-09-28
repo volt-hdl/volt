@@ -7,6 +7,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    branches: [feat/release-binaries] # GEÇİCİ: dalda kuru koşu, PR öncesi kaldırılır
   workflow_dispatch:
 
 permissions:
