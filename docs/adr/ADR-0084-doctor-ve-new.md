@@ -1,7 +1,7 @@
 # ADR-0084: `volt doctor` ve `volt new` / `volt init` — Kurulum Teşhisi, Tek Kaynaklı Araç Keşfi, Doğrulanmış Şablonlar
 
 > Statü: Uygulandı — §5 bulguları sonraki ADR'lerle kapandı (İlgili satırı)
-> İlgili: ADR-0085 (§5 bulgu 2), ADR-0086 (§5 bulgu 5), ADR-0087 (§5 bulgu 1), ADR-0088 (§5 bulgu 3), ADR-0089 (§5 yapı kararı), ADR-0090 (§5 bulgu 4), ADR-0094 (Docker köprüsü: araç yerelde yoksa `volt test`/`verify` sabitlenmiş imajda koşar, `volt doctor` "via Docker").
+> İlgili: ADR-0085 (§5 bulgu 2), ADR-0086 (§5 bulgu 5), ADR-0087 (§5 bulgu 1), ADR-0088 (§5 bulgu 3), ADR-0089 (§5 yapı kararı), ADR-0090 (§5 bulgu 4), ADR-0094 (Docker köprüsü: araç yerelde yoksa `volt test`/`verify` sabitlenmiş imajda koşar, `volt doctor` "via Docker"), ADR-0095 (şablonların Volt.toml'u `top` taşır; "Next:" satırları ve README'ler argümansız komutları gösterir).
 > Tarih: 2026-09-27
 > Etkilenen: yeni crate `volt-tools` (araç keşfi + zaman sınırlı sürüm
 > sorgusu), volt-driver (`doctor/`, `new/`, `sim/verilator.rs`,

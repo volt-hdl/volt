@@ -15,6 +15,9 @@ use std::path::{Component, Path, PathBuf};
 
 use volt_hir::unit_load::Manifest;
 
+/// Keşfin dosya süzgeci.
+type Keep<'a> = &'a dyn Fn(&Path) -> bool;
+
 /// Özyineleme sınırı: bundan derin dizin taranmaz (patolojik ağaçlar).
 const MAX_DEPTH: usize = 32;
 
@@ -40,7 +43,7 @@ fn flat_test_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn is_test_file(p: &Path) -> bool {
+pub(crate) fn is_test_file(p: &Path) -> bool {
     p.file_name()
         .is_some_and(|n| n.to_string_lossy().ends_with("_test.volt"))
 }
@@ -48,21 +51,41 @@ fn is_test_file(p: &Path) -> bool {
 /// Projenin test dosyaları: kök (ya da `[test] paths`) altında
 /// özyinelemeli; yollar `cwd`'ye göreli.
 fn project_test_files(m: &Manifest, cwd: &Path) -> Vec<PathBuf> {
+    let starts: Vec<PathBuf> = match &m.test_paths {
+        Some(paths) => paths.clone(),
+        None => vec![PathBuf::new()],
+    };
+    project_files(m, cwd, &starts, &is_test_file)
+}
+
+/// Proje kökünden göreli `starts` altında `keep`'i sağlayan dosyalar —
+/// test keşfiyle aynı atlama kuralları (ADR-0089); proje kipi kaynakları
+/// ve `volt test --watch` de bunu kullanır (ADR-0095). Yollar `cwd`'ye
+/// göreli, sıralı, tekil.
+pub(crate) fn project_files(
+    m: &Manifest,
+    cwd: &Path,
+    starts: &[PathBuf],
+    keep: &dyn Fn(&Path) -> bool,
+) -> Vec<PathBuf> {
     let root = m.root.canonicalize().unwrap_or_else(|_| m.root.clone());
     let ignored = gitignored_dirs(&root);
-    let starts: Vec<PathBuf> = match &m.test_paths {
-        Some(paths) => paths.iter().map(|p| root.join(p)).collect(),
-        None => vec![root.clone()],
-    };
     let mut found = Vec::new();
+    // `src = "."` gibi `.` parçaları yola sızmasın (`./counter.volt`).
+    let starts = starts.iter().map(|p| {
+        root.join(p)
+            .components()
+            .filter(|c| !matches!(c, Component::CurDir))
+            .collect::<PathBuf>()
+    });
     for start in starts {
         if start.is_file() {
-            if is_test_file(&start) {
+            if keep(&start) {
                 found.push(start);
             }
             continue;
         }
-        walk(&root, &start, &ignored, 0, &mut found);
+        walk(&root, &start, (&ignored, keep), 0, &mut found);
     }
     found.sort();
     found.dedup();
@@ -70,7 +93,13 @@ fn project_test_files(m: &Manifest, cwd: &Path) -> Vec<PathBuf> {
     found.iter().map(|f| relative_to(f, &cwd)).collect()
 }
 
-fn walk(root: &Path, dir: &Path, ignored: &[Ignore], depth: usize, out: &mut Vec<PathBuf>) {
+fn walk(
+    root: &Path,
+    dir: &Path,
+    (ignored, keep): (&[Ignore], Keep<'_>),
+    depth: usize,
+    out: &mut Vec<PathBuf>,
+) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -85,11 +114,11 @@ fn walk(root: &Path, dir: &Path, ignored: &[Ignore], depth: usize, out: &mut Vec
         };
         let path = entry.path();
         if kind.is_file() {
-            if is_test_file(&path) {
+            if keep(&path) {
                 out.push(path);
             }
         } else if kind.is_dir() && !skip_dir(root, &path, ignored) {
-            walk(root, &path, ignored, depth + 1, out);
+            walk(root, &path, (ignored, keep), depth + 1, out);
         }
     }
 }

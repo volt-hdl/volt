@@ -285,7 +285,8 @@ fn report(template: &Template, name: &str, cd: Option<&str>) {
     if let Some(dir) = cd {
         steps.push(format!("cd {dir}"));
     }
-    steps.push(format!("volt check {}", template.main));
+    // Proje kipi (ADR-0095): komutlar dosya adı almaz.
+    steps.push("volt check".to_string());
     steps.push("volt test".to_string());
     let label = lstr!(en: "       Next:"; tr: "   Sıradaki:");
     for (i, step) in steps.iter().enumerate() {

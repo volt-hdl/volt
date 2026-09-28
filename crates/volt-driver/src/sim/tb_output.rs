@@ -11,6 +11,9 @@ pub(super) struct TestOutcome {
     pub failure: Option<AssertFailure>,
     /// `VOLT-CONTRACT-FAIL` — testi düşüren kontrat ihlali (ADR-0064).
     pub contract: Option<ContractViolation>,
+    /// Düşen testin dalga formu açma satırı (ADR-0095); testbench
+    /// çıktısında yok, sürücü ekler.
+    pub waveform: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +51,7 @@ pub(super) fn parse_tb_output(out: &str) -> Vec<TestOutcome> {
                 passed: status == "ok",
                 failure: pending_fail.take(),
                 contract: pending_contract.take(),
+                waveform: None,
             });
         }
     }

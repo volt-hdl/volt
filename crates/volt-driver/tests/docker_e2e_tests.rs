@@ -177,4 +177,84 @@ fn new_test_verify_and_run_through_docker() {
     }
     assert_no_container_paths(&err);
     assert_owned_by_caller(&uart);
+
+    project_mode_and_failed_test_waveform(&ctx, &root);
+}
+
+/// ADR-0095: argümansız komutlar ve düşen testin dalga formu — basılan
+/// yollar ana makinede, `.gtkw` izleri VCD başlığında.
+fn project_mode_and_failed_test_waveform(ctx: &Ctx, root: &Path) {
+    assert_eq!(ctx.volt(root, &["new", "mini"]).status.code(), Some(0));
+    let mini = root.join("mini");
+    for cmd in ["check", "build"] {
+        let out = ctx.volt(&mini, &[cmd]);
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    }
+    assert!(mini.join("build/rtl/Counter.sv").is_file());
+    let test_file = mini.join("counter_test.volt");
+    let text = std::fs::read_to_string(&test_file).expect("test");
+    let broken = text.replacen("assert_eq(dut.count, 3);", "assert_eq(dut.count, 4);", 1);
+    assert_ne!(text, broken);
+    std::fs::write(&test_file, broken).expect("yaz");
+
+    let out = ctx.volt(&mini, &["test"]);
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let line = stdout
+        .lines()
+        .find(|l| l.trim_start().starts_with("Waveform gtkwave "))
+        .unwrap_or_else(|| {
+            panic!(
+                "Waveform satırı yok:
+{stdout}"
+            )
+        });
+    let parts: Vec<&str> = line.split_whitespace().skip(2).collect();
+    assert_eq!(parts.len(), 2, "{line}");
+    let (vcd, gtkw) = (mini.join(parts[0]), mini.join(parts[1]));
+    let vcd_text = std::fs::read_to_string(&vcd).expect("VCD ana makinede");
+    let session = std::fs::read_to_string(&gtkw).expect("gtkw ana makinede");
+    let header = vcd_names(&vcd_text);
+    let traces: Vec<&str> = session
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with(['[', '@', '^', '*']))
+        .collect();
+    assert!(!traces.is_empty(), "{session}");
+    for t in &traces {
+        assert!(
+            header.contains(&(*t).to_string()),
+            "{t} VCD'de yok: {header:?}"
+        );
+    }
+    // Yalnız düşen test kaydedilir.
+    assert_eq!(stdout.matches("Waveform gtkwave").count(), 1, "{stdout}");
+    assert_no_container_paths(&stdout);
+    assert_owned_by_caller(&mini);
+}
+
+/// VCD başlığındaki sinyallerin GTKWave adları (`TOP.M.ad[W-1:0]`).
+fn vcd_names(vcd: &str) -> Vec<String> {
+    let mut scope: Vec<&str> = Vec::new();
+    let mut names = Vec::new();
+    for line in vcd.lines() {
+        let t: Vec<&str> = line.split_whitespace().collect();
+        match t.first().copied() {
+            Some("$scope") => scope.push(t[2]),
+            Some("$upscope") => {
+                scope.pop();
+            }
+            Some("$var") => {
+                let width: u32 = t[2].parse().expect("genişlik");
+                let range = match t.get(5) {
+                    Some(r) if r.starts_with('[') => (*r).to_string(),
+                    _ if width > 1 => format!("[{}:0]", width - 1),
+                    _ => String::new(),
+                };
+                names.push(format!("{}.{}{range}", scope.join("."), t[4]));
+            }
+            Some("$enddefinitions") => break,
+            _ => {}
+        }
+    }
+    names
 }

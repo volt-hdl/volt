@@ -12,6 +12,7 @@ use super::report::{print_summary, print_test_lines};
 use super::tb_output::{parse_tb_output, TestOutcome};
 use super::test_build::{collect_groups, compile_unit, TestGroup, TestUnit};
 use super::test_files::resolve_files;
+use super::test_waves::{self, failed_tests, GroupWaves, WaveMode};
 use super::verilator::{require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
 use crate::tool_backend::Runner;
@@ -23,6 +24,8 @@ pub(crate) struct TestOptions<'a> {
     pub nocapture: bool,
     /// Kontrat izleyicileri (ADR-0064); `--no-contracts` kapatır.
     pub contracts: bool,
+    /// Dalga formu kaydı (ADR-0095): `--waves` / `--no-waves`.
+    pub waves: WaveMode,
     pub target_dir: &'a Path,
 }
 
@@ -86,13 +89,14 @@ fn dut_of<'u>(
 }
 
 /// Grubun SV, testbench ve (varsa) `.vlt` dosyalarını yazar; Verilator
-/// girdilerini sırasıyla döndürür.
+/// girdilerini sırasıyla döndürür. `trace_all` (`--waves`): testbench her
+/// testi kendi VCD'sine izler (ADR-0095).
 fn write_group_files(
     sim_dir: &Path,
     group: &TestGroup,
     ports: &[SimPort],
     (sv, externs): (&str, &[volt_hir::ExternSourceFile]),
-    tb_name: &str,
+    (tb_name, trace_all): (&str, bool),
 ) -> Result<Vec<String>, ExitCode> {
     let module = &group.module;
     create_sim_dir(sim_dir)?;
@@ -101,7 +105,16 @@ fn write_group_files(
     // İzleyici yalnız SV'de DPI çağrısı varsa (kontratsız tasarımda
     // testbench ADR-0033/0058 çıktısıyla bayt bayt aynı kalır).
     let contracts = uses_sim_contracts(sv);
-    let tb = tbgen::test_testbench_cpp_with(module, ports, &group.tests, contracts);
+    let tb = if trace_all {
+        let vcds: Vec<String> = group
+            .tests
+            .iter()
+            .map(|t| test_waves::vcd_rel(module, &t.name))
+            .collect();
+        tbgen::test_testbench_cpp_traced(module, ports, &group.tests, contracts, &vcds)
+    } else {
+        tbgen::test_testbench_cpp_with(module, ports, &group.tests, contracts)
+    };
     write_file(&sim_dir.join(tb_name), &tb)?;
     // `load` hedefleri yalnız adlarıyla açılır (ADR-0058): .vlt
     // dosyası SV'den ÖNCE verilir.
@@ -145,12 +158,16 @@ fn run_group(
     // Alt dizindeki aynı adlı testler ayrı dizine (ADR-0089).
     let sim_dir = opts.target_dir.join("sim").join(unit.sim_key());
     let tb_name = format!("tb_{module}.cpp");
+    let trace_all = opts.waves == WaveMode::All;
+    if opts.waves != WaveMode::Off {
+        test_waves::prepare_dir(&sim_dir, module);
+    }
     let inputs = write_group_files(
         &sim_dir,
         group,
         &ports,
         (&sv, &compiled.extern_sources),
-        &tb_name,
+        (&tb_name, trace_all),
     )?;
 
     let job = VerilateJob {
@@ -158,7 +175,7 @@ fn run_group(
         inputs: &inputs,
         tb_file: &tb_name,
         module,
-        trace: false,
+        trace: trace_all,
         mdir: &format!("obj_{}", module.to_lowercase()),
     };
     let exe = verilate(verilator, &job, &[])?;
@@ -183,7 +200,72 @@ fn run_group(
         })
         .collect();
     print_test_lines(&parsed);
+    let waves = GroupWaves {
+        sim_dir: &sim_dir,
+        module,
+        ports: &ports,
+        compiled,
+    };
+    let parsed = attach_waveforms(
+        parsed,
+        &waves,
+        (verilator, &inputs),
+        group,
+        (opts.waves, uses_sim_contracts(&sv)),
+    );
     Ok((parsed, index.covers(&covers_in(&stdout))))
+}
+
+/// Düşen testlere dalga formu açma satırını ekler (ADR-0095 §3).
+/// `OnFailure`: düşen testler izli yeniden koşar; `All`: ilk koşunun
+/// kayıtları kullanılır, geçen testlerin oturumları da yazılır.
+fn attach_waveforms(
+    mut outcomes: Vec<TestOutcome>,
+    waves: &GroupWaves<'_>,
+    (runner, inputs): (&Runner, &[String]),
+    group: &TestGroup,
+    (mode, contracts): (WaveMode, bool),
+) -> Vec<TestOutcome> {
+    let hints: Vec<(String, String)> = match mode {
+        WaveMode::Off => Vec::new(),
+        WaveMode::All => {
+            let hints: Vec<(String, String)> = group
+                .tests
+                .iter()
+                .filter_map(|t| Some((t.name.clone(), waves.session_hint(&t.name)?)))
+                .collect();
+            let dir = waves.sim_dir.join(test_waves::WAVES_DIR);
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "   Waveforms {} test(s) of {} in {}", hints.len(), group.module, dir.display();
+                    tr: "Dalga formları {} test ({}) {} içinde", hints.len(), group.module, dir.display()
+                )
+            );
+            hints
+        }
+        WaveMode::OnFailure => {
+            let failed = failed_tests(&group.tests, &outcomes);
+            if failed.is_empty() {
+                return outcomes;
+            }
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "   Recording waveform of {} failed test(s) of {}", failed.len(), group.module;
+                    tr: "  Kaydediliyor {} düşen testin ({}) dalga formu", failed.len(), group.module
+                )
+            );
+            waves.rerun_failed(runner, inputs, &failed, contracts)
+        }
+    };
+    for o in outcomes.iter_mut().filter(|o| !o.passed) {
+        o.waveform = hints
+            .iter()
+            .find(|(name, _)| *name == o.name)
+            .map(|(_, h)| h.clone());
+    }
+    outcomes
 }
 
 #[cfg(test)]

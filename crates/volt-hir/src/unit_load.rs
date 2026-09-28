@@ -70,6 +70,10 @@ pub struct Manifest {
     /// `[test] paths = ["tests", ...]` (ADR-0089): `volt test`'in tarayacağı
     /// dizinler, `root`'a göre. `None`: bütün proje (varsayılan).
     pub test_paths: Option<Vec<PathBuf>>,
+    /// `[package] top = "Soc"` ya da `top = ["A", "B"]` (ADR-0095):
+    /// argümansız `volt build/run/verify`'ın üst modül(ler)i. `None`:
+    /// hiç örneklenmemiş modülden çıkarılır.
+    pub top: Option<Vec<String>>,
 }
 
 impl Manifest {
@@ -98,6 +102,7 @@ impl Manifest {
         let mut in_package = false;
         let mut in_test = false;
         let mut test_paths = None;
+        let mut top = None;
         for raw in text.lines() {
             let line = raw.split('#').next().unwrap_or("").trim();
             if line.starts_with('[') {
@@ -117,6 +122,10 @@ impl Manifest {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
+            if key.trim() == "top" {
+                top = Some(top_names(value));
+                continue;
+            }
             let value = value.trim().trim_matches('"').to_string();
             match key.trim() {
                 "name" => name = Some(value),
@@ -130,6 +139,7 @@ impl Manifest {
             src,
             lint_unenforced,
             test_paths,
+            top,
         }
     }
 
@@ -145,6 +155,23 @@ fn parent_dir(path: &Path) -> PathBuf {
     path.parent()
         .filter(|p| !p.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+/// `top` değeri: tek dize ya da tek satırlık dize dizisi; boş öğeler atlanır.
+fn top_names(value: &str) -> Vec<String> {
+    let value = value.trim();
+    if value.starts_with('[') {
+        return string_array(value)
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+    }
+    let name = value.trim_matches('"').trim();
+    if name.is_empty() {
+        Vec::new()
+    } else {
+        vec![name.to_string()]
+    }
 }
 
 /// Tek satırlık TOML dize dizisi: `["tests", "rtl/fifo"]` → yollar.
@@ -480,6 +507,22 @@ mod tests {
         assert_eq!(m.name.as_deref(), Some("soc"));
         assert_eq!(m.src, PathBuf::from("rtl"));
         assert_eq!(m.src_dir(), PathBuf::from("/p").join("rtl"));
+    }
+
+    #[test]
+    fn manifest_parse_reads_top_as_string_or_list() {
+        let one = Manifest::parse(
+            PathBuf::from("/p"),
+            "[package]\ntop = \"Soc\"  # ADR-0095\n",
+        );
+        assert_eq!(one.top, Some(vec!["Soc".to_string()]));
+        let many = Manifest::parse(PathBuf::from("/p"), "[package]\ntop = [\"A\", \"B\"]\n");
+        assert_eq!(many.top, Some(vec!["A".to_string(), "B".to_string()]));
+        let none = Manifest::parse(PathBuf::from("/p"), "[package]\nname = \"p\"\n");
+        assert_eq!(none.top, None);
+        // [package] dışındaki `top` sayılmaz.
+        let other = Manifest::parse(PathBuf::from("/p"), "[ui]\ntop = \"X\"\n");
+        assert_eq!(other.top, None);
     }
 
     #[test]

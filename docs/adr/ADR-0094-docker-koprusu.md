@@ -1,7 +1,7 @@
 # ADR-0094: Docker Köprüsü — Eksik Verilator/sby'yi Sabitlenmiş İmajda Otomatik Koşturmak
 
 > Statü: Uygulandı
-> İlgili: ADR-0084 (araç keşfi tek kaynak `volt-tools`, `volt doctor` — genişletme: yetenek Docker üzerinden), ADR-0093 (hazır ikililer — "indir → çalıştır" hedefinin ikinci yarısı), ADR-0082 (varsayılan çözücü boolector; imajda bitwuzla yok), ADR-0092 (dalga formu oturumu ve basılan yollar), ADR-0055 (tek sby süreci, `-j` içeride).
+> İlgili: ADR-0084 (araç keşfi tek kaynak `volt-tools`, `volt doctor` — genişletme: yetenek Docker üzerinden), ADR-0093 (hazır ikililer — "indir → çalıştır" hedefinin ikinci yarısı), ADR-0082 (varsayılan çözücü boolector; imajda bitwuzla yok), ADR-0092 (dalga formu oturumu ve basılan yollar), ADR-0055 (tek sby süreci, `-j` içeride), ADR-0095 (Sınırlar: "Ctrl-C yolu kaldırmaz" `volt test --watch`'ta kapandı — adlı konteyner + süpürme).
 > Tarih: 2026-09-28
 > Etkilenen: `volt-tools` (`docker`, `docker_paths` — YENİ; `VOLT_DOCKER`),
 > volt-driver (`tool_backend.rs` YENİ, `sim/verilator.rs`, `sim/run_cmd.rs`,

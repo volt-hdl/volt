@@ -6,11 +6,17 @@ values (one 12-bit word each in hardware); a sticky `overflow` flag
 records a push into a full buffer.
 
 ```
-volt check packet_buffer.volt     # check the design
-volt build packet_buffer.volt     # SystemVerilog in build/rtl/
+volt check                        # check the design
+volt build                        # SystemVerilog in build/rtl/
 volt test                         # run packet_buffer_test.volt (needs Verilator)
-volt verify packet_buffer.volt    # prove the contracts (needs SymbiYosys)
+volt verify                       # prove the contracts (needs SymbiYosys)
 ```
+
+The commands work on the project (Volt.toml): `volt check` checks every
+source file; `volt build`, `volt verify` and `volt run` use `top = "PacketBuffer"`.
+A file still works too: `volt check packet_buffer.volt`. When a test fails, the report
+ends with a `Waveform gtkwave ...` line; `volt test --watch` re-runs the
+tests on every save.
 
 `volt doctor` tells you which of these work on this machine.
 

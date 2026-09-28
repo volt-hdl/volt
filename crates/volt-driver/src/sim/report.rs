@@ -29,6 +29,10 @@ pub(super) fn print_summary(outcomes: &[TestOutcome], covers: &[CoverCount]) -> 
         for line in outcome_lines(o) {
             println!("{line}");
         }
+        // ADR-0095: düşen testin kaydı (ADR-0092 açma satırı biçimi).
+        if let Some(hint) = &o.waveform {
+            println!("  Waveform {hint}");
+        }
     }
     let summary = cover_summary_lines(covers);
     if !summary.is_empty() {
@@ -260,6 +264,7 @@ mod tests {
             passed,
             failure: None,
             contract: None,
+            waveform: None,
         };
         let code = |o: &[TestOutcome]| format!("{:?}", print_summary(o, &[]));
         assert_eq!(code(&[outcome(true)]), format!("{:?}", ExitCode::SUCCESS));

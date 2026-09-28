@@ -224,6 +224,7 @@ denetler.
 | [0021](ADR-0021-artifact-uretim-ve-cli-sozlesmesi.md) | Artifact Üretim Mimarisi ve CLI Sözleşmesi — Tek Kaynak, `build/` Dizini, Çıkış Kodları | Tüm çıktılar tek kaynaktan `build/` altına üretilir; çıkış kodları ve stdout/stderr ayrımı sözleşmedir. | Kabul edildi |
 | [0084](ADR-0084-doctor-ve-new.md) | `volt doctor` ve `volt new` / `volt init` — Kurulum Teşhisi, Tek Kaynaklı Araç Keşfi, Doğrulanmış Şablonlar | `volt doctor` kurulumu teşhis eder; `volt new` / `volt init` doğrulanmış şablonlardan proje kurar. | Uygulandı |
 | [0091](ADR-0091-lsp-inlay-quick-fix.md) | LSP — Inlay İpuçları, Quick Fix ve Protokol Testleri | LSP tip, saat alanı ve gecikme inlay ipuçları ile tek öneriden quick fix sunar. | Uygulandı |
+| [0095](ADR-0095-proje-kipi-test-dalga-formu-watch.md) | Proje Kipi — Argümansız check/build/run/verify, Düşen Testin Dalga Formu ve `volt test --watch` | Dosyasız komutlar Volt.toml projesinde çalışır, üst modül `top` ya da tek adaydan gelir; düşen test izle yeniden koşup `Waveform` satırı verir; `--watch` kayıtta yeniden koşar. | Uygulandı |
 
 ## Tanılar ve sağlamlık (fuzz, sınırlar)
 

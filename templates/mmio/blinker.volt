@@ -5,7 +5,7 @@
 // decode, the read multiplexer and their contracts; only the LED logic
 // below is written by hand. The same map generates the software side:
 //
-//   volt build blinker.volt --emit=c,rust,regmap,regmap-md
+//   volt build --emit=c,rust,regmap,regmap-md
 //
 // writes build/sw/blinker.h (C), build/sw/blinker.rs (Rust),
 // build/sw/blinker.json and build/docs/blinker.md — the firmware never

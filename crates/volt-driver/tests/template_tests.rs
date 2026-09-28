@@ -246,7 +246,15 @@ fn next_lines_name_the_project_commands() {
     let log = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(log.contains("Created minimal project 'blinky'"), "{log}");
     assert!(log.contains("Next: cd blinky"), "{log}");
-    assert!(log.contains("volt check counter.volt"), "{log}");
+    // Proje kipi (ADR-0095): komutlar dosya adı almaz.
+    assert!(
+        log.contains(
+            "            volt check
+"
+        ),
+        "{log}"
+    );
+    assert!(!log.contains("volt check counter.volt"), "{log}");
     assert!(log.contains("volt test"), "{log}");
     assert!(out.stdout.is_empty(), "durum satırları stderr'e");
     let out = run_in(
@@ -255,7 +263,13 @@ fn next_lines_name_the_project_commands() {
     );
     let log = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(log.contains("Sıradaki: cd ikinci"), "{log}");
-    assert!(log.contains("volt check packet_buffer.volt"), "{log}");
+    assert!(
+        log.contains(
+            "            volt check
+"
+        ),
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&parent);
 }
 

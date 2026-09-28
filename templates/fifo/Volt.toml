@@ -4,3 +4,6 @@ name = "{{name}}"
 # Sources live next to this file; `volt test` finds every *_test.volt
 # in this project, subdirectories included (build/ is skipped).
 src = "."
+# The top module: `volt build`, `volt run` and `volt verify` without a
+# file work on it (several: top = ["A", "B"]; `volt run --top` picks one).
+top = "PacketBuffer"
