@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Volt HDL Contributors"]
-repository = "https://github.com/volthdl/volthdl"
+repository = "https://github.com/volt-hdl/volt"
 
 [workspace.dependencies]
 logos = "0.14"
