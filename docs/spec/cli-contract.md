@@ -1002,7 +1002,7 @@ thread 'main' panicked at crates/volt-hir/src/ty.rs:142
 
 Volt'ta bir iç hata oluştu. Bu bir derleyici hatasıdır.
 
-Lütfen bildirin: https://github.com/volthdl/volt/issues/new
+Lütfen bildirin: https://github.com/volt-hdl/volt/issues/new
 
 Bilgi:
   volt sürümü: 0.1.0 (a3f2b1c 2026-08-31)
