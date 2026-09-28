@@ -26,6 +26,7 @@ mod sv_collisions;
 mod sv_names;
 mod sva;
 mod trit;
+mod waves;
 
 use std::collections::{HashMap, HashSet};
 
@@ -50,6 +51,10 @@ pub use sim::{
 };
 pub use sim_contract::uses_sim_contracts;
 pub use sva::{AutoProp, CoverReach, SvaFile, SvaMode, SvaProp, COVER_HARNESS_STEPS};
+pub use waves::{
+    filter_text, gtkw_text, WaveInfo, WaveModule, WaveSession, WaveSignal, WaveTable, WaveTrace,
+    GTKW_MARKER,
+};
 
 pub const VOLT_VERSION: &str = "0.1.0";
 
@@ -315,6 +320,9 @@ pub struct EmitOutput {
     /// İki ve daha çok saat portlu modüller — `.sby` dosyasına
     /// `multiclock on` eklenmesi için (ADR-0027, clk2fflogic akışı).
     pub multiclock_modules: Vec<String>,
+    /// Enum/Trit sinyalleri ve örnek hiyerarşisi — dalga formu oturumu
+    /// (ADR-0092). Üretilen SV'yi etkilemez.
+    pub waves: WaveInfo,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -463,6 +471,7 @@ pub fn emit_unit(
                 multiclock_modules.push(module.name.text.clone());
             }
             let body = emitter.emit_module(module, item.doc.as_deref());
+            emitter.record_waves(module, &body);
             emitter.audit_emitted_text(module, &body);
             emitter.audit_duplicate_decls(module, &body);
             // ADR-0024: her modül kendi dosyasında; başlık o modülün
@@ -481,12 +490,14 @@ pub fn emit_unit(
         }
     }
 
+    let waves = emitter.wave_info();
     EmitOutput {
         sv: unit_sv(source_name, &per_module),
         modules: per_module,
         sva_files: emitter.sva_files,
         sva_props: emitter.sva_props,
         multiclock_modules,
+        waves,
         diagnostics: emitter.diagnostics,
     }
 }
@@ -526,6 +537,7 @@ fn new_emitter<'a>(
         sim_dpi: sim_contract::SimDpiUse::default(),
         enum_used: Vec::new(),
         enum_sigs: HashMap::new(),
+        wave_modules: Vec::new(),
         struct_notes,
         inline_notes,
         inline_headers_done: HashSet::new(),
@@ -806,6 +818,8 @@ pub(crate) struct Emitter<'a> {
     pub(crate) enum_used: Vec<(String, String)>,
     /// Enum tipli modül sinyalleri: ad → enum adı (ADR-0074).
     pub(crate) enum_sigs: HashMap<String, String>,
+    /// Üretilen modüllerin dalga formu kayıtları (ADR-0092).
+    pub(crate) wave_modules: Vec<waves::WaveModule>,
     /// Struct indirgemesinin notları (ADR-0077): düzen yorumu, okunmayan
     /// yaprak, paketlenmiş dizi register'ı.
     pub(crate) struct_notes: &'a structs::StructNotes,

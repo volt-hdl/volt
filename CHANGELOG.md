@@ -5,6 +5,25 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Dalga formunda enum ve Trit adları (ADR-0092, 2026-09-28)
+
+- `volt run --vcd <ad>.vcd` ve `volt verify` karşı örneği (`_cex.vcd`,
+  `_induct.vcd`), tasarımda enum ya da Trit sinyali varsa VCD'nin yanına
+  bir GTKWave oturumu (`<ad>.gtkw`) ve enum başına çeviri tablosu
+  (`<ad>.filters/<Enum>.txt`) yazar: durum register'ı `01` yerine
+  `Start`, Trit `+1/0/-1` görünür. Üst modül ve altındaki her örnek;
+  portlar, register'lar, wire'lar, let'ler, struct alanları ve örnek
+  çıkış telleri. Geçersiz kod kırmızı `invalid <kod>` (8 bite kadar).
+- Tek satır: `Waveform gtkwave <vcd> <gtkw>`; E5001 önerisi aynı komutu
+  verir. Enum/Trit kullanmayan tasarımda yeni dosya yok; Volt'un
+  yazmadığı aynı adlı `.gtkw`'ye dokunulmaz.
+- Üretilen RTL, SVA, SDC ve `check` çıktısı değişmedi (golden 2436
+  dosya). Seçenek B (FST + `typedef enum`) ölçüldü ve reddedildi: enum
+  adı yalnız typedef'li değişkene bağlanıyor, port ve örnek teli düz
+  kalıyor, formal iz VCD.
+- `volt explain waveforms` (iki dil): dalga formu nasıl üretilir, nasıl
+  açılır, enum adları nasıl görünür.
+
 ### Değişti — ADR durum satırları ve konu dizini (2026-09-28)
 
 - Her ADR'nin başlık bloğunda sözlükten tek bir `Statü` satırı:

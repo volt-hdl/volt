@@ -516,3 +516,27 @@ fn install_steps_come_from_the_setup_topics() {
     assert!(install_steps("domains", Lang::En, "Linux").is_empty());
     assert!(install_steps("no-such-topic", Lang::En, "Linux").is_empty());
 }
+
+/// ADR-0092: dalga formu konusu iki dilde; üretim, açma komutu, çeviri
+/// tabloları ve geçersiz kod gösterimi anlatılır.
+#[test]
+fn waveforms_topic_explains_recording_opening_and_enum_names() {
+    use volt_diagnostics::explain::topics::render_topic;
+    for (lang, open) in [
+        (Lang::En, "Waveform gtkwave"),
+        (Lang::Tr, "Dalga formu gtkwave"),
+    ] {
+        let page = render_topic("waveforms", lang, 80, false).expect("waveforms konusu");
+        for needle in [
+            "--vcd",
+            "_cex.vcd",
+            open,
+            ".gtkw",
+            ".filters/<Enum>.txt",
+            "invalid 3",
+            "+1, 0, -1",
+        ] {
+            assert!(page.contains(needle), "{lang:?} {needle}:\n{page}");
+        }
+    }
+}
