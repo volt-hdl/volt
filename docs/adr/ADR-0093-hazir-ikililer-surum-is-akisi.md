@@ -154,11 +154,44 @@ ikili notu). Windows `.zip` (7-Zip), diğerleri `.tar.gz`. Tek
 
 ## 3. Doğrulama
 
-Kuru koşu ve yerel Windows doğrulaması aşağıda (§4).
+- Yerel kapılar: `cargo test --all`, `just check`, `just consistency`,
+  `just clippy-strict` çıkış 0; `actionlint` (shellcheck dahil) temiz.
+- **Kuru koşu.** `workflow_dispatch` yalnız varsayılan dalda bulunan bir
+  iş akışını tetikleyebilir; `release.yml` henüz main'de olmadığı için
+  kuru koşu dalda geçici bir `push: branches` tetiğiyle yapıldı (tag
+  değil → dispatch ile aynı yol: Release işi atlanır) ve tetik PR'dan önce
+  kaldırıldı. İlk koşu (36444877750) üç gerçek hata buldu: vsce
+  `LICENSE`'ı `LICENSE.txt` olarak paketler; musl ikilisi `file`
+  çıktısında `static-pie linked` görünür; x86_64 macOS ikilisi (asgari
+  10.12) `LC_BUILD_VERSION` değil `LC_VERSION_MIN_MACOSX` taşır. Düzeltilmiş
+  koşu (36446310872) **tamamen yeşil**: 4 derleme + duman testi, `.vsix`,
+  checksums + provenance; "Draft GitHub Release" atlandı.
+- **Yerel Windows doğrulaması.** Kuru koşu artifact'ı indirildi:
+  `sha256sum -c SHA256SUMS` 5/5 OK; `gh attestation verify
+  volt-v0.1.0-x86_64-pc-windows-msvc.zip -R volt-hdl/volt` çıkış 0
+  (imzalayan `release.yml`), bir bayt eklenmiş kopya çıkış 1. Arşiv
+  `Expand-Archive` ile açıldı; `PATH=C:\Windows\System32;C:\Windows`,
+  `CARGO_HOME`/`RUSTUP_HOME` silinmiş (cargo ve rustc bulunamıyor) boş
+  klasörde: `--version` → `volt 0.1.0`, `new`/`check`/`build`/`doctor`
+  çıkış 0, `Counter.sv` 807 B, `explain E3001` metni basıldı. Bu makinede
+  VC++ çalışma zamanı kurulu olduğu için "Redistributable yok" durumu
+  yerelde değil, CI'daki `dumpbin` denetimiyle kanıtlandı (içe aktarımlar
+  yalnız `kernel32`, `ntdll`, `api-ms-win-core-synch-l1-2-0`,
+  `bcryptprimitives`).
 
 ## 4. Kuru koşu sonuçları
 
-KURU_KOSU_SONUCU
+| Hedef | İkili (B) | Arşiv (B) | İş süresi | Taşınabilirlik |
+|---|---|---|---|---|
+| x86_64-pc-windows-msvc | 9 593 344 | 3 470 420 | 4 dk 17 sn | CRT DLL içe aktarımı yok |
+| x86_64-unknown-linux-musl | 7 693 472 | 3 371 794 | 2 dk 29 sn | `static-pie linked`; CentOS 7.9 (glibc 2.17) duman testi geçti |
+| x86_64-apple-darwin | 7 146 768 | 3 232 182 | 6 dk 17 sn | yalnız `libSystem`, `libiconv`; asgari macOS 10.12 |
+| aarch64-apple-darwin | 6 393 424 | 2 968 312 | 1 dk 50 sn | yalnız `libSystem`; asgari macOS 11.0 |
+| `volt-hdl-0.1.0.vsix` | — | 478 320 | 17 sn | 323 dosya |
+
+Toplam duvar saati ~7 dk 10 sn (arm64 macOS işi kuyrukta ~5 dk bekledi).
+Duman testinde Windows `volt doctor` "rustc not found" dedi: PATH'ten
+cargo/rustup gerçekten çıkarılmıştı.
 
 ## Sınırlar
 
