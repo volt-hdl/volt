@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use volt_tools::docker::{Image, Preference};
 use volt_tools::{Probe, Tool};
 
 use crate::OutputFormat;
@@ -118,6 +119,15 @@ impl CapId {
         }
     }
 
+    /// Docker köprüsünün yerine koştuğu birincil araç (ADR-0094).
+    pub fn docker_tool(self) -> Option<Tool> {
+        match self {
+            CapId::Simulation => Some(Tool::Verilator),
+            CapId::Verify => Some(Tool::Sby),
+            _ => None,
+        }
+    }
+
     /// Kurulum ipucunun geldiği `volt explain` konusu.
     pub fn setup_topic(self) -> Option<&'static str> {
         match self {
@@ -151,9 +161,21 @@ pub(crate) struct ProjectReport {
     pub wsl_mount: bool,
 }
 
+/// Yeteneğin Docker'da koşacağı yol (ADR-0094): `volt test`/`verify`'ın
+/// aynı kararı — birincil araç yerelde yok (ya da `VOLT_TOOL_BACKEND=
+/// docker`), docker bulundu, daemon çalışıyor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DockerRoute {
+    pub cap: CapId,
+    pub image: &'static Image,
+    /// İmaj yerelde var mı (yoksa ilk kullanımda indirilir).
+    pub present: bool,
+}
+
 pub(crate) struct Report {
     pub tools: Vec<ToolReport>,
     pub docker_daemon: Option<DockerDaemon>,
+    pub docker_routes: Vec<DockerRoute>,
     pub project: ProjectReport,
     pub timeout: Duration,
 }
@@ -166,7 +188,14 @@ impl Report {
             .expect("her araç raporlanır")
     }
 
+    pub fn via_docker(&self, cap: CapId) -> Option<&DockerRoute> {
+        self.docker_routes.iter().find(|r| r.cap == cap)
+    }
+
     pub fn cap_status(&self, cap: CapId) -> CapStatus {
+        if self.via_docker(cap).is_some() {
+            return CapStatus::Ok;
+        }
         let tools: Vec<&ToolReport> = cap.tools().iter().map(|t| self.tool(*t)).collect();
         let usable = |r: &&ToolReport| matches!(r.status, ToolStatus::Ok | ToolStatus::TooOld(_));
         if !tools.iter().all(usable) {
@@ -250,12 +279,47 @@ fn collect(timeout: Duration) -> Report {
             .collect();
         (tools, daemon.join().expect("docker sondası"))
     });
+    let docker_routes = docker_routes(&tools, docker_daemon.as_ref(), timeout);
     Report {
         tools,
         docker_daemon,
+        docker_routes,
         project: project_report(),
         timeout,
     }
+}
+
+/// Docker'da koşacak yetenekler — `tool_backend::resolve` ile aynı karar.
+fn docker_routes(
+    tools: &[ToolReport],
+    daemon: Option<&DockerDaemon>,
+    timeout: Duration,
+) -> Vec<DockerRoute> {
+    let pref = Preference::from_process().unwrap_or(Preference::Auto);
+    let docker = tools.iter().find(|r| r.tool == Tool::Docker);
+    let (Some(DockerDaemon::Running(_)), Some(docker), false) = (
+        daemon,
+        docker.and_then(|r| r.path.clone()),
+        pref == Preference::Local,
+    ) else {
+        return Vec::new();
+    };
+    CapId::ALL
+        .iter()
+        .filter_map(|cap| {
+            let tool = cap.docker_tool()?;
+            let local = tools.iter().any(|r| r.tool == tool && r.path.is_some());
+            if local && pref != Preference::Docker {
+                return None;
+            }
+            let image = volt_tools::docker::image_for(tool)?;
+            Some(DockerRoute {
+                cap: *cap,
+                image,
+                present: volt_tools::docker::image_present(&docker, image, timeout),
+            })
+        })
+        .collect()
 }
 
 fn tool_report(tool: Tool, timeout: Duration) -> ToolReport {
@@ -312,22 +376,13 @@ pub(crate) fn older_than(version: &str, min: &str) -> bool {
 }
 
 /// `docker info` daemon'a bağlanır; daemon kapalıysa hata verir, Docker
-/// Desktop açılırken takılabilir (zaman sınırı).
+/// Desktop açılırken takılabilir (zaman sınırı). Sorgu `volt test`'in
+/// kullandığıyla aynıdır (`volt_tools::docker::daemon`).
 fn docker_daemon(docker: &Path, timeout: Duration) -> DockerDaemon {
-    match volt_tools::probe_version(docker, &["info", "--format", "{{.ServerVersion}}"], timeout) {
-        Probe::Ran {
-            success: true,
-            output,
-            ..
-        } => DockerDaemon::Running(
-            output
-                .lines()
-                .map(str::trim)
-                .find(|l| !l.is_empty())
-                .map(str::to_string),
-        ),
-        Probe::Ran { .. } | Probe::FailedToStart(_) => DockerDaemon::NotRunning,
-        Probe::Unresponsive => DockerDaemon::Unresponsive,
+    match volt_tools::docker::daemon(docker, timeout) {
+        volt_tools::docker::Daemon::Running(v) => DockerDaemon::Running(v),
+        volt_tools::docker::Daemon::NotRunning => DockerDaemon::NotRunning,
+        volt_tools::docker::Daemon::Unresponsive => DockerDaemon::Unresponsive,
     }
 }
 

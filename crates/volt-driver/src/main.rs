@@ -16,6 +16,7 @@ mod regmap_check;
 mod sim;
 mod sim_lower;
 mod sim_struct;
+mod tool_backend;
 mod verify;
 mod verify_depth;
 mod verify_jobs;

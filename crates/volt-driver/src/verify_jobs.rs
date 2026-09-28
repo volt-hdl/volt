@@ -10,6 +10,10 @@
 //! `--fail-fast`: ilk karşı örnekte sby süreci öldürülür, henüz
 //! bitmemiş görevler `Skipped` olur. Varsayılan davranış tüm görevlerin
 //! tamamlanmasıdır (bir modülün hatası diğerlerini durdurmaz).
+//!
+//! Docker köprüsünde (ADR-0094) aynı tek sby süreci tek konteynerde koşar
+//! (`-j` konteynerin içinde); satırlar okunurken konteyner yolları ana
+//! makine yoluna çevrilir, `--fail-fast` konteyneri de durdurur.
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -17,6 +21,9 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use volt_tools::docker_paths::Mounts;
+
+use crate::tool_backend::Runner;
 use crate::verify::{interpret_sby_output, SbyOutcome};
 
 /// `-j <N|auto>` değeri (cli-contract.md §3).
@@ -97,7 +104,7 @@ pub(crate) struct RunReport {
 
 /// Koşu ayarları.
 pub(crate) struct RunConfig<'a> {
-    pub(crate) sby: &'a Path,
+    pub(crate) sby: &'a Runner,
     /// `cwd`'ye göreli `.sby` dosya adı.
     pub(crate) sby_file: &'a str,
     pub(crate) cwd: &'a Path,
@@ -115,12 +122,9 @@ pub(crate) fn run_sby_tasks(
     tasks: &[TaskSpec],
     mut on_done: impl FnMut(usize, usize, &TaskStatus),
 ) -> std::io::Result<RunReport> {
-    let mut child = Command::new(cfg.sby)
-        .arg("-j")
-        .arg(cfg.jobs.to_string())
-        .arg("-f")
-        .arg(cfg.sby_file)
-        .current_dir(cfg.cwd)
+    let mut launch = launch(cfg)?;
+    let mut child = launch
+        .command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -149,6 +153,7 @@ pub(crate) fn run_sby_tasks(
     let mut killed = false;
 
     for line in rx {
+        let line = launch.mounts.host_text(&line);
         let Some(idx) = task_index_of(&line, tasks) else {
             global_log.push_str(&line);
             global_log.push('\n');
@@ -175,6 +180,9 @@ pub(crate) fn run_sby_tasks(
         if cfg.fail_fast && is_fail {
             // Kalan görevler bitirilmez; süreç öldürülür, okuma bırakılır.
             let _ = child.kill();
+            if let (Runner::Docker(tool), Some(name)) = (cfg.sby, &launch.container) {
+                volt_tools::docker::remove_container(&tool.docker, name);
+            }
             killed = true;
             break;
         }
@@ -193,6 +201,55 @@ pub(crate) fn run_sby_tasks(
         global_log,
         exit_code,
     })
+}
+
+/// Başlatılacak sby süreci: yerelde `sby`, Docker'da `docker run ... sby`.
+struct Launch {
+    command: Command,
+    /// Satır çevirisi (yerelde boş: çeviri yok).
+    mounts: Mounts,
+    /// Docker konteyner adı (`--fail-fast` durdurması).
+    container: Option<String>,
+}
+
+fn launch(cfg: &RunConfig<'_>) -> std::io::Result<Launch> {
+    let args: Vec<std::ffi::OsString> = vec![
+        "-j".into(),
+        cfg.jobs.to_string().into(),
+        "-f".into(),
+        cfg.sby_file.into(),
+    ];
+    match cfg.sby {
+        Runner::Local(sby) => {
+            let mut command = Command::new(sby);
+            command.args(args).current_dir(cfg.cwd);
+            Ok(Launch {
+                command,
+                mounts: Mounts::new(),
+                container: None,
+            })
+        }
+        Runner::Docker(tool) => {
+            let mut mounts = Mounts::new();
+            let workdir = mounts.add(cfg.cwd)?;
+            let name = format!(
+                "volt-sby-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0)
+            );
+            let mut all = vec!["sby".into()];
+            all.extend(args);
+            let command = tool.command(&mounts, workdir, None, Some(name.clone()), cfg.cwd, all);
+            Ok(Launch {
+                command,
+                mounts,
+                container: Some(name),
+            })
+        }
+    }
 }
 
 /// Akışı satır satır kanala kopyalayan ayrık iş parçacığı. UTF-8

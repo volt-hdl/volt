@@ -1,6 +1,7 @@
 # ADR-0082: Varsayılan Formal Motoru — boolector; bitwuzla Seçeneği, Portföy ve Otomatik Seçim Reddedildi
 
 > Statü: Uygulandı
+> İlgili: ADR-0094 (Docker köprüsü: `hdlc/formal:all` imajında boolector var, bitwuzla yok).
 > Tarih: 2026-09-26
 > Etkilenen: volt-sv-emit (`sby.rs` — `SbyEngine` varsayılanı `Boolector`,
 > yeni `Bitwuzla`), volt-driver (`main.rs` `--engine` varsayılanı ve

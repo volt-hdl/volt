@@ -27,6 +27,7 @@ use volt_diagnostics::{
 use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::tool_backend::Runner;
 use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
 use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
 use crate::waves::{self, Session, WaveScope};
@@ -169,10 +170,10 @@ pub(crate) fn verify(
         sby_path.display().to_string(),
     ];
 
-    // ── ADIM 2: sby'yi bul (VOLT_SBY > PATH) ──
-    let Some(sby) = find_sby() else {
-        print_sby_not_found();
-        return ExitCode::from(3);
+    // ── ADIM 2: sby'yi bul (VOLT_SBY > PATH > Docker, ADR-0094) ──
+    let sby = match find_sby() {
+        Ok(runner) => runner,
+        Err(code) => return code,
     };
 
     // ── ADIM 3: tek sby süreci, modül başına görev, -j N ──
@@ -223,13 +224,18 @@ pub(crate) fn verify(
             eprintln!(
                 "{}",
                 lstr!(
-                    en: "error: cannot run '{}': {}", sby.display(), err;
-                    tr: "hata: '{}' çalıştırılamadı: {}", sby.display(), err
+                    en: "error: cannot run '{}': {}", runner_program(&sby).display(), err;
+                    tr: "hata: '{}' çalıştırılamadı: {}", runner_program(&sby).display(), err
                 )
             );
             return ExitCode::from(3);
         }
     };
+
+    // Konteynerin kendi arızası (bellek, başlatma) araç hatasından önce.
+    if matches!(sby, Runner::Docker(_)) {
+        crate::tool_backend::report_container_failure(report.exit_code);
+    }
 
     // ── ADIM 4: rapor — KAYNAK SIRASINDA (tamamlanma sırası değil) ──
     let mut outcomes: Vec<ModuleOutcome> = Vec::with_capacity(total);
@@ -335,8 +341,7 @@ pub(crate) fn verify(
                 print_tool_error(
                     module,
                     &sby,
-                    &sby_name,
-                    &tasks[idx].name,
+                    (&sby_name, &tasks[idx].name, &specs[idx].workdir),
                     &formal_dir,
                     report.exit_code,
                 );
@@ -513,17 +518,41 @@ fn sanitize(text: &str) -> String {
 }
 
 /// Araç hatası mesajı: yeniden koşturma ipucu görevi tek başına seçer.
+/// Docker'da (ADR-0094) yeniden koşturma yerel sby isterdi: ipucu
+/// görevin ana makinedeki günlük dosyasını gösterir.
 fn print_tool_error(
     module: &str,
-    sby: &Path,
-    sby_name: &str,
-    task: &str,
+    sby: &Runner,
+    (sby_name, task, workdir): (&str, &str, &str),
     formal_dir: &Path,
     exit_code: Option<i32>,
 ) {
     let code = exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "-".into());
+    let sby = match sby {
+        Runner::Local(path) => path,
+        Runner::Docker(tool) => {
+            let log = formal_dir.join(workdir).join("logfile.txt");
+            let image = tool.image.name;
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "error: SymbiYosys reported a tool error for module '{module}' \
+                         (sby status ERROR, exit code {code}, in Docker {image})\n  \
+                         = note: the tool itself failed; this says nothing about the contracts\n  \
+                         = help: the full log is in '{}'",
+                        log.display();
+                    tr: "hata: SymbiYosys '{module}' modülü için araç hatası bildirdi \
+                         (sby durumu ERROR, çıkış kodu {code}, Docker {image} içinde)\n  \
+                         = not: aracın kendisi başarısız oldu; bu kontratlar hakkında bir şey söylemez\n  \
+                         = çözüm: tam log '{}' dosyasında",
+                        log.display()
+                )
+            );
+            return;
+        }
+    };
     eprintln!(
         "{}",
         lstr!(
@@ -633,26 +662,34 @@ fn print_sby_not_found() {
                  = reason: 'volt verify' uses SymbiYosys for formal verification\n  \
                  = help: install options:\n      \
                  Linux:   apt install yosys boolector, then pip install symbiyosys\n      \
-                 Docker:  docker pull hdlc/formal\n      \
-                 Windows: use WSL or Docker\n  \
+                 Docker:  install Docker; Volt then runs sby in hdlc/formal:all\n      \
+                 Windows: install Docker Desktop (Volt then runs sby in a container) or use WSL\n  \
                  = note: 'volt build' and 'volt check' do not need SymbiYosys\n  \
                  = for more: volt explain verify-setup";
             tr: "hata: SymbiYosys bulunamadı\n\n  \
                  = neden: 'volt verify' formal doğrulama için SymbiYosys kullanır\n  \
                  = çözüm: kurulum seçenekleri:\n      \
                  Linux:   apt install yosys boolector, ardından pip install symbiyosys\n      \
-                 Docker:  docker pull hdlc/formal\n      \
-                 Windows: WSL ya da Docker kullanın\n  \
+                 Docker:  Docker kurun; Volt sby'yi hdlc/formal:all içinde çalıştırır\n      \
+                 Windows: Docker Desktop kurun (Volt sby'yi konteynerde çalıştırır) ya da WSL kullanın\n  \
                  = not: 'volt build' ve 'volt check' SymbiYosys gerektirmez\n  \
                  = daha fazla: volt explain verify-setup"
         )
     );
 }
 
-/// `sby` çalıştırılabilir dosyası: önce VOLT_SBY, sonra PATH (tek
-/// kaynak `volt-tools`, ADR-0084).
-fn find_sby() -> Option<PathBuf> {
-    volt_tools::find(volt_tools::Tool::Sby)
+/// `sby`: önce VOLT_SBY, sonra PATH (tek kaynak `volt-tools`,
+/// ADR-0084), yoksa Docker (ADR-0094); hiçbiri yoksa kurulum yardımı.
+fn find_sby() -> Result<Runner, ExitCode> {
+    crate::tool_backend::resolve(volt_tools::Tool::Sby, &print_sby_not_found)
+}
+
+/// Başlatılan program (hata iletisi): yerel sby ya da docker.
+fn runner_program(runner: &Runner) -> &Path {
+    match runner {
+        Runner::Local(path) => path,
+        Runner::Docker(tool) => &tool.docker,
+    }
 }
 
 /// sby log metnini özetler. Statü `DONE (PASS/FAIL/...)` satırından,

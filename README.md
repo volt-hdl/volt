@@ -373,9 +373,18 @@ else. Optional external tools:
 
 - **Verilator** for `volt run` and `volt test`
 - **SymbiYosys** (with Yosys and z3, boolector or yices) for `volt verify`
-- On **Windows**, run both through WSL or Docker (`verilator/verilator`,
-  `hdlc/formal`); `volt explain simulation-setup` and `volt explain
-  verify-setup` print the setup guides
+- **Or just Docker** (Docker Desktop on Windows and macOS): when Verilator
+  or sby is not installed and the Docker daemon is running, Volt runs it in
+  a digest-pinned image by itself (`verilator/verilator:v5.052`,
+  `hdlc/formal:all`) and says so in one line. The first run downloads the
+  image (~250 MB for simulation, ~404 MB for formal; Volt prints the size
+  before and the time after). Paths in the output stay host paths; on Linux
+  the files are yours, not root's. `VOLT_TOOL_BACKEND=local` turns this off,
+  `=docker` forces it. On Windows the whole setup is: download `volt`,
+  start Docker Desktop, `volt new demo`, `volt test`.
+
+`volt doctor` shows which way each command will run; `volt explain
+simulation-setup` and `volt explain verify-setup` print the setup guides.
 
 ## Getting started
 

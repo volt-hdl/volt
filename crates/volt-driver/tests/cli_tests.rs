@@ -934,11 +934,15 @@ fn verify_without_sby_prints_install_help_exit_3() {
         stderr.contains("apt install yosys boolector, then pip install symbiyosys"),
         "stderr: {stderr}"
     );
+    // ADR-0094: docker de yoksa kurulum yardımı Docker köprüsünü önerir.
     assert!(
-        stderr.contains("docker pull hdlc/formal"),
+        stderr.contains("Volt then runs sby in hdlc/formal:all"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("use WSL or Docker"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("install Docker Desktop (Volt then runs sby in a container) or use WSL"),
+        "stderr: {stderr}"
+    );
     assert!(
         stderr.contains("'volt build' and 'volt check' do not need SymbiYosys"),
         "stderr: {stderr}"
@@ -1306,10 +1310,12 @@ fn explain_verify_setup_topic_exit_0() {
         stdout.contains("pip install symbiyosys"),
         "stdout: {stdout}"
     );
+    // ADR-0094: elle Docker tarifi yerine otomatik köprü.
     assert!(
-        stdout.contains("docker pull hdlc/formal"),
+        stdout.contains("running it in Docker (hdlc/formal:all)"),
         "stdout: {stdout}"
     );
+    assert!(stdout.contains("VOLT_TOOL_BACKEND"), "stdout: {stdout}");
     assert!(stdout.contains("VOLT_SBY"), "stdout: {stdout}");
     // ADR-0082: varsayılan çözücü ve seçim yolu.
     assert!(stdout.contains("boolector (default)"), "stdout: {stdout}");
@@ -1329,7 +1335,8 @@ fn explain_verify_setup_turkish() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("KURULUM"), "stdout: {stdout}");
-    assert!(stdout.contains("WSL ya da Docker"), "stdout: {stdout}");
+    assert!(stdout.contains("Docker Desktop kurun"), "stdout: {stdout}");
+    assert!(stdout.contains("DOCKER"), "stdout: {stdout}");
     assert!(
         stdout.contains("boolector (varsayılan)"),
         "stdout: {stdout}"

@@ -8,10 +8,15 @@
 //! dersi: kopyalar ayrışır).
 //!
 //! Arama sırası: aracın ortam değişkeni (`VOLT_VERILATOR`, `VOLT_SBY`,
-//! `CC`, `CXX`) — dosya yolu ya da `PATH`'teki ad — sonra adaylar
+//! `VOLT_DOCKER`, `CC`, `CXX`) — dosya yolu ya da `PATH`'teki ad — sonra adaylar
 //! `PATH`'te sırayla. Değişken bulunamayan bir yolu gösterirse arama
 //! `PATH`'e düşer (eski davranış).
+//!
+//! `docker`/`docker_paths`: eksik Verilator/sby'yi sabitlenmiş imajda
+//! koşturan köprünün dil bağımsız mekanizması (ADR-0094).
 
+pub mod docker;
+pub mod docker_paths;
 mod probe;
 
 pub use probe::{probe_version, Probe, DEFAULT_TIMEOUT};
@@ -83,6 +88,7 @@ impl Tool {
         match self {
             Tool::Verilator => Some("VOLT_VERILATOR"),
             Tool::Sby => Some("VOLT_SBY"),
+            Tool::Docker => Some("VOLT_DOCKER"),
             Tool::Cc => Some("CC"),
             Tool::Cxx => Some("CXX"),
             _ => None,

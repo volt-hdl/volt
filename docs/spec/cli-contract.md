@@ -3,7 +3,7 @@
 > STATÜ: BAĞLAYICI
 > İlgili: UX Anayasası, `error-recovery.md`
 > Aşama: F0'dan itibaren — CI için ÖNKOŞUL
-> Karar kayıtları: ADR-0021 (çıkış kodları §2, `build/` dizini §4, stdout/stderr §11), ADR-0004 (`--lang` §3, tanı biçimi §5), ADR-0015 (determinizm İ3, `--release` planı), ADR-0019 (E9001), ADR-0022 (E7001/E7002), ADR-0063 (`check-regmap` §6a, E9003/E9004), ADR-0084 (`doctor` §9a, `new`/`init` §9b, araç keşfi §10)
+> Karar kayıtları: ADR-0021 (çıkış kodları §2, `build/` dizini §4, stdout/stderr §11), ADR-0004 (`--lang` §3, tanı biçimi §5), ADR-0015 (determinizm İ3, `--release` planı), ADR-0019 (E9001), ADR-0022 (E7001/E7002), ADR-0063 (`check-regmap` §6a, E9003/E9004), ADR-0084 (`doctor` §9a, `new`/`init` §9b, araç keşfi §10), ADR-0094 (Docker köprüsü §8b, §9a, §10)
 
 ---
 
@@ -75,7 +75,9 @@ KOD  ANLAM                          NE ZAMAN
 
 Uyarılar çıkış kodunu ETKİLEMEZ (--deny-warnings hariç).
 Eksik dış araç (Verilator, sby) 3'tür: `volt test`/`run`/`verify` ve
-`volt doctor --strict` (ADR-0084 §3).
+`volt doctor --strict` (ADR-0084 §3). Docker köprüsünün hataları da 3'tür
+(daemon kapalı, imaj indirilemedi, konteyner belleği yetmedi); geçersiz
+`VOLT_TOOL_BACKEND` değeri 2'dir (ADR-0094, §8b).
 `volt verify`'da birden çok görev farklı sonuçla biterse öncelik
 6 > 3 > 8 > 7 (ADR-0075: en kesin ve en eyleme dönük sonuç baskın).
 ```
@@ -764,6 +766,77 @@ sınır − başlangıç; + koşum ofseti 3).
 
 ---
 
+## 8b. Docker köprüsü — `test`, `run`, `verify` (ADR-0094)
+
+Verilator (`test`, `run`) ya da sby (`verify`) yerelde bulunamazsa (§10
+araması) ve Docker daemon'u çalışıyorsa araç sabitlenmiş imajda koşar.
+Yerel araç bulunduğunda hiçbir şey değişmez: çıktı bayt bayt aynıdır.
+
+| Komut | İmaj (özetiyle sabit) | İçerik | İndirme |
+|---|---|---|---|
+| test, run | `verilator/verilator:v5.052` | Verilator 5.052, g++ 13.3, make | ~250 MB |
+| verify | `hdlc/formal:all` | Yosys 0.66, SBY 0.69, boolector, yices, z3 (bitwuzla yok) | ~404 MB |
+
+**Tek satırlık bilgi (stderr, sessiz geçiş yok):**
+
+```
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
+note: VOLT_TOOL_BACKEND=docker; running Verilator in Docker (verilator/verilator:v5.052)
+```
+
+Komut başına bir kez basılır (`volt test`'in bütün grupları için bir).
+İmaj yerelde yoksa önce boyut, sonra süre:
+
+```
+note: downloading verilator/verilator:v5.052 (~250 MB, first use only; this can take several minutes)
+note: downloaded verilator/verilator:v5.052 in 8m 37s
+```
+
+**Seçim** — `VOLT_TOOL_BACKEND`:
+
+| Değer | Davranış |
+|---|---|
+| `auto` (varsayılan, boş) | yerel araç, yoksa Docker |
+| `local` | yalnız yerel araç; Docker hiç çağrılmaz |
+| `docker` | yerel araç kurulu olsa da Docker |
+| başka | kullanım hatası, çıkış 2 |
+
+**Ne konteynerde koşar:** yalnız araç — Verilator derlemesi ve üretilen
+simülasyon (`test`/`run`, grup başına iki kısa konteyner, sırayla), `sby -j
+N` (`verify`, TEK konteyner, işler onun içinde). Derleme, testbench/SV/sby
+dosyalarının yazımı, sonuçların yorumu ve GTKWave oturumu ana makinededir.
+Aynı anda en fazla bir konteyner çalışır. `--fail-fast` sby'yi keserken
+konteyneri de durdurur (`docker rm -f`). Konteyner ağsızdır
+(`--network none`).
+
+**Yollar:** konteynere yalnız aracın çalışma dizini bağlanır (`build/sim/
+<ad>/` ya da `build/formal/`; `run --vcd` için VCD'nin dizini de). Unix'te
+konteyner yolu ana makine yoluyla aynıdır; Windows'ta `C:\x\y` →
+`/volt/c/x/y`. Tanılarda, araç günlüğü satırlarında, `Waveform` satırında,
+karşı örnek ve oturum dosyalarında görünen her yol ana makine yoludur;
+konteyner yolu kullanıcıya sızmaz. Yeniden koşturma ipucu Docker'da
+günlük dosyasını gösterir (`build/sim/<ad>/verilator.log`,
+`build/formal/<iş>_<görev>/logfile.txt`).
+
+**Sahiplik:** Linux'ta konteyner, Volt'un oluşturduğu çıktı dizininin
+sahibiyle (`--user uid:gid`) koşar; üretilen dosyalar kök'e değil
+kullanıcıya aittir. Windows/macOS Docker Desktop bağlı dosyaları zaten
+kullanıcıya yazar.
+
+**Hatalar** (hepsi çıkış 3):
+
+| Durum | İleti |
+|---|---|
+| docker yok (`auto`) | eski "Verilator/SymbiYosys not found" kurulum yardımı (Windows satırı Docker Desktop'ı önerir) |
+| docker yok (`docker`) | `error: VOLT_TOOL_BACKEND=docker, but docker was not found` |
+| daemon kapalı / yanıtsız (10 sn) | `error: Verilator not found locally, and Docker is installed but its daemon is not running` + "start Docker Desktop" |
+| imaj indirilemedi | `error: could not download the Docker image <ad>` + Docker'ın son satırı + `docker pull <başvuru>` |
+| bellek yetmedi (137) | `error: the Docker container ran out of memory (exit code 137)` + Docker Desktop bellek ayarı / `-j` |
+| konteyner başlamadı (125) | `error: docker could not start the container (exit code 125; ...)` |
+
+---
+
 ## 9. `volt explain`
 
 UX Anayasası'nın "= daha fazla" satırının hedefi:
@@ -840,6 +913,23 @@ volt doctor [--format human|json] [--strict] [--timeout <sn>]
 | timing | — | — | OpenSTA (`sta`) |
 | driver checks | — | — | cc, rustc |
 | docker | — | — | docker + çalışan daemon |
+
+Docker köprüsü (ADR-0094, §8b): birincil araç (Verilator, sby) yerelde
+yoksa (ya da `VOLT_TOOL_BACKEND=docker`) ve daemon çalışıyorsa yetenek
+Docker üzerinden TAMDIR (`✓`, `--strict` 0) ve satır hangi imajla
+çalışacağını söyler; imaj henüz yoksa ilk kullanımdaki indirme boyutu
+alt satırdadır. `VOLT_TOOL_BACKEND=local` bu yolu kapatır:
+
+```
+✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)
+    image not downloaded yet: ~250 MB on first use
+✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
+    (bitwuzla is not in this image; --engine boolector|yices|z3, ADR-0082)
+```
+
+JSON'da her yeteneğe `backend` (`"local"`, `"docker"` ya da eksikse
+`null`; köprüsüz yetenekte `null`), `image` (başvuru `ad@sha256:…` ya da
+`null`) ve `image_present` (`true`/`false`/`null`) eklenir.
 
 Ek olarak proje bağlamı: `Volt.toml` kökü (ADR-0061 araması) ve WSL'de
 `/mnt/<sürücü>` altında çalışma uyarısı.
@@ -964,6 +1054,8 @@ NO_COLOR=1              Renk kapalı (standart)
 CI=true                 CI modu: renksiz, ilerleme çubuğu yok
 VOLT_VERILATOR=<yol|ad> Verilator (test, run, doctor) — PATH'ten önce
 VOLT_SBY=<yol|ad>       sby (verify, doctor) — PATH'ten önce
+VOLT_DOCKER=<yol|ad>    docker (test, run, verify, doctor) — PATH'ten önce (ADR-0094)
+VOLT_TOOL_BACKEND=<k>   auto | local | docker — araç nerede koşar (§8b, ADR-0094)
 CC / CXX                C / C++ derleyicisi (doctor)
 VOLT_REQUIRE_TOOLS=<l>  Araç bağımlı testlerde listedeki araç yoksa DÜŞ (ADR-0079 §3)
 ```
