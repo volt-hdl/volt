@@ -817,7 +817,8 @@ konteyner yolu ana makine yoluyla aynıdır; Windows'ta `C:\x\y` →
 karşı örnek ve oturum dosyalarında görünen her yol ana makine yoludur;
 konteyner yolu kullanıcıya sızmaz. Yeniden koşturma ipucu Docker'da
 günlük dosyasını gösterir (`build/sim/<ad>/verilator.log`,
-`build/formal/<iş>_<görev>/logfile.txt`).
+`build/formal/<iş>_<görev>/logfile.txt`; sby'nin bu günlükleri de ana
+makine yoluna çevrilir).
 
 **Sahiplik:** Linux'ta konteyner, Volt'un oluşturduğu çıktı dizininin
 sahibiyle (`--user uid:gid`) koşar; üretilen dosyalar kök'e değil

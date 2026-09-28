@@ -196,11 +196,37 @@ pub(crate) fn run_sby_tasks(
         }
     }
     let exit_code = child.wait().ok().and_then(|s| s.code());
+    if launch.container.is_some() {
+        translate_task_logs(cfg.cwd, tasks, &launch.mounts);
+    }
     Ok(RunReport {
         tasks: results,
         global_log,
         exit_code,
     })
+}
+
+/// Docker'da sby'nin kendi yazdığı günlükler (`logfile.txt`, JUnit
+/// `.xml`) konteyner yolu taşır; hata ipucu kullanıcıyı `logfile.txt`'ye
+/// yönlendirdiği için ana makine yoluna çevrilir (ADR-0094 §2.3).
+fn translate_task_logs(cwd: &Path, tasks: &[TaskSpec], mounts: &Mounts) {
+    for task in tasks {
+        let Ok(entries) = std::fs::read_dir(cwd.join(&task.workdir)) else {
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            let is_log = path.extension().is_some_and(|e| e == "txt" || e == "xml");
+            if !is_log {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let host = mounts.host_text(&text);
+                if host != text {
+                    let _ = std::fs::write(&path, host);
+                }
+            }
+        }
+    }
 }
 
 /// Başlatılacak sby süreci: yerelde `sby`, Docker'da `docker run ... sby`.

@@ -479,6 +479,14 @@ fn verify_runs_sby_once_in_one_named_container() {
          SBY 16:34:39 [ctr_ctr] DONE (PASS, rc=0)\n",
         container_of(&formal)
     ));
+    // sby'nin kendi günlüğü (sahte docker yazmaz; önceden konur).
+    let workdir = formal.join("ctr_ctr");
+    std::fs::create_dir_all(&workdir).expect("görev dizini");
+    std::fs::write(
+        workdir.join("logfile.txt"),
+        format!("SBY Copy '{}/ctr.sv'\n", container_of(&formal)),
+    )
+    .expect("günlük");
     let out = env
         .cmd(&["verify", "ctr.volt", "-j", "4"])
         .env("FAKE_DOCKER_RUN_OUT", &out_file)
@@ -501,6 +509,14 @@ fn verify_runs_sby_once_in_one_named_container() {
         "{run}"
     );
     assert!(run.ends_with("sby -j 4 -f ctr.sby"), "{run}");
+    let log = std::fs::read_to_string(workdir.join("logfile.txt")).expect("günlük");
+    let sv = formal.join("ctr.sv");
+    let expected = if cfg!(windows) {
+        sv.display().to_string()
+    } else {
+        container_of(&sv)
+    };
+    assert_eq!(log, format!("SBY Copy '{expected}'\n"));
 }
 
 #[test]

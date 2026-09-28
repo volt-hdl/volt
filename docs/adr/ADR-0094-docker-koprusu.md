@@ -152,7 +152,10 @@ kullanıcıya basılan `Waveform` satırı ve oturum dosyası ana makinede,
 eskisi gibi göreli yazılır (ADR-0092). Yeniden koşturma ipucu Docker'da
 günlük dosyasını gösterir (`build/sim/<ad>/verilator.log` — Docker'da tam
 günlük yazılır; `build/formal/<iş>_<görev>/logfile.txt`), çünkü tarif
-edilen yerel komut o makinede yoktur. Konteyner ağsızdır (`--network
+edilen yerel komut o makinede yoktur. sby'nin konteynerde yazdığı
+günlükler (`logfile.txt`, JUnit `.xml`) koşu bitince aynı çeviriden
+geçirilir — ilk Windows koşusunda yakalanan sızıntı (bu dosyalarda
+`/volt/c/...` kalıyordu). Konteyner ağsızdır (`--network
 none`), `--init` sinyal/zombi yönetimi içindir, `HOME=/tmp`.
 
 ### 2.4 Dosya sahipliği
@@ -213,15 +216,21 @@ ile kaldırılır.
 
 ## 3. Doğrulama
 
-**Windows (2026-09-28, Docker Desktop 29.7.2, PATH'te Verilator/sby YOK),
-depo dışında boş klasörde:**
+**Windows (2026-09-28, Docker Desktop 29.7.2, PATH'te Verilator/sby YOK):**
+yerel `cargo build --profile dist` ikilisi (sürüm arşiviyle aynı profil)
+depo dışında boş bir klasöre kopyalandı; PATH yalnız o klasör + Docker +
+System32:
 
-- `volt new demo --template cdc`; `volt test` → bilgi satırı, imaj yoktu:
-  `downloading verilator/verilator:v5.052 (~250 MB …)`, `downloaded … in
-  8m 37s`; 3/3 test ok, cover özeti, çıkış 0. İmaj varken aynı koşu ~18 sn.
-- `volt verify event_counter.volt` → `note: SymbiYosys not found locally;
-  running it in Docker (hdlc/formal:all)`, 1/1 ok, 2,8 sn, çıkış 0.
-  `hdlc/formal:all` ilk indirmesi (aynı `docker pull`) 11 dk 51 sn.
+- `volt doctor` → `✓ test, run — via Docker (…)`, `✓ verify — via Docker
+  (…)` + `image not downloaded yet: ~404 MB on first use`.
+- `volt new demo --template cdc`; `volt test` → tek bilgi satırı, 3/3 ok,
+  cover özeti, çıkış 0, 9,9 sn (imaj hazır). Verilator imajının ilk
+  indirmesi aynı senaryonun debug ikiliyle önceki koşusunda:
+  `downloaded verilator/verilator:v5.052 in 8m 37s`.
+- `volt verify event_counter.volt` (formal imajı önceden silindi) →
+  `downloading hdlc/formal:all (~404 MB …)`, `downloaded hdlc/formal:all
+  in 12m 03s`, 1/1 ok, çıkış 0; imaj varken 2,8 sn. (Bu bağlantı ~0,5
+  MB/sn; CI runner'ında aynı indirmeler 10,3 sn ve 15,3 sn.)
 - `examples/uart_tx.volt`: `volt run --cycles 60 --vcd waves/uart.vcd` →
   `Waveform gtkwave waves/uart.vcd waves/uart.gtkw`; iki dosya ana
   makinede, oturum `[dumpfile] "waves/uart.vcd"`.
@@ -243,14 +252,20 @@ değer 2, zorlanmış `docker`, indirme boyutu→süre sırası, indirme hatası
 adlı konteyner `sby -j 4`, Docker'da araç hatası günlük ipucu, doctor
 (insan + JSON, imaj yokken boyut, `local`).
 
-**Linux (CI `docker-backend` işi):** araçsız runner'da
+**Linux (CI `docker-backend` işi, PR #65 ilk koşu yeşil, 1 dk 36 sn):** araçsız runner'da
 `docker_e2e_tests` (`VOLT_DOCKER_E2E=1`) gerçek imajlarla `new → test →
 verify` ve uart_tx `run --vcd`; üretilen her dosyanın sahibi runner
 kullanıcısı (test içinde ve ayrıca `find ! -user` adımı).
 
-**Mutasyon (tek tek, sonra geri alındı):** bkz. PR açıklaması —
-yol çevirisini bozmak, `--user`'ı kaldırmak, bilgi satırını susturmak
-testlerce yakalandı.
+**Mutasyon (tek tek, sonra geri alındı):**
+
+| Mutasyon | Yakalayan |
+|---|---|
+| `Mounts::host_text` kimlik | 2 birim testi + `verilator_errors_are_reported_with_host_paths` (Windows) |
+| `--user` eklenmez (`volt-tools`) | `run_arguments_are_stable_and_carry_user_name_and_entrypoint` |
+| `owner_of` sonucu atılır (sürücü) | Linux'ta `test_in_docker_runs_as_the_owner_of_the_output_dir` (volt-eng konteynerinde koşuldu; mutasyonsuz 16/16) |
+| bilgi satırı basılmaz | 4 entegrasyon testi |
+| sby günlük çevirisi kapalı | `verify_runs_sby_once_in_one_named_container` |
 
 **Golden:** yerel araç bulunduğunda `tool_backend` hiçbir şey basmaz ve
 `Command` yereldekiyle aynı kurulur (Verilator argümanları `args()`'tan,
