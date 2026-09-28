@@ -4,22 +4,27 @@
 (tanılar, quick fix, inlay ipuçları, hover, otomatik tamamlama, tanıma
 gitme, outline).
 
-Uzantı **yayınlanmaz** — yalnızca yerel kurulum içindir.
+Uzantı VS Code Marketplace'te **yayınlanmaz**; her GitHub sürümüne
+`volt-hdl-<sürüm>.vsix` olarak eklenir (ADR-0093).
 
 ## Gereksinimler
 
-- `volt` çalıştırılabilir dosyası `PATH` üzerinde olmalı
-  (`cargo build --release` sonrası `target/release/volt`), ya da
+- `volt` çalıştırılabilir dosyası `PATH` üzerinde olmalı (sürüm arşivi ya
+  da `cargo build --release` sonrası `target/release/volt`), ya da
   `volt.serverPath` ayarıyla tam yol verilmeli.
-- Node.js 18+ ve npm.
 
-## Yerel kurulum
+## Sürümden kurulum
+
+Releases sayfasından `volt-hdl-<sürüm>.vsix` indirip
+`code --install-extension volt-hdl-<sürüm>.vsix` (ya da Extensions
+görünümü → `...` → *Install from VSIX...*).
+
+## Kaynaktan paketleme (Node.js 18+ ve npm)
 
 ```sh
 cd editors/vscode
-npm install
-npm run compile          # TypeScript → out/extension.js
-npx @vscode/vsce package # volt-hdl-0.1.0.vsix üretir
+npm ci
+npx vsce package         # derler (vscode:prepublish) ve volt-hdl-0.1.0.vsix üretir
 code --install-extension volt-hdl-0.1.0.vsix
 ```
 

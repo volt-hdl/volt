@@ -314,6 +314,46 @@ Full comparison with sources:
 
 ## Installation
 
+### Prebuilt binaries
+
+Every release on the [Releases](https://github.com/volt-hdl/volt/releases)
+page has one archive per platform: Windows x86_64 (`.zip`), Linux x86_64
+(`.tar.gz`, static, any distribution), macOS Apple silicon and macOS Intel
+(`.tar.gz`). Each holds the single `volt` binary, the two license files and
+a short README. Unpack it and put `volt` on your `PATH`:
+
+```console
+$ tar -xzf volt-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+$ sudo mv volt-v0.1.0-x86_64-unknown-linux-musl/volt /usr/local/bin/
+$ volt --version
+volt 0.1.0
+```
+
+On Windows, unpack the `.zip` and add the folder to `PATH` (Settings →
+"Edit environment variables for your account"). The binary needs no Rust,
+no Visual C++ runtime and no other file: templates and `volt explain` texts
+are built in.
+
+The binaries are not code-signed:
+
+- **Windows SmartScreen** may say "Windows protected your PC": choose
+  **More info → Run anyway** (once per binary).
+- **macOS** blocks a downloaded binary ("cannot be opened because the
+  developer cannot be verified"): remove the quarantine flag with
+  `xattr -d com.apple.quarantine volt`.
+
+To check a download, compare it with `SHA256SUMS` (`sha256sum -c
+SHA256SUMS --ignore-missing`) or verify GitHub's build provenance: `gh
+attestation verify volt-v0.1.0-<target>.tar.gz -R volt-hdl/volt`.
+
+**VS Code:** download `volt-hdl-<version>.vsix` from the same release and
+install it with `code --install-extension volt-hdl-<version>.vsix` (or
+Extensions view → `...` → *Install from VSIX...*). The extension starts the
+language server as `volt lsp`, so `volt` must be on `PATH`; otherwise set
+`volt.serverPath` to the full path of the binary.
+
+### From source
+
 ```console
 $ git clone https://github.com/volt-hdl/volt
 $ cd volt
@@ -324,8 +364,12 @@ $ ./target/release/volt build tests/fixtures/counter.volt
      Output build\rtl\Counter.sv (35 lines)
 ```
 
-Requires stable Rust. `volt build`, `volt check`, `volt explain` and
-`volt lsp` need nothing else. Optional external tools:
+Requires stable Rust.
+
+### External tools
+
+`volt build`, `volt check`, `volt explain` and `volt lsp` need nothing
+else. Optional external tools:
 
 - **Verilator** for `volt run` and `volt test`
 - **SymbiYosys** (with Yosys and z3, boolector or yices) for `volt verify`

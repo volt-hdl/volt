@@ -109,6 +109,20 @@ fn usage_error_exit_2() {
     assert_eq!(output.status.code(), Some(2));
 }
 
+/// ADR-0093: the release workflow compares the tag with the Cargo version
+/// and the archive smoke test with `volt --version`; both must be one number.
+#[test]
+fn version_flag_prints_the_cargo_package_version() {
+    let output = volt().arg("--version").output().expect("volt çalışmalı");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.trim(),
+        format!("volt {}", env!("CARGO_PKG_VERSION")),
+        "volt_sv_emit::VOLT_VERSION Cargo.toml [workspace.package] version ile aynı olmalı"
+    );
+}
+
 #[test]
 fn check_counter_exit_0() {
     let output = volt()
