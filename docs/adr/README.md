@@ -173,6 +173,7 @@ denetler.
 | [0060](ADR-0060-test-sabit-yayilimi.md) | Test Bloğunda Sabit Yayılımı | Sabit `let` ve literal `const` değerleri E8512 denetimine derleme zamanında ulaşır. | Uygulandı |
 | [0064](ADR-0064-simulasyonda-kontratlar.md) | Simülasyonda Kontratlar — İzleyici Olarak `volt test` | `volt test` kontratları izleyici olarak çalıştırır; assume ihlali testi düşürür, cover özeti basılır. | Uygulandı |
 | [0089](ADR-0089-volt-test-proje-kesfi.md) | `volt test` — Proje Kökünden Özyinelemeli Test Keşfi | `volt test` testleri proje kökünden özyinelemeli olarak keşfeder. | Uygulandı |
+| [0092](ADR-0092-dalga-formunda-enum-adlari.md) | Dalga Formunda Enum ve Trit Adları — GTKWave Oturumu ve Çeviri Tabloları | `volt run --vcd` ve `volt verify` karşı örneği enum/Trit sinyallerini adlarıyla gösteren bir GTKWave oturumu yazar; RTL değişmez. | Uygulandı |
 
 ## SV üretimi
 

@@ -14,6 +14,7 @@ use super::contracts::{
 use super::verilator::{c_path, require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::waves::{self, Session, WaveScope};
 use crate::{render_diagnostics, Compiled, OutputFormat};
 
 /// `volt run` seçenekleri (cli-contract.md §7).
@@ -99,7 +100,12 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
     } else {
         ExitCode::SUCCESS
     };
-    print_finished(file, vcd, start);
+    // Enum/Trit adları için GTKWave oturumu (ADR-0092).
+    let wave = vcd.map(|p| {
+        let session = waves::write_or_warn(p, &compiled.waves, &module_name, WaveScope::Simulation);
+        (p, session)
+    });
+    print_finished(file, wave, start);
     Ok(code)
 }
 
@@ -249,13 +255,15 @@ fn absolute_vcd(vcd: &Path) -> PathBuf {
 }
 
 /// Kapanış satırları: dalga formu, süre ve bağlama göre sonraki adım.
-fn print_finished(file: &Path, vcd: Option<&Path>, start: Instant) {
-    if let Some(vcd_path) = vcd {
+fn print_finished(file: &Path, wave: Option<(&Path, Session)>, start: Instant) {
+    let vcd = wave.as_ref().map(|(p, _)| *p);
+    if let Some((vcd_path, session)) = &wave {
+        let hint = waves::open_hint(vcd_path, session);
         eprintln!(
             "{}",
             lstr!(
-                en: "    Waveform {}", vcd_path.display();
-                tr: "  Dalga formu {}", vcd_path.display()
+                en: "    Waveform {hint}";
+                tr: "  Dalga formu {hint}"
             )
         );
     }

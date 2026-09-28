@@ -28,6 +28,7 @@ pub const TOPIC_NAMES: &[&str] = &[
     "stdlib",
     "verify-setup",
     "simulation-setup",
+    "waveforms",
 ];
 
 /// `volt explain --topics` — konu adı + tek satır özet listesi.
@@ -59,6 +60,8 @@ pub fn render_topic_list(lang: Lang) -> String {
             ("verify-setup", Lang::Tr) => "'volt verify' için SymbiYosys kurulumu",
             ("simulation-setup", Lang::En) => "installing Verilator for 'volt run'",
             ("simulation-setup", Lang::Tr) => "'volt run' için Verilator kurulumu",
+            ("waveforms", Lang::En) => "recording waveforms; enum names in GTKWave",
+            ("waveforms", Lang::Tr) => "dalga formu kaydı; GTKWave'de enum adları",
             _ => "",
         };
         out.push_str(&format!("  {name:<18} {summary}\n"));
@@ -259,6 +262,112 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 ),
             ],
             more: &["https://volthdl.org/guide/simulation-setup"],
+        }),
+        ("waveforms", Lang::En) => Some(Topic {
+            title: "Waveforms",
+            summary: "How Volt records waveforms, where the files go, and how enum and \
+                      Trit signals show their names instead of raw codes (ADR-0092).",
+            sections: &[
+                (
+                    "RECORD",
+                    "  volt run --vcd waves.vcd design.volt   simulation (Verilator)\n\
+                     \x20 volt verify design.volt                a failing contract's counterexample\n\n\
+                     'volt run' writes the VCD where --vcd points. 'volt verify' copies a \
+                     counterexample to build/formal/<task>_cex.vcd and, in --mode prove, \
+                     the induction trace of an unproven contract to \
+                     build/formal/<task>_induct.vcd. 'volt test' does not record waveforms.",
+                ),
+                (
+                    "OPEN",
+                    "Both commands print one line that opens the waveform:\n\n\
+                     \x20 Waveform gtkwave waves.vcd waves.gtkw\n\n\
+                     Any VCD viewer (gtkwave, surfer) opens the .vcd itself; the .gtkw \
+                     session and its translate tables are GTKWave files.",
+                ),
+                (
+                    "ENUM NAMES",
+                    "A VCD has no enum type: a state register shows its code, 01 instead of \
+                     Start. When the design has enum or Trit signals, Volt writes a GTKWave \
+                     session next to the VCD (waves.gtkw) and one translate table per enum \
+                     (waves.filters/<Enum>.txt). The session lists every enum- and Trit-typed \
+                     signal of the top module and of every instance below it (ports, \
+                     registers, wires, lets that become wires, struct fields such as req_kind, instance outputs \
+                     such as u_state) and shows each through its table: Idle, Start, Data, \
+                     Stop; a Trit as +1, 0, -1.\n\n\
+                     The generated SystemVerilog does not change. A design without enums or \
+                     Trits gets no extra files, and a waves.gtkw that Volt did not write is \
+                     left unchanged.",
+                ),
+                (
+                    "INVALID CODES",
+                    "A code that belongs to no variant (3 in a three-state enum, 10 in a \
+                     Trit) is shown in red as 'invalid 3' ('invalid -2'). Tables list every \
+                     code up to 8 bits; the unused codes of a wider enum show as the raw \
+                     binary value.",
+                ),
+                (
+                    "LIMITS",
+                    "Arrays of Trit are packed vectors: their elements have no names of their \
+                     own, so they are not translated. The session names its files as \
+                     Volt was given them; GTKWave resolves a relative path against its \
+                     working directory, not the session's, so run the printed command from \
+                     the directory you ran Volt in (inside Docker too). From elsewhere the \
+                     signals load but show raw codes.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/waveforms"],
+        }),
+        ("waveforms", Lang::Tr) => Some(Topic {
+            title: "Dalga formları",
+            summary: "Volt dalga formunu nasıl kaydeder, dosyalar nereye gider ve enum ile \
+                      Trit sinyalleri ham kod yerine adlarını nasıl gösterir (ADR-0092).",
+            sections: &[
+                (
+                    "KAYIT",
+                    "  volt run --vcd dalga.vcd tasarim.volt   simülasyon (Verilator)\n\
+                     \x20 volt verify tasarim.volt                bozulan kontratın karşı örneği\n\n\
+                     'volt run' VCD'yi --vcd'nin gösterdiği yere yazar. 'volt verify' karşı \
+                     örneği build/formal/<görev>_cex.vcd dosyasına, --mode prove'da \
+                     kanıtlanamayan kontratın tümevarım izini build/formal/<görev>_induct.vcd \
+                     dosyasına kopyalar. 'volt test' dalga formu kaydetmez.",
+                ),
+                (
+                    "AÇMA",
+                    "İki komut da dalga formunu açan tek bir satır basar:\n\n\
+                     \x20 Dalga formu gtkwave dalga.vcd dalga.gtkw\n\n\
+                     .vcd'yi her VCD görüntüleyici (gtkwave, surfer) açar; .gtkw oturumu ve \
+                     çeviri tabloları GTKWave dosyalarıdır.",
+                ),
+                (
+                    "ENUM ADLARI",
+                    "VCD'de enum tipi yoktur: durum register'ı kodunu gösterir, Start yerine \
+                     01. Tasarımda enum ya da Trit sinyali varsa Volt VCD'nin yanına bir \
+                     GTKWave oturumu (dalga.gtkw) ve enum başına bir çeviri tablosu \
+                     (dalga.filters/<Enum>.txt) yazar. Oturum üst modülün ve altındaki her \
+                     örneğin enum ve Trit tipli bütün sinyallerini (portlar, register'lar, \
+                     wire'lar, tel olan let'ler, req_kind gibi struct alanları, u_state gibi örnek \
+                     çıkışları) listeler ve her birini tablosundan gösterir: Idle, Start, \
+                     Data, Stop; Trit'i +1, 0, -1 olarak.\n\n\
+                     Üretilen SystemVerilog değişmez. Enum ya da Trit kullanmayan tasarımda \
+                     ek dosya üretilmez; Volt'un yazmadığı bir dalga.gtkw'ye dokunulmaz.",
+                ),
+                (
+                    "GEÇERSİZ KODLAR",
+                    "Hiçbir varyanta ait olmayan kod (üç durumlu enum'da 3, Trit'te 10) \
+                     kırmızı 'invalid 3' ('invalid -2') olarak görünür. Tablolar 8 bite kadar \
+                     her kodu listeler; daha geniş bir enum'un kullanılmayan kodları ham \
+                     ikili değer olarak görünür.",
+                ),
+                (
+                    "SINIRLAR",
+                    "Trit dizileri paketlenmiş vektördür: elemanlarının kendi adı olmadığı \
+                     için çevrilmezler. Oturum dosyaları Volt'a verildiği gibi adlandırır; \
+                     GTKWave göreli yolu oturumun değil kendi çalışma dizinine göre çözer, \
+                     bu yüzden basılan komutu Volt'u koştuğunuz dizinden çalıştırın (Docker'da \
+                     da). Başka bir dizinden sinyaller yüklenir ama ham kod gösterir.",
+                ),
+            ],
+            more: &["https://volthdl.org/guide/waveforms"],
         }),
         ("getting-started", Lang::En) => Some(Topic {
             title: "Your first Volt design",

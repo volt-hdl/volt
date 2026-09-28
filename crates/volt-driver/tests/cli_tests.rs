@@ -1488,6 +1488,7 @@ fn explain_topics_lists_all_topics_exit_0() {
         "stdlib",
         "verify-setup",
         "simulation-setup",
+        "waveforms",
     ] {
         assert!(stdout.contains(topic), "eksik konu: {topic}\n{stdout}");
     }

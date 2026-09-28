@@ -20,6 +20,7 @@ mod verify;
 mod verify_depth;
 mod verify_jobs;
 mod verify_report;
+mod waves;
 
 use volt_hir::unit_load as unit;
 
@@ -743,6 +744,9 @@ struct Compiled {
     /// `@source`'lu extern modüllerin çözülmüş SV dosyaları (ADR-0076) —
     /// `run`/`test`/`verify` bunları araca üretilen SV ile birlikte verir.
     extern_sources: Vec<volt_hir::ExternSourceFile>,
+    /// Enum/Trit sinyalleri — dalga formu oturumu (ADR-0092); `sv` ile
+    /// aynı koşulda dolu.
+    waves: volt_sv_emit::WaveInfo,
 }
 
 impl Compiled {
@@ -843,6 +847,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         regmaps: Vec::new(),
         constraints: Default::default(),
         extern_sources: Vec::new(),
+        waves: Default::default(),
     };
     if count_errors(&diagnostics) > 0 {
         return Ok(fail(map, diagnostics, parsed.ast));
@@ -890,7 +895,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     diagnostics.extend(emitted.diagnostics);
     // Açılmış `for` yinelemelerine düşen tanılara bağlam notu (ADR-0056).
     let diagnostics = volt_hir::annotate_generate(&parsed.ast, diagnostics);
-    let (sv, modules, sva_files, sva_props, multiclock_modules) =
+    let (sv, modules, sva_files, sva_props, multiclock_modules, waves) =
         if want_sv && count_errors(&diagnostics) == 0 {
             (
                 Some(emitted.sv),
@@ -898,9 +903,10 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
                 emitted.sva_files,
                 emitted.sva_props,
                 emitted.multiclock_modules,
+                emitted.waves,
             )
         } else {
-            (None, Vec::new(), Vec::new(), Vec::new(), Vec::new())
+            Default::default()
         };
 
     Ok(Compiled {
@@ -918,6 +924,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         regmaps: parsed.regmaps,
         constraints,
         extern_sources,
+        waves,
     })
 }
 

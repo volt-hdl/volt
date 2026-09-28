@@ -85,6 +85,22 @@ docker run --rm --entrypoint bash -v "$PWD:/work" \
     verilator/verilator -c 'export PATH=/usr/local/cargo/bin:$PATH; cd /work && cargo run -q -p volt-driver -- test examples/soc/top_test.volt'
 ```
 
+## Waveforms with enum names
+
+`volt run --vcd` (and a `volt verify` counterexample) writes a GTKWave
+session next to the VCD when the design has enum or Trit signals, and
+prints the command that opens both:
+
+```
+volt run --cycles 60 --vcd build/uart.vcd examples/uart_tx.volt
+    Waveform gtkwave build/uart.vcd build/uart.gtkw
+```
+
+Run that command from the same directory (paths in the session are
+relative to it, so this also works after a Docker run):
+`TOP.UartTx.state_r[1:0]` shows `Idle`, `Start`, `Data`, `Stop`
+instead of `00`..`11`. See `volt explain waveforms`.
+
 ## Formal verification (SymbiYosys, Docker)
 
 Point `VOLT_SBY` at the Docker wrapper, then run the three modes:

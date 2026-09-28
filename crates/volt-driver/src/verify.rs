@@ -29,6 +29,7 @@ use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
 use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
 use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
+use crate::waves::{self, Session, WaveScope};
 use crate::{render_diagnostics, OutputFormat};
 
 /// `sby` çıktısının tek görevdeki özeti (ADR-0075: sby'nin beş durumu
@@ -274,6 +275,9 @@ pub(crate) fn verify(
                 if let Some(c) = &cex {
                     artifacts.push(c.display().to_string());
                 }
+                // Enum/Trit adları için GTKWave oturumu (ADR-0092).
+                let session =
+                    trace_session(cex.as_deref(), &compiled.waves, module, &mut artifacts);
                 let (prop, diag) = counterexample_diagnostic(
                     module,
                     failure,
@@ -281,6 +285,7 @@ pub(crate) fn verify(
                     &compiled.sva_props,
                     cex.as_deref(),
                 );
+                let diag = with_session_help(diag, cex.as_deref(), &session);
                 failed_prop = Some(prop);
                 emit_diagnostic(&diag, &compiled, format);
                 compiled.diagnostics.push(diag);
@@ -299,6 +304,8 @@ pub(crate) fn verify(
                 if let Some(t) = &trace {
                     artifacts.push(t.display().to_string());
                 }
+                let session =
+                    trace_session(trace.as_deref(), &compiled.waves, module, &mut artifacts);
                 let (prop, diag) = unproven_diagnostic(
                     module,
                     failure,
@@ -307,6 +314,7 @@ pub(crate) fn verify(
                     trace.as_deref(),
                     opts.depth,
                 );
+                let diag = with_session_note(diag, trace.as_deref(), &session);
                 failed_prop = Some(prop);
                 emit_diagnostic(&diag, &compiled, format);
                 compiled.diagnostics.push(diag);
@@ -918,6 +926,51 @@ fn with_origin_and_trace(mut diag: Diagnostic, prop: &SvaProp, trace: Option<&Pa
         diag = diag.with_note(NoteKind::Counterexample, trace.display().to_string());
     }
     diag
+}
+
+/// Kopyalanan izin yanına GTKWave oturumu (ADR-0092); yazılan `.gtkw`
+/// çıktı listesine eklenir.
+fn trace_session(
+    trace: Option<&Path>,
+    info: &volt_sv_emit::WaveInfo,
+    module: &str,
+    artifacts: &mut Vec<String>,
+) -> Session {
+    let Some(trace) = trace else {
+        return Session::None;
+    };
+    let session = waves::write_or_warn(trace, info, module, WaveScope::Formal);
+    if let Session::Written(gtkw) = &session {
+        artifacts.push(gtkw.display().to_string());
+    }
+    session
+}
+
+/// Oturum yazıldıysa E5001 önerisi iki dosyayı birlikte açan komuttur;
+/// yoksa (ya da `.gtkw` kullanıcınınsa) öneri değişmez.
+fn with_session_help(mut diag: Diagnostic, cex: Option<&Path>, session: &Session) -> Diagnostic {
+    if let (Some(cex), Session::Written(_)) = (cex, session) {
+        let hint = waves::open_hint(cex, session);
+        diag.help = Some(lstr!(
+            en: "open the counterexample with enum names: {hint}";
+            tr: "karşı örneği enum adlarıyla açın: {hint}"
+        ));
+    }
+    diag
+}
+
+/// Tümevarım izinde öneri derinlikle ilgilidir; oturum ayrı bir not.
+fn with_session_note(diag: Diagnostic, trace: Option<&Path>, session: &Session) -> Diagnostic {
+    match (trace, session) {
+        (Some(trace), Session::Written(_)) => diag.with_note(
+            NoteKind::Note,
+            lstr!(
+                en: "waveform with enum names: {}", waves::open_hint(trace, session);
+                tr: "enum adlarıyla dalga formu: {}", waves::open_hint(trace, session)
+            ),
+        ),
+        _ => diag,
+    }
 }
 
 /// Kopyalanacak sby izi.

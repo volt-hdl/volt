@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama, notlar sonda) ve Aşama 3 (örnekler, PR #31)
 > Önceki karar: ADR-0066 — yalnız F3 `_` kolu cover'ı ("ADR-0066 düzeltmesi" bölümü)
-> İlgili: ADR-0075 ("Kapsam dışı açıklar" kapandı), ADR-0083 (Karar 4 — son kol), ADR-0085 (çıplak varyant tanısı), ADR-0087 (primitif öğe tipi).
+> İlgili: ADR-0075 ("Kapsam dışı açıklar" kapandı), ADR-0083 (Karar 4 — son kol), ADR-0085 (çıplak varyant tanısı), ADR-0087 (primitif öğe tipi), ADR-0092 ("Sınırlar": dalga formunda varyant adları kapandı).
 > Tarih: 2026-09-24
 > Etkilenen (plan): volt-syntax (`parser/stmt.rs` E0014 erteleme,
 > `parser/test_expr.rs` `Enum::Varyant`, ADR-0066 otomatik kontratları),

@@ -77,6 +77,12 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: verilator
         run: cargo test -p volt-driver --test sim_contract_tests
+      # ADR-0092: `volt run --vcd` writes a GTKWave session + enum tables;
+      # every session path must exist in the same run's VCD header.
+      - name: Waveform enum names (volt run --vcd, real Verilator)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
+        run: cargo test -p volt-driver --test wave_session_tests
       # ADR-0076: extern bodies from @source reach Verilator (real-tool tests
       # skip only when the tool is missing; the step below fails instead).
       - name: Extern @source tests (real Verilator)
