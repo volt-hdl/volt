@@ -83,7 +83,7 @@ yayımlanırdı. İki yerel iş, her mimariyi kendi donanımında dener.
   yavaştır; derleme süreleri kısa olduğu için kabul edildi (musl/glibc
   karşılaştırması ölçülmedi).
 - **macOS:** Rust varsayılan asgari sürümleri (x86_64 10.12, arm64 11.0);
-  iş `vtool -show-build` ile kaydeder.
+  iş `otool -l` ile kaydeder.
 
 ### 2.3 Boyut — profil
 
@@ -144,7 +144,7 @@ ikili notu). Windows `.zip` (7-Zip), diğerleri `.tar.gz`. Tek
   check counter.volt`, `volt build counter.volt` (+ `Counter.sv` var),
   `volt doctor` (çıkış 0) → platform taşınabilirlik denetimi (§2.2).
 - `vsix`: `npm ci` + `vsce package` (`vscode:prepublish` derler);
-  paketteki `out/extension.js`, `LICENSE`, gramer ve
+  paketteki `out/extension.js`, `LICENSE` (vsce `LICENSE.txt` yapar), gramer ve
   `vscode-languageclient` denetlenir. Marketplace yayını yok.
 - `checksums`: `SHA256SUMS`, provenance, boyut tablosu (iş özeti),
   birleşik artifact.

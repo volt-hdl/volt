@@ -184,7 +184,7 @@ jobs:
         run: |
           bin="target/$TARGET/dist/volt"
           file "$bin"
-          file "$bin" | grep -q "statically linked"
+          file "$bin" | grep -qE "statically linked|static-pie linked"
           docker run --rm -v "$PWD/$(dirname "$bin"):/v:ro" centos:7 sh -euxc \
             "cat /etc/centos-release; ldd --version | head -1; /v/volt --version; cd /tmp; /v/volt new demo; cd demo; /v/volt check counter.volt; /v/volt build counter.volt; test -s build/rtl/Counter.sv; /v/volt doctor"
 
@@ -195,7 +195,8 @@ jobs:
           file "$bin"
           lipo -archs "$bin"
           otool -L "$bin"
-          vtool -show-build "$bin" | grep -E "minos|platform"
+          # arm64 carries LC_BUILD_VERSION (minos), x86_64 (10.12) LC_VERSION_MIN_MACOSX.
+          otool -l "$bin" | grep -A4 -E "LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -230,7 +231,7 @@ jobs:
         run: |
           vsix="../../dist/volt-hdl-$VERSION.vsix"
           unzip -l "$vsix" > list.txt
-          for f in extension/package.json extension/out/extension.js extension/LICENSE \
+          for f in extension/package.json extension/out/extension.js extension/LICENSE.txt \
                    extension/syntaxes/volt.tmLanguage.json \
                    extension/node_modules/vscode-languageclient/package.json; do
             grep -q " $f\$" list.txt || { echo "::error::$f missing from the .vsix"; exit 1; }
