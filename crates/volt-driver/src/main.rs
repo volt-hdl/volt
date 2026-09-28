@@ -10,7 +10,9 @@
 
 mod doctor;
 mod extern_stage;
+mod interrupt;
 mod new;
+mod project;
 mod reach;
 mod regmap_check;
 mod sim;
@@ -21,6 +23,7 @@ mod verify;
 mod verify_depth;
 mod verify_jobs;
 mod verify_report;
+mod watch;
 mod waves;
 
 use volt_hir::unit_load as unit;
@@ -131,10 +134,11 @@ enum Command {
     volt build --emit=sdc,xdc design.volt
     volt build --emit=sdc --sdc-style=clock-groups design.volt
     volt build --emit=c,rust,regmap --check-regmap design.volt
-    volt build --format json --target-dir out design.volt")]
+    volt build --format json --target-dir out design.volt
+    volt build                      # in a project: its top module(s) (Volt.toml)")]
     Build {
-        /// Input .volt file
-        file: PathBuf,
+        /// Input .volt file (default: the project's top module, see Volt.toml; ADR-0095)
+        file: Option<PathBuf>,
         /// Output directory (default: build/)
         #[arg(long, default_value = "build")]
         target_dir: PathBuf,
@@ -178,10 +182,11 @@ enum Command {
     /// Fast check (produces no output files)
     #[command(after_help = "EXAMPLES:
     volt check design.volt
-    volt check --format short design.volt")]
+    volt check --format short design.volt
+    volt check                      # in a project: every source file")]
     Check {
-        /// Input .volt file
-        file: PathBuf,
+        /// Input .volt file (default: every source file of the project; ADR-0095)
+        file: Option<PathBuf>,
         /// Output format: human | json | short
         #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
         format: OutputFormat,
@@ -192,10 +197,11 @@ enum Command {
     volt verify --mode prove design.volt
     volt verify --depth 40 --engine bitwuzla design.volt
     volt verify -j 8 examples/soc/top.volt
-    volt verify -j 1 --fail-fast design.volt")]
+    volt verify -j 1 --fail-fast design.volt
+    volt verify                     # in a project: its top module (Volt.toml)")]
     Verify {
-        /// Input .volt file
-        file: PathBuf,
+        /// Input .volt file (default: the project's top module, see Volt.toml; ADR-0095)
+        file: Option<PathBuf>,
         /// Search depth in cycles (BMC bound / induction length)
         #[arg(long, default_value_t = 20)]
         depth: u32,
@@ -226,17 +232,18 @@ enum Command {
     volt run design.volt
     volt run --cycles 500 design.volt
     volt run --vcd waves.vcd design.volt
-    volt run --contracts design.volt")]
+    volt run --contracts design.volt
+    volt run                        # in a project: its top module (Volt.toml)")]
     Run {
-        /// Input .volt file
-        file: PathBuf,
+        /// Input .volt file (default: the project's top module, see Volt.toml; ADR-0095)
+        file: Option<PathBuf>,
         /// Number of clock cycles to simulate
         #[arg(long, default_value_t = 100)]
         cycles: u64,
         /// Write a VCD waveform to this file
         #[arg(long)]
         vcd: Option<PathBuf>,
-        /// Top module (default: the only module in the file)
+        /// Top module (default: the only module in the file; in a project, Volt.toml `top`)
         #[arg(long)]
         top: Option<String>,
         /// Also run the design's contracts as simulation monitors (ADR-0064)
@@ -251,13 +258,24 @@ enum Command {
     volt test
     volt test my_design_test.volt
     volt test uart --nocapture
-    volt test --no-contracts")]
+    volt test --no-contracts
+    volt test --waves               # record every test's waveform
+    volt test --watch               # re-run when a project file changes")]
     Test {
         /// A .volt test file, or a substring filter over test names
         filter: Option<String>,
         /// Also stream the raw testbench output
         #[arg(long)]
         nocapture: bool,
+        /// Record the waveform of every test (default: only failed tests, re-run with tracing; ADR-0095)
+        #[arg(long, conflicts_with = "no_waves")]
+        waves: bool,
+        /// Record no waveforms
+        #[arg(long)]
+        no_waves: bool,
+        /// Re-run the tests whenever a project file changes (Ctrl-C stops)
+        #[arg(long)]
+        watch: bool,
         /// Do not run contracts as simulation monitors (ADR-0064; on by default)
         #[arg(long)]
         no_contracts: bool,
@@ -487,23 +505,42 @@ fn run() -> ExitCode {
                     dialects.push(d);
                 }
             }
-            build(
-                &file,
-                &target_dir,
-                format,
-                mode,
-                single_file,
-                &SwRequest {
-                    kinds: &sw,
-                    check_regmap,
+            let files = match file {
+                Some(f) => vec![f],
+                None => match project::load("build").and_then(|p| project::tops(&p, "build")) {
+                    Ok(tops) => project::top_files(&tops),
+                    Err(code) => return code,
                 },
-                &SdcRequest {
-                    dialects: &dialects,
-                    style: sdc_style.style(),
-                },
-            )
+            };
+            // Proje kipinde birden çok üst modül dosyası: sırayla, en
+            // kötü çıkış kodu (ADR-0095).
+            let mut worst = ExitCode::SUCCESS;
+            for f in &files {
+                let code = build(
+                    f,
+                    &target_dir,
+                    format,
+                    mode,
+                    single_file,
+                    &SwRequest {
+                        kinds: &sw,
+                        check_regmap,
+                    },
+                    &SdcRequest {
+                        dialects: &dialects,
+                        style: sdc_style.style(),
+                    },
+                );
+                if code != ExitCode::SUCCESS {
+                    worst = code;
+                }
+            }
+            worst
         }
-        Command::Check { file, format } => check(&file, format),
+        Command::Check { file, format } => match file {
+            Some(f) => check(&f, format),
+            None => check_project(format),
+        },
         Command::CheckRegmap {
             file,
             against,
@@ -519,20 +556,31 @@ fn run() -> ExitCode {
             timeout,
             target_dir,
             format,
-        } => verify::verify(
-            &file,
-            &target_dir,
-            format,
-            SbyOptions {
-                mode: mode.into(),
-                depth,
-                engine: engine.into(),
-                // Görev başına verify.rs'te ayarlanır (multiclock_modules).
-                multiclock: false,
-                timeout,
-            },
-            verify::VerifyArgs { jobs, fail_fast },
-        ),
+        } => {
+            let file = match file {
+                Some(f) => f,
+                None => match project::load("verify")
+                    .and_then(|p| project::single_top(&p, "verify", None))
+                {
+                    Ok(top) => top.file,
+                    Err(code) => return code,
+                },
+            };
+            verify::verify(
+                &file,
+                &target_dir,
+                format,
+                SbyOptions {
+                    mode: mode.into(),
+                    depth,
+                    engine: engine.into(),
+                    // Görev başına verify.rs'te ayarlanır (multiclock_modules).
+                    multiclock: false,
+                    timeout,
+                },
+                verify::VerifyArgs { jobs, fail_fast },
+            )
+        }
         Command::Run {
             file,
             cycles,
@@ -540,29 +588,53 @@ fn run() -> ExitCode {
             top,
             contracts,
             target_dir,
-        } => sim::run(
-            &file,
-            sim::RunOptions {
-                cycles,
-                vcd: vcd.as_deref(),
-                top: top.as_deref(),
-                contracts,
-                target_dir: &target_dir,
-            },
-        ),
+        } => {
+            // Proje kipi: dosya ve üst modül Volt.toml'dan (ADR-0095).
+            let (file, top) = match file {
+                Some(f) => (f, top),
+                None => match project::load("run")
+                    .and_then(|p| project::single_top(&p, "run", top.as_deref()))
+                {
+                    Ok(t) => (t.file, Some(t.module)),
+                    Err(code) => return code,
+                },
+            };
+            sim::run(
+                &file,
+                sim::RunOptions {
+                    cycles,
+                    vcd: vcd.as_deref(),
+                    top: top.as_deref(),
+                    contracts,
+                    target_dir: &target_dir,
+                },
+            )
+        }
         Command::Test {
             filter,
             nocapture,
+            waves,
+            no_waves,
+            watch,
             no_contracts,
             target_dir,
-        } => sim::test(
-            filter.as_deref(),
-            sim::TestOptions {
+        } => {
+            let opts = sim::TestOptions {
                 nocapture,
                 contracts: !no_contracts,
+                waves: match (waves, no_waves) {
+                    (true, _) => sim::WaveMode::All,
+                    (_, true) => sim::WaveMode::Off,
+                    _ => sim::WaveMode::OnFailure,
+                },
                 target_dir: &target_dir,
-            },
-        ),
+            };
+            if watch {
+                watch::watch(filter.as_deref(), opts)
+            } else {
+                sim::test(filter.as_deref(), opts)
+            }
+        }
         Command::Doctor {
             format,
             strict,
@@ -1244,6 +1316,16 @@ fn build(
         let name = file.display();
         if compiled.modules.is_empty() {
             print_library_note(file);
+        } else if project::is_project_mode() {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Next: volt run      (simulate)\n             \
+                         volt verify   (prove contracts)";
+                    tr: "   Sıradaki: volt run      (simüle et)\n             \
+                         volt verify   (kontratları kanıtla)"
+                )
+            );
         } else {
             eprintln!(
                 "{}",
@@ -1414,23 +1496,40 @@ fn check(file: &Path, format: OutputFormat) -> ExitCode {
     render_diagnostics(&compiled, format);
 
     if format == OutputFormat::Human {
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
-                tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
-            )
-        );
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "      Result {} error(s), {} warning(s)",
-                    compiled.errors(), compiled.warnings();
-                tr: "       Sonuç {} hata, {} uyarı",
-                    compiled.errors(), compiled.warnings()
-            )
-        );
-        if compiled.errors() == 0 {
+        print_check_footer(start, compiled.errors(), compiled.warnings(), Some(file));
+    }
+    if format == OutputFormat::Json {
+        print_json_envelope("check", &compiled, &[], start);
+    }
+    if compiled.errors() > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `check` kapanışı: süre, toplamlar ve hatasızsa sonraki adım. `file`
+/// yoksa proje kipi — sonraki komut dosya adı almaz (ADR-0095).
+fn print_check_footer(start: Instant, errors: usize, warnings: usize, file: Option<&Path>) {
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "    Finished {:.2}s", start.elapsed().as_secs_f64();
+            tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
+        )
+    );
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "      Result {} error(s), {} warning(s)", errors, warnings;
+            tr: "       Sonuç {} hata, {} uyarı", errors, warnings
+        )
+    );
+    if errors > 0 {
+        return;
+    }
+    match file {
+        Some(file) => {
             let name = file.display();
             eprintln!(
                 "{}",
@@ -1440,11 +1539,52 @@ fn check(file: &Path, format: OutputFormat) -> ExitCode {
                 )
             );
         }
+        None => eprintln!(
+            "{}",
+            lstr!(
+                en: "       Next: volt build   (emit SystemVerilog)";
+                tr: "   Sıradaki: volt build   (SystemVerilog üret)"
+            )
+        ),
     }
-    if format == OutputFormat::Json {
-        print_json_envelope("check", &compiled, &[], start);
+}
+
+/// Argümansız `volt check` (ADR-0095): projenin her kaynağı, bir kez.
+/// Başka bir kaynağın `use` ile yüklediği dosya o birimde denetlenir
+/// (kütüphane dosyası tamamen denetlenir, ADR-0070) — tanılar iki kez
+/// basılmaz. `--format json`: dosya başına bir zarf, satır satır.
+fn check_project(format: OutputFormat) -> ExitCode {
+    let project = match project::load("check") {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let start = Instant::now();
+    let (mut errors, mut warnings) = (0, 0);
+    for file in project::check_roots(&project) {
+        if format == OutputFormat::Human {
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "    Checking {}", file.display();
+                    tr: "    Kontrol {}", file.display()
+                )
+            );
+        }
+        let compiled = match compile(&file, false, SvaMode::None) {
+            Ok(c) => c,
+            Err(code) => return code,
+        };
+        render_diagnostics(&compiled, format);
+        errors += compiled.errors();
+        warnings += compiled.warnings();
+        if format == OutputFormat::Json {
+            print_json_envelope("check", &compiled, &[], start);
+        }
     }
-    if compiled.errors() > 0 {
+    if format == OutputFormat::Human {
+        print_check_footer(start, errors, warnings, None);
+    }
+    if errors > 0 {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS

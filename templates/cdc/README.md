@@ -6,11 +6,17 @@ carries each one through a `sync()` two-flop synchronizer, and the slow
 domain counts them.
 
 ```
-volt check event_counter.volt     # check the design
-volt build event_counter.volt     # SystemVerilog in build/rtl/
+volt check                        # check the design
+volt build                        # SystemVerilog in build/rtl/
 volt test                         # run event_counter_test.volt (needs Verilator)
-volt verify event_counter.volt    # prove the contracts (needs SymbiYosys)
+volt verify                       # prove the contracts (needs SymbiYosys)
 ```
+
+The commands work on the project (Volt.toml): `volt check` checks every
+source file; `volt build`, `volt verify` and `volt run` use `top = "EventCounter"`.
+A file still works too: `volt check event_counter.volt`. When a test fails, the report
+ends with a `Waveform gtkwave ...` line; `volt test --watch` re-runs the
+tests on every save.
 
 `volt doctor` tells you which of these work on this machine.
 

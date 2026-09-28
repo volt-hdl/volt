@@ -288,6 +288,7 @@ mod testbench {
             is_input,
             is_clock,
             reset: None,
+            bits: Some(1),
         };
         vec![
             port("clk", true, true),

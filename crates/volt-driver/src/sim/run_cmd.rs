@@ -294,8 +294,19 @@ fn print_finished(file: &Path, wave: Option<(&Path, Session)>, start: Instant) {
         )
     );
     // Bağlama göre sonraki adım: dalga formu alınmadıysa --vcd öner.
+    // Proje kipinde komut dosya adı almaz (ADR-0095).
     let name = file.display();
-    if vcd.is_none() {
+    if vcd.is_none() && crate::project::is_project_mode() {
+        eprintln!(
+            "{}",
+            lstr!(
+                en: "        Next: volt test                   (run tests)\n              \
+                     volt run --vcd waves.vcd   (record a waveform)";
+                tr: "    Sıradaki: volt test                   (testleri koştur)\n              \
+                     volt run --vcd dalga.vcd   (dalga formu kaydet)"
+            )
+        );
+    } else if vcd.is_none() {
         eprintln!(
             "{}",
             lstr!(

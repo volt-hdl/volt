@@ -26,6 +26,7 @@ mod tb_output;
 mod test_build;
 mod test_cmd;
 mod test_files;
+mod test_waves;
 mod verilator;
 
 use std::path::Path;
@@ -34,8 +35,10 @@ use std::process::ExitCode;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile};
 use volt_diagnostics::lstr;
 
+pub(crate) use discover::{is_test_file, project_files};
 pub(crate) use run_cmd::{run, RunOptions};
 pub(crate) use test_cmd::{test, TestOptions};
+pub(crate) use test_waves::WaveMode;
 
 // ═══ Ortak yardımcılar ════════════════════════════════════════════
 

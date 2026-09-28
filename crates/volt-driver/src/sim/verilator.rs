@@ -158,8 +158,11 @@ fn verilate_in_docker(
     extra: &[&Path],
 ) -> Result<PathBuf, ExitCode> {
     let (mounts, workdir) = sim_mounts(job.sim_dir, extra)?;
-    let cmd = tool.command(&mounts, workdir, None, None, job.sim_dir, job.args());
+    // `--watch`'ta adlı: Ctrl-C konteyneri kaldırır (ADR-0095).
+    let name = crate::interrupt::container_name_for(&tool.docker);
+    let cmd = tool.command(&mounts, workdir, None, name, job.sim_dir, job.args());
     let output = translate(run_tool(cmd, &tool.docker)?, &mounts);
+    crate::interrupt::park_if_stopping();
     if !output.status.success() {
         if tool_backend::report_container_failure(output.status.code()) {
             return Err(ExitCode::from(3));
@@ -204,8 +207,10 @@ pub(super) fn run_simulation(
     };
     let (mounts, workdir) = sim_mounts(sim_dir, extra)?;
     let entry = container_path(exe).ok_or_else(|| unmappable(exe))?;
-    let cmd = tool.command(&mounts, workdir, Some(entry), None, sim_dir, Vec::new());
+    let name = crate::interrupt::container_name_for(&tool.docker);
+    let cmd = tool.command(&mounts, workdir, Some(entry), name, sim_dir, Vec::new());
     let output = translate(run_tool(cmd, &tool.docker)?, &mounts);
+    crate::interrupt::park_if_stopping();
     if tool_backend::report_container_failure(output.status.code()) {
         return Err(ExitCode::from(3));
     }

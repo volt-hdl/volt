@@ -229,7 +229,8 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 VOLT_TOOL_BACKEND=local    never use Docker\n\
                      \x20 VOLT_TOOL_BACKEND=docker   use Docker even if Verilator is installed\n\
                      \x20 VOLT_DOCKER=<path>         the docker executable\n\n\
-                     'volt doctor' shows which way 'volt test' and 'volt run' will run.",
+                     'volt doctor' shows which way 'volt test' and 'volt run' will run. \
+                     Ctrl-C in 'volt test --watch' removes the running container.",
                 ),
                 (
                     "TESTS",
@@ -241,8 +242,13 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'let' binds numbers and arrays ([1, 2, 3] or read_hex(\"file.hex\")), \
                      'for i in 0..n { ... }' repeats a block at run time, and \
                      load(dut.mem, data) writes an array into a memory of the design.\n\n\
-                     \x20 volt run design.volt --cycles 20 --vcd waves.vcd\n\
-                     \x20 volt test my_design_test.volt",
+                     \x20 volt test                  every *_test.volt of the project\n\
+                     \x20 volt test my_design_test.volt\n\
+                     \x20 volt test --watch          re-run on every save (Ctrl-C stops)\n\
+                     \x20 volt run --cycles 20       the project's top module (Volt.toml top)\n\
+                     \x20 volt run design.volt --vcd waves.vcd\n\n\
+                     A failed test is re-run with tracing and its report ends with a \
+                     'Waveform gtkwave ...' line ('volt explain waveforms').",
                 ),
                 (
                     "NOTE",
@@ -289,7 +295,8 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 VOLT_TOOL_BACKEND=local    Docker'ı hiç kullanma\n\
                      \x20 VOLT_TOOL_BACKEND=docker   Verilator kurulu olsa da Docker kullan\n\
                      \x20 VOLT_DOCKER=<yol>          docker yürütülebiliri\n\n\
-                     'volt doctor' 'volt test' ve 'volt run'ın hangi yolla çalışacağını gösterir.",
+                     'volt doctor' 'volt test' ve 'volt run'ın hangi yolla çalışacağını gösterir. \
+                     'volt test --watch' içinde Ctrl-C koşan konteyneri kaldırır.",
                 ),
                 (
                     "TESTLER",
@@ -302,8 +309,13 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      read_hex(\"dosya.hex\")), 'for i in 0..n { ... }' bloğu çalışma \
                      zamanında yineler, load(dut.mem, veri) diziyi tasarımın \
                      belleğine yazar.\n\n\
-                     \x20 volt run tasarim.volt --cycles 20 --vcd dalga.vcd\n\
-                     \x20 volt test tasarim_test.volt",
+                     \x20 volt test                  projenin bütün *_test.volt dosyaları\n\
+                     \x20 volt test tasarim_test.volt\n\
+                     \x20 volt test --watch          her kayıtta yeniden koş (Ctrl-C durdurur)\n\
+                     \x20 volt run --cycles 20       projenin üst modülü (Volt.toml top)\n\
+                     \x20 volt run tasarim.volt --vcd dalga.vcd\n\n\
+                     Düşen test izle yeniden koşar ve raporu 'Waveform gtkwave ...' \
+                     satırıyla biter ('volt explain waveforms').",
                 ),
                 (
                     "NOT",
@@ -322,19 +334,28 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
             sections: &[
                 (
                     "RECORD",
-                    "  volt run --vcd waves.vcd design.volt   simulation (Verilator)\n\
+                    "  volt test                              a failed test (re-run with tracing)\n\
+                     \x20 volt test --waves                      every test\n\
+                     \x20 volt run --vcd waves.vcd design.volt   simulation (Verilator)\n\
                      \x20 volt verify design.volt                a failing contract's counterexample\n\n\
-                     'volt run' writes the VCD where --vcd points. 'volt verify' copies a \
-                     counterexample to build/formal/<task>_cex.vcd and, in --mode prove, \
-                     the induction trace of an unproven contract to \
-                     build/formal/<task>_induct.vcd. 'volt test' does not record waveforms.",
+                     'volt test' runs the tests without tracing; when a test fails, only \
+                     the failed tests run once more with tracing (the simulation is \
+                     deterministic) into build/sim/<test file>/waves/<Module>-<test>.vcd. \
+                     A passing run costs nothing extra. --waves traces every test in the \
+                     first run, --no-waves records nothing. 'volt run' writes the VCD \
+                     where --vcd points. 'volt verify' copies a counterexample to \
+                     build/formal/<task>_cex.vcd and, in --mode prove, the induction trace \
+                     of an unproven contract to build/formal/<task>_induct.vcd.",
                 ),
                 (
                     "OPEN",
-                    "Both commands print one line that opens the waveform:\n\n\
+                    "Each command prints one line that opens the waveform; in the test \
+                     report it ends the failed test's block:\n\n\
                      \x20 Waveform gtkwave waves.vcd waves.gtkw\n\n\
                      Any VCD viewer (gtkwave, surfer) opens the .vcd itself; the .gtkw \
-                     session and its translate tables are GTKWave files.",
+                     session and its translate tables are GTKWave files. A test's session \
+                     also lists the ports of the tested module, so its inputs and outputs \
+                     are on screen at once.",
                 ),
                 (
                     "ENUM NAMES",
@@ -346,9 +367,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      registers, wires, lets that become wires, struct fields such as req_kind, instance outputs \
                      such as u_state) and shows each through its table: Idle, Start, Data, \
                      Stop; a Trit as +1, 0, -1.\n\n\
-                     The generated SystemVerilog does not change. A design without enums or \
-                     Trits gets no extra files, and a waves.gtkw that Volt did not write is \
-                     left unchanged.",
+                     The generated SystemVerilog does not change. For 'volt run' and \
+                     'volt verify' a design without enums or Trits gets no extra files, and a \
+                     waves.gtkw that Volt did not write is left unchanged.",
                 ),
                 (
                     "INVALID CODES",
@@ -376,19 +397,28 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
             sections: &[
                 (
                     "KAYIT",
-                    "  volt run --vcd dalga.vcd tasarim.volt   simülasyon (Verilator)\n\
+                    "  volt test                               düşen test (izle yeniden koşar)\n\
+                     \x20 volt test --waves                       her test\n\
+                     \x20 volt run --vcd dalga.vcd tasarim.volt   simülasyon (Verilator)\n\
                      \x20 volt verify tasarim.volt                bozulan kontratın karşı örneği\n\n\
-                     'volt run' VCD'yi --vcd'nin gösterdiği yere yazar. 'volt verify' karşı \
-                     örneği build/formal/<görev>_cex.vcd dosyasına, --mode prove'da \
-                     kanıtlanamayan kontratın tümevarım izini build/formal/<görev>_induct.vcd \
-                     dosyasına kopyalar. 'volt test' dalga formu kaydetmez.",
+                     'volt test' testleri izsiz koşar; bir test düşünce yalnız düşen testler \
+                     izle bir kez daha koşar (simülasyon belirlenimcidir) ve kayıt \
+                     build/sim/<test dosyası>/waves/<Modül>-<test>.vcd dosyasına gider. \
+                     Geçen koşunun ek maliyeti yoktur. --waves ilk koşuda her testi izler, \
+                     --no-waves hiçbir şey kaydetmez. 'volt run' VCD'yi --vcd'nin gösterdiği \
+                     yere yazar. 'volt verify' karşı örneği build/formal/<görev>_cex.vcd \
+                     dosyasına, --mode prove'da kanıtlanamayan kontratın tümevarım izini \
+                     build/formal/<görev>_induct.vcd dosyasına kopyalar.",
                 ),
                 (
                     "AÇMA",
-                    "İki komut da dalga formunu açan tek bir satır basar:\n\n\
-                     \x20 Dalga formu gtkwave dalga.vcd dalga.gtkw\n\n\
+                    "Her komut dalga formunu açan tek bir satır basar; test raporunda bu \
+                     satır düşen testin bloğunu kapatır (rapor İngilizcedir):\n\n\
+                     \x20 Dalga formu gtkwave dalga.vcd dalga.gtkw\n\
+                     \x20 Waveform gtkwave build/sim/.../Counter-t.vcd build/sim/.../Counter-t.gtkw\n\n\
                      .vcd'yi her VCD görüntüleyici (gtkwave, surfer) açar; .gtkw oturumu ve \
-                     çeviri tabloları GTKWave dosyalarıdır.",
+                     çeviri tabloları GTKWave dosyalarıdır. Testin oturumu sınanan modülün \
+                     portlarını da listeler: girişler ve çıkışlar hemen ekrandadır.",
                 ),
                 (
                     "ENUM ADLARI",
@@ -400,8 +430,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      wire'lar, tel olan let'ler, req_kind gibi struct alanları, u_state gibi örnek \
                      çıkışları) listeler ve her birini tablosundan gösterir: Idle, Start, \
                      Data, Stop; Trit'i +1, 0, -1 olarak.\n\n\
-                     Üretilen SystemVerilog değişmez. Enum ya da Trit kullanmayan tasarımda \
-                     ek dosya üretilmez; Volt'un yazmadığı bir dalga.gtkw'ye dokunulmaz.",
+                     Üretilen SystemVerilog değişmez. 'volt run' ve 'volt verify'da enum ya \
+                     da Trit kullanmayan tasarımda ek dosya üretilmez; Volt'un yazmadığı bir \
+                     dalga.gtkw'ye dokunulmaz.",
                 ),
                 (
                     "GEÇERSİZ KODLAR",

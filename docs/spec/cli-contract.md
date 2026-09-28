@@ -35,17 +35,17 @@ volt new <isim>              Yeni proje oluştur (ADR-0084 §9b)
 volt init                    Mevcut dizinde proje başlat (ADR-0084 §9b)
 volt doctor                  Kurulum teşhisi: hangi komut çalışır (ADR-0084 §9a)
 
-volt build [dosya]           Derle → SystemVerilog
-volt check [dosya]           Sadece kontrol (çıktı üretme)
+volt build [dosya]           Derle → SystemVerilog (dosyasız: proje, §4a)
+volt check [dosya]           Sadece kontrol (çıktı üretme; dosyasız: proje, §4a)
 volt check-regmap <dosya> --against <sürücü>
                              Sürücü ↔ register haritası denetimi (ADR-0063)
-volt run [dosya]             Derle + simüle
-volt test [filtre]           Test çalıştır
+volt run [dosya]             Derle + simüle (dosyasız: projenin üst modülü, §4a)
+volt test [filtre]           Test çalıştır (--waves, --no-waves, --watch; §8)
 volt fmt [dosya]             Biçimlendir
 volt explain <KOD>           Hata kodunu açıkla
 
 volt sim [dosya]             Simülasyon                      [F4]
-volt verify [dosya]          Formal doğrulama                [F4]
+volt verify [dosya]          Formal doğrulama (dosyasız: §4a) [F4]
 volt doc [dosya]             Belge üret                      [F5]
 volt add <paket>             Bağımlılık ekle                 [V1]
 volt diff <v1> <v2>          Anlamsal fark                   [V1]
@@ -71,6 +71,7 @@ KOD  ANLAM                          NE ZAMAN
 7    Kanıtlanamadı (ADR-0075)       verify --mode prove: tümevarım tamamlanamadı (sby UNKNOWN)
 8    Zaman aşımı (ADR-0075)         verify --timeout doldu (sby TIMEOUT)
 101  İç hata (panic)                Derleyici hatası — bug report
+130  Kesildi (ADR-0095)             volt test --watch Ctrl-C ile durduruldu
 ────────────────────────────────────────────────────────────
 
 Uyarılar çıkış kodunu ETKİLEMEZ (--deny-warnings hariç).
@@ -80,6 +81,8 @@ Eksik dış araç (Verilator, sby) 3'tür: `volt test`/`run`/`verify` ve
 `VOLT_TOOL_BACKEND` değeri 2'dir (ADR-0094, §8b).
 `volt verify`'da birden çok görev farklı sonuçla biterse öncelik
 6 > 3 > 8 > 7 (ADR-0075: en kesin ve en eyleme dönük sonuç baskın).
+Proje kipinde (§4a) Volt.toml'un bulunamaması, kaynak olmaması ve üst
+modülün belirlenememesi (aday yok / birden fazla / tanımsız ad) 2'dir.
 ```
 
 ```rust
@@ -95,6 +98,7 @@ pub enum ExitCode {
     VerifyUnknown = 7,   // ADR-0075
     VerifyTimeout = 8,   // ADR-0075
     InternalError = 101,
+    Interrupted   = 130, // ADR-0095: volt test --watch, Ctrl-C
 }
 ```
 
@@ -157,6 +161,45 @@ build/
 ```
 
 `--target-dir` ile değiştirilebilir. `.gitignore`'a eklenmeli.
+
+---
+
+## 4a. Proje kipi — dosyasız `check`, `build`, `run`, `verify` (ADR-0095)
+
+Dosya argümanı verilmezse komut, çalışma dizininden yukarı ilk
+`Volt.toml`'un (ADR-0061 araması ve tavanı) projesinde çalışır. Dosya
+verilen her çağrı değişmez.
+
+```toml
+[package]
+name = "demo"
+src = "."
+top = "Counter"          # ya da top = ["SocA", "SocB"]
+```
+
+- **Kaynaklar:** `src` altındaki `*.volt`, `*_test.volt` hariç; atlama
+  kuralları test keşfiyle aynı (§8, ADR-0089).
+- **Üst modül:** `top` yazılmışsa o; yoksa projede hiç örneklenmemiş,
+  generic olmayan TEK modül. Birden fazla aday, aday yok, tanımsız ya da
+  iki dosyada tanımlı ad: kullanım hatası (2), adaylar/modüller listelenir,
+  `top = "..."` ve dosya argümanı önerilir. Sessiz seçim yoktur.
+
+| Komut | Proje kipinde |
+|---|---|
+| `volt check` | her kaynak bir kez; `use` ile yüklenen dosya yükleyenin biriminde denetlenir (tanı tekrarı yok). Tek "Finished/Result"; `--format json` dosya başına bir zarf (ardışık JSON değerleri) |
+| `volt build` | üst modül(ler)in dosyaları, sırayla; en kötü çıkış kodu |
+| `volt run` | tek üst modül (`--top` projede aranır); listede birden fazlaysa 2 ve `volt run --top <ad>` önerisi |
+| `volt verify` | tek üst modülün dosyası; listede birden fazlaysa 2 ve dosya önerisi |
+
+"Next:" satırları proje kipinde dosya adı yazmaz (`Next: volt build`).
+Volt.toml yoksa:
+
+```
+$ volt check
+error: 'volt check' needs a file or a project, and no Volt.toml was found here or above
+  = help: give a file: volt check design.volt
+  = help: or create a project: volt new <name> (then run 'volt check' inside it)
+```
 
 ---
 
@@ -420,6 +463,8 @@ $ volt check design.volt
 **`todo!` listesi burada gösteriliyor** — `build --release`
 bunları hata sayıyor (E9001).
 
+Dosyasız `volt check` projenin her kaynağını denetler (§4a, ADR-0095).
+
 ## 6a. `volt check-regmap` — sürücü ↔ register haritası (ADR-0063)
 
 > ADR-0063 (uygulandı). Daha önce Volt'un ürettiği bir sürücü dosyasını
@@ -530,9 +575,14 @@ $ volt run counter.volt
 SEÇENEKLER:
     --cycles=<N>      Simülasyon döngü sayısı (varsayılan: 100)
     --vcd=<dosya>     Dalga formu kaydet
-    --top=<modül>     Üst modül (varsayılan: tek modül)
+    --top=<modül>     Üst modül (varsayılan: tek modül; proje kipinde Volt.toml top)
     --contracts       Kontratları izleyici olarak çalıştır (ADR-0064)
 ```
+
+Dosyasız `volt run` projenin üst modülünü simüle eder (§4a, ADR-0095).
+64 bitten geniş (Verilator `VlWide`) ya da genişliği derleme zamanında
+çözülemeyen portlar tabloda `0x` + onaltılık yazılır (32 bitlik sözcük
+başına 8 basamak), duman uyarıcısı onlara da 1 yazar (ADR-0095 §5).
 
 `--contracts` (ADR-0064) varsayılan KAPALIDIR: duman uyarıcısı (saat
 dışı girişler 1) tasarımın varsayımlarını gözetmez. Açıkken koşu durmaz;
@@ -590,7 +640,52 @@ SEÇENEKLER:
     --update-snapshots Snapshot güncelle (dikkatli!)
     --nocapture        Test çıktısını göster
     --no-contracts     Kontrat izleyicilerini kapat (ADR-0064)
+    --waves            Her testin dalga formunu kaydet (ADR-0095)
+    --no-waves         Dalga formu kaydetme (--waves ile birlikte: 2)
+    --watch            Proje dosyası değişince yeniden koş (Ctrl-C: 130)
 ```
+
+### Dalga formu (ADR-0095)
+
+Varsayılan: testler izsiz koşar; bir grupta test düşerse YALNIZ düşen
+testler `--trace` ile ayrı bir yürütülebilirde bir kez daha koşar
+(simülasyon deterministiktir; geçen koşunun ek maliyeti yoktur). Kayıt
+`build/sim/<test dosyası>/waves/<Modül>-<test>.vcd`; yanına GTKWave oturumu
+(`.gtkw`: sınanan modülün portları + ADR-0092 enum/Trit çevirileri).
+Düşen testin bloğu açma satırıyla biter (ana makine yolu, Docker'da da):
+
+```
+---- counts_while_enabled ----
+  assert_eq failed at counter_test.volt:13
+    left:  3
+    right: 4
+  Waveform gtkwave build/sim/counter_test/waves/Counter-counts_while_enabled.vcd build/sim/counter_test/waves/Counter-counts_while_enabled.gtkw
+```
+
+Yeniden koşudan önce stderr'e `Recording waveform of N failed test(s) of
+<Modül>` basılır. Geçen testlerde çıktı değişmez. `--waves` ilk koşuda her
+testi izler (grup başına `Waveforms N test(s) of <Modül> in <dizin>`);
+`--no-waves` hiçbir şey kaydetmez. Yeniden koşuda test geçerse ya da iz
+derlemesi düşerse uyarı basılır, test sonucu ve çıkış kodu değişmez.
+
+### İzleme — `--watch` (ADR-0095)
+
+Proje kökünden (Volt.toml; yoksa çalışma dizini, özyinelemesiz) gizli
+olmayan bütün dosyalar izlenir: `.volt`, test veri dosyaları, `Volt.toml`.
+Keşfin atlama kuralları geçerlidir; `--target-dir` proje içindeyse o da
+izlenmez. Değişiklik 300 ms yoklamayla bulunur; küme 250 ms sabit kalınca
+tek koşu başlar (art arda kayıtlar birleşir). Her koşu stderr'de ayırıcı +
+UTC saatle başlar ve özetle biter:
+
+```
+── volt test --watch · run 2 · 18:41:19 UTC ────────────────
+...
+     Watched tests passed in 4.4s; waiting for changes in 4 file(s) (Ctrl-C to stop)
+```
+
+Ctrl-C: `Stopped watching`, çıkış 130. Docker'da (§8b) bu kipte
+konteynerler `volt-watch-<pid>-<sıra>` adını taşır ve her koşu sonunda ve
+kesmede `docker rm -f` ile süpürülür — geride konteyner kalmaz.
 
 ### Kontratlar simülasyonda (ADR-0064)
 
@@ -807,7 +902,8 @@ simülasyon (`test`/`run`, grup başına iki kısa konteyner, sırayla), `sby -j
 N` (`verify`, TEK konteyner, işler onun içinde). Derleme, testbench/SV/sby
 dosyalarının yazımı, sonuçların yorumu ve GTKWave oturumu ana makinededir.
 Aynı anda en fazla bir konteyner çalışır. `--fail-fast` sby'yi keserken
-konteyneri de durdurur (`docker rm -f`). Konteyner ağsızdır
+konteyneri de durdurur (`docker rm -f`); `volt test --watch`'ta Ctrl-C
+koşan konteyneri kaldırır (§8, ADR-0095). Konteyner ağsızdır
 (`--network none`).
 
 **Yollar:** konteynere yalnız aracın çalışma dizini bağlanır (`build/sim/
@@ -1016,7 +1112,7 @@ ADR-0089 — ama başlangıç projesi düz kalır):
 
 ```
 <ad>/
-  Volt.toml          [package] name = "<ad>", src = "."
+  Volt.toml          [package] name = "<ad>", src = ".", top = "<Modül>" (ADR-0095)
   counter.volt       (şablona göre ana dosya)
   counter_test.volt
   README.md
@@ -1038,9 +1134,12 @@ $ volt new blinky
     Created minimal project 'blinky' in blinky
              Volt.toml, counter.volt, counter_test.volt, README.md, .gitignore
        Next: cd blinky
-             volt check counter.volt
+             volt check
              volt test
 ```
+
+Proje içindeki komutlar dosya adı almaz (§4a, ADR-0095); README ve
+"Next:" satırları argümansız biçimi gösterir.
 
 ---
 

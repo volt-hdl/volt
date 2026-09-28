@@ -13,6 +13,7 @@ fn ports() -> Vec<SimPort> {
         is_input,
         is_clock,
         reset: None,
+        bits: Some(8),
     };
     vec![
         port("clk", true, true),

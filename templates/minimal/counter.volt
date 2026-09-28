@@ -1,9 +1,9 @@
 // An 8-bit counter with an enable input and a wrap-around value.
 //
-//   volt check counter.volt     check the design (no output files)
-//   volt build counter.volt     write SystemVerilog to build/rtl/
-//   volt test                   run counter_test.volt in Verilator
-//   volt verify counter.volt    prove the contracts with SymbiYosys
+//   volt check     check the design (no output files)
+//   volt build     write SystemVerilog to build/rtl/
+//   volt test      run counter_test.volt in Verilator
+//   volt verify    prove the contracts with SymbiYosys
 
 // The counter goes back to 0 after this value.
 const MAX : u8 = 9

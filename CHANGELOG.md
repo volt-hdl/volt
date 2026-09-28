@@ -5,6 +5,39 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Proje kipi, düşen testin dalga formu, `volt test --watch` (ADR-0095, 2026-09-28)
+
+- Dosya argümansız `volt check`, `volt build`, `volt run`, `volt verify`
+  Volt.toml'un projesinde çalışır. `check` her kaynağı bir kez denetler
+  (`use` ile yüklenen dosya yükleyenin biriminde); `build` üst
+  modül(ler)in dosyalarını, `run`/`verify` tek üst modülü alır. Üst modül
+  `[package] top = "Soc"` (ya da liste) ya da çıkarım: projede hiç
+  örneklenmemiş TEK modül. Birden fazla aday kullanım hatasıdır (2), adaylar
+  listelenir — sessiz seçim yok. Volt.toml yoksa ileti dosya adını ya da
+  `volt new`'i önerir. Dosya verilen çağrılar değişmedi.
+- `volt test` düşen testleri izle yeniden koşar (yalnız düşen testler;
+  geçen koşunun ek maliyeti yok) ve bloğun sonuna
+  `Waveform gtkwave <vcd> <gtkw>` yazar; kayıt
+  `build/sim/<test dosyası>/waves/<Modül>-<test>.vcd`, oturum DUT portlarını
+  ve enum/Trit çevirilerini listeler, Docker'da da ana makine yolu.
+  `--waves` her testi kaydeder, `--no-waves` kapatır.
+- `volt test --watch`: proje dosyaları (`.volt`, test verisi, Volt.toml)
+  değişince yeniden koşar; art arda kayıtlar tek koşu, `build/` ve gizli
+  dizinler izlenmez; koşu başına ayırıcı + UTC saat, sonunda özet. Ctrl-C
+  çıkış 130; Docker'da koşan konteyner kaldırılır (ADR-0094 sınırı bu
+  yolda kapandı). Yeni bağımlılık: `ctrlc` (Ctrl-C'yi `unsafe`'siz yakalamak
+  için).
+- `volt new` şablonlarının Volt.toml'u `top` taşır; "Next:" satırları ve
+  README'ler argümansız komutları gösterir (`volt check`, `volt test`).
+- `volt explain waveforms` ve `simulation-setup` güncellendi (iki dil).
+
+### Düzeltildi — `volt run`'da 64 bitten geniş port (ADR-0095 §5)
+
+- Testbench 64 bitten geniş portu (Verilator `VlWide`) skaler sanıyordu:
+  `examples/hybrid_accel` HybridTop ve `examples/crypto/key_store.volt`
+  için C++ derlemesi düşüyordu. Geniş port artık sözcük sözcük sürülür ve
+  tabloda `0x…` onaltılık basılır; dar portlu testbench'ler bayt bayt aynı.
+
 ### Eklendi — Docker köprüsü: test, run ve verify (ADR-0094, 2026-09-28)
 
 - Verilator ya da sby yerelde bulunamazsa ve Docker daemon'u çalışıyorsa

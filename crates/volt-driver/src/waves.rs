@@ -42,6 +42,16 @@ fn filters_dir(vcd: &Path) -> PathBuf {
     vcd.with_file_name(format!("{stem}.filters"))
 }
 
+/// Oturumun başına eklenen çevirisiz iz (ADR-0095): `volt test`'te
+/// DUT'un portları — düşen testin kaydı açılınca girişler ve çıkışlar
+/// hazır görünür. Genişliği bilinmeyen port listeye girmez (GTKWave
+/// vektörü aralığıyla arar).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlainTrace {
+    pub name: String,
+    pub width: u32,
+}
+
 /// `top` modülünden kurulan oturumu VCD'nin yanına yazar. Enum/Trit
 /// sinyali yoksa hiçbir dosya üretilmez; daha önce Volt'un yazdığı eski
 /// oturum varsa silinir (başka tasarımın adlarını göstermesin).
@@ -51,6 +61,18 @@ pub(crate) fn write_session(
     top: &str,
     scope: WaveScope,
 ) -> std::io::Result<Session> {
+    write_session_with(vcd, info, top, scope, &[])
+}
+
+/// [`write_session`] + `plain` izleri: liste boş değilse enum'suz
+/// tasarımda da oturum yazılır (ADR-0095).
+pub(crate) fn write_session_with(
+    vcd: &Path,
+    info: &WaveInfo,
+    top: &str,
+    scope: WaveScope,
+    plain: &[PlainTrace],
+) -> std::io::Result<Session> {
     let gtkw = session_path(vcd);
     let ours = is_volt_session(&gtkw);
     let prefix = match scope {
@@ -59,29 +81,62 @@ pub(crate) fn write_session(
     };
     // Önce oturum var mı: enum'suz tasarımın çıktısı kullanıcının kendi
     // `.gtkw`'sinden etkilenmez.
-    let Some(session) = info.session(top, &prefix) else {
+    let session = info.session(top, &prefix);
+    if session.is_none() && plain.is_empty() {
         if ours {
             remove_session(&gtkw, &filters_dir(vcd))?;
         }
         return Ok(Session::None);
-    };
+    }
     // Tablolar yalnız Volt'undur: `.gtkw` kullanıcınınsa da tazelenir
     // (GTKWave'de yeniden kaydedilen oturum işareti kaybeder ama `^N`
     // satırları bu dosyaları göstermeye devam eder).
-    let dir = filters_dir(vcd);
-    std::fs::create_dir_all(&dir)?;
-    let names = filter_file_names(&session.tables);
-    let mut filters = Vec::with_capacity(names.len());
-    for (table, name) in session.tables.iter().zip(&names) {
-        let path = dir.join(name);
-        std::fs::write(&path, filter_text(table))?;
-        filters.push(viewer_path(&path));
+    let mut filters = Vec::new();
+    if let Some(session) = &session {
+        let dir = filters_dir(vcd);
+        std::fs::create_dir_all(&dir)?;
+        let names = filter_file_names(&session.tables);
+        for (table, name) in session.tables.iter().zip(&names) {
+            let path = dir.join(name);
+            std::fs::write(&path, filter_text(table))?;
+            filters.push(viewer_path(&path));
+        }
     }
     if gtkw.exists() && !ours {
         return Ok(Session::Kept(gtkw));
     }
-    std::fs::write(&gtkw, gtkw_text(&session, &viewer_path(vcd), &filters))?;
+    let dumpfile = viewer_path(vcd);
+    let text = match &session {
+        Some(session) => gtkw_text(session, &dumpfile, &filters),
+        None => format!("{GTKW_MARKER}\n[dumpfile] \"{dumpfile}\"\n"),
+    };
+    let enum_paths: Vec<&str> = session
+        .as_ref()
+        .map(|s| s.traces.iter().map(|t| t.path.as_str()).collect())
+        .unwrap_or_default();
+    std::fs::write(&gtkw, with_plain_traces(&text, &prefix, plain, &enum_paths))?;
     Ok(Session::Written(gtkw))
+}
+
+/// Çevirisiz izleri oturum başlığının (işaret + `[dumpfile]`) ardına
+/// ekler; enum izi olan port bir kez, çevirisiyle görünür. `@28` tek bit
+/// ikili, `@24` vektör ondalık (sağa yaslı) — test raporundaki değerlerle
+/// aynı taban.
+fn with_plain_traces(text: &str, prefix: &str, plain: &[PlainTrace], skip: &[&str]) -> String {
+    let mut lines = text.split_inclusive('\n');
+    let mut out: String = lines.by_ref().take(2).collect();
+    for t in plain {
+        let (flags, path) = if t.width > 1 {
+            ("@24", format!("{prefix}.{}[{}:0]", t.name, t.width - 1))
+        } else {
+            ("@28", format!("{prefix}.{}", t.name))
+        };
+        if !skip.contains(&path.as_str()) {
+            out.push_str(&format!("{flags}\n{path}\n"));
+        }
+    }
+    out.extend(lines);
+    out
 }
 
 /// Tablo dosya adları `<Enum>.txt`; büyük/küçük harf duyarsız dosya

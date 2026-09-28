@@ -13,6 +13,8 @@ use crate::sim_script::{
     printf_literal, uses_load, uses_port_check, uses_script_runtime, ScriptEmitter, LOAD_PRELUDE,
     PORT_PRELUDE, SCRIPT_PRELUDE,
 };
+use crate::sim_trace::{model_lines, Trace, TRACE_PRELUDE};
+use crate::sim_width::{drive, may_be_wide, show_width, WIDE_PRELUDE};
 
 /// Portun Verilator C++ modelindeki adı (ADR-0078): Verilator C++
 /// sözcüğüyle çakışan üst modül portunu `__SYM__<ad>` diye adlandırır.
@@ -28,6 +30,10 @@ pub struct SimPort {
     pub is_clock: bool,
     /// Reset'i üreteç sürer (ADR-0065); veri gibi sıfırlanmaz/sürülmez.
     pub reset: Option<SimReset>,
+    /// Bit genişliği; derleme zamanında çözülemezse `None`. 64'ten genişse
+    /// (ya da bilinmiyorsa) `volt run` testbench'i portu `VlWide`
+    /// yardımcılarıyla sürer ve basar (ADR-0095 §5).
+    pub bits: Option<u32>,
 }
 
 /// Üretecin sürdüğü reset girişi.
@@ -63,6 +69,7 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
                 TypeRefKind::Clock
             ),
             reset: None,
+            bits: crate::sim_width::port_bits(src, p.ty),
         })
         .collect();
     let clocks = crate::clock_ports_of(src, &crate::collect_domains(src), module);
@@ -84,8 +91,9 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
         .flat_map(|(port, sim)| match struct_leaves(src, port) {
             Some(leaves) => leaves
                 .into_iter()
-                .map(|suffix| SimPort {
+                .map(|(suffix, width)| SimPort {
                     name: format!("{}_{suffix}", port.name.text),
+                    bits: Some(width),
                     ..sim.clone()
                 })
                 .collect(),
@@ -100,19 +108,27 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
                 is_input: false,
                 is_clock: false,
                 reset: Some(SimReset::Auto(cfg.polarity)),
+                bits: Some(1),
             });
         }
     }
     ports
 }
 
-/// Struct tipli portun yaprak sonekleri (`a`, `i_x`); struct değilse `None`.
-fn struct_leaves(src: &SourceFile, port: &volt_ast::Port) -> Option<Vec<String>> {
+/// Struct tipli portun yaprak sonekleri (`a`, `i_x`) ve genişlikleri;
+/// struct değilse `None`.
+fn struct_leaves(src: &SourceFile, port: &volt_ast::Port) -> Option<Vec<(String, u32)>> {
     let decl = volt_ast::struct_layout::struct_of_type(src, port.ty)?;
     let layout =
         volt_ast::struct_layout::layout(src, decl, &mut |e| crate::structs::const_int(src, e))
             .ok()?;
-    Some(layout.leaves.iter().map(|l| l.suffix()).collect())
+    Some(
+        layout
+            .leaves
+            .iter()
+            .map(|l| (l.suffix(), l.width))
+            .collect(),
+    )
 }
 
 /// `sources` içinde adı verilen modülü bulur.
@@ -251,19 +267,23 @@ pub struct TbTest {
 /// (`eval()` Verilator modelinin devre değerlendirme API'sidir — kod
 /// yürütme değildir.) İzleyiciler açıksa çevrim sayacı posedge'den
 /// ÖNCE artar: N. çevrimin kenarında yakalanan ihlal `cycle=N`'dir.
-fn cycle_fn(ports: &[SimPort], trace: bool, contracts: bool) -> String {
+fn cycle_fn(ports: &[SimPort], trace: Trace, contracts: bool) -> String {
     let mut set_high = String::new();
     let mut set_low = String::new();
     for p in ports.iter().filter(|p| p.is_clock) {
         set_high.push_str(&format!("    dut->{} = 1;\n", cpp_port(&p.name)));
         set_low.push_str(&format!("    dut->{} = 0;\n", cpp_port(&p.name)));
     }
-    let dump = if trace {
-        "    ctx->timeInc(1);\n    tfp->dump(ctx->time());\n"
-    } else {
-        "    ctx->timeInc(1);\n"
+    let dump = match trace {
+        Trace::Param => "    ctx->timeInc(1);\n    tfp->dump(ctx->time());\n",
+        Trace::Global => "    ctx->timeInc(1);\n    if (volt_tfp) volt_tfp->dump(ctx->time());\n",
+        Trace::Off => "    ctx->timeInc(1);\n",
     };
-    let tfp_param = if trace { ", VerilatedVcdC* tfp" } else { "" };
+    let tfp_param = if trace == Trace::Param {
+        ", VerilatedVcdC* tfp"
+    } else {
+        ""
+    };
     let count = if contracts { "    ++volt_cycle;\n" } else { "" };
     format!(
         "static void run_cycle(TOP* dut, VerilatedContext* ctx{tfp_param}) {{\n\
@@ -374,14 +394,34 @@ pub fn run_testbench_cpp_with(
         .filter(|p| !p.is_clock && p.reset.is_none())
         .collect();
 
+    // 64 bitten geniş (ya da genişliği bilinmeyen) port `VlWide`
+    // olabilir: yardımcıyla sürülür ve basılır (ADR-0095 §5). Yalnız böyle
+    // bir port varsa eklenir — dar portlu testbench bayt bayt aynı kalır.
+    let wide = cols.iter().any(|p| may_be_wide(p.bits));
+
     let mut out = header(module, trace, contracts);
-    out.push_str(&cycle_fn(ports, trace, contracts));
+    if wide {
+        out.push_str(WIDE_PRELUDE);
+        out.push('\n');
+    }
+    let cycle_trace = if trace { Trace::Param } else { Trace::Off };
+    out.push_str(&cycle_fn(ports, cycle_trace, contracts));
     out.push('\n');
     out.push_str(&reset_fn(ports, trace));
     out.push('\n');
 
     // Sütun genişlikleri üretim anında sabitlenir (deterministik çıktı).
-    let widths: Vec<usize> = cols.iter().map(|p| p.name.len().max(5)).collect();
+    let widths: Vec<usize> = cols
+        .iter()
+        .map(|p| {
+            let name = p.name.len().max(5);
+            if may_be_wide(p.bits) {
+                name.max(show_width(p.bits))
+            } else {
+                name
+            }
+        })
+        .collect();
     let mut head = format!("{:>5}", "cycle");
     let mut dashes = "-----".to_string();
     for (p, w) in cols.iter().zip(&widths) {
@@ -402,7 +442,7 @@ pub fn run_testbench_cpp_with(
     let tfp_arg = if trace { ", &vcd" } else { "" };
     // Girişler resetten önce sıfırlanır (belirsiz başlangıç yok).
     for p in cols.iter().filter(|p| p.is_input) {
-        out.push_str(&format!("    dut.{} = 0;\n", cpp_port(&p.name)));
+        out.push_str(&drive(p, 0));
     }
     out.push_str(&format!("    apply_reset(&dut, &ctx{tfp_arg});\n"));
     if contracts {
@@ -416,8 +456,13 @@ pub fn run_testbench_cpp_with(
     let mut fmt = "%5llu".to_string();
     let mut args = String::new();
     for (p, w) in cols.iter().zip(&widths) {
-        fmt.push_str(&format!("  %{w}llu"));
-        args.push_str(&format!(", (unsigned long long)dut.{}", cpp_port(&p.name)));
+        if may_be_wide(p.bits) {
+            fmt.push_str(&format!("  %{w}s"));
+            args.push_str(&format!(", volt_show(dut.{}).c_str()", cpp_port(&p.name)));
+        } else {
+            fmt.push_str(&format!("  %{w}llu"));
+            args.push_str(&format!(", (unsigned long long)dut.{}", cpp_port(&p.name)));
+        }
     }
     out.push_str(&format!(
         "    std::printf(\"{fmt}\\n\", (unsigned long long)0{args});\n\n"
@@ -425,7 +470,7 @@ pub fn run_testbench_cpp_with(
     // Duman stimulusu: saat dışı girişler 1 (ADR-0033 — gerçek
     // doğrulama volt test'indir).
     for p in cols.iter().filter(|p| p.is_input) {
-        out.push_str(&format!("    dut.{} = 1;\n", cpp_port(&p.name)));
+        out.push_str(&drive(p, 1));
     }
     out.push_str(&format!(
         "    for (unsigned long long c = 1; c <= {cycles}ULL; ++c) {{\n"
@@ -464,10 +509,38 @@ pub fn test_testbench_cpp_with(
     tests: &[TbTest],
     contracts: bool,
 ) -> String {
+    test_testbench(module, ports, tests, contracts, None)
+}
+
+/// `test_testbench_cpp_with` + dalga formu (ADR-0095): `tests[i]` izini
+/// `vcds[i]` dosyasına yazar (yol yürütülebilirin çalışma dizinine göre).
+/// Verilator `--trace` ile derlenmelidir.
+pub fn test_testbench_cpp_traced(
+    module: &str,
+    ports: &[SimPort],
+    tests: &[TbTest],
+    contracts: bool,
+    vcds: &[String],
+) -> String {
+    assert_eq!(tests.len(), vcds.len(), "test başına bir VCD yolu");
+    test_testbench(module, ports, tests, contracts, Some(vcds))
+}
+
+fn test_testbench(
+    module: &str,
+    ports: &[SimPort],
+    tests: &[TbTest],
+    contracts: bool,
+    vcds: Option<&[String]>,
+) -> String {
     let script = tests.iter().any(|t| uses_script_runtime(&t.steps));
     let loads = tests.iter().any(|t| uses_load(&t.steps));
 
-    let mut out = header(module, false, contracts);
+    let mut out = header(module, vcds.is_some(), contracts);
+    if vcds.is_some() {
+        out.push_str(TRACE_PRELUDE);
+        out.push('\n');
+    }
     if script {
         // <cstddef> ve betik yardımcıları yalnız ADR-0058 özellikleri
         // kullanılırsa eklenir; aksi hâlde çıktı ADR-0033 ile aynıdır.
@@ -487,7 +560,12 @@ pub fn test_testbench_cpp_with(
         out.push_str(PORT_PRELUDE);
         out.push('\n');
     }
-    out.push_str(&cycle_fn(ports, false, contracts));
+    let cycle_trace = if vcds.is_some() {
+        Trace::Global
+    } else {
+        Trace::Off
+    };
+    out.push_str(&cycle_fn(ports, cycle_trace, contracts));
     out.push('\n');
     out.push_str(&reset_fn(ports, false));
     out.push('\n');
@@ -498,7 +576,7 @@ pub fn test_testbench_cpp_with(
         out.push_str(&format!("static bool test_{i}() {{\n"));
         out.push_str("    VerilatedContext uctx;\n");
         out.push_str("    VerilatedContext* ctx = &uctx;\n");
-        out.push_str("    TOP dut(ctx);\n");
+        out.push_str(&model_lines(vcds.map(|v| v[i].as_str())));
         let test_loads = uses_load(&test.steps);
         if script {
             out.push_str("    volt_fault = 0;\n");
@@ -561,18 +639,21 @@ mod tests {
                 is_input: true,
                 is_clock: true,
                 reset: None,
+                bits: Some(1),
             },
             SimPort {
                 name: "enable".into(),
                 is_input: true,
                 is_clock: false,
                 reset: None,
+                bits: Some(1),
             },
             SimPort {
                 name: "count".into(),
                 is_input: false,
                 is_clock: false,
                 reset: None,
+                bits: Some(8),
             },
         ]
     }
@@ -661,6 +742,7 @@ mod tests {
             is_input,
             is_clock,
             reset: None,
+            bits: Some(1),
         };
         let ports = vec![
             port("char", true, true),
