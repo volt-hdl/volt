@@ -5,6 +5,29 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Hazır ikililer: sürüm iş akışı (ADR-0093, 2026-09-28)
+
+- `.github/workflows/release.yml`: `v*` tag'i dört platform arşivi
+  (Windows x86_64 `.zip`, Linux x86_64 musl statik, macOS arm64 ve x86_64
+  `.tar.gz`), `volt-hdl-<sürüm>.vsix`, `SHA256SUMS` ve Sigstore imzalı
+  derleme kaynağı kaydı (build provenance) üretir ve **taslak** Release
+  açar. `workflow_dispatch` kuru koşudur: Release yok, dosyalar artifact.
+  PR'larda koşmaz. Tag ile Cargo sürümü (ve eklenti sürümü) uyuşmazsa iş
+  düşer.
+- Her platform işinde arşivden çıkarılan ikiliyle, depo dışında boş bir
+  klasörde ve PATH'te cargo yokken duman testi: `--version`, `new`,
+  `check`, `build`, `doctor`. Windows'ta VC++ çalışma zamanı içe aktarımı
+  yok (statik CRT, `dumpbin` denetimi); Linux ikilisi CentOS 7'de
+  (glibc 2.17) aynı testi geçer.
+- `[profile.release]`: `strip = true`; arşivler yeni `dist` profiliyle
+  (fat LTO, `codegen-units = 1`): Windows'ta 10,14 → 9,67 MB.
+- `volt --version` ile Cargo sürümünün aynı olduğunu `cli_tests` denetler.
+- VS Code eklentisi paketlenebilir: `LICENSE`, `.vscodeignore`,
+  `repository`, `vscode:prepublish`.
+- README kurulum bölümü: önce Releases'tan indirme (imzasız ikili notları:
+  SmartScreen, macOS karantina), `.vsix` kurulumu, sonra kaynaktan derleme.
+  Sürüm yayımlama adımları `.github/workflows/README.md`'de.
+
 ### Eklendi — Dalga formunda enum ve Trit adları (ADR-0092, 2026-09-28)
 
 - `volt run --vcd <ad>.vcd` ve `volt verify` karşı örneği (`_cex.vcd`,

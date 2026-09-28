@@ -5,13 +5,20 @@
   "version": "0.1.0",
   "publisher": "volthdl",
   "license": "(MIT OR Apache-2.0)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/volt-hdl/volt",
+    "directory": "editors/vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": ["onLanguage:volt"],
+  "activationEvents": [
+    "onLanguage:volt"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -61,6 +68,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package"

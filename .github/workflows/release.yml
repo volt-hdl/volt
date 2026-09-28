@@ -1,0 +1,327 @@
+name: Release
+
+# ADR-0093: prebuilt binaries. A "v*" tag builds every archive and opens a
+# DRAFT GitHub Release (a maintainer publishes it by hand). workflow_dispatch
+# is the dry run: the same builds and smoke tests, archives uploaded as
+# workflow artifacts, no release. Never runs on pull requests.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Windows: link the C runtime statically, so volt.exe runs on a machine
+  # without the Visual C++ Redistributable (no VCRUNTIME140.dll import).
+  CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+
+jobs:
+  version:
+    name: Version check
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      # One number everywhere: Cargo workspace version = volt --version (a
+      # cli_tests test pins that) = VS Code extension version = tag.
+      - name: Read and compare versions
+        id: v
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "volt-driver") | .version')
+          ext=$(jq -r .version editors/vscode/package.json)
+          echo "Cargo: $version, VS Code extension: $ext, ref: $GITHUB_REF_TYPE $GITHUB_REF_NAME"
+          if [ "$ext" != "$version" ]; then
+            echo "::error::editors/vscode/package.json version $ext != Cargo version $version"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo version v$version (Cargo.toml [workspace.package])"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: .exe
+            archive: zip
+          # musl: a fully static binary, independent of the distribution's
+          # glibc version (smoke-tested again inside CentOS 7, glibc 2.17).
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            exe: ""
+            archive: tar.gz
+          # Two native macOS builds instead of one universal binary: each
+          # archive is smoke-tested on its own architecture.
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            exe: ""
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            exe: ""
+            archive: tar.gz
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      EXE: ${{ matrix.exe }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # No build cache on purpose: a release archive is built from the
+      # tagged source alone, never from a cache another branch wrote.
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build (dist profile)
+        run: cargo build --profile dist --locked -p volt-driver --bin volt --target "$TARGET"
+
+      - name: Package archive
+        id: pkg
+        run: |
+          name="volt-v$VERSION-$TARGET"
+          mkdir -p "dist/$name"
+          cp "target/$TARGET/dist/volt$EXE" "dist/$name/"
+          cp LICENSE-APACHE LICENSE-MIT "dist/$name/"
+          cat > "dist/$name/README.md" <<EOF
+          # Volt HDL $VERSION ($TARGET)
+
+          Volt is a hardware description language that emits SystemVerilog and
+          checks clock-domain crossings in its type system.
+
+          Put \`volt$EXE\` on your PATH, then:
+
+              volt doctor             # which commands work here, what to install
+              volt new blinky         # a project with a counter, a test, contracts
+              cd blinky
+              volt check counter.volt
+              volt build counter.volt # SystemVerilog in build/rtl/
+
+          \`volt build\`, \`check\`, \`explain\`, \`new\` and \`lsp\` need nothing else.
+          \`volt test\`/\`run\` need Verilator, \`volt verify\` needs SymbiYosys.
+
+          The binary is not code-signed. Windows SmartScreen: "More info" ->
+          "Run anyway". macOS: \`xattr -d com.apple.quarantine volt\`.
+          Checksums and build provenance: see the release page.
+
+          Documentation: https://github.com/volt-hdl/volt
+          License: MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE).
+          EOF
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip -bso0 "$name.zip" "$name"
+            archive="$name.zip"
+          else
+            tar -czf "$name.tar.gz" "$name"
+            archive="$name.tar.gz"
+          fi
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          bin_size=$(wc -c < "$name/volt$EXE" | tr -d " ")
+          arc_size=$(wc -c < "$archive" | tr -d " ")
+          echo "| $TARGET | $bin_size | $arc_size |" > "size-$TARGET.md"
+          echo "binary $bin_size bytes, archive $arc_size bytes"
+
+      # Smoke test with the binary unpacked from the archive, in an empty
+      # directory outside the repository, with cargo/rustup removed from PATH.
+      - name: Smoke test (unpacked archive, empty directory)
+        run: |
+          temp=$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || echo "$RUNNER_TEMP")
+          smoke="$temp/smoke"
+          rm -rf "$smoke" && mkdir -p "$smoke/unpack" "$smoke/empty"
+          archive="$PWD/dist/${{ steps.pkg.outputs.archive }}"
+          cd "$smoke/unpack"
+          if [ "${{ matrix.archive }}" = "zip" ]; then 7z x -bso0 "$archive"; else tar -xzf "$archive"; fi
+          bin="$smoke/unpack/volt-v$VERSION-$TARGET/volt$EXE"
+          PATH=$(echo "$PATH" | tr ":" "\n" | grep -v -e cargo -e rustup | paste -sd: -)
+          export PATH
+          if command -v cargo; then echo "::error::cargo still on PATH"; exit 1; fi
+          set -x
+          "$bin" --version
+          test "$("$bin" --version | tr -d "\r")" = "volt $VERSION"
+          cd "$smoke/empty"
+          "$bin" new demo
+          cd demo
+          "$bin" check counter.volt
+          "$bin" build counter.volt
+          test -s build/rtl/Counter.sv
+          "$bin" doctor
+
+      - name: Portability - no VC++ runtime import (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find "VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin /nologo /dependents "target/$env:TARGET/dist/volt.exe" | Where-Object { $_ -match '\.dll' } | ForEach-Object { $_.Trim() }
+          $deps
+          $bad = $deps | Where-Object { $_ -match '^(vcruntime|msvcp|api-ms-win-crt)' }
+          if ($bad) { Write-Error "C runtime DLL imports: $bad"; exit 1 }
+
+      - name: Portability - static binary, runs on CentOS 7 (glibc 2.17)
+        if: runner.os == 'Linux'
+        run: |
+          bin="target/$TARGET/dist/volt"
+          file "$bin"
+          file "$bin" | grep -qE "statically linked|static-pie linked"
+          docker run --rm -v "$PWD/$(dirname "$bin"):/v:ro" centos:7 sh -euxc \
+            "cat /etc/centos-release; ldd --version | head -1; /v/volt --version; cd /tmp; /v/volt new demo; cd demo; /v/volt check counter.volt; /v/volt build counter.volt; test -s build/rtl/Counter.sv; /v/volt doctor"
+
+      - name: Portability - architecture and minimum macOS
+        if: runner.os == 'macOS'
+        run: |
+          bin="target/$TARGET/dist/volt"
+          file "$bin"
+          lipo -archs "$bin"
+          otool -L "$bin"
+          # arm64 carries LC_BUILD_VERSION (minos), x86_64 (10.12) LC_VERSION_MIN_MACOSX.
+          otool -l "$bin" | grep -A4 -E "LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: volt-${{ matrix.target }}
+          path: |
+            dist/${{ steps.pkg.outputs.archive }}
+            dist/size-${{ matrix.target }}.md
+          if-no-files-found: error
+
+  vsix:
+    name: VS Code extension (.vsix)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      # vscode:prepublish compiles TypeScript; the language server is not
+      # bundled, the extension starts `volt lsp` (setting volt.serverPath).
+      - name: Package
+        run: |
+          mkdir -p ../../dist
+          npx vsce package -o "../../dist/volt-hdl-$VERSION.vsix"
+      - name: Check contents
+        run: |
+          vsix="../../dist/volt-hdl-$VERSION.vsix"
+          unzip -l "$vsix" > list.txt
+          for f in extension/package.json extension/out/extension.js extension/LICENSE.txt \
+                   extension/syntaxes/volt.tmLanguage.json \
+                   extension/node_modules/vscode-languageclient/package.json; do
+            grep -q " $f\$" list.txt || { echo "::error::$f missing from the .vsix"; exit 1; }
+          done
+          size=$(wc -c < "$vsix" | tr -d " ")
+          echo "| VS Code extension | - | $size |" > "../../dist/size-vsix.md"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: volt-vsix
+          path: |
+            dist/volt-hdl-${{ needs.version.outputs.version }}.vsix
+            dist/size-vsix.md
+          if-no-files-found: error
+
+  checksums:
+    name: Checksums + provenance
+    needs: [version, build, vsix]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: collected
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          mkdir dist
+          mv collected/volt-v* collected/volt-hdl-* dist/
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          {
+            echo "### Volt $VERSION release files"
+            echo
+            echo "| Target | Binary (bytes) | Archive (bytes) |"
+            echo "|---|---|---|"
+            cat ../collected/size-*.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Sigstore-signed SLSA build provenance for every archive and the .vsix:
+      # `gh attestation verify <file> -R volt-hdl/volt`.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/volt-v*
+            dist/volt-hdl-*.vsix
+      - uses: actions/upload-artifact@v7
+        with:
+          name: volt-release-${{ needs.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [version, checksums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: volt-release-${{ needs.version.outputs.version }}
+          path: dist
+      # Notes: the CHANGELOG.md section "## [<version>]" if there is one.
+      - name: Release notes
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "See CHANGELOG.md." > notes.md
+          fi
+          {
+            echo
+            echo "Install: download the archive for your platform, unpack it and put \`volt\` on your PATH (README, Installation)."
+            echo "Verify: \`sha256sum -c SHA256SUMS\` and \`gh attestation verify <file> -R $GITHUB_REPOSITORY\`."
+          } >> notes.md
+      - name: Create draft release
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --draft --verify-tag \
+            --title "Volt $VERSION" \
+            --notes-file notes.md

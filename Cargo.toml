@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Volt HDL Contributors"]
-repository = "https://github.com/volthdl/volthdl"
+repository = "https://github.com/volt-hdl/volt"
 
 [workspace.dependencies]
 logos = "0.14"
@@ -34,3 +34,16 @@ criterion = "0.5"
 # F5a LSP sunucusu: tower-lsp + async çalışma zamanı (yalnız volt-lsp kullanır)
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "time", "sync"] }
+
+# ADR-0093: symbols out of every release build (Linux/macOS binaries
+# carry the standard library's symbol table otherwise).
+[profile.release]
+strip = true
+
+# ADR-0093: release archives only (`cargo build --profile dist`). Fat LTO and
+# one codegen unit: 9.67 MB instead of 10.14 MB on Windows, but twice the
+# build time (162 s vs 77 s), so `cargo build --release` stays fast.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
