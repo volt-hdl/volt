@@ -83,6 +83,7 @@ denetler.
 | [0009](ADR-0009-test-dosya-formati.md) | Test Dosya Formatı — `tests/ui/{pass,fail}`, `//~` Anotasyonları, Birebir Fixture | Testler `tests/ui/{pass,fail}` altında `//~` anotasyonlu fixture'lardır; beklenen çıktılar birebir karşılaştırılır. | Uygulandı |
 | [0015](ADR-0015-determinizm-garantisi.md) | Determinizm Garantisi Kapsamı — Aynı Kaynak, Byte-Aynı Çıktı | Aynı kaynak ve aynı derleyici her zaman bayt bayt aynı çıktıyı üretir. | Kabul edildi |
 | [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Uygulandı |
+| [0094](ADR-0094-docker-koprusu.md) | Docker Köprüsü — Eksik Verilator/sby'yi Sabitlenmiş İmajda Otomatik Koşturmak | Verilator ya da sby yerelde yoksa `volt test`, `run` ve `verify` aracı özetle sabitlenmiş imajda koşturur; tek satır bildirir, yollar ana makine yolu kalır. | Uygulandı |
 
 ## Sözdizimi ve dil yapıları
 

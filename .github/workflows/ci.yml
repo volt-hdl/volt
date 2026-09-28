@@ -385,3 +385,28 @@ jobs:
         with:
           name: fuzz-crash-parse_never_panics
           path: fuzz/artifacts/parse_never_panics/
+
+  docker-backend:
+    name: Docker backend (no local Verilator/sby)
+    runs-on: ubuntu-latest
+    # ADR-0094: with neither Verilator nor sby installed, volt test / verify /
+    # run fall back to the digest-pinned images. The e2e test runs volt new
+    # --template cdc, volt test, volt verify and uart_tx volt run --vcd through
+    # real Docker and checks that every generated file belongs to the runner
+    # user (not root) and that no container path reaches the output.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: No local Verilator or sby
+        run: |
+          if command -v verilator || command -v sby; then exit 1; fi
+          docker version --format "{{.Server.Version}}"
+      - name: Docker bridge end to end (real images)
+        env:
+          VOLT_DOCKER_E2E: "1"
+        run: cargo test -p volt-driver --test docker_e2e_tests -- --nocapture
+      - name: Generated files belong to the runner user
+        run: |
+          left=$(find "$(pwd)/target/tmp" -path "*volt-docker-e2e*" ! -user "$(id -u)" | head -5)
+          test -z "$left" || { echo "not owned by $(id -un): $left"; exit 1; }

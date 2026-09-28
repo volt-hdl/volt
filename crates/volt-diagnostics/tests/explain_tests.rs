@@ -511,6 +511,10 @@ fn install_steps_come_from_the_setup_topics() {
         let windows = install_steps(topic, lang, "Windows");
         assert_eq!(windows.len(), 1, "{topic}");
         assert!(windows[0].contains("WSL"), "{topic}: {windows:?}");
+        assert!(
+            windows[0].contains("Docker Desktop"),
+            "{topic}: {windows:?}"
+        );
     }
     assert!(install_steps("verify-setup", Lang::En, "macOS").is_empty());
     assert!(install_steps("domains", Lang::En, "Linux").is_empty());

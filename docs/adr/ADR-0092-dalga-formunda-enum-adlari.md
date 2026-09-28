@@ -1,7 +1,7 @@
 # ADR-0092: Dalga Formunda Enum ve Trit Adları — GTKWave Oturumu ve Çeviri Tabloları
 
 > Statü: Uygulandı
-> İlgili: ADR-0074 ("Sınırlar": dalga formunda varyant adları — kapandı; RTL eşlemesi değişmedi), ADR-0062 (Trit kodlaması), ADR-0033 (`volt run`), ADR-0075 (tümevarım izi), ADR-0090 (örnek çıkış teli adları).
+> İlgili: ADR-0074 ("Sınırlar": dalga formunda varyant adları — kapandı; RTL eşlemesi değişmedi), ADR-0062 (Trit kodlaması), ADR-0033 (`volt run`), ADR-0075 (tümevarım izi), ADR-0090 (örnek çıkış teli adları), ADR-0094 (Docker köprüsü: basılan yollar ana makine yolu).
 > Tarih: 2026-09-28
 > Etkilenen: volt-sv-emit (`waves.rs` YENİ — `WaveInfo`, `filter_text`,
 > `gtkw_text`; `EmitOutput::waves`; emit döngüsünde `record_waves`),

@@ -11,9 +11,12 @@ use volt_sv_emit::{sim as tbgen, uses_sim_contracts, SimPort, SvaMode};
 use super::contracts::{
     cover_summary_lines, covers_in, parse_contract_fail, ContractIndex, ContractViolation,
 };
-use super::verilator::{c_path, require_verilator, run_simulation, verilate, VerilateJob};
+use super::verilator::{
+    require_verilator, run_simulation, vcd_mount_dir, vcd_path_for, verilate, VerilateJob,
+};
 use super::{create_sim_dir, modules_of, write_file};
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::tool_backend::Runner;
 use crate::waves::{self, Session, WaveScope};
 use crate::{render_diagnostics, Compiled, OutputFormat};
 
@@ -74,7 +77,18 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
     let mut inputs = stage_extern_sources(&compiled.extern_sources, &sim_dir, &[sv_name.as_str()])?;
     inputs.push(sv_name);
     let contracts = uses_sim_contracts(&sv);
-    let tb = run_testbench(&module_name, &ports, cycles, vcd, contracts);
+    // Docker'da VCD dizini de konteynere bağlanır (ADR-0094).
+    let abs_vcd = vcd.map(absolute_vcd);
+    let vcd_str = abs_vcd
+        .as_deref()
+        .map(|p| vcd_path_for(&verilator, p))
+        .transpose()?;
+    let extra: Vec<PathBuf> = match (&verilator, &abs_vcd) {
+        (Runner::Docker(_), Some(p)) => vec![vcd_mount_dir(p)],
+        _ => Vec::new(),
+    };
+    let extra: Vec<&Path> = extra.iter().map(PathBuf::as_path).collect();
+    let tb = run_testbench(&module_name, &ports, cycles, vcd_str.as_deref(), contracts);
     write_file(&sim_dir.join("tb.cpp"), &tb)?;
 
     eprintln!(
@@ -92,8 +106,8 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
         trace: vcd.is_some(),
         mdir: "obj_dir",
     };
-    let exe = verilate(&verilator, &job)?;
-    let stdout = simulate(&exe, &sim_dir)?;
+    let exe = verilate(&verilator, &job, &extra)?;
+    let stdout = simulate(&verilator, &exe, &sim_dir, &extra)?;
     let code = if contracts {
         let index = ContractIndex::new(&compiled.sva_props, &compiled.map, &module_name);
         report_contracts(&stdout, &index)
@@ -141,8 +155,13 @@ fn report_contracts(stdout: &str, index: &ContractIndex) -> ExitCode {
 
 /// Simülasyonu koşturur ve çevrim tablosunu basar; izleyici satırları
 /// (`VOLT-*`) tablodan ayıklanır ve ham çıktıyla döner.
-fn simulate(exe: &Path, sim_dir: &Path) -> Result<String, ExitCode> {
-    let output = run_simulation(exe, sim_dir)?;
+fn simulate(
+    runner: &Runner,
+    exe: &Path,
+    sim_dir: &Path,
+    extra: &[&Path],
+) -> Result<String, ExitCode> {
+    let output = run_simulation(runner, exe, sim_dir, extra)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     for line in stdout.lines().filter(|l| !l.starts_with("VOLT-")) {
         println!("{line}");
@@ -233,16 +252,16 @@ fn select_top<'a>(
     Err(ExitCode::from(2))
 }
 
-/// Serbest koşan testbench; VCD yolu tb'ye mutlak ve `/` ile gömülür.
+/// Serbest koşan testbench; VCD yolu tb'ye mutlak ve `/` ile gömülür
+/// (`vcd_path_for`: Docker'da konteyner yolu).
 fn run_testbench(
     module: &str,
     ports: &[SimPort],
     cycles: u64,
-    vcd: Option<&Path>,
+    vcd: Option<&str>,
     contracts: bool,
 ) -> String {
-    let vcd_str = vcd.map(absolute_vcd).as_deref().map(c_path);
-    tbgen::run_testbench_cpp_with(module, ports, cycles, vcd_str.as_deref(), contracts)
+    tbgen::run_testbench_cpp_with(module, ports, cycles, vcd, contracts)
 }
 
 /// VCD yolu kullanıcı cwd'sine göre çözülür; tb'ye mutlak gömülür.

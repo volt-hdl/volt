@@ -74,15 +74,13 @@ docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:lates
 `volt test examples/<name>_test.volt` compiles the test file together
 with its sibling `<name>.volt` (or whatever the test file pulls in
 through `use`, as `i2c/i2c_test.volt` does) and needs Verilator (`VOLT_VERILATOR` or
-`PATH`). Without a local install, run the driver inside the Verilator
-image (the cargo caches live in named volumes):
+`PATH`). Without a local install a running Docker is enough: Volt runs
+Verilator in the digest-pinned `verilator/verilator:v5.052` image by itself
+and says so in one line (ADR-0094, `volt explain simulation-setup`):
 
 ```
-docker run --rm --entrypoint bash -v "$PWD:/work" \
-    -v volt-cargo:/usr/local/cargo -v volt-rustup:/usr/local/rustup \
-    -v volt-target:/work/target/linux -e CARGO_TARGET_DIR=/work/target/linux \
-    -e RUSTUP_HOME=/usr/local/rustup -e CARGO_HOME=/usr/local/cargo \
-    verilator/verilator -c 'export PATH=/usr/local/cargo/bin:$PATH; cd /work && cargo run -q -p volt-driver -- test examples/soc/top_test.volt'
+volt test examples/soc/top_test.volt
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
 ```
 
 ## Waveforms with enum names
@@ -97,18 +95,20 @@ volt run --cycles 60 --vcd build/uart.vcd examples/uart_tx.volt
 ```
 
 Run that command from the same directory (paths in the session are
-relative to it, so this also works after a Docker run):
+relative to it, and a Docker run prints host paths too):
 `TOP.UartTx.state_r[1:0]` shows `Idle`, `Start`, `Data`, `Stop`
 instead of `00`..`11`. See `volt explain waveforms`.
 
 ## Formal verification (SymbiYosys, Docker)
 
-Point `VOLT_SBY` at the Docker wrapper, then run the three modes:
+Without a local sby, Volt runs it in the digest-pinned `hdlc/formal:all`
+image (Yosys 0.66, boolector, yices, z3 — no bitwuzla; ADR-0094), all `-j`
+jobs in one container:
 
 ```
-VOLT_SBY=build/sby-docker.cmd volt verify --mode bmc   --depth 48 examples/uart_tx.volt
-VOLT_SBY=build/sby-docker.cmd volt verify --mode prove --depth 4  examples/uart_tx.volt
-VOLT_SBY=build/sby-docker.cmd volt verify --mode cover --depth 48 examples/uart_tx.volt
+volt verify --mode bmc   --depth 48 examples/uart_tx.volt
+volt verify --mode prove --depth 4  examples/uart_tx.volt
+volt verify --mode cover --depth 48 examples/uart_tx.volt
 ```
 
 A full 8N1 frame at 4 clocks per bit takes ~38 cycles, so the `bmc`

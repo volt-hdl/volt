@@ -14,6 +14,7 @@ use super::test_build::{collect_groups, compile_unit, TestGroup, TestUnit};
 use super::test_files::resolve_files;
 use super::verilator::{require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
+use crate::tool_backend::Runner;
 use crate::Compiled;
 
 /// `volt test` seçenekleri.
@@ -124,7 +125,7 @@ fn write_group_files(
 /// Tek grubu derler ve koşturur; test satırlarını basar. Kontrat
 /// ihlalleri ve cover sayıları kaynak konumuna eşlenmiş döner.
 fn run_group(
-    verilator: &Path,
+    verilator: &Runner,
     unit: &TestUnit,
     group: &TestGroup,
     opts: TestOptions<'_>,
@@ -160,8 +161,8 @@ fn run_group(
         trace: false,
         mdir: &format!("obj_{}", module.to_lowercase()),
     };
-    let exe = verilate(verilator, &job)?;
-    let output = run_simulation(&exe, &sim_dir)?;
+    let exe = verilate(verilator, &job, &[])?;
+    let output = run_simulation(verilator, &exe, &sim_dir, &[])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if opts.nocapture {
         print!("{stdout}");

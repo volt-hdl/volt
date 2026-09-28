@@ -5,6 +5,34 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Docker köprüsü: test, run ve verify (ADR-0094, 2026-09-28)
+
+- Verilator ya da sby yerelde bulunamazsa ve Docker daemon'u çalışıyorsa
+  `volt test`, `volt run` ve `volt verify` aracı özetle sabitlenmiş imajda
+  koşturur: `verilator/verilator:v5.052` (~250 MB), `hdlc/formal:all`
+  (~404 MB; Yosys 0.66, SBY 0.69, boolector, yices, z3 — bitwuzla yok).
+  Her seferinde tek satır bildirir (`note: Verilator not found locally;
+  running it in Docker (...)`); ilk kullanımda indirme boyutunu önce,
+  süresini sonra basar. Yerel araç kuruluysa davranış ve çıktı değişmez.
+- `VOLT_TOOL_BACKEND=auto|local|docker` (varsayılan `auto`),
+  `VOLT_DOCKER=<yol>` docker yürütülebiliri.
+- Konteynerde yalnız araç koşar; derleme ve sonuç yorumu ana makinede.
+  Yalnız aracın çalışma dizini bağlanır; tanılarda, günlük satırlarında,
+  `Waveform` satırında ve karşı örnek yollarında her zaman ana makine yolu
+  görünür (Windows `C:\...` ↔ `/volt/c/...` çevirisi). Linux'ta konteyner
+  çıktı dizininin sahibiyle koşar: `build/` kök'e ait olmaz. `verify -j`
+  tek konteynerde; `--fail-fast` konteyneri de durdurur.
+- Net hatalar (çıkış 3): daemon kapalı, imaj indirilemedi, konteyner
+  belleği yetmedi (137), konteyner başlamadı (125).
+- `volt doctor`: `✓ test, run — via Docker (verilator/verilator:v5.052:
+  ...)`, imaj yoksa ilk indirme boyutu; JSON'da `backend`, `image`,
+  `image_present`.
+- `volt explain simulation-setup` / `verify-setup`: yeni DOCKER bölümü (iki
+  dil); Windows kurulum satırı Docker Desktop'ı önerir. README kurulumu ve
+  `examples/README.md` elle Docker tarifleri sadeleşti.
+- CI: araçsız Linux işi `docker-backend` gerçek imajlarla `volt new → test →
+  verify` ve `run --vcd` koşar, dosya sahipliğini denetler.
+
 ### Eklendi — Hazır ikililer: sürüm iş akışı (ADR-0093, 2026-09-28)
 
 - `.github/workflows/release.yml`: `v*` tag'i dört platform arşivi

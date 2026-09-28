@@ -9,7 +9,10 @@ use volt_diagnostics::lstr;
 use volt_hir::SearchStop;
 use volt_tools::Tool;
 
-use super::{CapId, CapStatus, DockerDaemon, Report, SolverState, ToolReport, ToolStatus, SOLVERS};
+use super::{
+    CapId, CapStatus, DockerDaemon, DockerRoute, Report, SolverState, ToolReport, ToolStatus,
+    SOLVERS,
+};
 
 /// İnsan raporundaki araç adı.
 fn label(tool: Tool) -> String {
@@ -112,6 +115,9 @@ pub(super) fn human(report: &Report) -> String {
 }
 
 fn capability(out: &mut String, report: &Report, cap: CapId) {
+    if let Some(route) = report.via_docker(cap) {
+        return via_docker(out, cap, route);
+    }
     let status = report.cap_status(cap);
     let secs = report.timeout.as_secs();
     let tools: Vec<&ToolReport> = cap.tools().iter().map(|t| report.tool(*t)).collect();
@@ -151,6 +157,42 @@ fn capability(out: &mut String, report: &Report, cap: CapId) {
         if let Some(topic) = cap.setup_topic() {
             install_hint(out, topic);
         }
+    }
+}
+
+/// Docker'da koşacak yetenek (ADR-0094): imaj, içerdiği araçlar ve ilk
+/// kullanımdaki indirme.
+fn via_docker(out: &mut String, cap: CapId, route: &DockerRoute) {
+    let (name, contents) = (route.image.name, route.image.contents);
+    let _ = writeln!(
+        out,
+        "✓ {} — {}",
+        cap_title(cap),
+        lstr!(
+            en: "via Docker ({name}: {contents})";
+            tr: "Docker üzerinden ({name}: {contents})"
+        )
+    );
+    if !route.present {
+        let mb = route.image.download_mb;
+        let _ = writeln!(
+            out,
+            "    {}",
+            lstr!(
+                en: "image not downloaded yet: ~{mb} MB on first use";
+                tr: "imaj henüz indirilmedi: ilk kullanımda ~{mb} MB"
+            )
+        );
+    }
+    if cap == CapId::Verify {
+        let _ = writeln!(
+            out,
+            "    {}",
+            lstr!(
+                en: "(bitwuzla is not in this image; --engine boolector|yices|z3, ADR-0082)";
+                tr: "(bitwuzla bu imajda yok; --engine boolector|yices|z3, ADR-0082)"
+            )
+        );
     }
 }
 
@@ -256,8 +298,8 @@ fn docker(out: &mut String, report: &Report) {
         (ToolStatus::Missing, _) => (
             "-",
             lstr!(
-                en: "not found (optional: runs Verilator/sby in a container on Windows and macOS)";
-                tr: "bulunamadı (isteğe bağlı: Windows ve macOS'ta Verilator/sby'yi konteynerde çalıştırır)"
+                en: "not found (optional: Volt runs a missing Verilator/sby in a container)";
+                tr: "bulunamadı (isteğe bağlı: Volt eksik Verilator/sby'yi konteynerde çalıştırır)"
             ),
         ),
         (ToolStatus::Ok, Some(DockerDaemon::Running(_))) => (
@@ -373,6 +415,13 @@ pub(super) fn json(report: &Report) -> String {
     let caps: Vec<Value> = CapId::ALL
         .iter()
         .map(|c| {
+            let route = report.via_docker(*c);
+            let backend = match (route, report.cap_status(*c)) {
+                (Some(_), _) => Some("docker"),
+                (None, CapStatus::Missing) => None,
+                (None, _) if c.docker_tool().is_some() => Some("local"),
+                (None, _) => None,
+            };
             json!({
                 "id": c.name(),
                 "commands": c.commands(),
@@ -380,6 +429,9 @@ pub(super) fn json(report: &Report) -> String {
                 "status": cap_status_name(report.cap_status(*c)),
                 "tools": c.tools().iter().map(|t| t.name()).collect::<Vec<_>>(),
                 "setup_topic": c.setup_topic(),
+                "backend": backend,
+                "image": route.map(|r| r.image.reference()),
+                "image_present": route.map(|r| r.present),
             })
         })
         .collect();

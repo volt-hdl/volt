@@ -104,14 +104,26 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "Linux:\n\
                      \x20 apt install yosys boolector\n\
                      \x20 pip install symbiyosys\n\n\
-                     Docker:\n\
-                     \x20 docker pull hdlc/formal\n\
-                     \x20 docker run --rm -v $PWD:/work -w /work hdlc/formal \\\n\
-                     \x20     sby -f build/formal/<module>.sby\n\n\
                      Windows:\n\
-                     \x20 use WSL or Docker (no native binaries are distributed)\n\n\
+                     \x20 install Docker Desktop: Volt runs sby in a container (DOCKER below), or use WSL\n\n\
                      Everything in one download — the YosysHQ OSS CAD Suite ships yosys, sby and all solvers:\n\
                      \x20 https://github.com/YosysHQ/oss-cad-suite-build",
+                ),
+                (
+                    "DOCKER",
+                    "If sby is not installed but Docker is running, 'volt verify' runs it in \
+                     a container by itself and says so in one line:\n\n\
+                     \x20 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)\n\n\
+                     The image is pinned by digest: Yosys 0.66, SBY 0.69, boolector, yices and \
+                     z3 (no bitwuzla), about 404 MB, downloaded once on first use; Volt prints \
+                     the size before and the time after. Volt still compiles on the host; only \
+                     sby runs in the container, all -j jobs in one container. Every path Volt \
+                     prints (counterexamples, logs) is a host path, and on Linux the container \
+                     runs as your user, so build/ stays yours.\n\n\
+                     \x20 VOLT_TOOL_BACKEND=local    never use Docker\n\
+                     \x20 VOLT_TOOL_BACKEND=docker   use Docker even if sby is installed\n\
+                     \x20 VOLT_DOCKER=<path>         the docker executable\n\n\
+                     'volt doctor' shows which way 'volt verify' will run.",
                 ),
                 (
                     "NOTE",
@@ -152,14 +164,26 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "Linux:\n\
                      \x20 apt install yosys boolector\n\
                      \x20 pip install symbiyosys\n\n\
-                     Docker:\n\
-                     \x20 docker pull hdlc/formal\n\
-                     \x20 docker run --rm -v $PWD:/work -w /work hdlc/formal \\\n\
-                     \x20     sby -f build/formal/<modul>.sby\n\n\
                      Windows:\n\
-                     \x20 WSL ya da Docker kullanın (yerel ikili dağıtılmıyor)\n\n\
+                     \x20 Docker Desktop kurun: Volt sby'yi konteynerde çalıştırır (aşağıda DOCKER) ya da WSL kullanın\n\n\
                      Tek indirmede her şey — YosysHQ OSS CAD Suite yosys, sby ve tüm çözücüleri içerir:\n\
                      \x20 https://github.com/YosysHQ/oss-cad-suite-build",
+                ),
+                (
+                    "DOCKER",
+                    "sby kurulu değil ama Docker çalışıyorsa 'volt verify' onu kendiliğinden \
+                     konteynerde çalıştırır ve bunu tek satırla söyler:\n\n\
+                     \x20 not: SymbiYosys yerelde bulunamadı; Docker'da çalıştırılıyor (hdlc/formal:all)\n\n\
+                     İmaj özetiyle sabitlidir: Yosys 0.66, SBY 0.69, boolector, yices ve z3 \
+                     (bitwuzla yok), yaklaşık 404 MB, yalnız ilk kullanımda bir kez indirilir; \
+                     Volt boyutu önce, süreyi sonra basar. Volt yine ana makinede derler; \
+                     konteynerde yalnız sby koşar, tüm -j işleri tek konteynerde. Volt'un \
+                     bastığı her yol (karşı örnek, günlük) ana makine yoludur; Linux'ta \
+                     konteyner sizin kullanıcınızla koşar, build/ sizin kalır.\n\n\
+                     \x20 VOLT_TOOL_BACKEND=local    Docker'ı hiç kullanma\n\
+                     \x20 VOLT_TOOL_BACKEND=docker   sby kurulu olsa da Docker kullan\n\
+                     \x20 VOLT_DOCKER=<yol>          docker yürütülebiliri\n\n\
+                     'volt doctor' 'volt verify'ın hangi yolla çalışacağını gösterir.",
                 ),
                 (
                     "NOT",
@@ -188,10 +212,24 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 apt install verilator\n\n\
                      macOS:\n\
                      \x20 brew install verilator\n\n\
-                     Docker:\n\
-                     \x20 docker pull verilator/verilator\n\n\
                      Windows:\n\
-                     \x20 use WSL or Docker (no native binaries are distributed)",
+                     \x20 install Docker Desktop: Volt runs Verilator in a container (DOCKER below), or use WSL",
+                ),
+                (
+                    "DOCKER",
+                    "If Verilator is not installed but Docker is running, 'volt run' and \
+                     'volt test' run it in a container by themselves and say so in one line:\n\n\
+                     \x20 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)\n\n\
+                     The image is pinned by digest: Verilator 5.052 with g++ and make, about \
+                     250 MB, downloaded once on first use; Volt prints the size before and the \
+                     time after. Volt still compiles and writes the testbench on the host; only \
+                     Verilator and the simulation run in the container. Every path Volt prints \
+                     (the Waveform line, Verilator errors) is a host path, and on Linux the \
+                     container runs as your user, so build/ and the VCD stay yours.\n\n\
+                     \x20 VOLT_TOOL_BACKEND=local    never use Docker\n\
+                     \x20 VOLT_TOOL_BACKEND=docker   use Docker even if Verilator is installed\n\
+                     \x20 VOLT_DOCKER=<path>         the docker executable\n\n\
+                     'volt doctor' shows which way 'volt test' and 'volt run' will run.",
                 ),
                 (
                     "TESTS",
@@ -234,10 +272,24 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 apt install verilator\n\n\
                      macOS:\n\
                      \x20 brew install verilator\n\n\
-                     Docker:\n\
-                     \x20 docker pull verilator/verilator\n\n\
                      Windows:\n\
-                     \x20 WSL ya da Docker kullanın (yerel ikili dağıtılmıyor)",
+                     \x20 Docker Desktop kurun: Volt Verilator'u konteynerde çalıştırır (aşağıda DOCKER) ya da WSL kullanın",
+                ),
+                (
+                    "DOCKER",
+                    "Verilator kurulu değil ama Docker çalışıyorsa 'volt run' ve 'volt test' \
+                     onu kendiliğinden konteynerde çalıştırır ve bunu tek satırla söyler:\n\n\
+                     \x20 not: Verilator yerelde bulunamadı; Docker'da çalıştırılıyor (verilator/verilator:v5.052)\n\n\
+                     İmaj özetiyle sabitlidir: g++ ve make ile Verilator 5.052, yaklaşık 250 MB, \
+                     yalnız ilk kullanımda bir kez indirilir; Volt boyutu önce, süreyi sonra \
+                     basar. Volt yine ana makinede derler ve testbench'i yazar; konteynerde \
+                     yalnız Verilator ve simülasyon koşar. Volt'un bastığı her yol (Dalga formu \
+                     satırı, Verilator hataları) ana makine yoludur; Linux'ta konteyner sizin \
+                     kullanıcınızla koşar, build/ ve VCD sizin kalır.\n\n\
+                     \x20 VOLT_TOOL_BACKEND=local    Docker'ı hiç kullanma\n\
+                     \x20 VOLT_TOOL_BACKEND=docker   Verilator kurulu olsa da Docker kullan\n\
+                     \x20 VOLT_DOCKER=<yol>          docker yürütülebiliri\n\n\
+                     'volt doctor' 'volt test' ve 'volt run'ın hangi yolla çalışacağını gösterir.",
                 ),
                 (
                     "TESTLER",
