@@ -1,6 +1,6 @@
 # ADR-0093: Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması
 
-> Statü: Uygulandı — altyapı kuruldu ve kuru koşuyla kanıtlandı; ilk sürüm (tag) henüz atılmadı
+> Statü: Kısmen yerini aldı: ADR-0096 — §2.1 ve §2.4'teki sürümlü arşiv adları sürümsüz oldu (`volt-<hedef>`); kalanı yürürlükte. Altyapı kuruldu ve kuru koşuyla kanıtlandı; ilk sürüm (tag) henüz atılmadı
 > İlgili: ADR-0084 (`volt doctor`, gömülü `volt new` şablonları — ikilinin tek başına yeterliliği), ADR-0001 (lisans: arşivde iki lisans dosyası), ADR-0091 (VS Code eklentisi, `volt lsp`), ADR-0094 (Docker köprüsü: indir → `volt new` → `volt test`, yalnız Docker Desktop ile).
 > Tarih: 2026-09-28
 > Etkilenen: `.github/workflows/release.yml` (YENİ), `.github/workflows/README.md`
