@@ -5,6 +5,32 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Volt kitabı, Aşama 1: iskelet, yayın ve Tur (2026-09-29)
+
+- `book/` (mdBook, İngilizce): üç bölümlük iskelet (Part I Tour, Part II
+  Tutorial, Part III Cookbook) + Glossary + "Where to go next"; her
+  bölümde başlık ve "bu bölümde ne öğreneceksiniz" paragrafı. Tam içerik:
+  Tur'un beş sayfası (kurulum → `volt new`/`check`/`build` → E3001 ve
+  `sync()` → `volt test`, düşen test, GTKWave'de enum adları → özet) ve
+  Tutorial'ın Counter bölümü. Komut çıktıları gerçek koşudan (Windows 11,
+  Docker Desktop); yeniden üretilip birebir karşılaştırıldı.
+- İki yan kutu türü ("New to hardware?", "Coming from SystemVerilog?"),
+  renk ve kenarlık biçimiyle ayrılır; stil rehberi
+  `book/CONTRIBUTING-BOOK.md` (ton, kutu kuralı, kod bloğu işaretleri,
+  yasaklı sözcükler).
+- `book/tools/check_book.py`: her ```` ```volt ```` bloğu `volt check`'ten
+  geçer; `should_fail=EXXXX` bloğu tam o kodla düşmeli, `should_warn`
+  uyarısı tam o kod olmalı, `from=` bloğu depodaki dosyayla (şablon)
+  birebir aynı olmalı; `--run-tests` ile her `*_test.volt` bloğu
+  `volt test` koşar (`test_fails` = düşmesi beklenir). Düzyazıda yasaklı
+  sözcükler reddedilir. `--self-test` 8 fikstürle denetleyicinin bozuk
+  blokları yakaladığını sınar.
+- `.github/workflows/book.yml`: PR'da denetim + mdbook derlemesi (uyarı =
+  hata); main'e her push'ta GitHub Pages'e yayın
+  (https://volt-hdl.github.io/volt/).
+- README kurulum bölümü: kitaba bağlantı; arşivin alt klasöre açıldığı ve
+  PATH'e o klasörün eklendiği notu.
+
 ### Düzeltildi — LSP: çok dosyalı birimde inlay ipuçları (ADR-0091 eki, 2026-09-29)
 
 - `use` içeren dosyalarda ipuçları tanılarla aynı birim analizinden gelir

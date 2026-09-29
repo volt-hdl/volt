@@ -314,13 +314,22 @@ Full comparison with sources:
 
 ## Installation
 
+Step-by-step instructions for Windows, Linux and macOS, with Docker for
+the simulator, are in [The Volt Book](https://volt-hdl.github.io/volt/)
+([Install Volt](https://volt-hdl.github.io/volt/tour/install.html)).
+
 ### Prebuilt binaries
 
 Every release on the [Releases](https://github.com/volt-hdl/volt/releases)
 page has one archive per platform: Windows x86_64 (`.zip`), Linux x86_64
 (`.tar.gz`, static, any distribution), macOS Apple silicon and macOS Intel
 (`.tar.gz`). Each holds the single `volt` binary, the two license files and
-a short README. Unpack it and put `volt` on your `PATH`:
+a short README.
+
+**The archive unpacks into a subfolder** named like the archive, for
+example `volt-v0.1.0-x86_64-pc-windows-msvc/`. The binary is inside it, so
+that subfolder (or the binary moved out of it) is what goes on your
+`PATH`:
 
 ```console
 $ tar -xzf volt-v0.1.0-x86_64-unknown-linux-musl.tar.gz
@@ -329,8 +338,9 @@ $ volt --version
 volt 0.1.0
 ```
 
-On Windows, unpack the `.zip` and add the folder to `PATH` (Settings →
-"Edit environment variables for your account"). The binary needs no Rust,
+On Windows, unpack the `.zip` and add the `volt-v0.1.0-x86_64-pc-windows-msvc`
+folder inside it to `PATH` (Settings → "Edit environment variables for your
+account"), then open a new terminal. The binary needs no Rust,
 no Visual C++ runtime and no other file: templates and `volt explain` texts
 are built in.
 

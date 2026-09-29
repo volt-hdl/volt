@@ -5,6 +5,7 @@
 | `ci.yml` | push (main), PR | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
 | `fuzz-nightly.yml` | her gün 03:00 UTC, elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
 | `release.yml` | `v*` tag'i, elle (`workflow_dispatch` = kuru koşu) | 4 platform arşivi + `.vsix` + `SHA256SUMS` + derleme kaynağı kaydı; tag'de **taslak** Release (ADR-0093). PR'da koşmaz |
+| `book.yml` | push (main), PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir. Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir) |
 
 ## Fuzz
 
