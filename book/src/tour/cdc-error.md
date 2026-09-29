@@ -140,7 +140,7 @@ pub module Crossing {
 
     reg led_r : bool = false
     on slow_clk {
-        led_r <= pressed_s
+        led_r <= pressed_r
     }
 
     led = led_r
