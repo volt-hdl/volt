@@ -97,50 +97,19 @@ jobs:
       - name: Build (dist profile)
         run: cargo build --profile dist --locked -p volt-driver --bin volt --target "$TARGET"
 
+      # Version-free archive names (volt-<target>.zip / .tar.gz), so
+      # releases/latest/download/<name> always serves the newest release
+      # (ADR-0096). The same script packages the archive install.yml tests.
       - name: Package archive
         id: pkg
         run: |
-          name="volt-v$VERSION-$TARGET"
-          mkdir -p "dist/$name"
-          cp "target/$TARGET/dist/volt$EXE" "dist/$name/"
-          cp LICENSE-APACHE LICENSE-MIT "dist/$name/"
-          cat > "dist/$name/README.md" <<EOF
-          # Volt HDL $VERSION ($TARGET)
-
-          Volt is a hardware description language that emits SystemVerilog and
-          checks clock-domain crossings in its type system.
-
-          Put \`volt$EXE\` on your PATH, then:
-
-              volt doctor             # which commands work here, what to install
-              volt new blinky         # a project with a counter, a test, contracts
-              cd blinky
-              volt check counter.volt
-              volt build counter.volt # SystemVerilog in build/rtl/
-
-          \`volt build\`, \`check\`, \`explain\`, \`new\` and \`lsp\` need nothing else.
-          \`volt test\`/\`run\` need Verilator, \`volt verify\` needs SymbiYosys.
-
-          The binary is not code-signed. Windows SmartScreen: "More info" ->
-          "Run anyway". macOS: \`xattr -d com.apple.quarantine volt\`.
-          Checksums and build provenance: see the release page.
-
-          Documentation: https://github.com/volt-hdl/volt
-          License: MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE).
-          EOF
-          cd dist
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            7z a -tzip -bso0 "$name.zip" "$name"
-            archive="$name.zip"
-          else
-            tar -czf "$name.tar.gz" "$name"
-            archive="$name.tar.gz"
-          fi
+          path=$(bash scripts/release/package.sh "$TARGET" "target/$TARGET/dist/volt$EXE" "$VERSION" dist | tail -n 1)
+          archive=$(basename "$path")
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          bin_size=$(wc -c < "$name/volt$EXE" | tr -d " ")
-          arc_size=$(wc -c < "$archive" | tr -d " ")
-          echo "| $TARGET | $bin_size | $arc_size |" > "size-$TARGET.md"
-          echo "binary $bin_size bytes, archive $arc_size bytes"
+          bin_size=$(wc -c < "target/$TARGET/dist/volt$EXE" | tr -d " ")
+          arc_size=$(wc -c < "dist/$archive" | tr -d " ")
+          echo "| $TARGET | $bin_size | $arc_size |" > "dist/size-$TARGET.md"
+          echo "$archive: binary $bin_size bytes, archive $arc_size bytes"
 
       # Smoke test with the binary unpacked from the archive, in an empty
       # directory outside the repository, with cargo/rustup removed from PATH.
@@ -152,7 +121,7 @@ jobs:
           archive="$PWD/dist/${{ steps.pkg.outputs.archive }}"
           cd "$smoke/unpack"
           if [ "${{ matrix.archive }}" = "zip" ]; then 7z x -bso0 "$archive"; else tar -xzf "$archive"; fi
-          bin="$smoke/unpack/volt-v$VERSION-$TARGET/volt$EXE"
+          bin="$smoke/unpack/volt-$TARGET/volt$EXE"
           PATH=$(echo "$PATH" | tr ":" "\n" | grep -v -e cargo -e rustup | paste -sd: -)
           export PATH
           if command -v cargo; then echo "::error::cargo still on PATH"; exit 1; fi
@@ -256,14 +225,23 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: collected
           merge-multiple: true
+      # The install scripts ship with every release too, so a
+      # version-pinned install can use the script of that very release.
       - name: SHA256SUMS
         run: |
           mkdir dist
-          mv collected/volt-v* collected/volt-hdl-* dist/
+          mv collected/volt-* dist/
+          cp scripts/install/install.sh scripts/install/install.ps1 dist/
+          # The attached copies install this release, not the newest one.
+          sed -i "s/^PINNED_VERSION=\"\"\$/PINNED_VERSION=\"$VERSION\"/" dist/install.sh
+          sed -i "s/^\(    .pinnedVersion = \)''\$/\1'$VERSION'/" dist/install.ps1
+          grep -qx "PINNED_VERSION=\"$VERSION\"" dist/install.sh
+          grep -qx "    .pinnedVersion = '$VERSION'" dist/install.ps1
           cd dist
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
@@ -279,8 +257,9 @@ jobs:
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
-            dist/volt-v*
-            dist/volt-hdl-*.vsix
+            dist/volt-*
+            dist/install.sh
+            dist/install.ps1
       - uses: actions/upload-artifact@v7
         with:
           name: volt-release-${{ needs.version.outputs.version }}
@@ -316,7 +295,10 @@ jobs:
           fi
           {
             echo
-            echo "Install: download the archive for your platform, unpack it and put \`volt\` on your PATH (README, Installation)."
+            echo "Install (verifies SHA256SUMS, sets PATH, no administrator rights):"
+            echo "- Windows (PowerShell): \`irm https://volt-hdl.github.io/volt/install.ps1 | iex\`"
+            echo "- Linux, macOS: \`curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh\`"
+            echo "Or download the archive for your platform, unpack it and put \`volt\` on your PATH (https://volt-hdl.github.io/volt/tour/install.html)."
             echo "Verify: \`sha256sum -c SHA256SUMS\` and \`gh attestation verify <file> -R $GITHUB_REPOSITORY\`."
           } >> notes.md
       - name: Create draft release

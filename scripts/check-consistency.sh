@@ -9,6 +9,7 @@
 #   8. .github/badges.json (README rozetleri) güncel (--update ile yenile)
 #   9. her ADR'de sözlükten tek Statü satırı  10. ADR bağlantı hedefleri var
 #  11. yerini alma ↔ Önceki karar iki yönlü  12. her ADR dizinde tam bir kez
+#  13. README/kitaptaki kurulum adresleri yayınlanan adlarla aynı (ADR-0096)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -203,6 +204,39 @@ if [ -n "$adr_hits" ]; then
     while IFS= read -r line; do
         violation "$line"
     done <<< "$adr_hits"
+fi
+
+# ── 13: kurulum adresleri (ADR-0096) ──────────────────────────────────
+# README'de, kitapta ve betiklerde geçen https://volt-hdl.github.io/volt/<ad>
+# adresi book.yml'nin Pages köküne kopyaladığı bir betik olmalı; her
+# releases/.../download/<ad> adresi release.yml'nin ürettiği bir varlık
+# (volt-<target>.<arşiv>, SHA256SUMS, install.sh, install.ps1). Yayınlanan
+# her betik README'de ve kitabın kurulum sayfasında geçmeli.
+published=$(grep -oE 'scripts/install/[A-Za-z0-9._-]+\.(ps1|sh)' "$ROOT/.github/workflows/book.yml" | sed 's#.*/##' | sort -u)
+assets=$( (awk '/^[[:space:]]+target: [a-z0-9_-]+$/ { t = $2 } /^[[:space:]]+archive: (zip|tar\.gz)$/ { print "volt-" t "." $2 }' "$ROOT/.github/workflows/release.yml"; printf '%s\n' SHA256SUMS install.sh install.ps1) | sort -u)
+install_hits=$(
+    [ -n "$published" ] || echo "book.yml Pages köküne kurulum betiği kopyalamıyor (kontrol 13)"
+    for n in $published; do
+        [ -f "$ROOT/scripts/install/$n" ] || echo "book.yml scripts/install/$n dosyasını yayınlıyor, dosya yok (kontrol 13)"
+    done
+    for f in README.md $(cd "$ROOT" && find book/src -name '*.md' | sort) scripts/install/install.sh scripts/install/install.ps1 scripts/release/package.sh; do
+        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9._-]+\.(ps1|sh)' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
+            echo "$published" | grep -qx "$n" || echo "$f: https://volt-hdl.github.io/volt/$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)"
+        done
+        for n in $(grep -oE 'releases/(latest/download|download/[^/[:space:]]+)/[A-Za-z0-9._-]+' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
+            echo "$assets" | grep -qx "$n" || echo "$f: releases/.../download/$n release.yml'nin varlık adlarından biri değil (kontrol 13)"
+        done
+    done
+    for f in README.md book/src/tour/install.md; do
+        for n in $published; do
+            grep -qF "https://volt-hdl.github.io/volt/$n" "$ROOT/$f" || echo "$f yayınlanan kurulum betiğinin adresini içermiyor: https://volt-hdl.github.io/volt/$n (kontrol 13)"
+        done
+    done
+)
+if [ -n "$install_hits" ]; then
+    while IFS= read -r line; do
+        violation "$line"
+    done <<< "$(echo "$install_hits" | sort -u)"
 fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

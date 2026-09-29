@@ -82,8 +82,9 @@ denetler.
 | [0006](ADR-0006-arena-tabanli-ast-hir.md) | Arena Tabanlı AST/HIR — `Idx<T>` Handle Deseni, Tip Bilgisi HIR'da | AST ve HIR arenalarda tutulur, düğümlere `Idx<T>` ile erişilir; tip bilgisi HIR'da yaşar. | Uygulandı |
 | [0009](ADR-0009-test-dosya-formati.md) | Test Dosya Formatı — `tests/ui/{pass,fail}`, `//~` Anotasyonları, Birebir Fixture | Testler `tests/ui/{pass,fail}` altında `//~` anotasyonlu fixture'lardır; beklenen çıktılar birebir karşılaştırılır. | Uygulandı |
 | [0015](ADR-0015-determinizm-garantisi.md) | Determinizm Garantisi Kapsamı — Aynı Kaynak, Byte-Aynı Çıktı | Aynı kaynak ve aynı derleyici her zaman bayt bayt aynı çıktıyı üretir. | Kabul edildi |
-| [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Uygulandı |
+| [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Kısmen yerini aldı: ADR-0096 |
 | [0094](ADR-0094-docker-koprusu.md) | Docker Köprüsü — Eksik Verilator/sby'yi Sabitlenmiş İmajda Otomatik Koşturmak | Verilator ya da sby yerelde yoksa `volt test`, `run` ve `verify` aracı özetle sabitlenmiş imajda koşturur; tek satır bildirir, yollar ana makine yolu kalır. | Uygulandı |
+| [0096](ADR-0096-kurulum-betikleri.md) | Kurulum Betikleri — Tek Komutla Doğrulanmış, Yönetici Yetkisi İstemeyen, Geri Alınabilir Kurulum | `irm …/install.ps1 \| iex` ve `curl …/install.sh \| sh` sürümsüz varlık adlarıyla en yeni sürümü indirir, `SHA256SUMS` ile doğrular, kullanıcı klasörüne kurar ve PATH'e bir kez ekler; yeniden çalıştırma günceller, `VOLT_UNINSTALL=1` iz bırakmadan kaldırır. | Uygulandı |
 
 ## Sözdizimi ve dil yapıları
 

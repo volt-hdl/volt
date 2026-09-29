@@ -1,0 +1,171 @@
+name: Install scripts
+
+# ADR-0096: the one-line installers (scripts/install/). On a pull request
+# or push that touches them: lint both scripts, then on Windows, Linux and
+# macOS build volt, package it exactly as release.yml does and run the
+# scripts against that archive (VOLT_ARCHIVE): install, a new shell finds
+# volt, install again (update), uninstall leaves no file and no PATH entry,
+# a wrong SHA256SUMS installs nothing. No published release is needed.
+# Weekly (and by hand): the real one-line commands against the newest
+# published release; skipped while there is none.
+
+on:
+  pull_request:
+    paths:
+      - scripts/install/**
+      - scripts/release/**
+      - .github/workflows/install.yml
+      - .github/workflows/release.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/install/**
+      - scripts/release/**
+      - .github/workflows/install.yml
+      - .github/workflows/release.yml
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # --shell=sh: the scripts must stay POSIX sh (no bash features).
+      - run: |
+          shellcheck --version
+          shellcheck --shell=sh scripts/install/install.sh scripts/install/test/test-install.sh scripts/release/package.sh
+
+  psscriptanalyzer:
+    name: PSScriptAnalyzer
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          Import-Module PSScriptAnalyzer
+          "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
+          $settings = 'scripts/install/PSScriptAnalyzerSettings.psd1'
+          $found = foreach ($f in 'scripts/install/install.ps1', 'scripts/install/test/test-install.ps1', $settings) {
+            Invoke-ScriptAnalyzer -Path $f -Settings $settings
+          }
+          $found | Format-Table ScriptName, Line, RuleName, Message -AutoSize -Wrap
+          if ($found) { Write-Error "$(@($found).Count) finding(s)"; exit 1 }
+          # Windows PowerShell 5.1 reads a BOM-less script in the ANSI
+          # code page: install.ps1 must stay ASCII.
+          $bytes = [IO.File]::ReadAllBytes('scripts/install/install.ps1')
+          if ($bytes | Where-Object { $_ -gt 127 }) { Write-Error 'install.ps1 holds non-ASCII bytes'; exit 1 }
+
+  test:
+    name: Install test (${{ matrix.os }})
+    if: github.event_name != 'schedule'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
+            # bash: ~/.bashrc; sh (dash): ~/.profile
+            shells: bash sh
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            # zsh: ~/.zshrc; bash: ~/.bash_profile (login shells on macOS)
+            shells: zsh bash
+    env:
+      TARGET: ${{ matrix.target }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: install-${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # A debug build is enough: the scripts handle the archive, not the
+      # compiler. Packaged by the same script as a release archive.
+      - name: Build and package
+        run: |
+          cargo build --locked -p volt-driver --bin volt --target "$TARGET"
+          exe=""; [ "$RUNNER_OS" = Windows ] && exe=.exe
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "volt-driver") | .version')
+          bash scripts/release/package.sh "$TARGET" "target/$TARGET/debug/volt$exe" "$version" dist
+          ls -l dist
+      - name: install.sh (install, new shell, update, uninstall, wrong checksum)
+        if: runner.os != 'Windows'
+        run: sh scripts/install/test/test-install.sh "dist/volt-$TARGET.${{ matrix.archive }}" ${{ matrix.shells }}
+      - name: install.ps1 in PowerShell 7 (pwsh)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install/test/test-install.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell pwsh
+      - name: install.ps1 in Windows PowerShell 5.1 (powershell.exe)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          ./scripts/install/test/test-install.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell powershell
+
+  # The real commands from the book, against the published release and the
+  # scripts on GitHub Pages. GitHub's "latest" ignores drafts and
+  # pre-releases, so until a normal release exists there is nothing to test.
+  live:
+    name: One-line install (${{ matrix.os }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Newest published release
+        id: rel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null); then
+            echo "Newest published release: $tag"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No published release yet; the one-line install check is skipped."
+          fi
+      - name: curl ... | sh
+        if: steps.rel.outputs.version != '' && runner.os != 'Windows'
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+          test "$("$HOME/.volt/bin/volt" --version)" = "volt $VERSION"
+      - name: irm ... | iex (Windows PowerShell 5.1)
+        if: steps.rel.outputs.version != '' && runner.os == 'Windows'
+        shell: powershell
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          irm https://volt-hdl.github.io/volt/install.ps1 | iex
+          $v = volt --version
+          if ($v -ne "volt $env:VERSION") { Write-Error "got '$v', expected 'volt $env:VERSION'"; exit 1 }

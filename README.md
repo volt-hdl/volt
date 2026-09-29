@@ -314,87 +314,52 @@ Full comparison with sources:
 
 ## Installation
 
-Step-by-step instructions for Windows, Linux and macOS, with Docker for
-the simulator, are in [The Volt Book](https://volt-hdl.github.io/volt/)
-([Install Volt](https://volt-hdl.github.io/volt/tour/install.html)).
+**Windows** (PowerShell):
 
-### Prebuilt binaries
-
-Every release on the [Releases](https://github.com/volt-hdl/volt/releases)
-page has one archive per platform: Windows x86_64 (`.zip`), Linux x86_64
-(`.tar.gz`, static, any distribution), macOS Apple silicon and macOS Intel
-(`.tar.gz`). Each holds the single `volt` binary, the two license files and
-a short README.
-
-**The archive unpacks into a subfolder** named like the archive, for
-example `volt-v0.1.0-x86_64-pc-windows-msvc/`. The binary is inside it, so
-that subfolder (or the binary moved out of it) is what goes on your
-`PATH`:
-
-```console
-$ tar -xzf volt-v0.1.0-x86_64-unknown-linux-musl.tar.gz
-$ sudo mv volt-v0.1.0-x86_64-unknown-linux-musl/volt /usr/local/bin/
-$ volt --version
-volt 0.1.0
+```powershell
+irm https://volt-hdl.github.io/volt/install.ps1 | iex
 ```
 
-On Windows, unpack the `.zip` and add the `volt-v0.1.0-x86_64-pc-windows-msvc`
-folder inside it to `PATH` (Settings → "Edit environment variables for your
-account"), then open a new terminal. The binary needs no Rust,
-no Visual C++ runtime and no other file: templates and `volt explain` texts
-are built in.
+**Linux and macOS**:
 
-The binaries are not code-signed:
+```console
+$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+```
 
-- **Windows SmartScreen** may say "Windows protected your PC": choose
-  **More info → Run anyway** (once per binary).
-- **macOS** blocks a downloaded binary ("cannot be opened because the
-  developer cannot be verified"): remove the quarantine flag with
-  `xattr -d com.apple.quarantine volt`.
+The script downloads the newest release for your platform (Windows
+x86_64, Linux x86_64, macOS Apple silicon and Intel), checks it against the
+release's `SHA256SUMS`, puts `volt` into `%LOCALAPPDATA%\Programs\Volt\bin`
+or `~/.volt/bin` and adds that folder to your `PATH`. No administrator
+rights. Run it again to update; run it with `VOLT_UNINSTALL=1` to remove
+the files and the `PATH` entry. Then open a new terminal and run `volt
+doctor`.
 
-To check a download, compare it with `SHA256SUMS` (`sha256sum -c
-SHA256SUMS --ignore-missing`) or verify GitHub's build provenance: `gh
-attestation verify volt-v0.1.0-<target>.tar.gz -R volt-hdl/volt`.
+Direct download links, checksum and provenance checks, the macOS
+quarantine flag and the settings of the script (`VOLT_VERSION`,
+`VOLT_INSTALL_DIR`, ...) are in the book:
+[Install Volt](https://volt-hdl.github.io/volt/tour/install.html).
 
-**VS Code:** download `volt-hdl-<version>.vsix` from the same release and
-install it with `code --install-extension volt-hdl-<version>.vsix` (or
-Extensions view → `...` → *Install from VSIX...*). The extension starts the
-language server as `volt lsp`, so `volt` must be on `PATH`; otherwise set
-`volt.serverPath` to the full path of the binary.
-
-### From source
+**From source** (needs stable Rust):
 
 ```console
 $ git clone https://github.com/volt-hdl/volt
 $ cd volt
-$ cargo build --release
-$ ./target/release/volt build tests/fixtures/counter.volt
-   Compiling tests/fixtures/counter.volt
-    Finished 0.00s (1 source file(s), 1 SV file(s))
-     Output build\rtl\Counter.sv (35 lines)
+$ cargo install --locked --path crates/volt-driver
 ```
 
-Requires stable Rust.
+**VS Code:** download `volt-hdl-<version>.vsix` from the
+[release](https://github.com/volt-hdl/volt/releases) and install it with
+`code --install-extension volt-hdl-<version>.vsix`. The extension starts
+the language server as `volt lsp`, so `volt` must be on `PATH`; otherwise
+set `volt.serverPath` to the full path of the binary.
 
-### External tools
-
-`volt build`, `volt check`, `volt explain` and `volt lsp` need nothing
-else. Optional external tools:
-
-- **Verilator** for `volt run` and `volt test`
-- **SymbiYosys** (with Yosys and z3, boolector or yices) for `volt verify`
-- **Or just Docker** (Docker Desktop on Windows and macOS): when Verilator
-  or sby is not installed and the Docker daemon is running, Volt runs it in
-  a digest-pinned image by itself (`verilator/verilator:v5.052`,
-  `hdlc/formal:all`) and says so in one line. The first run downloads the
-  image (~250 MB for simulation, ~404 MB for formal; Volt prints the size
-  before and the time after). Paths in the output stay host paths; on Linux
-  the files are yours, not root's. `VOLT_TOOL_BACKEND=local` turns this off,
-  `=docker` forces it. On Windows the whole setup is: download `volt`,
-  start Docker Desktop, `volt new demo`, `volt test`.
-
-`volt doctor` shows which way each command will run; `volt explain
-simulation-setup` and `volt explain verify-setup` print the setup guides.
+**External tools:** `volt build`, `check`, `explain`, `new` and `lsp` need
+nothing else. `volt test` and `volt run` need Verilator, `volt verify`
+needs SymbiYosys; when they are missing and Docker is running, Volt runs
+them in a digest-pinned image by itself (`verilator/verilator:v5.052`,
+`hdlc/formal:all`; ~250 MB and ~404 MB, downloaded once).
+`VOLT_TOOL_BACKEND=local` turns this off, `=docker` forces it. `volt
+doctor` shows which way each command will run.
 
 ## Getting started
 

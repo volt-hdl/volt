@@ -2,9 +2,9 @@
 
 <div class="chapter-goal">
 
-In this chapter you will download the `volt` binary, put it
-on your `PATH` and ask `volt doctor` what works on your machine. You will
-also set up Docker, which runs the simulator for you.
+In this chapter you will install the `volt` binary with one command, check
+it with `volt --version` and ask `volt doctor` what works on your machine.
+You will also set up Docker, which runs the simulator for you.
 
 </div>
 
@@ -12,64 +12,182 @@ The output in the Tour was recorded with Volt 0.1.0 on Windows 11, with
 Docker Desktop running the simulator. On Linux and macOS the paths use `/`
 instead of `\`; everything else looks the same.
 
-## Download
+## Install with one command
 
-Every release on the
-[Releases page](https://github.com/volt-hdl/volt/releases) has one archive
-per platform:
+**Windows** (PowerShell, no administrator rights needed):
+
+```powershell
+irm https://volt-hdl.github.io/volt/install.ps1 | iex
+```
+
+**Linux and macOS** (any shell):
+
+```console
+$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+```
+
+No `curl`? `wget -qO- https://volt-hdl.github.io/volt/install.sh | sh`
+does the same.
+
+The script prints each step: the download, the SHA256 check, where it put
+`volt` and what it changed on your `PATH`. On Windows, the PowerShell
+window that ran the command can use `volt` at once. Other terminals, and
+every terminal on Linux and macOS, see it after you **open a new one**.
+
+| Platform | Supported by the script |
+|---|---|
+| Windows x86_64 (10 and 11) | yes |
+| Windows 11 on Arm | yes, with the x86_64 build (runs through the x64 emulation of Windows 11; there is no native Arm build yet) |
+| Linux x86_64, any distribution | yes (static binary) |
+| macOS, Apple silicon | yes |
+| macOS, Intel | yes |
+| Linux on Arm, other systems | no: the script says so; [build from source](#build-from-source) |
+
+## Check the install
+
+In a new terminal:
+
+```console
+$ volt --version
+volt 0.1.0
+```
+
+If you see `command not found` (or, on Windows, "The term 'volt' is not
+recognized"), the terminal was opened before the install: close it and
+open a new one.
+
+## What the script did
+
+1. It downloaded the archive for your platform and the release's
+   `SHA256SUMS` file from
+   `https://github.com/volt-hdl/volt/releases/latest/download/`, and
+   checked the archive against it. If the check fails, the script stops
+   and deletes the download: nothing is installed and nothing changes.
+2. It put the binary in a folder of your own account:
+
+   | Platform | Binary | Also there |
+   |---|---|---|
+   | Windows | `%LOCALAPPDATA%\Programs\Volt\bin\volt.exe` | `LICENSE-APACHE`, `LICENSE-MIT`, `README.md` in `...\Programs\Volt\` |
+   | Linux, macOS | `~/.volt/bin/volt` | the same three files in `~/.volt/` |
+
+3. It added that `bin` folder to your `PATH`, once:
+   - **Windows:** at the front of your user `PATH` (the registry value
+     `HKCU\Environment\Path`, the one "Edit environment variables for your
+     account" shows). The system `PATH` is not touched. If a `volt.exe` in
+     a system `PATH` folder would still win, the script warns you.
+   - **Linux and macOS:** one line at the end of your shell's startup
+     file. The line ends with `# added by the Volt installer`:
+
+     | Your shell (`$SHELL`) | File |
+     |---|---|
+     | bash on Linux | `~/.bashrc` |
+     | bash on macOS | `~/.bash_profile` |
+     | zsh | `~/.zshrc` |
+     | fish | `~/.config/fish/config.fish` |
+     | any other | `~/.profile` |
+
+**Update:** run the same command again. It replaces the binary (even while
+an editor runs `volt lsp`) and leaves the `PATH` as it is.
+
+**Uninstall:** run it again with `VOLT_UNINSTALL=1`. It deletes the files
+listed above and removes the `PATH` entry or line, and nothing else:
+
+```powershell
+$env:VOLT_UNINSTALL = 1; irm https://volt-hdl.github.io/volt/install.ps1 | iex; Remove-Item Env:VOLT_UNINSTALL
+```
+
+```console
+$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_UNINSTALL=1 sh
+```
+
+The script reads these settings from environment variables:
+
+| Variable | Effect |
+|---|---|
+| `VOLT_VERSION=0.1.0` | install that release instead of the newest one |
+| `VOLT_INSTALL_DIR=<folder>` | install into `<folder>` (the binary goes to `<folder>/bin`); give the same value again to uninstall |
+| `VOLT_ARCHIVE=<file>` | install from an archive you already have; a `SHA256SUMS` file next to it is used for the check |
+| `VOLT_UNINSTALL=1` | remove Volt again |
+
+Each release also carries the two scripts. A copy taken from a release
+installs that release, for example
+`curl -fsSL https://github.com/volt-hdl/volt/releases/download/v0.1.0/install.sh | sh`.
+
+## Manual install
+
+Download the archive for your platform. These links always point at the
+newest release:
 
 | Platform | Archive |
 |---|---|
-| Windows x86_64 | `volt-v0.1.0-x86_64-pc-windows-msvc.zip` |
-| Linux x86_64 (static, any distribution) | `volt-v0.1.0-x86_64-unknown-linux-musl.tar.gz` |
-| macOS, Apple silicon | `volt-v0.1.0-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `volt-v0.1.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | [volt-x86_64-pc-windows-msvc.zip](https://github.com/volt-hdl/volt/releases/latest/download/volt-x86_64-pc-windows-msvc.zip) |
+| Linux x86_64 (static, any distribution) | [volt-x86_64-unknown-linux-musl.tar.gz](https://github.com/volt-hdl/volt/releases/latest/download/volt-x86_64-unknown-linux-musl.tar.gz) |
+| macOS, Apple silicon | [volt-aarch64-apple-darwin.tar.gz](https://github.com/volt-hdl/volt/releases/latest/download/volt-aarch64-apple-darwin.tar.gz) |
+| macOS, Intel | [volt-x86_64-apple-darwin.tar.gz](https://github.com/volt-hdl/volt/releases/latest/download/volt-x86_64-apple-darwin.tar.gz) |
+| Checksums | [SHA256SUMS](https://github.com/volt-hdl/volt/releases/latest/download/SHA256SUMS) |
+
+Older releases are on the
+[Releases page](https://github.com/volt-hdl/volt/releases).
+
+### Check the download
+
+Compare the archive with its line in `SHA256SUMS`. On Linux:
+
+```console
+$ grep volt-x86_64-unknown-linux-musl.tar.gz SHA256SUMS | sha256sum -c
+volt-x86_64-unknown-linux-musl.tar.gz: OK
+```
+
+On macOS, use `shasum -a 256 -c` in place of `sha256sum -c`. On Windows,
+PowerShell prints the hash; it must equal the one in `SHA256SUMS` (the case
+of the letters does not matter):
+
+```powershell
+(Get-FileHash volt-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash
+Select-String volt-x86_64-pc-windows-msvc.zip SHA256SUMS
+```
+
+With the [GitHub CLI](https://cli.github.com/) you can also check where the
+archive was built: `gh attestation verify <archive> -R volt-hdl/volt`.
+
+### Unpack it and put `volt` on your PATH
 
 **Each archive unpacks into a folder of its own**, named like the archive.
 The `volt` binary is inside that folder:
 
 ```text
-volt-v0.1.0-x86_64-pc-windows-msvc/
+volt-x86_64-pc-windows-msvc/
 ├── volt.exe
 ├── LICENSE-APACHE
 ├── LICENSE-MIT
 └── README.md
 ```
 
-So the directory to add to your `PATH` is that inner folder, not the
-folder you unpacked the archive into. The binary needs nothing else: no
-Rust, no runtime library, no data files.
+The binary needs nothing else: no Rust, no runtime library, no data files.
 
-## Put `volt` on your PATH
-
-### Windows
-
-In PowerShell, from the folder that holds the download:
+**Windows.** In PowerShell, from the folder that holds the download:
 
 ```powershell
-Expand-Archive volt-v0.1.0-x86_64-pc-windows-msvc.zip -DestinationPath $env:LOCALAPPDATA\Programs
-$dir = "$env:LOCALAPPDATA\Programs\volt-v0.1.0-x86_64-pc-windows-msvc"
-[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$dir", "User")
+Expand-Archive volt-x86_64-pc-windows-msvc.zip -DestinationPath $env:LOCALAPPDATA\Programs
+$dir = "$env:LOCALAPPDATA\Programs\volt-x86_64-pc-windows-msvc"
+[Environment]::SetEnvironmentVariable("Path", "$dir;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
 ```
 
 Or with the mouse: unpack the `.zip`, open **Settings**, search for
 "environment variables", choose **Edit environment variables for your
 account**, select **Path**, click **New** and paste the path of the
-`volt-v0.1.0-x86_64-pc-windows-msvc` folder.
-
-Then **open a new terminal**. A terminal that was already open keeps the
-old `PATH` and will not find `volt`.
+`volt-x86_64-pc-windows-msvc` folder. Then open a new terminal.
 
 The binary is not code-signed. If Windows SmartScreen says "Windows
 protected your PC", choose **More info → Run anyway**. You need to do this
 once.
 
-### Linux
+**Linux:**
 
 ```console
-$ tar -xzf volt-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+$ tar -xzf volt-x86_64-unknown-linux-musl.tar.gz
 $ mkdir -p ~/.local/bin
-$ mv volt-v0.1.0-x86_64-unknown-linux-musl/volt ~/.local/bin/
+$ mv volt-x86_64-unknown-linux-musl/volt ~/.local/bin/
 ```
 
 Most distributions put `~/.local/bin` on the `PATH` when it exists; you may
@@ -77,26 +195,48 @@ need to log in again. If `volt` is still not found, add
 `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` (or your shell's
 startup file).
 
-### macOS
+**macOS:**
 
 ```console
-$ tar -xzf volt-v0.1.0-aarch64-apple-darwin.tar.gz
-$ xattr -d com.apple.quarantine volt-v0.1.0-aarch64-apple-darwin/volt
-$ sudo mv volt-v0.1.0-aarch64-apple-darwin/volt /usr/local/bin/
+$ tar -xzf volt-aarch64-apple-darwin.tar.gz
+$ xattr -d com.apple.quarantine volt-aarch64-apple-darwin/volt
+$ mkdir -p ~/.local/bin
+$ mv volt-aarch64-apple-darwin/volt ~/.local/bin/
 ```
 
-Use `x86_64-apple-darwin` in these names on an Intel Mac. A browser marks
-downloaded files as quarantined, and macOS refuses to start an unsigned
-binary with that mark ("cannot be opened because the developer cannot be
-verified"). `xattr -d` removes the mark. If the file was never marked (for
-example, downloaded with `curl`), `xattr` says so and you can go on.
+Use `x86_64-apple-darwin` in these names on an Intel Mac, and add
+`export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if `volt` is not
+found. **A browser marks downloaded files as quarantined**, and macOS
+refuses to start an unsigned binary with that mark ("cannot be opened
+because the developer cannot be verified"). `xattr -d` removes the mark.
+If the file was never marked (for example, downloaded with `curl`, as the
+install script does), `xattr` says so and you can go on.
 
-## Check the install
+## Build from source
+
+For contributors, for platforms without a prebuilt binary, and while no
+release is published. You need [Rust](https://rustup.rs) (stable):
 
 ```console
-$ volt --version
-volt 0.1.0
+$ git clone https://github.com/volt-hdl/volt
+$ cd volt
+$ cargo install --locked --path crates/volt-driver
 ```
+
+`cargo install` puts `volt` into `~/.cargo/bin` (on Windows
+`%USERPROFILE%\.cargo\bin`), which the Rust installer has already put on
+your `PATH`. A cold build takes a few minutes. To update, `git pull` and
+run `cargo install` again; to remove, `cargo uninstall volt-driver`.
+
+## When you need Docker
+
+`volt build`, `volt check`, `volt explain`, `volt new`, `volt doctor` and
+`volt lsp` need nothing but the binary. `volt test` and `volt run` need the
+Verilator simulator, and `volt verify` needs SymbiYosys. You can install
+those yourself; if they are missing and Docker is running, Volt runs them
+in a container instead. So Docker is needed for simulation and formal
+verification when the tools are not installed, and never for anything
+else.
 
 ## Ask `volt doctor`
 

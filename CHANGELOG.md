@@ -5,6 +5,28 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Kurulum betikleri (ADR-0096, 2026-09-29)
+
+- Tek komutla kurulum: Windows'ta `irm https://volt-hdl.github.io/volt/install.ps1 | iex`
+  (PowerShell 5.1 ve 7), Linux/macOS'ta
+  `curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh` (POSIX sh,
+  `curl` yoksa `wget`). En yeni sürümü indirir, `SHA256SUMS` ile doğrular
+  (uyuşmazlıkta hiçbir şey kurmaz), `%LOCALAPPDATA%\Programs\Volt\bin` ya
+  da `~/.volt/bin` altına kurar, kullanıcı PATH'ine bir kez ekler; yönetici
+  yetkisi istemez. Yeniden çalıştırma günceller; `VOLT_UNINSTALL=1` dosyaları
+  ve PATH girdisini kaldırır. `VOLT_VERSION`, `VOLT_INSTALL_DIR`,
+  `VOLT_ARCHIVE` ayarları. Betikler Pages kökünde ve her sürümde (o sürüme
+  sabitlenmiş kopya).
+- Sürüm arşivlerinin adları sürümsüz oldu (`volt-<hedef>.zip`/`.tar.gz`):
+  `releases/latest/download/<ad>` her zaman en yeni sürümü verir.
+  Paketleme `scripts/release/package.sh`'te.
+- `install.yml`: shellcheck, PSScriptAnalyzer ve üç platformda kur/yeni
+  kabuk/güncelle/kaldır/bozuk sağlama toplamı testleri; haftalık gerçek
+  tek satırlık komut (sürüm yoksa atlanır).
+- Kitap "Install Volt" sayfası ve README kurulum bölümü tek komutlarla
+  başlar; tutarlılık denetimi kontrol 13 kurulum adreslerini yayınlanan
+  adlarla karşılaştırır.
+
 ### Eklendi — Volt kitabı, Aşama 1: iskelet, yayın ve Tur (2026-09-29)
 
 - `book/` (mdBook, İngilizce): üç bölümlük iskelet (Part I Tour, Part II

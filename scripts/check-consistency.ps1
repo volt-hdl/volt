@@ -19,6 +19,11 @@
 #      yönlü tutarlı mı?
 #  12. Her ADR docs/adr/README.md dizininde tam olarak bir tablo satırında,
 #      doğru dosyaya bağlı ve başlıktaki durumla mı geçiyor?
+#  13. README'de, kitapta ve kurulum betiklerinde geçen kurulum adresleri
+#      yayınlanan adlarla aynı mı? https://volt-hdl.github.io/volt/<ad>
+#      book.yml'nin Pages köküne kopyaladığı bir betik, releases/.../download/
+#      <ad> release.yml'nin bir varlığı olmalı; yayınlanan her betik README'de
+#      ve book/src/tour/install.md'de geçmeli (ADR-0096).
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -215,6 +220,40 @@ foreach ($p in $prev | Sort-Object -Unique) {
     if ($sup -notcontains $p) {
         $x = $p.Split(' ')
         $hits += "ADR-$($x[1]) 'Önceki karar: ADR-$($x[0])' diyor, ama ADR-$($x[0]) Statü'sü '(Kısmen) yerini aldı: ADR-$($x[1])' değil (kontrol 11)"
+    }
+}
+foreach ($h in $hits | Sort-Object -Unique) { Add-Violation $h }
+
+# ── 13: kurulum adresleri (ADR-0096) ──────────────────────────────────
+$published = @(Select-String -Path (Join-Path $root '.github\workflows\book.yml') -Pattern 'scripts/install/[A-Za-z0-9._-]+\.(ps1|sh)' -AllMatches |
+    ForEach-Object { $_.Matches } | ForEach-Object { $_.Value -replace '.*/', '' } | Sort-Object -Unique)
+$assets = @('SHA256SUMS', 'install.sh', 'install.ps1')
+$t = $null
+foreach ($l in [IO.File]::ReadAllLines((Join-Path $root '.github\workflows\release.yml'))) {
+    if ($l -match '^\s+target: ([a-z0-9_-]+)$') { $t = $Matches[1] }
+    elseif ($l -match '^\s+archive: (zip|tar\.gz)$') { $assets += "volt-$t.$($Matches[1])" }
+}
+$hits = @()
+if ($published.Count -eq 0) { $hits += "book.yml Pages köküne kurulum betiği kopyalamıyor (kontrol 13)" }
+foreach ($n in $published) {
+    if (-not (Test-Path (Join-Path $root "scripts\install\$n"))) { $hits += "book.yml scripts/install/$n dosyasını yayınlıyor, dosya yok (kontrol 13)" }
+}
+$scan = @('README.md') +
+    @(Get-ChildItem (Join-Path $root 'book\src') -Recurse -Filter *.md | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') } | Sort-Object) +
+    @('scripts/install/install.sh', 'scripts/install/install.ps1', 'scripts/release/package.sh')
+foreach ($f in $scan) {
+    $text = [IO.File]::ReadAllText((Join-Path $root $f))
+    foreach ($n in [regex]::Matches($text, 'https://volt-hdl\.github\.io/volt/([A-Za-z0-9._-]+\.(ps1|sh))') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique) {
+        if ($published -notcontains $n) { $hits += "${f}: https://volt-hdl.github.io/volt/$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)" }
+    }
+    foreach ($n in [regex]::Matches($text, 'releases/(latest/download|download/[^/\s]+)/([A-Za-z0-9._-]+)') | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique) {
+        if ($assets -cnotcontains $n) { $hits += "${f}: releases/.../download/$n release.yml'nin varlık adlarından biri değil (kontrol 13)" }
+    }
+}
+foreach ($f in 'README.md', 'book/src/tour/install.md') {
+    $text = [IO.File]::ReadAllText((Join-Path $root $f))
+    foreach ($n in $published) {
+        if (-not $text.Contains("https://volt-hdl.github.io/volt/$n")) { $hits += "$f yayınlanan kurulum betiğinin adresini içermiyor: https://volt-hdl.github.io/volt/$n (kontrol 13)" }
     }
 }
 foreach ($h in $hits | Sort-Object -Unique) { Add-Violation $h }
