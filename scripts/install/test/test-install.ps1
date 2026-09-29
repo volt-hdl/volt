@@ -59,17 +59,12 @@ $pathBefore = Get-UserPath
 Write-Host "User PATH before: $(Format-UserPath $pathBefore)"
 
 # Runs the installer the way `irm ... | iex` does, in a fresh $Shell
-# process; Vars sets the VOLT_* variables for that run only. With Log, the
-# error the installer throws is written to that file.
-function Invoke-Installer([hashtable]$Vars, [string]$After = '', [string]$Log = '') {
+# process; Vars sets the VOLT_* variables for that run only (through the
+# environment: Windows PowerShell 5.1 garbles non-ASCII characters, as in
+# C:\Users\<name>, on a native command line).
+function Invoke-Installer([hashtable]$Vars, [string]$After = '') {
     foreach ($k in $Vars.Keys) { Set-Item "env:$k" $Vars[$k] }
     $install = "Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression"
-    # The log path goes through the environment: Windows PowerShell 5.1
-    # garbles non-ASCII characters (C:\Users\<name>) on a command line.
-    if ($Log) {
-        $env:VOLT_TEST_LOG = $Log
-        $install = "try { $install } catch { [IO.File]::WriteAllText(`$env:VOLT_TEST_LOG, (`$_ | Out-String)); exit 1 }"
-    }
     $cmd = "`$ErrorActionPreference = 'Stop'; $install; $After"
     # Windows PowerShell 5.1 turns a native command's stderr into errors
     # under 'Stop'; the exit code is what counts here.
@@ -79,7 +74,7 @@ function Invoke-Installer([hashtable]$Vars, [string]$After = '', [string]$Log = 
         return $LASTEXITCODE
     } finally {
         $ErrorActionPreference = 'Stop'
-        foreach ($k in @($Vars.Keys) + 'VOLT_TEST_LOG') { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+        foreach ($k in $Vars.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     }
 }
 
@@ -141,9 +136,21 @@ try {
     if ((Format-UserPath (Get-UserPath)) -cne (Format-UserPath $pathBefore)) { Test-Fail 'wrong checksum changed the user PATH' }
 
     Write-Host '=== release that does not exist'
-    $log = "$work\none.log"
-    $code = Invoke-Installer @{ VOLT_VERSION = '0.0.0'; VOLT_INSTALL_DIR = "$work\none" } "" *>&1 | Tee-Object -FilePath $log
-    $text = Get-Content -Raw $log
+    # The child's stdout and stderr go to files: the thrown message is on
+    # stderr, Write-Host output on stdout.
+    $env:VOLT_VERSION = '0.0.0'
+    $env:VOLT_INSTALL_DIR = "$work\none"
+    try {
+        $p = Start-Process $Shell -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput "$work\none.out" -RedirectStandardError "$work\none.err" `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', "Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression")
+    } finally {
+        Remove-Item env:VOLT_VERSION, env:VOLT_INSTALL_DIR -ErrorAction SilentlyContinue
+    }
+    $text = "$(Get-Content -Raw "$work\none.out")$(Get-Content -Raw "$work\none.err")"
+    Write-Host "exit $($p.ExitCode), $($text.Length) characters of output:"
+    Write-Host $text
+    if ($p.ExitCode -eq 0) { Test-Fail 'install of v0.0.0 succeeded' }
     if ($text -notmatch 'no published Volt release' -or $text -notmatch 'cargo install') {
         Test-Fail 'no build-from-source advice for a missing release'
     }

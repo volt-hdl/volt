@@ -127,6 +127,10 @@ Kök klasörde ayrıca `LICENSE-APACHE`, `LICENSE-MIT`, `README.md`.
   kaldırılır; Windows'ta kalan dize kurulumdan önceki dizeyle bayt bayt
   aynıdır (değer boş kalırsa değer silinir). Unix'te yalnız işaretli satır
   gider; dosya boş kalırsa (yalnız bizim satırımızı taşıyordu) silinir.
+  Başlangıç dosyası satır sonuyla bitmiyorsa betik önce bir satır sonu
+  ekler ve satırı `(file had no final newline)` ekiyle işaretler; kaldırma
+  o satır sonunu da geri alır, dosya yine bayt bayt eski hâline döner
+  (macOS runner'ının `~/.bash_profile`'ı böyleydi, CI'da yakalandı).
   Özel `VOLT_INSTALL_DIR` ile kurulduysa kaldırırken aynı değer verilir.
 
 ### 1.6 Ayarlar ortam değişkeniyle
@@ -236,6 +240,11 @@ birebir aynı (değer ve tür). Bulgular:
   satırında çift tırnakları düşürür ve ASCII dışı karakterleri
   (`C:\Users\Çağlar`) bozar. Test komutları tek tırnak kullanır, yolları
   ortam değişkeniyle geçirir. Kurucu etkilenmez (yolları kendisi üretir).
+- Test tarafı, CI'da: macOS `/bin/sh` (bash'in POSIX kipi) bir işlev
+  çağrısından önceki `VAR=değer` atamasını çağrıdan sonra da tutar (dash
+  tutmaz); test ayarları `env` ile geçirir. Beklenen başarısız son kurulumun
+  `$LASTEXITCODE`'u GitHub'ın PowerShell sarmalayıcısında adımın çıkış kodu
+  olur; test sonda açıkça `exit 0` der.
 - `cargo install --locked --path crates/volt-driver` (kaynaktan kurulum
   komutu) ayrı bir köke denendi: `volt 0.1.0`.
 
@@ -245,8 +254,5 @@ birebir aynı (değer ve tür). Bulgular:
   onu dize olarak döndürdüğü ilk main yayınından sonra, haftalık canlı işte
   (sürüm yayımlanınca) kanıtlanır; PR'da ölçülemez.
 - Sağlama toplamı ile ikili aynı kaynaktan gelir (§1.4); imzalama yok.
-- Unix'te başlangıç dosyası sonunda satır sonu yoksa betik önce bir satır
-  sonu ekler; kaldırma bunu geri almaz (dosya bir satır sonu fazlasıyla
-  kalır).
 - Özel `VOLT_INSTALL_DIR` hatırlanmaz; kaldırırken yeniden verilmelidir.
 - Windows 10 on Arm ve 32 bit Windows için ikili yok.

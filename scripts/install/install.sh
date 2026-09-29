@@ -28,6 +28,10 @@ REPO_URL="https://github.com/volt-hdl/volt"
 PINNED_VERSION=""
 BOOK_URL="https://volt-hdl.github.io/volt/tour/install.html"
 MARKER="# added by the Volt installer"
+# The same line, when the file did not end with a newline before it: the
+# uninstall then takes that newline away again, so the file is restored
+# byte for byte.
+MARKER_NONL="$MARKER (file had no final newline)"
 SUPPORTED="  Linux x86_64 (static binary, any distribution)
   macOS Apple silicon (arm64)
   macOS Intel (x86_64)"
@@ -116,7 +120,7 @@ no_release() {
 Build from source instead (needs Rust, https://rustup.rs):
   git clone $REPO_URL
   cd volt
-  cargo install --path crates/volt-driver
+  cargo install --locked --path crates/volt-driver
 Details: $BOOK_URL#build-from-source"
 }
 
@@ -137,10 +141,11 @@ profile_file() {
     esac
 }
 
+# path_line FILE DIR MARKER
 path_line() {
     case $1 in
-        */fish/config.fish) echo "set -gx PATH \"$2\" \$PATH $MARKER" ;;
-        *) echo "export PATH=\"$2:\$PATH\" $MARKER" ;;
+        */fish/config.fish) echo "set -gx PATH \"$2\" \$PATH $3" ;;
+        *) echo "export PATH=\"$2:\$PATH\" $3" ;;
     esac
 }
 
@@ -151,10 +156,12 @@ add_to_path() {
         return
     fi
     mkdir -p "$(dirname "$profile")"
-    line=$(path_line "$profile" "$1")
     # Start on a new line even if the file does not end with one.
     if [ -s "$profile" ] && [ -n "$(tail -c 1 "$profile")" ]; then
         printf '\n' >> "$profile"
+        line=$(path_line "$profile" "$1" "$MARKER_NONL")
+    else
+        line=$(path_line "$profile" "$1" "$MARKER")
     fi
     printf '%s\n' "$line" >> "$profile"
     say "PATH       added to $profile:"
@@ -170,7 +177,12 @@ remove_from_path() {
         tmp_profile="$f.volt-uninstall.$$"
         grep -vF "$MARKER" "$f" > "$tmp_profile" || true
         # cat keeps the file's owner, mode and any symlink in place.
-        cat "$tmp_profile" > "$f"
+        if tail -n 1 "$f" | grep -qF "$MARKER_NONL"; then
+            # Our line was last and the newline before it was ours too.
+            printf '%s' "$(cat "$tmp_profile")" > "$f"
+        else
+            cat "$tmp_profile" > "$f"
+        fi
         rm -f "$tmp_profile"
         if [ ! -s "$f" ]; then
             rm -f "$f"

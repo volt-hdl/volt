@@ -89,7 +89,7 @@ function Install-VoltHdl {
             if ($status -eq 404) {
                 throw ("no published Volt release was found at $base.`n" +
                     "Build from source instead (needs Rust, https://rustup.rs):`n" +
-                    "  git clone $repoUrl`n  cd volt`n  cargo install --path crates/volt-driver`n" +
+                    "  git clone $repoUrl`n  cd volt`n  cargo install --locked --path crates/volt-driver`n" +
                     "Details: $bookUrl#build-from-source")
             }
             $status = Save-VoltUrl -Url "$base/$name" -OutFile $archive
