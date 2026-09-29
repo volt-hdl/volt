@@ -1,0 +1,18 @@
+[book]
+title = "The Volt Book"
+authors = ["The Volt contributors"]
+description = "Learn Volt, a hardware description language that compiles to SystemVerilog and rejects unsynchronized clock domain crossings at compile time."
+language = "en"
+src = "src"
+
+[build]
+# Every chapter is listed in SUMMARY.md and exists as a file; a typo in
+# SUMMARY.md must fail the build instead of creating an empty page.
+create-missing = false
+
+[output.html]
+site-url = "/volt/"
+git-repository-url = "https://github.com/volt-hdl/volt"
+edit-url-template = "https://github.com/volt-hdl/volt/edit/main/book/{path}"
+additional-css = ["theme/volt.css"]
+additional-js = ["theme/volt-highlight.js"]

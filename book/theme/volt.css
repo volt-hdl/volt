@@ -1,0 +1,65 @@
+/* Side boxes (CONTRIBUTING-BOOK.md, "Side boxes").
+ *
+ * Two kinds, told apart by colour AND by border style, so they stay
+ * distinct without colour vision and in every mdBook theme:
+ *   .new-to-hw  solid green border   "New to hardware?"
+ *   .from-sv    double blue border   "Coming from SystemVerilog?"
+ * The main text never depends on a box; a reader can skip both kinds. */
+
+.box {
+    margin: 1.4em 0;
+    padding: 0.2em 1.1em;
+    border-radius: 4px;
+    border-left-width: 6px;
+    font-size: 0.95em;
+}
+
+.box.new-to-hw {
+    border-left-style: solid;
+    border-left-color: #2f8f5b;
+    background: rgba(47, 143, 91, 0.09);
+}
+
+.box.from-sv {
+    border-left-style: double;
+    border-left-color: #3d67c9;
+    background: rgba(61, 103, 201, 0.09);
+}
+
+/* The box title is the first bold run of the first paragraph. */
+.box > p:first-child > strong:first-child {
+    display: block;
+    margin-bottom: 0.2em;
+    letter-spacing: 0.01em;
+}
+
+.box.new-to-hw > p:first-child > strong:first-child { color: #2f8f5b; }
+.box.from-sv > p:first-child > strong:first-child { color: #3d67c9; }
+
+.coal .box.new-to-hw > p:first-child > strong:first-child,
+.navy .box.new-to-hw > p:first-child > strong:first-child,
+.ayu .box.new-to-hw > p:first-child > strong:first-child { color: #6fcf97; }
+
+.coal .box.from-sv > p:first-child > strong:first-child,
+.navy .box.from-sv > p:first-child > strong:first-child,
+.ayu .box.from-sv > p:first-child > strong:first-child { color: #8fb0ff; }
+
+/* "In this chapter" summary at the top of every chapter. */
+.chapter-goal {
+    border-top: 1px solid rgba(128, 128, 128, 0.35);
+    border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+    padding: 0.4em 0;
+    margin-bottom: 1.6em;
+    font-style: italic;
+}
+
+/* Screenshots keep their size on wide screens. */
+.content img.screenshot {
+    max-width: 100%;
+    border: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+/* The topic after the label reads as the box title. */
+.box > p:first-child {
+    font-weight: 600;
+}
