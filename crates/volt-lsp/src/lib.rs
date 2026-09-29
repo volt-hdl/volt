@@ -382,7 +382,8 @@ impl LanguageServer for Backend {
         let Some(text) = self.snapshot(&uri) else {
             return Ok(None);
         };
-        let analysis = analysis::analyze_editor(&doc_path(&uri), &text);
+        // Tanılarla aynı birim analizi (çok dosyalı birimde `use`).
+        let analysis = analysis::analyze_hints(&doc_path(&uri), &text);
         let (start, end) = byte_range(&analysis, params.range);
         let hints = inlay::inlay_hints(&analysis, start, end, self.hint_config())
             .into_iter()

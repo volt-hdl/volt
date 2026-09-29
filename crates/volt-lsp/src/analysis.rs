@@ -11,12 +11,16 @@
 //!   yaptığı için AST HER girdide üretilir, tamamlama yarım kodda da
 //!   çalışır. Yalnız editör verisi isteyen istekler `analyze_editor`
 //!   kullanır: tanı yolu (birim + çıktısız emit) koşmaz (ADR-0091).
+//! * İnlay ipuçları — `analyze_hints`: tanılarla AYNI birim analizi
+//!   (`run_unit`), yalnız çıktısız emit doğrulaması koşmaz. Çok dosyalı
+//!   birimde (`use`) içe aktarılan adlar böylece çözülür.
 
 use std::collections::HashMap;
 use std::path::Path;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile, StmtKind, TypeRefKind};
 use volt_diagnostics::{Diagnostic, Severity};
-use volt_hir::{DefId, DefKind, DomainResult, ResolveResult, TypeckResult};
+use volt_hir::unit_load::LoadedUnit;
+use volt_hir::{DefId, DefKind, DomainResult, ResolveResult, SemanticStages, TypeckResult};
 
 use volt_span::{FileId, SourceMap, Span};
 
@@ -33,8 +37,9 @@ pub struct Analysis {
     pub delays: Option<HashMap<DefId, u32>>,
     /// Yayımlanan tanılar (`volt check` yolu). `analyze_editor`'da boş.
     pub diagnostics: Vec<Diagnostic>,
-    /// Editör verisinin türetildiği tek dosya boru hattındaki HATALARIN
-    /// birincil span'leri — ipuçları bu hataların modülünde susar.
+    /// Editör verisinin türetildiği boru hattındaki (tek dosya ya da
+    /// birim) HATALARIN birincil span'leri — ipuçları bu hataların
+    /// modülünde susar; başka dosyadaki hata dosyanın tamamını susturur.
     pub editor_errors: Vec<Span>,
     /// Referans dizini: kullanım/bildirim span'i → tanım. Hover ve
     /// go-to-definition span kapsama sorgusuyla arar.
@@ -63,6 +68,40 @@ pub fn analyze(path: &str, text: &str) -> Analysis {
 /// Yalnız editör verisi: tanı yolu koşmaz, `diagnostics` boştur.
 pub fn analyze_editor(path: &str, text: &str) -> Analysis {
     editor_analysis(path, text).0
+}
+
+/// İnlay ipuçları için analiz: tanılarla aynı birim yolu (`run_unit`),
+/// çıktısız emit hariç. `ast`/`map` birimin tamamıdır; `file_id` ana
+/// dosyadır. Birim yüklenemezse (bağımlılık okunamadı) tek dosya analizi.
+/// `diagnostics` boştur.
+pub fn analyze_hints(path: &str, text: &str) -> Analysis {
+    let Some(run) = run_unit(Path::new(path), text, false) else {
+        return analyze_editor(path, text);
+    };
+    let editor_errors = run
+        .diags
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .filter_map(|d| d.primary_span().map(|s| s.span))
+        .collect();
+    let (resolve, typeck, domain, delays) = match run.stages {
+        Some(s) => (Some(s.resolve), s.typeck, s.domain, s.delays),
+        None => (None, None, None, None),
+    };
+    let mut analysis = Analysis {
+        map: run.unit.map,
+        file_id: run.main,
+        ast: run.unit.parsed.ast,
+        resolve,
+        typeck,
+        domain,
+        delays,
+        diagnostics: Vec::new(),
+        editor_errors,
+        refs: Vec::new(),
+    };
+    analysis.build_refs();
+    analysis
 }
 
 /// Tek dosya boru hattı: analiz + aşama tanıları (yayımlanmaz).
@@ -126,13 +165,21 @@ fn cap_for_editor(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
     diagnostics
 }
 
-/// `volt check` ile aynı aşamalar (sürücü `compile_all`'ın tanı yolu):
-/// birim yükleme → ön denetim → import → ortak boru hattı → çıktısız
-/// emit → toplayıcı. Dönen tanılar yalnız ana dosyaya düşenlerdir ve
-/// span'leri tek dosya haritasına (`file_id`) taşınmıştır.
-fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diagnostic>> {
+/// Birim analizi: `volt check` ile aynı aşamalar (sürücü `compile_all`'ın
+/// tanı yolu) — birim yükleme → ön denetim → import → ortak boru hattı →
+/// (`validate_emit` ise) çıktısız emit. Tanılar ve ipuçları bunu paylaşır.
+struct UnitRun {
+    unit: LoadedUnit,
+    /// Ana dosyanın birimdeki kimliği.
+    main: FileId,
+    /// Kapılar geçildiyse anlamsal aşamalar.
+    stages: Option<SemanticStages>,
+    /// Toplayıcıdan (`annotate_generate`) önceki tanılar, tüm dosyalar.
+    diags: Vec<Diagnostic>,
+}
+
+fn run_unit(path: &Path, text: &str, validate_emit: bool) -> Option<UnitRun> {
     let unit = volt_hir::unit_load::load_unit_with_text(path, Some(text.to_string())).ok()?;
-    let names = unit.source_names();
     let main = unit.files.last().map(|(fid, _)| *fid)?;
     let lint = unit
         .manifest
@@ -140,6 +187,7 @@ fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diag
         .map_or_else(Default::default, |m| m.lint_unenforced);
     let ast = &unit.parsed.ast;
     let mut diags = unit.parsed.diagnostics.clone();
+    let mut stages = None;
     if count_errors(&diags) == 0 {
         diags.extend(volt_hir::pre_resolve_checks(ast, lint));
         diags.extend(unit.diagnostics.iter().cloned());
@@ -152,19 +200,33 @@ fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diag
             let resolve = volt_hir::resolve_unit(ast, &imports.scopes);
             // Test veri dosyaları (ADR-0058) editörde okunmaz: içerik
             // denetimleri (E8508/E8510) yalnız `volt check`/`build`'de.
-            volt_hir::run_semantic_stages(ast, resolve, None, &mut diags);
-            if count_errors(&diags) == 0 {
+            let run = volt_hir::run_semantic_stages(ast, resolve, None, &mut diags);
+            if validate_emit && count_errors(&diags) == 0 {
+                let names = unit.source_names();
                 let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
                 let main_name = names.last().map_or("", |(_, n)| n.as_str());
                 diags.extend(volt_sv_emit::validate_unit(ast, main_name, &sources));
             }
+            stages = Some(run);
         }
     }
-    let diags = volt_hir::annotate_generate(ast, diags);
+    Some(UnitRun {
+        unit,
+        main,
+        stages,
+        diags,
+    })
+}
+
+/// Birim tanıları (`run_unit` + toplayıcı): yalnız ana dosyaya düşenler,
+/// span'leri tek dosya haritasına (`file_id`) taşınmış.
+fn unit_diagnostics(path: &Path, text: &str, file_id: FileId) -> Option<Vec<Diagnostic>> {
+    let run = run_unit(path, text, true)?;
+    let diags = volt_hir::annotate_generate(&run.unit.parsed.ast, run.diags);
     Some(
         diags
             .into_iter()
-            .filter_map(|d| to_main_file(d, main, file_id, &unit.map))
+            .filter_map(|d| to_main_file(d, run.main, file_id, &run.unit.map))
             .collect(),
     )
 }

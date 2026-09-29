@@ -1,13 +1,17 @@
 //! Inlay ipuçları (ADR-0091): tipsiz `let`/`reg`'in çıkarılan tipi, çok
-//! saatli modülde saat alanı, `@strict_timing` modülünde gecikme.
+//! saatli modülde saat alanı, `@strict_timing` modülünde gecikme; fn
+//! gövdesindeki tipsiz `let`'in tipi.
 //!
-//! Bilgi `volt check`'in kendi analizinden okunur (tip denetimi
-//! `def_types`, domain çıkarımı `signal_domains`, zamanlama geçidi
-//! `analyze_timing`); burada ikinci bir çıkarım YOKTUR (ADR-0070).
+//! Bilgi `volt check`'in kendi birim analizinden okunur
+//! (`analysis::analyze_hints`: tip denetimi `def_types`, domain çıkarımı
+//! `signal_domains`, zamanlama geçidi `analyze_timing`); burada ikinci
+//! bir çıkarım YOKTUR (ADR-0070). Çok dosyalı birimde AST birimin
+//! tamamıdır; ipucu yalnız açık dosyanın kendi bildirimlerine konur.
 //!
 //! Güven kuralı: yanlış ipucu, ipucusuzluktan kötüdür.
-//! * Editör boru hattında hata bulunan modülde hiç ipucu yok; hata modül
-//!   dışındaysa (struct, enum, fn, ...) dosyada hiç ipucu yok.
+//! * Boru hattında hata bulunan modülde hiç ipucu yok; hata modül
+//!   dışındaysa (struct, enum, fn, ... ya da `use` ile gelen başka bir
+//!   dosya) dosyada hiç ipucu yok.
 //! * Tipi hata ya da boyutsuz literal içeren tanıma tip ipucu yok.
 //! * Açılmış kopyaları (for, generic) farklı sonuç veren konumda ipucu yok.
 //! * Kaynak metni adla uyuşmayan (desugar üretimi) bildirime ipucu yok.
@@ -94,15 +98,24 @@ pub fn inlay_hints(analysis: &Analysis, start: u32, end: u32, config: HintConfig
     let mut found: BTreeMap<(u32, HintKind), Vec<String>> = BTreeMap::new();
     for &idx in &analysis.ast.items {
         let item = &analysis.ast.items_arena[idx];
-        let ItemKind::Module(m) = &item.kind else {
-            continue;
-        };
-        if !overlaps(item.span, start, end) || has_error_in(analysis, item.span) {
+        // Birimin diğer dosyalarındaki öğeler bu belgeye ipucu vermez.
+        if item.span.file != analysis.file_id
+            || !overlaps(item.span, start, end)
+            || has_error_in(analysis, item.span)
+        {
             continue;
         }
-        let strict = item.attrs.iter().any(|a| a.name.text == "strict_timing");
-        let decls = module_decls(analysis, m);
-        let multi_clock = distinct_clock_domains(analysis, &decls, res) >= 2;
+        // fn saf kombinasyoneldir (ADR-0081): alan ve gecikme ipucu yok.
+        let (decls, strict, multi_clock) = match &item.kind {
+            ItemKind::Module(m) => {
+                let decls = module_decls(analysis, m);
+                let multi_clock = distinct_clock_domains(analysis, &decls, res) >= 2;
+                let strict = item.attrs.iter().any(|a| a.name.text == "strict_timing");
+                (decls, strict, multi_clock)
+            }
+            ItemKind::Fn(f) => (fn_decls(analysis, f), false, false),
+            _ => continue,
+        };
         for decl in decls.iter().filter(|d| overlaps(d.name.span, start, end)) {
             let Some(&def) = res.decl_spans.get(&decl.name.span) else {
                 continue;
@@ -275,6 +288,20 @@ fn module_decls<'a>(analysis: &'a Analysis, m: &'a ModuleDecl) -> Vec<Decl<'a>> 
         }
     }
     out
+}
+
+/// fn gövdesinin `let`'leri: parser gövdede yalnız `let`/son ifade
+/// bırakır (ADR-0081); gövde tanımda bir kez tip denetlenir, `let`
+/// tipleri `def_types`'a modül `let`'iyle aynı yoldan yazılır.
+fn fn_decls<'a>(analysis: &'a Analysis, f: &'a volt_ast::FnDecl) -> Vec<Decl<'a>> {
+    analysis.ast.blocks[f.body]
+        .stmts
+        .iter()
+        .filter_map(|stmt| match stmt {
+            BlockStmt::Let(l) => Some(let_decl(l)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn let_decl(l: &volt_ast::LetDecl) -> Decl<'_> {

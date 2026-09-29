@@ -84,7 +84,7 @@ fn all(src: &str) -> Vec<Hint> {
 }
 
 fn hints_with(src: &str, config: HintConfig) -> Vec<Hint> {
-    let a = analysis::analyze_editor("test.volt", src);
+    let a = analysis::analyze_hints("test.volt", src);
     inlay_hints(&a, 0, src.len() as u32, config)
 }
 
@@ -175,7 +175,7 @@ fn each_kind_can_be_switched_off() {
 
 #[test]
 fn only_the_requested_range_is_hinted() {
-    let a = analysis::analyze_editor("test.volt", SINGLE_CLOCK);
+    let a = analysis::analyze_hints("test.volt", SINGLE_CLOCK);
     let t_at = SINGLE_CLOCK.find("let t").unwrap() as u32;
     let hints = inlay_hints(&a, t_at, t_at + 6, HintConfig::default());
     assert_eq!(rendered(SINGLE_CLOCK, &hints), vec!["t : u9"]);
@@ -243,7 +243,7 @@ fn generic_copies_disagreeing_on_a_type_get_no_hint() {
         .replace("in  b : u4", "in  b : u8")
         .replace("out q : u4", "out q : u8")
         .replace("Pass<4> { x: b }", "Pass<8> { x: b }");
-    let a = analysis::analyze_editor("test.volt", &src);
+    let a = analysis::analyze_hints("test.volt", &src);
     assert!(a.editor_errors.is_empty());
     let got = rendered(
         &src,
@@ -294,4 +294,178 @@ module Top {
 }
 ";
     assert_eq!(rendered(src, &all(src)), vec!["r : u8"]);
+}
+
+// ── Çok dosyalı birim (`use`) ─────────────────────────────────────────
+// İpuçları tanılarla aynı birim analizinden (`analyze_hints`): içe
+// aktarılan adlar çözülür, ipucu yalnız açık dosyanın satırlarına konur.
+
+fn example(rel: &str) -> (String, String) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel);
+    let text = std::fs::read_to_string(&path).expect("örnek dosya");
+    (path.to_string_lossy().into_owned(), text)
+}
+
+fn unit_hints(path: &str, text: &str) -> Vec<String> {
+    let a = analysis::analyze_hints(path, text);
+    rendered(
+        text,
+        &inlay_hints(&a, 0, text.len() as u32, HintConfig::default()),
+    )
+}
+
+#[test]
+fn imported_domains_give_the_vga_top_its_domain_hints() {
+    // `@SysDomain`/`@PixDomain` vga_timing.volt'tan gelir; tek dosya
+    // analizinde çözülmedikleri için modül çok saatli sayılmıyordu.
+    let (path, text) = example("examples/vga/vga_top.volt");
+    let got = unit_hints(&path, &text);
+    // `rendered` tipi yazılı bildirimde tipi gösterir (`reg wx_r : u7`).
+    assert_eq!(got.first().map(String::as_str), Some("u7 @SysDomain"));
+    let count = |d: &str| got.iter().filter(|h| h.ends_with(d)).count();
+    assert_eq!(
+        (count("@SysDomain"), count("@PixDomain")),
+        (5, 10),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn soc_top_is_clean_and_reads_types_from_used_files() {
+    // Diskteki soc/top.volt'ta ipucu adayı yok (tek saat; tipsiz
+    // `let`'lerin hepsi modül örneği) ama birim analizi hatasızdır —
+    // tek dosya analizi `r.data.resp`'te hata verip modülü susturuyordu.
+    let (path, text) = example("examples/soc/top.volt");
+    let a = analysis::analyze_hints(&path, &text);
+    assert!(a.editor_errors.is_empty(), "{:?}", a.editor_errors);
+    assert!(a.typeck.is_some() && a.domain.is_some());
+    // Editör tamponunda örnek çıkışını okuyan tipsiz `let`: tipi
+    // bus.volt'taki BusDecoder'dan (AxiResp = u2) gelir.
+    let edited = text.replace(
+        "    aw.ready    =",
+        "    let resp = dec_i.host_b_resp\n    let rdata = dec_i.host_r_data\n    aw.ready    =",
+    );
+    assert_eq!(unit_hints(&path, &edited), vec!["resp : u2", "rdata : u32"]);
+}
+
+/// Geçici birim: `lib.volt` (paket `lib`, modül Leaf) + onu kullanan
+/// `top.volt`. Dönen yol top.volt'tur.
+fn two_file_unit(tag: &str, leaf: &str, top: &str) -> (std::path::PathBuf, String) {
+    let dir = std::env::temp_dir().join(format!("volt-lsp-unit-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dizini");
+    std::fs::write(dir.join("lib.volt"), leaf).expect("lib.volt");
+    std::fs::write(dir.join("top.volt"), top).expect("top.volt");
+    (dir, top.to_string())
+}
+
+const LEAF_OK: &str = "package lib;
+
+pub module Leaf {
+    in  a : u8
+    out b : u8
+    let t = a
+    b = t
+}
+";
+
+const TOP_USES_LEAF: &str = "use lib::Leaf;
+
+module Top {
+    in  x : u8
+    out y : u8
+    let leaf = Leaf { a: x }
+    let r = leaf.b
+    y = r
+}
+
+module Other {
+    in  x : u8
+    out y : u8
+    let o = x
+    y = o
+}
+";
+
+#[test]
+fn hints_stay_in_the_open_file_of_a_unit() {
+    // lib.volt'taki `let t` ipucu adayıdır; top.volt açıkken yalnız
+    // top.volt'un bildirimi ipucu alır, konumu top.volt'un kendi metninde.
+    let (dir, top) = two_file_unit("ok", LEAF_OK, TOP_USES_LEAF);
+    let path = dir.join("top.volt");
+    let got = unit_hints(path.to_str().unwrap(), &top);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(got, vec!["r : u8", "o : u8"]);
+}
+
+#[test]
+fn an_error_in_a_used_file_silences_the_whole_file() {
+    // Leaf'in hatası (u8 → u4 daraltma) başka dosyada: Top'un `leaf.b`
+    // ve bağımsız `r`, Leaf'i kullanmayan Other'ın `o` ipuçları da susar
+    // (ADR-0091 modül dışı hata kuralı). Hatanın bayt ofseti top.volt'ta
+    // Top'un aralığına düşer — dosya kimliği denetimi olmasa yalnız Top
+    // susardı.
+    let broken = LEAF_OK.replace("out b : u8", "out b : u4");
+    let top = TOP_USES_LEAF.replace("let r = leaf.b", "let r = x\n    let q = leaf.b");
+    let (dir, top) = two_file_unit("err", &broken, &top);
+    let path = dir.join("top.volt");
+    let a = analysis::analyze_hints(path.to_str().unwrap(), &top);
+    let got = inlay_hints(&a, 0, top.len() as u32, HintConfig::default());
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        a.editor_errors.iter().any(|e| e.file != a.file_id),
+        "hata lib.volt'ta olmalı: {:?}",
+        a.editor_errors
+    );
+    let top_module = top.find("module Top").unwrap() as u32;
+    let other_module = top.find("module Other").unwrap() as u32;
+    assert!(
+        a.editor_errors
+            .iter()
+            .any(|e| e.file != a.file_id && top_module < e.start && e.start < other_module),
+        "{:?}",
+        a.editor_errors
+    );
+    assert!(got.is_empty(), "{got:?}");
+}
+
+// ── fn gövdesi ────────────────────────────────────────────────────────
+
+const FN_LETS: &str = "fn addw(a: u8, b: u8) -> u9 {
+    let t = a + b
+    let u : u9 = t
+    u
+}
+
+module M {
+    in  a : u8
+    in  b : u8
+    out y : u9
+    y = addw(a, b)
+}
+";
+
+#[test]
+fn an_untyped_let_in_a_fn_body_gets_its_type() {
+    // Yalnız tip ipucu; tipi yazılmış `u` tekrarlanmaz.
+    assert_eq!(rendered(FN_LETS, &all(FN_LETS)), vec!["t : u9"]);
+}
+
+#[test]
+fn an_error_in_a_fn_body_silences_the_whole_file() {
+    // fn modül dışıdır: gövdesindeki hata (u9 → u4 daraltma) dosyanın
+    // tamamını susturur — M'deki tipsiz `s` de ipucu almaz.
+    let src = FN_LETS.replace("let u : u9 = t", "let u : u4 = t").replace(
+        "y = addw(a, b)",
+        "let s = a
+    y = addw(s, b)",
+    );
+    let a = analysis::analyze_hints("test.volt", &src);
+    assert!(!a.editor_errors.is_empty());
+    assert!(all(&src).is_empty(), "{:?}", all(&src));
+    // Hata kalkınca ikisi de ipucu alır.
+    let fixed = src.replace("let u : u4 = t", "let u : u9 = t");
+    assert_eq!(rendered(&fixed, &all(&fixed)), vec!["t : u9", "s : u8"]);
 }

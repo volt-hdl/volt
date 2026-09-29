@@ -5,6 +5,18 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — LSP: çok dosyalı birimde inlay ipuçları (ADR-0091 eki, 2026-09-29)
+
+- `use` içeren dosyalarda ipuçları tanılarla aynı birim analizinden gelir
+  (`volt check` yolu, çıktısız emit hariç). Önce tek dosya analizi içe
+  aktarılan adları çözemiyordu: `examples/vga/vga_top.volt`'ta 0 ipucu
+  (şimdi 15 saat alanı), `examples/riscv_core.volt`'ta içe aktarılan fn
+  çağrılı 12 `let` ipucusuzdu (66 → 78). İpucu yalnız açık dosyanın
+  satırlarına konur; `use` hedefindeki hata dosyanın tamamını susturur.
+- fn gövdesindeki tipsiz `let`'ler tip ipucu alır.
+- inlayHint yanıtı birim yüklemeyi de koşar: soc/top.volt 1,3 → 8,8 ms,
+  riscv_core 2,2 → 3,7 ms (release, medyan).
+
 ### Eklendi — Proje kipi, düşen testin dalga formu, `volt test --watch` (ADR-0095, 2026-09-28)
 
 - Dosya argümansız `volt check`, `volt build`, `volt run`, `volt verify`

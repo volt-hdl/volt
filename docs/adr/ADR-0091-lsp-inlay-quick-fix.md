@@ -1,6 +1,6 @@
 # ADR-0091: LSP — Inlay İpuçları, Quick Fix ve Protokol Testleri
 
-> Statü: Uygulandı
+> Statü: Uygulandı — çok dosyalı ipuçları eki (2026-09-29) sonda
 > İlgili: ADR-0070 (tanı paritesi: LSP = check), ADR-0037 (Delayed / gecikme), ADR-0068 (katlama), ADR-0088 (bildirimde alan açıklaması), cli-contract.md §5 (JSON `suggestions`).
 > Tarih: 2026-09-27
 > Etkilenen: volt-lsp (`inlay.rs`, `code_action.rs` — YENİ; `lib.rs`
@@ -12,6 +12,8 @@
 > (E0004, W0010, E4008 önerileri), volt-driver testleri
 > (`quickfix_tests.rs` YENİ, `lsp_protocol_tests.rs` kapanış + yeni
 > testler), tests/quickfix (YENİ), editors/vscode (ayarlar)
+> Ek: Çok dosyalı ipuçları (2026-09-29, #67) — uygulama notu, yeni karar
+> değil: ipuçları tanılarla aynı birim analizinden; fn gövdesi `let`'leri.
 
 ## Sorun
 
@@ -255,3 +257,106 @@ korur.
 - VS Code'da elle deneme bu çalışmada yapılamadı (grafik oturum yok);
   eklenti yalnız `tsc` ile derlendi. Protokol davranışı gerçek stdio
   testleriyle doğrulandı.
+
+## Ek — Çok dosyalı ipuçları (2026-09-29, #67)
+
+Uygulama notu; Karar 2'nin (bilgi `volt check`'in kendi analizinden,
+güven kuralı) çok dosyalı birime uygulanmasıdır, yeni karar değildir.
+Sınırlar'ın ilk iki maddesini kapatır.
+
+**Kök neden.** `inlayHint` işleyicisi `analyze_editor` kullanıyordu: tek
+dosya ayrıştırması + `resolve_file`. `use` hedefleri yüklenmediği için
+içe aktarılan adlar çözülmüyordu; ADR-0070'ten beri tanılar ise birim
+yolundan (`unit_load` + `resolve_unit`) geliyordu — iki yol ayrışmıştı.
+Ölçülen etkiler (release, `main` 34fac38f):
+
+- `examples/soc/top.volt`: birim tanıları 0; tek dosya analizinde
+  `r.data.resp`'te (166:5, içe aktarılan `AxiRData` alanı) bir hata →
+  SocTop modülü susuyordu.
+- `examples/vga/vga_top.volt`: tek dosya analizinde hata YOK ama
+  `@SysDomain`/`@PixDomain` (vga_timing.volt) açık alan olarak
+  çözülmüyordu → modül çok saatli sayılmıyor, 15 alan ipucunun hiçbiri
+  çıkmıyordu. Sessiz kayıp: hata olmadığı için güven kuralı da devreye
+  girmiyordu.
+- `examples/riscv_core.volt`: `riscv_imm`/`riscv_alu`'dan içe aktarılan
+  fn çağrılarının tipi hata kurtarma tipiydi → 12 `let` ipucusuzdu
+  (`is_reliable` doğru olarak eliyordu).
+
+**Uygulama.** `analysis.rs`'te birim yolu tek fonksiyondur (`run_unit`):
+birim yükleme → ön denetim → import → `@source` → ortak boru hattı →
+(`validate_emit` ise) çıktısız emit. Tanılar (`unit_diagnostics`,
+`validate_emit = true`) ve ipuçları (`analyze_hints`, `false`) bunu
+paylaşır; ikinci bir birim yükleme yolu yoktur. İpucu yolu çıktısız emiti
+koşmaz (Karar 2: emit bilgisi ipucuya girmez). `analyze_hints`'te
+`ast`/`map` birimin tamamı, `file_id` ana dosyadır; birim yüklenemezse
+(bağımlılık okunamadı) tek dosya analizi — tanı yolundaki geri dönüşle
+aynı. Hover, tamamlama, semboller ve tanım `analyze_editor`'da kaldı (bu
+ekin kapsamı dışı). volt-hir'de değişiklik gerekmedi (`LoadedUnit`,
+`SemanticStages` zaten dışa açık).
+
+**Güven kuralı birimde.** İpucu yalnız açık dosyanın kendi öğelerine
+konur (`item.span.file == file_id`; ad ayrıca `written_as` ile ana
+dosyada doğrulanır). Başka dosyadaki (`use` hedefi) hata "modül dışı
+hata" sayılır ve dosyanın tamamını susturur — `in_some_module` hatanın
+dosya kimliğine bakar; bayt ofseti açık dosyadaki bir modülün aralığına
+düşse de. Birim yolunda ön denetim/import/`@source` hatası anlamsal
+aşamaları kapılar (`volt check` ile aynı) → çözüm yoksa ipucu da yok;
+tek dosya yolunda bu hatalar yalnız kendi modülünü susturuyordu.
+
+**fn gövdesi (Sınırlar madde 2 kapandı).** Gövde tanımda bir kez tip
+denetlenir ve `let` tipleri `def_types`'a modül `let`'iyle aynı yoldan
+yazılır (`typeck/func.rs` `check_fn` → `handle_let`); ek analiz
+gerekmedi. fn saf kombinasyonel olduğundan (ADR-0081 Karar 1) yalnız tip
+ipucu; alan ve gecikme yok. Generic fn dilde hâlâ E0003 (ADR-0081 Karar
+7) — açılmış kopya sorusu doğmuyor. fn modül dışı öğedir: gövdesindeki
+hata dosyanın tamamını susturur (mevcut kural).
+
+**Ölçüm.** Yanıt süresi `build/lsp/perf.py` (release, stdio, N = 15,
+medyan, Windows); ipucu farkı `build/lsp-mf/hint_dump.py` (iki ikili,
+satır + etiket):
+
+| Dosya | Satır | inlayHint tüm (önce → sonra) | inlayHint 60 satır | Tanı (pull) | İpucu (önce → sonra) |
+|---|---|---|---|---|---|
+| `examples/soc/top.volt` | 176 | 1,3 → 8,8 ms | 1,1 → 8,8 ms | 11,3 → 11,6 ms | 0 → 0 |
+| `examples/vga/vga_top.volt` | 134 | 0,7 → 2,0 ms | 0,6 → 1,9 ms | 2,6 → 2,8 ms | 0 → 15 |
+| `examples/riscv_core.volt` | 510 | 2,2 → 3,7 ms | 1,7 → 3,2 ms | 6,7 → 6,4 ms | 66 → 78 |
+| `examples/soc/uart.volt` | 101 | 0,9 → 3,3 ms | 0,8 → 2,8 ms | 4,6 → 4,2 ms | 0 → 0 |
+
+Kalkan ipucu 0; eklenenlerin hepsi yukarıdaki kök nedenin satırları
+(vga 15 alan, riscv_core 12 tip). İpucu artık birim yükleme + anlamsal
+aşamaları koşar, çıktısız emit hariç: en kötü durumda (soc)
+tanı yenilemesinin ~%76'sı. Önbellek eklenmedi: 8,8 ms bir tuş
+vuruşunun bütçesinin altında; gerekirse tanı ve ipucu aynı `run_unit`
+sonucunu paylaşabilir.
+
+`soc/top.volt` diskteki hâliyle ipucu adayı taşımaz: tek saat (alan
+ipucu yok), tipsiz `let`'lerin hepsi modül örneği (`StmtKind::Instance`,
+Karar 2 kapsamı dışı), kalanlar tipli. Düzeltmenin soc'taki kanıtı
+birimin hatasız analizi ve editör tamponunda örnek çıkışını okuyan
+tipsiz `let`'in içe aktarılan tipi almasıdır (`resp : u2`, `rdata : u32`
+— BusDecoder'dan; tek dosya yolunda 0).
+
+**Test.** `crates/volt-lsp/tests/inlay.rs`: mevcut 14 test artık
+`analyze_hints` yolundan (değişmeden geçti); yeni: vga alan ipuçları
+(5 × SysDomain, 10 × PixDomain), soc hatasız + tampon tipi, ipucunun
+açık dosyada kalması (geçici iki dosyalı birim, `lib.volt`'taki `let`
+ipucu almaz), `use` hedefindeki hatanın dosyanın tamamını susturması
+(hata ofseti Top'un aralığında; bağımsız Other modülü de susar), fn
+gövdesi tip ipucu, fn gövdesi hatasının susturması.
+`crates/volt-driver/tests/lsp_protocol_tests.rs`: gerçek stdio üzerinden
+vga_top.volt ipuçları.
+
+**Mutasyon** (`build/lsp-mf/mutate.py`, tek tek, dosya geri yüklenir):
+8/9 öldü — işleyici tek dosya analizine döner, `analyze_hints` birimi
+kullanmaz, birim hataları ipucu analizine taşınmaz, modül dışı hata
+kuralında dosya kimliği kalkar, fn atlanır, fn `let`'i toplanmaz, tanı
+yolu emit doğrulamasını atlar (parity testleri), ana dosya yerine ilk
+dosya. YAŞAYAN: öğe dosya süzgeci (`item.span.file != file_id`) —
+eşdeğer mutant: başka dosyadaki ad `written_as`'ta zaten elenir; süzgeç
+diğer dosyaların modüllerinde bildirim toplamayı ve saat alanı sayımını
+atlatan bir maliyet korumasıdır.
+
+**Kalan sınırlar.** Hover, tanıma git, tamamlama ve semboller tek dosya
+analizinde (içe aktarılan adın hover'ı yok). Modül örneği `let`'ine tip
+ipucu yok (Karar 2). Saat alanı ipucu yalnız `DomainId::Explicit`
+(değişmedi).

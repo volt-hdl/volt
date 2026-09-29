@@ -511,6 +511,33 @@ fn lsp_inlay_hints_show_type_and_domain_on_the_wire() {
 }
 
 #[test]
+fn lsp_inlay_hints_see_the_used_files_of_a_unit() {
+    // Çok dosyalı birim: vga_top.volt'un saat alanları `use` ile
+    // vga_timing.volt'tan gelir; ipuçları tanılarla aynı birim analizinden.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/vga/vga_top.volt")
+        .canonicalize()
+        .expect("örnek");
+    let src = std::fs::read_to_string(&path).expect("örnek");
+    let s = path.to_string_lossy().replace('\\', "/");
+    let s = s.strip_prefix("//?/").unwrap_or(&s);
+    let u = if s.starts_with('/') {
+        format!("file://{s}")
+    } else {
+        format!("file:///{s}")
+    };
+    let mut lsp = Lsp::start();
+    lsp.open(&u, &src);
+    let labels = inlay_labels(&mut lsp, &u, &src);
+    let count = |d: &str| labels.iter().filter(|l| *l == d).count();
+    assert_eq!(
+        (count("@SysDomain"), count("@PixDomain")),
+        (5, 10),
+        "{labels:?}"
+    );
+}
+
+#[test]
 fn lsp_initialization_options_switch_off_domain_hints() {
     let mut lsp = Lsp::start_with(json!({ "inlayHints": { "clockDomains": false } }));
     let u = uri("lsp_inlay_opts.volt");
