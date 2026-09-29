@@ -34,9 +34,12 @@ name=$(basename "$archive")
 (cd "$work/good" && { sha256sum "$name" 2>/dev/null || shasum -a 256 "$name"; } > SHA256SUMS)
 cat "$work/good/SHA256SUMS"
 
+# run_installer VAR=value... : like `curl -fsSL .../install.sh | sh`, with
+# the settings passed through env. Not as `VAR=value run_installer`: in
+# bash's POSIX mode (macOS /bin/sh) an assignment before a function call
+# stays set in the calling shell afterwards.
 run_installer() {
-    # Like `curl -fsSL .../install.sh | sh`.
-    sh < "$installer"
+    env "$@" sh < "$installer"
 }
 
 profile_of() {
@@ -71,7 +74,7 @@ for shell_name in "$@"; do
     fi
 
     echo "--- install"
-    SHELL=$shell_path VOLT_ARCHIVE="$work/good/$name" run_installer || fail "$shell_name: install exited $?"
+    run_installer SHELL="$shell_path" VOLT_ARCHIVE="$work/good/$name" || fail "$shell_name: install exited $?"
     [ -x "$HOME/.volt/bin/volt" ] || fail "$shell_name: ~/.volt/bin/volt missing"
 
     echo "--- new $shell_name: volt --version"
@@ -83,13 +86,13 @@ for shell_name in "$@"; do
     esac
 
     echo "--- install again (update path)"
-    SHELL=$shell_path VOLT_ARCHIVE="$work/good/$name" run_installer || fail "$shell_name: second install exited $?"
+    run_installer SHELL="$shell_path" VOLT_ARCHIVE="$work/good/$name" || fail "$shell_name: second install exited $?"
     count=$(grep -cF "added by the Volt installer" "$profile" || true)
     [ "$count" = 1 ] || fail "$shell_name: $count PATH lines in $profile after two installs, expected 1"
     new_shell "$shell_name" 'volt --version' || fail "$shell_name: volt missing after the update"
 
     echo "--- uninstall"
-    SHELL=$shell_path VOLT_UNINSTALL=1 run_installer || fail "$shell_name: uninstall exited $?"
+    run_installer SHELL="$shell_path" VOLT_UNINSTALL=1 || fail "$shell_name: uninstall exited $?"
     [ ! -e "$HOME/.volt" ] || fail "$shell_name: ~/.volt still exists: $(ls -R "$HOME/.volt")"
     if [ "$had_profile" = yes ]; then
         cmp "$work/profile.before" "$profile" || fail "$shell_name: $profile differs from before the install"
@@ -107,14 +110,14 @@ cp "$archive" "$work/bad/"
 echo "0000000000000000000000000000000000000000000000000000000000000000  $name" > "$work/bad/SHA256SUMS"
 snapshot() { for f in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc"; do [ -f "$f" ] && cksum "$f"; done; true; }
 before=$(snapshot)
-if VOLT_INSTALL_DIR="$work/bad-install" VOLT_ARCHIVE="$work/bad/$name" run_installer; then
+if run_installer VOLT_INSTALL_DIR="$work/bad-install" VOLT_ARCHIVE="$work/bad/$name"; then
     fail "install with a wrong SHA256SUMS succeeded"
 fi
 [ ! -e "$work/bad-install" ] || fail "wrong checksum left files: $(ls -R "$work/bad-install")"
 [ "$before" = "$(snapshot)" ] || fail "wrong checksum changed a startup file"
 
 echo "=== release that does not exist ==="
-out=$(VOLT_VERSION=0.0.0 VOLT_INSTALL_DIR="$work/none" run_installer 2>&1) && fail "install of v0.0.0 succeeded"
+out=$(run_installer VOLT_VERSION=0.0.0 VOLT_INSTALL_DIR="$work/none" 2>&1) && fail "install of v0.0.0 succeeded"
 echo "$out"
 case $out in
     *"no published Volt release"*"cargo install"*) ;;

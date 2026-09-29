@@ -157,3 +157,6 @@ if ($script:fails) {
     exit 1
 }
 Write-Host 'all install checks passed' -ForegroundColor Green
+# Explicit: $LASTEXITCODE still holds the exit code of the last installer
+# run (the expected failure above), and the CI shell wrappers exit with it.
+exit 0
