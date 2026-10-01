@@ -137,7 +137,24 @@ impl Emitter<'_> {
                     hi: sig.width,
                 })
             }
-            _ => self.width_of(idx).map(Range::exact),
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => self.width_of(idx).map(Range::exact),
         }
     }
 
@@ -152,7 +169,21 @@ impl Emitter<'_> {
                 let natural = match op {
                     BinOp::Add | BinOp::Sub => common.hi + 1,
                     BinOp::Mul => common.hi * 2,
-                    _ => common.hi,
+                    BinOp::Div | BinOp::Rem => common.hi,
+                    BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr
+                    | BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Gt
+                    | BinOp::Le
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Imp => unreachable!("dış kol yalnız aritmetik işleçleri geçirir"),
                 };
                 Some(Range {
                     hi: natural.min(MAX_WIDTH),
@@ -163,7 +194,15 @@ impl Emitter<'_> {
             // Kaydırma: sol operandın tipi (§3.3, ADR-0036).
             BinOp::Shl | BinOp::Shr => self.int_range(lhs),
             // Karşılaştırma ve mantıksal işleçler: bool.
-            _ => Some(Range::exact(Sig::BIT)),
+            BinOp::Eq
+            | BinOp::Ne
+            | BinOp::Lt
+            | BinOp::Gt
+            | BinOp::Le
+            | BinOp::Ge
+            | BinOp::And
+            | BinOp::Or
+            | BinOp::Imp => Some(Range::exact(Sig::BIT)),
         }
     }
 

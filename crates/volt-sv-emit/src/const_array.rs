@@ -99,7 +99,25 @@ impl<'a> Emitter<'a> {
                 let &(_, inner) = self.consts.get(name)?;
                 self.const_array_elements(inner)
             }
-            _ => None,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 

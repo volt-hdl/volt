@@ -202,7 +202,16 @@ impl<'a> Emitter<'a> {
                         .checked_shl(u32::try_from(r).ok()?)
                         .filter(|v| v >> r == l),
                     BinOp::Shr => Some(if r >= 127 { 0 } else { l >> r }),
-                    _ => None,
+                    // Karşılaştırma/mantıksal işleçler sayı üretmez (eval_const_bool).
+                    BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Gt
+                    | BinOp::Le
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Imp => None,
                 }
             }
             // Modül sinyalleri gölgeler; döngü değişkeni const'tan önce —
@@ -242,7 +251,20 @@ impl<'a> Emitter<'a> {
                 }
                 None
             }
-            _ => None,
+            ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Unary { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 
@@ -266,7 +288,25 @@ impl<'a> Emitter<'a> {
                     return Some(match op {
                         BinOp::And => l && r,
                         BinOp::Or => l || r,
-                        _ => !l || r,
+                        BinOp::Imp => !l || r,
+                        BinOp::Add
+                        | BinOp::Sub
+                        | BinOp::Mul
+                        | BinOp::Div
+                        | BinOp::Rem
+                        | BinOp::BitAnd
+                        | BinOp::BitOr
+                        | BinOp::BitXor
+                        | BinOp::Shl
+                        | BinOp::Shr
+                        | BinOp::Eq
+                        | BinOp::Ne
+                        | BinOp::Lt
+                        | BinOp::Gt
+                        | BinOp::Le
+                        | BinOp::Ge => {
+                            unreachable!("üstteki matches! yalnız &&, || ve -> işleçlerini geçirir")
+                        }
                     });
                 }
                 let l = self.eval_const_depth(*lhs, depth + 1)?;
@@ -277,10 +317,43 @@ impl<'a> Emitter<'a> {
                     BinOp::Lt => l < r,
                     BinOp::Gt => l > r,
                     BinOp::Le => l <= r,
-                    _ => l >= r,
+                    BinOp::Ge => l >= r,
+                    BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Rem
+                    | BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Imp => unreachable!(
+                        "muhafız yalnız karşılaştırma/mantıksal işleç geçirir; mantıksallar yukarıda döndü"
+                    ),
                 })
             }
-            _ => match self.eval_const_depth(idx, depth + 1)? {
+            ExprKind::IntLit { .. }
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => match self.eval_const_depth(idx, depth + 1)? {
                 0 => Some(false),
                 1 => Some(true),
                 _ => None,
@@ -336,7 +409,9 @@ impl<'a> Emitter<'a> {
                 let (decl, i) = self.enum_variant_of_path(p)?;
                 Some(i128::try_from(*self.enum_layout(decl)?.values.get(i)?).ok()? == key)
             }
-            _ => None,
+            volt_ast::PatternKind::Path { .. }
+            | volt_ast::PatternKind::Tuple(_)
+            | volt_ast::PatternKind::Error => None,
         }
     }
 
@@ -545,7 +620,22 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Field { .. } => true,
             ExprKind::Call { callee, .. } => self.is_prev_call(*callee),
-            _ => false,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
         }
     }
 
@@ -645,7 +735,25 @@ impl<'a> Emitter<'a> {
                     None => self.emit_prec(idx, None, PREC_ATOM, false),
                 }
             }
-            _ => match self.eval_const(idx) {
+            ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => match self.eval_const(idx) {
                 Some(v) => v.to_string(),
                 None => self.emit_prec(idx, None, PREC_ATOM, false),
             },
@@ -865,11 +973,10 @@ impl<'a> Emitter<'a> {
                 let c = self.emit_prec(cond, one_bit, PREC_UNARY, false);
                 let t = self.emit_operand(then_expr, ctx, PREC_UNARY, false);
                 // İç içe ternary parantezlenir (§5.4)
-                let e = match &ast.exprs[else_expr].kind {
-                    ExprKind::If { .. } => {
-                        format!("({})", self.emit_prec(else_expr, ctx, PREC_TERNARY, false))
-                    }
-                    _ => self.emit_operand(else_expr, ctx, PREC_UNARY, false),
+                let e = if matches!(ast.exprs[else_expr].kind, ExprKind::If { .. }) {
+                    format!("({})", self.emit_prec(else_expr, ctx, PREC_TERNARY, false))
+                } else {
+                    self.emit_operand(else_expr, ctx, PREC_UNARY, false)
                 };
                 (format!("{c} ? {t} : {e}"), PREC_TERNARY)
             }
@@ -920,7 +1027,27 @@ impl<'a> Emitter<'a> {
                     ExprKind::TupleLit(_) => {
                         lstr!(en: "tuple literals"; tr: "tuple literalleri")
                     }
-                    _ => lstr!(en: "'todo!()' in hardware"; tr: "donanımda 'todo!()'"),
+                    ExprKind::Todo { .. } => {
+                        lstr!(en: "'todo!()' in hardware"; tr: "donanımda 'todo!()'")
+                    }
+                    ExprKind::IntLit { .. }
+                    | ExprKind::BoolLit(_)
+                    | ExprKind::Path(_)
+                    | ExprKind::Binary { .. }
+                    | ExprKind::Unary { .. }
+                    | ExprKind::Index { .. }
+                    | ExprKind::Range { .. }
+                    | ExprKind::PartSelect { .. }
+                    | ExprKind::Field { .. }
+                    | ExprKind::Call { .. }
+                    | ExprKind::Cast { .. }
+                    | ExprKind::If { .. }
+                    | ExprKind::Match { .. }
+                    | ExprKind::ArrayLit(_)
+                    | ExprKind::Concat(_)
+                    | ExprKind::Error => {
+                        unreachable!("dış kol yalnız StringLit/StructLit/TupleLit/Todo geçirir")
+                    }
                 };
                 // ADR-0077: struct literali yalnız indirgenemeyen bir
                 // sinyalin (struct dizisi, generic struct, bundle) içinde
@@ -966,7 +1093,14 @@ impl<'a> Emitter<'a> {
             }),
             // Kaydırmada sol operanda dış bağlam itilmez (ADR-0036).
             BinOp::Shl | BinOp::Shr => self.width_of(lhs),
-            _ => self.arith_ctx(idx, ctx),
+            BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Rem
+            | BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor => self.arith_ctx(idx, ctx),
         };
         // İmplikasyonun SV ifade karşılığı yok — `!a || b` açılımı
         // (ADR-0034); sol operand ! altında kalsın diye parantezlenir.
@@ -1032,11 +1166,14 @@ impl<'a> Emitter<'a> {
         operand: Idx<Expr>,
         text: String,
     ) -> String {
-        match &self.ast.exprs[operand].kind {
-            ExprKind::Binary { op, .. } if is_bitwise(parent) && is_comparison(*op) => {
-                format!("({text})")
-            }
-            _ => text,
+        let comparison = matches!(
+            &self.ast.exprs[operand].kind,
+            ExprKind::Binary { op, .. } if is_comparison(*op)
+        );
+        if is_bitwise(parent) && comparison {
+            format!("({text})")
+        } else {
+            text
         }
     }
 
@@ -1100,9 +1237,10 @@ impl<'a> Emitter<'a> {
             );
             return None;
         };
-        let base = match &self.ast.exprs[value_idx].kind {
-            ExprKind::IntLit { base, .. } => *base,
-            _ => NumBase::Dec,
+        let base = if let ExprKind::IntLit { base, .. } = &self.ast.exprs[value_idx].kind {
+            *base
+        } else {
+            NumBase::Dec
         };
         let declared = self.sig_of_typeref(ty, span);
         let sig = widen_sig(declared, ctx);

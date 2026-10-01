@@ -541,7 +541,26 @@ impl<'a> Expander<'a> {
                     },
                 })
             }
-            kind => {
+            // Özel kuralı olmayan düğümler: çocuklar map_children ile örneklenir.
+            kind @ (ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error) => {
                 let kind = map_children(kind, |c| self.inst(info, c, env, mode));
                 self.alloc(Expr {
                     span: node.span,
@@ -797,7 +816,23 @@ fn is_path_like(ast: &SourceFile, e: Idx<Expr>) -> bool {
     match &ast.exprs[e].kind {
         ExprKind::Path(_) => true,
         ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => is_path_like(ast, *base),
-        _ => false,
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Range { .. }
+        | ExprKind::PartSelect { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::Cast { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => false,
     }
 }
 

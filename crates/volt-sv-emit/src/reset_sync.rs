@@ -66,9 +66,12 @@ pub(crate) fn feeding_raw(
                 .is_some_and(|d| Some(d.text.as_str()) == clock_domain)
         })?,
     };
-    let polarity = match ast.types[crate::alias::resolve(ast, port.ty)].kind {
-        TypeRefKind::Reset(Some(spec)) => spec.polarity,
-        _ => info.reset.polarity,
+    let polarity = if let TypeRefKind::Reset(Some(spec)) =
+        ast.types[crate::alias::resolve(ast, port.ty)].kind
+    {
+        spec.polarity
+    } else {
+        info.reset.polarity
     };
     Some(RawReset {
         name: port.name.text.clone(),
@@ -113,7 +116,16 @@ pub(crate) fn reset_free_clock(ast: &SourceFile, module: &ModuleDecl, clk: &str)
                     }
                 }
             }
-            _ => {}
+            // Saati doğrudan kullanmayan deyimler; `sync(_, clk)` synced_to'da aranır.
+            StmtKind::Reg(_)
+            | StmtKind::Let(_)
+            | StmtKind::Wire(_)
+            | StmtKind::On(_)
+            | StmtKind::Comb(_)
+            | StmtKind::Assign(_)
+            | StmtKind::For(_)
+            | StmtKind::Expr(_)
+            | StmtKind::Error => {}
         }
     }
     reset_free_use && !synced_to(ast, module, clk)
@@ -160,7 +172,8 @@ pub(crate) fn synchronizer_block(clock: &ClockPort) -> Option<String> {
     let clk = &clock.name;
     let edge = match clock.info.edge {
         ClockEdge::Negedge => "negedge",
-        _ => "posedge",
+        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+        ClockEdge::Posedge | ClockEdge::None => "posedge",
     };
     let (sens, cond) = match raw.polarity {
         ResetPolarity::ActiveHigh => (format!("posedge {}", raw.name), raw.name.clone()),

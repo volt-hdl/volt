@@ -129,9 +129,12 @@ fn collect_fns(ast: &SourceFile) -> HashMap<String, FnInfo<'_>> {
 fn const_names(ast: &SourceFile) -> HashSet<String> {
     ast.items
         .iter()
-        .filter_map(|&i| match &ast.items_arena[i].kind {
-            ItemKind::Const(c) => Some(c.name.text.clone()),
-            _ => None,
+        .filter_map(|&i| {
+            if let ItemKind::Const(c) = &ast.items_arena[i].kind {
+                Some(c.name.text.clone())
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -162,7 +165,13 @@ fn module_names(ast: &SourceFile, m: &ModuleDecl) -> HashSet<String> {
             StmtKind::Let(l) => &l.name,
             StmtKind::Wire(w) => &w.name,
             StmtKind::Instance(i) => &i.name,
-            _ => continue,
+            // Ad bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+            StmtKind::On(_)
+            | StmtKind::Comb(_)
+            | StmtKind::Assign(_)
+            | StmtKind::For(_)
+            | StmtKind::Expr(_)
+            | StmtKind::Error => continue,
         };
         names.insert(name.text.clone());
     }

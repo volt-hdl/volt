@@ -70,9 +70,10 @@ impl<'a> Emitter<'a> {
 
     /// `e` bir match ifadesiyse (sınanan, kollar).
     pub(crate) fn as_match(&self, e: Idx<Expr>) -> Option<(Idx<Expr>, &'a [MatchArm])> {
-        match &self.ast.exprs[e].kind {
-            ExprKind::Match { scrutinee, arms } => Some((*scrutinee, arms.as_slice())),
-            _ => None,
+        if let ExprKind::Match { scrutinee, arms } = &self.ast.exprs[e].kind {
+            Some((*scrutinee, arms.as_slice()))
+        } else {
+            None
         }
     }
 
@@ -201,9 +202,10 @@ impl<'a> Emitter<'a> {
             .map(|&c| self.ternary_height(c, depth + 1))
             .max()
             .unwrap_or(depth);
-        match kind {
-            ExprKind::Match { arms, .. } => below + arms.len().saturating_sub(1),
-            _ => below.max(depth + 1),
+        if let ExprKind::Match { arms, .. } = kind {
+            below + arms.len().saturating_sub(1)
+        } else {
+            below.max(depth + 1)
         }
     }
 
@@ -214,35 +216,36 @@ impl<'a> Emitter<'a> {
             return MAX_EXPANSION_NODES + 1;
         }
         let kind = &self.ast.exprs[e].kind;
-        match kind {
-            ExprKind::Match { scrutinee, arms } => {
-                let s = self.ternary_cost(*scrutinee, depth + 1);
-                let mut total: usize = 1;
-                for arm in arms {
-                    let lits = self.pattern_literals(arm.pattern);
-                    total = total.saturating_add(s.saturating_mul(lits.max(1)));
-                    for c in arm.guard.into_iter().chain(match arm.body {
-                        MatchArmBody::Expr(b) => Some(b),
-                        MatchArmBody::Block(_) => None,
-                    }) {
-                        total = total.saturating_add(self.ternary_cost(c, depth + 1));
-                    }
-                }
-                total
-            }
-            _ => volt_ast::visit::expr_children(kind)
+        let ExprKind::Match { scrutinee, arms } = kind else {
+            return volt_ast::visit::expr_children(kind)
                 .iter()
                 .fold(1usize, |acc, &c| {
                     acc.saturating_add(self.ternary_cost(c, depth + 1))
-                }),
+                });
+        };
+        let s = self.ternary_cost(*scrutinee, depth + 1);
+        let mut total: usize = 1;
+        for arm in arms {
+            let lits = self.pattern_literals(arm.pattern);
+            total = total.saturating_add(s.saturating_mul(lits.max(1)));
+            for c in arm.guard.into_iter().chain(match arm.body {
+                MatchArmBody::Expr(b) => Some(b),
+                MatchArmBody::Block(_) => None,
+            }) {
+                total = total.saturating_add(self.ternary_cost(c, depth + 1));
+            }
         }
+        total
     }
 
     fn pattern_literals(&self, pat: Idx<volt_ast::Pattern>) -> usize {
         match &self.ast.patterns[pat].kind {
             PatternKind::Or(alts) => alts.iter().map(|&a| self.pattern_literals(a)).sum(),
             PatternKind::Wildcard => 0,
-            _ => 1,
+            PatternKind::Literal(_)
+            | PatternKind::Path { .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => 1,
         }
     }
 
@@ -348,7 +351,10 @@ impl<'a> Emitter<'a> {
                 }
                 Some(Some(labels))
             }
-            _ => self
+            PatternKind::Literal(_)
+            | PatternKind::Path { .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => self
                 .match_arm_label(pat, scrut_sig, scrut_enum)
                 .map(|l| Some(vec![l])),
         }
@@ -545,15 +551,13 @@ impl<'a> Emitter<'a> {
         if user_output || builtin_port {
             return true;
         }
-        self.ast
-            .items
-            .iter()
-            .any(|&i| match &self.ast.items_arena[i].kind {
-                volt_ast::ItemKind::Enum(e) => e
-                    .variants
-                    .iter()
-                    .any(|v| format!("{}_{}", e.name.text, v.name.text) == name),
-                _ => false,
-            })
+        self.ast.items.iter().any(|&i| {
+            let volt_ast::ItemKind::Enum(e) = &self.ast.items_arena[i].kind else {
+                return false;
+            };
+            e.variants
+                .iter()
+                .any(|v| format!("{}_{}", e.name.text, v.name.text) == name)
+        })
     }
 }

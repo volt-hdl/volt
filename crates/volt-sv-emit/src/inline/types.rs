@@ -59,7 +59,11 @@ fn canon_depth(ast: &SourceFile, ty: Idx<TypeRef>, depth: u32) -> Option<Canon> 
                 None => Canon::Named(name.clone()),
             }
         }
-        _ => return None,
+        TypeRefKind::Clock
+        | TypeRefKind::Reset(_)
+        | TypeRefKind::Tuple(_)
+        | TypeRefKind::Path { .. }
+        | TypeRefKind::Error => return None,
     })
 }
 
@@ -116,7 +120,13 @@ impl DeclTypes {
                     d.instances
                         .insert(i.name.text.clone(), i.module_path.segments[0].text.clone());
                 }
-                _ => {}
+                StmtKind::Instance(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => {}
             }
         }
         d
@@ -152,25 +162,44 @@ impl DeclTypes {
             // Dizi elemanı (`arr[i]`): eleman tipi.
             ExprKind::Index { base, .. } => {
                 let base_ty = crate::alias::resolve(ast, self.type_of(ast, *base, locals)?);
-                match &ast.types[base_ty].kind {
-                    TypeRefKind::Array { elem, .. } => Some(*elem),
-                    _ => None,
+                if let TypeRefKind::Array { elem, .. } = &ast.types[base_ty].kind {
+                    Some(*elem)
+                } else {
+                    None
                 }
             }
-            _ => None,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 }
 
 fn module_port(ast: &SourceFile, module: &str, port: &str) -> Option<Idx<TypeRef>> {
-    ast.items
-        .iter()
-        .find_map(|&item| match &ast.items_arena[item].kind {
-            ItemKind::Module(m) if m.name.text == module => {
-                m.ports.iter().find(|p| p.name.text == port).map(|p| p.ty)
-            }
-            _ => None,
-        })
+    ast.items.iter().find_map(|&item| {
+        let ItemKind::Module(m) = &ast.items_arena[item].kind else {
+            return None;
+        };
+        if m.name.text != module {
+            return None;
+        }
+        m.ports.iter().find(|p| p.name.text == port).map(|p| p.ty)
+    })
 }
 
 fn struct_field(ast: &SourceFile, ty: Idx<TypeRef>, field: &str) -> Option<Idx<TypeRef>> {
@@ -179,14 +208,15 @@ fn struct_field(ast: &SourceFile, ty: Idx<TypeRef>, field: &str) -> Option<Idx<T
         return None;
     };
     let name = &path.segments.last()?.text;
-    ast.items
-        .iter()
-        .find_map(|&item| match &ast.items_arena[item].kind {
-            ItemKind::Struct(s) if !s.is_port && &s.name.text == name => {
-                s.fields.iter().find(|f| f.name.text == field).map(|f| f.ty)
-            }
-            _ => None,
-        })
+    ast.items.iter().find_map(|&item| {
+        let ItemKind::Struct(s) = &ast.items_arena[item].kind else {
+            return None;
+        };
+        if s.is_port || &s.name.text != name {
+            return None;
+        }
+        s.fields.iter().find(|f| f.name.text == field).map(|f| f.ty)
+    })
 }
 
 /// Struct tipinin yaprak ad sonekleri (`a`, `i_x`) — struct indirgemesinin
@@ -199,13 +229,12 @@ pub(super) fn struct_leaves(ast: &SourceFile, ty: Idx<TypeRef>) -> Vec<String> {
     let Some(name) = path.segments.last().map(|s| s.text.as_str()) else {
         return Vec::new();
     };
-    let decl = ast
-        .items
-        .iter()
-        .find_map(|&i| match &ast.items_arena[i].kind {
-            ItemKind::Struct(s) if !s.is_port && s.name.text == name => Some(s),
-            _ => None,
-        });
+    let decl = ast.items.iter().find_map(|&i| {
+        let ItemKind::Struct(s) = &ast.items_arena[i].kind else {
+            return None;
+        };
+        (!s.is_port && s.name.text == name).then_some(s)
+    });
     let Some(decl) = decl else {
         return Vec::new();
     };

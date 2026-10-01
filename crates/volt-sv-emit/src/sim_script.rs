@@ -90,7 +90,17 @@ fn any_step(steps: &[TbStep], pred: &dyn Fn(&TbStep) -> bool) -> bool {
         pred(s)
             || match s {
                 TbStep::For { body, .. } => any_step(body, pred),
-                _ => false,
+                // İç adım taşımayan adımlar.
+                TbStep::SetPort { .. }
+                | TbStep::SetPortChecked { .. }
+                | TbStep::Step(_)
+                | TbStep::Reset
+                | TbStep::Assert { .. }
+                | TbStep::Loc(_)
+                | TbStep::StepBy(_)
+                | TbStep::LetScalar { .. }
+                | TbStep::LetArray { .. }
+                | TbStep::Load { .. } => false,
             }
     })
 }

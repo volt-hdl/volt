@@ -106,9 +106,12 @@ mod tests {
         let module: &ModuleDecl = ast
             .items
             .iter()
-            .find_map(|i| match &ast.items_arena[*i].kind {
-                ItemKind::Module(m) => Some(m),
-                _ => None,
+            .find_map(|i| {
+                if let ItemKind::Module(m) = &ast.items_arena[*i].kind {
+                    Some(m)
+                } else {
+                    None
+                }
             })
             .expect("modül");
         module

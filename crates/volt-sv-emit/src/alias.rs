@@ -33,15 +33,12 @@ pub(crate) fn resolve(ast: &SourceFile, ty: Idx<TypeRef>) -> Idx<TypeRef> {
         if !args.is_empty() {
             return cur;
         }
-        let target = ast
-            .items
-            .iter()
-            .find_map(|&i| match &ast.items_arena[i].kind {
-                ItemKind::TypeAlias(a) if a.name.text == seg.text && a.generics.is_empty() => {
-                    Some(a.target)
-                }
-                _ => None,
-            });
+        let target = ast.items.iter().find_map(|&i| {
+            let ItemKind::TypeAlias(a) = &ast.items_arena[i].kind else {
+                return None;
+            };
+            (a.name.text == seg.text && a.generics.is_empty()).then_some(a.target)
+        });
         match target {
             Some(t) => cur = t,
             None => return cur,
@@ -60,7 +57,12 @@ fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {
             ItemKind::TypeAlias(a) => a.name.text == name,
             ItemKind::Module(m) => m.name.text == name,
             ItemKind::Extern(e) => e.name.text == name,
-            _ => false,
+            // Tip ad alanında olmayan öğeler: sinyal tipi olarak aranmaz.
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Const(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => false,
         })
 }
 
