@@ -21,6 +21,7 @@ Belge öncelik sırası: **UX Anayasası → adr/ → spec/ → design/ → rese
 | Derleyici mimarisi nasıl kurgulandı? | [design/Volt-Butunlesik-Mimari-v3.md](design/Volt-Butunlesik-Mimari-v3.md) |
 | Dilin güncel tasarımı nedir? | [design/Volt-Dil-Spesifikasyonu-v3.md](design/Volt-Dil-Spesifikasyonu-v3.md) |
 | RDC doğrulaması nasıl çözülüyor? | [design/Volt-Butunlesik-Cozum-RDC-Dogrulama-Spec.md](design/Volt-Butunlesik-Cozum-RDC-Dogrulama-Spec.md) |
+| Proje nereye gidiyor? Ne planlandı, ne kısmen var? (İngilizce) | [roadmap.md](roadmap.md) |
 | Hangi mimari kararlar alındı? | [design/Volt-Mimari-Kararlar-ve-CLAUDE-md.md](design/Volt-Mimari-Kararlar-ve-CLAUDE-md.md) |
 | Kodlamaya başlamadan ne eksik? | [design/Volt-Kodlama-Oncesi-Kritik-Adimlar.md](design/Volt-Kodlama-Oncesi-Kritik-Adimlar.md) |
 | Volt rakip HDL'lere göre nerede duruyor? (22 araç, 15 boyut, kaynaklı) | [research/rekabet-2026-09.md](research/rekabet-2026-09.md) |
