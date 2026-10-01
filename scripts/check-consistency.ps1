@@ -29,6 +29,9 @@
 #      application/octet-stream olarak sunar; Windows PowerShell 5.1 (irm |
 #      iex) böyle bir betikteki ASCII dışı karakterleri ANSI kod sayfasıyla
 #      yanlış çözer, BOM da betiğin ilk satırını bozar (ADR-0096 eki).
+#  15. README ve docs/roadmap.md'deki göreli bağlantılar ile README, yol
+#      haritası ve kitaptaki GitHub (blob/tree main) ve kitap sayfası
+#      bağlantıları var olan dosyaya, #çapaları var olan bir başlığa mı gidiyor?
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -280,6 +283,51 @@ foreach ($f in 'scripts/install/install.ps1', 'scripts/install/install.sh') {
         }
     }
 }
+# ── 15: belge bağlantıları (yol haritası, README, kitap) ──────────────
+# README'deki ve docs/roadmap.md'deki göreli bağlantılar, bu dosyalarla
+# kitaptaki https://github.com/volt-hdl/volt/{blob,tree}/main/<yol>
+# bağlantıları var olan dosyaya gider; https://volt-hdl.github.io/volt/<ad>.html
+# bir kitap sayfasıdır (book/src/<ad>.md). .md hedefindeki #çapa, hedefin
+# bir başlığının GitHub kısaltmasıdır (küçük harf, noktalama silinir,
+# boşluk '-'); kitap içi bağlantıları mdbook denetler.
+function Get-Slugs([string]$path) {
+    $slugs = @(); $fence = $false
+    foreach ($l in [IO.File]::ReadAllLines($path)) {
+        if ($l -match '^\s*```') { $fence = -not $fence; continue }
+        if (-not $fence -and $l -match '^#{1,6}\s+(.+?)\s*$') {
+            $slugs += (($Matches[1].ToLowerInvariant() -replace '[^\p{L}\p{N} _-]', '') -replace ' ', '-')
+        }
+    }
+    return $slugs
+}
+function Test-DocLink([string]$from, [string]$rel, [string]$anchor) {
+    $target = [IO.Path]::GetFullPath((Join-Path $root $rel))
+    if (-not (Test-Path $target)) { return "${from}: bağlantı hedefi yok: $rel (kontrol 15)" }
+    if ($anchor -and $target.EndsWith('.md') -and (Get-Slugs $target) -cnotcontains $anchor) {
+        return "${from}: $rel içinde '#$anchor' başlığı yok (kontrol 15)"
+    }
+}
+$hits = @()
+$scan = @('README.md', 'docs/roadmap.md') +
+    @(Get-ChildItem (Join-Path $root 'book\src') -Recurse -Filter *.md | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') } | Sort-Object)
+foreach ($f in $scan) {
+    $text = [IO.File]::ReadAllText((Join-Path $root $f))
+    foreach ($m in [regex]::Matches($text, 'https://github\.com/volt-hdl/volt/(?:blob|tree)/main/([^\s)#"''>]+)(?:#([^\s)"''>]*))?')) {
+        $hits += Test-DocLink $f $m.Groups[1].Value $m.Groups[2].Value
+    }
+    foreach ($m in [regex]::Matches($text, 'https://volt-hdl\.github\.io/volt/([A-Za-z0-9/_-]+)\.html')) {
+        $hits += Test-DocLink $f "book/src/$($m.Groups[1].Value).md" ''
+    }
+    if ($f -notin 'README.md', 'docs/roadmap.md') { continue }
+    $dir = Split-Path $f -Parent
+    foreach ($m in [regex]::Matches($text, '\]\(([^)\s#]*)(?:#([^)\s]*))?\)')) {
+        $rel = $m.Groups[1].Value
+        if ($rel -match '^[a-z]+:') { continue }
+        $rel = if ($rel) { if ($dir) { "$dir/$rel" } else { $rel } } else { $f }
+        $hits += Test-DocLink $f $rel $m.Groups[2].Value
+    }
+}
+foreach ($h in $hits | Where-Object { $_ } | Sort-Object -Unique) { Add-Violation $h }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {
