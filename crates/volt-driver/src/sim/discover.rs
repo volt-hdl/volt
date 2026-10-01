@@ -48,6 +48,19 @@ pub(crate) fn is_test_file(p: &Path) -> bool {
         .is_some_and(|n| n.to_string_lossy().ends_with("_test.volt"))
 }
 
+/// Projenin test dosyaları, çalışma dizinine göre (argümansız `volt
+/// check` de denetler, `volt test` ile aynı keşif).
+pub(crate) fn project_test_files_here(m: &Manifest) -> Vec<PathBuf> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    project_test_files(m, &cwd)
+        .into_iter()
+        .map(|p| {
+            p.strip_prefix(".")
+                .map_or_else(|_| p.clone(), Path::to_path_buf)
+        })
+        .collect()
+}
+
 /// Projenin test dosyaları: kök (ya da `[test] paths`) altında
 /// özyinelemeli; yollar `cwd`'ye göreli.
 fn project_test_files(m: &Manifest, cwd: &Path) -> Vec<PathBuf> {

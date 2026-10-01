@@ -568,15 +568,44 @@ impl<'a> Emitter<'a> {
                 ..
             }
         );
-        if !(self.is_widen_atom(idx) || (whole_shift && is_shift)) {
+        let atom = self.is_widen_atom(idx) || self.is_local_path(idx);
+        if !(atom || (whole_shift && is_shift)) {
             return text;
         }
         match self.width_of(idx) {
             Some(src) if src.width < target.width && src.signed == target.signed => {
                 format!("{}'({text})", target.width)
             }
+            // Doğal genişlikteki tipsiz `let` dar hedefe: taşma biti
+            // bilerek atılır (ADR-0025), kesme açık yazılır.
+            Some(src) if atom && src.width > target.width && src.signed == target.signed => {
+                format!("{}'({text})", target.width)
+            }
             _ => text,
         }
+    }
+
+    /// Bit düzeyi operand bağlamdan farklı genişlikteyse (tipsiz `let`in
+    /// esnek aralığı, ADR-0025) boyut dönüşümüyle uydurulur.
+    fn fit_bitwise_operand(
+        &mut self,
+        op: BinOp,
+        operand: Idx<Expr>,
+        text: String,
+        ctx: Option<Sig>,
+    ) -> String {
+        if is_bitwise(op) {
+            self.widen_if_narrow(operand, text, ctx, false)
+        } else {
+            text
+        }
+    }
+
+    /// Süreç yereline (blok `let`i) başvuru mu?
+    fn is_local_path(&self, idx: Idx<Expr>) -> bool {
+        crate::path_single(self.ast, idx).is_some_and(|n| {
+            self.local(n).is_some() && !self.inline_notes.global_paths.contains(&idx)
+        })
     }
 
     /// Atama konumu (assign / let / `<=` / `=` / port bağlama): RHS
@@ -635,7 +664,7 @@ impl<'a> Emitter<'a> {
         // ADR-0081 ikame kipi: tipsiz fn `let`i tel kipindeki telinin
         // genişliğinde hesaplanır.
         if self.inline_notes.self_sized.contains(&idx) && self.self_sizing.insert(idx) {
-            let sig = self.width_of(idx);
+            let sig = self.natural_sig(idx);
             let inner = self.emit_prec(idx, sig, PREC_TERNARY, false);
             self.self_sizing.remove(&idx);
             return match sig {
@@ -667,6 +696,7 @@ impl<'a> Emitter<'a> {
                     && !self.inline_notes.global_paths.contains(&idx)
                     && self.local(&path.segments[0].text).is_some() =>
             {
+                self.note_local_use(&path.segments[0].text, ctx);
                 let sv = self.local(&path.segments[0].text).map(|l| l.sv.clone());
                 (sv.unwrap_or_default(), PREC_ATOM)
             }
@@ -682,6 +712,11 @@ impl<'a> Emitter<'a> {
                         (folded, prec)
                     }
                     None => {
+                        if let [seg] = path.segments.as_slice() {
+                            if !global {
+                                self.note_let_use(&seg.text, ctx);
+                            }
+                        }
                         let name = path
                             .segments
                             .iter()
@@ -945,7 +980,8 @@ impl<'a> Emitter<'a> {
             self.emit_operand(lhs, operand_ctx, prec, false)
         } else {
             let text = self.emit_prec(lhs, operand_ctx, prec, false);
-            self.paren_comparison_under_bitwise(op, lhs, text)
+            let text = self.paren_comparison_under_bitwise(op, lhs, text);
+            self.fit_bitwise_operand(op, lhs, text, operand_ctx)
         };
         let r = if matches!(op, BinOp::Shl | BinOp::Shr) {
             let inner = self.emit_plain(rhs);
@@ -959,7 +995,8 @@ impl<'a> Emitter<'a> {
             self.emit_operand(rhs, operand_ctx, prec, true)
         } else {
             let text = self.emit_prec(rhs, operand_ctx, prec, true);
-            self.paren_comparison_under_bitwise(op, rhs, text)
+            let text = self.paren_comparison_under_bitwise(op, rhs, text);
+            self.fit_bitwise_operand(op, rhs, text, operand_ctx)
         };
         // İşaretli sağ kaydırma aritmetiktir (ADR-0036): SV'de
         // `>>` her zaman mantıksal; işaret ancak `>>>` ile korunur.
@@ -971,10 +1008,12 @@ impl<'a> Emitter<'a> {
         format!("{l} {sym} {r}")
     }
 
-    /// Aritmetik operand bağlamı: max(kendi genişliğim, dış bağlam),
-    /// işaret ifadenin kendisinden (ADR-0041).
+    /// Aritmetik/bit düzeyi operand bağlamı: max(işlem genişliğim, dış
+    /// bağlam), işaret ifadenin kendisinden (ADR-0041). İşlem genişliği
+    /// operandların ortak genişliğidir; tipsiz `let`in esnek aralığı
+    /// (ADR-0025) karşı operandla bu genişlikte buluşur.
     fn arith_ctx(&mut self, idx: Idx<Expr>, ctx: Option<Sig>) -> Option<Sig> {
-        match (self.width_of(idx), ctx) {
+        match (self.operation_sig(idx), ctx) {
             (Some(own), Some(c)) => Some(Sig {
                 width: own.width.max(c.width),
                 signed: own.signed,

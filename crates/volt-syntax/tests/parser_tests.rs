@@ -1053,6 +1053,73 @@ fn eq_in_combinational_is_clean() {
 
 // ═══ Bağlamsal anahtar kelimeler: sync/async (ADR-0023) ═══════════
 
+// ═══ Modül düzeyinde ifade deyimi (sessiz düşürme kalktı) ═══════════
+
+/// Modül düzeyinde `r <= r + 1` bir karşılaştırma olarak ayrışıyor ve
+/// sessizce düşüyordu; artık E0007 ve öneri doğru biçimi gösterir.
+#[test]
+fn e0007_le_at_module_level_on_a_register_points_to_an_on_block() {
+    let result =
+        p("module M {\n in clk : clock\n out q : u8\n reg r : u8 = 0\n r <= r + 1\n q = r\n}\n");
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E0007")
+        .unwrap_or_else(|| panic!("E0007 bekleniyor: {:?}", result.error_codes()));
+    let help = diag.help.as_deref().unwrap_or("");
+    assert!(help.contains("on clk { r <= r + 1 }"), "{help}");
+    // Reg'e `=` yazmak doğru biçim değil: makine önerisi yok.
+    assert!(diag.suggestions.is_empty(), "{:?}", diag.suggestions);
+}
+
+#[test]
+fn e0007_le_at_module_level_on_a_wire_suggests_eq() {
+    let result = p("module M {\n in a : u8\n out y : u8\n y <= a + 1\n}\n");
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E0007")
+        .unwrap_or_else(|| panic!("E0007 bekleniyor: {:?}", result.error_codes()));
+    let help = diag.help.as_deref().unwrap_or("");
+    assert!(help.contains("y = a + 1"), "{help}");
+    assert_eq!(diag.suggestions.len(), 1, "{:?}", diag.suggestions);
+    assert_eq!(diag.suggestions[0].replacement, "=");
+}
+
+#[test]
+fn e0007_module_level_register_without_a_clock_names_a_placeholder() {
+    let result = p("module M {\n out q : u8\n reg r : u8 = 0\n r <= r + 1\n q = r\n}\n");
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "E0007")
+        .unwrap_or_else(|| panic!("E0007 bekleniyor: {:?}", result.error_codes()));
+    let help = diag.help.as_deref().unwrap_or("");
+    assert!(help.contains("on <clock> { r <= r + 1 }"), "{help}");
+}
+
+#[test]
+fn module_level_expression_statement_is_e0001() {
+    // `y == a` (yazım hatası) ve `a + 1` hiçbir şey yapmıyordu.
+    let result = p("module M {\n in a : u8\n out y : u8\n y == a\n a + 1\n y = a\n}\n");
+    let diags: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E0001")
+        .collect();
+    assert_eq!(diags.len(), 2, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("y = a"), "{help}");
+    assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
+    assert_eq!(diags[0].suggestions[0].replacement, "=");
+}
+
+#[test]
+fn module_level_assignment_is_still_clean() {
+    let result = p("module M {\n in a : u8\n out y : bool\n y = a <= 3\n}\n");
+    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+}
+
 #[test]
 fn sync_call_is_normal_call_expr() {
     // 13_cdc_correct_bridge.volt deseni — sync() sıradan çağrı
@@ -2225,6 +2292,9 @@ fn ui_fail_files_produce_expected_codes() {
         ("06_wrong_assign_operator.volt", "E0006"),
         ("16_missing_else.volt", "E0008"),
         ("18_comb_wrong_operator.volt", "E0007"),
+        // Modül düzeyinde `<=` ve ifade deyimi sessizce düşüyordu.
+        ("198_module_level_nonblocking.volt", "E0007"),
+        ("199_module_level_expr_stmt.volt", "E0001"),
         ("27_match_missing_wildcard.volt", "E0014"),
         // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
         ("33_stage_out_of_range.volt", "E5012"),

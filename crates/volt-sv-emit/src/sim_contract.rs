@@ -9,10 +9,18 @@
 //! always @(posedge clk)
 //!     if (!(rst)) if (!(count < 8'd5)) volt_contract_fail("Cnt.inv_0");
 //! longint volt_hits_cov_0 = 0;
+//! wire volt_tail_cov_0 = !(rst) && (count == 8'd3);
 //! always @(posedge clk)
 //!     if (!(rst)) if (count == 8'd3) volt_hits_cov_0 <= volt_hits_cov_0 + 1;
-//! final volt_cover_report("Cnt.cov_0", volt_hits_cov_0);
+//! final volt_cover_report("Cnt.cov_0", volt_hits_cov_0 + longint'(volt_tail_cov_0));
 //! ```
+//!
+//! Cover, formal ile aynı biçimde kenardan ÖNCEKİ değerlerle örneklenir:
+//! kenar k'nın ürettiği durum kenar k+1'de sayılır. Testin son kenarından
+//! sonraki durumu sayacak kenar yoktur; `volt_tail_*` teli o durumu (son
+//! `eval`'deki değerlerle) tutar ve `final` onu bir kez ekler. Her kenar
+//! sonrası durum böylece tam bir kez örneklenir (ADR-0064 eki: son FSM
+//! geçişi "NEVER HIT" görünüyordu).
 //!
 //! Gerekçe (ADR-0064 ölçümü, Verilator 5.050): başarısız immediate
 //! `assert` `$stop` ile TÜM test yürütülebilirini durdurur, `assume`
@@ -195,9 +203,8 @@ impl<'a> Emitter<'a> {
         // Sayaç adı kimliğin modül içi kısmından: `volt_hits_cov_0`.
         // Kullanıcı adıyla çakışırsa `_2`, `_3`… (ADR-0090 §2): sayaç
         // yalnız bu modülde yaşar, rapor kimlikle (`id`) yapılır.
-        let base = format!("volt_hits_{}", id.rsplit('.').next().unwrap_or(id));
-        let counter = crate::sv_collisions::fresh_name(&base, |n| self.helper_name_taken(n));
-        self.helper_taken.insert(counter.clone());
+        let local = id.rsplit('.').next().unwrap_or(id);
+        let counter = self.fresh_helper(&format!("volt_hits_{local}"));
         let check = if is_cover {
             self.sim_dpi.cover = true;
             format!("if ({expr}) {counter} <= {counter} + 1;")
@@ -213,19 +220,34 @@ impl<'a> Emitter<'a> {
             format!("if (!({})) {check}", clock.info.reset.condition())
         };
         let mut out = String::new();
-        if is_cover {
+        // Son kenardan sonraki durum (modül belgesi): reset korumalı tel.
+        let tail = is_cover.then(|| self.fresh_helper(&format!("volt_tail_{local}")));
+        if let Some(tail) = &tail {
+            let guard = if clock.info.reset.is_none() {
+                "1'b1".to_string()
+            } else {
+                format!("!({})", clock.info.reset.condition())
+            };
             out.push_str(&format!("{ind}longint {counter} = 0;\n"));
+            out.push_str(&format!("{ind}wire {tail} = {guard} && ({expr});\n"));
         }
         out.push_str(&format!(
             "{ind}always @({edge} {})\n{ind}    {stmt}",
             clock.name
         ));
-        if is_cover {
+        if let Some(tail) = &tail {
             out.push_str(&format!(
-                "\n{ind}final {SIM_COVER_REPORT_FN}(\"{id}\", {counter});"
+                "\n{ind}final {SIM_COVER_REPORT_FN}(\"{id}\", {counter} + longint'({tail}));"
             ));
         }
         out
+    }
+
+    /// Bu modülde çakışmayan yardımcı adı (ADR-0090 §2) — kaydedilir.
+    fn fresh_helper(&mut self, base: &str) -> String {
+        let name = crate::sv_collisions::fresh_name(base, |n| self.helper_name_taken(n));
+        self.helper_taken.insert(name.clone());
+        name
     }
 
     /// Modülde kullanılan DPI geri çağrılarının `import` bildirimleri;

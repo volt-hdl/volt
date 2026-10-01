@@ -35,7 +35,9 @@ use std::process::ExitCode;
 use volt_ast::{ItemKind, ModuleDecl, SourceFile};
 use volt_diagnostics::lstr;
 
-pub(crate) use discover::{is_test_file, project_files};
+pub(crate) use discover::{
+    is_test_file, project_files, project_test_files_here as project_test_files,
+};
 pub(crate) use run_cmd::{run, RunOptions};
 pub(crate) use test_cmd::{test, TestOptions};
 pub(crate) use test_waves::WaveMode;

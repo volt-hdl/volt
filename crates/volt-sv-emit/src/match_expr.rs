@@ -48,6 +48,12 @@ pub(crate) struct ProcLocal {
     key: (Span, String),
     pub(crate) sv: String,
     pub(crate) sig: Sig,
+    /// Tipsiz yerelin esnek aralık alt ucu (ADR-0025); somut tipte
+    /// `sig.width`.
+    pub(crate) lo: u32,
+    /// Okunan en geniş bit sayısı (ADR-0025): `lo < sig.width` iken
+    /// taşma biti hiç okunmazsa bildirim UNUSEDSIGNAL'dan susturulur.
+    pub(crate) read: u32,
     pub(crate) enum_name: Option<String>,
 }
 
@@ -372,7 +378,14 @@ impl<'a> Emitter<'a> {
         let mut decls: Vec<String> = done
             .locals
             .iter()
-            .map(|l| format!("{ind}{} {};", l.sig.decl_type(), l.sv))
+            .map(|l| {
+                let line = format!("{ind}{} {};", l.sig.decl_type(), l.sv);
+                if l.lo < l.sig.width && l.read < l.sig.width {
+                    crate::let_width::silence_unused_carry(&ind, &l.sv, &line)
+                } else {
+                    line
+                }
+            })
             .collect();
         // `always_comb`'da dal içi yerel her yolda atanmazsa Yosys bunu
         // mandal sayar (ERROR) ve Verilator LATCH uyarır; süreç başındaki
@@ -405,13 +418,17 @@ impl<'a> Emitter<'a> {
 
     /// Volt adının bu noktada görünen süreç yereli (içten dışa).
     pub(crate) fn local(&self, name: &str) -> Option<&ProcLocal> {
+        self.local_index(name).map(|i| &self.proc.locals[i])
+    }
+
+    pub(crate) fn local_index(&self, name: &str) -> Option<usize> {
         self.proc
             .scopes
             .iter()
             .rev()
             .flat_map(|s| s.iter().rev())
             .find(|(n, _)| n == name)
-            .map(|&(_, i)| &self.proc.locals[i])
+            .map(|&(_, i)| i)
     }
 
     /// `let t = v` blok satırları: değer, ad kapsama girmeden ÖNCE
@@ -431,11 +448,12 @@ impl<'a> Emitter<'a> {
             );
             return Vec::new();
         }
-        let sig = decl
-            .ty
-            .and_then(|t| self.sig_of_typeref(t, span))
-            .or_else(|| self.width_of(decl.value));
-        let Some(sig) = sig else {
+        // Tipsiz yerel: doğal genişlik (type-inference.md §3.3, ADR-0025).
+        let sig = match decl.ty {
+            Some(t) => self.sig_of_typeref(t, span).map(|s| (s, s.width)),
+            None => self.untyped_let_sig(decl.value),
+        };
+        let Some((sig, lo)) = sig else {
             if decl.ty.is_none() {
                 self.error(
                     ErrorCode::E2005,
@@ -465,6 +483,8 @@ impl<'a> Emitter<'a> {
                     key,
                     sv,
                     sig,
+                    lo,
+                    read: 0,
                     enum_name,
                 });
                 self.proc.locals.len() - 1

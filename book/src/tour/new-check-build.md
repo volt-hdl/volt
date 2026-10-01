@@ -99,12 +99,14 @@ wiring that always shows the current result. Nothing "runs" line by line.
 
 ## Check it
 
-`volt check` reads every source file of the project and reports errors.
-It writes no files, so it is quick enough to run after every change:
+`volt check` reads every source file and test file of the project and
+reports errors. It writes no files, so it is quick enough to run after
+every change:
 
 ```console
 $ volt check
     Checking counter.volt
+    Checking counter_test.volt
     Finished 0.00s
       Result 0 error(s), 0 warning(s)
        Next: volt build   (emit SystemVerilog)

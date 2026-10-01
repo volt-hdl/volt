@@ -61,7 +61,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E0007 => Explanation::new(
             "'<=' used in a combinational block",
             "Outside 'on' blocks, signals are assigned with '=', not '<='.",
-            "Combinational assignments describe wiring that is always active, so the blocking '=' is the correct operator. '<=' is reserved for register updates inside 'on' blocks; mixing them up usually means the statement is in the wrong kind of block.",
+            "Combinational assignments describe wiring that is always active, so the blocking '=' is the correct operator. '<=' is reserved for register updates inside 'on' blocks; mixing them up usually means the statement is in the wrong kind of block. At module level 'r <= r + 1' would read as a comparison and do nothing, so it is rejected too: a register takes its next value inside 'on clk { r <= r + 1 }'.",
             "wire y : u8\ny <= a + b              // ✗ E0007",
             "wire y : u8\ny = a + b               // ✓",
         ),

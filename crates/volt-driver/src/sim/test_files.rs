@@ -29,12 +29,10 @@ pub(super) fn resolve_files(
     }
 }
 
-/// `X_test.volt` için kardeş `X.volt` yolu (varsa).
+/// `X_test.volt` için kardeş `X.volt` yolu (varsa) — kural volt-hir'de
+/// (`check`, `build` ve editör aynı kardeşi yükler).
 pub(super) fn sibling_path(file: &Path) -> Option<PathBuf> {
-    let stem = file.file_stem()?.to_string_lossy();
-    let base = stem.strip_suffix("_test")?;
-    let sibling = file.with_file_name(format!("{base}.volt"));
-    sibling.is_file().then_some(sibling)
+    volt_hir::unit_load::test_sibling_path(file)
 }
 
 #[cfg(test)]

@@ -610,6 +610,7 @@ impl Parser<'_> {
             }
         }
 
+        self.check_module_expr_stmts(&ports, &body);
         self.expect_closing(RBrace, "}", open);
 
         // Opsiyonel sonlandırıcı: '} module Ad' — LL(2) ayrımı:

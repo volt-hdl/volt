@@ -13,6 +13,7 @@ mod expr;
 mod handshake;
 pub(crate) mod item;
 mod mmio;
+mod module_expr_stmt;
 pub(crate) mod mono;
 mod pattern;
 mod pipeline;

@@ -363,14 +363,17 @@ fn substitution_and_wire_mode_agree_on_let_widths_and_names_stay_unique() {
         String::from_utf8_lossy(&out.stderr)
     );
     let sv = read_sv(&target, "FnLetWidths");
-    // Tipsiz let: tel kipinde 8 bit tel, ikame kipinde 8'(…).
-    assert!(sv.contains("wire [7:0] addw_0_t = a + b;"), "{sv}");
-    assert!(sv.contains("yc = 9'(8'(a + b));"), "{sv}");
+    // Tipsiz let doğal genişlikte (u8 + u8 → u9, type-inference.md
+    // §3.3): tel kipinde 9 bit tel, ikame kipinde 9'(…) — u9 dönüş
+    // taşma bitini korur.
+    assert!(sv.contains("wire [8:0] addw_0_t = 9'(a) + 9'(b);"), "{sv}");
+    assert!(sv.contains("yc = 9'(9'(9'(a) + 9'(b)));"), "{sv}");
     // Tipli let (u8) ve u16 dönüş.
     assert!(sv.contains("tc = 16'(8'(a + b));"), "{sv}");
     // let parametreyi gölgeler: _2 soneki, E1003 yok.
     assert!(sv.contains("wire [7:0] sh_0_a_2 = sh_0_a ^ 8'd3;"), "{sv}");
     // Struct sonucun yaprağı (mk_0_a) let teliyle çakışır: sonuç mk_0_2.
-    assert!(sv.contains("wire [7:0] mk_0_2_a = mk_0_a;"), "{sv}");
+    // Tipsiz let 9 bit, u8 alan taşma bitini açıkça atar (ADR-0025).
+    assert!(sv.contains("wire [7:0] mk_0_2_a = 8'(mk_0_a);"), "{sv}");
     let _ = std::fs::remove_dir_all(&target);
 }

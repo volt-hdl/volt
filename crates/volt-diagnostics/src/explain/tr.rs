@@ -61,7 +61,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E0007 => Explanation::new(
             "Kombinasyonel blokta '<=' kullanıldı",
             "'on' blokları dışında sinyallere '<=' ile değil '=' ile atama yapılır.",
-            "Kombinasyonel atamalar her an etkin olan kablolamayı tanımlar; doğru operatör bloklayan '='dir. '<=' yalnız 'on' blokları içindeki register güncellemelerine aittir; karışıklık genellikle ifadenin yanlış türde bir blokta olduğunu gösterir.",
+            "Kombinasyonel atamalar her an etkin olan kablolamayı tanımlar; doğru operatör bloklayan '='dir. '<=' yalnız 'on' blokları içindeki register güncellemelerine aittir; karışıklık genellikle ifadenin yanlış türde bir blokta olduğunu gösterir. Modül düzeyinde 'r <= r + 1' bir karşılaştırma olarak okunur ve hiçbir şey yapmaz; bu yüzden o da reddedilir: register sonraki değerini 'on clk { r <= r + 1 }' içinde alır.",
             "wire y : u8\ny <= a + b              // ✗ E0007",
             "wire y : u8\ny = a + b               // ✓",
         ),

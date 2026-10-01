@@ -292,11 +292,14 @@ fn simple_connection_is_assign() {
 
 #[test]
 fn let_becomes_wire_with_width() {
+    // Tipsiz `let` doğal genişlikte (u8 + u8 → u9, type-inference.md
+    // §3.3); u8 hedef taşma bitini açıkça atar (ADR-0025).
     let out = sv("module M { in a : u8 in b : u8 out y : u8 let s = a + b y = s }");
     assert!(
-        out.contains("\n    wire [7:0] s = a + b;\n"),
+        out.contains("\n    wire [8:0] s = 9'(a) + 9'(b);\n"),
         "çıktı:\n{out}"
     );
+    assert!(out.contains("\n    assign y = 8'(s);\n"), "çıktı:\n{out}");
 }
 
 #[test]

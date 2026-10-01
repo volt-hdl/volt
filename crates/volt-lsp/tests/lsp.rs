@@ -819,3 +819,19 @@ fn member_completion_follows_nested_struct_fields() {
     let items = completions(&a, off);
     assert_eq!(labels(&items), ["a", "s", "b", "i"]);
 }
+
+#[test]
+fn editor_checks_test_blocks_against_the_sibling_design() {
+    // `volt check X_test.volt` ile aynı tanı: kardeş X.volt yüklenir,
+    // bilinmeyen DUT portu E8502 (önceden test dosyasında sessizdi).
+    let dir = std::env::temp_dir().join(format!("volt-lsp-testfile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".git")).expect("temp dizini");
+    std::fs::write(dir.join("counter.volt"), COUNTER).expect("counter.volt");
+    let src = "test \"counts\" {\n    let dut = Counter { };\n    dut.enable = true;\n    step(3);\n    assert_eq(dut.countx, 3);\n}\n";
+    let path = dir.join("counter_test.volt");
+    let a = analysis::analyze(path.to_str().unwrap(), src);
+    let codes: Vec<_> = a.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes, ["E8502"], "{codes:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

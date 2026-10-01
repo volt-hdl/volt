@@ -185,7 +185,9 @@ told. The rules you need for now:
   4-bit number; the exact sum needs up to 9 bits. Assigned to the 8-bit
   register, the sum keeps its lower 8 bits: the counter wraps from 255 back
   to a small number, which is what a counter should do. Assigned to a
-  9-bit target, the sum keeps its carry.
+  9-bit target, the sum keeps its carry. A `let` without a type keeps
+  the carry too: with `a` and `b` both `u8`, `let sum = a + b` is a 9-bit
+  value.
 - **A wider target is fine.** A 12-bit output assigned `count_r + step`
   gets the operands widened to 12 bits before the addition.
 - **A narrower target is an error.** `low` has 4 bits and `count_r` has 8.

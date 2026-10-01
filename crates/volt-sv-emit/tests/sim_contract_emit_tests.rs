@@ -84,9 +84,23 @@ fn cover_counts_in_sv_and_reports_once_in_final() {
         "{sv}"
     );
     assert!(
-        sv.contains("    final volt_cover_report(\"Cnt.cov_0\", volt_hits_cov_0);"),
+        sv.contains(
+            "    final volt_cover_report(\"Cnt.cov_0\", volt_hits_cov_0 + longint'(volt_tail_cov_0));"
+        ),
         "{sv}"
     );
+}
+
+/// Testin son kenarından sonraki durumu sayacak kenar yok: `final`, son
+/// `eval`'deki koşulu (reset korumalı) bir kez ekler (ADR-0064 eki).
+#[test]
+fn cover_adds_the_state_after_the_last_edge_once() {
+    let sv = sim(COUNTER);
+    assert!(
+        sv.contains("    wire volt_tail_cov_0 = !(rst) && (count == 8'd3);"),
+        "{sv}"
+    );
+    assert_eq!(sv.matches("longint'(volt_tail_cov_0)").count(), 1, "{sv}");
 }
 
 #[test]
@@ -199,7 +213,7 @@ fn stdlib_primitive_contracts_become_monitors_without_formal_setup() {
         "{sv}"
     );
     assert!(
-        sv.contains("final volt_cover_report(\"FifoBuffer.fifo_cov_0\", volt_hits_fifo_cov_0);"),
+        sv.contains("final volt_cover_report(\"FifoBuffer.fifo_cov_0\", volt_hits_fifo_cov_0 + longint'(volt_tail_fifo_cov_0));"),
         "{sv}"
     );
     // Formal kurulum (reset varsayımı, init bloğu) simülasyonda yok.
