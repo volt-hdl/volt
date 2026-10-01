@@ -41,7 +41,8 @@ pub struct SimPort {
 pub enum SimReset {
     /// Ham reset portu (`in r : reset(...)`): etkinleşme polaritesiyle.
     Raw(ResetPolarity),
-    /// Ham portlu modülde kalan otomatik `rst`/`rst_n` portu.
+    /// Otomatik `rst`/`rst_n` portu: ham portu olmayan reset'li alanların
+    /// ortak portu (üretilen SV'de olduğu gibi, `reset_port_set`).
     Auto(ResetPolarity),
 }
 
@@ -53,10 +54,12 @@ impl SimReset {
     }
 }
 
-/// Modülün portlarını testbench özetine indirger. Üretilen SV'deki
-/// örtük `rst` girişi listeye DAHİL DEĞİLDİR — reset'i üreteçler
-/// kendisi sürer. Ham reset portlu modülde (ADR-0065) otomatik reset
-/// portları `SimReset::Auto` olarak eklenir: üreteç hepsini adıyla sürer.
+/// Modülün portlarını testbench özetine indirger. Reset girişleri
+/// üretilen SV'deki gibidir: ham reset portları (ADR-0065)
+/// `SimReset::Raw`, otomatik `rst`/`rst_n` portları — emitter'ın
+/// `reset_port_set`'i — `SimReset::Auto`; üreteç yalnız bunları adıyla
+/// sürer. Saat portu olmayan ya da `reset = none` alanlı modülün reset
+/// portu yoktur (ADR-0098: önceden körü körüne `dut->rst` yazılıyordu).
 pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> {
     let mut ports: Vec<SimPort> = module
         .ports
@@ -101,16 +104,14 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
         })
         .collect();
     let mut ports = ports;
-    if ports.iter().any(|p| p.reset.is_some()) {
-        for cfg in crate::reset_port_set(&clocks) {
-            ports.push(SimPort {
-                name: cfg.port_name().to_string(),
-                is_input: false,
-                is_clock: false,
-                reset: Some(SimReset::Auto(cfg.polarity)),
-                bits: Some(1),
-            });
-        }
+    for cfg in crate::reset_port_set(&clocks) {
+        ports.push(SimPort {
+            name: cfg.port_name().to_string(),
+            is_input: false,
+            is_clock: false,
+            reset: Some(SimReset::Auto(cfg.polarity)),
+            bits: Some(1),
+        });
     }
     ports
 }
@@ -292,10 +293,12 @@ fn cycle_fn(ports: &[SimPort], trace: Trace, contracts: bool) -> String {
     )
 }
 
-/// 2 çevrimlik reset yardımcısı. Ham reset portlu modülde (ADR-0065)
-/// bütün reset girişleri polaritesiyle sürülür ve bırakmadan sonra
+/// 2 çevrimlik reset yardımcısı: modülün reset girişleri polaritesiyle
+/// sürülür. Ham reset portlu modülde (ADR-0065) bırakmadan sonra
 /// senkronizör zinciri kadar çevrim beklenir: test, bugünkü gibi
-/// reset'ten çıkmış bir tasarımla başlar.
+/// reset'ten çıkmış bir tasarımla başlar. Reset portu yoksa (saatsiz
+/// modül, `reset = none`) sürülecek bir şey yoktur; test sıfırlanmış
+/// girişlerle hemen başlar.
 fn reset_fn(ports: &[SimPort], trace: bool) -> String {
     let (param, arg) = if trace {
         (", VerilatedVcdC* tfp", ", tfp")
@@ -307,15 +310,22 @@ fn reset_fn(ports: &[SimPort], trace: bool) -> String {
         .filter_map(|p| Some((p.name.as_str(), p.reset?.polarity())))
         .collect();
     if resets.is_empty() {
+        // Verilator'ın ilk `eval()`'i modeli oturtur ve saatin önceki
+        // değerini kaydeder; o yapılmadan ilk `run_cycle`'ın posedge'i
+        // kenar sayılmaz (ölçüldü: `reset = none` kaydedicisi 1 çevrim
+        // sonra hâlâ 0).
+        let unused = if trace { "    (void)tfp;\n" } else { "" };
         return format!(
             "static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n\
-             \x20   dut->rst = 1;\n\
-             \x20   run_cycle(dut, ctx{arg});\n\
-             \x20   run_cycle(dut, ctx{arg});\n\
-             \x20   dut->rst = 0;\n\
+             \x20   // no reset port (no clock, or reset = none): settle the model\n\
+             \x20   (void)ctx;\n\
+             {unused}\x20   dut->eval();\n\
              }}\n"
         );
     }
+    let raw = ports
+        .iter()
+        .any(|p| matches!(p.reset, Some(SimReset::Raw(_))));
     let level =
         |p: ResetPolarity, asserted: bool| u8::from((p == ResetPolarity::ActiveHigh) == asserted);
     let mut out = format!("static void apply_reset(TOP* dut, VerilatedContext* ctx{param}) {{\n");
@@ -336,9 +346,11 @@ fn reset_fn(ports: &[SimPort], trace: bool) -> String {
             level(p, false)
         ));
     }
-    out.push_str("    // reset synchronizer release (ADR-0065)\n");
-    for _ in 0..crate::reset_sync::RESET_SYNC_STAGES {
-        out.push_str(&format!("    run_cycle(dut, ctx{arg});\n"));
+    if raw {
+        out.push_str("    // reset synchronizer release (ADR-0065)\n");
+        for _ in 0..crate::reset_sync::RESET_SYNC_STAGES {
+            out.push_str(&format!("    run_cycle(dut, ctx{arg});\n"));
+        }
     }
     out.push_str("}\n");
     out
@@ -654,6 +666,14 @@ mod tests {
                 is_clock: false,
                 reset: None,
                 bits: Some(8),
+            },
+            // Varsayılan alanın otomatik portu (`collect_sim_ports` ekler).
+            SimPort {
+                name: "rst".into(),
+                is_input: false,
+                is_clock: false,
+                reset: Some(SimReset::Auto(ResetPolarity::ActiveHigh)),
+                bits: Some(1),
             },
         ]
     }

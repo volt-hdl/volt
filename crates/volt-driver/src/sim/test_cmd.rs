@@ -314,7 +314,8 @@ test \"echo\" {
         assert_eq!(groups[0].module, "Echo");
         let (ports, sv, _) = dut_of(&unit, "Echo").expect("DUT bulunmalı");
         let names: Vec<&str> = ports.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["clk", "d", "q"]);
+        // Reset portu üretilen SV'deki gibi listededir (ADR-0098).
+        assert_eq!(names, ["clk", "d", "q", "rst"]);
         assert!(sv.is_some_and(|text| text.contains("module Echo")));
         assert!(dut_of(&unit, "Missing").is_none());
         let _ = std::fs::remove_dir_all(&dir);
