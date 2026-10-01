@@ -240,14 +240,13 @@ impl Scope<'_> {
             ));
             return;
         }
-        match &args[0].kind {
-            TestExprKind::Var(name) => {
-                self.expect_array(name, diags);
-            }
-            _ => diags.push(type_mismatch(
+        if let TestExprKind::Var(name) = &args[0].kind {
+            self.expect_array(name, diags);
+        } else {
+            diags.push(type_mismatch(
                 args[0].span,
                 lstr!(en: "len() takes the name of an array"; tr: "len() bir dizi adı alır"),
-            )),
+            ));
         }
     }
 
@@ -267,7 +266,18 @@ impl Scope<'_> {
                 }
                 VarKind::Array(read_hex_info(&args[0], files, diags))
             }
-            _ => {
+            TestExprKind::Int(_)
+            | TestExprKind::Bool(_)
+            | TestExprKind::PortRead { .. }
+            | TestExprKind::Var(_)
+            | TestExprKind::Variant { .. }
+            | TestExprKind::Str(_)
+            | TestExprKind::Index { .. }
+            | TestExprKind::MemberPath { .. }
+            | TestExprKind::Unary { .. }
+            | TestExprKind::Binary { .. }
+            | TestExprKind::Call { .. }
+            | TestExprKind::StructLit { .. } => {
                 self.expect_scalar(value, diags);
                 VarKind::Scalar
             }
@@ -294,7 +304,17 @@ fn array_literal(
         match &item.kind {
             TestExprKind::Int(n) => max = max.max(*n),
             TestExprKind::Bool(b) => max = max.max(u64::from(*b)),
-            _ => {
+            TestExprKind::PortRead { .. }
+            | TestExprKind::Var(_)
+            | TestExprKind::Variant { .. }
+            | TestExprKind::Str(_)
+            | TestExprKind::Array(_)
+            | TestExprKind::Index { .. }
+            | TestExprKind::MemberPath { .. }
+            | TestExprKind::Unary { .. }
+            | TestExprKind::Binary { .. }
+            | TestExprKind::Call { .. }
+            | TestExprKind::StructLit { .. } => {
                 ok = false;
                 diags.push(type_mismatch(
                     item.span,

@@ -51,7 +51,15 @@ impl TypeChecker<'_, '_> {
         let ports = match &ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => &m.ports,
             ItemKind::Extern(x) => &x.ports,
-            _ => return,
+            // Örneklenemeyen öğeler (hedef hatası isim çözümlemede).
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => return,
         };
         let Some(port) = ports.iter().find(|p| p.name.text == b.port_name.text) else {
             return;
@@ -168,7 +176,22 @@ impl TypeChecker<'_, '_> {
                     .find(|l| l.kind != volt_ast::struct_layout::LeafKind::Plain)
                     .map(|l| l.dotted())
             }),
-            _ => None,
+            // Düz (enum/Trit olmayan) veri: bellek yaprağı sorunsuz.
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => None,
         };
         let Some(field) = leaf else {
             return;
@@ -237,7 +260,25 @@ impl TypeChecker<'_, '_> {
                     ExprKind::IntLit { value, .. } => {
                         self.err_builtin_const_rule(prim, value, span);
                     }
-                    _ => self.err_builtin_const_not_literal(prim, span),
+                    ExprKind::BoolLit(_)
+                    | ExprKind::StringLit(_)
+                    | ExprKind::Path(_)
+                    | ExprKind::Binary { .. }
+                    | ExprKind::Unary { .. }
+                    | ExprKind::Index { .. }
+                    | ExprKind::Range { .. }
+                    | ExprKind::PartSelect { .. }
+                    | ExprKind::Field { .. }
+                    | ExprKind::Call { .. }
+                    | ExprKind::Cast { .. }
+                    | ExprKind::If { .. }
+                    | ExprKind::Match { .. }
+                    | ExprKind::StructLit { .. }
+                    | ExprKind::ArrayLit(_)
+                    | ExprKind::TupleLit(_)
+                    | ExprKind::Concat(_)
+                    | ExprKind::Todo { .. }
+                    | ExprKind::Error => self.err_builtin_const_not_literal(prim, span),
                 }
             }
             GenericArg::Type(t) => {
@@ -306,7 +347,15 @@ impl TypeChecker<'_, '_> {
         let ports = match &ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => &m.ports,
             ItemKind::Extern(x) => &x.ports,
-            _ => return None,
+            // Örneklenemeyen öğeler (hedef hatası isim çözümlemede).
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => return None,
         };
         let ty_idx = ports.iter().find(|p| p.name.text == port)?.ty;
         Some(self.resolve_type_ref(ty_idx))

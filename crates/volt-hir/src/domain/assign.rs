@@ -152,9 +152,10 @@ impl Inferencer<'_> {
     /// domain tanım satırlarına ikincil etiketler (§4).
     fn err_cdc_assign(&mut self, dst: DomainId, src: DomainId, dst_span: Span, src_span: Span) {
         let (d, s) = (self.resolve_dom(dst), self.resolve_dom(src));
-        let dst_name = match d {
-            DomainId::Explicit(id) => Some(self.domain_name(id).to_string()),
-            _ => None,
+        let dst_name = if let DomainId::Explicit(id) = d {
+            Some(self.domain_name(id).to_string())
+        } else {
+            None
         };
         let diag = Diagnostic::error(
             ErrorCode::E3001,

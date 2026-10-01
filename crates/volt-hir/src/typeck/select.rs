@@ -37,7 +37,17 @@ impl TypeChecker<'_, '_> {
                 }
                 self.types.bool_ty()
             }
-            _ => {
+            Ty::Bool
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit => {
                 self.err_not_selectable(
                     span,
                     &lstr!(en: "bit selection is only allowed on numeric, bits or array types"; tr: "bit seçimi yalnız sayısal, bits veya dizi tipinde yapılır"),
@@ -209,7 +219,19 @@ impl TypeChecker<'_, '_> {
                     self.types.error()
                 }
             },
-            _ => {
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Enum(_)
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. } => {
                 let shown = self.show(base_ty);
                 self.err_type_mismatch_msg(
                     span,
@@ -225,14 +247,13 @@ impl TypeChecker<'_, '_> {
     fn struct_field_type(&mut self, s: StructId, field: &Name) -> TypeId {
         let ast = self.ast;
         let field_ty = self.res.item_of_def.get(&DefId(s.0)).and_then(|&item_idx| {
-            match &ast.items_arena[item_idx].kind {
-                ItemKind::Struct(decl) => decl
-                    .fields
-                    .iter()
-                    .find(|f| f.name.text == field.text)
-                    .map(|f| f.ty),
-                _ => None,
-            }
+            let ItemKind::Struct(decl) = &ast.items_arena[item_idx].kind else {
+                return None;
+            };
+            decl.fields
+                .iter()
+                .find(|f| f.name.text == field.text)
+                .map(|f| f.ty)
         });
         match field_ty {
             Some(t) => self.resolve_type_ref(t),

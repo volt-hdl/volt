@@ -6,6 +6,9 @@
 //! F2c: domain çıkarımı ve CDC kontrolü (domain-inference.md K1-K9).
 //! F2f: bilgi akışı denetimi, trust_level (ADR-0052, K11).
 
+// ADR-0098: enum'a eklenen yeni varyant, ele alınmayan her yeri derleyici uyarısıyla göstersin.
+#![warn(clippy::wildcard_enum_match_arm)]
+
 pub mod attrs;
 pub mod builtin;
 pub mod consteval;

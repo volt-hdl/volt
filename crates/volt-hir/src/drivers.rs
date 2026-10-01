@@ -413,10 +413,12 @@ fn primary_label(r: &DriverRecord) -> String {
         DriverKind::LetInit => {
             lstr!(en: "the 'let' initializer drives it here"; tr: "'let' başlangıç değeri burada sürüyor")
         }
-        _ if r.partial => {
+        DriverKind::Assign | DriverKind::ParentInput if r.partial => {
             lstr!(en: "second driver of these bits here"; tr: "bu bitlerin ikinci sürücüsü burada")
         }
-        _ => lstr!(en: "second driver here"; tr: "ikinci sürücü burada"),
+        DriverKind::Assign | DriverKind::ParentInput => {
+            lstr!(en: "second driver here"; tr: "ikinci sürücü burada")
+        }
     }
 }
 

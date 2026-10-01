@@ -66,9 +66,13 @@ impl Resolver<'_> {
     /// Değer deseni: literal ya da çıplak ad. Çıplak ad sabite
     /// çözülmelidir (modül başı).
     fn resolve_pattern_value(&mut self, e: Idx<volt_ast::Expr>, scope: ScopeId) {
-        let name = match &self.ast.exprs[e].kind {
-            ExprKind::Path(p) if p.segments.len() == 1 => p.segments[0].clone(),
-            _ => return self.resolve_expr(e, scope),
+        let single = if let ExprKind::Path(p) = &self.ast.exprs[e].kind {
+            (p.segments.len() == 1).then(|| p.segments[0].clone())
+        } else {
+            None
+        };
+        let Some(name) = single else {
+            return self.resolve_expr(e, scope);
         };
         let Some(def) = self.lookup_visible(&name.text, scope) else {
             self.error_unresolved_pattern(&name, scope);
@@ -200,7 +204,12 @@ fn describe_kind(kind: DefKind) -> String {
         DefKind::Domain | DefKind::DomainParam => {
             lstr!(en: "a clock domain"; tr: "bir saat alanı")
         }
-        _ => lstr!(en: "not a constant"; tr: "sabit değil"),
+        DefKind::EnumVariant { .. }
+        | DefKind::Const
+        | DefKind::PatternBinding
+        | DefKind::GenericParam
+        | DefKind::Import
+        | DefKind::Error => lstr!(en: "not a constant"; tr: "sabit değil"),
     }
 }
 

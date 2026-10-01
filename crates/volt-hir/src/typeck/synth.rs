@@ -101,7 +101,25 @@ impl TypeChecker<'_, '_> {
                 self.synth(*width);
                 self.part_select_result(base_ty, *start, *width, *ascending, span)
             }
-            _ => unreachable!("synth_select yalnız seçim ifadeleriyle çağrılır"),
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {
+                unreachable!("synth_select yalnız seçim ifadeleriyle çağrılır")
+            }
         }
     }
 
@@ -238,7 +256,18 @@ impl TypeChecker<'_, '_> {
                     );
                     self.types.error()
                 }
-                _ => self.types.error(),
+                Ty::Bool
+                | Ty::Bits { .. }
+                | Ty::Clock
+                | Ty::Reset { .. }
+                | Ty::Array { .. }
+                | Ty::Tuple(_)
+                | Ty::Struct(_)
+                | Ty::Enum(_)
+                | Ty::Instance(_)
+                | Ty::Builtin { .. }
+                | Ty::Delayed { .. }
+                | Ty::Error => self.types.error(),
             },
         }
     }

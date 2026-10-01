@@ -62,7 +62,15 @@ impl TestConsts {
                             .collect();
                         enums.entry(decl.name.text.clone()).or_insert(variants);
                     }
-                    _ => {}
+                    // Test değeri olarak adlandırılabilen yalnız const ve enum.
+                    ItemKind::Module(_)
+                    | ItemKind::Domain(_)
+                    | ItemKind::Fn(_)
+                    | ItemKind::Struct(_)
+                    | ItemKind::TypeAlias(_)
+                    | ItemKind::Extern(_)
+                    | ItemKind::Test(_)
+                    | ItemKind::Error => {}
                 }
             }
         }
@@ -148,7 +156,14 @@ impl TestConsts {
             TestExprKind::Binary { op, lhs, rhs } => {
                 fold_binary(*op, self.eval(lhs)?, self.eval(rhs)?)
             }
-            _ => None,
+            // Çalışma zamanı okumaları ve toplu/çağrı değerleri sabit değildir.
+            TestExprKind::PortRead { .. }
+            | TestExprKind::Str(_)
+            | TestExprKind::Array(_)
+            | TestExprKind::Index { .. }
+            | TestExprKind::MemberPath { .. }
+            | TestExprKind::Call { .. }
+            | TestExprKind::StructLit { .. } => None,
         }
     }
 
@@ -174,7 +189,17 @@ impl TestConsts {
                 self.collect_bindings(lhs, found);
                 self.collect_bindings(rhs, found);
             }
-            _ => {}
+            // `eval`in katlamadığı biçimler sabit bağlaması göstermez.
+            TestExprKind::Int(_)
+            | TestExprKind::Bool(_)
+            | TestExprKind::PortRead { .. }
+            | TestExprKind::Variant { .. }
+            | TestExprKind::Str(_)
+            | TestExprKind::Array(_)
+            | TestExprKind::Index { .. }
+            | TestExprKind::MemberPath { .. }
+            | TestExprKind::Call { .. }
+            | TestExprKind::StructLit { .. } => {}
         }
     }
 }
@@ -188,13 +213,31 @@ fn plain_literal(src: &SourceFile, expr: Idx<Expr>) -> Option<u64> {
         ExprKind::Unary {
             op: UnOp::Neg,
             operand,
-        } => match &src.exprs[*operand].kind {
-            ExprKind::IntLit { value, .. } => {
-                u64::try_from(*value).ok().map(|v| 0u64.wrapping_sub(v))
-            }
-            _ => None,
-        },
-        _ => None,
+        } => {
+            let ExprKind::IntLit { value, .. } = &src.exprs[*operand].kind else {
+                return None;
+            };
+            u64::try_from(*value).ok().map(|v| 0u64.wrapping_sub(v))
+        }
+        // Düz literal değil: test dili bu const'u sabit saymaz.
+        ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Range { .. }
+        | ExprKind::PartSelect { .. }
+        | ExprKind::Field { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::Cast { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => None,
     }
 }
 
@@ -218,9 +261,12 @@ mod tests {
             .ast
             .items
             .iter()
-            .find_map(|i| match &parsed.ast.items_arena[*i].kind {
-                ItemKind::Test(t) => Some(t),
-                _ => None,
+            .find_map(|i| {
+                if let ItemKind::Test(t) = &parsed.ast.items_arena[*i].kind {
+                    Some(t)
+                } else {
+                    None
+                }
             })
             .expect("test bloğu");
         let mut consts = TestConsts::new(&[&parsed.ast]);
@@ -230,7 +276,7 @@ mod tests {
             match stmt {
                 TestStmt::LetVar { name, value, .. } => consts.bind_let(&name.text, value),
                 TestStmt::SetPort { value, .. } => last = Some(consts.eval(value)),
-                _ => {}
+                TestStmt::LetDut { .. } | TestStmt::Call { .. } | TestStmt::For { .. } => {}
             }
         }
         last.expect("SetPort deyimi")

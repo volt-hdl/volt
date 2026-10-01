@@ -267,9 +267,12 @@ impl TypeChecker<'_, '_> {
         let fields: Vec<&str> = lhs
             .suffixes
             .iter()
-            .map_while(|s| match s {
-                LValueSuffix::Field(n) => Some(n.text.as_str()),
-                _ => None,
+            .map_while(|s| {
+                if let LValueSuffix::Field(n) = s {
+                    Some(n.text.as_str())
+                } else {
+                    None
+                }
             })
             .collect();
         (!fields.is_empty()).then(|| fields.join("."))
@@ -282,17 +285,18 @@ impl TypeChecker<'_, '_> {
             return;
         }
         let ty = self.def_type(def);
-        let leaves = match self.types.ty(ty).clone() {
-            Ty::Struct(sid) => match self.struct_layout(sid) {
-                Some(l) => Some(
-                    l.leaves
-                        .iter()
-                        .map(|leaf| (leaf.dotted(), leaf.lsb, leaf.width))
-                        .collect(),
-                ),
-                None => return,
-            },
-            _ => None,
+        let leaves = if let Ty::Struct(sid) = self.types.ty(ty).clone() {
+            let Some(l) = self.struct_layout(sid) else {
+                return;
+            };
+            Some(
+                l.leaves
+                    .iter()
+                    .map(|leaf| (leaf.dotted(), leaf.lsb, leaf.width))
+                    .collect(),
+            )
+        } else {
+            None
         };
         let Some(width) = self.bit_width(ty) else {
             return;
@@ -352,7 +356,24 @@ impl TypeChecker<'_, '_> {
                 };
                 let w = match *self.types.ty(ty) {
                     Ty::Array { elem, .. } => self.bit_width(elem)?,
-                    _ => 1,
+                    // Dizi olmayan tabanda indeks tek bit seçer.
+                    Ty::Bool
+                    | Ty::UInt { .. }
+                    | Ty::SInt { .. }
+                    | Ty::Bits { .. }
+                    | Ty::Trit
+                    | Ty::Clock
+                    | Ty::Reset { .. }
+                    | Ty::Tuple(_)
+                    | Ty::Struct(_)
+                    | Ty::Enum(_)
+                    | Ty::Instance(_)
+                    | Ty::Builtin { .. }
+                    | Ty::Delayed { .. }
+                    | Ty::IntLit
+                    | Ty::UIntFlex { .. }
+                    | Ty::SIntFlex { .. }
+                    | Ty::Error => 1,
                 };
                 (first.checked_mul(w)?, count.checked_mul(w)?)
             }
@@ -374,12 +395,13 @@ impl TypeChecker<'_, '_> {
                 (s, w)
             }
             // Struct alanı ortak düzenle (ADR-0077 Karar 3: ilk alan MSB).
-            LValueSuffix::Field(name) => match self.types.ty(ty).clone() {
-                Ty::Struct(sid) => self
-                    .struct_layout(sid)?
-                    .field_bits(std::slice::from_ref(&name.text))?,
-                _ => return None,
-            },
+            LValueSuffix::Field(name) => {
+                let Ty::Struct(sid) = self.types.ty(ty).clone() else {
+                    return None;
+                };
+                self.struct_layout(sid)?
+                    .field_bits(std::slice::from_ref(&name.text))?
+            }
         };
         let begin = lo.checked_add(start)?;
         Some((begin, begin.checked_add(width)?))
@@ -407,7 +429,19 @@ impl TypeChecker<'_, '_> {
             Ty::Array { elem, len } => self.bit_width(elem)?.checked_mul(len),
             Ty::Struct(sid) => self.struct_layout(sid).map(|l| l.width),
             Ty::Enum(e) => self.types.enum_width(e).map(u32::from),
-            _ => self.types.width_of(ty).map(u32::from),
+            Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Tuple(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => self.types.width_of(ty).map(u32::from),
         }
     }
 

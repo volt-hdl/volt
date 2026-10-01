@@ -51,9 +51,10 @@ impl Inferred {
 
     /// Sinyalin belirli alanının adı; belirli değilse `None`.
     pub fn domain_name_of(&self, name: &str) -> Option<&str> {
-        match self.domain_of(name) {
-            DomainId::Explicit(id) => Some(self.dom.domains[id as usize].name.as_str()),
-            _ => None,
+        if let DomainId::Explicit(id) = self.domain_of(name) {
+            Some(self.dom.domains[id as usize].name.as_str())
+        } else {
+            None
         }
     }
 }

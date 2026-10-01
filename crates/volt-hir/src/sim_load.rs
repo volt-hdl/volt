@@ -50,16 +50,15 @@ pub(crate) fn check_load(
     source: &TestExpr,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let source_info = match &source.kind {
-        TestExprKind::Var(name) => scope.expect_array(name, diags),
-        _ => {
-            diags.push(type_mismatch(
-                source.span,
-                lstr!(en: "the load() source must be the name of an array";
-                      tr: "load() kaynağı bir dizi adı olmalıdır"),
-            ));
-            None
-        }
+    let source_info = if let TestExprKind::Var(name) = &source.kind {
+        scope.expect_array(name, diags)
+    } else {
+        diags.push(type_mismatch(
+            source.span,
+            lstr!(en: "the load() source must be the name of an array";
+                  tr: "load() kaynağı bir dizi adı olmalıdır"),
+        ));
+        None
     };
 
     let Some((dut, path)) = target_path(target) else {
@@ -143,7 +142,17 @@ fn target_path(target: &TestExpr) -> Option<(&Name, Vec<&Name>)> {
     match &target.kind {
         TestExprKind::PortRead { dut, port } => Some((dut, vec![port])),
         TestExprKind::MemberPath { dut, path } => Some((dut, path.iter().collect())),
-        _ => None,
+        TestExprKind::Int(_)
+        | TestExprKind::Bool(_)
+        | TestExprKind::Var(_)
+        | TestExprKind::Variant { .. }
+        | TestExprKind::Str(_)
+        | TestExprKind::Array(_)
+        | TestExprKind::Index { .. }
+        | TestExprKind::Unary { .. }
+        | TestExprKind::Binary { .. }
+        | TestExprKind::Call { .. }
+        | TestExprKind::StructLit { .. } => None,
     }
 }
 
@@ -162,12 +171,14 @@ pub fn resolve_load_target(
     else {
         return None;
     };
-    let elem_bits = reg.ty.and_then(|ty| match &reg_src.types[ty].kind {
-        TypeRefKind::Array { elem, .. } => match scalar_width(reg_src, *elem) {
+    let elem_bits = reg.ty.and_then(|ty| {
+        let TypeRefKind::Array { elem, .. } = &reg_src.types[ty].kind else {
+            return None;
+        };
+        match scalar_width(reg_src, *elem) {
             ScalarWidth::Known(w) => Some(w.bits),
             ScalarWidth::Unknown | ScalarWidth::NotScalar => None,
-        },
-        _ => None,
+        }
     });
     Some(LoadTarget {
         owner_module: owner.name.text.clone(),
@@ -216,27 +227,27 @@ fn resolve<'a>(
 
 /// `let ad = Modul { ... }` örneğinin modül adı (yolun son parçası).
 fn instance_module<'a>(src: &'a SourceFile, module: &ModuleDecl, name: &str) -> Option<&'a str> {
-    module
-        .body
-        .iter()
-        .find_map(|idx| match &src.stmts[*idx].kind {
-            StmtKind::Instance(inst) if inst.name.text == name => inst
-                .module_path
-                .segments
-                .last()
-                .map(|seg| seg.text.as_str()),
-            _ => None,
-        })
+    module.body.iter().find_map(|idx| {
+        let StmtKind::Instance(inst) = &src.stmts[*idx].kind else {
+            return None;
+        };
+        if inst.name.text != name {
+            return None;
+        }
+        inst.module_path
+            .segments
+            .last()
+            .map(|seg| seg.text.as_str())
+    })
 }
 
 fn find_reg<'a>(src: &'a SourceFile, module: &ModuleDecl, name: &str) -> Option<&'a RegDecl> {
-    module
-        .body
-        .iter()
-        .find_map(|idx| match &src.stmts[*idx].kind {
-            StmtKind::Reg(reg) if reg.name.text == name => Some(reg),
-            _ => None,
-        })
+    module.body.iter().find_map(|idx| {
+        let StmtKind::Reg(reg) = &src.stmts[*idx].kind else {
+            return None;
+        };
+        (reg.name.text == name).then_some(reg)
+    })
 }
 
 fn not_a_memory(span: volt_span::Span, message: String) -> Diagnostic {

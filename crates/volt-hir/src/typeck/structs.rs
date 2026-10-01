@@ -88,13 +88,15 @@ impl<'a> TypeChecker<'a, '_> {
                 );
             }
             let target = struct_layout::struct_of_type(ast, f.ty);
-            let bundle = match &ast.types[f.ty].kind {
-                volt_ast::TypeRefKind::Path { path, .. } if target.is_none() => path
-                    .segments
+            let bundle = if let (volt_ast::TypeRefKind::Path { path, .. }, None) =
+                (&ast.types[f.ty].kind, target)
+            {
+                path.segments
                     .last()
                     .map(|s| s.text.clone())
-                    .filter(|n| struct_layout::is_bundle(ast, n)),
-                _ => None,
+                    .filter(|n| struct_layout::is_bundle(ast, n))
+            } else {
+                None
             };
             if let Some(b) = bundle {
                 self.error(
@@ -159,9 +161,10 @@ impl<'a> TypeChecker<'a, '_> {
     pub(super) fn struct_decl(&self, s: StructId) -> Option<&'a StructDecl> {
         let ast = self.ast;
         let &item_idx = self.res.item_of_def.get(&DefId(s.0))?;
-        match &ast.items_arena[item_idx].kind {
-            ItemKind::Struct(decl) => Some(decl),
-            _ => None,
+        if let ItemKind::Struct(decl) = &ast.items_arena[item_idx].kind {
+            Some(decl)
+        } else {
+            None
         }
     }
 

@@ -94,7 +94,16 @@ impl<'a> ConstEvaluator<'a> {
                                     self.check_type(ty);
                                 }
                             }
-                            _ => {}
+                            // Yalnız modül düzeyi bildirim tipleri; blok
+                            // gövdeleri ve örnek generic argümanları burada
+                            // gezilmez.
+                            volt_ast::StmtKind::Instance(_)
+                            | volt_ast::StmtKind::On(_)
+                            | volt_ast::StmtKind::Comb(_)
+                            | volt_ast::StmtKind::Assign(_)
+                            | volt_ast::StmtKind::For(_)
+                            | volt_ast::StmtKind::Expr(_)
+                            | volt_ast::StmtKind::Error => {}
                         }
                     }
                 }
@@ -109,7 +118,13 @@ impl<'a> ConstEvaluator<'a> {
                         self.check_type(p.ty);
                     }
                 }
-                _ => {}
+                // Bu öğelerin tip konumları burada denetlenmez.
+                ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Enum(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => {}
             }
         }
     }
@@ -148,7 +163,16 @@ impl<'a> ConstEvaluator<'a> {
                     self.check_type(t);
                 }
             }
-            _ => {}
+            // Genişliği sabit ya da derleme zamanı ifadesi taşımayan tipler;
+            // yol tipinin generic argümanları burada gezilmez.
+            TypeRefKind::Bool
+            | TypeRefKind::Clock
+            | TypeRefKind::Reset(_)
+            | TypeRefKind::UInt(_)
+            | TypeRefKind::SInt(_)
+            | TypeRefKind::Trit
+            | TypeRefKind::Path { .. }
+            | TypeRefKind::Error => {}
         }
     }
 
@@ -184,7 +208,11 @@ impl<'a> ConstEvaluator<'a> {
                 None
             }
             ConstValue::Error => Some(1), // hata kurtarma — zaten raporlandı
-            _ => {
+            ConstValue::Bool(_)
+            | ConstValue::Array(_)
+            | ConstValue::Tuple(_)
+            | ConstValue::EnumVariant { .. }
+            | ConstValue::Struct { .. } => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E2021,
                     lstr!(en: "expected a constant expression"; tr: "sabit ifade bekleniyor"),
@@ -282,7 +310,24 @@ impl<'a> ConstEvaluator<'a> {
                     DefKind::Const => self.eval_const_def(def),
                     DefKind::EnumVariant { .. } => self.variant_value(def),
                     DefKind::Error => ConstValue::Error,
-                    other => {
+                    other @ (DefKind::Module
+                    | DefKind::Domain
+                    | DefKind::Function
+                    | DefKind::Struct
+                    | DefKind::Enum
+                    | DefKind::TypeAlias
+                    | DefKind::ExternModule
+                    | DefKind::Port { .. }
+                    | DefKind::Register
+                    | DefKind::Wire
+                    | DefKind::Instance
+                    | DefKind::LocalBinding
+                    | DefKind::LoopVar
+                    | DefKind::PatternBinding
+                    | DefKind::GenericParam
+                    | DefKind::DomainParam
+                    | DefKind::Builtin(_)
+                    | DefKind::Import) => {
                         self.error_not_constant(span, &describe_def_kind(other));
                         ConstValue::Error
                     }
@@ -312,7 +357,11 @@ impl<'a> ConstEvaluator<'a> {
                     ConstValue::Bool(true) => self.const_eval(then_expr),
                     ConstValue::Bool(false) => self.const_eval(else_expr),
                     ConstValue::Error => ConstValue::Error,
-                    _ => {
+                    ConstValue::Int(_)
+                    | ConstValue::Array(_)
+                    | ConstValue::Tuple(_)
+                    | ConstValue::EnumVariant { .. }
+                    | ConstValue::Struct { .. } => {
                         self.type_mismatch(span, "bool");
                         ConstValue::Error
                     }
@@ -340,10 +389,11 @@ impl<'a> ConstEvaluator<'a> {
                 let items = items.clone();
                 let mut vals = Vec::with_capacity(items.len());
                 for i in items {
-                    match self.const_eval(i) {
-                        ConstValue::Error => return ConstValue::Error,
-                        v => vals.push(v),
+                    let v = self.const_eval(i);
+                    if matches!(v, ConstValue::Error) {
+                        return ConstValue::Error;
                     }
+                    vals.push(v);
                 }
                 ConstValue::Array(vals)
             }
@@ -379,10 +429,11 @@ impl<'a> ConstEvaluator<'a> {
                 let items = items.clone();
                 let mut vals = Vec::with_capacity(items.len());
                 for i in items {
-                    match self.const_eval(i) {
-                        ConstValue::Error => return ConstValue::Error,
-                        v => vals.push(v),
+                    let v = self.const_eval(i);
+                    if matches!(v, ConstValue::Error) {
+                        return ConstValue::Error;
                     }
+                    vals.push(v);
                 }
                 ConstValue::Tuple(vals)
             }
@@ -446,10 +497,11 @@ impl<'a> ConstEvaluator<'a> {
                         );
                         return ConstValue::Error;
                     };
-                    match self.const_eval(value) {
-                        ConstValue::Error => return ConstValue::Error,
-                        v => vals.push((name, v)),
+                    let v = self.const_eval(value);
+                    if matches!(v, ConstValue::Error) {
+                        return ConstValue::Error;
                     }
+                    vals.push((name, v));
                 }
                 ConstValue::Struct { def, fields: vals }
             }
@@ -462,7 +514,11 @@ impl<'a> ConstEvaluator<'a> {
                         .into_iter()
                         .find(|(n, _)| *n == field)
                         .map_or(ConstValue::Error, |(_, v)| v),
-                    _ => {
+                    ConstValue::Int(_)
+                    | ConstValue::Bool(_)
+                    | ConstValue::Array(_)
+                    | ConstValue::Tuple(_)
+                    | ConstValue::EnumVariant { .. } => {
                         self.error_not_constant(
                             span,
                             &lstr!(en: "this expression"; tr: "bu ifade"),
@@ -474,7 +530,12 @@ impl<'a> ConstEvaluator<'a> {
 
             ExprKind::Error => ConstValue::Error,
 
-            _ => {
+            // Concat yalnız SV üretiminde kurulur; burada da sabit değildir.
+            ExprKind::StringLit(_)
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. } => {
                 self.error_not_constant(span, &lstr!(en: "this expression"; tr: "bu ifade"));
                 ConstValue::Error
             }
@@ -496,7 +557,13 @@ impl<'a> ConstEvaluator<'a> {
                 match self.const_eval(guard) {
                     ConstValue::Bool(true) => {}
                     ConstValue::Bool(false) => continue,
-                    _ => return ConstValue::Error,
+                    // bool olmayan bekçi: tip hatası typeck'te raporlanır.
+                    ConstValue::Int(_)
+                    | ConstValue::Array(_)
+                    | ConstValue::Tuple(_)
+                    | ConstValue::EnumVariant { .. }
+                    | ConstValue::Struct { .. }
+                    | ConstValue::Error => return ConstValue::Error,
                 }
             }
             return match arm.body {
@@ -524,16 +591,20 @@ impl<'a> ConstEvaluator<'a> {
                 }
                 Some(false)
             }
-            PatternKind::Literal(e) => match self.const_eval(e) {
-                ConstValue::Error => None,
-                v => Some(v == *value),
-            },
+            PatternKind::Literal(e) => {
+                let v = self.const_eval(e);
+                if matches!(v, ConstValue::Error) {
+                    None
+                } else {
+                    Some(v == *value)
+                }
+            }
             PatternKind::Path { .. } => {
                 let def = *self.res.pattern_resolutions.get(&pat)?;
-                match value {
-                    ConstValue::EnumVariant { def: d, .. } => Some(*d == def),
-                    _ => None,
-                }
+                let ConstValue::EnumVariant { def: d, .. } = value else {
+                    return None;
+                };
+                Some(*d == def)
             }
             PatternKind::Tuple(_) | PatternKind::Error => None,
         }
@@ -545,10 +616,12 @@ impl<'a> ConstEvaluator<'a> {
             return ConstValue::Error;
         };
         let discriminant = match disc {
-            Some(expr) => match self.const_eval(expr) {
-                ConstValue::Int(n) => n,
-                _ => return ConstValue::Error,
-            },
+            Some(expr) => {
+                let ConstValue::Int(n) = self.const_eval(expr) else {
+                    return ConstValue::Error;
+                };
+                n
+            }
             None => index as i128,
         };
         ConstValue::EnumVariant { def, discriminant }
@@ -651,7 +724,21 @@ impl<'a> ConstEvaluator<'a> {
                 BinOp::Imp => Bool(!a || b),
                 BinOp::Eq => Bool(a == b),
                 BinOp::Ne => Bool(a != b),
-                _ => {
+                // Aritmetik, bit ve sıralama işleçleri bool'da tanımsız.
+                BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Rem
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+                | BinOp::Shl
+                | BinOp::Shr
+                | BinOp::Lt
+                | BinOp::Gt
+                | BinOp::Le
+                | BinOp::Ge => {
                     self.type_mismatch(span, &lstr!(en: "numeric"; tr: "sayısal"));
                     Error
                 }
@@ -890,6 +977,18 @@ fn describe_def_kind(kind: DefKind) -> String {
         DefKind::GenericParam => {
             lstr!(en: "this is a generic parameter"; tr: "bu bir generic parametre")
         }
-        _ => lstr!(en: "this expression"; tr: "bu ifade"),
+        // Özel anlatımı olmayan tanımlar genel metne düşer.
+        DefKind::Domain
+        | DefKind::Struct
+        | DefKind::Enum
+        | DefKind::EnumVariant { .. }
+        | DefKind::Const
+        | DefKind::TypeAlias
+        | DefKind::ExternModule
+        | DefKind::LoopVar
+        | DefKind::PatternBinding
+        | DefKind::DomainParam
+        | DefKind::Import
+        | DefKind::Error => lstr!(en: "this expression"; tr: "bu ifade"),
     }
 }

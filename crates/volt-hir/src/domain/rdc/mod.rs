@@ -51,9 +51,12 @@ pub fn without_raw_reset_unused(ast: &SourceFile, diags: &[Diagnostic]) -> Vec<D
     let raw_spans: Vec<volt_span::Span> = ast
         .items
         .iter()
-        .filter_map(|&i| match &ast.items_arena[i].kind {
-            ItemKind::Module(m) => Some(m),
-            _ => None,
+        .filter_map(|&i| {
+            if let ItemKind::Module(m) = &ast.items_arena[i].kind {
+                Some(m)
+            } else {
+                None
+            }
         })
         .flat_map(|m| m.ports.iter())
         .filter(|p| is_raw_reset(ast, p))

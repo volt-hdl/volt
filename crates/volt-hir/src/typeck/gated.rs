@@ -38,7 +38,14 @@ pub fn gated_enum_exhaustiveness(ast: &SourceFile, res: &ResolveResult) -> Vec<D
                 StmtKind::On(on) => walker.block(on.body, &mut out),
                 StmtKind::Comb(b) => walker.block(*b, &mut out),
                 StmtKind::For(f) => walker.block(f.body, &mut out),
-                _ => {}
+                // Deyim düzeyi `match` yalnız blok gövdelerinde bulunur.
+                StmtKind::Reg(_)
+                | StmtKind::Let(_)
+                | StmtKind::Wire(_)
+                | StmtKind::Instance(_)
+                | StmtKind::Assign(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => {}
             }
         }
     }
@@ -67,7 +74,11 @@ impl Walker<'_> {
                         }
                     }
                 }
-                _ => {}
+                // Alt blok taşımayan deyimler.
+                BlockStmt::NonBlockAssign { .. }
+                | BlockStmt::BlockAssign { .. }
+                | BlockStmt::Let(_)
+                | BlockStmt::Error => {}
             }
         }
     }
@@ -133,7 +144,8 @@ impl Walker<'_> {
                 covered.push(self.def_name(def).to_string());
                 Some(true)
             }
-            _ => None,
+            // Emin olunamayan desenler: tanı verilmez.
+            PatternKind::Literal(_) | PatternKind::Tuple(_) | PatternKind::Error => None,
         }
     }
 
@@ -157,14 +169,25 @@ impl Walker<'_> {
         if let Some(p) = self.module.ports.iter().find(|p| p.name.span == name_span) {
             return Some(p.ty);
         }
-        self.module
-            .body
-            .iter()
-            .find_map(|&s| match &self.ast.stmts[s].kind {
-                StmtKind::Reg(r) if r.name.span == name_span => r.ty,
-                StmtKind::Wire(w) if w.name.span == name_span => Some(w.ty),
-                StmtKind::Let(l) if l.name.span == name_span => l.ty,
-                _ => None,
-            })
+        self.module.body.iter().find_map(|&s| {
+            let (decl, ty) = match &self.ast.stmts[s].kind {
+                StmtKind::Reg(r) => (&r.name, r.ty),
+                StmtKind::Wire(w) => (&w.name, Some(w.ty)),
+                StmtKind::Let(l) => (&l.name, l.ty),
+                // Tipli değer bildirmeyen deyimler.
+                StmtKind::Instance(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => return None,
+            };
+            if decl.span == name_span {
+                ty
+            } else {
+                None
+            }
+        })
     }
 }

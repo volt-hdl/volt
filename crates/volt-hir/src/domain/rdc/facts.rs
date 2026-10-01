@@ -160,9 +160,10 @@ fn raw_facts<'a>(ast: &SourceFile, res: &ResolveResult, m: &'a ModuleDecl) -> Ve
         .filter(|p| is_raw_reset(ast, p))
         .filter_map(|port| {
             let def = *res.decl_spans.get(&port.name.span)?;
-            let spec = match ast.types[port.ty].kind {
-                TypeRefKind::Reset(spec) => spec,
-                _ => None,
+            let spec = if let TypeRefKind::Reset(spec) = ast.types[port.ty].kind {
+                spec
+            } else {
+                None
             };
             let ann = port
                 .domain
@@ -242,7 +243,7 @@ pub(super) fn auto_port_name(spec: ResetSpec) -> &'static str {
 pub(super) fn spec_text(spec: ResetSpec) -> String {
     let sync = match spec.sync {
         ResetSync::Async => "async",
-        _ => "sync",
+        ResetSync::Sync | ResetSync::None => "sync",
     };
     let polarity = match spec.polarity {
         ResetPolarity::ActiveHigh => "active_high",

@@ -111,7 +111,13 @@ impl<'a> Scope<'a> {
                         }
                     }
                 }
-                _ => {}
+                // Ad bildirmeyen ya da zamanlama ucu olmayan deyimler.
+                StmtKind::Instance(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => {}
             }
         }
         scope
@@ -200,7 +206,18 @@ fn collect_path_names<'a>(ast: &'a SourceFile, e: Idx<volt_ast::Expr>, out: &mut
                 collect_path_names(ast, c, out);
             }
         }
-        _ => {}
+        // Yapraklar ve çok segmentli yollar (enum varyantı, sabit yolu).
+        ExprKind::Path(_)
+        | ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => {}
+        // Toplu değerlerin öğelerine inilmez (mevcut davranış).
+        ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_) => {}
     }
 }
 
@@ -218,7 +235,8 @@ fn collect_nonblocking_targets<'a>(ast: &'a SourceFile, block: Idx<Block>, out: 
                 }
             }
             BlockStmt::For(f) => collect_nonblocking_targets(ast, f.body, out),
-            _ => {}
+            // `=` ataması ve let register yazmaz.
+            BlockStmt::BlockAssign { .. } | BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }
@@ -287,11 +305,8 @@ impl<'a> Collector<'a> {
             let mut freq_hz = None;
             let has_reset = !d.fields.iter().any(|f| {
                 f.key == DomainKey::Reset
-                    && match &f.value {
-                        DomainValue::ClockEdge(ClockEdge::None) => true,
-                        DomainValue::Reset(spec) => spec.sync == ResetSync::None,
-                        _ => false,
-                    }
+                    && (matches!(&f.value, DomainValue::ClockEdge(ClockEdge::None))
+                        || matches!(&f.value, DomainValue::Reset(spec) if spec.sync == ResetSync::None))
             });
             for field in &d.fields {
                 if field.key != DomainKey::Frequency {
@@ -303,7 +318,10 @@ impl<'a> Collector<'a> {
                         Err(diag) => self.push(*diag),
                     },
                     DomainValue::Error => {}
-                    _ => self.push(unsupported(
+                    DomainValue::ClockEdge(_)
+                    | DomainValue::Reset(_)
+                    | DomainValue::Trust(_)
+                    | DomainValue::Bool(_) => self.push(unsupported(
                         field.span,
                         lstr!(en: "'frequency' expects a frequency literal"; tr: "'frequency' bir frekans literal'i bekler"),
                         lstr!(en: "write frequency = 100.mhz (or 25_175.khz, 25175000)"; tr: "frequency = 100.mhz (ya da 25_175.khz, 25175000) yazın"),
@@ -628,7 +646,7 @@ impl<'a> Collector<'a> {
         let name = port.name.text.as_str();
         let (from, to) = match port.direction {
             PortDir::In => (Some(name), None),
-            _ => (None, Some(name)),
+            PortDir::Out | PortDir::InOut | PortDir::OpenDrain => (None, Some(name)),
         };
         match attr.name.text.as_str() {
             ATTR_FALSE_PATH => match parse_false_path(self.ast, attr, true) {
@@ -831,7 +849,15 @@ impl<'a> Collector<'a> {
                         );
                     }
                 }
-                _ => {}
+                // Köprü kaynağı yalnız modül düzeyi atama, let ve örnekte
+                // okunur; blok içi sync() E0003 aldığından gövdelere inilmez.
+                StmtKind::Reg(_)
+                | StmtKind::Wire(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => {}
             }
         }
     }
@@ -847,9 +873,10 @@ impl<'a> Collector<'a> {
         ctx: &Ctx,
         clocks: &[ClockConstraint],
     ) -> Vec<Bridge> {
-        let src = match &self.ast.exprs[rhs].kind {
-            ExprKind::Call { args, .. } => args.first().and_then(|&s| single(self.ast, s)),
-            _ => None,
+        let src = if let ExprKind::Call { args, .. } = &self.ast.exprs[rhs].kind {
+            args.first().and_then(|&s| single(self.ast, s))
+        } else {
+            None
         };
         let leaves = src
             .and_then(|s| struct_leaf_suffixes(self.ast, scope.module, s))
@@ -986,7 +1013,15 @@ impl<'a> Collector<'a> {
                 "wr_clk",
                 "rd_clk",
             ),
-            _ => return None,
+            // Saat alanı geçişi olmayan yerleşikler köprü değildir.
+            BuiltinPrim::SyncFifo
+            | BuiltinPrim::Ram
+            | BuiltinPrim::DualPortRam
+            | BuiltinPrim::Counter
+            | BuiltinPrim::ShiftRegister
+            | BuiltinPrim::RoundRobinArbiter
+            | BuiltinPrim::PriorityArbiter
+            | BuiltinPrim::EdgeDetect => return None,
         };
         let name = format!("{}{}", ctx.prefix, inst.name.text);
         let bound_clock = |port: &str| -> Option<String> {
@@ -1162,10 +1197,10 @@ impl<'a> Collector<'a> {
     fn module_named(&self, name: &str) -> Option<(&'a ModuleDecl, &'a [Attribute])> {
         self.ast.items.iter().find_map(|&i| {
             let item = &self.ast.items_arena[i];
-            match &item.kind {
-                ItemKind::Module(m) if m.name.text == name => Some((m, item.attrs.as_slice())),
-                _ => None,
-            }
+            let ItemKind::Module(m) = &item.kind else {
+                return None;
+            };
+            (m.name.text == name).then_some((m, item.attrs.as_slice()))
         })
     }
 }
@@ -1203,11 +1238,25 @@ impl Ctx {
 fn struct_leaf_suffixes(ast: &SourceFile, m: &ModuleDecl, name: &str) -> Option<Vec<String>> {
     let port_ty = m.ports.iter().find(|p| p.name.text == name).map(|p| p.ty);
     let ty = port_ty.or_else(|| {
-        m.body.iter().find_map(|&s| match &ast.stmts[s].kind {
-            StmtKind::Reg(r) if r.name.text == name => r.ty,
-            StmtKind::Wire(w) if w.name.text == name => Some(w.ty),
-            StmtKind::Let(l) if l.name.text == name => l.ty,
-            _ => None,
+        m.body.iter().find_map(|&s| {
+            let (decl, ty) = match &ast.stmts[s].kind {
+                StmtKind::Reg(r) => (&r.name, r.ty),
+                StmtKind::Wire(w) => (&w.name, Some(w.ty)),
+                StmtKind::Let(l) => (&l.name, l.ty),
+                // Tipli değer bildirmeyen deyimler.
+                StmtKind::Instance(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => return None,
+            };
+            if decl.text == name {
+                ty
+            } else {
+                None
+            }
         })
     })?;
     let decl = volt_ast::struct_layout::struct_of_type(ast, ty)?;
@@ -1218,8 +1267,8 @@ fn struct_leaf_suffixes(ast: &SourceFile, m: &ModuleDecl, name: &str) -> Option<
 }
 
 fn single(ast: &SourceFile, e: Idx<volt_ast::Expr>) -> Option<&str> {
-    match &ast.exprs[e].kind {
-        ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
-        _ => None,
-    }
+    let ExprKind::Path(p) = &ast.exprs[e].kind else {
+        return None;
+    };
+    (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
 }

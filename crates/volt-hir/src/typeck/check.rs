@@ -64,7 +64,25 @@ impl TypeChecker<'_, '_> {
             ExprKind::ArrayLit(kind) if matches!(*self.types.ty(expected), Ty::Array { .. }) => {
                 self.check_array_lit(expr, kind, expected, span);
             }
-            _ => {
+            // Beklenen tip itilmeyen biçimler: sentezle ve atanabilirliği denetle.
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {
                 let actual = self.synth(expr);
                 self.expect_assignable(actual, expected, span);
             }
@@ -215,7 +233,18 @@ impl TypeChecker<'_, '_> {
                     lstr!(en: "write true or false"; tr: "true veya false yazın"),
                 );
             }
-            _ => {
+            Ty::Bits { .. }
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::Error => {
                 let lit = self.types.int_lit();
                 self.err_type_mismatch(expected, lit, span);
             }
@@ -227,7 +256,23 @@ impl TypeChecker<'_, '_> {
         let fits = match *self.types.ty(ty) {
             Ty::UInt { width } => uint_fits(value, width),
             Ty::SInt { width } => sint_fits(value, width),
-            _ => true,
+            // Sonek tipi her zaman uN/iN'dir (`suffix_ty`).
+            Ty::Bool
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => true,
         };
         if !fits {
             self.literal_overflow(value, ty, span);

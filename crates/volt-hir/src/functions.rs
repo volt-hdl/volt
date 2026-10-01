@@ -109,7 +109,14 @@ fn fn_roots(ast: &SourceFile, f: &FnDecl) -> Vec<Idx<Expr>> {
         .iter()
         .filter_map(|s| match s {
             BlockStmt::Let(l) => Some(l.value),
-            _ => None,
+            // Parser fn gövdesinde atama/if/match deyimine E0001/E2016,
+            // `for`a E0003 verir; ifade kökü taşımazlar.
+            BlockStmt::NonBlockAssign { .. }
+            | BlockStmt::BlockAssign { .. }
+            | BlockStmt::If(_)
+            | BlockStmt::Match(_)
+            | BlockStmt::For(_)
+            | BlockStmt::Error => None,
         })
         .collect();
     roots.extend(block.tail);
@@ -151,7 +158,28 @@ fn inspect(
                         lstr!(en: "'{name}' (a register chain)"; tr: "'{name}' (register zinciri)");
                     diags.push(err_not_combinational(span, &what));
                 }
-                _ => {}
+                // Diğer çağrılananlar fn içinde durum kurmaz (ya da hatası
+                // başka katmanda).
+                DefKind::Module
+                | DefKind::Domain
+                | DefKind::Struct
+                | DefKind::Enum
+                | DefKind::EnumVariant { .. }
+                | DefKind::Const
+                | DefKind::TypeAlias
+                | DefKind::ExternModule
+                | DefKind::Port { .. }
+                | DefKind::Register
+                | DefKind::Wire
+                | DefKind::Instance
+                | DefKind::LocalBinding
+                | DefKind::LoopVar
+                | DefKind::PatternBinding
+                | DefKind::GenericParam
+                | DefKind::DomainParam
+                | DefKind::Builtin(_)
+                | DefKind::Import
+                | DefKind::Error => {}
             }
         }
         ExprKind::StructLit { .. } => {
@@ -162,7 +190,25 @@ fn inspect(
                 }
             }
         }
-        _ => {}
+        // Çağrı ve örnek dışındaki düğümler: alt ifadeleri gezgin ayrıca verir.
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Range { .. }
+        | ExprKind::PartSelect { .. }
+        | ExprKind::Field { .. }
+        | ExprKind::Cast { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => {}
     }
 }
 
@@ -265,7 +311,24 @@ fn expr_size(
                     .copied()
                     .unwrap_or(0)
             }
-            _ => 1,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => 1,
         };
         total = total.saturating_add(add);
     });

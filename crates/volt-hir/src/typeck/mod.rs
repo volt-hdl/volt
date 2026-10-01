@@ -144,7 +144,15 @@ impl TypeChecker<'_, '_> {
                 ItemKind::Module(m) => self.check_module(m),
                 ItemKind::Extern(x) => self.type_extern_ports(x),
                 ItemKind::Fn(f) => self.check_fn(f),
-                _ => {}
+                // Bildirimler yukarıda (enum/struct/const) ya da başka geçitte
+                // denetlenir.
+                ItemKind::Domain(_)
+                | ItemKind::Struct(_)
+                | ItemKind::Enum(_)
+                | ItemKind::Const(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => {}
             }
         }
         let mut diags = Vec::new();
@@ -180,10 +188,13 @@ impl TypeChecker<'_, '_> {
         let ast = self.ast;
         match self.res.def_kind(def) {
             DefKind::Const => match self.res.item_of_def.get(&def) {
-                Some(&item_idx) => match &ast.items_arena[item_idx].kind {
-                    ItemKind::Const(c) => self.resolve_type_ref(c.ty),
-                    _ => self.types.error(),
-                },
+                Some(&item_idx) => {
+                    if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
+                        self.resolve_type_ref(c.ty)
+                    } else {
+                        self.types.error()
+                    }
+                }
                 None => self.types.error(),
             },
             DefKind::EnumVariant { parent } => self.types.intern(Ty::Enum(EnumId(parent.0))),
@@ -194,7 +205,23 @@ impl TypeChecker<'_, '_> {
             DefKind::LoopVar => self.types.int_lit(),
             // Portlar/register'lar modül gezilirken kaydedilir; buraya
             // düşen her şey F2a'da tiplenmez (fn, builtin, generic...).
-            _ => self.types.error(),
+            DefKind::Module
+            | DefKind::Domain
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Port { .. }
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::LocalBinding
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => self.types.error(),
         }
     }
 
@@ -205,9 +232,10 @@ impl TypeChecker<'_, '_> {
         let before = self.ev.diagnostics.len();
         let value = self.ev.const_eval(expr);
         self.ev.diagnostics.truncate(before);
-        match value {
-            ConstValue::Int(n) => Some(n),
-            _ => None,
+        if let ConstValue::Int(n) = value {
+            Some(n)
+        } else {
+            None
         }
     }
 }

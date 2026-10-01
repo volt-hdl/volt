@@ -92,7 +92,16 @@ impl Inferencer<'_> {
             BuiltinPrim::DualPortRam => dual_port_ram_reminder(span),
             BuiltinPrim::AsyncDualPortRam => async_dual_port_ram_reminder(span),
             BuiltinPrim::PulseSync => pulse_sync_reminder(span),
-            _ => return,
+            // Kullanım kısıtı statik denetlenen ya da hatırlatma gerektirmeyenler.
+            BuiltinPrim::AsyncFifo
+            | BuiltinPrim::HandshakeSync
+            | BuiltinPrim::SyncFifo
+            | BuiltinPrim::Ram
+            | BuiltinPrim::Counter
+            | BuiltinPrim::ShiftRegister
+            | BuiltinPrim::RoundRobinArbiter
+            | BuiltinPrim::PriorityArbiter
+            | BuiltinPrim::EdgeDetect => return,
         };
         self.diagnostics.push(diag);
     }

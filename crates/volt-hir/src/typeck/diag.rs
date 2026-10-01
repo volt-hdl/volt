@@ -159,7 +159,25 @@ impl TypeChecker<'_, '_> {
             Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } if width > 0 && width <= 128 => {
                 (1u128 << (width - 1)) - 1
             }
-            _ => u128::MAX,
+            // Aralık dışı genişlik ya da tamsayı olmayan tip: üst sınır yok.
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => u128::MAX,
         };
         self.error(
             ErrorCode::E2010,
