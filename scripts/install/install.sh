@@ -19,14 +19,36 @@
 # Example: curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_VERSION=0.1.0 sh
 #
 # Written for POSIX sh (dash, busybox, bash, zsh): no bash features.
+# Before anything is downloaded the release is resolved: GitHub's API
+# first, the releases/latest redirect when the API is rate limited. With no
+# published release the script says so and stops. Transient network
+# failures are tried again (3 attempts). This file must stay ASCII without
+# a BOM (check-consistency, check 14).
 
 set -eu
 
 REPO_URL="https://github.com/volt-hdl/volt"
+# Where releases are looked up and downloaded from. VOLT_INSTALL_TEST_SERVER
+# is for install.yml's fake server (scripts/install/test/) and nothing else.
+DOWNLOAD_REPO=$REPO_URL
+API_REPO="https://api.github.com/repos/volt-hdl/volt"
+if [ -n "${VOLT_INSTALL_TEST_SERVER:-}" ]; then
+    DOWNLOAD_REPO="${VOLT_INSTALL_TEST_SERVER%/}/volt-hdl/volt"
+    API_REPO="${VOLT_INSTALL_TEST_SERVER%/}/api/repos/volt-hdl/volt"
+fi
+# Transient network failures: this many attempts, waiting 1 s, then 2 s.
+ATTEMPTS=3
 # Empty here. The copy attached to a release names that release (release.yml
 # writes it), so releases/download/vX.Y.Z/install.sh installs X.Y.Z.
 PINNED_VERSION=""
 BOOK_URL="https://volt-hdl.github.io/volt/tour/install.html"
+SOURCE_ADVICE="Build from source instead (needs Rust, https://rustup.rs):
+  git clone $REPO_URL
+  cd volt
+  cargo install --locked --path crates/volt-driver
+More: $BOOK_URL#build-from-source"
+NETWORK_ADVICE="This is usually a network problem (no connection, a proxy or a firewall) or a short GitHub outage.
+Run the same command again in a few minutes, or install by hand: $BOOK_URL#manual-install"
 MARKER="# added by the Volt installer"
 # The same line, when the file did not end with a newline before it: the
 # uninstall then takes that newline away again, so the file is restored
@@ -70,24 +92,142 @@ On other platforms, build from source (needs Rust): $BOOK_URL#build-from-source"
     esac
 }
 
-# download URL FILE -> 0 on success, 2 when the server answered 404,
-# 1 on any other failure.
-download() {
+# http_get URL FILE ACCEPT follow|noredirect: one GET into FILE. Sets
+# HTTP_CODE (000: no complete HTTP answer), HTTP_LOCATION (the first
+# redirect) and HTTP_ERROR. Returns 0 on a 2xx answer, and with noredirect
+# on a 3xx one as well; 1 otherwise.
+http_get() {
+    HTTP_CODE=000
+    HTTP_LOCATION=
+    HTTP_ERROR=
     if command -v curl >/dev/null 2>&1; then
-        code=$(curl -sSL --retry 3 -o "$2" -w '%{http_code}' "$1") || return 1
-        case $code in
-            200) return 0 ;;
-            404) return 2 ;;
-            *) warn "$1: HTTP $code"; return 1 ;;
-        esac
+        http_get_curl "$@"
     elif command -v wget >/dev/null 2>&1; then
-        # wget exits 8 when the server sent an error response.
-        if wget -q -O "$2" "$1"; then return 0; else code=$?; fi
-        if [ "$code" -eq 8 ]; then return 2; fi
-        return 1
+        http_get_wget "$@"
     else
         die "neither curl nor wget is installed; install one of them and run this again"
     fi
+    case $HTTP_CODE in
+        2??) return 0 ;;
+        3??) [ "$4" = noredirect ] && return 0 ;;
+    esac
+    return 1
+}
+
+http_get_curl() {
+    redirect=--no-location
+    [ "$4" = follow ] && redirect=-L
+    # A transfer that stalls (under 1 byte/s for 60 s) fails and is retried;
+    # no overall time limit, so a slow line still finishes.
+    if out=$(curl -sS "$redirect" -A volt-installer -H "Accept: $3" --connect-timeout 30 \
+        --speed-limit 1 --speed-time 60 -o "$2" -w '%{http_code} %{redirect_url}' "$1" 2>"$tmp/http.err"); then
+        HTTP_CODE=${out%% *}
+        HTTP_LOCATION=${out#* }
+    else
+        # Also a transfer cut short (curl exit 18) after a 200: no complete
+        # answer.
+        HTTP_ERROR=$(sed 's/^curl: //' "$tmp/http.err" | head -n 1)
+    fi
+}
+
+http_get_wget() {
+    # -S prints every response's headers, redirects included: the first
+    # Location is the redirect, the last status line the final answer.
+    url=$1
+    mode=$4
+    set -- -S -O "$2" -U volt-installer --header "Accept: $3" -T 30
+    if wget --version 2>/dev/null | grep -q 'GNU Wget'; then
+        set -- "$@" --tries=1
+        [ "$mode" = noredirect ] && set -- "$@" --max-redirect=0
+    fi
+    wget_rc=0
+    wget "$@" "$url" 2>"$tmp/http.err" || wget_rc=$?
+    # Header names may come in any case (busybox prints them as sent).
+    HTTP_LOCATION=$(awk 'tolower($1) == "location:" { print $2; exit }' "$tmp/http.err" | tr -d '\r')
+    if [ "$mode" = noredirect ]; then
+        wget_code=$(awk '$1 ~ /^HTTP\// { print $2; exit }' "$tmp/http.err")
+    else
+        wget_code=$(awk '$1 ~ /^HTTP\// { c = $2 } END { print c }' "$tmp/http.err")
+    fi
+    # An error status (4xx, 5xx) is an answer, whatever the exit code (GNU
+    # wget exits 8, busybox 1). A 2xx counts only when wget succeeded: a
+    # download cut short after "200" leaves no complete answer.
+    case $wget_code in
+        [45]??) HTTP_CODE=$wget_code ;;
+        [23]??)
+            if [ "$wget_rc" -eq 0 ] || [ "$mode" = noredirect ]; then HTTP_CODE=$wget_code; fi ;;
+    esac
+    if [ "$HTTP_CODE" = 000 ]; then
+        HTTP_ERROR="wget exit code $wget_rc: $(grep -v '^  ' "$tmp/http.err" | tail -n 1)"
+    fi
+}
+
+# fetch URL FILE ACCEPT follow|noredirect: http_get, tried again on a
+# transient failure (no answer, 408, 5xx). Waits 1 s, then 2 s.
+fetch() {
+    attempt=1
+    while :; do
+        if http_get "$@"; then return 0; fi
+        case $HTTP_CODE in
+            000 | 408 | 5??) ;;
+            *) return 1 ;;
+        esac
+        [ "$HTTP_CODE" = 000 ] || HTTP_ERROR="HTTP $HTTP_CODE"
+        [ "$attempt" -lt "$ATTEMPTS" ] || return 1
+        say "           $HTTP_ERROR; trying again in $attempt s"
+        sleep "$attempt"
+        attempt=$((attempt + 1))
+    done
+}
+
+# download URL FILE WHAT -> 0, or 2 when the server answered 404. Any other
+# failure ends the install with a message naming WHAT.
+download() {
+    if fetch "$1" "$2" '*/*' follow; then return 0; fi
+    [ "$HTTP_CODE" = 404 ] && return 2
+    why=$HTTP_ERROR
+    [ "$HTTP_CODE" = 000 ] || why="HTTP $HTTP_CODE"
+    die "could not download $3 from $1
+  $why
+$NETWORK_ADVICE"
+}
+
+# Sets TAG to the newest published release (drafts and pre-releases do not
+# count). Asks the GitHub API; when that is rate limited (403, 429) or
+# fails, reads the redirect of releases/latest instead. No release at all
+# ends the install with a notice.
+resolve_latest() {
+    if fetch "$API_REPO/releases/latest" "$tmp/latest.json" application/vnd.github+json follow; then
+        TAG=$(grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$tmp/latest.json" | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/')
+        [ -n "$TAG" ] && return 0
+        api_why="the answer named no release"
+    else
+        case $HTTP_CODE in
+            404) no_release ;;
+            403 | 429) api_why="rate limited (HTTP $HTTP_CODE)" ;;
+            000) api_why=$HTTP_ERROR ;;
+            *) api_why="HTTP $HTTP_CODE" ;;
+        esac
+    fi
+    say "GitHub API: $api_why; asking $DOWNLOAD_REPO/releases/latest instead"
+    if fetch "$DOWNLOAD_REPO/releases/latest" "$tmp/latest.html" '*/*' noredirect; then
+        case $HTTP_LOCATION in
+            */releases/tag/*)
+                TAG=${HTTP_LOCATION##*/releases/tag/}
+                return 0 ;;
+            */releases | */releases/) no_release ;;
+        esac
+        web_why="HTTP $HTTP_CODE, redirect to '$HTTP_LOCATION'"
+    elif [ "$HTTP_CODE" = 000 ]; then
+        web_why=$HTTP_ERROR
+    else
+        web_why="HTTP $HTTP_CODE"
+    fi
+    die "could not find out which Volt release is the newest.
+  $API_REPO/releases/latest: $api_why
+  $DOWNLOAD_REPO/releases/latest: $web_why
+$NETWORK_ADVICE
+Or name the release: VOLT_VERSION=0.1.0 (the releases: $REPO_URL/releases)"
 }
 
 sha256_of() {
@@ -115,13 +255,10 @@ The download is damaged or was altered. Nothing was installed."
     say "Verified   SHA256 $actual"
 }
 
+# Not an error (no "error:" prefix): there is nothing to install yet.
 no_release() {
-    die "no published Volt release was found at $1.
-Build from source instead (needs Rust, https://rustup.rs):
-  git clone $REPO_URL
-  cd volt
-  cargo install --locked --path crates/volt-driver
-Details: $BOOK_URL#build-from-source"
+    printf 'No Volt release has been published yet.\n%s\n' "$SOURCE_ADVICE" >&2
+    exit 1
 }
 
 # The startup file that puts the install directory on PATH, by login shell.
@@ -240,20 +377,25 @@ main() {
     else
         version=${VOLT_VERSION:-$PINNED_VERSION}
         if [ -n "$version" ]; then
-            base="$REPO_URL/releases/download/v${version#v}"
+            TAG="v${version#v}"
         else
-            base="$REPO_URL/releases/latest/download"
+            resolve_latest
+            say "Newest release: $TAG"
         fi
+        base="$DOWNLOAD_REPO/releases/download/$TAG"
         name=$asset
         say "Downloading $base/$name"
         rc=0
-        download "$base/SHA256SUMS" "$tmp/SHA256SUMS" || rc=$?
-        [ $rc -eq 2 ] && no_release "$base"
-        [ $rc -eq 0 ] || die "could not download $base/SHA256SUMS (network error?)"
+        download "$base/SHA256SUMS" "$tmp/SHA256SUMS" "SHA256SUMS of Volt $TAG" || rc=$?
+        if [ $rc -eq 2 ]; then
+            printf 'Volt release %s was not found. The published releases are listed at\n%s\n%s\n' \
+                "$TAG" "$REPO_URL/releases" "$SOURCE_ADVICE" >&2
+            exit 1
+        fi
         rc=0
-        download "$base/$name" "$tmp/$name" || rc=$?
-        [ $rc -eq 2 ] && die "the release has no archive $name"
-        [ $rc -eq 0 ] || die "could not download $base/$name (network error?)"
+        download "$base/$name" "$tmp/$name" "the Volt $TAG archive" || rc=$?
+        [ $rc -eq 2 ] && die "Volt release $TAG has no archive $name.
+Install by hand ($BOOK_URL#manual-install) or build from source ($BOOK_URL#build-from-source)."
         verify "$tmp/$name" "$tmp/SHA256SUMS" "$name"
     fi
 

@@ -33,6 +33,13 @@ The script prints each step: the download, the SHA256 check, where it put
 `volt` and what it changed on your `PATH`. On Windows, the PowerShell
 window that ran the command can use `volt` at once. Other terminals, and
 every terminal on Linux and macOS, see it after you **open a new one**.
+A terminal program that is already running, such as Windows Terminal or
+VS Code, hands its old `PATH` to every new tab: **close it completely**
+and start it again.
+
+While no release is published, the command installs nothing and says
+"No Volt release has been published yet.", followed by the commands to
+[build from source](#build-from-source).
 
 | Platform | Supported by the script |
 |---|---|
@@ -54,13 +61,17 @@ volt 0.1.0
 
 If you see `command not found` (or, on Windows, "The term 'volt' is not
 recognized"), the terminal was opened before the install: close it and
-open a new one.
+open a new one. With Windows Terminal or VS Code, close the whole program,
+not just the tab. If the script warned that your `PATH` is longer than
+4094 characters, Windows leaves your user `PATH` out of new windows: follow
+the warning (it names any entries repeated in the system `PATH`) or run
+`volt` by its full path, `%LOCALAPPDATA%\Programs\Volt\bin\volt.exe`.
 
 ## What the script did
 
-1. It downloaded the archive for your platform and the release's
-   `SHA256SUMS` file from
-   `https://github.com/volt-hdl/volt/releases/latest/download/`, and
+1. It asked GitHub for the newest release, downloaded the archive for
+   your platform and the release's `SHA256SUMS` file from
+   `https://github.com/volt-hdl/volt/releases/download/<version>/`, and
    checked the archive against it. If the check fails, the script stops
    and deletes the download: nothing is installed and nothing changes.
 2. It put the binary in a folder of your own account:
