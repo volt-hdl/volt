@@ -12,6 +12,7 @@
 #  13. README/kitaptaki kurulum adresleri yayınlanan adlarla aynı (ADR-0096)
 #  14. kurulum betikleri saf ASCII ve BOM'suz (Pages charset'siz
 #      octet-stream sunar; PS 5.1 ASCII dışını yanlış çözer)
+#  15. README, yol haritası ve kitaptaki belge bağlantıları ve çapaları var
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -254,6 +255,51 @@ for f in scripts/install/install.ps1 scripts/install/install.sh; do
         violation "$f:$bad ASCII dışı bayt; kurulum betikleri saf ASCII olmalı (kontrol 14)"
     fi
 done
+# ── 15: belge bağlantıları (yol haritası, README, kitap) ──────────────
+# README'deki ve docs/roadmap.md'deki göreli bağlantılar, bu dosyalarla
+# kitaptaki https://github.com/volt-hdl/volt/{blob,tree}/main/<yol>
+# bağlantıları var olan dosyaya gider; https://volt-hdl.github.io/volt/<ad>.html
+# bir kitap sayfasıdır (book/src/<ad>.md). .md hedefindeki #çapa, hedefin
+# bir başlığının GitHub kısaltmasıdır (küçük harf, noktalama silinir,
+# boşluk '-'); kitap içi bağlantıları mdbook denetler.
+doc_slugs() {
+    awk '/^[[:space:]]*```/ { f = !f; next }
+         !f && /^#+[[:space:]]/ {
+             s = $0; sub(/^#+[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s)
+             s = tolower(s); gsub(/[^[:alnum:] _-]/, "", s); gsub(/ /, "-", s); print s
+         }' "$1"
+}
+doc_link() { # $1 kaynak dosya, $2 depo köküne göre hedef, $3 çapa (boş olabilir)
+    if [ ! -e "$ROOT/$2" ]; then
+        echo "$1: bağlantı hedefi yok: $2 (kontrol 15)"
+    elif [ -n "$3" ] && [[ "$2" == *.md ]] && ! doc_slugs "$ROOT/$2" | grep -qxF -- "$3"; then
+        echo "$1: $2 içinde '#$3' başlığı yok (kontrol 15)"
+    fi
+}
+link_hits=$(
+    for f in README.md docs/roadmap.md $(cd "$ROOT" && find book/src -name '*.md' | sort); do
+        for u in $(grep -oE 'https://github\.com/volt-hdl/volt/(blob|tree)/main/[^[:space:])#">]+(#[^[:space:])">]*)?' "$ROOT/$f" | sort -u); do
+            p=${u#https://github.com/volt-hdl/volt/*/main/}
+            case "$p" in *'#'*) doc_link "$f" "${p%%#*}" "${p#*#}" ;; *) doc_link "$f" "$p" "" ;; esac
+        done
+        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$ROOT/$f" | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | sort -u); do
+            doc_link "$f" "book/src/$n.md" ""
+        done
+        case "$f" in README.md) dir="" ;; docs/roadmap.md) dir="docs/" ;; *) continue ;; esac
+        for l in $(grep -oE '\]\([^)[:space:]]*\)' "$ROOT/$f" | sed 's#^](##; s#)$##' | sort -u); do
+            case "$l" in [a-z]*:*) continue ;; esac
+            rel=${l%%#*}; anchor=""
+            case "$l" in *'#'*) anchor=${l#*#} ;; esac
+            if [ -n "$rel" ]; then rel="$dir$rel"; else rel="$f"; fi
+            doc_link "$f" "$rel" "$anchor"
+        done
+    done
+)
+if [ -n "$link_hits" ]; then
+    while IFS= read -r line; do
+        violation "$line"
+    done <<< "$(echo "$link_hits" | sort -u)"
+fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then

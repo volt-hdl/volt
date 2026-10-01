@@ -231,6 +231,10 @@ More designs: [`examples/README.md`](examples/README.md).
 
 ## Limitations
 
+The full list, with workarounds, is in the book:
+[Known limitations](https://volt-hdl.github.io/volt/limitations.html).
+Planned work: [Roadmap](docs/roadmap.md).
+
 - **RDC checking covers reset release, not reset ordering.** `E3003`
   reports an asynchronous reset port shared by several clock domains, a raw
   reset synchronized twice on one clock, and a raw reset port that does not
@@ -386,6 +390,8 @@ verified in CI.
 - [docs/stdlib.md](docs/stdlib.md): standard library reference
 - [examples/README.md](examples/README.md): example designs with
   verification results
+- [docs/roadmap.md](docs/roadmap.md): planned work, with the status of
+  each item
 - [docs/README.md](docs/README.md): full document index
 
 ## License

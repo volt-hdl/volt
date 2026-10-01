@@ -34,3 +34,4 @@
 
 [Glossary](glossary.md)
 [Where to go next](where-next.md)
+[Known limitations](limitations.md)
