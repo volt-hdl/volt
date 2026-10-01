@@ -1,6 +1,6 @@
 # ADR-0096: Kurulum Betikleri — Tek Komutla Doğrulanmış, Yönetici Yetkisi İstemeyen, Geri Alınabilir Kurulum
 
-> Statü: Uygulandı — betikler, Pages yayını ve CI testleri kuruldu; yayımlanmış sürüm henüz yok, haftalık canlı iş o güne dek "henüz sürüm yok" iletisini sınar; sürüm yokken komut eki (2026-10-01) sonda
+> Statü: Uygulandı — betikler, Pages yayını ve CI testleri kuruldu; yayımlanmış sürüm henüz yok, haftalık canlı iş o güne dek "henüz sürüm yok" iletisini sınar; sürüm yokken komut ve Explorer PATH eki (2026-10-01) sonda
 > Önceki karar: ADR-0093 — §2.1 ve §2.4'teki sürümlü arşiv adları (`volt-vX.Y.Z-<hedef>`) sürümsüz oldu (`volt-<hedef>`)
 > İlgili: ADR-0093 (sürüm iş akışı: arşivler, `SHA256SUMS`, taslak Release; betikler her sürüme varlık olarak eklenir), ADR-0094 (Docker köprüsü: kurulumdan sonra simülasyon için gereken tek ek), ADR-0084 (`volt doctor`: betiğin gösterdiği sonraki adım).
 > Tarih: 2026-09-29
@@ -10,8 +10,8 @@
 > `.github/workflows/README.md`, `scripts/check-consistency.{ps1,sh}`
 > (kontrol 13), `book/src/tour/install.md`, README "Installation";
 > ek (2026-10-01): `install.ps1`, `install.sh`, `test/` (YENİ:
-> `fake-github.py`, `test-network.{ps1,sh}`), `install.yml`,
-> `scripts/check-consistency.{ps1,sh}` (kontrol 14)
+> `fake-github.py`, `test-network.{ps1,sh}`, `test-explorer.ps1`),
+> `install.yml`, `scripts/check-consistency.{ps1,sh}` (kontrol 14)
 
 ## Sorun
 
@@ -420,3 +420,62 @@ de görülür).
   `test-network.sh` (Git Bash, `uname` taklidi) yeşil. Kullanıcı PATH'i
   önce yedeklendi; testlerden sonra tür (`REG_SZ`), uzunluk (695) ve SHA256
   yedekle aynı.
+
+### Explorer'dan açılan yeni pencereler (okur bulgusu 2, 2026-10-01)
+
+Okur testinde Win+R ile açılan yeni bir PowerShell penceresi kurulumdan
+sonra volt'u bulamadı. Varsayım "betik `WM_SETTINGCHANGE` duyurusunu
+yapmıyor" idi; ölçüm bunu doğrulamadı:
+- Duyuru PR #69'dan beri vardı ve etkiliydi. Zararsız bir HKCU değişkeniyle
+  denendi: duyurusuz Explorer'ın başlattığı süreç değişkeni görmüyor,
+  duyuruyla görüyor.
+- Gerçek neden Windows'un bir sınırı. Explorer yeni sürecin PATH'ini
+  sistem PATH'i + `;` + kullanıcı PATH'i olarak kurar ve bu **4094
+  karakteri aşarsa kullanıcı PATH'inin tamamını dışarıda bırakır**. Eşik bu
+  makinede adım adım ölçüldü: 4094'te ekleniyor, 4095'te düşüyor.
+- Okurun makinesinde sistem PATH'i 3537 karakterdi (99 kez yinelenen
+  `.lmstudio\bin`, başka bir programın kurulumundan), kullanıcı PATH'i
+  695. Explorer'dan başlayan hiçbir süreç Volt'tan önce de kullanıcı
+  PATH'inin hiçbir girdisini (`C:\Tools\bin`, npm) görmüyordu.
+
+PR #69'un denetimleri bunu göremezdi:
+- CI'daki "yeni kabuk", test sürecinin çocuğuydu ve PATH'i kayıttan
+  testin kendisi kuruyordu. Explorer'ın bellekteki kopyası, duyuru ve
+  sınır hiç devreye girmiyordu.
+- Yerel "Explorer'dan açılan pencere" (`Start-Process explorer.exe
+  <.cmd>`) ölçüldü. `.cmd`'yi oturumun kabuğu açmıyor: svchost
+  (DcomLaunch) o anda yeni bir `explorer.exe /factory,{75dff2b7-…}
+  -Embedding` COM sunucusu başlatıyor ve bu süreç ortamını kayıttan
+  yeniden kuruyor. Bu yüzden duyuru olmasa da güncel kaydı görür.
+- O gün sistem PATH'inin bu kadar uzun olup olmadığı bilinmiyor.
+
+Yeni davranış (`install.ps1`):
+- **Kayıt:** kayda doğrudan yazmaya ve türü korumaya devam eder.
+- **Duyuru:** kurulumda (girdi zaten varsa da) ve kaldırmada duyurur;
+  `SendMessageTimeout`'un sonucunu denetler. Add-Type derleyemezse
+  .NET'in `SetEnvironmentVariable(…, User)` yolu aynı duyuruyu yapar (var
+  olmayan bir değişken silinir, başka bir şey değişmez; ölçüldü). İkisi de
+  olmazsa "oturumu kapatıp açın" uyarısı verir.
+- **4094 sınırı:** aşılırsa betik bunu sayılarla söyler ve sistem
+  PATH'indeki yinelenen girdileri adlandırır.
+- **Constrained Language Mode:** CLM'de `Add-Type`,
+  `SetEnvironmentVariable` ve `HttpWebRequest` yasak (ölçüldü); betik en
+  başta durur ve elle kurulum bağlantısını verir, yığın izi yok.
+- **Son ileti:** artık Windows Terminal ve VS Code'un tamamen kapatılması
+  gerektiğini söylüyor; yeni sekmeler programın eski ortamını devralır.
+
+Doğrulama: `test/test-explorer.ps1` (CI: windows-latest, PS 5.1 ve 7).
+- **Süreci kim başlatıyor:** denetim süreci oturum kabuğunun içinden
+  başlatılır. Masaüstünün `IShellDispatch`'i (`ShellWindows.FindWindowSW`,
+  `SWC_DESKTOP`) kabuğun explorer.exe'sinde yaşar, `ShellExecute` süreci
+  orada yaratır. Test şunları doğrular:
+  - ebeveyn, `/factory` olmayan explorer.exe;
+  - testin kendi ortamına koyduğu işaret değişkeni bu süreçte yok.
+- **Akış:** kurulumdan sonra bu süreç `<geçici dizin>\bin\volt.exe`'yi
+  bulur, kaldırmadan sonra bulmaz. Kullanıcı PATH'i sınıra sığmıyorsa test
+  süresince kısa bir değerle değiştirilir; ikinci bölüm sınırı aşar ve
+  uyarıyı bekler.
+- **Mutasyon:** duyuru devre dışı bırakılınca test "kurulumdan sonra
+  bulamıyor" ile düşüyor.
+- **Yerel:** kullanıcı PATH'i yedeklendi ve her koşudan sonra tür,
+  uzunluk ve SHA256 olarak yedekle aynı.
