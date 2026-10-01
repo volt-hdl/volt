@@ -35,7 +35,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   olmayan (tamamen kombinasyonel) modül, `reset = none` alanı ve
   `active_low` alanı (`rst_n`). Testbench artık yalnız modülün gerçek
   reset portlarını sürer; varsayılan alanda üretilen testbench ve test
-  zamanlaması aynıdır. GTKWave oturumu artık `rst` portunu da gösterir.
+  zamanlaması aynıdır, GTKWave oturumu değişmez.
 - volt-hir, volt-sv-emit ve volt-lower'da `clippy::wildcard_enum_match_arm`
   açık: bir enum'u `_ =>` ile gezen kol yasak, yeni varyant ele alınmayan
   her yeri derleme sırasında gösterir. Mevcut joker kollar açık kollara,

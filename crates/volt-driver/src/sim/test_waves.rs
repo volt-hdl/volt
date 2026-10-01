@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use volt_diagnostics::lstr;
-use volt_sv_emit::{sim as tbgen, SimPort, TbTest};
+use volt_sv_emit::{sim as tbgen, SimPort, SimReset, TbTest};
 
 use super::tb_output::{parse_tb_output, TestOutcome};
 use super::verilator::{run_simulation, verilate, VerilateJob};
@@ -105,9 +105,17 @@ impl GroupWaves<'_> {
         if !vcd.is_file() {
             return None;
         }
+        // Otomatik `rst`/`rst_n` oturumda yalnız ham reset'li modülde
+        // gösterilir (ADR-0065'ten beri olduğu gibi); port listesi onu
+        // testbench sürsün diye her zaman taşır (ADR-0098).
+        let raw_reset = self
+            .ports
+            .iter()
+            .any(|p| matches!(p.reset, Some(SimReset::Raw(_))));
         let plain: Vec<PlainTrace> = self
             .ports
             .iter()
+            .filter(|p| raw_reset || !matches!(p.reset, Some(SimReset::Auto(_))))
             .filter_map(|p| {
                 Some(PlainTrace {
                     name: p.name.clone(),
@@ -307,6 +315,8 @@ mod tests {
         }
         // enum portu çevirisiz ikinci kez listelenmez.
         assert!(!gtkw.contains("@24\nTOP.Fsm.mode"), "{gtkw}");
+        // Otomatik reset portu (ham reset yok) oturumda gösterilmez.
+        assert!(!gtkw.contains("TOP.Fsm.rst"), "{gtkw}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

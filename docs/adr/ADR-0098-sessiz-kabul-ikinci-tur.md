@@ -128,7 +128,9 @@ değişmez (örneklerin 123 testi geçti). Reset portu yoksa model bir kez
 değerini kaydeder, o yapılmadan ilk posedge kenar sayılmaz (ölçüldü:
 `reset = none` register'ı bir çevrim sonra hâlâ 0).
 
-Port listesinde artık `rst` de vardır; GTKWave oturumu onu da gösterir.
+Port listesi (`collect_sim_ports`) artık otomatik `rst`/`rst_n`'yi de
+taşır; GTKWave oturumu onu, ADR-0065'ten beri olduğu gibi, yalnız ham
+reset'li modülde gösterir (kitaptaki ekran görüntüsü geçerli kalır).
 
 ### 6. Joker enum kolu kuralı
 
