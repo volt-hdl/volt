@@ -946,9 +946,15 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
 
     // Test veri dosyaları (ADR-0058) ana dosyaya göre çözülür.
     let test_files = sim_lower::FsTestFiles::for_test_file(file);
-    let Some(constraints) =
-        run_semantic_stages(&parsed, &imports.scopes, &test_files, &mut diagnostics)
-    else {
+    // `X_test.volt`: test blokları kardeş tasarımla tam denetlenir.
+    let test_dut = volt_hir::unit_load::load_test_sibling(file);
+    let Some(constraints) = run_semantic_stages(
+        &parsed,
+        &imports.scopes,
+        &test_files,
+        test_dut.as_ref(),
+        &mut diagnostics,
+    ) else {
         return Ok(fail(map, diagnostics, parsed.ast));
     };
     if count_errors(&diagnostics) > 0 {
@@ -1009,10 +1015,11 @@ fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
     test_files: &dyn volt_hir::TestFileLoader,
+    test_dut: Option<&volt_ast::SourceFile>,
     out: &mut Vec<Diagnostic>,
 ) -> Option<volt_hir::ConstraintResult> {
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
-    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), out).constraints
+    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), test_dut, out).constraints
 }
 
 /// Tanıları seçilen formatta stderr'e yazar (JSON zarfı hariç — o
@@ -1529,6 +1536,17 @@ fn print_check_footer(start: Instant, errors: usize, warnings: usize, file: Opti
         return;
     }
     match file {
+        // Test dosyasından SV üretilmez; sıradaki adım testleri koşmak.
+        Some(file) if sim::is_test_file(file) => {
+            let name = file.display();
+            eprintln!(
+                "{}",
+                lstr!(
+                    en: "       Next: volt test {name}   (run the tests)";
+                    tr: "   Sıradaki: volt test {name}   (testleri koştur)"
+                )
+            );
+        }
         Some(file) => {
             let name = file.display();
             eprintln!(
@@ -1560,7 +1578,11 @@ fn check_project(format: OutputFormat) -> ExitCode {
     };
     let start = Instant::now();
     let (mut errors, mut warnings) = (0, 0);
-    for file in project::check_roots(&project) {
+    // Test dosyaları kaynak değildir ama denetlenir (kardeş tasarımla).
+    let files = project::check_roots(&project)
+        .into_iter()
+        .chain(sim::project_test_files(&project.manifest));
+    for file in files {
         if format == OutputFormat::Human {
             eprintln!(
                 "{}",

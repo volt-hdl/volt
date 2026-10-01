@@ -449,6 +449,22 @@ pub fn register_generated(map: &mut SourceMap, generated: &[volt_syntax::Generat
     }
 }
 
+/// `X_test.volt` için kardeş `X.volt` yolu (varsa; ADR-0033 kuralı).
+pub fn test_sibling_path(file: &Path) -> Option<PathBuf> {
+    let stem = file.file_stem()?.to_string_lossy();
+    let base = stem.strip_suffix("_test")?;
+    let sibling = file.with_file_name(format!("{base}.volt"));
+    sibling.is_file().then_some(sibling)
+}
+
+/// Test dosyasının sürdüğü tasarım: kardeş `X.volt` biriminin AST'si.
+/// `volt check`, `volt build` ve editör test bloklarını `volt test` ile
+/// aynı tam denetimden geçirir (kardeş yoksa ya da okunamıyorsa `None`).
+pub fn load_test_sibling(file: &Path) -> Option<volt_ast::SourceFile> {
+    let sibling = test_sibling_path(file)?;
+    load_unit(&sibling).ok().map(|unit| unit.parsed.ast)
+}
+
 /// Ana dosyadan başlayarak birimi yükler. G/Ç hatası (ana dosya ya da
 /// bulunan bir bağımlılık okunamadı) `Err` döner — çıkış kodu 3.
 pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {

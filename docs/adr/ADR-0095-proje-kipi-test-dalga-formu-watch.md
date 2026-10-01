@@ -1,6 +1,6 @@
 # ADR-0095: Proje Kipi — Argümansız check/build/run/verify, Düşen Testin Dalga Formu ve `volt test --watch`
 
-> Statü: Uygulandı
+> Statü: Uygulandı — test dosyalarının `volt check` denetimi ekte (2026-10-01)
 > İlgili: ADR-0084 (`volt new` şablonları: Volt.toml `top`, "Next:" satırları dosya adsız), ADR-0092 (dalga formu oturumu: `volt test` oturumu DUT portlarını da listeler), ADR-0094 (Docker köprüsü: "Ctrl-C yolu konteyneri kaldırmaz" sınırı `--watch`'ta kapandı), ADR-0061 (Volt.toml araması ve tavanı), ADR-0089 (test keşfinin atlama kuralları — proje kaynakları ve izleme aynı yürüyücüyü kullanır), ADR-0033 (`volt run` testbench'i: 64 bitten geniş portlar).
 > Tarih: 2026-09-28
 > Etkilenen: volt-driver (`project.rs`, `watch.rs`, `interrupt.rs` YENİ;
@@ -249,3 +249,37 @@ key_store gerçek Verilator'da (Docker) simüle edildi.
   tasarımda uyarı basılır, kayıt yazılmaz.
 - `volt verify` ve `volt run` konteynerleri `--watch` dışında adsızdır;
   Ctrl-C davranışları ADR-0094'teki gibidir.
+
+## Ek — `volt check` test dosyalarını da denetler (2026-10-01, `fix/book-findings-correctness`)
+
+Bu ek kararı değiştirmez; §2'deki argümansız `check`'in kapsamını ve tek
+dosyalı `check`'in test dosyasındaki davranışını düzeltir.
+
+### Belirti
+
+Kitap yazılırken (PR #68) bulundu: `counter_test.volt`'ta `dut.countx`
+(yanlış port adı) `volt check counter_test.volt` ile 0 hata verdi ve
+sonraki adım olarak anlamsız `volt build counter_test.volt` önerildi;
+argümansız `volt check` test dosyalarını hiç okumadı. Hata ancak
+`volt test` ile (E8502) görünüyordu. Editör de sessizdi.
+
+### Kök neden
+
+Ortak boru hattı (ADR-0070) test bloklarını yalnız aynı dosyanın
+modülleriyle denetliyordu; dosyada modül yoksa "DUT başka dosyada" diye
+modül-varlık denetimini atlıyordu. Kardeş `X.volt`'u yalnız `volt test`
+(`check_unit_tests`) yüklüyordu.
+
+### Uygulama
+
+- `volt_hir::unit_load::load_test_sibling`: `X_test.volt` için kardeş
+  `X.volt` biriminin AST'si (kural `test_sibling_path`, `volt test` de
+  onu kullanır). `run_semantic_stages` yeni `test_dut` girdisiyle test
+  bloklarını `volt test` ile aynı tam denetimden geçirir. `volt check`,
+  `volt build` ve LSP (`analyze`, birim ve tek dosya yolu) bunu geçirir;
+  `volt test` yeni tanıları zaten tekilleştirdiği için çift sayım yok.
+- Test dosyası için sonraki adım `volt test X_test.volt   (run the
+  tests)`.
+- Argümansız `volt check`, kaynaklardan sonra projenin test dosyalarını
+  (`volt test` ile aynı keşif, ADR-0089) denetler.
+- Depodaki 15 `*_test.volt` dosyası yeni denetimde temiz.

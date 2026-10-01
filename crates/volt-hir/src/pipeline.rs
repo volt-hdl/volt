@@ -51,10 +51,15 @@ pub fn pre_resolve_checks(ast: &SourceFile, lint: UnenforcedLint) -> Vec<Diagnos
 /// Aşama 2-4 + çözümleme sonrası denetimler. `resolve` çağıran
 /// tarafından üretilir (sürücü: birim modu `resolve_unit`, LSP: tek
 /// dosya `resolve_file`). Tanılar `out`'a eklenir.
+///
+/// `test_dut`: test dosyasının sürdüğü tasarım (kardeş `X.volt`,
+/// [`crate::unit_load::load_test_sibling`]). Verilirse test blokları
+/// `volt test` ile aynı tam denetimden geçer (bilinmeyen DUT, port).
 pub fn run_semantic_stages(
     ast: &SourceFile,
     resolve: ResolveResult,
     test_files: Option<&dyn TestFileLoader>,
+    test_dut: Option<&SourceFile>,
     out: &mut Vec<Diagnostic>,
 ) -> SemanticStages {
     let mut stages = SemanticStages {
@@ -106,16 +111,19 @@ pub fn run_semantic_stages(
     // ── Handshake protokolü (ADR-0050) ──
     out.extend(crate::check_handshakes(ast, resolve));
 
-    // ── Test blokları (ADR-0033): dosyada hiç modül yoksa testler kardeş
-    // dosyanın modüllerini kullanıyordur; modül-varlık denetimi atlanır.
+    // ── Test blokları (ADR-0033): kardeş tasarım yüklendiyse tam denetim;
+    // yoksa ve dosyada hiç modül yoksa testler bilinmeyen bir dosyanın
+    // modüllerini kullanıyordur — modül-varlık denetimi atlanır.
     let has_modules = ast
         .items
         .iter()
         .any(|i| matches!(ast.items_arena[*i].kind, volt_ast::ItemKind::Module(_)));
+    let mut sources = vec![ast];
+    sources.extend(test_dut);
     out.extend(crate::check_tests_with_files(
-        &[ast],
+        &sources,
         ast,
-        !has_modules,
+        !has_modules && test_dut.is_none(),
         test_files,
     ));
 

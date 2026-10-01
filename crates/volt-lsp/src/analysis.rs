@@ -135,7 +135,14 @@ fn editor_analysis(path: &str, text: &str) -> (Analysis, Vec<Diagnostic>) {
         let lint = volt_hir::UnenforcedLint::discover(Path::new(path).parent());
         diagnostics.extend(volt_hir::pre_resolve_checks(&analysis.ast, lint));
         let resolve = volt_hir::resolve_file(&analysis.ast);
-        let stages = volt_hir::run_semantic_stages(&analysis.ast, resolve, None, &mut diagnostics);
+        let dut = volt_hir::unit_load::load_test_sibling(Path::new(path));
+        let stages = volt_hir::run_semantic_stages(
+            &analysis.ast,
+            resolve,
+            None,
+            dut.as_ref(),
+            &mut diagnostics,
+        );
         analysis.resolve = Some(stages.resolve);
         analysis.typeck = stages.typeck;
         analysis.domain = stages.domain;
@@ -200,7 +207,9 @@ fn run_unit(path: &Path, text: &str, validate_emit: bool) -> Option<UnitRun> {
             let resolve = volt_hir::resolve_unit(ast, &imports.scopes);
             // Test veri dosyaları (ADR-0058) editörde okunmaz: içerik
             // denetimleri (E8508/E8510) yalnız `volt check`/`build`'de.
-            let run = volt_hir::run_semantic_stages(ast, resolve, None, &mut diags);
+            // Test dosyası: kardeş tasarımla `volt check` ile aynı denetim.
+            let dut = volt_hir::unit_load::load_test_sibling(path);
+            let run = volt_hir::run_semantic_stages(ast, resolve, None, dut.as_ref(), &mut diags);
             if validate_emit && count_errors(&diags) == 0 {
                 let names = unit.source_names();
                 let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
