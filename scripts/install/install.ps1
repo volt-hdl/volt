@@ -36,7 +36,7 @@
 $VoltRepo = 'https://github.com/volt-hdl/volt'
 $VoltBook = 'https://volt-hdl.github.io/volt/tour/install.html'
 # Where releases are looked up and downloaded from. VOLT_INSTALL_TEST_SERVER
-# exists for install.yml's fake server only (scripts/install/test/).
+# is for install.yml's fake server (scripts/install/test/) and nothing else.
 $VoltDownloadRepo = $VoltRepo
 $VoltApiRepo = 'https://api.github.com/repos/volt-hdl/volt'
 if ($env:VOLT_INSTALL_TEST_SERVER) {
@@ -52,6 +52,14 @@ function Install-VoltHdl {
 
     Set-StrictMode -Version 2.0
     $ErrorActionPreference = 'Stop'
+
+    # Constrained Language Mode (a device policy) forbids the .NET calls
+    # this script needs: downloading, the registry, the PATH broadcast.
+    if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+        throw ("this PowerShell runs in $($ExecutionContext.SessionState.LanguageMode) mode (set by a policy " +
+            "on this computer), in which the installer cannot download or change PATH.`n" +
+            "Install by hand instead: $VoltBook#manual-install")
+    }
 
     # Empty here. The copy attached to a release names that release
     # (release.yml writes it), so releases/download/vX.Y.Z/install.ps1
@@ -160,15 +168,23 @@ function Install-VoltHdl {
         Write-Host "Installed  $new in $bin"
     }
 
-    Register-VoltUserPath -Bin $bin
+    $announced = Register-VoltUserPath -Bin $bin
+    $fits = Test-VoltPathLength
     Test-VoltShadowing -Bin $bin
     # This session: put the directory in front, once.
     $parts = @($env:Path -split ';' | Where-Object { $_ -and -not (Test-VoltSamePath $_ $bin) })
     $env:Path = (@($bin) + $parts) -join ';'
 
     Write-Host ''
-    Write-Host "$new is ready. This PowerShell window can run volt now;"
-    Write-Host 'terminals that were already open need to be closed and opened again.'
+    Write-Host "$new is ready. This PowerShell window can run volt now."
+    if (-not $announced) {
+        Write-Warning ('Windows could not be told that PATH changed: other windows find volt after you ' +
+            'sign out and sign in again.')
+    } elseif ($fits) {
+        Write-Host 'New windows started from the Start menu, Win+R or the taskbar find it as well. A terminal'
+        Write-Host 'program that is already running (Windows Terminal, VS Code) keeps its old PATH, even in'
+        Write-Host 'new tabs: close it completely and start it again.'
+    }
     Write-Host '  volt doctor      # which commands work here'
     Write-Host '  volt new blinky  # a project to start from'
     Write-Host 'Update: run the same install command again. Uninstall: set $env:VOLT_UNINSTALL = 1 and run it again.'
@@ -440,33 +456,41 @@ function Get-VoltUserPathKey {
     return [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
 }
 
+# Returns whether Explorer was told (Send-VoltSettingChange). Told again
+# when the entry is already there: an earlier run may have failed to.
 function Register-VoltUserPath {
     param([string]$Bin)
     $key = Get-VoltUserPathKey
+    $added = $false
     try {
         $value = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
         $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
         if ($null -ne $key.GetValue('Path')) { $kind = $key.GetValueKind('Path') }
+        $present = $false
         foreach ($entry in $value -split ';') {
-            if ($entry -and (Test-VoltSamePath $entry $Bin)) {
-                Write-Host "PATH       already holds $Bin (user PATH, HKCU\Environment)"
-                return
+            if ($entry -and (Test-VoltSamePath $entry $Bin)) { $present = $true }
+        }
+        if (-not $present) {
+            # In front: the Volt just installed wins over an older copy
+            # elsewhere on the user PATH. Removing "<Bin>;" again gives back
+            # the same string.
+            if ($value -eq '') {
+                $value = $Bin
+            } else {
+                $value = "$Bin;$value"
             }
+            $key.SetValue('Path', $value, $kind)
+            $added = $true
         }
-        # In front: the Volt just installed wins over an older copy
-        # elsewhere on the user PATH. Removing "<Bin>;" again gives back
-        # the same string.
-        if ($value -eq '') {
-            $value = $Bin
-        } else {
-            $value = "$Bin;$value"
-        }
-        $key.SetValue('Path', $value, $kind)
     } finally {
         $key.Close()
     }
-    Send-VoltSettingChange
-    Write-Host "PATH       added $Bin to your user PATH (HKCU\Environment)"
+    if ($added) {
+        Write-Host "PATH       added $Bin to your user PATH (HKCU\Environment)"
+    } else {
+        Write-Host "PATH       already holds $Bin (user PATH, HKCU\Environment)"
+    }
+    return (Send-VoltSettingChange)
 }
 
 function Unregister-VoltUserPath {
@@ -491,13 +515,19 @@ function Unregister-VoltUserPath {
         $key.Close()
     }
     if ($removed) {
-        Send-VoltSettingChange
         Write-Host "Removed    $Bin from your user PATH (HKCU\Environment)"
+        if (-not (Send-VoltSettingChange)) {
+            Write-Warning ('Windows could not be told that PATH changed: programs started from the Start menu, ' +
+                'Win+R or the taskbar keep finding volt until you sign out and sign in again.')
+        }
     }
 }
 
-# Tell Explorer that the environment changed, so terminals started from now
-# on see the new PATH without logging out.
+# Tell Explorer that the environment changed (WM_SETTINGCHANGE,
+# "Environment"). Explorer keeps its own copy of the environment and hands
+# it to everything it starts (Start menu, Win+R, taskbar); without this
+# message that copy stays as it was until the user signs out. Returns
+# whether the message went out.
 function Send-VoltSettingChange {
     try {
         if (-not ('VoltInstall.NativeMethods' -as [type])) {
@@ -508,10 +538,47 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
         $result = [UIntPtr]::Zero
         # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s.
-        [VoltInstall.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
+        $sent = [VoltInstall.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+        if ($sent -ne [IntPtr]::Zero) { return $true }
     } catch {
-        Write-Verbose "WM_SETTINGCHANGE broadcast failed: $($_.Exception.Message); log out and in to refresh PATH"
+        Write-Verbose "Add-Type/SendMessageTimeout failed: $($_.Exception.Message)"
     }
+    # Where Add-Type cannot compile (a policy that blocks it): .NET sends
+    # the same broadcast after SetEnvironmentVariable for the User target.
+    # Deleting a variable that does not exist changes nothing else.
+    try {
+        [Environment]::SetEnvironmentVariable('VOLT_INSTALLER_NO_SUCH_VARIABLE', $null, 'User')
+        return $true
+    } catch {
+        Write-Verbose "SetEnvironmentVariable failed: $($_.Exception.Message)"
+    }
+    return $false
+}
+
+# Windows builds the PATH of a new process from the system PATH, ';' and
+# the user PATH, and leaves the user PATH out completely when the result
+# would be longer than 4094 characters (measured on Windows 11, ADR-0096
+# appendix). Warns then: new windows would not find volt. Returns whether
+# the user PATH fits.
+function Test-VoltPathLength {
+    $system = [string][Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user = [string][Environment]::GetEnvironmentVariable('Path', 'User')
+    $total = $system.Length + 1 + $user.Length
+    if ($total -le 4094) { return $true }
+    $message = ("Windows will leave your whole user PATH out of programs started from now on (Start menu, " +
+        "Win+R, taskbar, new terminals): the system PATH ($($system.Length) characters) and your user PATH " +
+        "($($user.Length)) together are longer than 4094 characters. Volt is installed, but new windows will " +
+        'not find it, nor anything else on your user PATH, until PATH is shorter.')
+    $dups = @($system -split ';' | Where-Object { $_ } | Group-Object | Where-Object { $_.Count -gt 1 } |
+            Sort-Object Count -Descending)
+    if ($dups.Count -gt 0) {
+        $extra = ($dups | Measure-Object -Property Count -Sum).Sum - $dups.Count
+        $message += (" The system PATH holds $extra repeated entries (most: '$($dups[0].Name)', " +
+            "$($dups[0].Count) times); removing them in 'Edit the system environment variables' " +
+            '(administrator) fixes this.')
+    }
+    Write-Warning $message
+    return $false
 }
 
 # New terminals search the system PATH before the user PATH: a volt.exe in
@@ -549,7 +616,8 @@ function Uninstall-VoltFile {
     }
     Unregister-VoltUserPath -Bin $Bin
     $env:Path = @($env:Path -split ';' | Where-Object { $_ -and -not (Test-VoltSamePath $_ $Bin) }) -join ';'
-    Write-Host 'Volt is uninstalled. Terminals that are already open keep the old PATH until they are closed.'
+    Write-Host ('Volt is uninstalled. A terminal program that is already running (Windows Terminal, VS Code) ' +
+        'keeps the old PATH, even in new tabs, until it is closed completely.')
 }
 
 # The whole message, without PowerShell's error record (script line,
@@ -557,7 +625,11 @@ function Uninstall-VoltFile {
 function Write-VoltFailure {
     param($Record)
     $e = $Record.Exception
-    if ($e.Data.Contains('VoltNotice')) {
+    $notice = $false
+    # Guarded: Constrained Language Mode forbids the method call, and this
+    # must not fail while reporting that mode.
+    try { $notice = $e.Data.Contains('VoltNotice') } catch { $notice = $false }
+    if ($notice) {
         Write-Host $e.Message
     } else {
         Write-Host "error: $($e.Message)" -ForegroundColor Red

@@ -29,7 +29,7 @@ set -eu
 
 REPO_URL="https://github.com/volt-hdl/volt"
 # Where releases are looked up and downloaded from. VOLT_INSTALL_TEST_SERVER
-# exists for install.yml's fake server only (scripts/install/test/).
+# is for install.yml's fake server (scripts/install/test/) and nothing else.
 DOWNLOAD_REPO=$REPO_URL
 API_REPO="https://api.github.com/repos/volt-hdl/volt"
 if [ -n "${VOLT_INSTALL_TEST_SERVER:-}" ]; then
