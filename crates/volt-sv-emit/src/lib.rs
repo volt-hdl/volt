@@ -2477,20 +2477,25 @@ impl<'a> Emitter<'a> {
 fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
     for stmt in &block.stmts {
         match stmt {
-            BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. }
-                if !out.contains(&lhs.base.text) =>
-            {
-                out.push(lhs.base.text.clone());
+            BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
+                if !out.contains(&lhs.base.text) {
+                    out.push(lhs.base.text.clone());
+                }
             }
             BlockStmt::If(if_stmt) => collect_written_if(ast, if_stmt, out),
             BlockStmt::Match(m) => {
                 for arm in &m.arms {
-                    if let MatchArmBody::Block(b) = &arm.body {
-                        collect_written(ast, &ast.blocks[*b], out);
+                    match &arm.body {
+                        MatchArmBody::Block(b) => collect_written(ast, &ast.blocks[*b], out),
+                        // Deyim konumunda ifade gövdeli kol atama yapamaz
+                        // (emit E0003 verir).
+                        MatchArmBody::Expr(_) => {}
                     }
                 }
             }
-            _ => {}
+            // Blok içi `for` açılır; gövdesinde yazılan reg de reset alır.
+            BlockStmt::For(f) => collect_written(ast, &ast.blocks[f.body], out),
+            BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }
