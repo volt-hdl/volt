@@ -120,7 +120,7 @@ echo "=== release that does not exist ==="
 out=$(run_installer VOLT_VERSION=0.0.0 VOLT_INSTALL_DIR="$work/none" 2>&1) && fail "install of v0.0.0 succeeded"
 echo "$out"
 case $out in
-    *"no published Volt release"*"cargo install"*) ;;
+    *"Volt release v0.0.0 was not found"*"cargo install"*) ;;
     *) fail "no build-from-source advice for a missing release" ;;
 esac
 [ ! -e "$work/none" ] || fail "missing release left files"

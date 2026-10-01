@@ -12,6 +12,9 @@
 # files and leaves the user PATH exactly as it was (value and registry type).
 # Then: a wrong SHA256SUMS stops the install and leaves nothing behind, and
 # a release that does not exist ends with the build-from-source advice.
+# Those two run as `powershell -File install.ps1`: under iex the installer
+# returns instead of exiting (exit would close the window), so only a file
+# run has an exit code. test-network.ps1 covers the iex side of failures.
 param(
     [Parameter(Mandatory = $true)][string]$Archive,
     [ValidateSet('powershell', 'pwsh')][string]$Shell = 'powershell'
@@ -59,10 +62,10 @@ $pathBefore = Get-UserPath
 Write-Host "User PATH before: $(Format-UserPath $pathBefore)"
 
 # Runs the installer the way `irm ... | iex` does, in a fresh $Shell
-# process; Vars sets the VOLT_* variables for that run only (through the
-# environment: Windows PowerShell 5.1 garbles non-ASCII characters, as in
-# C:\Users\<name>, on a native command line).
-function Invoke-Installer([hashtable]$Vars, [string]$After = '') {
+# process (with -File: as a script file); Vars sets the VOLT_* variables for
+# that run only (through the environment: Windows PowerShell 5.1 garbles
+# non-ASCII characters, as in C:\Users\<name>, on a native command line).
+function Invoke-Installer([hashtable]$Vars, [string]$After = '', [switch]$File) {
     foreach ($k in $Vars.Keys) { Set-Item "env:$k" $Vars[$k] }
     $install = "Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression"
     $cmd = "`$ErrorActionPreference = 'Stop'; $install; $After"
@@ -70,7 +73,11 @@ function Invoke-Installer([hashtable]$Vars, [string]$After = '') {
     # under 'Stop'; the exit code is what counts here.
     $ErrorActionPreference = 'Continue'
     try {
-        & $Shell -NoProfile -ExecutionPolicy Bypass -Command $cmd | Out-Host
+        if ($File) {
+            & $Shell -NoProfile -ExecutionPolicy Bypass -File $installer | Out-Host
+        } else {
+            & $Shell -NoProfile -ExecutionPolicy Bypass -Command $cmd | Out-Host
+        }
         return $LASTEXITCODE
     } finally {
         $ErrorActionPreference = 'Stop'
@@ -127,7 +134,7 @@ try {
     Write-Host '=== wrong checksum'
     $tempBefore = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Filter 'volt-install-*' -Directory |
             Where-Object { $_.FullName -ne $work }).Count
-    $code = Invoke-Installer @{ VOLT_ARCHIVE = "$work\bad\$name"; VOLT_INSTALL_DIR = "$work\bad-install" }
+    $code = Invoke-Installer @{ VOLT_ARCHIVE = "$work\bad\$name"; VOLT_INSTALL_DIR = "$work\bad-install" } -File
     if ($code -eq 0) { Test-Fail 'install with a wrong SHA256SUMS succeeded' }
     if (Test-Path "$work\bad-install") { Test-Fail 'wrong checksum left files in the install directory' }
     $tempAfter = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Filter 'volt-install-*' -Directory |
@@ -136,14 +143,14 @@ try {
     if ((Format-UserPath (Get-UserPath)) -cne (Format-UserPath $pathBefore)) { Test-Fail 'wrong checksum changed the user PATH' }
 
     Write-Host '=== release that does not exist'
-    # The child's stdout and stderr go to files: the thrown message is on
-    # stderr, Write-Host output on stdout.
+    # The child's stdout and stderr go to files: the whole output must be
+    # the message, without a PowerShell error record.
     $env:VOLT_VERSION = '0.0.0'
     $env:VOLT_INSTALL_DIR = "$work\none"
     try {
         $p = Start-Process $Shell -Wait -PassThru -NoNewWindow `
             -RedirectStandardOutput "$work\none.out" -RedirectStandardError "$work\none.err" `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', "Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression")
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"")
     } finally {
         Remove-Item env:VOLT_VERSION, env:VOLT_INSTALL_DIR -ErrorAction SilentlyContinue
     }
@@ -151,8 +158,11 @@ try {
     Write-Host "exit $($p.ExitCode), $($text.Length) characters of output:"
     Write-Host $text
     if ($p.ExitCode -eq 0) { Test-Fail 'install of v0.0.0 succeeded' }
-    if ($text -notmatch 'no published Volt release' -or $text -notmatch 'cargo install') {
+    if (-not $text.Contains('Volt release v0.0.0 was not found') -or -not $text.Contains('cargo install')) {
         Test-Fail 'no build-from-source advice for a missing release'
+    }
+    if ($text -match 'At line:|CategoryInfo|FullyQualifiedErrorId|(?m)^\s*Line \|') {
+        Test-Fail 'a missing release printed a PowerShell error record'
     }
     if (Test-Path "$work\none") { Test-Fail 'missing release left files' }
 } finally {
