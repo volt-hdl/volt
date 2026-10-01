@@ -45,7 +45,7 @@ use volt_span::{FileId, Span};
 
 pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
-pub use reach::{instance_children, reachable_modules};
+pub use reach::{instance_children, instance_subtree, reachable_modules};
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, run_testbench_cpp_with,
@@ -345,6 +345,9 @@ pub struct SvModule {
     /// Başlıksız modül gövdesi — birleşik metin ([`unit_sv`]) bundan
     /// kurulur; çıktı kümesi süzülünce yeniden kurmak için saklanır.
     pub body: String,
+    /// Başlığın altındaki dosya notu (`--emit=sva` yükümlülük makroları,
+    /// ADR-0097); yoksa boş. Birleşik metinde birim başlığına toplanır.
+    pub notes: String,
 }
 
 /// Birleşik (tek dosya) SV metni: birim başlığı + modül gövdeleri
@@ -352,6 +355,10 @@ pub struct SvModule {
 pub fn unit_sv(source_name: &str, modules: &[SvModule]) -> String {
     let bodies: Vec<&str> = modules.iter().map(|m| m.body.as_str()).collect();
     let mut sv = header(source_name);
+    for m in modules.iter().filter(|m| !m.notes.is_empty()) {
+        sv.push('\n');
+        sv.push_str(&m.notes);
+    }
     sv.push('\n');
     sv.push_str(&bodies.join("\n"));
     sv.push('\n');
@@ -473,6 +480,7 @@ pub fn emit_unit(
     // modül sırasına bağlı olarak ikinci kez bildirmesin.
     emitter.audit_unit_names();
 
+    let mut file_notes = emitter.obligation_notes();
     let mut per_module = Vec::new();
     let mut multiclock_modules = Vec::new();
     for &item_idx in &ast.items {
@@ -488,7 +496,12 @@ pub fn emit_unit(
             // ADR-0024: her modül kendi dosyasında; başlık o modülün
             // kaynak dosyasını gösterir.
             let origin = emitter.source_name_of(item.span.file);
+            let notes = file_notes.remove(&module.name.text).unwrap_or_default();
             let mut sv = header_for(origin, Some(&module.name.text));
+            if !notes.is_empty() {
+                sv.push('\n');
+                sv.push_str(&notes);
+            }
             sv.push('\n');
             sv.push_str(&body);
             sv.push('\n');
@@ -497,6 +510,7 @@ pub fn emit_unit(
                 name: module.name.text.clone(),
                 sv,
                 body,
+                notes,
             });
         }
     }

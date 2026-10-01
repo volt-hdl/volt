@@ -27,13 +27,29 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   sessizce düşüyordu ("no contracts found", çıkış 0); artık hata (çıkış 1).
 - **E5006**: hiçbir özellik denetlemeyen koşu (kontrat yok ya da yalnız
   varsayım var) artık başarı değildir (çıkış 1).
+- `volt build --emit=sva` (ayrı `.sva` + `bind`, `--sva=inline`, ticari
+  araçlar) aynı açığı taşıyordu: alt örneğin `requires`/`assume`'u üst
+  modülün kanıtında da koşulsuz `assume property` idi. Artık aynı
+  `VOLT_SUB_<Modül>` makrosuyla iki dallıdır: makro tanımsızken (modül
+  formal tepe) `assume property`, tanımlıyken (modül bir üst modülün
+  örneği) `assert property`. Üretilen dosyanın başı makronun adını ve
+  ticari araçta iki doğrulama biçimini (`+define+VOLT_SUB_<Modül>`)
+  yazar; altında yükümlülüklü örnek bulunan modülün `.sv`'si, o modül
+  formal tepe iken tanımlanacak makroların tam listesini verir. Makro
+  tanımlanmazsa davranış eskisi gibidir.
 - Etkilenen örnek: `examples/hybrid_accel/` — `TernaryArray` görevi
   (`ternary_array.volt` ve `hybrid_top.volt` koşularında) `TernaryPe`'nin
   `assume: (weight as i2) != -2` ön koşulunu dizinin serbest `weight`
   girişinden bozar (E5001); dizi bu ön koşulu arayüzünde söylemiyor ve dil
   bugün `for` içinde kontrat kabul etmiyor. `HybridTop` görevinde aynı
-  yükümlülük kanıtlanır.
+  yükümlülük kanıtlanır. Örnek değiştirilmedi: tek başına düşmesi
+  beklenen davranıştır (dosyanın başında ve `examples/README.md`'de
+  yazılı); dizi kontratları yol haritasında, yeni ADR ister.
   `riscv_alu.volt` ve `riscv_imm.volt` kontrat taşımadığı için E5006 verir.
+- Yol haritasına üç madde: isteğe bağlı `volt verify --vacuity` (CI'da
+  haftalık), diziler üzerinde kontrat, alt modülün reset varsayımının üst
+  görevde varsayım kalması (bu sonuncusu kitabın Known limitations
+  bölümüne de eklendi).
 
 ### Eklendi — Yol haritası ve bilinen sınırlar (2026-10-01)
 

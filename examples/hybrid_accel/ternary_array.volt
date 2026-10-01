@@ -9,6 +9,12 @@
 // A value held on `act[y]` reaches column x after x cycles and the
 // column sum needs TN more hops: with constant inputs `acc[x]` settles
 // after x + TN cycles to sum over y of weight[y][x] * act[y].
+//
+// Formal (ADR-0097): TernaryArray does not constrain its `weight` input,
+// so each TernaryPe's `assume: (weight as i2) != -2` is an obligation the
+// array cannot meet on its own. `volt verify` of this file alone is
+// EXPECTED to fail (E5001). In the HybridTop task the weights come from
+// TernaryCtl and the same obligation is proven.
 
 package hybrid_accel::ternary_array;
 

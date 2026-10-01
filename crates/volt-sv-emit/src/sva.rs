@@ -6,17 +6,24 @@
 //! modülün ilk saat portunun alanından gelir; saatsiz modülde SVA
 //! üretilmez (formel araçlar saat ister) — `volt verify` bunu E5005 yapar.
 //!
-//! `volt verify` (Immediate) akışında requires/assume yalnız modülün kendi
-//! görevinde `assume`'dur; modül bir üst görevde örnekken `assert` olur
-//! (`VOLT_SUB_<modül>` makrosu, ADR-0097).
+//! requires/assume yalnız modül formal tepe iken `assume`'dur; modül bir
+//! üst modülün örneğiyken `assert` olur (`VOLT_SUB_<modül>` makrosu,
+//! ADR-0097). `volt verify` (Immediate) makroyu görev başına tanımlar;
+//! `--emit=sva` (ayrı/gömülü) aynı makroyu kullanır ve dosya başına ticari
+//! araçta nasıl tanımlanacağını yazar.
 //!
 //! Varsayılan çıktı ayrı `.sva` dosyasıdır ve hedef modüle `bind` ile
 //! bağlanır; `(.*)` bağlama modül kapsamında ada göre çözüldüğünden
 //! kontrol modülünün portları register'lara da erişebilir.
 
-use volt_ast::{BinOp, ClockEdge, Contract, ContractKind, Expr, ExprKind, Idx, ModuleDecl, UnOp};
+use std::collections::HashMap;
+
+use volt_ast::{
+    BinOp, ClockEdge, Contract, ContractKind, Expr, ExprKind, Idx, ItemKind, ModuleDecl, UnOp,
+};
 
 use crate::expr::Sig;
+use crate::reach::{instance_children, instance_subtree};
 use crate::SourceText;
 use crate::{header, ClockPort, Emitter};
 use volt_span::{FileId, Span};
@@ -188,13 +195,27 @@ impl<'a> Emitter<'a> {
             self.sva_props.push(prop);
             let comment = self.contract_comment(c, &ind);
             let expr = self.sva_expr(c);
+            // ADR-0097: `volt verify` ile aynı makro — ticari araçta modül
+            // tek başına doğrulanırken varsayım, üst bağlamda yükümlülük.
+            let directive = if is_obligation(c.kind) {
+                format!(
+                    "`ifdef {}\n\
+                     {ind}assert property ({name});\n\
+                     `else\n\
+                     {ind}{verb} property ({name});\n\
+                     `endif",
+                    sub_instance_macro(&module.name.text),
+                )
+            } else {
+                format!("{ind}{verb} property ({name});")
+            };
             blocks.push(format!(
                 "{comment}\n\
                  {ind}property {name};\n\
                  {ind}    {event}\n\
                  {ind}    {expr};\n\
                  {ind}endproperty\n\
-                 {ind}{verb} property ({name});",
+                 {directive}",
             ));
         }
         Some(blocks.join("\n\n"))
@@ -401,6 +422,10 @@ impl<'a> Emitter<'a> {
 
         let mut content = header(self.source_name);
         content.push('\n');
+        if module.contracts.iter().any(|c| is_obligation(c.kind)) {
+            content.push_str(&obligation_rule_note(&module_name));
+            content.push('\n');
+        }
         // Verilator -Wall temizliği (ADR-0079): dosya adı build/formal/
         // <modül>.sva düzenindedir, kontrol modülü `<modül>_sva` adını bind
         // için taşır; portlar sinyalin tamamını gözler, özellik bir kısmını
@@ -434,6 +459,59 @@ impl<'a> Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    /// `--emit=sva` modül `.sv` dosyalarının başlık notları (ADR-0097):
+    /// gömülü kipte yükümlülüklü modülün kendi makro kuralı, iki kipte de
+    /// altında yükümlülüklü örnek bulunan modülün formal tepe makroları.
+    /// Ayrı kipte kural `.sva` dosyasının başındadır (`sva_file`). Tepe
+    /// notu aşağı doğru kapanıştan kurulur; çıktı kümesi süzülünce
+    /// (ADR-0042 ek) tepe kalırsa altındakiler de kalır.
+    pub(crate) fn obligation_notes(&self) -> HashMap<String, String> {
+        if !matches!(self.sva_mode, SvaMode::Inline | SvaMode::Separate) {
+            return HashMap::new();
+        }
+        let modules: Vec<&ModuleDecl> = self
+            .ast
+            .items
+            .iter()
+            .filter_map(|&i| match &self.ast.items_arena[i].kind {
+                ItemKind::Module(m) => Some(m),
+                _ => None,
+            })
+            .collect();
+        // Saatsiz modül SVA üretmez (makrosu da yoktur).
+        let obligated: Vec<&str> = modules
+            .iter()
+            .filter(|m| m.contracts.iter().any(|c| is_obligation(c.kind)))
+            .filter(|m| !self.collect_clock_ports(m).is_empty())
+            .map(|m| m.name.text.as_str())
+            .collect();
+        let children = instance_children(self.ast);
+        let mut notes = HashMap::new();
+        for m in &modules {
+            let name = m.name.text.as_str();
+            let mut note = String::new();
+            if self.sva_mode == SvaMode::Inline && obligated.contains(&name) {
+                note.push_str(&obligation_rule_note(name));
+            }
+            let below = instance_subtree(name, &children);
+            let macros: Vec<String> = obligated
+                .iter()
+                .filter(|o| below.iter().any(|b| b == *o))
+                .map(|o| sub_instance_macro(o))
+                .collect();
+            if !macros.is_empty() {
+                if !note.is_empty() {
+                    note.push('\n');
+                }
+                note.push_str(&formal_top_note(name, &macros));
+            }
+            if !note.is_empty() {
+                notes.insert(name.to_string(), note);
+            }
+        }
+        notes
+    }
+
     /// Kontratın `SvaProp` kaydı (sby FAIL / sim izleyici eşlemesi).
     /// `has_reset`: kontratın saat alanında reset var mı? Yoksa formal
     /// başlangıç durumu serbesttir, cover derinlik alt sınırı bilinmez.
@@ -512,6 +590,41 @@ pub fn sub_instance_macro(module: &str) -> String {
 /// olan kontrat türü mü (ADR-0097)?
 pub fn is_obligation(kind: ContractKind) -> bool {
     matches!(kind, ContractKind::Requires | ContractKind::Assume)
+}
+
+/// `--emit=sva` dosya başı notu (ADR-0097): `requires`/`assume`'u olan
+/// modülün makrosu ve ticari araçta iki doğrulama biçimi. `volt verify`
+/// makroyu `.sby`'de kendisi tanımlar; elle koşuda kullanıcı tanımlar.
+/// Değişken uzunluklu adlar (modül, makro) satır sonunda durur; uzun adlı
+/// modülde de metin satırları kırılmaz.
+pub(crate) fn obligation_rule_note(module: &str) -> String {
+    let mac = sub_instance_macro(module);
+    format!(
+        "// Contract obligations (ADR-0097) of module {module}\n\
+         //   Its requires/assume properties switch on the macro {mac}\n\
+         //   Verified on its own (the module is the formal top): leave the\n\
+         //     macro undefined; requires/assume are assumptions on its inputs.\n\
+         //   Verified inside a parent (the parent is the formal top): define\n\
+         //     the macro; requires/assume become assertions the parent must meet.\n\
+         //     vlog/vcs/xrun: +define+{mac}\n\
+         //     Yosys:         read -define {mac}\n"
+    )
+}
+
+/// `--emit=sva` dosya başı notu (ADR-0097): altında yükümlülüklü örnek
+/// bulunan modül formal tepe olduğunda tanımlanacak makrolar — `volt
+/// verify`'ın o görevde tanımladığı küme (`verify_plan.rs`).
+pub(crate) fn formal_top_note(module: &str, macros: &[String]) -> String {
+    format!(
+        "// Formal top (ADR-0097): module {module}\n\
+         //   When this module is the formal top, define the macros of the\n\
+         //   instances below; their requires/assume are then checked as its\n\
+         //   obligations.\n\
+         //     vlog/vcs/xrun: +define+{}\n\
+         //     Yosys:         read -define {}\n",
+        macros.join("+"),
+        macros.join(" "),
+    )
 }
 
 pub(crate) fn kind_slot(kind: ContractKind) -> usize {

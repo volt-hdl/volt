@@ -120,7 +120,18 @@ clocked module that instantiates it.
 `assume` contracts of the module under proof cannot hold together, every
 assertion passes without proving anything; the solver can also hold
 reset for the whole run. Check that a `cover` of the behaviour you care
-about is reached with `--mode cover`.
+about is reached with `--mode cover`. Roadmap:
+[Vacuity check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#vacuity-check-for-formal-proofs).
+
+**A submodule's reset assumption stays an assumption in its parent's
+proof.** Each module with a reset assumes that reset is asserted in the
+first cycle, also when it is an instance in a parent's proof. When the
+parent drives the submodule's reset from its own logic or from another
+reset domain, this assumption constrains the parent: it can hide a
+failure, or contradict the parent's reset so that every assertion passes
+without proving anything. Designs whose submodules use the parent's reset
+are not affected. Roadmap:
+[Submodule reset assumptions](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#submodule-reset-assumptions-in-parent-proofs).
 
 **Information flow is checked by types, not proved formally.** `E3009`
 catches secret data that reaches a public output at compile time; no

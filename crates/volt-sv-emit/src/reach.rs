@@ -80,6 +80,28 @@ pub fn instance_children(ast: &SourceFile) -> Vec<(String, Vec<String>)> {
     out
 }
 
+/// Modülün altındaki (kendisi hariç, her derinlikte) örneklenen modüller;
+/// `children` [`instance_children`] çıktısıdır. `volt verify` görev planı
+/// ile `--emit=sva` formal tepe notu aynı kümeyi kullanır (ADR-0097).
+pub fn instance_subtree(module: &str, children: &[(String, Vec<String>)]) -> Vec<String> {
+    let kids = |m: &str| {
+        children
+            .iter()
+            .find(|(name, _)| name == m)
+            .map_or(&[][..], |(_, c)| c.as_slice())
+    };
+    let mut seen: Vec<String> = Vec::new();
+    let mut work: Vec<&str> = kids(module).iter().map(String::as_str).collect();
+    while let Some(m) = work.pop() {
+        if m == module || seen.iter().any(|s| s == m) {
+            continue;
+        }
+        seen.push(m.to_string());
+        work.extend(kids(m).iter().map(String::as_str));
+    }
+    seen
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -418,13 +418,157 @@ fn sub_instance_macro_is_shared_with_the_driver() {
     assert_eq!(volt_sv_emit::sub_instance_macro("Uart"), "VOLT_SUB_Uart");
 }
 
+/// `--emit=sva` (ticari araçlar) `volt verify` ile aynı makroyu kullanır:
+/// modül tek başına doğrulanırken (makro tanımsız) `requires` varsayım,
+/// üst bağlamda (makro tanımlı) üst modülün yükümlülüğü.
 #[test]
-fn inline_and_separate_modes_keep_requires_as_assume() {
-    // Ayrı/gömülü SVA ticari araçlar içindir (bind); bağlam makrosu yalnız
-    // `volt verify` akışındadır.
-    let out = full(&uart("    requires: speed <= 2\n"), SvaMode::Inline);
-    assert!(!out.sv.contains("`ifdef"), "{}", out.sv);
-    assert!(out.sv.contains("assume property (req_0);"), "{}", out.sv);
+fn separate_mode_requires_switches_on_the_sub_instance_macro() {
+    let sva = single_sva(&uart("    requires: speed <= 2\n"));
+    let expected = "    endproperty\n\
+                    `ifdef VOLT_SUB_Uart\n    \
+                    assert property (req_0);\n\
+                    `else\n    \
+                    assume property (req_0);\n\
+                    `endif\n";
+    assert!(sva.contains(expected), "{sva}");
+}
+
+#[test]
+fn inline_mode_assume_switches_on_the_sub_instance_macro() {
+    let out = full(&uart("    assume: speed == 0\n"), SvaMode::Inline);
+    let expected = "`ifdef VOLT_SUB_Uart\n    \
+                    assert property (asm_0);\n\
+                    `else\n    \
+                    assume property (asm_0);\n\
+                    `endif\n";
+    assert!(out.sv.contains(expected), "{}", out.sv);
+}
+
+#[test]
+fn concurrent_assertions_do_not_switch_by_context() {
+    let sva = single_sva(&uart("    invariant: !(start && busy)\n    cover: busy\n"));
+    assert!(!sva.contains("`ifdef"), "{sva}");
+    assert!(
+        !sva.contains("VOLT_SUB_"),
+        "kural notu yalnız yükümlülükte: {sva}"
+    );
+}
+
+/// Dosya başı notu: makronun adı ve iki doğrulama biçimi (ticari araçta
+/// `+define+`, Yosys'te `read -define`).
+#[test]
+fn separate_sva_file_header_explains_the_macro() {
+    let sva = single_sva(&uart("    requires: speed <= 2\n"));
+    let expected = "// Contract obligations (ADR-0097) of module Uart\n\
+                    //   Its requires/assume properties switch on the macro VOLT_SUB_Uart\n\
+                    //   Verified on its own (the module is the formal top): leave the\n\
+                    //     macro undefined; requires/assume are assumptions on its inputs.\n\
+                    //   Verified inside a parent (the parent is the formal top): define\n\
+                    //     the macro; requires/assume become assertions the parent must meet.\n\
+                    //     vlog/vcs/xrun: +define+VOLT_SUB_Uart\n\
+                    //     Yosys:         read -define VOLT_SUB_Uart\n";
+    let note = sva.find(expected).expect("not");
+    let checker = sva.find("module uart_sva (").expect("kontrol modülü");
+    assert!(note < checker, "not dosyanın başında: {sva}");
+}
+
+/// Uzun modül adı metin satırlarını kırmaz: adlar satır sonundadır.
+#[test]
+fn obligation_notes_keep_text_lines_short_for_long_module_names() {
+    let src = uart("    requires: speed <= 2\n").replace("Uart", "AVeryLongPeripheralName");
+    let sva = single_sva(&src);
+    for line in sva.lines().filter(|l| l.starts_with("// ")) {
+        let has_name = line.contains("AVeryLongPeripheralName");
+        assert!(has_name || line.len() <= 80, "uzun satır: {line:?}");
+    }
+}
+
+const HIERARCHY: &str = "module Leaf {\n    in clk : clock\n    in x : u8\n    \
+                         out y : u8\n    requires: x < 10\n    y = x\n}\n\n\
+                         module Mid {\n    in clk : clock\n    in a : u8\n    \
+                         out b : u8\n    assume: a < 5\n    \
+                         let l = Leaf { clk: clk, x: a }\n    b = l.y\n}\n\n\
+                         module Top {\n    in clk : clock\n    in p : u8\n    \
+                         out q : u8\n    let m = Mid { clk: clk, a: p }\n    \
+                         q = m.b\n}\n";
+
+fn module_sv<'a>(out: &'a EmitOutput, name: &str) -> &'a str {
+    &out.modules
+        .iter()
+        .find(|m| m.name == name)
+        .expect("modül")
+        .sv
+}
+
+/// Formal tepe notu: altındaki yükümlülüklü örneklerin makroları —
+/// `volt verify`'ın o görevde tanımladığı küme. Kontratsız tepe modülde
+/// de yazılır (ayrı kipte `.sva` dosyası yoktur, not RTL dosyasındadır).
+#[test]
+fn rtl_file_of_a_formal_top_lists_the_macros_to_define() {
+    let out = full(HIERARCHY, SvaMode::Separate);
+    let top = module_sv(&out, "Top");
+    let expected = "// Formal top (ADR-0097): module Top\n\
+                    //   When this module is the formal top, define the macros of the\n\
+                    //   instances below; their requires/assume are then checked as its\n\
+                    //   obligations.\n\
+                    //     vlog/vcs/xrun: +define+VOLT_SUB_Leaf+VOLT_SUB_Mid\n\
+                    //     Yosys:         read -define VOLT_SUB_Leaf VOLT_SUB_Mid\n";
+    let note = top.find(expected).expect("tepe notu");
+    assert!(note < top.find("module Top (").expect("modül"), "{top}");
+    let mid = module_sv(&out, "Mid");
+    assert!(
+        mid.contains("//     vlog/vcs/xrun: +define+VOLT_SUB_Leaf\n"),
+        "{mid}"
+    );
+    // Ayrı kipte modülün kendi kuralı .sva'dadır, RTL'de değil.
+    assert!(!mid.contains("Contract obligations"), "{mid}");
+    let leaf = module_sv(&out, "Leaf");
+    assert!(!leaf.contains("ADR-0097"), "altında örnek yok: {leaf}");
+}
+
+#[test]
+fn inline_mode_puts_both_notes_in_the_module_file() {
+    let out = full(HIERARCHY, SvaMode::Inline);
+    let mid = module_sv(&out, "Mid");
+    let rule = mid
+        .find("switch on the macro VOLT_SUB_Mid\n")
+        .expect("kural");
+    let top = mid
+        .find("// Formal top (ADR-0097): module Mid\n")
+        .expect("tepe notu");
+    assert!(
+        rule < top && top < mid.find("module Mid (").unwrap(),
+        "{mid}"
+    );
+    // Birleşik metin (`--single-file`) notları birim başlığında toplar.
+    let unit_note = out
+        .sv
+        .find("switch on the macro VOLT_SUB_Leaf\n")
+        .expect("birleşik");
+    assert!(
+        unit_note < out.sv.find("module Leaf (").unwrap(),
+        "{}",
+        out.sv
+    );
+    assert!(
+        out.sv
+            .contains("//     Yosys:         read -define VOLT_SUB_Leaf VOLT_SUB_Mid\n"),
+        "{}",
+        out.sv
+    );
+}
+
+#[test]
+fn rtl_only_and_verify_outputs_have_no_obligation_notes() {
+    for mode in [SvaMode::None, SvaMode::Immediate] {
+        let out = full(HIERARCHY, mode);
+        assert!(!out.sv.contains("Formal top"), "{mode:?}: {}", out.sv);
+        assert!(
+            !out.sv.contains("Contract obligations"),
+            "{mode:?}: {}",
+            out.sv
+        );
+    }
 }
 
 /// Saatsiz modülde kontrat sessizce düşmez: formal akış onu kaydeder,

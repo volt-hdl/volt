@@ -14,8 +14,6 @@
 //! denetlenenlerdir. Hiçbir şey denetlemeyen modül görev olmaz; hiçbir
 //! görev yoksa koşu başarı değildir (E5006).
 
-use std::collections::HashMap;
-
 use volt_sv_emit::SvaProp;
 
 /// Tek sby görevinin planı.
@@ -49,13 +47,9 @@ pub(crate) fn plan_tasks(
     children: &[(String, Vec<String>)],
     props: &[SvaProp],
 ) -> Vec<TaskPlan> {
-    let kids: HashMap<&str, &[String]> = children
-        .iter()
-        .map(|(m, c)| (m.as_str(), c.as_slice()))
-        .collect();
     let mut plans = Vec::new();
     for module in modules {
-        let below = subtree(module, &kids);
+        let below = volt_sv_emit::instance_subtree(module, children);
         let own = |i: &usize| props[*i].module_name == *module;
         let mut checked: Vec<usize> = (0..props.len())
             .filter(|i| own(i) && !is_obligation(&props[*i]))
@@ -90,24 +84,6 @@ pub(crate) fn plan_tasks(
         });
     }
     plans
-}
-
-/// Modülün altındaki (kendisi hariç) bütün örneklenen modüller.
-fn subtree(module: &str, kids: &HashMap<&str, &[String]>) -> Vec<String> {
-    let mut seen: Vec<String> = Vec::new();
-    let mut work: Vec<&str> = kids
-        .get(module)
-        .map_or(Vec::new(), |c| c.iter().map(String::as_str).collect());
-    while let Some(m) = work.pop() {
-        if m == module || seen.iter().any(|s| s == m) {
-            continue;
-        }
-        seen.push(m.to_string());
-        if let Some(c) = kids.get(m) {
-            work.extend(c.iter().map(String::as_str));
-        }
-    }
-    seen
 }
 
 /// Hiçbir görevde denetlenmeyen yükümlülükler: birimin tepe modüllerinin

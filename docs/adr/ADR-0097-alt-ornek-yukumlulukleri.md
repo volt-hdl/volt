@@ -112,11 +112,51 @@ read -formal violate.sv
 parent: prep -top Parent
 ```
 
-Makro tanımsızken (elle `sby`, eski akış) `assume` kalır; `--emit=sva`
-(ayrı/gömülü `property` blokları, ticari araçlar) bu ADR'den etkilenmez.
-Yosys seçimiyle (`chformal -assume2assert`) dönüştürme reddedildi: koşum
+Makro tanımsızken (elle `sby`, eski akış) `assume` kalır. `--emit=sva`
+aynı makroyu kullanır (§2a). Yosys seçimiyle (`chformal -assume2assert`) dönüştürme reddedildi: koşum
 `initial assume`'u ile kontrat `assume`'unu ayırt etmek hücre adı/öznitelik
 taşınmasına dayanırdı; makro üretilen metinde görünür ve elle de koşulur.
+
+### 2a. `--emit=sva`: aynı açığın ticari araç yolu
+
+`volt build --emit=sva` (ayrı `.sva` + `bind`, `--sva=inline`) ticari
+formal araçlar içindir ve aynı açığı taşıyordu: alt örneğin `requires`'ı
+üst modülün kanıtında koşulsuz `assume property` idi. Aynı makro burada da
+kullanılır:
+
+```systemverilog
+property req_0;
+    @(posedge clk) disable iff (rst)
+    speed <= 8'd2;
+endproperty
+`ifdef VOLT_SUB_Uart
+    assert property (req_0);
+`else
+    assume property (req_0);
+`endif
+```
+
+Ticari akışta `.sby` yoktur; makroyu kullanıcı tanımlar. Bu yüzden
+üretilen dosyanın başı nasıl yapılacağını söyler:
+
+- Yükümlülüklü modülün özelliklerini taşıyan dosya (ayrı kipte
+  `build/formal/<modül>.sva`, gömülü kipte `build/rtl/<Modül>.sv`):
+  makronun adı; modül tek başına (formal tepe) doğrulanırken makro
+  tanımsız bırakılır, `requires`/`assume` varsayımdır; üst bağlamda (tepe
+  üst modül) makro tanımlanır (`+define+VOLT_SUB_<Modül>` — vlog/vcs/xrun,
+  Yosys'te `read -define`), `requires`/`assume` üst modülün kanıtlaması
+  gereken iddia olur.
+- Altında yükümlülüklü örnek bulunan modülün `build/rtl/<Modül>.sv`'si
+  (iki kipte de; kontratsız üst modülün `.sva`'sı yoktur): o modül formal
+  tepe iken tanımlanacak makroların tam listesi — `volt verify`'ın o
+  görevde tanımladığı küme (`instance_subtree`, `verify_plan.rs` ile ortak).
+  Not aşağı doğru kapanıştan kurulur; çıktı kümesi süzüldüğünde (ADR-0042
+  ek) tepe kalırsa altındakiler de kalır, not bayatlamaz.
+- `--single-file` birleşik metni notları birim başlığında toplar.
+
+Doğrulama: çıktı ağı (ADR-0079) yükümlülüklü her `.sva` ve gömülü tepeyi
+Verilator `-Wall --assert` ile iki kez denetler — makrosuz ve makrolu.
+Mutasyon: `assert` dalı bozulunca ağ 362 bulguyla düşer.
 
 ### 3. Görev kümesi
 
@@ -196,7 +236,7 @@ aynı; değişen dördü:
 
 | Dosya | Önce | Sonra | Sınıf | Açıklama |
 |---|---|---|---|---|
-| `hybrid_accel/ternary_array.volt` | 0 (9 özellik) | 6 | Eksik ön koşul | `TernaryPe`'nin `assume: (weight as i2) != -2` ön koşulu dizinin serbest `weight` girişinden gelir; `TernaryArray` bu ön koşulu arayüzünde söylemez, yani tek başına doğrulanırken ortamı geçersiz trit kodlaması (`2'b10`) sürebilir. Tasarım hatası değil: gerçek bağlamda (`HybridTop`, ağırlıklar `TernaryCtl`'den) aynı yükümlülük kanıtlanır. Örnek DEĞİŞTİRİLMEDİ: ön koşul 64 öğenin her biri içindir ve dil `for` içinde kontrat kabul etmez (`requires` orada E0001); 64 terimli tek bir ifade yazmak ya da `for` kontratı eklemek kullanıcının kararına bırakıldı. |
+| `hybrid_accel/ternary_array.volt` | 0 (9 özellik) | 6 | Eksik ön koşul | `TernaryPe`'nin `assume: (weight as i2) != -2` ön koşulu dizinin serbest `weight` girişinden gelir; `TernaryArray` bu ön koşulu arayüzünde söylemez, yani tek başına doğrulanırken ortamı geçersiz trit kodlaması (`2'b10`) sürebilir. Tasarım hatası değil: gerçek bağlamda (`HybridTop`, ağırlıklar `TernaryCtl`'den) aynı yükümlülük kanıtlanır. Örnek DEĞİŞTİRİLMEDİ: ön koşul 64 öğenin her biri içindir ve dil `for` içinde kontrat kabul etmez (`requires` orada E0001); Karar: örnek ve kontrat değişmez, tek başına düşmesi beklenen davranıştır (dosyanın başında yazılı); dizi kontratları yeni ADR ister (`docs/roadmap.md`). |
 | `hybrid_accel/hybrid_top.volt` | 0 (32 özellik) | 6 | Aynı | Birim `TernaryArray`'ı ayrı görev olarak da içerir; düşen o görevdir. `HybridTop` görevi (alt örneklerin yükümlülükleriyle) geçer. |
 | `riscv_alu.volt` | 0 ("no contracts found") | 1 (E5006) | Beklenen | Kontratsız fn/ALU dosyası: hiçbir şey denetlenmiyor. |
 | `riscv_imm.volt` | 0 ("no contracts found") | 1 (E5006) | Beklenen | Aynı. |
@@ -236,15 +276,21 @@ yazılı.
 ## Sınırlar
 
 - Ortak satırlar: koşum `initial assume (<reset>)` alt modülde de
-  kalır. Alt modülün reset'i üst modülün senkronize reset'idir (ADR-0065),
-  iki varsayım aynı sinyali bağlar; farklı bir reset türetilirse bu
-  varsayım üst görevin başlangıç durumunu kısıtlar. Kontrat değildir, bu
-  ADR'nin kapsamı dışında.
-- `--emit=sva` (ayrı `.sva` + `bind`, `--sva=inline`) ticari araçlar için
-  `assume property` üretmeye devam eder; orada bağlam ayrımı yoktur.
+  kalır (`volt verify` ve `--emit=sva`). Alt modülün reset'i üst modülün
+  senkronize reset'idir (ADR-0065), iki varsayım aynı sinyali bağlar;
+  farklı bir reset türetilirse (başka reset alanı, üst modülün mantığından
+  sürülen reset) bu varsayım üst görevin başlangıç durumunu kısıtlar, bir
+  hatayı gizleyebilir ya da üst modülün kendi reset'iyle çelişip görevi
+  boşa çıkarabilir. Kontrat değildir, bu ADR'de kod değişmedi;
+  `book/src/limitations.md` ve `docs/roadmap.md`'de.
 - Simülasyonda saatsiz modülün kontratları hâlâ izlenmez (ADR-0064
   Sınırlar); E5005 yalnız `volt verify`'dadır.
-- Vacuity mekanizması yok (yukarıda).
+- Vacuity mekanizması yok (yukarıda); isteğe bağlı `volt verify
+  --vacuity` + haftalık CI koşusu `docs/roadmap.md`'de.
+- Diziler üzerinde kontrat yok: `for` içinde kontrat E0001'dir, eleman
+  başına ön koşul yazılamaz. `TernaryArray` bu yüzden tek başına
+  doğrulanamaz (beklenen; dosyanın başında yazılı). Yeni ADR gerektirir,
+  `docs/roadmap.md`'de.
 
 ## Ölçütler
 
