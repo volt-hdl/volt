@@ -188,8 +188,8 @@ failures:
 
 cover summary:
   Counter.cov_0 (counter.volt:26)                          hit 1 time
-  TrafficLight.cov_0 (light.volt:21, auto FSM transition)  hit 1 time
-  TrafficLight.cov_1 (light.volt:27, auto FSM transition)  NEVER HIT
+  TrafficLight.cov_0 (light.volt:21, auto FSM transition)  hit 2 times
+  TrafficLight.cov_1 (light.volt:27, auto FSM transition)  hit 1 time
   TrafficLight.cov_2 (light.volt:33, auto FSM transition)  NEVER HIT
   TrafficLight.cov_3 (light.volt:25, auto counter wrap)    hit 1 time
 
@@ -201,10 +201,11 @@ more with tracing on and wrote its waveform; the `Waveform` line is the
 command that opens it.
 
 The cover summary has new lines. Volt added a cover for every transition
-of the state machine (`auto FSM transition`) and for the timer's wrap. A
-cover is counted one clock edge after its condition becomes true, so a
-transition on the last edge of a test does not show up; that is why
-`cov_1`, the step from green to yellow, reads `NEVER HIT` here.
+of the state machine (`auto FSM transition`) and for the timer's wrap.
+`cov_0`, the step from red to green, is hit twice: once in each test.
+`cov_2`, the step from yellow back to red, reads `NEVER HIT`: no test
+reaches it. A cover that is never hit often points to a missing or wrong
+test, as here.
 
 ## Read the waveform
 
@@ -268,9 +269,9 @@ test red_again_after_green ... ok
 
 cover summary:
   Counter.cov_0 (counter.volt:26)                          hit 1 time
-  TrafficLight.cov_0 (light.volt:21, auto FSM transition)  hit 1 time
+  TrafficLight.cov_0 (light.volt:21, auto FSM transition)  hit 2 times
   TrafficLight.cov_1 (light.volt:27, auto FSM transition)  hit 1 time
-  TrafficLight.cov_2 (light.volt:33, auto FSM transition)  NEVER HIT
+  TrafficLight.cov_2 (light.volt:33, auto FSM transition)  hit 1 time
   TrafficLight.cov_3 (light.volt:25, auto counter wrap)    hit 1 time
 
 test result: ok. 5 passed; 0 failed
