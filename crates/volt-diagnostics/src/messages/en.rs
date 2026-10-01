@@ -162,6 +162,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0021 => "Attribute is parsed but not yet enforced",
         W0022 => "Clock domain has no frequency; no create_clock emitted (ADR-0054)",
         W0023 => "Too many diagnostics; the rest are hidden (ADR-0068)",
+        W0024 => "Attribute has no effect: not attached to anything, or where no pass reads it (ADR-0098)",
         W1001 => "Unused signal / binding",
         W1002 => "Shadowing (same name in an inner scope)",
         W1003 => "Shadowing of a builtin name",

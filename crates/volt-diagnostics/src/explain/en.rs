@@ -1085,6 +1085,13 @@ module VgaTiming { /* ... */ }
             "$ volt check design.volt\n...\nwarning[W0023]: too many diagnostics: 1000 shown, 64365 hidden",
             "$ volt check --max-diagnostics=0 design.volt   // ✓ everything, unlimited\n$ volt check --max-diagnostics=50 design.volt  // ✓ a shorter list",
         ),
+        W0024 => Explanation::new(
+            "Attribute has no effect",
+            "The attribute is not attached to anything (it stands before a contract, a 'stage', 'use' or a closing '}'), or it is attached to a declaration from which no compiler pass reads it. It is ignored.",
+            "An attribute belongs to the item, port, struct field or module statement written right after it (grammar-full.ebnf §2). Contracts, 'stage'/'stall'/'flush', 'use' and 'package' take no attributes. Each attribute is read in specific places: @strict_timing and @mmio on a module, @no_auto_contracts on a module or a 'reg' declaration, @no_protocol_check on a module or a port, @reg on a register map entry, @offset and @access only as arguments of @reg. Anywhere else the compiler would drop it, and you would believe something is configured that is not.\n\nMove the attribute to its place, or remove it. Unknown attribute names are W0020 instead; attributes that are parsed but not enforced anywhere yet are W0021.",
+            "module M {\n    @no_auto_contracts      // ✗ W0024: a contract takes no attributes\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: no effect on a port",
+            "@no_auto_contracts @strict_timing   // ✓ on the module\nmodule M {\n    invariant: count < 10\n    in x : u8",
+        ),
         W0022 => Explanation::new(
             "Clock domain has no frequency; no create_clock emitted",
             "A constraint file was requested (--emit=sdc or xdc), but this clock's domain declares no 'frequency', so its create_clock line is missing.",

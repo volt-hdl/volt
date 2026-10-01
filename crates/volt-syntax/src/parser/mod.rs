@@ -4,6 +4,7 @@
 //! İlkeler (error-recovery.md §1): asla panik yok, her girdide AST,
 //! her kurtarma en az bir token tüketir, kaskadlar bastırılır.
 
+mod attr_use;
 mod auto_contract;
 mod bidir;
 mod bundle;
@@ -196,6 +197,8 @@ pub(crate) struct Parser<'s> {
     /// Bir döngüye ulaşan tip adları (ADR-0069, `type_graph`): bundle ve
     /// Handshake açılımı bunları açmaz.
     pub(crate) recursive_types: HashSet<String>,
+    /// Ayrıştırılan nitelikler (ADR-0098): bağlanmayan W0024 alır.
+    pub(crate) attr_ledger: Vec<attr_use::AttrMark>,
 }
 
 impl<'s> Parser<'s> {
@@ -232,6 +235,7 @@ impl<'s> Parser<'s> {
             bidir: bidir::BidirState::default(),
             consts: std::collections::HashMap::new(),
             recursive_types: HashSet::new(),
+            attr_ledger: Vec::new(),
         }
     }
 

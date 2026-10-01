@@ -18,12 +18,13 @@ use volt_span::Span;
 use crate::token::TokenKind::*;
 use crate::token::{Token, TokenKind};
 
+use super::attr_use::{AttrMark, Follows};
 use super::expr::ABOVE_SHIFT_BP;
 use super::recovery::{ITEM_START, PORT_RECOVERY};
 use super::Parser;
 
 /// Tanınan nitelikler (grammar-full.ebnf §2) — dışındakiler W0020.
-const KNOWN_ATTRIBUTES: &[&str] = &[
+pub(super) const KNOWN_ATTRIBUTES: &[&str] = &[
     "domain",
     "mmio",
     "reg",
@@ -103,6 +104,7 @@ impl Parser<'_> {
     /// Öğeleri okur, bundle düzleştirmesi YAPMAZ — derleme biriminde
     /// (ADR-0042) düzleştirme tüm dosyalar okununca bir kez koşar.
     pub(crate) fn parse_items_only(&mut self) {
+        let first_item = self.ast.items.len();
         while !self.at_eof() {
             let before = self.pos;
             match self.current() {
@@ -114,6 +116,8 @@ impl Parser<'_> {
                 self.bump_any(); // ilerleme garantisi
             }
         }
+        // ADR-0098: ayrıştırılan her nitelik bağlandı ve okunduğu yerde mi?
+        self.check_attribute_use(first_item);
     }
 
     /// `package yol::adi ;`
@@ -400,6 +404,10 @@ impl Parser<'_> {
                 args,
             });
         }
+        // Deftere: bağlanmayan nitelik sonda W0024 alır (ADR-0098).
+        let follows = Follows::of(self.current());
+        self.attr_ledger
+            .extend(attrs.iter().map(|a| AttrMark::new(a, follows)));
         attrs
     }
 
@@ -1606,8 +1614,14 @@ impl Parser<'_> {
                 let name = self.parse_name();
                 match name.text.as_str() {
                     "frequency" => DomainKey::Frequency,
-                    "reset_cycles" => DomainKey::ResetCycles,
-                    "reset_sequence" => DomainKey::ResetSequence,
+                    "reset_cycles" => {
+                        self.unsupported_domain_key(&name);
+                        DomainKey::ResetCycles
+                    }
+                    "reset_sequence" => {
+                        self.unsupported_domain_key(&name);
+                        DomainKey::ResetSequence
+                    }
                     "trust_level" => DomainKey::TrustLevel,
                     _ => {
                         self.push_error(Diagnostic::warning(
@@ -1649,6 +1663,31 @@ impl Parser<'_> {
             key,
             value,
         })
+    }
+
+    /// E0003 — gramerde ayrılmış ama hiçbir geçidin okumadığı alan
+    /// anahtarı (ADR-0098). `reset_cycles`/`reset_sequence`'in anlamı
+    /// spec'te tanımlı değil; E3004 (reset sırası) ADR-0065'te rezerve.
+    /// Sessizce yok saymak kullanıcıya olmayan bir denetimi vaat ederdi.
+    fn unsupported_domain_key(&mut self, name: &Name) {
+        let key = &name.text;
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E0003,
+                lstr!(en: "not supported yet: domain key '{key}'"; tr: "henüz desteklenmiyor: '{key}' alan anahtarı"),
+                LabeledSpan::primary(
+                    name.span,
+                    lstr!(en: "reserved key, no compiler pass reads it"; tr: "ayrılmış anahtar, hiçbir derleyici geçidi okumuyor"),
+                ),
+                lstr!(en: "remove the line; keep the reset length or order in the reset generator outside Volt for now";
+                      tr: "satırı kaldırın; reset süresini ya da sırasını şimdilik Volt dışındaki reset üretecinde tutun"),
+            )
+            .with_note(
+                NoteKind::Note,
+                lstr!(en: "the key is reserved in the grammar (grammar-full.ebnf §3) so that it cannot silently change meaning once reset length and order are checked (E3004 is reserved, ADR-0065)";
+                      tr: "anahtar gramerde ayrılmıştır (grammar-full.ebnf §3), reset süresi ve sırası denetlenmeye başladığında anlamı sessizce değişmesin (E3004 rezerve, ADR-0065)"),
+            ),
+        );
     }
 
     /// `trust_level = secret | confidential | public` (ADR-0052). Üç

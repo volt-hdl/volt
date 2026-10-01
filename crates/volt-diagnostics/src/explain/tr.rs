@@ -1085,6 +1085,13 @@ module VgaTiming { /* ... */ }
             "$ volt check tasarim.volt\n...\nwarning[W0023]: çok fazla tanı: 1000 gösterildi, 64365 gizlendi",
             "$ volt check --max-diagnostics=0 tasarim.volt   // ✓ tümü, sınırsız\n$ volt check --max-diagnostics=50 tasarim.volt  // ✓ daha kısa liste",
         ),
+        W0024 => Explanation::new(
+            "Etkisiz nitelik",
+            "Nitelik hiçbir şeye bağlanmıyor (bir kontratın, 'stage'in, 'use'un ya da kapanış '}'inin önünde) ya da hiçbir derleyici geçidinin okumadığı bir bildirime bağlı. Yok sayılır.",
+            "Nitelik hemen ardından yazılan öğeye, porta, struct alanına ya da modül deyimine aittir (grammar-full.ebnf §2). Kontratlar, 'stage'/'stall'/'flush', 'use' ve 'package' nitelik almaz. Her nitelik belirli yerlerde okunur: @strict_timing ve @mmio modülde, @no_auto_contracts modülde ya da bir 'reg' bildiriminde, @no_protocol_check modülde ya da bir portta, @reg bir register haritası girdisinde, @offset ve @access yalnız @reg'in argümanı olarak. Başka bir yerde derleyici onu atardı; siz de olmayan bir ayarın yapıldığını sanırdınız.\n\nNiteliği yerine taşıyın ya da kaldırın. Bilinmeyen nitelik adı bunun yerine W0020, ayrıştırılan ama henüz hiçbir yerde uygulanmayan nitelik W0021 alır.",
+            "module M {\n    @no_auto_contracts      // ✗ W0024: kontrat nitelik almaz\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: portta etkisi yok",
+            "@no_auto_contracts @strict_timing   // ✓ modülde\nmodule M {\n    invariant: count < 10\n    in x : u8",
+        ),
         W0022 => Explanation::new(
             "Saat alanının frekansı yok; create_clock üretilmedi",
             "Kısıt dosyası istendi (--emit=sdc ya da xdc), ama bu saatin alanı 'frequency' bildirmiyor; create_clock satırı eksik.",

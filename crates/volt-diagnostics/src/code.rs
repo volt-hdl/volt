@@ -115,6 +115,8 @@ error_codes! {
     W3007, W3008, W3009, W3010, W4001, W4002,
     // Simülasyonda izlenemeyen kontrat (ADR-0064)
     W5001,
+    // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
+    W0024,
 }
 
 impl ErrorCode {

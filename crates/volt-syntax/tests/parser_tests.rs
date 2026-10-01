@@ -1550,7 +1550,9 @@ fn domain_clock_expression_is_e0001() {
 #[test]
 fn reset_none_and_literal_keys_are_unchanged() {
     let result = p("domain D { clock = posedge, reset = none, reset_cycles = 4, frequency = 100 }");
-    assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
+    // `reset_cycles` ayrılmış, henüz uygulanmıyor (ADR-0098): E0003, değer
+    // yine ayrıştırılır.
+    assert_eq!(result.error_codes(), ["E0003"]);
     let ItemKind::Domain(domain) = &result.ast.items_arena[result.ast.items[0]].kind else {
         panic!("domain bekleniyor")
     };
@@ -2379,6 +2381,9 @@ fn ui_fail_files_produce_expected_codes() {
         ("199_module_level_expr_stmt.volt", "E0001"),
         // Register'a `on` dışında `=`: kombinasyonel döngü, reset kaybı.
         ("200_register_assign_outside_on.volt", "E0019"),
+        // ADR-0098: bağlanmayan nitelik ve uygulanmayan alan anahtarı.
+        ("201_attribute_not_attached.volt", "W0024"),
+        ("202_domain_reset_cycles.volt", "E0003"),
         ("27_match_missing_wildcard.volt", "E0014"),
         // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
         ("33_stage_out_of_range.volt", "E5012"),
