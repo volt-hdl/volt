@@ -10,6 +10,8 @@
 #   9. her ADR'de sözlükten tek Statü satırı  10. ADR bağlantı hedefleri var
 #  11. yerini alma ↔ Önceki karar iki yönlü  12. her ADR dizinde tam bir kez
 #  13. README/kitaptaki kurulum adresleri yayınlanan adlarla aynı (ADR-0096)
+#  14. kurulum betikleri saf ASCII ve BOM'suz (Pages charset'siz
+#      octet-stream sunar; PS 5.1 ASCII dışını yanlış çözer)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -238,6 +240,20 @@ if [ -n "$install_hits" ]; then
         violation "$line"
     done <<< "$(echo "$install_hits" | sort -u)"
 fi
+
+# ── 14: kurulum betikleri saf ASCII, BOM'suz (ADR-0096 eki) ────────────
+# Gerekçe: GitHub Pages .ps1/.sh dosyalarını charset belirtmeden
+# application/octet-stream olarak sunar; Windows PowerShell 5.1 (irm | iex)
+# ASCII dışı baytları ANSI kod sayfasıyla yanlış çözer, BOM ilk satırı bozar.
+for f in scripts/install/install.ps1 scripts/install/install.sh; do
+    if [ "$(head -c 3 "$ROOT/$f" | od -An -tx1 | tr -d ' \n')" = efbbbf ]; then
+        violation "$f BOM ile başlıyor; kurulum betikleri BOM'suz olmalı (kontrol 14)"
+    fi
+    bad=$(LC_ALL=C grep -n -m 1 '[^[:print:][:space:]]' "$ROOT/$f" | cut -d: -f1 || true)
+    if [ -n "$bad" ]; then
+        violation "$f:$bad ASCII dışı bayt; kurulum betikleri saf ASCII olmalı (kontrol 14)"
+    fi
+done
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then

@@ -24,6 +24,11 @@
 #      book.yml'nin Pages köküne kopyaladığı bir betik, releases/.../download/
 #      <ad> release.yml'nin bir varlığı olmalı; yayınlanan her betik README'de
 #      ve book/src/tour/install.md'de geçmeli (ADR-0096).
+#  14. Kurulum betikleri (scripts/install/install.ps1, install.sh) saf ASCII
+#      ve BOM'suz mu? GitHub Pages bu dosyaları charset belirtmeden
+#      application/octet-stream olarak sunar; Windows PowerShell 5.1 (irm |
+#      iex) böyle bir betikteki ASCII dışı karakterleri ANSI kod sayfasıyla
+#      yanlış çözer, BOM da betiğin ilk satırını bozar (ADR-0096 eki).
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -257,6 +262,24 @@ foreach ($f in 'README.md', 'book/src/tour/install.md') {
     }
 }
 foreach ($h in $hits | Sort-Object -Unique) { Add-Violation $h }
+
+# ── 14: kurulum betikleri saf ASCII, BOM'suz (ADR-0096 eki) ────────────
+# Gerekçe: Pages .ps1/.sh dosyalarını charset'siz octet-stream olarak
+# sunar; PS 5.1 ASCII dışı baytları ANSI kod sayfasıyla yanlış çözer.
+foreach ($f in 'scripts/install/install.ps1', 'scripts/install/install.sh') {
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $root $f))
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Add-Violation "$f BOM ile başlıyor; kurulum betikleri BOM'suz olmalı (kontrol 14)"
+    }
+    $line = 1
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -eq 10) { $line++ }
+        elseif ($bytes[$i] -gt 127) {
+            Add-Violation "${f}:$line ASCII dışı bayt (0x$('{0:X2}' -f $bytes[$i])); kurulum betikleri saf ASCII olmalı (kontrol 14)"
+            break
+        }
+    }
+}
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {
