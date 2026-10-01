@@ -5,6 +5,20 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Eklendi — Yol haritası ve bilinen sınırlar (2026-10-01)
+
+- `docs/roadmap.md` (İngilizce): v0.1 öncesi, v0.1 sonrası ("Next"),
+  1.0 önkoşulları ve araştırma ("Exploring") başlıkları. Her madde bir
+  cümlelik açıklama, gerekçe, kodda doğrulanmış durum (Partial / Not
+  started) ve ilgili ADR bağlantısı taşır; tarih verilmez, biten madde
+  sayfadan çıkar.
+- Kitapta "Known limitations" sayfası (`book/src/limitations.md`): v0.1'in
+  bugün yapmadıkları, geçici çözümleri ve yol haritasındaki karşılıkları.
+  "Where to go next", README ve `docs/README.md` iki belgeye bağlanır.
+- Tutarlılık denetimi kontrol 15: README ve yol haritasındaki göreli
+  bağlantılar, README/yol haritası/kitaptaki GitHub ve kitap sayfası
+  bağlantıları var olan dosyaya, `#çapa`ları var olan bir başlığa gider.
+
 ### Eklendi — Kurulum betikleri (ADR-0096, 2026-09-29)
 
 - Tek komutla kurulum: Windows'ta `irm https://volt-hdl.github.io/volt/install.ps1 | iex`
