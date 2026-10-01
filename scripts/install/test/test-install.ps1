@@ -85,9 +85,14 @@ function Invoke-Installer([hashtable]$Vars, [string]$After = '', [switch]$File) 
     }
 }
 
-# A new terminal: a process whose PATH is built from the registry, as
-# Explorer builds it, not inherited from this one. Command must not hold
-# double quotes: Windows PowerShell 5.1 drops them from native arguments.
+# The registry side of a new terminal: a child of this script whose PATH is
+# rebuilt here from the registry (system + user). It checks what was
+# written, not what Explorer hands out: Explorer keeps its own copy of the
+# environment, refreshed only by WM_SETTINGCHANGE, and leaves the user PATH
+# out past 4094 characters. test-explorer.ps1 checks that side with a
+# process the shell itself starts (ADR-0096, appendix). Command must not
+# hold double quotes: Windows PowerShell 5.1 drops them from native
+# arguments.
 function Invoke-NewShell([string]$Command) {
     $cmd = "`$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User'); $Command"
     $ErrorActionPreference = 'Continue'

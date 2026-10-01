@@ -66,7 +66,8 @@ jobs:
           "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
           $settings = 'scripts/install/PSScriptAnalyzerSettings.psd1'
           $found = foreach ($f in 'scripts/install/install.ps1', 'scripts/install/test/test-install.ps1',
-                                  'scripts/install/test/test-network.ps1', $settings) {
+                                  'scripts/install/test/test-network.ps1', 'scripts/install/test/test-explorer.ps1',
+                                  $settings) {
             Invoke-ScriptAnalyzer -Path $f -Settings $settings
           }
           $found | Format-Table ScriptName, Line, RuleName, Message -AutoSize -Wrap
@@ -161,6 +162,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./scripts/install/test/test-network.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell powershell
+      # A process started by the Windows shell (explorer.exe) itself, as Win+R
+      # does, finds volt after the install and not after the uninstall.
+      - name: install.ps1 seen from Explorer in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/install/test/test-explorer.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell powershell
+      - name: install.ps1 seen from Explorer in PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install/test/test-explorer.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell pwsh
 
   # The real commands from the book, against the scripts on GitHub Pages and
   # github.com. GitHub's "latest" ignores drafts and pre-releases. While no
