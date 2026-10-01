@@ -139,7 +139,8 @@ fn cover_counter_avoids_user_register_in_test_mode() {
     );
     // Rapor kimlikle yapılır: sayaç adı değişse de kimlik aynı.
     assert!(
-        out.sv.contains("(\"C.cov_0\", volt_hits_cov_0_2)"),
+        out.sv
+            .contains("(\"C.cov_0\", volt_hits_cov_0_2 + longint'(volt_tail_cov_0))"),
         "{}",
         out.sv
     );

@@ -1,6 +1,6 @@
 # ADR-0064: Simülasyonda Kontratlar — İzleyici Olarak `volt test`
 
-> Statü: Uygulandı
+> Statü: Uygulandı — testin son kenarındaki cover örneklemesi ekte (2026-10-01)
 > İlgili: ADR-0066 (otomatik kontratlar izleyicide).
 > Tarih: 2026-09-21
 > Etkilenen: volt-sv-emit (`sim_contract.rs` YENİ — `SvaMode::Simulation`,
@@ -292,3 +292,51 @@ volt-diagnostics `explain_tests` (W5001).
 - İnceleme ajanı kritik bulgu bulmadı; iki orta bulgu (E0003'ün
   `volt test`'i kırması → W5001; alt modül varsayımının uyarıcıya
   yüklenmesi → örnek yolu kuralı) bu ADR'de düzeltildi.
+
+## Ek — Testin son kenarındaki cover (2026-10-01, `fix/book-findings-correctness`)
+
+Bu ek kararı değiştirmez; cover izleyicisinin örnekleme anı korunur,
+yalnız testin sonundaki eksik örnek eklenir.
+
+### Belirti
+
+Kitap yazılırken (PR #68, Tur: trafik ışığı) bulundu: son eylemi bir
+geçiş olan testte otomatik FSM geçiş cover'ı (ADR-0066 F3,
+`prev(s) == a && s == b`) `NEVER HIT` gösterdi. Green→Yellow geçişi
+testin 5. ve son kenarındaydı; `step(5)` ile düzeltilmiş testte bu kez
+Yellow→Red (yine son kenar) sayılmadı.
+
+### Kök neden
+
+İki etken birlikte: (1) izleyici `always @(posedge clk)` içinde kenardan
+ÖNCEKİ değerlerle örnekler (formal'deki SVA örneklemesiyle aynı) — kenar
+k'nın ürettiği durum kenar k+1'de sayılır; (2) testbench testi son
+`step`'in kenarından sonra bitirir, o durumu sayacak kenar gelmez. Her
+cover etkilenir (sayaç sarması, kullanıcı cover'ı); geçiş cover'ında en
+görünür olanı budur, çünkü geçiş tek çevrimlik bir olaydır.
+
+### Karar
+
+Ara kenarlardaki sayım değişmez (formal ile aynı anlam; girişlere bağlı
+cover'lar kenarda örneklenen girişleri görür). Her cover için reset
+korumalı bir tel üretilir: `wire volt_tail_cov_0 = !(rst) && (koşul);`.
+Tel her `eval`'de güncellenir; testin sonunda son kenardan sonraki
+durumu (son `eval`'deki girişlerle) tutar. `final` sayaca onu bir kez
+ekler: `volt_cover_report(id, volt_hits_cov_0 + longint'(volt_tail_cov_0))`.
+Her kenar sonrası durum böylece tam bir kez örneklenir: sonraki kenar
+varsa onunla, yoksa sonda.
+
+- Yanlış pozitif yok: reset süresince tel 0; hiç tetiklenmeyen geçiş
+  `NEVER HIT` kalır; testin son adımdan sonra değiştirdiği bir giriş
+  `eval` olmadan tele yansımaz.
+- Çift sayım yok: son kenardan sonraki durumu hiçbir kenar örneklemez.
+- Negatif kenarlı alanda da aynı: tel kenardan bağımsızdır.
+
+Reddedilen: örneklemeyi düşen kenara taşımak — girişe bağlı cover'larda
+formal ile ayrışır; testbench'e test sonunda ek saat kenarı eklemek —
+tasarımı bir çevrim daha ilerletir, son durum değişir ve testin gördüğü
+durumdan farklı bir durum sayılır.
+
+Testler: `crates/volt-driver/tests/fsm_cover_tests.rs` (gerçek Verilator:
+son kenardaki geçiş HIT, hiç olmayan geçiş NEVER HIT, tam turda her
+geçiş bir kez), `sim_contract_emit_tests::cover_adds_the_state_after_the_last_edge_once`.

@@ -76,7 +76,7 @@ jobs:
       - name: Simulation contract monitors (volt test, real Verilator)
         env:
           VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test sim_contract_tests
+        run: cargo test -p volt-driver --test sim_contract_tests --test fsm_cover_tests
       # ADR-0092: `volt run --vcd` writes a GTKWave session + enum tables;
       # every session path must exist in the same run's VCD header.
       - name: Waveform enum names (volt run --vcd, real Verilator)
