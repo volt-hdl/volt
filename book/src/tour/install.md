@@ -34,6 +34,10 @@ The script prints each step: the download, the SHA256 check, where it put
 window that ran the command can use `volt` at once. Other terminals, and
 every terminal on Linux and macOS, see it after you **open a new one**.
 
+While no release is published, the command installs nothing and says
+"No Volt release has been published yet.", followed by the commands to
+[build from source](#build-from-source).
+
 | Platform | Supported by the script |
 |---|---|
 | Windows x86_64 (10 and 11) | yes |
@@ -58,9 +62,9 @@ open a new one.
 
 ## What the script did
 
-1. It downloaded the archive for your platform and the release's
-   `SHA256SUMS` file from
-   `https://github.com/volt-hdl/volt/releases/latest/download/`, and
+1. It asked GitHub for the newest release, downloaded the archive for
+   your platform and the release's `SHA256SUMS` file from
+   `https://github.com/volt-hdl/volt/releases/download/<version>/`, and
    checked the archive against it. If the check fails, the script stops
    and deletes the download: nothing is installed and nothing changes.
 2. It put the binary in a folder of your own account:

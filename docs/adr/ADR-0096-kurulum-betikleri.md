@@ -1,6 +1,6 @@
 # ADR-0096: Kurulum Betikleri — Tek Komutla Doğrulanmış, Yönetici Yetkisi İstemeyen, Geri Alınabilir Kurulum
 
-> Statü: Uygulandı — betikler, Pages yayını ve CI testleri kuruldu; yayımlanmış sürüm henüz yok, haftalık canlı iş o güne dek atlanır
+> Statü: Uygulandı — betikler, Pages yayını ve CI testleri kuruldu; yayımlanmış sürüm henüz yok, haftalık canlı iş o güne dek "henüz sürüm yok" iletisini sınar; sürüm yokken komut eki (2026-10-01) sonda
 > Önceki karar: ADR-0093 — §2.1 ve §2.4'teki sürümlü arşiv adları (`volt-vX.Y.Z-<hedef>`) sürümsüz oldu (`volt-<hedef>`)
 > İlgili: ADR-0093 (sürüm iş akışı: arşivler, `SHA256SUMS`, taslak Release; betikler her sürüme varlık olarak eklenir), ADR-0094 (Docker köprüsü: kurulumdan sonra simülasyon için gereken tek ek), ADR-0084 (`volt doctor`: betiğin gösterdiği sonraki adım).
 > Tarih: 2026-09-29
@@ -8,7 +8,10 @@
 > `PSScriptAnalyzerSettings.psd1`, `test/`), `scripts/release/package.sh`
 > (YENİ), `.github/workflows/install.yml` (YENİ), `release.yml`, `book.yml`,
 > `.github/workflows/README.md`, `scripts/check-consistency.{ps1,sh}`
-> (kontrol 13), `book/src/tour/install.md`, README "Installation"
+> (kontrol 13), `book/src/tour/install.md`, README "Installation";
+> ek (2026-10-01): `install.ps1`, `install.sh`, `test/` (YENİ:
+> `fake-github.py`, `test-network.{ps1,sh}`), `install.yml`,
+> `scripts/check-consistency.{ps1,sh}` (kontrol 14)
 
 ## Sorun
 
@@ -256,3 +259,164 @@ birebir aynı (değer ve tür). Bulgular:
 - Sağlama toplamı ile ikili aynı kaynaktan gelir (§1.4); imzalama yok.
 - Özel `VOLT_INSTALL_DIR` hatırlanmaz; kaldırırken yeniden verilmelidir.
 - Windows 10 on Arm ve 32 bit Windows için ikili yok.
+
+## Ek — Sürüm yokken tek satırlık komut (2026-10-01, `fix/install-no-release`)
+
+Bu ek kararı değiştirmez; §1.7'deki "sürüm yoksa kaynaktan derleme"
+davranışının gerçek github.com'da neden çalışmadığını ve yeni davranışı
+anlatır.
+
+### Belirti
+
+Okur testi (Windows 11, Windows PowerShell 5.1, `VOLT_ARCHIVE` boş, hiç
+sürüm yayımlanmamışken) sitedeki komut "henüz sürüm yok" yerine şunu
+verdi:
+
+```text
+could not download https://github.com/volt-hdl/volt/releases/latest/download/SHA256SUMS: İstek durduruldu: Bağlantı beklenmedik bir şekilde kapatıldı.
+At line:197 char:9
++         throw "could not download $Url`: $($_.Exception.Message)"
+```
+
+Aynı çıktı bu makinede yeniden üretildi. PR #69'daki "var olmayan sürüm"
+testi (`VOLT_VERSION=0.0.0`) `releases/latest` yolunu hiç sınamadı ve
+iletinin bir PowerShell hata kaydıyla (`At line:` ...) basılmasını kabul
+ediyordu.
+
+### github.com'un sürüm yokken verdiği yanıtlar (2026-10-01 ölçümü)
+
+| İstek | Yanıt |
+|---|---|
+| `GET api.github.com/repos/volt-hdl/volt/releases/latest` | 404, `application/json`, 144 bayt (`"message": "Not Found"`) |
+| `GET api.github.com/repos/volt-hdl/volt/releases` | 200, `[]` |
+| `GET github.com/volt-hdl/volt/releases/latest` | 302, `Location: https://github.com/volt-hdl/volt/releases` (sürüm varken `.../releases/tag/<etiket>`), gövde yok |
+| `GET .../releases/latest/download/<ad>`, `Accept: */*` (curl, wget) | 404, `text/plain`, 9 bayt (`Not Found`), yönlendirme yok |
+| aynı istek, `Accept` başlığı **yok** (`Invoke-WebRequest`, `HttpWebRequest`) | 404, `text/html`, ~5 KB başlık (3,7 KB'lık tek `Content-Security-Policy` satırı), **~269 KB chunked HTML** gövde |
+| aynı istek, `HEAD` | 404, gövde yok |
+| `.../releases/download/v0.0.0/<ad>`, `Accept` yok | yukarıdakiyle aynı ~269 KB chunked HTML |
+
+### Kök neden
+
+.NET Framework'ün `HttpWebRequest`'i (Windows PowerShell 5.1'in
+`Invoke-WebRequest`'i onun üstündedir) bir hata yanıtının gövdesinden en
+fazla `HttpWebRequest.DefaultMaximumErrorResponseLength` = 64 KB okur.
+GitHub, `Accept` başlığı göndermeyen bir istemciye 404'ü ~269 KB'lık chunked
+bir HTML sayfasıyla verir. .NET sınırda gövdeyi bırakıp bağlantıyı kapatır
+ve `WebException`'ı `Status = ConnectionClosed`, `Response = null` ile
+fırlatır: "Bağlantı beklenmedik bir şekilde kapatıldı". Durum kodu
+kaybolduğu için betik 404'ü göremedi, "sürüm yok" dalına hiç girmedi.
+Yerel ayrıştırma (127.0.0.1'de sahte sunucu, PS 5.1):
+
+| Yanıt | PS 5.1 sonucu |
+|---|---|
+| 404 + 3,7 KB'lık başlık satırı + 9 bayt | 404 (başlık boyu suçlu değil) |
+| 404 + 270 KB `Content-Length`'li gövde | 404 |
+| 404 + 270 KB **chunked** gövde | `ConnectionClosed`, durum kodu yok |
+| aynısı, `DefaultMaximumErrorResponseLength = -1` | 404 |
+| github.com, `Accept: */*` | 404 |
+
+TLS, yönlendirme ve keep-alive değil: `KeepAlive = $false` ve TLS 1.2 ile
+de aynı hata, `HEAD` ile temiz 404. curl ve wget `Accept: */*` gönderdiği
+için `install.sh` etkilenmedi (Git Bash'te Linux taklidiyle, gerçek
+github.com'a karşı: "no published Volt release" iletisi, çıkış 1).
+GitHub'ın 404 sayfası her istemciye aynı gelmiyor: PR #69'un CI'ında
+windows-latest üstündeki PS 5.1 `v0.0.0` için 404'ü okuyabildi; bu
+makineden her denemede ~269 KB geldi.
+
+İkinci bulgu, TLS: eski kod `SecurityProtocol -bor Tls12` yazıyordu.
+.NET 4.7+'da varsayılan `SystemDefault` = 0 olduğundan sonuç yalnız
+`Tls12` olur, TLS 1.3 düşer (ölçüldü: önce `SystemDefault`, sonra `Tls12`).
+
+Üçüncü bulgu, hata gösterimi: betik `throw` ile bitiyordu; `iex` altında
+her hata, başarılı "sürüm yok" iletisi dahil, satır numarası ve
+`CategoryInfo`'lu bir hata kaydı olarak basılıyordu (PR #69 CI günlüğünde
+de görülür).
+
+### Yeni davranış
+
+- **Önce sürüm çözülür.** `VOLT_VERSION` (ya da sürüme sabitlenmiş kopya)
+  yoksa betik en yeni sürümü GitHub API'sine sorar
+  (`/repos/volt-hdl/volt/releases/latest`, `Accept:
+  application/vnd.github+json`); 404 = hiç sürüm yok. API hız sınırına
+  takılırsa (403, 429) ya da yanıt vermezse `github.com/.../releases/latest`
+  yönlendirmesine bakılır: `.../releases/tag/<etiket>` → o etiket,
+  `.../releases` → sürüm yok. İndirme artık
+  `releases/download/<etiket>/<ad>`'dan; `latest/download` yolu betikte
+  kullanılmıyor. İkisi de başarısızsa ileti iki adresin nedenini ayrı
+  ayrı yazar.
+- **Sürüm yoksa** yalnız şu (hata öneki yok), çıkış 1, hiçbir dosya ya da
+  geçici klasör kalmaz:
+
+  ```text
+  No Volt release has been published yet.
+  Build from source instead (needs Rust, https://rustup.rs):
+    git clone https://github.com/volt-hdl/volt
+    cd volt
+    cargo install --locked --path crates/volt-driver
+  More: https://volt-hdl.github.io/volt/tour/install.html#build-from-source
+  ```
+
+  Adı verilen sürüm yoksa: "Volt release vX.Y.Z was not found", sürümler
+  sayfası ve aynı kaynaktan derleme tarifi.
+- **İstekler** `install.ps1`'de `HttpWebRequest` ile, `Accept` başlığıyla
+  ve istek süresince `DefaultMaximumErrorResponseLength = -1` ile yapılır
+  (eski değer geri yüklenir). `Content-Length`'ten kısa kalan gövde
+  kopukluk sayılır.
+- **Ağ hataları** yığın izi olmadan, kısa bir iletiyle biter: ne
+  indirilemedi (`SHA256SUMS of Volt v0.1.0`, `the Volt v0.1.0 archive`),
+  hangi adresten, neden (`.NET` durum adı ya da curl/wget iletisi), olası
+  neden (bağlantı, vekil sunucu, güvenlik duvarı, GitHub kesintisi), ne
+  yapılmalı (birkaç dakika sonra yeniden çalıştır ya da kitaptaki elle
+  kurulum bağlantısı).
+- **Yeniden deneme:** yanıt yok, 408 ya da 5xx → en fazla 3 deneme, 1 s
+  sonra 2 s bekleme; her bekleme bir satırla bildirilir. 404, 403, 429
+  yeniden denenmez. `install.sh` curl'ün `--retry`'ını bıraktı (kopan
+  aktarımı, curl çıkış 18, yeniden denemiyordu); döngü artık betikte.
+- **`exit` yok, `iex` altında.** Tüm hatalar üst düzeyde tek bir
+  `try/catch`'te yakalanır, ileti `Write-Host` ile basılır ve betik döner;
+  pencere açık kalır. Betik dosya olarak çalışıyorsa (`{}.File` dolu;
+  `iex`'te, bir betiğin içinden `iex` dahil, boştur — `$PSCommandPath` ise
+  çağıran betikten sızabilir) `exit 1`. Ölçüm: `iex` altında `exit`
+  olmadan `powershell -Command`'ın çıkış kodu 0'dan farklı yapılamıyor
+  (`$LASTEXITCODE` atamak ya da `$?`'i düşürmek etkisiz).
+- **TLS 1.2** mevcut protokollere eklenir; `SystemDefault` (0) ise
+  dokunulmaz (Windows TLS 1.2'yi zaten içerir, `-bor` TLS 1.3'ü düşürürdü).
+- **ASCII koruması** `check-consistency` kontrol 14'e taşındı: iki betik
+  saf ASCII ve BOM'suz olmalı. Gerekçe: Pages bu dosyaları charset
+  belirtmeden `application/octet-stream` olarak sunar, PS 5.1 `irm` onları
+  dize olarak döndürür ve ASCII dışını ANSI kod sayfasıyla yanlış çözer.
+  `install.yml`'deki yalnız-`install.ps1` bayt denetimi kaldırıldı.
+- Yalnız testler için `VOLT_INSTALL_TEST_SERVER` (API ve indirme kökünü
+  sahte sunucuya çevirir); kitapta anlatılmaz.
+
+### Doğrulama
+
+- `scripts/install/test/fake-github.py` (127.0.0.1'de sahte github.com +
+  api.github.com; 404'leri GitHub gibi ~270 KB chunked HTML) ve
+  `test-network.{ps1,sh}`: hiç sürüm yok; API 429 + yönlendirme `/releases`;
+  varlık 404; arşiv her seferinde yarıda kopuyor; hiç yanıt yok; API 403 +
+  yönlendirmeyle başarılı kurulum; API iki kez kopuyor, arşiv bir kez kopuyor
+  ve bir kez 503 → yeniden denemeyle başarılı kurulum. Her senaryoda: beklenen
+  ileti, hata kaydı/kabuk hatası yok, `iex` sonrası oturum sürüyor,
+  kurulum klasörü, varsayılan kurulum klasörü ve geçici klasörde iz yok,
+  kullanıcı PATH'i başlangıçtakiyle aynı; `-File` ile çıkış kodu 1.
+  Adı verilen var olmayan sürüm (`VOLT_VERSION=0.0.1`): bildirim, yeniden
+  deneme yok. `install.yml`: sh (ubuntu, macOS), PowerShell 7 ve 5.1
+  (windows); ubuntu'da ayrıca curl'süz PATH ile GNU wget ve busybox wget.
+  İnceleme bulgusu: busybox wget hata durumunda 8 değil 1 ile çıkar; 4xx/5xx
+  durum satırı artık çıkış kodundan bağımsız yanıt sayılır, `Location`
+  başlığı harf duyarsız okunur. curl'e takılan aktarım için
+  `--speed-limit 1 --speed-time 60` eklendi (toplam süre sınırı yok).
+- Haftalık canlı iş artık atlanmaz: sürüm yokken gerçek tek satırlık
+  komutlar "No Volt release has been published yet." ve kaynaktan derleme
+  komutunu vermeli, PS 5.1'de hata kaydı olmamalı, kurulum klasörü
+  oluşmamalı. `gh api .../releases/latest` 404 dışında bir hatayla düşerse
+  iş düşer. İlk sürüm yayımlanınca aynı iş, değişiklik gerekmeden gerçek
+  kurulumu ve `volt --version`'ı sınar.
+- Yerel (Windows 11, PS 5.1): düzeltmeden önce yukarıdaki hata; sonra
+  aynı ortamda düzeltilmiş betik yerel dosyadan `iex` ile — kısa ileti,
+  pencere açık, işlev ya da değişken sızmadı, `SecurityProtocol`
+  `SystemDefault` kaldı. `test-network.ps1 -Shell powershell` ve
+  `test-network.sh` (Git Bash, `uname` taklidi) yeşil. Kullanıcı PATH'i
+  önce yedeklendi; testlerden sonra tür (`REG_SZ`), uzunluk (695) ve SHA256
+  yedekle aynı.
