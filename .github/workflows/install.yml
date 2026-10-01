@@ -5,9 +5,14 @@ name: Install scripts
 # macOS build volt, package it exactly as release.yml does and run the
 # scripts against that archive (VOLT_ARCHIVE): install, a new shell finds
 # volt, install again (update), uninstall leaves no file and no PATH entry,
-# a wrong SHA256SUMS installs nothing. No published release is needed.
-# Weekly (and by hand): the real one-line commands against the newest
-# published release; skipped while there is none.
+# a wrong SHA256SUMS installs nothing. Then the network tests against a
+# fake GitHub (scripts/install/test/fake-github.py): no release, a missing
+# asset, a download cut short, a rate-limited API, transient errors, no
+# answer at all; in sh, PowerShell 7 and Windows PowerShell 5.1. No
+# published release is needed.
+# Weekly (and by hand): the real one-line commands from the book. While no
+# release is published they must end with the "no release yet" notice;
+# once there is one, they must install it.
 
 on:
   pull_request:
@@ -43,7 +48,8 @@ jobs:
       # --shell=sh: the scripts must stay POSIX sh (no bash features).
       - run: |
           shellcheck --version
-          shellcheck --shell=sh scripts/install/install.sh scripts/install/test/test-install.sh scripts/release/package.sh
+          shellcheck --shell=sh scripts/install/install.sh scripts/install/test/test-install.sh \
+            scripts/install/test/test-network.sh scripts/release/package.sh
 
   psscriptanalyzer:
     name: PSScriptAnalyzer
@@ -59,15 +65,13 @@ jobs:
           Import-Module PSScriptAnalyzer
           "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
           $settings = 'scripts/install/PSScriptAnalyzerSettings.psd1'
-          $found = foreach ($f in 'scripts/install/install.ps1', 'scripts/install/test/test-install.ps1', $settings) {
+          $found = foreach ($f in 'scripts/install/install.ps1', 'scripts/install/test/test-install.ps1',
+                                  'scripts/install/test/test-network.ps1', $settings) {
             Invoke-ScriptAnalyzer -Path $f -Settings $settings
           }
           $found | Format-Table ScriptName, Line, RuleName, Message -AutoSize -Wrap
           if ($found) { Write-Error "$(@($found).Count) finding(s)"; exit 1 }
-          # Windows PowerShell 5.1 reads a BOM-less script in the ANSI
-          # code page: install.ps1 must stay ASCII.
-          $bytes = [IO.File]::ReadAllBytes('scripts/install/install.ps1')
-          if ($bytes | Where-Object { $_ -gt 127 }) { Write-Error 'install.ps1 holds non-ASCII bytes'; exit 1 }
+          # ASCII without a BOM: scripts/check-consistency.* (check 14, ci.yml).
 
   test:
     name: Install test (${{ matrix.os }})
@@ -118,6 +122,27 @@ jobs:
       - name: install.sh (install, new shell, update, uninstall, wrong checksum)
         if: runner.os != 'Windows'
         run: sh scripts/install/test/test-install.sh "dist/volt-$TARGET.${{ matrix.archive }}" ${{ matrix.shells }}
+      - name: install.sh network failures (fake GitHub)
+        if: runner.os != 'Windows'
+        run: sh scripts/install/test/test-network.sh "dist/volt-$TARGET.${{ matrix.archive }}"
+      # The wget fallback, GNU and busybox: a PATH of links to everything in
+      # /usr/bin and /bin except curl (and, for busybox, with wget -> busybox).
+      - name: install.sh network failures without curl (GNU wget, busybox wget)
+        if: runner.os == 'Linux'
+        run: |
+          command -v busybox >/dev/null || { sudo apt-get update && sudo apt-get install -y busybox; }
+          for kind in gnu busybox; do
+            d="$RUNNER_TEMP/nocurl-$kind"
+            mkdir -p "$d"
+            for f in /usr/bin/* /bin/*; do
+              n=$(basename "$f")
+              [ "$n" = curl ] || [ -e "$d/$n" ] || ln -s "$f" "$d/$n"
+            done
+            if [ "$kind" = busybox ]; then ln -sf "$(command -v busybox)" "$d/wget"; fi
+            echo "::group::$kind wget"
+            PATH="$d" sh scripts/install/test/test-network.sh "dist/volt-$TARGET.${{ matrix.archive }}"
+            echo "::endgroup::"
+          done
       - name: install.ps1 in PowerShell 7 (pwsh)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -128,10 +153,20 @@ jobs:
         run: |
           $PSVersionTable.PSVersion
           ./scripts/install/test/test-install.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell powershell
+      - name: install.ps1 network failures in PowerShell 7 (fake GitHub)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install/test/test-network.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell pwsh
+      - name: install.ps1 network failures in Windows PowerShell 5.1 (fake GitHub)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/install/test/test-network.ps1 -Archive "dist/volt-$env:TARGET.zip" -Shell powershell
 
-  # The real commands from the book, against the published release and the
-  # scripts on GitHub Pages. GitHub's "latest" ignores drafts and
-  # pre-releases, so until a normal release exists there is nothing to test.
+  # The real commands from the book, against the scripts on GitHub Pages and
+  # github.com. GitHub's "latest" ignores drafts and pre-releases. While no
+  # normal release exists the commands must end with the short "no release
+  # yet" notice (no error record, nothing installed); after the first
+  # release the same job checks the real install, with no change here.
   live:
     name: One-line install (${{ matrix.os }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -147,25 +182,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null); then
+          if tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>err.txt); then
             echo "Newest published release: $tag"
             echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          elif grep -q 'HTTP 404' err.txt; then
+            echo "::notice::No published release yet: the one-line commands must say so."
           else
-            echo "::notice::No published release yet; the one-line install check is skipped."
+            cat err.txt
+            exit 1
           fi
       - name: curl ... | sh
-        if: steps.rel.outputs.version != '' && runner.os != 'Windows'
+        if: runner.os != 'Windows'
         env:
           VERSION: ${{ steps.rel.outputs.version }}
         run: |
-          curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
-          test "$("$HOME/.volt/bin/volt" --version)" = "volt $VERSION"
+          set +e
+          out=$(curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          if [ -n "$VERSION" ]; then
+            test "$code" -eq 0
+            test "$("$HOME/.volt/bin/volt" --version)" = "volt $VERSION"
+          else
+            test "$code" -eq 1
+            echo "$out" | grep -qF 'No Volt release has been published yet.'
+            echo "$out" | grep -qF 'cargo install --locked --path crates/volt-driver'
+            test ! -e "$HOME/.volt"
+          fi
       - name: irm ... | iex (Windows PowerShell 5.1)
-        if: steps.rel.outputs.version != '' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         shell: powershell
         env:
           VERSION: ${{ steps.rel.outputs.version }}
         run: |
-          irm https://volt-hdl.github.io/volt/install.ps1 | iex
-          $v = volt --version
-          if ($v -ne "volt $env:VERSION") { Write-Error "got '$v', expected 'volt $env:VERSION'"; exit 1 }
+          # Everything the installer prints, Write-Host included.
+          $out = & { irm https://volt-hdl.github.io/volt/install.ps1 | iex } *>&1 | Out-String
+          $out
+          # Still here: the installer did not close the session.
+          if ($env:VERSION) {
+            $v = volt --version
+            if ($v -ne "volt $env:VERSION") { Write-Error "got '$v', expected 'volt $env:VERSION'"; exit 1 }
+          } else {
+            if (-not $out.Contains('No Volt release has been published yet.')) { Write-Error 'no "no release yet" notice'; exit 1 }
+            if ($out -match 'At line:|CategoryInfo|FullyQualifiedErrorId') { Write-Error 'a PowerShell error record was printed'; exit 1 }
+            if (Test-Path "$env:LOCALAPPDATA\Programs\Volt") { Write-Error 'files were left in the install folder'; exit 1 }
+          }
+          exit 0
