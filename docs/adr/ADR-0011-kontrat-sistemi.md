@@ -1,6 +1,6 @@
 # ADR-0011: Kontrat Sistemi — `requires` / `ensures` / `invariant` / `cover`
 
-> Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> Statü: Kısmen yerini aldı: ADR-0097 — geriye dönük belgelendi (2026-09-16); `requires`/`assume` → `assume property` yalnız modülün kendi görevinde, örnekken üst modülün yükümlülüğü (`assert`)
 > İlgili: ADR-0014 (kademeli benimseme), ADR-0034 (`->`), ADR-0040 (`prev()`), ADR-0050 (Handshake otomatik kontratları).
 > Tarih: 2026-09-03 (karar); uygulama F4a/F4b (2026-09-07, commit 5120b2a, bfad616)
 > Etkilenen: grammar-full.ebnf §4 (Contract), volt-sv-emit/src/sva.rs,

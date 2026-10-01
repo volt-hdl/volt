@@ -624,6 +624,14 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'a -> b' means '!a || b'; both sides must be bool.",
                 ),
                 (
+                    "INSTANCES",
+                    "A module's 'requires' is assumed while the module itself is \
+                     verified. Where the module is instantiated, the parent drives \
+                     those inputs, so the parent must meet it: 'volt verify' checks it \
+                     as an assertion in the parent's task (ADR-0097). 'ensures' and \
+                     'invariant' are checked in both places.",
+                ),
+                (
                     "PROVING",
                     "  volt verify design.volt                 bounded check (bmc)\n\
                      \x20 volt verify design.volt --mode prove    k-induction proof\n\
@@ -656,6 +664,14 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 invariant: !busy -> tx        // boştayken hat yüksek\n\
                      \x20 ensures:   start -> busy      // SVA: start |-> busy\n\n\
                      'a -> b', '!a || b' demektir; iki taraf da bool olmalıdır.",
+                ),
+                (
+                    "ÖRNEKLER",
+                    "Bir modülün 'requires'ı modülün kendisi doğrulanırken varsayılır. \
+                     Modülün örneklendiği yerde o girişleri üst modül sürer, ön koşulu \
+                     da o karşılamalıdır: 'volt verify' onu üst modülün görevinde iddia \
+                     olarak denetler (ADR-0097). 'ensures' ve 'invariant' iki yerde de \
+                     denetlenir.",
                 ),
                 (
                     "KANITLAMA",

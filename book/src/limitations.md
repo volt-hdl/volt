@@ -106,8 +106,21 @@ sequences (`##`) and no liveness properties; the proof is bounded
 
 **No modular proofs.** Each module is verified with the logic of its
 submodules included; a verified submodule is not replaced by its
-contracts. Large hierarchies take longer to prove. Roadmap:
+contracts. A submodule's `requires` and `assume` are checked as
+obligations of the module that instantiates it. Large hierarchies take
+longer to prove. Roadmap:
 [Assume-guarantee verification](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#assume-guarantee-verification-of-module-hierarchies).
+
+**Contracts need a clock port.** Properties are checked on a clock edge,
+so `volt verify` stops with `E5005` on a contract in a module without a
+clock port. Give the module a clock port, or state the property in the
+clocked module that instantiates it.
+
+**Contradictory assumptions are not detected.** If the `requires` and
+`assume` contracts of the module under proof cannot hold together, every
+assertion passes without proving anything; the solver can also hold
+reset for the whole run. Check that a `cover` of the behaviour you care
+about is reached with `--mode cover`.
 
 **Information flow is checked by types, not proved formally.** `E3009`
 catches secret data that reaches a public output at compile time; no

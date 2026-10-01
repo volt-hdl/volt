@@ -157,14 +157,15 @@ denetler.
 
 | No | Başlık | Özet | Durum |
 |---|---|---|---|
-| [0011](ADR-0011-kontrat-sistemi.md) | Kontrat Sistemi — `requires` / `ensures` / `invariant` / `cover` | Modüller `requires` / `ensures` / `invariant` / `cover` kontratları taşır; SVA ve SymbiYosys ile doğrulanır. | Uygulandı |
+| [0011](ADR-0011-kontrat-sistemi.md) | Kontrat Sistemi — `requires` / `ensures` / `invariant` / `cover` | Modüller `requires` / `ensures` / `invariant` / `cover` kontratları taşır; SVA ve SymbiYosys ile doğrulanır. | Kısmen yerini aldı: ADR-0097 |
 | [0014](ADR-0014-kontrat-kademeli-benimseme.md) | Kontrat Sistemi Kademeli Benimseme — Hiçbir Kontrat Zorunlu Değil | Hiçbir kontrat zorunlu değildir; kontratsız tasarım uyarısız derlenir. | Uygulandı |
 | [0016](ADR-0016-hook-kontrat-uyumu.md) | Hook Mekanizması — Kontrat Altında Politika Enjeksiyonu (`hook` Rezerve) | `hook` anahtar kelimesi kontrat altında politika enjeksiyonu için ayrıldı; mekanizma yok. | Rezerve |
 | [0040](ADR-0040-ardisik-kontratlar.md) | Ardışık Kontratlar — `prev()` Yerleşiği | `prev()` yerleşiği bir önceki çevrime bakan ardışık kontratları yazdırır. | Uygulandı |
-| [0055](ADR-0055-paralel-formal-dogrulama.md) | Paralel Formal Doğrulama — `volt verify -j`, Modül Başına sby Görevi, Kaynak Sıralı Rapor | `volt verify -j` modül başına sby görevlerini paralel koşar, raporu kaynak sırasında verir. | Uygulandı |
+| [0055](ADR-0055-paralel-formal-dogrulama.md) | Paralel Formal Doğrulama — `volt verify -j`, Modül Başına sby Görevi, Kaynak Sıralı Rapor | `volt verify -j` modül başına sby görevlerini paralel koşar, raporu kaynak sırasında verir. | Kısmen yerini aldı: ADR-0097 |
 | [0066](ADR-0066-otomatik-fsm-sayac-kontratlari.md) | Otomatik FSM ve Sayaç Kontratları | FSM ve sayaçlar için geçiş/durum cover'ları ve sınır invariant'ları otomatik üretilir. | Kısmen yerini aldı: ADR-0074, ADR-0086 |
 | [0082](ADR-0082-varsayilan-formal-motoru.md) | Varsayılan Formal Motoru — boolector; bitwuzla Seçeneği, Portföy ve Otomatik Seçim Reddedildi | Varsayılan formal motoru boolector olur; `--engine bitwuzla` seçeneği eklenir. | Uygulandı |
 | [0086](ADR-0086-otomatik-cover-erisilebilirligi.md) | Otomatik Cover'ların Yapısal Erişilebilirliği — Cover Kipinde Yanlış E5001 Yok | Otomatik cover yapısal olarak ölü değilse cover kipinde E5001 sayılmaz. | Uygulandı |
+| [0097](ADR-0097-alt-ornek-yukumlulukleri.md) | Alt Örnek Yükümlülükleri — Örneğin `requires`/`assume`'u Üst Görevde `assert`, Saatsiz Kontrat E5005, Boş Doğrulama E5006 | Bir örneğin ön koşulu onu süren üst modülün görevinde denetlenir; saatsiz modülün kontratı ve hiçbir şey denetlemeyen koşu başarı sayılmaz. | Uygulandı |
 
 ## Simülasyon ve test dili
 

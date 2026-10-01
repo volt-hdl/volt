@@ -1,7 +1,7 @@
 # ADR-0064: Simülasyonda Kontratlar — İzleyici Olarak `volt test`
 
 > Statü: Uygulandı — testin son kenarındaki cover örneklemesi ekte (2026-10-01)
-> İlgili: ADR-0066 (otomatik kontratlar izleyicide).
+> İlgili: ADR-0066 (otomatik kontratlar izleyicide), ADR-0097 (formal akış aynı anlamı taşır: alt örneğin `requires`/`assume`'u üst görevde `assert`).
 > Tarih: 2026-09-21
 > Etkilenen: volt-sv-emit (`sim_contract.rs` YENİ — `SvaMode::Simulation`,
 > DPI izleyicileri, C++ prelude; `sva.rs` mod + `SvaProp::primitive`;
