@@ -38,14 +38,21 @@ default_dir_state() {
 }
 default_before=$(default_dir_state)
 
-"$python" "$here/fake-github.py" "$archive" "$work/port" 2>"$work/server.log" &
+"$python" --version
+"$python" -u "$here/fake-github.py" "$archive" "$work/port" 2>"$work/server.log" &
 server=$!
 i=0
-while [ ! -s "$work/port" ] && [ $i -lt 150 ]; do
+while [ ! -s "$work/port" ] && [ $i -lt 600 ]; do
     sleep 0.1
     i=$((i + 1))
 done
-[ -s "$work/port" ] || { cat "$work/server.log"; echo "the fake server did not start"; exit 1; }
+if [ ! -s "$work/port" ]; then
+    echo "the fake server did not start within 60 s ($python, pid $server)"
+    ps -p "$server" -o pid=,stat=,etime=,command= || echo "the server process is gone"
+    ls -la "$work"
+    cat "$work/server.log"
+    exit 1
+fi
 port=$(cat "$work/port")
 if command -v curl >/dev/null 2>&1; then
     fetcher=curl

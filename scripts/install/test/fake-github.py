@@ -198,4 +198,6 @@ if __name__ == '__main__':
     with open(tmp, 'w') as f:
         f.write(str(server.server_address[1]))
     os.replace(tmp, sys.argv[2])
+    sys.stderr.write('fake-github: listening on 127.0.0.1:%d
+' % server.server_address[1])
     server.serve_forever()
