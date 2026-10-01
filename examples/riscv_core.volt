@@ -307,13 +307,15 @@ pub module RiscvCore {
 
     // ── Jump target ───────────────────────────────────────────────
     let do_jump = is_jal || is_jalr || (is_branch && br_taken)
-    let jump_tgt =
+    // `: u32`: addresses wrap at 32 bits; an untyped `let` would keep
+    // the carry (u32 + u32 is u33).
+    let jump_tgt : u32 =
         if is_jal { pc_r + imm_j
         } else if is_jalr { (rs1_v + imm_i) & 0xFFFFFFFE
         } else { pc_r + imm_b }
 
     // ── Data address, I/O decode ──────────────────────────────────
-    let addr = rs1_v + (if is_store { imm_s } else { imm_i })
+    let addr : u32 = rs1_v + (if is_store { imm_s } else { imm_i })
     let off8 = (addr & 3) << 3    // byte lane → bit offset
     let is_io = (is_load || is_store) && (addr >> 28) == 2
 

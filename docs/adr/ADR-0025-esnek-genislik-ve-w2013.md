@@ -1,9 +1,10 @@
 # ADR-0025: Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013
 
-> Statü: Uygulandı
+> Statü: Uygulandı — tipsiz `let` telinin SV genişliği ekte (2026-10-01)
 > Tarih: 2026-09-03
 > Etkilenen: type-inference.md §3.3/§5 yorumu, volt-hir (typeck), W2013
-> Uygulama aşaması: F2b
+> Uygulama aşaması: F2b; ek (2026-10-01): volt-sv-emit (`let_width.rs`, `expr.rs`,
+> `match_expr.rs`), examples/riscv_core.volt
 
 ## Sorun
 
@@ -97,3 +98,45 @@ FIRRTL genişlik çıkarımı aynı "sonradan daralt" esnekliğini çözücüyle
 sağlar; Verilog bağlam-genişliği kuralı atama hedefini işlem genişliğine
 dahil eder. Esnek aralık, iki dünyanın kesişimini Volt'un "açık dönüşüm"
 ilkesini bozmadan (bildirilen tipler somuttur) alır.
+
+## Ek — Tipsiz `let` telinin SV genişliği (2026-10-01, `fix/book-findings-correctness`)
+
+Bu ek kararı değiştirmez; "Sonuçlar" bölümündeki "ifade bağlamında doğal
+genişlik" cümlesinin SV üretiminde eksik kalan yarısını anlatır.
+
+### Belirti
+
+Kitap yazılırken (PR #68) bulundu: `a`, `b` u8 iken `let s = a + b`
+tip denetiminde `u8..u9` aralığındaydı ve `sum : u9 = s` kabul
+ediliyordu, ama emitter teli `wire [7:0] s = a + b;` bastı. `255 + 1`
+gerçek Verilator'da `sum = 0` verdi: taşma biti sessizce kayboldu. Aynı
+kayıp `-`, `*` ve işaretli `-x` için, blok içi `let`'te ve tel kipinde
+açılan `fn` gövdesindeki tipsiz `let`'te de vardı.
+
+### Kök neden
+
+Emitter tip denetimi sonuçlarını kullanmaz (ADR-0041) ve tipsiz `let`'in
+genişliğini kaba çıkarımla (`max(sol, sağ)`) yeniden hesaplıyordu; bu
+çıkarım aralığın ALT ucunu verir.
+
+### Uygulama
+
+- Tipsiz `let` (modül, blok içi, `fn` gövdesi) aralığın ÜST ucunda,
+  yani doğal genişlikte bildirilir: `wire [8:0] s = 9'(a) + 9'(b);`.
+  Aralık emitter'da tip denetimiyle aynı kurallarla hesaplanır
+  (`let_width.rs`): ortak aralık kesişimle, `+ -` 1 bit, `*` iki kat,
+  `/ % & | ^` ve kaydırma genişlemez, `-x` somut `i(N+1)`, `if` dalların
+  kesişimi.
+- Aralığın alt ucu saklanır; zincirli kullanımda işlem tip denetimiyle
+  aynı ortak genişlikte yapılır (`let t = s ^ a` → `8'(s) ^ a`).
+- Dar hedefe atama (aralık içinde, kararın izin verdiği) kesmeyi açık
+  yazar: `assign sum8 = 8'(s);`.
+- Taşma biti modülde hiç okunmuyorsa bildirim Verilator -Wall
+  UNUSEDSIGNAL susturmasıyla sarılır (struct yaprağıyla aynı biçim).
+- `examples/riscv_core.volt` adres toplamlarında 2^32'de sarmaya
+  dayanıyordu (`addr >> 28 == 2`); `let addr : u32`, `let jump_tgt : u32`
+  yazıldı, üretilen SV öncekiyle birebir aynı.
+
+Örnek ve `tests/ui/pass` külliyatında (159 dosya) SV'si değişen dosyalar
+yalnız taşma bitini taşıyan beş fixture'dır (06, 44, 118, 124, 125);
+hepsi Verilator 5.052 `-Wall` ile uyarısız.

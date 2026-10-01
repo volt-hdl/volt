@@ -13,6 +13,7 @@ mod expr;
 mod generate;
 mod inline;
 mod instance;
+mod let_width;
 mod match_expr;
 mod past;
 mod reach;
@@ -519,6 +520,9 @@ fn new_emitter<'a>(
         diagnostics: Vec::new(),
         domains: collect_domains(ast),
         symbols: HashMap::new(),
+        flex_lets: HashMap::new(),
+        flex_demand: HashMap::new(),
+        flex_decls: Vec::new(),
         trits: HashSet::new(),
         array_dims: HashMap::new(),
         packed_arrays: HashMap::new(),
@@ -767,6 +771,13 @@ pub(crate) struct Emitter<'a> {
     /// Modül içi sinyal tablosu: isim → genişlik/işaret. Dizi tipli
     /// reg'lerde ELEMAN imzası tutulur; boyut `array_dims`'tedir.
     pub(crate) symbols: HashMap<String, Sig>,
+    /// Tipsiz modül `let`lerinin esnek aralık alt ucu (ADR-0025): isim →
+    /// işlem genişliği; tel `symbols`'taki doğal genişliktedir.
+    pub(crate) flex_lets: HashMap<String, u32>,
+    /// Esnek modül `let`lerinin okunan en geniş bit sayısı ve bildirim
+    /// satırları: taşma biti hiç okunmuyorsa bildirim susturulur.
+    pub(crate) flex_demand: HashMap<String, u32>,
+    pub(crate) flex_decls: Vec<(String, String)>,
     /// Trit tipli sinyaller (ADR-0003) — `Trit * x` seçicisi için.
     pub(crate) trits: HashSet<String>,
     /// Dizi tipli reg'ler (ADR-0035): isim → eleman sayısı N.
@@ -898,6 +909,9 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, module: &'a ModuleDecl, doc: Option<&str>) -> String {
         let ast = self.ast;
         self.symbols.clear();
+        self.flex_lets.clear();
+        self.flex_demand.clear();
+        self.flex_decls.clear();
         self.trits.clear();
         self.array_dims.clear();
         self.packed_arrays.clear();
@@ -1315,14 +1329,20 @@ impl<'a> Emitter<'a> {
                 StmtKind::Let(decl) => {
                     // Bildirilen tip wire genişliğini SÜRER (ADR-0041):
                     // `let p : i32 = a * b` → 32 bitlik wire; tip yoksa
-                    // kaba çıkarım.
+                    // işlemin doğal genişliği (`a + b` → taşma biti dahil,
+                    // type-inference.md §3.3, ADR-0025).
                     if let Some(t) = decl.ty {
                         self.note_enum_signal(&decl.name.text, t);
                     }
-                    let sig = decl
-                        .ty
-                        .and_then(|t| self.sig_of_typeref(t, stmt.span))
-                        .or_else(|| self.width_of(decl.value));
+                    let sig = match decl.ty {
+                        Some(t) => self.sig_of_typeref(t, stmt.span),
+                        None => self.untyped_let_sig(decl.value).map(|(sig, lo)| {
+                            if lo < sig.width {
+                                self.flex_lets.insert(decl.name.text.clone(), lo);
+                            }
+                            sig
+                        }),
+                    };
                     let is_trit = match decl.ty {
                         Some(t) => self.is_trit_typeref(t),
                         None => self.is_trit(decl.value),
@@ -1357,19 +1377,19 @@ impl<'a> Emitter<'a> {
                             self.symbols.insert(decl.name.text.clone(), sig);
                             let value = self.emit_assigned(decl.value, Some(sig));
                             let header = self.inline_header(&decl.name.text);
+                            let line = format!(
+                                "    wire {}{} = {};{}",
+                                sig.wire_prefix(),
+                                decl.name.text,
+                                value,
+                                self.enum_comment(&decl.name.text)
+                            );
+                            if self.flex_lets.contains_key(&decl.name.text) {
+                                self.flex_decls.push((decl.name.text.clone(), line.clone()));
+                            }
                             Some((
                                 Kind::Decl,
-                                header
-                                    + &self.struct_decl_lines(
-                                        &decl.name.text,
-                                        format!(
-                                            "    wire {}{} = {};{}",
-                                            sig.wire_prefix(),
-                                            decl.name.text,
-                                            value,
-                                            self.enum_comment(&decl.name.text)
-                                        ),
-                                    ),
+                                header + &self.struct_decl_lines(&decl.name.text, line),
                             ))
                         }
                         // Açık tip zaten tanılandı (sig_of_typeref); tipsizse
@@ -1506,11 +1526,13 @@ impl<'a> Emitter<'a> {
                 }
             }
         }
-        chunks
+        let mut chunks: Vec<String> = chunks
             .into_iter()
             .map(|(_, text)| text)
             .filter(|text| !text.is_empty())
-            .collect()
+            .collect();
+        self.silence_unread_carries(&mut chunks);
+        chunks
     }
 
     /// sv-mapping.md §17 (ADR-0051) — çift yönlü portların üç durumlu

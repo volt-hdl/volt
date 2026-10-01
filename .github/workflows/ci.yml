@@ -70,7 +70,7 @@ jobs:
       - name: Tool-required tests - missing tool fails (ADR-0079)
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc
-        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests
+        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests
       # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
       # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
       - name: Simulation contract monitors (volt test, real Verilator)

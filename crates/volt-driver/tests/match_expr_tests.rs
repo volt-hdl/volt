@@ -242,17 +242,20 @@ fn block_let_is_a_process_local_in_a_named_block() {
         &sv,
         &[
             // Karar 11: adlı blok, süreç başında ayrı bildirim, ilk değer yok.
-            "always_ff @(posedge clk) begin : on_0\nlogic [7:0] s;\nlogic [7:0] t;\nlogic [7:0] prior;\nlogic [7:0] k;\nif (rst) begin",
+            // Tipsiz `s = a + b` doğal genişlikte (u9, ADR-0025); taşma
+            // biti okunmadığı için bildirim UNUSEDSIGNAL'dan susturulur.
+            "always_ff @(posedge clk) begin : on_0\n// carry bit of 's' unused in this module (ADR-0025)\n// verilator lint_off UNUSEDSIGNAL\nlogic [8:0] s;\n// verilator lint_on UNUSEDSIGNAL\nlogic [7:0] t;\nlogic [7:0] prior;\nlogic [7:0] k;\nif (rst) begin",
             // Bildirim noktasında blocking atama; gövde sırası korunur.
-            "s = a + b;\nif (en) begin\nt = s ^ a;\nr <= t;\nend\nprior = r;\nold <= prior;",
+            // `s ^ a` ortak genişlikte (u8): s açıkça kesilir.
+            "s = 9'(a) + 9'(b);\nif (en) begin\nt = 8'(s) ^ a;\nr <= t;\nend\nprior = r;\nold <= prior;",
             // comb: dal/for içi yerel mandal olmasın diye süreç başında sıfır.
-            "always_comb begin : comb_0\nlogic [7:0] acc;\nlogic [8:0] typed;\nacc = 8'd0;\ntyped = 9'd0;",
-            "acc = y + a;\ny = acc;\nacc = y + a;",
+            "always_comb begin : comb_0\n// carry bit of 'acc' unused in this module (ADR-0025)\n// verilator lint_off UNUSEDSIGNAL\nlogic [8:0] acc;\n// verilator lint_on UNUSEDSIGNAL\nlogic [8:0] typed;\nacc = 9'd0;\ntyped = 9'd0;",
+            "acc = 9'(y) + 9'(a);\ny = 8'(acc);\nacc = 9'(y) + 9'(a);",
             "typed = 9'(a) + 9'(b);",
         ],
     );
     assert!(
-        !sv.contains("logic [7:0] s ="),
+        !sv.contains("logic [8:0] s ="),
         "bildirimde ilk değer olmamalı: {sv}"
     );
 }
@@ -263,8 +266,8 @@ fn shadowing_block_let_is_renamed_in_sv() {
     assert_contains(
         &sv,
         &[
-            "logic [7:0] t;\nlogic [7:0] t_2;\nlogic [7:0] a_2;",
-            "t = a;\nif (c) begin\nt_2 = b;\na_2 = t_2 + 8'd1;\nr <= a_2;\nend else begin\nr <= t;",
+            "logic [7:0] t;\nlogic [7:0] t_2;\n// carry bit of 'a_2' unused in this module (ADR-0025)\n// verilator lint_off UNUSEDSIGNAL\nlogic [8:0] a_2;\n// verilator lint_on UNUSEDSIGNAL",
+            "t = a;\nif (c) begin\nt_2 = b;\na_2 = 9'(t_2) + 9'd1;\nr <= 8'(a_2);\nend else begin\nr <= t;",
         ],
     );
 }
