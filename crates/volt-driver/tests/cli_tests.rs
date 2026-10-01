@@ -1085,8 +1085,10 @@ fn verify_depth_engine_mode_flags_change_sby() {
     let _ = std::fs::remove_dir_all(&target);
 }
 
+/// ADR-0097: hiçbir şey denetlemeyen koşu başarı değildir — eskiden
+/// "no contracts found" notu ve çıkış 0'dı, artık E5006 ve çıkış 1.
 #[test]
-fn verify_no_contracts_is_note_exit_0() {
+fn verify_no_contracts_is_e5006_exit_1() {
     let target = temp_dir("verify-no-contracts");
     let output = volt()
         .args(["verify", "--target-dir"])
@@ -1099,12 +1101,16 @@ fn verify_no_contracts_is_note_exit_0() {
         .expect("volt çalışmalı");
     assert_eq!(
         output.status.code(),
-        Some(0),
+        Some(1),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("no contracts found"), "stderr: {stderr}");
+    assert!(stderr.contains("error[E5006]"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("no contract in this design"),
+        "stderr: {stderr}"
+    );
     assert!(
         !target.join("formal").exists(),
         "kontratsız tasarım formal çıktı üretmemeli"

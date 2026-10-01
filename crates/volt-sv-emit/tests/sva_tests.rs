@@ -372,3 +372,96 @@ fn plain_emit_output_is_unchanged() {
     assert!(!result.sv.contains("property"), "emit() SVA içermemeli");
     assert!(!result.sv.contains("bind "), "emit() bind içermemeli");
 }
+
+// ═══ Alt örnek yükümlülükleri (ADR-0097) ═════════════════════════
+
+/// `requires` modül kendi görevinde doğrulanırken varsayımdır; modül
+/// başka bir modülün örneğiyken (görevin tepesi değilken) onu süren üst
+/// modülün yükümlülüğüdür. Ayrım `.sby`'nin görev başına tanımladığı
+/// `VOLT_SUB_<modül>` makrosuyla yapılır; makro yoksa (elle sby, eski
+/// akış) varsayım kalır.
+#[test]
+fn immediate_requires_is_asserted_when_the_module_is_a_sub_instance() {
+    let out = full(&uart("    requires: speed <= 2\n"), SvaMode::Immediate);
+    let expected = "    always @(posedge clk)\n\
+                    `ifdef VOLT_SUB_Uart\n        \
+                    if (!(rst)) assert (speed <= 8'd2); // volt:req_0\n\
+                    `else\n        \
+                    if (!(rst)) assume (speed <= 8'd2); // volt:req_0\n\
+                    `endif\n";
+    assert!(out.sv.contains(expected), "{}", out.sv);
+}
+
+#[test]
+fn immediate_assume_contract_is_also_the_parents_obligation() {
+    let out = full(&uart("    assume: speed == 0\n"), SvaMode::Immediate);
+    assert!(out.sv.contains("`ifdef VOLT_SUB_Uart\n"), "{}", out.sv);
+    assert!(
+        out.sv
+            .contains("if (!(rst)) assert (speed == 8'd0); // volt:asm_0\n`else"),
+        "{}",
+        out.sv
+    );
+}
+
+#[test]
+fn immediate_assertions_do_not_switch_by_context() {
+    let out = full(
+        &uart("    invariant: !(start && busy)\n    ensures: !start || busy\n"),
+        SvaMode::Immediate,
+    );
+    assert!(!out.sv.contains("`ifdef"), "{}", out.sv);
+}
+
+#[test]
+fn sub_instance_macro_is_shared_with_the_driver() {
+    assert_eq!(volt_sv_emit::sub_instance_macro("Uart"), "VOLT_SUB_Uart");
+}
+
+#[test]
+fn inline_and_separate_modes_keep_requires_as_assume() {
+    // Ayrı/gömülü SVA ticari araçlar içindir (bind); bağlam makrosu yalnız
+    // `volt verify` akışındadır.
+    let out = full(&uart("    requires: speed <= 2\n"), SvaMode::Inline);
+    assert!(!out.sv.contains("`ifdef"), "{}", out.sv);
+    assert!(out.sv.contains("assume property (req_0);"), "{}", out.sv);
+}
+
+/// Saatsiz modülde kontrat sessizce düşmez: formal akış onu kaydeder,
+/// sürücü erişilebilir modül için E5005 üretir (ADR-0097).
+#[test]
+fn clockless_module_contracts_are_recorded_in_formal_mode() {
+    let src = "module Comb {\n    in  a : u8\n    out b : u8\n\n    \
+               requires: a < 10\n    ensures: b == 77\n\n    b = a + 1\n}\n";
+    let out = full(src, SvaMode::Immediate);
+    assert_eq!(
+        out.unclocked_contracts.len(),
+        1,
+        "{:?}",
+        out.unclocked_contracts
+    );
+    let u = &out.unclocked_contracts[0];
+    assert_eq!(u.module, "Comb");
+    assert_eq!(u.count, 2);
+    // Birincil konum ilk kontratın ifadesidir.
+    assert_eq!(&src[u.span.start as usize..u.span.end as usize], "a < 10");
+    assert!(out.sva_props.is_empty());
+}
+
+#[test]
+fn clockless_module_without_contracts_is_not_recorded() {
+    let src = "module Comb {\n    in  a : u8\n    out b : u8\n\n    b = a + 1\n}\n";
+    let out = full(src, SvaMode::Immediate);
+    assert!(out.unclocked_contracts.is_empty());
+}
+
+#[test]
+fn clockless_module_contracts_are_not_recorded_outside_formal_mode() {
+    // `volt build` (SVA yok) ve simülasyon bu ADR'nin kapsamı dışında.
+    let src = "module Comb {\n    in  a : u8\n    out b : u8\n\n    \
+               requires: a < 10\n\n    b = a + 1\n}\n";
+    for mode in [SvaMode::None, SvaMode::Simulation] {
+        let out = full(src, mode);
+        assert!(out.unclocked_contracts.is_empty(), "{mode:?}");
+    }
+}

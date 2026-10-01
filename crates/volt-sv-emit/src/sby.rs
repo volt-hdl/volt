@@ -143,6 +143,10 @@ pub struct SbyTask {
     pub top: String,
     /// İki+ saatli modül için `multiclock on` (ADR-0027).
     pub multiclock: bool,
+    /// Bu görevde tepe olmayan, yükümlülüklü modüllerin makroları
+    /// (`VOLT_SUB_<modül>`, ADR-0097): görev-koşullu `read -define` ile
+    /// tanımlanır; o modüllerin `requires`/`assume`'u bu görevde `assert`.
+    pub sub_defines: Vec<String>,
 }
 
 /// Bir birimdeki TÜM kontratlı modüller için tek `.sby` (ADR-0055).
@@ -181,6 +185,15 @@ pub fn sby_config_tasks(
     // gibi raporlanır, varsayımı ise Volt kanıtlarını sessizce kısıtlardı.
     for f in extern_files {
         out.push_str(&format!("read_verilog -sv -noassert -noassume {f}\n"));
+    }
+    // ADR-0097: örneklerin requires/assume'u üst görevde yükümlülüktür;
+    // makro `read -formal`'dan önce tanımlanmalı.
+    for task in tasks.iter().filter(|t| !t.sub_defines.is_empty()) {
+        out.push_str(&format!(
+            "{}: read -define {}\n",
+            task.name,
+            task.sub_defines.join(" ")
+        ));
     }
     out.push_str(&format!("read -formal {sv_file}\n"));
     for task in tasks {
@@ -325,7 +338,27 @@ mod tests {
             name: name.to_string(),
             top: top.to_string(),
             multiclock,
+            sub_defines: Vec::new(),
         }
+    }
+
+    /// ADR-0097: görevin tepesi olmayan, yükümlülüklü (requires/assume)
+    /// modüllerin makroları görev-koşullu `read -define` satırıyla,
+    /// `read -formal`'dan ÖNCE tanımlanır; tanımsız görev satır almaz.
+    #[test]
+    fn tasks_config_defines_sub_instance_macros_per_task() {
+        let mut parent = task("parent", "Parent", false);
+        parent.sub_defines = vec!["VOLT_SUB_Child".into(), "VOLT_SUB_Leaf".into()];
+        let tasks = [task("child", "Child", false), parent];
+        let text = sby_config_tasks(&tasks, "u.sv", &[], &SbyOptions::default());
+        assert!(
+            text.contains(
+                "[script]\nparent: read -define VOLT_SUB_Child VOLT_SUB_Leaf\n\
+                 read -formal u.sv\nchild: prep -top Child\nparent: prep -top Parent\n"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("child: read -define"), "{text}");
     }
 
     #[test]

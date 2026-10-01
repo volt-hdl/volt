@@ -18,8 +18,14 @@ use crate::verify_jobs::TaskStatus;
 /// Bir kontratın rapordaki kimliği.
 #[derive(Debug, Clone)]
 pub(crate) struct PropInfo {
+    /// Kontratın sahibi modül — görevin tepesi ya da (ADR-0097) altındaki
+    /// bir örneğin modülü.
+    pub(crate) module: String,
     pub(crate) name: String,
     pub(crate) keyword: &'static str,
+    /// Bu görevde yalnız VARSAYILDI (görev tepesinin kendi requires/
+    /// assume'u): doğrulanmış sayılmaz, durumu `assumed`.
+    pub(crate) assumed: bool,
 }
 
 /// Bir modül görevinin raporu (kaynak sırasında toplanır).
@@ -29,15 +35,24 @@ pub(crate) struct ModuleOutcome {
     pub(crate) task: String,
     pub(crate) props: Vec<PropInfo>,
     pub(crate) status: TaskStatus,
-    /// FAIL'de karşı örneğe, UNKNOWN'da tümevarım izine eşlenen kontrat
-    /// adı (`inv_0`).
-    pub(crate) failed_prop: Option<String>,
+    /// FAIL'de karşı örneğe, UNKNOWN'da tümevarım izine eşlenen kontrat:
+    /// (sahibi modül, ad) — `("Child", "req_0")`.
+    pub(crate) failed_prop: Option<(String, String)>,
     /// Cover kipinde ulaşılmayan, ölü olduğu kanıtlanmamış otomatik
     /// cover'lar (ADR-0086) — başarısızlık değil.
     pub(crate) auto_unreached: Vec<AutoUnreached>,
 }
 
 impl ModuleOutcome {
+    /// Bu görevde denetlenen özellik sayısı (varsayımlar hariç).
+    fn checked(&self) -> usize {
+        self.props.iter().filter(|p| !p.assumed).count()
+    }
+
+    fn assumed(&self) -> usize {
+        self.props.iter().filter(|p| p.assumed).count()
+    }
+
     fn is_fail(&self) -> bool {
         matches!(
             self.status,
@@ -81,6 +96,9 @@ impl ModuleOutcome {
     /// Kontratın JSON durumu: `pass | fail | unknown | unproven | timeout |
     /// skipped | error`.
     fn prop_status(&self, prop: &PropInfo) -> &'static str {
+        if prop.assumed {
+            return "assumed";
+        }
         if let Some(n) = self.auto_unreached_of(prop) {
             return if n.min_depth.is_some() {
                 "needs-depth"
@@ -88,7 +106,10 @@ impl ModuleOutcome {
                 "not-reached"
             };
         }
-        let named = self.failed_prop.as_deref() == Some(prop.name.as_str());
+        let named = self
+            .failed_prop
+            .as_ref()
+            .is_some_and(|(m, n)| *m == prop.module && *n == prop.name);
         match &self.status {
             TaskStatus::Done {
                 outcome: SbyOutcome::Pass,
@@ -133,7 +154,23 @@ impl ModuleOutcome {
 
     /// Kontrat ulaşılmayan (kanıtsız) otomatik cover mı?
     fn auto_unreached_of(&self, prop: &PropInfo) -> Option<&AutoUnreached> {
+        if prop.module != self.module {
+            return None;
+        }
         self.auto_unreached.iter().find(|d| d.prop == prop.name)
+    }
+
+    /// Başarısız kontratın rapordaki adı (`Child.req_0`) ve bağlamı:
+    /// sahibi görevin tepesi değilse görev eklenir (ADR-0097).
+    fn failed_label(&self) -> (String, String) {
+        match &self.failed_prop {
+            Some((m, n)) if *m != self.module => (
+                format!("{m}.{n}"),
+                lstr!(en: " (in {})", self.module; tr: " ({} içinde)", self.module),
+            ),
+            Some((m, n)) => (format!("{m}.{n}"), String::new()),
+            None => (format!("{}.?", self.module), String::new()),
+        }
     }
 
     fn module_status(&self) -> &'static str {
@@ -176,12 +213,13 @@ fn secs(d: Duration) -> String {
 }
 
 /// `[ 3/8] SocTop (20 properties) ... ok (9.12s)` — tamamlanma anında
-/// basılır; sayaç bitmiş görev sayısıdır.
+/// basılır; sayaç bitmiş görev sayısıdır. `props` görevde DENETLENEN
+/// özellikler; varsayımlar varsa ayrıca yazılır (ADR-0097).
 pub(crate) fn progress_line(
     done: usize,
     total: usize,
     module: &str,
-    props: usize,
+    (props, assumed): (usize, usize),
     status: &TaskStatus,
 ) -> String {
     let width = total.to_string().len();
@@ -209,10 +247,15 @@ pub(crate) fn progress_line(
         TaskStatus::Missing => lstr!(en: "error"; tr: "hata"),
         TaskStatus::Skipped => lstr!(en: "skipped"; tr: "atlandı"),
     };
+    let assumed = if assumed == 0 {
+        String::new()
+    } else {
+        lstr!(en: ", {assumed} assumed"; tr: ", {assumed} varsayım")
+    };
     lstr!(
-        en: "     [{done:>width$}/{total}] {module} ({props} propert{}) ... {verdict}",
+        en: "     [{done:>width$}/{total}] {module} ({props} propert{}{assumed}) ... {verdict}",
             if props == 1 { "y" } else { "ies" };
-        tr: "     [{done:>width$}/{total}] {module} ({props} özellik) ... {verdict}"
+        tr: "     [{done:>width$}/{total}] {module} ({props} özellik{assumed}) ... {verdict}"
     )
 }
 
@@ -224,7 +267,7 @@ pub(crate) fn summary_block(
     jobs: usize,
     total: Duration,
 ) -> String {
-    let props: usize = outcomes.iter().map(|m| m.props.len()).sum();
+    let props: usize = outcomes.iter().map(ModuleOutcome::checked).sum();
     let fails = outcomes.iter().filter(|m| m.is_fail()).count();
     let unknowns = outcomes.iter().filter(|m| m.is_unknown()).count();
     let timeouts = outcomes.iter().filter(|m| m.is_timeout()).count();
@@ -270,7 +313,7 @@ pub(crate) fn summary_block(
     }
     for m in outcomes {
         if m.is_fail() {
-            let prop = m.failed_prop.clone().unwrap_or_else(|| "?".into());
+            let (prop, ctx) = m.failed_label();
             let step = match &m.status {
                 TaskStatus::Done {
                     outcome: SbyOutcome::Fail(f),
@@ -283,14 +326,14 @@ pub(crate) fn summary_block(
                 None => String::new(),
             };
             out.push_str(&lstr!(
-                en: "      {}.{prop}  E5001 contract violated{at}\n", m.module;
-                tr: "      {}.{prop}  E5001 kontrat ihlal edildi{at}\n", m.module
+                en: "      {prop}  E5001 contract violated{at}{ctx}\n";
+                tr: "      {prop}  E5001 kontrat ihlal edildi{at}{ctx}\n"
             ));
         } else if m.is_unknown() {
-            let prop = m.failed_prop.clone().unwrap_or_else(|| "?".into());
+            let (prop, ctx) = m.failed_label();
             out.push_str(&lstr!(
-                en: "      {}.{prop}  E5002 not proven (induction step failed)\n", m.module;
-                tr: "      {}.{prop}  E5002 kanıtlanamadı (tümevarım adımı başarısız)\n", m.module
+                en: "      {prop}  E5002 not proven (induction step failed){ctx}\n";
+                tr: "      {prop}  E5002 kanıtlanamadı (tümevarım adımı başarısız){ctx}\n"
             ));
         } else if m.is_timeout() {
             out.push_str(&lstr!(
@@ -348,7 +391,8 @@ pub(crate) fn verify_json(
                 "module": m.module,
                 "task": m.task,
                 "status": m.module_status(),
-                "properties": m.props.len(),
+                "properties": m.checked(),
+                "assumed": m.assumed(),
                 "duration_ms": m.duration_ms(),
             })
         })
@@ -358,7 +402,7 @@ pub(crate) fn verify_json(
         .flat_map(|m| {
             m.props.iter().map(move |p| {
                 let mut prop = serde_json::json!({
-                    "module": m.module,
+                    "module": p.module,
                     "name": p.name,
                     "keyword": p.keyword,
                     "status": m.prop_status(p),
@@ -366,6 +410,10 @@ pub(crate) fn verify_json(
                 });
                 if let Some(d) = m.auto_unreached_of(p).and_then(|n| n.min_depth) {
                     prop["min_depth"] = serde_json::json!(d);
+                }
+                // ADR-0097: örneğin yükümlülüğü üst modülün görevinde denetlenir.
+                if p.module != m.module {
+                    prop["context"] = serde_json::json!(m.module);
                 }
                 prop
             })
@@ -399,12 +447,14 @@ mod tests {
             props: props
                 .iter()
                 .map(|n| PropInfo {
+                    module: module.to_string(),
                     name: n.to_string(),
                     keyword: "invariant",
+                    assumed: false,
                 })
                 .collect(),
             status,
-            failed_prop: failed.map(str::to_string),
+            failed_prop: failed.map(|n| (module.to_string(), n.to_string())),
             auto_unreached: Vec::new(),
         }
     }
@@ -501,8 +551,8 @@ mod tests {
     /// ADR-0075: UNKNOWN ve TIMEOUT kendi sözcükleriyle — "error" değil.
     #[test]
     fn unknown_and_timeout_have_their_own_verdicts() {
-        assert!(progress_line(1, 2, "M", 1, &unknown()).ends_with("... unknown (0.25s)"));
-        assert!(progress_line(1, 2, "M", 1, &timeout()).ends_with("... timeout (5.00s)"));
+        assert!(progress_line(1, 2, "M", (1, 0), &unknown()).ends_with("... unknown (0.25s)"));
+        assert!(progress_line(1, 2, "M", (1, 0), &timeout()).ends_with("... timeout (5.00s)"));
         let outcomes = [
             outcome("Alpha", &["inv_0", "inv_1"], unknown(), Some("inv_1")),
             outcome("Beta", &["inv_0"], timeout(), None),
@@ -532,20 +582,20 @@ mod tests {
 
     #[test]
     fn progress_line_pads_counter_to_total_width() {
-        let line = progress_line(3, 137, "SocTop", 20, &pass());
+        let line = progress_line(3, 137, "SocTop", (20, 0), &pass());
         assert!(
             line.contains("[  3/137] SocTop (20 properties) ... ok (1.23s)"),
             "{line}"
         );
-        let one = progress_line(1, 1, "Counter", 1, &pass());
+        let one = progress_line(1, 1, "Counter", (1, 0), &pass());
         assert!(one.contains("[1/1] Counter (1 property) ... ok"), "{one}");
     }
 
     #[test]
     fn progress_line_marks_fail_skip_and_error() {
-        assert!(progress_line(1, 2, "M", 1, &fail(None)).contains("... FAIL (0.50s)"));
-        assert!(progress_line(1, 2, "M", 1, &TaskStatus::Skipped).ends_with("... skipped"));
-        assert!(progress_line(1, 2, "M", 1, &TaskStatus::Missing).ends_with("... error"));
+        assert!(progress_line(1, 2, "M", (1, 0), &fail(None)).contains("... FAIL (0.50s)"));
+        assert!(progress_line(1, 2, "M", (1, 0), &TaskStatus::Skipped).ends_with("... skipped"));
+        assert!(progress_line(1, 2, "M", (1, 0), &TaskStatus::Missing).ends_with("... error"));
     }
 
     #[test]

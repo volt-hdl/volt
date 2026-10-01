@@ -55,6 +55,31 @@ pub fn reachable_modules(
     seen
 }
 
+/// Modül → doğrudan kullanıcı örneklerinin hedefleri (ADR-0097: üst
+/// modülün görevinde denetlenen yükümlülükler). Modüller ve örnekler
+/// kaynak sırasındadır; aynı hedef birden çok kez örneklenirse bir kez
+/// yazılır.
+pub fn instance_children(ast: &SourceFile) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for &i in &ast.items {
+        let ItemKind::Module(m) = &ast.items_arena[i].kind else {
+            continue;
+        };
+        let mut children: Vec<String> = Vec::new();
+        for &s in &m.body {
+            if let StmtKind::Instance(inst) = &ast.stmts[s].kind {
+                if let Some(target) = user_instance_target(inst) {
+                    if !children.iter().any(|c| c == target) {
+                        children.push(target.to_string());
+                    }
+                }
+            }
+        }
+        out.push((m.name.text.clone(), children));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +139,21 @@ mod tests {
             names(&reachable_modules(&ast, |f| f == FileId(0))),
             ["A", "B"]
         );
+    }
+
+    /// ADR-0097: doğrudan örnek çocukları, modüller kaynak sırasında.
+    #[test]
+    fn instance_children_lists_direct_user_instances_in_source_order() {
+        let main = "module Top {\n    in a : bool\n    out b : bool\n    out c : bool\n    \
+                    let m = Mid { a: a }\n    let l = Leaf { a: a }\n    \
+                    let l2 = Leaf { a: a }\n    b = m.b\n    c = l.b && l2.b\n}\n";
+        let ast = unit(&[main, LIB]);
+        let got = instance_children(&ast);
+        let top = got.iter().find(|(m, _)| m == "Top").expect("Top");
+        assert_eq!(top.1, ["Mid", "Leaf"]);
+        let mid = got.iter().find(|(m, _)| m == "Mid").expect("Mid");
+        assert_eq!(mid.1, ["Leaf"]);
+        let leaf = got.iter().find(|(m, _)| m == "Leaf").expect("Leaf");
+        assert!(leaf.1.is_empty());
     }
 }

@@ -4,7 +4,11 @@
 //! invariant/ensures/assert → `assert property`, requires/assume →
 //! `assume property`, cover → `cover property`. Saat ve `disable iff`
 //! modülün ilk saat portunun alanından gelir; saatsiz modülde SVA
-//! üretilmez (formel araçlar saat ister).
+//! üretilmez (formel araçlar saat ister) — `volt verify` bunu E5005 yapar.
+//!
+//! `volt verify` (Immediate) akışında requires/assume yalnız modülün kendi
+//! görevinde `assume`'dur; modül bir üst görevde örnekken `assert` olur
+//! (`VOLT_SUB_<modül>` makrosu, ADR-0097).
 //!
 //! Varsayılan çıktı ayrı `.sva` dosyasıdır ve hedef modüle `bind` ile
 //! bağlanır; `(.*)` bağlama modül kapsamında ada göre çözüldüğünden
@@ -76,6 +80,16 @@ pub struct SvaProp {
     /// Derleyicinin ürettiği kontratın kökeni (Handshake, @mmio, FSM,
     /// sayaç); raporların "generated from" satırı (ADR-0066 §4).
     pub auto: Option<AutoProp>,
+}
+
+/// Kontratı olup saat portu olmayan modül (ADR-0097, E5005 girdisi).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnclockedContracts {
+    pub module: String,
+    /// İlk kontratın ifadesi (tanının birincil konumu).
+    pub span: volt_span::Span,
+    /// Modülün kontrat sayısı.
+    pub count: usize,
 }
 
 /// Otomatik kontratın kökeni — kullanıcı kontratı kaynakta yazmadı.
@@ -201,7 +215,12 @@ impl<'a> Emitter<'a> {
         if module.contracts.is_empty() {
             return None;
         }
-        let clock = clocks.first()?.clone();
+        let Some(clock) = clocks.first().cloned() else {
+            // ADR-0097: saat kenarı olmayan kontrat formal koşudan sessizce
+            // düşerdi; doğrulama durur.
+            self.unclocked_contracts(module);
+            return None;
+        };
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
@@ -232,22 +251,54 @@ impl<'a> Emitter<'a> {
             self.sva_props.push(prop);
             let comment = self.contract_comment(c, &ind);
             let expr = self.emit_expr(c.expr, ONE_BIT);
-            let stmt = if clock.info.reset.is_none() {
-                format!("{verb} ({expr}); // volt:{name}")
-            } else {
+            let stmt = |verb: &str| {
+                if clock.info.reset.is_none() {
+                    format!("{verb} ({expr}); // volt:{name}")
+                } else {
+                    format!(
+                        "if (!({})) {verb} ({expr}); // volt:{name}",
+                        clock.info.reset.condition()
+                    )
+                }
+            };
+            // ADR-0097: requires/assume modülün kendi görevinde varsayımdır;
+            // modül bir örnekken onu süren üst modülün yükümlülüğüdür. Görev
+            // tepesi olmayan modüllerin makrosunu `.sby` tanımlar.
+            let body = if is_obligation(c.kind) {
                 format!(
-                    "if (!({})) {verb} ({expr}); // volt:{name}",
-                    clock.info.reset.condition()
+                    "`ifdef {}\n\
+                     {ind}    {}\n\
+                     `else\n\
+                     {ind}    {}\n\
+                     `endif",
+                    sub_instance_macro(&module.name.text),
+                    stmt("assert"),
+                    stmt(verb),
                 )
+            } else {
+                format!("{ind}    {}", stmt(verb))
             };
             blocks.push(format!(
                 "{comment}\n\
                  {ind}always @({edge} {})\n\
-                 {ind}    {stmt}",
+                 {body}",
                 clock.name,
             ));
         }
         Some(blocks.join("\n\n"))
+    }
+
+    /// ADR-0097: saat portu olmayan modülün kontratları formal koşuda
+    /// örneklenemez. Kayıt sürücüde E5005 olur (erişilebilir modüller için).
+    fn unclocked_contracts(&mut self, module: &ModuleDecl) {
+        let Some(first) = module.contracts.first() else {
+            return;
+        };
+        self.unclocked_contracts.push(UnclockedContracts {
+            module: module.name.text.clone(),
+            span: self.ast.exprs[first.expr].span,
+            count: module.contracts.len(),
+        });
     }
 
     /// Kontrat ifadesi → SV metni. Üst düzey `a -> b` implikasyonu her
@@ -448,6 +499,19 @@ pub(crate) fn sva_construct(kind: ContractKind) -> (&'static str, &'static str) 
         ContractKind::Assume => ("asm", "assume"),
         ContractKind::Cover => ("cov", "cover"),
     }
+}
+
+/// Görev tepesi olmayan (bir üst modülün örneği olan) modülün makrosu
+/// (ADR-0097). `volt verify` bunu görev başına `read -define` ile tanımlar;
+/// tanımlıyken modülün `requires`/`assume` kontratları `assert` olur.
+pub fn sub_instance_macro(module: &str) -> String {
+    format!("VOLT_SUB_{module}")
+}
+
+/// Modülün kendi görevinde varsayılan, örnekken üst modülün yükümlülüğü
+/// olan kontrat türü mü (ADR-0097)?
+pub fn is_obligation(kind: ContractKind) -> bool {
+    matches!(kind, ContractKind::Requires | ContractKind::Assume)
 }
 
 pub(crate) fn kind_slot(kind: ContractKind) -> usize {

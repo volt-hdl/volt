@@ -31,6 +31,8 @@ impl Compiled {
         self.modules.retain(|m| keep.contains(&m.name));
         self.sva_files.retain(|f| keep.contains(&f.module_name));
         self.sva_props.retain(|p| keep.contains(&p.module_name));
+        self.unclocked_contracts
+            .retain(|u| keep.contains(&u.module));
         self.regmaps.retain(|r| keep.contains(&r.module));
         self.constraints
             .modules
