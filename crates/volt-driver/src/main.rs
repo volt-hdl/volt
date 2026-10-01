@@ -22,6 +22,7 @@ mod tool_backend;
 mod verify;
 mod verify_depth;
 mod verify_jobs;
+mod verify_plan;
 mod verify_report;
 mod watch;
 mod waves;
@@ -806,6 +807,9 @@ struct Compiled {
     sva_files: Vec<SvaFile>,
     /// Üretilen property kimlikleri (F4b `verify` — sby FAIL eşlemesi).
     sva_props: Vec<SvaProp>,
+    /// Kontratı olup saat portu olmayan modüller (ADR-0097): `verify`
+    /// erişilebilir olanlar için E5005 üretir.
+    unclocked_contracts: Vec<volt_sv_emit::UnclockedContracts>,
     /// İki+ saat portlu modüller — `.sby`'ye `multiclock on` (ADR-0027).
     multiclock_modules: Vec<String>,
     /// `@mmio` modüllerinin register haritaları (ADR-0053) — `--emit=rust,
@@ -916,6 +920,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         source_name: source_name.clone(),
         sva_files: Vec::new(),
         sva_props: Vec::new(),
+        unclocked_contracts: Vec::new(),
         multiclock_modules: Vec::new(),
         regmaps: Vec::new(),
         constraints: Default::default(),
@@ -987,6 +992,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         } else {
             Default::default()
         };
+    let unclocked_contracts = emitted.unclocked_contracts;
 
     Ok(Compiled {
         map,
@@ -999,6 +1005,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         source_name,
         sva_files,
         sva_props,
+        unclocked_contracts,
         multiclock_modules,
         regmaps: parsed.regmaps,
         constraints,

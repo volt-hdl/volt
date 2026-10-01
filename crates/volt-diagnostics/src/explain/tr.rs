@@ -786,6 +786,28 @@ module Gpio {
             "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: tip u9, bool değil\n}",
             "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ karşılaştırma bool üretir\n}",
         ),
+        E5005 => Explanation::new(
+            "Saat portu olmayan modüldeki kontrat doğrulanamaz",
+            "'volt verify' kontratları bir saat kenarında denetler; saat portu olmayan modül onlara kenar vermez, kontratları da tek söz söylenmeden düşerdi.",
+            "Volt'un ürettiği her formal denetim modülün ilk saat portunun kenarında, reset'iyle korunarak örneklenir (ADR-0011, ADR-0040). Salt kombinasyonel modülün böyle bir kenarı yoktur. Kontratları formal koşudan sessizce kayboluyordu ve 'volt verify' yine başarı bildiriyordu; düşen kontrat artık koşuyu durdurur (ADR-0097).\n\nSaatsiz modül saatli bir modülün içinde örneklendiğinde de aynısı geçerlidir: 'requires'ı üst modülün yükümlülüğü olurdu ama denetlenecek bir kenar yoktur.",
+            "module Comb {\n    in  a : u8\n    out b : u8\n    requires: a < 10      // ✗ E5005: Comb'un saat portu yok\n    b = a + 1\n}",
+            "module Comb {\n    in  clk : clock\n    in  a   : u8\n    out b   : u8\n    requires: a < 10      // ✓ clk kenarında denetlenir\n    b = a + 1\n}",
+        )
+        .with_note(
+            "Ya modüle bir saat portu verin ya da özelliği onu örnekleyen saatli modülde yazın. 'volt build' ve 'volt test' etkilenmez.",
+        )
+        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        E5006 => Explanation::new(
+            "Doğrulanacak bir şey yok",
+            "Bu koşuda hiçbir özellik denetlenmiyor: iddia yok ve her 'requires'/'assume' kontratı yalnızca varsayılıyor.",
+            "Hiçbir şey denetlemeyen formal koşu kendiliğinden geçer; 'kanıtlandı' demek yanlış bir iddia olurdu. 'volt verify' bu yüzden her görevin gerçekten denetlediği özellikleri sayar — görevin tepe modülünün 'invariant', 'ensures', 'assert' ve 'cover'ları ile altındaki her örneğin, üst modülün yükümlülüğü olan 'requires'/'assume' kontratları (ADR-0097). Tepe modülün 'requires'ı ortam hakkında bir varsayımdır; raporlanır ama denetlenen bir özellik değildir.",
+            "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10      // ✗ E5006: yalnız varsayım, denetlenen yok\n    y = x\n}",
+            "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10\n    ensures:  y < 10      // ✓ denetlenen bir özellik\n    y = x\n}",
+        )
+        .with_note(
+            "Çıkış kodu her hata gibi 1'dir: hiçbir şey doğrulamayan koşu başarı değildir.",
+        )
+        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
         E5010 => Explanation::new(
             "Zamanlama hizasızlığı",
             "@strict_timing modülünde boru hattı gecikmeleri farklı değerler doğrudan birleştirilemez.",

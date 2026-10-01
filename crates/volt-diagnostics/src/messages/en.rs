@@ -114,6 +114,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E5001 => "Contract violated (formal verification found a counterexample)",
         E5002 => "Contract not proven (induction step failed; sby status UNKNOWN)",
         E5004 => "Contract expression is not Bool",
+        E5005 => "Contract in a module without a clock port cannot be verified",
+        E5006 => "Nothing to verify: no property is checked",
         E5010 => "Timing misalignment (values from different pipeline stages combined)",
         E5011 => "Invalid pipeline structure (stage count, duplicate stage, clock ports)",
         E5012 => "Invalid stage reference",

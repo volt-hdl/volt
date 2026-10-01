@@ -5,6 +5,52 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Alt örneğin `requires`'ı üst görevde denetlenir (ADR-0097, 2026-10-01)
+
+- `volt verify` bir alt örneğin `requires`/`assume` kontratını üst
+  modülün görevinde de `assume` olarak bırakıyordu: üst modül alt örneği
+  kontratına aykırı sürse bile (`x = 12`, `requires: x < 10`) kanıt
+  geçiyordu. Artık modül kendi görevinde kendi `requires`'ını varsayar,
+  bir üst modülün örneğiyken o `requires` üst modülün yükümlülüğüdür
+  (`assert`). Karşı örnek üst modülü ve bozan örneği gösterir:
+  `Child.req_0  E5001 contract violated at cycle 2 (in Parent)`.
+  Handshake tüketici tarafının otomatik `assume`'ları da aynı kuralla üst
+  modülde denetlenir. Kendi kontratı olmayan üst modül de artık görevdir.
+- Karşı örnek kontratın sahibi modüle eşlenir; alt örneğin kontratı üst
+  görevde düştüğünde önce yanlış kontrat gösterilebiliyordu.
+- Sayım dürüst: ilerleme satırı görevde denetlenen özellikleri sayar,
+  varsayımları ayrı yazar (`(1 property, 1 assumed)`); denetlenmeyen ortam
+  varsayımları özetten önce bir notta adlandırılır. JSON'a
+  `modules[].assumed`, `properties[].status = "assumed"` ve `context`
+  alanı eklendi.
+- **E5005**: saat portu olmayan modüldeki kontrat `volt verify`'dan
+  sessizce düşüyordu ("no contracts found", çıkış 0); artık hata (çıkış 1).
+- **E5006**: hiçbir özellik denetlemeyen koşu (kontrat yok ya da yalnız
+  varsayım var) artık başarı değildir (çıkış 1).
+- `volt build --emit=sva` (ayrı `.sva` + `bind`, `--sva=inline`, ticari
+  araçlar) aynı açığı taşıyordu: alt örneğin `requires`/`assume`'u üst
+  modülün kanıtında da koşulsuz `assume property` idi. Artık aynı
+  `VOLT_SUB_<Modül>` makrosuyla iki dallıdır: makro tanımsızken (modül
+  formal tepe) `assume property`, tanımlıyken (modül bir üst modülün
+  örneği) `assert property`. Üretilen dosyanın başı makronun adını ve
+  ticari araçta iki doğrulama biçimini (`+define+VOLT_SUB_<Modül>`)
+  yazar; altında yükümlülüklü örnek bulunan modülün `.sv`'si, o modül
+  formal tepe iken tanımlanacak makroların tam listesini verir. Makro
+  tanımlanmazsa davranış eskisi gibidir.
+- Etkilenen örnek: `examples/hybrid_accel/` — `TernaryArray` görevi
+  (`ternary_array.volt` ve `hybrid_top.volt` koşularında) `TernaryPe`'nin
+  `assume: (weight as i2) != -2` ön koşulunu dizinin serbest `weight`
+  girişinden bozar (E5001); dizi bu ön koşulu arayüzünde söylemiyor ve dil
+  bugün `for` içinde kontrat kabul etmiyor. `HybridTop` görevinde aynı
+  yükümlülük kanıtlanır. Örnek değiştirilmedi: tek başına düşmesi
+  beklenen davranıştır (dosyanın başında ve `examples/README.md`'de
+  yazılı); dizi kontratları yol haritasında, yeni ADR ister.
+  `riscv_alu.volt` ve `riscv_imm.volt` kontrat taşımadığı için E5006 verir.
+- Yol haritasına üç madde: isteğe bağlı `volt verify --vacuity` (CI'da
+  haftalık), diziler üzerinde kontrat, alt modülün reset varsayımının üst
+  görevde varsayım kalması (bu sonuncusu kitabın Known limitations
+  bölümüne de eklendi).
+
 ### Eklendi — Yol haritası ve bilinen sınırlar (2026-10-01)
 
 - `docs/roadmap.md` (İngilizce): v0.1 öncesi, v0.1 sonrası ("Next"),

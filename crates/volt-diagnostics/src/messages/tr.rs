@@ -114,6 +114,8 @@ pub fn description(code: ErrorCode) -> &'static str {
         E5001 => "Kontrat ihlal edildi (formal doğrulama karşı örnek buldu)",
         E5002 => "Kontrat kanıtlanamadı (tümevarım adımı başarısız; sby durumu UNKNOWN)",
         E5004 => "Kontrat ifadesi Bool değil",
+        E5005 => "Saat portu olmayan modüldeki kontrat doğrulanamaz",
+        E5006 => "Doğrulanacak bir şey yok: hiçbir özellik denetlenmiyor",
         E5010 => "Zamanlama hizasızlığı (farklı boru hattı aşamalarının değerleri birleştirildi)",
         E5011 => "Geçersiz pipeline yapısı (aşama sayısı, yinelenen aşama, saat portları)",
         E5012 => "Geçersiz aşama referansı",

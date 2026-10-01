@@ -29,6 +29,7 @@ use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
 use crate::tool_backend::Runner;
 use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
+use crate::verify_plan::{environment_assumptions, owner_module_at, plan_tasks, TaskPlan};
 use crate::verify_report::{progress_line, summary_block, verify_json, ModuleOutcome, PropInfo};
 use crate::waves::{self, Session, WaveScope};
 use crate::{render_diagnostics, OutputFormat};
@@ -97,6 +98,12 @@ pub(crate) fn verify(
     };
     // ADR-0042 ek: yalnız ana dosyadan erişilebilen modüllerin kontratları.
     compiled.retain_reachable();
+    // ADR-0097: saat kenarı olmayan kontrat sessizce düşmez (E5005).
+    let unclocked = unclocked_diagnostics(&compiled.unclocked_contracts);
+    if !unclocked.is_empty() {
+        compiled.diagnostics.extend(unclocked);
+        compiled.sv = None;
+    }
     render_diagnostics(&compiled, format);
 
     let Some(sv) = compiled.sv.clone() else {
@@ -117,27 +124,22 @@ pub(crate) fn verify(
         return ExitCode::from(1);
     };
 
-    // Kontratlı modüller, kaynak sırası korunarak teklenir.
-    let modules = contract_modules(&compiled.sva_props);
-    if modules.is_empty() {
-        if human {
-            eprintln!(
-                "{}",
-                lstr!(
-                    en: "        Note no contracts found in '{}' — nothing to verify\n        \
-                         Help add an 'invariant:', 'ensures:' or 'assert:' line to the module",
-                        file.display();
-                    tr: "           Not '{}' içinde kontrat yok — doğrulanacak bir şey yok\n        \
-                         Çözüm modüle 'invariant:', 'ensures:' ya da 'assert:' satırı ekleyin",
-                        file.display()
-                )
-            );
-        }
+    // ADR-0097: görev = bir şey DENETLEYEN modül (kendi iddiaları ya da
+    // altındaki örneklerin requires/assume yükümlülükleri), kaynak sırasında.
+    let order: Vec<String> = compiled.modules.iter().map(|m| m.name.clone()).collect();
+    let children = volt_sv_emit::instance_children(&compiled.ast);
+    let plans = plan_tasks(&order, &children, &compiled.sva_props);
+    if plans.is_empty() {
+        // Hiçbir şey denetlemeyen koşu başarı değildir (E5006, çıkış 1).
+        let diag = nothing_to_verify(file, &compiled);
+        emit_diagnostic(&diag, &compiled, format);
+        compiled.diagnostics.push(diag);
         if format == OutputFormat::Json {
             crate::print_json_envelope("verify", &compiled, &[], start);
         }
-        return ExitCode::SUCCESS;
+        return ExitCode::from(1);
     }
+    let modules: Vec<String> = plans.iter().map(|p| p.module.clone()).collect();
 
     // ── ADIM 1: build/formal/ altına tek .sv + görevli .sby üret ──
     let formal_dir = target_dir.join("formal");
@@ -159,7 +161,10 @@ pub(crate) fn verify(
         Ok(names) => names,
         Err(code) => return code,
     };
-    let tasks = sby_tasks(&modules, &compiled.multiclock_modules);
+    let mut tasks = sby_tasks(&modules, &compiled.multiclock_modules);
+    for (task, plan) in tasks.iter_mut().zip(&plans) {
+        task.sub_defines = plan.sub_defines.clone();
+    }
     let sby_path = formal_dir.join(&sby_name);
     let sby_text = sby_config_tasks(&tasks, &sv_name, &extern_files, &opts);
     if let Err(err) = std::fs::write(&sby_path, sby_text) {
@@ -185,15 +190,9 @@ pub(crate) fn verify(
             workdir: format!("{job}_{}", t.name),
         })
         .collect();
-    let prop_counts: Vec<usize> = modules
+    let prop_counts: Vec<(usize, usize)> = plans
         .iter()
-        .map(|m| {
-            compiled
-                .sva_props
-                .iter()
-                .filter(|p| &p.module_name == m)
-                .count()
-        })
+        .map(|p| (p.checked.len(), p.assumed.len()))
         .collect();
     let total = specs.len();
     // ADR-0086: cover kipinde derinliğin yetmediği otomatik cover'lar
@@ -245,14 +244,21 @@ pub(crate) fn verify(
     let mut any_error = false;
     for (idx, module) in modules.iter().enumerate() {
         let result = &report.tasks[idx];
-        let props: Vec<PropInfo> = compiled
-            .sva_props
-            .iter()
-            .filter(|p| &p.module_name == module)
-            .map(|p| PropInfo {
+        let plan = &plans[idx];
+        let info = |i: &usize, assumed: bool| {
+            let p = &compiled.sva_props[*i];
+            PropInfo {
+                module: p.module_name.clone(),
                 name: p.name.clone(),
                 keyword: p.keyword,
-            })
+                assumed,
+            }
+        };
+        let props: Vec<PropInfo> = plan
+            .checked
+            .iter()
+            .map(|i| info(i, false))
+            .chain(plan.assumed.iter().map(|i| info(i, true)))
             .collect();
         let mut failed_prop = None;
         let auto_unreached = auto_unreached_of(&result.log, module, &sv, &compiled, &opts);
@@ -288,9 +294,10 @@ pub(crate) fn verify(
                     module,
                     failure,
                     &sv,
-                    &compiled.sva_props,
+                    (&compiled.sva_props, &plan.checked, &plan.scope),
                     cex.as_deref(),
                 );
+                let diag = with_instance_sites(diag, &compiled.ast, (module, &prop.0), &result.log);
                 let diag = with_session_help(diag, cex.as_deref(), &session);
                 failed_prop = Some(prop);
                 emit_diagnostic(&diag, &compiled, format);
@@ -316,7 +323,7 @@ pub(crate) fn verify(
                     module,
                     failure,
                     &sv,
-                    &compiled.sva_props,
+                    (&compiled.sva_props, &plan.checked, &plan.scope),
                     trace.as_deref(),
                     opts.depth,
                 );
@@ -379,6 +386,7 @@ pub(crate) fn verify(
                 tr: "    Tamamlandı {:.2}s", start.elapsed().as_secs_f64()
             )
         );
+        print_environment_assumptions(&plans, &compiled.sva_props);
         eprintln!("{}", summary_block(&outcomes, &opts, jobs, start.elapsed()));
         if any_fail {
             eprintln!(
@@ -454,6 +462,121 @@ fn emit_diagnostic(diag: &Diagnostic, compiled: &crate::Compiled, format: Output
     }
 }
 
+/// E5005 (ADR-0097): kontratı olup saat portu olmayan, ana dosyadan
+/// erişilebilir modüller. Konum ilk kontratın ifadesidir.
+fn unclocked_diagnostics(list: &[volt_sv_emit::UnclockedContracts]) -> Vec<Diagnostic> {
+    list.iter()
+        .map(|u| {
+            let name = &u.module;
+            let count = u.count;
+            Diagnostic::error(
+                ErrorCode::E5005,
+                lstr!(
+                    en: "module '{name}' has {count} contract(s) but no clock port, so 'volt verify' cannot check them";
+                    tr: "'{name}' modülünde {count} kontrat var ama saat portu yok; 'volt verify' onları denetleyemez"
+                ),
+                LabeledSpan::primary(
+                    u.span,
+                    lstr!(en: "no clock edge to check this on"; tr: "bunun denetleneceği saat kenarı yok"),
+                ),
+                lstr!(
+                    en: "add a clock port to '{name}', or state the property in the clocked module that instantiates it";
+                    tr: "'{name}' modülüne bir saat portu ekleyin ya da özelliği onu örnekleyen saatli modülde yazın"
+                ),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(
+                    en: "contracts are sampled on the module's first clock edge (ADR-0011); without one they would be dropped from the formal run without a word (ADR-0097)";
+                    tr: "kontratlar modülün ilk saat kenarında örneklenir (ADR-0011); kenar yoksa formal koşudan tek söz söylenmeden düşerlerdi (ADR-0097)"
+                ),
+            )
+        })
+        .collect()
+}
+
+/// E5006 (ADR-0097): hiçbir görev bir şey denetlemiyor. Birimde kontrat
+/// hiç yoksa konum ilk modülün adıdır; yalnız varsayımlar varsa ilki.
+fn nothing_to_verify(file: &Path, compiled: &crate::Compiled) -> Diagnostic {
+    let props = &compiled.sva_props;
+    let first_module =
+        compiled
+            .ast
+            .items
+            .iter()
+            .find_map(|&i| match &compiled.ast.items_arena[i].kind {
+                volt_ast::ItemKind::Module(m)
+                    if compiled.modules.iter().any(|s| s.name == m.name.text) =>
+                {
+                    Some(m.name.span)
+                }
+                _ => None,
+            });
+    let span = props
+        .first()
+        .map(|p| p.span)
+        .or(first_module)
+        .unwrap_or_else(|| volt_span::Span::new(volt_span::FileId(0), 0, 0));
+    let owners = contract_modules(props);
+    let (label, note) = if owners.is_empty() {
+        (
+            lstr!(en: "no contract in this design"; tr: "bu tasarımda kontrat yok"),
+            lstr!(
+                en: "'{}' and the modules it instantiates have no contract, so a formal run would prove nothing",
+                    file.display();
+                tr: "'{}' ve örneklediği modüllerde kontrat yok; formal koşu hiçbir şey kanıtlamazdı",
+                    file.display()
+            ),
+        )
+    } else {
+        let names: Vec<String> = props
+            .iter()
+            .map(|p| format!("{}.{} ({})", p.module_name, p.name, p.keyword))
+            .collect();
+        (
+            lstr!(en: "only assumed, never checked"; tr: "yalnız varsayılıyor, hiç denetlenmiyor"),
+            lstr!(
+                en: "every contract here is an assumption about the environment: {}; a 'requires' is checked only where its module is instantiated (ADR-0097)",
+                    names.join(", ");
+                tr: "buradaki her kontrat ortam hakkında bir varsayım: {}; bir 'requires' yalnız modülünün örneklendiği yerde denetlenir (ADR-0097)",
+                    names.join(", ")
+            ),
+        )
+    };
+    Diagnostic::error(
+        ErrorCode::E5006,
+        lstr!(en: "nothing to verify: no property is checked"; tr: "doğrulanacak bir şey yok: hiçbir özellik denetlenmiyor"),
+        LabeledSpan::primary(span, label),
+        lstr!(
+            en: "add an 'invariant:', 'ensures:', 'assert:' or 'cover:' line, or verify the module that instantiates this one";
+            tr: "bir 'invariant:', 'ensures:', 'assert:' ya da 'cover:' satırı ekleyin ya da bu modülü örnekleyen modülü doğrulayın"
+        ),
+    )
+    .with_note(NoteKind::Reason, note)
+}
+
+/// Hiçbir görevde denetlenmeyen requires/assume'lar (birimin tepe
+/// modüllerinin ortam varsayımları): sayılmaz, ama sessiz de kalmaz.
+fn print_environment_assumptions(plans: &[TaskPlan], props: &[SvaProp]) {
+    let env = environment_assumptions(plans, props);
+    if env.is_empty() {
+        return;
+    }
+    let names: Vec<String> = env
+        .iter()
+        .map(|&i| format!("{}.{}", props[i].module_name, props[i].name))
+        .collect();
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "        Note {} assumption(s) about the environment, not verified: {}",
+                env.len(), names.join(", ");
+            tr: "           Not ortam hakkında {} varsayım, doğrulanmadı: {}",
+                env.len(), names.join(", ")
+        )
+    );
+}
+
 /// Kontratlı modüller, kaynak sırasında ve teklenmiş.
 fn contract_modules(props: &[SvaProp]) -> Vec<String> {
     let mut modules: Vec<String> = Vec::new();
@@ -484,6 +607,7 @@ fn sby_tasks(modules: &[String], multiclock_modules: &[String]) -> Vec<SbyTask> 
                 name,
                 top: module.clone(),
                 multiclock: multiclock_modules.iter().any(|m| m == module),
+                sub_defines: Vec::new(),
             }
         })
         .collect()
@@ -819,16 +943,22 @@ fn prop_in_line(line: &str) -> Option<String> {
     }
 }
 
-/// FAIL → (kontrat adı, E5001 tanısı). Konum eşlenemezse modülün ilk
-/// kontratına düşülür (tanı yine 5 parça taşır).
+/// Görevin kontrat görünümü: tüm kontratlar, görevde denetlenenlerin
+/// indisleri ve görevin kapsamındaki modüller (tepe + altındakiler).
+type TaskProps<'p, 'a> = (&'p [SvaProp], &'a [usize], &'a [String]);
+
+/// FAIL → ((sahibi modül, kontrat adı), E5001 tanısı). Konum eşlenemezse
+/// görevin ilk denetlenen kontratına düşülür (tanı yine 5 parça taşır).
+/// `module` görevin tepesidir; kontrat altındaki bir örneğin olabilir
+/// (ADR-0097).
 fn counterexample_diagnostic(
     module: &str,
     failure: &SbyFailure,
     sv: &str,
-    props: &[SvaProp],
+    props: TaskProps<'_, '_>,
     cex: Option<&Path>,
-) -> (String, Diagnostic) {
-    let prop = failed_prop(module, failure, sv, props);
+) -> ((String, String), Diagnostic) {
+    let prop = failed_prop(failure, sv, props);
 
     let label = match failure.step {
         Some(step) => lstr!(
@@ -846,30 +976,104 @@ fn counterexample_diagnostic(
             tr: "karşı örneği 'gtkwave' ya da 'surfer' ile açın"
         ),
     )
-    .with_note(
-        NoteKind::Reason,
-        lstr!(
-            en: "the '{}' contract of module '{module}' does not hold for every reachable state",
-                prop.keyword;
-            tr: "'{module}' modülünün '{}' kontratı erişilebilir her durumda sağlanmıyor",
-                prop.keyword
-        ),
-    );
+    .with_note(NoteKind::Reason, violation_reason(module, prop));
     diag = with_origin_and_trace(diag, prop, cex);
-    (prop.name.clone(), diag)
+    ((prop.module_name.clone(), prop.name.clone()), diag)
 }
 
-/// UNKNOWN → (kontrat adı, E5002 tanısı, ADR-0075). Konum tümevarım
-/// izindeki başarısız iddiadır; eşlenemezse modülün ilk kontratı.
+/// E5001 nedeni. Kontrat görevin tepesinin değilse altındaki bir örneğin
+/// kontratıdır: requires/assume ise ihlal üst modülün yükümlülüğüdür
+/// (ADR-0097), değilse örnek üst modülün bağlamında bozulmuştur.
+fn violation_reason(task: &str, prop: &SvaProp) -> String {
+    let owner = &prop.module_name;
+    let kw = prop.keyword;
+    if owner == task {
+        return lstr!(
+            en: "the '{kw}' contract of module '{task}' does not hold for every reachable state";
+            tr: "'{task}' modülünün '{kw}' kontratı erişilebilir her durumda sağlanmıyor"
+        );
+    }
+    if crate::verify_plan::is_obligation(prop) {
+        return lstr!(
+            en: "'{task}' instantiates '{owner}' and drives its inputs, so the '{kw}' contract of '{owner}' is an obligation of '{task}' — and '{task}' breaks it (ADR-0097)";
+            tr: "'{task}' modülü '{owner}' modülünü örnekler ve girişlerini sürer; '{owner}' modülünün '{kw}' kontratı '{task}' modülünün yükümlülüğüdür — ve '{task}' onu bozuyor (ADR-0097)"
+        );
+    }
+    lstr!(
+        en: "the '{kw}' contract of module '{owner}' fails inside an instance of '{owner}' in '{task}'";
+        tr: "'{owner}' modülünün '{kw}' kontratı '{task}' içindeki bir '{owner}' örneğinde bozuluyor"
+    )
+}
+
+/// smtbmc'nin ilk `Assert failed in Parent.bad.x: ...` satırındaki yolun
+/// görev tepesinin hemen altındaki örnek adı (`bad`).
+fn failing_instance(log: &str, task: &str) -> Option<String> {
+    let line = log.lines().find(|l| l.contains("Assert failed in "))?;
+    let rest = &line[line.find("Assert failed in ")? + "Assert failed in ".len()..];
+    let path = rest.split(':').next()?.trim();
+    let mut segs = path.split('.');
+    (segs.next()? == task).then_some(())?;
+    segs.next().map(str::to_string)
+}
+
+/// Görev tepesindeki, sahibi modülün doğrudan örnekleri ikincil etiket
+/// olur: karşı örnek üst modülü gösterir (ADR-0097). smtbmc ihlalin örnek
+/// yolunu verdiyse (`Assert failed in Parent.bad:`) yalnız o örnek
+/// etiketlenir. Sahibi derindeyse (üç seviye) etiket yok; neden notu
+/// görevi adlandırır.
+fn with_instance_sites(
+    mut diag: Diagnostic,
+    ast: &volt_ast::SourceFile,
+    (task, owner): (&str, &str),
+    log: &str,
+) -> Diagnostic {
+    if owner == task {
+        return diag;
+    }
+    let failing = failing_instance(log, task);
+    let Some(top) = ast
+        .items
+        .iter()
+        .find_map(|&i| match &ast.items_arena[i].kind {
+            volt_ast::ItemKind::Module(m) if m.name.text == task => Some(m),
+            _ => None,
+        })
+    else {
+        return diag;
+    };
+    for &s in &top.body {
+        let volt_ast::StmtKind::Instance(inst) = &ast.stmts[s].kind else {
+            continue;
+        };
+        let [seg] = inst.module_path.segments.as_slice() else {
+            continue;
+        };
+        let picked = failing.as_deref().is_none_or(|f| f == inst.name.text);
+        if seg.text == owner && picked {
+            diag = diag.with_secondary(
+                inst.name.span,
+                lstr!(
+                    en: "instance '{}' of '{owner}' in '{task}'", inst.name.text;
+                    tr: "'{task}' içindeki '{owner}' örneği '{}'", inst.name.text
+                ),
+            );
+        }
+    }
+    diag
+}
+
+/// UNKNOWN → ((sahibi modül, kontrat adı), E5002 tanısı, ADR-0075). Konum
+/// tümevarım izindeki başarısız iddiadır; eşlenemezse görevin ilk
+/// denetlenen kontratı.
 fn unproven_diagnostic(
     module: &str,
     failure: &SbyFailure,
     sv: &str,
-    props: &[SvaProp],
+    props: TaskProps<'_, '_>,
     trace: Option<&Path>,
     depth: u32,
-) -> (String, Diagnostic) {
-    let prop = failed_prop(module, failure, sv, props);
+) -> ((String, String), Diagnostic) {
+    let prop = failed_prop(failure, sv, props);
     let diag = Diagnostic::error(
         ErrorCode::E5002,
         lstr!(en: "contract not proven: the induction step failed"; tr: "kontrat kanıtlanamadı: tümevarım adımı başarısız"),
@@ -882,15 +1086,21 @@ fn unproven_diagnostic(
             tr: "daha büyük bir --depth deneyin ya da özelliği tümevarımsal yapan bir invariant ekleyin"
         ),
     )
-    .with_note(
-        NoteKind::Reason,
+    .with_note(NoteKind::Reason, {
+        // ADR-0097: kontrat görevin altındaki bir örneğin olabilir.
+        let owner = &prop.module_name;
+        let ctx = if owner == module {
+            String::new()
+        } else {
+            lstr!(en: " in the task of '{module}'"; tr: ", '{module}' görevinde")
+        };
         lstr!(
-            en: "no counterexample exists within {depth} cycles from reset, but the induction step starts from an arbitrary state — possibly unreachable — and the '{}' contract of module '{module}' fails from there (sby status UNKNOWN)",
+            en: "no counterexample exists within {depth} cycles from reset, but the induction step starts from an arbitrary state — possibly unreachable — and the '{}' contract of module '{owner}' fails from there{ctx} (sby status UNKNOWN)",
                 prop.keyword;
-            tr: "reset'ten itibaren {depth} döngüde karşı örnek yok; ama tümevarım adımı keyfi — belki erişilemez — bir durumdan başlar ve '{module}' modülünün '{}' kontratı oradan bozulur (sby durumu UNKNOWN)",
+            tr: "reset'ten itibaren {depth} döngüde karşı örnek yok; ama tümevarım adımı keyfi — belki erişilemez — bir durumdan başlar ve '{owner}' modülünün '{}' kontratı oradan bozulur{ctx} (sby durumu UNKNOWN)",
                 prop.keyword
-        ),
-    );
+        )
+    });
     let diag = with_origin_and_trace(diag, prop, None);
     // Tümevarım izi karşı örnek DEĞİLDİR (erişilemez durumdan başlayabilir):
     // "= counterexample:" etiketi yanıltırdı.
@@ -904,28 +1114,30 @@ fn unproven_diagnostic(
         ),
         None => diag,
     };
-    (prop.name.clone(), diag)
+    ((prop.module_name.clone(), prop.name.clone()), diag)
 }
 
-/// sby'nin başarısız iddia satırını kontrata eşler; eşlenemezse modülün
-/// ilk kontratı (tanı yine 5 parça taşır).
-fn failed_prop<'p>(
-    module: &str,
-    failure: &SbyFailure,
-    sv: &str,
-    props: &'p [SvaProp],
-) -> &'p SvaProp {
-    let by_name = failure
-        .sv_line
-        .and_then(|line| prop_name_at(sv, line))
-        .and_then(|name| {
-            props
-                .iter()
-                .find(|p| p.module_name == module && p.name == name)
-        });
+/// sby'nin başarısız iddia satırını kontrata eşler: satırın modülü
+/// (`module <Ad>` başlığı) + `// volt:<ad>` işareti — alt örneğin kontratı
+/// üst görevde de doğru sahibine eşlenir (ADR-0097). Adaylar görevin
+/// kapsamındaki (tepe + altındaki örnekler) modüllerin kontratlarıdır: SV
+/// dışına düşen satır (sona kıstırılır) ilgisiz bir modüle eşlenmesin.
+/// Eşlenemezse görevin ilk denetlenen kontratı (tanı yine 5 parça taşır).
+fn failed_prop<'p>(failure: &SbyFailure, sv: &str, props: TaskProps<'p, '_>) -> &'p SvaProp {
+    let (props, checked, scope) = props;
+    let by_name = failure.sv_line.and_then(|line| {
+        let name = prop_name_at(sv, line)?;
+        let owner = owner_module_at(sv, line)?;
+        if !scope.contains(&owner) {
+            return None;
+        }
+        props
+            .iter()
+            .find(|p| p.module_name == owner && p.name == name)
+    });
     by_name
-        .or_else(|| props.iter().find(|p| p.module_name == module))
-        .expect("kontratlı modülün en az bir SvaProp'u olmalı")
+        .or_else(|| checked.first().map(|&i| &props[i]))
+        .expect("görevin en az bir denetlenen kontratı olmalı")
 }
 
 /// Otomatik kontratın kökeni (ADR-0066 §4) ve iz dosyası notu.
@@ -1240,6 +1452,18 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
         assert!(!tasks[0].multiclock);
     }
 
+    /// ADR-0097: çok örnekli üst modülde yalnız düşen örnek etiketlenir.
+    #[test]
+    fn failing_instance_is_read_from_the_smtbmc_path() {
+        let log = "SBY 19:31:56 [m_parent] engine_0: ##   0:00:00  Assert failed in Parent.bad: \
+                   m.sv:34.21-34.39 (_witness_.check_assert_m_sv_34_10)\n";
+        assert_eq!(failing_instance(log, "Parent").as_deref(), Some("bad"));
+        let own = "engine_0: ##   0:00:00  Assert failed in Parent: m.sv:9.1-9.5\n";
+        assert_eq!(failing_instance(own, "Parent"), None);
+        assert_eq!(failing_instance(log, "Other"), None);
+        assert_eq!(failing_instance("DONE (FAIL, rc=2)", "Parent"), None);
+    }
+
     #[test]
     fn contract_modules_dedupes_in_first_seen_order() {
         let prop = |m: &str, n: &str| SvaProp {
@@ -1279,8 +1503,9 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
             step: Some(3),
             unreached: Vec::new(),
         };
-        let (name, diag) = counterexample_diagnostic("C", &failure, "", &[prop(at(10))], None);
-        assert_eq!(name, "inv_0");
+        let (name, diag) =
+            counterexample_diagnostic("C", &failure, "", (&[prop(at(10))], &[0], &[]), None);
+        assert_eq!(name, ("C".to_string(), "inv_0".to_string()));
         assert_eq!(diag.spans.len(), 1, "köken = ifade: ikincil etiket yok");
         let note = diag
             .notes
@@ -1291,7 +1516,8 @@ SBY 16:34:51 [t_shadow] DONE (TIMEOUT, rc=8)
         assert!(note.text.contains("r <= 9"), "{}", note.text);
         assert!(note.text.contains("wrap check on r"), "{}", note.text);
 
-        let (_, diag) = counterexample_diagnostic("C", &failure, "", &[prop(at(40))], None);
+        let (_, diag) =
+            counterexample_diagnostic("C", &failure, "", (&[prop(at(40))], &[0], &[]), None);
         assert_eq!(diag.spans.len(), 2);
         assert_eq!(diag.spans[1].span, at(40));
     }

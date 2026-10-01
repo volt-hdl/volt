@@ -1,6 +1,6 @@
 # ADR-0055: Paralel Formal Doğrulama — `volt verify -j`, Modül Başına sby Görevi, Kaynak Sıralı Rapor
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0097 — görev kümesi (§1 "kontratlı modüller"), görev başına özellik sayımı ve `properties[]` satırları; paralel koşum, rapor sırası ve çıkış kodları değişmedi (ek, 2026-10-01)
 > İlgili: ADR-0082 (varsayılan formal motoru), ADR-0094 (Docker köprüsü: tek sby süreci tek konteynerde, `-j` içeride).
 > Tarih: 2026-09-16
 > Etkilenen: volt-sv-emit (`sby.rs`: `SbyTask`, `sby_config_tasks`;
@@ -196,3 +196,41 @@ orkestrasyon sınırı değil.
   1917.
 - `just check`, `just consistency`, `just clippy-strict` temiz; CI `verify`
   işi SoC'yi `-j 4` ile koşturur.
+
+## Ek — Alt modül kontratları üst görevde: `requires`/`assume` artık denetlenir (2026-10-01, `fix/formal-requires-soundness`)
+
+§Sınırlar'daki "Alt modüllerin kontratları üst modülün görevinde de
+denetlenir" cümlesi `requires`/`assume` için karşılanmıyordu: üst görev alt
+modülün gövdesini elaborate ediyor, ama alt modülün `requires`'ı orada da
+`assume` olarak kalıyordu (`sva.rs:447`). `assume` denetlenmez, üst modülün
+sürdüğü sinyali kısıtlar; üst modül alt örneği kontratına aykırı sürse bile
+(`x = 12`, `requires: x < 10`) koşu çıkış 0 veriyordu. Aynı koşu, yalnız
+varsayım taşıyan görevleri "N properties verified" diye sayıyordu.
+
+Düzeltme ADR-0097'dedir; bu ADR'nin değişen yerleri:
+
+- §1 görev kümesi: görev "kontratlı modül" değil, bir şey DENETLEYEN
+  modüldür — kendi iddiası olan ya da altında `requires`/`assume` taşıyan
+  bir örnek bulunan modül. Kendi kontratı olmayan üst modül görev olur;
+  yalnız varsayım taşıyan modül olmaz.
+- Görev başına makro: `.sby` her görevde, tepe olmayan yükümlülüklü
+  modüllerin `VOLT_SUB_<modül>` makrosunu `read -formal`'dan önce
+  tanımlar (`<görev>: read -define ...`); o modüllerin `requires`/`assume`'u
+  o görevde `assert` olur.
+- §3/§6 sayım: `(<n> properties)` görevde denetlenenlerdir, varsayımlar
+  `, <k> assumed` olarak ayrı yazılır; JSON'a `modules[].assumed`,
+  `properties[].status = "assumed"` ve üst görevde denetlenen yükümlülük
+  satırının `context` alanı eklendi. "Kontrat başına tek satır" kuralı bu
+  satırlar için genişledi: yükümlülük, sahibinin satırına ek olarak
+  denetlendiği her görevde bir satır alır.
+- Karşı örnek sahibi modüle eşlenir (önce yalnız görevin tepesinde
+  aranıyordu; alt modülün `inv_0`'ı üst modülün `inv_0`'ına düşebiliyordu).
+- Hiçbir şey denetlemeyen koşu E5006, saatsiz modülün kontratı E5005
+  (ikisi de çıkış 1); önceki "Note no contracts found" + çıkış 0 kalktı.
+
+Ölçüm (`examples/soc/top.volt`, `-j 2 --depth 12`): SocTop görevi artık
+UartCtrl, Timer, Gpio ve Axi4LiteSlave örneklerinin Handshake tüketici
+`assume`'larını `assert` olarak denetler ve geçer; özet 154 özellik
+(SocTop'un kendi 9 Handshake girişi ortam varsayımı olarak ayrıca
+listelenir). Paralel koşum, kaynak sıralı rapor, `--fail-fast` ve çıkış
+kodu önceliği değişmedi.

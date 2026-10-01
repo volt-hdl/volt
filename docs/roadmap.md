@@ -242,6 +242,43 @@ follow user feedback.
   constraints; there are no project files and no pin constraints.
 - **ADR:** [ADR-0054](adr/ADR-0054-sdc-uretimi.md)
 
+### Vacuity check for formal proofs
+
+- **What:** an optional `volt verify --vacuity` that checks, for each
+  task, that the assumptions can hold together after reset is released,
+  and a weekly CI run of it over the examples.
+- **Why:** contradictory `requires` and `assume` contracts make every
+  assertion pass without proving anything, and nothing reports it today.
+- **Status:** Not started. The manual check is a `cover` of the intended
+  behaviour run with `--mode cover`.
+- **ADR:** [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
+
+### Contracts over arrays
+
+- **What:** contracts that hold for every element of an array, written
+  inside a module-level `for` or in a for-each form.
+- **Why:** an array of instances cannot state the per-element
+  preconditions of its elements, so it cannot be verified on its own:
+  `TernaryArray` in `examples/hybrid_accel` fails `volt verify` alone and
+  passes inside `HybridTop`.
+- **Status:** Not started. A contract inside `for` is rejected (`E0001`).
+  Needs a new ADR.
+- **ADR:** [ADR-0056](adr/ADR-0056-duzenli-yapilar.md),
+  [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
+
+### Submodule reset assumptions in parent proofs
+
+- **What:** check a submodule's first-cycle reset assumption in its
+  parent's proof instead of keeping it as an assumption, as is done for
+  `requires` and `assume`.
+- **Why:** when the parent drives the submodule's reset from its own logic
+  or from another reset domain, the kept assumption constrains the parent:
+  it can hide a failure, or contradict the parent's reset and make the
+  proof pass without proving anything.
+- **Status:** Not started. Each module with a reset assumes it asserted in
+  the first cycle, in its own proof and in every parent's proof.
+- **ADR:** [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
+
 ## Toward 1.0
 
 1.0 will make a stability promise. These items are its preconditions: a

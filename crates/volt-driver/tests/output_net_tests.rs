@@ -308,12 +308,19 @@ fn parse_verilator(text: &str, status_ok: bool) -> Lint {
     lint
 }
 
-fn verilator_lint(verilator: &Path, top: &str, files: &[PathBuf], assert: bool) -> Lint {
+fn verilator_lint(
+    verilator: &Path,
+    top: &str,
+    files: &[PathBuf],
+    assert: bool,
+    defines: &[String],
+) -> Lint {
     let mut cmd = Command::new(verilator);
     cmd.args(["--lint-only", "-Wall", "--top-module", top]);
     if assert {
         cmd.arg("--assert");
     }
+    cmd.args(defines.iter().map(|d| format!("+define+{d}")));
     let out = cmd.args(files).output().expect("verilator çalışmalı");
     let mut lint = parse_verilator(&text_of(&out), out.status.success());
     // Extern gövdeleri (`@source`) kullanıcının SV'sidir: onların stil
@@ -323,8 +330,25 @@ fn verilator_lint(verilator: &Path, top: &str, files: &[PathBuf], assert: bool) 
     lint
 }
 
+/// Dosyalardaki yükümlülük makroları (`ifdef VOLT_SUB_<modül>`, ADR-0097).
+/// SVA iki kez denetlenir: makrosuz (modül formal tepe, `assume`) ve
+/// makrolu (modül bir örnek, `assert`) — iki dal da -Wall temiz olmalı.
+fn sub_macros(files: &[PathBuf]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in files {
+        let text = std::fs::read_to_string(f).unwrap_or_default();
+        for m in text.lines().filter_map(|l| l.strip_prefix("`ifdef ")) {
+            let m = m.trim();
+            if m.starts_with("VOLT_SUB_") && !out.iter().any(|o| o == m) {
+                out.push(m.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Tasarımın tüm Verilator koşuları: RTL (her modül üst), .sva + bind,
-/// satır içi SVA.
+/// satır içi SVA; yükümlülüklü SVA makrolu ve makrosuz.
 fn verilator_design(verilator: &Path, d: &Design) -> Lint {
     let mut all = Lint::default();
     let mut add = |l: Lint| {
@@ -338,7 +362,7 @@ fn verilator_design(verilator: &Path, d: &Design) -> Lint {
     };
     let rtl = rtl_files(Kind::Rtl);
     for top in files_with(&out_dir(Kind::Rtl, d).join("rtl"), "sv") {
-        add(verilator_lint(verilator, &stem(&top), &rtl, false));
+        add(verilator_lint(verilator, &stem(&top), &rtl, false, &[]));
     }
     let sva_rtl = rtl_files(Kind::Sva);
     for sva in files_with(&out_dir(Kind::Sva, d).join("formal"), "sva") {
@@ -351,11 +375,25 @@ fn verilator_design(verilator: &Path, d: &Design) -> Lint {
             .to_string();
         let mut files = sva_rtl.clone();
         files.push(sva);
-        add(verilator_lint(verilator, &top, &files, true));
+        add(verilator_lint(verilator, &top, &files, true, &[]));
+        let macros = sub_macros(&files);
+        if !macros.is_empty() {
+            add(verilator_lint(verilator, &top, &files, true, &macros));
+        }
     }
     let inline = rtl_files(Kind::Inline);
+    let inline_macros = sub_macros(&inline);
     for top in files_with(&out_dir(Kind::Inline, d).join("rtl"), "sv") {
-        add(verilator_lint(verilator, &stem(&top), &inline, true));
+        add(verilator_lint(verilator, &stem(&top), &inline, true, &[]));
+        if !inline_macros.is_empty() {
+            add(verilator_lint(
+                verilator,
+                &stem(&top),
+                &inline,
+                true,
+                &inline_macros,
+            ));
+        }
     }
     all
 }
@@ -429,7 +467,7 @@ fn verilator_runner_rejects_invalid_sv() {
     )
     .unwrap();
     assert!(
-        !verilator_lint(&verilator, "Bad", std::slice::from_ref(&bad), false)
+        !verilator_lint(&verilator, "Bad", std::slice::from_ref(&bad), false, &[])
             .errors
             .is_empty()
     );
@@ -438,7 +476,7 @@ fn verilator_runner_rejects_invalid_sv() {
         "module Bad(input logic a, input logic b, output logic y);\n  assign y = a;\nendmodule\n",
     )
     .unwrap();
-    let lint = verilator_lint(&verilator, "Bad", &[bad], false);
+    let lint = verilator_lint(&verilator, "Bad", &[bad], false, &[]);
     assert!(
         lint.warnings.iter().any(|(c, _)| c == "UNUSEDSIGNAL"),
         "{:?}",

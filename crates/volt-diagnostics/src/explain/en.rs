@@ -786,6 +786,28 @@ module Gpio {
             "module M {\n    in speed : u8\n    requires: speed + 1     // ✗ E5004: type is u9, not bool\n}",
             "module M {\n    in speed : u8\n    requires: speed <= 2    // ✓ comparison yields bool\n}",
         ),
+        E5005 => Explanation::new(
+            "Contract in a module without a clock port cannot be verified",
+            "'volt verify' checks contracts at a clock edge; a module with no clock port gives them no edge, so its contracts would be dropped without a word.",
+            "Every formal check Volt generates is sampled on the edge of the module's first clock port, guarded by its reset (ADR-0011, ADR-0040). A purely combinational module has no such edge. Its contracts used to vanish from the formal run while 'volt verify' still reported success; a dropped contract now stops the run instead (ADR-0097).\n\nThe same holds when the clockless module is instantiated inside a clocked one: its 'requires' would be an obligation of the parent, but there is no edge to check it on.",
+            "module Comb {\n    in  a : u8\n    out b : u8\n    requires: a < 10      // ✗ E5005: Comb has no clock port\n    b = a + 1\n}",
+            "module Comb {\n    in  clk : clock\n    in  a   : u8\n    out b   : u8\n    requires: a < 10      // ✓ checked on clk\n    b = a + 1\n}",
+        )
+        .with_note(
+            "Either give the module a clock port, or state the property in the clocked module that instantiates it. 'volt build' and 'volt test' are not affected.",
+        )
+        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        E5006 => Explanation::new(
+            "Nothing to verify",
+            "No property is checked in this run: there is no assertion, and every 'requires'/'assume' contract is only assumed.",
+            "A formal run that checks nothing succeeds trivially, and 'proved' would be a false claim. 'volt verify' therefore counts the properties each task actually checks — 'invariant', 'ensures', 'assert' and 'cover' of the task's top module, plus the 'requires'/'assume' contracts of every instance below it, which become the parent's obligations (ADR-0097). A 'requires' of the top module is an assumption about the environment; it is reported, but it is not a checked property.",
+            "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10      // ✗ E5006: only an assumption, nothing checked\n    y = x\n}",
+            "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10\n    ensures:  y < 10      // ✓ a checked property\n    y = x\n}",
+        )
+        .with_note(
+            "Exit code 1, like any error: a run that verifies nothing is not a success.",
+        )
+        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
         E5010 => Explanation::new(
             "Timing misalignment",
             "In a @strict_timing module, values whose pipeline delays differ cannot be combined directly.",

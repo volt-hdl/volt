@@ -45,7 +45,7 @@ use volt_span::{FileId, Span};
 
 pub use const_array::ConstArrayStyle;
 pub use expr::Sig;
-pub use reach::reachable_modules;
+pub use reach::{instance_children, instance_subtree, reachable_modules};
 pub use sby::{sby_config, sby_config_tasks, SbyEngine, SbyMode, SbyOptions, SbyTask};
 pub use sim::{
     collect_sim_ports, find_module, load_config_vlt, run_testbench_cpp, run_testbench_cpp_with,
@@ -53,7 +53,10 @@ pub use sim::{
     TbAssertKind, TbPortCheck, TbStep, TbTest, TbValue,
 };
 pub use sim_contract::uses_sim_contracts;
-pub use sva::{AutoProp, CoverReach, SvaFile, SvaMode, SvaProp, COVER_HARNESS_STEPS};
+pub use sva::{
+    is_obligation, sub_instance_macro, AutoProp, CoverReach, SvaFile, SvaMode, SvaProp,
+    UnclockedContracts, COVER_HARNESS_STEPS,
+};
 pub use waves::{
     filter_text, gtkw_text, WaveInfo, WaveModule, WaveSession, WaveSignal, WaveTable, WaveTrace,
     GTKW_MARKER,
@@ -320,6 +323,11 @@ pub struct EmitOutput {
     pub sva_files: Vec<SvaFile>,
     /// Üretilen her property'nin kimliği (F4b — sby FAIL eşlemesi).
     pub sva_props: Vec<SvaProp>,
+    /// Kontratı olup saat portu olmayan modüller (yalnız `SvaMode::
+    /// Immediate`, ADR-0097): formal akış bunları örnekleyemez. Tanıyı
+    /// (E5005) sürücü, çıktı kümesi süzüldükten SONRA üretir — örneklenmeyen
+    /// kütüphane modülü sahte hata vermesin.
+    pub unclocked_contracts: Vec<UnclockedContracts>,
     /// İki ve daha çok saat portlu modüller — `.sby` dosyasına
     /// `multiclock on` eklenmesi için (ADR-0027, clk2fflogic akışı).
     pub multiclock_modules: Vec<String>,
@@ -337,6 +345,9 @@ pub struct SvModule {
     /// Başlıksız modül gövdesi — birleşik metin ([`unit_sv`]) bundan
     /// kurulur; çıktı kümesi süzülünce yeniden kurmak için saklanır.
     pub body: String,
+    /// Başlığın altındaki dosya notu (`--emit=sva` yükümlülük makroları,
+    /// ADR-0097); yoksa boş. Birleşik metinde birim başlığına toplanır.
+    pub notes: String,
 }
 
 /// Birleşik (tek dosya) SV metni: birim başlığı + modül gövdeleri
@@ -344,6 +355,10 @@ pub struct SvModule {
 pub fn unit_sv(source_name: &str, modules: &[SvModule]) -> String {
     let bodies: Vec<&str> = modules.iter().map(|m| m.body.as_str()).collect();
     let mut sv = header(source_name);
+    for m in modules.iter().filter(|m| !m.notes.is_empty()) {
+        sv.push('\n');
+        sv.push_str(&m.notes);
+    }
     sv.push('\n');
     sv.push_str(&bodies.join("\n"));
     sv.push('\n');
@@ -465,6 +480,7 @@ pub fn emit_unit(
     // modül sırasına bağlı olarak ikinci kez bildirmesin.
     emitter.audit_unit_names();
 
+    let mut file_notes = emitter.obligation_notes();
     let mut per_module = Vec::new();
     let mut multiclock_modules = Vec::new();
     for &item_idx in &ast.items {
@@ -480,7 +496,12 @@ pub fn emit_unit(
             // ADR-0024: her modül kendi dosyasında; başlık o modülün
             // kaynak dosyasını gösterir.
             let origin = emitter.source_name_of(item.span.file);
+            let notes = file_notes.remove(&module.name.text).unwrap_or_default();
             let mut sv = header_for(origin, Some(&module.name.text));
+            if !notes.is_empty() {
+                sv.push('\n');
+                sv.push_str(&notes);
+            }
             sv.push('\n');
             sv.push_str(&body);
             sv.push('\n');
@@ -489,6 +510,7 @@ pub fn emit_unit(
                 name: module.name.text.clone(),
                 sv,
                 body,
+                notes,
             });
         }
     }
@@ -499,6 +521,7 @@ pub fn emit_unit(
         modules: per_module,
         sva_files: emitter.sva_files,
         sva_props: emitter.sva_props,
+        unclocked_contracts: emitter.unclocked_contracts,
         multiclock_modules,
         waves,
         diagnostics: emitter.diagnostics,
@@ -539,6 +562,7 @@ fn new_emitter<'a>(
         sva_mode: mode,
         sva_files: Vec::new(),
         sva_props: Vec::new(),
+        unclocked_contracts: Vec::new(),
         past_regs: HashMap::new(),
         sim_dpi: sim_contract::SimDpiUse::default(),
         enum_used: Vec::new(),
@@ -821,6 +845,8 @@ pub(crate) struct Emitter<'a> {
     pub(crate) sva_mode: SvaMode,
     pub(crate) sva_files: Vec<SvaFile>,
     pub(crate) sva_props: Vec<SvaProp>,
+    /// Saatsiz kontratlı modüller (ADR-0097; `EmitOutput` alanı).
+    pub(crate) unclocked_contracts: Vec<UnclockedContracts>,
     /// Immediate modda prev() çağrısı → yardımcı reg adı (ADR-0040).
     pub(crate) past_regs: HashMap<Idx<Expr>, String>,
     /// Simulation modunda bu modülün kullandığı DPI geri çağrıları

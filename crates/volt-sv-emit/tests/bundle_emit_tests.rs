@@ -215,7 +215,15 @@ fn builtin_handshake_consumer_contracts_are_assumptions() {
         "{}",
         out.sv
     );
-    assert!(!out.sv.contains("assert (!(past_rx_valid_1"), "{}", out.sv);
+    // ADR-0097: C bir üst modülün örneğiyken (VOLT_SUB_C) varsayım üst
+    // modülün yükümlülüğüdür; `assert` yalnız o dalda.
+    let assert_at = out
+        .sv
+        .find("assert (!(past_rx_valid_1")
+        .expect("üst bağlam dalı");
+    let branch = out.sv[..assert_at].rfind("`ifdef VOLT_SUB_C\n");
+    let closed = out.sv[..assert_at].rfind("`endif");
+    assert!(branch.is_some() && branch > closed, "{}", out.sv);
 }
 
 #[test]

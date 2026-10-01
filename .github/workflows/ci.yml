@@ -195,9 +195,18 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: sby
         run: cargo test -p volt-driver --test verify_cover_depth_tests
-      # ADR-0055: one sby process, one task per contract-bearing module, -j N.
-      - name: SoC (145 properties, 8 module tasks) -j 4 -> exit 0
+      # ADR-0055: one sby process, one task per module that checks something,
+      # -j N. ADR-0097: each parent task also asserts the Handshake/requires
+      # obligations of the instances below it.
+      - name: SoC (154 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
+      # ADR-0097: an instance's requires/assume is an obligation of its
+      # parent; a parent that breaks it fails (exit 6), one that meets it
+      # passes, over three levels and several instances.
+      - name: Instance obligations (real sby, ADR-0097)
+        env:
+          VOLT_REQUIRE_TOOLS: sby
+        run: cargo test -p volt-driver --test verify_obligation_tests -- --test-threads=1
       # ADR-0076: the extern body from @source is read by sby; the invariant
       # is provable only with it.
       - name: Extern @source (bmc + prove) -> exit 0
