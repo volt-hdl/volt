@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0011, ADR-0055 — ADR-0011'in `requires → assume property` eşlemesi artık yalnız modülün KENDİ görevinde geçerli; ADR-0055 §1'in görev kümesi ("kontratlı modüller") ve kontrat sayımı değişti
-> İlgili: ADR-0064 (simülasyonda alt örneğin `requires`/`assume`'u zaten üst modülün hatasıdır; formal akış artık aynı anlamı taşır), ADR-0050 (Handshake tüketici tarafı otomatik `assume`), ADR-0040 (`prev()` yardımcı register'ları), ADR-0086 (cover kipinde ulaşılmayan otomatik cover), ADR-0075 (sby durumları ve çıkış kodları).
+> İlgili: ADR-0064 (simülasyonda alt örneğin `requires`/`assume`'u zaten üst modülün hatasıdır; formal akış artık aynı anlamı taşır), ADR-0050 (Handshake tüketici tarafı otomatik `assume`), ADR-0040 (`prev()` yardımcı register'ları), ADR-0086 (cover kipinde ulaşılmayan otomatik cover), ADR-0075 (sby durumları ve çıkış kodları), ADR-0098 (saatsiz modülün `volt test`'i).
 > Tarih: 2026-10-01
 > Etkilenen: volt-sv-emit (`sva.rs`: `sub_instance_macro`, `is_obligation`,
 > `UnclockedContracts`; `sby.rs`: `SbyTask.sub_defines`, görev-koşullu

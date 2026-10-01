@@ -1,6 +1,7 @@
 # ADR-0048: Zamanlama Kısıtları — Uygulanmayan Nitelikler W0021 Üretir, SDC Üretimi V1 Planı
 
 > Statü: Kısmen yerini aldı: ADR-0054 — 1. bölüm (W0021) yürürlükte; 2. bölüm (SDC planı) tarihsel, güncel karar ADR-0054
+> İlgili: ADR-0098 (bağlanmayan ya da okunmadığı yerdeki nitelik W0024).
 > Tarih: 2026-09-14
 > Etkilenen: grammar-full.ebnf §2/§18 (W0021 yeniden tanımı),
 > volt-hir (attrs.rs — yeni geçit), volt-diagnostics (W0021 mesaj +

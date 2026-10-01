@@ -5,6 +5,46 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Sessiz kabul, ikinci tur (ADR-0098, 2026-10-02)
+
+- `on` bloğunda yalnız bir `for` döngüsünde yazılan register'ın reset
+  değeri kayboluyordu: reset dalı boş üretiliyordu, `reg r : [u8; 2] =
+  [7; 2]` reset sonrası 0 okunuyordu. Reset dalı artık `for` gövdesinde
+  (iç içe `for`, `for` içinde `match`, `match` kolunda `for`) yazılan
+  register'ları da kapsar.
+- **E0019** (yeni): register'a `on` bloğu dışında `=` ile atama.
+  Modül düzeyinde `r = r + 1` `assign r = r + 8'd1;` üretiyordu
+  (kombinasyonel döngü, reset değeri kayıp, yalnız W3001 uyarısı);
+  `comb` bloğunda ve modül düzeyi `for` gövdesinde de aynısı oluyordu.
+  Öneri `on clk { r <= r + 1 }` biçimini gösterir; modül düzeyinde deyimi
+  o bloğa çeviren bir düzenleme önerisi de taşır. Register'ı hem `on`
+  bloğunda hem `on` dışında yazan kod önceden E4001 alıyordu; artık
+  E0019 alır.
+- **W0024** (yeni): etkisiz nitelik. Kontrat, `stage`/`stall`/`flush`,
+  `use`, `package` önündeki, gövdenin kapanış `}`'inden ve dosya sonundan
+  önceki nitelikler tanısız atılıyordu; okunmadığı bir yere bağlanan
+  nitelikler de (`@strict_timing` bir portta, tek başına `@offset`,
+  `@reg` sıradan bir `reg` bildiriminde) sessizce yok sayılıyordu.
+  Ayrıştırılan her nitelik artık deftere yazılır ve okunduğu yerde
+  olması denetlenir.
+- `reset_cycles` ve `reset_sequence` alan anahtarları ayrıştırılıyor ama
+  hiçbir geçit okumuyordu; artık **E0003** ("not supported yet"). Bilinen
+  sınırlar sayfasında yazılı.
+- `volt test` ve `volt run`, reset portu olmayan modülde C++ derlemesinde
+  düşüyordu (testbench her modülde `dut->rst` sürüyordu): saat portu
+  olmayan (tamamen kombinasyonel) modül, `reset = none` alanı ve
+  `active_low` alanı (`rst_n`). Testbench artık yalnız modülün gerçek
+  reset portlarını sürer; varsayılan alanda üretilen testbench ve test
+  zamanlaması aynıdır. GTKWave oturumu artık `rst` portunu da gösterir.
+- volt-hir, volt-sv-emit ve volt-lower'da `clippy::wildcard_enum_match_arm`
+  açık: bir enum'u `_ =>` ile gezen kol yasak, yeni varyant ele alınmayan
+  her yeri derleme sırasında gösterir. Mevcut joker kollar açık kollara,
+  `if let`/`matches!` sorgularına çevrildi.
+- Bilinen sınırlar ve yol haritası: kombinasyonel döngü denetimi genel
+  değil (birbirini besleyen teller, `comb` bloğu, çıkış portu ve alt
+  modül üzerinden döngü tanısız; `volt test` Verilator UNOPTFLAT ile
+  durur).
+
 ### Düzeltildi — Alt örneğin `requires`'ı üst görevde denetlenir (ADR-0097, 2026-10-01)
 
 - `volt verify` bir alt örneğin `requires`/`assume` kontratını üst
@@ -50,6 +90,21 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   haftalık), diziler üzerinde kontrat, alt modülün reset varsayımının üst
   görevde varsayım kalması (bu sonuncusu kitabın Known limitations
   bölümüne de eklendi).
+
+### Değişti — Tipsiz `let` doğal genişliği alır (PR #72, ADR-0025 eki, 2026-10-01)
+
+- **Davranış değişikliği.** Tipsiz `let` artık type-inference.md §3.3'teki
+  doğal genişlikte üretilir: `+`/`-` bir bit, `*` iki katı genişler, tekli
+  `-` `iN`'i `i(N+1)` yapar. `a`, `b` `u8` iken `let s = a + b` artık 9
+  bittir (`wire [8:0] s`); önceden 8 bitti ve 255 + 1 0 veriyordu. Kaydırma,
+  bit düzeyi işleçler, `/` ve `%` genişlemez.
+- 2^N sarmasına dayanan kod hedef tipi açıkça yazmalıdır: `let addr : u32
+  = pc + 4`. Tipli `let` ve dar hedefe atama değişmedi (atama kesmeyi
+  açık yazar: `wrap = s` → `8'(s)`). `examples/riscv_core.volt`'ta
+  `addr`/`jump_tgt` bu yüzden `: u32` aldı; üretilen SV aynı kaldı.
+- Aynı PR: modül düzeyinde `r <= r + 1` E0007, `y == a` ve tek başına
+  ifade E0001 (önceden sessizce düşüyordu); `volt check` test dosyalarını
+  kardeş tasarımla denetler; son kenardaki FSM geçişi cover'da sayılır.
 
 ### Eklendi — Yol haritası ve bilinen sınırlar (2026-10-01)
 

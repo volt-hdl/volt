@@ -46,6 +46,15 @@ decisions.
 
 **SystemVerilog is the sole output language.** There is no VHDL output.
 
+**Combinational loops are not detected.** `volt check` and `volt build`
+accept wires that feed each other (`a = b + x` and `b = a`), a `comb`
+block that reads the signal it assigns, and a loop through an output port
+or a submodule instance. When `volt test` or `volt run` builds such a
+design, Verilator stops with `UNOPTFLAT`; the SystemVerilog that `volt
+build` writes is not checked. A register cannot close a loop this way:
+assigning it with `=` outside an `on` block is `E0019`. Roadmap:
+[Combinational loop check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#combinational-loop-check).
+
 ## Clock and reset domains
 
 **CDC bridges are `sync()`, `sync3()` and the built-in dual-clock
@@ -60,7 +69,9 @@ error; use `AsyncFifo` or `HandshakeSync` for data.
 asynchronous reset shared by several clock domains or synchronized twice
 (`E3003`), but it does not check the order in which resets are released,
 and conditional resets are not modelled. `extern` modules carry no reset
-contract.
+contract. The domain keys `reset_cycles` and `reset_sequence` are
+reserved for this: writing one is `E0003` ("not supported yet"). Keep
+the reset length and order in your reset generator.
 
 **No crossing report.** Volt knows every crossing, but it does not list
 them in a report. With `volt build --emit=sdc` (or `xdc`), the
