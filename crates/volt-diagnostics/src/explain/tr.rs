@@ -169,6 +169,16 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         .with_note(
             "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir. Başka bir ifadenin içindeki (operand, koşul, port bağlaması, kontrat) 'match' ifadesi kol sayısı kadar derin bir koşullu zincire iner (ADR-0083): orada 256'dan fazla kol E0018'dir. Match'i kendi let'ine verin (let v = match ...): bir let'in ya da atamanın tüm sağ tarafı olarak her boyutta bir SystemVerilog 'case'i olur.",
         ),
+        E0019 => Explanation::new(
+            "Register'a 'on' bloğu dışında '=' ile atama",
+            "Register yeni değerini yalnız bir saat kenarında, bir 'on' bloğunda '<=' ile alır. Modül düzeyinde, bir 'comb' bloğunda ya da modül düzeyi bir 'for' içinde '=' ile atanınca bunun yerine kombinasyonel olarak sürülürdü.",
+            "'on' bloğu dışında '=' her an etkin bir kablolamayı tanımlar: üretilen SystemVerilog 'assign r = ...' ya da bir 'always_comb' atamasıdır. Register'ın o zaman ne saat kenarı ne reset dalı olur; başlangıç değeri ('reg r : u8 = 3') kaybolur. Değer register'ın kendisini okuyorsa ('r = r + 1') çıkış doğrudan girişine geri beslenir: kombinasyonel döngü. Simülatörler bunu ya reddeder ya da keyfi bir değere oturtur, sentez kararsız bir halkaya çevirir.\n\nDeğer her saat çevriminde bir kez değişecekse atamayı bir 'on' bloğuna taşıyın ve '<=' kullanın. Sinyal gerçekten kombinasyonelse 'reg' yerine 'wire' (ya da 'let') olarak bildirin.",
+            "reg r : u8 = 3\nr = r + 1               // ✗ E0019: assign r = r + 1, döngü",
+            "reg r : u8 = 3\non clk { r <= r + 1 }   // ✓ her saatte bir adım, reset 3",
+        )
+        .with_note(
+            "Modül düzeyinde öneri deyimi 'on <saat> { r <= değer }' ile değiştirir ('reg(clk)' saati, yoksa modülün tek saat portu). Bir 'comb' bloğunda ya da 'for' gövdesinde deyim tek başına taşınamadığı için biçimi yalnız yardım metni gösterir.",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",

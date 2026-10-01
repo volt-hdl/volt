@@ -18,6 +18,7 @@ pub(crate) mod mono;
 mod pattern;
 mod pipeline;
 pub(crate) mod recovery;
+mod register_assign;
 mod stmt;
 mod struct_lit;
 mod test;

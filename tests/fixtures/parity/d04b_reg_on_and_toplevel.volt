@@ -1,5 +1,7 @@
-// parity: E4001
-// drivers: 11 10
+// parity: E0019
+// drivers: ok
+// A register assigned with '=' outside an 'on' block is E0019 (ADR-0098),
+// reported before driver analysis; until ADR-0098 this class was E4001.
 module M {
     in  clk : clock
     in  a : u8

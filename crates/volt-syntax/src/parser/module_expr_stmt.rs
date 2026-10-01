@@ -8,34 +8,17 @@
 //! §6.1 bağlam denetimi). Hedef türünü (reg mi, tel mi) bilmek için
 //! denetim modül gövdesinin tamamı ayrıştırıldıktan sonra yapılır.
 
-use std::collections::HashMap;
-
-use volt_ast::{BinOp, Expr, ExprKind, Idx, Port, Stmt, StmtKind, TypeRefKind};
+use volt_ast::{BinOp, Expr, ExprKind, Idx, Stmt, StmtKind};
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
 };
 use volt_span::Span;
 
+use super::register_assign::RegClocks;
 use super::Parser;
 
 impl Parser<'_> {
-    pub(super) fn check_module_expr_stmts(&mut self, ports: &[Port], body: &[Idx<Stmt>]) {
-        let clocks: Vec<String> = ports
-            .iter()
-            .filter(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
-            .map(|p| p.name.text.clone())
-            .collect();
-        // reg adı → `reg(clk)` ile açıkça yazılan saat.
-        let regs: HashMap<String, Option<String>> = body
-            .iter()
-            .filter_map(|&s| match &self.ast.stmts[s].kind {
-                StmtKind::Reg(r) => Some((
-                    r.name.text.clone(),
-                    r.domain.as_ref().map(|d| d.text.clone()),
-                )),
-                _ => None,
-            })
-            .collect();
+    pub(super) fn check_module_expr_stmts(&mut self, regs: &RegClocks, body: &[Idx<Stmt>]) {
         for &s in body {
             let StmtKind::Expr(e) = self.ast.stmts[s].kind else {
                 continue;
@@ -47,14 +30,9 @@ impl Parser<'_> {
                     rhs,
                 } => match self.expr_to_lvalue(lhs) {
                     Some(target) => {
-                        let clock = match regs.get(&target.base.text) {
-                            Some(Some(explicit)) => Some(explicit.clone()),
-                            Some(None) => Some(match clocks.as_slice() {
-                                [only] => only.clone(),
-                                _ => "<clock>".to_string(),
-                            }),
-                            None => None,
-                        };
+                        let clock = regs
+                            .clock_of(&target.base.text)
+                            .map(|c| c.unwrap_or_else(|| "<clock>".to_string()));
                         self.module_le_diag(lhs, rhs, clock)
                     }
                     None => self.module_expr_diag(e),

@@ -1120,6 +1120,88 @@ fn module_level_assignment_is_still_clean() {
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
 }
 
+// ═══ Register'a `on` dışında `=` (E0019) ═══════════════════════════
+
+fn e0019s(result: &ParseResult) -> Vec<&volt_diagnostics::Diagnostic> {
+    result
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E0019")
+        .collect()
+}
+
+/// `r = r + 1` (r reg) `assign r = r + 1` üretiyordu: kombinasyonel
+/// döngü, reset değeri kayıp, yalnız W3001 uyarısı.
+#[test]
+fn e0019_register_assigned_at_module_level_points_to_an_on_block() {
+    let result =
+        p("module M {\n in clk : clock\n out q : u8\n reg r : u8 = 3\n r = r + 1\n q = r\n}\n");
+    let diags = e0019s(&result);
+    assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("on clk { r <= r + 1 }"), "{help}");
+    // Modül düzeyindeki deyim olduğu gibi `on` bloğuyla değiştirilebilir.
+    assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
+    assert_eq!(diags[0].suggestions[0].replacement, "on clk { r <= r + 1 }");
+}
+
+#[test]
+fn e0019_explicit_register_clock_wins_over_the_port_list() {
+    let result = p("module M {\n in a : clock\n in b : clock\n out q : u8\n \
+         reg(b) r : u8 = 0\n r = r + 1\n q = r\n}\n");
+    let diags = e0019s(&result);
+    assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("on b { r <= r + 1 }"), "{help}");
+}
+
+#[test]
+fn e0019_without_a_known_clock_names_a_placeholder_and_offers_no_edit() {
+    let result = p("module M {\n out q : u8\n reg r : u8 = 0\n r = r + 1\n q = r\n}\n");
+    let diags = e0019s(&result);
+    assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("on <clock> { r <= r + 1 }"), "{help}");
+    assert!(
+        diags[0].suggestions.is_empty(),
+        "{:?}",
+        diags[0].suggestions
+    );
+}
+
+#[test]
+fn e0019_register_assigned_in_comb_block() {
+    let result = p("module M {\n in clk : clock\n in x : u8\n out q : u8\n \
+         reg r : u8 = 3\n comb { if x == 0 { r = x } else { r = 1 } }\n q = r\n}\n");
+    let diags = e0019s(&result);
+    assert_eq!(diags.len(), 2, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("on clk { r <= x }"), "{help}");
+    // Blok içindeki deyim tek başına taşınamaz: makine önerisi yok.
+    assert!(
+        diags[0].suggestions.is_empty(),
+        "{:?}",
+        diags[0].suggestions
+    );
+}
+
+#[test]
+fn e0019_register_element_assigned_in_module_level_for() {
+    let result = p("module M {\n in clk : clock\n out q : u8\n \
+         reg r : [u8; 2] = [0; 2]\n for i in 0..2 { r[i] = 1 }\n q = r[0]\n}\n");
+    assert_eq!(e0019s(&result).len(), 1, "{:?}", result.error_codes());
+}
+
+#[test]
+fn e0019_does_not_fire_for_wires_on_blocks_or_shadowing_lets() {
+    let result = p(
+        "module M {\n in clk : clock\n in x : u8\n out q : u8\n out y : u8\n \
+         reg r : u8 = 0\n wire w : u8\n w = x\n on clk { r <= w\n if x == 0 { r = 1 } }\n \
+         comb { let r = x\n y = r }\n q = r\n}\n",
+    );
+    assert!(e0019s(&result).is_empty(), "{:?}", result.error_codes());
+}
+
 #[test]
 fn sync_call_is_normal_call_expr() {
     // 13_cdc_correct_bridge.volt deseni — sync() sıradan çağrı
@@ -2295,6 +2377,8 @@ fn ui_fail_files_produce_expected_codes() {
         // Modül düzeyinde `<=` ve ifade deyimi sessizce düşüyordu.
         ("198_module_level_nonblocking.volt", "E0007"),
         ("199_module_level_expr_stmt.volt", "E0001"),
+        // Register'a `on` dışında `=`: kombinasyonel döngü, reset kaybı.
+        ("200_register_assign_outside_on.volt", "E0019"),
         ("27_match_missing_wildcard.volt", "E0014"),
         // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
         ("33_stage_out_of_range.volt", "E5012"),

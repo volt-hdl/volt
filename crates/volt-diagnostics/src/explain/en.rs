@@ -169,6 +169,16 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         .with_note(
             "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux). A 'match' expression inside another expression (an operand, a condition, a port connection, a contract) becomes a conditional chain as deep as it has arms (ADR-0083): more than 256 arms there is E0018. Give the match its own let (let v = match ...): as the whole right-hand side of a let or an assignment it becomes a SystemVerilog 'case' of any size.",
         ),
+        E0019 => Explanation::new(
+            "Register assigned with '=' outside an 'on' block",
+            "A register takes a new value only on a clock edge, inside an 'on' block with '<='. Assigned with '=' at module level, in a 'comb' block or in a module-level 'for', it would be driven combinationally instead.",
+            "Outside an 'on' block '=' describes wiring that is always active: the generated SystemVerilog is 'assign r = ...' or an 'always_comb' assignment. The register then has no clock edge and no reset branch, so its initial value ('reg r : u8 = 3') is lost. When the value reads the register itself ('r = r + 1') the output feeds straight back into its input: a combinational loop, which simulators either reject or settle arbitrarily and synthesis turns into an unstable ring.\n\nIf the value should change once per clock cycle, move the assignment into an 'on' block and use '<='. If the signal is really combinational, declare it as 'wire' (or 'let') instead of 'reg'.",
+            "reg r : u8 = 3\nr = r + 1               // ✗ E0019: assign r = r + 1, a loop",
+            "reg r : u8 = 3\non clk { r <= r + 1 }   // ✓ one step per clock, reset to 3",
+        )
+        .with_note(
+            "At module level the suggestion replaces the statement with 'on <clock> { r <= value }' (the clock of 'reg(clk)', otherwise the module's only clock port). Inside a 'comb' block or a 'for' body only the help text shows the form, because the statement cannot be moved on its own.",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",
