@@ -149,7 +149,33 @@ göre çevrildi:
 - Varyantın o aşamada oluşamadığı kanıtlanabiliyorsa `unreachable!`
   (kod tabanının ICE kuralı); kuşkulu durumda davranış korunur.
 
-Sayılar ve yer yer tablo PR açıklamasındadır.
+Sayım (2026-10-02): 244 joker kol — volt-hir 154 (53 sorgu, 95 açık
+kol, 5 yeni `unreachable!`, bir tanesi zaten öyleydi), volt-sv-emit 90
+(27 sorgu, 59 açık kol, 4 `unreachable!`), volt-lower 0. Hiçbir yerde
+`#[allow]` gerekmedi. Her `unreachable!` çağıranın muhafızıyla kanıtlı
+(ör. `arith_result` yalnız `+ - * / %` ile çağrılır). Üretilen SV ve
+tanılar 617 `.volt` dosyasında (`--emit sva`, iki kip) önce/sonra
+birebir aynı. Yer yer tablo PR açıklamasındadır.
+
+Tarama bir sessiz kabul daha buldu ve bu ADR'de kapandı: tekli `-`
+`bits<N>` üzerinde E2004, `bool`/`clock`/`reset`/dizi/tuple üzerinde E2003
+(önceden tanısız Error, SV'ye `assign y = -b;` gidiyordu).
+
+Taramanın bulup bu ADR'de **kapatmadığı** yerler (açık, ayrı iş):
+
+- `--emit=sva` ayrı dosyada kontratın part-select içinde okuduğu sinyal
+  (`r[0 +: 4]`) checker modülünün portlarına eklenmez; üretilen `.sva`
+  bildirilmemiş adı okur (`sva.rs` `collect_signal_names`). Kontrattaki
+  dizi literali içindeki `prev()` da toplanmaz (`past.rs`). İkisi de
+  kontrat/formal alanında.
+- `domain D { clock = none }` kabul edilir ve `always_ff @(posedge clk)`
+  üretir; kenarsız saat alanının anlamı karar ister.
+- İfade konumundaki `match`'in kapsayıcılık hatası (E0014), birimde E1xxx
+  varken kapalı-kapı yedeğinde görünmez (deyim `match`'i görünür);
+  E1xxx düzeltilince gelir.
+- Genişlik geçerliliği (E2025) yalnız modül düzeyi tiplerde denetlenir;
+  blok `let`'i ve fn parametresindeki `bits<0>` E2005 alır, kullanılmayan
+  `type W = bits<0>` hiç tanı almaz.
 
 ## Sınırlar
 

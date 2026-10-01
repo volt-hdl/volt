@@ -38,8 +38,11 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
   zamanlaması aynıdır, GTKWave oturumu değişmez.
 - volt-hir, volt-sv-emit ve volt-lower'da `clippy::wildcard_enum_match_arm`
   açık: bir enum'u `_ =>` ile gezen kol yasak, yeni varyant ele alınmayan
-  her yeri derleme sırasında gösterir. Mevcut joker kollar açık kollara,
-  `if let`/`matches!` sorgularına çevrildi.
+  her yeri derleme sırasında gösterir. Mevcut 244 joker kol açık kollara,
+  `if let`/`matches!` sorgularına çevrildi; üretilen SV aynı.
+- Tarama sırasında bulundu: tekli `-` `bits<N>` üzerinde (E2004) ve
+  `bool` üzerinde (E2003) tanısız geçiyor, SV'ye `assign y = -b;` olarak
+  gidiyordu.
 - Bilinen sınırlar ve yol haritası: kombinasyonel döngü denetimi genel
   değil (birbirini besleyen teller, `comb` bloğu, çıkış portu ve alt
   modül üzerinden döngü tanısız; `volt test` Verilator UNOPTFLAT ile
