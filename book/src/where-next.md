@@ -38,6 +38,13 @@ The ADRs are written in Turkish; the language specification in
 [docs/spec/](https://github.com/volt-hdl/volt/tree/main/docs/spec) is in
 English.
 
+## What is missing and what is planned
+
+[Known limitations](limitations.md) lists what Volt does not do yet, with
+workarounds. The
+[roadmap](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md)
+lists the planned work and the design decision behind each item.
+
 ## Examples and reference
 
 - [examples/README.md](https://github.com/volt-hdl/volt/blob/main/examples/README.md):
