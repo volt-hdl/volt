@@ -266,6 +266,20 @@ follow user feedback.
 - **ADR:** [ADR-0056](adr/ADR-0056-duzenli-yapilar.md),
   [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
 
+### Array literals in contracts
+
+- **What:** contracts that compare with an array literal
+  (`r == [prev(a), prev(b)]`) in every mode, or a Volt diagnostic for each
+  form a tool cannot take.
+- **Why:** `volt test` compiles the comparison of an array register with
+  a literal, the other forms do not: `volt verify` stops with a Yosys syntax error, and
+  `volt test` and separate `.sva` files fail in Verilator for the other
+  forms, once with an internal fault. The user meets a tool error, not a
+  Volt diagnostic.
+- **Status:** Not started. Measured and listed in ADR-0098 (appendix 2);
+  the workaround is an element-by-element comparison.
+- **ADR:** [ADR-0098](adr/ADR-0098-sessiz-kabul-ikinci-tur.md)
+
 ### Submodule reset assumptions in parent proofs
 
 - **What:** check a submodule's first-cycle reset assumption in its
