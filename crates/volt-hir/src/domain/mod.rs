@@ -24,6 +24,7 @@
 //! | `bidir`            | çift yönlü port okuması, W3007                     | ADR-0051           |
 //! | `extern_decl`      | extern sınırının domain sözleşmesi                 | ADR-0047           |
 //! | `reg`              | register alanı, yazıcı taraması, E3011, W3001      | K4                 |
+//! | `edgeless`         | kenarsız (`clock = none`) alanda `on` bloğu, E3016 | ADR-0098 eki       |
 //! | `walk`             | deyim ve blok yürüyüşü                             | K5-K9, §3          |
 //! | `assign`           | atama uyumu, 'on' bloğu, E3001 (atama), E3012      | K6, K7             |
 //! | `expr`             | ifade alanı, kombinasyonel yayılım                 | K5                 |
@@ -37,6 +38,7 @@ mod assign;
 mod bidir;
 mod builtin_instance;
 mod bundle;
+mod edgeless;
 mod expr;
 mod extern_decl;
 mod instance;

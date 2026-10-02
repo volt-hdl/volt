@@ -116,6 +116,12 @@ fn ui_fail_04_undriven_output_e4002() {
 }
 
 #[test]
+fn ui_fail_205_edgeless_domain_register_e3016() {
+    // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
+    assert_ui_fail("fail/205_edgeless_domain_register.volt");
+}
+
+#[test]
 fn ui_fail_203_negate_bits_e2004() {
     // ADR-0098: tekli '-' bits<N> üzerinde tanısız geçiyordu.
     assert_ui_fail("fail/203_negate_bits.volt");

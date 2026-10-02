@@ -5,6 +5,40 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — Son sessiz yanlışlar (ADR-0098 eki, 2026-10-02)
+
+- **Davranış değişikliği.** **E0020** (yeni): tel `on` bloğunda `<=` ile
+  yazılamaz. `wire w : u8` ve `on clk { w <= d }` önceden derleniyordu ve
+  reset dalı boş bir flop üretiyordu: reset sonrasında `w` önceki değerini
+  koruyordu. Bu kod artık hata verir. Öneri bildirimi reset değerli bir
+  register olarak yeniden yazar (`reg w : u8 = 0`, `bool` için `= false`,
+  alan açıklaması korunur); dizi, struct ve enum tiplerinde reset değerini
+  siz yazarsınız. Sinyal kombinasyonelse `comb` bloğunda ya da modül
+  düzeyinde `=` ile atayın.
+- **Davranış değişikliği.** **E3016** (yeni): `clock = none` ile bildirilen
+  (saat kenarı olmayan) alandaki bir saatin `on` bloğu. Önceden derleniyor
+  ve `always_ff @(posedge clk)` üretiyordu: alanın var olmadığını söylediği
+  bir kenarla zamanlanan flop. Bu kod artık hata verir. Alana bir kenar
+  verin (`clock = posedge`) ya da sinyali kombinasyonel yazın. Kenarsız
+  alandaki kombinasyonel sinyaller geçerli kalır.
+
+### Düzeltildi — Kontratta parça seçimi ve dizi literali (ADR-0098 eki, 2026-10-02)
+
+- `volt test`: kontratta dizi literali içindeki `prev()` (`r == [prev(a),
+  prev(b)]`) yardımcı register zincirine bağlanmıyor, `$past`'e
+  düşüyordu. Test içi `reset()` sonrasındaki ilk çevrimde, belgelenen
+  anlam (`prev(x) == 0`) yerine reset öncesi değer denetleniyordu: aynı
+  özelliğin skaler yazımı ihlal verirken dizi literalli yazımı geçiyordu.
+  İki yazım artık aynı sonucu verir.
+- `volt build --emit=sva` (ayrı `.sva` dosyası): kontratın yalnız parça
+  seçimiyle (`r[0 +: 4]`) ya da dizi literali içinde okuduğu sinyal
+  checker modülünün portlarına eklenmiyordu; üretilen dosya derlenmiyordu
+  (Verilator: "Can't find definition of variable"). Artık port olur.
+- Bilinen sınırlar: kombinasyonel döngü satırı, `volt test`/`volt run`'ın
+  gösterdiği Verilator iletisini (`UNOPTFLAT`, "Circular combinational
+  logic") ve `volt build`'in döngülü SV'yi uyarısız yazdığını açıkça
+  söyler.
+
 ### Düzeltildi — Sessiz kabul, ikinci tur (ADR-0098, 2026-10-02)
 
 - `on` bloğunda yalnız bir `for` döngüsünde yazılan register'ın reset

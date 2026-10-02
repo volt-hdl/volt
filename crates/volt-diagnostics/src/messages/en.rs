@@ -30,6 +30,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
         E0018 => "Nesting or chain too deep (ADR-0080)",
         E0019 => "Register assigned with '=' outside an 'on' block (ADR-0098)",
+        E0020 => "Wire assigned with '<=' in an 'on' block (ADR-0098)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",
@@ -95,6 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3013 => "Bundle fields inferred in different clock domains (ADR-0039)",
         E3014 => "Same symbolic domain bound to two different clocks (ADR-0047)",
         E3015 => "declassify inside a function body (ADR-0081)",
+        E3016 => "Register in a clock domain without a clock edge (clock = none, ADR-0098)",
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => "Double driver",

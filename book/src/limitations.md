@@ -49,10 +49,15 @@ decisions.
 **Combinational loops are not detected.** `volt check` and `volt build`
 accept wires that feed each other (`a = b + x` and `b = a`), a `comb`
 block that reads the signal it assigns, and a loop through an output port
-or a submodule instance. When `volt test` or `volt run` builds such a
-design, Verilator stops with `UNOPTFLAT`; the SystemVerilog that `volt
-build` writes is not checked. A register cannot close a loop this way:
-assigning it with `=` outside an `on` block is `E0019`. Roadmap:
+or a submodule instance. `volt build` writes the looping SystemVerilog
+without a warning. When `volt test` or `volt run` builds such a design,
+Verilator stops with `%Warning-UNOPTFLAT ... Circular combinational
+logic` followed by an example path around the loop, and the command
+fails: that message is the loop in your design, not a Verilator problem.
+Break it by removing one dependency on the path, or by registering one
+of its signals in an `on` block. A
+register cannot close a loop this way: assigning it with `=` outside an
+`on` block is `E0019`. Roadmap:
 [Combinational loop check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#combinational-loop-check).
 
 ## Clock and reset domains

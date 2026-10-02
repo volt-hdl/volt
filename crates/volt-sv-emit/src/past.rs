@@ -194,40 +194,11 @@ impl<'a> Emitter<'a> {
 
 /// Kontrat ifadesindeki `prev(...)` çağrıları, iç çağrılar önce
 /// (iç içe `prev(prev(x))` dıştaki üretilirken içtekinin adı hazır olsun).
+/// Her ifade biçimine iner (`volt_ast::visit`): dizi/tuple/struct literali
+/// içindeki `prev()` de yardımcı zincire bağlanır (ADR-0098 eki; önceden
+/// toplanmıyor, Immediate/Simulation kipinde `$past` yedeğine düşüyordu).
 fn collect_prev_calls(ast: &volt_ast::SourceFile, e: Idx<Expr>, out: &mut Vec<Idx<Expr>>) {
-    let children: Vec<Idx<Expr>> = match &ast.exprs[e].kind {
-        ExprKind::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
-        ExprKind::Unary { operand, .. } => vec![*operand],
-        ExprKind::Cast { expr, .. } => vec![*expr],
-        ExprKind::Index { base, index } => vec![*base, *index],
-        ExprKind::Range { base, hi, lo } => vec![*base, *hi, *lo],
-        ExprKind::PartSelect {
-            base, start, width, ..
-        } => vec![*base, *start, *width],
-        ExprKind::Field { base, .. } => vec![*base],
-        ExprKind::If {
-            cond,
-            then_expr,
-            else_expr,
-        } => vec![*cond, *then_expr, *else_expr],
-        ExprKind::Match { .. } => volt_ast::visit::expr_children(&ast.exprs[e].kind),
-        ExprKind::Call { callee, args } => {
-            let mut v = vec![*callee];
-            v.extend(args.iter().copied());
-            v
-        }
-        ExprKind::Concat(parts) => parts.iter().map(|&(p, _)| p).collect(),
-        // Yapraklar; StructLit/ArrayLit/TupleLit/Todo içine inilmez — mevcut davranış.
-        ExprKind::IntLit { .. }
-        | ExprKind::BoolLit(_)
-        | ExprKind::StringLit(_)
-        | ExprKind::Path(_)
-        | ExprKind::StructLit { .. }
-        | ExprKind::ArrayLit(_)
-        | ExprKind::TupleLit(_)
-        | ExprKind::Todo { .. }
-        | ExprKind::Error => Vec::new(),
-    };
+    let children = volt_ast::visit::expr_children(&ast.exprs[e].kind);
     for c in children {
         collect_prev_calls(ast, c, out);
     }

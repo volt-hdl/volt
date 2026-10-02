@@ -179,6 +179,16 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         .with_note(
             "At module level the suggestion replaces the statement with 'on <clock> { r <= value }' (the clock of 'reg(clk)', otherwise the module's only clock port). Inside a 'comb' block or a 'for' body only the help text shows the form, because the statement cannot be moved on its own.",
         ),
+        E0020 => Explanation::new(
+            "Wire assigned with '<=' in an 'on' block",
+            "A wire has no state: it is driven by a 'comb' block or a module-level '='. Written with '<=' in an 'on' block it would hold its value between clock edges, which only a register does.",
+            "In an 'on' block '<=' samples a value at the clock edge, so the signal becomes a flip-flop. A 'wire' declaration has no reset value, so that flip-flop would have an empty reset branch: after reset it keeps whatever value it had before (unknown in hardware), and nothing in the source says so.\n\nIf the signal should hold a value from one clock cycle to the next, declare it as a register with the value it takes after reset: 'reg w : u8 = 0'. If it is combinational, assign it with '=' in a 'comb' block or at module level.",
+            "wire w : u8\non clk { w <= d }       // ✗ E0020: a flip-flop with no reset value",
+            "reg w : u8 = 0\non clk { w <= d }       // ✓ 0 after reset, then d each clock",
+        )
+        .with_note(
+            "For bool and integer types the suggestion rewrites the declaration as 'reg w : T = 0' (or '= false'), keeping a domain annotation. For other types the help shows '<reset value>' and you write the reset value yourself.",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",
@@ -642,6 +652,15 @@ extern module ExtRegFile {
             "fn mix(k: u8) -> u8 { k ^ 0x5A }\n...\nlet shown = declassify(mix(key), \"masked value\")   // ✓ in the module",
         )
         .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+
+        E3016 => Explanation::new(
+            "Register in a clock domain without a clock edge",
+            "The 'on' block's clock belongs to a domain declared with 'clock = none'. Such a domain has no clock edge, so no register can take a value in it.",
+            "'clock = none' declares a domain whose signals are not timed by any clock edge, such as asynchronous inputs. An 'on' block describes a register that samples its value at the clock edge, and a domain without an edge has nothing to sample on. Volt used to emit '@(posedge clk)' for it anyway, a flip-flop timed by an edge the domain says does not exist.\n\nIf the signal should change once per clock cycle, give the domain its edge ('clock = posedge' or 'negedge'). If it is combinational, write it with '=' in a 'comb' block or at module level instead of in an 'on' block. To bring a signal of the edgeless domain into a clocked domain, read it through sync() there.",
+            "domain Async { clock = none }\nin clk : clock @Async\non clk { r <= d }        // ✗ E3016: no edge to sample on",
+            "domain Async { clock = posedge }\non clk { r <= d }        // ✓ the domain has a clock edge\n// or, combinational:\ncomb { y = d }",
+        )
+        .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(

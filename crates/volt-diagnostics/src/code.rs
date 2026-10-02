@@ -38,6 +38,8 @@ error_codes! {
     E0018,
     // Register'a 'on' dışında '=' (ADR-0098)
     E0019,
+    // Tele 'on' bloğunda '<=' (ADR-0098 eki)
+    E0020,
 
     // ─── İsim çözümleme (name-resolution.md) ───
     E1001, E1002, E1003, E1004, E1005, E1006, E1007, E1008, E1009, E1010,
@@ -69,6 +71,8 @@ error_codes! {
     E3011, E3012, E3013, E3014,
     // fn gövdesinde declassify (ADR-0081)
     E3015,
+    // Kenarsız (`clock = none`) alanda flop (ADR-0098 eki)
+    E3016,
 
     // ─── Bağlantı/sürücü (type-inference.md) + bundle düzleştirme
     //     sınırları (ADR-0067: E4009 özyineli bundle, E4010 bütçe)

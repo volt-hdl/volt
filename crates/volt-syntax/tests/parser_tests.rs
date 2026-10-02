@@ -1202,6 +1202,78 @@ fn e0019_does_not_fire_for_wires_on_blocks_or_shadowing_lets() {
     assert!(e0019s(&result).is_empty(), "{:?}", result.error_codes());
 }
 
+// ═══ Tele `on` bloğunda `<=` (E0020) ══════════════════════════════
+
+fn e0020s(result: &ParseResult) -> Vec<&volt_diagnostics::Diagnostic> {
+    result
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E0020")
+        .collect()
+}
+
+/// `wire w : u8` + `on clk { w <= d }` reset dalı boş bir flop
+/// üretiyordu (`if (rst) begin end else w <= d`): reset sonrası değer
+/// tanımsız, tanı yok.
+#[test]
+fn e0020_wire_written_with_nonblocking_in_on_block_suggests_a_reg() {
+    let result = p("module M {\n in clk : clock\n in d : u8\n out q : u8\n \
+         wire w : u8\n on clk { w <= d }\n q = w\n}\n");
+    let diags = e0020s(&result);
+    assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("reg w : u8 = 0"), "{help}");
+    // Bildirim olduğu gibi reset değerli bir reg bildirimiyle değiştirilir.
+    assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
+    assert_eq!(diags[0].suggestions[0].replacement, "reg w : u8 = 0");
+    // Birincil etiket atamada, ikincil etiket bildirimde.
+    assert_eq!(diags[0].spans.len(), 2, "{:?}", diags[0].spans);
+}
+
+#[test]
+fn e0020_bool_wire_resets_to_false_and_keeps_its_domain() {
+    let result = p(
+        "domain D { clock = posedge }\nmodule M {\n in clk : clock @D\n \
+         in d : bool\n out q : bool\n wire w : bool @D\n on clk { w <= d }\n q = w\n}\n",
+    );
+    let diags = e0020s(&result);
+    assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
+    assert_eq!(
+        diags[0].suggestions[0].replacement,
+        "reg w : bool @D = false"
+    );
+}
+
+#[test]
+fn e0020_nested_element_writes_are_found_once_per_assignment() {
+    let result = p(
+        "module M {\n in clk : clock\n in en : bool\n in s : u1\n in d : u8\n \
+         out q : u8\n wire w : [u8; 2]\n on clk {\n if en { for i in 0..2 { w[i] <= d } }\n \
+         else { match s { 0 => { w[0] <= 1 }\n _ => { w[1] <= 2 } } }\n }\n q = w[0]\n}\n",
+    );
+    let diags = e0020s(&result);
+    assert_eq!(diags.len(), 3, "{:?}", result.error_codes());
+    // Dizi tipinin sıfırı tek sözcük değil: metin yer tutucu gösterir,
+    // makine önerisi verilmez.
+    let help = diags[0].help.as_deref().unwrap_or("");
+    assert!(help.contains("reg w : [u8; 2] = <reset value>"), "{help}");
+    assert!(
+        diags[0].suggestions.is_empty(),
+        "{:?}",
+        diags[0].suggestions
+    );
+}
+
+#[test]
+fn e0020_does_not_fire_for_registers_comb_wires_or_shadowing_lets() {
+    let result = p(
+        "module M {\n in clk : clock\n in x : u8\n out q : u8\n out y : u8\n \
+         reg r : u8 = 0\n wire w : u8\n w = x\n wire c : u8\n comb { c = x }\n \
+         on clk { r <= w + c }\n q = r\n y = c\n}\n",
+    );
+    assert!(e0020s(&result).is_empty(), "{:?}", result.error_codes());
+}
+
 #[test]
 fn sync_call_is_normal_call_expr() {
     // 13_cdc_correct_bridge.volt deseni — sync() sıradan çağrı
@@ -2384,6 +2456,8 @@ fn ui_fail_files_produce_expected_codes() {
         // ADR-0098: bağlanmayan nitelik ve uygulanmayan alan anahtarı.
         ("201_attribute_not_attached.volt", "W0024"),
         ("202_domain_reset_cycles.volt", "E0003"),
+        // ADR-0098 eki: tele `on` bloğunda `<=` reset'siz flop oluyordu.
+        ("204_wire_nonblocking_in_on.volt", "E0020"),
         ("27_match_missing_wildcard.volt", "E0014"),
         // ADR-0038: pipeline tanıları desugar'da (parse içinde) üretilir.
         ("33_stage_out_of_range.volt", "E5012"),

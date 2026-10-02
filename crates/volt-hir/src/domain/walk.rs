@@ -30,6 +30,7 @@ impl Inferencer<'_> {
             StmtKind::Instance(inst) => self.check_instance(inst),
             StmtKind::On(on) => {
                 let (dom, span) = self.on_block_domain(&on.trigger);
+                self.check_edgeless_on(dom, span);
                 self.walk_block(on.body, Some((dom, span)), None);
             }
             StmtKind::Comb(block) => self.walk_block(*block, None, None),
