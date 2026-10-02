@@ -14,7 +14,7 @@
 //! - `SvaMode::Simulation` (`volt test`, ADR-0064): Immediate ile aynı
 //!   zincir — simülasyonda da ilk döngü `prev(x) == 0` (formal ile aynı).
 
-use volt_ast::{ClockEdge, Expr, ExprKind, Idx, ModuleDecl};
+use volt_ast::{Expr, ExprKind, Idx, ModuleDecl};
 
 use crate::expr::Sig;
 use crate::{ClockPort, Emitter, SvaMode};
@@ -133,11 +133,7 @@ impl<'a> Emitter<'a> {
         }
 
         let ind = " ".repeat(indent);
-        let edge = match clock.info.edge {
-            ClockEdge::Negedge => "negedge",
-            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-            ClockEdge::Posedge | ClockEdge::None => "posedge",
-        };
+        let edge = clock.info.flop_edge();
         let reset = (!clock.info.reset.is_none()).then(|| clock.info.reset.condition());
         let mut out = vec![format!(
             "{ind}// prev() helper registers (ADR-0040): value N cycles ago, 0 after reset"

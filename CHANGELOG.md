@@ -5,6 +5,34 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — Üretici varsayım yapmaz (ADR-0098 eki 2, 2026-10-02)
+
+- **Davranış değişikliği.** **E3016** artık `clock = none` alanındaki bir
+  saatin flop üreten her kullanımını kapsar, yalnız `on` bloğunu değil:
+  `sync()` hedefi; kaynağı, alanının saat portuyla önce yakalandığında
+  `sync()` kaynağı; yerleşik primitifin saat portu (`SyncFifo { clk: ..
+  }` ve diğerleri); alanı kenarlı olan alt modül saat portu; kontratların
+  örneklendiği saat (modülün ilk saat portu). Bunlar önceden derleniyor
+  ve `posedge` flop üretiyordu; artık hata verir. Saat portu olmayan
+  kenarsız alandan `sync()` (asenkron giriş) geçerli kalır.
+- **Davranış değişikliği.** **E0020** çıkış portlarını da kapsar: `out q`
+  ve `on clk { q <= d }` reset dalı boş bir flop üretiyordu; artık hata
+  verir. Modülün çıkışı olan bundle alanı (ters çevrilmiş `in` portunun
+  `out` alanı dahil) da aynı kuralı alır. Değeri bir register'da tutun ve
+  portu ondan sürün: `reg q_r : u8 = 0`, `on clk { q_r <= d }`, `q = q_r`.
+- **Davranış değişikliği.** SV üretimi her flop'un saat kenarını ve reset
+  dalını kaynaktan türetir, türetemediğinde varsaymaz: üretimden önce bir
+  flop denetimi yapılır, ihlalde hiçbir modül üretilmez. İki girdi bu
+  yüzden artık hata verir: tetikleyicisi saat portu olmayan `on` bloğu
+  (`on d`, `d : bool`; önceden ilk saatin reset'iyle `@(posedge d)`
+  üretiliyordu) ve iki saat portunun birbirini açıklaması (`in c1 : clock
+  @c2`, `in c2 : clock @c1`). İkisi de **E3002** alır.
+- **Düzeltildi.** Başka bir saat portuyla açıklanan saat (`in c2 : clock
+  @c1`) o saatin alanını alır. `c1` kenarı `negedge` olan bir alandaysa
+  `on c2` flop'u önceden `posedge` üretiliyordu.
+- Bilinen sınırlar: kontratta dizi literali (`r == [prev(a), prev(b)]`)
+  çoğu kipte araç hatasıyla durur; eleman eleman karşılaştırın.
+
 ### Değişti — Son sessiz yanlışlar (ADR-0098 eki, 2026-10-02)
 
 - **Davranış değişikliği.** **E0020** (yeni): tel `on` bloğunda `<=` ile

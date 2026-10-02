@@ -13,6 +13,7 @@ mod builtin_prim;
 mod const_array;
 mod enums;
 mod expr;
+mod flop_audit;
 mod generate;
 mod inline;
 mod instance;
@@ -141,10 +142,29 @@ pub(crate) struct DomainInfo {
     pub(crate) reset: ResetCfg,
 }
 
-const DEFAULT_DOMAIN: DomainInfo = DomainInfo {
-    edge: ClockEdge::Posedge,
-    reset: ResetCfg::DEFAULT,
-};
+impl DomainInfo {
+    /// Spec varsayılanı: `domain` bildiriminde yazılmayan anahtarlar ve
+    /// açıklamasız saat portunun örtük alanı (domain-inference.md K2):
+    /// `posedge`, senkron aktif-yüksek reset (sv-mapping.md:154 "Varsayılan:
+    /// senkron reset, aktif-yüksek"; §7 tablosu :273).
+    pub(crate) const SPEC_DEFAULT: DomainInfo = DomainInfo {
+        edge: ClockEdge::Posedge,
+        reset: ResetCfg::DEFAULT,
+    };
+
+    /// Flop'un örneklediği kenar (ADR-0098 eki 2). Kenarsız alan
+    /// (`clock = none`) flop zamanlayamaz: ön uç E3016 verir, flop
+    /// denetimi (`flop_audit`) üretimden önce reddeder.
+    pub(crate) fn flop_edge(&self) -> &'static str {
+        match self.edge {
+            ClockEdge::Posedge => "posedge",
+            ClockEdge::Negedge => "negedge",
+            ClockEdge::None => unreachable!(
+                "kenarsız alanda flop üretilemez; flop_audit bunu üretimden önce reddeder"
+            ),
+        }
+    }
+}
 
 /// `sync()`/`sync3()` köprüsünün hedefi: `dest = sync(..)` ataması ya da
 /// `let dest = sync(..)` bağlaması (ADR-0090 §3).
@@ -183,17 +203,18 @@ fn reset_port_set(clocks: &[ClockPort]) -> Vec<ResetCfg> {
     out
 }
 
-/// `on <clk>` bloğunun alanı: tetikleyen saat portundan; bulunamazsa
-/// ilk saat portu, o da yoksa varsayılan alan.
+/// `on <clk>` bloğunun alanı: tetikleyen saat portundan. Tetikleyici
+/// saat portu değilse alan kaynaktan türetilemez (ADR-0098 eki 2): flop
+/// denetimi (`flop_audit`) bunu üretimden önce reddeder.
 fn domain_of_trigger(clocks: &[ClockPort], on: &OnBlock) -> DomainInfo {
     let name = match &on.trigger {
-        OnTrigger::Clock(n) | OnTrigger::Reset(n) => Some(n.text.as_str()),
-        OnTrigger::Error => None,
+        OnTrigger::Clock(n) | OnTrigger::Reset(n) => n.text.as_str(),
+        OnTrigger::Error => unreachable!("tetikleyicisiz 'on' bloğunu flop_audit reddeder"),
     };
-    name.and_then(|n| clocks.iter().find(|c| c.name == n))
-        .or_else(|| clocks.first())
-        .map(|c| c.info.clone())
-        .unwrap_or(DEFAULT_DOMAIN)
+    match clocks.iter().find(|c| c.name == name) {
+        Some(c) => c.info.clone(),
+        None => unreachable!("'on {name}': saat portu değil; flop_audit reddeder"),
+    }
 }
 
 /// Tek segmentli Path ifadesinin metni.
@@ -258,11 +279,7 @@ fn zero_of(sig: Sig) -> String {
 
 /// Senkronizatör aşamaları için always_ff bloğu (§4 reset varyantları).
 fn sync_always_ff(clk: &str, info: &DomainInfo, chain: &[(String, String)], zero: &str) -> String {
-    let edge = match info.edge {
-        ClockEdge::Negedge => "negedge",
-        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-        ClockEdge::Posedge | ClockEdge::None => "posedge",
-    };
+    let edge = info.flop_edge();
     let cfg = &info.reset;
     let mut out = String::new();
     if cfg.is_none() {
@@ -478,6 +495,21 @@ pub fn emit_unit(
     diagnostics.extend(inline_diags);
     diagnostics.extend(struct_diags);
     emitter.diagnostics = diagnostics;
+    // ADR-0098 eki 2: her flop'un kenarı ve reset dalı kaynaktan
+    // türetilebiliyor mu — üretimden ÖNCE; türetilemiyorsa hiçbir modül
+    // üretilmez (üretici varsayım yapmaz).
+    if !emitter.audit_flops() {
+        return EmitOutput {
+            sv: String::new(),
+            modules: Vec::new(),
+            sva_files: Vec::new(),
+            sva_props: Vec::new(),
+            unclocked_contracts: Vec::new(),
+            multiclock_modules: Vec::new(),
+            waves: Default::default(),
+            diagnostics: emitter.diagnostics,
+        };
+    }
     // ADR-0078: SV anahtar sözcüğü olan adlar (E1013) — bütün modüllerin
     // kesin denetimi emit'ten ÖNCE: alt modülün portu üst modülün örnek
     // bağlantısında (`.table(a)`) daha önce görünür, güvenlik ağı onu
@@ -743,10 +775,14 @@ pub(crate) fn clock_ports_of(
         })
         .map(|p| {
             let domain = p.domain.as_ref().map(|d| d.text.clone());
-            let mut info = domain
-                .as_ref()
-                .and_then(|d| domains.get(d).cloned())
-                .unwrap_or(DEFAULT_DOMAIN);
+            // Alan kaynaktan (ADR-0098 eki 2); türetilemeyeni flop_audit
+            // üretimden önce reddeder.
+            let mut info = flop_audit::port_domain(ast, domains, module, p).unwrap_or_else(|| {
+                unreachable!(
+                    "'{}' saatinin alanı türetilemiyor; flop_audit reddeder",
+                    p.name.text
+                )
+            });
             let raw_reset = reset_sync::feeding_raw(ast, module, domain.as_deref(), &info);
             if raw_reset.is_some() {
                 let last = reset_sync::RESET_SYNC_STAGES - 1;
@@ -766,7 +802,7 @@ pub(crate) fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
     let mut map = HashMap::new();
     for &item_idx in &ast.items {
         if let ItemKind::Domain(domain) = &ast.items_arena[item_idx].kind {
-            let mut info = DEFAULT_DOMAIN;
+            let mut info = DomainInfo::SPEC_DEFAULT;
             for field in &domain.fields {
                 match (&field.key, &field.value) {
                     (DomainKey::Clock, DomainValue::ClockEdge(edge)) => info.edge = *edge,
@@ -1456,11 +1492,8 @@ impl<'a> Emitter<'a> {
                     let on_index = on_count;
                     on_count += 1;
                     let info = domain_of_trigger(clocks, on);
-                    let reset = if clocks.is_empty() || info.reset.is_none() {
-                        None
-                    } else {
-                        Some(info.reset.clone())
-                    };
+                    // `reset = none` alanı kaynakta açıkça reset'sizdir.
+                    let reset = (!info.reset.is_none()).then(|| info.reset.clone());
                     Some((
                         Kind::Always,
                         self.emit_on_block(module, on, info, reset, stmt.span, on_index),
@@ -1848,13 +1881,9 @@ impl<'a> Emitter<'a> {
                 );
                 name.text.clone()
             }
-            OnTrigger::Error => "clk".to_string(),
+            OnTrigger::Error => unreachable!("tetikleyicisiz 'on' bloğunu flop_audit reddeder"),
         };
-        let edge = match domain.edge {
-            ClockEdge::Negedge => "negedge",
-            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-            ClockEdge::Posedge | ClockEdge::None => "posedge",
-        };
+        let edge = domain.flop_edge();
 
         let mut out = String::new();
         let outer = self.begin_process();
@@ -1913,6 +1942,22 @@ impl<'a> Emitter<'a> {
             }
         }
 
+        // Reset dalı her hedefi kapsar (ADR-0098 eki 2): register olmayan
+        // hedefin reset değeri yoktur; flop_audit üretimden önce reddeder.
+        let regs: Vec<&str> = module
+            .body
+            .iter()
+            .filter_map(|&s| {
+                if let StmtKind::Reg(r) = &ast.stmts[s].kind {
+                    Some(r.name.text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if let Some(w) = written.iter().find(|w| !regs.contains(&w.as_str())) {
+            unreachable!("'{w}' register değil, reset değeri yok; flop_audit reddeder");
+        }
         let mut lines = Vec::new();
         for &stmt_idx in &module.body {
             if let StmtKind::Reg(reg) = &ast.stmts[stmt_idx].kind {

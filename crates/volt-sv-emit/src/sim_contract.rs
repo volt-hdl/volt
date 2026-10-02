@@ -31,7 +31,7 @@
 //! SV'dedir (çevrim başına tek artırma; DPI yalnız `final`'de — ölçüm:
 //! çevrim başına DPI çağrısı VGA testlerini %24 yavaşlatıyordu).
 
-use volt_ast::{ClockEdge, ModuleDecl};
+use volt_ast::ModuleDecl;
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sva::{kind_slot, sva_construct, ONE_BIT};
@@ -195,11 +195,7 @@ impl<'a> Emitter<'a> {
         indent: usize,
     ) -> String {
         let ind = " ".repeat(indent);
-        let edge = match clock.info.edge {
-            ClockEdge::Negedge => "negedge",
-            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-            ClockEdge::Posedge | ClockEdge::None => "posedge",
-        };
+        let edge = clock.info.flop_edge();
         let is_cover = verb == "cover";
         // Sayaç adı kimliğin modül içi kısmından: `volt_hits_cov_0`.
         // Kullanıcı adıyla çakışırsa `_2`, `_3`… (ADR-0090 §2): sayaç

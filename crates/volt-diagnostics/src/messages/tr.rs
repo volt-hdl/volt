@@ -30,7 +30,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0017 => "Desteklenmeyen ya da tutarsız zamanlama kısıtı (ADR-0054)",
         E0018 => "İç içelik ya da zincir çok derin (ADR-0080)",
         E0019 => "Register'a 'on' bloğu dışında '=' ile atama (ADR-0098)",
-        E0020 => "Tele 'on' bloğunda '<=' ile atama (ADR-0098)",
+        E0020 => "Tele ya da çıkış portuna 'on' bloğunda '<=' ile atama (ADR-0098)",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",
@@ -96,7 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3013 => "Bundle alanları farklı saat alanlarında çıkarıldı (ADR-0039)",
         E3014 => "Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)",
         E3015 => "Fonksiyon gövdesinde declassify (ADR-0081)",
-        E3016 => "Saat kenarı olmayan alanda register (clock = none, ADR-0098)",
+        E3016 => "Saat kenarı olmayan alanın saatiyle flop (clock = none, ADR-0098)",
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => "Çift sürücü",

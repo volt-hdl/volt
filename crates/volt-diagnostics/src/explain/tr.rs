@@ -180,14 +180,14 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
             "Modül düzeyinde öneri deyimi 'on <saat> { r <= değer }' ile değiştirir ('reg(clk)' saati, yoksa modülün tek saat portu). Bir 'comb' bloğunda ya da 'for' gövdesinde deyim tek başına taşınamadığı için biçimi yalnız yardım metni gösterir.",
         ),
         E0020 => Explanation::new(
-            "Tele 'on' bloğunda '<=' ile atama",
-            "Telin durumu yoktur: bir 'comb' bloğu ya da modül düzeyinde '=' ile sürülür. Bir 'on' bloğunda '<=' ile yazılınca saat kenarları arasında değer tutardı; bunu yalnız register yapar.",
+            "Tele ya da çıkış portuna 'on' bloğunda '<=' ile atama",
+            "Telin durumu yoktur: bir 'comb' bloğu ya da modül düzeyinde '=' ile sürülür. Bir 'on' bloğunda '<=' ile yazılınca saat kenarları arasında değer tutardı; bunu yalnız register yapar. Çıkış portu da aynı biçimde sürülür.",
             "'on' bloğunda '<=' değeri saat kenarında örnekler; sinyal bir flop olur. 'wire' bildiriminin reset değeri yoktur, o flop'un reset dalı boş kalırdı: reset sonrasında önceki değerini korur (donanımda bilinmez) ve kaynakta bunu söyleyen bir şey yoktur.\n\nSinyal bir saat çevriminden ötekine değer tutacaksa reset sonrası alacağı değerle register olarak bildirin: 'reg w : u8 = 0'. Kombinasyonelse bir 'comb' bloğunda ya da modül düzeyinde '=' ile atayın.",
             "wire w : u8\non clk { w <= d }       // ✗ E0020: reset değeri olmayan flop",
             "reg w : u8 = 0\non clk { w <= d }       // ✓ reset sonrası 0, sonra her saatte d",
         )
         .with_note(
-            "bool ve tam sayı tiplerinde öneri bildirimi 'reg w : T = 0' (ya da '= false') olarak yeniden yazar, alan açıklamasını korur. Diğer tiplerde yardım metni '<reset value>' gösterir; reset değerini siz yazarsınız.",
+            "bool ve tam sayı tiplerinde öneri bildirimi 'reg w : T = 0' (ya da '= false') olarak yeniden yazar, alan açıklamasını korur. Diğer tiplerde yardım metni '<reset value>' gösterir; reset değerini siz yazarsınız.\n\nAynısı çıkış portu için de geçerlidir ('out q : u8', 'on clk { q <= d }'), modülün çıkışı olan bundle alanı dahil: port bildiriminin reset değeri yoktur. Değeri bir register'da tutun ve portu ondan sürün: 'reg q_r : u8 = 0', 'on clk { q_r <= d }', 'q = q_r'.",
         ),
         E1001 => Explanation::new(
             "Tanımsız isim",
@@ -654,11 +654,14 @@ extern module ExtRegFile {
         .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
 
         E3016 => Explanation::new(
-            "Saat kenarı olmayan alanda register",
-            "'on' bloğunun saati 'clock = none' ile bildirilmiş bir alana ait. Böyle bir alanın saat kenarı yoktur; içinde hiçbir register değer alamaz.",
+            "Saat kenarı olmayan alanın saatiyle flop",
+            "'clock = none' ile bildirilmiş bir alanın saati, flop'ların kenarında örneklediği bir yerde kullanılıyor. Böyle bir alanın saat kenarı yoktur; onunla hiçbir şey örneklenemez.",
             "'clock = none', sinyalleri hiçbir saat kenarıyla zamanlanmayan bir alan bildirir; örneğin asenkron girişler. 'on' bloğu değerini saat kenarında örnekleyen bir register tanımlar; kenarı olmayan alanda örnekleme yapılacak bir an yoktur. Volt buna yine de '@(posedge clk)' üretiyordu: alanın var olmadığını söylediği bir kenarla zamanlanan bir flop.\n\nSinyal her saat çevriminde bir kez değişecekse alana kenarını verin ('clock = posedge' ya da 'negedge'). Kombinasyonelse 'on' bloğu yerine bir 'comb' bloğunda ya da modül düzeyinde '=' ile yazın. Kenarsız alandaki bir sinyali saatli bir alana almak için orada sync() ile okuyun.",
             "domain Async { clock = none }\nin clk : clock @Async\non clk { r <= d }        // ✗ E3016: örneklenecek kenar yok",
             "domain Async { clock = posedge }\non clk { r <= d }        // ✓ alanın saat kenarı var\n// ya da kombinasyonel:\ncomb { y = d }",
+        )
+        .with_note(
+            "Yalnız 'on' blokları değil, flop üreten her kullanım denetlenir: sync() hedef saati; sync() kaynağı önce yakaladığında kaynağın alanının saat portu; yerleşik primitiflerin saat portları (SyncFifo, AsyncFifo, Ram, ...); alanı kenarlı olan alt modül saat portu; kontratların örneklendiği saat (modülün ilk saat portu).",
         )
         .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
 

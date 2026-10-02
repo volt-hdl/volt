@@ -8,6 +8,7 @@ use volt_ast::InstanceDecl;
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::Span;
 
+use super::edgeless::EdgeUse;
 use super::{DomainId, Inferencer};
 use crate::builtin::{BuiltinPrim, DomainRole, PortKind};
 use crate::resolve::DefId;
@@ -29,6 +30,16 @@ impl Inferencer<'_> {
     ) {
         // 1. Saat bağlamalarından src/dst domain'leri.
         let (src_dom, dst_dom) = self.builtin_clock_domains(inst, prim);
+        // ADR-0098 eki 2: primitifin her saat portu flop zamanlar.
+        for b in &inst.bindings {
+            if prim
+                .port(&b.port_name.text)
+                .is_some_and(|p| p.kind == PortKind::Clock)
+            {
+                let dom = self.binding_domain(b);
+                self.check_edgeless_use(dom, b.span, EdgeUse::Builtin(prim.name()));
+            }
+        }
 
         // 2. Port→domain haritası (alan okumaları için).
         let mut port_domains: HashMap<String, DomainId> = HashMap::new();

@@ -24,7 +24,7 @@
 //! | `bidir`            | çift yönlü port okuması, W3007                     | ADR-0051           |
 //! | `extern_decl`      | extern sınırının domain sözleşmesi                 | ADR-0047           |
 //! | `reg`              | register alanı, yazıcı taraması, E3011, W3001      | K4                 |
-//! | `edgeless`         | kenarsız (`clock = none`) alanda `on` bloğu, E3016 | ADR-0098 eki       |
+//! | `edgeless`         | kenarsız (`clock = none`) alanda flop, E3016       | ADR-0098 eki (2)   |
 //! | `walk`             | deyim ve blok yürüyüşü                             | K5-K9, §3          |
 //! | `assign`           | atama uyumu, 'on' bloğu, E3001 (atama), E3012      | K6, K7             |
 //! | `expr`             | ifade alanı, kombinasyonel yayılım                 | K5                 |
@@ -179,6 +179,21 @@ struct Inferencer<'a> {
     /// ADR-0052): taşınmayan, trust_level yazılmış anotasyon yeni saat
     /// alanı açmaz.
     anchored: HashSet<DefId>,
+    /// Modülün saat portları, port sırasıyla (E3016: kontratlar ilk saatte,
+    /// `sync()` kaynağı alanının saatinde yakalanır — sv-emit ile aynı kural).
+    module_clocks: Vec<ModuleClock>,
+    /// `@Alan` açıklamalı portlar → açıklama metni (`sync()` yakalama
+    /// kuralı, sv-emit `try_emit_sync_bridge` ile aynı metin eşlemesi).
+    annotated_ports: HashMap<DefId, String>,
+}
+
+/// Modülün bir saat portu (E3016 kullanım denetimleri için).
+#[derive(Debug, Clone)]
+struct ModuleClock {
+    name: String,
+    /// `@Alan` açıklamasının metni; örtük alanda `None`.
+    annotation: Option<String>,
+    dom: DomainId,
 }
 
 impl<'a> Inferencer<'a> {
@@ -202,6 +217,8 @@ impl<'a> Inferencer<'a> {
             in_sync_source: false,
             in_contract: false,
             anchored: HashSet::new(),
+            module_clocks: Vec::new(),
+            annotated_ports: HashMap::new(),
         }
     }
 }

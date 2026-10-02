@@ -1,9 +1,10 @@
 //! K9 — `sync()` köprüsü: tek meşru CDC geçiş yolu.
 
-use volt_ast::{Expr, Idx};
+use volt_ast::{Expr, ExprKind, Idx};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use super::edgeless::EdgeUse;
 use super::{DomainId, Inferencer};
 
 impl Inferencer<'_> {
@@ -17,6 +18,12 @@ impl Inferencer<'_> {
             Some(&clk) => self.expr_domain(clk),
             None => DomainId::Error,
         };
+        // ADR-0098 eki 2: senkronizör aşamaları hedef saatte flop'tur.
+        if let Some(&clk) = args.get(1) {
+            let clk_span = self.ast.exprs[clk].span;
+            self.check_edgeless_use(dst, clk_span, EdgeUse::SyncDestination);
+        }
+        self.check_sync_capture(data, args.get(1).copied());
 
         // Aynı domain → gereksiz senkronizatör (W3002).
         if let (DomainId::Explicit(a), DomainId::Explicit(b)) =
@@ -37,6 +44,51 @@ impl Inferencer<'_> {
         }
 
         dst
+    }
+
+    /// Kaynağın yakalama flop'u (sv-emit `try_emit_sync_bridge`): kaynak
+    /// `@Alan` açıklamalı bir portsa ve modülün aynı açıklamalı ilk saat
+    /// portu hedef saat değilse, kaynak önce o saatle yakalanır. O saatin
+    /// alanı kenarsızsa E3016.
+    fn check_sync_capture(&mut self, data: Idx<Expr>, clk: Option<Idx<Expr>>) {
+        let ExprKind::Path(p) = &self.ast.exprs[data].kind else {
+            return;
+        };
+        let [seg] = p.segments.as_slice() else {
+            return;
+        };
+        let Some(ann) = self
+            .res
+            .resolutions
+            .get(&data)
+            .and_then(|def| self.annotated_ports.get(def))
+        else {
+            return;
+        };
+        let Some(clock) = self
+            .module_clocks
+            .iter()
+            .find(|c| c.annotation.as_deref() == Some(ann.as_str()))
+        else {
+            return;
+        };
+        let dst_name = clk.and_then(|c| {
+            if let ExprKind::Path(p) = &self.ast.exprs[c].kind {
+                (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
+            } else {
+                None
+            }
+        });
+        if dst_name == Some(clock.name.as_str()) {
+            return;
+        }
+        let (dom, clock, source) = (clock.dom, clock.name.clone(), seg.text.clone());
+        let span = self.ast.exprs[data].span;
+        let use_ = EdgeUse::SyncSource {
+            source: &source,
+            clock: &clock,
+        };
+        self.check_edgeless_use(dom, span, use_);
     }
 
     /// W3002 — kaynak ve hedef aynı alanda: gereksiz senkronizatör.

@@ -1,4 +1,4 @@
-// parity: E4001
+// parity: E0020 E4001
 // drivers: 10 9
 module M {
     in  clk : clock

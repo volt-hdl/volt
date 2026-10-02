@@ -297,3 +297,149 @@ Sınıflandırma ölçümle; kod değişmedi.
   construct"); ayrı `.sva`'da unpacked dizi register'ı ile `$past`'li
   literal karşılaştırması Verilator iç hatası ("internal fault"). Yalnız
   `volt test`'te dizi register'ı ile literal karşılaştırması derlenir.
+
+## Ek 2: Üretici varsayım yapmaz (2026-10-02)
+
+Yukarıdaki karar metni ve birinci ek değişmedi. Bu ek, birinci ekin
+"kapatmadığı yerler" listesindeki iki sessiz yanlışı kapatır ve aynı
+sınıfın yeniden oluşmasını engelleyen kuralı koyar. İki hatanın kökü
+ortaktı: SV üreticisi kaynakta yazılmamış bir şeyi kendisi varsayıyordu
+(bir saat kenarı, bir reset dalı). Ölçümler `main` = b2de0d61.
+
+| # | Girdi | Önce | Bu ek ile |
+|---|---|---|---|
+| K1 | `sync(d, aclk)`, `aclk @Async` (`clock = none`) | Aşamalar `always_ff @(posedge aclk)` | E3016 |
+| K2 | `sync(d, fclk)`, `d @Async` ve modülde `aclk @Async` | Kaynak `always_ff @(posedge aclk)` ile yakalanır | E3016 |
+| K3 | `SyncFifo<u8, 4> { clk: aclk, ... }` | FIFO flop'ları `@(posedge aclk)` | E3016 |
+| K4 | `Child { clk: aclk }`, `Child.clk` örtük alanda | Çocuk `posedge` yazar, tanı yok | E3016 |
+| K5 | `clk @Async` ilk saat portu, `invariant: y == a` | `@(posedge clk)` örneklenir (`--emit=sva`, verify, test) | E3016 |
+| K6 | `out q : u8`, `on clk { q <= d }` | `if (rst) begin end else q <= d` | E0020 |
+| K7 | `in r : Bus` (alan `out ready`), `on clk { r.ready <= x }` | Aynı boş reset dalı (düzleştirmeden sonra) | E0020 |
+
+### K1-K5. Saatin kenar gerektiren her kullanımı: E3016
+
+Birinci ekin E3016'sı yalnız `on` bloğunu kapsıyordu. Alan geçidi
+(`domain/edgeless.rs`) artık sv-emit'in flop ürettiği her yeri denetler;
+ileti, etiket ve öneri kullanım yerine göre seçilir (`EdgeUse`):
+
+- **`sync()` hedefi**: senkronizör aşamaları hedef saatte flop'tur.
+- **`sync()` kaynağı**: kaynak `@Alan` açıklamalı bir portsa ve modülün aynı
+  açıklamalı ilk saat portu hedef saat değilse köprü kaynağı önce o saatte
+  yakalar (sv-emit `try_emit_sync_bridge` kuralı, aynı metin eşlemesiyle).
+  Kenarsız alanın saat portu yoksa yakalama da yoktur: asenkron bir girişi
+  `sync()` ile almak geçerli kalır. Öneri bu ikinci yolu da gösterir.
+- **Yerleşik primitif**: her saat portu bağlaması (`clk`, `wr_clk`, `rd_clk`,
+  `src_clk`, `dst_clk`).
+- **Alt modülün saat portu**: çocuğun portu kenarlı bir alandaysa (açıklama
+  kenarlı bir `domain`, ya da örtük alan: posedge) kenarsız bir saat ona
+  bağlanamaz. Çocuğun portu da kenarsız alandaysa bağlama geçerlidir (çocuk
+  o saatle flop zamanlayamaz, kendi içinde E3016 alır). `extern` modül
+  denetlenmez: içi Volt'un üretimi değildir, varsayım yoktur.
+- **Kontratlar**: sv-emit kontratları modülün ilk saat portunda örnekler;
+  o saat kenarsızsa E3016. Denetim kipten bağımsızdır (`volt build`
+  kontrat üretmese de): kontratın anlamı saat kenarında örneklenmektir.
+
+### K6-K7. Çıkış portuna `on` bloğunda `<=`: E0020
+
+Spec okuması (görev ADIM 2): port bildiriminin başlangıç değeri yoktur
+(grammar-full.ebnf:164-165, `Port = ... PortDir Ident ":" Type
+[ DomainAnnot ]`); reset değeri yalnız `reg` bildiriminden gelir
+(sv-mapping.md:152-153, "Reset bloğu otomatik eklenir, `reg`
+bildirimindeki başlangıç değeri kullanılır"); çıkış portu bir atamayla
+sürülür (sv-mapping.md:189-193 §5.1 `result = count` → `assign`;
+type-inference.md:102 `port_out = expr`; E4002 önerisi
+type-inference.md:857 "`{port} = ...`"). Çıkış portu bu yüzden tel
+gibidir (seçenek a): E0020 çıkış portlarına genişler. Öneri bir register
+bildirip portu ona bağlamaktır (`reg q_r : u8 = 0`, `q_r <= d`,
+`q = q_r`).
+
+Denetim parser'da değil tip denetiminde (`typeck/output_register.rs`):
+bundle alanının yönü (ADR-0039) ancak düzleştirmeden sonra bilinir
+(`in r : Bus` portunun `out` alanı modülün çıkışıdır, K7) ve birimin
+başka dosyasındaki tip metni parser'da okunamaz. Tel biçimi parser'da
+kaldı (değişmedi).
+
+### Kural: üretici varsayım yapmaz
+
+SV üreticisinin her flop için kullandığı saat kenarı ve reset dalı
+kaynaktan türetilmiş bir değerden gelir. Kaynakta karşılığı olmayan bir
+"yoksa" yolu yoktur; türetilemeyen durum ya tanıdır ya ICE'dir.
+Kaldırılan varsayımlar:
+
+1. `ClockEdge::None => "posedge"` (yedi yer: `on`, `sync()`, yerleşik
+   primitif, `prev()` yardımcıları, reset senkronizörü, SVA ve simülasyon
+   kontratları). Kenar artık tek yerden gelir, `DomainInfo::flop_edge`;
+   kenarsız alan orada `unreachable!` (ICE).
+2. `on` bloğunun tetikleyicisi saat portu değilse ilk saat portunun, o da
+   yoksa varsayılan alanın yapılandırması. Artık tetikleyici saat portu
+   olmalıdır; değilse ICE.
+3. Saat portunun `@Ad` açıklaması alan tablosunda yoksa varsayılan alan.
+   Artık açıklama bir `domain` bildirimiyse onun bilgisi, aynı modülün
+   başka bir saat portuysa onun alanıdır (zincir izlenir); türetilemiyorsa
+   (bilinmeyen ad, döngü) ICE.
+4. `on` bloğunda yazılan register olmayan hedefin reset dalında hiç yer
+   almaması (boş `if (rst) begin end`). `reset_assignments` artık her
+   hedefin bir `reg` olduğunu ister; değilse ICE.
+
+Kalan varsayılan, spec'in yazdığı varsayılandır ve adlandırılmıştır:
+`DomainInfo::SPEC_DEFAULT` (`posedge`, senkron aktif-yüksek reset;
+sv-mapping.md:154 "Varsayılan: senkron reset, aktif-yüksek", §7 tablosu
+:273). Açıklamasız saat portunun örtük alanı (domain-inference.md K2) ve
+`domain` bildiriminde yazılmayan anahtarlar onu alır. `reset = none`
+alanı kaynakta açıkça reset'sizdir: reset dalı yoktur. Yerleşik
+belleklerin yazma portu (ADR-0049, `builtin_always_ff_no_reset`)
+stdlib'in belgelenmiş reset'siz yapısıdır.
+
+**Doğrulama geçişi** (`volt-sv-emit/src/flop_audit.rs`). `emit_unit`,
+fn ve struct indirgemesinden sonra, hiçbir modülü üretmeden önce
+birimin her modülünü gezer: saat portlarının alanı türetilebiliyor mu
+(E3002); her `on` bloğunun tetikleyicisi saat portu mu (E3002), alanının
+kenarı var mı (E3016), alan reset'liyse yazılan her hedef bir `reg` mi
+(E0020); `sync()` hedefi ve kaynak yakalaması, yerleşik primitif saatleri
+ve (kontrat üreten kiplerde) kontrat saati kenarlı mı (E3016). İhlal
+varsa tanılar döner ve hiçbir modül üretilmez; üretim yollarındaki ICE'ye
+ulaşılmaz. Ön uç aynı kuralları kullanıcı tanısı olarak verir; buradaki
+tanının notu, girdinin üreticiye ulaşmasının derleyici hatası olduğunu
+söyler. Reset senkronizörü ayrıca denetlenmez: yalnız denetlenen
+flop'lardan biri onu kullanınca üretilir.
+
+Kanıt (`flop_audit_tests`, 10 test): ön uç atlanarak `emit()`'e
+verilen bozuk girdiler (kenarsız `on`, `sync()` hedefi ve kaynağı,
+`SyncFifo`, kontrat; çıkış portu ve tel flop'u; açıklama döngüsü; saat
+olmayan tetikleyici) tanı verir ve SV üretmez. Önce/sonra: depodaki 628
+`.volt` dosyası için `volt build` (`--emit=sva,sdc` ayrı ve `--sva
+inline`), `volt verify` (sahte sby ile yalnız üretilen dosyalar) ve
+`_test.volt` dosyaları için `volt test` (sahte Verilator) çıktıları
+birebir aynı. İstisnalar: yeni fixture'lar (ui/fail 206-212) ve
+`tests/fixtures/parity/d02d_out_on_and_toplevel.volt` (çift sürücü
+sondası; E4001'e ek olarak E0020 alır, başlığı `// parity: E0020 E4001`).
+
+### Taramanın bulduğu, bu ekte kapanan iki yer
+
+Kural 2 ve 3'ü kaldırırken iki girdi bulundu; ikisi de üreticinin
+varsayımıydı, kural onları kapatır:
+
+- **Sessiz yanlış — başka bir saat portuyla açıklanan saat.** `in c1 :
+  clock @Neg` (`clock = negedge`), `in c2 : clock @c1`, `on c2 { ... }`:
+  ön uç `c2`'yi `Neg` alanında sayar, üretici `@(posedge c2)` yazıyordu.
+  Artık `negedge`. Depoda bu kalıp yok; örtük alanlı saate açıklama
+  (`@c1`, `c1` açıklamasız) önceki çıktıyı korur.
+- **Sessiz yanlış — saat olmayan tetikleyici.** `in d : bool`, `on d { r
+  <= 1 }` tanısız derleniyor, `always_ff @(posedge d)` ile ilk saatin
+  reset'ini üretiyordu (gramer `OnTrigger = Ident (* saat adı *)`). Artık
+  üretici E3002 ile durur. Ön uçta karşılığı yok (açık); ileti derleyici
+  hatası notunu taşır.
+
+Kapanmayan, raporlanan: `@c2`/`@c1` biçiminde iki saat portunun
+birbirini açıklaması ön uçta tanısızdır; üretici E3002 ile durur.
+
+### Bu ekin kapatmadığı yer: kontratta dizi literali
+
+Birinci ekte ölçülen açık hata değişmedi: `volt verify` her biçimde Yosys
+sözdizimi hatası, `volt test` ve ayrı `.sva` üç biçimde Verilator hatası
+(biri iç hata) verir; yalnız `volt test`'te dizi register'ı ile literal
+karşılaştırması çalışır ve `prev_array_sim_tests` ona dayanır. Volt
+düzeyinde bir tanı kipe ve biçime göre ayrım ister (çalışan biçimi
+korurken); kapsamı bu ekin dışında bırakıldı. Bilinen sınırlarda ve yol
+haritasında ("Array literals in contracts") yazılı; geçici yol eleman
+eleman karşılaştırmadır.

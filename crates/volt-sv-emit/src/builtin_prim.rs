@@ -1577,11 +1577,7 @@ fn contract_line(clock: &ClockPort, verb: &str, expr: &str, name: &str) -> Strin
 }
 
 fn edge_of(clock: &ClockPort) -> &'static str {
-    match clock.info.edge {
-        volt_ast::ClockEdge::Negedge => "negedge",
-        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-        volt_ast::ClockEdge::Posedge | volt_ast::ClockEdge::None => "posedge",
-    }
+    clock.info.flop_edge()
 }
 
 /// Resetsiz always_ff: yalnız bellek yazma portları için (ADR-0049) —

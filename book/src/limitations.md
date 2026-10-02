@@ -132,6 +132,19 @@ so `volt verify` stops with `E5005` on a contract in a module without a
 clock port. Give the module a clock port, or state the property in the
 clocked module that instantiates it.
 
+**Array literals in contracts are not supported yet.** A contract that
+compares with an array literal (`r == [prev(a), prev(b)]`) is passed to
+the tools as an assignment pattern, and most tools reject it: `volt
+verify` stops with a Yosys syntax error (`unexpected OP_CAST`) for every
+form; `volt test` and a separate `.sva` file fail in Verilator when the
+literal is compared with another literal or with an array port, and a
+separate `.sva` file comparing an array register with a literal that
+uses `prev()` makes Verilator report an internal fault. `volt test`
+does compile the comparison of an array register with a literal. Volt
+does not report the failing forms itself yet. Workaround: compare element by element
+(`r[0] == prev(a) && r[1] == prev(b)`). Roadmap:
+[Array literals in contracts](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#array-literals-in-contracts).
+
 **Contradictory assumptions are not detected.** If the `requires` and
 `assume` contracts of the module under proof cannot hold together, every
 assertion passes without proving anything; the solver can also hold
