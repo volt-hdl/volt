@@ -9,8 +9,8 @@
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
-    ClockEdge, ExprKind, ModuleDecl, OnBlock, OnTrigger, Port, PortDir, RegDecl, ResetPolarity,
-    SourceFile, StmtKind, TypeRefKind,
+    ExprKind, ModuleDecl, OnBlock, OnTrigger, Port, PortDir, RegDecl, ResetPolarity, SourceFile,
+    StmtKind, TypeRefKind,
 };
 
 use volt_span::Span;
@@ -170,11 +170,7 @@ pub(crate) fn chain_referenced(clock: &ClockPort, chunks: &[String], sva: Option
 pub(crate) fn synchronizer_block(clock: &ClockPort) -> Option<String> {
     let raw = clock.raw_reset.as_ref()?;
     let clk = &clock.name;
-    let edge = match clock.info.edge {
-        ClockEdge::Negedge => "negedge",
-        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-        ClockEdge::Posedge | ClockEdge::None => "posedge",
-    };
+    let edge = clock.info.flop_edge();
     let (sens, cond) = match raw.polarity {
         ResetPolarity::ActiveHigh => (format!("posedge {}", raw.name), raw.name.clone()),
         ResetPolarity::ActiveLow => (format!("negedge {}", raw.name), format!("!{}", raw.name)),

@@ -18,9 +18,7 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{
-    BinOp, ClockEdge, Contract, ContractKind, Expr, ExprKind, Idx, ItemKind, ModuleDecl, UnOp,
-};
+use volt_ast::{BinOp, Contract, ContractKind, Expr, ExprKind, Idx, ItemKind, ModuleDecl, UnOp};
 
 use crate::expr::Sig;
 use crate::reach::{instance_children, instance_subtree};
@@ -158,11 +156,7 @@ impl<'a> Emitter<'a> {
         }
         let clock = clocks.first()?.clone();
         let ind = " ".repeat(indent);
-        let edge = match clock.info.edge {
-            ClockEdge::Negedge => "negedge",
-            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-            ClockEdge::Posedge | ClockEdge::None => "posedge",
-        };
+        let edge = clock.info.flop_edge();
         let event = if clock.info.reset.is_none() {
             format!("@({edge} {})", clock.name)
         } else {
@@ -244,11 +238,7 @@ impl<'a> Emitter<'a> {
             return None;
         };
         let ind = " ".repeat(indent);
-        let edge = match clock.info.edge {
-            ClockEdge::Negedge => "negedge",
-            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
-            ClockEdge::Posedge | ClockEdge::None => "posedge",
-        };
+        let edge = clock.info.flop_edge();
 
         let mut counters = [0u32; 6];
         let mut blocks = Vec::new();
