@@ -191,7 +191,20 @@ impl TypeArena {
             Ty::SInt { width } => Some((true, width, width)),
             Ty::UIntFlex { lo, hi } => Some((false, lo, hi)),
             Ty::SIntFlex { lo, hi } => Some((true, lo, hi)),
-            _ => None,
+            Ty::Bool
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::Error => None,
         }
     }
 
@@ -200,7 +213,22 @@ impl TypeArena {
         match *self.ty(id) {
             Ty::UIntFlex { hi, .. } => self.intern(Ty::UInt { width: hi }),
             Ty::SIntFlex { hi, .. } => self.intern(Ty::SInt { width: hi }),
-            _ => id,
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::Error => id,
         }
     }
 
@@ -210,7 +238,19 @@ impl TypeArena {
         match self.ty(id) {
             Ty::UInt { width } | Ty::SInt { width } | Ty::Bits { width } => Some(*width),
             Ty::UIntFlex { hi, .. } | Ty::SIntFlex { hi, .. } => Some(*hi),
-            _ => None,
+            Ty::Bool
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::Error => None,
         }
     }
 
@@ -243,7 +283,22 @@ impl TypeArena {
         match self.ty(id) {
             Ty::Enum(e) => self.enum_width(*e),
             Ty::Struct(s) => self.struct_width(*s).and_then(|w| u16::try_from(w).ok()),
-            _ => self.width_of(id),
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => self.width_of(id),
         }
     }
 
@@ -263,7 +318,23 @@ impl TypeArena {
         self.display_with(id, &|ty| match ty {
             Ty::Struct(s) => name_of(s.0),
             Ty::Enum(e) => name_of(e.0),
-            _ => None,
+            // Yalnız struct/enum adları tabloda; diğerleri yapısal gösterilir.
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => None,
         })
     }
 

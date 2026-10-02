@@ -47,9 +47,12 @@ impl<'a> FnInfo<'a> {
         let lets: Vec<&LetDecl> = block
             .stmts
             .iter()
-            .filter_map(|s| match s {
-                BlockStmt::Let(l) => Some(l),
-                _ => None,
+            .filter_map(|s| {
+                if let BlockStmt::Let(l) = s {
+                    Some(l)
+                } else {
+                    None
+                }
             })
             .collect();
         let mut info = FnInfo {
@@ -118,7 +121,21 @@ impl<'a> FnInfo<'a> {
                         }
                     }
                 }
-                _ => {}
+                ExprKind::IntLit { .. }
+                | ExprKind::BoolLit(_)
+                | ExprKind::StringLit(_)
+                | ExprKind::Path(_)
+                | ExprKind::Binary { .. }
+                | ExprKind::Unary { .. }
+                | ExprKind::Call { .. }
+                | ExprKind::Cast { .. }
+                | ExprKind::If { .. }
+                | ExprKind::Match { .. }
+                | ExprKind::ArrayLit(_)
+                | ExprKind::TupleLit(_)
+                | ExprKind::Concat(_)
+                | ExprKind::Todo { .. }
+                | ExprKind::Error => {}
             }
             stack.extend(expr_children(&ast.exprs[e].kind));
         }

@@ -1,7 +1,7 @@
 # ADR-0073: Çoklu Sürücü Denetimi — Tek Tablo, Sürücü Türleri, Bit Aralıkları
 
 > Statü: Uygulandı
-> İlgili: ADR-0075 ("Açık bulgular" kapandı).
+> İlgili: ADR-0075 ("Açık bulgular" kapandı), ADR-0098 (register'a `on` dışında `=`: sondalar d04/d04b/d15 sürücü analizinden önce E0019 alır).
 > Tarih: 2026-09-24
 > Etkilenen: volt-hir (`drivers.rs` — `DriverKind`, bit aralığı, çakışma
 > kuralı, E4001 etiket/öneri seçimi, birim testleri; `typeck/stmt.rs` —

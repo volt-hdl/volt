@@ -128,7 +128,12 @@ pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
             // Tip takma adı: sayı olabilir, burada çözülmez.
             None => ScalarWidth::Unknown,
         },
-        _ => ScalarWidth::NotScalar,
+        TypeRefKind::Clock
+        | TypeRefKind::Reset(_)
+        | TypeRefKind::Trit
+        | TypeRefKind::Array { .. }
+        | TypeRefKind::Tuple(_)
+        | TypeRefKind::Error => ScalarWidth::NotScalar,
     }
 }
 
@@ -177,12 +182,16 @@ pub(crate) fn literal_or_const(src: &SourceFile, expr: Idx<Expr>) -> Option<u128
         let [only] = path.segments.as_slice() else {
             return None;
         };
-        src.items
-            .iter()
-            .find_map(|idx| match &src.items_arena[*idx].kind {
-                ItemKind::Const(c) if c.name.text == only.text => literal_value(src, c.value),
-                _ => None,
-            })
+        src.items.iter().find_map(|idx| {
+            let ItemKind::Const(c) = &src.items_arena[*idx].kind else {
+                return None;
+            };
+            if c.name.text == only.text {
+                literal_value(src, c.value)
+            } else {
+                None
+            }
+        })
     })
 }
 
@@ -212,32 +221,61 @@ pub(crate) fn const_value(src: &SourceFile, expr: Idx<Expr>) -> Option<i128> {
                     BinOp::Div => l.checked_div(r),
                     BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
                     BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
-                    _ => None,
+                    // Yalnız genişlik/kod aritmetiği katlanır.
+                    BinOp::Rem
+                    | BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Gt
+                    | BinOp::Le
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Imp => None,
                 }
             }
             ExprKind::Path(path) => {
                 let [only] = path.segments.as_slice() else {
                     return None;
                 };
-                let value = src
-                    .items
-                    .iter()
-                    .find_map(|idx| match &src.items_arena[*idx].kind {
-                        ItemKind::Const(c) if c.name.text == only.text => Some(c.value),
-                        _ => None,
-                    })?;
+                let value = src.items.iter().find_map(|idx| {
+                    let ItemKind::Const(c) = &src.items_arena[*idx].kind else {
+                        return None;
+                    };
+                    (c.name.text == only.text).then_some(c.value)
+                })?;
                 go(src, value, depth + 1)
             }
-            _ => None,
+            ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
     go(src, expr, 0)
 }
 
 fn literal_value(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {
-    match &src.exprs[expr].kind {
-        ExprKind::IntLit { value, .. } => Some(*value),
-        _ => None,
+    if let ExprKind::IntLit { value, .. } = &src.exprs[expr].kind {
+        Some(*value)
+    } else {
+        None
     }
 }
 

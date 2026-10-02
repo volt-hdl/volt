@@ -43,7 +43,22 @@ impl Resolver<'_> {
             DefKind::Module | DefKind::ExternModule => InstanceTarget::Module(def),
             DefKind::Error | DefKind::Import => InstanceTarget::Unknown,
             DefKind::Struct => InstanceTarget::Unknown, // struct literal — tip kontrolü işi
-            _ => {
+            DefKind::Domain
+            | DefKind::Function
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::Port { .. }
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_) => {
                 self.diagnostics.push(Diagnostic::error(
                     ErrorCode::E1001,
                     lstr!(en: "'{}' is not a module", first.text;
@@ -147,7 +162,15 @@ impl Resolver<'_> {
         let ports = match &self.ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => &m.ports,
             ItemKind::Extern(x) => &x.ports,
-            _ => return,
+            // Portu olmayan öğeler: hedef hatası `instance_target`ta raporlandı.
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => return,
         };
         if ports.iter().any(|p| p.name.text == port_name.text) {
             return;

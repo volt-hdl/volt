@@ -29,6 +29,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0016 => "declassify without a reason string (ADR-0052)",
         E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
         E0018 => "Nesting or chain too deep (ADR-0080)",
+        E0019 => "Register assigned with '=' outside an 'on' block (ADR-0098)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",
@@ -161,6 +162,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0021 => "Attribute is parsed but not yet enforced",
         W0022 => "Clock domain has no frequency; no create_clock emitted (ADR-0054)",
         W0023 => "Too many diagnostics; the rest are hidden (ADR-0068)",
+        W0024 => "Attribute has no effect: not attached to anything, or where no pass reads it (ADR-0098)",
         W1001 => "Unused signal / binding",
         W1002 => "Shadowing (same name in an inner scope)",
         W1003 => "Shadowing of a builtin name",

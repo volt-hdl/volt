@@ -19,7 +19,9 @@ impl Inferencer<'_> {
                     Some(next) => cur = next,
                     None => return cur,
                 },
-                other => return other,
+                other @ (DomainId::Explicit(_) | DomainId::Timeless | DomainId::Error) => {
+                    return other
+                }
             }
         }
         cur

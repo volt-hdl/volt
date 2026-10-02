@@ -18,14 +18,15 @@ pub(super) fn const_int(ast: &SourceFile, e: Idx<Expr>, depth: u32) -> Option<i1
         ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
         ExprKind::Path(p) if p.segments.len() == 1 => {
             let name = &p.segments[0].text;
-            ast.items
-                .iter()
-                .find_map(|&i| match &ast.items_arena[i].kind {
-                    ItemKind::Const(c) if c.name.text == *name => {
-                        const_int(ast, c.value, depth + 1)
-                    }
-                    _ => None,
-                })
+            ast.items.iter().find_map(|&i| {
+                let ItemKind::Const(c) = &ast.items_arena[i].kind else {
+                    return None;
+                };
+                if c.name.text != *name {
+                    return None;
+                }
+                const_int(ast, c.value, depth + 1)
+            })
         }
         ExprKind::Unary {
             op: UnOp::Neg,
@@ -44,10 +45,38 @@ pub(super) fn const_int(ast: &SourceFile, e: Idx<Expr>, depth: u32) -> Option<i1
                 BinOp::Rem => l.checked_rem(r),
                 BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
                 BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
-                _ => None,
+                BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+                | BinOp::Eq
+                | BinOp::Ne
+                | BinOp::Lt
+                | BinOp::Gt
+                | BinOp::Le
+                | BinOp::Ge
+                | BinOp::And
+                | BinOp::Or
+                | BinOp::Imp => None,
             }
         }
-        _ => None,
+        ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::Unary { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Range { .. }
+        | ExprKind::PartSelect { .. }
+        | ExprKind::Field { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::Cast { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => None,
     }
 }
 
@@ -220,19 +249,22 @@ pub(super) fn walk_module_exprs(
 }
 
 fn callee_name(ast: &SourceFile, callee: Idx<Expr>) -> Option<&str> {
-    match &ast.exprs[callee].kind {
-        ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
-        _ => None,
-    }
+    let ExprKind::Path(p) = &ast.exprs[callee].kind else {
+        return None;
+    };
+    (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
 }
 
 impl Lowerer {
     /// Taban bir kullanıcı modülü örneğiyse hedef modülün adı.
     fn instance_target(&self, base: Idx<Expr>) -> Option<&String> {
-        match &self.ast.exprs[base].kind {
-            ExprKind::Path(p) if p.segments.len() == 1 => self.env.insts.get(&p.segments[0].text),
-            _ => None,
+        let ExprKind::Path(p) = &self.ast.exprs[base].kind else {
+            return None;
+        };
+        if p.segments.len() != 1 {
+            return None;
         }
+        self.env.insts.get(&p.segments[0].text)
     }
 
     /// İfadenin struct tipi (adı); struct değilse `None`. Tip denetimi
@@ -277,7 +309,20 @@ impl Lowerer {
                 Some("prev" | "sync" | "sync3") => self.struct_of_expr(*args.first()?),
                 _ => None,
             },
-            _ => None,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 
@@ -414,7 +459,21 @@ impl Lowerer {
                 args[0] = x;
                 Some(self.alloc(ExprKind::Call { callee, args }, span))
             }
-            _ => None,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 
@@ -440,7 +499,25 @@ impl Lowerer {
                 };
                 vec![*value; n]
             }
-            _ => return v,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => return v,
         };
         let parts = items.into_iter().rev().map(|i| (i, elem)).collect();
         self.alloc(ExprKind::Concat(parts), span)
@@ -535,7 +612,25 @@ impl Lowerer {
                     None => self.unsupported_value(expr, &s),
                 }
             }
-            _ => {}
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {}
         }
     }
 }

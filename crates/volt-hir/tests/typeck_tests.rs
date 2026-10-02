@@ -188,6 +188,20 @@ fn negation_result_does_not_fit_i8_e2001() {
     assert!(c.contains(&"E2001"), "{c:?}");
 }
 
+/// ADR-0098: `-x` bool ve bits üzerinde tanısız geçiyor, SV'de
+/// `assign q = -a;` üretiyordu (Error tipi her şeyle uyumludur).
+#[test]
+fn negation_on_bits_e2004() {
+    let c = codes("module M {\n    in  b : bits<8>\n    out y : bits<8>\n\n    y = -b\n}\n");
+    assert_eq!(c, ["E2004"], "{c:?}");
+}
+
+#[test]
+fn negation_on_bool_e2003() {
+    let c = codes("module M {\n    in  a : bool\n    out y : bool\n\n    y = -a\n}\n");
+    assert_eq!(c, ["E2003"], "{c:?}");
+}
+
 #[test]
 fn negation_on_unsigned_e2002() {
     let c = codes("module M {\n    in  a : u8\n    out y : i9\n\n    y = -a\n}\n");

@@ -169,6 +169,16 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         .with_note(
             "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir. Başka bir ifadenin içindeki (operand, koşul, port bağlaması, kontrat) 'match' ifadesi kol sayısı kadar derin bir koşullu zincire iner (ADR-0083): orada 256'dan fazla kol E0018'dir. Match'i kendi let'ine verin (let v = match ...): bir let'in ya da atamanın tüm sağ tarafı olarak her boyutta bir SystemVerilog 'case'i olur.",
         ),
+        E0019 => Explanation::new(
+            "Register'a 'on' bloğu dışında '=' ile atama",
+            "Register yeni değerini yalnız bir saat kenarında, bir 'on' bloğunda '<=' ile alır. Modül düzeyinde, bir 'comb' bloğunda ya da modül düzeyi bir 'for' içinde '=' ile atanınca bunun yerine kombinasyonel olarak sürülürdü.",
+            "'on' bloğu dışında '=' her an etkin bir kablolamayı tanımlar: üretilen SystemVerilog 'assign r = ...' ya da bir 'always_comb' atamasıdır. Register'ın o zaman ne saat kenarı ne reset dalı olur; başlangıç değeri ('reg r : u8 = 3') kaybolur. Değer register'ın kendisini okuyorsa ('r = r + 1') çıkış doğrudan girişine geri beslenir: kombinasyonel döngü. Simülatörler bunu ya reddeder ya da keyfi bir değere oturtur, sentez kararsız bir halkaya çevirir.\n\nDeğer her saat çevriminde bir kez değişecekse atamayı bir 'on' bloğuna taşıyın ve '<=' kullanın. Sinyal gerçekten kombinasyonelse 'reg' yerine 'wire' (ya da 'let') olarak bildirin.",
+            "reg r : u8 = 3\nr = r + 1               // ✗ E0019: assign r = r + 1, döngü",
+            "reg r : u8 = 3\non clk { r <= r + 1 }   // ✓ her saatte bir adım, reset 3",
+        )
+        .with_note(
+            "Modül düzeyinde öneri deyimi 'on <saat> { r <= değer }' ile değiştirir ('reg(clk)' saati, yoksa modülün tek saat portu). Bir 'comb' bloğunda ya da 'for' gövdesinde deyim tek başına taşınamadığı için biçimi yalnız yardım metni gösterir.",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",
@@ -1074,6 +1084,13 @@ module VgaTiming { /* ... */ }
             "Çok kez açılan bir şablondaki tek hata (açılmış 'for', çok argümanla örneklenen generic modül, bundle dizisi) kaç kopya olduğunu söyleyen bir notla tek tanıya katlanır; sınıra yalnız gerçekten FARKLI tanılar ulaşır. Binin üstünde listeyi kimse okumaz; sınır terminali, CI günlüklerini ve JSON tüketicilerini kullanılır tutar, bilinmeyen patlamalara karşı emniyet kemeridir. Hiçbir şey sessizce kaybolmaz: bu uyarı kaç tanının gizlendiğini söyler.",
             "$ volt check tasarim.volt\n...\nwarning[W0023]: çok fazla tanı: 1000 gösterildi, 64365 gizlendi",
             "$ volt check --max-diagnostics=0 tasarim.volt   // ✓ tümü, sınırsız\n$ volt check --max-diagnostics=50 tasarim.volt  // ✓ daha kısa liste",
+        ),
+        W0024 => Explanation::new(
+            "Etkisiz nitelik",
+            "Nitelik hiçbir şeye bağlanmıyor (bir kontratın, 'stage'in, 'use'un ya da kapanış '}'inin önünde) ya da hiçbir derleyici geçidinin okumadığı bir bildirime bağlı. Yok sayılır.",
+            "Nitelik hemen ardından yazılan öğeye, porta, struct alanına ya da modül deyimine aittir (grammar-full.ebnf §2). Kontratlar, 'stage'/'stall'/'flush', 'use' ve 'package' nitelik almaz. Her nitelik belirli yerlerde okunur: @strict_timing ve @mmio modülde, @no_auto_contracts modülde ya da bir 'reg' bildiriminde, @no_protocol_check modülde ya da bir portta, @reg bir register haritası girdisinde, @offset ve @access yalnız @reg'in argümanı olarak. Başka bir yerde derleyici onu atardı; siz de olmayan bir ayarın yapıldığını sanırdınız.\n\nNiteliği yerine taşıyın ya da kaldırın. Bilinmeyen nitelik adı bunun yerine W0020, ayrıştırılan ama henüz hiçbir yerde uygulanmayan nitelik W0021 alır.",
+            "module M {\n    @no_auto_contracts      // ✗ W0024: kontrat nitelik almaz\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: portta etkisi yok",
+            "@no_auto_contracts @strict_timing   // ✓ modülde\nmodule M {\n    invariant: count < 10\n    in x : u8",
         ),
         W0022 => Explanation::new(
             "Saat alanının frekansı yok; create_clock üretilmedi",

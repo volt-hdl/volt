@@ -26,7 +26,24 @@ impl Resolver<'_> {
             current = match kind {
                 DefKind::Enum => self.lookup_variant(current, seg),
                 DefKind::Error | DefKind::Import => return self.error_def,
-                _ => {
+                DefKind::Module
+                | DefKind::Domain
+                | DefKind::Function
+                | DefKind::Struct
+                | DefKind::EnumVariant { .. }
+                | DefKind::Const
+                | DefKind::TypeAlias
+                | DefKind::ExternModule
+                | DefKind::Port { .. }
+                | DefKind::Register
+                | DefKind::Wire
+                | DefKind::Instance
+                | DefKind::LocalBinding
+                | DefKind::LoopVar
+                | DefKind::PatternBinding
+                | DefKind::GenericParam
+                | DefKind::DomainParam
+                | DefKind::Builtin(_) => {
                     let name = self.def(current).name.clone();
                     self.diagnostics.push(Diagnostic::error(
                         ErrorCode::E1005,

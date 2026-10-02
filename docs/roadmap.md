@@ -279,6 +279,19 @@ follow user feedback.
   the first cycle, in its own proof and in every parent's proof.
 - **ADR:** [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
 
+### Combinational loop check
+
+- **What:** a compile-time error for a combinational loop: wires that
+  feed each other, a `comb` block that reads what it assigns, and loops
+  through output ports and submodule instances, with the loop's signals
+  named in the message.
+- **Why:** `volt check` and `volt build` accept such a loop today; it
+  surfaces only when Verilator stops with `UNOPTFLAT` in `volt test`, or
+  in synthesis.
+- **Status:** Partial. A register assigned with `=` outside an `on`
+  block, the one loop a single statement can make, is `E0019`.
+- **ADR:** [ADR-0098](adr/ADR-0098-sessiz-kabul-ikinci-tur.md)
+
 ## Toward 1.0
 
 1.0 will make a stability promise. These items are its preconditions: a

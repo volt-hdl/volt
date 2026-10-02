@@ -93,7 +93,23 @@ impl Resolver<'_> {
                 ErrorCode::W1005,
                 lstr!(en: "unused import"; tr: "kullanılmayan import"),
             ),
-            _ => return None,
+            // İzlenmeyen türler: çıkış/çift yönlü port, öğeler, yereller.
+            DefKind::Module
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Port { .. }
+            | DefKind::Instance
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Error => return None,
         })
     }
 }

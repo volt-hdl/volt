@@ -22,7 +22,17 @@ impl Emitter<'_> {
         match &self.ast.types[crate::alias::resolve(self.ast, ty)].kind {
             TypeRefKind::Trit => true,
             TypeRefKind::Array { elem, .. } => self.is_trit_typeref(*elem),
-            _ => false,
+            TypeRefKind::Bool
+            | TypeRefKind::Clock
+            | TypeRefKind::Reset(_)
+            | TypeRefKind::UInt(_)
+            | TypeRefKind::SInt(_)
+            | TypeRefKind::Bits(_)
+            | TypeRefKind::UIntN(_)
+            | TypeRefKind::SIntN(_)
+            | TypeRefKind::Tuple(_)
+            | TypeRefKind::Path { .. }
+            | TypeRefKind::Error => false,
         }
     }
 
@@ -39,9 +49,10 @@ impl Emitter<'_> {
     pub(crate) fn is_trit(&self, idx: Idx<Expr>) -> bool {
         match &self.ast.exprs[idx].kind {
             ExprKind::Path(_) | ExprKind::Index { .. } => {
-                let base = match &self.ast.exprs[idx].kind {
-                    ExprKind::Index { base, .. } => *base,
-                    _ => idx,
+                let base = if let ExprKind::Index { base, .. } = &self.ast.exprs[idx].kind {
+                    *base
+                } else {
+                    idx
                 };
                 // Modül sembolü üst düzey const'u gölgeler (width_of sırası).
                 crate::path_single(self.ast, base).is_some_and(|n| {
@@ -67,7 +78,23 @@ impl Emitter<'_> {
                 else_expr,
                 ..
             } => self.is_trit(*then_expr) && self.is_trit(*else_expr),
-            _ => false,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
         }
     }
 

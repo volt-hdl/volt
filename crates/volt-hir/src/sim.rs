@@ -225,10 +225,13 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         match func.text.as_str() {
-            "step" => match &args[0].kind {
-                TestExprKind::Int(0) => self.diags.push(bad_step_arg(&args[0])),
-                _ => self.scope.expect_scalar(&args[0], self.diags),
-            },
+            "step" => {
+                if matches!(args[0].kind, TestExprKind::Int(0)) {
+                    self.diags.push(bad_step_arg(&args[0]));
+                } else {
+                    self.scope.expect_scalar(&args[0], self.diags);
+                }
+            }
             "load" => {
                 sim_load::check_load(&self.scope, self.modules, &args[0], &args[1], self.diags)
             }

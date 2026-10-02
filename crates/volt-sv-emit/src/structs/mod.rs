@@ -198,7 +198,14 @@ impl Lowerer {
                         consts.insert(c.name.text.clone(), (s, c.value));
                     }
                 }
-                _ => {}
+                ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Struct(_)
+                | ItemKind::Enum(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Extern(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => {}
             }
         }
         self.module_ports = module_ports;
@@ -309,7 +316,11 @@ impl Lowerer {
                         self.scan_block_lets(*b);
                         None
                     }
-                    _ => None,
+                    // Let bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+                    StmtKind::Assign(_)
+                    | StmtKind::For(_)
+                    | StmtKind::Expr(_)
+                    | StmtKind::Error => None,
                 };
                 if let Some((name, Some(s))) = entry {
                     self.env.sigs.insert(name, s);
@@ -344,7 +355,10 @@ impl Lowerer {
                     }
                 }
                 BlockStmt::For(f) => self.scan_block_lets(f.body),
-                _ => {}
+                // Let taşımayan deyimler.
+                BlockStmt::NonBlockAssign { .. }
+                | BlockStmt::BlockAssign { .. }
+                | BlockStmt::Error => {}
             }
         }
     }
@@ -382,7 +396,24 @@ impl Lowerer {
                     .last()
                     .is_some_and(|s| self.layout(&s.text).is_some());
             }
-            _ => {}
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {}
         };
         value::walk_module_exprs(&self.ast, m, &mut visit);
         found
@@ -634,9 +665,12 @@ impl Lowerer {
         let path: Vec<String> = lhs
             .suffixes
             .iter()
-            .map_while(|x| match x {
-                LValueSuffix::Field(f) => Some(f.text.clone()),
-                _ => None,
+            .map_while(|x| {
+                if let LValueSuffix::Field(f) = x {
+                    Some(f.text.clone())
+                } else {
+                    None
+                }
             })
             .collect();
         let rest: Vec<LValueSuffix> = lhs.suffixes[path.len()..].to_vec();
@@ -896,7 +930,22 @@ impl Lowerer {
                 lstr!(en: "a cast to struct '{s}' from a computed value (bind it to a let first: let raw : uN = ...; raw as {s})";
                       tr: "hesaplanan bir değerden '{s}' struct'ına dönüşüm (önce bir let'e bağlayın: let raw : uN = ...; raw as {s})")
             }
-            _ => {
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::If { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {
                 lstr!(en: "this struct '{s}' value expression"; tr: "bu '{s}' struct değer ifadesi")
             }
         };
@@ -912,7 +961,13 @@ impl Lowerer {
                 StmtKind::Wire(w) => names.insert(w.name.text.clone()),
                 StmtKind::Let(l) => names.insert(l.name.text.clone()),
                 StmtKind::Instance(i) => names.insert(i.name.text.clone()),
-                _ => false,
+                // Ad bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+                StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => false,
             };
         }
         let mut sigs: Vec<(String, String, Span)> = Vec::new();
@@ -926,7 +981,13 @@ impl Lowerer {
                 StmtKind::Reg(r) => Some(&r.name),
                 StmtKind::Wire(w) => Some(&w.name),
                 StmtKind::Let(l) => Some(&l.name),
-                _ => None,
+                StmtKind::Instance(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => None,
             };
             if let Some(n) = name {
                 if let Some(s) = self.env.sigs.get(&n.text) {

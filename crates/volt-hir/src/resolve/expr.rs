@@ -46,7 +46,13 @@ impl Resolver<'_> {
                 }
             }
             // Yerleşik tipler (bool, clock, uN, bits, Trit, reset) isim değildir.
-            _ => {}
+            TypeRefKind::Bool
+            | TypeRefKind::Clock
+            | TypeRefKind::Reset(_)
+            | TypeRefKind::UInt(_)
+            | TypeRefKind::SInt(_)
+            | TypeRefKind::Trit
+            | TypeRefKind::Error => {}
         }
     }
 

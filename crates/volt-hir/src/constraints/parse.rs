@@ -75,10 +75,10 @@ pub(super) fn unsupported(span: Span, label: String, help: String) -> Diagnostic
 
 /// Tek segmentli yol ifadesinin adı.
 fn path_name(ast: &SourceFile, e: Idx<Expr>) -> Option<&str> {
-    match &ast.exprs[e].kind {
-        ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
-        _ => None,
-    }
+    let ExprKind::Path(p) = &ast.exprs[e].kind else {
+        return None;
+    };
+    (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
 }
 
 type Expr = volt_ast::Expr;
@@ -171,14 +171,16 @@ pub(super) fn parse_time(ast: &SourceFile, e: Idx<Expr>) -> Result<u64, Box<Diag
 /// `100.mhz` → `(Some(100), Some("mhz"))`; `100` → `(Some(100), None)`;
 /// başka ifade → `(None, _)`.
 fn split_unit(ast: &SourceFile, e: Idx<Expr>) -> (Option<u128>, Option<&str>) {
-    match &ast.exprs[e].kind {
-        ExprKind::IntLit { value, .. } => (Some(*value), None),
-        ExprKind::Field { base, field } => match &ast.exprs[*base].kind {
-            ExprKind::IntLit { value, .. } => (Some(*value), Some(field.text.as_str())),
-            _ => (None, None),
-        },
-        _ => (None, None),
+    let kind = &ast.exprs[e].kind;
+    if let ExprKind::IntLit { value, .. } = kind {
+        return (Some(*value), None);
     }
+    if let ExprKind::Field { base, field } = kind {
+        if let ExprKind::IntLit { value, .. } = &ast.exprs[*base].kind {
+            return (Some(*value), Some(field.text.as_str()));
+        }
+    }
+    (None, None)
 }
 
 /// `@timing(...)`: her argüman bağımsız bir biçimdir; hatalı olanlar
@@ -401,17 +403,17 @@ pub(super) fn parse_multicycle(
             )))
         }
     };
-    let cycles = match &ast.exprs[cycles_expr].kind {
-        ExprKind::IntLit { value, .. } if *value >= 1 && *value <= u32::MAX as u128 => {
-            *value as u32
-        }
-        _ => {
-            return Err(Box::new(unsupported(
-                ast.exprs[cycles_expr].span,
-                lstr!(en: "cycle count must be an integer literal >= 1"; tr: "çevrim sayısı 1'den büyük ya da eşit bir tamsayı literal'i olmalı"),
-                help,
-            )))
-        }
+    let cycles = if let ExprKind::IntLit { value, .. } = &ast.exprs[cycles_expr].kind {
+        u32::try_from(*value).ok().filter(|&c| c >= 1)
+    } else {
+        None
+    };
+    let Some(cycles) = cycles else {
+        return Err(Box::new(unsupported(
+            ast.exprs[cycles_expr].span,
+            lstr!(en: "cycle count must be an integer literal >= 1"; tr: "çevrim sayısı 1'den büyük ya da eşit bir tamsayı literal'i olmalı"),
+            help,
+        )));
     };
     if !on_stmt && from.is_none() && to.is_none() {
         return Err(Box::new(unsupported(

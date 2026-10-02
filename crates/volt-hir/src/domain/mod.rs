@@ -126,7 +126,15 @@ pub fn infer_domains(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult)
         match &ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => inf.infer_module(m),
             ItemKind::Extern(x) => inf.check_extern_decl(x),
-            _ => {}
+            // Saat alanı taşıyan sinyal bildirmeyen öğeler.
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => {}
         }
     }
     DomainResult {

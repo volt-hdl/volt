@@ -123,10 +123,25 @@ impl<'a> ModuleTiming<'a> {
             let base = match self.ast.types[port.ty].kind {
                 // Saat/sıfırlama sinyalleri zamanlama taşımaz.
                 TypeRefKind::Clock | TypeRefKind::Reset(_) => Delay::Any,
-                // Giriş portu tanım gereği 0 çevrim gecikmelidir (ADR-0037).
-                _ if port.direction == PortDir::In => Delay::Exact(0),
-                // Çıkış portu sürücüsünden hesaplanır.
-                _ => Delay::Todo,
+                TypeRefKind::Bool
+                | TypeRefKind::UInt(_)
+                | TypeRefKind::SInt(_)
+                | TypeRefKind::Bits(_)
+                | TypeRefKind::UIntN(_)
+                | TypeRefKind::SIntN(_)
+                | TypeRefKind::Trit
+                | TypeRefKind::Array { .. }
+                | TypeRefKind::Tuple(_)
+                | TypeRefKind::Path { .. }
+                | TypeRefKind::Error => {
+                    if port.direction == PortDir::In {
+                        // Giriş portu tanım gereği 0 çevrim gecikmelidir (ADR-0037).
+                        Delay::Exact(0)
+                    } else {
+                        // Çıkış portu sürücüsünden hesaplanır.
+                        Delay::Todo
+                    }
+                }
             };
             self.delays.insert(def, base);
         }
@@ -264,23 +279,21 @@ impl<'a> ModuleTiming<'a> {
     /// N'i doğrular. V0'da N tamsayı literali olmalıdır.
     fn declared_of(&mut self, ty: Idx<TypeRef>) -> Option<(u32, Span)> {
         let &(cycles_expr, span) = self.ast.timing.delayed_types.get(&ty)?;
-        match &self.ast.exprs[cycles_expr].kind {
-            ExprKind::IntLit { value, .. } if *value <= u128::from(u16::MAX) => {
-                Some((*value as u32, span))
-            }
-            _ => {
-                self.diags.push(Diagnostic::error(
-                    ErrorCode::E5010,
-                    lstr!(en: "invalid Delayed cycle count"; tr: "geçersiz Delayed çevrim sayısı"),
-                    LabeledSpan::primary(
-                        span,
-                        lstr!(en: "cycle count must be an integer literal (0..=65535)"; tr: "çevrim sayısı tamsayı literali olmalı (0..=65535)"),
-                    ),
-                    lstr!(en: "write it as Delayed<u32, 3>"; tr: "Delayed<u32, 3> biçiminde yazın"),
-                ));
-                None
+        if let ExprKind::IntLit { value, .. } = &self.ast.exprs[cycles_expr].kind {
+            if let Ok(n) = u16::try_from(*value) {
+                return Some((u32::from(n), span));
             }
         }
+        self.diags.push(Diagnostic::error(
+            ErrorCode::E5010,
+            lstr!(en: "invalid Delayed cycle count"; tr: "geçersiz Delayed çevrim sayısı"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "cycle count must be an integer literal (0..=65535)"; tr: "çevrim sayısı tamsayı literali olmalı (0..=65535)"),
+            ),
+            lstr!(en: "write it as Delayed<u32, 3>"; tr: "Delayed<u32, 3> biçiminde yazın"),
+        ));
+        None
     }
 
     // ═══ Sabit nokta: gecikme çıkarımı ════════════════════════════
@@ -332,7 +345,7 @@ impl<'a> ModuleTiming<'a> {
         if is_reg {
             match acc {
                 Delay::Exact(n) => Delay::Exact(n.saturating_add(1)),
-                other => other,
+                other @ (Delay::Todo | Delay::Any) => other,
             }
         } else {
             acc
@@ -516,26 +529,27 @@ impl<'a> ModuleTiming<'a> {
         let mut result = base;
         if let Some(wraps) = self.ast.timing.delay_exprs.get(&e).cloned() {
             for (cycles_expr, wrap_span) in wraps {
-                let k = match &self.ast.exprs[cycles_expr].kind {
-                    ExprKind::IntLit { value, .. } if *value <= u128::from(u16::MAX) => {
-                        *value as u32
+                let literal =
+                    if let ExprKind::IntLit { value, .. } = &self.ast.exprs[cycles_expr].kind {
+                        u16::try_from(*value).ok()
+                    } else {
+                        None
+                    };
+                let Some(k) = literal.map(u32::from) else {
+                    if emit {
+                        self.diags.push(Diagnostic::error(
+                            ErrorCode::E5010,
+                            lstr!(en: "invalid delay<K> cycle count"; tr: "geçersiz delay<K> çevrim sayısı"),
+                            LabeledSpan::primary(
+                                wrap_span,
+                                lstr!(en: "K must be an integer literal (0..=65535)"; tr: "K tamsayı literali olmalı (0..=65535)"),
+                            ),
+                            lstr!(en: "write it as delay<1>(x)"; tr: "delay<1>(x) biçiminde yazın"),
+                        ));
                     }
-                    _ => {
-                        if emit {
-                            self.diags.push(Diagnostic::error(
-                                ErrorCode::E5010,
-                                lstr!(en: "invalid delay<K> cycle count"; tr: "geçersiz delay<K> çevrim sayısı"),
-                                LabeledSpan::primary(
-                                    wrap_span,
-                                    lstr!(en: "K must be an integer literal (0..=65535)"; tr: "K tamsayı literali olmalı (0..=65535)"),
-                                ),
-                                lstr!(en: "write it as delay<1>(x)"; tr: "delay<1>(x) biçiminde yazın"),
-                            ));
-                        }
-                        // Kaskad bastırma: geçersiz K sonucu serbest bırakır.
-                        result = (Delay::Any, wrap_span);
-                        continue;
-                    }
+                    // Kaskad bastırma: geçersiz K sonucu serbest bırakır.
+                    result = (Delay::Any, wrap_span);
+                    continue;
                 };
                 result = match result.0 {
                     Delay::Exact(n) => (Delay::Exact(n.saturating_add(k)), wrap_span),
@@ -558,7 +572,23 @@ impl<'a> ModuleTiming<'a> {
             }
             // Sabitler, enum varyantları, döngü değişkenleri, generic'ler:
             // zamanlama taşımaz.
-            _ => Delay::Any,
+            DefKind::Module
+            | DefKind::Domain
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Instance
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => Delay::Any,
         }
     }
 

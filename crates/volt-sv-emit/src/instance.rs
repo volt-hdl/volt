@@ -58,7 +58,16 @@ impl<'a> Emitter<'a> {
                 ItemKind::Extern(e) if e.name.text == name && e.generics.is_empty() => {
                     Some(InstTarget::Extern(e))
                 }
-                _ => None,
+                ItemKind::Module(_)
+                | ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Struct(_)
+                | ItemKind::Enum(_)
+                | ItemKind::Const(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Extern(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => None,
             })
     }
 

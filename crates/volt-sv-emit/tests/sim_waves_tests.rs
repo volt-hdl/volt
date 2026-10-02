@@ -145,7 +145,9 @@ fn collected_ports_carry_their_width() {
             ("clk", Some(1)),
             ("w", Some(128)),
             ("b", Some(8)),
-            ("q", Some(1))
+            ("q", Some(1)),
+            // Üretilen SV'deki otomatik reset portu (ADR-0098).
+            ("rst", Some(1))
         ]
     );
 }

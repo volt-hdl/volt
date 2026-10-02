@@ -136,9 +136,10 @@ impl Inferencer<'_> {
 
     pub(super) fn builtin_of(&self, callee: Idx<Expr>) -> Option<BuiltinKind> {
         let def = self.res.resolutions.get(&callee)?;
-        match self.res.def_kind(*def) {
-            DefKind::Builtin(kind) => Some(kind),
-            _ => None,
+        if let DefKind::Builtin(kind) = self.res.def_kind(*def) {
+            Some(kind)
+        } else {
+            None
         }
     }
 }

@@ -47,7 +47,23 @@ impl TypeChecker<'_, '_> {
     ) {
         match *self.types.ty(scrut_ty) {
             Ty::Enum(e) => self.check_enum_match(span, arms, e, is_expr),
-            _ => self.check_value_match(span, arms, scrut_ty, is_expr),
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => self.check_value_match(span, arms, scrut_ty, is_expr),
         }
     }
 
@@ -128,7 +144,11 @@ impl TypeChecker<'_, '_> {
                     self.check_const_pattern_fits(lit, t, scrut_ty, ast.patterns[pat].span);
                 }
             }
-            _ => {}
+            // Yol desenleri `check_value_match`ta (collect_paths) denetlenir.
+            PatternKind::Wildcard
+            | PatternKind::Path { .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => {}
         }
     }
 
@@ -157,9 +177,10 @@ impl TypeChecker<'_, '_> {
         if int_fits(value, signed, width) {
             return;
         }
-        let name = match &self.ast.exprs[lit].kind {
-            volt_ast::ExprKind::Path(p) => p.segments[0].text.clone(),
-            _ => String::new(),
+        let name = if let volt_ast::ExprKind::Path(p) = &self.ast.exprs[lit].kind {
+            p.segments[0].text.clone()
+        } else {
+            String::new()
         };
         let shown = self.show(scrut_ty);
         self.error(
@@ -179,9 +200,10 @@ impl TypeChecker<'_, '_> {
             let before = ev.diagnostics.len();
             let value = ev.const_eval(e);
             ev.diagnostics.truncate(before);
-            match value {
-                crate::ConstValue::Int(n) => Some(n),
-                _ => None,
+            if let crate::ConstValue::Int(n) = value {
+                Some(n)
+            } else {
+                None
             }
         });
         for (arm, _) in arms.iter().zip(unreachable).filter(|(_, u)| *u) {
@@ -272,7 +294,26 @@ impl TypeChecker<'_, '_> {
                         cover.wildcard = true;
                     }
                     // Çözülemeyen yol E1001/E1007'yi aldı; kaskad yok.
-                    _ => cover.wildcard = true,
+                    DefKind::Module
+                    | DefKind::Domain
+                    | DefKind::Function
+                    | DefKind::Struct
+                    | DefKind::Enum
+                    | DefKind::Const
+                    | DefKind::TypeAlias
+                    | DefKind::ExternModule
+                    | DefKind::Port { .. }
+                    | DefKind::Register
+                    | DefKind::Wire
+                    | DefKind::Instance
+                    | DefKind::LocalBinding
+                    | DefKind::LoopVar
+                    | DefKind::PatternBinding
+                    | DefKind::GenericParam
+                    | DefKind::DomainParam
+                    | DefKind::Builtin(_)
+                    | DefKind::Import
+                    | DefKind::Error => cover.wildcard = true,
                 },
                 None => cover.wildcard = true,
             },
@@ -323,9 +364,10 @@ impl TypeChecker<'_, '_> {
         let before = self.ev.diagnostics.len();
         let value = self.ev.const_eval(lit);
         self.ev.diagnostics.truncate(before);
-        match value {
-            crate::ConstValue::EnumVariant { def, .. } => Some(def),
-            _ => None,
+        if let crate::ConstValue::EnumVariant { def, .. } = value {
+            Some(def)
+        } else {
+            None
         }
     }
 
@@ -350,7 +392,7 @@ impl TypeChecker<'_, '_> {
                 out.push((p.span, def));
                 false
             }
-            _ => false,
+            PatternKind::Literal(_) | PatternKind::Tuple(_) | PatternKind::Error => false,
         }
     }
 }

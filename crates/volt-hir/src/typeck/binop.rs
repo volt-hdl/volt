@@ -103,7 +103,25 @@ impl TypeChecker<'_, '_> {
         let natural = match op {
             BinOp::Add | BinOp::Sub => clamp_width(u32::from(hi) + 1),
             BinOp::Mul => clamp_width(u32::from(hi) * 2),
-            _ => hi,
+            BinOp::Div | BinOp::Rem => hi,
+            BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::Eq
+            | BinOp::Ne
+            | BinOp::Lt
+            | BinOp::Gt
+            | BinOp::Le
+            | BinOp::Ge
+            | BinOp::And
+            | BinOp::Or
+            | BinOp::Imp => {
+                unreachable!(
+                    "arith_result yalnız aritmetik işleçlerle çağrılır (synth_arith/check_arith)"
+                )
+            }
         };
         self.flex(signed, lo, natural)
     }
@@ -119,7 +137,25 @@ impl TypeChecker<'_, '_> {
                 BinOp::Mul => self.types.intern(Ty::Trit),
                 // +1 + +1 = +2 kümeden çıkar → i3'e genişle.
                 BinOp::Add | BinOp::Sub => self.types.intern(Ty::SInt { width: 3 }),
-                _ => {
+                BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+                | BinOp::Shl
+                | BinOp::Shr
+                | BinOp::Eq
+                | BinOp::Ne
+                | BinOp::Lt
+                | BinOp::Gt
+                | BinOp::Le
+                | BinOp::Ge
+                | BinOp::And
+                | BinOp::Or
+                | BinOp::Imp => {
+                    unreachable!(
+                        "trit_arith_result yalnız aritmetik işleçlerle çağrılır (arith_result)"
+                    )
+                }
+                BinOp::Div | BinOp::Rem => {
                     self.err_type_mismatch_msg(
                         span,
                         &lstr!(en: "this operator is not defined for Trit"; tr: "bu operatör Trit tipinde tanımlı değil"),

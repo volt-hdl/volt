@@ -150,17 +150,31 @@ impl<'a> Emitter<'a> {
             ExprKind::Field { base, field } => {
                 let inst = crate::path_single(ast, *base)?;
                 let module = &self.user_insts.get(inst)?.module;
-                let target = ast
-                    .items
-                    .iter()
-                    .find_map(|&i| match &ast.items_arena[i].kind {
-                        ItemKind::Module(m) if &m.name.text == module => Some(m),
-                        _ => None,
-                    })?;
+                let target = ast.items.iter().find_map(|&i| {
+                    let ItemKind::Module(m) = &ast.items_arena[i].kind else {
+                        return None;
+                    };
+                    (&m.name.text == module).then_some(m)
+                })?;
                 let port = target.ports.iter().find(|p| p.name.text == field.text)?;
                 self.enum_of_type(port.ty)
             }
-            _ => None,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 
@@ -326,7 +340,11 @@ impl<'a> Emitter<'a> {
                 }
                 (set, wild)
             }
-            _ => (Vec::new(), true),
+            PatternKind::Wildcard
+            | PatternKind::Literal(_)
+            | PatternKind::Path { .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => (Vec::new(), true),
         }
     }
 }

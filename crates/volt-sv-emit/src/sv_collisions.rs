@@ -328,7 +328,13 @@ fn user_origins(ast: &volt_ast::SourceFile, module: &ModuleDecl, name: &str) -> 
                 &i.name,
                 lstr!(en: "instance '{name}'"; tr: "'{name}' örneği"),
             ),
-            _ => continue,
+            // Ad bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+            StmtKind::On(_)
+            | StmtKind::Comb(_)
+            | StmtKind::Assign(_)
+            | StmtKind::For(_)
+            | StmtKind::Expr(_)
+            | StmtKind::Error => continue,
         };
         if n.text == name {
             out.push(Origin {
@@ -431,7 +437,13 @@ impl Emitter<'_> {
                 StmtKind::Wire(w) => &w.name,
                 StmtKind::Let(l) => &l.name,
                 StmtKind::Instance(i) => &i.name,
-                _ => continue,
+                // Ad bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+                StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => continue,
             };
             self.helper_taken.insert(name.text.clone());
         }
@@ -512,9 +524,12 @@ mod tests {
             .ast
             .items
             .iter()
-            .find_map(|&i| match &parsed.ast.items_arena[i].kind {
-                volt_ast::ItemKind::Module(m) => Some(m.clone()),
-                _ => None,
+            .find_map(|&i| {
+                if let volt_ast::ItemKind::Module(m) = &parsed.ast.items_arena[i].kind {
+                    Some(m.clone())
+                } else {
+                    None
+                }
             })
             .expect("modül")
     }

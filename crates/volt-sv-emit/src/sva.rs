@@ -160,7 +160,8 @@ impl<'a> Emitter<'a> {
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
-            _ => "posedge",
+            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+            ClockEdge::Posedge | ClockEdge::None => "posedge",
         };
         let event = if clock.info.reset.is_none() {
             format!("@({edge} {})", clock.name)
@@ -245,7 +246,8 @@ impl<'a> Emitter<'a> {
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
-            _ => "posedge",
+            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+            ClockEdge::Posedge | ClockEdge::None => "posedge",
         };
 
         let mut counters = [0u32; 6];
@@ -473,9 +475,12 @@ impl Emitter<'_> {
             .ast
             .items
             .iter()
-            .filter_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Module(m) => Some(m),
-                _ => None,
+            .filter_map(|&i| {
+                if let ItemKind::Module(m) = &self.ast.items_arena[i].kind {
+                    Some(m)
+                } else {
+                    None
+                }
             })
             .collect();
         // Saatsiz modül SVA üretmez (makrosu da yoktur).
@@ -731,6 +736,16 @@ fn collect_signal_names(ast: &volt_ast::SourceFile, expr: Idx<Expr>, out: &mut V
                 collect_signal_names(ast, p, out);
             }
         }
-        _ => {}
+        // Yapraklar ve inilmeyen düğümler (PartSelect dahil) — mevcut davranış korunur.
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::PartSelect { .. }
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => {}
     }
 }

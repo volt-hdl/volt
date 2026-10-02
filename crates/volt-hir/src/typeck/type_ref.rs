@@ -79,7 +79,19 @@ impl TypeChecker<'_, '_> {
                 let ty = match kind {
                     TypeRefKind::UIntN(_) => Ty::UInt { width },
                     TypeRefKind::SIntN(_) => Ty::SInt { width },
-                    _ => Ty::Bits { width },
+                    TypeRefKind::Bits(_) => Ty::Bits { width },
+                    TypeRefKind::Bool
+                    | TypeRefKind::Clock
+                    | TypeRefKind::Reset(_)
+                    | TypeRefKind::UInt(_)
+                    | TypeRefKind::SInt(_)
+                    | TypeRefKind::Trit
+                    | TypeRefKind::Array { .. }
+                    | TypeRefKind::Tuple(_)
+                    | TypeRefKind::Path { .. }
+                    | TypeRefKind::Error => {
+                        unreachable!("resolve_sized yalnız bits/uint/sint<N> ile çağrılır")
+                    }
                 };
                 self.types.intern(ty)
             }
@@ -126,7 +138,25 @@ impl TypeChecker<'_, '_> {
                 self.alias_stack.pop();
                 ty
             }
-            _ => self.types.error(),
+            // Tip olmayan tanım: tanısı isim çözümlemede.
+            DefKind::Module
+            | DefKind::Domain
+            | DefKind::Function
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::ExternModule
+            | DefKind::Port { .. }
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => self.types.error(),
         }
     }
 }

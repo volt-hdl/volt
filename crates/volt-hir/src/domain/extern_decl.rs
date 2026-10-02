@@ -66,7 +66,29 @@ impl Inferencer<'_> {
             DefKind::Port { .. } if !self.is_clock_def(dom_def) => {
                 self.err_annotation_not_clock(ann);
             }
-            _ => {}
+            // Bağlı sembolik alan, clock portu ve alan bildirimi geçerlidir;
+            // diğer türler isim çözümlemede E3002 aldı.
+            DefKind::DomainParam
+            | DefKind::Port { .. }
+            | DefKind::Domain
+            | DefKind::Module
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => {}
         }
     }
 

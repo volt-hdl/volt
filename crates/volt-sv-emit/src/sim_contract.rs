@@ -197,7 +197,8 @@ impl<'a> Emitter<'a> {
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
-            _ => "posedge",
+            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+            ClockEdge::Posedge | ClockEdge::None => "posedge",
         };
         let is_cover = verb == "cover";
         // Sayaç adı kimliğin modül içi kısmından: `volt_hits_cov_0`.

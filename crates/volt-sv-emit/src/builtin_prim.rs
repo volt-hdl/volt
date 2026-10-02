@@ -231,7 +231,11 @@ impl<'a> Emitter<'a> {
                     DomainRole::Src => src_clock.is_none(),
                     DomainRole::Dst => dst_clock.is_none(),
                 },
-                _ => !inputs.contains_key(port.name),
+                PortKind::Data
+                | PortKind::Bool
+                | PortKind::Addr
+                | PortKind::Dim
+                | PortKind::Taps => !inputs.contains_key(port.name),
             };
             // Eksik zorunlu bağlama bir kullanıcı hatasıdır, "henüz
             // desteklenmiyor" değil (ADR-0070); kullanıcı modülündeki
@@ -1575,7 +1579,8 @@ fn contract_line(clock: &ClockPort, verb: &str, expr: &str, name: &str) -> Strin
 fn edge_of(clock: &ClockPort) -> &'static str {
     match clock.info.edge {
         volt_ast::ClockEdge::Negedge => "negedge",
-        _ => "posedge",
+        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+        volt_ast::ClockEdge::Posedge | volt_ast::ClockEdge::None => "posedge",
     }
 }
 

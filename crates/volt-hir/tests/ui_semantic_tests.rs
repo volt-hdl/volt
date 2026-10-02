@@ -116,6 +116,12 @@ fn ui_fail_04_undriven_output_e4002() {
 }
 
 #[test]
+fn ui_fail_203_negate_bits_e2004() {
+    // ADR-0098: tekli '-' bits<N> üzerinde tanısız geçiyordu.
+    assert_ui_fail("fail/203_negate_bits.volt");
+}
+
+#[test]
 fn ui_fail_02_width_mismatch_e2001() {
     assert_ui_fail("fail/02_width_mismatch.volt");
 }

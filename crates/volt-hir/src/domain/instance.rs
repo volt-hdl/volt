@@ -57,7 +57,15 @@ impl<'a> Inferencer<'a> {
         match &self.ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => Some(&m.ports),
             ItemKind::Extern(x) => Some(&x.ports),
-            _ => None,
+            // Örneklenemeyen öğeler (hedef hatası isim çözümlemede).
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => None,
         }
     }
 

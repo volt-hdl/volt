@@ -365,7 +365,13 @@ impl<'a> Expander<'a, '_> {
                     .map(|(n, v)| (n.clone(), self.expr(v)))
                     .collect(),
             },
-            other => other.clone(),
+            // Alt ifadesi olmayan yapraklar olduğu gibi kalır.
+            other @ (TestExprKind::Int(_)
+            | TestExprKind::Bool(_)
+            | TestExprKind::PortRead { .. }
+            | TestExprKind::Var(_)
+            | TestExprKind::Variant { .. }
+            | TestExprKind::Str(_)) => other.clone(),
         };
         TestExpr { span: e.span, kind }
     }
@@ -404,7 +410,17 @@ pub(crate) fn is_whole_struct_arg(duts: &crate::sim::DutMap<'_>, arg: &TestExpr)
             .flatten()
             .and_then(|(src, m)| struct_port_layout(src, m, &port.text))
             .is_some(),
-        _ => false,
+        TestExprKind::Int(_)
+        | TestExprKind::Bool(_)
+        | TestExprKind::Var(_)
+        | TestExprKind::Variant { .. }
+        | TestExprKind::Str(_)
+        | TestExprKind::Array(_)
+        | TestExprKind::Index { .. }
+        | TestExprKind::MemberPath { .. }
+        | TestExprKind::Unary { .. }
+        | TestExprKind::Binary { .. }
+        | TestExprKind::Call { .. } => false,
     }
 }
 
@@ -420,22 +436,21 @@ pub(crate) fn check_struct_compare(
         return;
     };
     // Dış (kardeş dosyadaki) DUT: portları burada bilinmez.
-    let external = |e: &TestExpr| match &e.kind {
-        TestExprKind::PortRead { dut, .. } => {
-            matches!(duts.get(dut.text.as_str()), Some(None))
-        }
-        _ => false,
+    let external = |e: &TestExpr| {
+        matches!(&e.kind, TestExprKind::PortRead { dut, .. }
+            if matches!(duts.get(dut.text.as_str()), Some(None)))
     };
     if external(a) || external(b) {
         return;
     }
-    let layout_of = |e: &TestExpr| match &e.kind {
-        TestExprKind::PortRead { dut, port } => duts
-            .get(dut.text.as_str())
+    let layout_of = |e: &TestExpr| {
+        let TestExprKind::PortRead { dut, port } = &e.kind else {
+            return None;
+        };
+        duts.get(dut.text.as_str())
             .copied()
             .flatten()
-            .and_then(|(src, m)| struct_port_layout(src, m, &port.text).map(|l| (l, port.clone()))),
-        _ => None,
+            .and_then(|(src, m)| struct_port_layout(src, m, &port.text).map(|l| (l, port.clone())))
     };
     let (layout, port, other) = match (layout_of(a), layout_of(b)) {
         (Some((l, p)), _) => (l, p, b),
@@ -486,7 +501,17 @@ pub(crate) fn check_struct_compare(
                 diags.push(number_vs_struct(&layout, &port, other));
             }
         }
-        _ => diags.push(number_vs_struct(&layout, &port, other)),
+        TestExprKind::Int(_)
+        | TestExprKind::Bool(_)
+        | TestExprKind::Var(_)
+        | TestExprKind::Variant { .. }
+        | TestExprKind::Str(_)
+        | TestExprKind::Array(_)
+        | TestExprKind::Index { .. }
+        | TestExprKind::MemberPath { .. }
+        | TestExprKind::Unary { .. }
+        | TestExprKind::Binary { .. }
+        | TestExprKind::Call { .. } => diags.push(number_vs_struct(&layout, &port, other)),
     }
 }
 

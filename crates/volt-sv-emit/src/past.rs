@@ -101,12 +101,15 @@ impl<'a> Emitter<'a> {
             let idx = match chains.iter().position(|c| c.src == src) {
                 Some(i) => i,
                 None => {
-                    let wanted = match &self.ast.exprs[x].kind {
-                        ExprKind::Path(p) if p.segments.len() == 1 => format!("past_{src}"),
-                        _ => {
-                            anon += 1;
-                            format!("past_e{anon}")
-                        }
+                    let simple = matches!(
+                        &self.ast.exprs[x].kind,
+                        ExprKind::Path(p) if p.segments.len() == 1
+                    );
+                    let wanted = if simple {
+                        format!("past_{src}")
+                    } else {
+                        anon += 1;
+                        format!("past_e{anon}")
                     };
                     // `<taban>_<k>` bir modül adıyla çakışırsa taban `_2`,
                     // `_3`… alır (ADR-0090 §2): zincir yalnız formal/sim
@@ -132,7 +135,8 @@ impl<'a> Emitter<'a> {
         let ind = " ".repeat(indent);
         let edge = match clock.info.edge {
             ClockEdge::Negedge => "negedge",
-            _ => "posedge",
+            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+            ClockEdge::Posedge | ClockEdge::None => "posedge",
         };
         let reset = (!clock.info.reset.is_none()).then(|| clock.info.reset.condition());
         let mut out = vec![format!(
@@ -213,7 +217,16 @@ fn collect_prev_calls(ast: &volt_ast::SourceFile, e: Idx<Expr>, out: &mut Vec<Id
             v
         }
         ExprKind::Concat(parts) => parts.iter().map(|&(p, _)| p).collect(),
-        _ => Vec::new(),
+        // Yapraklar; StructLit/ArrayLit/TupleLit/Todo içine inilmez — mevcut davranış.
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => Vec::new(),
     };
     for c in children {
         collect_prev_calls(ast, c, out);

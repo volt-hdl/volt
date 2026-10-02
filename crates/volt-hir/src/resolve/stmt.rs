@@ -169,7 +169,10 @@ impl Resolver<'_> {
         let decl_span = self.def(def).span;
         let (drive, mode) = match dir {
             PortDir::OpenDrain => ("drive_low()", "pulled low"),
-            _ => ("drive(value)", "driven"),
+            PortDir::InOut => ("drive(value)", "driven"),
+            PortDir::In | PortDir::Out => {
+                unreachable!("bidir_ports yalnız inout/opendrain portlarını taşır (body.rs)")
+            }
         };
         self.diagnostics.push(
             Diagnostic::error(

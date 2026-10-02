@@ -30,7 +30,25 @@ impl Inferencer<'_> {
                 DomainId::Error
             }
             // Diğer türler için E3002 isim çözümlemede üretildi.
-            _ => DomainId::Error,
+            DefKind::Module
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => DomainId::Error,
         }
     }
 

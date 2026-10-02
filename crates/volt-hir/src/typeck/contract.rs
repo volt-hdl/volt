@@ -51,7 +51,23 @@ impl TypeChecker<'_, '_> {
                 DefKind::Register => c.kind != ContractKind::Invariant,
                 DefKind::Wire | DefKind::LocalBinding | DefKind::Instance => true,
                 // Port, const, enum varyantı vb. her kontratta serbest.
-                _ => false,
+                DefKind::Module
+                | DefKind::Domain
+                | DefKind::Function
+                | DefKind::Struct
+                | DefKind::Enum
+                | DefKind::EnumVariant { .. }
+                | DefKind::Const
+                | DefKind::TypeAlias
+                | DefKind::ExternModule
+                | DefKind::Port { .. }
+                | DefKind::LoopVar
+                | DefKind::PatternBinding
+                | DefKind::GenericParam
+                | DefKind::DomainParam
+                | DefKind::Builtin(_)
+                | DefKind::Import
+                | DefKind::Error => false,
             };
             if out_of_scope {
                 self.err_contract_scope(c.kind, p);
@@ -62,13 +78,13 @@ impl TypeChecker<'_, '_> {
     /// E1001 — `path` bu kontrat türünün kapsamı dışında.
     fn err_contract_scope(&mut self, kind: ContractKind, path: Idx<Expr>) {
         let kw = contract_keyword(kind);
-        let name = match &self.ast.exprs[path].kind {
-            ExprKind::Path(path) => path
-                .segments
+        let name = if let ExprKind::Path(path) = &self.ast.exprs[path].kind {
+            path.segments
                 .last()
                 .map(|n| n.text.clone())
-                .unwrap_or_default(),
-            _ => String::new(),
+                .unwrap_or_default()
+        } else {
+            String::new()
         };
         let span = self.ast.exprs[path].span;
         let help = match kind {
@@ -76,10 +92,15 @@ impl TypeChecker<'_, '_> {
                 en: "'invariant' may only reference module ports and registers";
                 tr: "'invariant' yalnız modül portlarına ve register'lara erişebilir"
             ),
-            _ => lstr!(
+            ContractKind::Requires | ContractKind::Ensures => lstr!(
                 en: "'requires' and 'ensures' may only reference module ports";
                 tr: "'requires' ve 'ensures' yalnız modül portlarına erişebilir"
             ),
+            ContractKind::Cover | ContractKind::Assert | ContractKind::Assume => {
+                unreachable!(
+                    "cover/assert/assume her sinyale erişir; check_contract_scope erken döner"
+                )
+            }
         };
         self.error(
             ErrorCode::E1001,

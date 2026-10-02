@@ -159,7 +159,26 @@ impl<'a> Checker<'a> {
                 .get(&def)
                 .and_then(|&idx| self.domain_trust(idx)),
             DefKind::Port { .. } => self.domain_trust_of_def(def),
-            _ => None,
+            // Diğer türler isim çözümlemede E3002 aldı.
+            DefKind::Module
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Register
+            | DefKind::Wire
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => None,
         }
     }
 
@@ -197,7 +216,15 @@ impl<'a> Checker<'a> {
             {
                 ItemKind::Module(m) => (&m.ports, &m.body),
                 ItemKind::Extern(x) => (&x.ports, &[]),
-                _ => continue,
+                // Port ya da sinyal bildirmeyen öğeler.
+                ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Struct(_)
+                | ItemKind::Enum(_)
+                | ItemKind::Const(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => continue,
             };
             for p in ports {
                 let Some(def) = self.decl_def(p.name.span) else {
@@ -232,7 +259,16 @@ impl<'a> Checker<'a> {
                             self.declared.insert(def, t);
                         }
                     }
-                    _ => {}
+                    // Bildirilmiş seviye yalnız port/reg/wire'da; let ve
+                    // atamalar çıkarımda etiketlenir.
+                    StmtKind::Let(_)
+                    | StmtKind::Instance(_)
+                    | StmtKind::On(_)
+                    | StmtKind::Comb(_)
+                    | StmtKind::Assign(_)
+                    | StmtKind::For(_)
+                    | StmtKind::Expr(_)
+                    | StmtKind::Error => {}
                 }
             }
         }
@@ -332,14 +368,13 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { callee, args } => {
                 let (callee, args) = (*callee, args.clone());
-                let builtin =
-                    self.res
-                        .resolutions
-                        .get(&callee)
-                        .and_then(|&d| match self.res.def_kind(d) {
-                            DefKind::Builtin(k) => Some(k),
-                            _ => None,
-                        });
+                let builtin = self.res.resolutions.get(&callee).and_then(|&d| {
+                    if let DefKind::Builtin(k) = self.res.def_kind(d) {
+                        Some(k)
+                    } else {
+                        None
+                    }
+                });
                 // sync(): saat değişir, güven etiketi korunur (K9).
                 // prev(x): x'in etiketi (ADR-0040).
                 if matches!(
@@ -427,7 +462,15 @@ impl<'a> Checker<'a> {
         let ports: &[Port] = match &self.ast.items_arena[item_idx].kind {
             ItemKind::Module(m) => &m.ports,
             ItemKind::Extern(x) => &x.ports,
-            _ => return summary,
+            // Örneklenemeyen öğeler (hedef hatası isim çözümlemede).
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => return summary,
         };
         let Some(port) = ports.iter().find(|p| p.name.text == field) else {
             return summary;
@@ -577,7 +620,26 @@ impl<'a> Checker<'a> {
             DefKind::Port { .. } => lstr!(en: "port"; tr: "port"),
             DefKind::Register => lstr!(en: "register"; tr: "register"),
             DefKind::Wire => lstr!(en: "wire"; tr: "wire"),
-            _ => lstr!(en: "signal"; tr: "sinyal"),
+            DefKind::Module
+            | DefKind::Domain
+            | DefKind::Function
+            | DefKind::Struct
+            | DefKind::Enum
+            | DefKind::EnumVariant { .. }
+            | DefKind::Const
+            | DefKind::TypeAlias
+            | DefKind::ExternModule
+            | DefKind::Instance
+            | DefKind::LocalBinding
+            | DefKind::LoopVar
+            | DefKind::PatternBinding
+            | DefKind::GenericParam
+            | DefKind::DomainParam
+            | DefKind::Builtin(_)
+            | DefKind::Import
+            | DefKind::Error => {
+                lstr!(en: "signal"; tr: "sinyal")
+            }
         }
     }
 
@@ -595,7 +657,15 @@ impl<'a> Checker<'a> {
             .and_then(|&i| match &self.ast.items_arena[i].kind {
                 ItemKind::Module(m) => Some(m.ports.as_slice()),
                 ItemKind::Extern(x) => Some(x.ports.as_slice()),
-                _ => None,
+                // Örneklenemeyen öğeler (hedef hatası isim çözümlemede).
+                ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Struct(_)
+                | ItemKind::Enum(_)
+                | ItemKind::Const(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => None,
             });
         let prim = self.res.instance_builtin.get(&inst_def).copied();
 
@@ -740,10 +810,13 @@ impl<'a> Checker<'a> {
     /// Çıkış bağlamasının sürdüğü yerel sinyal (yalnız çıplak isim).
     fn binding_sink(&self, b: &volt_ast::PortBinding) -> Option<DefId> {
         match b.value {
-            Some(e) => match &self.ast.exprs[e].kind {
-                ExprKind::Path(_) => self.res.resolutions.get(&e).copied(),
-                _ => None,
-            },
+            Some(e) => {
+                if matches!(self.ast.exprs[e].kind, ExprKind::Path(_)) {
+                    self.res.resolutions.get(&e).copied()
+                } else {
+                    None
+                }
+            }
             None => self.use_def(b.port_name.span),
         }
     }

@@ -191,7 +191,13 @@ impl Emitter<'_> {
                         self.check_sv_name(&name, v.name.span, NameKind::EnumVariant);
                     }
                 }
-                _ => {}
+                // SV'de kendi adıyla bildirilmeyen öğeler.
+                ItemKind::Domain(_)
+                | ItemKind::Fn(_)
+                | ItemKind::Struct(_)
+                | ItemKind::TypeAlias(_)
+                | ItemKind::Test(_)
+                | ItemKind::Error => {}
             }
         }
     }
@@ -216,7 +222,13 @@ impl Emitter<'_> {
                 StmtKind::Instance(i) if crate::instance::user_instance_target(i).is_some() => {
                     (&i.name, NameKind::Instance)
                 }
-                _ => continue,
+                StmtKind::Instance(_)
+                | StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => continue,
             };
             self.check_sv_name(&name.text, name.span, kind);
         }
@@ -227,7 +239,15 @@ impl Emitter<'_> {
             let block = match &ast.stmts[stmt].kind {
                 StmtKind::On(on) => on.body,
                 StmtKind::Comb(b) => *b,
-                _ => continue,
+                // Blok gövdesi taşımayan deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
+                StmtKind::Reg(_)
+                | StmtKind::Let(_)
+                | StmtKind::Wire(_)
+                | StmtKind::Instance(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => continue,
             };
             let mut lets = Vec::new();
             block_lets(ast, block, &mut lets);
@@ -302,7 +322,9 @@ fn block_lets<'a>(
                 }
             }
             BlockStmt::For(f) => block_lets(ast, f.body, out),
-            _ => {}
+            // Let taşımayan deyimler.
+            BlockStmt::NonBlockAssign { .. } | BlockStmt::BlockAssign { .. } | BlockStmt::Error => {
+            }
         }
     }
 }

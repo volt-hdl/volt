@@ -4,6 +4,9 @@
 //! volt-lower devralacak. Tip bilgisi kaba çıkarımla gelir (F2'de HIR
 //! düzeltecek); belirsizlikte E2005 üretilir, tahmin edilmez.
 
+// ADR-0098: enum'a yeni varyant eklenince ele alınmayan her yer derleyici uyarısıyla görünsün.
+#![warn(clippy::wildcard_enum_match_arm)]
+
 mod alias;
 mod builtin_data;
 mod builtin_prim;
@@ -201,10 +204,10 @@ fn is_sync_call(ast: &SourceFile, e: Idx<Expr>) -> bool {
 }
 
 fn path_single(ast: &SourceFile, idx: Idx<Expr>) -> Option<&str> {
-    match &ast.exprs[idx].kind {
-        ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
-        _ => None,
-    }
+    let ExprKind::Path(p) = &ast.exprs[idx].kind else {
+        return None;
+    };
+    (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
 }
 
 /// `text` içinde `name` tanımlayıcısının tam sözcük geçiş sayısı.
@@ -257,7 +260,8 @@ fn zero_of(sig: Sig) -> String {
 fn sync_always_ff(clk: &str, info: &DomainInfo, chain: &[(String, String)], zero: &str) -> String {
     let edge = match info.edge {
         ClockEdge::Negedge => "negedge",
-        _ => "posedge",
+        // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+        ClockEdge::Posedge | ClockEdge::None => "posedge",
     };
     let cfg = &info.reset;
     let mut out = String::new();
@@ -1848,7 +1852,8 @@ impl<'a> Emitter<'a> {
         };
         let edge = match domain.edge {
             ClockEdge::Negedge => "negedge",
-            _ => "posedge",
+            // Kenarsız (`clock: none`) alan da posedge yazılır — mevcut davranış.
+            ClockEdge::Posedge | ClockEdge::None => "posedge",
         };
 
         let mut out = String::new();
@@ -1961,7 +1966,25 @@ impl<'a> Emitter<'a> {
                     })
                     .collect()
             }
-            _ => {
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {
                 let v = self.emit_expr(init, sig);
                 vec![format!("{name} <= {v};")]
             }
@@ -2477,20 +2500,25 @@ impl<'a> Emitter<'a> {
 fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
     for stmt in &block.stmts {
         match stmt {
-            BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. }
-                if !out.contains(&lhs.base.text) =>
-            {
-                out.push(lhs.base.text.clone());
+            BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
+                if !out.contains(&lhs.base.text) {
+                    out.push(lhs.base.text.clone());
+                }
             }
             BlockStmt::If(if_stmt) => collect_written_if(ast, if_stmt, out),
             BlockStmt::Match(m) => {
                 for arm in &m.arms {
-                    if let MatchArmBody::Block(b) = &arm.body {
-                        collect_written(ast, &ast.blocks[*b], out);
+                    match &arm.body {
+                        MatchArmBody::Block(b) => collect_written(ast, &ast.blocks[*b], out),
+                        // Deyim konumunda ifade gövdeli kol atama yapamaz
+                        // (emit E0003 verir).
+                        MatchArmBody::Expr(_) => {}
                     }
                 }
             }
-            _ => {}
+            // Blok içi `for` açılır; gövdesinde yazılan reg de reset alır.
+            BlockStmt::For(f) => collect_written(ast, &ast.blocks[f.body], out),
+            BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }

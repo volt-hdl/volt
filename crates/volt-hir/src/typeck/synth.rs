@@ -101,7 +101,25 @@ impl TypeChecker<'_, '_> {
                 self.synth(*width);
                 self.part_select_result(base_ty, *start, *width, *ascending, span)
             }
-            _ => unreachable!("synth_select yalnız seçim ifadeleriyle çağrılır"),
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => {
+                unreachable!("synth_select yalnız seçim ifadeleriyle çağrılır")
+            }
         }
     }
 
@@ -238,7 +256,37 @@ impl TypeChecker<'_, '_> {
                     );
                     self.types.error()
                 }
-                _ => self.types.error(),
+                // ADR-0098: önceden tanısız Error dönüyordu ve `-a`
+                // SV'ye olduğu gibi gidiyordu.
+                Ty::Bits { .. } => {
+                    self.error(
+                        ErrorCode::E2004,
+                        span,
+                        lstr!(en: "cannot negate a bits<N> value"; tr: "bits<N> değeri negatiflenemez"),
+                        lstr!(en: "bits is a raw bit vector, not a number"; tr: "bits ham bit vektörüdür, sayısal değil"),
+                        lstr!(en: "convert it to a signed number first: -(x as i8)"; tr: "önce işaretli sayıya dönüştürün: -(x as i8)"),
+                    );
+                    self.types.error()
+                }
+                Ty::Bool | Ty::Clock | Ty::Reset { .. } | Ty::Array { .. } | Ty::Tuple(_) => {
+                    let shown = self.show(ot);
+                    self.err_type_mismatch_msg(
+                        span,
+                        &lstr!(en: "operator '-' is not defined for '{shown}'"; tr: "'-' operatörü '{shown}' için tanımlı değil"),
+                        &lstr!(en: "negate a signed number (iN); for a bool use '!'"; tr: "işaretli bir sayıyı (iN) negatifleyin; bool için '!' kullanın"),
+                    );
+                    self.types.error()
+                }
+                // Struct/enum yukarıda raporlandı; örnek ve yerleşik tipler
+                // operand olarak başka yerde reddedilir; Delayed değerinin
+                // tipi gecikme denetiminde çözülür (ADR-0037); Error zaten
+                // raporlandı.
+                Ty::Struct(_)
+                | Ty::Enum(_)
+                | Ty::Instance(_)
+                | Ty::Builtin { .. }
+                | Ty::Delayed { .. }
+                | Ty::Error => self.types.error(),
             },
         }
     }

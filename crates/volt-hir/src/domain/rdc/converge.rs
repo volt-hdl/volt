@@ -226,9 +226,12 @@ fn instances<'a>(ast: &'a SourceFile, module: &ModuleFacts<'a>) -> Vec<&'a Insta
         .decl
         .body
         .iter()
-        .filter_map(|&s| match &ast.stmts[s].kind {
-            StmtKind::Instance(inst) => Some(inst),
-            _ => None,
+        .filter_map(|&s| {
+            if let StmtKind::Instance(inst) = &ast.stmts[s].kind {
+                Some(inst)
+            } else {
+                None
+            }
         })
         .collect()
 }

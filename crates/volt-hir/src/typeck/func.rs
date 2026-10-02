@@ -110,7 +110,23 @@ impl TypeChecker<'_, '_> {
                                tr: "düz bir struct ya da fonksiyon başına bir eleman döndürün (ADR-0081)"),
                     );
                 }
-                _ => {}
+                // İmzada izinli tipler (geçersiz tip tanısı tip çözümlemede).
+                Ty::Bool
+                | Ty::UInt { .. }
+                | Ty::SInt { .. }
+                | Ty::Bits { .. }
+                | Ty::Trit
+                | Ty::Array { .. }
+                | Ty::Tuple(_)
+                | Ty::Struct(_)
+                | Ty::Enum(_)
+                | Ty::Instance(_)
+                | Ty::Builtin { .. }
+                | Ty::Delayed { .. }
+                | Ty::IntLit
+                | Ty::UIntFlex { .. }
+                | Ty::SIntFlex { .. }
+                | Ty::Error => {}
             }
         }
     }

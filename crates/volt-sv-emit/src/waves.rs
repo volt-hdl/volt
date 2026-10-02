@@ -220,7 +220,13 @@ impl<'a> Emitter<'a> {
                     };
                     instances.push((inst.name.text.clone(), info.module.clone()));
                 }
-                _ => {}
+                // Dalga formuna ad eklemeyen deyimler.
+                StmtKind::On(_)
+                | StmtKind::Comb(_)
+                | StmtKind::Assign(_)
+                | StmtKind::For(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Error => {}
             }
         }
         let mut signals = Vec::new();
@@ -312,14 +318,12 @@ impl<'a> Emitter<'a> {
 
     /// Adı verilen enum'un çeviri tablosu (geçersiz kodlamada `None`).
     fn enum_table(&self, enum_name: &str) -> Option<WaveTable> {
-        let decl = self
-            .ast
-            .items
-            .iter()
-            .find_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Enum(e) if e.name.text == enum_name => Some(e),
-                _ => None,
-            })?;
+        let decl = self.ast.items.iter().find_map(|&i| {
+            let ItemKind::Enum(e) = &self.ast.items_arena[i].kind else {
+                return None;
+            };
+            (e.name.text == enum_name).then_some(e)
+        })?;
         let layout = self.enum_layout(decl)?;
         let mut entries: Vec<(u128, String)> = layout
             .values

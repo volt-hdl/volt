@@ -186,7 +186,13 @@ fn declared_name(kind: &StmtKind) -> Option<&Name> {
         StmtKind::Let(l) => Some(&l.name),
         StmtKind::Wire(w) => Some(&w.name),
         StmtKind::Instance(i) => Some(&i.name),
-        _ => None,
+        // Modül kapsamına isim bildirmeyen deyimler.
+        StmtKind::On(_)
+        | StmtKind::Comb(_)
+        | StmtKind::Assign(_)
+        | StmtKind::For(_)
+        | StmtKind::Expr(_)
+        | StmtKind::Error => None,
     }
 }
 

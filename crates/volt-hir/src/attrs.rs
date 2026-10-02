@@ -134,7 +134,15 @@ pub fn check_attributes(ast: &SourceFile, lint: UnenforcedLint) -> Vec<Diagnosti
                     checker.check_node(&field.attrs, item_allows);
                 }
             }
-            _ => {}
+            // Alt düğümleri nitelik taşımaz (enum varyant alanındaki nitelik
+            // parser'da W0024 alır); öğenin kendi nitelikleri yukarıda denetlendi.
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => {}
         }
     }
     checker.diags
@@ -213,10 +221,12 @@ impl AttrChecker<'_> {
 
     fn positional_ident(&self, arg: &AttrArg) -> Option<&str> {
         match arg {
-            AttrArg::Positional(e) => match &self.ast.exprs[*e].kind {
-                ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.as_str()),
-                _ => None,
-            },
+            AttrArg::Positional(e) => {
+                let ExprKind::Path(p) = &self.ast.exprs[*e].kind else {
+                    return None;
+                };
+                (p.segments.len() == 1).then(|| p.segments[0].text.as_str())
+            }
             AttrArg::Named { .. } => None,
         }
     }

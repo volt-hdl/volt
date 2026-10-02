@@ -36,6 +36,8 @@ error_codes! {
     E0011, E0012, E0013, E0014, E0015, E0016, E0017,
     // İç içelik / zincir derinliği sınırı (ADR-0080)
     E0018,
+    // Register'a 'on' dışında '=' (ADR-0098)
+    E0019,
 
     // ─── İsim çözümleme (name-resolution.md) ───
     E1001, E1002, E1003, E1004, E1005, E1006, E1007, E1008, E1009, E1010,
@@ -113,6 +115,8 @@ error_codes! {
     W3007, W3008, W3009, W3010, W4001, W4002,
     // Simülasyonda izlenemeyen kontrat (ADR-0064)
     W5001,
+    // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
+    W0024,
 }
 
 impl ErrorCode {

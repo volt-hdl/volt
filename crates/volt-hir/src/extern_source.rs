@@ -83,7 +83,15 @@ pub fn check_source_attributes(ast: &SourceFile) -> Vec<Diagnostic> {
                 .collect(),
             ItemKind::Extern(x) => x.ports.iter().map(|p| p.attrs.as_slice()).collect(),
             ItemKind::Struct(s) => s.fields.iter().map(|f| f.attrs.as_slice()).collect(),
-            _ => Vec::new(),
+            // Alt düğümleri nitelik taşımaz (enum varyant alanındaki nitelik
+            // parser'da W0024 alır).
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => Vec::new(),
         };
         for attrs in nested {
             for attr in attrs.iter().filter(|a| a.name.text == SOURCE_ATTRIBUTE) {
@@ -102,10 +110,13 @@ fn string_args(ast: &SourceFile, attr: &Attribute) -> Option<Vec<(String, Span)>
     attr.args
         .iter()
         .map(|arg| match arg {
-            AttrArg::Positional(e) => match &ast.exprs[*e].kind {
-                ExprKind::StringLit(s) => Some((s.clone(), ast.exprs[*e].span)),
-                _ => None,
-            },
+            AttrArg::Positional(e) => {
+                if let ExprKind::StringLit(s) = &ast.exprs[*e].kind {
+                    Some((s.clone(), ast.exprs[*e].span))
+                } else {
+                    None
+                }
+            }
             AttrArg::Named { .. } => None,
         })
         .collect()
