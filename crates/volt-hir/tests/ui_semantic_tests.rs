@@ -116,6 +116,48 @@ fn ui_fail_04_undriven_output_e4002() {
 }
 
 #[test]
+fn ui_fail_206_edgeless_sync_destination_e3016() {
+    // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
+    assert_ui_fail("fail/206_edgeless_sync_destination.volt");
+}
+
+#[test]
+fn ui_fail_207_edgeless_sync_source_e3016() {
+    // ADR-0098 eki 2: kaynak, kenarsız alanın saatinde posedge yakalanıyordu.
+    assert_ui_fail("fail/207_edgeless_sync_source.volt");
+}
+
+#[test]
+fn ui_fail_208_edgeless_builtin_clock_e3016() {
+    // ADR-0098 eki 2: yerleşik primitif kenarsız saatle posedge flop oluyordu.
+    assert_ui_fail("fail/208_edgeless_builtin_clock.volt");
+}
+
+#[test]
+fn ui_fail_209_edgeless_child_clock_e3016() {
+    // ADR-0098 eki 2: kenarsız saat, çocuğun posedge saat portunu sürüyordu.
+    assert_ui_fail("fail/209_edgeless_child_clock.volt");
+}
+
+#[test]
+fn ui_fail_210_edgeless_contracts_e3016() {
+    // ADR-0098 eki 2: kontratlar kenarsız saatte @(posedge) örnekleniyordu.
+    assert_ui_fail("fail/210_edgeless_contracts.volt");
+}
+
+#[test]
+fn ui_fail_211_output_nonblocking_in_on_e0020() {
+    // ADR-0098 eki 2: çıkış portu on içinde <= ile reset'siz flop oluyordu.
+    assert_ui_fail("fail/211_output_nonblocking_in_on.volt");
+}
+
+#[test]
+fn ui_fail_212_bundle_output_nonblocking_in_on_e0020() {
+    // ADR-0098 eki 2: bundle çıkış alanı on içinde <= ile reset'siz flop.
+    assert_ui_fail("fail/212_bundle_output_nonblocking_in_on.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");

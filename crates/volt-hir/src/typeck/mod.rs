@@ -18,6 +18,7 @@
 //! | `check`    | kontrol modu, literal çözümleme, atanabilirlik | §4, §5       |
 //! | `stmt`     | modül gövdesi, reg/let, bloklar, atama         | §6           |
 //! | `instance` | modül ve yerleşik primitif örneklemesi         | §6           |
+//! | `output_register` | çıkış portuna `on` içinde `<=`, E0020   | ADR-0098 eki 2 |
 //! | `contract` | kontrat ifadesi ve kapsamı                     | F4a          |
 //! | `func`     | fn imzası, gövdesi ve çağrısı (ADR-0081)       | §3.8         |
 //! | `width`    | tam sayı aralığı buluşması, genişlik sınırları | §1, §3.3     |
@@ -36,6 +37,7 @@ mod func;
 mod gated;
 mod instance;
 mod matching;
+mod output_register;
 mod select;
 mod stmt;
 mod structs;
@@ -89,6 +91,7 @@ pub fn typecheck<'a>(
         coverage: HashMap::new(),
         fn_sigs: HashMap::new(),
         in_fn: false,
+        out_ports: Default::default(),
     };
     checker.run();
     TypeckResult {
@@ -125,6 +128,8 @@ struct TypeChecker<'a, 'ev> {
     fn_sigs: HashMap<DefId, func::FnSig>,
     /// fn gövdesi denetleniyor: `let` sürücü kaydı yapılmaz.
     in_fn: bool,
+    /// Denetlenen modülün çıkış portları (E0020, ADR-0098 eki 2).
+    out_ports: output_register::OutPorts,
 }
 
 impl TypeChecker<'_, '_> {

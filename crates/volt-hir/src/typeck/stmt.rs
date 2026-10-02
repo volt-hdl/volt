@@ -28,6 +28,7 @@ impl TypeChecker<'_, '_> {
                 }
             }
         }
+        self.collect_out_ports(m);
         for &stmt in &m.body {
             self.check_stmt(stmt);
         }
@@ -197,8 +198,11 @@ impl TypeChecker<'_, '_> {
 
     fn check_block_stmt(&mut self, stmt: &BlockStmt) {
         match stmt {
-            BlockStmt::NonBlockAssign { lhs, rhs, .. }
-            | BlockStmt::BlockAssign { lhs, rhs, .. } => self.check_assign(lhs, *rhs),
+            BlockStmt::NonBlockAssign { lhs, rhs, .. } => {
+                self.check_assign(lhs, *rhs);
+                self.check_output_nonblocking(lhs, *rhs);
+            }
+            BlockStmt::BlockAssign { lhs, rhs, .. } => self.check_assign(lhs, *rhs),
             BlockStmt::If(if_stmt) => self.check_if(if_stmt),
             BlockStmt::Match(m) => self.check_match_stmt(m),
             BlockStmt::Let(l) => self.handle_let(l),

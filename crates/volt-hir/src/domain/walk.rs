@@ -4,6 +4,7 @@
 use volt_ast::{Block, BlockStmt, ElseBranch, Idx, IfStmt, MatchArmBody, Stmt, StmtKind};
 use volt_span::Span;
 
+use super::edgeless::EdgeUse;
 use super::{DomainId, Inferencer};
 
 impl Inferencer<'_> {
@@ -30,7 +31,7 @@ impl Inferencer<'_> {
             StmtKind::Instance(inst) => self.check_instance(inst),
             StmtKind::On(on) => {
                 let (dom, span) = self.on_block_domain(&on.trigger);
-                self.check_edgeless_on(dom, span);
+                self.check_edgeless_use(dom, span, EdgeUse::On);
                 self.walk_block(on.body, Some((dom, span)), None);
             }
             StmtKind::Comb(block) => self.walk_block(*block, None, None),

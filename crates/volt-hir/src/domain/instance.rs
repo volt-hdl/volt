@@ -3,10 +3,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use volt_ast::{InstanceDecl, ItemKind, Port, PortBinding};
+use volt_ast::{ClockEdge, InstanceDecl, ItemKind, Port, PortBinding};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use super::edgeless::EdgeUse;
 use super::{DomainId, Inferencer};
 use crate::resolve::{DefId, DefKind};
 
@@ -39,6 +40,9 @@ impl<'a> Inferencer<'a> {
 
         // 1. Saat bağlantılarından modülün domain haritasını çıkar.
         let mapping = self.build_domain_mapping(inst, target_ports, &target_clocks);
+        // 1b. Kenarsız saat, kenarlı alandaki çocuk saat portunu sürmez
+        //     (ADR-0098 eki 2; extern'in içi Volt'un üretimi değildir).
+        self.check_child_clock_edges(inst, target, target_ports);
 
         // 2. Diğer portları bu haritaya göre kontrol et.
         let mut port_domains: HashMap<String, DomainId> = HashMap::new();
@@ -67,6 +71,43 @@ impl<'a> Inferencer<'a> {
             | ItemKind::Test(_)
             | ItemKind::Error => None,
         }
+    }
+
+    /// Çocuk modülün saat portu kenarlı bir alandaysa (açıklama kenarlı bir
+    /// `domain`, ya da örtük alan: posedge) ona bağlanan saat kenarsız bir
+    /// alandan gelemez (E3016): çocuk flop'larını o kenarda zamanlar.
+    fn check_child_clock_edges(&mut self, inst: &InstanceDecl, target: DefId, ports: &[Port]) {
+        let Some(&item_idx) = self.res.item_of_def.get(&target) else {
+            return;
+        };
+        let ItemKind::Module(child) = &self.ast.items_arena[item_idx].kind else {
+            return;
+        };
+        for b in &inst.bindings {
+            let Some(port) = ports.iter().find(|p| p.name.text == b.port_name.text) else {
+                continue;
+            };
+            if !self.is_clock_port(port) || !self.child_port_has_edge(port) {
+                continue;
+            }
+            let dom = self.binding_domain(b);
+            let use_ = EdgeUse::ChildClock {
+                module: &child.name.text,
+                port: &port.name.text,
+            };
+            self.check_edgeless_use(dom, b.span, use_);
+        }
+    }
+
+    /// Çocuk saat portunun alanının kenarı var mı: örtük alan posedge'dir
+    /// (K2); açıklama bir `domain` bildirimine çözülürse onun kenarı.
+    fn child_port_has_edge(&self, port: &Port) -> bool {
+        let Some(ann) = &port.domain else {
+            return true;
+        };
+        self.use_def(ann.span)
+            .and_then(|def| self.by_decl.get(&def))
+            .is_some_and(|&id| !matches!(self.domains[id as usize].clock.edge, ClockEdge::None))
     }
 
     /// K8 adım 2: saat dışı her bağlama hedef portun beklenen alanında olmalı.

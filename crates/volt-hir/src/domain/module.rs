@@ -4,7 +4,8 @@
 use volt_ast::{ModuleDecl, Name, Port};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 
-use super::{DomainId, Inferencer};
+use super::edgeless::EdgeUse;
+use super::{DomainId, Inferencer, ModuleClock};
 use crate::resolve::DefId;
 
 impl Inferencer<'_> {
@@ -35,6 +36,17 @@ impl Inferencer<'_> {
             self.expr_domain(c.expr);
         }
         self.in_contract = false;
+
+        // 8. KONTRAT SAATİ (ADR-0098 eki 2): kontratlar modülün ilk saat
+        //    portunun kenarında örneklenir; kenarsız alanda E3016.
+        if let (Some(first), Some(clock)) = (m.contracts.first(), self.module_clocks.first()) {
+            let (dom, clock) = (clock.dom, clock.name.clone());
+            let use_ = EdgeUse::Contracts {
+                module: &m.name.text,
+                clock: &clock,
+            };
+            self.check_edgeless_use(dom, first.span, use_);
+        }
     }
 
     /// Adım 1 — clock portları alanlarını alır (K1 anotasyon ya da K2
@@ -51,6 +63,13 @@ impl Inferencer<'_> {
 
         self.clock_candidates.clear();
         self.anchored.clear();
+        self.module_clocks.clear();
+        self.annotated_ports.clear();
+        for p in &m.ports {
+            if let (Some(def), Some(ann)) = (self.decl_def(&p.name), &p.domain) {
+                self.annotated_ports.insert(def, ann.text.clone());
+            }
+        }
         for &(def, p) in &clocks {
             let dom = match &p.domain {
                 Some(ann) => {
@@ -66,6 +85,11 @@ impl Inferencer<'_> {
             };
             self.signal_domains.insert(def, dom);
             self.clock_candidates.push((p.name.span, self.display(dom)));
+            self.module_clocks.push(ModuleClock {
+                name: p.name.text.clone(),
+                annotation: p.domain.as_ref().map(|a| a.text.clone()),
+                dom,
+            });
         }
 
         self.multi_clock = clocks.len() > 1;
