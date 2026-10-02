@@ -163,3 +163,58 @@ fn rtl_only_mode_has_no_helper_registers() {
     assert!(!out.contains("past_start"), "{out}");
     assert!(!out.contains("$past"), "{out}");
 }
+
+// ═══ ADR-0098 eki: toplayıcılar her ifade biçimine iner ═══════════
+
+/// Yalnız parça seçimi ve dizi literali içinde okunan sinyaller.
+const SELECTS: &str = "module S {\n    in  clk : clock\n    in  a : u8\n    in  b : u8\n    \
+                       out y : u8\n    reg r : u8 = 0\n    reg r2 : [u8; 2] = [0; 2]\n    \
+                       on clk {\n        r <= a\n        r2[0] <= a\n        r2[1] <= b\n    }\n    \
+                       y = r\n";
+
+/// Ayrı `.sva` dosyasında kontratın parça seçimiyle okuduğu sinyal checker
+/// portu olmalı; yoksa üretilen dosya bildirilmemiş adı okur (Verilator:
+/// "Can't find definition of variable").
+#[test]
+fn separate_sva_checker_ports_include_part_select_and_array_literal_signals() {
+    let src = format!(
+        "{SELECTS}    invariant: r[0 +: 4] == r[0 +: 4]\n    \
+         invariant: r2 == [prev(a), prev(b)]\n}}"
+    );
+    let parsed = volt_syntax::parser::parse(FileId(0), &src);
+    let out = emit_full(&parsed.ast, "test.volt", &src, SvaMode::Separate);
+    let file = out.sva_files.first().expect("sva dosyası");
+    let ports: Vec<&str> = file
+        .content
+        .lines()
+        .filter(|l| l.trim_start().starts_with("input "))
+        .collect();
+    for name in ["r", "r2", "a", "b"] {
+        assert!(
+            ports.iter().any(|l| l
+                .trim_end_matches(',')
+                .split_whitespace()
+                .any(|w| w == name)),
+            "'{name}' checker portu olmalı:\n{}",
+            file.content
+        );
+    }
+}
+
+/// Dizi literali içindeki `prev()` Immediate/Simulation kipinde de
+/// yardımcı register zincirine iner. Önceden toplanmıyordu ve `$past`
+/// yedeğine düşüyordu: reset sonrası ilk çevrimde belgelenen `prev(x) == 0`
+/// yerine reset öncesi değer denetleniyordu.
+#[test]
+fn prev_inside_an_array_literal_uses_the_helper_chain() {
+    for mode in [SvaMode::Immediate, SvaMode::Simulation] {
+        let out = sv(
+            &format!("{SELECTS}    invariant: r2 == [prev(a), prev(b, 2)]\n}}"),
+            mode,
+        );
+        assert!(!out.contains("$past"), "{mode:?}: {out}");
+        assert!(out.contains("past_a_1 <= a;"), "{mode:?}: {out}");
+        assert!(out.contains("past_b_2 <= past_b_1;"), "{mode:?}: {out}");
+        assert!(out.contains("'{past_a_1, past_b_2}"), "{mode:?}: {out}");
+    }
+}

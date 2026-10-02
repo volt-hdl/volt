@@ -686,66 +686,19 @@ fn line_of(source: &str, byte: u32) -> usize {
 }
 
 /// Kontrat ifadesindeki tek segmentli isimler (ilk kullanım sırasıyla).
+/// Her ifade biçimine iner (`volt_ast::visit`): parça seçimi, dizi/tuple/
+/// struct literali içinde okunan sinyal de checker portu olur (ADR-0098
+/// eki; önceden bu düğümlere inilmiyor, ayrı `.sva` bildirilmemiş adı
+/// okuyordu). Sinyal olmayan adlar (`prev`, sabitler) çağıranın
+/// `symbols` süzgecinde düşer.
 fn collect_signal_names(ast: &volt_ast::SourceFile, expr: Idx<Expr>, out: &mut Vec<String>) {
-    match &ast.exprs[expr].kind {
-        ExprKind::Path(p) if p.segments.len() == 1 => {
-            let name = p.segments[0].text.clone();
-            if !out.contains(&name) {
-                out.push(name);
+    volt_ast::visit::walk_expr(ast, expr, |e| {
+        if let ExprKind::Path(p) = &ast.exprs[e].kind {
+            if let [segment] = p.segments.as_slice() {
+                if !out.contains(&segment.text) {
+                    out.push(segment.text.clone());
+                }
             }
         }
-        ExprKind::Binary { lhs, rhs, .. } => {
-            collect_signal_names(ast, *lhs, out);
-            collect_signal_names(ast, *rhs, out);
-        }
-        ExprKind::Unary { operand, .. } => collect_signal_names(ast, *operand, out),
-        ExprKind::Index { base, index } => {
-            collect_signal_names(ast, *base, out);
-            collect_signal_names(ast, *index, out);
-        }
-        ExprKind::Range { base, hi, lo } => {
-            collect_signal_names(ast, *base, out);
-            collect_signal_names(ast, *hi, out);
-            collect_signal_names(ast, *lo, out);
-        }
-        ExprKind::Field { base, .. } => collect_signal_names(ast, *base, out),
-        ExprKind::Call { callee, args } => {
-            collect_signal_names(ast, *callee, out);
-            for &a in args {
-                collect_signal_names(ast, a, out);
-            }
-        }
-        ExprKind::Cast { expr: inner, .. } => collect_signal_names(ast, *inner, out),
-        ExprKind::If {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            collect_signal_names(ast, *cond, out);
-            collect_signal_names(ast, *then_expr, out);
-            collect_signal_names(ast, *else_expr, out);
-        }
-        // Sınanan, muhafızlar ve kollar (ADR-0083: kontratta üçlü zincir).
-        ExprKind::Match { .. } => {
-            for c in volt_ast::visit::expr_children(&ast.exprs[expr].kind) {
-                collect_signal_names(ast, c, out);
-            }
-        }
-        ExprKind::Concat(parts) => {
-            for &(p, _) in parts {
-                collect_signal_names(ast, p, out);
-            }
-        }
-        // Yapraklar ve inilmeyen düğümler (PartSelect dahil) — mevcut davranış korunur.
-        ExprKind::IntLit { .. }
-        | ExprKind::BoolLit(_)
-        | ExprKind::StringLit(_)
-        | ExprKind::Path(_)
-        | ExprKind::PartSelect { .. }
-        | ExprKind::StructLit { .. }
-        | ExprKind::ArrayLit(_)
-        | ExprKind::TupleLit(_)
-        | ExprKind::Todo { .. }
-        | ExprKind::Error => {}
-    }
+    });
 }
