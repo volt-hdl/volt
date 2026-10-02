@@ -189,3 +189,111 @@ Taramanın bulup bu ADR'de **kapatmadığı** yerler (açık, ayrı iş):
   yakalanır.
 - Joker kuralı volt-syntax'te (parser desugar'ı) açılmadı: bu ADR'nin
   kapsamı alçaltma, HIR ve SV üretimidir.
+
+## Ek: Son sessiz yanlışlar (2026-10-02)
+
+Yukarıdaki karar metni değişmedi. Bu ek, "Taramanın bulup bu ADR'de
+kapatmadığı yerler" listesinden dördünü v0.1 kuralına göre kapatır:
+başarılı görünüp yanlış sonuç veren bilinen hata kalmaz; açık bir hatayla
+duran sorun bilinen sınırlarda yazılı kalabilir. Ölçümler `main` =
+3b54e1fd, Docker Verilator 5.052, `hdlc/formal` (Yosys + SymbiYosys).
+
+| # | Girdi | Önce | Bu ek ile |
+|---|---|---|---|
+| E1 | `domain Async { clock = none }`, `in clk : clock @Async`, `on clk { r <= d }` | `always_ff @(posedge clk)`, tanı yok | E3016 |
+| E2 | `wire w : u8`, `on clk { w <= d }` | Reset dalı boş flop (`if (rst) begin end else w <= d`), tanı yok | E0020, öneri `reg w : u8 = 0` |
+| E3a | `--emit=sva` ayrı dosya, kontrat `r[0 +: 4] == ...` | `r` checker portu değil; Verilator "Can't find definition of variable" | `r` port olur |
+| E3b | `volt test`, kontrat `r2 == [prev(a), prev(a)]` | `$past(a)`: test içi `reset()` sonrası ilk çevrimde reset öncesi değer okunur, özellik geçer | Zincir `past_a_1`; skaler yazımla aynı çevrimde (6) ihlal |
+| E4 | Birbirini besleyen teller, `comb` bloğunda kendini okuyan tel | `volt build` uyarısız; `volt test`/`volt run` UNOPTFLAT, çıkış 3 | Kod değişmedi; bilinen sınırlar satırı netleşti |
+
+### E1. Kenarsız alanda register: E3016
+
+Spec `clock = none`'a gramerde yer verir (grammar-full.ebnf §3 ClockEdge,
+ast-nodes.md `ClockEdge::None`), anlamını tanımlamaz; tasarım taslağı
+"saatten bağımsız" der. `on` bloğu değerini saat kenarında örnekleyen
+register tanımlar; kenarı olmayan alanda örneklenecek an yoktur. sv-emit
+bunu `posedge` yazıyordu (kaynakta "mevcut davranış" yorumuyla).
+
+Karar: kenarsız alandaki bir saatin `on` bloğu E3016'dır (E3 ailesi: saat
+alanı kuralı). Denetim alan geçidindedir (`domain/edgeless.rs`): bloğun
+alanı ancak alan tablosu çözüldükten sonra bilinir, parser bilmez.
+Birincil etiket `on clk`'teki saatte, ikincil etiket alan tanımında. Öneri
+iki yolu gösterir: alana kenar vermek (`clock = posedge`) ya da sinyali
+kombinasyonel yazmak (`comb` / modül düzeyinde `=`). Kenarsız alandaki
+kombinasyonel sinyaller (`in a : u8 @Async`, `y = a + b`) geçerli kalır.
+Mevcut bir kod uymadı: E3001/E3012 alan uyuşmazlığı, E3010 belirsizlik
+içindir.
+
+### E2. Tele `on` bloğunda `<=`: E0020
+
+sv-mapping.md §16.3: "`wire x : T` → `logic ... x;` bildirimi; sürücüsü
+`comb` ya da `assign`." Spec teli saat kenarında yazılan bir sinyal olarak
+tanımlamaz; hata bu tanımı değiştirmez, yalnız tanımın dışında kalan
+girdiyi reddeder.
+
+E0020, E0019 gibi parser'dadır (`parser/wire_assign.rs`): öneri bildirimin
+kaynak metnini yeniden yazar. Her `on` bloğu (if/else, match kolu, `for`
+gövdesi dahil) taranır; blok `let`'i aynı adı gölgelerse tel sayılmaz.
+`on` içinde tele `=` zaten E0006'dır. Öneri `reg w : T[ @Alan] = 0`
+(`bool` için `= false`); dizi, struct, enum ve tuple tiplerinde sıfır tek
+sözcükle yazılamadığından yardım metni `<reset value>` gösterir ve makine
+önerisi verilmez.
+
+### E3. Kontrat toplayıcıları
+
+İki bulgu da aynı kökten: `sva.rs` `collect_signal_names` ve `past.rs`
+`collect_prev_calls` ifade ağacını kendi elle yazılmış kollarıyla geziyor,
+parça seçimine (yalnız sva.rs), dizi/tuple/struct literaline inmiyordu.
+
+- **E3a, açık hata.** Ayrı `.sva`'daki checker modülü yalnız portlarını
+  görür; bağlanan modülde basit ad yukarı doğru çözülmez. Eksik port her
+  zaman derleme hatasıdır (Verilator `--lint-only --assert`: "Can't find
+  definition of variable: 'r'"); yanlış sinyali denetleyen bir biçim yok.
+  Düzeltme küçük olduğu için yapıldı.
+- **E3b, sessiz yanlış (`volt test`).** Toplanmayan `prev()`
+  Immediate/Simulation kipinde zincir yerine `$past`'e düşüyordu.
+  ADR-0040'a göre reset sonrası ilk çevrimde `prev(x) == 0`'dır; `$past`
+  ise reset öncesi değeri verir. Ölçüm (Docker Verilator): `!b || r2 ==
+  [prev(a), prev(a)]` ile skaler eşi `!b || r2[0] == prev(a) && r2[1] ==
+  prev(a)`, `a = 7` iken test içi `reset()` sonrasında: skaler yazım cycle
+  6'da ihlal verdi, dizi literalli yazım geçti. `volt verify`'da (Yosys)
+  aynı girdi sözdizimi hatasıyla durur (açık).
+
+İki toplayıcı da artık `volt_ast::visit`'in tam çocuk kümesini kullanır
+(`walk_expr`, `expr_children`); yeni bir ifade biçimi eklenince ayrıca
+güncellenmeleri gerekmez. Ad sırası aynı kaldı: depodaki 628 `.volt`
+dosyasının 700 çıktısı (`--emit sva`, ayrı + gömülü) önce/sonra birebir
+aynı. `prev_array_sim_tests` CI'ın araçlı adımında zorunlu koşar.
+
+### E4. Kombinasyonel döngüler
+
+Kod değişmedi. Ölçüm: `a = b + x`, `b = a` ve `comb { c = x; c = c + y }`,
+`y = c` için `volt build` döngülü SV'yi yazar, döngüye dair uyarı vermez
+(yalnız ilgisiz W1001). `volt test` ve `volt run` Verilator'da
+`%Warning-UNOPTFLAT ... Circular combinational logic: 'y'` ve döngü
+boyunca bir örnek yol basar, `error: Verilator failed for module` ile
+çıkış 3 verir. Bilinen sınırlar satırı bu iletiyi ve `volt build`'in
+uyarısız yazdığını artık açıkça söyler; ileti Volt'un kendi sözleriyle
+açıklanmaz (Verilator metni olduğu gibi geçer).
+
+### Bu ekin kapatmadığı yerler (raporlandı, ayrı iş)
+
+Sınıflandırma ölçümle; kod değişmedi.
+
+- **Sessiz yanlış — kenarsız saat `on` dışındaki flop'larda.** E3016 yalnız
+  `on` bloğunu kapsar. Kenarsız alandaki saat şu yollarla yine `posedge`
+  flop zamanlar: `sync(d, aclk)` hedefi ve kenarsız kaynaklı `sync()`'in
+  kaynak flop'u (`always_ff @(posedge aclk)`), yerleşik primitif
+  (`SyncFifo { clk: aclk, ... }`), alt modül örneğinin saat portu
+  (`Child { clk: aclk }`, alt modül `posedge` yazar) ve kontratlar
+  (`@(posedge clk)`).
+- **Sessiz yanlış — `out` portu `on` bloğunda `<=`.** `out q : u8`,
+  `on clk { q <= d }` reset dalı boş bir flop üretir (E2 ile aynı sınıf);
+  tanı yok. Depodaki üretilen SV'de bu kalıp yok (tarandı).
+- **Açık hata — kontratta dizi literali.** `volt verify`'da her biçim
+  Yosys sözdizimi hatası (`'{...}`, "unexpected OP_CAST"); `volt test`'te
+  iki literal ya da paketlenmiş (port) dizi ile karşılaştırma Verilator
+  hatası ("Assignment pattern member not underneath a supported
+  construct"); ayrı `.sva`'da unpacked dizi register'ı ile `$past`'li
+  literal karşılaştırması Verilator iç hatası ("internal fault"). Yalnız
+  `volt test`'te dizi register'ı ile literal karşılaştırması derlenir.
