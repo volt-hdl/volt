@@ -179,6 +179,16 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         .with_note(
             "Modül düzeyinde öneri deyimi 'on <saat> { r <= değer }' ile değiştirir ('reg(clk)' saati, yoksa modülün tek saat portu). Bir 'comb' bloğunda ya da 'for' gövdesinde deyim tek başına taşınamadığı için biçimi yalnız yardım metni gösterir.",
         ),
+        E0020 => Explanation::new(
+            "Tele 'on' bloğunda '<=' ile atama",
+            "Telin durumu yoktur: bir 'comb' bloğu ya da modül düzeyinde '=' ile sürülür. Bir 'on' bloğunda '<=' ile yazılınca saat kenarları arasında değer tutardı; bunu yalnız register yapar.",
+            "'on' bloğunda '<=' değeri saat kenarında örnekler; sinyal bir flop olur. 'wire' bildiriminin reset değeri yoktur, o flop'un reset dalı boş kalırdı: reset sonrasında önceki değerini korur (donanımda bilinmez) ve kaynakta bunu söyleyen bir şey yoktur.\n\nSinyal bir saat çevriminden ötekine değer tutacaksa reset sonrası alacağı değerle register olarak bildirin: 'reg w : u8 = 0'. Kombinasyonelse bir 'comb' bloğunda ya da modül düzeyinde '=' ile atayın.",
+            "wire w : u8\non clk { w <= d }       // ✗ E0020: reset değeri olmayan flop",
+            "reg w : u8 = 0\non clk { w <= d }       // ✓ reset sonrası 0, sonra her saatte d",
+        )
+        .with_note(
+            "bool ve tam sayı tiplerinde öneri bildirimi 'reg w : T = 0' (ya da '= false') olarak yeniden yazar, alan açıklamasını korur. Diğer tiplerde yardım metni '<reset value>' gösterir; reset değerini siz yazarsınız.",
+        ),
         E1001 => Explanation::new(
             "Tanımsız isim",
             "Bu isim, buradan görünen hiçbir yerde bildirilmemiş.",

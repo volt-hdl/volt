@@ -30,6 +30,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0017 => "Desteklenmeyen ya da tutarsız zamanlama kısıtı (ADR-0054)",
         E0018 => "İç içelik ya da zincir çok derin (ADR-0080)",
         E0019 => "Register'a 'on' bloğu dışında '=' ile atama (ADR-0098)",
+        E0020 => "Tele 'on' bloğunda '<=' ile atama (ADR-0098)",
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E1001 => "Tanımsız isim",

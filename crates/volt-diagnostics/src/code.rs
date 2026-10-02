@@ -38,6 +38,8 @@ error_codes! {
     E0018,
     // Register'a 'on' dışında '=' (ADR-0098)
     E0019,
+    // Tele 'on' bloğunda '<=' (ADR-0098 eki)
+    E0020,
 
     // ─── İsim çözümleme (name-resolution.md) ───
     E1001, E1002, E1003, E1004, E1005, E1006, E1007, E1008, E1009, E1010,

@@ -25,6 +25,7 @@ mod struct_lit;
 mod test;
 mod test_expr;
 mod type_graph;
+mod wire_assign;
 
 use std::collections::HashSet;
 

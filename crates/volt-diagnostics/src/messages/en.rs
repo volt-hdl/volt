@@ -30,6 +30,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E0017 => "Unsupported or inconsistent timing constraint (ADR-0054)",
         E0018 => "Nesting or chain too deep (ADR-0080)",
         E0019 => "Register assigned with '=' outside an 'on' block (ADR-0098)",
+        E0020 => "Wire assigned with '<=' in an 'on' block (ADR-0098)",
 
         // ─── Name resolution (name-resolution.md) ───
         E1001 => "Undefined name",

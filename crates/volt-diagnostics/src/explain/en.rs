@@ -179,6 +179,16 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         .with_note(
             "At module level the suggestion replaces the statement with 'on <clock> { r <= value }' (the clock of 'reg(clk)', otherwise the module's only clock port). Inside a 'comb' block or a 'for' body only the help text shows the form, because the statement cannot be moved on its own.",
         ),
+        E0020 => Explanation::new(
+            "Wire assigned with '<=' in an 'on' block",
+            "A wire has no state: it is driven by a 'comb' block or a module-level '='. Written with '<=' in an 'on' block it would hold its value between clock edges, which only a register does.",
+            "In an 'on' block '<=' samples a value at the clock edge, so the signal becomes a flip-flop. A 'wire' declaration has no reset value, so that flip-flop would have an empty reset branch: after reset it keeps whatever value it had before (unknown in hardware), and nothing in the source says so.\n\nIf the signal should hold a value from one clock cycle to the next, declare it as a register with the value it takes after reset: 'reg w : u8 = 0'. If it is combinational, assign it with '=' in a 'comb' block or at module level.",
+            "wire w : u8\non clk { w <= d }       // ✗ E0020: a flip-flop with no reset value",
+            "reg w : u8 = 0\non clk { w <= d }       // ✓ 0 after reset, then d each clock",
+        )
+        .with_note(
+            "For bool and integer types the suggestion rewrites the declaration as 'reg w : T = 0' (or '= false'), keeping a domain annotation. For other types the help shows '<reset value>' and you write the reset value yourself.",
+        ),
         E1001 => Explanation::new(
             "Undefined name",
             "This name is not declared anywhere visible from this point.",

@@ -621,6 +621,7 @@ impl Parser<'_> {
         let regs = self.reg_clocks(&ports, &body);
         self.check_module_expr_stmts(&regs, &body);
         self.check_register_assigns(&regs, &body);
+        self.check_wire_nonblocking(&body);
         self.expect_closing(RBrace, "}", open);
 
         // Opsiyonel sonlandırıcı: '} module Ad' — LL(2) ayrımı:
