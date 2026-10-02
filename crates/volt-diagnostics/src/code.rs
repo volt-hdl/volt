@@ -71,6 +71,8 @@ error_codes! {
     E3011, E3012, E3013, E3014,
     // fn gövdesinde declassify (ADR-0081)
     E3015,
+    // Kenarsız (`clock = none`) alanda flop (ADR-0098 eki)
+    E3016,
 
     // ─── Bağlantı/sürücü (type-inference.md) + bundle düzleştirme
     //     sınırları (ADR-0067: E4009 özyineli bundle, E4010 bütçe)

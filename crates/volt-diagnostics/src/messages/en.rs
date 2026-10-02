@@ -96,6 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3013 => "Bundle fields inferred in different clock domains (ADR-0039)",
         E3014 => "Same symbolic domain bound to two different clocks (ADR-0047)",
         E3015 => "declassify inside a function body (ADR-0081)",
+        E3016 => "Register in a clock domain without a clock edge (clock = none, ADR-0098)",
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => "Double driver",

@@ -653,6 +653,15 @@ extern module ExtRegFile {
         )
         .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
 
+        E3016 => Explanation::new(
+            "Register in a clock domain without a clock edge",
+            "The 'on' block's clock belongs to a domain declared with 'clock = none'. Such a domain has no clock edge, so no register can take a value in it.",
+            "'clock = none' declares a domain whose signals are not timed by any clock edge, such as asynchronous inputs. An 'on' block describes a register that samples its value at the clock edge, and a domain without an edge has nothing to sample on. Volt used to emit '@(posedge clk)' for it anyway, a flip-flop timed by an edge the domain says does not exist.\n\nIf the signal should change once per clock cycle, give the domain its edge ('clock = posedge' or 'negedge'). If it is combinational, write it with '=' in a 'comb' block or at module level instead of in an 'on' block. To bring a signal of the edgeless domain into a clocked domain, read it through sync() there.",
+            "domain Async { clock = none }\nin clk : clock @Async\non clk { r <= d }        // ✗ E3016: no edge to sample on",
+            "domain Async { clock = posedge }\non clk { r <= d }        // ✓ the domain has a clock edge\n// or, combinational:\ncomb { y = d }",
+        )
+        .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
+
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",

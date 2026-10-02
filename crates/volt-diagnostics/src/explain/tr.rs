@@ -653,6 +653,15 @@ extern module ExtRegFile {
         )
         .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
 
+        E3016 => Explanation::new(
+            "Saat kenarı olmayan alanda register",
+            "'on' bloğunun saati 'clock = none' ile bildirilmiş bir alana ait. Böyle bir alanın saat kenarı yoktur; içinde hiçbir register değer alamaz.",
+            "'clock = none', sinyalleri hiçbir saat kenarıyla zamanlanmayan bir alan bildirir; örneğin asenkron girişler. 'on' bloğu değerini saat kenarında örnekleyen bir register tanımlar; kenarı olmayan alanda örnekleme yapılacak bir an yoktur. Volt buna yine de '@(posedge clk)' üretiyordu: alanın var olmadığını söylediği bir kenarla zamanlanan bir flop.\n\nSinyal her saat çevriminde bir kez değişecekse alana kenarını verin ('clock = posedge' ya da 'negedge'). Kombinasyonelse 'on' bloğu yerine bir 'comb' bloğunda ya da modül düzeyinde '=' ile yazın. Kenarsız alandaki bir sinyali saatli bir alana almak için orada sync() ile okuyun.",
+            "domain Async { clock = none }\nin clk : clock @Async\non clk { r <= d }        // ✗ E3016: örneklenecek kenar yok",
+            "domain Async { clock = posedge }\non clk { r <= d }        // ✓ alanın saat kenarı var\n// ya da kombinasyonel:\ncomb { y = d }",
+        )
+        .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
+
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",

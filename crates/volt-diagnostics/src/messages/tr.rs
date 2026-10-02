@@ -96,6 +96,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E3013 => "Bundle alanları farklı saat alanlarında çıkarıldı (ADR-0039)",
         E3014 => "Aynı sembolik saat alanına iki farklı saat bağlandı (ADR-0047)",
         E3015 => "Fonksiyon gövdesinde declassify (ADR-0081)",
+        E3016 => "Saat kenarı olmayan alanda register (clock = none, ADR-0098)",
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => "Çift sürücü",
