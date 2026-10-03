@@ -165,6 +165,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0022 => "Clock domain has no frequency; no create_clock emitted",
         W0023 => "Too many diagnostics; the rest are hidden",
         W0024 => "Attribute has no effect: not attached to anything, or where no pass reads it",
+        W0025 => "Unknown key or section in Volt.toml",
         W1001 => "Unused signal / binding",
         W1002 => "Shadowing (same name in an inner scope)",
         W1003 => "Shadowing of a builtin name",

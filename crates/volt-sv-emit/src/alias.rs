@@ -47,7 +47,7 @@ pub(crate) fn resolve(ast: &SourceFile, ty: Idx<TypeRef>) -> Idx<TypeRef> {
     cur
 }
 
-fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {
+pub(crate) fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {
     ast.items
         .iter()
         .map(|&i| &ast.items_arena[i].kind)

@@ -189,6 +189,8 @@ struct Inferencer<'a> {
     /// düzeyinde `None`. `sync()` yalnız modül düzeyinde yazılır: blok
     /// içi E3001/E3012 önerisi bu deyimin üstüne bir `let` ekler.
     stmt_anchor: Option<Span>,
+    /// Denetlenen modülün adı (E3002 `on` tetikleyicisi iletisi).
+    module_name: String,
     /// Denetlenen atamanın ya da koşulun kaynak ifadesi (E3001/E3012
     /// `sync()` önerisi için; yalnız denetim süresince dolu).
     fix_src: Option<Idx<Expr>>,
@@ -227,6 +229,7 @@ impl<'a> Inferencer<'a> {
             module_clocks: Vec::new(),
             annotated_ports: HashMap::new(),
             stmt_anchor: None,
+            module_name: String::new(),
             fix_src: None,
         }
     }

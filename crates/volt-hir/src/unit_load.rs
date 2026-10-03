@@ -252,7 +252,46 @@ struct Loader {
     missing: HashSet<PackagePath>,
 }
 
+/// Denetlenmiş Volt.toml'lar: süreç başına bir kez (ADR-0099). `volt
+/// test` ve proje kipi aynı manifest için birden çok birim yükler; uyarı
+/// her birimde yinelenmez.
+static CHECKED_MANIFESTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// W0025 tanıları: `root`'taki Volt.toml `map`'e eklenir. Bu süreçte o
+/// manifest için daha önce üretildiyse boş.
+pub fn manifest_warnings_into(root: &Path, map: &mut SourceMap) -> Vec<Diagnostic> {
+    let path = root.join(crate::MANIFEST_FILE);
+    {
+        let mut seen = CHECKED_MANIFESTS.lock().unwrap_or_else(|e| e.into_inner());
+        if seen.contains(&path) {
+            return Vec::new();
+        }
+        seen.push(path.clone());
+    }
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    // Tanıda çalışma dizinine göreli yol (diğer kaynaklar gibi).
+    let shown = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| path.strip_prefix(cwd).ok().map(Path::to_path_buf))
+        .unwrap_or(path);
+    let file = map.add_file(shown, text.clone());
+    crate::manifest_lint::check_manifest(file, &text)
+}
+
 impl Loader {
+    /// W0025: Volt.toml'da Volt'un okumadığı anahtar ve bölümler. Dosya
+    /// kaynak haritasına eklenir ki tanı satırıyla gösterilsin.
+    fn check_manifest(&mut self) {
+        let Some(m) = &self.manifest else {
+            return;
+        };
+        let root = m.root.clone();
+        let diags = manifest_warnings_into(&root, &mut self.map);
+        self.diagnostics.extend(diags);
+    }
+
     fn candidates(&self, from_dir: &Path, package: &[String]) -> Vec<PathBuf> {
         let rel: PathBuf = package.iter().collect();
         let rel = rel.with_extension("volt");
@@ -492,6 +531,7 @@ pub fn load_unit_with_text(main: &Path, main_text: Option<String>) -> std::io::R
         missing: HashSet::new(),
     };
     loader.visit(main, None, main_text)?;
+    loader.check_manifest();
 
     let sources: Vec<(FileId, &str)> = loader
         .order

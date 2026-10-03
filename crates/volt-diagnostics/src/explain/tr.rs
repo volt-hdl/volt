@@ -1093,6 +1093,13 @@ module VgaTiming { /* ... */ }
             "module M {\n    @no_auto_contracts      // ✗ W0024: kontrat nitelik almaz\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: portta etkisi yok",
             "@no_auto_contracts @strict_timing   // ✓ modülde\nmodule M {\n    invariant: count < 10\n    in x : u8",
         ),
+        W0025 => Explanation::new(
+            "Volt.toml'da bilinmeyen anahtar ya da bölüm",
+            "Volt.toml'da Volt'un okumadığı bir anahtar ya da bölüm var. Yok sayılır.",
+            "Volt, Volt.toml'dan şu anahtarları okur: [package] içinde 'name', 'src' ve 'top'; [test] içinde 'paths'; [lint] içinde 'unenforced_attributes'; [ui] içinde 'lang'. Gerisi yok sayılır; yanlış yazılmış bir anahtar ('src' yerine 'scr') varsayılanı sessizce bırakır ve proje kastetmediğiniz bir dizinden derlenir. Uyarı anahtarı adlandırır; bilinen bir anahtar bir iki harf uzaktaysa onu önerir.\n\nPaket yönetimi henüz yok: [dependencies] bölümü de bildirilir, çünkü içindeki hiçbir bağımlılık indirilmez ya da kullanılmaz. Bir projenin dosyaları arasında kodu 'use' ile paylaşın (bkz. volt explain E1011).",
+            "[package]\nname = \"blinky\"\nscr  = \"rtl\"        # ⚠ W0025: bilinmeyen anahtar 'scr'; 'src' mi demek istediniz?\n\n[dependencies]       # ⚠ W0025: paket yönetimi henüz yok\nuart = \"1.0\"",
+            "[package]\nname = \"blinky\"\nsrc  = \"rtl\"        # ✓",
+        ),
         W0022 => Explanation::new(
             "Saat alanının frekansı yok; create_clock üretilmedi",
             "Kısıt dosyası istendi (--emit=sdc ya da xdc), ama bu saatin alanı 'frequency' bildirmiyor; create_clock satırı eksik.",

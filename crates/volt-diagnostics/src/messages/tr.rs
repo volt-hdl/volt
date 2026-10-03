@@ -165,6 +165,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W0022 => "Saat alanının frekansı yok; create_clock üretilmedi",
         W0023 => "Çok fazla tanı; kalanlar gizlendi",
         W0024 => "Etkisiz nitelik: hiçbir şeye bağlanmıyor ya da okunmadığı bir yerde",
+        W0025 => "Volt.toml'da bilinmeyen anahtar ya da bölüm",
         W1001 => "Kullanılmayan sinyal / bağlama",
         W1002 => "Gölgeleme (iç kapsamda aynı isim)",
         W1003 => "Yerleşik ismin gölgelenmesi",

@@ -44,7 +44,9 @@ use volt_ast::{
     OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind,
     TypeRef, TypeRefKind,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Severity, Suggestion,
+};
 use volt_span::{FileId, Span};
 
 pub use const_array::ConstArrayStyle;
@@ -935,6 +937,56 @@ impl<'a> Emitter<'a> {
         if !self.diagnostics.contains(&diag) {
             self.diagnostics.push(diag);
         }
+    }
+
+    /// `u65`..`u…`/`i65`..: uN ve iN 1..=64 bittir (ADR-0031); daha geniş
+    /// ad kullanıcı tipi değil, sınırı aşan tamsayıdır. E0003 sınırı söyler
+    /// ve geniş ham değer için `bits<N>` önerir. Tanı üretildiyse `true`.
+    fn wide_int_type(&mut self, ty: Idx<TypeRef>) -> bool {
+        let TypeRefKind::Path { path, .. } = &self.ast.types[ty].kind else {
+            return false;
+        };
+        let [seg] = path.segments.as_slice() else {
+            return false;
+        };
+        let name = seg.text.as_str();
+        let Some(width) = name
+            .strip_prefix('u')
+            .or_else(|| name.strip_prefix('i'))
+            .filter(|d| {
+                !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()) && !d.starts_with('0')
+            })
+            .and_then(|d| d.parse::<u32>().ok())
+            .filter(|w| *w > 64)
+        else {
+            return false;
+        };
+        if alias::item_named(self.ast, name).is_some() {
+            return false;
+        }
+        let span = self.ast.types[ty].span;
+        let diag = Diagnostic::error(
+            ErrorCode::E0003,
+            lstr!(
+                en: "not supported yet: '{name}' is wider than 64 bits (uN and iN go up to u64 and i64)";
+                tr: "henüz desteklenmiyor: '{name}' 64 bitten geniş (uN ve iN en çok u64 ve i64)"
+            ),
+            LabeledSpan::primary(span, lstr!(en: "{width}-bit integer"; tr: "{width} bitlik tamsayı")),
+            lstr!(
+                en: "for a wider value use raw bits: bits<{width}> (compare, select and concatenate; no arithmetic)";
+                tr: "daha geniş değer için ham bit kullanın: bits<{width}> (karşılaştırma, seçme ve birleştirme; aritmetik yok)"
+            ),
+        )
+        // suggestion: e0003_wide_int
+        .with_suggestion(Suggestion::replace(
+            span,
+            format!("bits<{width}>"),
+            Applicability::MaybeIncorrect,
+        ));
+        if !self.diagnostics.contains(&diag) {
+            self.diagnostics.push(diag);
+        }
+        true
     }
 
     /// E0003 — geçerli Volt ama SystemVerilog eşlemesi henüz yok. Mesaj
@@ -2515,7 +2567,11 @@ impl<'a> Emitter<'a> {
                 if let Some(decl) = self.enum_of_type(ty) {
                     return self.enum_sig(decl, span);
                 }
-                let what = alias::describe_user_type(self.ast, alias::resolve(self.ast, ty));
+                let resolved = alias::resolve(self.ast, ty);
+                if self.wide_int_type(resolved) {
+                    return None;
+                }
+                let what = alias::describe_user_type(self.ast, resolved);
                 self.future(span, &what);
                 None
             }

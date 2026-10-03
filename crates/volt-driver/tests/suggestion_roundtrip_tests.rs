@@ -4,6 +4,8 @@
 //! * Fikstürler `tests/suggestions/<ad>.volt`; ilk satır
 //!   `// suggestion: KOD`. Fikstür o kodu üretir ve düzeltme dışında
 //!   temizdir (başka tanı varsa düzeltmeden sonra da aynen kalır).
+//!   Volt.toml önerileri için fikstür bir dizindir: `<ad>/Volt.toml` ve
+//!   başlığı taşıyan `<ad>/main.volt`; düzenlemeler dosyasına uygulanır.
 //! * Kapsama birebirdir: kaynakta öneri kuran her yer
 //!   (`Suggestion::replace` / `Suggestion::line_above` ya da
 //!   `// suggestion-helper: AD` ile işaretli yardımcı çağrısı) üstündeki
@@ -59,14 +61,22 @@ fn identities(diags: &[Value]) -> Vec<(String, String, String)> {
     ids
 }
 
-/// Önerinin tüm düzenlemeleri (birincil + `additional_edits`), bayt
-/// aralığı ve metin olarak.
-fn edits(s: &Value) -> Vec<(usize, usize, String)> {
+/// Önerinin tüm düzenlemeleri (birincil + `additional_edits`): dosya
+/// adı, bayt aralığı ve metin.
+fn edits(s: &Value) -> Vec<(String, (usize, usize, String))> {
     let one = |e: &Value| {
+        let file = Path::new(e["span"]["file"].as_str().expect("file"))
+            .file_name()
+            .expect("dosya adı")
+            .to_string_lossy()
+            .into_owned();
         (
-            e["span"]["start"]["byte"].as_u64().expect("start") as usize,
-            e["span"]["end"]["byte"].as_u64().expect("end") as usize,
-            e["replacement"].as_str().expect("replacement").to_string(),
+            file,
+            (
+                e["span"]["start"]["byte"].as_u64().expect("start") as usize,
+                e["span"]["end"]["byte"].as_u64().expect("end") as usize,
+                e["replacement"].as_str().expect("replacement").to_string(),
+            ),
         )
     };
     let mut all = vec![one(s)];
@@ -96,14 +106,49 @@ fn header_code(src: &str) -> Option<String> {
         .map(|c| c.trim().to_string())
 }
 
+/// Fikstürler: `<ad>.volt` dosyaları ve `<ad>/` dizinleri.
 fn fixtures() -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(repo("tests/suggestions"))
         .expect("tests/suggestions")
         .map(|e| e.expect("girdi").path())
-        .filter(|p| p.extension().is_some_and(|e| e == "volt"))
+        .filter(|p| p.is_dir() || p.extension().is_some_and(|e| e == "volt"))
         .collect();
     files.sort();
     files
+}
+
+/// Fikstürün denetlenen `.volt` dosyası.
+fn main_file(fixture: &Path) -> PathBuf {
+    if fixture.is_dir() {
+        fixture.join("main.volt")
+    } else {
+        fixture.to_path_buf()
+    }
+}
+
+fn fixture_name(fixture: &Path) -> String {
+    fixture
+        .file_stem()
+        .expect("ad")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Fikstürü `dir`'e kopyalar (dizin fikstüründe her dosya); denetlenecek
+/// dosyayı döndürür.
+fn copy_fixture(fixture: &Path, dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).expect("dizin");
+    if fixture.is_dir() {
+        for e in std::fs::read_dir(fixture).expect("fikstür dizini") {
+            let p = e.expect("girdi").path();
+            std::fs::copy(&p, dir.join(p.file_name().expect("ad"))).expect("kopya");
+        }
+        dir.join("main.volt")
+    } else {
+        let to = dir.join(fixture.file_name().expect("ad"));
+        std::fs::copy(fixture, &to).expect("kopya");
+        to
+    }
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -114,13 +159,15 @@ fn temp_dir(name: &str) -> PathBuf {
 
 /// Bir fikstürün her önerisini ayrı ayrı uygular ve yeniden denetler.
 /// Hata metni döndürür (boşsa geçti).
-fn roundtrip(file: &Path, dir: &Path) -> Vec<String> {
-    let name = file.file_name().expect("ad").to_string_lossy().to_string();
-    let src = std::fs::read_to_string(file).expect("okunmalı");
+fn roundtrip(fixture: &Path, dir: &Path) -> Vec<String> {
+    let name = fixture_name(fixture);
+    let src = std::fs::read_to_string(main_file(fixture)).expect("okunmalı");
     let Some(code) = header_code(&src) else {
         return vec![format!("{name}: başlık '// suggestion: KOD' değil")];
     };
-    let before = check_json(file);
+    // Önce: kopyada (manifest araması depo köküne çıkmasın).
+    let before_file = copy_fixture(fixture, &dir.join(format!("{name}_before")));
+    let before = check_json(&before_file);
     let targets: Vec<&Value> = before.iter().filter(|d| d["code"] == code).collect();
     let Some(target) = targets
         .iter()
@@ -138,11 +185,20 @@ fn roundtrip(file: &Path, dir: &Path) -> Vec<String> {
         .iter()
         .enumerate()
     {
-        let fixed_src = apply(&src, &edits(s));
-        let case_dir = dir.join(format!("{}_{i}", name.trim_end_matches(".volt")));
-        std::fs::create_dir_all(&case_dir).expect("dizin");
-        let fixed = case_dir.join(&name);
-        std::fs::write(&fixed, &fixed_src).expect("yazılmalı");
+        let case_dir = dir.join(format!("{name}_{i}"));
+        let fixed = copy_fixture(fixture, &case_dir);
+        let mut by_file: BTreeMap<String, Vec<(usize, usize, String)>> = BTreeMap::new();
+        for (file, edit) in edits(s) {
+            by_file.entry(file).or_default().push(edit);
+        }
+        let mut fixed_src = String::new();
+        for (file, file_edits) in by_file {
+            let path = case_dir.join(&file);
+            let text = std::fs::read_to_string(&path).expect("düzenlenen dosya");
+            let new = apply(&text, &file_edits);
+            std::fs::write(&path, &new).expect("yazılmalı");
+            fixed_src.push_str(&format!("--- {file}\n{new}"));
+        }
         let after = check_json(&fixed);
         let count = |ds: &[Value]| ds.iter().filter(|d| d["code"] == code).count();
         if count(&after) >= count(&before) {
@@ -303,7 +359,7 @@ fn every_suggestion_site_has_exactly_matching_fixtures() {
 fn every_suggestion_in_the_ui_corpus_has_a_fixture_code() {
     let covered: BTreeSet<String> = fixtures()
         .iter()
-        .filter_map(|p| header_code(&std::fs::read_to_string(p).expect("okunmalı")))
+        .filter_map(|p| header_code(&std::fs::read_to_string(main_file(p)).expect("okunmalı")))
         .collect();
     let mut files = Vec::new();
     for sub in ["tests/ui/fail", "tests/ui/pass"] {

@@ -1093,6 +1093,13 @@ module VgaTiming { /* ... */ }
             "module M {\n    @no_auto_contracts      // ✗ W0024: a contract takes no attributes\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: no effect on a port",
             "@no_auto_contracts @strict_timing   // ✓ on the module\nmodule M {\n    invariant: count < 10\n    in x : u8",
         ),
+        W0025 => Explanation::new(
+            "Unknown key or section in Volt.toml",
+            "Volt.toml has a key or a section that Volt does not read. It is ignored.",
+            "Volt reads these keys from Volt.toml: 'name', 'src' and 'top' in [package]; 'paths' in [test]; 'unenforced_attributes' in [lint]; 'lang' in [ui]. Anything else is ignored, so a misspelt key ('scr' instead of 'src') silently keeps the default, and the project builds from a directory you did not mean. The warning names the key and, when a known key is one or two letters away, suggests it.\n\nPackage management is not available yet: a [dependencies] section is reported too, because no dependency in it is fetched or used. Share code between files of one project with 'use' (see volt explain E1011).",
+            "[package]\nname = \"blinky\"\nscr  = \"rtl\"        # ⚠ W0025: unknown key 'scr'; did you mean 'src'?\n\n[dependencies]       # ⚠ W0025: package management is not available yet\nuart = \"1.0\"",
+            "[package]\nname = \"blinky\"\nsrc  = \"rtl\"        # ✓",
+        ),
         W0022 => Explanation::new(
             "Clock domain has no frequency; no create_clock emitted",
             "A constraint file was requested (--emit=sdc or xdc), but this clock's domain declares no 'frequency', so its create_clock line is missing.",

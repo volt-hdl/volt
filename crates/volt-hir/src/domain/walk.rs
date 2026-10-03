@@ -31,6 +31,7 @@ impl Inferencer<'_> {
             StmtKind::Instance(inst) => self.check_instance(inst),
             StmtKind::On(on) => {
                 let (dom, span) = self.on_block_domain(&on.trigger);
+                let dom = self.check_on_trigger(&on.trigger, dom);
                 self.check_edgeless_use(dom, span, EdgeUse::On);
                 self.stmt_anchor = Some(self.ast.stmts[stmt_idx].span);
                 self.walk_block(on.body, Some((dom, span)), None);

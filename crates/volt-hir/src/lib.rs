@@ -18,6 +18,7 @@ pub mod drivers;
 pub mod extern_source;
 pub mod functions;
 pub mod handshake;
+pub mod manifest_lint;
 pub mod manifest_search;
 pub mod pipeline;
 pub mod resolve;

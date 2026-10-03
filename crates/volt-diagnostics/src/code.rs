@@ -121,6 +121,8 @@ error_codes! {
     W5001,
     // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
     W0024,
+    // Volt.toml'da bilinmeyen anahtar ya da bölüm (ADR-0099)
+    W0025,
 }
 
 impl ErrorCode {

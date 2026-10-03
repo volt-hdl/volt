@@ -186,6 +186,53 @@ impl<'a> Inferencer<'a> {
     }
 
     /// 'on' bloğunun domain'i tetikleyici saatten gelir.
+    /// `on X` / `on X.reset`: X modülün saat portu olmalı (ADR-0099). Bloğun
+    /// flop'ları kenarı ve reset'i bu porttan alır; saat olmayan sinyal
+    /// (ör. `d : bool`) tetikleyici değildir. Önceden yalnız SV üreticisinin
+    /// flop denetimi yakalıyordu: `volt check` derleyici hatası diye
+    /// bildiriyor, editör hiç göstermiyordu. Bilinmeyen ad çözümlemede
+    /// raporlandı. İhlalde blok `Error` alanındadır (kaskad yok).
+    pub(super) fn check_on_trigger(&mut self, trigger: &OnTrigger, dom: DomainId) -> DomainId {
+        let (OnTrigger::Clock(name) | OnTrigger::Reset(name)) = trigger else {
+            return dom;
+        };
+        let Some(def) = self.use_def(name.span) else {
+            return dom;
+        };
+        if self.res.def_kind(def) == DefKind::Error
+            || self.module_clocks.iter().any(|c| c.name == name.text)
+        {
+            return dom;
+        }
+        let module = self.module_name.clone();
+        let text = &name.text;
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E3002,
+                lstr!(
+                    en: "'{text}' is not a clock port of '{module}': an 'on' block is triggered by a clock";
+                    tr: "'{text}' '{module}' modülünün saat portu değil: 'on' bloğunu bir saat tetikler"
+                ),
+                LabeledSpan::primary(
+                    name.span,
+                    lstr!(en: "not a clock port"; tr: "saat portu değil"),
+                ),
+                lstr!(
+                    en: "declare the trigger as a clock port (in {text} : clock) or write 'on <clock>' with one of the module's clock ports";
+                    tr: "tetikleyiciyi saat portu olarak bildirin (in {text} : clock) ya da modülün saat portlarından biriyle 'on <saat>' yazın"
+                ),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(
+                    en: "the flip-flops of an 'on' block take their clock edge and reset from the trigger's clock port; a data signal has neither";
+                    tr: "'on' bloğunun flop'ları saat kenarını ve reset'ini tetikleyicinin saat portundan alır; veri sinyalinde ikisi de yoktur"
+                ),
+            ),
+        );
+        DomainId::Error
+    }
+
     pub(super) fn on_block_domain(&mut self, trigger: &OnTrigger) -> (DomainId, Span) {
         match trigger {
             OnTrigger::Clock(name) | OnTrigger::Reset(name) => {
