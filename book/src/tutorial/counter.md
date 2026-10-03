@@ -161,14 +161,14 @@ This version has a mistake on purpose. Check it:
 ```console
 $ volt check counter.volt
     Checking counter.volt
-error[E2001]: a 8-bit value does not fit in a 4-bit target
+error[E2001]: an 8-bit value does not fit in a 4-bit target
    ┌─ counter.volt:20:13
    │
 20 │     low   = count_r
    │             ^^^^^^^ implicit narrowing is not allowed
    │
    = reason: narrowing drops the upper bits; in hardware that truncation must be visible
-   = help: explicit cast: (expr) as u4
+   = help: keep the low 4 bits explicitly: (expr)[3:0] as u4
    = for more: volt explain E2001
 
 
@@ -196,55 +196,12 @@ told. The rules you need for now:
 - **Literals must fit.** `reg r : u4 = 20` is an error (`E2010`), because 4
   bits hold at most 15.
 
-The help line suggests a cast. `count_r as u4` compiles, but still warns
-(`W2010`), because a cast can hide a mistake as well as state an intent:
-
-```volt,file=counter.volt,should_warn=W2010
-// An 8-bit counter that adds `step` on every clock edge while
-// `enable` is high.
-
-pub module Counter {
-    in  clk    : clock
-    in  enable : bool
-    in  step   : u4
-    out count  : u8
-    out low    : u4
-
-    reg count_r : u8 = 0
-
-    on clk {
-        if enable {
-            count_r <= count_r + step
-        }
-    }
-
-    count = count_r
-    low   = count_r as u4
-}
-```
-
-```console
-$ volt check counter.volt
-    Checking counter.volt
-warning[W2010]: 8-bit → 4-bit narrowing, upper bits are truncated
-   ┌─ counter.volt:20:13
-   │
-20 │     low   = count_r as u4
-   │             ^^^^^^^^^^^^^ possible loss of information
-   │
-   = help: if the narrowing is intentional this is fine; otherwise mask first
-   = for more: volt explain W2010
-
-
-    Finished 0.00s
-      Result 0 error(s), 1 warning(s)
-       Next: volt build counter.volt   (emit SystemVerilog)
-```
-
-The clearest way is to name the bits you want. `count_r[3:0]` selects bits
-3 down to 0; the result is `bits<4>`, four raw bits with no number meaning,
-and `as u4` reads them as a number. Nothing is dropped by the cast, so
-there is no warning:
+The help line shows the fix: name the bits you want. `count_r[3:0]`
+selects bits 3 down to 0; the result is `bits<4>`, four raw bits with no
+number meaning, and `as u4` reads them as a number. Nothing is dropped by
+the cast, so there is no warning. (A plain `count_r as u4` compiles too,
+but warns with `W2010`: a narrowing cast can hide a mistake as well as
+state an intent.)
 
 ```volt,file=counter.volt
 // An 8-bit counter that adds `step` on every clock edge while

@@ -167,11 +167,12 @@ impl TypeChecker<'_, '_> {
     /// Öneri: dar operand açıkça genişletilir (genişleme uyarı vermez).
     pub(super) fn operand_width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
         let wide = a.max(b);
-        let narrow = self.expr_at(span).and_then(|e| match e.kind {
-            ExprKind::Binary { lhs, rhs, .. } => {
+        let narrow = self.expr_at(span).and_then(|e| {
+            if let ExprKind::Binary { lhs, rhs, .. } = e.kind {
                 Some(self.ast.exprs[if a < b { lhs } else { rhs }].span)
+            } else {
+                None
             }
-            _ => None,
         });
         let mut diag = Diagnostic::error(
             ErrorCode::E2001,

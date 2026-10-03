@@ -48,7 +48,7 @@ impl Resolver<'_> {
                 ),
                 help,
             );
-            if let Some(fix) = self.prefix_fix(def, data, &name) {
+            if let Some(fix) = self.prefix_fix(def, data, name) {
                 diag = diag.with_suggestion(fix);
             }
             warnings.push(diag);
