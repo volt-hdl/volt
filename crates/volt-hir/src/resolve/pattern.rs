@@ -18,7 +18,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 
 use super::def::{DefId, DefKind};
 use super::scope::ScopeId;
-use super::suggest::{closest_match, did_you_mean, with_rename};
+use super::suggest::{closest_match, did_you_mean, with_rename_fix};
 use super::Resolver;
 
 impl Resolver<'_> {
@@ -161,7 +161,8 @@ impl Resolver<'_> {
                   tr: "Volt'ta bağlama deseni yok: desendeki ad bir değerdir, asla yeni bir değişken değil (ADR-0085)"),
         );
         self.diagnostics
-            .push(with_rename(diag, name.span, suggestion));
+            // suggestion: e1001_pattern_name
+            .push(with_rename_fix(diag, name.span, suggestion));
     }
 
     /// `text` adlı varyantı olan enum'lar için `Enum::text` yolları (enum

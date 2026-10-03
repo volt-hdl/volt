@@ -32,14 +32,22 @@ impl Inferencer<'_> {
             StmtKind::On(on) => {
                 let (dom, span) = self.on_block_domain(&on.trigger);
                 self.check_edgeless_use(dom, span, EdgeUse::On);
+                self.stmt_anchor = Some(self.ast.stmts[stmt_idx].span);
                 self.walk_block(on.body, Some((dom, span)), None);
+                self.stmt_anchor = None;
             }
-            StmtKind::Comb(block) => self.walk_block(*block, None, None),
+            StmtKind::Comb(block) => {
+                self.stmt_anchor = Some(self.ast.stmts[stmt_idx].span);
+                self.walk_block(*block, None, None);
+                self.stmt_anchor = None;
+            }
             StmtKind::Assign(a) => self.check_assign(&a.lhs, a.rhs, None, None),
             StmtKind::For(f) => {
                 self.expr_domain(f.start);
                 self.expr_domain(f.end);
+                self.stmt_anchor = Some(self.ast.stmts[stmt_idx].span);
                 self.walk_block(f.body, None, None);
+                self.stmt_anchor = None;
             }
             StmtKind::Expr(e) => {
                 self.expr_domain(*e);
@@ -60,7 +68,9 @@ impl Inferencer<'_> {
                     (self.resolve_dom(declared), self.resolve_dom(dom)),
                     (DomainId::Explicit(x), DomainId::Explicit(y)) if x != y
                 );
+                self.fix_src = Some(l.value);
                 self.check_compat(declared, dom, ann.span, self.ast.exprs[l.value].span);
+                self.fix_src = None;
                 // Çelişki bir kez raporlanır; kullanımlar kaskad üretmez.
                 if conflict {
                     DomainId::Error
@@ -95,7 +105,9 @@ impl Inferencer<'_> {
                 BlockStmt::Match(mt) => {
                     let dom = self.expr_domain(mt.scrutinee);
                     let s_span = self.ast.exprs[mt.scrutinee].span;
+                    self.fix_src = Some(mt.scrutinee);
                     let pc = self.branch_pc(dom, s_span, ctx, pc);
+                    self.fix_src = None;
                     for arm in &mt.arms {
                         let pc = match arm.guard {
                             Some(g) => {
@@ -133,7 +145,9 @@ impl Inferencer<'_> {
         pc: Option<(DomainId, Span)>,
     ) {
         let dom = self.expr_domain(if_stmt.cond);
+        self.fix_src = Some(if_stmt.cond);
         let pc = self.branch_pc(dom, self.ast.exprs[if_stmt.cond].span, ctx, pc);
+        self.fix_src = None;
         self.walk_block(if_stmt.then_block, ctx, pc);
         match &if_stmt.else_branch {
             Some(ElseBranch::Block(b)) => self.walk_block(*b, ctx, pc),

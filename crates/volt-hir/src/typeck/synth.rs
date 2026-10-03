@@ -258,14 +258,17 @@ impl TypeChecker<'_, '_> {
                 }
                 // ADR-0098: önceden tanısız Error dönüyordu ve `-a`
                 // SV'ye olduğu gibi gidiyordu.
-                Ty::Bits { .. } => {
+                Ty::Bits { width } => {
                     self.error(
                         ErrorCode::E2004,
                         span,
-                        lstr!(en: "cannot negate a bits<N> value"; tr: "bits<N> değeri negatiflenemez"),
+                        lstr!(en: "cannot negate a bits<{width}> value"; tr: "bits<{width}> değeri negatiflenemez"),
                         lstr!(en: "bits is a raw bit vector, not a number"; tr: "bits ham bit vektörüdür, sayısal değil"),
-                        lstr!(en: "convert it to a signed number first: -(x as i8)"; tr: "önce işaretli sayıya dönüştürün: -(x as i8)"),
+                        lstr!(en: "convert it to a signed number first: -(x as i{width})"; tr: "önce işaretli sayıya dönüştürün: -(x as i{width})"),
                     );
+                    // suggestion: e2004_negate_bits
+                    let fix = self.cast_fix(self.ast.exprs[operand].span, &format!("i{width}"));
+                    self.suggest_last(fix);
                     self.types.error()
                 }
                 Ty::Bool | Ty::Clock | Ty::Reset { .. } | Ty::Array { .. } | Ty::Tuple(_) => {

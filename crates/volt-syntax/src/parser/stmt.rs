@@ -868,11 +868,8 @@ impl Parser<'_> {
                         NoteKind::Note,
                         lstr!(en: "assignments inside an 'on' block happen on the clock edge"; tr: "'on' bloğu içindeki atamalar saat kenarında olur"),
                     )
-                    .with_suggestion(Suggestion {
-                        span: op_span,
-                        replacement: "<=".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }),
+                    // suggestion: e0006_seq_assign
+                    .with_suggestion(Suggestion::replace(op_span, "<=".to_string(), Applicability::MachineApplicable)),
                 );
                 self.bump_any();
                 true
@@ -897,11 +894,8 @@ impl Parser<'_> {
                         NoteKind::Note,
                         lstr!(en: "a comb block contains immediate assignments; there is no clock edge"; tr: "comb bloğu anlık atama içerir, saat kenarı yoktur"),
                     )
-                    .with_suggestion(Suggestion {
-                        span: op_span,
-                        replacement: "=".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }),
+                    // suggestion: e0007_comb_assign
+                    .with_suggestion(Suggestion::replace(op_span, "=".to_string(), Applicability::MachineApplicable)),
                 );
                 self.bump_any();
                 false

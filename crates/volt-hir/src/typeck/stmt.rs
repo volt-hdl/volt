@@ -134,14 +134,15 @@ impl TypeChecker<'_, '_> {
                         lstr!(en: "write the type explicitly after the name, e.g. let x : i32 = ..."; tr: "tipi adın ardına açıkça yazın, ör. let x : i32 = ..."),
                     );
                     // ADR-0091: varsayılan tipi yazmak anlamı korur.
-                    self.suggest_last(Suggestion {
-                        span: Span {
+                    // suggestion: w2012_untyped_let
+                    self.suggest_last(Suggestion::replace(
+                        Span {
                             start: l.name.span.end,
                             ..l.name.span
                         },
-                        replacement: " : i32".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    });
+                        " : i32".to_string(),
+                        Applicability::MachineApplicable,
+                    ));
                     self.types.intern(Ty::SInt { width: 32 })
                 } else {
                     ty

@@ -219,11 +219,12 @@ impl Parser<'_> {
         // Yalnız modül düzeyindeki deyim tek başına `on` bloğuna dönüşür;
         // saat bilinmiyorsa yer tutuculu metin derlenmez.
         match (site, clock) {
-            (Site::Module, Some(_)) => diag.with_suggestion(Suggestion {
-                span: stmt,
-                replacement: form,
-                applicability: Applicability::MaybeIncorrect,
-            }),
+            // suggestion: e0019_register_outside_on
+            (Site::Module, Some(_)) => diag.with_suggestion(Suggestion::replace(
+                stmt,
+                form,
+                Applicability::MaybeIncorrect,
+            )),
             _ => diag,
         }
     }

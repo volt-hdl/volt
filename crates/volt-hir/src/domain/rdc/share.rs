@@ -2,8 +2,10 @@
 //! R5 (async, E3003), R5' (sync, W3010) ve birim kökünde senkron
 //! bırakma varsayımı (R1, W3009).
 
-use volt_ast::{ResetSpec, ResetSync};
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_ast::{ModuleDecl, ResetSpec, ResetSync};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 
 use super::facts::{auto_port_name, spec_text, ClockFact, ModuleFacts};
 use super::Rdc;
@@ -36,9 +38,9 @@ impl Rdc<'_> {
                 Some(first) => {
                     error = true;
                     let spec = first.reset.unwrap_or(super::facts::DEFAULT_RESET);
-                    self.err_shared_async(port, spec, members);
+                    self.err_shared_async(module.decl, port, spec, members);
                 }
-                None => self.warn_shared_sync(port, members),
+                None => self.warn_shared_sync(module.decl, port, members),
             }
         }
         error
@@ -61,7 +63,13 @@ impl Rdc<'_> {
     }
 
     /// E3003 (ana biçim, R5).
-    fn err_shared_async(&mut self, port: &str, spec: ResetSpec, members: &[&ClockFact]) {
+    fn err_shared_async(
+        &mut self,
+        decl: &ModuleDecl,
+        port: &str,
+        spec: ResetSpec,
+        members: &[&ClockFact],
+    ) {
         let names = quoted(members);
         let n = members.len();
         let first = members[0];
@@ -76,6 +84,8 @@ impl Rdc<'_> {
             ),
             raw_port_help(port, spec),
         );
+        // suggestion: e3003_shared_async_reset
+        diag = diag.with_suggestion(raw_port_fix(decl, port, spec));
         diag = with_reset_labels(diag, port, members);
         diag = diag
             .with_note(
@@ -95,14 +105,14 @@ impl Rdc<'_> {
     }
 
     /// W3010 (R5') — senkron reset paylaşımı; modül başına port başına bir kez.
-    fn warn_shared_sync(&mut self, port: &str, members: &[&ClockFact]) {
+    fn warn_shared_sync(&mut self, decl: &ModuleDecl, port: &str, members: &[&ClockFact]) {
         let names = quoted(members);
         let first = members[0];
         let spec = first.reset.unwrap_or(super::facts::DEFAULT_RESET);
         let mut diag = Diagnostic::warning(
             ErrorCode::W3010,
-            lstr!(en: "synchronous reset '{port}' is sampled by {} clock domains ({names}); its release is asynchronous to at least one of them", members.len();
-                  tr: "'{port}' senkron reset'i {} saat alanınca örnekleniyor ({names}); bırakması en az birine asenkron", members.len()),
+            lstr!(en: "reset '{port}' is shared by {} clocks ({names}), so it cannot be released in step with all of them", members.len();
+                  tr: "'{port}' reset'i {} saat tarafından paylaşılıyor ({names}); bırakması hepsiyle aynı adımda olamaz", members.len()),
             LabeledSpan::primary(
                 first.port.name.span,
                 lstr!(en: "'{port}' is released synchronously to at most one of {names}";
@@ -110,13 +120,15 @@ impl Rdc<'_> {
             ),
             raw_port_help(port, spec),
         );
+        // suggestion: w3010_shared_sync_reset
+        diag = diag.with_suggestion(raw_port_fix(decl, port, spec));
         diag = with_reset_labels(diag, port, members);
         diag = diag.with_note(
             NoteKind::Reason,
             lstr!(en: "every flip-flop samples a synchronous reset like data; the release edge of \
-                       one clock is asynchronous to the other (ADR-0065 R5')";
+                       one clock is asynchronous to the other";
                   tr: "her flip-flop senkron reset'i veri gibi örnekler; bir saatin bırakma kenarı \
-                       diğerine asenkrondur (ADR-0065 R5')"),
+                       diğerine asenkrondur"),
         );
         self.diagnostics.push(diag);
     }
@@ -126,7 +138,7 @@ impl Rdc<'_> {
         let spec = clock.reset.unwrap_or(super::facts::DEFAULT_RESET);
         let port = auto_port_name(spec);
         let (clk, top) = (&clock.port.name.text, &module.decl.name.text);
-        let diag = Diagnostic::warning(
+        let mut diag = Diagnostic::warning(
             ErrorCode::W3009,
             lstr!(en: "asynchronous reset '{port}' is assumed to be released synchronously to '{clk}'";
                   tr: "'{port}' asenkron reset'inin '{clk}' saatine senkron bırakıldığı varsayılıyor"),
@@ -151,6 +163,8 @@ impl Rdc<'_> {
                   tr: "'{top}' bu birimde örneklenmiyor; reset bırakmasını Volt'ta hiçbir şey \
                        senkronlamıyor (ADR-0065 §1)"),
         );
+        // suggestion: w3009_root_async_reset
+        diag = diag.with_suggestion(raw_port_fix(module.decl, port, spec));
         self.diagnostics.push(diag);
     }
 }
@@ -158,10 +172,23 @@ impl Rdc<'_> {
 /// E3003/W3010 ortak help'i: ham portu açıkça al.
 fn raw_port_help(port: &str, spec: ResetSpec) -> String {
     let decl = spec_text(spec);
-    lstr!(en: "take the raw reset in explicitly; the compiler then synchronizes its release to \
-               each clock with a two-stage synchronizer:\n    in {port} : {decl}";
-          tr: "ham reset'i açıkça alın; derleyici bırakmasını her saate iki aşamalı bir \
-               senkronizörle senkronlar:\n    in {port} : {decl}")
+    lstr!(en: "declare the reset as a raw input port; the compiler then adds a reset \
+               synchronizer for each clock:\n    in {port} : {decl}";
+          tr: "reset'i ham giriş portu olarak bildirin; derleyici her saat için bir reset \
+               senkronizörü ekler:\n    in {port} : {decl}")
+}
+
+/// Ham reset portunu modülün ilk portunun üstüne ekleyen öneri
+/// (E3003/W3010/W3009). Port adı otomatik portun adıdır: modülün
+/// örnekleri bağlantıyı aynı adla yapar.
+fn raw_port_fix(module: &ModuleDecl, port: &str, spec: ResetSpec) -> Suggestion {
+    let at = module.ports.first().map_or(module.name.span, |p| p.span);
+    // suggestion-helper: raw_port_fix
+    Suggestion::line_above(
+        at,
+        format!("in {port} : {}", spec_text(spec)),
+        Applicability::MaybeIncorrect,
+    )
 }
 
 /// Reset alanı etiketleri (aynı alan iki saatte ise tek etiket) ve

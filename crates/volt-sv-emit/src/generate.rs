@@ -9,7 +9,7 @@
 //! parser/mono/unroll.rs). `comb { }` → `always_comb`.
 
 use volt_ast::{Block, ForStmt, Idx};
-use volt_diagnostics::{lstr, ErrorCode};
+use volt_diagnostics::{lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Suggestion};
 use volt_span::Span;
 
 use crate::Emitter;
@@ -38,18 +38,30 @@ impl<'a> Emitter<'a> {
             return None;
         };
         if e < s {
-            self.error(
+            let diag = Diagnostic::error(
                 ErrorCode::E2028,
                 lstr!(
                     en: "'for {}' range is reversed: {s}..{e}", f.var.text;
                     tr: "'for {}' aralığı ters: {s}..{e}", f.var.text
                 ),
-                span,
-                &lstr!(
+                LabeledSpan::primary(span, ""),
+                lstr!(
                     en: "write the smaller bound first: for {} in {e}..{s}", f.var.text;
                     tr: "küçük sınırı önce yazın: for {} in {e}..{s}", f.var.text
                 ),
+            )
+            // suggestion: e2028_block_for
+            .with_suggestion(
+                Suggestion::replace(
+                    self.ast.exprs[f.start].span,
+                    e.to_string(),
+                    Applicability::MaybeIncorrect,
+                )
+                .and_replace(self.ast.exprs[f.end].span, s.to_string()),
             );
+            if !self.diagnostics.contains(&diag) {
+                self.diagnostics.push(diag);
+            }
             return None;
         }
         if e - s > MAX_UNROLL {

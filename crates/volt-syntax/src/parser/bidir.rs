@@ -591,11 +591,8 @@ impl Parser<'_> {
                         lstr!(en: "add the parentheses"; tr: "parantezleri ekleyin"),
                     )
                     // ADR-0091: tek anlamlı, kesin düzeltme.
-                    .with_suggestion(Suggestion {
-                        span: Span { start: span.end, ..span },
-                        replacement: "()".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }));
+                    // suggestion: e4008_read_parens
+                    .with_suggestion(Suggestion::replace(Span { start: span.end, ..span }, "()".to_string(), Applicability::MachineApplicable)));
                 }
                 _ => self
                     .diagnostics

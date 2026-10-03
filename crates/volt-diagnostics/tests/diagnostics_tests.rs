@@ -26,11 +26,11 @@ fn sample_diagnostic(file: FileId) -> Diagnostic {
     )
     .with_secondary(result_span, "'result' → slow_clk alanında")
     .with_note(NoteKind::Reason, "sinyal kararsız bir anda yakalanabilir")
-    .with_suggestion(Suggestion {
-        span: data_span,
-        replacement: "sync(data, slow_clk)".to_string(),
-        applicability: Applicability::MachineApplicable,
-    })
+    .with_suggestion(Suggestion::replace(
+        data_span,
+        "sync(data, slow_clk)",
+        Applicability::MachineApplicable,
+    ))
 }
 
 // ═══ ErrorCode ════════════════════════════════════════════════════

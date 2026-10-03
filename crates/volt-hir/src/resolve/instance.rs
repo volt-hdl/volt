@@ -6,7 +6,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use super::def::{DefId, DefKind};
 use super::scope::ScopeId;
-use super::suggest::{closest_match, did_you_mean, with_rename};
+use super::suggest::{closest_match, did_you_mean, with_rename_fix};
 use super::Resolver;
 use crate::builtin::BuiltinPrim;
 
@@ -152,7 +152,8 @@ impl Resolver<'_> {
             ),
         );
         self.diagnostics
-            .push(with_rename(diag, port_name.span, suggestion));
+            // suggestion: e1009_instance_port
+            .push(with_rename_fix(diag, port_name.span, suggestion));
     }
 
     pub(super) fn check_port_exists(&mut self, module_def: DefId, port_name: &Name) {
@@ -198,7 +199,7 @@ mod tests {
             .iter()
             .find(|d| d.code.as_str() == "E1009")
             .expect("E1009");
-        assert_eq!(diag.suggestions[0].replacement, "data");
+        assert_eq!(diag.suggestions[0].primary().text, "data");
     }
 
     #[test]

@@ -20,11 +20,7 @@ module Count {
 ";
 
 fn suggestion(applicability: Applicability) -> Suggestion {
-    Suggestion {
-        span: Span::new(FileId(0), 0, 1),
-        replacement: "x".into(),
-        applicability,
-    }
+    Suggestion::replace(Span::new(FileId(0), 0, 1), "x", applicability)
 }
 
 fn diag_with(suggestions: Vec<Suggestion>) -> Diagnostic {
@@ -58,11 +54,11 @@ fn only_a_single_machine_applicable_suggestion_is_certain() {
 
 #[test]
 fn apply_splices_the_replacement() {
-    let s = Suggestion {
-        span: Span::new(FileId(0), 2, 3),
-        replacement: "<=".into(),
-        applicability: Applicability::MachineApplicable,
-    };
+    let s = Suggestion::replace(
+        Span::new(FileId(0), 2, 3),
+        "<=",
+        Applicability::MachineApplicable,
+    );
     assert_eq!(apply("c = 1", &s), "c <= 1");
 }
 
@@ -73,7 +69,7 @@ fn quick_fix_is_offered_only_for_diagnostics_in_range() {
     let fixes = quick_fixes(&a, eq, eq);
     assert_eq!(fixes.len(), 1);
     assert_eq!(fixes[0].diagnostic.code, ErrorCode::E0006);
-    assert_eq!(fixes[0].suggestion.replacement, "<=");
+    assert_eq!(fixes[0].suggestion.primary().text, "<=");
     assert!(fixes[0].title.contains("E0006"), "{}", fixes[0].title);
     assert!(quick_fixes(&a, 0, 10).is_empty());
 }
@@ -111,7 +107,9 @@ fn a_fix_pointing_into_another_file_is_not_offered() {
     let mut a = analysis::analyze("count.volt", SEQ_EQ);
     for d in &mut a.diagnostics {
         for s in &mut d.suggestions {
-            s.span.file = FileId(7);
+            for e in &mut s.edits {
+                e.span.file = FileId(7);
+            }
         }
     }
     assert!(quick_fixes(&a, 0, SEQ_EQ.len() as u32).is_empty());

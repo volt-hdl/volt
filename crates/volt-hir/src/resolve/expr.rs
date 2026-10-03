@@ -11,7 +11,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use super::def::{BuiltinKind, DefId, DefKind};
 use super::prelude::is_widened_int_type;
 use super::scope::ScopeId;
-use super::suggest::{closest_match, did_you_mean};
+use super::suggest::{closest_match, did_you_mean, with_rename_fix};
 use super::Resolver;
 
 impl Resolver<'_> {
@@ -231,7 +231,8 @@ impl Resolver<'_> {
         let mut diags = Vec::new();
         for f in fields {
             if !known.contains(&f.name.text) {
-                diags.push(Diagnostic::error(
+                let suggestion = closest_match(&f.name.text, &known);
+                let diag = Diagnostic::error(
                     ErrorCode::E1008,
                     lstr!(en: "struct '{}' has no field '{}'", struct_name, f.name.text;
                           tr: "'{}' yapısında '{}' alanı yok", struct_name, f.name.text),
@@ -240,11 +241,13 @@ impl Resolver<'_> {
                         lstr!(en: "unknown field"; tr: "bilinmeyen alan"),
                     ),
                     did_you_mean(
-                        closest_match(&f.name.text, &known).as_ref(),
+                        suggestion.as_ref(),
                         lstr!(en: "available fields: {}", known.join(", ");
                               tr: "mevcut alanlar: {}", known.join(", ")),
                     ),
-                ));
+                );
+                // suggestion: e1008_literal_field
+                diags.push(with_rename_fix(diag, f.name.span, suggestion));
             }
         }
         self.diagnostics.extend(diags);

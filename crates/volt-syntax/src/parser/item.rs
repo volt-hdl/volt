@@ -650,11 +650,8 @@ impl Parser<'_> {
                     )
                     // ADR-0091: sonlandırıcı yalnız addır — değiştirmek
                     // anlamı değiştirmez, kesin düzeltme.
-                    .with_suggestion(Suggestion {
-                        span: cname.span,
-                        replacement: name.text.clone(),
-                        applicability: Applicability::MachineApplicable,
-                    }),
+                    // suggestion: e0004_terminator
+                    .with_suggestion(Suggestion::replace(cname.span, name.text.clone(), Applicability::MachineApplicable)),
                 );
             }
             closing_name = Some(cname);
