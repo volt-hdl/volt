@@ -219,16 +219,16 @@ fn check_unsupported(ast: &SourceFile, f: &FnDecl, diags: &mut Vec<Diagnostic>) 
         diags.push(err_unsupported(
             f.name.span,
             &lstr!(en: "generic functions"; tr: "generic fonksiyonlar"),
-            &lstr!(en: "write one function per width; a function's generic parameters are not inferred from the call yet (ADR-0081)";
-                   tr: "her genişlik için bir fonksiyon yazın; fonksiyonun generic parametreleri henüz çağrıdan çıkarılmıyor (ADR-0081)"),
+            &lstr!(en: "write one function per width; a function's generic parameters are not inferred from the call yet";
+                   tr: "her genişlik için bir fonksiyon yazın; fonksiyonun generic parametreleri henüz çağrıdan çıkarılmıyor"),
         ));
     }
     for c in &f.contracts {
         diags.push(err_unsupported(
             c.span,
             &lstr!(en: "contracts on functions (requires/ensures)"; tr: "fonksiyon kontratları (requires/ensures)"),
-            &lstr!(en: "state the property in the calling module's contracts, where the call's arguments are signals (ADR-0081)";
-                   tr: "özelliği çağıran modülün kontratlarında, argümanların sinyal olduğu yerde yazın (ADR-0081)"),
+            &lstr!(en: "state the property in the calling module's contracts, where the call's arguments are signals";
+                   tr: "özelliği çağıran modülün kontratlarında, argümanların sinyal olduğu yerde yazın"),
         ));
     }
     for s in &ast.blocks[f.body].stmts {
@@ -238,8 +238,8 @@ fn check_unsupported(ast: &SourceFile, f: &FnDecl, diags: &mut Vec<Diagnostic>) 
             diags.push(err_unsupported(
                 span,
                 &lstr!(en: "'for' loops in function bodies"; tr: "fonksiyon gövdesinde 'for' döngüsü"),
-                &lstr!(en: "use builtins (popcount, concat, replicate) or an if chain; a folding 'for' in functions is future work (ADR-0081)";
-                       tr: "yerleşikleri (popcount, concat, replicate) ya da if zincirini kullanın; fonksiyonda katlayan 'for' ileride (ADR-0081)"),
+                &lstr!(en: "use builtins (popcount, concat, replicate) or an if chain; a folding 'for' in functions is future work";
+                       tr: "yerleşikleri (popcount, concat, replicate) ya da if zincirini kullanın; fonksiyonda katlayan 'for' ileride"),
             ));
         }
     }
@@ -386,8 +386,8 @@ fn err_not_combinational(span: Span, what: &str) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "a function call is inlined as combinational logic at every call site (ADR-0081)";
-              tr: "fonksiyon çağrısı her çağrı yerinde kombinasyonel mantık olarak açılır (ADR-0081)"),
+        lstr!(en: "a function call is inlined as combinational logic at every call site";
+              tr: "fonksiyon çağrısı her çağrı yerinde kombinasyonel mantık olarak açılır"),
     )
 }
 
@@ -405,8 +405,8 @@ fn err_declassify_in_fn(span: Span) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "a declassify must be visible, with its reason, where the downgrade happens (ADR-0052, ADR-0081)";
-              tr: "declassify, gerekçesiyle, düşürmenin yapıldığı yerde görünmelidir (ADR-0052, ADR-0081)"),
+        lstr!(en: "a declassify must be visible, with its reason, where the downgrade happens";
+              tr: "declassify, gerekçesiyle, düşürmenin yapıldığı yerde görünmelidir"),
     )
 }
 
@@ -480,7 +480,7 @@ fn err_budget(span: Span, name: &str, size: usize) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "one call to '{name}' expands to {size} nodes (ADR-0068, ADR-0081)";
-              tr: "'{name}' çağrısı başına {size} düğüm açılır (ADR-0068, ADR-0081)"),
+        lstr!(en: "one call to '{name}' expands to {size} nodes";
+              tr: "'{name}' çağrısı başına {size} düğüm açılır"),
     )
 }

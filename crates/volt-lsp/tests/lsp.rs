@@ -153,22 +153,15 @@ fn lsp_diags(src: &str) -> Vec<tower_lsp::lsp_types::Diagnostic> {
 }
 
 #[test]
-fn diagnostic_has_code_and_description_url() {
+fn diagnostic_has_code_and_no_dead_description_url() {
     let diags = lsp_diags(CDC_VIOLATION);
     let cdc = diags
         .iter()
         .find(|d| d.code == Some(NumberOrString::String("E3001".into())))
         .expect("E3001 tanısı");
-    let href = cdc
-        .code_description
-        .as_ref()
-        .expect("codeDescription")
-        .href
-        .as_str();
-    assert!(
-        href.contains("E3001"),
-        "spec referansı E3001 içermeli: {href}"
-    );
+    // Kitapta kod başına sayfa yok: bağlantı verilmez (açıklama
+    // `volt explain E3001`'de, help satırında anılır).
+    assert!(cdc.code_description.is_none(), "{:?}", cdc.code_description);
 }
 
 #[test]

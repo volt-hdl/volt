@@ -226,10 +226,9 @@ impl<'a> Inferencer<'a> {
         .with_note(
             NoteKind::Reason,
             lstr!(en: "one domain annotation stands for exactly one clock domain per \
-                       instantiation; two clocks would open a CDC path inside the module \
-                       (ADR-0047)";
+                       instantiation; two clocks would open a CDC path inside the module";
                   tr: "bir alan anotasyonu her örneklemede tam olarak bir saat alanını temsil \
-                       eder; iki saat modülün içinde bir CDC yolu açar (ADR-0047)"),
+                       eder; iki saat modülün içinde bir CDC yolu açar"),
         );
         self.diagnostics.push(diag);
     }

@@ -543,6 +543,28 @@ fn verify_tool_error_in_docker_points_at_the_host_log() {
     assert!(err.contains(&format!("in Docker {FORMAL_IMAGE}")), "{err}");
 }
 
+/// `--engine bitwuzla` Docker köprüsünde: imajda bu çözücü yok. Konteyner
+/// boşuna başlatılmaz; bilgi yalnız bu seçenek kullanılınca görünür.
+#[test]
+fn verify_with_bitwuzla_in_docker_says_the_image_lacks_it() {
+    let env = Env::new("bitwuzla");
+    std::fs::write(env.dir.join("ctr.volt"), CTR).expect("tasarım");
+    let out = env
+        .cmd(&["verify", "ctr.volt", "--engine", "bitwuzla"])
+        .output()
+        .expect("volt verify");
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(3), "{err}");
+    assert!(
+        err.contains(&format!(
+            "the SMT solver 'bitwuzla' is not in the Docker image {FORMAL_IMAGE}"
+        )),
+        "{err}"
+    );
+    assert!(err.contains("--engine boolector, yices or z3"), "{err}");
+    assert!(env.runs().is_empty(), "{:#?}", env.runs());
+}
+
 fn doctor_json(env: &Env, image: Option<&str>) -> (String, Value) {
     let mut human = env.cmd(&["doctor"]);
     let mut json = env.cmd(&["doctor", "--format", "json"]);
@@ -584,6 +606,9 @@ fn doctor_says_which_commands_run_via_docker() {
         "{text}"
     );
     assert!(!text.contains("not downloaded"), "{text}");
+    // İmajın çözücü listesi doctor'da sorulmamış ayrıntıdır: yalnız
+    // `volt verify --engine bitwuzla` söyler.
+    assert!(!text.contains("bitwuzla"), "{text}");
     let sim = cap(&json, "simulation");
     assert_eq!(sim["status"], "ok");
     assert_eq!(sim["backend"], "docker");

@@ -698,8 +698,8 @@ fn e4008(span: Span, message: String, help: String) -> Diagnostic {
     )
     .with_note(
         NoteKind::Reason,
-        lstr!(en: "a bidirectional port is driven only through drive()/drive_low()/release() inside an 'on' block and read with read(); the compiler owns the tri-state buffer (ADR-0051)";
-              tr: "çift yönlü port yalnız 'on' bloğunda drive()/drive_low()/release() ile sürülür ve read() ile okunur; üç durumlu tamponu derleyici üretir (ADR-0051)"),
+        lstr!(en: "a bidirectional port is driven only through drive()/drive_low()/release() inside an 'on' block and read with read(); the compiler owns the tri-state buffer";
+              tr: "çift yönlü port yalnız 'on' bloğunda drive()/drive_low()/release() ile sürülür ve read() ile okunur; üç durumlu tamponu derleyici üretir"),
     )
 }
 

@@ -155,7 +155,7 @@ fn capability(out: &mut String, report: &Report, cap: CapId) {
     }
     if status != CapStatus::Ok {
         if let Some(topic) = cap.setup_topic() {
-            install_hint(out, topic);
+            install_hint(out, topic, docker_down(report));
         }
     }
 }
@@ -181,16 +181,6 @@ fn via_docker(out: &mut String, cap: CapId, route: &DockerRoute) {
             lstr!(
                 en: "image not downloaded yet: ~{mb} MB on first use";
                 tr: "imaj henüz indirilmedi: ilk kullanımda ~{mb} MB"
-            )
-        );
-    }
-    if cap == CapId::Verify {
-        let _ = writeln!(
-            out,
-            "    {}",
-            lstr!(
-                en: "(bitwuzla is not in this image; --engine boolector|yices|z3, ADR-0082)";
-                tr: "(bitwuzla bu imajda yok; --engine boolector|yices|z3, ADR-0082)"
             )
         );
     }
@@ -230,12 +220,12 @@ fn missing_detail(report: &Report, cap: CapId, tools: &[&ToolReport]) -> String 
     }
     let purpose = match cap {
         CapId::Timing => Some(lstr!(
-            en: "checks generated .sdc files (ADR-0065)";
-            tr: "üretilen .sdc dosyalarını denetler (ADR-0065)"
+            en: "checks generated .sdc files";
+            tr: "üretilen .sdc dosyalarını denetler"
         )),
         CapId::Drivers => Some(lstr!(
-            en: "compiles drivers from --emit=c,rust (ADR-0053)";
-            tr: "--emit=c,rust sürücülerini derler (ADR-0053)"
+            en: "compiles drivers from --emit=c,rust";
+            tr: "--emit=c,rust sürücülerini derler"
         )),
         _ => None,
     };
@@ -266,8 +256,8 @@ fn optional_solvers(out: &mut String, report: &Report) {
             out,
             "    {}",
             lstr!(
-                en: "(optional bitwuzla not found — often fastest on large designs, ADR-0082)";
-                tr: "(isteğe bağlı bitwuzla bulunamadı — büyük tasarımlarda çoğu zaman en hızlısı, ADR-0082)"
+                en: "(optional bitwuzla not found — often fastest on large designs)";
+                tr: "(isteğe bağlı bitwuzla bulunamadı — büyük tasarımlarda çoğu zaman en hızlısı)"
             )
         );
     }
@@ -275,10 +265,8 @@ fn optional_solvers(out: &mut String, report: &Report) {
 
 /// `volt explain <konu>` INSTALL bölümünün bu işletim sistemine düşen
 /// satırları — metin konuda yaşar, burada kopyası yok (ADR-0084 §2).
-fn install_hint(out: &mut String, topic: &str) {
-    let os = os_label();
-    let steps = install_steps(topic, volt_diagnostics::lang(), os);
-    let head = lstr!(en: "install ({os}):"; tr: "kurulum ({os}):");
+fn install_hint(out: &mut String, topic: &str, docker_down: bool) {
+    let (head, steps) = install_lines(topic, os_label(), docker_down);
     for (i, step) in steps.iter().enumerate() {
         let lead = if i == 0 { head.as_str() } else { "" };
         let _ = writeln!(out, "    {lead:<w$} {step}", w = head.chars().count());
@@ -288,6 +276,44 @@ fn install_hint(out: &mut String, topic: &str) {
         "    {} volt explain {topic}",
         lstr!(en: "see:"; tr: "bkz.:")
     );
+}
+
+/// Kurulum ipucunun başlığı ve adımları. Docker kurulu ama çalışmıyorsa
+/// "Docker Desktop kurun" adımı "başlatın" olur ve başlık "çözüm"dür.
+fn install_lines(topic: &str, os: &str, docker_down: bool) -> (String, Vec<String>) {
+    let mut steps: Vec<String> = install_steps(topic, volt_diagnostics::lang(), os)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let mut started = false;
+    if docker_down {
+        for step in &mut steps {
+            for (install, start) in [
+                ("install Docker Desktop", "start Docker Desktop"),
+                ("Docker Desktop kurun", "Docker Desktop'ı başlatın"),
+            ] {
+                if step.contains(install) {
+                    *step = step.replace(install, start);
+                    started = true;
+                }
+            }
+        }
+    }
+    let head = if started {
+        lstr!(en: "fix ({os}):"; tr: "çözüm ({os}):")
+    } else {
+        lstr!(en: "install ({os}):"; tr: "kurulum ({os}):")
+    };
+    (head, steps)
+}
+
+/// Docker kurulu ama daemon yanıt vermiyor (çalışmıyor ya da süre aşımı).
+fn docker_down(report: &Report) -> bool {
+    report.tool(Tool::Docker).status == ToolStatus::Ok
+        && matches!(
+            report.docker_daemon,
+            Some(DockerDaemon::NotRunning | DockerDaemon::Unresponsive)
+        )
 }
 
 fn docker(out: &mut String, report: &Report) {
@@ -472,4 +498,36 @@ pub(super) fn json(report: &Report) -> String {
         },
     });
     serde_json::to_string_pretty(&doc).expect("doctor JSON")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_lines;
+
+    #[test]
+    fn a_stopped_docker_is_started_not_installed() {
+        for topic in ["simulation-setup", "verify-setup"] {
+            let (head, steps) = install_lines(topic, "Windows", false);
+            assert_eq!(head, "install (Windows):");
+            assert!(
+                steps.iter().any(|s| s.contains("install Docker Desktop")),
+                "{steps:?}"
+            );
+
+            let (head, steps) = install_lines(topic, "Windows", true);
+            assert_eq!(head, "fix (Windows):");
+            assert!(
+                steps.iter().any(|s| s.starts_with("start Docker Desktop")),
+                "{steps:?}"
+            );
+            assert!(
+                !steps.iter().any(|s| s.contains("install Docker")),
+                "{steps:?}"
+            );
+        }
+        // Linux adımları Docker'dan söz etmez: değişmez.
+        let (head, steps) = install_lines("simulation-setup", "Linux", true);
+        assert_eq!(head, "install (Linux):");
+        assert_eq!(steps, ["apt install verilator"]);
+    }
 }

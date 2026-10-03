@@ -1013,8 +1013,8 @@ impl Lowerer {
                             lstr!(en: "field '{field}' of '{base}' becomes the SystemVerilog signal '{leaf_name}'";
                                   tr: "'{base}' sinyalinin '{field}' alanı SystemVerilog'da '{leaf_name}' sinyali olur"),
                         ),
-                        lstr!(en: "rename the signal or the field: struct fields become SV signals named <signal>_<field> (ADR-0077)";
-                              tr: "sinyali ya da alanı yeniden adlandırın: struct alanları <sinyal>_<alan> adlı SV sinyallerine iner (ADR-0077)"),
+                        lstr!(en: "rename the signal or the field: struct fields become SV signals named <signal>_<field>";
+                              tr: "sinyali ya da alanı yeniden adlandırın: struct alanları <sinyal>_<alan> adlı SV sinyallerine iner"),
                     ));
                 }
             }

@@ -131,7 +131,7 @@ impl<'a> TypeChecker<'a, '_> {
             decl.name.span,
             message,
             label,
-            lstr!(en: "flatten the type hierarchy or split the value into several signals (ADR-0077)"; tr: "tip hiyerarşisini sadeleştirin ya da değeri birkaç sinyale bölün (ADR-0077)"),
+            lstr!(en: "flatten the type hierarchy or split the value into several signals"; tr: "tip hiyerarşisini sadeleştirin ya da değeri birkaç sinyale bölün"),
         );
     }
 
@@ -277,7 +277,7 @@ impl<'a> TypeChecker<'a, '_> {
                         span,
                         lstr!(en: "cast '{src_s}' → '{dst_s}' loses information: the struct is {w} bits wide"; tr: "'{src_s}' → '{dst_s}' dönüşümü bilgi kaybeder: struct {w} bit genişliğinde"),
                         lstr!(en: "target narrower than the struct"; tr: "hedef struct'tan dar"),
-                        lstr!(en: "cast to at least {w} bits: p as u{w} (the first field is the most significant, ADR-0077)"; tr: "en az {w} bite dönüştürün: p as u{w} (ilk alan en anlamlı bitlerde, ADR-0077)"),
+                        lstr!(en: "cast to at least {w} bits: p as u{w} (the first field is the most significant)"; tr: "en az {w} bite dönüştürün: p as u{w} (ilk alan en anlamlı bitlerde)"),
                     );
                 }
                 true

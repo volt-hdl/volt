@@ -314,7 +314,7 @@ impl Diagnostic {
         self.spans.iter().find(|s| s.primary)
     }
 
-    pub fn explain_url(&self) -> String {
+    pub fn explain_url(&self) -> Option<String> {
         self.code.explain_url()
     }
 

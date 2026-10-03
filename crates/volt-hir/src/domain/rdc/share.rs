@@ -87,20 +87,15 @@ impl Rdc<'_> {
         // suggestion: e3003_shared_async_reset
         diag = diag.with_suggestion(raw_port_fix(decl, port, spec));
         diag = with_reset_labels(diag, port, members);
-        diag = diag
-            .with_note(
-                NoteKind::Reason,
-                lstr!(en: "a reset release that is synchronous to one clock is asynchronous to the \
+        diag = diag.with_note(
+            NoteKind::Reason,
+            lstr!(en: "a reset release that is synchronous to one clock is asynchronous to the \
                            other; registers of the second domain can leave reset in different \
                            cycles or go metastable (recovery/removal violation)";
                       tr: "bir saate senkron reset bırakması diğerine asenkrondur; ikinci alanın \
                            register'ları reset'ten farklı çevrimlerde çıkabilir ya da metastabil \
                            olabilir (recovery/removal ihlali)"),
-            )
-            .with_note(
-                NoteKind::Note,
-                lstr!(en: "see ADR-0065 §1"; tr: "bkz. ADR-0065 §1"),
-            );
+        );
         self.diagnostics.push(diag);
     }
 
@@ -159,9 +154,9 @@ impl Rdc<'_> {
         .with_note(
             NoteKind::Reason,
             lstr!(en: "'{top}' is not instantiated in this unit, so nothing in Volt synchronizes its \
-                       reset release (ADR-0065 §1)";
+                       reset release";
                   tr: "'{top}' bu birimde örneklenmiyor; reset bırakmasını Volt'ta hiçbir şey \
-                       senkronlamıyor (ADR-0065 §1)"),
+                       senkronlamıyor"),
         );
         // suggestion: w3009_root_async_reset
         diag = diag.with_suggestion(raw_port_fix(module.decl, port, spec));

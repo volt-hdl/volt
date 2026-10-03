@@ -121,8 +121,8 @@ fn e4007(res: &ResolveResult, port: &str, port_span: Span, chain: &[Dep]) -> Dia
     )
     .with_note(
         NoteKind::Reason,
-        lstr!(en: "combinational path: {path}. A producer that waits for ready before raising valid deadlocks against a consumer that waits for valid (ADR-0050, AXI A3.3.1)";
-              tr: "kombinasyonel yol: {path}. valid'i yükseltmek için ready'yi bekleyen üretici, valid'i bekleyen tüketiciyle kilitlenir (ADR-0050, AXI A3.3.1)"),
+        lstr!(en: "combinational path: {path}. A producer that waits for ready before raising valid deadlocks against a consumer that waits for valid (AXI A3.3.1)";
+              tr: "kombinasyonel yol: {path}. valid'i yükseltmek için ready'yi bekleyen üretici, valid'i bekleyen tüketiciyle kilitlenir (AXI A3.3.1)"),
     )
 }
 

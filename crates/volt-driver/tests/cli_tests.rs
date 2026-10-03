@@ -265,10 +265,8 @@ fn check_json_format_cdc_violation() {
     assert_eq!(envelope["diagnostics"][0]["code"], "E3001");
     assert_eq!(envelope["diagnostics"][0]["severity"], "error");
     assert_eq!(envelope["summary"]["errors"], 1);
-    assert!(envelope["diagnostics"][0]["explain_url"]
-        .as_str()
-        .unwrap()
-        .contains("E3001"));
+    // Kitapta kod başına sayfa yok: alan şemada kalır, değeri null.
+    assert!(envelope["diagnostics"][0]["explain_url"].is_null());
 }
 
 #[test]
@@ -447,7 +445,7 @@ fn explain_e3001_exit_0_with_spec_structure() {
     assert!(stdout.contains("EXAMPLE"), "stdout: {stdout}");
     assert!(stdout.contains("SOLUTION"), "stdout: {stdout}");
     assert!(stdout.contains("FOR MORE"), "stdout: {stdout}");
-    assert!(stdout.contains("https://volthdl.org/errors/E3001"));
+    assert!(stdout.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
     assert!(stdout.contains("sync("), "stdout: {stdout}");
 }
 
@@ -1293,7 +1291,12 @@ fn explain_e5001_exit_0_with_spec_structure() {
     assert!(stdout.contains("WHY THIS IS A PROBLEM"), "stdout: {stdout}");
     assert!(stdout.contains("counterexample"), "stdout: {stdout}");
     assert!(stdout.contains("gtkwave"), "stdout: {stdout}");
-    assert!(stdout.contains("https://volthdl.org/errors/E5001"));
+    // Kitapta karşılığı olmayan kodda DAHA FAZLA bölümü yok.
+    assert!(!stdout.contains("FOR MORE"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains(concat!("volthdl", ".org")),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -1765,7 +1768,7 @@ fn explain_e1011_renders_in_both_languages() {
         assert_eq!(output.status.code(), Some(0));
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains(needle), "{lang}: {stdout}");
-        assert!(stdout.contains("ADR-0042"), "{lang}: {stdout}");
+        assert!(!stdout.contains("ADR-"), "{lang}: {stdout}");
     }
 }
 

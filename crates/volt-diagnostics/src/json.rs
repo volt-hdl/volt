@@ -63,7 +63,7 @@ struct JsonDiagnostic {
     notes: Vec<JsonNote>,
     help: Option<String>,
     suggestions: Vec<JsonSuggestion>,
-    explain_url: String,
+    explain_url: Option<String>,
 }
 
 fn json_pos(map: &SourceMap, span: Span, byte: u32) -> JsonPos {

@@ -425,7 +425,7 @@ pub(crate) fn enum_not_exhaustive(
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "an enum match that names every variant needs no '_' arm; its last arm also takes the codes no variant uses (ADR-0074)"; tr: "her varyantı adlandıran enum match'i '_' kolu gerektirmez; son kolu hiçbir varyantın kullanmadığı kodları da alır (ADR-0074)"),
+        lstr!(en: "an enum match that names every variant needs no '_' arm; its last arm also takes the codes no variant uses"; tr: "her varyantı adlandıran enum match'i '_' kolu gerektirmez; son kolu hiçbir varyantın kullanmadığı kodları da alır"),
     )
 }
 
@@ -444,7 +444,7 @@ fn numeric_missing_wildcard(span: Span, is_expr: bool) -> Diagnostic {
         )
         .with_note(
             NoteKind::Note,
-            lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out (ADR-0083); an enum match is checked variant by variant instead (ADR-0074)"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da (ADR-0083); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074)"),
+            lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out; an enum match is checked variant by variant instead"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da; enum match'i bunun yerine varyant varyant denetlenir"),
         );
     }
     Diagnostic::error(
@@ -458,7 +458,7 @@ fn numeric_missing_wildcard(span: Span, is_expr: bool) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
+        lstr!(en: "a match on a number covers every value only with a '_' arm; an enum match is checked variant by variant instead; in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar; enum match'i bunun yerine varyant varyant denetlenir; sıralı blokta boş '_' kolu register değerlerini korur"),
     )
 }
 

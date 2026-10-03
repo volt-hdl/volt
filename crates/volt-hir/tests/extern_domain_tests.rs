@@ -342,7 +342,7 @@ fn e3014_has_five_parts_and_names_the_symbolic_domain() {
     assert!(diag.message.contains("@Core"), "{}", diag.message);
     assert!(!diag.help.as_deref().unwrap_or("").is_empty(), "help boş");
     assert!(
-        diag.notes.iter().any(|n| n.text.contains("ADR-0047")),
+        !diag.notes.is_empty() && diag.notes.iter().all(|n| !n.text.contains("ADR-")),
         "{:?}",
         diag.notes
     );

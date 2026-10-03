@@ -1682,8 +1682,8 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "the key is reserved in the grammar (grammar-full.ebnf §3) so that it cannot silently change meaning once reset length and order are checked (E3004 is reserved, ADR-0065)";
-                      tr: "anahtar gramerde ayrılmıştır (grammar-full.ebnf §3), reset süresi ve sırası denetlenmeye başladığında anlamı sessizce değişmesin (E3004 rezerve, ADR-0065)"),
+                lstr!(en: "the key is reserved in the grammar (grammar-full.ebnf §3) so that it cannot silently change meaning once reset length and order are checked (E3004 is reserved)";
+                      tr: "anahtar gramerde ayrılmıştır (grammar-full.ebnf §3), reset süresi ve sırası denetlenmeye başladığında anlamı sessizce değişmesin (E3004 rezerve)"),
             ),
         );
     }
@@ -1787,8 +1787,8 @@ impl Parser<'_> {
             self.error_expected(
                 &lstr!(en: "reset kind (sync or async with a polarity, or none)";
                        tr: "reset türü (polariteli sync ya da async, veya none)"),
-                &lstr!(en: "write `reset = sync active_high`; to reset from a port, declare it raw: `in rst_n : reset(async, active_low)` (ADR-0065)";
-                       tr: "`reset = sync active_high` yazın; reset'i bir porttan almak için ham port bildirin: `in rst_n : reset(async, active_low)` (ADR-0065)"),
+                &lstr!(en: "write `reset = sync active_high`; to reset from a port, declare it raw: `in rst_n : reset(async, active_low)`";
+                       tr: "`reset = sync active_high` yazın; reset'i bir porttan almak için ham port bildirin: `in rst_n : reset(async, active_low)`"),
             );
         } else {
             self.error_expected(
@@ -1910,8 +1910,8 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "a function call is inlined as combinational logic at every call site (ADR-0081)";
-                      tr: "fonksiyon çağrısı her çağrı yerinde kombinasyonel mantık olarak açılır (ADR-0081)"),
+                lstr!(en: "a function call is inlined as combinational logic at every call site";
+                      tr: "fonksiyon çağrısı her çağrı yerinde kombinasyonel mantık olarak açılır"),
             ),
         );
     }

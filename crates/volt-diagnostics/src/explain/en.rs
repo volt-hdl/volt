@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Use the features of the current language version;\n// track the roadmap for when the keyword becomes available.",
         )
         .with_note(
-            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules (ADR-0041), generic struct ports (ADR-0069), a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build` (ADR-0070). For functions (ADR-0081): generic `fn`, `requires`/`ensures` on a `fn`, and `for` in a `fn` body are E0003 (a `match` expression in a `fn` body lowers since ADR-0083; a match arm guard is still E0003). Inside a `comb` block, a block-level `for` or a contract a call is expanded in place with no wires, so an argument for a parameter whose bits the function selects (`x[3:0]`) must be a signal name of the parameter's type; `f(a ^ b)` there is E0003. Fix: call the `fn` from a module-level `let` (`let t = f(a ^ b)`, then use `t`), or bind the argument to a module-level `let` and pass its name. A scalar `const` used as a value is folded into a literal (arithmetic, bit operations, shifts, comparisons, `&&`/`||`/`!`, `if`, `match`); one built from anything else, such as a cast or a builtin call, is E0003 ('constant 'N' whose value the SystemVerilog emitter cannot fold') instead of an undefined name in the output (ADR-0083). Fix: write its value with those operators.",
+            "E0003 is also reported for constructs that parse but are not implemented yet, for example type generic arguments on modules, generic struct ports, a port bundle as a Handshake payload, and valid Volt that has no SystemVerilog mapping yet ('not supported yet: struct type 'P' as a signal type', match guards, extern module instances). `volt check` and the editor report these too, not only `volt build`. For functions: generic `fn`, `requires`/`ensures` on a `fn`, and `for` in a `fn` body are E0003 (a `match` expression in a `fn` body is supported; a match arm guard is still E0003). Inside a `comb` block, a block-level `for` or a contract a call is expanded in place with no wires, so an argument for a parameter whose bits the function selects (`x[3:0]`) must be a signal name of the parameter's type; `f(a ^ b)` there is E0003. Fix: call the `fn` from a module-level `let` (`let t = f(a ^ b)`, then use `t`), or bind the argument to a module-level `let` and pass its name. A scalar `const` used as a value is folded into a literal (arithmetic, bit operations, shifts, comparisons, `&&`/`||`/`!`, `if`, `match`); one built from anything else, such as a cast or a builtin call, is E0003 ('constant 'N' whose value the SystemVerilog emitter cannot fold') instead of an undefined name in the output. Fix: write its value with those operators.",
         ),
         E0004 => Explanation::new(
             "Block end name does not match",
@@ -110,11 +110,10 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E0014 => Explanation::new(
             "The match does not cover every value",
             "A 'match' statement or expression leaves some values without an arm: a numeric match has no '_' arm, or an enum match misses a variant and has no '_' arm.",
-            "In hardware, a match lowers to a 'case'; a value without an arm would have no defined action (in a comb block that is a latch). A match on a number must end with a wildcard '_' arm (ADR-0032). A match on an enum is checked for exhaustiveness instead (ADR-0074): naming every variant is enough, '_' is optional. Then the LAST named arm becomes the SystemVerilog 'default' — so the encodings that belong to no variant (a 3-variant enum is 2 bits wide; code 3 is unused) take the last arm's action. Inside the design such a code cannot appear (an enum value only comes from its variants — 'uN as Enum' is rejected), and the auto-generated state-valid invariant proves it formally; an enum input port driven from outside is the only source. Write an explicit '_' arm when invalid codes need their own recovery action. In a sequential block an empty '_ => { }' arm keeps the registers' values. A 'match' expression follows the same rules (ADR-0083): every arm gives a value, so its '_' arm has a value too — even a match that writes out every value of a u2 needs '_'.",
+            "In hardware, a match lowers to a 'case'; a value without an arm would have no defined action (in a comb block that is a latch). A match on a number must end with a wildcard '_' arm. A match on an enum is checked for exhaustiveness instead: naming every variant is enough, '_' is optional. Then the LAST named arm becomes the SystemVerilog 'default' — so the encodings that belong to no variant (a 3-variant enum is 2 bits wide; code 3 is unused) take the last arm's action. Inside the design such a code cannot appear (an enum value only comes from its variants — 'uN as Enum' is rejected), and the auto-generated state-valid invariant proves it formally; an enum input port driven from outside is the only source. Write an explicit '_' arm when invalid codes need their own recovery action. In a sequential block an empty '_ => { }' arm keeps the registers' values. A 'match' expression follows the same rules: every arm gives a value, so its '_' arm has a value too — even a match that writes out every value of a u2 needs '_'.",
             "y = match op { 0 => a, 1 => b }       // ✗ E0014: expression without '_'\non clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: no '_' arm\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: missing State::Done\n    }\n}",
             "y = match op { 0 => a, 1 => b, _ => 0 }   // ✓\non clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ other encodings hold their value\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ every variant named; also taken by invalid codes\n    }\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md", "docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md"]),
+        ),
 
         E0015 => Explanation::new(
             "MMIO register map layout error",
@@ -134,21 +133,20 @@ module Regs {
     @reg(offset = 0x04, access = ReadOnly, volatile)   // ✓ next word
     b : { v : bits<8>, @reserved : bits<24> }
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+        ),
 
         // ─── Name resolution (name-resolution.md) ───
         E0016 => Explanation::new(
             "declassify without a reason",
             "A 'declassify(expr, \"reason\")' call is missing its reason string, or the reason is empty.",
-            "'declassify' is the only sanctioned way for information to move from a higher trust level to a lower one (ADR-0052). Every such point is a security decision that a reviewer must be able to audit later, so the language makes the justification part of the syntax: a non-empty string literal is mandatory, and the compiler repeats it in the W3008 warning it emits for every declassification. A call without a reason is a syntax error, not a warning.",
+            "'declassify' is the only sanctioned way for information to move from a higher trust level to a lower one. Every such point is a security decision that a reviewer must be able to audit later, so the language makes the justification part of the syntax: a non-empty string literal is mandatory, and the compiler repeats it in the W3008 warning it emits for every declassification. A call without a reason is a syntax error, not a warning.",
             "busy = declassify(state != IDLE)                       // ✗ E0016: no reason\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: empty reason",
             "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ reviewed, W3008 records it",
         ),
         E0017 => Explanation::new(
             "Unsupported or inconsistent timing constraint",
             "A @timing, @false_path or @multicycle attribute uses a form the compiler does not translate, names a signal that is not a port or register, or contradicts the domain frequency.",
-            "Since ADR-0054 these attributes are enforced: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path. A form the compiler only half-understands would still produce a constraint file, and a constraint file that silently lacks the line you wrote is worse than none. So every unsupported spelling is an error, not a warning.
+            "These attributes are enforced: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path. A form the compiler only half-understands would still produce a constraint file, and a constraint file that silently lacks the line you wrote is worse than none. So every unsupported spelling is an error, not a warning.
 
 Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timing(clk >= 100.mhz) (minimum), @timing(max_delay(a, b) <= 5.ns), @timing(min_delay(a, b) >= 1.ns), @false_path(from = a, to = b), @multicycle(from = a, to = b, cycles = N); on a register: @false_path, @multicycle(N). Frequencies are written as 25175000 (Hz), 25_175.khz, 100.mhz or 1.ghz; delays always carry a unit (ps, ns, us). Endpoints are ports or registers of the same module — wires, lets and instance outputs are not timing endpoints. A clock requirement is checked against the domain's frequency: '=' must match, '>=' must be met.",
             "@timing(pix_clk >= 25.175.mhz)        // ✗ E0001: no decimal literals\n@timing(max_delay(a, b) <= 5)         // ✗ E0017: delay without a unit\n@false_path(from = tmp, to = y)       // ✗ E0017: 'tmp' is a let, not a register\n@timing(clk = 50.mhz)                 // ✗ E0017: domain says 100.mhz",
@@ -160,14 +158,14 @@ Supported forms: @timing(clk = 100.mhz) (exact frequency of a clock port), @timi
         E0018 => Explanation::new(
             "Nesting or chain too deep",
             "An expression, block, type, pattern or declaration chain is deeper than the compiler's limit (256 levels). The part past the limit is skipped and not compiled.",
-            "Every stage of the compiler after the parser walks the syntax tree recursively. A stack overflow in Rust is not an error the compiler can report: the process is killed, and in an editor the language server dies with it. So the depth is bounded in one place (ADR-0080): the parser never builds a tree deeper than the limit, and the type declaration chains the later stages expand (type alias to type alias, struct field of struct type, enum variant payload) are bounded the same way.
+            "Every stage of the compiler after the parser walks the syntax tree recursively. A stack overflow in Rust is not an error the compiler can report: the process is killed, and in an editor the language server dies with it. So the depth is bounded in one place: the parser never builds a tree deeper than the limit, and the type declaration chains the later stages expand (type alias to type alias, struct field of struct type, enum variant payload) are bounded the same way.
 
 What counts as a level: every nested parenthesis, block, 'if', 'match' and type; and also every link of a chain that looks flat in the source. 'a + b + c + ...' is a tree whose depth grows by one per operator, and the same holds for 'x[0][1]...', 'a.b.c...', 'a as u8 as u8', and 'if ... else if ... else if ...'. Real designs stay far below the limit: the deepest expression in the examples and the test suite is a few dozen levels. A chain of hundreds of terms is almost always generated code, and a balanced form is both shallower and better hardware (a tree of adders has logarithmic, not linear, delay).",
             "y = a0 ^ a1 ^ a2 ^ ... ^ a299        // ✗ E0018: 299 links in one chain",
             "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ two halves, each 149 links\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
         )
         .with_note(
-            "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux). A 'match' expression inside another expression (an operand, a condition, a port connection, a contract) becomes a conditional chain as deep as it has arms (ADR-0083): more than 256 arms there is E0018. Give the match its own let (let v = match ...): as the whole right-hand side of a let or an assignment it becomes a SystemVerilog 'case' of any size.",
+            "The compiler runs on a thread with a fixed, generous stack (64 MB) sized for this limit, so the check is the same on every platform: the limit does not depend on the operating system's default stack size (1 MB on the Windows main thread, 8 MB on Linux). A 'match' expression inside another expression (an operand, a condition, a port connection, a contract) becomes a conditional chain as deep as it has arms: more than 256 arms there is E0018. Give the match its own let (let v = match ...): as the whole right-hand side of a let or an assignment it becomes a SystemVerilog 'case' of any size.",
         ),
         E0019 => Explanation::new(
             "Register assigned with '=' outside an 'on' block",
@@ -206,7 +204,7 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         E1003 => Explanation::new(
             "Duplicate definition in the same scope",
             "Two declarations in the same scope use the same name.",
-            "Within one scope every name must be unique — otherwise any reference to it would be ambiguous. If both declarations are intentional, rename one of them; shadowing in an *inner* scope is allowed (and reported separately as W1002).\n\nThe generated SystemVerilog module is a scope too. Volt builds some names itself: an instance output is '<instance>_<port>', a built-in primitive's signals are '<instance>_<name>', the automatic reset port is 'rst'/'rst_n', a raw reset's synchronizer is 'rst_sync_<clock>_stage<i>' and a sync() bridge is 'sync_<source>_src'/'sync_<source>_stage<i>'. When such a name equals one of yours (or another built name), the message says how it was built and points at both places. Volt does not rename these names: ports are the interface, and synchronizer and instance signals are named in timing constraints and in waveforms (ADR-0090). Helper names that only live in 'volt verify' and 'volt test' output (prev() registers, cover counters) get a '_2' suffix instead.",
+            "Within one scope every name must be unique — otherwise any reference to it would be ambiguous. If both declarations are intentional, rename one of them; shadowing in an *inner* scope is allowed (and reported separately as W1002).\n\nThe generated SystemVerilog module is a scope too. Volt builds some names itself: an instance output is '<instance>_<port>', a built-in primitive's signals are '<instance>_<name>', the automatic reset port is 'rst'/'rst_n', a raw reset's synchronizer is 'rst_sync_<clock>_stage<i>' and a sync() bridge is 'sync_<source>_src'/'sync_<source>_stage<i>'. When such a name equals one of yours (or another built name), the message says how it was built and points at both places. Volt does not rename these names: ports are the interface, and synchronizer and instance signals are named in timing constraints and in waveforms. Helper names that only live in 'volt verify' and 'volt test' output (prev() registers, cover counters) get a '_2' suffix instead.",
             "reg state : u2 = 0\nwire state : u2          // ✗ E1003\n\nlet timer = Timer { clk }\nout timer_irq : bool     // ✗ E1003: 'timer' + 'irq' is also 'timer_irq'",
             "reg state      : u2 = 0\nwire state_next : u2     // ✓\n\nlet timer = Timer { clk }\nout irq_out : bool       // ✓",
         ),
@@ -262,7 +260,7 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
         E1011 => Explanation::new(
             "Module not found",
             "A 'use' names a package that no file in the compilation unit provides.",
-            "Since ADR-0042 'use soc::gpio::Gpio' loads a file: first './soc/gpio.volt' next to the importing file, then '<root>/src/soc/gpio.volt' where <root> is the directory holding Volt.toml, then the built-in 'std' prelude. The error lists every path that was tried. The same code is reported when the file exists but does not define the requested item — the help then lists the package's public items.",
+            "'use soc::gpio::Gpio' loads a file: first './soc/gpio.volt' next to the importing file, then '<root>/src/soc/gpio.volt' where <root> is the directory holding Volt.toml, then the built-in 'std' prelude. The error lists every path that was tried. The same code is reported when the file exists but does not define the requested item — the help then lists the package's public items.",
             "use soc::gpoi::Gpio     // ✗ E1011: no soc/gpoi.volt anywhere",
             "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt declares 'package soc::gpio;'",
         ),
@@ -272,29 +270,26 @@ What counts as a level: every nested parenthesis, block, 'if', 'match' and type;
             "An 'extern module' only declares ports; its body is SystemVerilog you wrote or a vendor shipped. 'volt build' and 'volt check' only emit the instantiation, but 'volt run' and 'volt test' hand the design to Verilator and 'volt verify' to SymbiYosys, and neither can simulate or prove a module whose body it has never seen. '@source(\"path\")' names the file (or files); the path is relative to the .volt file that declares the extern and must stay inside the project — the directory of the nearest Volt.toml, or that file's directory when there is none (the same rule as read_hex). A missing '@source' is reported only by the commands that need the body.",
             "extern module Fifo {          // ✗ E1012 in 'volt test': no body\n    in  clk : clock\n    ...\n}",
             "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator and sby read rtl/fifo.sv\n    in  clk : clock\n    ...\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
+        ),
         E1013 => Explanation::new(
             "Name is a reserved word of a generated language",
             "A name Volt writes into generated SystemVerilog, or into the Rust/C driver of an @mmio register map, is a keyword there.",
-            "Volt keeps your names in its output so that an external integrator, a waveform and a constraint file all see the port you wrote. That only works if the name is legal in the target language. SystemVerilog reserves 248 words (IEEE 1800-2017 Annex B, which includes every Verilog-2005 keyword): a port named 'packed' or a register named 'table' makes the generated .sv a syntax error in every tool, although the Volt source is fine. Names Volt builds by joining two of yours with '_' are checked too: a struct port 'pulsestyle' with a field 'ondetect' becomes the SystemVerilog port 'pulsestyle_ondetect', which is a keyword; the same holds for enum localparams ('<Enum>_<Variant>') and instance output wires ('<instance>_<port>'). Volt does not escape (\\packed) or rename (packed_v) behind your back: either would change the port name an external module connects to. An @mmio register or field name also becomes a function or parameter name in the generated Rust and C drivers, so it must not be a Rust, C or C++ keyword ('mod', 'loop', 'default', 'class', ...). Words that are only C++ keywords in Verilator's own model ('interrupt', 'char') are not errors: the SystemVerilog is valid and Volt handles them (ADR-0078). Matching is case-sensitive: 'Packed' is fine.",
+            "Volt keeps your names in its output so that an external integrator, a waveform and a constraint file all see the port you wrote. That only works if the name is legal in the target language. SystemVerilog reserves 248 words (IEEE 1800-2017 Annex B, which includes every Verilog-2005 keyword): a port named 'packed' or a register named 'table' makes the generated .sv a syntax error in every tool, although the Volt source is fine. Names Volt builds by joining two of yours with '_' are checked too: a struct port 'pulsestyle' with a field 'ondetect' becomes the SystemVerilog port 'pulsestyle_ondetect', which is a keyword; the same holds for enum localparams ('<Enum>_<Variant>') and instance output wires ('<instance>_<port>'). Volt does not escape (\\packed) or rename (packed_v) behind your back: either would change the port name an external module connects to. An @mmio register or field name also becomes a function or parameter name in the generated Rust and C drivers, so it must not be a Rust, C or C++ keyword ('mod', 'loop', 'default', 'class', ...). Words that are only C++ keywords in Verilator's own model ('interrupt', 'char') are not errors: the SystemVerilog is valid and Volt handles them. Matching is case-sensitive: 'Packed' is fine.",
             "module Timer {\n    in  packed : u8          // ✗ E1013: SystemVerilog keyword\n    out table  : u8          // ✗ E1013\n    table = packed\n}",
             "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        ),
         E1014 => Explanation::new(
             "Two @mmio names generate the same identifier in the register-map driver",
             "The Rust or C driver generated for an @mmio register map would define this identifier twice.",
-            "The drivers build their names from yours: register 'ctrl' gets 'ctrl_raw()' / 'CTRL_OFFSET', a field 'en' of a multi-field register gets 'ctrl_en()' / 'CTRL_EN_SHIFT', and the C header prefixes everything with the module ('GPIO_CTRL', 'gpio_get_ctrl_en'). Two different names can meet: a field 'raw' of 'ctrl' and the raw-word accessor 'ctrl_raw'; field 'irq.status_rx' and field 'irq_status.rx' ('irq_status_rx'); registers 'ctrl' and 'Ctrl' (both 'CTRL_OFFSET'); a register named 'new', 'read' or 'write' and the driver's own methods; a register 'h' or 'base' and the header's 'GPIO_H' guard or 'GPIO_BASE'; a field named 'uint32_t' or like a macro as a C setter parameter; two @mmio modules whose snake_case name is the same file ('GpioRegs' and 'GPIORegs' both write build/sw/gpio_regs.*). The Rust driver would not compile, the C header may even compile with one definition silently replacing the other, and two modules would overwrite each other's files. Volt does not rename either name behind your back (ADR-0078): the driver API is what firmware calls. Rename one of the two.",
+            "The drivers build their names from yours: register 'ctrl' gets 'ctrl_raw()' / 'CTRL_OFFSET', a field 'en' of a multi-field register gets 'ctrl_en()' / 'CTRL_EN_SHIFT', and the C header prefixes everything with the module ('GPIO_CTRL', 'gpio_get_ctrl_en'). Two different names can meet: a field 'raw' of 'ctrl' and the raw-word accessor 'ctrl_raw'; field 'irq.status_rx' and field 'irq_status.rx' ('irq_status_rx'); registers 'ctrl' and 'Ctrl' (both 'CTRL_OFFSET'); a register named 'new', 'read' or 'write' and the driver's own methods; a register 'h' or 'base' and the header's 'GPIO_H' guard or 'GPIO_BASE'; a field named 'uint32_t' or like a macro as a C setter parameter; two @mmio modules whose snake_case name is the same file ('GpioRegs' and 'GPIORegs' both write build/sw/gpio_regs.*). The Rust driver would not compile, the C header may even compile with one definition silently replacing the other, and two modules would overwrite each other's files. Volt does not rename either name behind your back: the driver API is what firmware calls. Rename one of the two.",
             "@reg(offset = 0x00, access = ReadWrite)\nctrl : { raw : u8, en : bool, @reserved : bits<23> }   // ✗ E1014: 'ctrl_raw' twice",
             "@reg(offset = 0x00, access = ReadWrite)\nctrl : { data : u8, en : bool, @reserved : bits<23> }  // ✓",
-        )
-        .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
+        ),
 
         E1015 => Explanation::new(
             "A name in a pattern must be a constant",
             "A 'match' arm pattern names a port, register, wire, 'let', loop variable or other non-constant.",
-            "In Volt a name in a pattern is a VALUE that the scrutinee is compared with — 'LIMIT => ...' means 'x == LIMIT' — never a new variable (Volt has no binding patterns, ADR-0085). The value must be known at compile time: a 'const' or a generic parameter. A signal changes every cycle, so it cannot be a case label; in Rust the same name would silently bind a new variable and catch every value, which is why Volt rejects it instead. Compare explicitly with 'if', or match a constant. A name that is not defined at all is E1001 (for an enum variant the fix-it writes 'Enum::Variant').",
+            "In Volt a name in a pattern is a VALUE that the scrutinee is compared with — 'LIMIT => ...' means 'x == LIMIT' — never a new variable (Volt has no binding patterns). The value must be known at compile time: a 'const' or a generic parameter. A signal changes every cycle, so it cannot be a case label; in Rust the same name would silently bind a new variable and catch every value, which is why Volt rejects it instead. Compare explicitly with 'if', or match a constant. A name that is not defined at all is E1001 (for an enum variant the fix-it writes 'Enum::Variant').",
             "in  lim : u8
 match x {
     lim => { hit <= true }     // ✗ E1015: 'lim' is a port
@@ -307,14 +302,13 @@ match x {
     LIMIT => { hit <= true }   // ✓ constant
     _     => { }
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0085-desen-adlari.md"]),
+        ),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(
             "Bit width mismatch",
             "The two sides of this connection have different bit widths.",
-            "Implicit narrowing silently drops upper bits — a classic source of hardware bugs that only appear with large values. Volt never narrows implicitly: the truncation must be written out with 'as'. Widening to a wider target of the SAME sign is implicit only when the target type is written explicitly (a let/reg/port type or an assignment target, ADR-0041); operands of different widths with no written target still need a cast.",
+            "Implicit narrowing silently drops upper bits — a classic source of hardware bugs that only appear with large values. Volt never narrows implicitly: the truncation must be written out with 'as'. Widening to a wider target of the SAME sign is implicit only when the target type is written explicitly (a let/reg/port type or an assignment target); operands of different widths with no written target still need a cast.",
             "in  a : u16\nout y : u8\ny = a                   // ✗ E2001: 16 bits into 8",
             "y = a as u8             // ✓ explicit narrowing (W2010)\nout z : u32\nz = a                   // ✓ same-sign widening, target written",
         ),
@@ -333,7 +327,7 @@ match x {
             "y = if count != 0 { a } else { b }   // ✓",
         )
         .with_note(
-            "The branches of an 'if' expression and the arms of a 'match' expression must have one type when nothing around them states it (an untyped let): 'let r = match op { 0 => a, _ => true }' is E2003 \"match arms have different types\". With a stated type (a typed let, an assignment target, a port) that type is pushed into every arm, like 'if' (ADR-0041, ADR-0083): 'let r : u9 = match op { 0 => a + b, _ => b }' computes a + b in 9 bits.",
+            "The branches of an 'if' expression and the arms of a 'match' expression must have one type when nothing around them states it (an untyped let): 'let r = match op { 0 => a, _ => true }' is E2003 \"match arms have different types\". With a stated type (a typed let, an assignment target, a port) that type is pushed into every arm, like 'if': 'let r : u9 = match op { 0 => a + b, _ => b }' computes a + b in 9 bits.",
         ),
         E2004 => Explanation::new(
             "Arithmetic on a bits<N> type",
@@ -373,7 +367,7 @@ match x {
         E2009 => Explanation::new(
             "Invalid cast",
             "'as' cannot convert between these two types.",
-            "Casts are only defined between numeric/bit types of matching structure (u/i/bits). Converting a bool or a clock into a number, or vice versa, has no single obvious meaning — express the intent with an explicit expression instead.\n\nRaw bits never become an enum (or a struct with an enum or Trit field) implicitly: the bits may hold a code that is no variant. The same rule covers memories: Ram, DualPortRam and AsyncDualPortRam reject such a T, because a never-written address reads back raw bits (ADR-0087); store the bits (Ram<u8, ...>) and decode the field explicitly.",
+            "Casts are only defined between numeric/bit types of matching structure (u/i/bits). Converting a bool or a clock into a number, or vice versa, has no single obvious meaning — express the intent with an explicit expression instead.\n\nRaw bits never become an enum (or a struct with an enum or Trit field) implicitly: the bits may hold a code that is no variant. The same rule covers memories: Ram, DualPortRam and AsyncDualPortRam reject such a T, because a never-written address reads back raw bits; store the bits (Ram<u8, ...>) and decode the field explicitly.",
             "in  ck : clock\ny = ck as u1            // ✗ E2009: clocks are not data",
             "y = if flag { 1 } else { 0 }    // ✓ (bool → number, explicit)",
         ),
@@ -401,36 +395,32 @@ match x {
         E2013 => Explanation::new(
             "Invalid struct declaration",
             "This plain struct cannot describe a data value.",
-            "A plain 'struct' is a one-directional data value: it is stored in a register, compared and converted with 'as', and it lowers to one hardware signal per field. So it needs at least one field (a zero-width value is no signal), and its fields carry no clock domain and no direction — the whole value lives in the domain of the signal that holds it. Per-field domains, directions and 'struct port' bundles belong to a 'struct port' (ADR-0039), which groups directed port fields and is not a value (ADR-0077).",
+            "A plain 'struct' is a one-directional data value: it is stored in a register, compared and converted with 'as', and it lowers to one hardware signal per field. So it needs at least one field (a zero-width value is no signal), and its fields carry no clock domain and no direction — the whole value lives in the domain of the signal that holds it. Per-field domains, directions and 'struct port' bundles belong to a 'struct port', which groups directed port fields and is not a value.",
             "struct Empty { }                // ✗ E2013: no fields\nstruct P { a : u4 @Fast }        // ✗ E2013: domain on a field\nstruct Q { bus : AxiLite }       // ✗ E2013: AxiLite is a 'struct port'",
             "struct P { a : u4, b : bool }   // ✓\nin p : P @Fast                   // ✓ the domain goes on the signal\nstruct port Link { out d : P  in ready : bool }   // ✓ a bundle may carry a struct",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
         E2014 => Explanation::new(
             "Struct literal field missing or repeated",
             "Every field of the struct must be given exactly once in the literal.",
-            "In hardware every bit needs an explicit source. An implicit default would silently zero a field in a reset value and hide a forgotten field in combinational logic, so a struct literal lists all fields, each once, in any order (the shorthand 'P { a, b }' takes same-named locals). To change a single field of a register, assign the field: 'p.a <= x' (ADR-0077).",
+            "In hardware every bit needs an explicit source. An implicit default would silently zero a field in a reset value and hide a forgotten field in combinational logic, so a struct literal lists all fields, each once, in any order (the shorthand 'P { a, b }' takes same-named locals). To change a single field of a register, assign the field: 'p.a <= x'.",
             "reg p : P = P { a: 0 }                 // ✗ E2014: field 'b' missing\nlet q : P = P { a: 1, a: 2, b: true }  // ✗ E2014: 'a' given twice",
             "reg p : P = P { a: 0, b: false }       // ✓\non clk { p.a <= x }                    // ✓ update one field",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
 
         E2015 => Explanation::new(
             "Function has no result",
             "A function must declare its return type and end its body with a final expression.",
-            "A Volt function is a named combinational expression: its body is 'let' bindings followed by the value it computes, and that value is the hardware the call becomes. A function without a return type or without a final expression computes nothing, so it has no hardware meaning. There is no 'return' statement: an early return is a priority encoder, which an if/else chain states explicitly (ADR-0081).",
+            "A Volt function is a named combinational expression: its body is 'let' bindings followed by the value it computes, and that value is the hardware the call becomes. A function without a return type or without a final expression computes nothing, so it has no hardware meaning. There is no 'return' statement: an early return is a priority encoder, which an if/else chain states explicitly.",
             "fn parity(x: u8) {              // ✗ E2015: no return type\n    popcount(x) & 1\n}\nfn inc(a: u8) -> u8 {\n    let t = a + 1                // ✗ E2015: no final expression\n}",
             "fn inc(a: u8) -> u8 {\n    let t = a + 1\n    t                            // ✓ the final expression is the result\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
         E2016 => Explanation::new(
             "Function is not combinational",
             "A function body may not hold state or drive a signal, and its signature may not take a clock or a reset.",
-            "A function call becomes a combinational circuit at every call site. A 'reg', an 'on' or 'comb' block, an instance or sync() in the body would create registers that nobody sees at the call site, and each call would silently create another copy. An assignment would drive a signal from inside an expression. A clock or reset parameter ties the function to a clock domain, which a combinational value does not have. If you need state, write a module (ADR-0081).",
+            "A function call becomes a combinational circuit at every call site. A 'reg', an 'on' or 'comb' block, an instance or sync() in the body would create registers that nobody sees at the call site, and each call would silently create another copy. An assignment would drive a signal from inside an expression. A clock or reset parameter ties the function to a clock domain, which a combinational value does not have. If you need state, write a module.",
             "fn acc(x: u8) -> u8 {\n    reg s : u8 = 0               // ✗ E2016: state in a function\n    s\n}\nfn f(clk: clock, x: u8) -> u8 { x }   // ✗ E2016: clock parameter",
             "fn sat_inc(a: u8) -> u8 {\n    if a == 255 { a } else { a + 1 }   // ✓ pure combinational\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         // ─── Constant evaluation (const-eval.md) ───
         E2020 => Explanation::new(
@@ -485,7 +475,7 @@ match x {
         E2027 => Explanation::new(
             "Loop unrolling limit exceeded",
             "This compile-time 'for' loop expands past the unrolling limit.",
-            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process. The same code also caps the total size of everything expanded in one compilation unit — unrolled loop bodies, generic module instantiations and inlined function calls share one budget of AST nodes (ADR-0068, ADR-0081). A function whose body calls another function twice doubles at every level, so a short chain of such functions can request millions of nodes; the call site that crosses the budget is reported.",
+            "Every iteration of a 'for' becomes real hardware, so a loop of a million iterations is a million copies of the body. Exceeding the limit usually means the bound is a wrong constant; if the design genuinely needs that much hardware, restructure it into a memory or a sequential process. The same code also caps the total size of everything expanded in one compilation unit — unrolled loop bodies, generic module instantiations and inlined function calls share one budget of AST nodes. A function whose body calls another function twice doubles at every level, so a short chain of such functions can request millions of nodes; the call site that crosses the budget is reported.",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ bounded by a small const\n    t[i] = d[i]\n}",
         ),
@@ -506,11 +496,10 @@ match x {
         E2030 => Explanation::new(
             "Invalid enum encoding",
             "The enum's variants cannot be given a single, unambiguous hardware encoding.",
-            "An enum lowers to a plain bit vector: by default the variants are numbered 0, 1, 2 ... in declaration order and the width is max(1, clog2(n)). Explicit values ('Add = 0, Jal = 8') and a base type ('enum Op : u4') carry an external encoding (an opcode, a documented register code) into the design. The rules: either every variant has an explicit value or none does (a mixed list has two readings — the next value after 'A = 5' is 6 in SystemVerilog and Rust); values are distinct; the base type is an unsigned uN, uint<N> or bits<N> wide enough for every variant; the enum has at least one variant (ADR-0074).",
+            "An enum lowers to a plain bit vector: by default the variants are numbered 0, 1, 2 ... in declaration order and the width is max(1, clog2(n)). Explicit values ('Add = 0, Jal = 8') and a base type ('enum Op : u4') carry an external encoding (an opcode, a documented register code) into the design. The rules: either every variant has an explicit value or none does (a mixed list has two readings — the next value after 'A = 5' is 6 in SystemVerilog and Rust); values are distinct; the base type is an unsigned uN, uint<N> or bits<N> wide enough for every variant; the enum has at least one variant.",
             "enum Op : u4 { Add = 0, Sub, Jal = 8 }   // ✗ E2030: mixed explicit/implicit values\nenum Mode : i4 { A = 0, B = 1 }          // ✗ E2030: base type must be unsigned\nenum Dup { A = 1, B = 1 }                // ✗ E2030: duplicate value 1",
             "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
-        )
-        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
+        ),
 
         // ─── Clock/reset domains (domain-inference.md) ───
         E3001 => Explanation::new(
@@ -521,7 +510,7 @@ match x {
             "result = sync(data, slow_clk)    // ✓ two flip-flops",
         )
         .with_note("sync() synchronizes each bit independently. For multi-bit data the bits may be captured on different clock edges (0b11111111 → 0b11110000 as an invalid intermediate value). For multi-bit crossings use Gray coding (counters), AsyncFifo (data streams) or a handshake protocol (control).")
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3002 => Explanation::new(
             "Undefined clock domain",
             "The '@' annotation names a domain that is never declared.",
@@ -529,16 +518,16 @@ match x {
             "module M {\n    in data : u8 @Fasst    // ✗ E3002: no 'domain Fasst'\n}",
             "domain Fast { clock = posedge }\nmodule M {\n    in data : u8 @Fast     // ✓\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3003 => Explanation::new(
             "Reset domain crossing (RDC)",
             "A reset release is not synchronized to every clock it reaches: one asynchronous reset port is shared by several clock domains, the same raw reset is synchronized twice on one clock, or a raw reset port does not match the domain it feeds.",
-            "Asserting a reset asynchronously is harmless; RELEASING it is not. A release that is synchronous to one clock is asynchronous to every other clock, so registers of a second domain may leave reset in different cycles or go metastable (a recovery/removal violation). Volt generates one reset port per polarity ('rst' / 'rst_n'), so two 'reset = async' domains with the same polarity share one port — its release can be synchronous to at most one of their clocks. The fix is to take the raw reset in explicitly as 'in rst_n : reset(async, active_low)': the compiler then adds a two-stage release synchronizer for every clock the port feeds (asynchronous assert, synchronous release) and resets each domain from its own chain (ADR-0065). The same code reports a raw reset synchronized twice on one clock (the parent and an instance each add a chain, so the two releases can land in different cycles), a raw port whose '(sync|async, polarity)' differs from the domain it feeds, and a raw port named like the automatic port of another domain.",
+            "Asserting a reset asynchronously is harmless; RELEASING it is not. A release that is synchronous to one clock is asynchronous to every other clock, so registers of a second domain may leave reset in different cycles or go metastable (a recovery/removal violation). Volt generates one reset port per polarity ('rst' / 'rst_n'), so two 'reset = async' domains with the same polarity share one port — its release can be synchronous to at most one of their clocks. The fix is to take the raw reset in explicitly as 'in rst_n : reset(async, active_low)': the compiler then adds a two-stage release synchronizer for every clock the port feeds (asynchronous assert, synchronous release) and resets each domain from its own chain. The same code reports a raw reset synchronized twice on one clock (the parent and an instance each add a chain, so the two releases can land in different cycles), a raw port whose '(sync|async, polarity)' differs from the domain it feeds, and a raw port named like the automatic port of another domain.",
             "domain Fast { clock = posedge, reset = async active_low }\ndomain Slow { clock = posedge, reset = async active_low }\nmodule Top {\n    in fast_clk : clock @Fast    // ✗ E3003: 'rst_n' serves both clocks\n    in slow_clk : clock @Slow\n}",
             "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ one synchronizer per clock\n}",
         )
         .with_note("Clock-domain crossings of DATA between the two domains are still E3001; E3003 is only about the reset itself. A domain with 'reset = sync' that shares 'rst' with another clock is the milder W3010.")
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3004 => Explanation::new(
             "Reset sequence violation",
             "A register leaves reset before a domain it depends on has been released.",
@@ -580,7 +569,7 @@ match x {
         E3009 => Explanation::new(
             "Information flow violation (trust_level)",
             "Data from a higher trust level reaches a lower-trust sink without passing through 'declassify'.",
-            "A domain may carry 'trust_level = secret | confidential | public' (ADR-0052). Every signal inherits the trust level of its domain (K1/K2 as for clocks), an expression carries the highest level of its operands, and the compiler follows that label through assignments, 'let' bindings, registers, 'if'/'match' conditions and instance ports. Information may only flow to the same or a higher level: secret → public is a leak, public → secret is fine, constants fit everywhere. Signals whose domain has no 'trust_level' are unclassified: they take the highest level ever written into them, so an unannotated register cannot launder a secret. The only sanctioned downgrade is 'declassify(expr, \"reason\")', which turns the value public and leaves a W3008 audit trail.",
+            "A domain may carry 'trust_level = secret | confidential | public'. Every signal inherits the trust level of its domain (K1/K2 as for clocks), an expression carries the highest level of its operands, and the compiler follows that label through assignments, 'let' bindings, registers, 'if'/'match' conditions and instance ports. Information may only flow to the same or a higher level: secret → public is a leak, public → secret is fine, constants fit everywhere. Signals whose domain has no 'trust_level' are unclassified: they take the highest level ever written into them, so an unannotated register cannot launder a secret. The only sanctioned downgrade is 'declassify(expr, \"reason\")', which turns the value public and leaves a W3008 audit trail.",
             "domain SecureCore { trust_level = secret }\ndomain Debug      { trust_level = public }\n\nmodule KeyStore {\n    in  clk       : clock\n    in  key       : u128 @SecureCore\n    out debug_out : u8   @Debug\n    debug_out = key[7:0]                // ✗ E3009: secret data flows to a public output\n}",
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ✓ deliberate, W3008 records it",
         )
@@ -592,7 +581,7 @@ match x {
             "module M {\n    in a : u8 @Fast\n    in b : u8 @Slow\n    wire t : u8         // ✗ E3010: @Fast or @Slow?\n}",
             "    wire t : u8 @Fast   // ✓ stated explicitly",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3011 => Explanation::new(
             "Register written from more than one domain",
             "Two 'on' blocks in different clock domains write the same register.",
@@ -600,7 +589,7 @@ match x {
             "on fast_clk { r <= a }\non slow_clk { r <= b }  // ✗ E3011",
             "on fast_clk {\n    r <= if sel { sync(b, fast_clk) } else { a }   // ✓ one domain\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3012 => Explanation::new(
             "Foreign-domain signal read inside an 'on' block",
             "The 'on' block's clock belongs to one domain, but the expression reads a signal from another.",
@@ -608,12 +597,12 @@ match x {
             "on slow_clk {\n    r <= fast_data      // ✗ E3012: fast_data is @Fast\n}",
             "on slow_clk {\n    r <= sync(fast_data, slow_clk)   // ✓\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
 
         E3013 => Explanation::new(
             "Bundle fields inferred in different clock domains",
             "The flattened fields of one bundle port ended up in different clock domains.",
-            "A bundle (struct port, ADR-0039) is one interface: every field crosses the module boundary together, so all of them must live in the same clock domain. A field-level @Domain annotation that differs from the port annotation, or fields used from blocks of different clocks, splits the interface across a CDC boundary. Annotate the whole port with one domain, or split the interface into two bundles.",
+            "A bundle (struct port) is one interface: every field crosses the module boundary together, so all of them must live in the same clock domain. A field-level @Domain annotation that differs from the port annotation, or fields used from blocks of different clocks, splits the interface across a CDC boundary. Annotate the whole port with one domain, or split the interface into two bundles.",
             "struct port Bus {\n    out data  : u8 @Fast\n    in  ready : bool @Slow    // ✗ E3013: same bundle, two domains\n}",
             "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ one domain for the whole bundle\n}",
         ),
@@ -621,7 +610,7 @@ match x {
         E3014 => Explanation::new(
             "Same symbolic domain bound to two different clocks",
             "Two clock ports of one instance carry the same domain annotation but are driven from different clock domains.",
-            "Inside an extern module an unknown @Name is a symbolic clock domain (ADR-0047): it stands for exactly one real domain per instantiation, and the clock connection decides which one. When two clock ports share a symbolic domain, the wrapped SystemVerilog module is single-clock on that side — feeding those ports from different clocks would open a clock-domain crossing inside a black box the compiler cannot see into. The same rule applies to a regular module whose clock ports name the same @Domain.",
+            "Inside an extern module an unknown @Name is a symbolic clock domain: it stands for exactly one real domain per instantiation, and the clock connection decides which one. When two clock ports share a symbolic domain, the wrapped SystemVerilog module is single-clock on that side — feeding those ports from different clocks would open a clock-domain crossing inside a black box the compiler cannot see into. The same rule applies to a regular module whose clock ports name the same @Domain.",
             "extern module ExtRegFile {
     in wr_clk : clock @Core
     in rd_clk : clock @Core   // one domain, two clock pins
@@ -642,16 +631,15 @@ extern module ExtRegFile {
     ...
 }",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
 
         E3015 => Explanation::new(
             "declassify inside a function",
             "A trust-level downgrade cannot be written inside a function body.",
-            "declassify is a security decision, and ADR-0052 makes it visible where it happens, with its reason. A function body is inlined at every call site, so a declassify inside it would be an invisible downgrade in every caller. Call the function, then declassify its result in the calling module, where the reviewer sees it (ADR-0081).",
+            "declassify is a security decision, so Volt keeps it visible where it happens, with its reason. A function body is inlined at every call site, so a declassify inside it would be an invisible downgrade in every caller. Call the function, then declassify its result in the calling module, where the reviewer sees it.",
             "fn reveal(k: u8) -> u8 {\n    declassify(k, \"debug\")      // ✗ E3015\n}",
             "fn mix(k: u8) -> u8 { k ^ 0x5A }\n...\nlet shown = declassify(mix(key), \"masked value\")   // ✓ in the module",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         E3016 => Explanation::new(
             "Flip-flop clocked by a domain without a clock edge",
@@ -662,14 +650,13 @@ extern module ExtRegFile {
         )
         .with_note(
             "Every use that makes flip-flops is checked, not only 'on' blocks: the destination clock of sync(); the clock port of the source's domain when sync() captures the source first; the clock ports of built-in primitives (SyncFifo, AsyncFifo, Ram, ...); a child module's clock port whose domain has an edge; and the clock contracts are sampled on (the module's first clock port).",
-        )
-        .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
+        ),
 
         // ─── Connectivity/drivers (type-inference.md) ───
         E4001 => Explanation::new(
             "Double driver",
             "The same signal (or the same bits of it) is driven by two sources.",
-            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time. Every source counts: an assignment in another block, a 'let' initializer, an input port (the instantiating module drives it) and a wire bound to a child's inout/opendrain port (driven tri-state through that port). Partial targets conflict only when their bits overlap: y[7:4] and y[3:0] are fine, y = a and y[0] = b are not. Assignments inside one 'on' or 'comb' block are a single driver (ADR-0073). A 'let' inside a block is a name for a value too, not a variable: assigning to it (t = b, t <= b) is E4001 (ADR-0083).",
+            "Two drivers on one wire is an electrical short: whenever they disagree, the result is contention, not a value. Combine the sources into a single assignment (a mux or priority expression) so exactly one value wins at any time. Every source counts: an assignment in another block, a 'let' initializer, an input port (the instantiating module drives it) and a wire bound to a child's inout/opendrain port (driven tri-state through that port). Partial targets conflict only when their bits overlap: y[7:4] and y[3:0] are fine, y = a and y[0] = b are not. Assignments inside one 'on' or 'comb' block are a single driver. A 'let' inside a block is a name for a value too, not a variable: assigning to it (t = b, t <= b) is E4001.",
             "y = a\ny = b                   // ✗ E4001: who wins?\nlet v = a\nv = b                   // ✗ E4001: the let initializer already drives v",
             "y = if sel { b } else { a }  // ✓ single driver\nlet v = if sel { b } else { a }  // ✓",
         ),
@@ -725,20 +712,18 @@ module Gpio {
     input : { pins : u8, @reserved : bits<24> }
     on clk { regs.input.pins <= pins_in }   // ✓ hardware-owned
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+        ),
 
         E4013 => Explanation::new(
             "Recursive function",
             "A function calls itself, directly or through other functions.",
-            "Every function call is inlined into hardware at compile time, one combinational copy per call. A recursive call has no bottom: 'f' would contain a copy of 'f', which contains a copy of 'f', forever. Hardware recursion with a compile-time bound is written with a loop or with separate functions per level (ADR-0081).",
+            "Every function call is inlined into hardware at compile time, one combinational copy per call. A recursive call has no bottom: 'f' would contain a copy of 'f', which contains a copy of 'f', forever. Hardware recursion with a compile-time bound is written with a loop or with separate functions per level.",
             "fn f(x: u8) -> u8 { f(x) }                  // ✗ E4013: f → f\nfn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { g(x) }                  // ✗ E4013: g → h → g",
             "fn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { x ^ 1 }                 // ✓ the call graph has no cycle",
         )
         .with_note(
             "Every function on the cycle is reported once, with the call that closes the cycle and the cycle path ('g → h → g'). Functions that only call a recursive function are not reported.",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         // ─── Behavioral contracts ───
         E4007 => Explanation::new(
@@ -751,7 +736,7 @@ module Gpio {
         E4008 => Explanation::new(
             "Bidirectional port misuse",
             "An 'inout' or 'opendrain' port is assigned directly, driven outside an 'on' block, or used with a member it does not have.",
-            "A bidirectional pad is shared with the outside world, so its value is not a plain expression: at every moment the module either drives it or leaves it to the other devices (high impedance / the pull-up). Volt keeps that decision in the module's own registers (<p>_oe and <p>_out for 'inout', <p>_drive_low for 'opendrain'), synthesised by the compiler, and generates the single tri-state buffer 'assign p = enable ? value : \'z' itself (ADR-0051). A continuous assignment 'p = expr' would produce a push-pull driver that fights the bus; a drive call outside an 'on' block has no register to hold the state; other member names have no meaning on a pad.\n\nThe only operations are: p.drive(value) (inout), p.drive_low() (opendrain), p.release() -- statements inside 'on clk'; p.read() -- the resolved line level as an expression; p.released / p.driving -- the drive state, usable in contracts and expressions. An 'opendrain' port is always 'bool'; an 'inout' port is bool, uN, iN or bits<N>.",
+            "A bidirectional pad is shared with the outside world, so its value is not a plain expression: at every moment the module either drives it or leaves it to the other devices (high impedance / the pull-up). Volt keeps that decision in the module's own registers (<p>_oe and <p>_out for 'inout', <p>_drive_low for 'opendrain'), synthesised by the compiler, and generates the single tri-state buffer 'assign p = enable ? value : \'z' itself. A continuous assignment 'p = expr' would produce a push-pull driver that fights the bus; a drive call outside an 'on' block has no register to hold the state; other member names have no meaning on a pad.\n\nThe only operations are: p.drive(value) (inout), p.drive_low() (opendrain), p.release() -- statements inside 'on clk'; p.read() -- the resolved line level as an expression; p.released / p.driving -- the drive state, usable in contracts and expressions. An 'opendrain' port is always 'bool'; an 'inout' port is bool, uN, iN or bits<N>.",
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    sda = if en { false } else { true }    // ✗ E4008: push-pull on an open-drain line\n}",
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ registered drive intent\n    }\n    invariant: !en -> sda.released\n}",
         ),
@@ -759,7 +744,7 @@ module Gpio {
         E4009 => Explanation::new(
             "Recursive type",
             "A type contains itself, directly or through other types: a struct or struct port field, an enum variant payload or base type, or a type alias target leads back to the type.",
-            "Every Volt type is a fixed number of bits, and a port group is flattened to plain ports at compile time, one port per leaf field ('req_addr', 'req_ready', ...). A type that contains itself has no finite width: 'struct P { d : u8, f : P }' would need 8 + width(P) bits, and a recursive bundle would expand to 'req_req_addr', 'req_req_req_addr', ... forever. The cycle may pass through arrays ('[S; 4]'), tuples, enum payloads, type aliases and generic arguments ('Box<P>' when Box stores its parameter).\n\nBefore ADR-0067 a recursive struct port was silently cut at nesting depth 8 (and, with several self-referencing fields, expanded into millions of ports -- found by the fuzzer as a multi-gigabyte memory blow-up). Before ADR-0069 a recursive plain struct, enum or alias passed 'volt check' without any diagnostic.",
+            "Every Volt type is a fixed number of bits, and a port group is flattened to plain ports at compile time, one port per leaf field ('req_addr', 'req_ready', ...). A type that contains itself has no finite width: 'struct P { d : u8, f : P }' would need 8 + width(P) bits, and a recursive bundle would expand to 'req_req_addr', 'req_req_req_addr', ... forever. The cycle may pass through arrays ('[S; 4]'), tuples, enum payloads, type aliases and generic arguments ('Box<P>' when Box stores its parameter).",
             "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req contains Req\n}\nstruct P {\n    d : u8\n    f : [P; 2]          // ✗ E4009: through an array\n}\ntype T = T              // ✗ E4009",
             "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ leaf fields only, or another (non-recursive) type\n}\nstruct P {\n    d : u8\n    f : [u8; 2]\n}",
         )
@@ -769,37 +754,35 @@ module Gpio {
         E4010 => Explanation::new(
             "Bundle flattening budget exceeded",
             "Flattening the bundle ports of one module would produce more than 4096 plain ports, or a bundle port nests deeper than 8 levels.",
-            "Bundle flattening is exponential in the shape of the type graph: a struct port with two fields of a struct port with two fields of ... doubles at every level, and a bundle array ([Bundle; N], ADR-0056) multiplies by N. Even without a cycle (E4009) an accidental diamond-shaped graph can request millions of ports. The budget turns that into a diagnostic instead of a memory blow-up (ADR-0067): at most 4096 flat ports per module (a 256-element bundle array of a 16-field interface) and at most 8 levels of nesting. Real interfaces stay far below both limits; a module that needs more should be split.",
+            "Bundle flattening is exponential in the shape of the type graph: a struct port with two fields of a struct port with two fields of ... doubles at every level, and a bundle array ([Bundle; N]) multiplies by N. Even without a cycle (E4009) an accidental diamond-shaped graph can request millions of ports. The budget turns that into a diagnostic instead of a memory blow-up: at most 4096 flat ports per module (a 256-element bundle array of a 16-field interface) and at most 8 levels of nesting. Real interfaces stay far below both limits; a module that needs more should be split.",
             "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 flat ports\n}",
             "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 fields\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 flat ports, within the budget\n}\n// or split the interface across several modules",
         ),
         E4011 => Explanation::new(
             "Instance port connection error",
             "A port of a module, extern module or builtin instance is connected in a way that has no hardware meaning.",
-            "An instance literal connects the parent's signals to the child's ports: every input and clock must be bound (there is no default value), an output is read as inst.port and never bound in the literal, an inout/opendrain port shares a line and must be bound to a wire or a bidirectional port by name, and the child's ports are driven only by the child — the parent cannot assign inst.port. A child whose clock domain has a reset also needs a clock of that domain (with its reset) in the parent. This is a connection error, not a width problem (reported as E2005 before ADR-0072).",
+            "An instance literal connects the parent's signals to the child's ports: every input and clock must be bound (there is no default value), an output is read as inst.port and never bound in the literal, an inout/opendrain port shares a line and must be bound to a wire or a bidirectional port by name, and the child's ports are driven only by the child — the parent cannot assign inst.port. A child whose clock domain has a reset also needs a clock of that domain (with its reset) in the parent. This is a connection error, not a width problem.",
             "let f = Filter { clk }                         // ✗ E4011: input 'sample' is not bound\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: output bound in the literal",
             "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
         E4012 => Explanation::new(
             "Part of a signal is never driven",
             "The signal is assigned piece by piece, and some of its pieces have no driver.",
-            "A wire, output port or typed 'let' that is driven field by field (p.a = ..., p.b = ...) or slice by slice (y[3:0] = ...) must have every field and every bit driven; an undriven part is X/undriven in SystemVerilog (Verilator reports UNDRIVEN) and Volt never produces X (ADR-0008). This is the field-by-field form of the rule that a struct literal lists every field (E2014). Registers are exempt: an unassigned field keeps its value, and the reset value is complete (ADR-0077).",
+            "A wire, output port or typed 'let' that is driven field by field (p.a = ..., p.b = ...) or slice by slice (y[3:0] = ...) must have every field and every bit driven; an undriven part is X/undriven in SystemVerilog (Verilator reports UNDRIVEN) and Volt never produces X. This is the field-by-field form of the rule that a struct literal lists every field (E2014). Registers are exempt: an unassigned field keeps its value, and the reset value is complete.",
             "wire p : P\np.a = x                 // ✗ E4012: field 'p.b' is never driven\nout y : u8\ny[3:0] = a              // ✗ E4012: bits 7..4 of 'y' are never driven",
             "wire p : P\np.a = x\np.b = go                // ✓\ny = (a as u8)           // ✓ or drive y[7:4] too",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
 
         E5001 => Explanation::new(
             "Contract violated",
             "Formal verification found an execution that breaks a contract of this module.",
-            "A contract (invariant/ensures/assert) is a promise about every reachable state of the design. 'volt verify' asked SymbiYosys to prove it; instead the solver constructed a concrete input sequence — a counterexample — that drives the design into a state where the contract is false. This is not a tool artifact: the RTL as written really can reach that state.\n\nInspect the counterexample waveform (.vcd) to see the exact cycle-by-cycle path, then either fix the logic or, if the scenario is genuinely impossible in the real environment, exclude it with a 'requires'/'assume' contract on the inputs.\n\nIn '--mode cover' the roles flip: E5001 means a cover you wrote was not reached within --depth. A cover the compiler generated (FSM transition, counter wrap, ADR-0066) is an error only when Volt proves that no path from reset reaches it; otherwise it is a note that names the depth it needs, or says it was not reached (ADR-0086).",
+            "A contract (invariant/ensures/assert) is a promise about every reachable state of the design. 'volt verify' asked SymbiYosys to prove it; instead the solver constructed a concrete input sequence — a counterexample — that drives the design into a state where the contract is false. This is not a tool artifact: the RTL as written really can reach that state.\n\nInspect the counterexample waveform (.vcd) to see the exact cycle-by-cycle path, then either fix the logic or, if the scenario is genuinely impossible in the real environment, exclude it with a 'requires'/'assume' contract on the inputs.\n\nIn '--mode cover' the roles flip: E5001 means a cover you wrote was not reached within --depth. A cover the compiler generated (FSM transition, counter wrap) is an error only when Volt proves that no path from reset reaches it; otherwise it is a note that names the depth it needs, or says it was not reached.",
             "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: violated at cycle 7\n}",
             "// 1) Fix the logic so busy and done are never high together, or\n// 2) constrain the environment:\nrequires: !(start && abort)",
         )
         .with_note(
             "The counterexample .vcd is written next to the .sby file under build/formal/. Open it with 'gtkwave' or 'surfer'. BMC only explores up to --depth cycles; a pass at depth N is not a full proof — use --mode prove for unbounded induction.",
-        )
-        .with_docs(&["https://volthdl.org/guide/verify"]),
+        ),
         E5002 => Explanation::new(
             "Contract not proven",
             "In --mode prove the base case held but the induction step failed: the contract may be true, yet it is not inductive (sby status UNKNOWN).",
@@ -809,8 +792,7 @@ module Gpio {
         )
         .with_note(
             "Two remedies: a larger --depth lets the induction step see more history (it helps when the bad start state leads back to a violation only after many cycles), and an extra invariant that relates the registers removes the unreachable start states. The induction trace is copied to build/formal/<task>_induct.vcd; its first cycles show the unreachable state the solver chose.",
-        )
-        .with_docs(&["https://volthdl.org/guide/verify", "docs/adr/ADR-0075-yaniltici-rapor-ve-tani-temizligi.md"]),
+        ),
         E5004 => Explanation::new(
             "Contract expression is not Bool",
             "requires/ensures/invariant/cover/assert/assume conditions must be Bool expressions.",
@@ -821,36 +803,34 @@ module Gpio {
         E5005 => Explanation::new(
             "Contract in a module without a clock port cannot be verified",
             "'volt verify' checks contracts at a clock edge; a module with no clock port gives them no edge, so its contracts would be dropped without a word.",
-            "Every formal check Volt generates is sampled on the edge of the module's first clock port, guarded by its reset (ADR-0011, ADR-0040). A purely combinational module has no such edge. Its contracts used to vanish from the formal run while 'volt verify' still reported success; a dropped contract now stops the run instead (ADR-0097).\n\nThe same holds when the clockless module is instantiated inside a clocked one: its 'requires' would be an obligation of the parent, but there is no edge to check it on.",
+            "Every formal check Volt generates is sampled on the edge of the module's first clock port, guarded by its reset. A purely combinational module has no such edge. Its contracts used to vanish from the formal run while 'volt verify' still reported success; a dropped contract now stops the run instead.\n\nThe same holds when the clockless module is instantiated inside a clocked one: its 'requires' would be an obligation of the parent, but there is no edge to check it on.",
             "module Comb {\n    in  a : u8\n    out b : u8\n    requires: a < 10      // ✗ E5005: Comb has no clock port\n    b = a + 1\n}",
             "module Comb {\n    in  clk : clock\n    in  a   : u8\n    out b   : u8\n    requires: a < 10      // ✓ checked on clk\n    b = a + 1\n}",
         )
         .with_note(
             "Either give the module a clock port, or state the property in the clocked module that instantiates it. 'volt build' and 'volt test' are not affected.",
-        )
-        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        ),
         E5006 => Explanation::new(
             "Nothing to verify",
             "No property is checked in this run: there is no assertion, and every 'requires'/'assume' contract is only assumed.",
-            "A formal run that checks nothing succeeds trivially, and 'proved' would be a false claim. 'volt verify' therefore counts the properties each task actually checks — 'invariant', 'ensures', 'assert' and 'cover' of the task's top module, plus the 'requires'/'assume' contracts of every instance below it, which become the parent's obligations (ADR-0097). A 'requires' of the top module is an assumption about the environment; it is reported, but it is not a checked property.",
+            "A formal run that checks nothing succeeds trivially, and 'proved' would be a false claim. 'volt verify' therefore counts the properties each task actually checks — 'invariant', 'ensures', 'assert' and 'cover' of the task's top module, plus the 'requires'/'assume' contracts of every instance below it, which become the parent's obligations. A 'requires' of the top module is an assumption about the environment; it is reported, but it is not a checked property.",
             "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10      // ✗ E5006: only an assumption, nothing checked\n    y = x\n}",
             "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10\n    ensures:  y < 10      // ✓ a checked property\n    y = x\n}",
         )
         .with_note(
             "Exit code 1, like any error: a run that verifies nothing is not a success.",
-        )
-        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        ),
         E5010 => Explanation::new(
             "Timing misalignment",
             "In a @strict_timing module, values whose pipeline delays differ cannot be combined directly.",
-            "Every signal in a pipelined design belongs to an instruction that entered the pipe some number of cycles ago — its delay (ADR-0037, L1). Combining a 3-cycle-old value with a 2-cycle-old one usually means a missing stage register or a forward from the wrong stage; the result silently mixes two different instructions. Inside a @strict_timing module the compiler tracks a delay for each port (0), register (source delay + 1) and let (join of its operands), and rejects any operator whose operands disagree.\n\nIf the mix is intentional (forwarding, bypass), state the result's delay explicitly — 'let fwd : Delayed<u32, 2> = ...' — or re-align a younger value with 'delay<K>(x)'. Constants and literals are exempt: they carry no timing.",
+            "Every signal in a pipelined design belongs to an instruction that entered the pipe some number of cycles ago — its delay (L1). Combining a 3-cycle-old value with a 2-cycle-old one usually means a missing stage register or a forward from the wrong stage; the result silently mixes two different instructions. Inside a @strict_timing module the compiler tracks a delay for each port (0), register (source delay + 1) and let (join of its operands), and rejects any operator whose operands disagree.\n\nIf the mix is intentional (forwarding, bypass), state the result's delay explicitly — 'let fwd : Delayed<u32, 2> = ...' — or re-align a younger value with 'delay<K>(x)'. Constants and literals are exempt: they carry no timing.",
             "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = a + b        // ✗ E5010: 1 cycle vs 2 cycles\n    on clk { a <= x  b <= a }\n}",
             "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = delay<1>(a) + b   // ✓ both sides are 2 cycles old\n    on clk { a <= x  b <= a }\n}",
         ),
         E5011 => Explanation::new(
             "Invalid pipeline structure",
             "The stage count must match pipeline(N), stage names must be unique, and the pipeline needs exactly one clock port.",
-            "pipeline(N) declares the depth of the pipe up front; the compiler derives every stage register, stall guard and flush guard from it (ADR-0038). A mismatch between N and the number of 'stage' blocks, a duplicated stage name, or an ambiguous clock would make the generated structure ill-defined, so each is rejected here rather than surfacing later as a confusing downstream error.",
+            "pipeline(N) declares the depth of the pipe up front; the compiler derives every stage register, stall guard and flush guard from it. A mismatch between N and the number of 'stage' blocks, a duplicated stage name, or an ambiguous clock would make the generated structure ill-defined, so each is rejected here rather than surfacing later as a confusing downstream error.",
             "pipeline(5) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✗ E5011: 2 stages, 5 declared\n}",
             "pipeline(2) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✓ depth matches\n}",
         ),
@@ -864,7 +844,7 @@ module Gpio {
         E5013 => Explanation::new(
             "Invalid stall/flush statement",
             "A stall set must be a contiguous prefix of the pipeline; stage lists must name real stages.",
-            "Stalling a stage means every earlier stage must also hold — otherwise the held stage would be overwritten by the one still advancing behind it. The compiler therefore requires the stalled set to start at the first stage and be contiguous (ADR-0038 §4). The bare form 'stall when cond' infers that prefix from the stage it is written in, so at module level it has no anchor and the stage list is mandatory. Flush lists are free-form but must name stages of this pipeline.",
+            "Stalling a stage means every earlier stage must also hold — otherwise the held stage would be overwritten by the one still advancing behind it. The compiler therefore requires the stalled set to start at the first stage and be contiguous. The bare form 'stall when cond' infers that prefix from the stage it is written in, so at module level it has no anchor and the stage list is mandatory. Flush lists are free-form but must name stages of this pipeline.",
             "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall D when hazard      // ✗ E5013: D without F is not a prefix\n}",
             "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall F, D when hazard   // ✓ contiguous prefix\n}",
         ),
@@ -893,7 +873,7 @@ module Gpio {
         E5017 => Explanation::new(
             "prev() used outside a contract or with invalid arguments",
             "The prev() builtin appears in RTL (a let, an assignment, an on/comb block) or its arguments are not (signal) / (signal, positive literal).",
-            "prev(x) is the previous-cycle value of x and prev(x, N) the value N cycles ago; it exists only for sequential contracts (requires/ensures/invariant/cover/assert/assume) and lowers to $past(x) in SVA or to a helper register chain in the Yosys flow (ADR-0040). Hardware itself has no implicit history: a past value in RTL must be an explicit register so that its clock, reset and width are visible.",
+            "prev(x) is the previous-cycle value of x and prev(x, N) the value N cycles ago; it exists only for sequential contracts (requires/ensures/invariant/cover/assert/assume) and lowers to $past(x) in SVA or to a helper register chain in the Yosys flow. Hardware itself has no implicit history: a past value in RTL must be an explicit register so that its clock, reset and width are visible.",
             "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    y = prev(x)              // ✗ E5017: RTL context\n}",
             "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg x_r : u8 = 0\n    on clk { x_r <= x }\n    y = x_r                  // ✓ explicit register\n    invariant: prev(x) == x_r   // ✓ prev() inside a contract\n}",
         ),
@@ -1028,8 +1008,7 @@ module Gpio {
             "Verilator turns the top module into a C++ class V<Top> whose ports are data members next to its own API: eval(), final(), trace(), name(), contextp(), rootp and a few more. A port with one of those names produces a class that does not compile, and Verilator does not rename it (it renames only C++ keywords such as 'char' to '__SYM__char', which Volt's test bench follows). The SystemVerilog itself is valid, so 'volt check' and 'volt build' accept the module; only simulating it with this module as the top fails. Rename the port, or simulate a wrapper that instantiates the module.",
             "module Probe {\n    in  clk  : clock\n    out name : u8            // ✗ E8513 in 'volt test': VProbe::name()\n}",
             "module Probe {\n    in  clk     : clock\n    out name_id : u8         // ✓\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        ),
 
         // ─── Release discipline ───
         E9001 => Explanation::new(
@@ -1098,7 +1077,7 @@ module VgaTiming { /* ... */ }
 // unenforced_attributes = \"allow\"",
         )
         .with_note(
-            "@timing, @false_path and @multicycle left this list with ADR-0054: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path in build/constraints/<Module>.sdc, and a malformed one is E0017. An @allow(unenforced) written for them does nothing now and can be removed. ADR-0048 remains the roadmap for @budget (E6001) and the versioning checks (E7001/E7002).",
+            "@timing, @false_path and @multicycle are enforced: 'volt build --emit=sdc' (or xdc) turns them into create_clock, set_max_delay, set_false_path and set_multicycle_path in build/constraints/<Module>.sdc, and a malformed one is E0017. An @allow(unenforced) written for them does nothing now and can be removed. @budget (E6001) and the versioning checks (E7001/E7002) are not enforced yet.",
         ),
         W0023 => Explanation::new(
             "Too many diagnostics; the rest are hidden",
@@ -1192,11 +1171,10 @@ Declare the frequency in the domain so that every module sharing it is constrain
         W2014 => Explanation::new(
             "Unreachable match arm",
             "An earlier arm of this enum 'match' already covers the same variant, so this arm never runs.",
-            "In a 'case' the first matching label wins; a second arm for the same variant is dead hardware and usually a copy-paste slip (the arm meant another variant). The compiler drops the arm from the generated SystemVerilog. Merge the two bodies or name the variant this arm was meant for (ADR-0074).",
+            "In a 'case' the first matching label wins; a second arm for the same variant is dead hardware and usually a copy-paste slip (the arm meant another variant). The compiler drops the arm from the generated SystemVerilog. Merge the two bodies or name the variant this arm was meant for.",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: unreachable\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
+        ),
         W2020 => Explanation::new(
             "Constant condition",
             "This condition always evaluates to the same value, so the branch never changes.",
@@ -1232,7 +1210,7 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bits",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W3004 => Explanation::new(
             "Unused domain definition",
             "This 'domain' is declared but no signal or block belongs to it.",
@@ -1250,57 +1228,57 @@ Declare the frequency in the domain so that every module sharing it is constrain
         W3006 => Explanation::new(
             "Same-address port collision",
             "Two memory ports can touch the same address in the same cycle; the result is not what either port expects (DualPortRam: port B silently wins; AsyncDualPortRam: the read is undefined).",
-            "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. AsyncDualPortRam (ADR-0049) has one write port and one read port on different clocks; a read that overlaps a write to the same address from the other clock returns an undefined value, because the memory array itself is the clock-domain crossing and no synchronizer can order the two accesses. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports use disjoint addresses (e.g. one writer per region, ping-pong buffers, a handshake before reading), or arbitrate the writers in front of a single-port Ram.",
+            "DualPortRam gives two independent read/write ports on one clock. The generated memory applies port A's write first and port B's write second, so a same-cycle write to the same address keeps only port B's data. AsyncDualPortRam has one write port and one read port on different clocks; a read that overlaps a write to the same address from the other clock returns an undefined value, because the memory array itself is the clock-domain crossing and no synchronizer can order the two accesses. Addresses are runtime values, so the compiler cannot rule the collision out statically; it reminds you of the constraint at every instantiation. Guarantee by construction that the ports use disjoint addresses (e.g. one writer per region, ping-pong buffers, a handshake before reading), or arbitrate the writers in front of a single-port Ram.",
             "let m = DualPortRam<u8, 256> { clk: clk, a_addr: x, ..., b_addr: y, ... }   // ⚠ W3006",
             "// ensure x != y whenever a_wr_en && b_wr_en, or:\nlet m = Ram<u8, 256> { ... }   // ✓ single writer, no collision",
         ),
         W3007 => Explanation::new(
             "External bidirectional signal read without synchronization",
             "The level of an 'inout' / 'opendrain' port is read directly; the other end of that line is a device outside the module's clock domain.",
-            "An ordinary 'in' port is trusted to be in the module's domain (K2). A bidirectional pad is different: by definition it is driven by another device (an I2C slave, an SDRAM, a bus master) whose timing has nothing to do with this clock, so a direct read samples an asynchronous signal and can go metastable. The read is therefore treated as external (ADR-0051): pass it through sync() first and use the synchronised copy. Reads inside contracts and as the source of sync() are not reported. The warning is deliberate, not an error: a testbench or a design whose peer is known to share the clock may read the line directly.",
+            "An ordinary 'in' port is trusted to be in the module's domain (K2). A bidirectional pad is different: by definition it is driven by another device (an I2C slave, an SDRAM, a bus master) whose timing has nothing to do with this clock, so a direct read samples an asynchronous signal and can go metastable. The read is therefore treated as external: pass it through sync() first and use the synchronised copy. Reads inside contracts and as the source of sync() are not reported. The warning is deliberate, not an error: a testbench or a design whose peer is known to share the clock may read the line directly.",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asynchronous line sampled directly\n}",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ two-flop synchroniser\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
         ),
         W3008 => Explanation::new(
             "Deliberate trust downgrade",
             "A 'declassify(expr, \"reason\")' call lowers information from a higher trust level to public.",
-            "Declassification is the one legitimate path across the trust lattice (ADR-0052), so the compiler never blocks it — but it never lets it pass silently either. Every call produces this warning with the source level and the reason the author wrote, which makes a security review a matter of reading the compiler output: the warnings are the complete list of places where classified information is intentionally revealed. There is nothing to fix unless the reason no longer holds; if it does not, remove the call and the flow becomes an E3009 error again.",
+            "Declassification is the one legitimate path across the trust lattice, so the compiler never blocks it — but it never lets it pass silently either. Every call produces this warning with the source level and the reason the author wrote, which makes a security review a matter of reading the compiler output: the warnings are the complete list of places where classified information is intentionally revealed. There is nothing to fix unless the reason no longer holds; if it does not, remove the call and the flow becomes an E3009 error again.",
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, reason recorded",
             "// Keep the call and review the reason; the warning is the audit trail, not a defect.",
         ),
         W3009 => Explanation::new(
             "Asynchronous reset assumed to be released synchronously",
             "A module that nothing in the unit instantiates has a 'reset = async' domain but no raw reset port, so nothing in Volt synchronizes the release of its automatic reset port.",
-            "The automatic 'rst' / 'rst_n' port carries a contract: the reset it receives is released synchronously to the clock of the domain (ADR-0065 §1). Inside a Volt hierarchy the compiler keeps that promise — a parent connects its own synchronized reset to the child. At the root of the unit nobody does: if the port is wired to a pad or a power-on reset, the release is asynchronous and every flip-flop of the domain can leave reset in a different cycle. The warning makes that assumption visible once per module. If the reset really comes from outside, declare it as a raw port and the compiler adds the synchronizer; if an integrator already synchronizes it (IP delivered to another design), the warning documents the contract and needs no change.",
+            "The automatic 'rst' / 'rst_n' port carries a contract: the reset it receives is released synchronously to the clock of the domain. Inside a Volt hierarchy the compiler keeps that promise — a parent connects its own synchronized reset to the child. At the root of the unit nobody does: if the port is wired to a pad or a power-on reset, the release is asynchronous and every flip-flop of the domain can leave reset in a different cycle. The warning makes that assumption visible once per module. If the reset really comes from outside, declare it as a raw port and the compiler adds the synchronizer; if an integrator already synchronizes it (IP delivered to another design), the warning documents the contract and needs no change.",
             "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' assumed synchronous to 'clk'\n}",
             "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ compiler synchronizes the release\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W3010 => Explanation::new(
             "Synchronous reset shared by several clock domains",
             "Two or more clock domains with 'reset = sync' (the default) use the same generated 'rst' / 'rst_n' port, so its release is asynchronous to at least one of their clocks.",
-            "A synchronous reset is sampled like data: every flip-flop sees it on its D input. When one reset port reaches flip-flops of two unrelated clocks, the edge on which it is released is asynchronous to at least one of them — the same hazard as an asynchronous reset release, only milder because the reset path itself is timed. At the top of a design the fix is one line: declare the raw reset explicitly and the compiler synchronizes its release to each clock. It stays a warning (ADR-0065, R5' decision) because a module instantiated under a parent that has flip-flops on the same clocks has no error-free form yet: its own raw port would be synchronized a second time (E3003) and its one automatic port can carry only one clock's synchronized reset. Only clocks that reset something count: a clock that drives nothing but the AsyncDualPortRam write side or an extern instance samples no reset.",
+            "A synchronous reset is sampled like data: every flip-flop sees it on its D input. When one reset port reaches flip-flops of two unrelated clocks, the edge on which it is released is asynchronous to at least one of them — the same hazard as an asynchronous reset release, only milder because the reset path itself is timed. At the top of a design the fix is one line: declare the raw reset explicitly and the compiler synchronizes its release to each clock. It stays a warning (R5' decision) because a module instantiated under a parent that has flip-flops on the same clocks has no error-free form yet: its own raw port would be synchronized a second time (E3003) and its one automatic port can carry only one clock's synchronized reset. Only clocks that reset something count: a clock that drives nothing but the AsyncDualPortRam write side or an extern instance samples no reset.",
             "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' sampled by 'sys_clk' and 'pix_clk'\n    in pix_clk : clock @Pix\n}",
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ one release synchronizer per clock\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W4001 => Explanation::new(
             "Unused signal",
-            "Reserved for a netlist-level unused-signal check; this compiler does not emit it. A driven wire nobody reads is reported as W1001 (ADR-0075).",
-            "An unread signal used to be reported twice, as W1001 and W4001, from the same usage data. Since ADR-0075 the source-level W1001 is the single report. The code stays reserved for an analysis on the elaborated design, which would also see readers that are themselves dead. Synthesis prunes an unread signal with any logic feeding only it; if keeping it is intentional (debug probe, reserved pin), prefix the name with '_'.",
+            "Reserved for a netlist-level unused-signal check; this compiler does not emit it. A driven wire nobody reads is reported as W1001.",
+            "An unread signal used to be reported twice, as W1001 and W4001, from the same usage data. The source-level W1001 is now the single report. The code stays reserved for an analysis on the elaborated design, which would also see readers that are themselves dead. Synthesis prunes an unread signal with any logic feeding only it; if keeping it is intentional (debug probe, reserved pin), prefix the name with '_'.",
             "wire spare : u4         // ⚠ W1001: no readers",
             "wire _spare : u4        // ✓ explicitly kept",
         ),
         W4002 => Explanation::new(
             "Register written but never read (netlist)",
-            "Reserved for a netlist-level check; this compiler does not emit it. A register written but never read is reported as W1004 (ADR-0075).",
-            "A write-only register used to be reported twice with the same message, as W1004 and W4002, from the same usage data. Since ADR-0075 the source-level W1004 is the single report. The code stays reserved for an analysis on the elaborated design, where a register may be read only by code that itself turned out to be dead. Synthesis strips the flip-flops of an unread register.",
+            "Reserved for a netlist-level check; this compiler does not emit it. A register written but never read is reported as W1004.",
+            "A write-only register used to be reported twice with the same message, as W1004 and W4002, from the same usage data. The source-level W1004 is now the single report. The code stays reserved for an analysis on the elaborated design, where a register may be read only by code that itself turned out to be dead. Synthesis strips the flip-flops of an unread register.",
             "reg stat : u8 = 0\non clk { stat <= s }   // ⚠ W1004: nobody reads stat",
             "result = stat           // ✓ observed in the netlist",
         ),
         W5001 => Explanation::new(
             "Contract cannot be monitored in simulation",
-            "volt test runs contracts as simulation monitors (ADR-0064), but this contract's expression has no SystemVerilog form yet, so no monitor was generated for it.",
+            "volt test runs contracts as simulation monitors, but this contract's expression has no SystemVerilog form yet, so no monitor was generated for it.",
             "The rest of the design is still tested and every other contract is still monitored; only this one is silently absent from simulation, which is why it is reported. 'volt verify' needs the same SystemVerilog form and rejects the expression with E0003. Rewrite the contract with constructs that lower to SystemVerilog (operators, if-expressions, prev()) so both flows can check it.",
             "invariant: match a { 0 => true, _ => a != 7 }   // ⚠ W5001 in volt test",
             "invariant: a == 0 || a != 7                     // ✓ monitored and provable",

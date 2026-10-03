@@ -72,8 +72,8 @@ impl TypeChecker<'_, '_> {
                 self.err_fn_sig_unsupported(
                     span,
                     &lstr!(en: "'Delayed<T, N>' in a function signature"; tr: "fonksiyon imzasında 'Delayed<T, N>'"),
-                    &lstr!(en: "take the plain value type; the call's latency is inferred from its arguments at the call site (ADR-0081)";
-                           tr: "düz değer tipini alın; çağrının gecikmesi çağrı yerinde argümanlardan çıkarılır (ADR-0081)"),
+                    &lstr!(en: "take the plain value type; the call's latency is inferred from its arguments at the call site";
+                           tr: "düz değer tipini alın; çağrının gecikmesi çağrı yerinde argümanlardan çıkarılır"),
                 );
                 continue;
             }
@@ -98,16 +98,16 @@ impl TypeChecker<'_, '_> {
                     self.err_fn_sig_unsupported(
                         span,
                         &lstr!(en: "a 'struct port' bundle in a function signature"; tr: "fonksiyon imzasında 'struct port' bundle'ı"),
-                        &lstr!(en: "a bundle groups ports and is not a value; pass its fields, or a plain struct (ADR-0077)";
-                               tr: "bundle portları gruplar, değer değildir; alanlarını ya da düz bir struct geçirin (ADR-0077)"),
+                        &lstr!(en: "a bundle groups ports and is not a value; pass its fields, or a plain struct";
+                               tr: "bundle portları gruplar, değer değildir; alanlarını ya da düz bir struct geçirin"),
                     );
                 }
                 Ty::Array { .. } if is_ret => {
                     self.err_fn_sig_unsupported(
                         span,
                         &lstr!(en: "an array as a function's return type"; tr: "fonksiyon dönüş tipi olarak dizi"),
-                        &lstr!(en: "return a plain struct, or one element per function (ADR-0081)";
-                               tr: "düz bir struct ya da fonksiyon başına bir eleman döndürün (ADR-0081)"),
+                        &lstr!(en: "return a plain struct, or one element per function";
+                               tr: "düz bir struct ya da fonksiyon başına bir eleman döndürün"),
                     );
                 }
                 // İmzada izinli tipler (geçersiz tip tanısı tip çözümlemede).
@@ -244,8 +244,8 @@ impl TypeChecker<'_, '_> {
                     self.err_fn_sig_unsupported(
                         span,
                         &lstr!(en: "an array argument that is not a plain name"; tr: "yalın ad olmayan dizi argümanı"),
-                        &lstr!(en: "bind the array to a let or wire and pass its name (ADR-0081)";
-                               tr: "diziyi bir let'e ya da wire'a bağlayıp adını geçirin (ADR-0081)"),
+                        &lstr!(en: "bind the array to a let or wire and pass its name";
+                               tr: "diziyi bir let'e ya da wire'a bağlayıp adını geçirin"),
                     );
                 }
             }

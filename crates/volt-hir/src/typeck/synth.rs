@@ -217,7 +217,7 @@ impl TypeChecker<'_, '_> {
             self.err_type_mismatch_msg(
                 span,
                 &lstr!(en: "operator '{sym}' is not defined for struct '{shown}'"; tr: "'{sym}' operatörü '{shown}' struct'ında tanımlı değil"),
-                &lstr!(en: "operate on a field (p.a), or convert explicitly with 'as uN' (ADR-0077)"; tr: "bir alan üzerinde işlem yapın (p.a) ya da 'as uN' ile açıkça dönüştürün (ADR-0077)"),
+                &lstr!(en: "operate on a field (p.a), or convert explicitly with 'as uN'"; tr: "bir alan üzerinde işlem yapın (p.a) ya da 'as uN' ile açıkça dönüştürün"),
             );
             return self.types.error();
         }

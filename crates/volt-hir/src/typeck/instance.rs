@@ -212,7 +212,7 @@ impl TypeChecker<'_, '_> {
             span,
             lstr!(en: "{name}<{t}, ...> is invalid: {what}, and a never-written address reads back raw bits that may be no valid value"; tr: "{name}<{t}, ...> geçersiz: {what} ve hiç yazılmamış adres geçerli olmayabilecek ham bitler döndürür"),
             lstr!(en: "memory contents are not initialised"; tr: "bellek içeriği başlatılmaz"),
-            lstr!(en: "store the raw bits ({name}<u{w}, ...> with 'value as u{w}') and decode the enum field explicitly after reading (ADR-0077)"; tr: "ham bitleri saklayın ({name}<u{w}, ...>, 'değer as u{w}') ve okuduktan sonra enum alanını açıkça çözün (ADR-0077)"),
+            lstr!(en: "store the raw bits ({name}<u{w}, ...> with 'value as u{w}') and decode the enum field explicitly after reading"; tr: "ham bitleri saklayın ({name}<u{w}, ...>, 'değer as u{w}') ve okuduktan sonra enum alanını açıkça çözün"),
         );
     }
 

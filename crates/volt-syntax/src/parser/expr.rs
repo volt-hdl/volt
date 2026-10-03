@@ -983,8 +983,8 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "a declassification is a deliberate security decision; the reason is the audit trail reviewers read (ADR-0052)";
-                      tr: "güven düşürme bilinçli bir güvenlik kararıdır; gerekçe gözden geçirenlerin okuduğu iz kaydıdır (ADR-0052)"),
+                lstr!(en: "a declassification is a deliberate security decision; the reason is the audit trail reviewers read";
+                      tr: "güven düşürme bilinçli bir güvenlik kararıdır; gerekçe gözden geçirenlerin okuduğu iz kaydıdır"),
             ),
         );
     }

@@ -165,8 +165,8 @@ impl<'a> Emitter<'a> {
                 ),
                 span,
                 &lstr!(
-                    en: "give the match its own let (let v = match ...): as the whole right-hand side it becomes a 'case' of any size (ADR-0083)";
-                    tr: "match'i kendi let'ine verin (let v = match ...): tüm sağ taraf olarak her boyutta bir 'case' olur (ADR-0083)"
+                    en: "give the match its own let (let v = match ...): as the whole right-hand side it becomes a 'case' of any size";
+                    tr: "match'i kendi let'ine verin (let v = match ...): tüm sağ taraf olarak her boyutta bir 'case' olur"
                 ),
             );
             return false;
@@ -180,8 +180,8 @@ impl<'a> Emitter<'a> {
                 ),
                 span,
                 &lstr!(
-                    en: "bind the scrutinee to a let first, or give the match its own let so it becomes a 'case' (ADR-0083)";
-                    tr: "sınananı önce bir let'e bağlayın ya da match'i kendi let'ine verin ki 'case' olsun (ADR-0083)"
+                    en: "bind the scrutinee to a let first, or give the match its own let so it becomes a 'case'";
+                    tr: "sınananı önce bir let'e bağlayın ya da match'i kendi let'ine verin ki 'case' olsun"
                 ),
             );
             return false;

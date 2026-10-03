@@ -135,9 +135,9 @@ impl Inferencer<'_> {
         let candidate = self.clock_candidates.first().map(|(_, d)| d.clone());
         let reason = if in_extern {
             lstr!(en: "the extern module has more than one clock port, so it cannot be \
-                       inferred which one the port belongs to (ADR-0047)";
+                       inferred which one the port belongs to";
                   tr: "extern modülde birden fazla clock portu var, portun hangisine \
-                       ait olduğu çıkarılamıyor (ADR-0047)")
+                       ait olduğu çıkarılamıyor")
         } else {
             lstr!(en: "the module has more than one clock, so it cannot be inferred \
                        which one the signal belongs to";

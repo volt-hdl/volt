@@ -210,10 +210,7 @@ fn annotate_one(ast: &SourceFile, d: volt_diagnostics::Diagnostic) -> volt_diagn
     let Some(ctx) = d.primary_span().map(|s| s.span.ctx) else {
         return d;
     };
-    if d.notes
-        .iter()
-        .any(|n| n.text.contains(GENERATE_NOTE_MARK) || n.text.contains(FOLD_NOTE_MARK))
-    {
+    if d.notes.iter().any(|n| is_expansion_note(&n.text)) {
         return d;
     }
     let note = if d.folded_ctxs.is_empty() {
@@ -224,8 +221,8 @@ fn annotate_one(ast: &SourceFile, d: volt_diagnostics::Diagnostic) -> volt_diagn
         let vars: Vec<String> = chain.iter().map(|(v, n)| format!("{v} = {n}")).collect();
         let vars = vars.join(", ");
         volt_diagnostics::lstr!(
-            en: "in the unrolled 'for' iteration {vars} {GENERATE_NOTE_MARK}";
-            tr: "'for' döngüsünün {vars} yinelemesinde {GENERATE_NOTE_MARK}"
+            en: "in the unrolled 'for' iteration {vars}";
+            tr: "'for' döngüsünün {vars} yinelemesinde"
         )
     } else {
         fold_note(ast, ctx, &d.folded_ctxs)
@@ -276,20 +273,20 @@ fn fold_note(ast: &SourceFile, primary_ctx: u16, folded: &[u16]) -> String {
         .join(", ");
     match (ranges.is_empty(), instantiations) {
         (false, 0) => volt_diagnostics::lstr!(
-            en: "reported once; occurs in {n} unrolled 'for' iterations ({ranges_txt}) {FOLD_NOTE_MARK}";
-            tr: "bir kez raporlandı; {n} açılmış 'for' yinelemesinde geçiyor ({ranges_txt}) {FOLD_NOTE_MARK}"
+            en: "reported once; occurs in {n} unrolled 'for' iterations ({ranges_txt})";
+            tr: "bir kez raporlandı; {n} açılmış 'for' yinelemesinde geçiyor ({ranges_txt})"
         ),
         (false, k) => volt_diagnostics::lstr!(
-            en: "reported once; occurs in {n} copies: unrolled 'for' iterations ({ranges_txt}) across {k} generic instantiations {FOLD_NOTE_MARK}";
-            tr: "bir kez raporlandı; {n} kopyada geçiyor: {k} generic örneklemedeki açılmış 'for' yinelemeleri ({ranges_txt}) {FOLD_NOTE_MARK}"
+            en: "reported once; occurs in {n} copies: unrolled 'for' iterations ({ranges_txt}) across {k} generic instantiations";
+            tr: "bir kez raporlandı; {n} kopyada geçiyor: {k} generic örneklemedeki açılmış 'for' yinelemeleri ({ranges_txt})"
         ),
         (true, k) if k == n => volt_diagnostics::lstr!(
-            en: "reported once; occurs in {n} generic instantiations {FOLD_NOTE_MARK}";
-            tr: "bir kez raporlandı; {n} generic örneklemede geçiyor {FOLD_NOTE_MARK}"
+            en: "reported once; occurs in {n} generic instantiations";
+            tr: "bir kez raporlandı; {n} generic örneklemede geçiyor"
         ),
         (true, _) => volt_diagnostics::lstr!(
-            en: "reported once; {n} identical occurrences {FOLD_NOTE_MARK}";
-            tr: "bir kez raporlandı; {n} özdeş kopya {FOLD_NOTE_MARK}"
+            en: "reported once; {n} identical occurrences";
+            tr: "bir kez raporlandı; {n} özdeş kopya"
         ),
     }
 }
@@ -307,7 +304,15 @@ fn root_ctx(ast: &SourceFile, ctx: u16) -> u16 {
     cur
 }
 
-/// Bağlam notunun tanınma imi (çift uygulamaya karşı).
-const GENERATE_NOTE_MARK: &str = "(ADR-0056)";
-/// Katlama notunun tanınma imi.
-const FOLD_NOTE_MARK: &str = "(ADR-0068)";
+/// Bağlam ya da katlama notu mu (çift uygulamaya karşı): notun iki
+/// dildeki başlangıcı.
+fn is_expansion_note(text: &str) -> bool {
+    [
+        "in the unrolled 'for' iteration",
+        "reported once;",
+        "'for' döngüsünün ",
+        "bir kez raporlandı;",
+    ]
+    .iter()
+    .any(|p| text.starts_with(p))
+}

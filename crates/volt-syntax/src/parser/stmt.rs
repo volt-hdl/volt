@@ -721,7 +721,7 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out (ADR-0083); an enum match is checked variant by variant instead (ADR-0074)"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da (ADR-0083); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074)"),
+                lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out; an enum match is checked variant by variant instead"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da; enum match'i bunun yerine varyant varyant denetlenir"),
             )
         } else {
             Diagnostic::error(
@@ -735,7 +735,7 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
+                lstr!(en: "a match on a number covers every value only with a '_' arm; an enum match is checked variant by variant instead; in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar; enum match'i bunun yerine varyant varyant denetlenir; sıralı blokta boş '_' kolu register değerlerini korur"),
             )
         };
         self.push_error(diag);

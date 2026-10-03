@@ -152,7 +152,7 @@ fn e4005_message_carries_all_five_parts() {
         diag.help
     );
     assert!(
-        diag.notes.iter().any(|n| n.text.contains("ADR-0039")),
+        !diag.notes.is_empty() && diag.notes.iter().all(|n| !n.text.contains("ADR-")),
         "{:?}",
         diag.notes
     );
@@ -254,7 +254,7 @@ fn e3013_message_names_both_domains_and_points_at_port() {
         "{:?}",
         diag.help
     );
-    assert!(diag.notes.iter().any(|n| n.text.contains("ADR-0039")));
+    assert!(!diag.notes.is_empty() && diag.notes.iter().all(|n| !n.text.contains("ADR-")));
 }
 
 // ═══ Genel: bundle portları sıradan portlar gibi çözülür ══════════

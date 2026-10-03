@@ -240,8 +240,8 @@ impl<'a> Emitter<'a> {
                         ),
                         clash_span,
                         &lstr!(
-                            en: "rename the signal '{name}' — enum variants map to '<Enum>_<Variant>' localparams (ADR-0074)";
-                            tr: "'{name}' sinyalini yeniden adlandırın — enum varyantları '<Enum>_<Varyant>' localparam'larına iner (ADR-0074)"
+                            en: "rename the signal '{name}' — enum variants map to '<Enum>_<Variant>' localparams";
+                            tr: "'{name}' sinyalini yeniden adlandırın — enum varyantları '<Enum>_<Varyant>' localparam'larına iner"
                         ),
                     );
                 }

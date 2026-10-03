@@ -180,6 +180,20 @@ pub(crate) fn verify(
         Ok(runner) => runner,
         Err(code) => return code,
     };
+    // Sabitlenmiş formal imajında bitwuzla yok: sby konteyneri boşuna
+    // başlatıp araç hatasıyla düşmek yerine bunu yalnız istendiğinde söyle.
+    if let Runner::Docker(tool) = &sby {
+        let solver = match opts.engine {
+            volt_sv_emit::SbyEngine::Z3 => volt_tools::Tool::Z3,
+            volt_sv_emit::SbyEngine::Boolector => volt_tools::Tool::Boolector,
+            volt_sv_emit::SbyEngine::Yices => volt_tools::Tool::Yices,
+            volt_sv_emit::SbyEngine::Bitwuzla => volt_tools::Tool::Bitwuzla,
+        };
+        if !volt_tools::docker::FORMAL_IMAGE_SOLVERS.contains(&solver) {
+            print_engine_not_in_image(solver.name(), tool.image.name);
+            return ExitCode::from(3);
+        }
+    }
 
     // ── ADIM 3: tek sby süreci, modül başına görev, -j N ──
     let jobs = args.jobs.resolve();
@@ -487,8 +501,8 @@ fn unclocked_diagnostics(list: &[volt_sv_emit::UnclockedContracts]) -> Vec<Diagn
             .with_note(
                 NoteKind::Reason,
                 lstr!(
-                    en: "contracts are sampled on the module's first clock edge (ADR-0011); without one they would be dropped from the formal run without a word (ADR-0097)";
-                    tr: "kontratlar modülün ilk saat kenarında örneklenir (ADR-0011); kenar yoksa formal koşudan tek söz söylenmeden düşerlerdi (ADR-0097)"
+                    en: "contracts are sampled on the module's first clock edge; without one they would be dropped from the formal run without a word";
+                    tr: "kontratlar modülün ilk saat kenarında örneklenir; kenar yoksa formal koşudan tek söz söylenmeden düşerlerdi"
                 ),
             )
         })
@@ -536,9 +550,9 @@ fn nothing_to_verify(file: &Path, compiled: &crate::Compiled) -> Diagnostic {
         (
             lstr!(en: "only assumed, never checked"; tr: "yalnız varsayılıyor, hiç denetlenmiyor"),
             lstr!(
-                en: "every contract here is an assumption about the environment: {}; a 'requires' is checked only where its module is instantiated (ADR-0097)",
+                en: "every contract here is an assumption about the environment: {}; a 'requires' is checked only where its module is instantiated",
                     names.join(", ");
-                tr: "buradaki her kontrat ortam hakkında bir varsayım: {}; bir 'requires' yalnız modülünün örneklendiği yerde denetlenir (ADR-0097)",
+                tr: "buradaki her kontrat ortam hakkında bir varsayım: {}; bir 'requires' yalnız modülünün örneklendiği yerde denetlenir",
                     names.join(", ")
             ),
         )
@@ -711,6 +725,23 @@ fn missing_solver(log: &str) -> Option<String> {
             .collect();
         (!name.is_empty()).then_some(name)
     })
+}
+
+/// `--engine` çözücüsü Docker köprüsünün imajında yok (bitwuzla).
+fn print_engine_not_in_image(solver: &str, image: &str) {
+    eprintln!(
+        "{}",
+        lstr!(
+            en: "error: the SMT solver '{solver}' is not in the Docker image {image}\n  \
+                 = help: pick --engine boolector, yices or z3, or install sby and \
+                 {solver} locally (OSS CAD Suite)\n  \
+                 = for more: volt explain verify-setup";
+            tr: "hata: '{solver}' SMT çözücüsü {image} Docker imajında yok\n  \
+                 = çözüm: --engine boolector, yices ya da z3 seçin veya sby ile \
+                 {solver} çözücüsünü yerel kurun (OSS CAD Suite)\n  \
+                 = daha fazla: volt explain verify-setup"
+        )
+    );
 }
 
 /// Eksik çözücü için yardım: kur ya da kurulu olanı `--engine` ile seç.
@@ -995,8 +1026,8 @@ fn violation_reason(task: &str, prop: &SvaProp) -> String {
     }
     if crate::verify_plan::is_obligation(prop) {
         return lstr!(
-            en: "'{task}' instantiates '{owner}' and drives its inputs, so the '{kw}' contract of '{owner}' is an obligation of '{task}' — and '{task}' breaks it (ADR-0097)";
-            tr: "'{task}' modülü '{owner}' modülünü örnekler ve girişlerini sürer; '{owner}' modülünün '{kw}' kontratı '{task}' modülünün yükümlülüğüdür — ve '{task}' onu bozuyor (ADR-0097)"
+            en: "'{task}' instantiates '{owner}' and drives its inputs, so the '{kw}' contract of '{owner}' is an obligation of '{task}' — and '{task}' breaks it";
+            tr: "'{task}' modülü '{owner}' modülünü örnekler ve girişlerini sürer; '{owner}' modülünün '{kw}' kontratı '{task}' modülünün yükümlülüğüdür — ve '{task}' onu bozuyor"
         );
     }
     lstr!(
@@ -1150,8 +1181,8 @@ fn with_origin_and_trace(mut diag: Diagnostic, prop: &SvaProp, trace: Option<&Pa
         diag = diag.with_note(
             NoteKind::Note,
             lstr!(
-                en: "structurally unreachable: no sequence of states from reset leads here, at any depth (ADR-0086)";
-                tr: "yapısal olarak ulaşılamaz: resetten buraya varan bir durum dizisi yok, hiçbir derinlikte (ADR-0086)"
+                en: "structurally unreachable: no sequence of states from reset leads here, at any depth";
+                tr: "yapısal olarak ulaşılamaz: resetten buraya varan bir durum dizisi yok, hiçbir derinlikte"
             ),
         );
     }

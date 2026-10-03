@@ -371,8 +371,8 @@ impl Parser<'_> {
         .with_note(
             NoteKind::Note,
             lstr!(
-                en: "the payload is data driven by the producer; a bundle has its own directions (e.g. 'ready' flows back), so it cannot be nested in 'data' (ADR-0050)";
-                tr: "payload üreticinin sürdüğü veridir; bundle'ın kendi yönleri vardır (ör. 'ready' geri akar), 'data' içine yerleşemez (ADR-0050)"
+                en: "the payload is data driven by the producer; a bundle has its own directions (e.g. 'ready' flows back), so it cannot be nested in 'data'";
+                tr: "payload üreticinin sürdüğü veridir; bundle'ın kendi yönleri vardır (ör. 'ready' geri akar), 'data' içine yerleşemez"
             ),
         ));
         self.ast.types.alloc(TypeRef {
@@ -849,16 +849,16 @@ impl Parser<'_> {
 
 fn adr_note() -> String {
     lstr!(
-        en: "a bundle array is flattened per element at compile time (ADR-0056)";
-        tr: "bundle dizisi derleme zamanında eleman eleman düzleşir (ADR-0056)"
+        en: "a bundle array is flattened per element at compile time";
+        tr: "bundle dizisi derleme zamanında eleman eleman düzleşir"
     )
 }
 
 /// E4009/E4010 notu: düzleştirme derleme zamanında ve sonludur (ADR-0067).
 pub(super) fn flatten_note() -> String {
     lstr!(
-        en: "a port group is expanded field by field at compile time (ADR-0039); the expansion must be finite and bounded (ADR-0067)";
-        tr: "port grubu derleme zamanında alan alan açılır (ADR-0039); açılım sonlu ve sınırlı olmalıdır (ADR-0067)"
+        en: "a port group is expanded field by field at compile time; the expansion must be finite and bounded";
+        tr: "port grubu derleme zamanında alan alan açılır; açılım sonlu ve sınırlı olmalıdır"
     )
 }
 

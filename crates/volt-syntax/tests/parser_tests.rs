@@ -1148,7 +1148,10 @@ fn e0019_register_assigned_at_module_level_points_to_an_on_block() {
     assert!(help.contains("on clk { r <= r + 1 }"), "{help}");
     // Modül düzeyindeki deyim olduğu gibi `on` bloğuyla değiştirilebilir.
     assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
-    assert_eq!(diags[0].suggestions[0].primary().text, "on clk { r <= r + 1 }");
+    assert_eq!(
+        diags[0].suggestions[0].primary().text,
+        "on clk { r <= r + 1 }"
+    );
 }
 
 #[test]

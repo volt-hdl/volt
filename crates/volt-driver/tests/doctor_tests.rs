@@ -183,6 +183,8 @@ fn no_tools_human_report_names_the_commands_and_the_fix() {
         text.contains("- timing (optional) — OpenSTA not found"),
         "{text}"
     );
+    // Okur ADR numaralarını bilmez: rapor iç belgeye atıf yapmaz.
+    assert!(!text.contains("ADR-"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
