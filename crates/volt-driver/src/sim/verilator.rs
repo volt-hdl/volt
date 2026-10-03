@@ -137,16 +137,81 @@ pub(super) fn verilate(
     job: &VerilateJob<'_>,
     extra: &[&Path],
 ) -> Result<PathBuf, ExitCode> {
-    let verilator = match runner {
-        Runner::Local(path) => path,
-        Runner::Docker(tool) => return verilate_in_docker(tool, job, extra),
+    let obj_dir = job.sim_dir.join(job.mdir);
+    let stamp = build_stamp(runner);
+    prepare_obj_dir(&obj_dir, &stamp);
+    let exe = match runner {
+        Runner::Local(verilator) => {
+            let output = run_tool(job.command(verilator), verilator)?;
+            if !output.status.success() {
+                job.print_failure(&output);
+                return Err(ExitCode::from(3));
+            }
+            job.exe_path()
+        }
+        Runner::Docker(tool) => verilate_in_docker(tool, job, extra)?,
     };
-    let output = run_tool(job.command(verilator), verilator)?;
-    if !output.status.success() {
-        job.print_failure(&output);
-        return Err(ExitCode::from(3));
+    // Damga yalnız başarıdan sonra: yarıda kalan derleme damgasız kalır
+    // ve bir sonraki koşu dizini temizden kurar.
+    let _ = std::fs::write(obj_dir.join(STAMP_FILE), &stamp);
+    Ok(exe)
+}
+
+// ═══ Derleme dizini damgası ═══════════════════════════════════════
+
+/// Başarılı derlemenin obj dizinine yazılan damga dosyası.
+const STAMP_FILE: &str = ".volt-build-stamp";
+
+/// Derlemeyi üreten araç: Volt sürümü, arka uç (local/docker), Verilator
+/// sürümü ve Docker'da imajın özeti. Biri değişince (Docker'dan yerele
+/// geçiş, Verilator güncellemesi, imaj değişimi) eski obj dizini
+/// kullanılmaz: içindeki Makefile'lar başka bir aracın yollarını taşır.
+fn build_stamp(runner: &Runner) -> String {
+    let (backend, tool, image) = match runner {
+        Runner::Local(path) => {
+            let version = match volt_tools::probe_version(
+                path,
+                volt_tools::Tool::Verilator.version_args(),
+                volt_tools::DEFAULT_TIMEOUT,
+            ) {
+                volt_tools::Probe::Ran { output, .. } => {
+                    output.lines().next().unwrap_or("").trim().to_string()
+                }
+                _ => "unknown".to_string(),
+            };
+            (
+                "local",
+                format!("{version} ({})", path.display()),
+                "-".to_string(),
+            )
+        }
+        Runner::Docker(tool) => (
+            "docker",
+            tool.image.contents.to_string(),
+            tool.image.reference(),
+        ),
+    };
+    format!(
+        "volt {}\nbackend {backend}\nverilator {tool}\nimage {image}\n",
+        volt_sv_emit::VOLT_VERSION
+    )
+}
+
+/// Damgası olmayan (yarıda kalmış ya da eski) ya da başka bir araçla
+/// kurulmuş obj dizinini siler; derleme onu baştan kurar. Damgayı
+/// derlemeden önce kaldırır: bu derleme yarıda kalırsa dizin damgasız
+/// kalır.
+fn prepare_obj_dir(obj_dir: &Path, stamp: &str) {
+    if !obj_dir.exists() {
+        return;
     }
-    Ok(job.exe_path())
+    let stamp_path = obj_dir.join(STAMP_FILE);
+    let current = std::fs::read_to_string(&stamp_path).ok();
+    if current.as_deref() == Some(stamp) {
+        let _ = std::fs::remove_file(&stamp_path);
+    } else {
+        let _ = std::fs::remove_dir_all(obj_dir);
+    }
 }
 
 /// Docker kolu: aynı argümanlar, sim dizini konteynere bağlı. Araç
@@ -388,6 +453,51 @@ mod tests {
         let inputs = ["X.sv".to_string()];
         let exe = job(&inputs, false).exe_path();
         assert!(exe.ends_with(Path::new("obj_x").join("VX")));
+    }
+
+    /// Yarıda kalmış (damgasız) ya da başka araçla kurulmuş obj dizini
+    /// silinir; aynı aracın damgalı dizini korunur, damgası derleme
+    /// süresince kaldırılır.
+    #[test]
+    fn obj_dir_without_a_matching_stamp_is_rebuilt_from_scratch() {
+        let root = std::env::temp_dir().join(format!("volt-stamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let obj = root.join("obj_dir");
+
+        // Yarıda kalmış: damga yok, Makefile yarım.
+        std::fs::create_dir_all(&obj).unwrap();
+        std::fs::write(obj.join("VX.mk"), "half").unwrap();
+        prepare_obj_dir(&obj, "stamp A");
+        assert!(!obj.exists(), "damgasız dizin silinmeli");
+
+        // Başka araç (Docker'dan yerele): damga farklı.
+        std::fs::create_dir_all(&obj).unwrap();
+        std::fs::write(obj.join(STAMP_FILE), "stamp B").unwrap();
+        prepare_obj_dir(&obj, "stamp A");
+        assert!(!obj.exists(), "farklı damgalı dizin silinmeli");
+
+        // Aynı araç: dizin kalır, damga derleme bitene dek kalkar.
+        std::fs::create_dir_all(&obj).unwrap();
+        std::fs::write(obj.join("VX.mk"), "ok").unwrap();
+        std::fs::write(obj.join(STAMP_FILE), "stamp A").unwrap();
+        prepare_obj_dir(&obj, "stamp A");
+        assert!(obj.join("VX.mk").is_file());
+        assert!(!obj.join(STAMP_FILE).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stamp_names_the_backend_the_tool_and_the_image() {
+        let local = build_stamp(&Runner::Local(PathBuf::from("volt-no-such-verilator")));
+        assert!(local.contains("backend local"), "{local}");
+        assert!(local.contains("image -"), "{local}");
+        let docker = build_stamp(&Runner::Docker(DockerTool {
+            docker: PathBuf::from("docker"),
+            image: &volt_tools::docker::SIMULATION_IMAGE,
+        }));
+        assert!(docker.contains("backend docker"), "{docker}");
+        assert!(docker.contains("@sha256:"), "{docker}");
+        assert_ne!(local, docker);
     }
 
     #[test]
