@@ -7,7 +7,7 @@ use volt_span::Span;
 
 use super::def::{DefId, DefKind};
 use super::scope::ScopeId;
-use super::suggest::{closest_match, did_you_mean, with_rename};
+use super::suggest::{closest_match, did_you_mean, with_rename_fix};
 use super::Resolver;
 
 impl Resolver<'_> {
@@ -78,7 +78,8 @@ impl Resolver<'_> {
         }
         let enum_name = self.def(enum_def).name.clone();
         let names: Vec<String> = variants.iter().map(|(n, _)| n.clone()).collect();
-        self.diagnostics.push(Diagnostic::error(
+        let suggestion = closest_match(&seg.text, &names);
+        let diag = Diagnostic::error(
             ErrorCode::E1007,
             lstr!(en: "enum '{}' has no variant '{}'", enum_name, seg.text;
                   tr: "'{}' enum'ında '{}' varyantı yok", enum_name, seg.text),
@@ -87,11 +88,14 @@ impl Resolver<'_> {
                 lstr!(en: "unknown variant"; tr: "bilinmeyen varyant"),
             ),
             did_you_mean(
-                closest_match(&seg.text, &names).as_ref(),
+                suggestion.as_ref(),
                 lstr!(en: "available variants: {}", names.join(", ");
                       tr: "mevcut varyantlar: {}", names.join(", ")),
             ),
-        ));
+        );
+        self.diagnostics
+            // suggestion: e1007_variant_typo
+            .push(with_rename_fix(diag, seg.span, suggestion));
         self.error_def
     }
 
@@ -132,7 +136,8 @@ impl Resolver<'_> {
             ),
         );
         self.diagnostics
-            .push(with_rename(diag, name.span, suggestion));
+            // suggestion: e1001_typo
+            .push(with_rename_fix(diag, name.span, suggestion));
     }
 
     /// Ad sıralı gövdede daha aşağıda bildirilmişse E1002 verir (true).
@@ -187,7 +192,7 @@ mod tests {
             .iter()
             .find(|d| d.code.as_str() == "E1001")
             .expect("E1001");
-        assert_eq!(diag.suggestions[0].replacement, "data");
+        assert_eq!(diag.suggestions[0].primary().text, "data");
     }
 
     #[test]

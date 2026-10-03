@@ -260,13 +260,13 @@ volt 0.1.0 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✗ test, run — Verilator, C++ compiler, make not found
-    install (Windows): install Docker Desktop: Volt runs Verilator in a container (DOCKER below), or use WSL
+    fix (Windows): start Docker Desktop: Volt runs Verilator in a container (DOCKER below), or use WSL
     see: volt explain simulation-setup
 ✗ verify — sby, Yosys not found; no SMT solver found (boolector, bitwuzla, yices, z3)
-    install (Windows): install Docker Desktop: Volt runs sby in a container (DOCKER below), or use WSL
+    fix (Windows): start Docker Desktop: Volt runs sby in a container (DOCKER below), or use WSL
     see: volt explain verify-setup
-- timing (optional) — OpenSTA not found; checks generated .sdc files (ADR-0065)
-- driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust (ADR-0053)
+- timing (optional) — OpenSTA not found; checks generated .sdc files
+- driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
 ! docker — 29.7.2 installed, daemon did not answer within 5 s
 - project — no Volt.toml (searched up to the filesystem root); single .volt files still work
 ```
@@ -307,9 +307,8 @@ volt 0.1.0 (windows-x86_64)
 ✓ build, check, explain — no external tools needed
 ✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
-    (bitwuzla is not in this image; --engine boolector|yices|z3, ADR-0082)
-- timing (optional) — OpenSTA not found; checks generated .sdc files (ADR-0065)
-- driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust (ADR-0053)
+- timing (optional) — OpenSTA not found; checks generated .sdc files
+- driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
 ✓ docker — 29.7.2, daemon running
 - project — no Volt.toml (searched up to the filesystem root); single .volt files still work
 ```

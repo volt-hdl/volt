@@ -17,8 +17,8 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// E4009/E4010, ADR-0067 ile; E1013/E8513, ADR-0078 ile; E1014, ADR-0079 ile;
 /// E0018, ADR-0080 ile; E2015/E2016/E3015/E4013, ADR-0081 ile; E1015,
 /// ADR-0085 ile; E5005/E5006, ADR-0097 ile; E0019/W0024, ADR-0098 ile;
-/// E0020/E3016, ADR-0098 ekiyle eklendi.)
-const CODE_COUNT: usize = 157;
+/// E0020/E3016, ADR-0098 ekiyle; W0025, ADR-0099 ile eklendi.)
+const CODE_COUNT: usize = 158;
 
 #[test]
 fn all_codes_present_120_of_120() {
@@ -101,8 +101,7 @@ fn render_e3001_en_follows_spec_section_order() {
     assert!(idx("EXAMPLE") < idx("SOLUTION"));
     assert!(idx("SOLUTION") < idx("NOTE"));
     assert!(idx("NOTE") < idx("FOR MORE"));
-    assert!(text.contains("https://volthdl.org/errors/E3001"));
-    assert!(text.contains("https://volthdl.org/guide/cdc"));
+    assert!(text.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
     assert!(text.contains("sync(data, slow_clk)"));
 }
 
@@ -118,7 +117,7 @@ fn render_e3001_tr_follows_spec_section_order() {
     assert!(idx("ÖRNEK") < idx("ÇÖZÜM"));
     assert!(idx("ÇÖZÜM") < idx("NOT"));
     assert!(idx("NOT") < idx("DAHA FAZLA"));
-    assert!(text.contains("https://volthdl.org/errors/E3001"));
+    assert!(text.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
     // Kod parçacıkları çevrilmez (GLOSSARY.md §0).
     assert!(text.contains("sync(data, slow_clk)"));
 }
@@ -314,7 +313,7 @@ fn w0021_note_says_timing_family_is_enforced_since_adr_0054() {
     for lang in [Lang::En, Lang::Tr] {
         let note = explanation(lang, ErrorCode::W0021).note.unwrap();
         assert!(
-            note.contains("ADR-0054") && note.contains("--emit=sdc"),
+            !note.contains("ADR-") && note.contains("--emit=sdc"),
             "{note}"
         );
     }
@@ -360,7 +359,7 @@ fn e0018_explanation_in_both_languages() {
 fn w5001_explanation_in_both_languages() {
     let en = explanation(Lang::En, ErrorCode::W5001);
     assert!(en.title.contains("monitored in simulation"), "{}", en.title);
-    assert!(en.summary.contains("ADR-0064"), "{}", en.summary);
+    assert!(!en.summary.contains("ADR-"), "{}", en.summary);
     assert!(en.why.contains("E0003"), "{}", en.why);
     assert!(en.note.unwrap().contains("--no-contracts"));
     let tr = explanation(Lang::Tr, ErrorCode::W5001);
@@ -398,7 +397,7 @@ fn w0021_explanation_notes_the_adr_in_both_languages() {
         let note = exp
             .note
             .unwrap_or_else(|| panic!("{}: NOT bölümü yok", lang.as_str()));
-        assert!(note.contains("ADR-0048"), "{note}");
+        assert!(!note.contains("ADR-"), "{note}");
     }
 }
 
@@ -446,14 +445,14 @@ fn adr_0065_rdc_explanations_point_to_the_raw_reset_port() {
         // Eski metin bir CDC örneğiydi (dst <= sync(...)); yeni metin reset'in kendisi.
         assert!(!e.fix.contains("sync(src"), "{}", e.fix);
         assert!(e.fix.contains("reset(async, active_low)"), "{}", e.fix);
-        assert!(e.why.contains("ADR-0065"), "{}", e.why);
+        assert!(!e.why.contains("ADR-"), "{}", e.why);
         assert!(e.note.is_some_and(|n| n.contains("W3010")));
         for w in [ErrorCode::W3009, ErrorCode::W3010] {
             let x = explanation(lang, w);
             assert!(x.fix.contains(": reset("), "{}: {}", w.as_str(), x.fix);
             assert!(w.is_warning());
         }
-        assert!(explanation(lang, ErrorCode::W3010).why.contains("ADR-0065"));
+        assert!(!explanation(lang, ErrorCode::W3010).why.contains("ADR-"));
         // R5' kararı (ADR-0065): uyarı kalıcı, gerekçesi hatasız biçimi
         // olmayan hiyerarşi (E3003 R6) — "geçici" dili kalktı.
         let why = explanation(lang, ErrorCode::W3010).why;
@@ -466,7 +465,7 @@ fn adr_0065_rdc_explanations_point_to_the_raw_reset_port() {
             "{why}"
         );
     }
-    assert!(ErrorCode::W3009.description().contains("ADR-0065"));
+    assert!(!ErrorCode::W3009.description().contains("ADR-"));
 }
 
 #[test]
@@ -477,7 +476,7 @@ fn e0003_explains_the_fn_bit_select_limit_and_its_fix_in_both_languages() {
         let note = explanation(lang, ErrorCode::E0003)
             .note
             .expect("E0003 notu");
-        assert!(note.contains("ADR-0081"), "{note}");
+        assert!(!note.contains("ADR-"), "{note}");
         assert!(
             note.contains("`comb`") && note.contains("`x[3:0]`"),
             "{note}"
@@ -542,6 +541,38 @@ fn waveforms_topic_explains_recording_opening_and_enum_names() {
             "+1, 0, -1",
         ] {
             assert!(page.contains(needle), "{lang:?} {needle}:\n{page}");
+        }
+    }
+}
+
+/// Kullanıcıya dönük metin iç belge numarası (ADR-) ve alınmamış alan
+/// adına bağlantı taşımaz: okur ADR'leri bilmez; daha fazlası için
+/// `volt explain` ya da kitap bağlantısı verilir.
+fn assert_reader_text(what: &str, text: &str) {
+    assert!(!text.contains("ADR-"), "{what}: ADR atfı:\n{text}");
+    assert!(
+        !text.contains(concat!("volthdl", ".org")),
+        "{what}: alınmamış alan adı:\n{text}"
+    );
+}
+
+#[test]
+fn explanations_topics_and_code_list_carry_no_adr_or_dead_domain() {
+    use volt_diagnostics::explain::topics::{render_topic, render_topic_list, TOPIC_NAMES};
+    for lang in [Lang::En, Lang::Tr] {
+        for &code in ErrorCode::ALL {
+            let text = render_explanation(code, lang, 80, false);
+            assert_reader_text(code.as_str(), &text);
+            assert_reader_text(
+                code.as_str(),
+                volt_diagnostics::messages::message(lang, code),
+            );
+        }
+        assert_reader_text("--list", &volt_diagnostics::render_list(lang));
+        assert_reader_text("--topics", &render_topic_list(lang));
+        for name in TOPIC_NAMES {
+            let text = render_topic(name, lang, 80, false).expect("konu");
+            assert_reader_text(name, &text);
         }
     }
 }

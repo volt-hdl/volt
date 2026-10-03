@@ -18,6 +18,12 @@ tests/
 │                       önerisi uygulanınca tanı gider, yeni hata çıkmaz;
 │                       `// no-quickfix: KOD` kesin düzeltme taşımaz.
 │                       Kasıtlı hatalıdır — çıktı ağı derleminde DEĞİL.
+├── suggestions/        Öneri gidiş-dönüş fikstürleri: `// suggestion: KOD`.
+│                       Her öneri uygulanınca tanı gider, YENİ hata ya da
+│                       uyarı çıkmaz, hatasız kalan dosya derlenir. Kaynakta
+│                       öneri kuran her yer `// suggestion: <fikstür adı>`
+│                       işareti taşır; işaret ve fikstür birebir eşleşir
+│                       (crates/volt-driver/tests/suggestion_roundtrip_tests.rs).
 └── README.md           (bu dosya)
 ```
 

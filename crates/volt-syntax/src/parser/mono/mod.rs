@@ -392,8 +392,8 @@ impl Mono<'_> {
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "the monomorphised module name is built from the literal values (ADR-0041)";
-                      tr: "monomorf modül adı literal değerlerden kurulur (ADR-0041)"),
+                lstr!(en: "the monomorphised module name is built from the literal values";
+                      tr: "monomorf modül adı literal değerlerden kurulur"),
             ),
         );
     }
@@ -460,8 +460,8 @@ impl Mono<'_> {
 }
 
 fn adr_note() -> String {
-    lstr!(en: "generic instantiation is monomorphised per argument tuple (ADR-0041)";
-          tr: "generic örnekleme argüman demeti başına monomorflanır (ADR-0041)")
+    lstr!(en: "generic instantiation is monomorphised per argument tuple";
+          tr: "generic örnekleme argüman demeti başına monomorflanır")
 }
 
 /// `FirFilter<8, 16>` → `FirFilter_8_16`.

@@ -5,7 +5,10 @@
 //! yanında kalır. `error`/`warning` beş parçalı tanı şablonunu (kod,
 //! konum, açıklama, etiket, öneri) tek çağrıya indirir.
 
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion};
+use volt_ast::{Expr, ExprKind};
+use volt_diagnostics::{
+    a_an, lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -50,6 +53,65 @@ impl TypeChecker<'_, '_> {
             LabeledSpan::primary(span, label),
             help,
         ));
+    }
+
+    /// `span`'ı kaplayan ifade (öneri biçimi için; yalnız hata yolunda
+    /// aranır).
+    fn expr_at(&self, span: Span) -> Option<&Expr> {
+        self.ast.exprs.iter().find(|e| e.span == span)
+    }
+
+    /// İfadenin ardına sonek (`[3:0] as u4`, ` as u4`) eklenebilir mi:
+    /// sonek almayan biçimler (ikili, tekli, dönüşüm...) önce paranteze
+    /// alınır.
+    fn takes_suffix(&self, span: Span) -> bool {
+        self.expr_at(span).is_some_and(|e| {
+            matches!(
+                e.kind,
+                ExprKind::Path(_)
+                    | ExprKind::Index { .. }
+                    | ExprKind::Range { .. }
+                    | ExprKind::PartSelect { .. }
+                    | ExprKind::Field { .. }
+                    | ExprKind::Call { .. }
+            )
+        })
+    }
+
+    /// `span`'daki ifadenin ardına `suffix` ekleyen öneri; gerekirse
+    /// ifade paranteze alınır.
+    fn suffix_fix(&self, span: Span, suffix: &str) -> Suggestion {
+        let end = Span {
+            start: span.end,
+            ..span
+        };
+        if self.takes_suffix(span) {
+            // suggestion-helper: suffix_fix
+            Suggestion::replace(end, suffix, Applicability::MaybeIncorrect)
+        } else {
+            let start = Span {
+                end: span.start,
+                ..span
+            };
+            // suggestion-helper: suffix_fix
+            Suggestion::replace(start, "(", Applicability::MaybeIncorrect)
+                .and_replace(end, format!("){suffix}"))
+        }
+    }
+
+    /// `span`'daki ifadeyi `(ifade as tip)` biçimine sokan öneri.
+    pub(super) fn cast_fix(&self, span: Span, ty: &str) -> Suggestion {
+        let start = Span {
+            end: span.start,
+            ..span
+        };
+        let end = Span {
+            start: span.end,
+            ..span
+        };
+        // suggestion-helper: cast_fix
+        Suggestion::replace(start, "(", Applicability::MaybeIncorrect)
+            .and_replace(end, format!(" as {ty})"))
     }
 
     /// Son eklenen tanıya düzeltme önerisi (ADR-0091).
@@ -102,39 +164,57 @@ impl TypeChecker<'_, '_> {
     }
 
     /// E2001 — operand genişlikleri örtük birleştirilemez (§3.3, §8).
+    /// Öneri: dar operand açıkça genişletilir (genişleme uyarı vermez).
     pub(super) fn operand_width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E2001,
-                lstr!(en: "bit width mismatch: {prefix}{a} and {prefix}{b}"; tr: "bit genişliği uyumsuzluğu: {prefix}{a} ve {prefix}{b}"),
-                LabeledSpan::primary(span, lstr!(en: "operand widths differ"; tr: "operand genişlikleri farklı")),
-                lstr!(en: "widen the narrow operand: (expr) as {prefix}{}", a.max(b); tr: "dar operandı genişletin: (ifade) as {prefix}{}", a.max(b)),
-            )
-            .with_note(
-                NoteKind::Reason,
-                lstr!(en: "different widths cannot be combined implicitly; widening requires extra wires and logic in hardware"; tr: "farklı genişlikler örtük birleştirilemez; genişletme donanımda ek tel ve mantık gerektirir"),
-            ),
+        let wide = a.max(b);
+        let narrow = self.expr_at(span).and_then(|e| {
+            if let ExprKind::Binary { lhs, rhs, .. } = e.kind {
+                Some(self.ast.exprs[if a < b { lhs } else { rhs }].span)
+            } else {
+                None
+            }
+        });
+        let mut diag = Diagnostic::error(
+            ErrorCode::E2001,
+            lstr!(en: "bit width mismatch: {prefix}{a} and {prefix}{b}"; tr: "bit genişliği uyumsuzluğu: {prefix}{a} ve {prefix}{b}"),
+            LabeledSpan::primary(span, lstr!(en: "operand widths differ"; tr: "operand genişlikleri farklı")),
+            lstr!(en: "widen the narrow operand: (expr as {prefix}{wide})"; tr: "dar operandı genişletin: (ifade as {prefix}{wide})"),
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(en: "different widths cannot be combined implicitly; widening requires extra wires and logic in hardware"; tr: "farklı genişlikler örtük birleştirilemez; genişletme donanımda ek tel ve mantık gerektirir"),
         );
+        if let Some(narrow) = narrow {
+            // suggestion: e2001_operand_widths
+            diag = diag.with_suggestion(self.cast_fix(narrow, &format!("{prefix}{wide}")));
+        }
+        self.diagnostics.push(diag);
     }
 
     /// E2001 — örtük daraltma: `a` bitlik değer `b` bitlik hedefe
     /// sığmaz; kesme açık dönüşümle görünür kılınmalı (§5; ADR-0041:
-    /// genişleme hedef tip yazılmışsa örtük, daraltma asla).
+    /// genişleme hedef tip yazılmışsa örtük, daraltma asla). Öneri alt
+    /// bitleri seçip dönüştürür: `(ifade)[b-1:0] as uB` — `ifade as uB`
+    /// daraltan dönüşüm olarak W2010 verirdi.
     pub(super) fn width_mismatch(&mut self, a: u16, b: u16, prefix: &str, span: Span) {
+        let hi = b.saturating_sub(1);
+        let (art_a, art_b) = (a_an(u64::from(a)), a_an(u64::from(b)));
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2001,
-                lstr!(en: "a {a}-bit value does not fit in a {b}-bit target"; tr: "{a} bit değer {b} bit hedefe sığmaz"),
+                lstr!(en: "{art_a} {a}-bit value does not fit in {art_b} {b}-bit target"; tr: "{a} bit değer {b} bit hedefe sığmaz"),
                 LabeledSpan::primary(
                     span,
                     lstr!(en: "implicit narrowing is not allowed"; tr: "örtük daraltma yasak"),
                 ),
-                lstr!(en: "explicit cast: (expr) as {prefix}{b}"; tr: "açık dönüşüm: (ifade) as {prefix}{b}"),
+                lstr!(en: "keep the low {b} bits explicitly: (expr)[{hi}:0] as {prefix}{b}"; tr: "alt {b} biti açıkça seçin: (ifade)[{hi}:0] as {prefix}{b}"),
             )
             .with_note(
                 NoteKind::Reason,
                 lstr!(en: "narrowing drops the upper bits; in hardware that truncation must be visible"; tr: "daraltma üst bitleri düşürür; donanımda bu kesme görünür olmalı"),
-            ),
+            )
+            // suggestion: e2001_narrowing, e2001_narrowing_name
+            .with_suggestion(self.suffix_fix(span, &format!("[{hi}:0] as {prefix}{b}"))),
         );
     }
 

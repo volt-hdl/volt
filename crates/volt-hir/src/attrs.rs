@@ -260,8 +260,8 @@ fn unenforced_warning(attr: &Attribute) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "still unenforced: {}; @timing, @false_path and @multicycle are enforced since ADR-0054 (volt build --emit=sdc)", unenforced_list();
-              tr: "hâlâ uygulanmayan: {}; @timing, @false_path ve @multicycle ADR-0054'ten beri uygulanıyor (volt build --emit=sdc)", unenforced_list()),
+        lstr!(en: "still unenforced: {}; @timing, @false_path and @multicycle are enforced (volt build --emit=sdc)", unenforced_list();
+              tr: "hâlâ uygulanmayan: {}; @timing, @false_path ve @multicycle uygulanıyor (volt build --emit=sdc)", unenforced_list()),
     )
 }
 

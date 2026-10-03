@@ -721,7 +721,7 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out (ADR-0083); an enum match is checked variant by variant instead (ADR-0074)"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da (ADR-0083); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074)"),
+                lstr!(en: "a match on a number covers every value only with a '_' arm, even if every value is written out; an enum match is checked variant by variant instead"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar, bütün değerler yazılmış olsa da; enum match'i bunun yerine varyant varyant denetlenir"),
             )
         } else {
             Diagnostic::error(
@@ -735,7 +735,7 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "a match on a number covers every value only with a '_' arm (ADR-0032); an enum match is checked variant by variant instead (ADR-0074); in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar (ADR-0032); enum match'i bunun yerine varyant varyant denetlenir (ADR-0074); sıralı blokta boş '_' kolu register değerlerini korur"),
+                lstr!(en: "a match on a number covers every value only with a '_' arm; an enum match is checked variant by variant instead; in a sequential block an empty '_' arm keeps the registers' values"; tr: "sayı üzerindeki match her değeri yalnız '_' koluyla kapsar; enum match'i bunun yerine varyant varyant denetlenir; sıralı blokta boş '_' kolu register değerlerini korur"),
             )
         };
         self.push_error(diag);
@@ -868,11 +868,8 @@ impl Parser<'_> {
                         NoteKind::Note,
                         lstr!(en: "assignments inside an 'on' block happen on the clock edge"; tr: "'on' bloğu içindeki atamalar saat kenarında olur"),
                     )
-                    .with_suggestion(Suggestion {
-                        span: op_span,
-                        replacement: "<=".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }),
+                    // suggestion: e0006_seq_assign
+                    .with_suggestion(Suggestion::replace(op_span, "<=".to_string(), Applicability::MachineApplicable)),
                 );
                 self.bump_any();
                 true
@@ -897,11 +894,8 @@ impl Parser<'_> {
                         NoteKind::Note,
                         lstr!(en: "a comb block contains immediate assignments; there is no clock edge"; tr: "comb bloğu anlık atama içerir, saat kenarı yoktur"),
                     )
-                    .with_suggestion(Suggestion {
-                        span: op_span,
-                        replacement: "=".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }),
+                    // suggestion: e0007_comb_assign
+                    .with_suggestion(Suggestion::replace(op_span, "=".to_string(), Applicability::MachineApplicable)),
                 );
                 self.bump_any();
                 false

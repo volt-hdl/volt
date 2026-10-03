@@ -322,8 +322,8 @@ fn unsupported_diagnostic(path: &Path, span: Span, u: &Unsupported, design: &Pat
                 tr: "{} check-regmap desteği olmayan bir Volt sürümüyle üretilmiş", path.display()
             ),
             lstr!(
-                en: "it has the ADR-0053 header but no regmap-hash signature";
-                tr: "ADR-0053 başlığı var ama regmap-hash imzası yok"
+                en: "it has the Volt driver header but no regmap-hash signature";
+                tr: "Volt sürücü başlığı var ama regmap-hash imzası yok"
             ),
             lstr!(
                 en: "regenerate it once with volt build --emit=c,rust,regmap {}", design;
@@ -484,8 +484,8 @@ pub fn build_check(compiled: &Compiled, kinds: &[SwKind], opts: &EmitOpts) -> Ve
             diag = diag.with_note(
                 NoteKind::Reason,
                 lstr!(
-                    en: "the driver and the SystemVerilog are generated from the same @mmio map (ADR-0063)";
-                    tr: "sürücü ve SystemVerilog aynı @mmio haritasından üretilir (ADR-0063)"
+                    en: "the driver and the SystemVerilog are generated from the same @mmio map";
+                    tr: "sürücü ve SystemVerilog aynı @mmio haritasından üretilir"
                 ),
             );
             out.push(diag);

@@ -156,8 +156,14 @@ def lint_prose(path: Path, prose: list[tuple[int, str]], report: Report) -> None
             report.fail(path, line_no, f"banned word '{m.group(1)}' (CONTRIBUTING-BOOK.md, 'Words we do not use')")
 
 
+# Where `volt test` runs Verilator: set explicitly (never the automatic
+# fallback), so a missing Verilator fails the check instead of silently
+# starting Docker containers. `--backend docker` opts in.
+TOOL_BACKEND = "local"
+
+
 def run(cmd: list[str], cwd: Path) -> tuple[int, str]:
-    env = dict(os.environ, NO_COLOR="1", VOLT_LANG="en")
+    env = dict(os.environ, NO_COLOR="1", VOLT_LANG="en", VOLT_TOOL_BACKEND=TOOL_BACKEND)
     proc = subprocess.run(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return proc.returncode, proc.stdout.decode("utf-8", errors="replace")
 
@@ -290,7 +296,11 @@ def main() -> int:
     ap.add_argument("--volt", default="volt", help="path to the volt binary")
     ap.add_argument("--run-tests", action="store_true", help="also run `volt test` on *_test.volt blocks")
     ap.add_argument("--self-test", action="store_true", help="check the checker against book/tools/selftest/")
+    ap.add_argument("--backend", choices=["local", "docker"], default="local",
+                    help="where `volt test` runs Verilator (VOLT_TOOL_BACKEND; default local: a missing Verilator fails)")
     args = ap.parse_args()
+    global TOOL_BACKEND
+    TOOL_BACKEND = args.backend
     # Blocks run in their own directories: a relative binary path must not
     # depend on the working directory.
     volt = shutil.which(args.volt) if os.sep not in args.volt and "/" not in args.volt else str(Path(args.volt).resolve())

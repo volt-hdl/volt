@@ -70,11 +70,12 @@ jobs:
       # ADR-0098: for_reset_sim_tests (reset of a register written in a for
       # loop) and clockless_sim_tests (volt test without an rst port).
       # ADR-0098 addendum: prev_array_sim_tests (prev() inside an array literal
-      # in a contract monitor).
+      # in a contract monitor). build_stamp_tests: a half-built or foreign
+      # Verilator obj dir is rebuilt without manual cleanup.
       - name: Tool-required tests - missing tool fails (ADR-0079)
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc
-        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests --test for_reset_sim_tests --test clockless_sim_tests --test prev_array_sim_tests
+        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests --test for_reset_sim_tests --test clockless_sim_tests --test prev_array_sim_tests --test build_stamp_tests
       # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
       # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
       - name: Simulation contract monitors (volt test, real Verilator)

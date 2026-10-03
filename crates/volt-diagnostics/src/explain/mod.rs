@@ -29,7 +29,7 @@ pub struct Explanation {
     pub fix: &'static str,
     /// SINIRLAR / NOT — opsiyonel ek bölüm (sarılır).
     pub note: Option<&'static str>,
-    /// DAHA FAZLA — `explain_url()`e eklenen ek belge linkleri.
+    /// DAHA FAZLA — kitaptaki ilgili bölümler (https://volt-hdl.github.io/volt/).
     pub extra_docs: &'static [&'static str],
 }
 
@@ -160,11 +160,20 @@ pub fn render_explanation(code: ErrorCode, lang: Lang, width: usize, color: bool
         out.push_str("\n\n");
     }
 
+    let links: Vec<String> = code
+        .explain_url()
+        .into_iter()
+        .chain(exp.extra_docs.iter().map(|d| d.to_string()))
+        .collect();
+    if links.is_empty() {
+        // Kitapta karşılığı yok: DAHA FAZLA bölümü yazılmaz.
+        out.pop();
+        return out;
+    }
     out.push_str(&paint(HEADER_STYLE, hdr.more));
     out.push('\n');
-    out.push_str(&format!("  {}\n", code.explain_url()));
-    for doc in exp.extra_docs {
-        out.push_str(&format!("  {doc}\n"));
+    for link in links {
+        out.push_str(&format!("  {link}\n"));
     }
     out
 }

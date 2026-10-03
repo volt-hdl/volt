@@ -6,7 +6,7 @@
 //! `has-placeholders` (şablon) ve birden çok seçenek (sync / AsyncFifo)
 //! yalnız tanı metninde kalır.
 
-use volt_diagnostics::{lstr, Applicability, Diagnostic, Suggestion};
+use volt_diagnostics::{apply_edits, lstr, Applicability, Diagnostic, EditKind, Suggestion};
 
 use crate::analysis::Analysis;
 
@@ -39,19 +39,27 @@ pub fn quick_fixes(analysis: &Analysis, start: u32, end: u32) -> Vec<QuickFix<'_
         })
         .filter_map(|d| {
             let s = certain_fix(d)?;
-            (s.span.file == analysis.file_id).then(|| QuickFix {
-                diagnostic: d,
-                suggestion: s,
-                title: title(d, s),
-            })
+            // Her düzenleme bu belgede olmalı (başka dosyaya dokunan
+            // düzeltme quick fix olmaz).
+            s.edits
+                .iter()
+                .all(|e| e.span.file == analysis.file_id)
+                .then(|| QuickFix {
+                    diagnostic: d,
+                    suggestion: s,
+                    title: title(d, s),
+                })
         })
         .collect()
 }
 
 fn title(diag: &Diagnostic, s: &Suggestion) -> String {
     let code = diag.code.as_str();
-    let r = &s.replacement;
-    if s.span.start == s.span.end {
+    let edit = s.primary();
+    let r = &edit.text;
+    if s.edits.len() > 1 || edit.kind == EditKind::LineAbove {
+        lstr!(en: "{code}: apply the suggested fix"; tr: "{code}: önerilen düzeltmeyi uygula")
+    } else if edit.span.start == edit.span.end {
         lstr!(en: "{code}: insert '{r}'"; tr: "{code}: '{r}' ekle")
     } else if r.is_empty() {
         lstr!(en: "{code}: remove"; tr: "{code}: kaldır")
@@ -62,6 +70,5 @@ fn title(diag: &Diagnostic, s: &Suggestion) -> String {
 
 /// Düzeltmeyi metne uygular (testler ve istemcisiz araçlar için).
 pub fn apply(text: &str, s: &Suggestion) -> String {
-    let (a, b) = (s.span.start as usize, s.span.end as usize);
-    format!("{}{}{}", &text[..a], s.replacement, &text[b..])
+    apply_edits(text, &s.resolve(|_| Some(text)))
 }

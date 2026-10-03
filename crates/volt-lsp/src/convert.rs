@@ -24,7 +24,7 @@ pub fn span_to_range(map: &SourceMap, span: Span) -> Range {
 }
 
 /// 5 parça kuralındaki alanların LSP eşlemesi: kod → `code`, spec
-/// referansı → `code_description` (volthdl.org/errors/EXXXX), ikincil
+/// referansı → `code_description` (kitap sayfası varsa), ikincil
 /// span'ler → `related_information`, neden/not/çözüm → mesaj kuyruğu.
 pub fn to_lsp_diagnostic(diag: &Diagnostic, map: &SourceMap, uri: &Url) -> LspDiagnostic {
     let range = diag
@@ -68,8 +68,9 @@ pub fn to_lsp_diagnostic(diag: &Diagnostic, map: &SourceMap, uri: &Url) -> LspDi
         range,
         severity: Some(severity),
         code: Some(NumberOrString::String(diag.code.as_str().to_string())),
-        code_description: Url::parse(&diag.explain_url())
-            .ok()
+        code_description: diag
+            .explain_url()
+            .and_then(|u| Url::parse(&u).ok())
             .map(|href| CodeDescription { href }),
         source: Some("volt".to_string()),
         message,

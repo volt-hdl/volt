@@ -54,8 +54,8 @@ pub fn render_topic_list(lang: Lang) -> String {
             ("domains", Lang::Tr) => "saat alanları, reset'ler ve CDC güvenliği",
             ("contracts", Lang::En) => "requires/ensures/invariant/cover",
             ("contracts", Lang::Tr) => "requires/ensures/invariant/cover",
-            ("stdlib", Lang::En) => "the 11 built-in components",
-            ("stdlib", Lang::Tr) => "11 yerleşik bileşen",
+            ("stdlib", Lang::En) => "the built-in components",
+            ("stdlib", Lang::Tr) => "yerleşik bileşenler",
             ("verify-setup", Lang::En) => "installing SymbiYosys for 'volt verify'",
             ("verify-setup", Lang::Tr) => "'volt verify' için SymbiYosys kurulumu",
             ("simulation-setup", Lang::En) => "installing Verilator for 'volt run'",
@@ -88,8 +88,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 ),
                 (
                     "SOLVERS",
-                    "Pick one with --engine. Across every example and ui/pass design \
-                     (ADR-0082) the solvers gave the same pass/fail/unknown verdicts and \
+                    "Pick one with --engine. Across every example and ui/pass design the solvers gave the same pass/fail/unknown verdicts and \
                      the same counterexample cycles; only the time differed (and, in prove \
                      mode, which non-inductive contract an 'unknown' report names first).\n\n\
                      \x20 boolector  default: fast, and in apt, hdlc/formal and OSS CAD Suite\n\
@@ -114,9 +113,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "If sby is not installed but Docker is running, 'volt verify' runs it in \
                      a container by itself and says so in one line:\n\n\
                      \x20 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)\n\n\
-                     The image is pinned by digest: Yosys 0.66, SBY 0.69, boolector, yices and \
-                     z3 (no bitwuzla), about 404 MB, downloaded once on first use; Volt prints \
-                     the size before and the time after. Volt still compiles on the host; only \
+                     The image is pinned by digest and holds Yosys, SBY, boolector, yices and \
+                     z3 (no bitwuzla); it is downloaded once, on first use, and Volt prints its \
+                     size before and the time after ('volt doctor' lists the versions). Volt still compiles on the host; only \
                      sby runs in the container, all -j jobs in one container. Every path Volt \
                      prints (counterexamples, logs) is a host path, and on Linux the container \
                      runs as your user, so build/ stays yours.\n\n\
@@ -132,7 +131,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      environment variable at the executable.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/verify-setup"],
+            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
         }),
         ("verify-setup", Lang::Tr) => Some(Topic {
             title: "Formal doğrulama kurulumu",
@@ -148,7 +147,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 ),
                 (
                     "ÇÖZÜCÜLER",
-                    "--engine ile seçilir. Her örnekte ve ui/pass tasarımında (ADR-0082) \
+                    "--engine ile seçilir. Her örnekte ve ui/pass tasarımında \
                      çözücüler aynı geçti/başarısız/bilinmiyor kararını ve aynı karşı örnek \
                      döngüsünü verdi; yalnız süre farklıydı (bir de prove kipinde 'bilinmiyor' \
                      raporunun ilk adlandırdığı tümevarımsal olmayan kontrat).\n\n\
@@ -174,9 +173,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "sby kurulu değil ama Docker çalışıyorsa 'volt verify' onu kendiliğinden \
                      konteynerde çalıştırır ve bunu tek satırla söyler:\n\n\
                      \x20 not: SymbiYosys yerelde bulunamadı; Docker'da çalıştırılıyor (hdlc/formal:all)\n\n\
-                     İmaj özetiyle sabitlidir: Yosys 0.66, SBY 0.69, boolector, yices ve z3 \
-                     (bitwuzla yok), yaklaşık 404 MB, yalnız ilk kullanımda bir kez indirilir; \
-                     Volt boyutu önce, süreyi sonra basar. Volt yine ana makinede derler; \
+                     İmaj özetiyle sabitlidir ve Yosys, SBY, boolector, yices ile z3 içerir \
+                     (bitwuzla yok); yalnız ilk kullanımda bir kez indirilir, Volt boyutu önce, \
+                     süreyi sonra basar (sürümleri 'volt doctor' listeler). Volt yine ana makinede derler; \
                      konteynerde yalnız sby koşar, tüm -j işleri tek konteynerde. Volt'un \
                      bastığı her yol (karşı örnek, günlük) ana makine yoludur; Linux'ta \
                      konteyner sizin kullanıcınızla koşar, build/ sizin kalır.\n\n\
@@ -192,7 +191,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      çalıştırılabilir dosyaya yöneltin.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/verify-setup"],
+            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
         }),
         ("simulation-setup", Lang::En) => Some(Topic {
             title: "Setting up simulation",
@@ -220,9 +219,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "If Verilator is not installed but Docker is running, 'volt run' and \
                      'volt test' run it in a container by themselves and say so in one line:\n\n\
                      \x20 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)\n\n\
-                     The image is pinned by digest: Verilator 5.052 with g++ and make, about \
-                     250 MB, downloaded once on first use; Volt prints the size before and the \
-                     time after. Volt still compiles and writes the testbench on the host; only \
+                     The image is pinned by digest and holds Verilator with g++ and make; it is \
+                     downloaded once, on first use, and Volt prints its size before and the \
+                     time after ('volt doctor' lists the versions). Volt still compiles and writes the testbench on the host; only \
                      Verilator and the simulation run in the container. Every path Volt prints \
                      (the Waveform line, Verilator errors) is a host path, and on Linux the \
                      container runs as your user, so build/ and the VCD stay yours.\n\n\
@@ -258,7 +257,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      the executable.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/simulation-setup"],
+            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
         }),
         ("simulation-setup", Lang::Tr) => Some(Topic {
             title: "Simülasyon kurulumu",
@@ -286,9 +285,9 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "Verilator kurulu değil ama Docker çalışıyorsa 'volt run' ve 'volt test' \
                      onu kendiliğinden konteynerde çalıştırır ve bunu tek satırla söyler:\n\n\
                      \x20 not: Verilator yerelde bulunamadı; Docker'da çalıştırılıyor (verilator/verilator:v5.052)\n\n\
-                     İmaj özetiyle sabitlidir: g++ ve make ile Verilator 5.052, yaklaşık 250 MB, \
-                     yalnız ilk kullanımda bir kez indirilir; Volt boyutu önce, süreyi sonra \
-                     basar. Volt yine ana makinede derler ve testbench'i yazar; konteynerde \
+                     İmaj özetiyle sabitlidir ve g++ ile make'li Verilator içerir; yalnız ilk \
+                     kullanımda bir kez indirilir, Volt boyutu önce, süreyi sonra basar \
+                     (sürümleri 'volt doctor' listeler). Volt yine ana makinede derler ve testbench'i yazar; konteynerde \
                      yalnız Verilator ve simülasyon koşar. Volt'un bastığı her yol (Dalga formu \
                      satırı, Verilator hataları) ana makine yoludur; Linux'ta konteyner sizin \
                      kullanıcınızla koşar, build/ ve VCD sizin kalır.\n\n\
@@ -325,12 +324,12 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      dosyaya yöneltin.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/simulation-setup"],
+            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
         }),
         ("waveforms", Lang::En) => Some(Topic {
             title: "Waveforms",
             summary: "How Volt records waveforms, where the files go, and how enum and \
-                      Trit signals show their names instead of raw codes (ADR-0092).",
+                      Trit signals show their names instead of raw codes.",
             sections: &[
                 (
                     "RECORD",
@@ -340,7 +339,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 volt verify design.volt                a failing contract's counterexample\n\n\
                      'volt test' runs the tests without tracing; when a test fails, only \
                      the failed tests run once more with tracing (the simulation is \
-                     deterministic) into build/sim/<test file>/waves/<Module>-<test>.vcd. \
+                     deterministic) into build/sim/<test file name without .volt>/waves/<Module>-<test>.vcd. \
                      A passing run costs nothing extra. --waves traces every test in the \
                      first run, --no-waves records nothing. 'volt run' writes the VCD \
                      where --vcd points. 'volt verify' copies a counterexample to \
@@ -388,12 +387,12 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      signals load but show raw codes.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/waveforms"],
+            more: &["https://volt-hdl.github.io/volt/tour/tests-and-waveforms.html"],
         }),
         ("waveforms", Lang::Tr) => Some(Topic {
             title: "Dalga formları",
             summary: "Volt dalga formunu nasıl kaydeder, dosyalar nereye gider ve enum ile \
-                      Trit sinyalleri ham kod yerine adlarını nasıl gösterir (ADR-0092).",
+                      Trit sinyalleri ham kod yerine adlarını nasıl gösterir.",
             sections: &[
                 (
                     "KAYIT",
@@ -403,7 +402,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 volt verify tasarim.volt                bozulan kontratın karşı örneği\n\n\
                      'volt test' testleri izsiz koşar; bir test düşünce yalnız düşen testler \
                      izle bir kez daha koşar (simülasyon belirlenimcidir) ve kayıt \
-                     build/sim/<test dosyası>/waves/<Modül>-<test>.vcd dosyasına gider. \
+                     build/sim/<.volt uzantısız test dosyası adı>/waves/<Modül>-<test>.vcd dosyasına gider. \
                      Geçen koşunun ek maliyeti yoktur. --waves ilk koşuda her testi izler, \
                      --no-waves hiçbir şey kaydetmez. 'volt run' VCD'yi --vcd'nin gösterdiği \
                      yere yazar. 'volt verify' karşı örneği build/formal/<görev>_cex.vcd \
@@ -450,7 +449,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      da). Başka bir dizinden sinyaller yüklenir ama ham kod gösterir.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/waveforms"],
+            more: &["https://volt-hdl.github.io/volt/tour/tests-and-waveforms.html"],
         }),
         ("getting-started", Lang::En) => Some(Topic {
             title: "Your first Volt design",
@@ -474,7 +473,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 (
                     "COMPILE AND RUN",
                     "  volt check blink.volt        errors only, no output files\n\
-                     \x20 volt build blink.volt        writes build/rtl/blink.sv\n\
+                     \x20 volt build blink.volt        writes build/rtl/Blink.sv\n\
                      \x20 volt run blink.volt --cycles 300 --vcd waves.vcd\n\n\
                      Open waves.vcd with any viewer (e.g. gtkwave) to see the led toggle.",
                 ),
@@ -486,7 +485,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain domains', 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/getting-started"],
+            more: &["https://volt-hdl.github.io/volt/tour/new-check-build.html"],
         }),
         ("getting-started", Lang::Tr) => Some(Topic {
             title: "İlk Volt tasarımınız",
@@ -510,7 +509,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 (
                     "DERLEYİN VE KOŞTURUN",
                     "  volt check blink.volt        yalnız hatalar, çıktı dosyası yok\n\
-                     \x20 volt build blink.volt        build/rtl/blink.sv üretir\n\
+                     \x20 volt build blink.volt        build/rtl/Blink.sv üretir\n\
                      \x20 volt run blink.volt --cycles 300 --vcd dalga.vcd\n\n\
                      dalga.vcd'yi bir görüntüleyiciyle (ör. gtkwave) açıp led'in \
                      değişimini izleyin.",
@@ -523,7 +522,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain domains', 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/getting-started"],
+            more: &["https://volt-hdl.github.io/volt/tour/new-check-build.html"],
         }),
         ("domains", Lang::En) => Some(Topic {
             title: "Clock domains and CDC safety",
@@ -562,7 +561,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/domains"],
+            more: &["https://volt-hdl.github.io/volt/tour/cdc-error.html"],
         }),
         ("domains", Lang::Tr) => Some(Topic {
             title: "Saat alanları ve CDC güvenliği",
@@ -600,7 +599,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      bkz. 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/domains"],
+            more: &["https://volt-hdl.github.io/volt/tour/cdc-error.html"],
         }),
         ("contracts", Lang::En) => Some(Topic {
             title: "Behavioral contracts",
@@ -618,7 +617,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 (
                     "IMPLICATION",
                     "The most common contract shape is \"if A then B\" — write it with \
-                     the '->' operator (ADR-0034):\n\n\
+                     the '->' operator:\n\n\
                      \x20 invariant: !busy -> tx        // when idle, the line is high\n\
                      \x20 ensures:   start -> busy      // SVA: start |-> busy\n\n\
                      'a -> b' means '!a || b'; both sides must be bool.",
@@ -628,7 +627,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "A module's 'requires' is assumed while the module itself is \
                      verified. Where the module is instantiated, the parent drives \
                      those inputs, so the parent must meet it: 'volt verify' checks it \
-                     as an assertion in the parent's task (ADR-0097). 'ensures' and \
+                     as an assertion in the parent's task. 'ensures' and \
                      'invariant' are checked in both places.",
                 ),
                 (
@@ -641,7 +640,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain verify-setup'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/contracts"],
+            more: &[],
         }),
         ("contracts", Lang::Tr) => Some(Topic {
             title: "Davranışsal kontratlar",
@@ -659,8 +658,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                 ),
                 (
                     "İMPLİKASYON",
-                    "En yaygın kontrat biçimi \"A ise B\"dir — '->' operatörüyle yazın \
-                     (ADR-0034):\n\n\
+                    "En yaygın kontrat biçimi \"A ise B\"dir — '->' operatörüyle yazın:\n\n\
                      \x20 invariant: !busy -> tx        // boştayken hat yüksek\n\
                      \x20 ensures:   start -> busy      // SVA: start |-> busy\n\n\
                      'a -> b', '!a || b' demektir; iki taraf da bool olmalıdır.",
@@ -670,7 +668,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "Bir modülün 'requires'ı modülün kendisi doğrulanırken varsayılır. \
                      Modülün örneklendiği yerde o girişleri üst modül sürer, ön koşulu \
                      da o karşılamalıdır: 'volt verify' onu üst modülün görevinde iddia \
-                     olarak denetler (ADR-0097). 'ensures' ve 'invariant' iki yerde de \
+                     olarak denetler. 'ensures' ve 'invariant' iki yerde de \
                      denetlenir.",
                 ),
                 (
@@ -682,13 +680,13 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain E5001' anlatır. Kurulum: 'volt explain verify-setup'.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/contracts"],
+            more: &[],
         }),
         ("stdlib", Lang::En) => Some(Topic {
             title: "The built-in component library",
-            summary: "Twelve components are built into the compiler (ADR-0027/0029/0049). \
-                      Instantiate them like modules; the generated RTL is battle-tested \
-                      and CDC-correct.",
+            summary: "These components are built into the compiler. \
+                      Instantiate them like modules; the CDC bridges carry their own \
+                      synchronizers.",
             sections: &[
                 (
                     "CDC BRIDGES (two domains)",
@@ -714,19 +712,19 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 ... f.rd_data ...\n\n\
                      Wrong generic arguments produce E2003 with the expected shape; \
                      DEPTH must be a power of two where noted.\n\n\
-                     T may be a number, bool, enum or struct (ADR-0087): a struct is \
+                     T may be a number, bool, enum or struct: a struct is \
                      stored as one packed word (first field in the high bits), so a \
                      memory still maps to block RAM. Ram, DualPortRam and \
                      AsyncDualPortRam reject a T with an enum or Trit field (E2009): a \
                      never-written address would read back raw bits.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/stdlib"],
+            more: &[],
         }),
         ("stdlib", Lang::Tr) => Some(Topic {
             title: "Yerleşik bileşen kütüphanesi",
-            summary: "Derleyicide on iki yerleşik bileşen vardır (ADR-0027/0029/0049). \
-                      Modül gibi örneklenir; üretilen RTL denenmiş ve CDC-doğrudur.",
+            summary: "Bu bileşenler derleyicinin içindedir. \
+                      Modül gibi örneklenir; CDC köprüleri kendi senkronizörlerini taşır.",
             sections: &[
                 (
                     "CDC KÖPRÜLERİ (iki alan)",
@@ -752,14 +750,14 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      \x20 ... f.rd_data ...\n\n\
                      Yanlış generic argüman, beklenen kalıbı gösteren E2003 üretir; \
                      belirtilen yerlerde DEPTH iki kuvveti olmalıdır.\n\n\
-                     T sayı, bool, enum ya da struct olabilir (ADR-0087): struct tek \
+                     T sayı, bool, enum ya da struct olabilir: struct tek \
                      paketlenmiş sözcük olarak saklanır (ilk alan yüksek bitlerde), \
                      bellek yine blok RAM'e iner. Ram, DualPortRam ve AsyncDualPortRam \
                      enum ya da Trit alanlı T'yi reddeder (E2009): hiç yazılmamış adres \
                      ham bit döndürürdü.",
                 ),
             ],
-            more: &["https://volthdl.org/guide/stdlib"],
+            more: &[],
         }),
         _ => None,
     }
@@ -797,6 +795,11 @@ pub fn render_topic(name: &str, lang: Lang, width: usize, color: bool) -> Option
         Lang::En => "FOR MORE",
         Lang::Tr => "DAHA FAZLA",
     };
+    if topic.more.is_empty() {
+        // Kitapta karşılığı olmayan konu: bölüm yazılmaz.
+        out.pop();
+        return Some(out);
+    }
     out.push_str(&paint(HEADER_STYLE, more));
     out.push('\n');
     for doc in topic.more {

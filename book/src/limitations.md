@@ -106,6 +106,13 @@ Roadmap:
 **The test language has no `if` or `match` expressions, and it cannot
 call a design's functions** (`E8505`).
 
+**No machine-readable test results.** `volt test` and `volt run` write
+their report for people; they have no `--format=json` option yet, unlike
+`volt check`, `volt build` and `volt verify`. In CI, use the exit code
+(`volt test` exits with 5 when a test fails) and keep the text report as
+a log. Roadmap:
+[Machine-readable test results](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#machine-readable-test-results).
+
 **Generated drivers are not simulated.** The C and Rust drivers generated
 from an `@mmio` register map are not run against the RTL. `volt
 check-regmap` checks that a driver matches the register map. Roadmap:

@@ -751,8 +751,8 @@ impl<'a> Expander<'a> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "each call of a function is inlined with its own wires in the calling module (ADR-0081)";
-                      tr: "fonksiyonun her çağrısı çağıran modülde kendi telleriyle açılır (ADR-0081)"),
+                lstr!(en: "each call of a function is inlined with its own wires in the calling module";
+                      tr: "fonksiyonun her çağrısı çağıran modülde kendi telleriyle açılır"),
             ),
         );
     }
@@ -774,8 +774,8 @@ impl<'a> Expander<'a> {
                 span,
                 lstr!(en: "no wire can be created here"; tr: "burada tel kurulamaz"),
             ),
-            lstr!(en: "bind the argument to a module-level let of the parameter's type and pass its name (ADR-0081)";
-                  tr: "argümanı parametrenin tipinde modül düzeyi bir let'e bağlayıp adını geçirin (ADR-0081)"),
+            lstr!(en: "bind the argument to a module-level let of the parameter's type and pass its name";
+                  tr: "argümanı parametrenin tipinde modül düzeyi bir let'e bağlayıp adını geçirin"),
         ));
     }
 
@@ -789,8 +789,8 @@ impl<'a> Expander<'a> {
                 call,
                 lstr!(en: "no wire can be created here"; tr: "burada tel kurulamaz"),
             ),
-            lstr!(en: "call it from a module-level let (each let becomes a wire there) and use that name here (ADR-0081)";
-                  tr: "fonksiyonu modül düzeyi bir let'ten çağırın (orada her let bir tel olur) ve burada o adı kullanın (ADR-0081)"),
+            lstr!(en: "call it from a module-level let (each let becomes a wire there) and use that name here";
+                  tr: "fonksiyonu modül düzeyi bir let'ten çağırın (orada her let bir tel olur) ve burada o adı kullanın"),
         ));
     }
 
@@ -804,8 +804,8 @@ impl<'a> Expander<'a> {
                 call,
                 lstr!(en: "expanded expression too deep"; tr: "açılmış ifade çok derin"),
             ),
-            lstr!(en: "call the function from a module-level let (wires keep each call shallow), or split the nested calls (ADR-0080, ADR-0081)";
-                  tr: "fonksiyonu modül düzeyi bir let'ten çağırın (teller her çağrıyı sığ tutar) ya da iç içe çağrıları bölün (ADR-0080, ADR-0081)"),
+            lstr!(en: "call the function from a module-level let (wires keep each call shallow), or split the nested calls";
+                  tr: "fonksiyonu modül düzeyi bir let'ten çağırın (teller her çağrıyı sığ tutar) ya da iç içe çağrıları bölün"),
         ));
     }
 }

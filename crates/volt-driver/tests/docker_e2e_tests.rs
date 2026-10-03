@@ -55,12 +55,14 @@ impl Ctx {
             "VOLT_VERILATOR",
             "VOLT_SBY",
             "VOLT_DOCKER",
-            "VOLT_TOOL_BACKEND",
             "VOLT_LANG",
             "VOLT_TARGET_DIR",
         ] {
             cmd.env_remove(var);
         }
+        // Bu test otomatik geri düşüşün kendisini sınar (yerel araç yok,
+        // gerçek Docker var): arka uç bilerek ve açıkça `auto`.
+        cmd.env("VOLT_TOOL_BACKEND", "auto");
         let out = cmd.output().expect("volt");
         eprintln!(
             "$ volt {}\n{}{}",

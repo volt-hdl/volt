@@ -524,8 +524,8 @@ fn err_recursive_type(graph: &Graph, i: usize, m: usize, path: &str) -> Diagnost
 /// E4009 notu: donanım tipinin genişliği sonludur (ADR-0067, ADR-0069).
 fn recursive_note() -> String {
     lstr!(
-        en: "a hardware type has a fixed, finite bit width and a port group is flattened field by field at compile time, so no type can contain itself (ADR-0067, ADR-0069)";
-        tr: "donanım tipinin bit genişliği sabit ve sonludur, port grubu derleme zamanında alan alan açılır; hiçbir tip kendini içeremez (ADR-0067, ADR-0069)"
+        en: "a hardware type has a fixed, finite bit width and a port group is flattened field by field at compile time, so no type can contain itself";
+        tr: "donanım tipinin bit genişliği sabit ve sonludur, port grubu derleme zamanında alan alan açılır; hiçbir tip kendini içeremez"
     )
 }
 
@@ -550,8 +550,8 @@ fn err_generic_struct_port(name: &Name) -> Diagnostic {
     .with_note(
         NoteKind::Note,
         lstr!(
-            en: "a port group is flattened to plain ports at parse time and generic parameters are not substituted there; only modules take (const) generic arguments (ADR-0041, ADR-0069)";
-            tr: "port grubu ayrıştırma sonunda düz portlara açılır ve orada generic parametre ikame edilmez; (const) generic argüman yalnız modüllerde var (ADR-0041, ADR-0069)"
+            en: "a port group is flattened to plain ports at parse time and generic parameters are not substituted there; only modules take (const) generic arguments";
+            tr: "port grubu ayrıştırma sonunda düz portlara açılır ve orada generic parametre ikame edilmez; (const) generic argüman yalnız modüllerde var"
         ),
     )
 }

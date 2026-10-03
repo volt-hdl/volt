@@ -229,7 +229,7 @@ fn arguments_on_non_generic_module_is_e2003() {
     let r = p(src);
     assert_eq!(r.error_codes(), vec!["E2003"]);
     let d = &r.diagnostics[0];
-    assert!(d.notes.iter().any(|n| n.text.contains("ADR-0041")));
+    assert!(!d.notes.is_empty() && d.notes.iter().all(|n| !n.text.contains("ADR-")));
 }
 
 #[test]

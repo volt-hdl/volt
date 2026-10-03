@@ -13,6 +13,8 @@
 #  14. kurulum betikleri saf ASCII ve BOM'suz (Pages charset'siz
 #      octet-stream sunar; PS 5.1 ASCII dışını yanlış çözer)
 #  15. README, yol haritası ve kitaptaki belge bağlantıları ve çapaları var
+#  16. alınmamış alan adına bağlantı yok (crates/, book/, README.md, scripts/)
+#  17. explain metinlerindeki kitap bağlantıları yazılmış bir bölüme gider
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -300,6 +302,32 @@ if [ -n "$link_hits" ]; then
         violation "$line"
     done <<< "$(echo "$link_hits" | sort -u)"
 fi
+
+# ── 16: alınmamış alan adı ────────────────────────────────────────────
+# volthdl[.]org alınmadı: kodda, kitapta, README'de ve betiklerde bağlantı
+# olamaz (docs/ tarihçedir, taranmaz). Kitabın adresi volt-hdl.github.io/volt.
+# Desen bölünmüş yazılır ki bu betik kendini yakalamasın.
+domain_hits=$(cd "$ROOT" && grep -rnIi 'volthdl[.]org' crates book README.md scripts \
+    --exclude-dir=target --exclude-dir=book 2>/dev/null)
+if [ -n "$domain_hits" ]; then
+    while IFS= read -r line; do
+        violation "$line: alınmamış alan adı; kitap https://volt-hdl.github.io/volt/ (kontrol 16)"
+    done <<< "$domain_hits"
+fi
+
+# ── 17: explain bağlantıları kitapta yazılmış bir bölüme gider ────────
+# volt explain'in DAHA FAZLA bağlantıları book/src/<ad>.md'ye karşılık gelir
+# ve o bölüm "planned" yer tutucusu değildir.
+EXPLAIN_DIR="$ROOT/crates/volt-diagnostics/src/explain"
+for n in $(grep -ohE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$EXPLAIN_DIR"/*.rs \
+        | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | sort -u); do
+    page="$ROOT/book/src/$n.md"
+    if [ ! -f "$page" ]; then
+        violation "explain bağlantısı kitapta yok: book/src/$n.md (kontrol 17)"
+    elif grep -q 'This chapter is planned' "$page"; then
+        violation "explain bağlantısı henüz yazılmamış bölüme gidiyor: book/src/$n.md (kontrol 17)"
+    fi
+done
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then

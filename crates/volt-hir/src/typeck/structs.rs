@@ -10,7 +10,7 @@
 
 use volt_ast::struct_layout::{self, LayoutError, StructLayout};
 use volt_ast::{FieldInit, ItemKind, Name, StructDecl};
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Suggestion};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -131,7 +131,7 @@ impl<'a> TypeChecker<'a, '_> {
             decl.name.span,
             message,
             label,
-            lstr!(en: "flatten the type hierarchy or split the value into several signals (ADR-0077)"; tr: "tip hiyerarşisini sadeleştirin ya da değeri birkaç sinyale bölün (ADR-0077)"),
+            lstr!(en: "flatten the type hierarchy or split the value into several signals"; tr: "tip hiyerarşisini sadeleştirin ya da değeri birkaç sinyale bölün"),
         );
     }
 
@@ -237,12 +237,24 @@ impl<'a> TypeChecker<'a, '_> {
                 lstr!(en: "available fields: {}", known.join(", "); tr: "mevcut alanlar: {}", known.join(", "))
             }
         };
-        self.diagnostics.push(Diagnostic::error(
+        let mut diag = Diagnostic::error(
             ErrorCode::E1008,
             lstr!(en: "struct '{sname}' has no field '{name}'"; tr: "'{sname}' yapısında '{name}' alanı yok"),
-            LabeledSpan::primary(field.span, lstr!(en: "unknown field"; tr: "bilinmeyen alan")),
+            LabeledSpan::primary(
+                field.span,
+                lstr!(en: "unknown field"; tr: "bilinmeyen alan"),
+            ),
             help,
-        ));
+        );
+        if let Some(m) = closest_match(&name, &known) {
+            // suggestion: e1008_field_access
+            diag = diag.with_suggestion(Suggestion::replace(
+                field.span,
+                m,
+                Applicability::MaybeIncorrect,
+            ));
+        }
+        self.diagnostics.push(diag);
     }
 
     /// Struct dönüşümleri (Karar 4). Struct tarafı yoksa `false`.
@@ -265,7 +277,7 @@ impl<'a> TypeChecker<'a, '_> {
                         span,
                         lstr!(en: "cast '{src_s}' → '{dst_s}' loses information: the struct is {w} bits wide"; tr: "'{src_s}' → '{dst_s}' dönüşümü bilgi kaybeder: struct {w} bit genişliğinde"),
                         lstr!(en: "target narrower than the struct"; tr: "hedef struct'tan dar"),
-                        lstr!(en: "cast to at least {w} bits: p as u{w} (the first field is the most significant, ADR-0077)"; tr: "en az {w} bite dönüştürün: p as u{w} (ilk alan en anlamlı bitlerde, ADR-0077)"),
+                        lstr!(en: "cast to at least {w} bits: p as u{w} (the first field is the most significant)"; tr: "en az {w} bite dönüştürün: p as u{w} (ilk alan en anlamlı bitlerde)"),
                     );
                 }
                 true

@@ -185,6 +185,15 @@ struct Inferencer<'a> {
     /// `@Alan` açıklamalı portlar → açıklama metni (`sync()` yakalama
     /// kuralı, sv-emit `try_emit_sync_bridge` ile aynı metin eşlemesi).
     annotated_ports: HashMap<DefId, String>,
+    /// Yürünen bloğu taşıyan modül deyimi (`on`/`comb`/`for`); modül
+    /// düzeyinde `None`. `sync()` yalnız modül düzeyinde yazılır: blok
+    /// içi E3001/E3012 önerisi bu deyimin üstüne bir `let` ekler.
+    stmt_anchor: Option<Span>,
+    /// Denetlenen modülün adı (E3002 `on` tetikleyicisi iletisi).
+    module_name: String,
+    /// Denetlenen atamanın ya da koşulun kaynak ifadesi (E3001/E3012
+    /// `sync()` önerisi için; yalnız denetim süresince dolu).
+    fix_src: Option<Idx<Expr>>,
 }
 
 /// Modülün bir saat portu (E3016 kullanım denetimleri için).
@@ -219,6 +228,9 @@ impl<'a> Inferencer<'a> {
             anchored: HashSet::new(),
             module_clocks: Vec::new(),
             annotated_ports: HashMap::new(),
+            stmt_anchor: None,
+            module_name: String::new(),
+            fix_src: None,
         }
     }
 }

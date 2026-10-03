@@ -117,6 +117,39 @@ fn cdc_violation_reports_e3001() {
     );
 }
 
+/// ADR-0099: `on <veri sinyali>` ve birbirini açıklayan iki saat portu
+/// eskiden yalnız SV üreticisinde düşüyordu; editör bunları göstermiyordu.
+#[test]
+fn on_trigger_and_clock_annotation_cycle_are_shown_in_the_editor() {
+    let on_data = "module M {\n    in  _clk : clock\n    in  d : bool\n    out q : bool\n\n    \
+                   reg r : bool = false\n    on d {\n        r <= !r\n    }\n    q = r\n}\n";
+    let cycle = "module L {\n    in  c1 : clock @c2\n    in  c2 : clock @c1\n    in  d : bool @c1\n    \
+                 out q : bool @c1\n\n    reg r : bool @c1 = false\n    on c1 {\n        r <= d\n    }\n    \
+                 q = r\n}\n";
+    for (src, needle) in [
+        (on_data, "'d' is not a clock port of 'M'"),
+        (cycle, "cannot derive the clock domain of 'c1' from '@c2'"),
+    ] {
+        let a = analyze(src);
+        let e3002: Vec<_> = a
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.as_str() == "E3002")
+            .collect();
+        assert_eq!(e3002.len(), 1, "{:?}", a.diagnostics);
+        assert!(e3002[0].message.contains(needle), "{}", e3002[0].message);
+        // Ön uç tanısı: üreticinin "derleyici hatası" notu değil.
+        assert!(
+            e3002[0]
+                .notes
+                .iter()
+                .all(|n| !n.text.contains("compiler bug")),
+            "{:?}",
+            e3002[0].notes
+        );
+    }
+}
+
 #[test]
 fn incomplete_module_does_not_crash() {
     // error-recovery.md §9: "module Cou" bile AST üretmeli.
@@ -153,22 +186,15 @@ fn lsp_diags(src: &str) -> Vec<tower_lsp::lsp_types::Diagnostic> {
 }
 
 #[test]
-fn diagnostic_has_code_and_description_url() {
+fn diagnostic_has_code_and_no_dead_description_url() {
     let diags = lsp_diags(CDC_VIOLATION);
     let cdc = diags
         .iter()
         .find(|d| d.code == Some(NumberOrString::String("E3001".into())))
         .expect("E3001 tanısı");
-    let href = cdc
-        .code_description
-        .as_ref()
-        .expect("codeDescription")
-        .href
-        .as_str();
-    assert!(
-        href.contains("E3001"),
-        "spec referansı E3001 içermeli: {href}"
-    );
+    // Kitapta kod başına sayfa yok: bağlantı verilmez (açıklama
+    // `volt explain E3001`'de, help satırında anılır).
+    assert!(cdc.code_description.is_none(), "{:?}", cdc.code_description);
 }
 
 #[test]

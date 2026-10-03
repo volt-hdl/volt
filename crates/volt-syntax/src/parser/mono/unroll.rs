@@ -32,7 +32,9 @@ use volt_ast::{
     AssignStmt, BlockStmt, ExprKind, ForStmt, GenerateIter, Idx, InstanceDecl, Item, ItemKind,
     LetDecl, PortBinding, SourceFile, Stmt, StmtKind,
 };
-use volt_diagnostics::{fold_duplicates, lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{
+    fold_duplicates, lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Suggestion,
+};
 use volt_span::Span;
 
 use super::budget::{ExpansionBudget, MAX_EXPANSION_NODES};
@@ -390,21 +392,32 @@ impl Unroller<'_> {
             return None;
         };
         if e < s {
-            self.diagnostics.push(Diagnostic::error(
-                ErrorCode::E2028,
-                lstr!(
-                    en: "'for {var}' range is reversed: {s}..{e}";
-                    tr: "'for {var}' aralığı ters: {s}..{e}"
+            self.diagnostics.push(
+                Diagnostic::error(
+                    ErrorCode::E2028,
+                    lstr!(
+                        en: "'for {var}' range is reversed: {s}..{e}";
+                        tr: "'for {var}' aralığı ters: {s}..{e}"
+                    ),
+                    LabeledSpan::primary(
+                        span,
+                        lstr!(en: "end is smaller than start"; tr: "bitiş başlangıçtan küçük"),
+                    ),
+                    lstr!(
+                        en: "write the smaller bound first: for {var} in {e}..{s}";
+                        tr: "küçük sınırı önce yazın: for {var} in {e}..{s}"
+                    ),
+                )
+                // suggestion: e2028_module_for
+                .with_suggestion(
+                    Suggestion::replace(
+                        self.ast.exprs[f.start].span,
+                        e.to_string(),
+                        Applicability::MaybeIncorrect,
+                    )
+                    .and_replace(self.ast.exprs[f.end].span, s.to_string()),
                 ),
-                LabeledSpan::primary(
-                    span,
-                    lstr!(en: "end is smaller than start"; tr: "bitiş başlangıçtan küçük"),
-                ),
-                lstr!(
-                    en: "write the smaller bound first: for {var} in {e}..{s}";
-                    tr: "küçük sınırı önce yazın: for {var} in {e}..{s}"
-                ),
-            ));
+            );
             return None;
         }
         if e - s > MAX_UNROLL {

@@ -62,6 +62,7 @@ fn run(tag: &str, body: &str) -> Option<String> {
     let test = format!("test \"{tag}\" {{\n    let dut = TrafficLight {{ }};\n{body}}}\n");
     std::fs::write(dir.join("light_test.volt"), format!("{LIGHT}\n{test}")).expect("yaz");
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .env("VOLT_LANG", "en")
         .args(["test", "light_test.volt", "--target-dir", "build"])

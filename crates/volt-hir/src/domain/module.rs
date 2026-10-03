@@ -10,6 +10,7 @@ use crate::resolve::DefId;
 
 impl Inferencer<'_> {
     pub(super) fn infer_module(&mut self, m: &ModuleDecl) {
+        self.module_name = m.name.text.clone();
         // 1. MODÜL TARAMASI — clock portlarını topla (K2).
         self.scan_clock_ports(m);
 
@@ -70,19 +71,55 @@ impl Inferencer<'_> {
                 self.annotated_ports.insert(def, ann.text.clone());
             }
         }
-        for &(def, p) in &clocks {
-            let dom = match &p.domain {
-                Some(ann) => {
-                    if let Some(d) = self.use_def(ann.span) {
-                        self.anchored.insert(d);
-                    }
-                    self.annotation_domain(&ann.clone())
+        // Saat portu başka bir saat portuyla açıklanabilir (`in c1 : clock
+        // @c0`): alanı zincirin sonundaki alandır — sırası önemli değil.
+        // Döngü (`@c2` / `@c1`) hiçbir alana varmaz: E3002, üreticinin
+        // flop denetimiyle aynı kural (ADR-0099).
+        let target = |s: &Self, p: &Port| {
+            p.domain
+                .as_ref()
+                .and_then(|ann| s.use_def(ann.span))
+                .and_then(|t| clocks.iter().position(|(d, _)| *d == t))
+        };
+        let mut doms: Vec<Option<DomainId>> = vec![None; clocks.len()];
+        for (i, &(def, p)) in clocks.iter().enumerate() {
+            if let Some(ann) = &p.domain {
+                if let Some(d) = self.use_def(ann.span) {
+                    self.anchored.insert(d);
                 }
-                None => {
-                    let id = self.implicit_clock_domain(def, &p.name.text, p.name.span);
-                    DomainId::Explicit(id)
+                if target(self, p).is_none() {
+                    doms[i] = Some(self.annotation_domain(&ann.clone()));
+                }
+            } else {
+                let id = self.implicit_clock_domain(def, &p.name.text, p.name.span);
+                doms[i] = Some(DomainId::Explicit(id));
+            }
+        }
+        let mut cycle_reported = false;
+        for i in 0..clocks.len() {
+            let mut cur = i;
+            let mut seen = Vec::new();
+            let dom = loop {
+                if let Some(d) = doms[cur] {
+                    break d;
+                }
+                if seen.contains(&cur) {
+                    if !cycle_reported {
+                        cycle_reported = true;
+                        self.err_clock_annotation_cycle(clocks[i].1);
+                    }
+                    break DomainId::Error;
+                }
+                seen.push(cur);
+                match target(self, clocks[cur].1) {
+                    Some(next) => cur = next,
+                    None => break DomainId::Error,
                 }
             };
+            doms[i] = Some(dom);
+        }
+        for (i, &(def, p)) in clocks.iter().enumerate() {
+            let dom = doms[i].unwrap_or(DomainId::Error);
             self.signal_domains.insert(def, dom);
             self.clock_candidates.push((p.name.span, self.display(dom)));
             self.module_clocks.push(ModuleClock {
@@ -98,6 +135,43 @@ impl Inferencer<'_> {
             [(def, _)] => self.signal_domains[def],
             _ => DomainId::Error, // çoklu saat: varsayılan yok (K3)
         };
+    }
+
+    /// E3002 — saat portu açıklamaları döngü kuruyor (`@c2` / `@c1`):
+    /// hiçbir `domain` bildirimine ya da açıklamasız saate varılmaz.
+    fn err_clock_annotation_cycle(&mut self, p: &Port) {
+        let ann = p.domain.as_ref().map_or("", |a| a.text.as_str());
+        let name = &p.name.text;
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E3002,
+                lstr!(
+                    en: "cannot derive the clock domain of '{name}' from '@{ann}'";
+                    tr: "'{name}' saatinin alanı '@{ann}' açıklamasından türetilemiyor"
+                ),
+                LabeledSpan::primary(
+                    p.name.span,
+                    lstr!(en: "the clock port annotations form a cycle"; tr: "saat portu açıklamaları döngü kuruyor"),
+                ),
+                lstr!(
+                    en: "annotate the clock port with a 'domain' declaration, or remove the \
+                         annotation (the port then has its own implicit domain)";
+                    tr: "saat portunu bir 'domain' bildirimiyle açıklayın ya da açıklamayı \
+                         kaldırın (port o zaman kendi örtük alanındadır)"
+                ),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(
+                    en: "a clock port annotated with another clock port shares its domain; \
+                         following '@{ann}' leads back to '{name}', so no domain declaration \
+                         and no clock edge is ever reached";
+                    tr: "başka bir saat portuyla açıklanan saat portu onun alanını paylaşır; \
+                         '@{ann}' izlenince '{name}' portuna geri dönülür, hiçbir domain \
+                         bildirimine ve saat kenarına varılmaz"
+                ),
+            ),
+        );
     }
 
     /// Adım 2 — saat dışı portlar: anotasyon (K1), tek saat (K2) ya da
@@ -135,9 +209,9 @@ impl Inferencer<'_> {
         let candidate = self.clock_candidates.first().map(|(_, d)| d.clone());
         let reason = if in_extern {
             lstr!(en: "the extern module has more than one clock port, so it cannot be \
-                       inferred which one the port belongs to (ADR-0047)";
+                       inferred which one the port belongs to";
                   tr: "extern modülde birden fazla clock portu var, portun hangisine \
-                       ait olduğu çıkarılamıyor (ADR-0047)")
+                       ait olduğu çıkarılamıyor")
         } else {
             lstr!(en: "the module has more than one clock, so it cannot be inferred \
                        which one the signal belongs to";

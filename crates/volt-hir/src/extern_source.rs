@@ -131,7 +131,7 @@ fn bad_arguments(attr: &Attribute) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "several files are allowed: @source(\"rtl/fifo.sv\", \"rtl/fifo_mem.sv\") (ADR-0076)"; tr: "birden çok dosya olabilir: @source(\"rtl/fifo.sv\", \"rtl/fifo_mem.sv\") (ADR-0076)"),
+        lstr!(en: "several files are allowed: @source(\"rtl/fifo.sv\", \"rtl/fifo_mem.sv\")"; tr: "birden çok dosya olabilir: @source(\"rtl/fifo.sv\", \"rtl/fifo_mem.sv\")"),
     )
 }
 
@@ -144,7 +144,7 @@ fn misplaced(attr: &Attribute) -> Diagnostic {
     )
     .with_note(
         NoteKind::Note,
-        lstr!(en: "'@source' tells 'volt run', 'test' and 'verify' where an extern module's SystemVerilog lives (ADR-0076)"; tr: "'@source', 'volt run', 'test' ve 'verify'a bir extern modülün SystemVerilog'unun nerede olduğunu söyler (ADR-0076)"),
+        lstr!(en: "'@source' tells 'volt run', 'test' and 'verify' where an extern module's SystemVerilog lives"; tr: "'@source', 'volt run', 'test' ve 'verify'a bir extern modülün SystemVerilog'unun nerede olduğunu söyler"),
     )
 }
 
@@ -240,7 +240,7 @@ fn source_error(module: &str, rel: &str, span: Span, err: &TestFileError) -> Dia
         )
         .with_note(
             NoteKind::Reason,
-            lstr!(en: "the project root is the directory of the nearest Volt.toml, or this file's directory when there is none (ADR-0061, ADR-0076)"; tr: "proje kökü en yakın Volt.toml'un dizinidir, yoksa bu dosyanın dizini (ADR-0061, ADR-0076)"),
+            lstr!(en: "the project root is the directory of the nearest Volt.toml, or this file's directory when there is none"; tr: "proje kökü en yakın Volt.toml'un dizinidir, yoksa bu dosyanın dizini"),
         ),
         TestFileError::NotFound(os) => Diagnostic::error(
             ErrorCode::E1012,
@@ -268,7 +268,7 @@ pub fn missing_sources(ast: &SourceFile, command: &str) -> Vec<Diagnostic> {
             )
             .with_note(
                 NoteKind::Note,
-                lstr!(en: "'volt build' and 'volt check' do not need it: they emit the instantiation only (ADR-0071, ADR-0076)"; tr: "'volt build' ve 'volt check' buna ihtiyaç duymaz: yalnız örneklemeyi üretirler (ADR-0071, ADR-0076)"),
+                lstr!(en: "'volt build' and 'volt check' do not need it: they emit the instantiation only"; tr: "'volt build' ve 'volt check' buna ihtiyaç duymaz: yalnız örneklemeyi üretirler"),
             )
         })
         .collect()

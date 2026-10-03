@@ -591,11 +591,8 @@ impl Parser<'_> {
                         lstr!(en: "add the parentheses"; tr: "parantezleri ekleyin"),
                     )
                     // ADR-0091: tek anlamlı, kesin düzeltme.
-                    .with_suggestion(Suggestion {
-                        span: Span { start: span.end, ..span },
-                        replacement: "()".to_string(),
-                        applicability: Applicability::MachineApplicable,
-                    }));
+                    // suggestion: e4008_read_parens
+                    .with_suggestion(Suggestion::replace(Span { start: span.end, ..span }, "()".to_string(), Applicability::MachineApplicable)));
                 }
                 _ => self
                     .diagnostics
@@ -701,8 +698,8 @@ fn e4008(span: Span, message: String, help: String) -> Diagnostic {
     )
     .with_note(
         NoteKind::Reason,
-        lstr!(en: "a bidirectional port is driven only through drive()/drive_low()/release() inside an 'on' block and read with read(); the compiler owns the tri-state buffer (ADR-0051)";
-              tr: "çift yönlü port yalnız 'on' bloğunda drive()/drive_low()/release() ile sürülür ve read() ile okunur; üç durumlu tamponu derleyici üretir (ADR-0051)"),
+        lstr!(en: "a bidirectional port is driven only through drive()/drive_low()/release() inside an 'on' block and read with read(); the compiler owns the tri-state buffer";
+              tr: "çift yönlü port yalnız 'on' bloğunda drive()/drive_low()/release() ile sürülür ve read() ile okunur; üç durumlu tamponu derleyici üretir"),
     )
 }
 

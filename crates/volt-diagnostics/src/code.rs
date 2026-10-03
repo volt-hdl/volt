@@ -121,6 +121,8 @@ error_codes! {
     W5001,
     // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
     W0024,
+    // Volt.toml'da bilinmeyen anahtar ya da bölüm (ADR-0099)
+    W0025,
 }
 
 impl ErrorCode {
@@ -142,9 +144,12 @@ impl ErrorCode {
         self.as_str().starts_with('W')
     }
 
-    /// `volt explain` sayfası (cli-contract.md §5 JSON `explain_url`).
-    pub fn explain_url(&self) -> String {
-        format!("https://volthdl.org/errors/{}", self.as_str())
+    /// Kodun çevrim içi açıklama sayfası (cli-contract.md §5 JSON
+    /// `explain_url`). Kitapta kod başına sayfa yok: `None` (JSON'da
+    /// `null`); açıklama `volt explain <KOD>`tadır. Bölüm bağlantıları
+    /// `explain` metinlerinin DAHA FAZLA kısmındadır.
+    pub fn explain_url(&self) -> Option<String> {
+        None
     }
 }
 

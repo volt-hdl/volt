@@ -67,6 +67,7 @@ fn untyped_let_keeps_the_carry_in_simulation() {
     let dir = temp_dir("sim");
     std::fs::write(dir.join("adder_test.volt"), ADDER).expect("yaz");
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .env("VOLT_LANG", "en")
         .args(["test", "adder_test.volt", "--target-dir", "build"])

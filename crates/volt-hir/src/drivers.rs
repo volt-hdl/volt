@@ -360,8 +360,8 @@ fn undriven_part(
     .with_note(
         NoteKind::Reason,
         lstr!(
-            en: "an undriven part is X/undriven in SystemVerilog (Verilator UNDRIVEN); Volt produces no X (ADR-0008, ADR-0077)";
-            tr: "sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN); Volt X üretmez (ADR-0008, ADR-0077)"
+            en: "an undriven part is X/undriven in SystemVerilog (Verilator UNDRIVEN); Volt produces no X";
+            tr: "sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN); Volt X üretmez"
         ),
     )
 }
@@ -399,8 +399,8 @@ fn double_driver(
     diag.with_note(
         NoteKind::Reason,
         lstr!(
-            en: "in hardware, two sources cannot drive the same signal at once (type-inference.md §11, ADR-0073)";
-            tr: "donanımda bir sinyali iki kaynak aynı anda süremez (type-inference.md §11, ADR-0073)"
+            en: "in hardware, two sources cannot drive the same signal at once";
+            tr: "donanımda bir sinyali iki kaynak aynı anda süremez"
         ),
     )
 }

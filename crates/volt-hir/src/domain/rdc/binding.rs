@@ -96,9 +96,9 @@ impl Rdc<'_> {
         .with_note(
             NoteKind::Reason,
             lstr!(en: "a single raw reset port feeds every domain of the module; with more \
-                       than one, each must name its domain (ADR-0065 §1)";
+                       than one, each must name its domain";
                   tr: "tek ham reset portu modülün bütün alanlarını besler; birden çok \
-                       olduğunda her biri alanını belirtmelidir (ADR-0065 §1)"),
+                       olduğunda her biri alanını belirtmelidir"),
         );
         for other in module.raws.iter().filter(|r| r.def != raw.def) {
             diag = diag.with_secondary(
@@ -141,9 +141,9 @@ impl Rdc<'_> {
             .with_note(
                 NoteKind::Reason,
                 lstr!(en: "the synchronizer asserts with the port's polarity and releases the \
-                           domain's registers; the two must agree (ADR-0065 §1)";
+                           domain's registers; the two must agree";
                       tr: "senkronizör portun polaritesiyle etkinleşir ve alanın register'larını \
-                           bırakır; ikisi uyuşmalıdır (ADR-0065 §1)"),
+                           bırakır; ikisi uyuşmalıdır"),
             ),
         );
     }
@@ -173,9 +173,9 @@ impl Rdc<'_> {
             .with_note(
                 NoteKind::Reason,
                 lstr!(en: "the generated module would have two inputs called '{name}' — one raw, \
-                           one released synchronously (ADR-0065 §1)";
+                           one released synchronously";
                       tr: "üretilen modülde '{name}' adlı iki giriş olurdu — biri ham, biri \
-                           senkron bırakılan (ADR-0065 §1)"),
+                           senkron bırakılan"),
             ),
         );
     }

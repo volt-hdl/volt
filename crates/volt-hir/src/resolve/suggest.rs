@@ -43,13 +43,18 @@ pub(super) fn did_you_mean(suggestion: Option<&String>, fallback: String) -> Str
 }
 
 /// Öneri varsa `span`'daki adı onunla değiştiren fix-it'i ekler.
-pub(super) fn with_rename(diag: Diagnostic, span: Span, suggestion: Option<String>) -> Diagnostic {
+pub(super) fn with_rename_fix(
+    diag: Diagnostic,
+    span: Span,
+    suggestion: Option<String>,
+) -> Diagnostic {
     match suggestion {
-        Some(replacement) => diag.with_suggestion(Suggestion {
+        // suggestion-helper: with_rename_fix
+        Some(replacement) => diag.with_suggestion(Suggestion::replace(
             span,
             replacement,
-            applicability: Applicability::MaybeIncorrect,
-        }),
+            Applicability::MaybeIncorrect,
+        )),
         None => diag,
     }
 }
@@ -59,7 +64,7 @@ mod tests {
     use volt_diagnostics::{Diagnostic, ErrorCode, LabeledSpan};
     use volt_span::{FileId, Span};
 
-    use super::{closest_match, did_you_mean, levenshtein, with_rename};
+    use super::{closest_match, did_you_mean, levenshtein, with_rename_fix};
 
     fn names(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
@@ -101,8 +106,8 @@ mod tests {
         let span = Span::new(FileId(0), 0, 3);
         let diag =
             || Diagnostic::error(ErrorCode::E1001, "m", LabeledSpan::primary(span, "l"), "h");
-        assert!(with_rename(diag(), span, None).suggestions.is_empty());
-        let fixed = with_rename(diag(), span, Some("clk".into()));
-        assert_eq!(fixed.suggestions[0].replacement, "clk");
+        assert!(with_rename_fix(diag(), span, None).suggestions.is_empty());
+        let fixed = with_rename_fix(diag(), span, Some("clk".into()));
+        assert_eq!(fixed.suggestions[0].primary().text, "clk");
     }
 }

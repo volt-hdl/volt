@@ -250,7 +250,7 @@ fn field_hover(analysis: &Analysis, name_span: Span) -> Option<String> {
         format!("[{}:{lsb}]", lsb + width - 1)
     };
     Some(format!(
-        "```volt\n{root}.{} : {ty}\n```\nfield of struct {} — bits {bits} of `{root}` (first field most significant, ADR-0077)",
+        "```volt\n{root}.{} : {ty}\n```\nfield of struct {} — bits {bits} of `{root}` (first field most significant)",
         path.join("."),
         layout.name
     ))

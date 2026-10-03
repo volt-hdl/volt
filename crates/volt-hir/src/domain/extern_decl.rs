@@ -115,9 +115,9 @@ impl Inferencer<'_> {
                 NoteKind::Reason,
                 lstr!(en: "a symbolic domain is bound to a real clock domain through a clock \
                            connection at instantiation; without a clock port it can never be \
-                           bound (ADR-0047)";
+                           bound";
                       tr: "sembolik alan örneklemede saat bağlantısıyla gerçek alana bağlanır; \
-                           clock portu yoksa hiç bağlanamaz (ADR-0047)"),
+                           clock portu yoksa hiç bağlanamaz"),
             ),
         );
     }

@@ -2,11 +2,14 @@
 //! alanda olmalı (E3001, atama biçimi); bloğun koşulu/seçicisi yabancı
 //! alandan okunamaz (E3012).
 
-use volt_ast::{Expr, Idx, LValue, LValueSuffix};
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_ast::{Expr, ExprKind, Idx, LValue, LValueSuffix};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use super::{DomainId, Inferencer};
+use crate::ty::Ty;
 
 impl Inferencer<'_> {
     /// K7 — 'on' bloğu koşulunda/seçicisinde yabancı domain (E3012).
@@ -30,45 +33,55 @@ impl Inferencer<'_> {
         span: Span,
         trigger_span: Span,
     ) {
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E3012,
+        let fix = self.sync_fix(span, DomainId::Explicit(y));
+        let help = match &fix {
+            Some((line, _)) => lstr!(
+                en: "sync() is written at module level: add '{line}' above this block and read the synchronized name here";
+                tr: "sync() modül düzeyinde yazılır: bu bloğun üstüne '{line}' ekleyin ve burada senkronize adı okuyun"
+            ),
+            None => lstr!(
+                en: "synchronize it at module level, outside this block: let s = sync(<signal>, <clock of {}>), then read s here",
+                    self.domain_name(y);
+                tr: "bu bloğun dışında, modül düzeyinde senkronize edin: let s = sync(<sinyal>, <{} saati>), sonra burada s'yi okuyun",
+                    self.domain_name(y)
+            ),
+        };
+        let mut diag = Diagnostic::error(
+            ErrorCode::E3012,
+            lstr!(
+                en: "a signal from a foreign clock domain is read in an 'on' block";
+                tr: "'on' bloğunda yabancı saat alanından sinyal okunuyor"
+            ),
+            LabeledSpan::primary(
+                span,
                 lstr!(
-                    en: "a signal from a foreign clock domain is read in an 'on' block";
-                    tr: "'on' bloğunda yabancı saat alanından sinyal okunuyor"
-                ),
-                LabeledSpan::primary(
-                    span,
-                    lstr!(
-                        en: "comes from the {} domain", self.display(d);
-                        tr: "{} alanından geliyor", self.display(d)
-                    ),
-                ),
-                lstr!(
-                    en: "synchronize it first: sync(<signal>, <clock of {}>)",
-                        self.domain_name(y);
-                    tr: "önce senkronize edin: sync(<sinyal>, <{} saati>)",
-                        self.domain_name(y)
-                ),
-            )
-            .with_secondary(
-                trigger_span,
-                lstr!(
-                    en: "the block is in the @{} domain", self.domain_name(y);
-                    tr: "blok @{} alanında", self.domain_name(y)
-                ),
-            )
-            .with_secondary(self.domain_span(x), self.defined_here(x))
-            .with_note(
-                NoteKind::Reason,
-                lstr!(
-                    en: "a signal arriving from a foreign clock may be sampled during \
-                         an unstable window by this block's registers (metastability)";
-                    tr: "yabancı saatten gelen sinyal bu bloğun register'larında \
-                         kararsız anda yakalanabilir (metastabilite)"
+                    en: "comes from the {} domain", self.display(d);
+                    tr: "{} alanından geliyor", self.display(d)
                 ),
             ),
+            help,
+        )
+        .with_secondary(
+            trigger_span,
+            lstr!(
+                en: "the block is in the @{} domain", self.domain_name(y);
+                tr: "blok @{} alanında", self.domain_name(y)
+            ),
+        )
+        .with_secondary(self.domain_span(x), self.defined_here(x))
+        .with_note(
+            NoteKind::Reason,
+            lstr!(
+                en: "a signal arriving from a foreign clock may be sampled during \
+                     an unstable window by this block's registers (metastability)";
+                tr: "yabancı saatten gelen sinyal bu bloğun register'larında \
+                     kararsız anda yakalanabilir (metastabilite)"
+            ),
         );
+        if let Some((_, fix)) = fix {
+            diag = diag.with_suggestion(fix);
+        }
+        self.diagnostics.push(diag);
     }
 
     pub(super) fn check_assign(
@@ -124,7 +137,73 @@ impl Inferencer<'_> {
             }
         }
 
+        self.fix_src = Some(rhs);
         self.check_compat(lhs_dom, rhs_dom, lhs.span, rhs_span);
+        self.fix_src = None;
+    }
+
+    /// `src`'yi `dst` alanına taşıyan `sync()` düzeltmesi, bağlamda
+    /// geçerli biçimiyle. `sync()` yalnız modül düzeyinde, sağ tarafın
+    /// tamamı olarak yazılır (blok içinde E0003): modül düzeyinde kaynak
+    /// yerinde sarılır; blok içinde bloğun üstüne `let ad_sync = sync(..)`
+    /// eklenir ve kaynak o adla okunur. Yalnız tek bitlik, adı yazılabilen
+    /// kaynak ve hedef alanın bu modülde bir saat portu varken (çok bitli
+    /// veri W3003'tür; seçim AsyncFifo/HandshakeSync'tir). Döner: (yardım
+    /// metnindeki kod, öneri).
+    pub(super) fn sync_fix(&self, src_span: Span, dst: DomainId) -> Option<(String, Suggestion)> {
+        let src = self.fix_src?;
+        let expr = &self.ast.exprs[src];
+        if expr.span != src_span {
+            return None;
+        }
+        let ExprKind::Path(path) = &expr.kind else {
+            return None;
+        };
+        let [name] = path.segments.as_slice() else {
+            return None;
+        };
+        let one_bit = self.tyck.expr_types.get(&src).is_some_and(|&t| {
+            matches!(self.tyck.types.ty(t), Ty::Bool) || self.tyck.types.signal_width(t) == Some(1)
+        });
+        if !one_bit {
+            return None;
+        }
+        let dst = self.resolve_dom(dst);
+        let clock = self
+            .module_clocks
+            .iter()
+            .find(|c| self.resolve_dom(c.dom) == dst)?;
+        let (name, clk) = (&name.text, &clock.name);
+        match self.stmt_anchor {
+            None => {
+                let call = format!("sync({name}, {clk})");
+                // suggestion: e3001_module_level, e3001_let_annotation
+                let fix =
+                    Suggestion::replace(src_span, call.clone(), Applicability::MaybeIncorrect);
+                Some((call, fix))
+            }
+            Some(anchor) => {
+                let synced = self.fresh_name(&format!("{name}_sync"));
+                let line = format!("let {synced} = sync({name}, {clk})");
+                // suggestion: e3001_in_on_block, e3001_in_comb_block, e3012_on_condition
+                let fix =
+                    Suggestion::line_above(anchor, line.clone(), Applicability::MaybeIncorrect)
+                        .and_replace(src_span, synced);
+                Some((line, fix))
+            }
+        }
+    }
+
+    /// Birimde tanımlı olmayan ad: `base`, gerekirse `base_2`, `base_3`...
+    fn fresh_name(&self, base: &str) -> String {
+        let taken = |n: &str| self.res.defs.iter().any(|d| d.name == n);
+        if !taken(base) {
+            return base.to_string();
+        }
+        (2..)
+            .map(|i| format!("{base}_{i}"))
+            .find(|n| !taken(n))
+            .expect("sonsuz aday")
     }
 
     /// K6 — hedef ile kaynak aynı alanda mı? Timeless muaf.
@@ -157,21 +236,34 @@ impl Inferencer<'_> {
         } else {
             None
         };
-        let diag = Diagnostic::error(
+        let fix = self.sync_fix(src_span, d);
+        let dst_label = dst_name.clone().unwrap_or_else(|| "dest".to_string());
+        let help = match (&fix, self.stmt_anchor) {
+            (Some((call, _)), None) => lstr!(
+                en: "synchronize into the {dst_label} domain: {call}";
+                tr: "{dst_label} alanına senkronize edin: {call}"
+            ),
+            (Some((line, _)), Some(_)) => lstr!(
+                en: "sync() is written at module level: add '{line}' above this block and read the synchronized name here";
+                tr: "sync() modül düzeyinde yazılır: bu bloğun üstüne '{line}' ekleyin ve burada senkronize adı okuyun"
+            ),
+            (None, None) => lstr!(
+                en: "synchronize into the target domain with sync(): dest = sync(src, <clock of {dst_label}>)";
+                tr: "sync() ile hedef alana senkronize edin: hedef = sync(kaynak, <{dst_label} saati>)"
+            ),
+            (None, Some(_)) => lstr!(
+                en: "synchronize at module level, outside this block: let s = sync(<signal>, <clock of {dst_label}>), then read s here";
+                tr: "bu bloğun dışında, modül düzeyinde senkronize edin: let s = sync(<sinyal>, <{dst_label} saati>), sonra burada s'yi okuyun"
+            ),
+        };
+        let mut diag = Diagnostic::error(
             ErrorCode::E3001,
             lstr!(
                 en: "direct assignment between clock domains";
                 tr: "saat alanları arasında doğrudan atama"
             ),
             LabeledSpan::primary(dst_span, self.display(d)),
-            lstr!(
-                en: "synchronize into the target domain with sync(): \
-                     dest = sync(src, <clock of {}>)",
-                    dst_name.clone().unwrap_or_else(|| "dest".to_string());
-                tr: "sync() ile hedef alana senkronize edin: \
-                     hedef = sync(kaynak, <{} saati>)",
-                    dst_name.clone().unwrap_or_else(|| "hedef".to_string())
-            ),
+            help,
         )
         .with_secondary(src_span, self.display(s))
         .with_note(
@@ -190,6 +282,9 @@ impl Inferencer<'_> {
                 tr: "çok bitli veri için AsyncFifo daha güvenli olabilir"
             ),
         );
+        if let Some((_, fix)) = fix {
+            diag = diag.with_suggestion(fix);
+        }
         let diag = self.with_endpoint_defs(diag, d, s);
         self.diagnostics.push(diag);
     }

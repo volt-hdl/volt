@@ -326,6 +326,29 @@ impl TypeChecker<'_, '_> {
                     lstr!(en: "make the source and target widths equal"; tr: "kaynak ve hedef genişliklerini eşitleyin"),
                 );
             }
+            // Bit seçimi `bits<N>` verir (§3.3): sayıya dönüşüm açıktır.
+            // `as uN` yalnız aynı genişlikte geçerlidir; daha geniş
+            // işaretsiz hedefe `uN` örtük genişler. İşaretli hedefe
+            // genişleme (işaret mi sıfır mı) seçim gerektirir: öneri yok.
+            (&Ty::Bits { width: a }, &Ty::UInt { width: b } | &Ty::SInt { width: b })
+                if a == b || (a < b && matches!(self.types.ty(expected), Ty::UInt { .. })) =>
+            {
+                let ty = if matches!(self.types.ty(expected), Ty::SInt { .. }) {
+                    format!("i{a}")
+                } else {
+                    format!("u{a}")
+                };
+                let exp = self.show(expected);
+                let act = self.show(actual);
+                self.err_type_mismatch_msg(
+                    span,
+                    &lstr!(en: "type mismatch: expected '{exp}', found '{act}'"; tr: "tip uyumsuzluğu: '{exp}' bekleniyor, '{act}' bulundu"),
+                    &lstr!(en: "bits<{a}> (a bit selection, for example) is raw bits, not a number; convert it: (expr as {ty})"; tr: "bits<{a}> (örneğin bir bit seçimi) sayı değil, ham bitlerdir; dönüştürün: (ifade as {ty})"),
+                );
+                // suggestion: e2003_bits_to_uint, e2003_bits_to_wider_uint
+                let fix = self.cast_fix(span, &ty);
+                self.suggest_last(fix);
+            }
             _ => self.err_type_mismatch(expected, actual, span),
         }
     }
