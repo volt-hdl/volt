@@ -83,6 +83,7 @@ fn project(tag: &str, manifest_extra: &str) -> PathBuf {
 /// Verilator'suz koşu: keşif çıktısı.
 fn run_test(cwd: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "test"])
         .current_dir(cwd)
         .env("VOLT_VERILATOR", cwd.join("no-such-verilator"))
@@ -175,6 +176,7 @@ fn a_bare_file_name_in_a_project_subdirectory_finds_the_manifest() {
     // manifest araması göreli "." yolunun başında duruyordu.
     let root = project("bare", "");
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "check", "uses_test.volt"])
         .current_dir(root.join("tests/deep"))
         .env_remove("VOLT_MANIFEST_DIR")
@@ -198,6 +200,7 @@ fn real_verilator_runs_every_discovered_test() {
     write(&root.join("a/counter.volt"), COUNTER);
     write(&root.join("a/counter_test.volt"), &counter_test("a", ""));
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "test"])
         .current_dir(&root)
         .env("VOLT_VERILATOR", &verilator)

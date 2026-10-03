@@ -86,16 +86,11 @@ fn doctor_cmd(path_dir: &Path) -> Command {
         .env("VOLT_MANIFEST_DIR", &empty)
         .env_remove("VOLT_LANG")
         .env_remove("WSL_DISTRO_NAME");
-    for var in [
-        "VOLT_VERILATOR",
-        "VOLT_SBY",
-        "VOLT_DOCKER",
-        "VOLT_TOOL_BACKEND",
-        "CC",
-        "CXX",
-    ] {
+    for var in ["VOLT_VERILATOR", "VOLT_SBY", "VOLT_DOCKER", "CC", "CXX"] {
         cmd.env_remove(var);
     }
+    // doctor araç başlatmaz, yalnız yoklar: varsayılan (auto) açıkça.
+    cmd.env("VOLT_TOOL_BACKEND", "auto");
     cmd
 }
 

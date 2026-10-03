@@ -28,6 +28,8 @@ const TEMPLATES: &[(&str, &str)] = &[
 
 fn volt() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_volt"));
+    // Araç arka ucu açık: Verilator/sby yoksa Docker'a sessizce düşülmez.
+    cmd.env("VOLT_TOOL_BACKEND", "local");
     cmd.env_remove("VOLT_LANG").env_remove("VOLT_MANIFEST_DIR");
     cmd
 }

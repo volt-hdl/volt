@@ -82,6 +82,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 /// Sürücüyü, başlatılamayan bir "Verilator" ile koşturur (çıkış kodu 3).
 fn volt_without_tool(dir: &Path, fake_tool: &Path, args: &[&str]) {
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .env("VOLT_LANG", "en")
         .env("VOLT_VERILATOR", fake_tool)
         .args(args)

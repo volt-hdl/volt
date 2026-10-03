@@ -106,11 +106,13 @@ impl Env {
             .env("VOLT_MANIFEST_DIR", &self.dir)
             .env_remove("VOLT_LANG")
             .env_remove("VOLT_TARGET_DIR");
+        // Sahte docker ile otomatik geri düşüş sınanır: arka uç açıkça
+        // `auto` (testler gerektiğinde `local`/`docker` ile ezer).
+        cmd.env("VOLT_TOOL_BACKEND", "auto");
         for var in [
             "VOLT_VERILATOR",
             "VOLT_SBY",
             "VOLT_DOCKER",
-            "VOLT_TOOL_BACKEND",
             "FAKE_DOCKER_DAEMON",
             "FAKE_DOCKER_IMAGE",
             "FAKE_DOCKER_PULL",

@@ -149,7 +149,7 @@ example, GTKWave 3.3.116 on Linux).
 ```console
 $ cargo build -p volt-driver --bin volt
 $ python3 book/tools/check_book.py --volt target/debug/volt
-$ python3 book/tools/check_book.py --volt target/debug/volt --run-tests   # needs Verilator or Docker
+$ python3 book/tools/check_book.py --volt target/debug/volt --run-tests   # needs Verilator; with Docker add --backend docker
 $ python3 book/tools/check_book.py --volt target/debug/volt --self-test   # the checker's own tests
 $ mdbook serve book --open
 ```

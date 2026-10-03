@@ -65,6 +65,7 @@ fn register_written_in_a_for_loop_resets_to_its_initial_value() {
     let dir = temp_dir("sim");
     std::fs::write(dir.join("for_reset_test.volt"), FOR_RESET).expect("yaz");
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .env("VOLT_LANG", "en")
         .args(["test", "for_reset_test.volt", "--target-dir", "build"])
