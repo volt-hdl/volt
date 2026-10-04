@@ -16,6 +16,8 @@ in the book's
   ADRs are written in Turkish; their index is
   [docs/adr/README.md](adr/README.md). A new feature that changes the
   language or the command line gets a new ADR before it is built.
+- **Issue** links an item to its GitHub issue when one is open; the
+  reproduction and the discussion are there.
 - **Status** is checked against the code: *Partial* means part of the item
   works today (the item says which part), *Not started* means nothing of
   it is implemented. Finished items leave this page.
@@ -35,7 +37,9 @@ syntax, diagnostics and output may change in any later release.
 - **Status:** Partial. The release workflow and the install scripts are in
   place; no release has been published.
 - **ADR:** [ADR-0093](adr/ADR-0093-hazir-ikililer-surum-is-akisi.md),
-  [ADR-0096](adr/ADR-0096-kurulum-betikleri.md)
+  [ADR-0096](adr/ADR-0096-kurulum-betikleri.md),
+  [ADR-0100](adr/ADR-0100-0x-surum-politikasi.md) (what a 0.x version
+  number means, release notes, the book follows the release)
 
 ## Next
 
@@ -279,6 +283,7 @@ follow user feedback.
 - **Status:** Not started. Measured and listed in ADR-0098 (appendix 2);
   the workaround is an element-by-element comparison.
 - **ADR:** [ADR-0098](adr/ADR-0098-sessiz-kabul-ikinci-tur.md)
+- **Issue:** [#82](https://github.com/volt-hdl/volt/issues/82)
 
 ### Submodule reset assumptions in parent proofs
 
@@ -305,6 +310,7 @@ follow user feedback.
 - **Status:** Partial. A register assigned with `=` outside an `on`
   block, the one loop a single statement can make, is `E0019`.
 - **ADR:** [ADR-0098](adr/ADR-0098-sessiz-kabul-ikinci-tur.md)
+- **Issue:** [#83](https://github.com/volt-hdl/volt/issues/83)
 
 ### Machine-readable test results
 
@@ -320,6 +326,7 @@ follow user feedback.
   exist and the test record has no schema yet.
 - **ADR:** [ADR-0021](adr/ADR-0021-artifact-uretim-ve-cli-sozlesmesi.md),
   [ADR-0033](adr/ADR-0033-test-bloklari-ve-simulasyon.md)
+- **Issue:** [#84](https://github.com/volt-hdl/volt/issues/84)
 
 ### A machine-wide limit on Docker containers
 
@@ -349,8 +356,11 @@ share code between projects.
   change.
 - **Why:** users and library authors know which upgrades are safe.
 - **Status:** Not started. The attributes are parsed and ignored
-  (`W0021`); their diagnostics are reserved.
-- **ADR:** [ADR-0022](adr/ADR-0022-semver-donanim-kurallari.md)
+  (`W0021`); their diagnostics are reserved. The policy before 1.0 is
+  written: in 0.x, a new middle digit may break existing code, a new last
+  digit brings bug fixes, and the latest release is the supported one.
+- **ADR:** [ADR-0022](adr/ADR-0022-semver-donanim-kurallari.md),
+  [ADR-0100](adr/ADR-0100-0x-surum-politikasi.md)
 
 ### Lock file and release builds
 

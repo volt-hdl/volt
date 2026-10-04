@@ -1,6 +1,7 @@
 # ADR-0022: SemVer Donanım Kuralları — `@version`, `@abi_version`, Anlamsal Diff (Rezerve)
 
 > Statü: Rezerve — geriye dönük belgelendi (2026-09-16); nitelikler ayrışır, denetim V1
+> İlgili: ADR-0100 (1.0 öncesi sürüm politikası: Volt'un kendi 0.x numaraları; bu ADR'nin `@version`/`@abi_version` denetimleri 1.0'ın önkoşulu olan SemVer sözünün parçası).
 > Tarih: 2026-09-03
 > Etkilenen: grammar-full.ebnf §2 (`@version`, `@abi_version` [F5]), cli-contract.md §17
 > (E7001, E7002), volt-hir/src/attrs.rs (W0021 listesi, ADR-0048)

@@ -9,12 +9,15 @@
 #   8. .github/badges.json (README rozetleri) güncel (--update ile yenile)
 #   9. her ADR'de sözlükten tek Statü satırı  10. ADR bağlantı hedefleri var
 #  11. yerini alma ↔ Önceki karar iki yönlü  12. her ADR dizinde tam bir kez
-#  13. README/kitaptaki kurulum adresleri yayınlanan adlarla aynı (ADR-0096)
+#  13. README/kitaptaki kurulum adresleri yayınlanan adlarla aynı (ADR-0096);
+#      kurulum betikleri yalnız Pages kökünde, /dev/ altında değil (ADR-0100)
 #  14. kurulum betikleri saf ASCII ve BOM'suz (Pages charset'siz
 #      octet-stream sunar; PS 5.1 ASCII dışını yanlış çözer)
 #  15. README, yol haritası ve kitaptaki belge bağlantıları ve çapaları var
+#      (kitabın kökü ve /dev/ kopyası aynı book/src'ye eşlenir, ADR-0100)
 #  16. alınmamış alan adına bağlantı yok (crates/, book/, README.md, scripts/)
 #  17. explain metinlerindeki kitap bağlantıları yazılmış bir bölüme gider
+#      ve /dev/'i değil kökü (kurulu sürümün kitabı) gösterir
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -228,6 +231,9 @@ install_hits=$(
         for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9._-]+\.(ps1|sh)' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
             echo "$published" | grep -qx "$n" || echo "$f: https://volt-hdl.github.io/volt/$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)"
         done
+        for u in $(grep -oE 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9._/-]+\.(ps1|sh)' "$ROOT/$f" | sort -u); do
+            echo "$f: $u — kurulum betikleri yalnız Pages kökünde yayınlanır, /dev/ altında değil (kontrol 13)"
+        done
         for n in $(grep -oE 'releases/(latest/download|download/[^/[:space:]]+)/[A-Za-z0-9._-]+' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
             echo "$assets" | grep -qx "$n" || echo "$f: releases/.../download/$n release.yml'nin varlık adlarından biri değil (kontrol 13)"
         done
@@ -261,7 +267,8 @@ done
 # README'deki ve docs/roadmap.md'deki göreli bağlantılar, bu dosyalarla
 # kitaptaki https://github.com/volt-hdl/volt/{blob,tree}/main/<yol>
 # bağlantıları var olan dosyaya gider; https://volt-hdl.github.io/volt/<ad>.html
-# bir kitap sayfasıdır (book/src/<ad>.md). .md hedefindeki #çapa, hedefin
+# ve .../volt/dev/<ad>.html bir kitap sayfasıdır (book/src/<ad>.md; kök son
+# sürümün, /dev/ main'in kitabıdır, ADR-0100). .md hedefindeki #çapa, hedefin
 # bir başlığının GitHub kısaltmasıdır (küçük harf, noktalama silinir,
 # boşluk '-'); kitap içi bağlantıları mdbook denetler.
 doc_slugs() {
@@ -284,7 +291,7 @@ link_hits=$(
             p=${u#https://github.com/volt-hdl/volt/*/main/}
             case "$p" in *'#'*) doc_link "$f" "${p%%#*}" "${p#*#}" ;; *) doc_link "$f" "$p" "" ;; esac
         done
-        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$ROOT/$f" | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | sort -u); do
+        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$ROOT/$f" | sed 's#^https://volt-hdl\.github\.io/volt/##; s#^dev/##; s#\.html$##' | sort -u); do
             doc_link "$f" "book/src/$n.md" ""
         done
         case "$f" in README.md) dir="" ;; docs/roadmap.md) dir="docs/" ;; *) continue ;; esac
@@ -317,10 +324,14 @@ fi
 
 # ── 17: explain bağlantıları kitapta yazılmış bir bölüme gider ────────
 # volt explain'in DAHA FAZLA bağlantıları book/src/<ad>.md'ye karşılık gelir
-# ve o bölüm "planned" yer tutucusu değildir.
+# ve o bölüm "planned" yer tutucusu değildir. Bağlantı kökü gösterir: kök
+# kurulu sürümün kitabıdır, /dev/ main'in (ADR-0100).
 EXPLAIN_DIR="$ROOT/crates/volt-diagnostics/src/explain"
+for u in $(grep -ohE 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9/_-]*' "$EXPLAIN_DIR"/*.rs | sort -u); do
+    violation "explain bağlantısı /dev/'e gidiyor: $u — kurulu sürümün kitabı köktedir (kontrol 17)"
+done
 for n in $(grep -ohE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$EXPLAIN_DIR"/*.rs \
-        | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | sort -u); do
+        | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | grep -v '^dev/' | sort -u); do
     page="$ROOT/book/src/$n.md"
     if [ ! -f "$page" ]; then
         violation "explain bağlantısı kitapta yok: book/src/$n.md (kontrol 17)"

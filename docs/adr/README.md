@@ -85,6 +85,7 @@ denetler.
 | [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Kısmen yerini aldı: ADR-0096 |
 | [0094](ADR-0094-docker-koprusu.md) | Docker Köprüsü — Eksik Verilator/sby'yi Sabitlenmiş İmajda Otomatik Koşturmak | Verilator ya da sby yerelde yoksa `volt test`, `run` ve `verify` aracı özetle sabitlenmiş imajda koşturur; tek satır bildirir, yollar ana makine yolu kalır. | Uygulandı |
 | [0096](ADR-0096-kurulum-betikleri.md) | Kurulum Betikleri — Tek Komutla Doğrulanmış, Yönetici Yetkisi İstemeyen, Geri Alınabilir Kurulum | `irm …/install.ps1 \| iex` ve `curl …/install.sh \| sh` sürümsüz varlık adlarıyla en yeni sürümü indirir, `SHA256SUMS` ile doğrular, kullanıcı klasörüne kurar ve PATH'e bir kez ekler; yeniden çalıştırma günceller, `VOLT_UNINSTALL=1` iz bırakmadan kaldırır. | Uygulandı |
+| [0100](ADR-0100-0x-surum-politikasi.md) | 1.0 Öncesi Sürüm Politikası — 0.x Numaraları, Yalnız Son Sürüm, "Behavior changes", Sürümle Eşleşen Kitap | Sürüm tag'i `vX.Y.Z`; 0.x'te orta hane özellik ve olası bozucu değişiklik, son hane yalnız düzeltme; yalnız son sürüm desteklenir; her sürüm notunda "Behavior changes"; sürüm içeriğe göre çıkar; ilk sürüm v0.1.0; 1.0 SemVer sözü, `volt.lock` ve paket yönetimi ister. Kitabın kökü son sürümün, `/dev/` main'in kitabı. | Kabul edildi |
 
 ## Sözdizimi ve dil yapıları
 
