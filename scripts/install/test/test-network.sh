@@ -22,6 +22,7 @@ python=$(command -v python3 || command -v python)
 fails=0
 server=
 cleanup() {
+    # Cleanup trap: the server may already be gone; a failed kill must not replace the test's exit code.
     [ -z "$server" ] || kill "$server" 2>/dev/null || true
     rm -rf "$work"
 }
