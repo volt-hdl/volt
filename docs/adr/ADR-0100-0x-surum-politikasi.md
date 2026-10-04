@@ -1,10 +1,11 @@
 # ADR-0100: 1.0 Öncesi Sürüm Politikası — 0.x Numaraları, Yalnız Son Sürüm, "Behavior changes", Sürümle Eşleşen Kitap
 
 > Statü: Kabul edildi — politika yürürlükte ve kitap düzeni (§6) kuruldu; ilk sürüm (v0.1.0) henüz atılmadı, sürüm notundaki "Behavior changes" bölümü henüz iş akışında denetlenmiyor
-> İlgili: ADR-0093 (sürüm iş akışı: tag → taslak Release; bu ADR numaranın anlamını, notların biçimini ve desteği belirler), ADR-0022 (kullanıcı IP'si için SemVer — `@version`/`@abi_version`; Rezerve kalır, 1.0'ın önkoşulu olan SemVer sözünün parçasıdır).
+> İlgili: ADR-0093 (sürüm iş akışı: tag → taslak Release; bu ADR numaranın anlamını, notların biçimini ve desteği belirler), ADR-0022 (kullanıcı IP'si için SemVer — `@version`/`@abi_version`; Rezerve kalır, 1.0'ın önkoşulu olan SemVer sözünün parçasıdır), ADR-0096 (Pages düzenini genişletir: kurulum betikleri kökte ve her zaman main'den, kitabın kökü son sürüm).
 > Tarih: 2026-10-04
-> Etkilenen: `.github/workflows/book.yml` (kök = son sürümün kitabı, `/dev/` = main), `.github/workflows/README.md`,
-> `scripts/check-consistency.{ps1,sh}` (kontrol 15 ve 17: `/dev/` adresleri),
+> Etkilenen: `.github/workflows/book.yml` (kök = son sürümün kitabı, `/dev/` = main), `book/tools/assemble_site.py`
+> (YENİ: bantlar ve site birleştirme), `.github/workflows/README.md`,
+> `scripts/check-consistency.{ps1,sh}` (kontrol 13, 15, 17: `/dev/` adresleri),
 > `docs/roadmap.md`, `AGENTS.md` (YENİ), `CHANGELOG.md`
 
 ## Sorun
@@ -114,12 +115,24 @@ GitHub Pages sitesi (`book.yml`) üç parçadan kurulur:
   girer (ADR-0096 ile aynı).
 - Kitap main push'unda, sürüm etiketi push'unda ve elle yeniden kurulur;
   PR'da site aynı adımlarla kurulur, yayımlanmaz.
-- Var olan adresler bozulmaz: kökteki her sayfa yerinde kalır, `/dev/`
-  yalnız eklenir. `volt explain` bağlantıları kökü gösterir; kurulu sürümün
-  bağlantısı o sürümün kitabına gider.
-- Tutarlılık denetimi (kontrol 15, 17) `https://volt-hdl.github.io/volt/dev/<ad>.html`
-  adresini de `book/src/<ad>.md`'ye eşler; kontrol 13 kurulum betiklerini
-  `book.yml`'nin kök kopyasından okumaya devam eder.
+- Bugün var olan adresler bozulmaz: kökteki her sayfa yerinde kalır,
+  `/dev/` yalnız eklenir. İlk sürümden sonra kök o sürümün kitabıdır:
+  main'e sürümden sonra eklenen ya da adı değişen bir sayfa kökte bir
+  sonraki sürüme dek yoktur, `/dev/` altında vardır. README ve yol
+  haritası böyle bir sayfaya `/dev/` adresiyle bağlanır.
+- `volt explain` bağlantıları kökü gösterir; en son sürümün bağlantısı o
+  sürümün kitabına gider (yalnız son sürüm desteklendiğinden eski sürüm
+  için ayrı kitap yoktur, §2).
+- Tutarlılık denetimi: kontrol 15 kök ve `/dev/` kitap adreslerini
+  (`https://volt-hdl.github.io/volt/[dev/]<ad>.html`) main'in
+  `book/src/<ad>.md`'sine eşler; kontrol 17 `volt explain`'de `/dev/`
+  bağlantısını, kontrol 13 `/dev/` altındaki kurulum betiği adresini
+  reddeder; kontrol 13 yayımlanan betik adlarını `book.yml`'nin kök
+  kopyasından okumaya devam eder. Kontrol 15 bir kök adresinin sürüm
+  etiketinin kitabında da olduğunu denetlemez (yukarıdaki madde).
+- Bir sürüm etiketi silinirse (ör. sürüm işi düştü) kök bir sonraki main
+  koşusuna dek o etiketin kitabını gösterir; etiketi silen
+  `gh workflow run book.yml --ref main` ile siteyi yeniden kurar.
 
 ## Gerekçe
 

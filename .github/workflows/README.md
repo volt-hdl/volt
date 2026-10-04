@@ -90,7 +90,8 @@
    `releases/latest/download/<ad>` kullanır; GitHub'ın `latest`'i taslakları
    ve ön sürümleri görmez, ön sürüm yayımlanırsa betik "no published Volt
    release" der (ADR-0096). "Set as the latest release" işaretli kalmalı. Yanlış tag'i silmek için: taslağı sil,
-   `git push origin :refs/tags/vX.Y.Z`.
+   `git push origin :refs/tags/vX.Y.Z`, sonra kitabın kökünü geri almak
+   için `gh workflow run book.yml --ref main` (ADR-0100).
 
 Denetim: `gh attestation verify <arşiv> -R volt-hdl/volt` ve
 `sha256sum -c SHA256SUMS`. VS Code Marketplace ve crates.io yayını bu iş

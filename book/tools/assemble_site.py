@@ -34,16 +34,21 @@ def banner(title: str, body: str) -> str:
     )
 
 
-def add_banner(site: Path, make_html, skip: Path | None = None) -> int:
+def add_banner(site: Path, make_html, skip: Path | None = None, keep_404: bool = False) -> int:
     """Put a banner at the top of <main> in every page under `site`.
 
     `make_html` gets the relative path from the page to `site` ("." or
     "../..") so links in the banner work at any depth and on any host.
-    Pages without <main> (mdBook's toc.html fragment) are left alone.
+    Pages without <main> (mdBook's toc.html fragment) are left alone, and
+    so is 404.html with `keep_404`: below the site root GitHub Pages never
+    serves it, and mdBook writes <base href="/volt/"> into it, which would
+    send the banner's relative link to the wrong place.
     """
     count = 0
     for page in sorted(site.rglob("*.html")):
         if skip is not None and skip in page.parents:
+            continue
+        if keep_404 and page.name == "404.html":
             continue
         text = page.read_text(encoding="utf-8")
         if MAIN_TAG not in text:
@@ -101,6 +106,11 @@ def main() -> int:
             ap.error(f"{book} is not a built book (no index.html)")
 
     out: Path = args.out
+    # --out is deleted and rewritten: it must not hold or sit inside a book.
+    for book in filter(None, [args.main, args.release]):
+        a, b = out.resolve(), book.resolve()
+        if a == b or a in b.parents or b in a.parents:
+            ap.error(f"--out {out} overlaps the book {book}")
     if out.exists():
         shutil.rmtree(out)
     dev = out / "dev"
@@ -115,7 +125,7 @@ def main() -> int:
     if dev.exists():
         sys.exit("error: the book at the site root already has a dev/ directory")
     shutil.copytree(args.main, dev)
-    n = add_banner(dev, dev_banner(args.tag))
+    n = add_banner(dev, dev_banner(args.tag), keep_404=True)
 
     print(f"site root: {root_note}")
     print(f"site /dev/: book of main, development banner on {n} pages")
