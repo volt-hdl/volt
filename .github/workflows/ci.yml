@@ -176,6 +176,7 @@ jobs:
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
       - name: Violated invariant -> exit 6 + counterexample
         run: |
+          # set +e: the expected exit 6 must reach `test`, not abort the step.
           set +e
           cargo run --bin volt -- verify tests/ui/fail/24_violated_invariant.volt
           code=$?
@@ -189,6 +190,7 @@ jobs:
       # unreachable -> cover mode fails with E5001 (exit 6).
       - name: Unreachable auto FSM transition (cover mode) -> exit 6
         run: |
+          # set +e: the expected exit 6 must reach `test`, not abort the step.
           set +e
           cargo run --bin volt -- verify --mode cover tests/ui/fail/71_auto_fsm_unreachable_transition.volt
           code=$?
@@ -321,13 +323,14 @@ jobs:
   coverage:
     name: Coverage (informational)
     runs-on: ubuntu-latest
-    # Informational: no threshold yet, a failure does not break CI.
+    # Informational: no threshold yet, and the job is not a required check in
+    # branch protection, so a red run does not block a PR. Failures are not
+    # hidden: no continue-on-error, a failed Codecov upload turns the job red.
     # Tool-less on purpose: with the OSS CAD Suite and VOLT_REQUIRE_TOOLS the
     # line total rose 90.56% -> 91.30% (sim_struct.rs, sim/run_cmd.rs,
     # sim/test_cmd.rs) but the coverage step took 4m12s instead of 1m04s
     # (warm caches, PR #59), over the +2 min budget. Those paths still run
     # against the real tools in the Verilator lint job.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -343,11 +346,8 @@ jobs:
         with:
           name: coverage-html
           path: target/llvm-cov/html/
-      # A Codecov outage must not break CI, but a failed upload must be
-      # visible: fail_ci_if_error turns it into a red step, and the
-      # step-level continue-on-error keeps the job (and the run) green.
+      # fail_ci_if_error: a failed upload turns the step and the job red.
       - name: Upload lcov to Codecov
-        continue-on-error: true
         uses: codecov/codecov-action@2320916714171c258d01dbd81040d64d798c6f8e # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

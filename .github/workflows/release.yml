@@ -115,6 +115,7 @@ jobs:
       # directory outside the repository, with cargo/rustup removed from PATH.
       - name: Smoke test (unpacked archive, empty directory)
         run: |
+          # cygpath exists only on Windows runners; elsewhere RUNNER_TEMP is already a POSIX path.
           temp=$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || echo "$RUNNER_TEMP")
           smoke="$temp/smoke"
           rm -rf "$smoke" && mkdir -p "$smoke/unpack" "$smoke/empty"

@@ -87,6 +87,7 @@ for shell_name in "$@"; do
 
     echo "--- install again (update path)"
     run_installer SHELL="$shell_path" VOLT_ARCHIVE="$work/good/$name" || fail "$shell_name: second install exited $?"
+    # grep -c exits 1 when the count is 0; the count itself is checked on the next line.
     count=$(grep -cF "added by the Volt installer" "$profile" || true)
     [ "$count" = 1 ] || fail "$shell_name: $count PATH lines in $profile after two installs, expected 1"
     new_shell "$shell_name" 'volt --version' || fail "$shell_name: volt missing after the update"

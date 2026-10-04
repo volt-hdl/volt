@@ -207,6 +207,7 @@ jobs:
         env:
           VERSION: ${{ steps.rel.outputs.version }}
         run: |
+          # set +e: the expected exit 1 (no release yet) must reach `test`; set -e is restored below.
           set +e
           out=$(curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh 2>&1)
           code=$?
@@ -239,4 +240,5 @@ jobs:
             if ($out -match 'At line:|CategoryInfo|FullyQualifiedErrorId') { Write-Error 'a PowerShell error record was printed'; exit 1 }
             if (Test-Path "$env:LOCALAPPDATA\Programs\Volt") { Write-Error 'files were left in the install folder'; exit 1 }
           }
+          # Every check above exits 1 on failure; without this the installer's $LASTEXITCODE becomes the step's exit code (ADR-0096).
           exit 0

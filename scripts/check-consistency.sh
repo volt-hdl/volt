@@ -47,7 +47,7 @@ done
 # Dönüş tipi / imza / impl satırları struct literal değildir, elenir.
 hits=$(grep -rnE '(^|[^:a-zA-Z])Diagnostic\s*\{|help:\s*None' "$ROOT/crates" --include='*.rs' \
     | grep -v 'volt-diagnostics/src/diagnostic.rs' | grep -v 'cs::Diagnostic' \
-    | grep -vE -- '->\s*Diagnostic|:[0-9]+:\s*(pub\s+)?fn\s|impl\s|struct\s|enum\s' || true)
+    | grep -vE -- '->\s*Diagnostic|:[0-9]+:\s*(pub\s+)?fn\s|impl\s|struct\s|enum\s')
 if [ -n "$hits" ]; then
     while IFS= read -r line; do
         violation "5 parça kuralı bypass şüphesi: $line (kontrol 3)"
@@ -58,7 +58,7 @@ fi
 # Yorum satırları (// ve #) hariç — yalnızca kod ve bağımlılık tanımları.
 hits=$(grep -rniE 'circt|melior' "$ROOT/crates" --include='*.rs' --include='Cargo.toml' \
     | grep -v '/volt-lower/' \
-    | grep -vE '^[^:]+:[0-9]+:\s*(//|#)' || true)
+    | grep -vE '^[^:]+:[0-9]+:\s*(//|#)')
 if [ -n "$hits" ]; then
     while IFS= read -r line; do
         violation "CIRCT/melior referansı volt-lower dışında: $line (kontrol 4)"
@@ -252,7 +252,7 @@ for f in scripts/install/install.ps1 scripts/install/install.sh; do
     if [ "$(head -c 3 "$ROOT/$f" | od -An -tx1 | tr -d ' \n')" = efbbbf ]; then
         violation "$f BOM ile başlıyor; kurulum betikleri BOM'suz olmalı (kontrol 14)"
     fi
-    bad=$(LC_ALL=C grep -n -m 1 '[^[:print:][:space:]]' "$ROOT/$f" | cut -d: -f1 || true)
+    bad=$(LC_ALL=C grep -n -m 1 '[^[:print:][:space:]]' "$ROOT/$f" | cut -d: -f1)
     if [ -n "$bad" ]; then
         violation "$f:$bad ASCII dışı bayt; kurulum betikleri saf ASCII olmalı (kontrol 14)"
     fi
