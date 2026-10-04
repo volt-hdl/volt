@@ -140,3 +140,122 @@ fn clean_project_check_lists_the_test_file_once() {
     assert!(err.contains("Result 0 error(s), 0 warning(s)"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Okur testi: proje kipinde check ve test aynı dosyaları görür ────────
+// `volt check` test dosyalarını `volt test`'in keşif kuralıyla bulur
+// (alt dizinler dahil, build/ atlanır), her birini "Checking" satırıyla
+// yazar ve iki komut aynı göreli yolu basar (`.\`/`./` öneki yok).
+
+/// `rel` (proje köküne göre, `/` ayırıcılı) iletilerdeki yerel biçimiyle.
+fn shown(rel: &str) -> String {
+    rel.split('/').collect::<PathBuf>().display().to_string()
+}
+
+fn write_in(dir: &Path, rel: &str, text: &str) {
+    let path = dir.join(rel);
+    std::fs::create_dir_all(path.parent().expect("üst dizin")).expect("dizin");
+    std::fs::write(path, text).expect("yaz");
+}
+
+#[test]
+fn project_check_fails_on_a_syntax_error_in_a_test_file() {
+    let dir = setup("syntax", &format!("{GOOD_TEST}bu bir hata\n"), true);
+    let out = volt(&dir, &["check"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("Checking counter_test.volt"), "{err}");
+    assert!(err.contains("error[E0001]"), "{err}");
+    assert!(err.contains("counter_test.volt:7:1"), "{err}");
+    assert!(err.contains("Result 1 error(s)"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn project_check_covers_tests_in_subdirectories_and_skips_build() {
+    let dir = setup("subdirs", GOOD_TEST, true);
+    write_in(&dir, "sim/deep/deep_test.volt", "bu bir hata\n");
+    write_in(&dir, "build/stale_test.volt", "build altindaki hata\n");
+    write_in(&dir, "build/stale.volt", "build altindaki hata\n");
+    let out = volt(&dir, &["check"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    let deep = shown("sim/deep/deep_test.volt");
+    assert!(err.contains(&format!("Checking {deep}\n")), "{err}");
+    assert!(err.contains(&format!("{deep}:1:1")), "{err}");
+    assert_eq!(err.matches("error[E0001]").count(), 1, "{err}");
+    assert!(!err.contains("stale"), "build/ taranmamalı: {err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn project_check_covers_a_source_the_top_does_not_use() {
+    let dir = setup("orphan", GOOD_TEST, true);
+    write_in(
+        &dir,
+        "orphan.volt",
+        "module Orphan {\n    in  a : u8\n    out y : u8\n    y = a +\n}\n",
+    );
+    let out = volt(&dir, &["check"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("Checking orphan.volt\n"), "{err}");
+    assert!(err.contains("orphan.volt:5:1"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Checking"/"Compiling" satırlarının yolları, geldiği sırayla.
+fn listed(err: &str, verb: &str) -> Vec<String> {
+    err.lines()
+        .filter_map(|l| l.trim().strip_prefix(verb))
+        .map(|p| p.trim().to_string())
+        .collect()
+}
+
+#[test]
+fn check_and_test_name_the_test_files_the_same_way() {
+    // Sıradaki son test dosyası bozuk: `volt test` ikisini de derler ve
+    // Verilator'a gelmeden durur.
+    let dir = setup("paths", GOOD_TEST, true);
+    write_in(&dir, "sim/deep_test.volt", "bu bir hata\n");
+    let check = stderr(&volt(&dir, &["check"]));
+    let test = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .args(["--lang", "en", "test"])
+        .current_dir(&dir)
+        .env("VOLT_TOOL_BACKEND", "local")
+        .env("VOLT_VERILATOR", dir.join("no-such-verilator"))
+        .env_remove("VOLT_MANIFEST_DIR")
+        .output()
+        .expect("volt çalışmalı");
+    let test = stderr(&test);
+    let expected = [shown("counter_test.volt"), shown("sim/deep_test.volt")];
+    let checked: Vec<String> = listed(&check, "Checking ")
+        .into_iter()
+        .filter(|p| p.ends_with("_test.volt"))
+        .collect();
+    assert_eq!(checked, expected, "{check}");
+    assert_eq!(listed(&test, "Compiling "), expected, "{test}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Kardeş `X.volt`'u olmayan `X_test.volt` (ör. `sim/deep_test.volt`, DUT
+/// başka dizinde): `volt test` E8501 verir; `volt check` de aynı tam
+/// denetimi yapmalı, "0 error(s)" demez.
+#[test]
+fn check_of_a_test_file_without_a_sibling_reports_what_volt_test_reports() {
+    let dir = setup("nosibling", GOOD_TEST, true);
+    write_in(&dir, "sim/deep_test.volt", GOOD_TEST);
+    let out = volt(&dir, &["check"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("error[E8501]"), "{err}");
+    assert!(err.contains(&shown("sim/deep_test.volt")), "{err}");
+    // Tek dosya argümanıyla da aynı.
+    let single = volt(&dir, &["check", "sim/deep_test.volt"]);
+    assert_eq!(single.status.code(), Some(1), "{}", stderr(&single));
+    assert!(
+        stderr(&single).contains("error[E8501]"),
+        "{}",
+        stderr(&single)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

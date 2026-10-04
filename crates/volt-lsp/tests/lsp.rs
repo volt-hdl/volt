@@ -861,3 +861,18 @@ fn editor_checks_test_blocks_against_the_sibling_design() {
     assert_eq!(codes, ["E8502"], "{codes:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn editor_checks_a_test_file_without_a_sibling_like_volt_test() {
+    // Kardeşi olmayan `X_test.volt`: `volt test` bilinmeyen modülü E8501
+    // ile bildirir; editör de aynısını göstermeli (önceden sessizdi).
+    let dir = std::env::temp_dir().join(format!("volt-lsp-nosibling-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".git")).expect("temp dizini");
+    let src = "test \"counts\" {\n    let dut = Counter { };\n    step(3);\n}\n";
+    let path = dir.join("deep_test.volt");
+    let a = analysis::analyze(path.to_str().unwrap(), src);
+    let codes: Vec<_> = a.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes, ["E8501"], "{codes:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

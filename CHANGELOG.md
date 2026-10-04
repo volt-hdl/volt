@@ -7,6 +7,37 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ## [Yayımlanmadı]
 
+### Behavior changes
+
+Bu bölüm sürüm kesilirken tamamlanır (ADR-0100); aşağıdaki girdilerde
+"**Davranış değişikliği.**" diye işaretli önceki maddeler de buraya
+toplanır.
+
+- `volt check` (argümansız, proje kipi) `volt test`'in keşfettiği her test
+  dosyasını da denetler — alt dizinler dahil, `build/` atlanır — ve her
+  birini `Checking <dosya>` satırıyla yazar. Önceden geçen bir proje,
+  test dosyasında hata varsa artık çıkış 1 verir. (Argümansız check'in
+  test dosyalarını okuması PR #72 ile geldi; 2026-10-01'den eski
+  ikililerde yoktur.)
+- Kardeş `X.volt`'u olmayan `X_test.volt` dosyası `volt check`, `volt
+  build` ve editörde `volt test` ile aynı tam denetimden geçer: bulunmayan
+  DUT modülü E8501 (önceden yalnız `volt test`'te).
+- `volt test`'in `Compiling` satırları öneksiz göreli yol yazar
+  (`counter_test.volt`, `sim/deep_test.volt`; önceden `.\counter_test.volt`).
+
+### Düzeltildi — `volt check` ve `volt test` ortak keşif (ADR-0101, 2026-10-04)
+
+- Test dosyası keşfi tek fonksiyonda (`discover_test_files`); argümansız
+  `volt check` ve `volt test` aynı dosyaları aynı yollarla görür.
+- Kardeşsiz test dosyası tam denetlenir (`TestTarget`, volt-hir; sürücü
+  ve editör aynı).
+- Kitap: `volt check`'in kapsamı (her `src` kaynağı, üst modül kullansın
+  ya da kullanmasın, ve her test dosyası) ve `volt build`'in yalnız üst
+  modülün dosyalarını okuduğu yazıldı; `volt test` çıktıları yeni yol
+  biçimiyle.
+- Bulgular issue'da: editör açık olmayan dosyaları tanılamıyor (#87);
+  kitabın konsol çıktıları gerçek çıktıyla karşılaştırılmıyor (#88).
+
 ### Düzeltildi — Sürüm etiketi süzgeci, testlerin çalışma ağacını kirletmesi (ADR-0100, 2026-10-04)
 
 - `release.yml` yalnız tam `vX.Y.Z` etiketiyle tetiklenir (önceden her

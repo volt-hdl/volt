@@ -14,7 +14,7 @@ The template came with `counter_test.volt`. Run every test of the project:
 
 ```console
 $ volt test
-   Compiling .\counter_test.volt
+   Compiling counter_test.volt
 running 3 tests
 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
 note: downloading verilator/verilator:v5.052 (~250 MB, first use only; this can take several minutes)
@@ -169,8 +169,8 @@ A file named `X_test.volt` sees the modules of `X.volt`, so the test finds
 
 ```console
 $ volt test
-   Compiling .\counter_test.volt
-   Compiling .\light_test.volt
+   Compiling counter_test.volt
+   Compiling light_test.volt
 running 5 tests
 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
 test counts_while_enabled ... ok
@@ -257,8 +257,8 @@ test "red again after green" {
 
 ```console
 $ volt test
-   Compiling .\counter_test.volt
-   Compiling .\light_test.volt
+   Compiling counter_test.volt
+   Compiling light_test.volt
 running 5 tests
 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
 test counts_while_enabled ... ok

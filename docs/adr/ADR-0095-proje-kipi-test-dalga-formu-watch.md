@@ -1,7 +1,7 @@
 # ADR-0095: Proje Kipi — Argümansız check/build/run/verify, Düşen Testin Dalga Formu ve `volt test --watch`
 
 > Statü: Uygulandı — test dosyalarının `volt check` denetimi ekte (2026-10-01)
-> İlgili: ADR-0084 (`volt new` şablonları: Volt.toml `top`, "Next:" satırları dosya adsız), ADR-0092 (dalga formu oturumu: `volt test` oturumu DUT portlarını da listeler), ADR-0094 (Docker köprüsü: "Ctrl-C yolu konteyneri kaldırmaz" sınırı `--watch`'ta kapandı), ADR-0061 (Volt.toml araması ve tavanı), ADR-0089 (test keşfinin atlama kuralları — proje kaynakları ve izleme aynı yürüyücüyü kullanır), ADR-0033 (`volt run` testbench'i: 64 bitten geniş portlar).
+> İlgili: ADR-0084 (`volt new` şablonları: Volt.toml `top`, "Next:" satırları dosya adsız), ADR-0092 (dalga formu oturumu: `volt test` oturumu DUT portlarını da listeler), ADR-0094 (Docker köprüsü: "Ctrl-C yolu konteyneri kaldırmaz" sınırı `--watch`'ta kapandı), ADR-0061 (Volt.toml araması ve tavanı), ADR-0089 (test keşfinin atlama kuralları — proje kaynakları ve izleme aynı yürüyücüyü kullanır), ADR-0033 (`volt run` testbench'i: 64 bitten geniş portlar), ADR-0101 (argümansız `volt check` ve `volt test` tek keşfi ve aynı yolları paylaşır; kardeşsiz test dosyası da tam denetlenir).
 > Tarih: 2026-09-28
 > Etkilenen: volt-driver (`project.rs`, `watch.rs`, `interrupt.rs` YENİ;
 > `sim/test_waves.rs` YENİ; `main.rs`, `sim/test_cmd.rs`, `sim/verilator.rs`,

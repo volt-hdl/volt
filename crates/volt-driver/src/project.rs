@@ -51,16 +51,9 @@ pub(crate) fn load(command: &str) -> Result<Project, ExitCode> {
     };
     PROJECT_MODE.store(true, Ordering::Relaxed);
     let src = manifest.src.clone();
-    // Keşif `./a.volt` biçiminde döner (ADR-0089); iletilerde `a.volt`.
     let sources: Vec<PathBuf> = crate::sim::project_files(&manifest, &cwd, &[src], &|p| {
         p.extension().is_some_and(|e| e == "volt") && !crate::sim::is_test_file(p)
-    })
-    .into_iter()
-    .map(|p| {
-        p.strip_prefix(".")
-            .map_or_else(|_| p.clone(), Path::to_path_buf)
-    })
-    .collect();
+    });
     if sources.is_empty() {
         // Yanlış yazılmış `src` (ör. `scr`) burada düşer: Volt.toml uyarıları
         // birim yüklenmeden önce basılır ki neden görünsün (ADR-0099).

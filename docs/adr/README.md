@@ -177,8 +177,9 @@ denetler.
 | [0059](ADR-0059-test-port-genislik-kontrolu.md) | Test Bloğunda Port Genişlik Denetimi (E8512) | Test bloğunda porta sığmayan sabit E8512 olur, hesaplanmış değer koşuda testi düşürür. | Uygulandı |
 | [0060](ADR-0060-test-sabit-yayilimi.md) | Test Bloğunda Sabit Yayılımı | Sabit `let` ve literal `const` değerleri E8512 denetimine derleme zamanında ulaşır. | Uygulandı |
 | [0064](ADR-0064-simulasyonda-kontratlar.md) | Simülasyonda Kontratlar — İzleyici Olarak `volt test` | `volt test` kontratları izleyici olarak çalıştırır; assume ihlali testi düşürür, cover özeti basılır. | Uygulandı |
-| [0089](ADR-0089-volt-test-proje-kesfi.md) | `volt test` — Proje Kökünden Özyinelemeli Test Keşfi | `volt test` testleri proje kökünden özyinelemeli olarak keşfeder. | Uygulandı |
+| [0089](ADR-0089-volt-test-proje-kesfi.md) | `volt test` — Proje Kökünden Özyinelemeli Test Keşfi | `volt test` testleri proje kökünden özyinelemeli olarak keşfeder. | Kısmen yerini aldı: ADR-0101 |
 | [0092](ADR-0092-dalga-formunda-enum-adlari.md) | Dalga Formunda Enum ve Trit Adları — GTKWave Oturumu ve Çeviri Tabloları | `volt run --vcd` ve `volt verify` karşı örneği enum/Trit sinyallerini adlarıyla gösteren bir GTKWave oturumu yazar; RTL değişmez. | Uygulandı |
+| [0101](ADR-0101-check-ve-test-ortak-kesif.md) | `volt check` ve `volt test` Ortak Keşif — Tek Keşif Fonksiyonu, Aynı Yol Biçimi, Kardeşsiz Test Dosyasında Tam Denetim | Argümansız `volt check` test dosyalarını `volt test`'in keşfiyle bulur; iki komut aynı öneksiz göreli yolu basar; `*_test.volt` kardeşi olmasa da `volt test` ile aynı tam denetimden geçer (editör dahil). | Uygulandı |
 
 ## SV üretimi
 

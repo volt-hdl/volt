@@ -951,13 +951,14 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
 
     // Test veri dosyaları (ADR-0058) ana dosyaya göre çözülür.
     let test_files = sim_lower::FsTestFiles::for_test_file(file);
-    // `X_test.volt`: test blokları kardeş tasarımla tam denetlenir.
-    let test_dut = volt_hir::unit_load::load_test_sibling(file);
+    // `X_test.volt`: test blokları `volt test` ile aynı tam denetimden
+    // geçer (kardeş tasarım varsa onunla, ADR-0101).
+    let test_target = volt_hir::unit_load::TestTarget::for_unit(file);
     let Some(constraints) = run_semantic_stages(
         &parsed,
         &imports.scopes,
         &test_files,
-        test_dut.as_ref(),
+        &test_target,
         &mut diagnostics,
     ) else {
         return Ok(fail(map, diagnostics, parsed.ast));
@@ -1022,11 +1023,11 @@ fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
     test_files: &dyn volt_hir::TestFileLoader,
-    test_dut: Option<&volt_ast::SourceFile>,
+    tests: &volt_hir::unit_load::TestTarget,
     out: &mut Vec<Diagnostic>,
 ) -> Option<volt_hir::ConstraintResult> {
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
-    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), test_dut, out).constraints
+    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), tests, out).constraints
 }
 
 /// Tanıları seçilen formatta stderr'e yazar (JSON zarfı hariç — o
@@ -1585,10 +1586,11 @@ fn check_project(format: OutputFormat) -> ExitCode {
     };
     let start = Instant::now();
     let (mut errors, mut warnings) = (0, 0);
-    // Test dosyaları kaynak değildir ama denetlenir (kardeş tasarımla).
+    // Test dosyaları kaynak değildir ama denetlenir (kardeş tasarımla);
+    // `volt test` ile aynı keşif ve aynı yollar.
     let files = project::check_roots(&project)
         .into_iter()
-        .chain(sim::project_test_files(&project.manifest));
+        .chain(sim::discover_test_files());
     for file in files {
         if format == OutputFormat::Human {
             eprintln!(
