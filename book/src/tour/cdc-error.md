@@ -78,7 +78,7 @@ error[E3001]: direct assignment between clock domains
    │
    = reason: the destination register may sample the source signal during an unstable window (metastability)
    = note: for multi-bit data, AsyncFifo may be safer
-   = help: synchronize into the target domain with sync(): dest = sync(src, <clock of Slow>)
+   = help: sync() is written at module level: add 'let pressed_r_sync = sync(pressed_r, slow_clk)' above this block and read the synchronized name here
    = for more: volt explain E3001
 
 
@@ -108,8 +108,9 @@ find in the lab and why Volt rejects it at compile time.
 
 ## The fix
 
-`sync()` builds the synchronizer. Add a line that brings `pressed_r` into
-the `Slow` domain, and read that value under `slow_clk`:
+`sync()` builds the synchronizer. Do what the help line says: add a line
+above the `on` block that brings `pressed_r` into the `Slow` domain, and
+read that value under `slow_clk` (here it is named `pressed_s`):
 
 ```volt,file=crossing.volt
 // A button sampled in one clock domain drives a LED in another.
@@ -147,9 +148,9 @@ pub module Crossing {
 }
 ```
 
-`sync()` goes on a line of its own at module level, as in
-`let pressed_s = sync(pressed_r, slow_clk)`; inside an `on` block it is not
-supported yet. Check again:
+`sync()` goes on a line of its own at module level; inside an `on` block
+it is not supported yet, which is why the help line puts it above the
+block. Check again:
 
 ```console
 $ volt check crossing.volt

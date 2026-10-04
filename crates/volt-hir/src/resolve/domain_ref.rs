@@ -7,7 +7,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 
 use super::def::DefKind;
 use super::scope::{ScopeId, ScopeKind};
-use super::suggest::closest_match;
+use super::suggest::{closest_match, with_rename_fix};
 use super::Resolver;
 
 impl Resolver<'_> {
@@ -109,32 +109,34 @@ impl Resolver<'_> {
             .filter(|d| matches!(d.kind, DefKind::Domain))
             .map(|d| d.name.clone())
             .collect();
-        self.diagnostics.push(
-            Diagnostic::error(
-                ErrorCode::E3002,
-                lstr!(en: "undefined clock domain: '{}'", name.text;
+        let suggestion = closest_match(&name.text, &candidates);
+        let diag = Diagnostic::error(
+            ErrorCode::E3002,
+            lstr!(en: "undefined clock domain: '{}'", name.text;
                       tr: "tanımsız saat alanı: '{}'", name.text),
-                LabeledSpan::primary(
-                    name.span,
-                    lstr!(en: "no domain with this name"; tr: "bu isimde bir domain yok"),
-                ),
-                match closest_match(&name.text, &candidates) {
-                    Some(s) => lstr!(en: "did you mean '@{}'?", s;
+            LabeledSpan::primary(
+                name.span,
+                lstr!(en: "no domain with this name"; tr: "bu isimde bir domain yok"),
+            ),
+            match &suggestion {
+                Some(s) => lstr!(en: "did you mean '@{}'?", s;
                                      tr: "'@{}' mi demek istediniz?", s),
-                    None => lstr!(
-                        en: "define it with domain {} {{ clock = posedge ... }}", name.text;
-                        tr: "domain {} {{ clock = posedge ... }} ile tanımlayın", name.text
-                    ),
-                },
-            )
-            .with_note(
-                NoteKind::Reason,
-                lstr!(en: "the @ annotation can only refer to a defined clock domain \
+                None => lstr!(
+                    en: "define it with domain {} {{ clock = posedge ... }}", name.text;
+                    tr: "domain {} {{ clock = posedge ... }} ile tanımlayın", name.text
+                ),
+            },
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(en: "the @ annotation can only refer to a defined clock domain \
                            or a clock port";
                       tr: "@ anotasyonu yalnız tanımlı bir saat alanına \
                            ya da clock portuna işaret edebilir"),
-            ),
         );
+        self.diagnostics
+            // suggestion: e3002_domain_typo
+            .push(with_rename_fix(diag, name.span, suggestion));
     }
 }
 

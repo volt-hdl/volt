@@ -182,8 +182,8 @@ impl NameProblem {
                 tr: "bir Volt anahtar sözcüğü"
             ),
             NameProblem::Reserved(lang) => lstr!(
-                en: "it is a reserved word in {lang}, which Volt generates (ADR-0078)";
-                tr: "Volt'un ürettiği {lang} dilinde ayrılmış bir sözcük (ADR-0078)"
+                en: "it is a reserved word in {lang}, which Volt generates";
+                tr: "Volt'un ürettiği {lang} dilinde ayrılmış bir sözcük"
             ),
         }
     }

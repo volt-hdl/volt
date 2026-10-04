@@ -85,6 +85,7 @@ fn modules_without_an_rst_port_run_under_volt_test() {
     let dir = temp_dir("sim");
     std::fs::write(dir.join("designs_test.volt"), DESIGNS).expect("yaz");
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .env("VOLT_LANG", "en")
         .args(["test", "designs_test.volt", "--target-dir", "build"])

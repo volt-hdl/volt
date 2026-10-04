@@ -41,8 +41,8 @@ impl Inferencer<'_> {
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "an 'in' port is trusted to be in the module's domain (K2); a bidirectional pad is by definition driven by another device with its own timing, so a direct sample can go metastable (ADR-0051)";
-                      tr: "'in' portunun modülün alanında olduğuna güvenilir (K2); çift yönlü pad tanımı gereği kendi zamanlamasıyla başka bir aygıtça sürülür, doğrudan örnekleme yarı kararlı kalabilir (ADR-0051)"),
+                lstr!(en: "an 'in' port is trusted to be in the module's domain (K2); a bidirectional pad is by definition driven by another device with its own timing, so a direct sample can go metastable";
+                      tr: "'in' portunun modülün alanında olduğuna güvenilir (K2); çift yönlü pad tanımı gereği kendi zamanlamasıyla başka bir aygıtça sürülür, doğrudan örnekleme yarı kararlı kalabilir"),
             ),
         );
         dom

@@ -70,8 +70,8 @@ impl Inferencer<'_> {
         )
         .with_note(
             NoteKind::Reason,
-            lstr!(en: "a bundle is one interface: all of its fields cross the module boundary together (ADR-0039)";
-                  tr: "bundle tek bir arayüzdür: bütün alanları modül sınırını birlikte geçer (ADR-0039)"),
+            lstr!(en: "a bundle is one interface: all of its fields cross the module boundary together";
+                  tr: "bundle tek bir arayüzdür: bütün alanları modül sınırını birlikte geçer"),
         );
         self.diagnostics.push(diag);
     }

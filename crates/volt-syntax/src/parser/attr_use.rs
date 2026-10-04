@@ -157,7 +157,7 @@ pub(crate) fn placement(name: &str) -> Option<&'static [Site]> {
 fn proper_place(name: &str) -> String {
     match name {
         "mmio" => {
-            lstr!(en: "write it before 'module' (ADR-0044)"; tr: "'module' önüne yazın (ADR-0044)")
+            lstr!(en: "write it before 'module'"; tr: "'module' önüne yazın")
         }
         "reg" => lstr!(
             en: "it declares a memory-mapped register: @reg(offset = 0x00, access = ReadWrite) name : {{ field : bool }} in an @mmio module";
@@ -168,24 +168,24 @@ fn proper_place(name: &str) -> String {
             tr: "@reg'in argümanıdır: @reg(offset = 0x04, access = ReadWrite)"
         ),
         "reserved" | "self_clearing" | "w1c" => lstr!(
-            en: "it marks a field of an @reg register (ADR-0044)";
-            tr: "bir @reg register'ının alanını işaretler (ADR-0044)"
+            en: "it marks a field of an @reg register";
+            tr: "bir @reg register'ının alanını işaretler"
         ),
         "timing" => lstr!(en: "write it before 'module'"; tr: "'module' önüne yazın"),
         "false_path" | "multicycle" => lstr!(
-            en: "write it before 'module', a module port or a 'reg' declaration (ADR-0054)";
-            tr: "'module', bir modül portu ya da bir 'reg' bildirimi önüne yazın (ADR-0054)"
+            en: "write it before 'module', a module port or a 'reg' declaration";
+            tr: "'module', bir modül portu ya da bir 'reg' bildirimi önüne yazın"
         ),
         "strict_timing" => {
-            lstr!(en: "write it before 'module' (ADR-0037)"; tr: "'module' önüne yazın (ADR-0037)")
+            lstr!(en: "write it before 'module'"; tr: "'module' önüne yazın")
         }
         "no_protocol_check" => lstr!(
-            en: "write it before 'module' or a Handshake port (ADR-0050)";
-            tr: "'module' ya da bir Handshake portu önüne yazın (ADR-0050)"
+            en: "write it before 'module' or a Handshake port";
+            tr: "'module' ya da bir Handshake portu önüne yazın"
         ),
         "no_auto_contracts" => lstr!(
-            en: "write it before 'module' or a 'reg' declaration (ADR-0066)";
-            tr: "'module' ya da bir 'reg' bildirimi önüne yazın (ADR-0066)"
+            en: "write it before 'module' or a 'reg' declaration";
+            tr: "'module' ya da bir 'reg' bildirimi önüne yazın"
         ),
         _ => lstr!(
             en: "write it before an item, port, struct field or module statement";

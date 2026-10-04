@@ -18,6 +18,7 @@ fn root() -> PathBuf {
 
 fn volt(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en"])
         .args(args)
         .output()
@@ -373,6 +374,7 @@ fn volt_test_runs_with_cpp_word_ports() {
     let file = dir.join("irq_test.volt");
     std::fs::write(&file, CPP_WORD_TEST).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "test", "--target-dir"])
         .arg(dir.join("out"))
         .arg(&file)
@@ -400,6 +402,7 @@ fn volt_run_refuses_model_member_ports() {
     )
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "run", "--target-dir"])
         .arg(dir.join("out"))
         .arg(&file)

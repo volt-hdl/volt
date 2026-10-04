@@ -874,9 +874,9 @@ impl<'a> Checker<'a> {
         diag = diag.with_note(
             NoteKind::Reason,
             lstr!(en: "information from a higher trust level cannot reach a lower one; \
-                       this could leak key material (ADR-0052)";
+                       this could leak key material";
                   tr: "yüksek güven seviyesindeki bilgi daha düşüğüne ulaşamaz; \
-                       bu, anahtar malzemesini sızdırabilir (ADR-0052)"),
+                       bu, anahtar malzemesini sızdırabilir"),
         );
         self.diagnostics.push(diag);
     }
@@ -920,9 +920,9 @@ impl<'a> Checker<'a> {
                 .with_note(
                     NoteKind::Reason,
                     lstr!(en: "declassify is the only sanctioned path from a higher trust level to a lower one; \
-                               the warning is the audit trail, not a defect (ADR-0052)";
+                               the warning is the audit trail, not a defect";
                           tr: "declassify yüksek güven seviyesinden düşüğe inen tek meşru yoldur; \
-                               uyarı bir kusur değil iz kaydıdır (ADR-0052)"),
+                               uyarı bir kusur değil iz kaydıdır"),
                 ),
             );
         }

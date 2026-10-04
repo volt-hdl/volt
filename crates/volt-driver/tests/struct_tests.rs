@@ -17,6 +17,7 @@ fn root() -> PathBuf {
 
 fn volt(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en"])
         .args(args)
         .output()
@@ -566,6 +567,7 @@ fn struct_ports_in_the_test_language_simulate_with_field_names() {
     std::fs::write(dir.join("alu.volt"), ALU).expect("tasarım");
     std::fs::write(dir.join("alu_test.volt"), ALU_TEST).expect("test");
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .args([
             "--lang",

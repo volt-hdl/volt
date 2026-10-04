@@ -26,11 +26,11 @@ fn sample_diagnostic(file: FileId) -> Diagnostic {
     )
     .with_secondary(result_span, "'result' → slow_clk alanında")
     .with_note(NoteKind::Reason, "sinyal kararsız bir anda yakalanabilir")
-    .with_suggestion(Suggestion {
-        span: data_span,
-        replacement: "sync(data, slow_clk)".to_string(),
-        applicability: Applicability::MachineApplicable,
-    })
+    .with_suggestion(Suggestion::replace(
+        data_span,
+        "sync(data, slow_clk)",
+        Applicability::MachineApplicable,
+    ))
 }
 
 // ═══ ErrorCode ════════════════════════════════════════════════════
@@ -83,11 +83,9 @@ fn all_codes_cover_expected_ranges() {
 }
 
 #[test]
-fn code_explain_url_format() {
-    assert_eq!(
-        ErrorCode::E3001.explain_url(),
-        "https://volthdl.org/errors/E3001"
-    );
+fn code_explain_url_is_absent_without_a_book_page() {
+    // Kitapta kod başına sayfa yok; açıklama `volt explain`'dadır.
+    assert_eq!(ErrorCode::E3001.explain_url(), None);
 }
 
 // ═══ 5 parça kuralı ═══════════════════════════════════════════════
@@ -178,7 +176,7 @@ fn json_values_match_contract_example_shape() {
     assert_eq!(value["spans"][0]["file"], "design.volt");
     assert_eq!(value["notes"][0]["kind"], "reason");
     assert_eq!(value["help"], "result = sync(data, slow_clk)");
-    assert_eq!(value["explain_url"], "https://volthdl.org/errors/E3001");
+    assert!(value["explain_url"].is_null());
 }
 
 #[test]

@@ -91,7 +91,17 @@ impl Parser<'_> {
                     en: "a register takes its next value in an 'on' block: on {clk} {{ {target} <= {value} }}";
                     tr: "register sonraki değerini bir 'on' bloğunda alır: on {clk} {{ {target} <= {value} }}"
                 ),
-            ),
+            )
+            // suggestion: e0007_module_register
+            .with_suggestion(Suggestion::replace(
+                Span {
+                    start: self.ast.exprs[lhs].span.start,
+                    end: self.ast.exprs[rhs].span.end,
+                    ..op
+                },
+                format!("on {clk} {{ {target} <= {value} }}"),
+                Applicability::MaybeIncorrect,
+            )),
             None => Diagnostic::error(
                 ErrorCode::E0007,
                 message,
@@ -101,11 +111,8 @@ impl Parser<'_> {
                     tr: "'on' blokları dışında '=' ile atayın: {target} = {value}"
                 ),
             )
-            .with_suggestion(Suggestion {
-                span: op,
-                replacement: "=".to_string(),
-                applicability: Applicability::MachineApplicable,
-            }),
+            // suggestion: e0007_module_le
+            .with_suggestion(Suggestion::replace(op, "=".to_string(), Applicability::MachineApplicable)),
         };
         diag.with_note(NoteKind::Note, note)
     }
@@ -130,11 +137,8 @@ impl Parser<'_> {
                 tr: "atamak için '=' yazın: {target} = {value}"
             ),
         )
-        .with_suggestion(Suggestion {
-            span: op,
-            replacement: "=".to_string(),
-            applicability: Applicability::MaybeIncorrect,
-        })
+        // suggestion: e0001_module_eq
+        .with_suggestion(Suggestion::replace(op, "=".to_string(), Applicability::MaybeIncorrect))
     }
 
     fn module_expr_diag(&self, e: Idx<Expr>) -> Diagnostic {

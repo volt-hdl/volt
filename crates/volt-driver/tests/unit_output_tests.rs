@@ -25,6 +25,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 
 fn build(file: &Path, target: &Path, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "build", "--target-dir"])
         .arg(target)
         .args(extra)
@@ -150,6 +151,7 @@ fn verify_of_a_fn_import_has_a_task_only_for_the_root_module() {
     // sby aranmadan önce .sv + .sby yazılır; sby yoksa çıkış 3.
     let target = temp_dir("fnuse-verify");
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .args(["--lang", "en", "verify", "--target-dir"])
         .arg(&target)
         .arg(multifile("fnuse/main.volt"))

@@ -62,6 +62,12 @@ pub(crate) fn load(command: &str) -> Result<Project, ExitCode> {
     })
     .collect();
     if sources.is_empty() {
+        // Yanlış yazılmış `src` (ör. `scr`) burada düşer: Volt.toml uyarıları
+        // birim yüklenmeden önce basılır ki neden görünsün (ADR-0099).
+        let mut map = volt_span::SourceMap::new();
+        for d in volt_hir::unit_load::manifest_warnings_into(&manifest.root, &mut map) {
+            eprintln!("{}", volt_diagnostics::render_human(&d, &map));
+        }
         let dir = manifest.src_dir();
         usage_error(
             &lstr!(

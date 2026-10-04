@@ -199,9 +199,9 @@ impl<'a> Rdc<'a> {
         .with_note(
             NoteKind::Reason,
             lstr!(en: "two synchronizers release independently: the same reset can let the two \
-                       register groups leave reset in different cycles (ADR-0065 R6)";
+                       register groups leave reset in different cycles";
                   tr: "iki senkronizör bağımsız bırakır: aynı reset iki register grubunu \
-                       reset'ten farklı çevrimlerde çıkarabilir (ADR-0065 R6)"),
+                       reset'ten farklı çevrimlerde çıkarabilir"),
         );
         if let Site::Instance(_, span) = at[0] {
             diag = diag.with_secondary(

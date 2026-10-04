@@ -130,7 +130,7 @@ fn signal_name_error_explains_there_are_no_binding_patterns() {
     let d = &diagnostics(&env)[0];
     let text = d.to_string();
     assert!(
-        text.contains("no binding patterns") && text.contains("ADR-0085"),
+        text.contains("no binding patterns") && !text.contains("ADR-"),
         "{d}"
     );
 }

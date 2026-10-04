@@ -35,7 +35,7 @@ pub fn explanation(code: ErrorCode) -> Explanation {
             "// Geçerli dil sürümünün özelliklerini kullanın;\n// kelimenin ne zaman geleceği için yol haritasına bakın.",
         )
         .with_note(
-            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı (ADR-0041), generic struct port (ADR-0069), Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar (ADR-0070). Fonksiyonlarda (ADR-0081): generic `fn`, `fn` üzerinde `requires`/`ensures` ve `fn` gövdesinde `for` E0003'tür (`fn` gövdesindeki `match` ifadesi ADR-0083'ten beri iner; match kolu muhafızı hâlâ E0003). `comb` bloğunda, blok içi `for`'da ve kontratta çağrı tel açılmadan yerinde açılır; bu yüzden fonksiyonun bitlerini seçtiği (`x[3:0]`) parametreye verilen argüman, parametre tipinde bir sinyal adı olmalıdır; orada `f(a ^ b)` E0003 verir. Çözüm: `fn`'i modül düzeyi bir `let`'ten çağırın (`let t = f(a ^ b)`, sonra `t`'yi kullanın) ya da argümanı modül düzeyi bir `let`'e bağlayıp adını verin. Değer olarak kullanılan skaler `const` literale katlanır (aritmetik, bit işlemleri, kaydırma, karşılaştırma, `&&`/`||`/`!`, `if`, `match`); başka bir şeyle (ör. cast ya da yerleşik çağrı) kurulan sabit, çıktıda tanımsız ad yerine E0003 alır ('değeri SystemVerilog üreticisinin katlayamadığı 'N' sabiti') (ADR-0083). Çözüm: değeri bu işleçlerle yazın.",
+            "E0003, ayrışan ama henüz uygulanmamış yapılar için de verilir; örneğin modüllerde tip generic argümanı, generic struct port, Handshake payload'u olarak port bundle'ı ve henüz SystemVerilog eşlemesi olmayan geçerli Volt ('henüz desteklenmiyor: sinyal tipi olarak struct tipi 'P'', match muhafızları, extern modül örnekleri). Bunları yalnız `volt build` değil `volt check` ve editör de raporlar. Fonksiyonlarda: generic `fn`, `fn` üzerinde `requires`/`ensures` ve `fn` gövdesinde `for` E0003'tür (`fn` gövdesindeki `match` ifadesi desteklenir; match kolu muhafızı hâlâ E0003). `comb` bloğunda, blok içi `for`'da ve kontratta çağrı tel açılmadan yerinde açılır; bu yüzden fonksiyonun bitlerini seçtiği (`x[3:0]`) parametreye verilen argüman, parametre tipinde bir sinyal adı olmalıdır; orada `f(a ^ b)` E0003 verir. Çözüm: `fn`'i modül düzeyi bir `let`'ten çağırın (`let t = f(a ^ b)`, sonra `t`'yi kullanın) ya da argümanı modül düzeyi bir `let`'e bağlayıp adını verin. Değer olarak kullanılan skaler `const` literale katlanır (aritmetik, bit işlemleri, kaydırma, karşılaştırma, `&&`/`||`/`!`, `if`, `match`); başka bir şeyle (ör. cast ya da yerleşik çağrı) kurulan sabit, çıktıda tanımsız ad yerine E0003 alır ('değeri SystemVerilog üreticisinin katlayamadığı 'N' sabiti'). Çözüm: değeri bu işleçlerle yazın.",
         ),
         E0004 => Explanation::new(
             "Blok sonlandırma ismi uyuşmuyor",
@@ -110,11 +110,10 @@ pub fn explanation(code: ErrorCode) -> Explanation {
         E0014 => Explanation::new(
             "match her değeri kapsamıyor",
             "Bir 'match' deyimi ya da ifadesi bazı değerleri kolsuz bırakıyor: sayısal match'te '_' kolu yok ya da enum match'i bir varyantı atlıyor ve '_' kolu yok.",
-            "Donanımda match bir 'case' yapısına iner; kolu olmayan bir değerin tanımlı bir eylemi olmaz (comb bloğunda bu bir mandaldır). Sayı üzerindeki match joker '_' koluyla bitmelidir (ADR-0032). Enum üzerindeki match ise kapsayıcılık açısından denetlenir (ADR-0074): bütün varyantları adlandırmak yeter, '_' isteğe bağlıdır. Bu durumda SON adlı kol SystemVerilog 'default'u olur — hiçbir varyanta ait olmayan kodlar (3 varyantlı enum 2 bittir; kod 3 kullanılmaz) son kolun eylemini alır. Tasarımın içinde böyle bir kod oluşamaz (enum değeri yalnız varyantlarından gelir — 'uN as Enum' reddedilir) ve otomatik üretilen durum-geçerli değişmezi bunu formal olarak kanıtlar; tek kaynak dışarıdan sürülen bir enum giriş portudur. Geçersiz kodların kendi kurtarma eylemi gerekiyorsa açık bir '_' kolu yazın. Sıralı blokta boş '_ => { }' kolu register değerlerini korur. 'match' ifadesi aynı kuralları izler (ADR-0083): her kol bir değer verir, bu yüzden '_' kolunun da değeri vardır — u2'nin bütün değerlerini yazan match de '_' ister.",
+            "Donanımda match bir 'case' yapısına iner; kolu olmayan bir değerin tanımlı bir eylemi olmaz (comb bloğunda bu bir mandaldır). Sayı üzerindeki match joker '_' koluyla bitmelidir. Enum üzerindeki match ise kapsayıcılık açısından denetlenir: bütün varyantları adlandırmak yeter, '_' isteğe bağlıdır. Bu durumda SON adlı kol SystemVerilog 'default'u olur — hiçbir varyanta ait olmayan kodlar (3 varyantlı enum 2 bittir; kod 3 kullanılmaz) son kolun eylemini alır. Tasarımın içinde böyle bir kod oluşamaz (enum değeri yalnız varyantlarından gelir — 'uN as Enum' reddedilir) ve otomatik üretilen durum-geçerli değişmezi bunu formal olarak kanıtlar; tek kaynak dışarıdan sürülen bir enum giriş portudur. Geçersiz kodların kendi kurtarma eylemi gerekiyorsa açık bir '_' kolu yazın. Sıralı blokta boş '_ => { }' kolu register değerlerini korur. 'match' ifadesi aynı kuralları izler: her kol bir değer verir, bu yüzden '_' kolunun da değeri vardır — u2'nin bütün değerlerini yazan match de '_' ister.",
             "y = match op { 0 => a, 1 => b }       // ✗ E0014: '_'sız ifade\non clk {\n    match state {\n        0 => { r <= 1 }     // ✗ E0014: '_' kolu yok\n    }\n    match s {             // enum State { Idle, Run, Done }\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }   // ✗ E0014: State::Done eksik\n    }\n}",
             "y = match op { 0 => a, 1 => b, _ => 0 }   // ✓\non clk {\n    match state {\n        0 => { r <= 1 }\n        _ => { }            // ✓ diğer kodlar değerini korur\n    }\n    match s {\n        State::Idle => { r <= 1 }\n        State::Run  => { r <= 0 }\n        State::Done => { }          // ✓ her varyant adlı; geçersiz kodlar da buraya\n    }\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0032-match-sirali-blokta.md", "docs/adr/ADR-0074-enum-destegi.md", "docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md"]),
+        ),
 
         E0015 => Explanation::new(
             "MMIO register haritası yerleşim hatası",
@@ -134,21 +133,20 @@ module Regs {
     @reg(offset = 0x04, access = ReadOnly, volatile)   // ✓ sonraki sözcük
     b : { v : bits<8>, @reserved : bits<24> }
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+        ),
 
         // ─── İsim çözümleme (name-resolution.md) ───
         E0016 => Explanation::new(
             "Gerekçesiz declassify",
             "Bir 'declassify(ifade, \"gerekçe\")' çağrısının gerekçe dizesi eksik ya da boş.",
-            "'declassify', bilginin yüksek güven seviyesinden düşüğe inebileceği tek meşru yoldur (ADR-0052). Her böyle nokta, gözden geçirenin sonradan denetleyebilmesi gereken bir güvenlik kararıdır; bu yüzden dil gerekçeyi sözdiziminin parçası yapar: boş olmayan bir dize literali zorunludur ve derleyici her düşürme için ürettiği W3008 uyarısında bu gerekçeyi yineler. Gerekçesiz çağrı uyarı değil sözdizimi hatasıdır.",
+            "'declassify', bilginin yüksek güven seviyesinden düşüğe inebileceği tek meşru yoldur. Her böyle nokta, gözden geçirenin sonradan denetleyebilmesi gereken bir güvenlik kararıdır; bu yüzden dil gerekçeyi sözdiziminin parçası yapar: boş olmayan bir dize literali zorunludur ve derleyici her düşürme için ürettiği W3008 uyarısında bu gerekçeyi yineler. Gerekçesiz çağrı uyarı değil sözdizimi hatasıdır.",
             "busy = declassify(state != IDLE)                       // ✗ E0016: gerekçe yok\nbusy = declassify(state != IDLE, \"\")                   // ✗ E0016: gerekçe boş",
             "busy = declassify(state != IDLE, \"state visibility only\")   // ✓ gözden geçirilmiş, W3008 kaydeder",
         ),
         E0017 => Explanation::new(
             "Desteklenmeyen ya da tutarsız zamanlama kısıtı",
             "Bir @timing, @false_path ya da @multicycle niteliği derleyicinin çevirmediği bir biçim kullanıyor, port ya da register olmayan bir sinyali adlandırıyor ya da alan frekansıyla çelişiyor.",
-            "ADR-0054'ten beri bu nitelikler uygulanıyor: 'volt build --emit=sdc' (ya da xdc) onları create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir. Derleyicinin yarım anladığı bir biçim yine bir kısıt dosyası üretirdi; yazdığınız satırı sessizce içermeyen bir kısıt dosyası hiç olmamasından kötüdür. Bu yüzden desteklenmeyen her yazım uyarı değil hatadır.
+            "Bu nitelikler uygulanır: 'volt build --emit=sdc' (ya da xdc) onları create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir. Derleyicinin yarım anladığı bir biçim yine bir kısıt dosyası üretirdi; yazdığınız satırı sessizce içermeyen bir kısıt dosyası hiç olmamasından kötüdür. Bu yüzden desteklenmeyen her yazım uyarı değil hatadır.
 
 Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @timing(clk >= 100.mhz) (en düşük), @timing(max_delay(a, b) <= 5.ns), @timing(min_delay(a, b) >= 1.ns), @false_path(from = a, to = b), @multicycle(from = a, to = b, cycles = N); register üstünde: @false_path, @multicycle(N). Frekans 25175000 (Hz), 25_175.khz, 100.mhz ya da 1.ghz olarak yazılır; gecikme her zaman birim taşır (ps, ns, us). Uç noktalar aynı modülün portları ya da register'larıdır — wire, let ve örnek çıkışları zamanlama uç noktası değildir. Saat gereksinimi alanın frekansıyla karşılaştırılır: '=' eşleşmeli, '>=' karşılanmalı.",
             "@timing(pix_clk >= 25.175.mhz)        // ✗ E0001: ondalık literal yok\n@timing(max_delay(a, b) <= 5)         // ✗ E0017: birimsiz gecikme\n@false_path(from = tmp, to = y)       // ✗ E0017: 'tmp' bir let, register değil\n@timing(clk = 50.mhz)                 // ✗ E0017: alan 100.mhz diyor",
@@ -160,14 +158,14 @@ Desteklenen biçimler: @timing(clk = 100.mhz) (saat portunun tam frekansı), @ti
         E0018 => Explanation::new(
             "İç içelik ya da zincir çok derin",
             "Bir ifade, blok, tip, desen ya da bildirim zinciri derleyicinin sınırından (256 kat) derin. Sınırın ötesindeki kısım atlanır ve derlenmez.",
-            "Derleyicinin parser'dan sonraki her aşaması sözdizimi ağacını özyinelemeyle yürür. Rust'ta yığın taşması derleyicinin raporlayabileceği bir hata değildir: süreç öldürülür, editörde dil sunucusu da onunla ölür. Bu yüzden derinlik tek yerde sınırlanır (ADR-0080): parser sınırdan derin ağaç kurmaz; sonraki aşamaların açtığı tip bildirimi zincirleri (tip takma adından tip takma adına, struct tipli struct alanı, enum varyant yükü) aynı biçimde sınırlanır.
+            "Derleyicinin parser'dan sonraki her aşaması sözdizimi ağacını özyinelemeyle yürür. Rust'ta yığın taşması derleyicinin raporlayabileceği bir hata değildir: süreç öldürülür, editörde dil sunucusu da onunla ölür. Bu yüzden derinlik tek yerde sınırlanır: parser sınırdan derin ağaç kurmaz; sonraki aşamaların açtığı tip bildirimi zincirleri (tip takma adından tip takma adına, struct tipli struct alanı, enum varyant yükü) aynı biçimde sınırlanır.
 
 Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakta düz görünen zincirin her halkası. 'a + b + c + ...' her operatörde bir kat derinleşen bir ağaçtır; 'x[0][1]...', 'a.b.c...', 'a as u8 as u8' ve 'if ... else if ... else if ...' için de aynısı geçerlidir. Gerçek tasarımlar sınırın çok altında kalır: örneklerdeki ve test külliyatındaki en derin ifade birkaç düzine kattır. Yüzlerce terimlik zincir neredeyse her zaman üretilmiş koddur; dengeli biçim hem daha sığdır hem de daha iyi donanımdır (toplayıcı ağacının gecikmesi doğrusal değil logaritmiktir).",
             "y = a0 ^ a1 ^ a2 ^ ... ^ a299        // ✗ E0018: tek zincirde 299 halka",
             "let lo = a0 ^ a1 ^ ... ^ a149         // ✓ iki yarı, her biri 149 halka\nlet hi = a150 ^ a151 ^ ... ^ a299\ny = lo ^ hi",
         )
         .with_note(
-            "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir. Başka bir ifadenin içindeki (operand, koşul, port bağlaması, kontrat) 'match' ifadesi kol sayısı kadar derin bir koşullu zincire iner (ADR-0083): orada 256'dan fazla kol E0018'dir. Match'i kendi let'ine verin (let v = match ...): bir let'in ya da atamanın tüm sağ tarafı olarak her boyutta bir SystemVerilog 'case'i olur.",
+            "Derleyici bu sınıra göre boyutlanmış sabit ve cömert yığınlı (64 MB) bir iş parçacığında koşar; denetim her platformda aynıdır: sınır işletim sisteminin varsayılan yığınına (Windows ana iş parçacığında 1 MB, Linux'ta 8 MB) bağlı değildir. Başka bir ifadenin içindeki (operand, koşul, port bağlaması, kontrat) 'match' ifadesi kol sayısı kadar derin bir koşullu zincire iner: orada 256'dan fazla kol E0018'dir. Match'i kendi let'ine verin (let v = match ...): bir let'in ya da atamanın tüm sağ tarafı olarak her boyutta bir SystemVerilog 'case'i olur.",
         ),
         E0019 => Explanation::new(
             "Register'a 'on' bloğu dışında '=' ile atama",
@@ -206,7 +204,7 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         E1003 => Explanation::new(
             "Aynı kapsamda çift tanım",
             "Aynı kapsamdaki iki bildirim aynı ismi kullanıyor.",
-            "Bir kapsam içinde her isim benzersiz olmalıdır — aksi halde isme yapılan her başvuru belirsiz olurdu. İki bildirim de kasıtlıysa birini yeniden adlandırın; İÇ kapsamda gölgeleme serbesttir (ayrıca W1002 olarak raporlanır).\n\nÜretilen SystemVerilog modülü de bir kapsamdır. Volt bazı adları kendisi kurar: örnek çıkışı '<örnek>_<port>', yerleşik primitifin sinyalleri '<örnek>_<ad>', otomatik reset portu 'rst'/'rst_n', ham reset senkronizörü 'rst_sync_<saat>_stage<i>', sync() köprüsü 'sync_<kaynak>_src'/'sync_<kaynak>_stage<i>'. Böyle bir ad sizin bir adınıza (ya da kurulan başka bir ada) eşitse ileti adın nasıl kurulduğunu söyler ve iki yeri gösterir. Volt bu adları değiştirmez: portlar arayüzdür, senkronizör ve örnek sinyalleri zamanlama kısıtlarında ve dalga biçimlerinde adıyla geçer (ADR-0090). Yalnız 'volt verify' ve 'volt test' çıktısında yaşayan yardımcı adlar (prev() register'ları, cover sayaçları) bunun yerine '_2' soneki alır.",
+            "Bir kapsam içinde her isim benzersiz olmalıdır — aksi halde isme yapılan her başvuru belirsiz olurdu. İki bildirim de kasıtlıysa birini yeniden adlandırın; İÇ kapsamda gölgeleme serbesttir (ayrıca W1002 olarak raporlanır).\n\nÜretilen SystemVerilog modülü de bir kapsamdır. Volt bazı adları kendisi kurar: örnek çıkışı '<örnek>_<port>', yerleşik primitifin sinyalleri '<örnek>_<ad>', otomatik reset portu 'rst'/'rst_n', ham reset senkronizörü 'rst_sync_<saat>_stage<i>', sync() köprüsü 'sync_<kaynak>_src'/'sync_<kaynak>_stage<i>'. Böyle bir ad sizin bir adınıza (ya da kurulan başka bir ada) eşitse ileti adın nasıl kurulduğunu söyler ve iki yeri gösterir. Volt bu adları değiştirmez: portlar arayüzdür, senkronizör ve örnek sinyalleri zamanlama kısıtlarında ve dalga biçimlerinde adıyla geçer. Yalnız 'volt verify' ve 'volt test' çıktısında yaşayan yardımcı adlar (prev() register'ları, cover sayaçları) bunun yerine '_2' soneki alır.",
             "reg state : u2 = 0\nwire state : u2          // ✗ E1003\n\nlet timer = Timer { clk }\nout timer_irq : bool     // ✗ E1003: 'timer' + 'irq' de 'timer_irq'",
             "reg state      : u2 = 0\nwire state_next : u2     // ✓\n\nlet timer = Timer { clk }\nout irq_out : bool       // ✓",
         ),
@@ -262,7 +260,7 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
         E1011 => Explanation::new(
             "Modül bulunamadı",
             "Bir 'use', derleme birimindeki hiçbir dosyanın sağlamadığı bir paketi adlandırıyor.",
-            "ADR-0042'den beri 'use soc::gpio::Gpio' bir dosya yükler: önce import eden dosyanın yanındaki './soc/gpio.volt', sonra Volt.toml'un bulunduğu dizine göre '<kök>/src/soc/gpio.volt', en son yerleşik 'std' ön eki. Hata, denenen tüm yolları listeler. Dosya var ama istenen öğeyi tanımlamıyorsa da aynı kod verilir — yardım metni paketin açık öğelerini sıralar.",
+            "'use soc::gpio::Gpio' bir dosya yükler: önce import eden dosyanın yanındaki './soc/gpio.volt', sonra Volt.toml'un bulunduğu dizine göre '<kök>/src/soc/gpio.volt', en son yerleşik 'std' ön eki. Hata, denenen tüm yolları listeler. Dosya var ama istenen öğeyi tanımlamıyorsa da aynı kod verilir — yardım metni paketin açık öğelerini sıralar.",
             "use soc::gpoi::Gpio     // ✗ E1011: hiçbir yerde soc/gpoi.volt yok",
             "use soc::gpio::Gpio     // ✓ examples/soc/gpio.volt 'package soc::gpio;' bildiriyor",
         ),
@@ -272,29 +270,26 @@ Kat sayılan: her iç içe parantez, blok, 'if', 'match' ve tip; ayrıca kaynakt
             "'extern module' yalnız portları bildirir; gövdesi sizin yazdığınız ya da bir üreticinin verdiği SystemVerilog'dur. 'volt build' ve 'volt check' yalnız örneklemeyi üretir; ama 'volt run' ve 'volt test' tasarımı Verilator'a, 'volt verify' SymbiYosys'e verir ve ikisi de gövdesini hiç görmediği bir modülü simüle edemez, kanıtlayamaz. '@source(\"yol\")' dosyayı (ya da dosyaları) adlandırır; yol extern'ü bildiren .volt dosyasına göre görelidir ve proje içinde kalmalıdır — en yakın Volt.toml'un dizini, yoksa o dosyanın dizini (read_hex ile aynı kural). Eksik '@source' yalnız gövdeye ihtiyaç duyan komutlarda bildirilir.",
             "extern module Fifo {          // ✗ 'volt test'te E1012: gövde yok\n    in  clk : clock\n    ...\n}",
             "@source(\"rtl/fifo.sv\")\nextern module Fifo {          // ✓ Verilator ve sby rtl/fifo.sv'yi okur\n    in  clk : clock\n    ...\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0076-extern-kaynaklari.md"]),
+        ),
         E1013 => Explanation::new(
             "Ad, üretilen bir dilin ayrılmış sözcüğü",
             "Volt'un üretilen SystemVerilog'a ya da bir @mmio register haritasının Rust/C sürücüsüne yazdığı bir ad, o dilde anahtar sözcük.",
-            "Volt adlarınızı çıktıda korur; böylece dış entegratör, dalga biçimi ve kısıt dosyası yazdığınız portu görür. Bu yalnız ad hedef dilde geçerliyse işler. SystemVerilog 248 sözcüğü ayırır (IEEE 1800-2017 Annex B; Verilog-2005'in bütün anahtar sözcüklerini kapsar): 'packed' adlı bir port ya da 'table' adlı bir register, Volt kaynağı doğru olsa bile üretilen .sv'yi her araçta sözdizimi hatası yapar. Volt'un sizin iki adınızı '_' ile birleştirerek kurduğu adlar da denetlenir: 'ondetect' alanlı 'pulsestyle' struct portu SystemVerilog'da 'pulsestyle_ondetect' portu olur ve bu bir anahtar sözcüktür; enum localparam'ları ('<Enum>_<Varyant>') ve örnek çıkış telleri ('<örnek>_<port>') için de aynısı geçerli. Volt adı arkanızdan kaçırmaz (\\packed) ya da değiştirmez (packed_v): ikisi de dış modülün bağlandığı port adını değiştirirdi. Bir @mmio register ya da alan adı üretilen Rust ve C sürücülerinde işlev ya da parametre adı da olur; bu yüzden Rust, C ya da C++ anahtar sözcüğü olamaz ('mod', 'loop', 'default', 'class', ...). Yalnız Verilator'ın kendi modelinde C++ sözcüğü olan adlar ('interrupt', 'char') hata değildir: SystemVerilog geçerlidir ve Volt bunları kendisi karşılar (ADR-0078). Eşleşme büyük/küçük harfe duyarlıdır: 'Packed' geçerlidir.",
+            "Volt adlarınızı çıktıda korur; böylece dış entegratör, dalga biçimi ve kısıt dosyası yazdığınız portu görür. Bu yalnız ad hedef dilde geçerliyse işler. SystemVerilog 248 sözcüğü ayırır (IEEE 1800-2017 Annex B; Verilog-2005'in bütün anahtar sözcüklerini kapsar): 'packed' adlı bir port ya da 'table' adlı bir register, Volt kaynağı doğru olsa bile üretilen .sv'yi her araçta sözdizimi hatası yapar. Volt'un sizin iki adınızı '_' ile birleştirerek kurduğu adlar da denetlenir: 'ondetect' alanlı 'pulsestyle' struct portu SystemVerilog'da 'pulsestyle_ondetect' portu olur ve bu bir anahtar sözcüktür; enum localparam'ları ('<Enum>_<Varyant>') ve örnek çıkış telleri ('<örnek>_<port>') için de aynısı geçerli. Volt adı arkanızdan kaçırmaz (\\packed) ya da değiştirmez (packed_v): ikisi de dış modülün bağlandığı port adını değiştirirdi. Bir @mmio register ya da alan adı üretilen Rust ve C sürücülerinde işlev ya da parametre adı da olur; bu yüzden Rust, C ya da C++ anahtar sözcüğü olamaz ('mod', 'loop', 'default', 'class', ...). Yalnız Verilator'ın kendi modelinde C++ sözcüğü olan adlar ('interrupt', 'char') hata değildir: SystemVerilog geçerlidir ve Volt bunları kendisi karşılar. Eşleşme büyük/küçük harfe duyarlıdır: 'Packed' geçerlidir.",
             "module Timer {\n    in  packed : u8          // ✗ E1013: SystemVerilog anahtar sözcüğü\n    out table  : u8          // ✗ E1013\n    table = packed\n}",
             "module Timer {\n    in  packed_in : u8      // ✓\n    out lut       : u8      // ✓\n    lut = packed_in\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        ),
         E1014 => Explanation::new(
             "İki @mmio adı register haritası sürücüsünde aynı tanımlayıcıyı üretiyor",
             "Bir @mmio register haritası için üretilen Rust ya da C sürücüsü bu tanımlayıcıyı iki kez tanımlardı.",
-            "Sürücüler adlarını sizinkilerden kurar: 'ctrl' register'ı 'ctrl_raw()' / 'CTRL_OFFSET', çok alanlı bir register'ın 'en' alanı 'ctrl_en()' / 'CTRL_EN_SHIFT' alır; C başlığı her şeyin önüne modülü koyar ('GPIO_CTRL', 'gpio_get_ctrl_en'). İki farklı ad buluşabilir: 'ctrl'in 'raw' alanı ile ham sözcük erişimcisi 'ctrl_raw'; 'irq.status_rx' alanı ile 'irq_status.rx' alanı ('irq_status_rx'); 'ctrl' ve 'Ctrl' register'ları (ikisi de 'CTRL_OFFSET'); 'new', 'read' ya da 'write' adlı bir register ile sürücünün kendi metotları; 'h' ya da 'base' adlı bir register ile başlığın 'GPIO_H' koruması ya da 'GPIO_BASE'; C setter parametresi olarak 'uint32_t' ya da bir makroyla aynı adlı alan; snake_case adı aynı dosyaya inen iki @mmio modülü ('GpioRegs' ve 'GPIORegs' ikisi de build/sw/gpio_regs.* yazar). Rust sürücüsü derlenmez, C başlığı biri ötekinin yerine geçerek sessizce bile derlenebilir, iki modül birbirinin dosyasının üzerine yazar. Volt iki adı da arkanızdan değiştirmez (ADR-0078): sürücü API'si yazılımın çağırdığı şeydir. İkisinden birini yeniden adlandırın.",
+            "Sürücüler adlarını sizinkilerden kurar: 'ctrl' register'ı 'ctrl_raw()' / 'CTRL_OFFSET', çok alanlı bir register'ın 'en' alanı 'ctrl_en()' / 'CTRL_EN_SHIFT' alır; C başlığı her şeyin önüne modülü koyar ('GPIO_CTRL', 'gpio_get_ctrl_en'). İki farklı ad buluşabilir: 'ctrl'in 'raw' alanı ile ham sözcük erişimcisi 'ctrl_raw'; 'irq.status_rx' alanı ile 'irq_status.rx' alanı ('irq_status_rx'); 'ctrl' ve 'Ctrl' register'ları (ikisi de 'CTRL_OFFSET'); 'new', 'read' ya da 'write' adlı bir register ile sürücünün kendi metotları; 'h' ya da 'base' adlı bir register ile başlığın 'GPIO_H' koruması ya da 'GPIO_BASE'; C setter parametresi olarak 'uint32_t' ya da bir makroyla aynı adlı alan; snake_case adı aynı dosyaya inen iki @mmio modülü ('GpioRegs' ve 'GPIORegs' ikisi de build/sw/gpio_regs.* yazar). Rust sürücüsü derlenmez, C başlığı biri ötekinin yerine geçerek sessizce bile derlenebilir, iki modül birbirinin dosyasının üzerine yazar. Volt iki adı da arkanızdan değiştirmez: sürücü API'si yazılımın çağırdığı şeydir. İkisinden birini yeniden adlandırın.",
             "@reg(offset = 0x00, access = ReadWrite)\nctrl : { raw : u8, en : bool, @reserved : bits<23> }   // ✗ E1014: 'ctrl_raw' iki kez",
             "@reg(offset = 0x00, access = ReadWrite)\nctrl : { data : u8, en : bool, @reserved : bits<23> }  // ✓",
-        )
-        .with_docs(&["docs/adr/ADR-0079-cikti-dogrulama-agi.md"]),
+        ),
 
         E1015 => Explanation::new(
             "Desendeki ad bir sabit olmalı",
             "Bir 'match' kolu deseni bir port, register, wire, 'let', döngü değişkeni ya da sabit olmayan başka bir şeyi adlandırıyor.",
-            "Volt'ta desendeki ad, sınananın karşılaştırıldığı bir DEĞERDİR — 'LIMIT => ...' 'x == LIMIT' demektir — asla yeni bir değişken değildir (Volt'ta bağlama deseni yok, ADR-0085). Değer derleme zamanında bilinmeli: bir 'const' ya da generic parametre. Bir sinyal her çevrim değişir, case etiketi olamaz; Rust'ta aynı ad sessizce yeni bir değişken bağlar ve her değeri yakalardı, Volt bu yüzden onu reddeder. Açıkça 'if' ile karşılaştırın ya da bir sabitle eşleyin. Hiç tanımlı olmayan ad E1001'dir (enum varyantı için fix-it 'Enum::Varyant' yazar).",
+            "Volt'ta desendeki ad, sınananın karşılaştırıldığı bir DEĞERDİR — 'LIMIT => ...' 'x == LIMIT' demektir — asla yeni bir değişken değildir (Volt'ta bağlama deseni yok). Değer derleme zamanında bilinmeli: bir 'const' ya da generic parametre. Bir sinyal her çevrim değişir, case etiketi olamaz; Rust'ta aynı ad sessizce yeni bir değişken bağlar ve her değeri yakalardı, Volt bu yüzden onu reddeder. Açıkça 'if' ile karşılaştırın ya da bir sabitle eşleyin. Hiç tanımlı olmayan ad E1001'dir (enum varyantı için fix-it 'Enum::Varyant' yazar).",
             "in  lim : u8
 match x {
     lim => { hit <= true }     // ✗ E1015: 'lim' bir port
@@ -307,14 +302,13 @@ match x {
     LIMIT => { hit <= true }   // ✓ sabit
     _     => { }
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0085-desen-adlari.md"]),
+        ),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(
             "Bit genişliği uyumsuzluğu",
             "Bu bağlantının iki tarafının bit genişlikleri farklı.",
-            "Örtük daraltma üst bitleri sessizce düşürür — yalnız büyük değerlerde ortaya çıkan klasik donanım hatası kaynağı. Volt asla örtük daraltmaz: kesme 'as' ile açıkça yazılmalıdır. AYNI işaretli daha geniş bir hedefe genişleme yalnız hedef tip açıkça yazılmışsa (let/reg/port tipi ya da atama hedefi, ADR-0041) örtüktür; yazılı hedefi olmayan farklı genişlikteki operandlar yine cast ister.",
+            "Örtük daraltma üst bitleri sessizce düşürür — yalnız büyük değerlerde ortaya çıkan klasik donanım hatası kaynağı. Volt asla örtük daraltmaz: kesme 'as' ile açıkça yazılmalıdır. AYNI işaretli daha geniş bir hedefe genişleme yalnız hedef tip açıkça yazılmışsa (let/reg/port tipi ya da atama hedefi) örtüktür; yazılı hedefi olmayan farklı genişlikteki operandlar yine cast ister.",
             "in  a : u16\nout y : u8\ny = a                   // ✗ E2001: 16 bit 8 bite",
             "y = a as u8             // ✓ açık daraltma (W2010)\nout z : u32\nz = a                   // ✓ aynı işaretli genişleme, hedef yazılı",
         ),
@@ -333,7 +327,7 @@ match x {
             "y = if count != 0 { a } else { b }   // ✓",
         )
         .with_note(
-            "Çevresi tip bildirmediğinde (tipsiz let) 'if' ifadesinin dalları ve 'match' ifadesinin kolları tek tipte olmalı: 'let r = match op { 0 => a, _ => true }' E2003 \"match kolları farklı tipte\" verir. Tip bildirildiğinde (tipli let, atama hedefi, port) o tip 'if'teki gibi her kola itilir (ADR-0041, ADR-0083): 'let r : u9 = match op { 0 => a + b, _ => b }' a + b'yi 9 bitte hesaplar.",
+            "Çevresi tip bildirmediğinde (tipsiz let) 'if' ifadesinin dalları ve 'match' ifadesinin kolları tek tipte olmalı: 'let r = match op { 0 => a, _ => true }' E2003 \"match kolları farklı tipte\" verir. Tip bildirildiğinde (tipli let, atama hedefi, port) o tip 'if'teki gibi her kola itilir: 'let r : u9 = match op { 0 => a + b, _ => b }' a + b'yi 9 bitte hesaplar.",
         ),
         E2004 => Explanation::new(
             "bits<N> tipinde aritmetik",
@@ -373,7 +367,7 @@ match x {
         E2009 => Explanation::new(
             "Geçersiz tip dönüşümü",
             "'as' bu iki tip arasında dönüşüm yapamaz.",
-            "Dönüşümler yalnız yapısı uyuşan sayısal/bit tipleri (u/i/bits) arasında tanımlıdır. Bir bool'u veya clock'u sayıya çevirmenin (ya da tersinin) tek ve açık bir anlamı yoktur — niyeti açık bir ifadeyle yazın.\n\nHam bitler asla örtük olarak enum'a (ya da enum veya Trit alanlı struct'a) dönmez: bitler hiçbir varyanta ait olmayan bir kod taşıyabilir. Aynı kural belleklere de uygulanır: Ram, DualPortRam ve AsyncDualPortRam böyle bir T'yi reddeder, çünkü hiç yazılmamış adres ham bit döndürür (ADR-0087); bitleri saklayın (Ram<u8, ...>) ve alanı açıkça çözün.",
+            "Dönüşümler yalnız yapısı uyuşan sayısal/bit tipleri (u/i/bits) arasında tanımlıdır. Bir bool'u veya clock'u sayıya çevirmenin (ya da tersinin) tek ve açık bir anlamı yoktur — niyeti açık bir ifadeyle yazın.\n\nHam bitler asla örtük olarak enum'a (ya da enum veya Trit alanlı struct'a) dönmez: bitler hiçbir varyanta ait olmayan bir kod taşıyabilir. Aynı kural belleklere de uygulanır: Ram, DualPortRam ve AsyncDualPortRam böyle bir T'yi reddeder, çünkü hiç yazılmamış adres ham bit döndürür; bitleri saklayın (Ram<u8, ...>) ve alanı açıkça çözün.",
             "in  ck : clock\ny = ck as u1            // ✗ E2009: clock veri değildir",
             "y = if flag { 1 } else { 0 }    // ✓ (bool → sayı, açıkça)",
         ),
@@ -401,36 +395,32 @@ match x {
         E2013 => Explanation::new(
             "Geçersiz struct bildirimi",
             "Bu düz struct bir veri değerini tanımlayamaz.",
-            "Düz 'struct' tek yönlü bir veri değeridir: register'da tutulur, karşılaştırılır, 'as' ile dönüştürülür ve donanımda alan başına bir sinyale iner. Bu yüzden en az bir alanı olmalıdır (sıfır genişlikli değer sinyal değildir) ve alanları saat alanı ya da yön taşımaz — değerin tamamı onu tutan sinyalin alanındadır. Alan başına alan (domain), yön ve 'struct port' bundle'ları yönlü port alanlarını gruplayan, değer olmayan 'struct port'a aittir (ADR-0039, ADR-0077).",
+            "Düz 'struct' tek yönlü bir veri değeridir: register'da tutulur, karşılaştırılır, 'as' ile dönüştürülür ve donanımda alan başına bir sinyale iner. Bu yüzden en az bir alanı olmalıdır (sıfır genişlikli değer sinyal değildir) ve alanları saat alanı ya da yön taşımaz — değerin tamamı onu tutan sinyalin alanındadır. Alan başına alan (domain), yön ve 'struct port' bundle'ları yönlü port alanlarını gruplayan, değer olmayan 'struct port'a aittir.",
             "struct Empty { }                // ✗ E2013: alan yok\nstruct P { a : u4 @Fast }        // ✗ E2013: alanda domain\nstruct Q { bus : AxiLite }       // ✗ E2013: AxiLite bir 'struct port'",
             "struct P { a : u4, b : bool }   // ✓\nin p : P @Fast                   // ✓ domain sinyalin üstünde\nstruct port Link { out d : P  in ready : bool }   // ✓ bundle struct taşıyabilir",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
         E2014 => Explanation::new(
             "Struct literalinde eksik ya da yinelenen alan",
             "Struct'ın her alanı literalde tam bir kez verilmelidir.",
-            "Donanımda her bitin açık bir kaynağı olmalıdır. Örtük varsayılan değer reset değerinde bir alanı sessizce sıfırlar, kombinasyonel mantıkta unutulan alanı gizler; bu yüzden struct literali bütün alanları, her birini bir kez, herhangi bir sırayla listeler ('P { a, b }' kısa biçimi aynı adlı yerel değerleri alır). Register'ın tek alanını değiştirmek için alana atayın: 'p.a <= x' (ADR-0077).",
+            "Donanımda her bitin açık bir kaynağı olmalıdır. Örtük varsayılan değer reset değerinde bir alanı sessizce sıfırlar, kombinasyonel mantıkta unutulan alanı gizler; bu yüzden struct literali bütün alanları, her birini bir kez, herhangi bir sırayla listeler ('P { a, b }' kısa biçimi aynı adlı yerel değerleri alır). Register'ın tek alanını değiştirmek için alana atayın: 'p.a <= x'.",
             "reg p : P = P { a: 0 }                 // ✗ E2014: 'b' alanı eksik\nlet q : P = P { a: 1, a: 2, b: true }  // ✗ E2014: 'a' iki kez",
             "reg p : P = P { a: 0, b: false }       // ✓\non clk { p.a <= x }                    // ✓ tek alanı güncelle",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
 
         E2015 => Explanation::new(
             "Fonksiyonun sonucu yok",
             "Fonksiyon dönüş tipini bildirmeli ve gövdesini son ifadeyle bitirmelidir.",
-            "Volt fonksiyonu adlı bir kombinasyonel ifadedir: gövdesi 'let' bağlamaları ve ardından hesapladığı değerdir; çağrının donanımı o değerdir. Dönüş tipi ya da son ifadesi olmayan fonksiyon hiçbir şey hesaplamaz, donanım anlamı yoktur. 'return' deyimi yoktur: erken dönüş bir öncelik kodlayıcısıdır ve if/else zinciri bunu açıkça söyler (ADR-0081).",
+            "Volt fonksiyonu adlı bir kombinasyonel ifadedir: gövdesi 'let' bağlamaları ve ardından hesapladığı değerdir; çağrının donanımı o değerdir. Dönüş tipi ya da son ifadesi olmayan fonksiyon hiçbir şey hesaplamaz, donanım anlamı yoktur. 'return' deyimi yoktur: erken dönüş bir öncelik kodlayıcısıdır ve if/else zinciri bunu açıkça söyler.",
             "fn parity(x: u8) {              // ✗ E2015: dönüş tipi yok\n    popcount(x) & 1\n}\nfn inc(a: u8) -> u8 {\n    let t = a + 1                // ✗ E2015: son ifade yok\n}",
             "fn inc(a: u8) -> u8 {\n    let t = a + 1\n    t                            // ✓ son ifade sonuçtur\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
         E2016 => Explanation::new(
             "Fonksiyon kombinasyonel değil",
             "Fonksiyon gövdesi durum tutamaz, sinyal süremez; imzası saat ya da sıfırlama alamaz.",
-            "Fonksiyon çağrısı her çağrı yerinde bir kombinasyonel devreye dönüşür. Gövdedeki 'reg', 'on' ya da 'comb' bloğu, örnek ya da sync() çağrı yerinde görünmeyen register'lar kurar ve her çağrı sessizce bir kopya daha üretirdi. Atama bir ifadenin içinden sinyal sürerdi. Saat ya da sıfırlama parametresi fonksiyonu bir saat alanına bağlar; kombinasyonel bir değerin saat alanı yoktur. Durum gerekiyorsa modül yazın (ADR-0081).",
+            "Fonksiyon çağrısı her çağrı yerinde bir kombinasyonel devreye dönüşür. Gövdedeki 'reg', 'on' ya da 'comb' bloğu, örnek ya da sync() çağrı yerinde görünmeyen register'lar kurar ve her çağrı sessizce bir kopya daha üretirdi. Atama bir ifadenin içinden sinyal sürerdi. Saat ya da sıfırlama parametresi fonksiyonu bir saat alanına bağlar; kombinasyonel bir değerin saat alanı yoktur. Durum gerekiyorsa modül yazın.",
             "fn acc(x: u8) -> u8 {\n    reg s : u8 = 0               // ✗ E2016: fonksiyonda durum\n    s\n}\nfn f(clk: clock, x: u8) -> u8 { x }   // ✗ E2016: saat parametresi",
             "fn sat_inc(a: u8) -> u8 {\n    if a == 255 { a } else { a + 1 }   // ✓ saf kombinasyonel\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         // ─── Sabit değerlendirme (const-eval.md) ───
         E2020 => Explanation::new(
@@ -485,7 +475,7 @@ match x {
         E2027 => Explanation::new(
             "Döngü açma sınırı aşıldı",
             "Bu derleme zamanı 'for' döngüsü, açma (unrolling) sınırının ötesine genişliyor.",
-            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün. Aynı kod bir derleme biriminde açılan her şeyin toplam boyunu da sınırlar — açılan döngü gövdeleri, generic modül örneklemeleri ve açılan fonksiyon çağrıları tek bir AST düğüm bütçesini paylaşır (ADR-0068, ADR-0081). Gövdesinde başka bir fonksiyonu iki kez çağıran fonksiyon her seviyede ikiye katlanır; bu tür kısa bir zincir milyonlarca düğüm isteyebilir; bütçeyi aşan çağrı yeri raporlanır.",
+            "'for'un her yinelemesi gerçek donanıma dönüşür: bir milyon yinelemelik döngü, gövdenin bir milyon kopyasıdır. Sınırın aşılması genellikle yanlış bir sabit sınırdır; tasarım gerçekten o kadar donanım istiyorsa belleğe veya sıralı bir sürece dönüştürün. Aynı kod bir derleme biriminde açılan her şeyin toplam boyunu da sınırlar — açılan döngü gövdeleri, generic modül örneklemeleri ve açılan fonksiyon çağrıları tek bir AST düğüm bütçesini paylaşır. Gövdesinde başka bir fonksiyonu iki kez çağıran fonksiyon her seviyede ikiye katlanır; bu tür kısa bir zincir milyonlarca düğüm isteyebilir; bütçeyi aşan çağrı yeri raporlanır.",
             "for i in 0..10_000_000 {    // ✗ E2027\n    t[i] = d[i]\n}",
             "for i in 0..WIDTH {         // ✓ küçük bir sabitle sınırlı\n    t[i] = d[i]\n}",
         ),
@@ -506,11 +496,10 @@ match x {
         E2030 => Explanation::new(
             "Geçersiz enum kodlaması",
             "Enum'un varyantlarına tek ve belirsizliksiz bir donanım kodlaması verilemiyor.",
-            "Enum düz bir bit vektörüne iner: varsayılan olarak varyantlar bildirim sırasıyla 0, 1, 2 ... numaralanır ve genişlik max(1, clog2(n)) olur. Açık değerler ('Add = 0, Jal = 8') ve taban tipi ('enum Op : u4') dış bir kodlamayı (opcode, belgelenmiş register kodu) tasarıma taşır. Kurallar: ya bütün varyantların açık değeri vardır ya hiçbirinin (karışık liste iki türlü okunur — 'A = 5'ten sonraki değer SystemVerilog ve Rust'ta 6'dır); değerler birbirinden farklıdır; taban tipi her varyanta yetecek genişlikte işaretsiz uN, uint<N> ya da bits<N>'dir; enum'un en az bir varyantı vardır (ADR-0074).",
+            "Enum düz bir bit vektörüne iner: varsayılan olarak varyantlar bildirim sırasıyla 0, 1, 2 ... numaralanır ve genişlik max(1, clog2(n)) olur. Açık değerler ('Add = 0, Jal = 8') ve taban tipi ('enum Op : u4') dış bir kodlamayı (opcode, belgelenmiş register kodu) tasarıma taşır. Kurallar: ya bütün varyantların açık değeri vardır ya hiçbirinin (karışık liste iki türlü okunur — 'A = 5'ten sonraki değer SystemVerilog ve Rust'ta 6'dır); değerler birbirinden farklıdır; taban tipi her varyanta yetecek genişlikte işaretsiz uN, uint<N> ya da bits<N>'dir; enum'un en az bir varyantı vardır.",
             "enum Op : u4 { Add = 0, Sub, Jal = 8 }   // ✗ E2030: karışık açık/örtük değer\nenum Mode : i4 { A = 0, B = 1 }          // ✗ E2030: taban tipi işaretsiz olmalı\nenum Dup { A = 1, B = 1 }                // ✗ E2030: yinelenen değer 1",
             "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
-        )
-        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
+        ),
 
         // ─── Saat/sıfırlama alanları (domain-inference.md) ───
         E3001 => Explanation::new(
@@ -521,7 +510,7 @@ match x {
             "result = sync(data, slow_clk)    // ✓ iki flip-flop",
         )
         .with_note("sync() her biti bağımsız senkronize eder. Çok bitli veride bitler farklı saat kenarlarında yakalanabilir (0b11111111 → 0b11110000 geçersiz ara değer). Çok bitli geçişlerde Gray kodlama (sayaçlar), AsyncFifo (veri akışı) veya handshake protokolü (kontrol) kullanın.")
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3002 => Explanation::new(
             "Tanımsız saat alanı",
             "'@' anotasyonu hiç bildirilmemiş bir alanı adlandırıyor.",
@@ -529,16 +518,16 @@ match x {
             "module M {\n    in data : u8 @Fasst    // ✗ E3002: 'domain Fasst' yok\n}",
             "domain Fast { clock = posedge }\nmodule M {\n    in data : u8 @Fast     // ✓\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3003 => Explanation::new(
             "Sıfırlama alanı geçişi (RDC)",
             "Bir reset bırakması ulaştığı her saate senkronlanmamış: tek bir asenkron reset portu birden çok saat alanınca paylaşılıyor, aynı ham reset bir saatte iki kez senkronlanıyor ya da bir ham reset portu beslediği alanla uyuşmuyor.",
-            "Reset'i asenkron olarak etkinleştirmek zararsızdır; BIRAKMAK değildir. Bir saate senkron olan bırakma diğer her saate asenkrondur; ikinci alanın register'ları reset'ten farklı çevrimlerde çıkabilir ya da metastabil olabilir (recovery/removal ihlali). Volt polarite başına tek reset portu üretir ('rst' / 'rst_n'); aynı polariteli iki 'reset = async' alan tek portu paylaşır ve bırakması en fazla bir saate senkron olabilir. Çözüm ham reset'i açıkça almaktır: 'in rst_n : reset(async, active_low)'. Derleyici portun beslediği her saat için iki aşamalı bir bırakma senkronizörü ekler (asenkron etkinleştirme, senkron bırakma) ve her alanı kendi zincirinden sıfırlar (ADR-0065). Aynı kod şunları da raporlar: bir saatte iki kez senkronlanan ham reset (ebeveyn ve bir örnek ayrı zincir ekler, iki bırakma farklı çevrimlere düşebilir), '(sync|async, polarite)' beslediği alandan farklı ham port ve başka bir alanın otomatik portuyla aynı adı taşıyan ham port.",
+            "Reset'i asenkron olarak etkinleştirmek zararsızdır; BIRAKMAK değildir. Bir saate senkron olan bırakma diğer her saate asenkrondur; ikinci alanın register'ları reset'ten farklı çevrimlerde çıkabilir ya da metastabil olabilir (recovery/removal ihlali). Volt polarite başına tek reset portu üretir ('rst' / 'rst_n'); aynı polariteli iki 'reset = async' alan tek portu paylaşır ve bırakması en fazla bir saate senkron olabilir. Çözüm ham reset'i açıkça almaktır: 'in rst_n : reset(async, active_low)'. Derleyici portun beslediği her saat için iki aşamalı bir bırakma senkronizörü ekler (asenkron etkinleştirme, senkron bırakma) ve her alanı kendi zincirinden sıfırlar. Aynı kod şunları da raporlar: bir saatte iki kez senkronlanan ham reset (ebeveyn ve bir örnek ayrı zincir ekler, iki bırakma farklı çevrimlere düşebilir), '(sync|async, polarite)' beslediği alandan farklı ham port ve başka bir alanın otomatik portuyla aynı adı taşıyan ham port.",
             "domain Fast { clock = posedge, reset = async active_low }\ndomain Slow { clock = posedge, reset = async active_low }\nmodule Top {\n    in fast_clk : clock @Fast    // ✗ E3003: 'rst_n' iki saate hizmet ediyor\n    in slow_clk : clock @Slow\n}",
             "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ saat başına bir senkronizör\n}",
         )
         .with_note("İki alan arasındaki VERİ geçişleri hâlâ E3001'dir; E3003 yalnız reset'in kendisiyle ilgilidir. 'reset = sync' bir alanın 'rst'yi başka bir saatle paylaşması daha hafif olan W3010'dur.")
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3004 => Explanation::new(
             "Sıfırlama sekans ihlali",
             "Bir register, bağımlı olduğu alan serbest bırakılmadan önce sıfırlamadan çıkıyor.",
@@ -580,7 +569,7 @@ match x {
         E3009 => Explanation::new(
             "Bilgi akışı ihlali (trust_level)",
             "Yüksek güven seviyesindeki veri 'declassify'dan geçmeden daha düşük güvenli bir hedefe ulaşıyor.",
-            "Bir domain 'trust_level = secret | confidential | public' taşıyabilir (ADR-0052). Her sinyal alanının güven seviyesini devralır (saatteki K1/K2 gibi), bir ifade operandlarının en yüksek seviyesini taşır ve derleyici bu etiketi atamalar, 'let' bağlamaları, register'lar, 'if'/'match' koşulları ve örnek portları boyunca izler. Bilgi yalnız aynı ya da daha yüksek seviyeye akabilir: secret → public sızıntıdır, public → secret serbesttir, sabitler her yere uyar. Alanında 'trust_level' olmayan sinyaller sınıflandırılmamıştır: kendilerine yazılan en yüksek seviyeyi alırlar, dolayısıyla anotasyonsuz bir register bir sırrı aklayamaz. Tek meşru düşürme 'declassify(ifade, \"gerekçe\")'dır: değeri public yapar ve W3008 iz kaydı bırakır.",
+            "Bir domain 'trust_level = secret | confidential | public' taşıyabilir. Her sinyal alanının güven seviyesini devralır (saatteki K1/K2 gibi), bir ifade operandlarının en yüksek seviyesini taşır ve derleyici bu etiketi atamalar, 'let' bağlamaları, register'lar, 'if'/'match' koşulları ve örnek portları boyunca izler. Bilgi yalnız aynı ya da daha yüksek seviyeye akabilir: secret → public sızıntıdır, public → secret serbesttir, sabitler her yere uyar. Alanında 'trust_level' olmayan sinyaller sınıflandırılmamıştır: kendilerine yazılan en yüksek seviyeyi alırlar, dolayısıyla anotasyonsuz bir register bir sırrı aklayamaz. Tek meşru düşürme 'declassify(ifade, \"gerekçe\")'dır: değeri public yapar ve W3008 iz kaydı bırakır.",
             "domain SecureCore { trust_level = secret }\ndomain Debug      { trust_level = public }\n\nmodule KeyStore {\n    in  clk       : clock\n    in  key       : u128 @SecureCore\n    out debug_out : u8   @Debug\n    debug_out = key[7:0]                // ✗ E3009: gizli veri açık çıkışa akıyor\n}",
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ✓ bilinçli, W3008 kaydeder",
         )
@@ -592,7 +581,7 @@ match x {
             "module M {\n    in a : u8 @Fast\n    in b : u8 @Slow\n    wire t : u8         // ✗ E3010: @Fast mı @Slow mu?\n}",
             "    wire t : u8 @Fast   // ✓ açıkça belirtildi",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3011 => Explanation::new(
             "Register birden fazla domainden yazılıyor",
             "Farklı saat alanlarındaki iki 'on' bloğu aynı register'ı yazıyor.",
@@ -600,7 +589,7 @@ match x {
             "on fast_clk { r <= a }\non slow_clk { r <= b }  // ✗ E3011",
             "on fast_clk {\n    r <= if sel { sync(b, fast_clk) } else { a }   // ✓ tek alan\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         E3012 => Explanation::new(
             "'on' bloğunda yabancı domain sinyali okunuyor",
             "'on' bloğunun saati bir alana ait, ama ifade başka alandan bir sinyal okuyor.",
@@ -608,12 +597,12 @@ match x {
             "on slow_clk {\n    r <= fast_data      // ✗ E3012: fast_data @Fast\n}",
             "on slow_clk {\n    r <= sync(fast_data, slow_clk)   // ✓\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
 
         E3013 => Explanation::new(
             "Bundle alanları farklı saat alanlarında çıkarıldı",
             "Bir bundle portunun düzleştirilmiş alanları farklı saat alanlarına düştü.",
-            "Bundle (struct port, ADR-0039) tek bir arayüzdür: bütün alanlar modül sınırını birlikte geçer, bu yüzden hepsi aynı saat alanında olmalıdır. Port anotasyonundan farklı bir alan seviyesi @Domain anotasyonu ya da farklı saatlerin bloklarından kullanılan alanlar arayüzü bir CDC sınırından böler. Portun tamamını tek bir alanla anotasyonlayın ya da arayüzü iki bundle'a ayırın.",
+            "Bundle (struct port) tek bir arayüzdür: bütün alanlar modül sınırını birlikte geçer, bu yüzden hepsi aynı saat alanında olmalıdır. Port anotasyonundan farklı bir alan seviyesi @Domain anotasyonu ya da farklı saatlerin bloklarından kullanılan alanlar arayüzü bir CDC sınırından böler. Portun tamamını tek bir alanla anotasyonlayın ya da arayüzü iki bundle'a ayırın.",
             "struct port Bus {\n    out data  : u8 @Fast\n    in  ready : bool @Slow    // ✗ E3013: aynı bundle, iki alan\n}",
             "struct port Bus {\n    out data  : u8\n    in  ready : bool\n}\nmodule M {\n    in  clk : clock\n    out bus : Bus @Fast         // ✓ bütün bundle tek alanda\n}",
         ),
@@ -621,7 +610,7 @@ match x {
         E3014 => Explanation::new(
             "Aynı sembolik saat alanına iki farklı saat bağlandı",
             "Bir örneğin iki saat portu aynı alan anotasyonunu taşıyor ama farklı saat alanlarından sürülüyor.",
-            "extern module içinde tanımsız bir @Ad sembolik saat alanıdır (ADR-0047): her örneklemede tam olarak bir gerçek alanı temsil eder, hangisi olduğuna saat bağlantısı karar verir. İki saat portu aynı sembolik alanı paylaşıyorsa sarmalanan SystemVerilog modülü o tarafta tek saatlidir — bu portları farklı saatlerden beslemek, derleyicinin içini göremediği kara kutunun içinde bir saat alanı geçişi açar. Aynı kural saat portları aynı @Alan adını taşıyan sıradan modüller için de geçerlidir.",
+            "extern module içinde tanımsız bir @Ad sembolik saat alanıdır: her örneklemede tam olarak bir gerçek alanı temsil eder, hangisi olduğuna saat bağlantısı karar verir. İki saat portu aynı sembolik alanı paylaşıyorsa sarmalanan SystemVerilog modülü o tarafta tek saatlidir — bu portları farklı saatlerden beslemek, derleyicinin içini göremediği kara kutunun içinde bir saat alanı geçişi açar. Aynı kural saat portları aynı @Alan adını taşıyan sıradan modüller için de geçerlidir.",
             "extern module ExtRegFile {
     in wr_clk : clock @Core
     in rd_clk : clock @Core   // tek alan, iki saat ucu
@@ -642,16 +631,15 @@ extern module ExtRegFile {
     ...
 }",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
 
         E3015 => Explanation::new(
             "Fonksiyonda declassify",
             "Güven seviyesi düşürme fonksiyon gövdesinde yazılamaz.",
-            "declassify bir güvenlik kararıdır ve ADR-0052 onu gerekçesiyle, yapıldığı yerde görünür kılar. Fonksiyon gövdesi her çağrı yerinde açılır; içindeki bir declassify her çağıranda görünmez bir düşürme olurdu. Fonksiyonu çağırın, sonucunu çağıran modülde, inceleyenin gördüğü yerde declassify edin (ADR-0081).",
+            "declassify bir güvenlik kararıdır; bu yüzden Volt onu gerekçesiyle, yapıldığı yerde görünür tutar. Fonksiyon gövdesi her çağrı yerinde açılır; içindeki bir declassify her çağıranda görünmez bir düşürme olurdu. Fonksiyonu çağırın, sonucunu çağıran modülde, inceleyenin gördüğü yerde declassify edin.",
             "fn reveal(k: u8) -> u8 {\n    declassify(k, \"debug\")      // ✗ E3015\n}",
             "fn mix(k: u8) -> u8 { k ^ 0x5A }\n...\nlet shown = declassify(mix(key), \"maskeli değer\")   // ✓ modülde",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         E3016 => Explanation::new(
             "Saat kenarı olmayan alanın saatiyle flop",
@@ -662,14 +650,13 @@ extern module ExtRegFile {
         )
         .with_note(
             "Yalnız 'on' blokları değil, flop üreten her kullanım denetlenir: sync() hedef saati; sync() kaynağı önce yakaladığında kaynağın alanının saat portu; yerleşik primitiflerin saat portları (SyncFifo, AsyncFifo, Ram, ...); alanı kenarlı olan alt modül saat portu; kontratların örneklendiği saat (modülün ilk saat portu).",
-        )
-        .with_docs(&["docs/adr/ADR-0098-sessiz-kabul-ikinci-tur.md"]),
+        ),
 
         // ─── Bağlantı/sürücü (type-inference.md) ───
         E4001 => Explanation::new(
             "Çift sürücü",
             "Aynı sinyal (ya da aynı bitleri) iki kaynak tarafından sürülüyor.",
-            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın. Her kaynak sayılır: başka bloktaki atama, 'let' başlangıç değeri, giriş portu (örnekleyen üst modül sürer) ve alt modülün inout/opendrain portuna bağlı wire (o port üzerinden üç durumlu sürülür). Kısmi hedefler yalnız bitleri kesişirse çakışır: y[7:4] ve y[3:0] geçerli, y = a ve y[0] = b değil. Tek 'on' ya da 'comb' bloğundaki atamalar tek sürücüdür (ADR-0073). Blok içindeki 'let' de bir değerin adıdır, değişken değildir: ona atama (t = b, t <= b) E4001'dir (ADR-0083).",
+            "Tek kabloda iki sürücü elektriksel kısa devredir: anlaşamadıkları her an sonuç bir değer değil çekişmedir (contention). Kaynakları tek atamada birleştirin (mux veya öncelik ifadesi) — her an tam bir değer kazansın. Her kaynak sayılır: başka bloktaki atama, 'let' başlangıç değeri, giriş portu (örnekleyen üst modül sürer) ve alt modülün inout/opendrain portuna bağlı wire (o port üzerinden üç durumlu sürülür). Kısmi hedefler yalnız bitleri kesişirse çakışır: y[7:4] ve y[3:0] geçerli, y = a ve y[0] = b değil. Tek 'on' ya da 'comb' bloğundaki atamalar tek sürücüdür. Blok içindeki 'let' de bir değerin adıdır, değişken değildir: ona atama (t = b, t <= b) E4001'dir.",
             "y = a\ny = b                   // ✗ E4001: hangisi kazanır?\nlet v = a\nv = b                   // ✗ E4001: let başlangıcı v'yi zaten sürüyor",
             "y = if sel { b } else { a }  // ✓ tek sürücü\nlet v = if sel { b } else { a }  // ✓",
         ),
@@ -725,20 +712,18 @@ module Gpio {
     input : { pins : u8, @reserved : bits<24> }
     on clk { regs.input.pins <= pins_in }   // ✓ donanıma ait
 }",
-        )
-        .with_docs(&["docs/adr/ADR-0044-mmio-register-haritasi.md"]),
+        ),
 
         E4013 => Explanation::new(
             "Özyineli fonksiyon",
             "Fonksiyon kendini doğrudan ya da başka fonksiyonlar üzerinden çağırıyor.",
-            "Her fonksiyon çağrısı derleme zamanında donanıma açılır, çağrı başına bir kombinasyonel kopya. Özyineli çağrının dibi yoktur: 'f' bir 'f' kopyası içerir, o da bir 'f' kopyası, sonsuza dek. Derleme zamanı sınırlı donanım özyinelemesi döngüyle ya da her seviye için ayrı fonksiyonla yazılır (ADR-0081).",
+            "Her fonksiyon çağrısı derleme zamanında donanıma açılır, çağrı başına bir kombinasyonel kopya. Özyineli çağrının dibi yoktur: 'f' bir 'f' kopyası içerir, o da bir 'f' kopyası, sonsuza dek. Derleme zamanı sınırlı donanım özyinelemesi döngüyle ya da her seviye için ayrı fonksiyonla yazılır.",
             "fn f(x: u8) -> u8 { f(x) }                  // ✗ E4013: f → f\nfn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { g(x) }                  // ✗ E4013: g → h → g",
             "fn g(x: u8) -> u8 { h(x) + 1 }\nfn h(x: u8) -> u8 { x ^ 1 }                 // ✓ çağrı çizgesinde döngü yok",
         )
         .with_note(
             "Döngüdeki her fonksiyon bir kez raporlanır; döngüyü kapatan çağrı ve döngü yolu ('g → h → g') ile. Yalnız özyineli bir fonksiyonu çağıran fonksiyonlar raporlanmaz.",
-        )
-        .with_docs(&["docs/adr/ADR-0081-fonksiyon-destegi.md"]),
+        ),
 
         // ─── Davranışsal kontratlar ───
         E4007 => Explanation::new(
@@ -751,7 +736,7 @@ module Gpio {
         E4008 => Explanation::new(
             "Çift yönlü port yanlış kullanımı",
             "Bir 'inout' ya da 'opendrain' porta doğrudan atama yapılıyor, 'on' bloğu dışında sürülüyor ya da olmayan bir üyesi kullanılıyor.",
-            "Çift yönlü bir pad dış dünyayla paylaşılır; değeri sıradan bir ifade değildir: modül her an ya hattı sürer ya da diğer aygıtlara bırakır (yüksek empedans / pull-up). Volt bu kararı modülün kendi register'larında tutar (inout için <p>_oe ve <p>_out, opendrain için <p>_drive_low) — derleyici sentezler — ve tek üç durumlu tamponu 'assign p = enable ? value : \'z' olarak kendisi üretir (ADR-0051). Sürekli atama 'p = ifade' veri yoluyla çekişen push-pull sürücü üretirdi; 'on' bloğu dışındaki sürme çağrısının durumu tutacak register'ı yoktur; başka üye adlarının pad üzerinde anlamı yoktur.\n\nTek işlemler: p.drive(değer) (inout), p.drive_low() (opendrain), p.release() — 'on clk' içinde deyim; p.read() — çözümlenmiş hat seviyesi, ifade; p.released / p.driving — sürücü durumu, kontratta ve ifadede. 'opendrain' portu her zaman 'bool'; 'inout' portu bool, uN, iN ya da bits<N>.",
+            "Çift yönlü bir pad dış dünyayla paylaşılır; değeri sıradan bir ifade değildir: modül her an ya hattı sürer ya da diğer aygıtlara bırakır (yüksek empedans / pull-up). Volt bu kararı modülün kendi register'larında tutar (inout için <p>_oe ve <p>_out, opendrain için <p>_drive_low) — derleyici sentezler — ve tek üç durumlu tamponu 'assign p = enable ? value : \'z' olarak kendisi üretir. Sürekli atama 'p = ifade' veri yoluyla çekişen push-pull sürücü üretirdi; 'on' bloğu dışındaki sürme çağrısının durumu tutacak register'ı yoktur; başka üye adlarının pad üzerinde anlamı yoktur.\n\nTek işlemler: p.drive(değer) (inout), p.drive_low() (opendrain), p.release() — 'on clk' içinde deyim; p.read() — çözümlenmiş hat seviyesi, ifade; p.released / p.driving — sürücü durumu, kontratta ve ifadede. 'opendrain' portu her zaman 'bool'; 'inout' portu bool, uN, iN ya da bits<N>.",
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    sda = if en { false } else { true }    // ✗ E4008: açık drenaj hatta push-pull\n}",
             "module Pad {\n    in  clk : clock\n    in  en  : bool\n    opendrain sda : bool\n    on clk {\n        if en { sda.drive_low() } else { sda.release() }   // ✓ register'lanmış sürücü niyeti\n    }\n    invariant: !en -> sda.released\n}",
         ),
@@ -759,7 +744,7 @@ module Gpio {
         E4009 => Explanation::new(
             "Özyineli tip",
             "Bir tip doğrudan ya da başka tipler üzerinden kendini içeriyor: bir struct ya da struct port alanı, bir enum varyant payload'ı ya da temel tipi, ya da bir tip takma adının hedefi tipe geri dönüyor.",
-            "Her Volt tipi sabit sayıda bittir ve port grubu derleme zamanında düz portlara açılır, her yaprak alan bir port olur ('req_addr', 'req_ready', ...). Kendini içeren bir tipin sonlu genişliği yoktur: 'struct P { d : u8, f : P }' 8 + genişlik(P) bit isterdi, özyineli bir bundle 'req_req_addr', 'req_req_req_addr', ... diye sonsuza dek açılırdı. Döngü dizilerden ('[S; 4]'), demetlerden, enum payload'larından, tip takma adlarından ve generic argümanlardan ('Box<P>', Box parametresini saklıyorsa) geçebilir.\n\nADR-0067'den önce özyineli bir struct port 8. iç içelik seviyesinde sessizce kesiliyordu (birkaç kendine dönen alanla milyonlarca porta açılıyordu -- fuzzer bunu gigabaytlarca bellek tüketimi olarak buldu). ADR-0069'dan önce özyineli sade struct, enum ya da takma ad 'volt check'ten hiçbir tanı almadan geçiyordu.",
+            "Her Volt tipi sabit sayıda bittir ve port grubu derleme zamanında düz portlara açılır, her yaprak alan bir port olur ('req_addr', 'req_ready', ...). Kendini içeren bir tipin sonlu genişliği yoktur: 'struct P { d : u8, f : P }' 8 + genişlik(P) bit isterdi, özyineli bir bundle 'req_req_addr', 'req_req_req_addr', ... diye sonsuza dek açılırdı. Döngü dizilerden ('[S; 4]'), demetlerden, enum payload'larından, tip takma adlarından ve generic argümanlardan ('Box<P>', Box parametresini saklıyorsa) geçebilir.",
             "struct port Req {\n    out addr : u32\n    in  req  : Req      // ✗ E4009: Req, Req içeriyor\n}\nstruct P {\n    d : u8\n    f : [P; 2]          // ✗ E4009: dizi üzerinden\n}\ntype T = T              // ✗ E4009",
             "struct port Req {\n    out addr  : u32\n    in  ready : bool    // ✓ yalnız yaprak alanlar ya da başka (özyineli olmayan) bir tip\n}\nstruct P {\n    d : u8\n    f : [u8; 2]\n}",
         )
@@ -769,37 +754,35 @@ module Gpio {
         E4010 => Explanation::new(
             "Bundle düzleştirme bütçesi aşıldı",
             "Bir modülün bundle portlarını açmak 4096'dan çok düz port üretirdi ya da bir bundle portu 8 seviyeden derin iç içe.",
-            "Bundle düzleştirmesi tip çizgesinin biçimine göre üsteldir: iki alanı olan bir struct port'un iki alanı olan bir struct port'un ... her seviyede ikiye katlanır; bundle dizisi ([Bundle; N], ADR-0056) N ile çarpar. Döngü (E4009) olmasa da kazara elmas biçimli bir çizge milyonlarca port isteyebilir. Bütçe bunu bellek patlaması yerine bir tanıya çevirir (ADR-0067): modül başına en çok 4096 düz port (16 alanlık bir arayüzün 256 elemanlı dizisi) ve en çok 8 seviye iç içelik. Gerçek arayüzler iki sınırın da çok altında kalır; daha fazlasına ihtiyaç duyan modül bölünmelidir.",
+            "Bundle düzleştirmesi tip çizgesinin biçimine göre üsteldir: iki alanı olan bir struct port'un iki alanı olan bir struct port'un ... her seviyede ikiye katlanır; bundle dizisi ([Bundle; N]) N ile çarpar. Döngü (E4009) olmasa da kazara elmas biçimli bir çizge milyonlarca port isteyebilir. Bütçe bunu bellek patlaması yerine bir tanıya çevirir: modül başına en çok 4096 düz port (16 alanlık bir arayüzün 256 elemanlı dizisi) ve en çok 8 seviye iç içelik. Gerçek arayüzler iki sınırın da çok altında kalır; daha fazlasına ihtiyaç duyan modül bölünmelidir.",
             "struct port Wide { out f0 : u8  /* ... f16 */ }   // 17 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✗ E4010: 256 x 17 = 4352 düz port\n}",
             "struct port Wide { out f0 : u8  /* ... f15 */ }   // 16 alan\nmodule Sink {\n    in ch : [Wide; 256]     // ✓ 4096 düz port, bütçe içinde\n}\n// ya da arayüzü birkaç modüle bölün",
         ),
         E4011 => Explanation::new(
             "Örnek portu bağlantı hatası",
             "Bir modül, extern modül ya da yerleşik örneğin bir portu donanımda anlamı olmayan biçimde bağlanmış.",
-            "Örnekleme literali üst modülün sinyallerini alt modülün portlarına bağlar: her giriş ve saat bağlanmalıdır (varsayılan değer yok), çıkış inst.port olarak okunur ve literalde bağlanmaz, inout/opendrain port bir hattı paylaşır ve adıyla bir wire'a ya da çift yönlü porta bağlanmalıdır, alt modülün portlarını yalnız alt modül sürer — üst modül inst.port'a atayamaz. Saat alanında reset olan alt modül, üst modülde o alanın (reset'li) bir saatini de ister. Bu bir bağlantı hatasıdır, genişlik sorunu değil (ADR-0072 öncesi E2005 olarak raporlanıyordu).",
+            "Örnekleme literali üst modülün sinyallerini alt modülün portlarına bağlar: her giriş ve saat bağlanmalıdır (varsayılan değer yok), çıkış inst.port olarak okunur ve literalde bağlanmaz, inout/opendrain port bir hattı paylaşır ve adıyla bir wire'a ya da çift yönlü porta bağlanmalıdır, alt modülün portlarını yalnız alt modül sürer — üst modül inst.port'a atayamaz. Saat alanında reset olan alt modül, üst modülde o alanın (reset'li) bir saatini de ister. Bu bir bağlantı hatasıdır, genişlik sorunu değil.",
             "let f = Filter { clk }                         // ✗ E4011: 'sample' girişi bağlanmamış\nlet g = Filter { clk, sample: x, result: y }   // ✗ E4011: çıkış literalde bağlanmış",
             "let f = Filter { clk, sample: x }\ny = f.result                                   // ✓",
         ),
         E4012 => Explanation::new(
             "Sinyalin bir kısmı hiç sürülmüyor",
             "Sinyal parça parça atanıyor ve bazı parçalarının sürücüsü yok.",
-            "Alan alan (p.a = ..., p.b = ...) ya da dilim dilim (y[3:0] = ...) sürülen bir wire, çıkış portu ya da tipli 'let' in her alanı ve her biti sürülmelidir; sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN der) ve Volt X üretmez (ADR-0008). Bu, struct literalinin bütün alanları listelemesi kuralının (E2014) alan alan yazımdaki karşılığıdır. Register'lar muaftır: atanmayan alan değerini korur, reset değeri tamdır (ADR-0077).",
+            "Alan alan (p.a = ..., p.b = ...) ya da dilim dilim (y[3:0] = ...) sürülen bir wire, çıkış portu ya da tipli 'let' in her alanı ve her biti sürülmelidir; sürülmeyen parça SystemVerilog'da X/sürücüsüzdür (Verilator UNDRIVEN der) ve Volt X üretmez. Bu, struct literalinin bütün alanları listelemesi kuralının (E2014) alan alan yazımdaki karşılığıdır. Register'lar muaftır: atanmayan alan değerini korur, reset değeri tamdır.",
             "wire p : P\np.a = x                 // ✗ E4012: 'p.b' alanı hiç sürülmüyor\nout y : u8\ny[3:0] = a              // ✗ E4012: 'y' sinyalinin 7..4 bitleri hiç sürülmüyor",
             "wire p : P\np.a = x\np.b = go                // ✓\ny = (a as u8)           // ✓ ya da y[7:4]'ü de sürün",
-        )
-        .with_docs(&["docs/adr/ADR-0077-struct-destegi.md"]),
+        ),
 
         E5001 => Explanation::new(
             "Kontrat ihlal edildi",
             "Formal doğrulama, bu modülün bir kontratını bozan bir yürütme buldu.",
-            "Bir kontrat (invariant/ensures/assert) tasarımın erişilebilir her durumu için verilmiş bir sözdür. 'volt verify' bunu SymbiYosys'e kanıtlatmak istedi; çözücü ise kontratın yanlış olduğu bir duruma tasarımı sürükleyen somut bir girdi dizisi — bir karşı örnek — kurdu. Bu bir araç yanılsaması değildir: yazılmış RTL o duruma gerçekten ulaşabilir.\n\nDöngü döngü izlenen yolu görmek için karşı örnek dalga formunu (.vcd) inceleyin; ardından ya mantığı düzeltin ya da senaryo gerçek ortamda sahiden imkânsızsa girişleri 'requires'/'assume' kontratıyla kısıtlayın.\n\n'--mode cover'da roller yer değiştirir: E5001, yazdığınız bir cover'ın --depth içinde ulaşılmadığı demektir. Derleyicinin ürettiği cover (FSM geçişi, sayaç sarması, ADR-0066) yalnız Volt resetten ona hiçbir yolun varmadığını kanıtlarsa hatadır; aksi hâlde gereken derinliği söyleyen ya da ulaşılmadığını bildiren bir nottur (ADR-0086).",
+            "Bir kontrat (invariant/ensures/assert) tasarımın erişilebilir her durumu için verilmiş bir sözdür. 'volt verify' bunu SymbiYosys'e kanıtlatmak istedi; çözücü ise kontratın yanlış olduğu bir duruma tasarımı sürükleyen somut bir girdi dizisi — bir karşı örnek — kurdu. Bu bir araç yanılsaması değildir: yazılmış RTL o duruma gerçekten ulaşabilir.\n\nDöngü döngü izlenen yolu görmek için karşı örnek dalga formunu (.vcd) inceleyin; ardından ya mantığı düzeltin ya da senaryo gerçek ortamda sahiden imkânsızsa girişleri 'requires'/'assume' kontratıyla kısıtlayın.\n\n'--mode cover'da roller yer değiştirir: E5001, yazdığınız bir cover'ın --depth içinde ulaşılmadığı demektir. Derleyicinin ürettiği cover (FSM geçişi, sayaç sarması) yalnız Volt resetten ona hiçbir yolun varmadığını kanıtlarsa hatadır; aksi hâlde gereken derinliği söyleyen ya da ulaşılmadığını bildiren bir nottur.",
             "module Ctrl {\n    invariant: !(busy && done)   // ✗ E5001: 7. döngüde ihlal\n}",
             "// 1) busy ve done'ın aynı anda yükselmediği mantığı kurun, ya da\n// 2) ortamı kısıtlayın:\nrequires: !(start && abort)",
         )
         .with_note(
             "Karşı örnek .vcd dosyası build/formal/ altına, .sby dosyasının yanına yazılır. 'gtkwave' ya da 'surfer' ile açın. BMC yalnızca --depth döngüye kadar arar; N derinlikte geçmek tam kanıt değildir — sınırsız tümevarım için --mode prove kullanın.",
-        )
-        .with_docs(&["https://volthdl.org/guide/verify"]),
+        ),
         E5002 => Explanation::new(
             "Kontrat kanıtlanamadı",
             "--mode prove kipinde temel durum geçti ama tümevarım adımı başarısız oldu: kontrat doğru olabilir, ancak tümevarımsal değil (sby durumu UNKNOWN).",
@@ -809,8 +792,7 @@ module Gpio {
         )
         .with_note(
             "İki çare var: daha büyük bir --depth tümevarım adımına daha uzun geçmiş gösterir (kötü başlangıç durumu ihlale ancak çok döngü sonra dönüyorsa işe yarar); register'ları birbirine bağlayan ek bir invariant erişilemez başlangıç durumlarını ortadan kaldırır. Tümevarım izi build/formal/<görev>_induct.vcd dosyasına kopyalanır; ilk döngüleri çözücünün seçtiği erişilemez durumu gösterir.",
-        )
-        .with_docs(&["https://volthdl.org/guide/verify", "docs/adr/ADR-0075-yaniltici-rapor-ve-tani-temizligi.md"]),
+        ),
         E5004 => Explanation::new(
             "Kontrat ifadesi Bool değil",
             "requires/ensures/invariant/cover/assert/assume koşulları Bool tipinde olmalıdır.",
@@ -821,36 +803,34 @@ module Gpio {
         E5005 => Explanation::new(
             "Saat portu olmayan modüldeki kontrat doğrulanamaz",
             "'volt verify' kontratları bir saat kenarında denetler; saat portu olmayan modül onlara kenar vermez, kontratları da tek söz söylenmeden düşerdi.",
-            "Volt'un ürettiği her formal denetim modülün ilk saat portunun kenarında, reset'iyle korunarak örneklenir (ADR-0011, ADR-0040). Salt kombinasyonel modülün böyle bir kenarı yoktur. Kontratları formal koşudan sessizce kayboluyordu ve 'volt verify' yine başarı bildiriyordu; düşen kontrat artık koşuyu durdurur (ADR-0097).\n\nSaatsiz modül saatli bir modülün içinde örneklendiğinde de aynısı geçerlidir: 'requires'ı üst modülün yükümlülüğü olurdu ama denetlenecek bir kenar yoktur.",
+            "Volt'un ürettiği her formal denetim modülün ilk saat portunun kenarında, reset'iyle korunarak örneklenir. Salt kombinasyonel modülün böyle bir kenarı yoktur. Kontratları formal koşudan sessizce kayboluyordu ve 'volt verify' yine başarı bildiriyordu; düşen kontrat artık koşuyu durdurur.\n\nSaatsiz modül saatli bir modülün içinde örneklendiğinde de aynısı geçerlidir: 'requires'ı üst modülün yükümlülüğü olurdu ama denetlenecek bir kenar yoktur.",
             "module Comb {\n    in  a : u8\n    out b : u8\n    requires: a < 10      // ✗ E5005: Comb'un saat portu yok\n    b = a + 1\n}",
             "module Comb {\n    in  clk : clock\n    in  a   : u8\n    out b   : u8\n    requires: a < 10      // ✓ clk kenarında denetlenir\n    b = a + 1\n}",
         )
         .with_note(
             "Ya modüle bir saat portu verin ya da özelliği onu örnekleyen saatli modülde yazın. 'volt build' ve 'volt test' etkilenmez.",
-        )
-        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        ),
         E5006 => Explanation::new(
             "Doğrulanacak bir şey yok",
             "Bu koşuda hiçbir özellik denetlenmiyor: iddia yok ve her 'requires'/'assume' kontratı yalnızca varsayılıyor.",
-            "Hiçbir şey denetlemeyen formal koşu kendiliğinden geçer; 'kanıtlandı' demek yanlış bir iddia olurdu. 'volt verify' bu yüzden her görevin gerçekten denetlediği özellikleri sayar — görevin tepe modülünün 'invariant', 'ensures', 'assert' ve 'cover'ları ile altındaki her örneğin, üst modülün yükümlülüğü olan 'requires'/'assume' kontratları (ADR-0097). Tepe modülün 'requires'ı ortam hakkında bir varsayımdır; raporlanır ama denetlenen bir özellik değildir.",
+            "Hiçbir şey denetlemeyen formal koşu kendiliğinden geçer; 'kanıtlandı' demek yanlış bir iddia olurdu. 'volt verify' bu yüzden her görevin gerçekten denetlediği özellikleri sayar — görevin tepe modülünün 'invariant', 'ensures', 'assert' ve 'cover'ları ile altındaki her örneğin, üst modülün yükümlülüğü olan 'requires'/'assume' kontratları. Tepe modülün 'requires'ı ortam hakkında bir varsayımdır; raporlanır ama denetlenen bir özellik değildir.",
             "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10      // ✗ E5006: yalnız varsayım, denetlenen yok\n    y = x\n}",
             "module Top {\n    in  clk : clock\n    in  x   : u8\n    out y   : u8\n    requires: x < 10\n    ensures:  y < 10      // ✓ denetlenen bir özellik\n    y = x\n}",
         )
         .with_note(
             "Çıkış kodu her hata gibi 1'dir: hiçbir şey doğrulamayan koşu başarı değildir.",
-        )
-        .with_docs(&["docs/adr/ADR-0097-alt-ornek-yukumlulukleri.md"]),
+        ),
         E5010 => Explanation::new(
             "Zamanlama hizasızlığı",
             "@strict_timing modülünde boru hattı gecikmeleri farklı değerler doğrudan birleştirilemez.",
-            "Boru hatlı bir tasarımda her sinyal, hatta belirli sayıda çevrim önce girmiş bir komuta aittir — bu onun gecikmesidir (ADR-0037, L1). 3 çevrim yaşındaki bir değeri 2 çevrim yaşındakiyle birleştirmek çoğunlukla eksik bir aşama register'ı ya da yanlış aşamadan yönlendirme demektir; sonuç iki farklı komutu sessizce karıştırır. @strict_timing modülünde derleyici her port (0), register (kaynak gecikmesi + 1) ve let (operand birleşimi) için bir gecikme izler ve operandları uyuşmayan işleci reddeder.\n\nKarışım bilinçliyse (yönlendirme, bypass) sonucun gecikmesini açıkça bildirin — 'let fwd : Delayed<u32, 2> = ...' — ya da genç değeri 'delay<K>(x)' ile hizalayın. Sabitler ve literaller muaftır: zamanlama taşımazlar.",
+            "Boru hatlı bir tasarımda her sinyal, hatta belirli sayıda çevrim önce girmiş bir komuta aittir — bu onun gecikmesidir (L1). 3 çevrim yaşındaki bir değeri 2 çevrim yaşındakiyle birleştirmek çoğunlukla eksik bir aşama register'ı ya da yanlış aşamadan yönlendirme demektir; sonuç iki farklı komutu sessizce karıştırır. @strict_timing modülünde derleyici her port (0), register (kaynak gecikmesi + 1) ve let (operand birleşimi) için bir gecikme izler ve operandları uyuşmayan işleci reddeder.\n\nKarışım bilinçliyse (yönlendirme, bypass) sonucun gecikmesini açıkça bildirin — 'let fwd : Delayed<u32, 2> = ...' — ya da genç değeri 'delay<K>(x)' ile hizalayın. Sabitler ve literaller muaftır: zamanlama taşımazlar.",
             "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = a + b        // ✗ E5010: 1 çevrim ile 2 çevrim\n    on clk { a <= x  b <= a }\n}",
             "@strict_timing\nmodule P {\n    in x : u32\n    reg a : Delayed<u32, 1> = 0\n    reg b : Delayed<u32, 2> = 0\n    let sum = delay<1>(a) + b   // ✓ iki taraf da 2 çevrim yaşında\n    on clk { a <= x  b <= a }\n}",
         ),
         E5011 => Explanation::new(
             "Geçersiz pipeline yapısı",
             "Aşama sayısı pipeline(N) ile eşleşmeli, aşama adları benzersiz olmalı, tam bir saat portu bulunmalı.",
-            "pipeline(N) borunun derinliğini baştan bildirir; derleyici tüm aşama register'larını, stall ve flush muhafızlarını bundan türetir (ADR-0038). N ile 'stage' bloklarının sayısının uyuşmaması, yinelenen aşama adı ya da belirsiz saat, üretilecek yapıyı tanımsız bırakır — bu yüzden sorun ileride kafa karıştıran bir hataya dönüşmeden burada reddedilir.",
+            "pipeline(N) borunun derinliğini baştan bildirir; derleyici tüm aşama register'larını, stall ve flush muhafızlarını bundan türetir. N ile 'stage' bloklarının sayısının uyuşmaması, yinelenen aşama adı ya da belirsiz saat, üretilecek yapıyı tanımsız bırakır — bu yüzden sorun ileride kafa karıştıran bir hataya dönüşmeden burada reddedilir.",
             "pipeline(5) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✗ E5011: 2 aşama var, 5 bildirildi\n}",
             "pipeline(2) P {\n    in clk : clock\n    stage F { }\n    stage D { }      // ✓ derinlik eşleşiyor\n}",
         ),
@@ -864,7 +844,7 @@ module Gpio {
         E5013 => Explanation::new(
             "Geçersiz stall/flush deyimi",
             "Stall kümesi boru hattının bitişik bir öneki olmalı; aşama listeleri gerçek aşamaları adlandırmalı.",
-            "Bir aşamayı durdurmak, ondan önceki her aşamanın da durmasını gerektirir — aksi halde tutulan aşama, arkasından ilerlemeye devam eden aşama tarafından ezilir. Derleyici bu yüzden durdurulan kümenin ilk aşamadan başlayıp bitişik olmasını ister (ADR-0038 §4). Listesiz 'stall when koşul' biçimi bu öneki yazıldığı aşamadan çıkarır; modül seviyesinde çıpası olmadığından aşama listesi zorunludur. Flush listesi serbest biçimlidir ama bu pipeline'ın aşamalarını adlandırmalıdır.",
+            "Bir aşamayı durdurmak, ondan önceki her aşamanın da durmasını gerektirir — aksi halde tutulan aşama, arkasından ilerlemeye devam eden aşama tarafından ezilir. Derleyici bu yüzden durdurulan kümenin ilk aşamadan başlayıp bitişik olmasını ister. Listesiz 'stall when koşul' biçimi bu öneki yazıldığı aşamadan çıkarır; modül seviyesinde çıpası olmadığından aşama listesi zorunludur. Flush listesi serbest biçimlidir ama bu pipeline'ın aşamalarını adlandırmalıdır.",
             "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall D when hazard      // ✗ E5013: F'siz D önek değil\n}",
             "pipeline(3) P {\n    in clk : clock\n    stage F { }\n    stage D { }\n    stage X { }\n    stall F, D when hazard   // ✓ bitişik önek\n}",
         ),
@@ -893,7 +873,7 @@ module Gpio {
         E5017 => Explanation::new(
             "prev() kontrat dışında ya da geçersiz argümanla kullanıldı",
             "prev() yerleşiği RTL'de (let, atama, on/comb bloğu) geçiyor ya da argümanları (sinyal) / (sinyal, pozitif literal) biçiminde değil.",
-            "prev(x) x'in bir önceki döngüdeki, prev(x, N) N döngü önceki değeridir; yalnız ardışık kontratlar (requires/ensures/invariant/cover/assert/assume) için vardır ve SVA'da $past(x)'e, Yosys akışında yardımcı register zincirine indirgenir (ADR-0040). Donanımın örtük geçmişi yoktur: RTL'de geçmiş değer açık bir register olmalıdır ki saati, reset'i ve genişliği görünsün.",
+            "prev(x) x'in bir önceki döngüdeki, prev(x, N) N döngü önceki değeridir; yalnız ardışık kontratlar (requires/ensures/invariant/cover/assert/assume) için vardır ve SVA'da $past(x)'e, Yosys akışında yardımcı register zincirine indirgenir. Donanımın örtük geçmişi yoktur: RTL'de geçmiş değer açık bir register olmalıdır ki saati, reset'i ve genişliği görünsün.",
             "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    y = prev(x)              // ✗ E5017: RTL bağlamı\n}",
             "module M {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg x_r : u8 = 0\n    on clk { x_r <= x }\n    y = x_r                  // ✓ açık register\n    invariant: prev(x) == x_r   // ✓ prev() kontrat içinde\n}",
         ),
@@ -1028,8 +1008,7 @@ module Gpio {
             "Verilator üst modülü V<Üst> adlı bir C++ sınıfına çevirir; portlar bu sınıfın veri üyeleridir ve kendi arayüzünün yanında durur: eval(), final(), trace(), name(), contextp(), rootp ve birkaç tane daha. Bu adlardan birini taşıyan port derlenmeyen bir sınıf üretir ve Verilator onu yeniden adlandırmaz (yalnız 'char' gibi C++ anahtar sözcüklerini '__SYM__char' yapar; Volt'un test düzeneği buna uyar). SystemVerilog'un kendisi geçerlidir; 'volt check' ve 'volt build' modülü kabul eder, yalnız bu modül üst modül olarak simüle edilemez. Portu yeniden adlandırın ya da modülü örnekleyen bir sarmalayıcıyı simüle edin.",
             "module Probe {\n    in  clk  : clock\n    out name : u8            // ✗ 'volt test'te E8513: VProbe::name()\n}",
             "module Probe {\n    in  clk     : clock\n    out name_id : u8         // ✓\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0078-hedef-dil-ayrilmis-sozcukleri.md"]),
+        ),
 
         // ─── Release disiplini ───
         E9001 => Explanation::new(
@@ -1098,7 +1077,7 @@ module VgaTiming { /* ... */ }
 // unenforced_attributes = \"allow\"",
         )
         .with_note(
-            "@timing, @false_path ve @multicycle ADR-0054 ile bu listeden çıktı: 'volt build --emit=sdc' (ya da xdc) onları build/constraints/<Modül>.sdc içinde create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir; hatalı yazılmış olanı E0017'dir. Onlar için yazılmış bir @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir. @budget (E6001) ve sürüm denetimleri (E7001/E7002) için yol haritası ADR-0048'dir.",
+            "@timing, @false_path ve @multicycle uygulanır: 'volt build --emit=sdc' (ya da xdc) onları build/constraints/<Modül>.sdc içinde create_clock, set_max_delay, set_false_path ve set_multicycle_path satırlarına çevirir; hatalı yazılmış olanı E0017'dir. Onlar için yazılmış bir @allow(unenforced) artık hiçbir şey yapmaz ve kaldırılabilir. @budget (E6001) ve sürüm denetimleri (E7001/E7002) henüz uygulanmıyor.",
         ),
         W0023 => Explanation::new(
             "Çok fazla tanı; kalanlar gizlendi",
@@ -1113,6 +1092,13 @@ module VgaTiming { /* ... */ }
             "Nitelik hemen ardından yazılan öğeye, porta, struct alanına ya da modül deyimine aittir (grammar-full.ebnf §2). Kontratlar, 'stage'/'stall'/'flush', 'use' ve 'package' nitelik almaz. Her nitelik belirli yerlerde okunur: @strict_timing ve @mmio modülde, @no_auto_contracts modülde ya da bir 'reg' bildiriminde, @no_protocol_check modülde ya da bir portta, @reg bir register haritası girdisinde, @offset ve @access yalnız @reg'in argümanı olarak. Başka bir yerde derleyici onu atardı; siz de olmayan bir ayarın yapıldığını sanırdınız.\n\nNiteliği yerine taşıyın ya da kaldırın. Bilinmeyen nitelik adı bunun yerine W0020, ayrıştırılan ama henüz hiçbir yerde uygulanmayan nitelik W0021 alır.",
             "module M {\n    @no_auto_contracts      // ✗ W0024: kontrat nitelik almaz\n    invariant: count < 10\n    @strict_timing in x : u8   // ✗ W0024: portta etkisi yok",
             "@no_auto_contracts @strict_timing   // ✓ modülde\nmodule M {\n    invariant: count < 10\n    in x : u8",
+        ),
+        W0025 => Explanation::new(
+            "Volt.toml'da bilinmeyen anahtar ya da bölüm",
+            "Volt.toml'da Volt'un okumadığı bir anahtar ya da bölüm var. Yok sayılır.",
+            "Volt, Volt.toml'dan şu anahtarları okur: [package] içinde 'name', 'src' ve 'top'; [test] içinde 'paths'; [lint] içinde 'unenforced_attributes'; [ui] içinde 'lang'. Gerisi yok sayılır; yanlış yazılmış bir anahtar ('src' yerine 'scr') varsayılanı sessizce bırakır ve proje kastetmediğiniz bir dizinden derlenir. Uyarı anahtarı adlandırır; bilinen bir anahtar bir iki harf uzaktaysa onu önerir.\n\nPaket yönetimi henüz yok: [dependencies] bölümü de bildirilir, çünkü içindeki hiçbir bağımlılık indirilmez ya da kullanılmaz. Bir projenin dosyaları arasında kodu 'use' ile paylaşın (bkz. volt explain E1011).",
+            "[package]\nname = \"blinky\"\nscr  = \"rtl\"        # ⚠ W0025: bilinmeyen anahtar 'scr'; 'src' mi demek istediniz?\n\n[dependencies]       # ⚠ W0025: paket yönetimi henüz yok\nuart = \"1.0\"",
+            "[package]\nname = \"blinky\"\nsrc  = \"rtl\"        # ✓",
         ),
         W0022 => Explanation::new(
             "Saat alanının frekansı yok; create_clock üretilmedi",
@@ -1192,11 +1178,10 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         W2014 => Explanation::new(
             "Erişilemez match kolu",
             "Bu enum 'match'inin önceki bir kolu aynı varyantı zaten kapsıyor; bu kol hiç çalışmaz.",
-            "'case' yapısında ilk eşleşen etiket kazanır; aynı varyant için ikinci kol ölü donanımdır ve genellikle kopyala-yapıştır kaymasıdır (kol başka bir varyant için yazılmıştı). Derleyici kolu üretilen SystemVerilog'dan çıkarır. İki gövdeyi birleştirin ya da kolun kastettiği varyantı yazın (ADR-0074).",
+            "'case' yapısında ilk eşleşen etiket kazanır; aynı varyant için ikinci kol ölü donanımdır ve genellikle kopyala-yapıştır kaymasıdır (kol başka bir varyant için yazılmıştı). Derleyici kolu üretilen SystemVerilog'dan çıkarır. İki gövdeyi birleştirin ya da kolun kastettiği varyantı yazın.",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: erişilemez\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
-        )
-        .with_docs(&["docs/adr/ADR-0074-enum-destegi.md"]),
+        ),
         W2020 => Explanation::new(
             "Sabit koşul",
             "Bu koşul her zaman aynı değeri veriyor; dal hiç değişmiyor.",
@@ -1232,7 +1217,7 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bit",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W3004 => Explanation::new(
             "Kullanılmayan domain tanımı",
             "Bu 'domain' bildirilmiş ama hiçbir sinyal veya blok ona ait değil.",
@@ -1257,50 +1242,50 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         W3007 => Explanation::new(
             "Harici çift yönlü sinyal senkronizasyonsuz okunuyor",
             "Bir 'inout' / 'opendrain' portun seviyesi doğrudan okunuyor; hattın öbür ucu modülün saat alanı dışındaki bir aygıttır.",
-            "Sıradan bir 'in' portun modülün alanında olduğuna güvenilir (K2). Çift yönlü pad farklıdır: tanımı gereği başka bir aygıt (I2C köle, SDRAM, veri yolu efendisi) sürer ve zamanlaması bu saatle ilgisizdir; doğrudan okuma asenkron bir sinyali örnekler ve yarı kararlı kalabilir. Bu yüzden okuma harici sayılır (ADR-0051): önce sync() ile geçirin, senkronize kopyayı kullanın. Kontrat içindeki okumalar ve sync() kaynağı olan okuma raporlanmaz. Uyarı bilinçli olarak hata değildir: bir test tezgâhı ya da karşı tarafın aynı saati paylaştığı bilinen bir tasarım hattı doğrudan okuyabilir.",
+            "Sıradan bir 'in' portun modülün alanında olduğuna güvenilir (K2). Çift yönlü pad farklıdır: tanımı gereği başka bir aygıt (I2C köle, SDRAM, veri yolu efendisi) sürer ve zamanlaması bu saatle ilgisizdir; doğrudan okuma asenkron bir sinyali örnekler ve yarı kararlı kalabilir. Bu yüzden okuma harici sayılır: önce sync() ile geçirin, senkronize kopyayı kullanın. Kontrat içindeki okumalar ve sync() kaynağı olan okuma raporlanmaz. Uyarı bilinçli olarak hata değildir: bir test tezgâhı ya da karşı tarafın aynı saati paylaştığı bilinen bir tasarım hattı doğrudan okuyabilir.",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    reg bit_r : bool = false\n    on clk { bit_r <= sda.read() }    // ⚠ W3007: asenkron hat doğrudan örnekleniyor\n}",
             "module I2c {\n    in  clk : clock\n    opendrain sda : bool\n    wire sda_s : bool\n    sda_s = sync(sda.read(), clk)      // ✓ iki-flop senkronizatör\n    reg bit_r : bool = false\n    on clk { bit_r <= sda_s }\n}",
         ),
         W3008 => Explanation::new(
             "Bilinçli güven düşürme",
             "Bir 'declassify(ifade, \"gerekçe\")' çağrısı bilgiyi yüksek güven seviyesinden public'e indiriyor.",
-            "Güven düşürme, güven kafesini geçmenin tek meşru yoludur (ADR-0052); derleyici bunu asla engellemez — ama sessizce de geçirmez. Her çağrı, kaynak seviyesi ve yazarın yazdığı gerekçeyle bu uyarıyı üretir; böylece güvenlik incelemesi derleyici çıktısını okumaya iner: uyarılar, sınıflandırılmış bilginin bilinçli olarak açıklandığı yerlerin eksiksiz listesidir. Gerekçe hâlâ geçerliyse düzeltilecek bir şey yoktur; geçerli değilse çağrıyı kaldırın, akış yeniden E3009 hatası olur.",
+            "Güven düşürme, güven kafesini geçmenin tek meşru yoludur; derleyici bunu asla engellemez — ama sessizce de geçirmez. Her çağrı, kaynak seviyesi ve yazarın yazdığı gerekçeyle bu uyarıyı üretir; böylece güvenlik incelemesi derleyici çıktısını okumaya iner: uyarılar, sınıflandırılmış bilginin bilinçli olarak açıklandığı yerlerin eksiksiz listesidir. Gerekçe hâlâ geçerliyse düzeltilecek bir şey yoktur; geçerli değilse çağrıyı kaldırın, akış yeniden E3009 hatası olur.",
             "    out busy : bool @Debug\n    busy = declassify(state != IDLE, \"state visibility only\")   // ⚠ W3008: secret → public, gerekçe kayıtlı",
             "// Çağrıyı koruyun, gerekçeyi gözden geçirin; uyarı bir kusur değil, iz kaydıdır.",
         ),
         W3009 => Explanation::new(
             "Asenkron reset'in senkron bırakıldığı varsayılıyor",
             "Birimde hiçbir yerde örneklenmeyen bir modülün 'reset = async' alanı var ama ham reset portu yok; otomatik reset portunun bırakmasını Volt'ta hiçbir şey senkronlamıyor.",
-            "Otomatik 'rst' / 'rst_n' portu bir sözleşme taşır: aldığı reset, alanın saatine senkron bırakılır (ADR-0065 §1). Volt hiyerarşisi içinde derleyici bu sözü tutar — ebeveyn çocuğa kendi senkronlanmış reset'ini bağlar. Birimin kökünde bunu yapan yoktur: port bir pad'e ya da güç açılış reset'ine bağlanırsa bırakma asenkrondur ve alanın her flip-flop'u reset'ten farklı bir çevrimde çıkabilir. Uyarı bu varsayımı modül başına bir kez görünür kılar. Reset gerçekten dışarıdan geliyorsa ham port olarak bildirin, derleyici senkronizörü ekler; bir entegratör zaten senkronluyorsa (başka tasarıma teslim edilen IP) uyarı sözleşmeyi belgeler, değişiklik gerekmez.",
+            "Otomatik 'rst' / 'rst_n' portu bir sözleşme taşır: aldığı reset, alanın saatine senkron bırakılır. Volt hiyerarşisi içinde derleyici bu sözü tutar — ebeveyn çocuğa kendi senkronlanmış reset'ini bağlar. Birimin kökünde bunu yapan yoktur: port bir pad'e ya da güç açılış reset'ine bağlanırsa bırakma asenkrondur ve alanın her flip-flop'u reset'ten farklı bir çevrimde çıkabilir. Uyarı bu varsayımı modül başına bir kez görünür kılar. Reset gerçekten dışarıdan geliyorsa ham port olarak bildirin, derleyici senkronizörü ekler; bir entegratör zaten senkronluyorsa (başka tasarıma teslim edilen IP) uyarı sözleşmeyi belgeler, değişiklik gerekmez.",
             "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' 'clk'e senkron varsayılıyor\n}",
             "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ derleyici bırakmayı senkronlar\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W3010 => Explanation::new(
             "Senkron reset birden çok saat alanınca paylaşılıyor",
             "'reset = sync' (varsayılan) iki ya da daha çok saat alanı aynı üretilmiş 'rst' / 'rst_n' portunu kullanıyor; bırakması saatlerden en az birine asenkron.",
-            "Senkron reset veri gibi örneklenir: her flip-flop onu D girişinde görür. Tek bir reset portu ilişkisiz iki saatin flip-flop'larına ulaştığında bırakıldığı kenar en az birine asenkrondur — asenkron reset bırakmasıyla aynı tehlike, yalnız reset yolu zamanlandığı için daha hafif. Tasarımın tepesinde düzeltme tek satırdır: ham reset'i açıkça bildirin, derleyici bırakmayı her saate senkronlar. Uyarı olarak kalır (ADR-0065, R5' kararı), çünkü aynı saatlerde kendi flip-flop'ları olan bir ebeveynin altında örneklenen modülün henüz hatasız bir biçimi yok: kendi ham portu ikinci kez senkronlanır (E3003) ve tek otomatik portu yalnız bir saatin senkronlanmış reset'ini taşıyabilir. Yalnız bir şeyi sıfırlayan saatler sayılır: AsyncDualPortRam yazma tarafından ya da bir extern örneğinden başka bir şey sürmeyen saat reset örneklemez.",
+            "Senkron reset veri gibi örneklenir: her flip-flop onu D girişinde görür. Tek bir reset portu ilişkisiz iki saatin flip-flop'larına ulaştığında bırakıldığı kenar en az birine asenkrondur — asenkron reset bırakmasıyla aynı tehlike, yalnız reset yolu zamanlandığı için daha hafif. Tasarımın tepesinde düzeltme tek satırdır: ham reset'i açıkça bildirin, derleyici bırakmayı her saate senkronlar. Uyarı olarak kalır (R5' kararı), çünkü aynı saatlerde kendi flip-flop'ları olan bir ebeveynin altında örneklenen modülün henüz hatasız bir biçimi yok: kendi ham portu ikinci kez senkronlanır (E3003) ve tek otomatik portu yalnız bir saatin senkronlanmış reset'ini taşıyabilir. Yalnız bir şeyi sıfırlayan saatler sayılır: AsyncDualPortRam yazma tarafından ya da bir extern örneğinden başka bir şey sürmeyen saat reset örneklemez.",
             "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' hem 'sys_clk' hem 'pix_clk' tarafından örnekleniyor\n    in pix_clk : clock @Pix\n}",
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ saat başına bir bırakma senkronizörü\n}",
         )
-        .with_docs(&["https://volthdl.org/guide/cdc"]),
+        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
-            "Netlist düzeyinde kullanılmayan sinyal denetimi için ayrılmıştır; bu derleyici üretmez. Sürülüp okunmayan wire W1001 ile bildirilir (ADR-0075).",
-            "Okunmayan sinyal eskiden aynı kullanım verisinden iki kez, W1001 ve W4001 olarak bildiriliyordu. ADR-0075'ten beri tek bildirim kaynak düzeyindeki W1001'dir. Kod, ayrıntılandırılmış tasarım üzerinde koşacak — kendisi ölü olan okuyucuları da görecek — bir analiz için ayrılmış kalır. Sentez okunmayan sinyali ve yalnız onu besleyen mantığı budar; tutmak kasıtlıysa (debug probu, ayrılmış pin) ismin başına '_' koyun.",
+            "Netlist düzeyinde kullanılmayan sinyal denetimi için ayrılmıştır; bu derleyici üretmez. Sürülüp okunmayan wire W1001 ile bildirilir.",
+            "Okunmayan sinyal eskiden aynı kullanım verisinden iki kez, W1001 ve W4001 olarak bildiriliyordu. Artık tek bildirim kaynak düzeyindeki W1001'dir. Kod, ayrıntılandırılmış tasarım üzerinde koşacak — kendisi ölü olan okuyucuları da görecek — bir analiz için ayrılmış kalır. Sentez okunmayan sinyali ve yalnız onu besleyen mantığı budar; tutmak kasıtlıysa (debug probu, ayrılmış pin) ismin başına '_' koyun.",
             "wire spare : u4         // ⚠ W1001: okuyucu yok",
             "wire _spare : u4        // ✓ açıkça tutuluyor",
         ),
         W4002 => Explanation::new(
             "Yazılıp hiç okunmayan register (netlist)",
-            "Netlist düzeyinde bir denetim için ayrılmıştır; bu derleyici üretmez. Yazılıp okunmayan register W1004 ile bildirilir (ADR-0075).",
-            "Yazılıp okunmayan register eskiden aynı kullanım verisinden aynı iletiyle iki kez, W1004 ve W4002 olarak bildiriliyordu. ADR-0075'ten beri tek bildirim kaynak düzeyindeki W1004'tür. Kod, ayrıntılandırılmış tasarım üzerinde koşacak bir analiz için ayrılmış kalır: orada register yalnız kendisi ölü çıkan bir kodda okunuyor olabilir. Sentez okunmayan register'ın flip-flop'larını söker.",
+            "Netlist düzeyinde bir denetim için ayrılmıştır; bu derleyici üretmez. Yazılıp okunmayan register W1004 ile bildirilir.",
+            "Yazılıp okunmayan register eskiden aynı kullanım verisinden aynı iletiyle iki kez, W1004 ve W4002 olarak bildiriliyordu. Artık tek bildirim kaynak düzeyindeki W1004'tür. Kod, ayrıntılandırılmış tasarım üzerinde koşacak bir analiz için ayrılmış kalır: orada register yalnız kendisi ölü çıkan bir kodda okunuyor olabilir. Sentez okunmayan register'ın flip-flop'larını söker.",
             "reg stat : u8 = 0\non clk { stat <= s }   // ⚠ W1004: stat'ı kimse okumuyor",
             "result = stat           // ✓ netlist'te gözlemleniyor",
         ),
         W5001 => Explanation::new(
             "Kontrat simülasyonda izlenemiyor",
-            "volt test kontratları simülasyon izleyicisi olarak koşturur (ADR-0064), ama bu kontratın ifadesinin henüz SystemVerilog karşılığı yok; izleyicisi üretilmedi.",
+            "volt test kontratları simülasyon izleyicisi olarak koşturur, ama bu kontratın ifadesinin henüz SystemVerilog karşılığı yok; izleyicisi üretilmedi.",
             "Tasarımın geri kalanı yine test edilir ve diğer her kontrat yine izlenir; yalnız bu kontrat simülasyonda sessizce eksik kalır — bu yüzden raporlanır. 'volt verify' aynı SystemVerilog biçimine ihtiyaç duyar ve ifadeyi E0003 ile reddeder. Kontratı SystemVerilog'a inen yapılarla (operatörler, if-ifadesi, prev()) yeniden yazın ki iki akış da denetleyebilsin.",
             "invariant: match a { 0 => true, _ => a != 7 }   // ⚠ volt test'te W5001",
             "invariant: a == 0 || a != 7                     // ✓ izlenir ve kanıtlanabilir",

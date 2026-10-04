@@ -437,10 +437,16 @@ fn to_lsp_action(
     uri: &Url,
     fix: code_action::QuickFix,
 ) -> CodeActionOrCommand {
-    let edit = TextEdit {
-        range: convert::span_to_range(&analysis.map, fix.suggestion.span),
-        new_text: fix.suggestion.replacement.clone(),
-    };
+    let text = analysis.map.source(analysis.file_id);
+    let edits: Vec<TextEdit> = fix
+        .suggestion
+        .resolve(|_| Some(text))
+        .into_iter()
+        .map(|(span, new_text)| TextEdit {
+            range: convert::span_to_range(&analysis.map, span),
+            new_text,
+        })
+        .collect();
     CodeActionOrCommand::CodeAction(CodeAction {
         title: fix.title,
         kind: Some(CodeActionKind::QUICKFIX),
@@ -450,7 +456,7 @@ fn to_lsp_action(
             uri,
         )]),
         edit: Some(WorkspaceEdit {
-            changes: Some(HashMap::from([(uri.clone(), vec![edit])])),
+            changes: Some(HashMap::from([(uri.clone(), edits)])),
             ..WorkspaceEdit::default()
         }),
         is_preferred: Some(true),

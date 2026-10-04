@@ -3,7 +3,7 @@
 //! (`lvalue_type`) aynı sonuç kurallarını kullanır.
 
 use volt_ast::{Expr, Idx, ItemKind, Name};
-use volt_diagnostics::{lstr, ErrorCode};
+use volt_diagnostics::{lstr, Applicability, ErrorCode, Suggestion};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -76,7 +76,7 @@ impl TypeChecker<'_, '_> {
             return self.types.error();
         };
         match (self.try_const_eval(hi), self.try_const_eval(lo)) {
-            (Some(h), Some(l)) => self.const_range_result(h, l, width, span),
+            (Some(h), Some(l)) => self.const_range_result(h, l, width, span, (hi, lo)),
             _ => {
                 self.error(
                     ErrorCode::E2008,
@@ -91,7 +91,14 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Sabit sınırlı `[h:l]` aralığı: ters aralık E2007, taşma E2006.
-    fn const_range_result(&mut self, h: i128, l: i128, width: u16, span: Span) -> TypeId {
+    fn const_range_result(
+        &mut self,
+        h: i128,
+        l: i128,
+        width: u16,
+        span: Span,
+        (hi, lo): (Idx<Expr>, Idx<Expr>),
+    ) -> TypeId {
         if h < l {
             self.error(
                 ErrorCode::E2007,
@@ -99,6 +106,15 @@ impl TypeChecker<'_, '_> {
                 lstr!(en: "range is reversed (hi < lo)"; tr: "aralık ters (hi < lo)"),
                 lstr!(en: "the high bit must be written first"; tr: "yüksek bit önce yazılmalı"),
                 lstr!(en: "write [{l}:{h}]"; tr: "[{l}:{h}] yazın"),
+            );
+            // suggestion: e2007_reversed_range
+            self.suggest_last(
+                Suggestion::replace(
+                    self.ast.exprs[hi].span,
+                    l.to_string(),
+                    Applicability::MaybeIncorrect,
+                )
+                .and_replace(self.ast.exprs[lo].span, h.to_string()),
             );
             return self.types.error();
         }

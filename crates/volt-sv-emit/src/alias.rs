@@ -47,7 +47,7 @@ pub(crate) fn resolve(ast: &SourceFile, ty: Idx<TypeRef>) -> Idx<TypeRef> {
     cur
 }
 
-fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {
+pub(crate) fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {
     ast.items
         .iter()
         .map(|&i| &ast.items_arena[i].kind)
@@ -80,8 +80,8 @@ pub(crate) fn describe_user_type(ast: &SourceFile, ty: Idx<TypeRef>) -> String {
             tr: "modül portu dışında 'struct port' bundle '{name}': 'struct port' yönlü port alanlarını gruplar, bir değer değildir; veri için düz 'struct' kullanın"
         ),
         Some(ItemKind::Struct(s)) if !s.generics.is_empty() => lstr!(
-            en: "generic struct type '{name}' as a signal type (ADR-0069)";
-            tr: "sinyal tipi olarak generic struct tipi '{name}' (ADR-0069)"
+            en: "generic struct type '{name}' as a signal type";
+            tr: "sinyal tipi olarak generic struct tipi '{name}'"
         ),
         Some(ItemKind::Struct(s)) => describe_struct_layout(ast, s),
         Some(ItemKind::Enum(_)) => lstr!(

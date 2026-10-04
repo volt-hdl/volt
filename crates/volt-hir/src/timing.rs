@@ -383,13 +383,14 @@ impl<'a> ModuleTiming<'a> {
                 if let Delay::Exact(n) = d {
                     if n.saturating_add(1) != want {
                         let diff = n + 1;
+                        let art = volt_diagnostics::a_an(u64::from(diff));
                         self.diags.push(
                             Diagnostic::error(
                                 ErrorCode::E5010,
                                 lstr!(en: "timing misalignment in register write"; tr: "register yazımında zamanlama hizasızlığı"),
                                 LabeledSpan::primary(
                                     s.span,
-                                    lstr!(en: "source is {n} cycles — register would hold a {diff}-cycle value"; tr: "kaynak {n} çevrim — register {diff} çevrimlik değer tutar"),
+                                    lstr!(en: "source is {n} cycles — register would hold {art} {diff}-cycle value"; tr: "kaynak {n} çevrim — register {diff} çevrimlik değer tutar"),
                                 ),
                                 lstr!(en: "align the source with delay<K>(...) or fix the declared cycle count"; tr: "kaynağı delay<K>(...) ile hizalayın ya da bildirilen çevrim sayısını düzeltin"),
                             )

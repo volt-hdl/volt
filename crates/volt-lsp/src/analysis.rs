@@ -273,8 +273,10 @@ fn to_main_file(
     }
     // Düzeltmeler (quick fix) yalnız bu belgeye uygulanabilir.
     d.suggestions.retain_mut(|s| {
-        let here = s.span.file == main;
-        s.span.file = file_id;
+        let here = s.edits.iter().all(|e| e.span.file == main);
+        for e in &mut s.edits {
+            e.span.file = file_id;
+        }
         here
     });
     Some(d)

@@ -417,7 +417,7 @@ impl Parser<'_> {
                         r.span,
                         lstr!(en: "'@reg' register '{}' declared in a module without '@mmio'", r.name.text; tr: "'@reg' register'ı '{}' '@mmio' olmayan bir modülde bildirildi", r.name.text),
                         lstr!(en: "no '@mmio' on this module"; tr: "bu modülde '@mmio' yok"),
-                        lstr!(en: "write @mmio(base = 0x4000_0000, bus = AXI4Lite) before 'module' (ADR-0044)"; tr: "'module' önüne @mmio(base = 0x4000_0000, bus = AXI4Lite) yazın (ADR-0044)"),
+                        lstr!(en: "write @mmio(base = 0x4000_0000, bus = AXI4Lite) before 'module'"; tr: "'module' önüne @mmio(base = 0x4000_0000, bus = AXI4Lite) yazın"),
                     ));
                 }
                 continue;
@@ -484,7 +484,7 @@ impl Parser<'_> {
                             vspan,
                             lstr!(en: "unsupported bus '{shown}'"; tr: "desteklenmeyen bus '{shown}'"),
                             lstr!(en: "only AXI4Lite is supported"; tr: "yalnız AXI4Lite destekleniyor"),
-                            lstr!(en: "write bus = AXI4Lite (ADR-0044 supports one bus adapter)"; tr: "bus = AXI4Lite yazın (ADR-0044 tek bus adaptörü destekler)"),
+                            lstr!(en: "write bus = AXI4Lite (the one supported bus adapter)"; tr: "bus = AXI4Lite yazın (desteklenen tek bus adaptörü)"),
                         ));
                     }
                 }
@@ -719,7 +719,7 @@ impl Parser<'_> {
                             a.span,
                             lstr!(en: "'@{other}' is not a register field attribute"; tr: "'@{other}' bir register alanı niteliği değil"),
                             lstr!(en: "expected @reserved, @self_clearing or @w1c"; tr: "@reserved, @self_clearing veya @w1c bekleniyor"),
-                            lstr!(en: "remove the attribute (ADR-0044 lists the field attributes)"; tr: "niteliği kaldırın (alan nitelikleri ADR-0044'te listelenir)"),
+                            lstr!(en: "remove the attribute, or use one of the field attributes above"; tr: "niteliği kaldırın ya da yukarıdaki alan niteliklerinden birini kullanın"),
                         ));
                     }
                 }
@@ -1020,7 +1020,7 @@ impl Parser<'_> {
                 .with_secondary(r.span, lstr!(en: "'{reg_name}' declared here without 'volatile'"; tr: "'{reg_name}' burada 'volatile' olmadan bildirildi"))
                 .with_note(
                     NoteKind::Reason,
-                    lstr!(en: "a non-volatile register is written by the generated bus logic; a second writer would be a double driver (ADR-0044)"; tr: "volatile olmayan register'ı üretilen bus mantığı yazar; ikinci yazar çift sürücü olurdu (ADR-0044)"),
+                    lstr!(en: "a non-volatile register is written by the generated bus logic; a second writer would be a double driver"; tr: "volatile olmayan register'ı üretilen bus mantığı yazar; ikinci yazar çift sürücü olurdu"),
                 ),
             );
         }

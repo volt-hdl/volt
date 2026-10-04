@@ -1,7 +1,9 @@
 //! K9 — `sync()` köprüsü: tek meşru CDC geçiş yolu.
 
 use volt_ast::{Expr, ExprKind, Idx};
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use super::edgeless::EdgeUse;
@@ -30,7 +32,7 @@ impl Inferencer<'_> {
             (self.resolve_dom(src), self.resolve_dom(dst))
         {
             if a == b {
-                self.warn_same_domain_sync(a, span);
+                self.warn_same_domain_sync(a, span, data);
             }
         }
 
@@ -92,36 +94,46 @@ impl Inferencer<'_> {
     }
 
     /// W3002 — kaynak ve hedef aynı alanda: gereksiz senkronizatör.
-    fn warn_same_domain_sync(&mut self, a: u32, span: Span) {
-        self.diagnostics.push(
-            Diagnostic::warning(
-                ErrorCode::W3002,
+    fn warn_same_domain_sync(&mut self, a: u32, span: Span, data: Idx<Expr>) {
+        let mut diag = Diagnostic::warning(
+            ErrorCode::W3002,
+            lstr!(
+                en: "sync() is unnecessary within the same clock domain";
+                tr: "sync() aynı saat alanı içinde gereksiz"
+            ),
+            LabeledSpan::primary(
+                span,
                 lstr!(
-                    en: "sync() is unnecessary within the same clock domain";
-                    tr: "sync() aynı saat alanı içinde gereksiz"
-                ),
-                LabeledSpan::primary(
-                    span,
-                    lstr!(
-                        en: "source and destination are both @{}", self.domain_name(a);
-                        tr: "kaynak ve hedef @{}", self.domain_name(a)
-                    ),
-                ),
-                lstr!(
-                    en: "a direct assignment is enough — remove the sync() call";
-                    tr: "doğrudan atama yeterli — sync() çağrısını kaldırın"
-                ),
-            )
-            .with_note(
-                NoteKind::Reason,
-                lstr!(
-                    en: "a synchronizer is only needed when crossing between \
-                         domains; within the same domain it adds 2 cycles of latency";
-                    tr: "senkronizatör yalnız alanlar arası geçişte gerekir; \
-                         aynı alanda 2 çevrim gecikme ekler"
+                    en: "source and destination are both @{}", self.domain_name(a);
+                    tr: "kaynak ve hedef @{}", self.domain_name(a)
                 ),
             ),
+            lstr!(
+                en: "a direct assignment is enough — remove the sync() call";
+                tr: "doğrudan atama yeterli — sync() çağrısını kaldırın"
+            ),
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(
+                en: "a synchronizer is only needed when crossing between \
+                     domains; within the same domain it adds 2 cycles of latency";
+                tr: "senkronizatör yalnız alanlar arası geçişte gerekir; \
+                     aynı alanda 2 çevrim gecikme ekler"
+            ),
         );
+        // Sinyal adı yerinde kalır (yalnız ad: ifade metni HIR'de yok).
+        if let ExprKind::Path(p) = &self.ast.exprs[data].kind {
+            if let [name] = p.segments.as_slice() {
+                // suggestion: w3002_same_domain_sync
+                diag = diag.with_suggestion(Suggestion::replace(
+                    span,
+                    name.text.clone(),
+                    Applicability::MaybeIncorrect,
+                ));
+            }
+        }
+        self.diagnostics.push(diag);
     }
 
     /// W3003 — çok bitli veri iki-flop ile bit tutarlı taşınamaz.

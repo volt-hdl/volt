@@ -2,7 +2,8 @@
 //! W1001/W1004/W1005/W3004.
 
 use volt_ast::PortDir;
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Suggestion};
+use volt_span::Span;
 
 use super::def::{DefData, DefId, DefKind};
 use super::scope::ScopeKind;
@@ -31,10 +32,14 @@ impl Resolver<'_> {
                     en: "add a '_' prefix to the bundle port to silence all its fields: _{port}";
                     tr: "bundle portuna '_' öneki ekleyerek bütün alanlarını susturabilirsiniz: _{port}"
                 ),
+                None if matches!(data.kind, DefKind::Port { .. }) => lstr!(
+                    en: "add a '_' prefix to silence: _{name} (and bind '_{name}' where the module is instantiated)";
+                    tr: "'_' öneki ekleyerek susturabilirsiniz: _{name} (modülün örneklerinde de '_{name}' bağlayın)"
+                ),
                 None => lstr!(en: "add a '_' prefix to silence: _{}", name;
                               tr: "'_' öneki ekleyerek susturabilirsiniz: _{}", name),
             };
-            warnings.push(Diagnostic::warning(
+            let mut diag = Diagnostic::warning(
                 code,
                 format!("{}: '{}'", msg, name),
                 LabeledSpan::primary(
@@ -42,9 +47,50 @@ impl Resolver<'_> {
                     lstr!(en: "defined here, never read"; tr: "burada tanımlı, hiç okunmuyor"),
                 ),
                 help,
-            ));
+            );
+            if let Some(fix) = self.prefix_fix(def, data, name) {
+                diag = diag.with_suggestion(fix);
+            }
+            warnings.push(diag);
         }
         self.diagnostics.extend(warnings);
+    }
+
+    /// `_` önekli yeniden adlandırma: bildirim ve bütün kullanımları
+    /// (yalnız bildirimin yeniden adlandırılması yazmaları E1001'e
+    /// düşürürdü). Portlarda öneri yok: örnekler portu adıyla bağlar ve
+    /// arayüz değişir; bundle alanı ve açılmış `for` adı tek başına
+    /// yeniden adlandırılamaz.
+    fn prefix_fix(&self, def: DefId, data: &DefData, name: &str) -> Option<Suggestion> {
+        if !matches!(
+            data.kind,
+            DefKind::Wire | DefKind::LocalBinding | DefKind::Register | DefKind::Domain
+        ) || name != data.name
+            || name.contains('.')
+        {
+            return None;
+        }
+        let new = format!("_{name}");
+        let mut spans: Vec<Span> = self
+            .use_spans
+            .iter()
+            .filter(|(_, d)| **d == def)
+            .map(|(s, _)| Span { ctx: 0, ..*s })
+            .collect();
+        spans.sort_by_key(|s| (s.file.0, s.start));
+        spans.dedup_by_key(|s| (s.file, s.start, s.end));
+        let decl = Span {
+            ctx: 0,
+            ..data.span
+        };
+        spans.retain(|s| *s != decl);
+        // suggestion: w1001_unused_wire, w1004_register_never_read, w3004_unused_domain
+        let fix = Suggestion::replace(decl, new.clone(), Applicability::MaybeIncorrect);
+        Some(
+            spans
+                .into_iter()
+                .fold(fix, |f, s| f.and_replace(s, new.clone())),
+        )
     }
 
     /// Kullanım raporundan muaf tanımlar.

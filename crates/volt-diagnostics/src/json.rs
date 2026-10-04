@@ -41,6 +41,17 @@ struct JsonSuggestion {
     span: JsonSpan,
     replacement: String,
     applicability: &'static str,
+    /// Birincil düzenlemeyle birlikte uygulanacak düzenlemeler (çok
+    /// parçalı düzeltme, ör. modül düzeyi `let` + kullanım yeri). Tek
+    /// düzenlemeli öneride alan yazılmaz (§5 şeması aynen kalır).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    additional_edits: Vec<JsonEdit>,
+}
+
+#[derive(Serialize)]
+struct JsonEdit {
+    span: JsonSpan,
+    replacement: String,
 }
 
 #[derive(Serialize)]
@@ -52,7 +63,7 @@ struct JsonDiagnostic {
     notes: Vec<JsonNote>,
     help: Option<String>,
     suggestions: Vec<JsonSuggestion>,
-    explain_url: String,
+    explain_url: Option<String>,
 }
 
 fn json_pos(map: &SourceMap, span: Span, byte: u32) -> JsonPos {
@@ -97,10 +108,21 @@ pub fn to_json_value(diag: &Diagnostic, map: &SourceMap) -> serde_json::Value {
         suggestions: diag
             .suggestions
             .iter()
-            .map(|s| JsonSuggestion {
-                span: json_span(map, s.span),
-                replacement: s.replacement.clone(),
-                applicability: s.applicability.as_str(),
+            .filter_map(|s| {
+                let mut edits =
+                    s.resolve(|f| Some(map.source(f)))
+                        .into_iter()
+                        .map(|(span, replacement)| JsonEdit {
+                            span: json_span(map, span),
+                            replacement,
+                        });
+                let first = edits.next()?;
+                Some(JsonSuggestion {
+                    span: first.span,
+                    replacement: first.replacement,
+                    applicability: s.applicability.as_str(),
+                    additional_edits: edits.collect(),
+                })
             })
             .collect(),
         explain_url: diag.explain_url(),

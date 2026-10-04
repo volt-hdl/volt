@@ -1068,8 +1068,14 @@ fn e0007_le_at_module_level_on_a_register_points_to_an_on_block() {
         .unwrap_or_else(|| panic!("E0007 bekleniyor: {:?}", result.error_codes()));
     let help = diag.help.as_deref().unwrap_or("");
     assert!(help.contains("on clk { r <= r + 1 }"), "{help}");
-    // Reg'e `=` yazmak doğru biçim değil: makine önerisi yok.
-    assert!(diag.suggestions.is_empty(), "{:?}", diag.suggestions);
+    // Reg'e `=` yazmak doğru biçim değil: öneri `on` bloğudur (E0019 ile
+    // aynı), kesin değil (tests/suggestions/e0007_module_register.volt).
+    assert_eq!(diag.suggestions.len(), 1, "{:?}", diag.suggestions);
+    assert_eq!(diag.suggestions[0].primary().text, "on clk { r <= r + 1 }");
+    assert_eq!(
+        diag.suggestions[0].applicability,
+        volt_diagnostics::Applicability::MaybeIncorrect
+    );
 }
 
 #[test]
@@ -1083,7 +1089,7 @@ fn e0007_le_at_module_level_on_a_wire_suggests_eq() {
     let help = diag.help.as_deref().unwrap_or("");
     assert!(help.contains("y = a + 1"), "{help}");
     assert_eq!(diag.suggestions.len(), 1, "{:?}", diag.suggestions);
-    assert_eq!(diag.suggestions[0].replacement, "=");
+    assert_eq!(diag.suggestions[0].primary().text, "=");
 }
 
 #[test]
@@ -1111,7 +1117,7 @@ fn module_level_expression_statement_is_e0001() {
     let help = diags[0].help.as_deref().unwrap_or("");
     assert!(help.contains("y = a"), "{help}");
     assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
-    assert_eq!(diags[0].suggestions[0].replacement, "=");
+    assert_eq!(diags[0].suggestions[0].primary().text, "=");
 }
 
 #[test]
@@ -1142,7 +1148,10 @@ fn e0019_register_assigned_at_module_level_points_to_an_on_block() {
     assert!(help.contains("on clk { r <= r + 1 }"), "{help}");
     // Modül düzeyindeki deyim olduğu gibi `on` bloğuyla değiştirilebilir.
     assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
-    assert_eq!(diags[0].suggestions[0].replacement, "on clk { r <= r + 1 }");
+    assert_eq!(
+        diags[0].suggestions[0].primary().text,
+        "on clk { r <= r + 1 }"
+    );
 }
 
 #[test]
@@ -1225,7 +1234,7 @@ fn e0020_wire_written_with_nonblocking_in_on_block_suggests_a_reg() {
     assert!(help.contains("reg w : u8 = 0"), "{help}");
     // Bildirim olduğu gibi reset değerli bir reg bildirimiyle değiştirilir.
     assert_eq!(diags[0].suggestions.len(), 1, "{:?}", diags[0].suggestions);
-    assert_eq!(diags[0].suggestions[0].replacement, "reg w : u8 = 0");
+    assert_eq!(diags[0].suggestions[0].primary().text, "reg w : u8 = 0");
     // Birincil etiket atamada, ikincil etiket bildirimde.
     assert_eq!(diags[0].spans.len(), 2, "{:?}", diags[0].spans);
 }
@@ -1239,7 +1248,7 @@ fn e0020_bool_wire_resets_to_false_and_keeps_its_domain() {
     let diags = e0020s(&result);
     assert_eq!(diags.len(), 1, "{:?}", result.error_codes());
     assert_eq!(
-        diags[0].suggestions[0].replacement,
+        diags[0].suggestions[0].primary().text,
         "reg w : bool @D = false"
     );
 }

@@ -84,6 +84,7 @@ fn prev_in_an_array_literal_and_scalar_prev_agree_after_reset() {
     let dir = temp_dir("sim");
     std::fs::write(dir.join("prev_array_test.volt"), PREV_ARRAY).expect("yaz");
     let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
         .current_dir(&dir)
         .env("VOLT_LANG", "en")
         .args(["test", "prev_array_test.volt", "--target-dir", "build"])

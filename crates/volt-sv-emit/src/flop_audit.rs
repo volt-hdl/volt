@@ -320,11 +320,11 @@ impl Emitter<'_> {
             NoteKind::Reason,
             lstr!(
                 en: "the SystemVerilog generator checks every flip-flop before generating and \
-                     does not assume a clock edge or a reset value (ADR-0098); an earlier check \
+                     does not assume a clock edge or a reset value; an earlier check \
                      should have reported this input, so reaching the generator is a compiler \
                      bug: please report it";
                 tr: "SystemVerilog üreticisi üretimden önce her flop'u denetler ve saat kenarı \
-                     ya da reset değeri varsaymaz (ADR-0098); bu girdiyi daha önceki bir denetim \
+                     ya da reset değeri varsaymaz; bu girdiyi daha önceki bir denetim \
                      bildirmeliydi, üreticiye ulaşması bir derleyici hatasıdır: lütfen bildirin"
             ),
         );

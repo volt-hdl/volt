@@ -237,11 +237,8 @@ impl Parser<'_> {
                     lstr!(en: "even when the precedence is correct, readers will doubt it"; tr: "öncelik doğru olsa bile okuyucu bundan şüphe eder"),
                 )
                 // ADR-0091: mevcut yorumu yazmak anlamı korur.
-                .with_suggestion(Suggestion {
-                    span: child_span,
-                    replacement: format!("({child_text})"),
-                    applicability: Applicability::MachineApplicable,
-                }),
+                // suggestion: w0010_mixed_ops
+                .with_suggestion(Suggestion::replace(child_span, format!("({child_text})"), Applicability::MachineApplicable)),
             );
             return; // düğüm başına tek uyarı yeter
         }
@@ -986,8 +983,8 @@ impl Parser<'_> {
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "a declassification is a deliberate security decision; the reason is the audit trail reviewers read (ADR-0052)";
-                      tr: "güven düşürme bilinçli bir güvenlik kararıdır; gerekçe gözden geçirenlerin okuduğu iz kaydıdır (ADR-0052)"),
+                lstr!(en: "a declassification is a deliberate security decision; the reason is the audit trail reviewers read";
+                      tr: "güven düşürme bilinçli bir güvenlik kararıdır; gerekçe gözden geçirenlerin okuduğu iz kaydıdır"),
             ),
         );
     }

@@ -32,6 +32,10 @@
 #  15. README ve docs/roadmap.md'deki göreli bağlantılar ile README, yol
 #      haritası ve kitaptaki GitHub (blob/tree main) ve kitap sayfası
 #      bağlantıları var olan dosyaya, #çapaları var olan bir başlığa mı gidiyor?
+#  16. crates/, book/, README.md ve scripts/ alınmamış alan adına (volthdl
+#      noktası org) bağlantı veriyor mu? docs/ tarihçedir, taranmaz.
+#  17. volt explain metinlerindeki kitap bağlantıları book/src altında
+#      yazılmış (planned yer tutucusu olmayan) bir bölüme mi gidiyor?
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -328,6 +332,27 @@ foreach ($f in $scan) {
     }
 }
 foreach ($h in $hits | Where-Object { $_ } | Sort-Object -Unique) { Add-Violation $h }
+
+# ── 16: alınmamış alan adı ────────────────────────────────────────────
+# Desen bölünmüş yazılır ki bu betik kendini yakalamasın.
+$domainScan = @(Get-ChildItem (Join-Path $root 'crates'), (Join-Path $root 'book'), (Join-Path $root 'scripts') -Recurse -File |
+    Where-Object { $_.FullName -notmatch '\\(target|book\\book)\\' }) + @(Get-Item (Join-Path $root 'README.md'))
+foreach ($m in ($domainScan | Select-String -Pattern 'volthdl[.]org' -SimpleMatch:$false)) {
+    $rel = $m.Path.Substring($root.Length + 1).Replace('\', '/')
+    Add-Violation "${rel}:$($m.LineNumber): alınmamış alan adı; kitap https://volt-hdl.github.io/volt/ (kontrol 16)"
+}
+
+# ── 17: explain bağlantıları kitapta yazılmış bir bölüme gider ────────
+$explainDir = Join-Path $root 'crates\volt-diagnostics\src\explain'
+$pages = Get-ChildItem $explainDir -Filter *.rs | Select-String -Pattern 'https://volt-hdl\.github\.io/volt/([A-Za-z0-9/_-]+)\.html' -AllMatches |
+    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+foreach ($n in $pages) {
+    $page = Join-Path $root "book/src/$n.md"
+    if (-not (Test-Path $page)) { Add-Violation "explain bağlantısı kitapta yok: book/src/$n.md (kontrol 17)" }
+    elseif (Select-String -Path $page -Pattern 'This chapter is planned' -SimpleMatch -Quiet) {
+        Add-Violation "explain bağlantısı henüz yazılmamış bölüme gidiyor: book/src/$n.md (kontrol 17)"
+    }
+}
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {

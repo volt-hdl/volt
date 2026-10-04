@@ -197,11 +197,12 @@ impl Parser<'_> {
         );
         // Tipin sıfırı tek sözcük değilse yer tutuculu metin derlenmez.
         match literal {
-            Some(_) => diag.with_suggestion(Suggestion {
-                span: wire.span,
-                replacement: form,
-                applicability: Applicability::MaybeIncorrect,
-            }),
+            // suggestion: e0020_wire_in_on
+            Some(_) => diag.with_suggestion(Suggestion::replace(
+                wire.span,
+                form,
+                Applicability::MaybeIncorrect,
+            )),
             None => diag,
         }
     }

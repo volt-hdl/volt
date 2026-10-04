@@ -5,6 +5,38 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler.
 
 ## [Yayımlanmadı]
 
+### Değişti — Öneri, ileti ve açıklama kalitesi (ADR-0099, 2026-10-03)
+
+- **Düzeltildi.** Derleyicinin önerdiği düzeltmeler artık uygulanınca
+  yeni bir hata ya da uyarı doğurmaz; her öneri bir gidiş-dönüş testiyle
+  sınanır (`tests/suggestions/`). E3001'in `on` bloğu içindeki önerisi
+  bloğun üstüne `let x_sync = sync(x, clk)` ekler (önceden E0003);
+  E2001 `(ifade)[3:0] as u4` önerir (önceden `as u4`, W2010); W1004'ün
+  `_` öneki yazmaları da yeniden adlandırır. E2003 (`bits<N>` → `uN`),
+  E3003/W3009/W3010 (ham reset portu), E0007, E1007, E1008, E3002,
+  E2004, E2007, E2028, W3002 ve W1001/W3004 yapısal öneri taşır.
+- JSON'da çok parçalı öneri `additional_edits` alanını taşır (tek
+  düzenlemeli öneride alan yok); `explain_url` `null` (kitapta kod başına
+  sayfa yok). LSP quick fix çok düzenlemeli olabilir.
+- İletiler: "an 8-bit"; W3010 tek cümle; 64 bitten geniş `uN`/`iN`
+  sınırı söyler ve `bits<N>` önerir. Tanı, `volt explain` ve `volt
+  doctor` metinleri ADR numarası ve ölü bağlantı taşımaz; kitap
+  bağlantıları https://volt-hdl.github.io/volt/ altındadır.
+- **Yeni uyarı W0025:** Volt.toml'da Volt'un okumadığı anahtar ya da
+  bölüm ("did you mean"); `[dependencies]` paket yönetiminin henüz
+  olmadığını söyler.
+- **Davranış değişikliği.** `on X`'te X saat portu değilse ve saat portu
+  açıklamaları döngü kuruyorsa E3002 artık ön uçtan gelir: `volt check`
+  ve editör gösterir. Saat portunun başka saat portuyla açıklaması port
+  sırasından bağımsız çözülür.
+- `volt doctor`: Docker kurulu ama kapalıysa "start Docker Desktop";
+  imajda olmayan çözücü yalnız `volt verify --engine bitwuzla` Docker'da
+  koşarken söylenir (çıkış 3, konteyner başlatılmaz).
+- Verilator obj dizini damgalıdır (`.volt-build-stamp`): yarıda kalmış
+  ya da başka araçla kurulmuş dizin elle silinmeden temizden kurulur.
+- Testler araç arka ucunu açıkça ayarlar (`VOLT_TOOL_BACKEND`); araç
+  yoksa Docker'a sessizce düşülmez.
+
 ### Değişti — Üretici varsayım yapmaz (ADR-0098 eki 2, 2026-10-02)
 
 - **Davranış değişikliği.** **E3016** artık `clock = none` alanındaki bir

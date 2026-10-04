@@ -306,6 +306,36 @@ follow user feedback.
   block, the one loop a single statement can make, is `E0019`.
 - **ADR:** [ADR-0098](adr/ADR-0098-sessiz-kabul-ikinci-tur.md)
 
+### Machine-readable test results
+
+- **What:** `volt test --format=json` and `volt run --format=json`: the
+  diagnostics envelope that `volt check` writes, plus one record per test
+  (file, name, result, failed assertions with their source line, the
+  waveform path) and, for `volt run`, the printed cycle table.
+- **Why:** CI systems show test results from a report file; today a CI job
+  sees only the exit code and a text log.
+- **Status:** Not started. `volt check`, `volt build` and `volt verify`
+  have `--format=json`; the command-line contract shows
+  `volt test --format=json` in its CI example, but the option does not
+  exist and the test record has no schema yet.
+- **ADR:** [ADR-0021](adr/ADR-0021-artifact-uretim-ve-cli-sozlesmesi.md),
+  [ADR-0033](adr/ADR-0033-test-bloklari-ve-simulasyon.md)
+
+### A machine-wide limit on Docker containers
+
+- **What:** a limit on how many Verilator or sby containers the Docker
+  backend runs at once on one machine, shared by every `volt` process
+  (for example a lock file per running container under the user's cache
+  directory); a command waits for a free slot and says so.
+- **Why:** each `volt test`, `volt run` or `volt verify` starts its own
+  container, and a user who runs several commands in parallel (several
+  terminals, an editor task and a watch loop) can exhaust the memory of
+  Docker Desktop; the containers then die with exit code 137.
+- **Status:** Not started. `volt verify -j N` already runs all jobs in
+  one container, and an out-of-memory exit (137) is reported with a hint,
+  but separate commands do not know about each other.
+- **ADR:** [ADR-0094](adr/ADR-0094-docker-koprusu.md)
+
 ## Toward 1.0
 
 1.0 will make a stability promise. These items are its preconditions: a

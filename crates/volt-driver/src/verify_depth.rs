@@ -123,10 +123,10 @@ pub(crate) fn note_line(module: &str, n: &AutoUnreached, depth: u32) -> String {
         ),
         None => lstr!(
             en: "        Note {module}.{}: auto cover '{}' ({}) not reached within depth {depth}; \
-                 not proven unreachable, so not an error (ADR-0086) — try a deeper run or 'volt test'",
+                 not proven unreachable, so not an error — try a deeper run or 'volt test'",
                 n.prop, n.text, n.subject;
             tr: "         Not {module}.{}: otomatik cover '{}' ({}) derinlik {depth} içinde ulaşılmadı; \
-                 ulaşılamaz olduğu kanıtlanmadı, hata değil (ADR-0086) — daha derin koşu ya da 'volt test' deneyin",
+                 ulaşılamaz olduğu kanıtlanmadı, hata değil — daha derin koşu ya da 'volt test' deneyin",
                 n.prop, n.text, n.subject
         ),
     }
