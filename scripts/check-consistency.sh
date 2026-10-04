@@ -18,6 +18,8 @@
 #  16. alınmamış alan adına bağlantı yok (crates/, book/, README.md, scripts/)
 #  17. explain metinlerindeki kitap bağlantıları yazılmış bir bölüme gider
 #      ve /dev/'i değil kökü (kurulu sürümün kitabı) gösterir
+#  18. release.yml ve book.yml yalnız tam vX.Y.Z etiketiyle tetiklenir
+#      (ADR-0100); süzgeç örnek etiket adlarıyla sınanır
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -338,6 +340,26 @@ for n in $(grep -ohE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "
     elif grep -q 'This chapter is planned' "$page"; then
         violation "explain bağlantısı henüz yazılmamış bölüme gidiyor: book/src/$n.md (kontrol 17)"
     fi
+done
+
+# ── 18: sürüm etiketi süzgeci (ADR-0100) ──────────────────────────────
+# GitHub süzgeci etiket adının tamamıyla eşler; '+' önceki karakter
+# sınıfını yineler, '.' düz noktadır. Kalıbın ERE karşılığı örneklerle
+# sınanır: ön sürüm, sonekli, önekli ve eksik/fazla haneli etiketler sürüm
+# işini başlatmaz.
+TAG_FILTER='v[0-9]+.[0-9]+.[0-9]+'
+for wf in release.yml book.yml; do
+    filters=$(sed -n 's/^[[:space:]]*tags:[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' "$ROOT/.github/workflows/$wf" | tr -d "\"' ")
+    if [ "$filters" != "$TAG_FILTER" ]; then
+        violation ".github/workflows/$wf etiket süzgeci '$filters', beklenen tek kalıp '$TAG_FILTER' (kontrol 18)"
+    fi
+done
+tag_re="^$(printf '%s' "$TAG_FILTER" | sed 's/\./\\./g')\$"
+for t in v0.1.0 v1.2.3 v10.20.30; do
+    echo "$t" | grep -qE "$tag_re" || violation "etiket süzgeci sürüm etiketi $t'yi eşlemiyor (kontrol 18)"
+done
+for t in v0.1.0-rc1 v0.1.0-f1 v0.2.0-f2 v1.0.0-beta.1 release-v0.1.0 xv0.1.0 v0.1 v0.1.0.1 v0x1y0 V0.1.0 v0.1.0+build; do
+    echo "$t" | grep -qE "$tag_re" && violation "etiket süzgeci sürüm olmayan $t'yi eşliyor (kontrol 18)"
 done
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

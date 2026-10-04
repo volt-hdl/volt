@@ -285,6 +285,15 @@ fn arg_dumping_verilator(dir: &Path) -> PathBuf {
     }
 }
 
+/// Sahte Verilator'la koşan volt komutu, geçici `dir`'de: volt aracı sim
+/// dizini dışında (`--version`) süreç dizininde çağırır, sahtenin yazdığı
+/// dosya oraya düşer.
+fn fake_verilator_command(dir: &Path) -> Command {
+    let mut cmd = volt();
+    cmd.current_dir(dir);
+    cmd
+}
+
 /// Verilator'a extern gövdesi üretilen SV'den ÖNCE verilir.
 fn assert_extern_before_design(sim_dir: &Path) {
     let args = std::fs::read_to_string(sim_dir.join("verilator_args.txt")).expect("argümanlar");
@@ -299,7 +308,7 @@ fn assert_extern_before_design(sim_dir: &Path) {
 fn run_and_test_hand_extern_source_to_verilator() {
     let dir = temp_dir("sim-args");
     let fake = arg_dumping_verilator(&dir);
-    let run = volt()
+    let run = fake_verilator_command(&dir)
         .args(["run", "--cycles", "2", "--target-dir"])
         .arg(dir.join("r"))
         .arg(repo(FIXTURE))
@@ -308,7 +317,7 @@ fn run_and_test_hand_extern_source_to_verilator() {
         .expect("volt");
     assert_ne!(run.status.code(), Some(1), "{}", stderr(&run));
     assert_extern_before_design(&dir.join("r").join("sim").join("ext_top"));
-    let test = volt()
+    let test = fake_verilator_command(&dir)
         .args(["test", "--target-dir"])
         .arg(dir.join("t"))
         .arg(repo(FIXTURE_TEST))
@@ -317,6 +326,36 @@ fn run_and_test_hand_extern_source_to_verilator() {
         .expect("volt");
     assert_ne!(test.status.code(), Some(1), "{}", stderr(&test));
     assert_extern_before_design(&dir.join("t").join("sim").join("ext_top_test"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Sahte Verilator argümanlarını kendi çalışma dizinine yazar; volt onu
+/// sim dizini dışında (ör. `--version` için süreç dizininde) çağırırsa
+/// dosya oraya düşer. Testin volt'u geçici dizinde koşmalı: kaynak ağacına
+/// (`cargo test`'in çalışma dizini crate dizinidir) hiçbir şey yazılmaz.
+#[test]
+fn fake_verilator_writes_nothing_into_the_source_tree() {
+    let dir = temp_dir("tree");
+    let fake = arg_dumping_verilator(&dir);
+    let stray = Path::new(env!("CARGO_MANIFEST_DIR")).join("verilator_args.txt");
+    assert!(
+        !stray.exists(),
+        "{} önceki bir koşudan kalmış; silip yeniden koş",
+        stray.display()
+    );
+    let run = fake_verilator_command(&dir)
+        .args(["run", "--cycles", "2", "--target-dir"])
+        .arg(dir.join("r"))
+        .arg(repo(FIXTURE))
+        .env("VOLT_VERILATOR", &fake)
+        .output()
+        .expect("volt");
+    assert_ne!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert!(
+        !stray.exists(),
+        "sahte Verilator kaynak ağacına yazdı: {}",
+        stray.display()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

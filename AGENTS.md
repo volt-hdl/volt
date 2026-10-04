@@ -108,6 +108,9 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   expected diagnostic, and each file starts with `//~ EXXXX` (or `WXXXX`).
   Numeric file prefixes do not repeat within a directory.
 - `tests/fixtures/` holds input and expected-output pairs.
+- Tests write into a temporary directory, never into the checkout; a
+  child process (`volt`, a fake tool) runs there too. After `just check`,
+  `git status` is clean; CI fails when the tests change or create a file.
 - **Set the tool backend explicitly** in every test, golden or script
   that runs `volt test`, `volt run` or `volt verify`:
   `VOLT_TOOL_BACKEND=local` (a missing tool fails the test or skips it
@@ -129,7 +132,9 @@ test count can never go below `.test-baseline`.
 1. Branch from an up-to-date `main`: `<type>/<short-name>`, where type is
    `feat`, `fix`, `refactor`, `docs`, `chore` or `test`.
 2. Commit message: `<type>(<scope>): <summary>`. The body says what
-   changed, why, and which ADR.
+   changed, why, and which ADR. **Language:** the commit subject and the
+   pull request title are in English; commit and pull request bodies may
+   be in Turkish.
 3. Push the branch and open a pull request with `gh pr create`.
 4. Wait for CI (`gh pr checks <number> --watch`) and verify the result in
    the logs (next section).
@@ -195,8 +200,8 @@ rewrite a sentence without them.
 
 ## Reports
 
-When a task ends, the pull request description and the final report
-contain:
+Reports are written in Turkish. When a task ends, the pull request
+description and the final report contain:
 
 - **What changed and why**, with the ADR numbers.
 - **Tests:** which ones failed before the change and pass after it.
