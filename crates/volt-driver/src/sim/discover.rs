@@ -1,4 +1,5 @@
-//! `volt test` test dosyası keşfi (ADR-0089).
+//! Test dosyası keşfi (ADR-0089): `volt test` ve argümansız `volt check`
+//! aynı dosyaları, aynı yollarla görür (`discover_test_files`).
 //!
 //! * Proje (Volt.toml, ADR-0061 araması) varsa **proje kökünden
 //!   özyinelemeli**: `*_test.volt` her alt dizinde bulunur; `[test] paths`
@@ -21,8 +22,10 @@ type Keep<'a> = &'a dyn Fn(&Path) -> bool;
 /// Özyineleme sınırı: bundan derin dizin taranmaz (patolojik ağaçlar).
 const MAX_DEPTH: usize = 32;
 
-/// Keşfedilen test dosyaları, çalışma dizinine göre yollarla, sıralı.
-pub(super) fn discover_test_files() -> Vec<PathBuf> {
+/// Keşfedilen test dosyaları, çalışma dizinine göre yollarla (`a_test.volt`,
+/// `sim/b_test.volt`, `../c_test.volt`; `./` öneki yok), sıralı. `volt test`
+/// ve argümansız `volt check` için tek keşif.
+pub(crate) fn discover_test_files() -> Vec<PathBuf> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match Manifest::discover(&cwd) {
         Some(m) => project_test_files(&m, &cwd),
@@ -30,35 +33,24 @@ pub(super) fn discover_test_files() -> Vec<PathBuf> {
     }
 }
 
-/// Tek dizindeki `*_test.volt` dosyaları (özyinelemesiz, eski kural).
+/// Tek dizindeki `*_test.volt` dosyaları (özyinelemesiz, eski kural);
+/// yollar dizine göreli (`a_test.volt`).
 fn flat_test_files(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && is_test_file(p))
+        .filter(|e| e.path().is_file() && is_test_file(&e.path()))
+        .map(|e| PathBuf::from(e.file_name()))
         .collect();
     files.sort();
     files
 }
 
+/// `*_test.volt` mı? Kural volt-hir'de: `check`, `test` ve editör aynı ad
+/// kuralını kullanır.
 pub(crate) fn is_test_file(p: &Path) -> bool {
-    p.file_name()
-        .is_some_and(|n| n.to_string_lossy().ends_with("_test.volt"))
-}
-
-/// Projenin test dosyaları, çalışma dizinine göre (argümansız `volt
-/// check` de denetler, `volt test` ile aynı keşif).
-pub(crate) fn project_test_files_here(m: &Manifest) -> Vec<PathBuf> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    project_test_files(m, &cwd)
-        .into_iter()
-        .map(|p| {
-            p.strip_prefix(".")
-                .map_or_else(|_| p.clone(), Path::to_path_buf)
-        })
-        .collect()
+    volt_hir::unit_load::is_test_file_name(p)
 }
 
 /// Projenin test dosyaları: kök (ya da `[test] paths`) altında
@@ -74,7 +66,7 @@ fn project_test_files(m: &Manifest, cwd: &Path) -> Vec<PathBuf> {
 /// Proje kökünden göreli `starts` altında `keep`'i sağlayan dosyalar —
 /// test keşfiyle aynı atlama kuralları (ADR-0089); proje kipi kaynakları
 /// ve `volt test --watch` de bunu kullanır (ADR-0095). Yollar `cwd`'ye
-/// göreli, sıralı, tekil.
+/// göreli (`./` öneki yok), sıralı, tekil.
 pub(crate) fn project_files(
     m: &Manifest,
     cwd: &Path,
@@ -198,8 +190,9 @@ fn parse_gitignore(text: &str) -> Vec<Ignore> {
         .collect()
 }
 
-/// `path`'in `base`'e göre yolu (ikisi de mutlak): altındaysa `./a/b`
-/// (eski `read_dir(".")` biçimi), değilse `../a/b`.
+/// `path`'in `base`'e göre yolu (ikisi de mutlak): altındaysa `a/b`,
+/// değilse `../a/b`. İletilerde `volt check` ile `volt test` aynı yolu
+/// basar.
 fn relative_to(path: &Path, base: &Path) -> PathBuf {
     let p: Vec<Component> = path.components().collect();
     let b: Vec<Component> = base.components().collect();
@@ -207,9 +200,8 @@ fn relative_to(path: &Path, base: &Path) -> PathBuf {
     if common == 0 {
         return path.to_path_buf();
     }
-    let ups = b.len() - common;
-    let mut out = PathBuf::from(if ups == 0 { "." } else { ".." });
-    for _ in 1..ups.max(1) {
+    let mut out = PathBuf::new();
+    for _ in common..b.len() {
         out.push("..");
     }
     for c in &p[common..] {
@@ -271,7 +263,7 @@ mod tests {
         let file = root.join("tests").join("a_test.volt");
         assert_eq!(
             relative_to(&file, root),
-            Path::new(".").join("tests").join("a_test.volt")
+            Path::new("tests").join("a_test.volt")
         );
         let sub = root.join("rtl");
         assert_eq!(

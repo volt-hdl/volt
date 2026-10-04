@@ -100,8 +100,10 @@ wiring that always shows the current result. Nothing "runs" line by line.
 ## Check it
 
 `volt check` reads every source file and test file of the project and
-reports errors. It writes no files, so it is quick enough to run after
-every change:
+reports errors: each `.volt` file under `src`, whether the top module uses
+it or not, and each `*_test.volt` file that `volt test` would run,
+subdirectories included (`build/` is skipped). It writes no files, so it
+is quick enough to run after every change:
 
 ```console
 $ volt check
@@ -114,7 +116,9 @@ $ volt check
 
 ## Build it
 
-`volt build` writes SystemVerilog for the top module named in `Volt.toml`:
+`volt build` writes SystemVerilog for the top module named in `Volt.toml`.
+It reads the files that module uses and no others, so an error in a file
+the design does not use shows up in `volt check`, not here:
 
 ```console
 $ volt build

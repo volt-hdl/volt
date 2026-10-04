@@ -108,9 +108,9 @@ fn project_tests_are_found_recursively_from_the_manifest_root() {
     assert_eq!(
         compiled(&out),
         [
-            "./counter_test.volt",
-            "./rtl/counter_test.volt",
-            "./tests/deep/uses_test.volt"
+            "counter_test.volt",
+            "rtl/counter_test.volt",
+            "tests/deep/uses_test.volt"
         ],
         "{}",
         String::from_utf8_lossy(&out.stderr)
@@ -135,7 +135,7 @@ fn a_subdirectory_run_still_finds_the_whole_project() {
         compiled(&out),
         [
             "../counter_test.volt",
-            "./counter_test.volt",
+            "counter_test.volt",
             "../tests/deep/uses_test.volt"
         ],
         "{}",
@@ -150,7 +150,7 @@ fn test_paths_narrow_the_scan() {
     let out = run_test(&root);
     assert_eq!(
         compiled(&out),
-        ["./rtl/counter_test.volt", "./tests/deep/uses_test.volt"],
+        ["rtl/counter_test.volt", "tests/deep/uses_test.volt"],
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
@@ -166,7 +166,7 @@ fn without_a_manifest_only_the_working_directory_is_scanned() {
     write(&dir.join("sub/counter.volt"), COUNTER);
     write(&dir.join("sub/counter_test.volt"), &counter_test("sub", ""));
     let out = run_test(&dir);
-    assert_eq!(compiled(&out), ["./counter_test.volt"]);
+    assert_eq!(compiled(&out), ["counter_test.volt"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

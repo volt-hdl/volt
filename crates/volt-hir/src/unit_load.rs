@@ -504,6 +504,48 @@ pub fn load_test_sibling(file: &Path) -> Option<volt_ast::SourceFile> {
     load_unit(&sibling).ok().map(|unit| unit.parsed.ast)
 }
 
+/// Bir dosyanın test blokları neye karşı denetlenir (ADR-0033, ADR-0101).
+pub enum TestTarget {
+    /// Testlerin modülleri görülmeyen bir dosyada olabilir (`X_test.volt`
+    /// olmayan dosya ya da tek dosya analizi): dosyada hiç modül yoksa
+    /// modül-varlık denetimi atlanır.
+    Partial(Option<volt_ast::SourceFile>),
+    /// `X_test.volt`, birimiyle: `volt test` ile aynı tam denetim. Birim
+    /// (`use` ile yüklenenler dahil) ve varsa kardeş `X.volt` tasarımın
+    /// tamamıdır; bulunmayan modül E8501.
+    Full(Option<volt_ast::SourceFile>),
+}
+
+impl TestTarget {
+    /// Birim kipinde (`volt check`, `volt build`, editör birimi) `file`'ın
+    /// hedefi: `*_test.volt` ise tam denetim, değilse kardeşsiz kısmi.
+    pub fn for_unit(file: &Path) -> TestTarget {
+        if is_test_file_name(file) {
+            TestTarget::Full(load_test_sibling(file))
+        } else {
+            TestTarget::Partial(None)
+        }
+    }
+
+    /// Tek dosya analizi: birim görülmez, kardeş varsa o eklenir.
+    pub fn single_file(file: &Path) -> TestTarget {
+        TestTarget::Partial(load_test_sibling(file))
+    }
+
+    /// Kardeş tasarım (varsa).
+    pub fn dut(&self) -> Option<&volt_ast::SourceFile> {
+        match self {
+            TestTarget::Partial(dut) | TestTarget::Full(dut) => dut.as_ref(),
+        }
+    }
+}
+
+/// `*_test.volt` adı mı? (`volt test` keşfiyle aynı ad kuralı.)
+pub fn is_test_file_name(file: &Path) -> bool {
+    file.file_name()
+        .is_some_and(|n| n.to_string_lossy().ends_with("_test.volt"))
+}
+
 /// Ana dosyadan başlayarak birimi yükler. G/Ç hatası (ana dosya ya da
 /// bulunan bir bağımlılık okunamadı) `Err` döner — çıkış kodu 3.
 pub fn load_unit(main: &Path) -> std::io::Result<LoadedUnit> {

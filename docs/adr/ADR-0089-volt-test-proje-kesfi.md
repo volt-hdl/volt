@@ -1,6 +1,6 @@
 # ADR-0089: `volt test` — Proje Kökünden Özyinelemeli Test Keşfi
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0101 — "Compiling" satırlarındaki `./x_test.volt` öneki kalktı (`x_test.volt`); keşif kuralları yürürlükte ve `volt check` de aynı keşfi kullanır
 > Önceki karar: ADR-0033 — test dosyası keşfi
 > Tarih: 2026-09-27
 > Etkilenen: volt-driver (`sim/discover.rs` yeni, `sim/test_files.rs`,
