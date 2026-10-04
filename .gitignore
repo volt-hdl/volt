@@ -26,3 +26,8 @@ obj_*/
 *.mk
 *.d
 *.vcd
+
+# Argument dump of the fake Verilator in extern_source_tests. The tests run
+# it in a temporary directory; fake_verilator_writes_nothing_into_the_source_tree
+# fails if it lands in the source tree again.
+verilator_args.txt

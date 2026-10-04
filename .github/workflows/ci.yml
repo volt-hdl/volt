@@ -24,6 +24,16 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test --all
+      # A test writes into a temporary directory, never into the checkout:
+      # after the tests the working tree is exactly the commit.
+      - name: Tests leave the working tree clean
+        run: |
+          dirty=$(git status --porcelain --untracked-files=all)
+          if [ -n "$dirty" ]; then
+            echo "::error::the tests changed or created files in the checkout"
+            echo "$dirty"
+            exit 1
+          fi
 
   integration:
     name: Verilator lint
@@ -124,6 +134,16 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
         run: cargo test -p volt-driver --test output_net_tests -- verilator cc_ cxx_ rustc_
+      # A test writes into a temporary directory, never into the checkout:
+      # after the tests the working tree is exactly the commit.
+      - name: Tests leave the working tree clean
+        run: |
+          dirty=$(git status --porcelain --untracked-files=all)
+          if [ -n "$dirty" ]; then
+            echo "::error::the tests changed or created files in the checkout"
+            echo "$dirty"
+            exit 1
+          fi
 
   consistency:
     name: Spec-code consistency

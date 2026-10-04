@@ -40,6 +40,9 @@
 #  17. volt explain metinlerindeki kitap bağlantıları book/src altında
 #      yazılmış (planned yer tutucusu olmayan) bir bölüme mi gidiyor? Kökü mü
 #      gösteriyor? Kök kurulu sürümün kitabıdır, /dev/ main'in (ADR-0100).
+#  18. release.yml ve book.yml yalnız tam vX.Y.Z etiketiyle mi tetikleniyor?
+#      Süzgeç örnek etiket adlarıyla sınanır: ön sürüm, sonekli, önekli ve
+#      eksik/fazla haneli etiketler sürüm işini başlatmaz (ADR-0100).
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -366,6 +369,27 @@ foreach ($n in $pages) {
     elseif (Select-String -Path $page -Pattern 'This chapter is planned' -SimpleMatch -Quiet) {
         Add-Violation "explain bağlantısı henüz yazılmamış bölüme gidiyor: book/src/$n.md (kontrol 17)"
     }
+}
+
+# ── 18: sürüm etiketi süzgeci (ADR-0100) ──────────────────────────────
+# GitHub süzgeci etiket adının tamamıyla eşler; '+' önceki karakter
+# sınıfını yineler, '.' düz noktadır. Kalıbın regex karşılığı örneklerle
+# sınanır.
+$tagFilter = 'v[0-9]+.[0-9]+.[0-9]+'
+foreach ($wf in 'release.yml', 'book.yml') {
+    $filters = @(Select-String -Path (Join-Path $root ".github\workflows\$wf") -Pattern '^\s*tags:\s*\[(.*)\]\s*$' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value -replace '["'' ]', '' })
+    $found = $filters -join ','
+    if ($found -cne $tagFilter) {
+        Add-Violation ".github/workflows/$wf etiket süzgeci '$found', beklenen tek kalıp '$tagFilter' (kontrol 18)"
+    }
+}
+$tagRe = '^' + $tagFilter.Replace('.', '\.') + '$'
+foreach ($t in 'v0.1.0', 'v1.2.3', 'v10.20.30') {
+    if ($t -cnotmatch $tagRe) { Add-Violation "etiket süzgeci sürüm etiketi $t'yi eşlemiyor (kontrol 18)" }
+}
+foreach ($t in 'v0.1.0-rc1', 'v0.1.0-f1', 'v0.2.0-f2', 'v1.0.0-beta.1', 'release-v0.1.0', 'xv0.1.0', 'v0.1', 'v0.1.0.1', 'v0x1y0', 'V0.1.0', 'v0.1.0+build') {
+    if ($t -cmatch $tagRe) { Add-Violation "etiket süzgeci sürüm olmayan $t'yi eşliyor (kontrol 18)" }
 }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

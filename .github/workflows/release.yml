@@ -1,12 +1,21 @@
 name: Release
 
-# ADR-0093: prebuilt binaries. A "v*" tag builds every archive and opens a
-# DRAFT GitHub Release (a maintainer publishes it by hand). workflow_dispatch
+# ADR-0093: prebuilt binaries. A release tag builds every archive and opens
+# a DRAFT GitHub Release (a maintainer publishes it by hand). workflow_dispatch
 # is the dry run: the same builds and smoke tests, archives uploaded as
 # workflow artifacts, no release. Never runs on pull requests.
+#
+# A release tag is exactly vX.Y.Z (ADR-0100). GitHub matches the filter
+# against the whole tag name ('+' repeats the character class, '.' is a
+# literal dot), so v0.1.0 and v10.20.30 start a run, while a pre-release or
+# suffixed tag (v0.1.0-rc1, the phase tags v0.1.0-f1), a prefixed tag
+# (release-v0.1.0) and v0.1 or v0.1.0.1 do not. book.yml uses the same
+# filter; scripts/check-consistency.* (check 18) holds both to it and tests
+# the filter on these names. The version job below rejects any other tag
+# name again, in case the filter is widened.
 on:
   push:
-    tags: ["v*"]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
 
 permissions:
@@ -39,6 +48,10 @@ jobs:
             | jq -r '.packages[] | select(.name == "volt-driver") | .version')
           ext=$(jq -r .version editors/vscode/package.json)
           echo "Cargo: $version, VS Code extension: $ext, ref: $GITHUB_REF_TYPE $GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $GITHUB_REF_NAME is not a release tag: a release tag is exactly vX.Y.Z (ADR-0100)"
+            exit 1
+          fi
           if [ "$ext" != "$version" ]; then
             echo "::error::editors/vscode/package.json version $ext != Cargo version $version"
             exit 1

@@ -7,6 +7,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ## [Yayımlanmadı]
 
+### Düzeltildi — Sürüm etiketi süzgeci, testlerin çalışma ağacını kirletmesi (ADR-0100, 2026-10-04)
+
+- `release.yml` yalnız tam `vX.Y.Z` etiketiyle tetiklenir (önceden her
+  `v*`); sürüm işi başka bir etiket adını ayrıca reddeder. Tutarlılık
+  kontrolü 18, `release.yml` ve `book.yml` süzgecinin bu kalıp olduğunu
+  denetler ve kalıbı `-rc`, aşama, önekli ve eksik/fazla haneli etiket
+  adlarıyla sınar.
+- `extern_source_tests`'in sahte Verilator'ı `--version` çağrısında
+  argümanlarını crate dizinine yazıyordu; PR #77'de
+  `crates/volt-driver/verilator_args.txt` olarak depoya girmişti. Dosya
+  depodan çıktı, `.gitignore`'a eklendi; testler geçici dizinde koşar.
+  CI testlerden sonra çalışma ağacının temiz olduğunu denetler.
+- AGENTS.md: raporlar Türkçe; commit ve PR başlıkları İngilizce, gövdeler
+  Türkçe olabilir.
+
 ### Eklendi — Proje kuralları, sürüm politikası, sürümle eşleşen kitap (ADR-0100, 2026-10-04)
 
 - `AGENTS.md`: depoyu değiştiren herkes (katılımcılar ve yapay zekâ
