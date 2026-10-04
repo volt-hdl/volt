@@ -1,9 +1,31 @@
 # Değişiklik Günlüğü
 
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/) esaslıdır;
-sürümleme [SemVer](https://semver.org/lang/tr/) izler.
+sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
+hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
+(ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
 ## [Yayımlanmadı]
+
+### Eklendi — Proje kuralları, sürüm politikası, sürümle eşleşen kitap (ADR-0100, 2026-10-04)
+
+- `AGENTS.md`: depoyu değiştiren herkes (katılımcılar ve yapay zekâ
+  ajanları) için proje kuralları: dal ve PR akışı, CI'ı günlükten
+  doğrulamak, ADR kuralları, salt okunur alanlar, yasaklı sözcükler,
+  kaynak kısıtlı makineler, açık araç arka ucu, önce düşen test, rapor
+  içeriği.
+- 1.0 öncesi sürüm politikası (ADR-0100): sürüm tag'i `vX.Y.Z`; yalnız
+  son sürüm desteklenir; her sürüm notunda "Behavior changes"; sürüm
+  içeriğe göre çıkar; ilk sürüm v0.1.0.
+- Kitap: https://volt-hdl.github.io/volt/ en son sürümün kitabını
+  gösterir (sürüm yokken main'in kitabı, "Pre-release" bandıyla);
+  https://volt-hdl.github.io/volt/dev/ her zaman main'in kitabıdır
+  ("Development version" bandı). Kurulum betikleri kökte, main'den. Var
+  olan adresler değişmedi.
+- Tutarlılık denetimi: `/dev/` kitap adresleri `book/src`'ye eşlenir;
+  `volt explain`'de `/dev/` bağlantısı ve `/dev/` altında kurulum betiği
+  adresi ihlaldir.
+- Yol haritası maddeleri açık GitHub issue'larına bağlanır.
 
 ### Değişti — Öneri, ileti ve açıklama kalitesi (ADR-0099, 2026-10-03)
 
