@@ -64,7 +64,7 @@ button: you compare them with your terminal, you do not type them. Small
 differences, such as times like `0.01s`, do not matter.
 
 ```text,output
-volt 0.1.0
+volt 0.1.0 (63a1c76)
 ```
 
 **Create this file:** `name.volt`, followed by the file's contents. The
@@ -270,14 +270,16 @@ volt --version
 **You should see:**
 
 ```text,output
-volt 0.1.0
+volt 0.1.0 (63a1c76)
 ```
 
 This book describes Volt 0.1.0. The book at
 <https://volt-hdl.github.io/volt/> follows the latest release, and the
 book at <https://volt-hdl.github.io/volt/dev/> follows the development
 version. If `volt --version` prints another version, some output on these
-pages may differ from yours.
+pages may differ from yours. The seven letters and digits in parentheses
+name the commit your copy of Volt was built from; they differ from the
+ones above, and a copy built without git shows no parentheses.
 
 If you see "The term 'volt' is not recognized" (Windows) or "command not
 found" (macOS, Linux), the terminal was opened before the install
