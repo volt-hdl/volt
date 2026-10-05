@@ -158,6 +158,13 @@ fn ui_fail_212_bundle_output_nonblocking_in_on_e0020() {
 }
 
 #[test]
+fn ui_fail_219_extern_raw_reset_w3011() {
+    // ADR-0103 (#93): ham reset extern'e giderken modülün register'ları
+    // senkronize kopyayı kullanıyor.
+    assert_ui_fail("fail/219_extern_raw_reset.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");

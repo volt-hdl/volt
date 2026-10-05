@@ -1284,6 +1284,17 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ saat başına bir bırakma senkronizörü\n}",
         )
         .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        W3011 => Explanation::new(
+            "Modülün register'ları senkronize kopyayı kullanırken ham reset bir extern modüle gidiyor",
+            "Ham bir reset portu ('in rst : reset(...)') bir extern örneğine bağlanmış; aynı modülün o saatteki register'ları ise Volt'un önlerine koyduğu senkronizör üzerinden sıfırlanıyor.",
+            "Ham reset portu için Volt saat başına bir bırakma senkronizörü kurar: modülün register'ları reset'i hemen etkin, iki aşama sonra bir saat kenarında bırakılmış görür. Extern modül ise bağladığınız sinyalin kendisini, burada ham portu alır. Bu yüzden flip-flop'ları yanlarındaki register'lardan farklı bir çevrimde reset'ten çıkar ve SystemVerilog modülü bırakmayı kendisi senkronlamıyorsa bırakmaları saate hiç hizalı değildir; saat kenarına yakın bir bırakma recovery/removal zamanlamasını bozabilir. Verilator'ın lint'i aynı neti SYNCASYNCNET olarak raporlar. Çıktı değişmez: bu, farkın görülmesi için bir uyarıdır. Bugün senkronize kopyayı bir extern'e vermenin yolu yoktur; SystemVerilog modülünün reset bırakmasını senkronladığını ya da birkaç çevrim arayla bırakmanın bu tasarımda zararsız olduğunu denetleyin.",
+            "let det = RisePulse { clk: clk, rst: rst, level: b }   // ⚠ W3011: ham 'rst'
+reg count_r : u8 = 0                                   // rst_sync_clk üzerinden reset
+on clk { if det.rise { count_r <= count_r + 1 } }",
+            "// RisePulse 'rst' bırakmasını 'clk'ye kendisi senkronlar,
+// ya da flip-flop'larının reset'e ihtiyacı yoktur:
+let det = RisePulse { clk: clk, level: b }              // ✓",
+        ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
             "Netlist düzeyinde kullanılmayan sinyal denetimi için ayrılmıştır; bu derleyici üretmez. Sürülüp okunmayan wire W1001 ile bildirilir.",

@@ -123,6 +123,8 @@ error_codes! {
     W5001,
     // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
     W0024,
+    // Senkronize reset'li modülde ham reset extern'e gidiyor (ADR-0103)
+    W3011,
     // Volt.toml'da bilinmeyen anahtar ya da bölüm (ADR-0099)
     W0025,
 }

@@ -10,6 +10,7 @@
 //! | `binding`  | ham port → alan bağlama: belirsizlik, tür, ad çakışması | E3010, E3003 |
 //! | `share`    | tek otomatik portun iki saatte paylaşımı (R5/R5'), kök  | E3003, W3010, W3009 |
 //! | `converge` | aynı ham reset'in bir saatte iki zinciri (R6)           | E3003        |
+//! | `extern_reset` | senkronize reset'li modülde ham reset extern'e (#93) | W3011        |
 //!
 //! Geçiş saat çıkarımından SONRA, ayrı koşar (`check_trust` gibi):
 //! saat portlarının alanını `DomainResult`'tan okur, çıkarım durumuna
@@ -18,6 +19,7 @@
 
 mod binding;
 mod converge;
+mod extern_reset;
 mod facts;
 mod share;
 
@@ -99,6 +101,9 @@ impl Rdc<'_> {
             .any(|d| d.code == ErrorCode::E3010);
         if !ambiguous && !self.check_shared_ports(m, &feeds) {
             self.check_root_contract(m, &feeds);
+        }
+        if !ambiguous {
+            self.check_extern_raw_reset(m, &feeds);
         }
         for raw in 0..self.facts.modules[m].raws.len() {
             let def = self.facts.modules[m].raws[raw].def;

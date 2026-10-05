@@ -135,6 +135,7 @@ denetler.
 | [0002](ADR-0002-domain-semantigi.md) | Domain Semantiği — `@Domain` Anotasyonu ve Birleşik Domain (Saat + Sıfırlama + Güç + Güven) | Saat, sıfırlama, güç ve güven tek bir `@Domain` anotasyonunda birleşir; saat alanı uyuşmazlığı tip denetiminde yakalanır. | Kabul edildi |
 | [0047](ADR-0047-extern-domain-anotasyonu.md) | Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları | Extern modül sınırındaki portlar sembolik saat alanlarıyla anotasyonlanır. | Uygulandı |
 | [0065](ADR-0065-rdc-ve-hedefli-sdc.md) | RDC Denetimi ve Hedefli SDC Kısıtları — İki Güvenlik Ağı, İki Ayrı Yırtık | RDC denetimi (E3003) ve üretilen reset bırakma senkronizörü gelir; SDC'de hedefli kısıtlar varsayılan olur. | Uygulandı |
+| [0103](ADR-0103-extern-ham-reset-uyarisi.md) | Senkronize Reset'li Modülde Ham Reset'in Extern'e Gidişi — W3011 | Ham reset portu register'lara senkronizörle bırakılırken aynı port bir extern'e bağlanınca W3011; çıktı değişmez, senkronize kopyanın extern'e verilmesi v0.2'de ayrı karar. | Uygulandı |
 | [0088](ADR-0088-bildirimde-alan-aciklamasi.md) | Sinyal Bildirimlerinde Saat Alanı Açıklaması | `wire` / `let` / `reg` bildirimleri denetlenen bir `@Alan` saat alanı açıklaması taşıyabilir. | Uygulandı |
 
 ## Yerleşik primitifler (stdlib)

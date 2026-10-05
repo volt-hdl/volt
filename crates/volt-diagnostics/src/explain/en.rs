@@ -1284,6 +1284,17 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ one release synchronizer per clock\n}",
         )
         .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        W3011 => Explanation::new(
+            "Raw reset goes to an extern module while the module's registers use its synchronized copy",
+            "A raw reset port ('in rst : reset(...)') is connected to an extern instance, and the same module's registers on that clock are reset through the synchronizer Volt puts in front of them.",
+            "For a raw reset port Volt builds a release synchronizer per clock: the registers of the module see the reset asserted at once and released on a clock edge, two stages later. An extern module gets exactly the signal you connect, here the raw port. Its flip-flops therefore leave reset on a different cycle than the registers next to them, and their release is not aligned to the clock at all unless the SystemVerilog module synchronizes it itself; a release close to the clock edge can break recovery/removal timing. Verilator's lint reports the same net as SYNCASYNCNET. The output does not change: this is a warning so that the difference is seen. Today there is no way to hand the synchronized copy to an extern; check that the SystemVerilog module synchronizes its reset release, or that releasing a few cycles apart is harmless for this design.",
+            "let det = RisePulse { clk: clk, rst: rst, level: b }   // ⚠ W3011: raw 'rst'
+reg count_r : u8 = 0                                   // reset through rst_sync_clk
+on clk { if det.rise { count_r <= count_r + 1 } }",
+            "// RisePulse synchronizes the release of 'rst' to 'clk' itself,
+// or its flip-flops need no reset:
+let det = RisePulse { clk: clk, level: b }              // ✓",
+        ),
         W4001 => Explanation::new(
             "Unused signal",
             "Reserved for a netlist-level unused-signal check; this compiler does not emit it. A driven wire nobody reads is reported as W1001.",

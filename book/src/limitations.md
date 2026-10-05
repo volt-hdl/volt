@@ -78,6 +78,16 @@ contract. The domain keys `reset_cycles` and `reset_sequence` are
 reserved for this: writing one is `E0003` ("not supported yet"). Keep
 the reset length and order in your reset generator.
 
+**An `extern` gets the raw reset, not the synchronized one.** For a raw
+reset port (`in rst : reset(...)`) Volt puts a release synchronizer in
+front of the module's own registers. An `extern` instance connected to
+the same port gets the port itself, so its flip-flops leave reset on a
+different cycle than the registers beside it, and their release is not
+aligned to the clock unless the SystemVerilog module synchronizes it.
+Volt warns about this (`W3011`) and changes nothing in the output; there
+is no way yet to hand the synchronized copy to an `extern`. Tracked in
+[issue #93](https://github.com/volt-hdl/volt/issues/93).
+
 **No crossing report.** Volt knows every crossing, but it does not list
 them in a report. With `volt build --emit=sdc` (or `xdc`), the
 constraint file has a comment line for each crossing with its kind and

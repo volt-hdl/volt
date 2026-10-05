@@ -189,6 +189,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3008 => "Deliberate trust downgrade (declassify) — review it",
         W3009 => "Asynchronous reset release assumed to be synchronized outside the unit",
         W3010 => "Synchronous reset shared by several clock domains",
+        W3011 => "Raw reset goes to an extern module while the module's registers use its synchronized copy",
         W4001 => "Signal unread in the netlist (reserved)",
         W4002 => "Register unread in the netlist (reserved)",
         W5001 => "Contract cannot be monitored in simulation; skipped",

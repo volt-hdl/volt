@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2–5 (uygulama, ayrı PR'lar); notlar sonda
 > Önceki karar: ADR-0054 — §2 ve §6
-> İlgili: ADR-0072 (§5.3 ölü zincir kapandı), ADR-0098 (`reset_cycles`/`reset_sequence` yazılınca E0003; E3004 rezervi sürer).
+> İlgili: ADR-0072 (§5.3 ölü zincir kapandı), ADR-0098 (`reset_cycles`/`reset_sequence` yazılınca E0003; E3004 rezervi sürer), ADR-0103 (ham reset extern'e giderken W3011).
 > Tarih: 2026-09-22
 > Etkilenen (plan): volt-hir (`domain/rdc.rs` YENİ; `domain/instance.rs`
 > minimum), volt-diagnostics (E3003 etkin, W3xxx-A, W3xxx-B YENİ —

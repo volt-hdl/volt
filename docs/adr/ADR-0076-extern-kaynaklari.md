@@ -1,7 +1,7 @@
 # ADR-0076: extern Modül Kaynakları — `@source`, Extern İçi CDC ve Flop'suz Modülün Reset Portu
 
 > Statü: Uygulandı
-> İlgili: ADR-0102 (yerleşik adlı extern E1016).
+> İlgili: ADR-0102 (yerleşik adlı extern E1016), ADR-0103 (ham reset extern'e giderken W3011).
 > Tarih: 2026-09-24
 > Etkilenen: volt-hir (`extern_source.rs` — YENİ: `@source` biçim, dosya
 > ve kullanım denetimi, `resolve_in_project`, `FsSourceLocator`;
