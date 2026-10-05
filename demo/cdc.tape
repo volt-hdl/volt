@@ -3,6 +3,10 @@
 # (demo/crossing.volt -> demo/crossing_fixed.volt).
 # Recorded by demo/record.sh; see book/CONTRIBUTING-BOOK.md,
 # "The README demo".
+#
+# No colour: volt writes diagnostics without colour whatever the terminal,
+# and `volt check` takes no --color (VOLT_COLOR reaches `volt explain`
+# alone); see https://github.com/volt-hdl/volt/issues/95.
 
 Output out/cdc-demo.gif
 

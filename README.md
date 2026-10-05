@@ -133,8 +133,12 @@ naming the crossing. The files need no Volt package, include or runtime:
 Verilator 5.052, given the generated `PressCounter.sv` of the book example
 below and the SystemVerilog module it uses, reports nothing with
 `--lint-only -Wall`, and a hand-written SystemVerilog testbench drives it
-by its port names. The file header names the `.volt` source; there are no
-per-line references back to it.
+by its port names. The file header names the `.volt` source. Two kinds of
+comment point back to a source line: the expansion of a `fn` call
+(`// next(count_r) — counter.volt:32` in the `Counter.sv` of `volt new`)
+and, in the `.sva` file of `--emit=sva`, each contract property
+(`// invariant from counter.volt:25`). Registers, `on` blocks and
+assignments carry no line reference.
 
 **You can start with one module.** A Volt module drops into a
 SystemVerilog design like any other module, with one port you did not

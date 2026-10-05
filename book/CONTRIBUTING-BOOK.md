@@ -239,6 +239,11 @@ It needs Docker and bash (Git Bash on Windows). The script
    prints their output. The text under the GIF in `README.md` is this
    output; replace it when it changes.
 
+The recording has no colour: `volt check` writes its diagnostics without
+colour in a terminal too, and `--color` / `VOLT_COLOR` do not change that
+today ([issue #95](https://github.com/volt-hdl/volt/issues/95)). When they
+do, set `VOLT_COLOR=always` in the tape's hidden setup line.
+
 The tape's `Sleep` lines keep the recording under 60 seconds. When the CDC
 chapter changes its code, change `demo/crossing.volt` and
 `demo/crossing_fixed.volt` with it (`check_book.py` fails while they
