@@ -215,7 +215,8 @@ jobs:
           echo "$out"
           if [ -n "$VERSION" ]; then
             test "$code" -eq 0
-            test "$("$HOME/.volt/bin/volt" --version)" = "volt $VERSION"
+            # ADR-0104: `volt X.Y.Z`, followed by the build commit in a release.
+            test "$("$HOME/.volt/bin/volt" --version | sed -E 's/ \([0-9a-f]{7}\)$//')" = "volt $VERSION"
           else
             test "$code" -eq 1
             echo "$out" | grep -qF 'No Volt release has been published yet.'
@@ -234,7 +235,8 @@ jobs:
           # Still here: the installer did not close the session.
           if ($env:VERSION) {
             $v = volt --version
-            if ($v -ne "volt $env:VERSION") { Write-Error "got '$v', expected 'volt $env:VERSION'"; exit 1 }
+            # ADR-0104: `volt X.Y.Z`, followed by the build commit in a release.
+            if ($v -notmatch "^volt $([regex]::Escape($env:VERSION))( \([0-9a-f]{7}\))?$") { Write-Error "got '$v', expected 'volt $env:VERSION' with an optional ' (commit)'"; exit 1 }
           } else {
             if (-not $out.Contains('No Volt release has been published yet.')) { Write-Error 'no "no release yet" notice'; exit 1 }
             if ($out -match 'At line:|CategoryInfo|FullyQualifiedErrorId') { Write-Error 'a PowerShell error record was printed'; exit 1 }

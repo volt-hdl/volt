@@ -136,12 +136,14 @@ jobs:
           cd "$smoke/unpack"
           if [ "${{ matrix.archive }}" = "zip" ]; then 7z x -bso0 "$archive"; else tar -xzf "$archive"; fi
           bin="$smoke/unpack/volt-$TARGET/volt$EXE"
+          # ADR-0104: the binary names the commit it was built from.
+          commit=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD | cut -c1-7)
           PATH=$(echo "$PATH" | tr ":" "\n" | grep -v -e cargo -e rustup | paste -sd: -)
           export PATH
           if command -v cargo; then echo "::error::cargo still on PATH"; exit 1; fi
           set -x
           "$bin" --version
-          test "$("$bin" --version | tr -d "\r")" = "volt $VERSION"
+          test "$("$bin" --version | tr -d "\r")" = "volt $VERSION ($commit)"
           cd "$smoke/empty"
           "$bin" new demo
           cd demo

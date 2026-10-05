@@ -49,7 +49,7 @@ use volt_sw_emit::{EmitOpts, SwKind};
 use volt_syntax::ParseResult;
 
 #[derive(Parser)]
-#[command(name = "volt", version = volt_sv_emit::VOLT_VERSION)]
+#[command(name = "volt", version = volt_sv_emit::VOLT_VERSION_TEXT)]
 #[command(about = "Volt HDL — clock-domain-safe hardware description language")]
 #[command(after_help = "EXAMPLES:
     volt build counter.volt
@@ -679,7 +679,7 @@ fn run() -> ExitCode {
 
 /// `volt` (argümansız): sürüm + sık görevler, stdout'a, çıkış 0.
 fn print_no_command_help() {
-    let version = volt_sv_emit::VOLT_VERSION;
+    let version = volt_sv_emit::VOLT_VERSION_TEXT;
     print!(
         "{}",
         lstr!(
@@ -1273,7 +1273,7 @@ fn build(
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.display().to_string()),
-            version: volt_sv_emit::VOLT_VERSION.to_string(),
+            version: volt_sv_emit::VOLT_VERSION_TEXT.to_string(),
             style: sdc.style,
         };
         match write_constraint_outputs(target_dir, &compiled.constraints, dialects, &opts, format) {
