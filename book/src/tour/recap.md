@@ -6,16 +6,28 @@ A short look back at the Tour, and where the Tutorial picks up.
 
 </div>
 
-In about 15 minutes you have:
+<div class="before-you-start">
 
-- installed a single binary and asked `volt doctor` what works on your
-  machine;
+**Before you start**
+
+- **Window:** none. This page has nothing to type.
+- **Folder:** none. Your work is in `volt-projects`: the project `blinky`
+  and the single design in `cdc`.
+- **Running:** nothing. You may close Docker Desktop until the next
+  `volt test`.
+
+</div>
+
+In Setup you installed a single binary and asked `volt doctor` what works
+on your machine. Then, in about 15 minutes, you have:
+
 - created a project with `volt new`, checked it with `volt check` and
   turned it into readable SystemVerilog with `volt build`;
-- written a design with two clock domains, seen the compiler reject a
-  crossing without a synchronizer (`E3001`), and fixed it with `sync()`;
+- written a design with two clock domains in a folder of its own, seen
+  the compiler reject a crossing without a synchronizer (`E3001`), and
+  fixed it with `sync()`;
 - run simulation tests with `volt test`, with Verilator running in
-  Docker;
+  Docker, and read the cover summary;
 - followed a failing test to its waveform, where a state register shows
   the names of its states.
 
@@ -23,10 +35,11 @@ The commands you used:
 
 | Command | What it does | Needs |
 |---|---|---|
+| `cd FOLDER` | makes `FOLDER` the working folder of the terminal | nothing |
 | `volt new NAME` | creates a project from a template | nothing |
 | `volt check` | finds errors, writes no files | nothing |
 | `volt build` | writes SystemVerilog to `build/rtl/` | nothing |
-| `volt test` | runs the `test` blocks of the project | Verilator or Docker |
+| `volt test` | runs the `test` blocks of the project | Verilator, or Docker Desktop running |
 | `volt explain CODE` | explains an error code or a topic | nothing |
 | `volt doctor` | says which commands work here | nothing |
 

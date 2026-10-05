@@ -15,6 +15,65 @@ The main text serves both. Extra detail for one group goes into a side
 box (below). Neither group should feel the book was written for the
 other.
 
+The book does not assume that the reader knows the terminal, folders, an
+editor or how to create a file. Setup (`src/setup.md`) teaches these, and
+the pages after it link back to it.
+
+## Guided pages (checked)
+
+`src/setup.md` and every chapter in `src/tour/` are *guided pages*: a
+beginner on Windows follows them keystroke by keystroke. On top of the
+rest of this guide they follow these rules.
+
+1. **"Before you start" box.** The page opens with it, after the goal
+   paragraph and above every section and code block. It
+   says which window to use (and links Setup for how to open it), which
+   folder to be in, with the `cd` command, and what must be running (for
+   example Docker Desktop with "Engine running" when the page runs `volt
+   test`, unless Verilator is installed). End the page by saying which
+   folder the reader is left in when the next page needs another one.
+
+   ````html
+   <div class="before-you-start">
+
+   **Before you start**
+
+   - **Window:** a terminal ([how to open one](../setup.md#open-a-terminal)).
+   - **Folder:** your `blinky` project. **Type this:**
+
+     ```console
+     cd ~/volt-projects/blinky
+     ```
+
+   - **Running:** Docker Desktop, with **Engine running** in its window.
+
+   </div>
+   ````
+
+2. **Three kinds of blocks, each with a visible label** in the paragraph
+   right above it. Blocks inside side boxes are reading material and need
+   no label.
+
+   | Label | Block | Rules |
+   |---|---|---|
+   | `**Type this:**` | a command, ```` ```console ```` (or ```` ```powershell ````, ```` ```sh ````) | no `$ ` prompt and no output: copied with the copy button, it runs as it is |
+   | `**You should see:**` | what the command prints, ```` ```text,output ```` | `output` in the info string hides the copy button (`theme/volt.css`); a file the reader opens to look at is also `output` (```` ```volt,file=…,output ````) |
+   | ``**Create this file:** `name` `` | the whole file, ```` ```volt,file=name ```` | the file name in backticks after the label, equal to `file=`; link Setup's "Create a file" section (`../setup.md#create-a-file`) at a page's earliest file |
+   | ``**Replace this file:** `name` `` | the whole new file | as above, for a file the reader made earlier |
+
+3. **Windows and macOS/Linux.** When the command differs, show both as two
+   labelled blocks: `**Type this (Windows, PowerShell):**` and `**Type this
+   (macOS and Linux):**` (or separate macOS and Linux blocks). A command
+   that works everywhere, such as `cd ~/volt-projects`, is shown once. The
+   same parenthesis may follow `**You should see**`.
+
+4. **Real output.** Every "You should see" block comes from a real run,
+   on the system the page names.
+
+`book/tools/check_book.py` checks rules 1 and 2: the box, the labels, no
+`$ ` in a command block, `output` on output blocks, the file name on file
+blocks.
+
 ## Tone
 
 - Plain English. Short sentences, one idea each. Present tense, active
@@ -112,6 +171,7 @@ Attributes follow the language, separated by commas:
 | ```` ```volt,should_warn=W2010 ```` | must pass with exactly the warning `W2010` |
 | ```` ```volt,file=x_test.volt,test_fails ```` | a test file whose test is meant to fail (the checker expects `volt test` to exit 5) |
 | ```` ```volt,from=templates/minimal/counter.volt ```` | must be identical to that repository file, so a template shown in the book cannot drift from the real one |
+| ```` ```volt,file=counter.volt,output ```` | shown for reading ("You should see"), not created by the reader: checked like any block, shown without a copy button |
 
 With `--run-tests` (on in CI), every block saved as `*_test.volt` also
 runs `volt test`.
@@ -125,8 +185,10 @@ runs `volt test`.
 
 ## Command output
 
-- Copy output from a real run; never type it by hand. Keep the command
-  prompt `$ ` in `console` blocks.
+- Copy output from a real run; never type it by hand. In the whole book a
+  command block holds the command alone, with no `$ ` prompt, and the
+  output goes into a block of its own, ```` ```text,output ```` (see
+  "Guided pages" for the labels).
 - Name the environment in the chapter (operating system, how Verilator
   ran). The Tour was recorded with Volt 0.1.0 on Windows 11 with Docker
   Desktop.
@@ -147,9 +209,9 @@ example, GTKWave 3.3.116 on Linux).
 ## Building and checking locally
 
 ```console
-$ cargo build -p volt-driver --bin volt
-$ python3 book/tools/check_book.py --volt target/debug/volt
-$ python3 book/tools/check_book.py --volt target/debug/volt --run-tests   # needs Verilator; with Docker add --backend docker
-$ python3 book/tools/check_book.py --volt target/debug/volt --self-test   # the checker's own tests
-$ mdbook serve book --open
+cargo build -p volt-driver --bin volt
+python3 book/tools/check_book.py --volt target/debug/volt
+python3 book/tools/check_book.py --volt target/debug/volt --run-tests   # needs Verilator; with Docker add --backend docker
+python3 book/tools/check_book.py --volt target/debug/volt --self-test   # the checker's own tests
+mdbook serve book --open
 ```

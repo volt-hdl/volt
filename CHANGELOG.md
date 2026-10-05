@@ -25,6 +25,23 @@ toplanır.
 - `volt test`'in `Compiling` satırları öneksiz göreli yol yazar
   (`counter_test.volt`, `sim/deep_test.volt`; önceden `.\counter_test.volt`).
 
+### Belgeler — kitap okurun elinden tutuyor (2026-10-05)
+
+- Yeni **Setup** sayfası (Tur'dan önce): terminal açma, çalışma klasörü ve
+  `cd`, düzenleyici, dosya oluşturma (pano komutu, VS Code, Notepad ve
+  `.txt` tuzağı), Volt kurulumu, Docker Desktop'ın kurulu ve çalışır
+  ("Engine running") olması, `volt --version` / `volt doctor`, çıktı
+  kopyalama. Ayrıntılı "Install Volt" sayfası kitabın sonuna taşındı
+  (adresi aynı: `tour/install.html`).
+- Tur sayfaları "Before you start" kutusuyla açılır (pencere, `cd`
+  komutuyla klasör, çalışması gereken program). CDC örneği ayrı `cdc`
+  klasöründe; sonraki sayfa `blinky`'ye döner.
+- Bloklar etiketli: "Type this" (komut, `$` öneki yok), "You should see"
+  (çıktı, kopya düğmesi yok), "Create this file:" / "Replace this file:".
+  Tüm kitapta `$` önekleri kaldırıldı, çıktılar ayrı bloklarda.
+- `book/tools/check_book.py` bu kuralları Setup ve `tour/` sayfalarında
+  denetler; kurallar AGENTS.md "Book writing rules" bölümünde.
+
 ### Düzeltildi — `volt check` ve `volt test` ortak keşif (ADR-0101, 2026-10-04)
 
 - Test dosyası keşfi tek fonksiyonda (`discover_test_files`); argümansız

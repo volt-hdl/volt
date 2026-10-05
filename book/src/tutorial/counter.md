@@ -73,8 +73,15 @@ power-up.
 
 Check the file:
 
+**Type this:**
+
 ```console
-$ volt check counter.volt
+volt check counter.volt
+```
+
+**You should see:**
+
+```text,output
     Checking counter.volt
     Finished 0.00s
       Result 0 error(s), 0 warning(s)
@@ -158,8 +165,15 @@ the register when `enable` is high, and keep its value otherwise.
 
 This version has a mistake on purpose. Check it:
 
+**Type this:**
+
 ```console
-$ volt check counter.volt
+volt check counter.volt
+```
+
+**You should see:**
+
+```text,output
     Checking counter.volt
 error[E2001]: an 8-bit value does not fit in a 4-bit target
    ┌─ counter.volt:20:13
@@ -227,8 +241,15 @@ pub module Counter {
 }
 ```
 
+**Type this:**
+
 ```console
-$ volt check counter.volt
+volt check counter.volt
+```
+
+**You should see:**
+
+```text,output
     Checking counter.volt
     Finished 0.00s
       Result 0 error(s), 0 warning(s)
@@ -310,8 +331,15 @@ change: `enable` stays `false`. `step(n)` lets `n` clock edges pass. In the
 last test, 17 steps of 15 reach 255, and one more step gives 270, which
 wraps to 270 − 256 = 14.
 
+**Type this:**
+
 ```console
-$ volt test counter_test.volt
+volt test counter_test.volt
+```
+
+**You should see:**
+
+```text,output
    Compiling counter_test.volt
 running 3 tests
 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)

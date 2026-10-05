@@ -171,6 +171,38 @@ Prose in the book (`book/src/`), `README.md`, `CHANGELOG.md` and
 book; `book/CONTRIBUTING-BOOK.md` ("Words we do not use") shows how to
 rewrite a sentence without them.
 
+## Book writing rules
+
+The book's guided pages (`book/src/setup.md` and every chapter in
+`book/src/tour/`) are written for a beginner on Windows who has never
+used a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
+details and examples; `book/tools/check_book.py` enforces rules 2 and 3
+(the box, the labels, no `$ ` prompt, `output` on output blocks, the
+file name on file blocks).
+
+1. **Assume nothing about the computer.** The book does not assume that
+   the reader knows the terminal, folders, an editor or how to create a
+   file. Setup teaches them; later pages link back to it.
+2. **Every guided page opens with a "Before you start" box**
+   (`<div class="before-you-start">`): which window, which folder (with
+   the `cd` command), and what must be running (for example Docker
+   Desktop with "Engine running" when Verilator is not installed).
+3. **Three kinds of blocks, each with a visible label:**
+   - **Command**, labelled "Type this": the command alone, with no `$ `
+     prompt and no output, so that it runs as copied.
+   - **Output**, labelled "You should see": ```` ```text,output ````.
+     It is not meant to be copied; `output` hides mdBook's copy button
+     (`book/theme/volt.css`).
+   - **File**, labelled "Create this file: `<name>`" (or "Replace this
+     file:"): the file name, and on its page's earliest file a link to
+     Setup's "Create a file".
+4. **Windows and macOS/Linux.** When a command differs, show both, as two
+   labelled blocks ("Type this (Windows, PowerShell):", "Type this (macOS
+   and Linux):"). No mdBook plugin is used for this.
+5. **Output comes from a real run** on the system the page names; never
+   typed or edited by hand. The one allowed change is replacing the
+   recorder's user name in a path, which the page says.
+
 ## Machines with limited resources
 
 - Before running cargo, set:

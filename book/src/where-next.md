@@ -12,10 +12,12 @@ decisions behind the language, and the example designs.
 
 Every error and warning code has a long explanation:
 
+**Type this:**
+
 ```console
-$ volt explain E3001
-$ volt explain --list          # every code
-$ volt explain E3001 --lang=tr # in Turkish
+volt explain E3001
+volt explain --list          # every code
+volt explain E3001 --lang=tr # in Turkish
 ```
 
 Topics cover larger subjects: `getting-started`, `domains`, `contracts`,

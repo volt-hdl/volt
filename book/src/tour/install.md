@@ -8,22 +8,40 @@ You will also set up Docker, which runs the simulator for you.
 
 </div>
 
+<div class="before-you-start">
+
+**Before you start**
+
+- **Window:** a terminal: PowerShell on Windows, Terminal on macOS and
+  Linux ([how to open one](../setup.md#open-a-terminal)).
+- **Folder:** any; installing does not depend on the working folder.
+- **Running:** an internet connection.
+
+[Setup](../setup.md) already installs Volt with the one-line command and
+checks it. This page has the details: what the script changes, how to
+update or remove Volt, how to install it by hand or build it from source,
+and more about Docker.
+
+</div>
+
 The output in the Tour was recorded with Volt 0.1.0 on Windows 11, with
 Docker Desktop running the simulator. On Linux and macOS the paths use `/`
 instead of `\`; everything else looks the same.
 
 ## Install with one command
 
-**Windows** (PowerShell, no administrator rights needed):
+No administrator rights are needed.
+
+**Type this (Windows, PowerShell):**
 
 ```powershell
 irm https://volt-hdl.github.io/volt/install.ps1 | iex
 ```
 
-**Linux and macOS** (any shell):
+**Type this (macOS and Linux, any shell):**
 
-```console
-$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+```sh
+curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
 ```
 
 No `curl`? `wget -qO- https://volt-hdl.github.io/volt/install.sh | sh`
@@ -54,8 +72,15 @@ While no release is published, the command installs nothing and says
 
 In a new terminal:
 
+**Type this:**
+
 ```console
-$ volt --version
+volt --version
+```
+
+**You should see:**
+
+```text,output
 volt 0.1.0
 ```
 
@@ -103,12 +128,16 @@ an editor runs `volt lsp`) and leaves the `PATH` as it is.
 **Uninstall:** run it again with `VOLT_UNINSTALL=1`. It deletes the files
 listed above and removes the `PATH` entry or line, and nothing else:
 
+**Type this (Windows, PowerShell):**
+
 ```powershell
 $env:VOLT_UNINSTALL = 1; irm https://volt-hdl.github.io/volt/install.ps1 | iex; Remove-Item Env:VOLT_UNINSTALL
 ```
 
-```console
-$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_UNINSTALL=1 sh
+**Type this (macOS and Linux):**
+
+```sh
+curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_UNINSTALL=1 sh
 ```
 
 The script reads these settings from environment variables:
@@ -142,16 +171,25 @@ Older releases are on the
 
 ### Check the download
 
-Compare the archive with its line in `SHA256SUMS`. On Linux:
+Compare the archive with its line in `SHA256SUMS`.
 
-```console
-$ grep volt-x86_64-unknown-linux-musl.tar.gz SHA256SUMS | sha256sum -c
+**Type this (Linux):**
+
+```sh
+grep volt-x86_64-unknown-linux-musl.tar.gz SHA256SUMS | sha256sum -c
+```
+
+**You should see (Linux):**
+
+```text,output
 volt-x86_64-unknown-linux-musl.tar.gz: OK
 ```
 
 On macOS, use `shasum -a 256 -c` in place of `sha256sum -c`. On Windows,
 PowerShell prints the hash; it must equal the one in `SHA256SUMS` (the case
 of the letters does not matter):
+
+**Type this (Windows, PowerShell):**
 
 ```powershell
 (Get-FileHash volt-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash
@@ -164,9 +202,11 @@ archive was built: `gh attestation verify <archive> -R volt-hdl/volt`.
 ### Unpack it and put `volt` on your PATH
 
 **Each archive unpacks into a folder of its own**, named like the archive.
-The `volt` binary is inside that folder:
+The `volt` binary is inside that folder.
 
-```text
+**You should see (Windows archive, unpacked):**
+
+```text,output
 volt-x86_64-pc-windows-msvc/
 ├── volt.exe
 ├── LICENSE-APACHE
@@ -177,6 +217,8 @@ volt-x86_64-pc-windows-msvc/
 The binary needs nothing else: no Rust, no runtime library, no data files.
 
 **Windows.** In PowerShell, from the folder that holds the download:
+
+**Type this (Windows, PowerShell):**
 
 ```powershell
 Expand-Archive volt-x86_64-pc-windows-msvc.zip -DestinationPath $env:LOCALAPPDATA\Programs
@@ -193,12 +235,12 @@ The binary is not code-signed. If Windows SmartScreen says "Windows
 protected your PC", choose **More info → Run anyway**. You need to do this
 once.
 
-**Linux:**
+**Type this (Linux):**
 
-```console
-$ tar -xzf volt-x86_64-unknown-linux-musl.tar.gz
-$ mkdir -p ~/.local/bin
-$ mv volt-x86_64-unknown-linux-musl/volt ~/.local/bin/
+```sh
+tar -xzf volt-x86_64-unknown-linux-musl.tar.gz
+mkdir -p ~/.local/bin
+mv volt-x86_64-unknown-linux-musl/volt ~/.local/bin/
 ```
 
 Most distributions put `~/.local/bin` on the `PATH` when it exists; you may
@@ -206,13 +248,13 @@ need to log in again. If `volt` is still not found, add
 `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` (or your shell's
 startup file).
 
-**macOS:**
+**Type this (macOS):**
 
-```console
-$ tar -xzf volt-aarch64-apple-darwin.tar.gz
-$ xattr -d com.apple.quarantine volt-aarch64-apple-darwin/volt
-$ mkdir -p ~/.local/bin
-$ mv volt-aarch64-apple-darwin/volt ~/.local/bin/
+```sh
+tar -xzf volt-aarch64-apple-darwin.tar.gz
+xattr -d com.apple.quarantine volt-aarch64-apple-darwin/volt
+mkdir -p ~/.local/bin
+mv volt-aarch64-apple-darwin/volt ~/.local/bin/
 ```
 
 Use `x86_64-apple-darwin` in these names on an Intel Mac, and add
@@ -226,12 +268,15 @@ install script does), `xattr` says so and you can go on.
 ## Build from source
 
 For contributors, for platforms without a prebuilt binary, and while no
-release is published. You need [Rust](https://rustup.rs) (stable):
+release is published. You need [Rust](https://rustup.rs) (stable) and
+[Git](https://git-scm.com/). The commands are the same on every system:
+
+**Type this:**
 
 ```console
-$ git clone https://github.com/volt-hdl/volt
-$ cd volt
-$ cargo install --locked --path crates/volt-driver
+git clone https://github.com/volt-hdl/volt
+cd volt
+cargo install --locked --path crates/volt-driver
 ```
 
 `cargo install` puts `volt` into `~/.cargo/bin` (on Windows
@@ -252,10 +297,18 @@ else.
 ## Ask `volt doctor`
 
 `volt doctor` lists every command and whether it can run on this machine.
-Here it is on Windows before Docker was started:
+Here it is on Windows 11 with Docker Desktop installed but not started
+(your own user folder in place of `C:\Users\you`).
+
+**Type this:**
 
 ```console
-$ volt doctor
+volt doctor
+```
+
+**You should see (Docker Desktop not running):**
+
+```text,output
 volt 0.1.0 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
@@ -267,8 +320,8 @@ volt 0.1.0 (windows-x86_64)
     see: volt explain verify-setup
 - timing (optional) — OpenSTA not found; checks generated .sdc files
 - driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
-! docker — 29.7.2 installed, daemon did not answer within 5 s
-- project — no Volt.toml (searched up to the filesystem root); single .volt files still work
+! docker — 29.8.1 installed, daemon not running (start Docker Desktop or the docker service)
+- project — no Volt.toml (search stopped at the home directory C:\Users\you); single .volt files still work
 ```
 
 `volt build`, `volt check` and `volt explain` work already. Simulation
@@ -297,11 +350,19 @@ running, Volt runs the tool in a container on its own and says so in one
 line.
 
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-on Windows or macOS, or Docker Engine on Linux, and start it. Then run
-`volt doctor` again:
+on Windows or macOS, or Docker Engine on Linux, and start it. Wait until
+the Docker Desktop window says **Engine running**. Then run `volt doctor`
+again.
+
+**Type this:**
 
 ```console
-$ volt doctor
+volt doctor
+```
+
+**You should see (Docker Desktop running):**
+
+```text,output
 volt 0.1.0 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
@@ -309,8 +370,8 @@ volt 0.1.0 (windows-x86_64)
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
 - timing (optional) — OpenSTA not found; checks generated .sdc files
 - driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
-✓ docker — 29.7.2, daemon running
-- project — no Volt.toml (searched up to the filesystem root); single .volt files still work
+✓ docker — 29.8.1, daemon running
+- project — no Volt.toml (search stopped at the home directory C:\Users\you); single .volt files still work
 ```
 
 **Expect a download on initial use.** The images are downloaded once,
@@ -318,7 +379,7 @@ when a command needs them: about 250 MB for simulation
 on your initial `volt test`, about 404 MB for formal verification on your
 initial `volt verify`, so about 650 MB in total. Volt prints the size
 before the download and the time after it. On our connection the
-simulation image took 45 seconds; on a slow day (0.5 MB/s) the same
+simulation image took between 45 and 57 seconds; on a slow day (0.5 MB/s) the same
 machine took 8½ minutes for the simulation image and 12 minutes for the
 formal one. The Tour needs just the simulation image.
 
