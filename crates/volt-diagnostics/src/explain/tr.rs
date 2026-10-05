@@ -303,6 +303,21 @@ match x {
     _     => { }
 }",
         ),
+        E1016 => Explanation::new(
+            "Modül bir standart kütüphane modülünün adını taşıyor",
+            "Bir 'extern module' ya da başka bir modülün içine yerleştirilen bir modül, standart kütüphanenin yerleşik bir modülüyle aynı adı taşıyor (EdgeDetect, SyncFifo, Counter, AsyncFifo, ...).",
+            "Standart kütüphanenin modülleri derleyicinin içindedir: 'let e = EdgeDetect { ... }' yerleşik kenar algılayıcıyı yerinde açar. Kendi modülünüz aynı adı taşıdığında, hiçbir şey söylenmeden yerleşik olan alınıyordu: extern'ün SystemVerilog'u hiç kullanılmıyor, derleme kimsenin bildirmediği telleri okuyan SystemVerilog ile başarılı olabiliyor ya da yerleşiğin generic argümanlarını isteyen bir hatayla düşüyordu. Volt artık bu adı reddeder. 'extern module' bildirildiği yerde raporlanır; bir Volt modülü yalnız başka bir modül onu yerleştirdiğinde, böylece 'Counter' adlı bir üst modül ('volt new' şablonu) geçerli kalır. Bir extern'ün adı SystemVerilog modülünün adıdır; 'Counter' adlı mevcut bir SystemVerilog modülü doğrudan bildirilemez: onu yerleştiren, başka adlı küçük bir SystemVerilog sarmalayıcı modül yazın ve sarmalayıcıyı bildirin. 'volt explain stdlib' yerleşik modülleri listeler.",
+            "extern module Counter {       // ✗ E1016: yerleşik Counter<WIDTH>
+    in  clk : clock
+    out n   : u4
+}",
+            "// rtl/counter_wrap.sv: module CounterWrap(...); Counter u (...); endmodule
+@source(\"rtl/counter_wrap.sv\", \"rtl/counter.sv\")
+extern module CounterWrap {   // ✓
+    in  clk : clock
+    out n   : u4
+}",
+        ),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(

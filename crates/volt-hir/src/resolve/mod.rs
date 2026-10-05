@@ -40,6 +40,7 @@ mod path;
 mod pattern;
 mod prelude;
 mod scope;
+mod stdlib_name;
 mod stmt;
 mod suggest;
 mod usage;

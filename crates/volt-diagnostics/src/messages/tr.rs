@@ -48,6 +48,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1013 => "Ad, üretilen bir dilin ayrılmış sözcüğü",
         E1014 => "İki @mmio adı register haritası sürücüsünde aynı tanımlayıcıyı üretiyor",
         E1015 => "Desendeki ad bir sabit olmalı",
+        E1016 => "Extern ya da örneklenen modül bir standart kütüphane modülünün adını taşıyor",
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => "Bit genişliği uyumsuzluğu",

@@ -303,6 +303,21 @@ match x {
     _     => { }
 }",
         ),
+        E1016 => Explanation::new(
+            "Module has the name of a standard library module",
+            "An 'extern module', or a module placed in another module, is named like a built-in module of the standard library (EdgeDetect, SyncFifo, Counter, AsyncFifo, ...).",
+            "The standard library's modules are built into the compiler: 'let e = EdgeDetect { ... }' expands the built-in edge detector in place. When a module of your own had the same name, the built-in was taken instead, without a word: the extern's SystemVerilog was never used, and the build could succeed with SystemVerilog that reads wires nobody declares, or fail with an error about the built-in's generic arguments. Volt now refuses the name. An 'extern module' is reported where it is declared; a Volt module only where another module places it, so a top module named 'Counter' (the 'volt new' template) stays valid. The name of an extern is the name of its SystemVerilog module, so an existing SystemVerilog module called 'Counter' cannot be declared directly: write a small SystemVerilog wrapper module with another name that places it, and declare the wrapper. 'volt explain stdlib' lists the built-in modules.",
+            "extern module Counter {       // ✗ E1016: the built-in Counter<WIDTH>
+    in  clk : clock
+    out n   : u4
+}",
+            "// rtl/counter_wrap.sv: module CounterWrap(...); Counter u (...); endmodule
+@source(\"rtl/counter_wrap.sv\", \"rtl/counter.sv\")
+extern module CounterWrap {   // ✓
+    in  clk : clock
+    out n   : u4
+}",
+        ),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(

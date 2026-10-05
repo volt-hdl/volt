@@ -354,13 +354,21 @@ fn edge_detect_does_not_warn_w3005() {
 // ═══ Gölgeleme ════════════════════════════════════════════════════
 
 #[test]
-fn user_module_named_sync_fifo_wins_over_builtin() {
+fn user_module_named_sync_fifo_is_e1016_where_instantiated() {
+    // ADR-0102: HIR kullanıcı modülünü kabul ediyordu ama SV üretimi
+    // yerleşiği seçiyordu (main'de E0003 "'SyncFifo' without a <T> type
+    // argument"). Örnekleme yeri artık E1016.
     let src = "module SyncFifo { in clk : clock in a : bool out b : bool b = a }\n\
                module M { in clk : clock in x : bool out y : bool \
                let u = SyncFifo { clk: clk, a: x } y = u.b }";
     let parsed = parse(FileId(0), src);
     let result = analyze(&parsed.ast);
-    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    let errors: Vec<_> = result
+        .error_codes()
+        .into_iter()
+        .filter(|c| c.starts_with('E'))
+        .collect();
+    assert_eq!(errors, vec!["E1016"], "{:?}", result.error_codes());
 }
 
 // ═══ Struct / enum öğe tipi (ADR-0087) ═══════════════════════════

@@ -146,6 +146,7 @@ denetler.
 | [0049](ADR-0049-domain-aware-bellek.md) | Domain-Aware Bellek — `AsyncDualPortRam<T, DEPTH>` | `AsyncDualPortRam<T, DEPTH>` iki saat alanlı yerleşik bellektir. | Uygulandı |
 | [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı | `Handshake<T>` valid/ready el sıkışmasını otomatik protokol kontratlarıyla yerleşik bundle olarak sunar. | Uygulandı |
 | [0087](ADR-0087-primitif-struct-ogeleri.md) | Yerleşik Primitiflerde Struct / Enum Öğe Tipi | Yerleşik primitifler struct/enum öğe tipini tek paketlenmiş sözcük olarak saklar. | Uygulandı |
+| [0102](ADR-0102-stdlib-adli-kullanici-modulu.md) | Standart Kütüphane Adını Taşıyan Kullanıcı Modülü — E1016 | Yerleşik adlı `extern module` bildirimde, yerleşik adlı Volt modülü örneklendiği yerde E1016; yerleşik artık sessizce yerine geçmez. Üst modül olarak bu ad geçerli kalır. | Uygulandı |
 
 ## Güven ve bilgi akışı
 

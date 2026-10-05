@@ -207,17 +207,23 @@ fn fifo_output_field_carries_read_domain() {
 }
 
 #[test]
-fn user_module_named_like_builtin_wins() {
-    // Kullanıcı 'PulseSync' adında modül tanımlarsa yerleşik devreye girmez:
-    // bilinmeyen port E1009 kullanıcı modülüne göre raporlanır, W3005 üretilmez.
+fn user_module_named_like_builtin_is_e1016_where_instantiated() {
+    // ADR-0102: kullanıcının 'PulseSync' modülü HIR'da yerleşiği gölgeliyordu
+    // ama SV üretimi yerleşiği seçiyordu (main'de E4011 "port 'src_clk' of
+    // 'PulseSync'"). Örnekleme yeri artık E1016; yerleşiğin W3005'i yok.
     let src = "module PulseSync { in clk : clock in a : bool out b : bool b = a }\n\
                module M { in clk : clock in x : bool out y : bool \
                let u = PulseSync { clk: clk, a: x } y = u.b }";
     let result = check(src);
-    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    let errors: Vec<_> = result
+        .error_codes()
+        .into_iter()
+        .filter(|c| c.starts_with('E'))
+        .collect();
+    assert_eq!(errors, vec!["E1016"], "{:?}", result.error_codes());
     assert!(
         !result.error_codes().contains(&"W3005"),
-        "kullanıcı modülü yerleşiği gölgelemeli: {:?}",
+        "yerleşik denetimi koşmamalı: {:?}",
         result.error_codes()
     );
 }
