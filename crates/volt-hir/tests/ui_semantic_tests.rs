@@ -322,8 +322,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           kontrat), 118 let genişliği + üretilen ad tekilleştirme,
     // ADR-0083: 119-123 match ifadesi (modül, blok, fn, tip itme + struct,
     //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
-    //           127 const'ta if/match ifadesi (Aşama 3).
-    assert_eq!(checked, 117);
+    //           127 const'ta if/match ifadesi (Aşama 3);
+    // #80: 132 tipsiz literal let (W2012, i32 tel).
+    assert_eq!(checked, 118);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

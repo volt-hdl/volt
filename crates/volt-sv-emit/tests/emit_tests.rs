@@ -379,9 +379,13 @@ fn bool_literals() {
 }
 
 #[test]
-fn ambiguous_literal_is_e2005() {
-    // let genişliği yalnız literalden çıkarılamaz → E2005, tahmin yok
-    assert!(emit_codes("module M { let x = 0 }").contains(&"E2005"));
+fn unsized_literal_let_is_an_i32_wire() {
+    // type-inference.md §5 (W2012): soneksiz literal `let` i32'dir — bu
+    // tahmin değil, tip denetiminin kuralı. Eski E2005 aynı satıra W2012
+    // ile birlikte düşüyordu (#80).
+    assert!(!emit_codes("module M { let x = 0 }").contains(&"E2005"));
+    let out = sv("module M { out y : i32 let x = 0 y = x }");
+    assert!(out.contains("wire signed [31:0] x = 32'sd0;"), "{out}");
 }
 
 // ═══ Doc yorumları (İ5) ═══════════════════════════════════════════
