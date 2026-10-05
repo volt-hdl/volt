@@ -9,14 +9,52 @@ SystemVerilog.
 
 </div>
 
+<div class="before-you-start">
+
+**Before you start**
+
+- **Window:** a terminal ([how to open one](../setup.md#open-a-terminal))
+  and your editor.
+- **Folder:** your `volt-projects` folder. This chapter makes a new folder
+  there, `cdc`, next to `blinky`. **Type this:**
+
+  ```console
+  cd ~/volt-projects
+  ```
+
+- **Running:** nothing else. This page does not need Docker.
+
+</div>
+
+The output on this page was recorded with Volt 0.1.0 in PowerShell on
+Windows 11.
+
 ## Two clocks
 
 Real designs often have more than one clock: a fast one for the core, a
 slower one for a peripheral. Each clock, with the registers it drives, is
 a *clock domain*.
 
-In the `blinky` project, create a file `crossing.volt`. A button is
-sampled by the fast clock; a LED is driven by the slow clock:
+This design is a single file, not a project, so it gets a folder of its
+own. Make the folder `cdc` and go into it:
+
+**Type this:**
+
+```console
+mkdir cdc
+```
+
+**Type this:**
+
+```console
+cd cdc
+```
+
+In this folder, create the file `crossing.volt` (with the clipboard
+command, VS Code or Notepad, as [Setup](../setup.md#create-a-file) shows).
+A button is sampled by the fast clock; a LED is driven by the slow clock:
+
+**Create this file:** `crossing.volt`
 
 ```volt,file=crossing.volt,should_fail=E3001
 // A button sampled in one clock domain drives a LED in another.
@@ -57,10 +95,18 @@ each port into one of them. The reset `rst` is shared: Volt synchronizes it
 to each clock by itself. The register `pressed_r` belongs to `Fast`,
 because `on fast_clk` updates it; `led_r` belongs to `Slow`.
 
-This design is wrong on purpose. Check it:
+This design is wrong on purpose. Check it. Because the folder has no
+`Volt.toml`, the command names the file:
+
+**Type this:**
 
 ```console
-$ volt check crossing.volt
+volt check crossing.volt
+```
+
+**You should see:**
+
+```text,output
     Checking crossing.volt
 error[E3001]: direct assignment between clock domains
    ┌─ crossing.volt:27:9
@@ -82,7 +128,7 @@ error[E3001]: direct assignment between clock domains
    = for more: volt explain E3001
 
 
-    Finished 0.01s
+    Finished 0.00s
       Result 1 error(s), 0 warning(s)
 ```
 
@@ -108,9 +154,14 @@ find in the lab and why Volt rejects it at compile time.
 
 ## The fix
 
-`sync()` builds the synchronizer. Do what the help line says: add a line
-above the `on` block that brings `pressed_r` into the `Slow` domain, and
-read that value under `slow_clk` (here it is named `pressed_s`):
+`sync()` builds the synchronizer. Do what the help line says: add the line
+`let pressed_r_sync = sync(pressed_r, slow_clk)` above the `on slow_clk`
+block, which brings `pressed_r` into the `Slow` domain, and read
+`pressed_r_sync` instead of `pressed_r` under `slow_clk`. The name
+`pressed_r_sync` is the one the help line suggests; any free name works,
+as long as both lines use the same one.
+
+**Replace this file:** `crossing.volt`
 
 ```volt,file=crossing.volt
 // A button sampled in one clock domain drives a LED in another.
@@ -137,11 +188,11 @@ pub module Crossing {
         pressed_r <= button
     }
 
-    let pressed_s = sync(pressed_r, slow_clk)
+    let pressed_r_sync = sync(pressed_r, slow_clk)
 
     reg led_r : bool = false
     on slow_clk {
-        led_r <= pressed_s
+        led_r <= pressed_r_sync
     }
 
     led = led_r
@@ -152,18 +203,46 @@ pub module Crossing {
 it is not supported yet, which is why the help line puts it above the
 block. Check again:
 
+**Type this:**
+
 ```console
-$ volt check crossing.volt
+volt check crossing.volt
+```
+
+**You should see:**
+
+```text,output
     Checking crossing.volt
     Finished 0.00s
       Result 0 error(s), 0 warning(s)
        Next: volt build crossing.volt   (emit SystemVerilog)
 ```
 
-`volt build crossing.volt` writes `build/rtl/Crossing.sv`. The `sync()`
-line became two flip-flops on `slow_clk` (output trimmed):
+Now write the SystemVerilog:
 
-```systemverilog
+**Type this:**
+
+```console
+volt build crossing.volt
+```
+
+**You should see:**
+
+```text,output
+   Compiling crossing.volt
+    Finished 0.00s (1 source file(s), 1 SV file(s))
+     Output build\rtl\Crossing.sv (86 lines)
+       Next: volt run crossing.volt      (simulate)
+             volt verify crossing.volt   (prove contracts)
+```
+
+Open `build/rtl/Crossing.sv` (in the `cdc` folder) in your editor. The
+`sync()` line became two flip-flops on `slow_clk`. This is a part of the
+file (output trimmed):
+
+**You should see:**
+
+```systemverilog,output
     // CDC synchronizer: pressed_r -> slow_clk
     logic sync_pressed_r_stage0;
     logic sync_pressed_r_stage1;
@@ -178,12 +257,19 @@ line became two flip-flops on `slow_clk` (output trimmed):
         end
     end
 
-    assign pressed_s = sync_pressed_r_stage1;
+    assign pressed_r_sync = sync_pressed_r_stage1;
 ```
 
 The file also holds one reset synchronizer per clock
 (`rst_sync_fast_clk_stage1`, `rst_sync_slow_clk_stage1`): the shared `rst`
-is asserted at once but released in step with each clock.
+is asserted at once but released in step with each clock. Their
+`always_ff` blocks react to `rst` directly (`or posedge rst`) although
+both domains say `reset = sync`. This is on purpose: the reset takes
+effect even while a clock is stopped, and its release is still aligned to
+each clock, so every register of a domain sees a synchronous reset and
+leaves it on the same clock edge.
+
+You are in the `cdc` folder. The next chapter goes back to `blinky`.
 
 <div class="box from-sv">
 

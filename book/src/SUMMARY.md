@@ -1,10 +1,10 @@
 # Summary
 
 [Introduction](introduction.md)
+[Setup](setup.md)
 
 # Part I — Tour (15 minutes)
 
-- [Install Volt](tour/install.md)
 - [A project in three commands](tour/new-check-build.md)
 - [A clock domain crossing error](tour/cdc-error.md)
 - [Tests and waveforms](tour/tests-and-waveforms.md)
@@ -35,3 +35,4 @@
 [Glossary](glossary.md)
 [Where to go next](where-next.md)
 [Known limitations](limitations.md)
+[Install Volt](tour/install.md)

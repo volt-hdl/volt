@@ -1,16 +1,24 @@
 # Introduction
 
-Volt is a hardware description language. You describe digital circuits in
-a Rust-like syntax, and the compiler writes readable SystemVerilog for your
+Volt is a command-line tool: it has no window of its own. You write your
+designs in a text editor and run `volt` commands in a terminal (PowerShell
+on Windows, Terminal on macOS and Linux). [Setup](setup.md) shows how,
+step by step, if you have never used a terminal.
+
+Volt is also the name of the language those designs are written in, a
+hardware description language. You describe digital circuits in a
+Rust-like syntax, and the compiler writes readable SystemVerilog for your
 FPGA or ASIC tools. Clock domains are part of the type system: a signal
 that crosses from one clock domain to another without a synchronizer is a
 compile error.
 
-This book teaches Volt by building things. It has three parts:
+This book teaches Volt by building things. [Setup](setup.md) gets your
+computer ready: a terminal, a folder, an editor, Volt and Docker Desktop.
+Then come three parts:
 
-- **Part I, the Tour**, takes about 15 minutes. You install Volt, create a
-  project, meet a clock domain crossing error, fix it, run tests and look
-  at a waveform.
+- **Part I, the Tour**, takes about 15 minutes. You create a project,
+  meet a clock domain crossing error, fix it, run tests and look at a
+  waveform.
 - **Part II, the Tutorial**, builds one design per chapter: a counter, a
   state machine, a UART, a design with two clocks, and more.
 - **Part III, the Cookbook**, is a set of recipes for common hardware
@@ -56,6 +64,11 @@ Every Volt example in this book is checked by `volt check` in continuous
 integration, and the tests in it run in Verilator. Some examples are
 wrong on purpose, to show an error; the text says so each time. Command
 output is copied from real runs; the chapter says where it ran.
+
+Setup and the Tour label every block: **Type this** is a command to
+copy, **You should see** is what it prints, and **Create this file**
+gives a file's name and contents. [Setup](setup.md#the-three-kinds-of-blocks-in-this-book)
+explains the three.
 
 The source of this book is in the
 [`book/`](https://github.com/volt-hdl/volt/tree/main/book) directory of the

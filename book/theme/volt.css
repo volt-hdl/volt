@@ -53,6 +53,33 @@
     font-style: italic;
 }
 
+/* "Before you start" box at the top of every guided page
+ * (CONTRIBUTING-BOOK.md, "Guided pages"): which window, which folder,
+ * what must be running. A dashed border sets it apart from the side
+ * boxes, which a reader may skip; this one is not skippable. */
+.before-you-start {
+    margin: 1.4em 0;
+    padding: 0.2em 1.1em;
+    border: 2px dashed rgba(128, 128, 128, 0.55);
+    border-radius: 4px;
+}
+
+.before-you-start > p:first-child > strong:first-child {
+    display: block;
+    font-size: 1.05em;
+}
+
+/* "You should see" blocks (```text,output): output to compare with, not
+ * to type. They get no copy button, so nobody pastes output into a
+ * terminal by mistake. */
+pre:has(> code.output) > .buttons > .clip-button {
+    display: none;
+}
+
+pre > code.output {
+    border-left: 4px solid rgba(128, 128, 128, 0.45);
+}
+
 /* Screenshots keep their size on wide screens. */
 .content img.screenshot {
     max-width: 100%;

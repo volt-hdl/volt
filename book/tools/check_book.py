@@ -21,12 +21,22 @@ Code blocks (CONTRIBUTING-BOOK.md, "Code blocks"). The info string is
                        test (exit 5) instead of passing
     from=PATH          the block must equal this repository file (a template
                        or an example shown verbatim stays in sync with it)
+    output             shown for reading ("You should see"), not created by
+                       the reader; the theme hides its copy button
 
 Every other ```volt block must pass `volt check` with no error and no
 warning. With --run-tests, every block saved as *_test.volt also runs
 `volt test` (Verilator, locally or through Volt's Docker bridge).
 
 Prose outside code is checked for the words the style guide bans.
+
+Guided pages (setup.md and every chapter in tour/; CONTRIBUTING-BOOK.md,
+"Guided pages") follow three more rules:
+    1. a command block ("Type this") has no "$ " prompt;
+    2. the page opens with a "Before you start" box;
+    3. every block outside a side box carries a label: "Type this", "You
+       should see" (info string has `output`) or "Create this file:" /
+       "Replace this file:" followed by the file name.
 """
 
 from __future__ import annotations
@@ -62,7 +72,16 @@ BANNED_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in BANNED_WORDS) + r
 
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})(.*)$")
 DIAG_RE = re.compile(r"^(error|warning)\[([EW]\d{4})\]", re.MULTILINE)
-KNOWN_ATTRS = {"file", "should_fail", "should_warn", "test_fails", "from"}
+KNOWN_ATTRS = {"file", "should_fail", "should_warn", "test_fails", "from", "output"}
+
+# Guided pages: the pages a beginner follows step by step.
+GUIDED_DIRS = {SRC_DIR / "tour"}
+GUIDED_FILES = {SRC_DIR / "setup.md"}
+GUIDED_MARK = "guided page"  # a self-test fixture's top line opts in
+BEFORE_BOX = '<div class="before-you-start">'
+LABEL_RE = re.compile(r"\*\*(Type this|You should see|Create this file|Replace this file)( \([^)]*\))?:\*\*(.*)", re.DOTALL)
+FILE_NAME_RE = re.compile(r"^\s*`([^`]+)`")
+PROMPT_RE = re.compile(r"^\s*\$ ")
 
 EXIT_TESTS_FAILED = 5
 
@@ -156,6 +175,93 @@ def lint_prose(path: Path, prose: list[tuple[int, str]], report: Report) -> None
             report.fail(path, line_no, f"banned word '{m.group(1)}' (CONTRIBUTING-BOOK.md, 'Words we do not use')")
 
 
+def is_guided(path: Path) -> bool:
+    path = path.resolve()
+    if path in {p.resolve() for p in GUIDED_FILES} or path.parent in {d.resolve() for d in GUIDED_DIRS}:
+        return True
+    if path.parent == SELFTEST_DIR.resolve():
+        head = path.read_text(encoding="utf-8").splitlines()[:1]
+        return bool(head) and GUIDED_MARK in head[0]
+    return False
+
+
+def lint_guided_page(path: Path, report: Report) -> None:
+    """The three rules of guided pages (see the module docstring)."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    seen_box = False
+    in_side_box = False
+    i = 0
+    while i < len(lines):
+        text = lines[i]
+        stripped = text.strip()
+        if stripped == BEFORE_BOX:
+            seen_box = True
+            if not any(t.strip() == "**Before you start**" for t in lines[i + 1:i + 4]):
+                report.fail(path, i + 1, "the 'Before you start' box starts with the line **Before you start**")
+        elif stripped.startswith('<div class="box'):
+            in_side_box = True
+        elif stripped == "</div>":
+            in_side_box = False
+        m = FENCE_RE.match(text)
+        if (text.startswith("## ") or m) and not seen_box:
+            report.fail(path, i + 1, f"a guided page opens with a 'Before you start' box ({BEFORE_BOX}) above its first section and code block")
+            seen_box = True  # report it once
+        if not m:
+            i += 1
+            continue
+        fence, info = m.group(2), m.group(3).strip()
+        start = i
+        body: list[str] = []
+        i += 1
+        while i < len(lines) and not (lines[i].strip().startswith(fence) and lines[i].strip().strip(fence[0]) == ""):
+            body.append(lines[i])
+            i += 1
+        i += 1
+        # Side boxes are skippable reading; their code is never a step.
+        if not in_side_box:
+            check_block_label(path, lines, start, info, body, report)
+
+
+def check_block_label(path: Path, lines: list[str], start: int, info: str, body: list[str], report: Report) -> None:
+    paragraph: list[str] = []
+    j = start - 1
+    while j >= 0 and not lines[j].strip():
+        j -= 1
+    while j >= 0 and lines[j].strip() and not FENCE_RE.match(lines[j]):
+        paragraph.insert(0, lines[j].strip())
+        j -= 1
+    label = LABEL_RE.search(" ".join(paragraph))
+    parts = [p.strip() for p in info.split(",") if p.strip()]
+    is_output = "output" in parts[1:]
+    line = start + 1
+    if not label:
+        report.fail(path, line, "block without a label: the paragraph above it says **Type this:**, **You should see:**, "
+                                "or **Create this file:** / **Replace this file:** followed by the file name")
+        return
+    kind, rest = label.group(1), label.group(3)
+    if kind == "Type this":
+        if is_output:
+            report.fail(path, line, "a 'Type this' block is a command: drop `output` from its info string")
+        for k, text in enumerate(body):
+            if PROMPT_RE.match(text):
+                report.fail(path, line + 1 + k, "command block line starts with the prompt '$ ': write the command alone "
+                                                "and put its output in a 'You should see' block")
+    elif kind == "You should see":
+        if not is_output:
+            report.fail(path, line, "a 'You should see' block needs `output` in its info string (```text,output) "
+                                    "so that the theme hides its copy button")
+    else:
+        name = FILE_NAME_RE.match(rest)
+        if not name:
+            report.fail(path, line, f"'{kind}:' is followed by the file name in backticks, e.g. **{kind}:** `crossing.volt`")
+        elif parts and parts[0] == "volt":
+            attrs = dict(p.partition("=")[::2] for p in parts[1:])
+            if attrs.get("file") != name.group(1):
+                report.fail(path, line, f"the label names `{name.group(1)}` but the block is file={attrs.get('file')}")
+        if is_output:
+            report.fail(path, line, f"a '{kind}' block is created by the reader: drop `output` from its info string")
+
+
 # Where `volt test` runs Verilator: set explicitly (never the automatic
 # fallback), so a missing Verilator fails the check instead of silently
 # starting Docker containers. `--backend docker` opts in.
@@ -238,6 +344,8 @@ def check_book(volt: str, files: list[Path], run_tests: bool) -> Report:
         for path in files:
             blocks, prose = parse_markdown(path, report)
             lint_prose(path, prose, report)
+            if is_guided(path):
+                lint_guided_page(path, report)
             # One workspace per book directory: the chapters of a part build
             # on the same project, as the reader's own folder does.
             workdir = workdirs.get(path.parent)
