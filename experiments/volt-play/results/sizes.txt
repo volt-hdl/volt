@@ -1,0 +1,11 @@
+$ node web/sizes.cjs (zlib gzip -9 / brotli -11; z = opt-level "z", 3 = opt-level 3; opt = wasm-opt 132 -Oz / -O3)
+pkg-z/volt_play_bg.wasm      ham  1719 KiB  gzip-9   556 KiB  brotli-11   442 KiB
+pkg-z/opt.wasm               ham  1539 KiB  gzip-9   608 KiB  brotli-11   474 KiB
+pkg-3/volt_play_bg.wasm      ham  2483 KiB  gzip-9   874 KiB  brotli-11   645 KiB
+pkg-3/opt.wasm               ham  2348 KiB  gzip-9   879 KiB  brotli-11   650 KiB
+pkg/volt_play_bg.wasm        ham  1720 KiB  gzip-9   556 KiB  brotli-11   443 KiB
+pkg/volt_play.js             ham     8 KiB  gzip-9     2 KiB  brotli-11     2 KiB
+
+$ node web/sections.cjs web/dist/pkg/volt_play_bg.wasm
+code      1443 KiB
+data      268 KiB

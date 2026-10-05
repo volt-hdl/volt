@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volt Playground (experiment)</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1b1f24; --muted: #59636e; --line: #d1d9e0;
+    --panel: #f6f8fa; --err: #cf222e; --warn: #9a6700; --accent: #0969da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d;
+      --panel: #151b23; --err: #ff7b72; --warn: #d29922; --accent: #4493f8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.45 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+           padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  header .status { color: var(--muted); margin-left: auto; font-size: 12px; }
+  select, button { font: inherit; padding: 4px 8px; background: var(--panel);
+                   color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 50px); }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; height: auto; } }
+  section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+               color: var(--muted); margin: 0; padding: 6px 16px; background: var(--panel);
+               border-bottom: 1px solid var(--line); }
+  textarea, pre { margin: 0; padding: 12px 16px; font: 13px/1.5 ui-monospace, monospace;
+                  background: var(--bg); color: var(--fg); border: 0; }
+  textarea { flex: 1; resize: none; min-height: 300px; outline: none; tab-size: 4; }
+  .right { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+  #diags { max-height: 40vh; overflow: auto; border-bottom: 1px solid var(--line); }
+  #diags ul { list-style: none; margin: 0; padding: 0; }
+  #diags li { padding: 6px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  #diags li:hover { background: var(--panel); }
+  #diags .code { font-family: ui-monospace, monospace; font-weight: 600; }
+  #diags .error .code { color: var(--err); }
+  #diags .warning .code { color: var(--warn); }
+  #diags .loc { color: var(--muted); font-family: ui-monospace, monospace; }
+  #diags details pre { padding: 8px 0 0; background: transparent; overflow-x: auto; }
+  #diags .ok { color: var(--muted); padding: 8px 16px; }
+  #sv { overflow: auto; flex: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Volt Playground</h1>
+  <label>Example
+    <select id="example">
+      <option value="blinky">blinky</option>
+      <option value="cdc_error">CDC error</option>
+      <option value="counter">counter</option>
+      <option value="mmio_blinker">@mmio blinker</option>
+    </select>
+  </label>
+  <label>Language
+    <select id="lang"><option value="en">English</option><option value="tr">Türkçe</option></select>
+  </label>
+  <span class="status" id="status">loading…</span>
+</header>
+<main>
+  <section>
+    <h2>main.volt</h2>
+    <textarea id="src" spellcheck="false" aria-label="Volt source"></textarea>
+  </section>
+  <section class="right">
+    <div id="diags"><h2>Diagnostics</h2><div id="diag-list"></div></div>
+    <div style="display:flex;flex-direction:column;min-height:0">
+      <h2>Generated SystemVerilog</h2>
+      <pre id="sv"></pre>
+    </div>
+  </section>
+</main>
+<script type="module">
+  import init, { compile_json, version } from './pkg/volt_play.js';
+
+  const $ = (id) => document.getElementById(id);
+  const t0 = performance.now();
+  await init();
+  const tLoad = performance.now() - t0;
+  window.voltPlayLoadMs = tLoad;
+
+  function lineStart(text, line) {
+    let pos = 0;
+    for (let i = 1; i < line; i++) pos = text.indexOf('\n', pos) + 1;
+    return pos;
+  }
+
+  function render(out) {
+    const list = $('diag-list');
+    list.textContent = '';
+    if (out.diagnostics.length === 0) {
+      const p = document.createElement('div');
+      p.className = 'ok';
+      p.textContent = 'No diagnostics.';
+      list.append(p);
+    } else {
+      const ul = document.createElement('ul');
+      out.diagnostics.forEach((d, i) => {
+        const li = document.createElement('li');
+        li.className = d.severity;
+        const span = d.spans.find((s) => s.primary) ?? d.spans[0];
+        const loc = span ? `${span.start.line}:${span.start.col}` : '';
+        li.innerHTML = '<span class="code"></span> <span class="msg"></span> <span class="loc"></span>';
+        li.querySelector('.code').textContent = `${d.severity}[${d.code}]`;
+        li.querySelector('.msg').textContent = d.message;
+        li.querySelector('.loc').textContent = loc && `main.volt:${loc}`;
+        const det = document.createElement('details');
+        const sum = document.createElement('summary');
+        sum.textContent = 'details';
+        const pre = document.createElement('pre');
+        pre.textContent = out.rendered[i];
+        det.append(sum, pre);
+        li.append(det);
+        if (span) li.addEventListener('click', (e) => {
+          if (e.target.closest('details')) return;
+          const src = $('src');
+          const pos = lineStart(src.value, span.start.line) + span.start.col - 1;
+          src.focus();
+          src.setSelectionRange(pos, pos + Math.max(1, span.end.byte - span.start.byte));
+        });
+        ul.append(li);
+      });
+      list.append(ul);
+    }
+    $('sv').textContent = out.sv ?? '// No SystemVerilog: fix the errors first.';
+  }
+
+  function run() {
+    const t = performance.now();
+    const out = JSON.parse(compile_json($('src').value, $('lang').value));
+    const ms = performance.now() - t;
+    render(out);
+    $('status').textContent =
+      `volt ${version()} · ${out.summary.errors} error(s), ${out.summary.warnings} warning(s) · ` +
+      `${ms.toFixed(1)} ms · loaded in ${tLoad.toFixed(0)} ms`;
+    window.voltPlayLast = { out, ms };
+  }
+
+  async function loadExample(name) {
+    $('src').value = await (await fetch(`examples/${name}.volt`)).text();
+    run();
+  }
+
+  let timer;
+  $('src').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
+  $('lang').addEventListener('change', run);
+  $('example').addEventListener('change', (e) => loadExample(e.target.value));
+  await loadExample($('example').value);
+  window.voltPlayReady = true;
+</script>
+</body>
+</html>

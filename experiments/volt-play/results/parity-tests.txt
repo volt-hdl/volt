@@ -1,0 +1,9 @@
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test blinky_matches_volt_build ... ok
+test cdc_error_matches_volt_build ... ok
+test counter_matches_volt_build ... ok
+test file_without_modules_has_no_sv ... ok
+test mmio_blinker_matches_volt_build ... ok
+test turkish_diagnostics ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

@@ -1,0 +1,7 @@
+$ OUT=results node web/browser-measure.cjs   (Chromium 1194 headless, Playwright 1.56.1, CDP ağ kısıtlaması, önbellek kapalı, gzip sunucu)
+throttle yok (yerel)             sayfa+wasm hazır   167 ms, aktarılan 563 KiB, init() 90 ms, ilk derleme 29.1 ms 
+  düzenleme sonrası (sync eklendi): {"errors":0,"warnings":0} true
+kablo/fiber 20 Mbps, 40 ms RTT   sayfa+wasm hazır   513 ms, aktarılan 563 KiB, init() 309 ms, ilk derleme 35.0 ms 
+4G 9 Mbps, 85 ms RTT             sayfa+wasm hazır   930 ms, aktarılan 563 KiB, init() 612 ms, ilk derleme 28.7 ms 
+yavaş 4G 1.6 Mbps, 150 ms RTT    sayfa+wasm hazır  3563 ms, aktarılan 563 KiB, init() 3017 ms, ilk derleme 33.9 ms 
+exit=0

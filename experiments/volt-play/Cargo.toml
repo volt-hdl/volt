@@ -1,0 +1,45 @@
+# Fizibilite denemesi: tarayıcıda Volt oyun alanı (wasm32-unknown-unknown).
+# Kök çalışma alanının üyesi DEĞİL (kendi [workspace] tablosu): `cargo test`
+# ve `just check` bu crate'i görmez, ana derlemeye bağımlılık eklemez.
+# wasm-bindgen yalnız burada; ana çalışma alanına girerse
+# [workspace.dependencies] üzerinden ve gerekçeli bir PR ile girer.
+[package]
+name = "volt-play"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+volt-span = { path = "../../crates/volt-span" }
+volt-diagnostics = { path = "../../crates/volt-diagnostics" }
+volt-ast = { path = "../../crates/volt-ast" }
+volt-syntax = { path = "../../crates/volt-syntax" }
+volt-hir = { path = "../../crates/volt-hir" }
+volt-sv-emit = { path = "../../crates/volt-sv-emit" }
+serde_json = "1.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+# Boyut ölçümü için: `cargo build --profile web --target wasm32-unknown-unknown`.
+[profile.web]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.web-speed]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
