@@ -23,6 +23,7 @@ volt-tools = { path = "../volt-tools" }
 clap.workspace = true
 serde_json.workspace = true
 ctrlc.workspace = true
+anstyle-query.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -8,6 +8,7 @@
 //! Çıkış kodları §2: 0 başarı, 1 derleme hatası, 2 kullanım hatası
 //! (clap), 3 G/Ç hatası. Formatlar §5: human | json | short.
 
+mod color;
 mod doctor;
 mod extern_stage;
 mod interrupt;
@@ -63,6 +64,12 @@ struct Cli {
     /// Stop reporting after this many diagnostics; 0 = unlimited (ADR-0068)
     #[arg(long, global = true, default_value_t = DEFAULT_MAX_DIAGNOSTICS)]
     max_diagnostics: usize,
+    /// Color output: auto | always | never (default: VOLT_COLOR or auto)
+    #[arg(long, global = true, value_enum)]
+    color: Option<color::ColorArg>,
+    /// Shortcut for --color=never
+    #[arg(long, global = true, conflicts_with = "color")]
+    no_color: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -347,18 +354,7 @@ enum Command {
         /// List all topics ('volt explain <topic>')
         #[arg(long)]
         topics: bool,
-        /// Color output: auto | always | never (default: VOLT_COLOR or auto)
-        #[arg(long, value_enum)]
-        color: Option<ColorArg>,
     },
-}
-
-/// cli-contract.md §10: --color varsayılanı VOLT_COLOR'dan gelir.
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum ColorArg {
-    Auto,
-    Always,
-    Never,
 }
 
 /// `--emit` ek çıktıları (F4a `sva`; ADR-0053 yazılım tarafı; ADR-0054
@@ -468,6 +464,15 @@ fn run() -> ExitCode {
     let cli = Cli::parse();
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
     MAX_DIAGNOSTICS.store(cli.max_diagnostics, Ordering::Relaxed);
+    // cli-contract.md §3: tanılar stderr'e yazar, renk kararı ona göre.
+    let color = color::flag(cli.color, cli.no_color);
+    let color_env = color::ColorEnv::from_process();
+    let stderr = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    volt_diagnostics::set_color(color::enabled(
+        color,
+        &color_env,
+        stderr && color::terminal_takes_ansi(),
+    ));
     // Komutsuz çağrı hata DEĞİL, yol göstermedir (UX Anayasası:
     // en iyi onboarding olmayan onboarding) — sık görevler + çıkış 0.
     let Some(command) = cli.command else {
@@ -668,12 +673,12 @@ fn run() -> ExitCode {
             volt_lsp::run_stdio();
             ExitCode::SUCCESS
         }
-        Command::Explain {
-            code,
-            list,
-            topics,
-            color,
-        } => explain_cmd(code.as_deref(), list, topics, color),
+        Command::Explain { code, list, topics } => {
+            // `volt explain` stdout'a yazar: renk kararı ona göre.
+            let stdout = std::io::IsTerminal::is_terminal(&std::io::stdout());
+            let color = color::enabled(color, &color_env, stdout && color::terminal_takes_ansi());
+            explain_cmd(code.as_deref(), list, topics, color)
+        }
     }
 }
 
@@ -707,7 +712,7 @@ fn print_no_command_help() {
 
 /// `volt explain` — açıklama metni stdout verisidir (§11), tanılar ve
 /// kullanım hataları stderr'e gider. Bilinmeyen kod: çıkış kodu 2.
-fn explain_cmd(code: Option<&str>, list: bool, topics: bool, color: Option<ColorArg>) -> ExitCode {
+fn explain_cmd(code: Option<&str>, list: bool, topics: bool, color: bool) -> ExitCode {
     let lang = volt_diagnostics::lang();
     if list {
         print!("{}", explain::render_list(lang));
@@ -720,9 +725,7 @@ fn explain_cmd(code: Option<&str>, list: bool, topics: bool, color: Option<Color
     let input = code.expect("clap: code, --list veya --topics zorunlu");
     let Some(parsed) = ErrorCode::parse(input) else {
         // F4b: kod değilse konu dene ('volt explain verify-setup').
-        if let Some(page) =
-            explain::topics::render_topic(input, lang, terminal_width(), use_color(color))
-        {
+        if let Some(page) = explain::topics::render_topic(input, lang, terminal_width(), color) {
             print!("{page}");
             return ExitCode::SUCCESS;
         }
@@ -746,7 +749,7 @@ fn explain_cmd(code: Option<&str>, list: bool, topics: bool, color: Option<Color
     };
     print!(
         "{}",
-        explain::render_explanation(parsed, lang, terminal_width(), use_color(color))
+        explain::render_explanation(parsed, lang, terminal_width(), color)
     );
     ExitCode::SUCCESS
 }
@@ -758,33 +761,6 @@ fn terminal_width() -> usize {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(explain::DEFAULT_WIDTH)
-}
-
-/// Renk kararı: --color > VOLT_COLOR > auto. Auto modda NO_COLOR ve
-/// CI=true rengi kapatır (§10), çıktı terminal değilse de kapalıdır.
-fn use_color(flag: Option<ColorArg>) -> bool {
-    use std::io::IsTerminal;
-    let mode = flag
-        .or_else(|| {
-            std::env::var("VOLT_COLOR").ok().and_then(|v| {
-                match v.trim().to_ascii_lowercase().as_str() {
-                    "auto" => Some(ColorArg::Auto),
-                    "always" => Some(ColorArg::Always),
-                    "never" => Some(ColorArg::Never),
-                    _ => None,
-                }
-            })
-        })
-        .unwrap_or(ColorArg::Auto);
-    match mode {
-        ColorArg::Always => true,
-        ColorArg::Never => false,
-        ColorArg::Auto => {
-            std::env::var_os("NO_COLOR").is_none()
-                && std::env::var_os("CI").is_none()
-                && std::io::stdout().is_terminal()
-        }
-    }
 }
 
 struct Compiled {

@@ -17,7 +17,7 @@ pub use diagnostic::{
     apply_edits, Applicability, Diagnostic, Edit, EditKind, LabeledSpan, Note, NoteKind, Severity,
     Suggestion,
 };
-pub use emit::{render_human, render_short};
+pub use emit::{render_human, render_short, set_color};
 pub use explain::{render_explanation, render_list};
 pub use fold::{fold_duplicates, same_identity};
 pub use grammar::a_an;

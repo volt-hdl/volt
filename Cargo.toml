@@ -36,6 +36,9 @@ tower-lsp = "0.20"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "time", "sync"] }
 # ADR-0095: `volt test --watch` Ctrl-C (Docker konteynerini kaldırmak için; unsafe yok)
 ctrlc = "3.4"
+# #95: Windows konsolunda ANSI renk (ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+# clap'in zaten çektiği crate, güvenli API (unsafe kendi içinde)
+anstyle-query = "1.1"
 
 # ADR-0093: symbols out of every release build (Linux/macOS binaries
 # carry the standard library's symbol table otherwise).
