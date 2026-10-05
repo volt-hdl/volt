@@ -21,8 +21,9 @@ the pages after it link back to it.
 
 ## Guided pages (checked)
 
-`src/setup.md` and every chapter in `src/tour/` are *guided pages*: a
-beginner on Windows follows them keystroke by keystroke. On top of the
+`src/setup.md`, `src/cookbook/existing-project.md` and every chapter in
+`src/tour/` are *guided pages*: a beginner on Windows follows them
+keystroke by keystroke. On top of the
 rest of this guide they follow these rules.
 
 1. **"Before you start" box.** The page opens with it, after the goal
@@ -172,6 +173,7 @@ Attributes follow the language, separated by commas:
 | ```` ```volt,file=x_test.volt,test_fails ```` | a test file whose test is meant to fail (the checker expects `volt test` to exit 5) |
 | ```` ```volt,from=templates/minimal/counter.volt ```` | must be identical to that repository file, so a template shown in the book cannot drift from the real one |
 | ```` ```volt,file=counter.volt,output ```` | shown for reading ("You should see"), not created by the reader: checked like any block, shown without a copy button |
+| ```` ```systemverilog,file=rtl/RisePulse.sv ```` | a SystemVerilog file the reader creates for an `extern` module's `@source`: saved in the workspace of the part, so that the ```` ```volt ```` blocks after it find it; not checked itself |
 
 With `--run-tests` (on in CI), every block saved as `*_test.volt` also
 runs `volt test`.
@@ -194,6 +196,58 @@ runs `volt test`.
   Desktop.
 - Mark shortened output with `...` and say "(output trimmed)" in the
   text.
+
+## The README demo
+
+The animation at the top of `README.md`, `demo/cdc-demo.gif`, is recorded
+from a script, with the code of the Tour chapter "A clock domain crossing
+error":
+
+| File | What it is |
+|---|---|
+| `demo/crossing.volt` | the design with the crossing; the chapter's `should_fail` block is `from=` this file |
+| `demo/crossing_fixed.volt` | the fixed design; the chapter's next `crossing.volt` block is `from=` this file |
+| `demo/cdc.tape` | the recording: `volt check`, the edit in nano, `volt check` again |
+| `demo/Dockerfile` | an image with VHS, nano and a `volt` built from the repository |
+| `demo/record.sh` | builds the image, records the GIF, prints the same flow as text |
+
+The recording is made with [VHS](https://github.com/charmbracelet/vhs)
+because it is a script: the commands and the keystrokes of the edit are
+written in `cdc.tape`, so a new recording repeats the same steps with the
+current compiler. VHS runs in its Docker image, which brings the terminal
+(ttyd) and the GIF encoder (ffmpeg); nothing is installed on the host. A
+session recorder such as asciinema records what someone types by hand,
+and needs a second tool to make a GIF.
+
+To record again, from the repository root:
+
+```console
+bash demo/record.sh
+```
+
+It needs Docker and bash (Git Bash on Windows). The script
+
+1. stops if another container is running: one container at a time
+   (AGENTS.md, "Machines with limited resources");
+2. builds the image from `git archive HEAD`, so the `volt` in the
+   recording is the committed source (Rust 1.95, a static Linux binary).
+   Commit a compiler change before you record it;
+3. records `demo/cdc.tape` and writes `demo/cdc-demo.gif`;
+4. fails if the file edited in the recording differs from
+   `demo/crossing_fixed.volt`;
+5. runs the two `volt check` commands again without the terminal and
+   prints their output. The text under the GIF in `README.md` is this
+   output; replace it when it changes.
+
+The recording has no colour: `volt check` writes its diagnostics without
+colour in a terminal too, and `--color` / `VOLT_COLOR` do not change that
+today ([issue #95](https://github.com/volt-hdl/volt/issues/95)). When they
+do, set `VOLT_COLOR=always` in the tape's hidden setup line.
+
+The tape's `Sleep` lines keep the recording under 60 seconds. When the CDC
+chapter changes its code, change `demo/crossing.volt` and
+`demo/crossing_fixed.volt` with it (`check_book.py` fails while they
+differ) and record again.
 
 ## Terms
 

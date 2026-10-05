@@ -41,3 +41,4 @@ tests/fuzz_regressions/** -text linguist-generated
 
 *.png  binary
 *.zip  binary
+*.gif  binary

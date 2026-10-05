@@ -25,6 +25,27 @@ toplanır.
 - `volt test`'in `Compiling` satırları öneksiz göreli yol yazar
   (`counter_test.volt`, `sim/deep_test.volt`; önceden `.\counter_test.volt`).
 
+### Belgeler — README demosu ve mevcut projede Volt (2026-10-05)
+
+- README'nin başında 30 saniyelik bir kayıt (`demo/cdc-demo.gif`):
+  kitabın CDC bölümündeki `crossing.volt` üzerinde `volt check` E3001'i
+  gösterir, help satırındaki `sync()` satırı nano'da eklenir, `volt check`
+  temiz geçer. Altında aynı akış düz metin. Kayıt bir VHS betiğinden
+  (`demo/cdc.tape`) Docker içinde üretilir: `bash demo/record.sh`
+  (`book/CONTRIBUTING-BOOK.md`, "The README demo"). Kitaptaki iki
+  `crossing.volt` bloğu `from=demo/crossing*.volt` ile bağlı; kayma
+  `check_book.py`'de hata verir.
+- README'ye "Existing SystemVerilog, in both directions" bölümü: üretilen
+  SV'nin özellikleri ve `extern` ile mevcut bir SV modülünün kullanımı,
+  sınırlarıyla; her iddia gerçek bir örnekle denendi.
+- Kitapta yeni rehberli sayfa **Using Volt in an existing project**
+  (Cookbook): mevcut bir SV modülü `extern` + `@source` ile kullanılır,
+  `volt check`, `volt test` ve `volt build` edilir; `extern`'ün
+  yapmadıkları listelenir.
+- `check_book.py`: ```` ```systemverilog,file=rtl/x.sv ```` blokları
+  bölümün çalışma alanına kaydedilir (bir sonraki `volt` bloğu `@source`
+  ile bulur); yeni sayfa rehberli sayfa kurallarına tabi.
+
 ### Belgeler — kitap okurun elinden tutuyor (2026-10-05)
 
 - Yeni **Setup** sayfası (Tur'dan önce): terminal açma, çalışma klasörü ve

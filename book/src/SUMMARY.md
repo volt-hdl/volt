@@ -28,6 +28,7 @@
 - [Reset synchronizers](cookbook/reset-sync.md)
 - [Register maps with @mmio, and C and Rust drivers](cookbook/mmio.md)
 - [Pipelines](cookbook/pipeline.md)
+- [Using Volt in an existing project](cookbook/existing-project.md)
 - [Wrapping SystemVerilog with extern](cookbook/extern-sv.md)
 
 ---
