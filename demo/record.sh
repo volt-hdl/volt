@@ -32,7 +32,7 @@ trap 'rm -rf "$out"' EXIT
 demo_dir=$(host_path "$root/demo")
 out_dir=$(host_path "$out")
 
-docker run --rm -v "$demo_dir:/demo:ro" -v "$out_dir:/out" "$image" /demo/cdc.tape
+docker run --rm -v "$demo_dir:/demo:ro" -v "$out_dir:/vhs/out" "$image" /demo/cdc.tape
 
 # The edit typed in the recording must give the book's fixed file.
 if ! cmp -s "$out/crossing_after.volt" demo/crossing_fixed.volt; then

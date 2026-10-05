@@ -28,10 +28,14 @@ Every other ```volt block must pass `volt check` with no error and no
 warning. With --run-tests, every block saved as *_test.volt also runs
 `volt test` (Verilator, locally or through Volt's Docker bridge).
 
+A SystemVerilog block with `file=PATH.sv` (```systemverilog,file=rtl/x.sv)
+is saved into the part's workspace, so that a later ```volt block finds it
+through `@source("rtl/x.sv")`. It is not checked itself.
+
 Prose outside code is checked for the words the style guide bans.
 
-Guided pages (setup.md and every chapter in tour/; CONTRIBUTING-BOOK.md,
-"Guided pages") follow three more rules:
+Guided pages (setup.md, cookbook/existing-project.md and every chapter in
+tour/; CONTRIBUTING-BOOK.md, "Guided pages") follow three more rules:
     1. a command block ("Type this") has no "$ " prompt;
     2. the page opens with a "Before you start" box;
     3. every block outside a side box carries a label: "Type this", "You
@@ -73,10 +77,14 @@ BANNED_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in BANNED_WORDS) + r
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})(.*)$")
 DIAG_RE = re.compile(r"^(error|warning)\[([EW]\d{4})\]", re.MULTILINE)
 KNOWN_ATTRS = {"file", "should_fail", "should_warn", "test_fails", "from", "output"}
+# Languages whose `file=` blocks are saved for `@source`, and the paths they
+# may take: relative, inside the workspace.
+SOURCE_LANGS = {"systemverilog", "verilog"}
+SOURCE_PATH_RE = re.compile(r"(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:sv|svh|v|vh)")
 
 # Guided pages: the pages a beginner follows step by step.
 GUIDED_DIRS = {SRC_DIR / "tour"}
-GUIDED_FILES = {SRC_DIR / "setup.md"}
+GUIDED_FILES = {SRC_DIR / "setup.md", SRC_DIR / "cookbook" / "existing-project.md"}
 GUIDED_MARK = "guided page"  # a self-test fixture's top line opts in
 BEFORE_BOX = '<div class="before-you-start">'
 LABEL_RE = re.compile(r"\*\*(Type this|You should see|Create this file|Replace this file)( \([^)]*\))?:\*\*(.*)", re.DOTALL)
@@ -92,6 +100,7 @@ class Block:
     line: int  # 1-based line of the opening fence
     attrs: dict[str, str]
     code: str
+    lang: str = "volt"
 
 
 @dataclass
@@ -119,7 +128,8 @@ def display(path: Path) -> str:
 
 
 def parse_markdown(path: Path, report: Report) -> tuple[list[Block], list[tuple[int, str]]]:
-    """Split a chapter into ```volt blocks and prose lines (outside any fence)."""
+    """Split a chapter into ```volt blocks, SystemVerilog `file=` blocks and
+    prose lines (outside any fence)."""
     blocks: list[Block] = []
     prose: list[tuple[int, str]] = []
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -144,6 +154,11 @@ def parse_markdown(path: Path, report: Report) -> tuple[list[Block], list[tuple[
             report.fail(path, start + 1, "code block is never closed")
         i += 1
         parts = [p.strip() for p in info.split(",") if p.strip()]
+        if parts and parts[0] in SOURCE_LANGS:
+            attrs = dict(p.partition("=")[::2] for p in parts[1:])
+            if "file" in attrs:
+                blocks.append(Block(path, start + 1, {"file": attrs["file"]}, "\n".join(body) + "\n", parts[0]))
+            continue
         if not parts or parts[0] != "volt":
             continue
         attrs: dict[str, str] = {}
@@ -254,7 +269,7 @@ def check_block_label(path: Path, lines: list[str], start: int, info: str, body:
         name = FILE_NAME_RE.match(rest)
         if not name:
             report.fail(path, line, f"'{kind}:' is followed by the file name in backticks, e.g. **{kind}:** `crossing.volt`")
-        elif parts and parts[0] == "volt":
+        elif parts and (parts[0] == "volt" or parts[0] in SOURCE_LANGS):
             attrs = dict(p.partition("=")[::2] for p in parts[1:])
             if attrs.get("file") != name.group(1):
                 report.fail(path, line, f"the label names `{name.group(1)}` but the block is file={attrs.get('file')}")
@@ -274,7 +289,22 @@ def run(cmd: list[str], cwd: Path) -> tuple[int, str]:
     return proc.returncode, proc.stdout.decode("utf-8", errors="replace")
 
 
+def save_source(block: Block, workdir: Path, report: Report) -> None:
+    """A SystemVerilog file for `@source`: saved, not checked."""
+    name = block.attrs["file"]
+    if not SOURCE_PATH_RE.fullmatch(name):
+        report.fail(block.path, block.line, f"file={name}: expected a relative path such as rtl/name.sv")
+        return
+    target = workdir / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(block.code, encoding="utf-8")
+    print(f"ok   {display(block.path)}:{block.line}: saved {name}")
+
+
 def check_block(volt: str, block: Block, workdir: Path, index: int, run_tests: bool, report: Report) -> None:
+    if block.lang != "volt":
+        save_source(block, workdir, report)
+        return
     name = block.attrs.get("file")
     if name is not None:
         if not re.fullmatch(r"[A-Za-z0-9_]+\.volt", name):

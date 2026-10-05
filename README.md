@@ -5,6 +5,66 @@ An HDL where clock domain crossing bugs won't compile.
 > **Status:** early-stage project (started 2026-09). Not used in production.
 > No silicon. See [Limitations](#limitations).
 
+![A terminal: volt check reports error E3001 on crossing.volt, the sync() line from its help line is added in nano, and volt check reports 0 errors](demo/cdc-demo.gif)
+
+The recording above, as text. `crossing.volt` passes a register from the
+fast clock domain to the slow one without a synchronizer
+([the code](demo/crossing.volt), from the book's
+[clock domain crossing chapter](https://volt-hdl.github.io/volt/tour/cdc-error.html)):
+
+```text
+$ volt check crossing.volt
+    Checking crossing.volt
+error[E3001]: direct assignment between clock domains
+   ┌─ crossing.volt:27:9
+   │
+ 3 │ domain Fast {
+   │        ---- source @Fast defined here
+   ·
+ 8 │ domain Slow {
+   │        ---- destination @Slow defined here
+   ·
+27 │         led_r <= pressed_r
+   │         ^^^^^    --------- @Fast
+   │         │         
+   │         @Slow
+   │
+   = reason: the destination register may sample the source signal during an unstable window (metastability)
+   = note: for multi-bit data, AsyncFifo may be safer
+   = help: sync() is written at module level: add 'let pressed_r_sync = sync(pressed_r, slow_clk)' above this block and read the synchronized name here
+   = for more: volt explain E3001
+
+
+    Finished 0.00s
+      Result 1 error(s), 0 warning(s)
+```
+
+Exit code 1. The fix is the line from the help message, and the
+synchronized name in the slow domain:
+
+```diff
+     }
+ 
++    let pressed_r_sync = sync(pressed_r, slow_clk)
++
+     reg led_r : bool = false
+     on slow_clk {
+-        led_r <= pressed_r
++        led_r <= pressed_r_sync
+     }
+```
+
+```text
+$ volt check crossing.volt
+    Checking crossing.volt
+    Finished 0.00s
+      Result 0 error(s), 0 warning(s)
+       Next: volt build crossing.volt   (emit SystemVerilog)
+```
+
+Recorded from a script, with `volt` built from this repository
+([how](book/CONTRIBUTING-BOOK.md#the-readme-demo)).
+
 ![CI](https://github.com/volt-hdl/volt/actions/workflows/ci.yml/badge.svg)
 [![coverage](https://codecov.io/gh/volt-hdl/volt/graph/badge.svg)](https://codecov.io/gh/volt-hdl/volt)
 ![tests](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fvolt-hdl%2Fvolt%2Fmain%2F.github%2Fbadges.json&query=%24.tests&label=tests&color=brightgreen)
@@ -61,6 +121,35 @@ explicit bridge, `slow_data = sync(fast_data, slow_clk)`, which compiles to
 a source-capture register plus a two-flop synchronizer in the target domain.
 Single-clock modules need no domain annotations at all
 ([`tests/fixtures/counter.volt`](tests/fixtures/counter.volt)).
+
+## Existing SystemVerilog, in both directions
+
+**If you stop using Volt, the generated SystemVerilog stays with you.**
+`volt build` writes one SystemVerilog module per Volt module, under the
+same name. Ports, registers and `let` signals keep their Volt names,
+`///` doc comments become `//` comments, registers are `always_ff` blocks
+with explicit widths, and a generated synchronizer carries a comment
+naming the crossing. The files need no Volt package, include or runtime:
+Verilator 5.052, given the generated `PressCounter.sv` of the book example
+below and the SystemVerilog module it uses, reports nothing with
+`--lint-only -Wall`, and a hand-written SystemVerilog testbench drives it
+by its port names. The file header names the `.volt` source; there are no
+per-line references back to it.
+
+**You can start with one module.** A Volt module drops into a
+SystemVerilog design like any other module, with one port you did not
+write: the reset `rst`, which Volt adds for a clock domain with a reset
+(the default domain has one). In the other direction, an existing SystemVerilog module is used
+from Volt with `extern module` and `@source("rtl/x.sv")`, and `volt test`
+simulates the two together. Limits: Volt does not read the SystemVerilog
+file (a port mismatch is reported by Verilator, not by `volt check`),
+an `extern` takes no parameters (a parameterized module runs with its
+defaults, or behind a small wrapper), no reset port is added to an
+`extern`, `volt build` does not copy the SystemVerilog file, and an
+`extern` named like a standard library module is taken for the built-in
+one ([#92](https://github.com/volt-hdl/volt/issues/92)). A worked
+example, checked, tested and built:
+[Using Volt in an existing project](https://volt-hdl.github.io/volt/cookbook/existing-project.html).
 
 ## What Volt checks at compile time
 

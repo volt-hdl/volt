@@ -4,15 +4,15 @@
 # Recorded by demo/record.sh; see book/CONTRIBUTING-BOOK.md,
 # "The README demo".
 
-Output /out/cdc-demo.gif
+Output out/cdc-demo.gif
 
 Require volt
 Require nano
 
 Set Shell "bash"
-Set FontSize 16
-Set Width 1200
-Set Height 820
+Set FontSize 14
+Set Width 1480
+Set Height 740
 Set Padding 20
 Set Framerate 24
 Set TypingSpeed 45ms
@@ -38,7 +38,7 @@ Enter
 Enter
 Sleep 1s
 Down 2
-End
+Ctrl+E
 Type "_sync"
 Sleep 3s
 Ctrl+O
@@ -60,6 +60,6 @@ Sleep 6s
 
 # record.sh compares the edited file with demo/crossing_fixed.volt.
 Hide
-Type "cp crossing.volt /out/crossing_after.volt"
+Type "cp crossing.volt /vhs/out/crossing_after.volt"
 Enter
 Sleep 500ms

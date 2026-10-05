@@ -56,7 +56,7 @@ A button is sampled by the fast clock; a LED is driven by the slow clock:
 
 **Create this file:** `crossing.volt`
 
-```volt,file=crossing.volt,should_fail=E3001
+```volt,file=crossing.volt,should_fail=E3001,from=demo/crossing.volt
 // A button sampled in one clock domain drives a LED in another.
 
 domain Fast {
@@ -163,7 +163,7 @@ as long as both lines use the same one.
 
 **Replace this file:** `crossing.volt`
 
-```volt,file=crossing.volt
+```volt,file=crossing.volt,from=demo/crossing_fixed.volt
 // A button sampled in one clock domain drives a LED in another.
 
 domain Fast {

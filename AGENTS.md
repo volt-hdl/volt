@@ -173,7 +173,8 @@ rewrite a sentence without them.
 
 ## Book writing rules
 
-The book's guided pages (`book/src/setup.md` and every chapter in
+The book's guided pages (`book/src/setup.md`,
+`book/src/cookbook/existing-project.md` and every chapter in
 `book/src/tour/`) are written for a beginner on Windows who has never
 used a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
 details and examples; `book/tools/check_book.py` enforces rules 2 and 3
@@ -268,6 +269,8 @@ tags are the maintainer's work.
   `volt-driver` (the `volt` binary) on top.
 - `tests/ui/{pass,fail}/`, `tests/fixtures/`, `tests/suggestions/`,
   `tests/quickfix/`, `tests/fuzz_regressions/` (see `tests/README.md`).
+- `demo/`: the README demo, recorded from a VHS script
+  (`book/CONTRIBUTING-BOOK.md`, "The README demo").
 - `book/`: the Volt book (mdBook), published to
   https://volt-hdl.github.io/volt/ (the latest release) and
   https://volt-hdl.github.io/volt/dev/ (main).
