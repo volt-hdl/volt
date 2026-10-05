@@ -103,7 +103,7 @@ denedim:
 | `volt-ast` | derleniyor | Yok. | — |
 | `volt-syntax` | derleniyor | **İş parçacığı:** `with_compiler_stack` (ADR-0080) derleyiciyi 64 MiB yığınlı bir iş parçacığında koşturuyor. wasm'da `spawn` `Err` dönüyor, kod bu durumda zaten çağıranın yığınına düşüyor (panik yok). wasm'ın varsayılan yığını 1 MiB. Release derlemede parser sınırına kadar (`if` iç içe 250, ikili işlem, `if/else` ifadesi; sınırda E0018) **tuzak oluşmadı** (`web/stack.mjs`). | Kolay. Gerekirse `-C link-arg=-zstack-size=8388608` (kod değişikliği yok). Debug wasm'da ağır geçitlerde 1 MiB yetmeyebilir; yayın derlemesi her zaman release. |
 | `volt-hir` | derleniyor | **Dosya sistemi ve ortam:** `unit_load` (`load_unit[_with_text]`, `Manifest::lookup`, `manifest_warnings_into`, `test_sibling_path`), `manifest_search` (`env::var_os`, `current_dir`, `canonicalize`, `.git` arama), `attrs::UnenforcedLint::discover`, `extern_source::FsSourceLocator`/`project_root`. Hepsi hata döndürüyor, panik etmiyor; ama oyun alanı bunları **hiç çağırmıyor**: birim bellekte kuruluyor, `SourceLocator`/`TestFileLoader` trait'leri oyun alanında dosyasız uygulanıyor. Statik `Mutex` (`CHECKED_MANIFESTS`) wasm'da çalışıyor. | MVP için yok. Çok dosyalı oyun alanı için: yükleyicideki dosya erişimini bir trait arkasına almak, 1–2 gün. |
-| `volt-lower` | derleniyor | Yok: crate boş (4 satır, yalnız bir lint özniteliği), hiçbir crate kullanmıyor. | — |
+| `volt-lower` | derleniyor | Yok: crate boş (4 satır). Bu kasıtlı: ADR-0005 ve ADR-0010'a göre CIRCT arka ucu için ayrılmış bir yer tutucu; CIRCT/melior yalnız burada görünebilir (tutarlılık kontrolü 4). Hiçbir crate kodunu kullanmıyor, `volt-driver` bağımlılık olarak listeliyor. | — |
 | `volt-sv-emit` | derleniyor | Yok. G/Ç yok, SV metin olarak dönüyor. | — |
 
 Zaman (`Instant`, `SystemTime`) bu yedi crate'te hiç kullanılmıyor: süre
@@ -183,8 +183,11 @@ ile tur testinden geçiyor).
 içinde doğrudan gösteriliyor ("details"). Türkçe çıktı da çalışıyor
 (`neden:`, `çözüm:`; `results/node-smoke.txt`).
 
-Küçük bir eksik: `explain_url` şu an hep `null`. Oyun alanı ve kitap için
-kod başına bir açıklama sayfası bağlantısı burada verilebilir.
+`explain_url` şu an hep `null`. Bu bir hata değil, bugünkü tasarım:
+`crates/volt-diagnostics/src/code.rs:147-150` (`ErrorCode::explain_url`),
+kitapta kod başına sayfa olmadığı için `None` döndürüyor; açıklama
+`volt explain <KOD>`'da. Kod başına bir sayfa üretilirse oyun alanı ve kitap
+tanıdan oraya bağlanabilir (iyileştirme, #97).
 
 **#84 ile ilişkisi:** [volt-hdl/volt#84](https://github.com/volt-hdl/volt/issues/84),
 `volt test` ve `volt run` için `--format json` istiyor: test başına kayıt
@@ -307,8 +310,8 @@ yüzden 1. madde ilk sırada.
 | Bulgu | Sınıf | Yeniden üretme | Nereye |
 |---|---|---|---|
 | Olmayan bir paket için `volt check` aynı `use` satırında **iki** E1011 veriyor: biri yükleyiciden (sütun 5, "searched:" notuyla), biri `check_imports`'tan (sütun 16). Oyun alanında (yalnız `check_imports`) bir tane. | açık hata (yinelenen tanı), iyileştirme | `printf 'use soc::gpio::Gpio;\n\npub module Top {\n  in clk : clock\n  out q : bool\n  q = false\n}\n' > main.volt && volt check --format short main.volt` → iki satır `error[E1011]` | Issue açılmadı (görev yalnız rapordu); açılması önerilir. |
-| `explain_url` JSON'da hep `null`. | iyileştirme | `volt check --format json` herhangi bir hatalı dosyada | Bu yol haritası maddesi (oyun alanı/kitap hata sayfası). |
-| `volt-lower` boş bir crate (4 satır), hiçbir crate kullanmıyor; `volt-driver` bağımlılık olarak listeliyor. | karar verilecek | `wc -l crates/volt-lower/src/lib.rs` | Ayrı bir temizlik işi. |
+| `explain_url` JSON'da hep `null`. Bu bilinçli: kitapta kod başına sayfa yok (`code.rs:147-150`). Sayfalar üretilip alanın doldurulması bir iyileştirme. | iyileştirme | `volt check --format json` herhangi bir hatalı dosyada | #97 |
+| `volt-lower` boş bir crate (4 satır) ve kodunu hiçbir crate kullanmıyor; `volt-driver` bağımlılık olarak listeliyor. ADR-0005 ve ADR-0010'da CIRCT için ayrılmış yer tutucu olarak belgeli. Soru: kaldırılsın mı (ADR-0005/0010'un ilgili kısımlarının yerini alan yeni bir ADR ister), yoksa ayrılmış olarak mı kalsın? | karar verilecek | `wc -l crates/volt-lower/src/lib.rs` | #98 |
 
 ## Atlananlar ve doğrulanmayanlar
 
