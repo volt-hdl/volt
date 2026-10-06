@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0093 — §1 ve §2.2'deki "`volt --version` = `volt X.Y.Z`" eşitliği; sürüm sayısı aynı kalır, ardından derlendiği commit gelir
-> İlgili: ADR-0100 (0.x sürüm politikası: tek sürüm sayısı Cargo sürümüdür).
+> İlgili: ADR-0100 (0.x sürüm politikası: tek sürüm sayısı Cargo sürümüdür), ADR-0105 (sürüm kuru koşusu: her platformda duman testi `volt X.Y.Z (<commit>)` satırını bekler).
 > Tarih: 2026-10-06
 > Etkilenen: volt-sv-emit (`build.rs` — YENİ, `src/version_text.rs` — YENİ,
 > `lib.rs` `VOLT_VERSION_TEXT` ve SV başlığı), volt-driver (`main.rs`:

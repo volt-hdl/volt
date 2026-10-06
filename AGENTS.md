@@ -257,8 +257,10 @@ description and the final report contain:
 The release policy before 1.0 is ADR-0100: release tags are exactly
 `vX.Y.Z`; in 0.x a new middle digit may break existing code and a new
 last digit brings bug fixes; the latest release is the supported one;
-every release note has a "Behavior changes" section. The release
-procedure is in `.github/workflows/README.md` (ADR-0093). Releases and
+every release note has a "Behavior changes" section. The notes of release
+X.Y.Z are `docs/release-notes/vX.Y.Z.md`, in English (ADR-0105). The
+release-day commands are in `RELEASING.md`; `.github/workflows/README.md`
+describes the workflow and its dry run (ADR-0093, ADR-0105). Releases and
 tags are the maintainer's work.
 
 ## Repository layout

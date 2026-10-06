@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı — betikler, Pages yayını ve CI testleri kuruldu; yayımlanmış sürüm henüz yok, haftalık canlı iş o güne dek "henüz sürüm yok" iletisini sınar; sürüm yokken komut ve Explorer PATH eki (2026-10-01) sonda
 > Önceki karar: ADR-0093 — §2.1 ve §2.4'teki sürümlü arşiv adları (`volt-vX.Y.Z-<hedef>`) sürümsüz oldu (`volt-<hedef>`)
-> İlgili: ADR-0093 (sürüm iş akışı: arşivler, `SHA256SUMS`, taslak Release; betikler her sürüme varlık olarak eklenir), ADR-0094 (Docker köprüsü: kurulumdan sonra simülasyon için gereken tek ek), ADR-0084 (`volt doctor`: betiğin gösterdiği sonraki adım), ADR-0100 (Pages düzeni: betikler kökte ve her zaman main'den; kitabın kökü son sürümün, `/dev/` main'in kitabı).
+> İlgili: ADR-0093 (sürüm iş akışı: arşivler, `SHA256SUMS`, taslak Release; betikler her sürüme varlık olarak eklenir), ADR-0094 (Docker köprüsü: kurulumdan sonra simülasyon için gereken tek ek), ADR-0084 (`volt doctor`: betiğin gösterdiği sonraki adım), ADR-0100 (Pages düzeni: betikler kökte ve her zaman main'den; kitabın kökü son sürümün, `/dev/` main'in kitabı), ADR-0105 (sürüm koşusu betikleri dört platformda sürüm arşivleriyle sınar).
 > Tarih: 2026-09-29
 > Etkilenen: `scripts/install/` (YENİ: `install.ps1`, `install.sh`,
 > `PSScriptAnalyzerSettings.psd1`, `test/`), `scripts/release/package.sh`

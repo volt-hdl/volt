@@ -49,6 +49,47 @@ toplanır.
   ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
   taşındı (yazımı aynı).
 
+### Belgeler — README denetimi; sürüm günü metinleri RELEASING.md'de (2026-10-06)
+
+- README baştan sona bugünkü `volt` ile denendi; yanlış ya da eskimiş
+  olanlar düzeltildi. E3009 örneği artık olmayan "(ADR-0052)" ekini
+  taşıyordu (ADR-0099). `01_cdc_violation` çıktısında `Compiling` satırı
+  eksikti. `volt verify` örneği "1 property" diyordu, bugün 2. RISC-V
+  derleme bayrağı `-march=rv32im_zicsr`. "Both CI jobs are required"
+  yanlıştı: biçimsel doğrulama zorunlu kontrol, OpenSTA zamanlama işi
+  değil. Verilator ve SymbiYosys için Docker köprüsü anılıyor. W3011
+  sınırlamalara eklendi. Henüz sürüm olmadığı durum notunda ve kurulumda
+  yazıyor; VS Code eklentisi kaynaktan paketleniyor. Kitabın yasakladığı
+  iki sözcük README'den çıkarıldı.
+- Komut blokları `$` istemi taşımaz; çıktı ayrı bloktadır.
+- `docs/roadmap.md`: v0.1.0 maddesine ADR-0105 ve sürüm notu taslağı
+  eklendi; yasaklı dört sözcük çıkarıldı.
+- `RELEASING.md` 1. adım: README ve yol haritasında sürüm günü
+  değişecek metinler (eski ve yeni metin, denetim komutu). 5. adım
+  PowerShell'de: `Get-FileHash` ile `SHA256SUMS`, `gh attestation verify`
+  ile derleme kaynağı kaydı.
+
+### Değişti — Sürüm kuru koşusu hiçbir şey yayımlamaz; İngilizce sürüm notu (ADR-0105, 2026-10-06)
+
+- `release.yml`'nin kuru koşusu (etiket push'u olmayan her koşu,
+  `gh workflow run release.yml --ref <dal>`) artık derleme kaynağı kaydı
+  da üretmez: önceden her kuru koşu Sigstore'un herkese açık günlüğüne ve
+  deponun attestation deposuna kayıt yazıyordu. Kayıt ve taslak Release
+  tek bir `publish` işindedir (`if: needs.version.outputs.dry_run ==
+  'false'`), yazma izni olan tek iş odur.
+- Kuru koşu ve etiket koşusu kurulum betiklerini dört platformda sürüm
+  arşivleriyle sınar (`test-install.sh`, `test-install.ps1`; önceden yalnız
+  `install.yml`'de debug derlemeyle, üç platformda), `SHA256SUMS`'ı
+  `sha256sum -c` ile denetler ve duman testi satırını
+  (`Smoke test <hedef>: volt X.Y.Z (<commit>)`) günlüğe yazar.
+- Taslak Release'in notu `docs/release-notes/vX.Y.Z.md`'dir (İngilizce,
+  `## Behavior changes` ile başlar); CHANGELOG bölümü değil. v0.1.0'ın
+  bölümü 119 912 karakterlik Türkçe geliştirme günlüğü olurdu (GitHub
+  sınırı 125 000). `scripts/release/notes.py` notu sürüm koşusunda ve her
+  PR'da (`book.yml`) denetler: bölüm, kitabın yasaklı sözcükleri, boyut.
+- `docs/release-notes/v0.1.0.md` (taslak) ve sürüm günü komutları için
+  `RELEASING.md` eklendi.
+
 ### Tanılar — v0.1.0 öncesi düzeltmeler (2026-10-06)
 
 - Yeni **W3011** (ADR-0103, #93): ham reset portu (`in rst : reset(...)`)

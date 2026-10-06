@@ -2,8 +2,9 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
-> **Status:** early-stage project (started 2026-09). Not used in production.
-> No silicon. See [Limitations](#limitations).
+> **Status:** early-stage project (started 2026-09). No release has been
+> published yet: build Volt from source ([Installation](#installation)).
+> Not used in production. No silicon. See [Limitations](#limitations).
 
 ![A terminal: volt check reports error E3001 on crossing.volt, the sync() line from its help line is added in nano, and volt check reports 0 errors](demo/cdc-demo.gif)
 
@@ -12,8 +13,11 @@ fast clock domain to the slow one without a synchronizer
 ([the code](demo/crossing.volt), from the book's
 [clock domain crossing chapter](https://volt-hdl.github.io/volt/tour/cdc-error.html)):
 
+```sh
+volt check crossing.volt
+```
+
 ```text
-$ volt check crossing.volt
     Checking crossing.volt
 error[E3001]: direct assignment between clock domains
    ┌─ crossing.volt:27:9
@@ -54,8 +58,11 @@ synchronized name in the slow domain:
      }
 ```
 
+```sh
+volt check crossing.volt
+```
+
 ```text
-$ volt check crossing.volt
     Checking crossing.volt
     Finished 0.00s
       Result 0 error(s), 0 warning(s)
@@ -89,10 +96,17 @@ invisible through simulation and surfaces in silicon as intermittent
 metastability failures.
 
 `tests/ui/fail/01_cdc_violation.volt` assigns a signal from domain `@Fast`
-to a port in domain `@Slow` without a synchronizer. `volt build` rejects it
-(copied verbatim; two `W1001` unused-port warnings omitted):
+to a port in domain `@Slow` without a synchronizer. `volt build` rejects it:
+
+```sh
+volt build tests/ui/fail/01_cdc_violation.volt
+```
+
+The output, copied verbatim, with two `W1001` unused-port warnings
+omitted:
 
 ```text
+   Compiling tests/ui/fail/01_cdc_violation.volt
 error[E3001]: direct assignment between clock domains
    ┌─ tests/ui/fail/01_cdc_violation.volt:21:5
    │
@@ -167,7 +181,8 @@ exits with code 1 and the listed error.
 | Information flow: `secret` data reaching a `public` output | `E3009` | [`55_trust_leak.volt`](tests/ui/fail/55_trust_leak.volt) |
 | Handshake protocol: `valid` derived combinationally from `ready` | `E4007` | [`52_handshake_protocol_violation.volt`](tests/ui/fail/52_handshake_protocol_violation.volt) |
 
-The information-flow check, verbatim:
+The information-flow check, as `volt build tests/ui/fail/55_trust_leak.volt`
+prints it (the error alone):
 
 ```text
 error[E3009]: secret data flows to a public output
@@ -184,7 +199,7 @@ error[E3009]: secret data flows to a public output
    │     │
    │     @Debug (public)
    │
-   = reason: information from a higher trust level cannot reach a lower one; this could leak key material (ADR-0052)
+   = reason: information from a higher trust level cannot reach a lower one; this could leak key material
    = help: if intentional, use declassify(expr, "reason")
    = for more: volt explain E3009
 ```
@@ -198,7 +213,7 @@ E3009 --lang=tr`.
 [`examples/riscv_core.volt`](examples/riscv_core.volt) is an RV32IM + Zicsr
 single-cycle core with traps, one external interrupt and a memory-mapped
 UART. [`examples/riscv_sw/`](examples/riscv_sw/) holds a freestanding C
-program built with a stock GCC (`-march=rv32im -O2`, no libc):
+program built with a stock GCC (`-march=rv32im_zicsr -O2`, no libc):
 
 ```c
 int main(void)
@@ -216,11 +231,16 @@ int main(void)
 
 The test loads the committed `hello.hex` into the simulated SoC, captures
 the UART output byte by byte and checks it against `Hello from Volt!\n42\n`.
-Run in the `verilator/verilator` Docker image (recipe in
-[`examples/README.md`](examples/README.md)), output trimmed:
+In `examples/`, with Verilator installed or with Docker running (Volt then
+runs Verilator in a container by itself):
 
-```console
-$ volt test riscv_core_test.volt
+```sh
+volt test riscv_core_test.volt
+```
+
+Output trimmed (the Docker note and the cover summary left out):
+
+```text
    Compiling riscv_core_test.volt
 running 59 tests
 test reset_drives_pc_to_zero ... ok
@@ -241,33 +261,55 @@ access. `hello.hex` is committed, so no RISC-V toolchain is needed to run it.
 Contracts are part of the language: `requires`, `ensures`, `invariant`,
 `cover`, and `prev(x, N)` for values from earlier cycles. `volt verify`
 generates a model and an `.sby` script, runs SymbiYosys and maps the result
-back to the source line.
+back to the source line. On Windows, with SymbiYosys run by Volt in
+Docker:
 
-```console
-$ volt verify tests/ui/pass/23_provable_invariant.volt
+```sh
+volt verify tests/ui/pass/23_provable_invariant.volt
+```
+
+```text
    Verifying tests/ui/pass/23_provable_invariant.volt
-     [1/1] BoundedCounter (1 property) ... ok (0.35s)
-    Finished 1.40s
-      Result 1 property verified in 1.4s (16 jobs; bmc, depth 20)
+note: VOLT_TOOL_BACKEND=docker; running SymbiYosys in Docker (hdlc/formal:all)
+     [1/1] BoundedCounter (2 properties) ... ok (0.30s)
+    Finished 1.47s
+      Result 2 properties verified in 1.5s (16 jobs; bmc, depth 20)
 ```
 
 A violated contract exits with code 6 and points at the contract, with a
-counterexample VCD (output trimmed):
+counterexample VCD:
 
-```console
-$ volt verify tests/ui/fail/24_violated_invariant.volt
+```sh
+volt verify tests/ui/fail/24_violated_invariant.volt
+```
+
+Output trimmed (the header and the Docker note left out):
+
+```text
+     [1/1] LeakyCounter (3 properties) ... FAIL (0.20s)
 error[E5001]: contract violated
    ┌─ tests/ui/fail/24_violated_invariant.volt:12:16
    │
 12 │     invariant: count_r < 5
    │                ^^^^^^^^^^^ violated at cycle 7
    │
+   = reason: the 'invariant' contract of module 'LeakyCounter' does not hold for every reachable state
    = counterexample: build\formal\leakycounter_cex.vcd
+   = help: open the counterexample with 'gtkwave' or 'surfer'
+   = for more: volt explain E5001
+
+
+    Finished 1.25s
+    Failures:
+      LeakyCounter.inv_0  E5001 contract violated at cycle 7
+      Result 1 of 3 properties failed in 1.2s (16 jobs; bmc, depth 20)
+        Next: volt explain E5001   (how to read a counterexample)
 ```
 
-Limits: SymbiYosys, Yosys and an SMT solver must be installed separately
-(Linux; WSL or Docker on Windows). The engine is `smtbmc` (solver z3,
-boolector or yices). Sequential properties are limited to `prev()`; there
+Limits: `volt verify` needs SymbiYosys, Yosys and an SMT solver, installed
+(Linux, or WSL on Windows) or run by Volt itself in Docker. The engine is
+`smtbmc` (solver boolector by default; bitwuzla, yices or z3 with
+`--engine`; the Docker image has no bitwuzla). Sequential properties are limited to `prev()`; there
 are no sequences (`##`) and no liveness properties.
 
 ## Hardware/software bridge
@@ -309,7 +351,7 @@ IP-XACT or UVM output.
 - `pipeline(N)` blocks with generated stage registers — [ADR-0038](docs/adr/ADR-0038-pipeline-sozdizimi.md), [`examples/fir_filter.volt`](examples/fir_filter.volt)
 - `Delayed<T, N>` latency types — [ADR-0037](docs/adr/ADR-0037-l1-zamanlama.md), [`tests/ui/pass/44_delayed_aligned.volt`](tests/ui/pass/44_delayed_aligned.volt)
 - Port bundles (`struct port`) — [ADR-0039](docs/adr/ADR-0039-bundle-port-gruplari.md), [`tests/ui/pass/47_bundle_basic.volt`](tests/ui/pass/47_bundle_basic.volt)
-- Structs as signal types (first field in the most significant bits; one SV signal per field) — [ADR-0077](docs/adr/ADR-0077-struct-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (`instr as RType`)
+- Structs as signal types (the field declared at the top takes the most significant bits; one SV signal per field) — [ADR-0077](docs/adr/ADR-0077-struct-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (`instr as RType`)
 - Enum state types with exhaustive `match` and a generated state-valid invariant — [ADR-0074](docs/adr/ADR-0074-enum-destegi.md), [`examples/uart_tx.volt`](examples/uart_tx.volt), [`examples/i2c/`](examples/i2c/)
 - Functions (`fn`) as pure combinational logic, expanded at each call site (no SV `function`; intermediate `let`s become named wires) — [ADR-0081](docs/adr/ADR-0081-fonksiyon-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (immediate decoding, `imm_i_of` … `imm_j_of`)
 - `match` expressions (a `case` when the whole right-hand side) and block-level `let` in `on`/`comb` — [ADR-0083](docs/adr/ADR-0083-match-ifadesi-ve-blok-let.md), [`examples/riscv_alu.volt`](examples/riscv_alu.volt) (ALU result and branch condition), CSR and load-data selection in [`examples/riscv_core.volt`](examples/riscv_core.volt)
@@ -335,11 +377,14 @@ Planned work: [Roadmap](docs/roadmap.md).
   release is assumed to be synchronized outside the unit, `W3010` a
   synchronous reset shared by several clocks (a warning, not an error).
   Reset sequencing (`E3004`) and conditional resets (`E3005`) are reserved
-  and never emitted; `extern` modules carry no reset contract. The
+  and never emitted; `extern` modules carry no reset contract, and an
+  `extern` connected to a raw reset port gets the unsynchronized reset
+  (`W3011`). The
   generated `.sdc`/`.xdc` write no `set_clock_groups`, so a crossing the
   checker misses stays visible to the timing tool; CI proves this with
   OpenSTA on an injected crossing (ADR-0065).
-- **No built-in simulator.** `volt run` and `volt test` require Verilator.
+- **No built-in simulator.** `volt run` and `volt test` require Verilator,
+  installed or run by Volt itself in Docker.
 - **SystemVerilog is the sole output language.** No VHDL.
 - **Some constructs are not yet emitted.** A few constructs pass the type
   checker but are rejected at SystemVerilog generation with `E0003`.
@@ -361,7 +406,7 @@ Planned work: [Roadmap](docs/roadmap.md).
   (`E8505`). In a `comb` block, a block-level `for` or a contract, an
   argument for a parameter whose bits the function selects must be a
   plain signal name (`E0003`); call the function from a module-level `let`
-  instead. A file that holds only functions is a library: built on its
+  instead. A file that holds functions and nothing else is a library: built on its
   own it writes no SystemVerilog, and modules import its functions with
   `use` ([`examples/riscv_imm.volt`](examples/riscv_imm.volt),
   [`examples/riscv_alu.volt`](examples/riscv_alu.volt)).
@@ -377,16 +422,20 @@ Planned work: [Roadmap](docs/roadmap.md).
   call) is rejected with `E0003` rather than left undefined in the output.
 - **Sequential properties are limited to `prev()`.** No sequences, no
   liveness.
-- **Formal verification requires SymbiYosys** (Linux; WSL or Docker on
-  Windows); the timing proof requires Yosys and OpenSTA (Docker). Both CI
-  jobs are required.
+- **Formal verification requires SymbiYosys**, installed (Linux, or WSL
+  on Windows) or run by Volt itself in Docker. In CI, the formal
+  verification job is a required check; the timing proof (Yosys and
+  OpenSTA, in Docker) runs on every pull request but is not a required
+  check.
 - **Register maps support AXI4-Lite with 32-bit registers**; reset values
   are always 0.
 - **CDC bridges are limited to `sync()` / `sync3()` and the built-in
   dual-clock primitives.** User-written synchronizers are not recognized;
   a multi-bit `sync()` is a warning (`W3003`), not an error.
-- **The VS Code extension is not published** (local install from
-  `editors/vscode/`).
+- **The VS Code extension is not published.** Until the earliest
+  release, package it from `editors/vscode/` (see
+  [Installation](#installation)); it is not on the Visual Studio
+  Marketplace or Open VSX.
 - **Single maintainer, no external users yet.** No published crate, no
   paper, no FPGA board or tape-out results.
 
@@ -419,9 +468,13 @@ irm https://volt-hdl.github.io/volt/install.ps1 | iex
 
 **Linux and macOS**:
 
-```console
-$ curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+```sh
+curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
 ```
+
+**No release has been published yet.** Until then, both commands print
+`No Volt release has been published yet.` with the command that builds
+Volt from source, and install nothing. Use **From source** below.
 
 The script downloads the newest release for your platform (Windows
 x86_64, Linux x86_64, macOS Apple silicon and Intel), checks it against the
@@ -438,15 +491,23 @@ quarantine flag and the settings of the script (`VOLT_VERSION`,
 
 **From source** (needs stable Rust):
 
-```console
-$ git clone https://github.com/volt-hdl/volt
-$ cd volt
-$ cargo install --locked --path crates/volt-driver
+```sh
+git clone https://github.com/volt-hdl/volt
+cd volt
+cargo install --locked --path crates/volt-driver
 ```
 
-**VS Code:** download `volt-hdl-<version>.vsix` from the
-[release](https://github.com/volt-hdl/volt/releases) and install it with
-`code --install-extension volt-hdl-<version>.vsix`. The extension starts
+**VS Code:** until the earliest release, package the extension from
+source (Node.js 18 or later):
+
+```sh
+cd editors/vscode
+npm ci
+npx vsce package
+code --install-extension volt-hdl-0.1.0.vsix
+```
+
+The extension starts
 the language server as `volt lsp`, so `volt` must be on `PATH`; otherwise
 set `volt.serverPath` to the full path of the binary.
 
@@ -460,13 +521,13 @@ doctor` shows which way each command will run.
 
 ## Getting started
 
-```console
-$ volt doctor                 # which commands work here, what to install
-$ volt new blinky             # counter + test + contracts (volt new --list)
-$ cd blinky
-$ volt check counter.volt
-$ volt test                   # needs Verilator
-$ volt verify counter.volt    # needs SymbiYosys
+```sh
+volt doctor                 # which commands work here, what to install
+volt new blinky             # counter + test + contracts (volt new --list)
+cd blinky
+volt check counter.volt
+volt test                   # Verilator, installed or in Docker
+volt verify counter.volt    # SymbiYosys, installed or in Docker
 ```
 
 Templates: `minimal` (default), `cdc` (two clock domains, `sync()`),

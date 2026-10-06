@@ -1,9 +1,19 @@
 name: Release
 
 # ADR-0093: prebuilt binaries. A release tag builds every archive and opens
-# a DRAFT GitHub Release (a maintainer publishes it by hand). workflow_dispatch
-# is the dry run: the same builds and smoke tests, archives uploaded as
-# workflow artifacts, no release. Never runs on pull requests.
+# a DRAFT GitHub Release (a maintainer publishes it by hand). Never runs on
+# pull requests.
+#
+# Dry run (ADR-0105): every run that is not the push of a release tag, that
+# is workflow_dispatch from any branch (`gh workflow run release.yml --ref
+# <branch>`). It runs every job that builds or checks: the archives, the
+# smoke test on each platform, the install scripts against these archives,
+# SHA256SUMS and its check, the release notes. Its results are workflow
+# artifacts and nothing else. The two publishing steps, the provenance
+# attestation (Sigstore's public transparency log and the repository's
+# attestation store) and the draft Release, are in the `publish` job, which
+# runs only when DRY_RUN is 'false'. `publish` is the one job that asks for
+# a write permission; in a dry run no job holds one.
 #
 # A release tag is exactly vX.Y.Z (ADR-0100). GitHub matches the filter
 # against the whole tag name ('+' repeats the character class, '.' is a
@@ -27,6 +37,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # 'true' unless this run is the push of a release tag. The `publish` job
+  # (attestation + draft Release) runs only when it is 'false'.
+  DRY_RUN: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
   # Windows: link the C runtime statically, so volt.exe runs on a machine
   # without the Visual C++ Redistributable (no VCRUNTIME140.dll import).
   CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
@@ -37,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      dry_run: ${{ steps.v.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
       # One number everywhere: Cargo workspace version = volt --version (a
@@ -61,6 +75,12 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = true ]; then
+            echo "::notice::Dry run of Volt $version from $GITHUB_REF_NAME ($GITHUB_SHA): no attestation, no GitHub Release, workflow artifacts only"
+          else
+            echo "::notice::Release run of Volt $version from tag $GITHUB_REF_NAME: attestation and draft GitHub Release at the end"
+          fi
 
   build:
     name: Build ${{ matrix.target }}
@@ -141,9 +161,10 @@ jobs:
           PATH=$(echo "$PATH" | tr ":" "\n" | grep -v -e cargo -e rustup | paste -sd: -)
           export PATH
           if command -v cargo; then echo "::error::cargo still on PATH"; exit 1; fi
+          line=$("$bin" --version | tr -d "\r")
+          echo "Smoke test $TARGET: $line"
+          test "$line" = "volt $VERSION ($commit)"
           set -x
-          "$bin" --version
-          test "$("$bin" --version | tr -d "\r")" = "volt $VERSION ($commit)"
           cd "$smoke/empty"
           "$bin" new demo
           cd demo
@@ -190,6 +211,54 @@ jobs:
             dist/size-${{ matrix.target }}.md
           if-no-files-found: error
 
+  # The install scripts against the archives this run built (dist profile),
+  # on all four platforms: the VOLT_ARCHIVE path of install.yml, whose
+  # tests take an archive. Install, a new shell finds volt, install again
+  # (update), uninstall leaves nothing behind, a wrong SHA256SUMS installs
+  # nothing.
+  install:
+    name: Install scripts ${{ matrix.target }}
+    needs: [version, build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
+            shells: bash sh
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            shells: zsh bash
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            shells: zsh bash
+    env:
+      ARCHIVE: dist/volt-${{ matrix.target }}.${{ matrix.archive }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: volt-${{ matrix.target }}
+          path: dist
+      - name: install.sh (install, new shell, update, uninstall, wrong checksum)
+        if: runner.os != 'Windows'
+        run: sh scripts/install/test/test-install.sh "$ARCHIVE" ${{ matrix.shells }}
+      - name: install.ps1 in PowerShell 7 (pwsh)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install/test/test-install.ps1 -Archive $env:ARCHIVE -Shell pwsh
+      - name: install.ps1 in Windows PowerShell 5.1 (powershell.exe)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/install/test/test-install.ps1 -Archive $env:ARCHIVE -Shell powershell
+
   vsix:
     name: VS Code extension (.vsix)
     needs: version
@@ -231,13 +300,9 @@ jobs:
           if-no-files-found: error
 
   checksums:
-    name: Checksums + provenance
+    name: Checksums + release notes
     needs: [version, build, vsix]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -268,27 +333,42 @@ jobs:
             echo "|---|---|---|"
             cat ../collected/size-*.md
           } >> "$GITHUB_STEP_SUMMARY"
-      # Sigstore-signed SLSA build provenance for every archive and the .vsix:
-      # `gh attestation verify <file> -R volt-hdl/volt`.
-      - uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            dist/volt-*
-            dist/install.sh
-            dist/install.ps1
+      # What a user runs: every file listed, every file present and intact.
+      - name: Check SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -c SHA256SUMS
+          for f in *; do
+            [ "$f" = SHA256SUMS ] || grep -q "  $f\$" SHA256SUMS || { echo "::error::$f is not in SHA256SUMS"; exit 1; }
+          done
+      # The body of the Release: docs/release-notes/v<version>.md, checked
+      # (Behavior changes section, banned words, size; ADR-0100, ADR-0105).
+      - name: Release notes
+        run: |
+          mkdir notes
+          python3 scripts/release/notes.py --build "$VERSION" notes/notes.md
       - uses: actions/upload-artifact@v7
         with:
           name: volt-release-${{ needs.version.outputs.version }}
           path: dist/
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: volt-release-notes-${{ needs.version.outputs.version }}
+          path: notes/notes.md
+          if-no-files-found: error
 
-  release:
-    name: Draft GitHub Release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [version, checksums]
+  # The publishing steps, and the one job with write permissions. A dry run
+  # skips it as a whole (ADR-0105): its condition below is the switch.
+  publish:
+    name: Publish (attestation + draft GitHub Release)
+    if: needs.version.outputs.dry_run == 'false'
+    needs: [version, checksums, install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -298,28 +378,48 @@ jobs:
         with:
           name: volt-release-${{ needs.version.outputs.version }}
           path: dist
-      # Notes: the CHANGELOG.md section "## [<version>]" if there is one.
-      - name: Release notes
-        run: |
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { on = 1; next }
-            on && /^## \[/ { exit }
-            on { print }
-          ' CHANGELOG.md > notes.md
-          if [ ! -s notes.md ]; then
-            echo "See CHANGELOG.md." > notes.md
-          fi
-          {
-            echo
-            echo "Install (verifies SHA256SUMS, sets PATH, no administrator rights):"
-            echo "- Windows (PowerShell): \`irm https://volt-hdl.github.io/volt/install.ps1 | iex\`"
-            echo "- Linux, macOS: \`curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh\`"
-            echo "Or download the archive for your platform, unpack it and put \`volt\` on your PATH (https://volt-hdl.github.io/volt/tour/install.html)."
-            echo "Verify: \`sha256sum -c SHA256SUMS\` and \`gh attestation verify <file> -R $GITHUB_REPOSITORY\`."
-          } >> notes.md
+      - uses: actions/download-artifact@v8
+        with:
+          name: volt-release-notes-${{ needs.version.outputs.version }}
+          path: notes
+      # Sigstore-signed SLSA build provenance for every archive, the .vsix
+      # and the install scripts: `gh attestation verify <file> -R
+      # volt-hdl/volt`. Public: Sigstore's transparency log and the
+      # repository's attestation store.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/volt-*
+            dist/install.sh
+            dist/install.ps1
       - name: Create draft release
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --draft --verify-tag \
             --title "Volt $VERSION" \
-            --notes-file notes.md
+            --notes-file notes/notes.md
+
+  # A dry run says what it left out, and shows that no Release and no tag
+  # exist for this version (or what does exist, made by an earlier run).
+  dry-run:
+    name: Dry run - nothing published
+    if: needs.version.outputs.dry_run == 'true'
+    needs: [version, checksums, install]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Summary
+        run: |
+          release=$(gh release view "v$VERSION" -R "$GITHUB_REPOSITORY" --json isDraft,createdAt \
+            --jq '"exists (draft: \(.isDraft), created \(.createdAt))"' 2>/dev/null || echo "none")
+          tags=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v$VERSION" --jq 'map(.ref) | join(" ")')
+          {
+            echo "### Dry run of Volt $VERSION ($GITHUB_REF_NAME, ${GITHUB_SHA::7})"
+            echo
+            echo "Skipped: the publish job (provenance attestation, draft GitHub Release)."
+            echo "Workflow artifacts: volt-<target> (4), volt-vsix, volt-release-$VERSION, volt-release-notes-$VERSION."
+            echo
+            echo "GitHub Release v$VERSION: $release. Tags matching v$VERSION: ${tags:-none}."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
