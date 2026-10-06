@@ -44,6 +44,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run book.yml --repo "$GITHUB_REPOSITORY" --ref main
 
+  # docs/release-notes/vX.Y.Z.md, the body of each GitHub Release
+  # (ADR-0105): a Behavior changes section, the book's banned words.
+  # release.yml checks the notes of its version again.
+  release-notes:
+    name: Release notes
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checker self-test
+        run: python3 scripts/release/notes.py --self-test
+      - name: Check docs/release-notes
+        run: python3 scripts/release/notes.py --check
+
   examples:
     name: Book code examples
     if: github.ref_type != 'tag'

@@ -4,7 +4,7 @@
 |---|---|---|
 | `ci.yml` | push (main), PR | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
 | `fuzz-nightly.yml` | her gün 03:00 UTC, elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
-| `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu) | 4 platform arşivi + `.vsix` + `SHA256SUMS` + derleme kaynağı kaydı; tag'de **taslak** Release (ADR-0093). PR'da koşmaz |
+| `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
 | `install.yml` | PR/push (yalnız `scripts/install/`, `scripts/release/`, `install.yml`, `release.yml` değişince), pazartesi 05:17 UTC, elle | kurulum betikleri (ADR-0096): shellcheck + PSScriptAnalyzer; üç platformda derle → `scripts/release/package.sh` → `VOLT_ARCHIVE` ile kur, yeni kabukta `volt --version`, yeniden kur, kaldır (dosya ve PATH izi kalmaz), bozuk `SHA256SUMS`; sahte GitHub'a (`test/fake-github.py`) karşı ağ senaryoları (sürüm yok, varlık 404, kopan indirme, API hız sınırı → yönlendirme, geçici hata → yeniden deneme, yanıt yok); Windows'ta PowerShell 7 ve 5.1 ayrı adım. Haftalık/elle: gerçek tek satırlık komutlar; sürüm yokken "henüz sürüm yok" iletisini, sürüm varsa kurulumu sınar |
 
@@ -60,38 +60,36 @@
 - Elle tetikleme: `gh workflow run fuzz-nightly.yml -f seconds=1800`
   (`seconds` isteğe bağlı, varsayılan 1800).
 
-## Sürüm yayımlama (ADR-0093)
+## Sürüm yayımlama (ADR-0093, ADR-0105)
 
+Sürüm günü komutları depo kökündeki [`RELEASING.md`](../../RELEASING.md)'dedir.
 İş akışı yalnız **taslak** oluşturur; yayımlamak her zaman elle yapılır.
 
-1. Sürüm numarasını üç yerde aynı yap: `Cargo.toml`
-   (`[workspace.package] version`), `crates/volt-sv-emit/src/lib.rs`
-   (`VOLT_VERSION`) ve `editors/vscode/package.json` (`version`). İlk ikisi
-   `cli_tests::version_flag_prints_the_cargo_package_version`, üçüncüsü
-   `release.yml`'nin sürüm işi tarafından denetlenir. `CHANGELOG.md`'de
-   `## [Yayımlanmadı]` başlığını `## [X.Y.Z] - YYYY-AA-GG` yap (taslağın
-   notları bu bölümden alınır). Bölüm `### Behavior changes` ile başlar:
-   "**Davranış değişikliği.**" diye işaretli maddeler orada toplanır; yoksa
-   "None." yazılır, bölüm atlanmaz (ADR-0100). Numara: orta hane yeni
-   özellik ve olası bozucu değişiklik, son hane yalnız düzeltme. PR + CI
-   yeşil + merge.
-2. İsteğe bağlı prova: `gh workflow run release.yml --ref main` (kuru koşu:
-   Release oluşturmaz, arşivler `volt-release-X.Y.Z` artifact'ında).
-3. Tag: `git tag -a vX.Y.Z -m "Volt X.Y.Z" origin/main` ve
-   `git push origin vX.Y.Z`. Tag ile Cargo sürümü uyuşmazsa ilk iş düşer,
-   hiçbir şey yüklenmez. Tag tam olarak `vX.Y.Z` olur (sonek yok); aynı
-   push `book.yml`'yi de tetikler ve kitabın kökü bu sürüme geçer.
-4. İş bitince Releases sayfasında `Volt X.Y.Z` taslağı görünür: dört arşiv
-   (sürümsüz adlar: `volt-<hedef>.zip`/`.tar.gz`), `volt-hdl-X.Y.Z.vsix`,
-   `install.sh`, `install.ps1` (bu sürüme sabitlenmiş kopyalar) ve
-   `SHA256SUMS`. Notları gözden geçir, **Publish release**.
-   **"Set as a pre-release" işaretini koyma; v0.1 dahil normal release
-   olarak yayımla.** Kurulum betikleri ve kitaptaki doğrudan bağlantılar
-   `releases/latest/download/<ad>` kullanır; GitHub'ın `latest`'i taslakları
-   ve ön sürümleri görmez, ön sürüm yayımlanırsa betik "no published Volt
-   release" der (ADR-0096). "Set as the latest release" işaretli kalmalı. Yanlış tag'i silmek için: taslağı sil,
-   `git push origin :refs/tags/vX.Y.Z`, sonra kitabın kökünü geri almak
-   için `gh workflow run book.yml --ref main` (ADR-0100).
+- **Kuru koşu** = sürüm etiketi push'u olmayan her koşu:
+  `gh workflow run release.yml --ref <dal>`. Derler, her platformda duman
+  testi (`volt X.Y.Z (<commit>)`) ve kurulum testi yapar, `SHA256SUMS`'ı ve
+  sürüm notunu denetler; sonuçlar yalnız artifact'tır (`volt-<hedef>`,
+  `volt-vsix`, `volt-release-X.Y.Z`, `volt-release-notes-X.Y.Z`). Son iş
+  ("Dry run - nothing published") atlananları ve o sürümün Release'i ile
+  etiketinin durumunu iş özetine yazar.
+- **Etiket koşusu** aynı işleri koşar, ardından `publish` işi (koşulu
+  `needs.version.outputs.dry_run == 'false'`, yazma izni olan tek iş):
+  derleme kaynağı kaydı (Sigstore, herkese açık) ve
+  `gh release create --draft --verify-tag`.
+- Taslağın notu `docs/release-notes/vX.Y.Z.md`'dir (İngilizce; üst satır
+  `# Volt X.Y.Z`, ilk bölüm `## Behavior changes`); dosya yoksa ya da
+  `scripts/release/notes.py` denetiminden geçmezse koşu `publish`'ten önce
+  düşer. `book.yml`'nin `release-notes` işi aynı denetimi her PR'da yapar.
+- Sürüm numarası üç yerde aynıdır: `Cargo.toml` (`[workspace.package]
+  version`), `crates/volt-sv-emit/src/lib.rs` (`VOLT_VERSION`) ve
+  `editors/vscode/package.json`. İlk ikisini
+  `cli_tests::version_flag_prints_the_cargo_package_version`, üçüncüsünü
+  `version` işi denetler; tag ile Cargo sürümü uyuşmazsa ilk iş düşer.
+- Taslağı **"Set as a pre-release" işaretlemeden**, "latest" olarak
+  yayımla: kurulum betikleri ve kitaptaki doğrudan bağlantılar
+  `releases/latest/download/<ad>` kullanır; GitHub'ın `latest`'i taslakları
+  ve ön sürümleri görmez (ADR-0096). Yanlış tag'i geri alma:
+  `RELEASING.md`, "Undo".
 
 Denetim: `gh attestation verify <arşiv> -R volt-hdl/volt` ve
 `sha256sum -c SHA256SUMS`. VS Code Marketplace ve crates.io yayını bu iş
