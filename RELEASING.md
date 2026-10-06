@@ -100,7 +100,7 @@ gh workflow run release.yml --ref main
 Start-Sleep 10   # the new run takes a few seconds to appear
 $run = gh run list --workflow release.yml --branch main --limit 1 --json databaseId --jq '.[0].databaseId'
 gh run watch $run --exit-status
-gh run view $run --log | Select-String 'Smoke test [a-z0-9_-]+: volt|Dry run of Volt'
+gh run view $run --log | Select-String 'Smoke test [a-z0-9_-]+: volt|notice\]Dry run of Volt'
 gh run view $run --json headSha --jq .headSha
 git rev-parse HEAD
 ```

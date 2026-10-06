@@ -129,3 +129,15 @@ tarife bağlanır; `AGENTS.md` tarifin yerini söyler.
 - Yerel: `python scripts/release/notes.py --self-test` (10 durum, 0
   yanlış), `--check` (1 dosya, 0 hata), `--build 0.1.0` (11 389
   karakter).
+- Kuru koşu **37399267816** (dal `chore/release-0.1.0-prep`, commit
+  834e853, `workflow_dispatch`): 12 iş başarılı, `publish` atlandı.
+  Günlükte her platformda `Smoke test <hedef>: volt 0.1.0 (834e853)`
+  (`x86_64-pc-windows-msvc`, `x86_64-unknown-linux-musl`,
+  `x86_64-apple-darwin`, `aarch64-apple-darwin`); dört `install` işinde
+  "all install checks passed" (Windows'ta PowerShell 7 ve 5.1 ayrı);
+  `sha256sum -c` 7/7 `OK`; not 11 389 karakter. Hiçbir işin
+  `IdToken`/`Attestations` izni yok; `dry-run` işi "GitHub Release
+  v0.1.0: none. Tags matching v0.1.0: none." yazdı.
+- Attestation API'si bu koşunun Linux arşivi (`sha256:078e5794…`) için
+  404 döner; önceki kuru koşu 36624446192'nin aynı arşivi
+  (`sha256:21bac4a6…`) için 1 kayıt döner.
