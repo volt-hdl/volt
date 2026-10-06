@@ -150,8 +150,8 @@ file (a port mismatch is reported by Verilator, not by `volt check`),
 an `extern` takes no parameters (a parameterized module runs with its
 defaults, or behind a small wrapper), no reset port is added to an
 `extern`, `volt build` does not copy the SystemVerilog file, and an
-`extern` named like a standard library module is taken for the built-in
-one ([#92](https://github.com/volt-hdl/volt/issues/92)). A worked
+`extern` cannot be named like a standard library module (`E1016`; a
+SystemVerilog module with such a name goes behind a wrapper). A worked
 example, checked, tested and built:
 [Using Volt in an existing project](https://volt-hdl.github.io/volt/cookbook/existing-project.html).
 

@@ -36,12 +36,8 @@ impl Resolver<'_> {
                 self.root,
                 is_public,
             )),
-            ItemKind::Extern(x) => Some(self.declare_checked(
-                &x.name.clone(),
-                DefKind::ExternModule,
-                self.root,
-                is_public,
-            )),
+            // Yerleşik adlı extern E1016 (ADR-0102 §1).
+            ItemKind::Extern(x) => Some(self.declare_extern(x, is_public)),
             // Test blokları isim alanına ad eklemez (ADR-0033);
             // doğrulamaları sim::check_tests yapar.
             ItemKind::Test(_) => None,

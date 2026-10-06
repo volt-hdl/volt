@@ -562,3 +562,61 @@ fn rdc_diagnostics_are_identical_across_runs() {
         assert_eq!(first, again);
     }
 }
+
+// ═══ Ham reset'in extern'e gidişi (W3011, ADR-0103, #93) ═══════════
+
+const EXT_RESET: &str =
+    "extern module Ext {\n    in clk : clock\n    in rst : reset(sync, active_high)\n    \
+                   in d : bool\n    out q : bool\n}\n";
+
+fn w3011(src: &str) -> Vec<Diagnostic> {
+    diags(src)
+        .into_iter()
+        .filter(|d| d.code.as_str() == "W3011")
+        .collect()
+}
+
+#[test]
+fn raw_reset_to_extern_beside_synchronized_registers_is_w3011() {
+    let src = format!(
+        "{EXT_RESET}module M {{\n    in clk : clock\n    in rst : reset(sync, active_high)\n    \
+         in d : bool\n    out q : bool\n    let e = Ext {{ clk: clk, rst: rst, d: d }}\n    \
+         reg r : bool = false\n    on clk {{ r <= e.q }}\n    q = r\n}}\n"
+    );
+    let found = w3011(&src);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].validate().is_ok(), "{:?}", found[0].validate());
+}
+
+#[test]
+fn shorthand_raw_reset_binding_is_w3011_too() {
+    let src = format!(
+        "{EXT_RESET}module M {{\n    in clk : clock\n    in rst : reset(sync, active_high)\n    \
+         in d : bool\n    out q : bool\n    let e = Ext {{ clk, rst, d }}\n    \
+         reg r : bool = false\n    on clk {{ r <= e.q }}\n    q = r\n}}\n"
+    );
+    assert_eq!(w3011(&src).len(), 1);
+}
+
+#[test]
+fn raw_reset_to_extern_without_registers_is_not_w3011() {
+    // Modülün flop'u yok: senkronize kopya üretilmez, iki taraf aynı
+    // ham reset'i görür.
+    let src = format!(
+        "{EXT_RESET}module M {{\n    in clk : clock\n    in rst : reset(sync, active_high)\n    \
+         in d : bool\n    out q : bool\n    let e = Ext {{ clk: clk, rst: rst, d: d }}\n    \
+         q = e.q\n}}\n"
+    );
+    assert!(w3011(&src).is_empty());
+}
+
+#[test]
+fn extern_without_the_raw_reset_is_not_w3011() {
+    let ext = "extern module Ext2 {\n    in clk : clock\n    in d : bool\n    out q : bool\n}\n";
+    let src = format!(
+        "{ext}module M {{\n    in clk : clock\n    in rst : reset(sync, active_high)\n    \
+         in d : bool\n    out q : bool\n    let e = Ext2 {{ clk: clk, d: d }}\n    \
+         reg r : bool = false\n    on clk {{ r <= e.q }}\n    q = r\n}}\n"
+    );
+    assert!(w3011(&src).is_empty());
+}

@@ -68,6 +68,14 @@ impl Resolver<'_> {
     /// örnek adı sonra bildirilir (kendi bağlamalarında görünmez).
     fn resolve_instance_stmt(&mut self, inst: &InstanceDecl, scope: ScopeId, module_def: DefId) {
         let target = self.resolve_instance_target(&inst.module_path.clone(), scope);
+        if let (InstanceTarget::Module(def), Some(name)) = (
+            target,
+            super::stdlib_name::single_segment(&inst.module_path),
+        ) {
+            // Yerleşik adlı Volt modülünün örneklemesi E1016 (ADR-0102 §1).
+            let name = name.clone();
+            self.check_instance_stdlib_name(def, &name);
+        }
         for arg in &inst.generic_args {
             match arg {
                 GenericArg::Type(ty) => self.resolve_type(*ty, scope),

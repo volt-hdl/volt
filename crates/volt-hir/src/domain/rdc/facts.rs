@@ -215,7 +215,11 @@ pub(super) fn reset_free_bindings(
 }
 
 /// Örneğin hedefi bir `extern module` mü (ADR-0047).
-fn is_extern_instance(ast: &SourceFile, res: &ResolveResult, inst: &InstanceDecl) -> bool {
+pub(super) fn is_extern_instance(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    inst: &InstanceDecl,
+) -> bool {
     res.decl_spans
         .get(&inst.name.span)
         .and_then(|d| res.instance_module.get(d))

@@ -82,7 +82,8 @@ denetler.
 | [0006](ADR-0006-arena-tabanli-ast-hir.md) | Arena Tabanlı AST/HIR — `Idx<T>` Handle Deseni, Tip Bilgisi HIR'da | AST ve HIR arenalarda tutulur, düğümlere `Idx<T>` ile erişilir; tip bilgisi HIR'da yaşar. | Uygulandı |
 | [0009](ADR-0009-test-dosya-formati.md) | Test Dosya Formatı — `tests/ui/{pass,fail}`, `//~` Anotasyonları, Birebir Fixture | Testler `tests/ui/{pass,fail}` altında `//~` anotasyonlu fixture'lardır; beklenen çıktılar birebir karşılaştırılır. | Uygulandı |
 | [0015](ADR-0015-determinizm-garantisi.md) | Determinizm Garantisi Kapsamı — Aynı Kaynak, Byte-Aynı Çıktı | Aynı kaynak ve aynı derleyici her zaman bayt bayt aynı çıktıyı üretir. | Kabul edildi |
-| [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Kısmen yerini aldı: ADR-0096 |
+| [0093](ADR-0093-hazir-ikililer-surum-is-akisi.md) | Hazır İkililer — Sürüm İş Akışı, Platformlar, Taşınabilirlik ve Kaynak Doğrulaması | `v*` tag'i dört platform için statik ikili arşivleri, `.vsix`, SHA256 özetleri ve derleme kaynağı kaydıyla taslak GitHub Release üretir. | Kısmen yerini aldı: ADR-0096, ADR-0104 |
+| [0104](ADR-0104-surum-kimligi.md) | Sürüm Kimliği — `volt --version` ve Üretilen Başlıklarda Commit Kısaltması | `volt --version`, SV ve SDC başlıkları `X.Y.Z (abcdefg)` yazar: sürüm ve derlendiği commit; git yoksa ya da sürüm arşivinden derlendiyse yalnız sürüm; derleme tarihi yok. Golden kayıtlar commit'siz kalır. | Uygulandı |
 | [0094](ADR-0094-docker-koprusu.md) | Docker Köprüsü — Eksik Verilator/sby'yi Sabitlenmiş İmajda Otomatik Koşturmak | Verilator ya da sby yerelde yoksa `volt test`, `run` ve `verify` aracı özetle sabitlenmiş imajda koşturur; tek satır bildirir, yollar ana makine yolu kalır. | Uygulandı |
 | [0096](ADR-0096-kurulum-betikleri.md) | Kurulum Betikleri — Tek Komutla Doğrulanmış, Yönetici Yetkisi İstemeyen, Geri Alınabilir Kurulum | `irm …/install.ps1 \| iex` ve `curl …/install.sh \| sh` sürümsüz varlık adlarıyla en yeni sürümü indirir, `SHA256SUMS` ile doğrular, kullanıcı klasörüne kurar ve PATH'e bir kez ekler; yeniden çalıştırma günceller, `VOLT_UNINSTALL=1` iz bırakmadan kaldırır. | Uygulandı |
 | [0100](ADR-0100-0x-surum-politikasi.md) | 1.0 Öncesi Sürüm Politikası — 0.x Numaraları, Yalnız Son Sürüm, "Behavior changes", Sürümle Eşleşen Kitap | Sürüm tag'i `vX.Y.Z`; 0.x'te orta hane özellik ve olası bozucu değişiklik, son hane yalnız düzeltme; yalnız son sürüm desteklenir; her sürüm notunda "Behavior changes"; sürüm içeriğe göre çıkar; ilk sürüm v0.1.0; 1.0 SemVer sözü, `volt.lock` ve paket yönetimi ister. Kitabın kökü son sürümün, `/dev/` main'in kitabı. | Kabul edildi |
@@ -135,6 +136,7 @@ denetler.
 | [0002](ADR-0002-domain-semantigi.md) | Domain Semantiği — `@Domain` Anotasyonu ve Birleşik Domain (Saat + Sıfırlama + Güç + Güven) | Saat, sıfırlama, güç ve güven tek bir `@Domain` anotasyonunda birleşir; saat alanı uyuşmazlığı tip denetiminde yakalanır. | Kabul edildi |
 | [0047](ADR-0047-extern-domain-anotasyonu.md) | Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları | Extern modül sınırındaki portlar sembolik saat alanlarıyla anotasyonlanır. | Uygulandı |
 | [0065](ADR-0065-rdc-ve-hedefli-sdc.md) | RDC Denetimi ve Hedefli SDC Kısıtları — İki Güvenlik Ağı, İki Ayrı Yırtık | RDC denetimi (E3003) ve üretilen reset bırakma senkronizörü gelir; SDC'de hedefli kısıtlar varsayılan olur. | Uygulandı |
+| [0103](ADR-0103-extern-ham-reset-uyarisi.md) | Senkronize Reset'li Modülde Ham Reset'in Extern'e Gidişi — W3011 | Ham reset portu register'lara senkronizörle bırakılırken aynı port bir extern'e bağlanınca W3011; çıktı değişmez, senkronize kopyanın extern'e verilmesi v0.2'de ayrı karar. | Uygulandı |
 | [0088](ADR-0088-bildirimde-alan-aciklamasi.md) | Sinyal Bildirimlerinde Saat Alanı Açıklaması | `wire` / `let` / `reg` bildirimleri denetlenen bir `@Alan` saat alanı açıklaması taşıyabilir. | Uygulandı |
 
 ## Yerleşik primitifler (stdlib)
@@ -146,6 +148,7 @@ denetler.
 | [0049](ADR-0049-domain-aware-bellek.md) | Domain-Aware Bellek — `AsyncDualPortRam<T, DEPTH>` | `AsyncDualPortRam<T, DEPTH>` iki saat alanlı yerleşik bellektir. | Uygulandı |
 | [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı | `Handshake<T>` valid/ready el sıkışmasını otomatik protokol kontratlarıyla yerleşik bundle olarak sunar. | Uygulandı |
 | [0087](ADR-0087-primitif-struct-ogeleri.md) | Yerleşik Primitiflerde Struct / Enum Öğe Tipi | Yerleşik primitifler struct/enum öğe tipini tek paketlenmiş sözcük olarak saklar. | Uygulandı |
+| [0102](ADR-0102-stdlib-adli-kullanici-modulu.md) | Standart Kütüphane Adını Taşıyan Kullanıcı Modülü — E1016 | Yerleşik adlı `extern module` bildirimde, yerleşik adlı Volt modülü örneklendiği yerde E1016; yerleşik artık sessizce yerine geçmez. Üst modül olarak bu ad geçerli kalır. | Uygulandı |
 
 ## Güven ve bilgi akışı
 

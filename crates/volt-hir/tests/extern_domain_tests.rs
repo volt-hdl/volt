@@ -424,7 +424,7 @@ fn extern_annotation_on_non_clock_port_is_e3002() {
 fn extern_port_named_like_root_item_has_no_shadow_warning() {
     // M2: extern'in gövdesi yok, gölgeleme karışıklık yaratamaz.
     let result = check(
-        "const addr : u8 = 0\nextern module Ram {\n    in clk : clock\n    in addr : u4\n    out q : u8\n}\n",
+        "const addr : u8 = 0\nextern module ExtRam {\n    in clk : clock\n    in addr : u4\n    out q : u8\n}\n",
     );
     assert_eq!(count(&result, "W1002"), 0, "{:?}", result.error_codes());
     assert!(!result.has_errors(), "{:?}", result.error_codes());

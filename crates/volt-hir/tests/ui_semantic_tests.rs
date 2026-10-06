@@ -158,6 +158,13 @@ fn ui_fail_212_bundle_output_nonblocking_in_on_e0020() {
 }
 
 #[test]
+fn ui_fail_219_extern_raw_reset_w3011() {
+    // ADR-0103 (#93): ham reset extern'e giderken modülün register'ları
+    // senkronize kopyayı kullanıyor.
+    assert_ui_fail("fail/219_extern_raw_reset.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");
@@ -315,8 +322,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           kontrat), 118 let genişliği + üretilen ad tekilleştirme,
     // ADR-0083: 119-123 match ifadesi (modül, blok, fn, tip itme + struct,
     //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
-    //           127 const'ta if/match ifadesi (Aşama 3).
-    assert_eq!(checked, 117);
+    //           127 const'ta if/match ifadesi (Aşama 3);
+    // #80: 132 tipsiz literal let (W2012, i32 tel).
+    assert_eq!(checked, 118);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

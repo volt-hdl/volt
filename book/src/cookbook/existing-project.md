@@ -286,14 +286,13 @@ and the names in them are the names of your Volt source.
 - **Clock domains stop at the ports.** The ports of an `extern` can carry
   clock domains, and Volt checks what you connect to them, but it cannot
   see a crossing inside the SystemVerilog module.
-- **Do not reuse a standard library name.** An `extern` named like a
-  module of the standard library ([docs/stdlib.md](https://github.com/volt-hdl/volt/blob/main/docs/stdlib.md):
-  `EdgeDetect`, `SyncFifo`, `Counter`, ...) is taken for the built-in
-  module. Depending on the ports, `volt check` then reports an error about
-  the built-in module, or `volt build` writes SystemVerilog that does not
-  use your file
-  ([issue #92](https://github.com/volt-hdl/volt/issues/92)). Pick another
-  name.
+- **No standard library names.** An `extern` cannot be named like a
+  module of the standard library (`EdgeDetect`, `SyncFifo`, `Counter`,
+  ...; `volt explain stdlib` lists them): `volt check` reports `E1016`.
+  The name of an `extern` is the name of its SystemVerilog module, so a
+  SystemVerilog module called `Counter` goes behind a small SystemVerilog
+  wrapper module with another name, and the `extern` declares the
+  wrapper.
 
 You are in the `existing` folder.
 

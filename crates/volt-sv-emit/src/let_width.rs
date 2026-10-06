@@ -18,6 +18,13 @@ use crate::Emitter;
 /// Sonuç genişliğinin üst sınırı (volt-hir `consteval::MAX_WIDTH`).
 const MAX_WIDTH: u32 = 65_536;
 
+/// Yalnız soneksiz literallerden oluşan tipsiz `let`in tipi
+/// (type-inference.md §5, W2012): `i32`.
+const UNSIZED_LITERAL: Sig = Sig {
+    width: 32,
+    signed: true,
+};
+
 /// Tam sayı ifadesinin genişlik aralığı `lo..=hi` (tip denetimindeki
 /// `UIntFlex`/`SIntFlex` karşılığı); somut tipte `lo == hi`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +70,64 @@ impl Emitter<'_> {
     pub(crate) fn untyped_let_sig(&mut self, value: Idx<Expr>) -> Option<(Sig, u32)> {
         match self.int_range(value) {
             Some(range) => Some((range.sig(), range.lo)),
-            None => self.width_of(value).map(|sig| (sig, sig.width)),
+            None => self
+                .width_of(value)
+                .or_else(|| self.is_unsized_literal(value).then_some(UNSIZED_LITERAL))
+                .map(|sig| (sig, sig.width)),
+        }
+    }
+
+    /// Tip denetiminin `IntLit` sonucu veren ifadesi: soneksiz literal,
+    /// onun `-`/`~`'i, iki literalin aritmetik, bit ya da kaydırma işlemi,
+    /// iki dalı literal olan `if` (#80; W2012 bunu `i32` sayar).
+    fn is_unsized_literal(&self, idx: Idx<Expr>) -> bool {
+        match &self.ast.exprs[idx].kind {
+            ExprKind::IntLit { suffix: None, .. } => true,
+            ExprKind::Unary {
+                op: UnOp::Neg | UnOp::BitNot,
+                operand,
+            } => self.is_unsized_literal(*operand),
+            ExprKind::Binary { op, lhs, rhs } => {
+                matches!(
+                    op,
+                    BinOp::Add
+                        | BinOp::Sub
+                        | BinOp::Mul
+                        | BinOp::Div
+                        | BinOp::Rem
+                        | BinOp::BitAnd
+                        | BinOp::BitOr
+                        | BinOp::BitXor
+                        | BinOp::Shl
+                        | BinOp::Shr
+                ) && self.is_unsized_literal(*lhs)
+                    && self.is_unsized_literal(*rhs)
+            }
+            ExprKind::If {
+                then_expr,
+                else_expr,
+                ..
+            } => self.is_unsized_literal(*then_expr) && self.is_unsized_literal(*else_expr),
+            ExprKind::IntLit {
+                suffix: Some(_), ..
+            }
+            | ExprKind::Unary { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
         }
     }
 

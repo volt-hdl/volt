@@ -81,8 +81,11 @@ volt --version
 **You should see:**
 
 ```text,output
-volt 0.1.0
+volt 0.1.0 (63a1c76)
 ```
+
+The part in parentheses names the commit the binary was built from, so
+yours shows other letters and digits.
 
 If you see `command not found` (or, on Windows, "The term 'volt' is not
 recognized"), the terminal was opened before the install: close it and

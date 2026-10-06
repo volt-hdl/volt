@@ -303,6 +303,21 @@ match x {
     _     => { }
 }",
         ),
+        E1016 => Explanation::new(
+            "Modül bir standart kütüphane modülünün adını taşıyor",
+            "Bir 'extern module' ya da başka bir modülün içine yerleştirilen bir modül, standart kütüphanenin yerleşik bir modülüyle aynı adı taşıyor (EdgeDetect, SyncFifo, Counter, AsyncFifo, ...).",
+            "Standart kütüphanenin modülleri derleyicinin içindedir: 'let e = EdgeDetect { ... }' yerleşik kenar algılayıcıyı yerinde açar. Kendi modülünüz aynı adı taşıdığında, hiçbir şey söylenmeden yerleşik olan alınıyordu: extern'ün SystemVerilog'u hiç kullanılmıyor, derleme kimsenin bildirmediği telleri okuyan SystemVerilog ile başarılı olabiliyor ya da yerleşiğin generic argümanlarını isteyen bir hatayla düşüyordu. Volt artık bu adı reddeder. 'extern module' bildirildiği yerde raporlanır; bir Volt modülü yalnız başka bir modül onu yerleştirdiğinde, böylece 'Counter' adlı bir üst modül ('volt new' şablonu) geçerli kalır. Bir extern'ün adı SystemVerilog modülünün adıdır; 'Counter' adlı mevcut bir SystemVerilog modülü doğrudan bildirilemez: onu yerleştiren, başka adlı küçük bir SystemVerilog sarmalayıcı modül yazın ve sarmalayıcıyı bildirin. 'volt explain stdlib' yerleşik modülleri listeler.",
+            "extern module Counter {       // ✗ E1016: yerleşik Counter<WIDTH>
+    in  clk : clock
+    out n   : u4
+}",
+            "// rtl/counter_wrap.sv: module CounterWrap(...); Counter u (...); endmodule
+@source(\"rtl/counter_wrap.sv\", \"rtl/counter.sv\")
+extern module CounterWrap {   // ✓
+    in  clk : clock
+    out n   : u4
+}",
+        ),
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => Explanation::new(
@@ -1269,6 +1284,17 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ saat başına bir bırakma senkronizörü\n}",
         )
         .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        W3011 => Explanation::new(
+            "Modülün register'ları senkronize kopyayı kullanırken ham reset bir extern modüle gidiyor",
+            "Ham bir reset portu ('in rst : reset(...)') bir extern örneğine bağlanmış; aynı modülün o saatteki register'ları ise Volt'un önlerine koyduğu senkronizör üzerinden sıfırlanıyor.",
+            "Ham reset portu için Volt saat başına bir bırakma senkronizörü kurar: modülün register'ları reset'i hemen etkin, iki aşama sonra bir saat kenarında bırakılmış görür. Extern modül ise bağladığınız sinyalin kendisini, burada ham portu alır. Bu yüzden flip-flop'ları yanlarındaki register'lardan farklı bir çevrimde reset'ten çıkar ve SystemVerilog modülü bırakmayı kendisi senkronlamıyorsa bırakmaları saate hiç hizalı değildir; saat kenarına yakın bir bırakma recovery/removal zamanlamasını bozabilir. Verilator'ın lint'i aynı neti SYNCASYNCNET olarak raporlar. Çıktı değişmez: bu, farkın görülmesi için bir uyarıdır. Bugün senkronize kopyayı bir extern'e vermenin yolu yoktur; SystemVerilog modülünün reset bırakmasını senkronladığını ya da birkaç çevrim arayla bırakmanın bu tasarımda zararsız olduğunu denetleyin.",
+            "let det = RisePulse { clk: clk, rst: rst, level: b }   // ⚠ W3011: ham 'rst'
+reg count_r : u8 = 0                                   // rst_sync_clk üzerinden reset
+on clk { if det.rise { count_r <= count_r + 1 } }",
+            "// RisePulse 'rst' bırakmasını 'clk'ye kendisi senkronlar,
+// ya da flip-flop'larının reset'e ihtiyacı yoktur:
+let det = RisePulse { clk: clk, level: b }              // ✓",
+        ),
         W4001 => Explanation::new(
             "Kullanılmayan sinyal",
             "Netlist düzeyinde kullanılmayan sinyal denetimi için ayrılmıştır; bu derleyici üretmez. Sürülüp okunmayan wire W1001 ile bildirilir.",

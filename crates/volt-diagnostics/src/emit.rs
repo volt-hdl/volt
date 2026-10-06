@@ -1,11 +1,12 @@
 //! İnsan-okunabilir ve short format çıktı (cli-contract.md §5).
 
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use codespan_reporting::diagnostic as cs;
 use codespan_reporting::files::{Error as FilesError, Files};
 use codespan_reporting::term;
-use codespan_reporting::term::termcolor::NoColor;
+use codespan_reporting::term::termcolor::{Ansi, NoColor, WriteColor};
 use volt_span::{FileId, SourceMap};
 
 use crate::diagnostic::{Diagnostic, NoteKind, Severity};
@@ -43,7 +44,19 @@ fn to_cs_severity(severity: Severity) -> cs::Severity {
     }
 }
 
-/// cli-contract.md §5 "İnsan Çıktısı" formatında (renksiz) metin üretir.
+/// İnsan biçimindeki tanıların ANSI renkli yazılıp yazılmayacağı
+/// (cli-contract.md §3 "Renk Davranışı"). Kararı CLI verir
+/// (`--color`, `VOLT_COLOR`, terminal, `NO_COLOR`); kütüphanenin ve
+/// editörün varsayılanı renksizdir.
+static COLOR: AtomicBool = AtomicBool::new(false);
+
+/// `render_human`'ın renk kipini ayarlar (yalnız CLI çağırır).
+pub fn set_color(on: bool) {
+    COLOR.store(on, Ordering::Relaxed);
+}
+
+/// cli-contract.md §5 "İnsan Çıktısı" formatında metin üretir; `set_color`
+/// açtıysa ANSI renkli, yoksa renksiz.
 /// Anahtar satırlar aktif dile göre seçilir (GLOSSARY.md §7):
 /// EN "= reason: / = help: / = note: / = for more:",
 /// TR "= neden: / = çözüm: / = not: / = daha fazla:".
@@ -91,10 +104,18 @@ pub fn render_human(diag: &Diagnostic, map: &SourceMap) -> String {
         .with_labels(labels)
         .with_notes(notes);
 
-    let mut buffer = NoColor::new(Vec::new());
+    let bytes = if COLOR.load(Ordering::Relaxed) {
+        emit_to(Ansi::new(Vec::new()), map, &cs_diag).into_inner()
+    } else {
+        emit_to(NoColor::new(Vec::new()), map, &cs_diag).into_inner()
+    };
+    String::from_utf8(bytes).expect("tanı çıktısı UTF-8 olmalı")
+}
+
+fn emit_to<W: WriteColor>(mut writer: W, map: &SourceMap, diag: &cs::Diagnostic<FileId>) -> W {
     let config = term::Config::default();
-    term::emit(&mut buffer, &config, &MapFiles(map), &cs_diag).expect("tanı çıktısı üretilemedi");
-    String::from_utf8(buffer.into_inner()).expect("tanı çıktısı UTF-8 olmalı")
+    term::emit(&mut writer, &config, &MapFiles(map), diag).expect("tanı çıktısı üretilemedi");
+    writer
 }
 
 /// CI logları için tek satır: `dosya:satır:sütun: severity[KOD]: mesaj`.

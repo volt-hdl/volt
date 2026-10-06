@@ -58,7 +58,11 @@ fn build_counter_succeeds_and_matches_expected() {
 ",
             1,
         );
-    assert_eq!(produced, expected, "CLI çıktısı da birebir eşleşmeli");
+    assert_eq!(
+        without_commit_in_header(&produced),
+        expected,
+        "CLI çıktısı da birebir eşleşmeli (Version satırındaki commit hariç, ADR-0104)"
+    );
 
     // cli-contract.md §5 ilerleme mesajları (stderr'de, §11) — varsayılan dil EN
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -114,16 +118,42 @@ fn usage_error_exit_2() {
 
 /// ADR-0093: the release workflow compares the tag with the Cargo version
 /// and the archive smoke test with `volt --version`; both must be one number.
+/// ADR-0104: the commit the binary was built from may follow in parentheses
+/// (`version_text_tests` pins which one).
 #[test]
 fn version_flag_prints_the_cargo_package_version() {
     let output = volt().arg("--version").output().expect("volt çalışmalı");
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(
-        stdout.trim(),
+        without_commit(stdout.trim()),
         format!("volt {}", env!("CARGO_PKG_VERSION")),
         "volt_sv_emit::VOLT_VERSION Cargo.toml [workspace.package] version ile aynı olmalı"
     );
+}
+
+/// `X (a1b2c3d)` → `X` (ADR-0104): sürüm metninden commit kısaltması.
+fn without_commit(text: &str) -> &str {
+    match text.rsplit_once(" (") {
+        Some((head, tail))
+            if tail.len() == 8
+                && tail.ends_with(')')
+                && tail[..7].chars().all(|c| c.is_ascii_hexdigit()) =>
+        {
+            head
+        }
+        _ => text,
+    }
+}
+
+/// Golden karşılaştırması: `// Version:` satırı commit kısaltmasız.
+fn without_commit_in_header(sv: &str) -> String {
+    sv.split_inclusive('\n')
+        .map(|l| match l.strip_suffix('\n') {
+            Some(body) if body.starts_with("// Version: ") => format!("{}\n", without_commit(body)),
+            _ => l.to_string(),
+        })
+        .collect()
 }
 
 #[test]

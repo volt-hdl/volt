@@ -303,6 +303,21 @@ match x {
     _     => { }
 }",
         ),
+        E1016 => Explanation::new(
+            "Module has the name of a standard library module",
+            "An 'extern module', or a module placed in another module, is named like a built-in module of the standard library (EdgeDetect, SyncFifo, Counter, AsyncFifo, ...).",
+            "The standard library's modules are built into the compiler: 'let e = EdgeDetect { ... }' expands the built-in edge detector in place. When a module of your own had the same name, the built-in was taken instead, without a word: the extern's SystemVerilog was never used, and the build could succeed with SystemVerilog that reads wires nobody declares, or fail with an error about the built-in's generic arguments. Volt now refuses the name. An 'extern module' is reported where it is declared; a Volt module only where another module places it, so a top module named 'Counter' (the 'volt new' template) stays valid. The name of an extern is the name of its SystemVerilog module, so an existing SystemVerilog module called 'Counter' cannot be declared directly: write a small SystemVerilog wrapper module with another name that places it, and declare the wrapper. 'volt explain stdlib' lists the built-in modules.",
+            "extern module Counter {       // ✗ E1016: the built-in Counter<WIDTH>
+    in  clk : clock
+    out n   : u4
+}",
+            "// rtl/counter_wrap.sv: module CounterWrap(...); Counter u (...); endmodule
+@source(\"rtl/counter_wrap.sv\", \"rtl/counter.sv\")
+extern module CounterWrap {   // ✓
+    in  clk : clock
+    out n   : u4
+}",
+        ),
 
         // ─── Type inference (type-inference.md) ───
         E2001 => Explanation::new(
@@ -1269,6 +1284,17 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ one release synchronizer per clock\n}",
         )
         .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        W3011 => Explanation::new(
+            "Raw reset goes to an extern module while the module's registers use its synchronized copy",
+            "A raw reset port ('in rst : reset(...)') is connected to an extern instance, and the same module's registers on that clock are reset through the synchronizer Volt puts in front of them.",
+            "For a raw reset port Volt builds a release synchronizer per clock: the registers of the module see the reset asserted at once and released on a clock edge, two stages later. An extern module gets exactly the signal you connect, here the raw port. Its flip-flops therefore leave reset on a different cycle than the registers next to them, and their release is not aligned to the clock at all unless the SystemVerilog module synchronizes it itself; a release close to the clock edge can break recovery/removal timing. Verilator's lint reports the same net as SYNCASYNCNET. The output does not change: this is a warning so that the difference is seen. Today there is no way to hand the synchronized copy to an extern; check that the SystemVerilog module synchronizes its reset release, or that releasing a few cycles apart is harmless for this design.",
+            "let det = RisePulse { clk: clk, rst: rst, level: b }   // ⚠ W3011: raw 'rst'
+reg count_r : u8 = 0                                   // reset through rst_sync_clk
+on clk { if det.rise { count_r <= count_r + 1 } }",
+            "// RisePulse synchronizes the release of 'rst' to 'clk' itself,
+// or its flip-flops need no reset:
+let det = RisePulse { clk: clk, level: b }              // ✓",
+        ),
         W4001 => Explanation::new(
             "Unused signal",
             "Reserved for a netlist-level unused-signal check; this compiler does not emit it. A driven wire nobody reads is reported as W1001.",

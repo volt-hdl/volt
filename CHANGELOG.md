@@ -24,6 +24,38 @@ toplanır.
   DUT modülü E8501 (önceden yalnız `volt test`'te).
 - `volt test`'in `Compiling` satırları öneksiz göreli yol yazar
   (`counter_test.volt`, `sim/deep_test.volt`; önceden `.\counter_test.volt`).
+- Standart kütüphane adını taşıyan `extern module` (`EdgeDetect`,
+  `SyncFifo`, `Counter`, ...) ve böyle adlı bir Volt modülünün başka bir
+  modülde örneklenmesi yeni **E1016** hatasıdır (ADR-0102, #92). Önceden
+  yerine sessizce yerleşik modül alınıyordu: `volt build` çıkış 0 ile
+  extern'ün SystemVerilog'unu kullanmayan, tanımsız tel okuyan SV
+  yazabiliyor ya da yerleşiğin generic argümanını isteyen E0003 ile
+  düşüyordu. Bu adla üst modül (`volt new` şablonundaki `Counter`) geçerli
+  kalır.
+- Tipsiz literal `let` (`let k = 100`) artık derlenir: yalnız W2012 verir
+  ve `i32` tel olur (#80). Önceden aynı satır W2012 ve E2005 verip çıkış
+  1 ile düşüyordu. `i32`'ye sığmayan literal (`let k = 5000000000`) açık
+  tipli `let` gibi E2010'dur.
+- `volt --version`, argümansız `volt`, üretilen SV başlığının `Version:`
+  satırı ve SDC/XDC başlığı derlendiği commit'in kısaltmasını da yazar:
+  `volt 0.1.0 (abcdefg)`, `// Version: 0.1.0 (abcdefg)` (ADR-0104). Git
+  olmadan ya da sürüm kaynak arşivinden derlenen ikili yalnız sürümü
+  yazar; derleme tarihi yazılmaz.
+- `--color auto|always|never`, `--no-color` ve `VOLT_COLOR` her komutta
+  geçerlidir ve hata/uyarı tanılarını renklendirir (cli-contract.md §3,
+  #95). Önceden `volt check --color` "unexpected argument" ile çıkış 2
+  veriyordu ve tanılar hiç renklenmiyordu; terminalde tanılar artık
+  varsayılan olarak renklidir (terminal değilse, `NO_COLOR` ya da `CI`
+  ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
+  taşındı (yazımı aynı).
+
+### Tanılar — v0.1.0 öncesi düzeltmeler (2026-10-06)
+
+- Yeni **W3011** (ADR-0103, #93): ham reset portu (`in rst : reset(...)`)
+  modülün register'larına bırakma senkronizörüyle giderken aynı port bir
+  extern örneğine bağlanırsa uyarı. Çıktı değişmez; extern ham reset'i
+  almaya devam eder. Senkronize kopyanın extern'e verilmesi v0.2'de ayrı
+  karar; `book/src/limitations.md`'de.
 
 ### Belgeler — README demosu ve mevcut projede Volt (2026-10-05)
 

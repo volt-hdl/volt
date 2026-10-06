@@ -4,9 +4,8 @@
 # Recorded by demo/record.sh; see book/CONTRIBUTING-BOOK.md,
 # "The README demo".
 #
-# No colour: volt writes diagnostics without colour whatever the terminal,
-# and `volt check` takes no --color (VOLT_COLOR reaches `volt explain`
-# alone); see https://github.com/volt-hdl/volt/issues/95.
+# VOLT_COLOR=always: the diagnostics are coloured as in a terminal, also if
+# the recording environment sets CI or NO_COLOR.
 
 Output out/cdc-demo.gif
 
@@ -22,7 +21,7 @@ Set Framerate 24
 Set TypingSpeed 45ms
 
 Hide
-Type "mkdir -p /tmp/cdc && cp /demo/crossing.volt /tmp/cdc/ && cd /tmp/cdc && clear"
+Type "export VOLT_COLOR=always && mkdir -p /tmp/cdc && cp /demo/crossing.volt /tmp/cdc/ && cd /tmp/cdc && clear"
 Enter
 Show
 

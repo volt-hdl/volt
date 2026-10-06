@@ -48,6 +48,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E1013 => "Ad, üretilen bir dilin ayrılmış sözcüğü",
         E1014 => "İki @mmio adı register haritası sürücüsünde aynı tanımlayıcıyı üretiyor",
         E1015 => "Desendeki ad bir sabit olmalı",
+        E1016 => "Extern ya da örneklenen modül bir standart kütüphane modülünün adını taşıyor",
 
         // ─── Tip çıkarımı (type-inference.md) ───
         E2001 => "Bit genişliği uyumsuzluğu",
@@ -188,6 +189,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W3008 => "Bilinçli güven düşürme (declassify) — gözden geçirilmeli",
         W3009 => "Asenkron reset bırakmasının birim dışında senkronlandığı varsayılıyor",
         W3010 => "Senkron reset birden çok saat alanınca paylaşılıyor",
+        W3011 => "Modülün register'ları senkronize kopyayı kullanırken ham reset bir extern modüle gidiyor",
         W4001 => "Netlist'te okunmayan sinyal (ayrılmış)",
         W4002 => "Netlist'te okunmayan register (ayrılmış)",
         W5001 => "Kontrat simülasyonda izlenemiyor; atlandı",

@@ -52,6 +52,8 @@ error_codes! {
     E1014,
     // Desendeki ad sabit değil (ADR-0085)
     E1015,
+    // Standart kütüphane adlı extern / örneklenen modül (ADR-0102)
+    E1016,
 
     // ─── Tip çıkarımı (type-inference.md) ───
     E2001, E2002, E2003, E2004, E2005, E2006, E2007, E2008, E2009, E2010,
@@ -121,6 +123,8 @@ error_codes! {
     W5001,
     // Etkisiz nitelik: bağlanmayan ya da okunmayan yerde (ADR-0098)
     W0024,
+    // Senkronize reset'li modülde ham reset extern'e gidiyor (ADR-0103)
+    W3011,
     // Volt.toml'da bilinmeyen anahtar ya da bölüm (ADR-0099)
     W0025,
 }

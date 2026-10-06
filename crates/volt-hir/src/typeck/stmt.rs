@@ -123,33 +123,50 @@ impl TypeChecker<'_, '_> {
             None => {
                 let ty = self.synth(l.value);
                 if self.types.is_int_lit(ty) {
-                    self.warning(
-                        ErrorCode::W2012,
-                        l.name.span,
-                        lstr!(en: "type not specified, i32 assumed"; tr: "tip belirtilmedi, i32 varsayıldı"),
-                        lstr!(en: "literal type could not be resolved from context"; tr: "literal tipi bağlamdan çözülemedi"),
-                        // Ad çözüme yazılmaz: `for` açılımında bağlama
-                        // yeniden adlandırılır (`t_0`) ve kullanıcının
-                        // yazmadığı ad sızardı (ADR-0070 §3.3).
-                        lstr!(en: "write the type explicitly after the name, e.g. let x : i32 = ..."; tr: "tipi adın ardına açıkça yazın, ör. let x : i32 = ..."),
-                    );
-                    // ADR-0091: varsayılan tipi yazmak anlamı korur.
-                    // suggestion: w2012_untyped_let
-                    self.suggest_last(Suggestion::replace(
-                        Span {
-                            start: l.name.span.end,
-                            ..l.name.span
-                        },
-                        " : i32".to_string(),
-                        Applicability::MachineApplicable,
-                    ));
-                    self.types.intern(Ty::SInt { width: 32 })
+                    let i32_ty = self.types.intern(Ty::SInt { width: 32 });
+                    // Varsayılan i32'ye sığmayan literal, açık tipli `let`
+                    // gibi E2010'dur; i32 varsayımı söylenmez (#80).
+                    let before = self.diagnostics.len();
+                    self.check(l.value, i32_ty);
+                    let fits = self.diagnostics.len() == before;
+                    if fits {
+                        self.warn_untyped_literal_let(l);
+                    }
+                    i32_ty
                 } else {
                     ty
                 }
             }
         };
         self.record_def_type(&l.name, ty);
+        self.record_let_driver(l);
+    }
+
+    /// W2012 ve önerisi: tipsiz literal `let` i32 sayılır (§6).
+    fn warn_untyped_literal_let(&mut self, l: &LetDecl) {
+        self.warning(
+            ErrorCode::W2012,
+            l.name.span,
+            lstr!(en: "type not specified, i32 assumed"; tr: "tip belirtilmedi, i32 varsayıldı"),
+            lstr!(en: "literal type could not be resolved from context"; tr: "literal tipi bağlamdan çözülemedi"),
+            // Ad çözüme yazılmaz: `for` açılımında bağlama
+            // yeniden adlandırılır (`t_0`) ve kullanıcının
+            // yazmadığı ad sızardı (ADR-0070 §3.3).
+            lstr!(en: "write the type explicitly after the name, e.g. let x : i32 = ..."; tr: "tipi adın ardına açıkça yazın, ör. let x : i32 = ..."),
+        );
+        // ADR-0091: varsayılan tipi yazmak anlamı korur.
+        // suggestion: w2012_untyped_let
+        self.suggest_last(Suggestion::replace(
+            Span {
+                start: l.name.span.end,
+                ..l.name.span
+            },
+            " : i32".to_string(),
+            Applicability::MachineApplicable,
+        ));
+    }
+
+    fn record_let_driver(&mut self, l: &LetDecl) {
         // Başlangıç değeri `let`in sürücüsüdür (ADR-0073): sonradan
         // yapılan atama ikinci sürücüdür.
         if let Some(&def) = self.res.decl_spans.get(&l.name.span) {

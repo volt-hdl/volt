@@ -1,7 +1,7 @@
 # ADR-0027: Stdlib Mimarisi — CDC Primitifleri Derleyicide Yerleşik
 
 > Statü: Uygulandı
-> İlgili: ADR-0029 (tek saatli yapı taşları), ADR-0049 (`AsyncDualPortRam`), ADR-0087 (struct/enum öğe tipi).
+> İlgili: ADR-0029 (tek saatli yapı taşları), ADR-0049 (`AsyncDualPortRam`), ADR-0087 (struct/enum öğe tipi), ADR-0102 (yerleşik adlı extern ve örneklenen modül E1016).
 > Tarih: 2026-09-08
 > Etkilenen: volt-syntax (InstanceDecl generic args), volt-hir (builtin
 > çözümleme, W3005, E2025), volt-sv-emit (primitif SV/SVA üretimi),

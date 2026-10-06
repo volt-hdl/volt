@@ -96,8 +96,33 @@ fn volt_without_tool(dir: &Path, fake_tool: &Path, args: &[&str]) {
     assert!(stderr.contains("error: cannot run"), "stderr: {stderr}");
 }
 
+/// `// Version: 0.1.0 (a1b2c3d)` → `// Version: 0.1.0` (ADR-0104): commit
+/// kısaltması her commit'te değişir, golden kaydı onu taşımaz.
+fn without_commit(bytes: Vec<u8>) -> Vec<u8> {
+    let Ok(text) = String::from_utf8(bytes.clone()) else {
+        return bytes;
+    };
+    text.split_inclusive('\n')
+        .map(|l| {
+            let body = l.strip_suffix('\n').unwrap_or(l);
+            match body.rsplit_once(" (") {
+                Some((head, tail))
+                    if body.starts_with("// Version: ")
+                        && tail.len() == 8
+                        && tail.ends_with(')')
+                        && tail[..7].chars().all(|c| c.is_ascii_hexdigit()) =>
+                {
+                    format!("{head}{}", &l[body.len()..])
+                }
+                _ => l.to_string(),
+            }
+        })
+        .collect::<String>()
+        .into_bytes()
+}
+
 fn assert_matches_golden(generated: &Path, name: &str) {
-    let actual = std::fs::read(generated).expect("üretilen dosya");
+    let actual = without_commit(std::fs::read(generated).expect("üretilen dosya"));
     if std::env::var_os("VOLT_BLESS").is_some() {
         std::fs::create_dir_all(golden("")).expect("golden dizini");
         std::fs::write(golden(name), &actual).expect("golden yaz");

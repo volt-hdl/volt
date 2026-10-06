@@ -1264,6 +1264,7 @@ dependencies = [
 name = "volt-driver"
 version = "0.1.0"
 dependencies = [
+ "anstyle-query",
  "clap",
  "ctrlc",
  "serde_json",

@@ -2388,7 +2388,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 117, "ui/pass 117 dosya içermeli");
+    assert_eq!(total, 118, "ui/pass 118 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2431,10 +2431,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // 118'i (ikame kipinde let genişliği, üretilen ad tekilleştirme);
     // ADR-0083 ise 119-123'ü (match ifadesi: modül, blok, fn, tip itme +
     // struct, kontrat) ve 124-126'yı (blok let'i: on/comb, gölgeleme,
-    // comb sırası), Aşama 3 ise 127'yi (const'ta if/match ifadesi).
+    // comb sırası), Aşama 3 ise 127'yi (const'ta if/match ifadesi); #80
+    // ise 132'yi (tipsiz literal let).
     assert_eq!(
-        clean, 117,
-        "117/117 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 118,
+        "118/118 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
