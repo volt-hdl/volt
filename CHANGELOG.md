@@ -49,6 +49,26 @@ toplanır.
   ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
   taşındı (yazımı aynı).
 
+### Belgeler — README denetimi; sürüm günü metinleri RELEASING.md'de (2026-10-06)
+
+- README baştan sona bugünkü `volt` ile denendi; yanlış ya da eskimiş
+  olanlar düzeltildi. E3009 örneği artık olmayan "(ADR-0052)" ekini
+  taşıyordu (ADR-0099). `01_cdc_violation` çıktısında `Compiling` satırı
+  eksikti. `volt verify` örneği "1 property" diyordu, bugün 2. RISC-V
+  derleme bayrağı `-march=rv32im_zicsr`. "Both CI jobs are required"
+  yanlıştı: biçimsel doğrulama zorunlu kontrol, OpenSTA zamanlama işi
+  değil. Verilator ve SymbiYosys için Docker köprüsü anılıyor. W3011
+  sınırlamalara eklendi. Henüz sürüm olmadığı durum notunda ve kurulumda
+  yazıyor; VS Code eklentisi kaynaktan paketleniyor. Kitabın yasakladığı
+  iki sözcük README'den çıkarıldı.
+- Komut blokları `$` istemi taşımaz; çıktı ayrı bloktadır.
+- `docs/roadmap.md`: v0.1.0 maddesine ADR-0105 ve sürüm notu taslağı
+  eklendi; yasaklı dört sözcük çıkarıldı.
+- `RELEASING.md` 1. adım: README ve yol haritasında sürüm günü
+  değişecek metinler (eski ve yeni metin, denetim komutu). 5. adım
+  PowerShell'de: `Get-FileHash` ile `SHA256SUMS`, `gh attestation verify`
+  ile derleme kaynağı kaydı.
+
 ### Değişti — Sürüm kuru koşusu hiçbir şey yayımlamaz; İngilizce sürüm notu (ADR-0105, 2026-10-06)
 
 - `release.yml`'nin kuru koşusu (etiket push'u olmayan her koşu,

@@ -77,12 +77,93 @@ else. Then, under `### Behavior changes` of the new `[0.1.0]` section,
 collect the entries marked "**Davranış değişikliği.**" further down
 (ADR-0100 §3), by hand.
 
+### README and roadmap: the "no release yet" texts
+
+Four places in `README.md` and one section of `docs/roadmap.md` say that
+no release exists. Change them in the same commit.
+
+**a. README, status note.** Replace:
+
+```markdown
+> **Status:** early-stage project (started 2026-09). No release has been
+> published yet: build Volt from source ([Installation](#installation)).
+> Not used in production. No silicon. See [Limitations](#limitations).
+```
+
+with:
+
+```markdown
+> **Status:** early-stage project (started 2026-09). Version 0.1.0 is the
+> earliest release; it makes no stability promise. Not used in production.
+> No silicon. See [Limitations](#limitations).
+```
+
+**b. README, Installation.** Delete this paragraph (below the Linux and
+macOS command):
+
+```markdown
+**No release has been published yet.** Until then, both commands print
+`No Volt release has been published yet.` with the command that builds
+Volt from source, and install nothing. Use **From source** below.
+```
+
+**c. README, Installation, VS Code.** Replace:
+
+````markdown
+**VS Code:** until the earliest release, package the extension from
+source (Node.js 18 or later):
+
+```sh
+cd editors/vscode
+npm ci
+npx vsce package
+code --install-extension volt-hdl-0.1.0.vsix
+```
+
+The extension starts
+````
+
+with:
+
+```markdown
+**VS Code:** download `volt-hdl-<version>.vsix` from the
+[latest release](https://github.com/volt-hdl/volt/releases/latest) and
+install it with `code --install-extension volt-hdl-<version>.vsix`. The
+extension starts
+```
+
+**d. README, Limitations.** Replace:
+
+```markdown
+- **The VS Code extension is not published.** Until the earliest
+  release, package it from `editors/vscode/` (see
+  [Installation](#installation)); it is not on the Visual Studio
+  Marketplace or Open VSX.
+```
+
+with:
+
+```markdown
+- **The VS Code extension is not on the Visual Studio Marketplace or
+  Open VSX.** Each release carries it as a `.vsix` file.
+```
+
+**e. Roadmap.** Finished items leave `docs/roadmap.md`. Delete the whole
+`## Toward v0.1` section: from its heading down to, not including,
+`## Next`.
+
+Then nothing that says "no release" is left. This command prints nothing:
+
+```powershell
+Select-String -Path README.md, docs/roadmap.md -Pattern 'published yet|until the earliest release|Toward v0.1'
+```
+
 Check, commit, open the pull request and wait for CI:
 
 ```powershell
 just check
 just consistency
-git add CHANGELOG.md
+git add CHANGELOG.md README.md docs/roadmap.md
 git commit -m "chore(release): Volt 0.1.0"
 git push -u origin chore/release-0.1.0
 gh pr create --fill
@@ -141,17 +222,49 @@ If the run fails before `publish`, nothing was published: fix it on
 
 ## 5. Check the draft's files
 
-Download them into an empty folder and check them (Git Bash):
+Download them into an empty folder:
 
-```sh
-mkdir -p ~/volt-0.1.0-check && cd ~/volt-0.1.0-check
+```powershell
+$dir = Join-Path $HOME 'volt-0.1.0-check'
+New-Item -ItemType Directory -Force $dir | Out-Null
+Set-Location $dir
 gh release download v0.1.0 -R volt-hdl/volt
-sha256sum -c SHA256SUMS
-for f in volt-* install.sh install.ps1; do gh attestation verify "$f" -R volt-hdl/volt; done
 ```
 
-Every line of `sha256sum -c` ends with `OK`, and every attestation
-verifies.
+Check every file against `SHA256SUMS`, and that the list and the folder
+hold the same files:
+
+```powershell
+$failed = 0
+foreach ($line in Get-Content SHA256SUMS) {
+    if ($line -notmatch '^([0-9a-f]{64}) [ *](.+)$') { Write-Host "unreadable line: $line"; $failed++; continue }
+    $expected = $Matches[1]
+    $name = $Matches[2]
+    if (-not (Test-Path -LiteralPath $name)) { Write-Host "${name}: MISSING"; $failed++; continue }
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $name).Hash.ToLower()
+    if ($actual -eq $expected) { Write-Host "${name}: OK" } else { Write-Host "${name}: FAILED"; $failed++ }
+}
+$listed = @(Get-Content SHA256SUMS).Count
+$present = @(Get-ChildItem -File | Where-Object Name -ne 'SHA256SUMS').Count
+if ($listed -ne $present) { Write-Host "SHA256SUMS lists $listed files, the folder has $present"; $failed++ }
+"$failed problem(s)"
+```
+
+Expected: seven `OK` lines and `0 problem(s)`.
+
+Check the provenance attestation of every file but `SHA256SUMS`:
+
+```powershell
+$failed = 0
+foreach ($f in Get-ChildItem -File -Name | Where-Object { $_ -ne 'SHA256SUMS' }) {
+    gh attestation verify $f -R volt-hdl/volt
+    if ($LASTEXITCODE -ne 0) { Write-Host "${f}: attestation NOT verified"; $failed++ }
+}
+"$failed attestation problem(s)"
+```
+
+Expected: `0 attestation problem(s)`. Files from a dry run have no
+attestation, so the same command reports a problem for each of them.
 
 ## 6. Publish
 

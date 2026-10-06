@@ -34,12 +34,17 @@ syntax, diagnostics and output may change in any later release.
 - **Why:** until a release exists, the one-line install commands have
   nothing to download and building from source is the sole way to install
   Volt.
-- **Status:** Partial. The release workflow and the install scripts are in
-  place; no release has been published.
+- **Status:** Partial. The release workflow, its dry run and the install
+  scripts are in place, and the release notes are drafted
+  ([docs/release-notes/v0.1.0.md](release-notes/v0.1.0.md)); no release
+  has been published. The release-day steps are in
+  [RELEASING.md](../RELEASING.md).
 - **ADR:** [ADR-0093](adr/ADR-0093-hazir-ikililer-surum-is-akisi.md),
   [ADR-0096](adr/ADR-0096-kurulum-betikleri.md),
   [ADR-0100](adr/ADR-0100-0x-surum-politikasi.md) (what a 0.x version
-  number means, release notes, the book follows the release)
+  number means, release notes, the book follows the release),
+  [ADR-0105](adr/ADR-0105-kuru-kosu-ve-surum-notu.md) (a dry run that
+  publishes nothing, the release notes file)
 
 ## Next
 
@@ -287,7 +292,7 @@ follow user feedback.
 
 ### Submodule reset assumptions in parent proofs
 
-- **What:** check a submodule's first-cycle reset assumption in its
+- **What:** check a submodule's cycle-zero reset assumption in its
   parent's proof instead of keeping it as an assumption, as is done for
   `requires` and `assume`.
 - **Why:** when the parent drives the submodule's reset from its own logic
@@ -295,7 +300,7 @@ follow user feedback.
   it can hide a failure, or contradict the parent's reset and make the
   proof pass without proving anything.
 - **Status:** Not started. Each module with a reset assumes it asserted in
-  the first cycle, in its own proof and in every parent's proof.
+  cycle zero, in its own proof and in every parent's proof.
 - **ADR:** [ADR-0097](adr/ADR-0097-alt-ornek-yukumlulukleri.md)
 
 ### Combinational loop check
@@ -305,7 +310,7 @@ follow user feedback.
   through output ports and submodule instances, with the loop's signals
   named in the message.
 - **Why:** `volt check` and `volt build` accept such a loop today; it
-  surfaces only when Verilator stops with `UNOPTFLAT` in `volt test`, or
+  surfaces no earlier than when Verilator stops with `UNOPTFLAT` in `volt test`, or
   in synthesis.
 - **Status:** Partial. A register assigned with `=` outside an `on`
   block, the one loop a single statement can make, is `E0019`.
@@ -319,7 +324,7 @@ follow user feedback.
   (file, name, result, failed assertions with their source line, the
   waveform path) and, for `volt run`, the printed cycle table.
 - **Why:** CI systems show test results from a report file; today a CI job
-  sees only the exit code and a text log.
+  sees the exit code and a text log, nothing more.
 - **Status:** Not started. `volt check`, `volt build` and `volt verify`
   have `--format=json`; the command-line contract shows
   `volt test --format=json` in its CI example, but the option does not
