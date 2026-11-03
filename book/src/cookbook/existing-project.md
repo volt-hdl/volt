@@ -296,4 +296,6 @@ and the names in them are the names of your Volt source.
 
 You are in the `existing` folder.
 
-Next: [Wrapping SystemVerilog with extern](extern-sv.md).
+The ports of an `extern` take clock domains like the ports of a Volt
+module: [Two clocks and CDC](../tutorial/two-clocks.md) shows how to
+declare domains and write `@Domain` after a port type.

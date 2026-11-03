@@ -8,6 +8,7 @@ You will turn a sequence of steps into a finite state machine: an `enum` for the
 
 > **This chapter is planned.** It will be written after feedback on the Tour and the counter chapter. Until then, these show the same topic:
 >
+> - [Tests and waveforms](../tour/tests-and-waveforms.md): a traffic light state machine with an `enum`, a failing test and its waveform
 > - [examples/uart_tx.volt (a four-state machine)](https://github.com/volt-hdl/volt/blob/main/examples/uart_tx.volt)
 > - [ADR-0074: enums](https://github.com/volt-hdl/volt/blob/main/docs/adr/ADR-0074-enum-destegi.md)
 > - [ADR-0066: generated FSM and counter contracts](https://github.com/volt-hdl/volt/blob/main/docs/adr/ADR-0066-otomatik-fsm-sayac-kontratlari.md)
