@@ -136,6 +136,9 @@ fn wrapping_and_keeping_the_carry_differ_for_b_7_a_0() {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
+        // CI günlüğünde testin gerçekten Verilator'da koştuğu görünsün
+        // (atlanan test de "ok" yazar; CI adımı `--nocapture` ile koşar).
+        eprintln!("--- volt test (compare_width_tests, öneri {i})\n{text}");
         assert!(out.status.success(), "öneri {i}:\n{text}");
         assert!(text.contains("2 passed; 0 failed"), "öneri {i}:\n{text}");
     }
@@ -187,6 +190,7 @@ fn shift_and_not_keep_their_own_width_in_simulation() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    eprintln!("--- volt test (compare_width_tests, own widths)\n{text}");
     assert!(out.status.success(), "{text}");
     assert!(text.contains("1 passed; 0 failed"), "{text}");
 }
