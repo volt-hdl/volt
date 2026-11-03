@@ -110,7 +110,8 @@ denetler.
 |---|---|---|---|
 | [0003](ADR-0003-trit-tipi.md) | Trit Tipi — Kısıtlı i2 ve Katmanlı Görünürlük | `Trit` üç değerli (−1/0/+1) kısıtlı bir i2 tipidir; görünürlüğü katmanlı planlandı. | Kabul edildi |
 | [0018](ADR-0018-lineer-tipler-opt-in.md) | Lineer Tipler — Opt-in (`&inv`), Normal Portlarda Sürücü Analizi | Lineer (tek kullanımlık) port tipleri opt-in olacak; normal portlar sürücü analiziyle denetlenir. | Kısmen yerini aldı: ADR-0075 |
-| [0025](ADR-0025-esnek-genislik-ve-w2013.md) | Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013 | Aritmetik sonuç genişliği esnek bir aralıktır; gereksiz genişleme W2013 ile uyarılır. | Uygulandı |
+| [0025](ADR-0025-esnek-genislik-ve-w2013.md) | Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013 | Aritmetik sonuç genişliği esnek bir aralıktır; gereksiz genişleme W2013 ile uyarılır. | Kısmen yerini aldı: ADR-0106 |
+| [0106](ADR-0106-farkli-genislikte-karsilastirma.md) | Farklı Genişlikte Aritmetik Karşılaştırma Hatadır (E2031); Bileşik Değerden Seçim Boyut Dönüşümüne İner | Doğal genişlikleri farklı iki değişkenin karşılaştırması E2031'dir (sabit sığıyorsa istisna); öneri her yerde `as`: sarma `(ifade)[N-1:0] as uN`, taşmayı tutma `(dar as uM)`. Kabul edilen karşılaştırma doğal genişlikte; `(a + 1)[3:0]` geçerli SV'ye (`4'(...)`) iner. | Uygulandı |
 | [0031](ADR-0031-keyfi-bit-genisligi.md) | Keyfi Bit Genişlikli Tamsayı Tipleri (u1..u64 / i1..i64) | `u1..u64` / `i1..i64` keyfi genişlikli tamsayı tipleri desteklenir. | Uygulandı |
 | [0035](ADR-0035-degisken-indeksleme.md) | Değişken Dizi İndeksi ve Indexed Part-Select | Değişken dizi indeksi ve `+:` / `-:` indexed part-select desteklenir. | Uygulandı |
 | [0036](ADR-0036-isaretli-kaydirma-ve-cast.md) | İşaretli Kaydırma (`>>>`) ve `$signed`/`$unsigned` Üretimi | `>>>` işaretli kaydırma ve işaret dönüşümleri SV'de `$signed` / `$unsigned` ile üretilir. | Uygulandı |

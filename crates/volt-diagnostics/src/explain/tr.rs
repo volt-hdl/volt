@@ -516,6 +516,15 @@ extern module CounterWrap {   // ✓
             "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
         ),
 
+        E2031 => Explanation::new(
+            "Aritmetikten gelen farklı genişlikte değerlerin karşılaştırması",
+            "Karşılaştırmanın bir yanı, öbür yanından bir ya da daha çok bit geniş bir aritmetik sonuç; Volt fazla bitlerin atılması mı tutulması mı gerektiğini bilmiyor.",
+            "Toplama taşma bitini tutar: a ve b u3 iken 'b + 1' 4 bitlik bir değerdir (b = 7 için 8). 3 bitlik 'a' ile karşılaştırılırken taşma biti atılabilir, 3 bitte sarılır ('a == b + 1', a = 0 ve b = 7 için doğru), ya da tutulabilir (o zaman yanlış). İkisi de makul ve farklı sonuç verir; bu yüzden Volt genişliği yazmanızı ister. Aynısı tipsiz let ('let s = b + 1' taşma bitini tutar) ve kontratlar için de geçerlidir.\n\nYanlardan biri derleme anında bilinen bir sabitse ve öbür yanın genişliğine sığıyorsa kural uygulanmaz: 'count == LIMIT - 1' iki genişlikte de aynı sonucu verir. Geniş yan dar yana sığmayan bir sabitse karşılaştırma her çevrimde aynı sonucu verir ve hata bunu söyler.",
+            "in  a : u3\nin  b : u3\nlet s = b + 1\n\ny = a == b + 1      // ✗ E2031: u3, 4 bitlik toplamla karşılaştırılıyor\nz = a == s          // ✗ E2031: s 4 bit genişliğinde",
+            "y = a == (b + 1)[2:0] as u3     // ✓ 3 bitte sarsın\ny = (a as u4) == b + 1          // ✓ taşma kalsın\nz = a == s[2:0] as u3           // ✓ let ile de aynı\n\n// kontratta aynı iki yazım:\ninvariant: l == (prev(l) + 1)[2:0] as u3   // ✓\ninvariant: (l as u4) == prev(l) + 1        // ✓",
+        )
+        .with_note("'(b + 1)[2:0] as u3' alt 3 biti açıkça seçer; düz '(b + 1) as u3' aynı kesmedir ama her daraltan 'as' gibi uyarır (W2010). Tipli let de olur: 'let wrapped : u3 = b + 1' sarar, 'let widened : u4 = a' taşmayı tutar; let'in prev() tutamadığı kontratta 'as' kullanın."),
+
         // ─── Saat/sıfırlama alanları (domain-inference.md) ───
         E3001 => Explanation::new(
             "Saat Alanı Geçişi (CDC) İhlali",

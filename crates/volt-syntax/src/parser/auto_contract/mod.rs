@@ -18,6 +18,12 @@ mod counter;
 mod fsm;
 mod gen;
 mod print;
+
+/// İfadenin kaynak biçimi (ad, tam sayı, ikili/tekli işlem, çağrı);
+/// başka biçimde `None`. Tanı önerileri de kullanır (ADR-0106).
+pub(crate) fn expr_text(ast: &SourceFile, e: Idx<Expr>) -> Option<String> {
+    print::expr_with_selects(ast, e)
+}
 mod scan;
 
 use std::collections::HashSet;

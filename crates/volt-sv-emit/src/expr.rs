@@ -887,19 +887,27 @@ impl<'a> Emitter<'a> {
                             (sel, PREC_ATOM)
                         }
                     }
-                    None => {
-                        let b = self.emit_prec(base, None, PREC_ATOM, false);
-                        let i = self.emit_plain(index);
-                        (format!("{b}[{i}]"), PREC_ATOM)
-                    }
+                    None => match self.select_from_value(base, index, None) {
+                        Some(text) => (text, PREC_ATOM),
+                        None => {
+                            let b = self.emit_prec(base, None, PREC_ATOM, false);
+                            let i = self.emit_plain(index);
+                            (format!("{b}[{i}]"), PREC_ATOM)
+                        }
+                    },
                 }
             }
             ExprKind::Range { base, hi, lo } => {
                 let (base, hi, lo) = (*base, *hi, *lo);
-                let b = self.emit_prec(base, None, PREC_ATOM, false);
-                let hi = self.emit_plain(hi);
-                let lo = self.emit_plain(lo);
-                (format!("{b}[{hi}:{lo}]"), PREC_ATOM)
+                match self.select_from_value(base, hi, Some(lo)) {
+                    Some(text) => (text, PREC_ATOM),
+                    None => {
+                        let b = self.emit_prec(base, None, PREC_ATOM, false);
+                        let hi = self.emit_plain(hi);
+                        let lo = self.emit_plain(lo);
+                        (format!("{b}[{hi}:{lo}]"), PREC_ATOM)
+                    }
+                }
             }
             ExprKind::PartSelect {
                 base,
@@ -1084,8 +1092,9 @@ impl<'a> Emitter<'a> {
     ) -> String {
         let prec = sv_prec(op);
         let operand_ctx = match op {
+            // Karşılaştırma iki yanın doğal genişliğinde (ADR-0106).
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-                self.width_of(lhs).or_else(|| self.width_of(rhs))
+                self.comparison_ctx(lhs, rhs)
             }
             BinOp::And | BinOp::Or | BinOp::Imp => Some(Sig {
                 width: 1,
@@ -1109,7 +1118,7 @@ impl<'a> Emitter<'a> {
             let r = self.emit_prec(rhs, operand_ctx, prec, true);
             return format!("!{l} || {r}");
         }
-        let widen = is_arith(op);
+        let widen = is_arith(op) || is_comparison(op);
         let l = if widen {
             self.emit_operand(lhs, operand_ctx, prec, false)
         } else {
@@ -1140,6 +1149,53 @@ impl<'a> Emitter<'a> {
             op.symbol()
         };
         format!("{l} {sym} {r}")
+    }
+
+    /// Bileşik bir değerin bit ya da aralık seçimi (`(a + 1)[3:0]`,
+    /// `(a + b)[8]`): SystemVerilog yalnız bir sinyali seçebilir,
+    /// `(a + 8'd1)[3:0]` sözdizimi hatasıdır. Değer doğal genişliğinde
+    /// hesaplanır, alt sınır kadar kaydırılır ve boyut dönüşümüyle
+    /// kesilir: `4'(9'(a) + 9'd1)`, `1'((9'(a) + 9'(b)) >> 8)`. Seçim
+    /// işaretsizdir (`$unsigned`). Taban seçilebilir bir adsa (sinyal,
+    /// dizi elemanı, alan, seçim) `None`: eski biçim kalır. (ADR-0106 §4)
+    fn select_from_value(
+        &mut self,
+        base: Idx<Expr>,
+        hi: Idx<Expr>,
+        lo: Option<Idx<Expr>>,
+    ) -> Option<String> {
+        let selectable = matches!(
+            self.ast.exprs[base].kind,
+            ExprKind::Path(_)
+                | ExprKind::Index { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::Range { .. }
+                | ExprKind::PartSelect { .. }
+        );
+        if selectable && self.eval_const(base).is_none() {
+            return None;
+        }
+        // Bit seçimi değişken indeksle de olur; aralığın iki ucu sabittir.
+        let (width, shift) = match lo {
+            Some(lo) => {
+                let (h, l) = (self.eval_const(hi)?, self.eval_const(lo)?);
+                (h.checked_sub(l)? + 1, self.emit_plain(lo))
+            }
+            None => (1, self.emit_plain(hi)),
+        };
+        let natural = self.natural_sig(base);
+        let value = self.emit_prec(base, natural, PREC_TERNARY, false);
+        let shifted = if shift == "0" {
+            value
+        } else {
+            format!("({value}) >> {shift}")
+        };
+        let cut = format!("{width}'({shifted})");
+        Some(if natural.is_some_and(|s| s.signed) {
+            format!("$unsigned({cut})")
+        } else {
+            cut
+        })
     }
 
     /// Aritmetik/bit düzeyi operand bağlamı: max(işlem genişliğim, dış

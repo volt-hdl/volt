@@ -64,7 +64,7 @@ impl TypeChecker<'_, '_> {
     /// İfadenin ardına sonek (`[3:0] as u4`, ` as u4`) eklenebilir mi:
     /// sonek almayan biçimler (ikili, tekli, dönüşüm...) önce paranteze
     /// alınır.
-    fn takes_suffix(&self, span: Span) -> bool {
+    pub(super) fn takes_suffix(&self, span: Span) -> bool {
         self.expr_at(span).is_some_and(|e| {
             matches!(
                 e.kind,
@@ -80,7 +80,7 @@ impl TypeChecker<'_, '_> {
 
     /// `span`'daki ifadenin ardına `suffix` ekleyen öneri; gerekirse
     /// ifade paranteze alınır.
-    fn suffix_fix(&self, span: Span, suffix: &str) -> Suggestion {
+    pub(super) fn suffix_fix(&self, span: Span, suffix: &str) -> Suggestion {
         let end = Span {
             start: span.end,
             ..span

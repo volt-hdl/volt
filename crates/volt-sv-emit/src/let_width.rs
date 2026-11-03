@@ -152,6 +152,34 @@ impl Emitter<'_> {
         }
     }
 
+    /// Karşılaştırmanın yapıldığı genişlik (ADR-0106). Tip denetimi
+    /// doğal genişlikleri farklı iki değişkeni reddettiği (E2031) için
+    /// buraya gelen yanlar ya eşit doğal genişlikte ya da biri sabittir:
+    /// - eşit doğal genişlik: o genişlik (`a + b == c + d` → 9 bit);
+    /// - geniş yan sabit ve dar yana sığıyor: dar yanın genişliği (sayaç
+    ///   sınırı `r == LIMIT - 1`, önceki çıktıyla aynı);
+    /// - dar yan sabit ya da literal: geniş yanın doğal genişliği
+    ///   (`a + b == 5` → `9'd5`, taşma biti atılmaz).
+    pub(crate) fn comparison_ctx(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>) -> Option<Sig> {
+        match (self.int_range(lhs), self.int_range(rhs)) {
+            (Some(l), Some(r)) if l.hi == r.hi => Some(l.sig()),
+            (Some(l), Some(r)) => {
+                let (wide, wide_range, narrow_range) = if l.hi > r.hi {
+                    (lhs, l, r)
+                } else {
+                    (rhs, r, l)
+                };
+                if self.eval_const(wide).is_some() {
+                    Some(narrow_range.sig())
+                } else {
+                    Some(wide_range.sig())
+                }
+            }
+            (Some(x), None) | (None, Some(x)) => Some(x.sig()),
+            (None, None) => None,
+        }
+    }
+
     fn int_range(&mut self, idx: Idx<Expr>) -> Option<Range> {
         let ast = self.ast;
         match &ast.exprs[idx].kind {

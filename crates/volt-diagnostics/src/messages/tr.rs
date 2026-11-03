@@ -80,6 +80,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2028 => "Geçersiz aralık (end < start)",
         E2029 => "Sabit dizi indeksi sınır dışı",
         E2030 => "Geçersiz enum kodlaması",
+        E2031 => "Aritmetikten gelen farklı genişlikte değerlerin karşılaştırması",
 
         // ─── Saat/sıfırlama alanları (domain-inference.md) ───
         E3001 => "Saat alanı uyumsuzluğu (CDC)",

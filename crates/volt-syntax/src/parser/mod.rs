@@ -37,6 +37,12 @@ use volt_span::{FileId, Span};
 use crate::lexer::tokenize;
 use crate::token::{Token, TokenKind};
 pub use mono::monomorphize;
+
+/// İfadenin kaynak biçimi, tanı yardım satırları için (ADR-0106): ad,
+/// tam sayı, ikili/tekli işlem ve çağrı yazılır; başka biçimde `None`.
+pub fn expr_text(ast: &SourceFile, e: Idx<Expr>) -> Option<String> {
+    auto_contract::expr_text(ast, e)
+}
 use recovery::same_kind;
 
 /// Ayrıştırma sonucu: AST + tüm tanılar (lexer + parser) + parser'ın

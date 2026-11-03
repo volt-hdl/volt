@@ -67,6 +67,8 @@ error_codes! {
     E2020, E2021, E2022, E2023, E2024, E2025, E2026, E2027, E2028, E2029,
     // Enum kodlaması (ADR-0074)
     E2030,
+    // Farklı genişlikte aritmetik karşılaştırma (ADR-0106)
+    E2031,
 
     // ─── Saat/sıfırlama alanları (domain-inference.md) ───
     E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009, E3010,

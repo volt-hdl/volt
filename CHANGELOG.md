@@ -13,6 +13,28 @@ Bu bölüm sürüm kesilirken tamamlanır (ADR-0100); aşağıdaki girdilerde
 "**Davranış değişikliği.**" diye işaretli önceki maddeler de buraya
 toplanır.
 
+- **Davranış değişikliği.** Doğal genişlikleri farklı iki değişkenin
+  karşılaştırması yeni **E2031** hatasıdır (ADR-0106, #106): `a`, `b : u3`
+  iken `a == b + 1` ve `let s = b + 1; a == s` aynı hatayı verir (önceden
+  ilki 3 bitte sararak, ikincisi 4 bitte derleniyordu; b = 7, a = 0 için
+  sonuçlar farklıydı). Kontratlarda da geçerli. Bir yan derleme anında
+  bilinen ve karşı yana sığan bir sabitse (`r == LIMIT - 1`) hata yok.
+  Yardım satırı ve iki öneri her yerde `as` ile: sarma
+  `a == (b + 1)[2:0] as u3`, taşmayı tutma `(a as u4) == b + 1`.
+- **Davranış değişikliği.** Kabul edilen karşılaştırma iki yanın doğal
+  genişliğinde yapılır (ADR-0106): `c + d == 5` ve `c + d == c + r`
+  (`u8`) taşma bitini tutar; `c + d < 300` artık `8'd300` (= 44) değil
+  `9'd300` ile karşılaştırılır.
+- Bileşik bir değerden bit ya da aralık seçimi (`(a + 1)[3:0]`,
+  E2001'in kendi önerisi) geçerli SystemVerilog üretir: `4'(9'(a) + 9'd1)`.
+  Önceden `(a + 8'd1)[3:0]` yazılıyor, Verilator ve Yosys sözdizimi
+  hatasıyla reddediyordu (ADR-0106 §4).
+- Taşma biti bir karşılaştırmada okunan tipsiz `let` için yanlış
+  `// carry bit of '...' unused` yorumu ve `UNUSEDSIGNAL` susturması
+  basılmaz.
+- `examples/riscv_core.volt` (iki kontrat), `examples/i2c/i2c_master.volt`
+  ve `volt new --template mmio` şablonu E2031'in sarma biçimine geçti;
+  üretilen donanımın anlamı aynı.
 - `volt check` (argümansız, proje kipi) `volt test`'in keşfettiği her test
   dosyasını da denetler — alt dizinler dahil, `build/` atlanır — ve her
   birini `Checking <dosya>` satırıyla yazar. Önceden geçen bir proje,
