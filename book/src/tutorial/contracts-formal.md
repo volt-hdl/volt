@@ -554,7 +554,7 @@ sequences (`##`) and no liveness properties; see
 
 </div>
 
-## What you learned
+## What we learned
 
 - `invariant`, `requires`, `ensures` and `cover` are written into the
   module; `prev(x)` reads the value of the previous cycle, `a -> b` reads
@@ -568,6 +568,6 @@ sequences (`##`) and no liveness properties; see
 - `bmc` looks `--depth` cycles deep; `--mode prove` covers every cycle,
   and says "not proven" (code 7) when induction is not enough.
 
-The chapters on waveforms and on projects with several files are
-planned. The Cookbook has recipes for designs with several clocks, such
-as [Reset synchronizers](../cookbook/reset-sync.md).
+Next: the chapters after this one in the Tutorial are planned. The
+Cookbook has recipes that build on this chapter and the previous one,
+such as [Reset synchronizers](../cookbook/reset-sync.md).

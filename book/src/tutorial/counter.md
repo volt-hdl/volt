@@ -361,7 +361,7 @@ design to those edges on purpose, as the last test does.
 
 </div>
 
-## What you learned
+## What we learned
 
 - A `module` has typed `in` and `out` ports; `clock`, `bool`, `u8` and
   `bits<4>` are types.
@@ -372,6 +372,5 @@ design to those edges on purpose, as the last test does.
 - `test` blocks drive inputs, advance the clock with `step()` and check
   outputs; `volt test` runs them in Verilator.
 
-Next: [two clocks and CDC](two-clocks.md) moves data between clock
-domains. The chapters on state machines and on a UART transmitter, which
-come between them in the table of contents, are planned.
+Next: [a state machine with enum](enum-fsm.md) turns a sequence of steps
+into states.

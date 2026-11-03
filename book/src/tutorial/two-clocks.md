@@ -509,7 +509,7 @@ trimmed):
 
 You are in the `clocks` folder.
 
-## What you learned
+## What we learned
 
 - A `domain` names a clock domain; `@Name` puts a port or a wire into it,
   and a register belongs to the domain of its `on` block.

@@ -48,6 +48,10 @@ SUMMARY.md marks each planned chapter "(planned)", and README.md,
 docs/release-notes/*.md and the written book pages link to none of them
 (check_planned_links). --links-only runs this check alone, without volt.
 
+Tutorial chapters (every written page in tutorial/) end with the section
+"## What we learned", and a paragraph in it that starts with "Next:" links
+to a written page.
+
 Guided pages (setup.md, the cookbook pages existing-project.md and
 reset-sync.md, the tutorial chapters two-clocks.md and contracts-formal.md,
 and every chapter in tour/; CONTRIBUTING-BOOK.md, "Guided pages") follow
@@ -110,8 +114,15 @@ GUIDED_FILES = {
     SRC_DIR / "cookbook" / "reset-sync.md",
     SRC_DIR / "tutorial" / "two-clocks.md",
     SRC_DIR / "tutorial" / "contracts-formal.md",
+    SRC_DIR / "tutorial" / "enum-fsm.md",
 }
 GUIDED_MARK = "guided page"  # a self-test fixture's top line opts in
+# Tutorial chapters end with a recap and a link onward (AGENTS.md, "Book
+# writing rules"; CONTRIBUTING-BOOK.md, "Chapter layout").
+TUTORIAL_DIR = SRC_DIR / "tutorial"
+TUTORIAL_MARK = "tutorial page"  # a self-test fixture's top line opts in
+RECAP_HEADING = "## What we learned"
+NEXT_RE = re.compile(r"^Next:")
 BEFORE_BOX = '<div class="before-you-start">'
 LABEL_RE = re.compile(r"\*\*(Type this|You should see|Create this file|Replace this file)( \([^)]*\))?:\*\*(.*)", re.DOTALL)
 FILE_NAME_RE = re.compile(r"^\s*`([^`]+)`")
@@ -242,6 +253,57 @@ def is_guided(path: Path) -> bool:
         head = path.read_text(encoding="utf-8").splitlines()[:1]
         return bool(head) and GUIDED_MARK in head[0]
     return False
+
+
+def is_tutorial(path: Path) -> bool:
+    """A written chapter of the Tutorial (or a fixture that opts in)."""
+    path = path.resolve()
+    text = path.read_text(encoding="utf-8")
+    if path.parent == SELFTEST_DIR.resolve():
+        head = text.splitlines()[:1]
+        return bool(head) and TUTORIAL_MARK in head[0]
+    return path.parent == TUTORIAL_DIR.resolve() and not PLANNED_MARK_RE.search(text)
+
+
+def lint_tutorial_page(path: Path, report: Report) -> None:
+    """The last section is "## What we learned", and a paragraph in it that
+    starts with "Next:" links to a written page."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_fence = False
+    headings: list[tuple[int, str]] = []
+    for i, text in enumerate(lines):
+        if FENCE_RE.match(text):
+            in_fence = not in_fence
+        elif not in_fence and text.startswith("## "):
+            headings.append((i, text.rstrip()))
+    if not headings or headings[-1][1] != RECAP_HEADING:
+        line = headings[-1][0] + 1 if headings else 1
+        report.fail(path, line, f"a tutorial chapter ends with the section '{RECAP_HEADING}' (AGENTS.md, 'Book writing rules')")
+        return
+    start = headings[-1][0]
+    paragraphs: list[tuple[int, str]] = []
+    for i in range(start + 1, len(lines)):
+        if not lines[i].strip():
+            continue
+        if paragraphs and lines[i - 1].strip():
+            n, text = paragraphs[-1]
+            paragraphs[-1] = (n, text + " " + lines[i].strip())
+        else:
+            paragraphs.append((i + 1, lines[i].strip()))
+    nexts = [(n, text) for n, text in paragraphs if NEXT_RE.match(text)]
+    if not nexts:
+        report.fail(path, start + 1, f"'{RECAP_HEADING}' ends with a paragraph 'Next: ...' that links to the next written page")
+        return
+    for n, text in nexts:
+        targets = [m.group(1) for m in RELATIVE_LINK_RE.finditer(text)]
+        if not targets:
+            report.fail(path, n, "the 'Next:' paragraph links to the next page with a relative link, e.g. [two clocks](two-clocks.md)")
+        for target in targets:
+            page = (path.parent / target).resolve()
+            if not page.is_file():
+                report.fail(path, n, f"'Next:' links to {target}, which does not exist")
+            elif PLANNED_MARK_RE.search(page.read_text(encoding="utf-8")):
+                report.fail(path, n, f"'Next:' links to {target}, a planned chapter: link the next written page")
 
 
 def lint_guided_page(path: Path, report: Report) -> None:
@@ -530,6 +592,8 @@ def check_book(volt: str, files: list[Path], run_tests: bool) -> Report:
             lint_prose(path, prose, report)
             if is_guided(path):
                 lint_guided_page(path, report)
+            if is_tutorial(path):
+                lint_tutorial_page(path, report)
             # One workspace per book directory: the chapters of a part build
             # on the same project, as the reader's own folder does.
             workdir = workdirs.get(path.parent)

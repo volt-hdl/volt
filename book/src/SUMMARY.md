@@ -13,11 +13,11 @@
 # Part II — Tutorial
 
 - [A counter](tutorial/counter.md)
-- [A state machine with enum (planned)](tutorial/enum-fsm.md)
-- [A UART transmitter (planned)](tutorial/uart.md)
+- [A state machine with enum](tutorial/enum-fsm.md)
 - [Two clocks and CDC](tutorial/two-clocks.md)
-- [Tests (planned)](tutorial/tests.md)
 - [Contracts and formal verification](tutorial/contracts-formal.md)
+- [A UART transmitter (planned)](tutorial/uart.md)
+- [Tests (planned)](tutorial/tests.md)
 - [Waveforms (planned)](tutorial/waveforms.md)
 - [A multi-file project (planned)](tutorial/multi-file.md)
 

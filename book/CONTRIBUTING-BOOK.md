@@ -116,7 +116,10 @@ being the sole or earliest tool slips through. Rewrite instead:
    ...", inside `<div class="chapter-goal">` (blank lines around the
    Markdown, as in a side box).
 3. Sections that each build one step of the design.
-4. A short recap and a link to the next chapter.
+4. A short recap and a link to the next chapter. In the Tutorial this is
+   checked: the last section is `## What we learned`, a list of what the
+   chapter taught, and a paragraph in it that starts with `Next:` links to
+   the next written page (not a planned one).
 
 Every chapter must be listed in `src/SUMMARY.md` (checked).
 
