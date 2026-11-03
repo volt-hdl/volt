@@ -13,6 +13,14 @@ Bu bölüm sürüm kesilirken tamamlanır (ADR-0100); aşağıdaki girdilerde
 "**Davranış değişikliği.**" diye işaretli önceki maddeler de buraya
 toplanır.
 
+- **Davranış değişikliği.** Bileşik bir değerden indexed part-select
+  (`(a + b)[4 +: 4]`, `(a + b)[i +: 4]`, `-:` biçimleri) geçerli
+  SystemVerilog üretir (#112, ADR-0106 §4'ün yöntemi): değer doğal
+  genişliğinde hesaplanır ve kesilir, `4'((9'(a) + 9'(b)) >> i)`. Önceden
+  `(a + b)[i +: 4]` yazılıyor, `volt build` geçiyor, Verilator ve Yosys
+  sözdizimi hatası veriyordu; toplam 8 bitte basıldığı için taşma bitini
+  (bit 8) okuyan seçim, bu yazımı kabul eden bir araçta yanlış değer
+  okurdu.
 - **Davranış değişikliği.** Doğal genişlikleri farklı iki değişkenin
   karşılaştırması yeni **E2031** hatasıdır (ADR-0106, #106): `a`, `b : u3`
   iken `a == b + 1` ve `let s = b + 1; a == s` aynı hatayı verir (önceden

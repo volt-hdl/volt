@@ -334,8 +334,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
     //           127 const'ta if/match ifadesi (Aşama 3);
     // #80: 132 tipsiz literal let (W2012, i32 tel),
-    // ADR-0106: 133 farklı genişlikte karşılaştırmanın kabul edilen biçimleri.
-    assert_eq!(checked, 119);
+    // ADR-0106: 133 farklı genişlikte karşılaştırmanın kabul edilen biçimleri,
+    // #112: 134 bileşik değerden indexed part-select.
+    assert_eq!(checked, 120);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -1,6 +1,6 @@
 # ADR-0106: Farklı Genişlikte Aritmetik Karşılaştırma Hatadır (E2031); Bileşik Değerden Seçim Boyut Dönüşümüne İner
 
-> Statü: Uygulandı
+> Statü: Uygulandı — §4'ün yöntemi bileşik tabanlı indexed part-select'e de uygulandı (#112: `(a + b)[i +: 4]` → `4'((9'(a) + 9'(b)) >> i)`)
 > Önceki karar: ADR-0025 — Karar'daki "Operand uyumu aralık KESİŞİMİYLE kurulur" kuralının karşılaştırma işleçlerindeki uygulanışı (kesişimin alt ucunda, taşma bitini atarak karşılaştırma) ve ekin (2026-10-01) zincir kuralının karşılaştırmayı dışarıda bırakması
 > İlgili: ADR-0041 (aynı işaretli genişleme ve açık boyut dönüşümü: karşılaştırma bağlamı aynı mekanizmayla basılır), ADR-0099 (iki öneri gidiş-dönüş denetiminden geçer)
 > Tarih: 2026-11-03

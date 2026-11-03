@@ -942,11 +942,16 @@ impl<'a> Emitter<'a> {
                 ascending,
             } => {
                 let (base, start, width, asc) = (*base, *start, *width, *ascending);
-                let b = self.emit_prec(base, None, PREC_ATOM, false);
-                let s = self.emit_plain(start);
-                let w = self.emit_plain(width);
-                let op = if asc { "+:" } else { "-:" };
-                (format!("{b}[{s} {op} {w}]"), PREC_ATOM)
+                match self.part_select_from_value(base, start, width, asc) {
+                    Some(text) => (text, PREC_ATOM),
+                    None => {
+                        let b = self.emit_prec(base, None, PREC_ATOM, false);
+                        let s = self.emit_plain(start);
+                        let w = self.emit_plain(width);
+                        let op = if asc { "+:" } else { "-:" };
+                        (format!("{b}[{s} {op} {w}]"), PREC_ATOM)
+                    }
+                }
             }
             ExprKind::Field { base, field } => {
                 let base = *base;
@@ -1190,15 +1195,7 @@ impl<'a> Emitter<'a> {
         hi: Idx<Expr>,
         lo: Option<Idx<Expr>>,
     ) -> Option<String> {
-        let selectable = matches!(
-            self.ast.exprs[base].kind,
-            ExprKind::Path(_)
-                | ExprKind::Index { .. }
-                | ExprKind::Field { .. }
-                | ExprKind::Range { .. }
-                | ExprKind::PartSelect { .. }
-        );
-        if selectable && self.eval_const(base).is_none() {
+        if self.is_selectable_base(base) {
             return None;
         }
         // Bit seçimi değişken indeksle de olur; aralığın iki ucu sabittir.
@@ -1209,6 +1206,63 @@ impl<'a> Emitter<'a> {
             }
             None => (1, self.emit_plain(hi)),
         };
+        Some(self.cut_value(base, width, shift))
+    }
+
+    /// Seçimin tabanı SystemVerilog'da doğrudan seçilebilir bir ad mı
+    /// (sinyal, dizi elemanı, alan, seçim)? Katlanan sabit seçilemez.
+    fn is_selectable_base(&self, base: Idx<Expr>) -> bool {
+        matches!(
+            self.ast.exprs[base].kind,
+            ExprKind::Path(_)
+                | ExprKind::Index { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::Range { .. }
+                | ExprKind::PartSelect { .. }
+        ) && self.eval_const(base).is_none()
+    }
+
+    /// Bileşik değerden indexed part-select (#112): `(a + b)[i +: 4]` →
+    /// `4'((9'(a) + 9'(b)) >> i)`, `(a + b)[i -: 4]` →
+    /// `4'((9'(a) + 9'(b)) >> (i - 4'd3))`. Genişlik sabittir; başlangıç
+    /// değişken olabilir. Taban seçilebilir bir adsa `None`.
+    fn part_select_from_value(
+        &mut self,
+        base: Idx<Expr>,
+        start: Idx<Expr>,
+        width: Idx<Expr>,
+        ascending: bool,
+    ) -> Option<String> {
+        if self.is_selectable_base(base) {
+            return None;
+        }
+        let width = self.eval_const(width).filter(|&w| w >= 1)?;
+        let shift = if ascending {
+            self.emit_plain(start)
+        } else {
+            let down = width - 1;
+            match self.eval_const(start) {
+                Some(s) => (s - down).to_string(),
+                None if down == 0 => self.emit_plain(start),
+                None => {
+                    let s = self.emit_plain(start);
+                    // Sabit, başlangıcın genişliğinde yazılır (Verilator
+                    // -Wall WIDTHEXPAND vermez); sığmıyorsa boyutsuz.
+                    match self.width_of(start) {
+                        Some(sig) if sig.width < 127 && down < (1i128 << sig.width) => {
+                            format!("({s} - {}'d{down})", sig.width)
+                        }
+                        _ => format!("({s} - {down})"),
+                    }
+                }
+            }
+        };
+        Some(self.cut_value(base, width, shift))
+    }
+
+    /// Değeri doğal genişliğinde hesaplar, `shift` kadar sağa kaydırır ve
+    /// `width` bite keser; seçim işaretsizdir.
+    fn cut_value(&mut self, base: Idx<Expr>, width: i128, shift: String) -> String {
         let natural = self.natural_sig(base);
         let value = self.emit_prec(base, natural, PREC_TERNARY, false);
         let shifted = if shift == "0" {
@@ -1217,11 +1271,11 @@ impl<'a> Emitter<'a> {
             format!("({value}) >> {shift}")
         };
         let cut = format!("{width}'({shifted})");
-        Some(if natural.is_some_and(|s| s.signed) {
+        if natural.is_some_and(|s| s.signed) {
             format!("$unsigned({cut})")
         } else {
             cut
-        })
+        }
     }
 
     /// Aritmetik/bit düzeyi operand bağlamı: max(işlem genişliğim, dış
