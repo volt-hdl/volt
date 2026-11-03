@@ -52,6 +52,8 @@ jobs:
           fi
 
   integration:
+    # The name stays "Verilator lint" (a required status check); since
+    # ADR-0107 this is THE tool job: every test with every tool required.
     name: Verilator lint
     runs-on: ubuntu-latest
     # ADR-0079: Verilator comes from the same pinned, cached OSS CAD Suite as
@@ -71,7 +73,7 @@ jobs:
         with:
           path: ~/oss-cad-suite
           key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite (verilator), with retries
+      - name: Download OSS CAD Suite (verilator, yosys, sby + solvers), with retries
         if: steps.oss-cad-cache.outputs.cache-hit != 'true'
         run: |
           stamp="${OSS_CAD_SUITE_DATE//-/}"
@@ -79,7 +81,7 @@ jobs:
           curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
           tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
           rm /tmp/oss-cad-suite.tgz
-      - name: Put Verilator on PATH
+      - name: Put OSS CAD Suite on PATH (Verilator, Yosys, sby)
         run: |
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
           "$HOME/oss-cad-suite/bin/verilator" --version
@@ -89,74 +91,27 @@ jobs:
       # (build/rtl/Counter.sv), so ZERO warnings are expected, DECLFILENAME included.
       - name: Verilator lint - ZERO warnings expected
         run: verilator --lint-only -Wall build/rtl/Counter.sv
-      # ADR-0079 section 3: the tools are installed in this job, so a test that
-      # needs one must FAIL when it is missing instead of skipping (the probe
-      # in require_tools_tests hides it on purpose). sim_bounds_tests and
-      # struct_tests ran only in the tool-less job before, i.e. never.
-      # ADR-0098: for_reset_sim_tests (reset of a register written in a for
-      # loop) and clockless_sim_tests (volt test without an rst port).
-      # ADR-0098 addendum: prev_array_sim_tests (prev() inside an array literal
-      # in a contract monitor). build_stamp_tests: a half-built or foreign
-      # Verilator obj dir is rebuilt without manual cleanup.
-      # ADR-0106: compare_width_tests (the two E2031 fixes and shift/~ widths
-      # in simulation) and part_select_value_tests (#112, the carry of a
-      # part-select); in the tool-less job they skip and only print ok.
-      - name: Tool-required tests - missing tool fails (ADR-0079)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator,cc
-        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests --test for_reset_sim_tests --test clockless_sim_tests --test prev_array_sim_tests --test build_stamp_tests -- --nocapture
-      # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
-      # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
-      - name: Simulation contract monitors (volt test, real Verilator)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test sim_contract_tests --test fsm_cover_tests
-      # ADR-0092: `volt run --vcd` writes a GTKWave session + enum tables;
-      # every session path must exist in the same run's VCD header.
-      - name: Waveform enum names (volt run --vcd, real Verilator)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test wave_session_tests
-      # ADR-0076: extern bodies from @source reach Verilator (real-tool tests
-      # skip only when the tool is missing; the step below fails instead).
-      - name: Extern @source tests (real Verilator)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test extern_source_tests
       - name: Extern @source simulation (volt test) -> exit 0
         run: cargo run --bin volt -- test tests/fixtures/extern_source/ext_top_test.volt
-      # ADR-0084 section 6: every `volt new` template is generated and its tests
-      # run in real Verilator (check/build and the embedded-bytes check run in
-      # every job; lint and Yosys through the output net below).
-      - name: Project templates - volt new + volt test (ADR-0084)
+      # ADR-0107: EVERY test of the workspace runs here with EVERY tool
+      # required. There is no list of test files: a new test that asks for a
+      # tool (tools::require) runs in this step with its tool required and
+      # fails, instead of skipping, when the tool is missing. The OSS CAD
+      # Suite brings Verilator, Yosys, sby and the solvers; the runner brings
+      # cc, c++, make and docker; the toolchain brings rustc. This replaces
+      # the per-binary steps of ADR-0079 section 6 (the formal job's sby tests
+      # included): a test missing from those lists never ran in CI (#111).
+      # One exclusion, by name: docker_e2e_tests pulls ~650 MB of images and
+      # hides the local tools; it runs in the docker-backend job with
+      # VOLT_DOCKER_E2E=1 and zero skips required there.
+      - name: Every test, every tool required (ADR-0079, ADR-0107)
         env:
-          VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test template_tests
-      # ADR-0089: `volt test` finds tests in every project subdirectory;
-      # same-named tests in two directories get separate build/sim dirs.
-      - name: Test discovery from the project root (real Verilator, ADR-0089)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator
-        run: cargo test -p volt-driver --test test_discovery_tests
-      # ADR-0078: keyword-safe names lint clean, C++-word ports simulate
-      # through Verilator's __SYM__ names (real-tool tests skip only when
-      # the tool is missing).
-      - name: Reserved-word names (real Verilator)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
-        run: cargo test -p volt-driver --test reserved_name_tests
-      # ADR-0079 output net: every generated SV and SVA (.sva + bind, inline)
-      # through Verilator -Wall, every C header through cc/c++ -Werror, every
-      # Rust driver through rustc -D warnings. The tools are installed in this
-      # job, so a missing one FAILS instead of skipping.
-      - name: Output net - Verilator, cc, c++, rustc (ADR-0079)
-        env:
-          VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
-        run: cargo test -p volt-driver --test output_net_tests -- verilator cc_ cxx_ rustc_
+          VOLT_REQUIRE_TOOLS: all
+        run: cargo test --workspace --no-fail-fast -- --skip new_test_verify_and_run_through_docker
       # ADR-0107: how many tests skipped for a missing tool, and which.
       - name: Tool ledger - SKIP count
         if: always()
-        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job integration --require-zero-skips
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job integration --require-zero-skips --min-ran 60
       - name: Upload tool ledger
         if: always()
         uses: actions/upload-artifact@v7
@@ -191,6 +146,9 @@ jobs:
     # handled by a pinned, cached toolchain and download retries instead of
     # continue-on-error (setup-oss-cad-suite always fetched the newest nightly
     # and failed PR #5 with HTTP 504 on the GitHub release download).
+    # The `volt verify` command-line runs stay here; the cargo tests that need
+    # sby or Yosys run in the integration job with every tool required
+    # (ADR-0107), so this job runs no test binary and has no tool ledger.
     env:
       OSS_CAD_SUITE_DATE: 2026-09-21
     steps:
@@ -216,12 +174,6 @@ jobs:
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
           "$HOME/oss-cad-suite/bin/sby" --help > /dev/null
           "$HOME/oss-cad-suite/bin/yosys" -V
-      # ADR-0079 section 3: the real-sby CLI tests ran only in the tool-less
-      # job before (always skipped); sby is required here.
-      - name: Real-sby CLI tests - missing sby fails (ADR-0079)
-        env:
-          VOLT_REQUIRE_TOOLS: sby
-        run: cargo test -p volt-driver --test cli_tests real_sby
       - name: Provable invariant -> exit 0
         run: cargo run --bin volt -- verify tests/ui/pass/23_provable_invariant.volt
       - name: Violated invariant -> exit 6 + counterexample
@@ -246,58 +198,17 @@ jobs:
           code=$?
           echo "volt verify exit code: $code"
           test "$code" -eq 6
-      # ADR-0086: auto covers are E5001 only when structurally dead; the
-      # harness offset (3 sby steps) is measured against the real sby.
-      - name: Auto cover reachability (real sby, ADR-0086)
-        env:
-          VOLT_REQUIRE_TOOLS: sby
-        run: cargo test -p volt-driver --test verify_cover_depth_tests
       # ADR-0055: one sby process, one task per module that checks something,
       # -j N. ADR-0097: each parent task also asserts the Handshake/requires
       # obligations of the instances below it.
       - name: SoC (154 properties, 8 module tasks) -j 4 -> exit 0
         run: cargo run --bin volt -- verify -j 4 --depth 12 examples/soc/top.volt
-      # ADR-0097: an instance's requires/assume is an obligation of its
-      # parent; a parent that breaks it fails (exit 6), one that meets it
-      # passes, over three levels and several instances.
-      - name: Instance obligations (real sby, ADR-0097)
-        env:
-          VOLT_REQUIRE_TOOLS: sby
-        run: cargo test -p volt-driver --test verify_obligation_tests -- --test-threads=1
       # ADR-0076: the extern body from @source is read by sby; the invariant
       # is provable only with it.
       - name: Extern @source (bmc + prove) -> exit 0
         run: |
           cargo run --bin volt -- verify tests/fixtures/extern_source/ext_top.volt
           cargo run --bin volt -- verify --mode prove --depth 4 tests/fixtures/extern_source/ext_top.volt
-      - name: Extern @source tests (real sby)
-        env:
-          VOLT_REQUIRE_TOOLS: sby
-        run: cargo test -p volt-driver --test extern_source_tests
-      # ADR-0084 section 6: every `volt new` template proves its contracts in
-      # bmc, prove and cover mode.
-      - name: Project templates - volt new + volt verify (ADR-0084)
-        env:
-          VOLT_REQUIRE_TOOLS: sby
-        run: cargo test -p volt-driver --test template_tests
-      # ADR-0079 output net: every generated SV elaborated by Yosys
-      # (hierarchy -check, proc, check -assert), every .xdc evaluated by Tcl
-      # against the Vivado command subset. Yosys is required here.
-      - name: Output net - Yosys elaboration + XDC Tcl gate (ADR-0079)
-        env:
-          VOLT_REQUIRE_TOOLS: yosys
-        run: cargo test -p volt-driver --test output_net_tests -- yosys
-      # ADR-0107: how many tests skipped for a missing tool, and which.
-      - name: Tool ledger - SKIP count
-        if: always()
-        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job verify --require-zero-skips
-      - name: Upload tool ledger
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: tool-ledger-verify
-          path: ${{ env.VOLT_TOOL_LEDGER }}
-          if-no-files-found: ignore
 
   timing:
     name: Timing constraints (OpenSTA second net)
@@ -522,7 +433,7 @@ jobs:
     # VOLT_REQUIRE_TOOLS; one that never ran, or ran only where its tool was
     # optional, fails this job by name. Runs after a failed job too, so a
     # missing ledger is reported instead of hidden.
-    needs: [test, integration, verify, docker-backend]
+    needs: [test, integration, docker-backend]
     if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v7
@@ -536,4 +447,7 @@ jobs:
         run: python3 scripts/ci/tool_ledger.py --self-test
       - name: Every tool test ran with its tool required
         run: |
-          python3 scripts/ci/tool_ledger.py cover             --inventory ledgers/tool-ledger-test/volt-tool-ledger.tsv             --tools ledgers/tool-ledger-integration/volt-tool-ledger.tsv                     ledgers/tool-ledger-verify/volt-tool-ledger.tsv                     ledgers/tool-ledger-docker-backend/volt-tool-ledger.tsv
+          python3 scripts/ci/tool_ledger.py cover \
+            --inventory ledgers/tool-ledger-test/volt-tool-ledger.tsv \
+            --tools ledgers/tool-ledger-integration/volt-tool-ledger.tsv \
+                    ledgers/tool-ledger-docker-backend/volt-tool-ledger.tsv

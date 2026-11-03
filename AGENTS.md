@@ -159,6 +159,24 @@ no failures, that tool-dependent tests ran rather than skipped, and that
 every step you expected actually ran. Quote the run ID and the lines you
 checked in the report.
 
+**A test that needs a tool counts as passed only when the log of the job
+it ran in shows that it did not skip.** `ok` in `cargo test` output is not
+evidence: a test that skips prints `ok` too (ADR-0107).
+
+- Every tool lookup in a test goes through
+  `crates/volt-driver/tests/tools/mod.rs`: `tools::require(Tool::X)`, or
+  `tools::opt_in("VAR")` for a heavy test behind a variable such as
+  `VOLT_DOCKER_E2E`. Never look for a tool another way in a test. Each
+  lookup lands in the tool ledger (`VOLT_TOOL_LEDGER`).
+- The "Verilator lint" job installs the tools and runs every test of the
+  workspace with `VOLT_REQUIRE_TOOLS=all`: there is no list of test files
+  to extend, and tool tests are never filtered out of that job.
+- Every job that runs tests ends with a `Tool ledger [<job>]: ... SKIP: N`
+  line. In a job that installs the tools, N must be 0 or the job fails;
+  the "Tool coverage" job fails when a tool test seen in any job never ran
+  with its tool required. Quote the `SKIP: 0` line of the tool job and the
+  result of "Tool coverage" in the report.
+
 ## Banned words
 
 Prose in the book (`book/src/`), `README.md`, `CHANGELOG.md` and

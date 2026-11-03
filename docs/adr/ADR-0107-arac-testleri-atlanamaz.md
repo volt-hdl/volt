@@ -92,7 +92,30 @@ bayattır ve test düşer.
 
 ## Kanıt
 
-(CI koşu kimlikleri ve günlük satırları PR'de doldurulur.)
+PR #114, üç adım:
+
+1. **Denetim, bugünkü main'in listeleriyle** (run 41733768024): araçsız
+   iş `Tool ledger [test]: 65 test(s) asked for a tool; 7 lookup(s) found
+   the tool (0 required), SKIP: 60`; araçlı işler `SKIP: 0`; "Tool
+   coverage" `67 (test, tool) pair(s) in the ledgers, 67 ran with the tool
+   required, 0 did not`. #113 listeyi tamamladığından bugünkü main'de eksik
+   test yok; envanter 67 çifttir (ikili başına tablo PR'de).
+2. **Denetim, #111 birleştiği andaki listeyle** (geçici commit, e7628a5a
+   listesi; run 41733884962): "Verilator lint" işi YEŞİL kaldı (eski
+   sorun: listede olmayan test hiçbir şey söylemez), "Tool coverage" düştü:
+   `64 ran with the tool required, 3 did not` ve
+   `compare_width_tests::shift_and_not_keep_their_own_width_in_simulation
+   (verilator): never ran in a tool job`, aynısı
+   `compare_width_tests::wrapping_and_keeping_the_carry_differ_for_b_7_a_0`
+   ve `part_select_value_tests::part_select_of_a_sum_reads_the_carry_in_simulation`
+   için.
+3. **Yapısal düzeltme** (liste kalktı, `VOLT_REQUIRE_TOOLS=all cargo test
+   --workspace`): koşu kimliği ve satırlar PR açıklamasında.
+
+Yerelde (Windows, araçsız) defter `require_tools_tests`'in sondalarının
+normal koşuda da sorgu yaptığını gösterdi: araçlı işte `probe_opt_in`
+SKIP sayılırdı. Sondalar artık yalnız alt süreçte (`VOLT_PROBE=1`) iş
+yapar.
 
 ## Reddedilenler
 
