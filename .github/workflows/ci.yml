@@ -82,10 +82,13 @@ jobs:
       # ADR-0098 addendum: prev_array_sim_tests (prev() inside an array literal
       # in a contract monitor). build_stamp_tests: a half-built or foreign
       # Verilator obj dir is rebuilt without manual cleanup.
+      # ADR-0106: compare_width_tests (the two E2031 fixes and shift/~ widths
+      # in simulation) and part_select_value_tests (#112, the carry of a
+      # part-select); in the tool-less job they skip and only print ok.
       - name: Tool-required tests - missing tool fails (ADR-0079)
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc
-        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests --test for_reset_sim_tests --test clockless_sim_tests --test prev_array_sim_tests --test build_stamp_tests
+        run: cargo test -p volt-driver --test require_tools_tests --test sim_bounds_tests --test struct_tests --test sw_emit_tests --test carry_width_tests --test for_reset_sim_tests --test clockless_sim_tests --test prev_array_sim_tests --test build_stamp_tests --test compare_width_tests --test part_select_value_tests -- --nocapture
       # ADR-0064: contracts as simulation monitors (DPI callbacks), incl. the
       # beyond-formal-depth proof (tests/fixtures/sim_contracts/deep_violation.volt).
       - name: Simulation contract monitors (volt test, real Verilator)

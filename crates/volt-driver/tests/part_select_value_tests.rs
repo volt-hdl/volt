@@ -77,6 +77,12 @@ fn part_select_of_a_sum_reads_the_carry_in_simulation() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    // CI günlüğünde testin gerçekten Verilator'da koştuğu görünsün
+    // (atlanan test de "ok" yazar; CI adımı `--nocapture` ile koşar).
+    eprintln!(
+        "--- volt test (part_select_value_tests)
+{text}"
+    );
     assert!(out.status.success(), "{text}");
     assert!(text.contains("2 passed; 0 failed"), "{text}");
 }
