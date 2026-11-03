@@ -143,8 +143,11 @@ fn logical_over_comparison_has_no_parens() {
 
 #[test]
 fn arithmetic_under_comparison_has_no_parens() {
-    let rhs = rhs_of(U8_ABCD, "bool", "a + b == c * d");
-    assert_eq!(rhs, "a + b == c * d");
+    // ADR-0106: karşılaştırma iki yanın doğal genişliğinde (9 bit) basılır;
+    // `c * d` (16 bit) karşısında `a + b` artık E2031 olduğundan iki yan
+    // aynı doğal genişlikte seçildi.
+    let rhs = rhs_of(U8_ABCD, "bool", "a + b == c - d");
+    assert_eq!(rhs, "9'(a) + 9'(b) == 9'(c) - 9'(d)");
 }
 
 #[test]
@@ -326,7 +329,32 @@ impl SvParser {
     }
 }
 
+/// Boyut dönüşümü önekleri (`9'(a)`) parantez olarak okunur: öncelik
+/// ağacını değiştirmezler (karşılaştırma bağlamı, ADR-0106).
+fn strip_size_casts(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let digits = chars[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+        let starts_word = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+        if digits > 0
+            && starts_word
+            && chars.get(i + digits) == Some(&'\'')
+            && chars.get(i + digits + 1) == Some(&'(')
+        {
+            i += digits + 1;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
 fn parse_sv(text: &str) -> String {
+    let text = strip_size_casts(text);
+    let text = text.as_str();
     let mut p = SvParser {
         tokens: tokenize(text),
         pos: 0,

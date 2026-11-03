@@ -19,7 +19,7 @@
 //! verir, §3.6), taşmayı tutma `(dar as uM)` (genişletme uyarısız).
 
 use volt_ast::{BinOp, Expr, Idx};
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_diagnostics::{a_an, lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -122,10 +122,11 @@ impl TypeChecker<'_, '_> {
             ),
             None => self.comparison_width_help(s, p),
         };
+        let (art_n, art_w) = (a_an(u64::from(nhi)), a_an(u64::from(whi)));
         let mut diag = Diagnostic::error(
             ErrorCode::E2031,
             lstr!(
-                en: "comparison of a {nhi}-bit value with a {whi}-bit arithmetic result";
+                en: "comparison of {art_n} {nhi}-bit value with {art_w} {whi}-bit arithmetic result";
                 tr: "{nhi} bitlik değer {whi} bitlik aritmetik sonuçla karşılaştırılıyor"
             ),
             LabeledSpan::primary(
