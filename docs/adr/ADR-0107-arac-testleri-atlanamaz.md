@@ -110,7 +110,15 @@ PR #114, üç adım:
    ve `part_select_value_tests::part_select_of_a_sum_reads_the_carry_in_simulation`
    için.
 3. **Yapısal düzeltme** (liste kalktı, `VOLT_REQUIRE_TOOLS=all cargo test
-   --workspace`): koşu kimliği ve satırlar PR açıklamasında.
+   --workspace`; run 41735791595): araçlı iş 3529 geçti, 0 düştü, 1 süzüldü
+   (`docker_e2e_tests`), `Tool ledger [integration]: 64 test(s) asked for
+   a tool; 66 lookup(s) found the tool (66 required), SKIP: 0`; Docker
+   işi `1 lookup(s) found the tool (1 required), SKIP: 0`; "Tool coverage"
+   `67 ran with the tool required, 0 did not`. Eski düzende 4 çift
+   (`extern_source_tests` ve `template_tests`'in sby ve Verilator testleri)
+   bir işte aracı zorunlu olmadan da koşuyordu; artık her çift tek işte
+   zorunlu. SDC taraması `excluded (NET-SKIP / SYNTH-SKIP): 2` ve iki
+   fixture'ı gerekçesiyle bastı.
 
 Yerelde (Windows, araçsız) defter `require_tools_tests`'in sondalarının
 normal koşuda da sorgu yaptığını gösterdi: araçlı işte `probe_opt_in`
