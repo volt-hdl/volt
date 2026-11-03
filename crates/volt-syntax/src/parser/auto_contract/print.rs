@@ -11,7 +11,13 @@ const PREC_UNARY: u8 = 11;
 const PREC_ATOM: u8 = 12;
 
 pub(super) fn expr(ast: &SourceFile, e: Idx<Expr>) -> Option<String> {
-    Some(printed(ast, e)?.0)
+    Some(printed(ast, e, false)?.0)
+}
+
+/// Tanı önerileri için (ADR-0106): alan erişimi ve indeks de yazılır.
+/// Otomatik kontrat metni `expr`'den gelir ve bu biçimleri yazmaz.
+pub(super) fn expr_with_selects(ast: &SourceFile, e: Idx<Expr>) -> Option<String> {
+    Some(printed(ast, e, true)?.0)
 }
 
 fn prec(op: BinOp) -> u8 {
@@ -31,7 +37,7 @@ fn prec(op: BinOp) -> u8 {
 }
 
 /// (metin, önceliği).
-fn printed(ast: &SourceFile, e: Idx<Expr>) -> Option<(String, u8)> {
+fn printed(ast: &SourceFile, e: Idx<Expr>, selects: bool) -> Option<(String, u8)> {
     Some(match &ast.exprs[e].kind {
         ExprKind::IntLit {
             value,
@@ -48,15 +54,15 @@ fn printed(ast: &SourceFile, e: Idx<Expr>) -> Option<(String, u8)> {
             PREC_ATOM,
         ),
         ExprKind::Call { callee, args } => {
-            let (name, _) = printed(ast, *callee)?;
+            let (name, _) = printed(ast, *callee, selects)?;
             let args = args
                 .iter()
-                .map(|&a| expr(ast, a))
+                .map(|&a| Some(printed(ast, a, selects)?.0))
                 .collect::<Option<Vec<_>>>()?;
             (format!("{name}({})", args.join(", ")), PREC_ATOM)
         }
         ExprKind::Unary { op, operand } => {
-            let (inner, p) = printed(ast, *operand)?;
+            let (inner, p) = printed(ast, *operand, selects)?;
             let inner = if p < PREC_UNARY {
                 format!("({inner})")
             } else {
@@ -66,8 +72,8 @@ fn printed(ast: &SourceFile, e: Idx<Expr>) -> Option<(String, u8)> {
         }
         ExprKind::Binary { op, lhs, rhs } => {
             let me = prec(*op);
-            let (l, lp) = printed(ast, *lhs)?;
-            let (r, rp) = printed(ast, *rhs)?;
+            let (l, lp) = printed(ast, *lhs, selects)?;
+            let (r, rp) = printed(ast, *rhs, selects)?;
             // `->` sağdan, diğerleri soldan birleşir; eşitlik/karşılaştırma
             // birleşmez (E0010) — eşit öncelikte iki yan da paranteze girer.
             let right_assoc = *op == BinOp::Imp;
@@ -77,6 +83,17 @@ fn printed(ast: &SourceFile, e: Idx<Expr>) -> Option<(String, u8)> {
             let l = if wrap_l { format!("({l})") } else { l };
             let r = if wrap_r { format!("({r})") } else { r };
             (format!("{l} {} {r}", op.symbol()), me)
+        }
+        ExprKind::Field { base, field } if selects => {
+            let (b, bp) = printed(ast, *base, selects)?;
+            let b = if bp < PREC_ATOM { format!("({b})") } else { b };
+            (format!("{b}.{}", field.text), PREC_ATOM)
+        }
+        ExprKind::Index { base, index } if selects => {
+            let (b, bp) = printed(ast, *base, selects)?;
+            let b = if bp < PREC_ATOM { format!("({b})") } else { b };
+            let (i, _) = printed(ast, *index, selects)?;
+            (format!("{b}[{i}]"), PREC_ATOM)
         }
         _ => return None,
     })

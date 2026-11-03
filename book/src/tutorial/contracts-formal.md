@@ -267,7 +267,7 @@ pub module Occupancy {
     empty = level_r == 0
 
     invariant: level_r <= 4
-    ensures: prev(push) && !prev(pop) -> !empty
+    ensures: prev(push) && !prev(pop) -> (level as u4) == prev(level) + 1
     cover: full
 }
 ```
@@ -281,7 +281,23 @@ What changed:
 - `ensures: ... -> ...` is a promise about the outputs. `a -> b` reads
   "if `a`, then `b`". `prev(x)` is the value `x` had one cycle earlier,
   and `prev(x, 2)` two cycles earlier. The line says: after a cycle with
-  a push and no pop, the buffer is not empty.
+  a push and no pop, the level is exactly one higher than it was.
+- `level as u4` makes `level` one bit wider, for the reason below.
+
+An addition keeps its carry: `prev(level) + 1` is a 4-bit value, because
+3 bits plus one can need a fourth bit (7 + 1 = 8). Compared with the
+3-bit `level`, the comparison could drop that carry, wrapping at 3 bits,
+or keep it, and the two answers differ when the sum does not fit. Volt
+does not guess: written as `level == prev(level) + 1`, the line is error
+`E2031`, and the error offers both ways to write it:
+
+- `level == (prev(level) + 1)[2:0] as u3` keeps the low 3 bits of the
+  sum: it wraps at 3 bits, so 7 + 1 counts as 0;
+- `(level as u4) == prev(level) + 1` widens `level` to 4 bits: it keeps
+  the carry, so 7 + 1 is 8.
+
+Here the carry is kept: the level counts items and never wraps, and the
+`ensures` should say so.
 
 **Type this:**
 
@@ -294,10 +310,10 @@ volt verify occupancy.volt
 ```text,output
    Verifying occupancy.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.28s)
-    Finished 1.54s
+     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.26s)
+    Finished 1.28s
         Note 2 assumption(s) about the environment, not verified: Occupancy.req_0, Occupancy.req_1
-      Result 3 properties verified in 1.5s (16 jobs; bmc, depth 20)
+      Result 3 properties verified in 1.3s (16 jobs; bmc, depth 20)
 ```
 
 All three properties hold. The `Note` line lists the two `requires`:
@@ -324,10 +340,10 @@ volt verify --mode cover occupancy.volt
 ```text,output
    Verifying occupancy.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.24s)
-    Finished 1.34s
+     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.20s)
+    Finished 1.20s
         Note 2 assumption(s) about the environment, not verified: Occupancy.req_0, Occupancy.req_1
-      Result 3 properties verified in 1.3s (16 jobs; cover, depth 20)
+      Result 3 properties verified in 1.2s (16 jobs; cover, depth 20)
 ```
 
 In cover mode the solver searches for a way to reach each `cover` within
@@ -397,9 +413,9 @@ volt verify divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... ok (0.32s)
-    Finished 1.68s
-      Result 3 properties verified in 1.7s (16 jobs; bmc, depth 20)
+     [1/1] Divider (3 properties) ... ok (0.24s)
+    Finished 1.28s
+      Result 3 properties verified in 1.3s (16 jobs; bmc, depth 20)
 ```
 
 Every property holds, because the count reaches 25 after more than 20
@@ -420,7 +436,7 @@ volt verify --mode prove divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... unknown (0.33s)
+     [1/1] Divider (3 properties) ... unknown (0.26s)
 error[E5002]: contract not proven: the induction step failed
    ┌─ divider.volt:19:16
    │
@@ -433,10 +449,10 @@ error[E5002]: contract not proven: the induction step failed
    = for more: volt explain E5002
 
 
-    Finished 1.35s
+    Finished 1.29s
     Failures:
       Divider.inv_0  E5002 not proven (induction step failed)
-      Result 0 of 3 properties failed, 1 not proven in 1.4s (16 jobs; prove, depth 20)
+      Result 0 of 3 properties failed, 1 not proven in 1.3s (16 jobs; prove, depth 20)
         Next: volt explain E5002   (why a true property can fail induction)
 ```
 
@@ -458,7 +474,7 @@ volt verify --depth 30 divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... FAIL (0.36s)
+     [1/1] Divider (3 properties) ... FAIL (0.27s)
 error[E5001]: contract violated
    ┌─ divider.volt:19:16
    │
@@ -471,10 +487,10 @@ error[E5001]: contract violated
    = for more: volt explain E5001
 
 
-    Finished 1.42s
+    Finished 1.34s
     Failures:
       Divider.inv_0  E5001 contract violated at cycle 27
-      Result 1 of 3 properties failed in 1.4s (16 jobs; bmc, depth 30)
+      Result 1 of 3 properties failed in 1.3s (16 jobs; bmc, depth 30)
         Next: volt explain E5001   (how to read a counterexample)
 ```
 
@@ -517,9 +533,9 @@ volt verify --mode prove divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... ok (0.31s)
-    Finished 1.40s
-      Result 3 properties verified in 1.4s (16 jobs; prove, depth 20)
+     [1/1] Divider (3 properties) ... ok (0.22s)
+    Finished 1.26s
+      Result 3 properties verified in 1.3s (16 jobs; prove, depth 20)
 ```
 
 Proved: the invariant holds in every cycle, however long the design

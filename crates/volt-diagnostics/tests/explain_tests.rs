@@ -1,6 +1,6 @@
 //! `volt explain` açıklama tabanı testleri (cli-contract.md §9).
 //!
-//! Kapsam: 120 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
+//! Kapsam: 161 kodun iki dilde de tam açıklaması, §9 bölüm yapısı,
 //! genişliğe göre sarma, renk, --list gruplaması ve kod önerisi.
 
 use volt_diagnostics::explain::{
@@ -19,10 +19,10 @@ use volt_diagnostics::{ErrorCode, Lang};
 /// ADR-0085 ile; E5005/E5006, ADR-0097 ile; E0019/W0024, ADR-0098 ile;
 /// E0020/E3016, ADR-0098 ekiyle; W0025, ADR-0099 ile; E1016, ADR-0102 ile;
 /// W3011, ADR-0103 ile eklendi.)
-const CODE_COUNT: usize = 160;
+const CODE_COUNT: usize = 161;
 
 #[test]
-fn all_codes_present_120_of_120() {
+fn all_codes_present_161_of_161() {
     assert_eq!(
         ErrorCode::ALL.len(),
         CODE_COUNT,

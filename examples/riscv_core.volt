@@ -145,7 +145,7 @@ pub module RiscvCore {
     // mcycle itself wraps, which the sticky `cyc_wrap` records so the
     // bound stays inductive (contracts see only ports and registers,
     // hence a real flop with a debug port, as in riscv_pipeline).
-    invariant: mcycle != 0 -> mcycle == prev(mcycle) + 1
+    invariant: mcycle != 0 -> mcycle == (prev(mcycle) + 1)[63:0] as u64
     invariant: !cyc_wrap -> minstret <= mcycle
     invariant: !mepc[0] && !mepc[1]
     // Trap entry: mepc holds the pc the trap was taken at, with
@@ -166,7 +166,7 @@ pub module RiscvCore {
     // quotient holds that many ones and the remainder holds the
     // dividend's top `div_cnt` bits ...
     invariant: (div_busy || div_done) && div_d == 0
-        -> div_q == (1u32 << div_cnt) - 1
+        -> div_q == ((1u32 << div_cnt) - 1)[31:0] as u32
     invariant: (div_busy || div_done) && div_d == 0
         -> div_r == (div_n >> (32 - div_cnt))
     // ... so the result matches the spec: DIVU x/0 = 2^32-1 (DIV: -1,

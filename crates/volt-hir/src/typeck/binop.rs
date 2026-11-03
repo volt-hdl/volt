@@ -30,7 +30,7 @@ impl TypeChecker<'_, '_> {
             Add | Sub | Mul | Div | Rem => self.synth_arith(op, lhs, rhs, span),
             BitAnd | BitOr | BitXor => self.synth_bitwise(lhs, rhs, span),
             Shl | Shr => self.synth_shift(lhs, rhs, span),
-            Eq | Ne => self.synth_comparison(lhs, rhs, span),
+            Eq | Ne => self.synth_comparison(op, lhs, rhs, span),
             Lt | Gt | Le | Ge => self.synth_ordering(op, lhs, rhs, span),
             // a -> b ≡ !a || b: iki operand da Bool, sonuç Bool (ADR-0034).
             And | Or | Imp => self.synth_logical(lhs, rhs),
@@ -286,10 +286,16 @@ impl TypeChecker<'_, '_> {
 
     /// Karşılaştırma (§3.3): sonuç her zaman Bool; operandlar aynı tipe
     /// birleştirilmeli, uyumsuzluk E2003.
-    fn synth_comparison(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+    fn synth_comparison(
+        &mut self,
+        op: BinOp,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        span: Span,
+    ) -> TypeId {
         let lt = self.synth(lhs);
         let rt = self.synth(rhs);
-        self.unify_for_comparison(lhs, rhs, lt, rt, span);
+        self.unify_for_comparison(op, lhs, rhs, lt, rt, span);
         self.types.bool_ty()
     }
 
@@ -323,13 +329,14 @@ impl TypeChecker<'_, '_> {
                 &lstr!(en: "compare variants with == / !=, or compare the codes explicitly: (x as uN) {sym} ..."; tr: "varyantları == / != ile karşılaştırın ya da kodları açıkça karşılaştırın: (x as uN) {sym} ..."),
             );
         } else {
-            self.unify_for_comparison(lhs, rhs, lt, rt, span);
+            self.unify_for_comparison(op, lhs, rhs, lt, rt, span);
         }
         self.types.bool_ty()
     }
 
     fn unify_for_comparison(
         &mut self,
+        op: BinOp,
         lhs: Idx<Expr>,
         rhs: Idx<Expr>,
         lt: TypeId,
@@ -348,7 +355,8 @@ impl TypeChecker<'_, '_> {
             self.check(rhs, lt);
             return;
         }
-        if matches!(self.meet_int_ranges(lt, rt), IntMeet::Common { .. }) {
+        if let IntMeet::Common { signed, .. } = self.meet_int_ranges(lt, rt) {
+            self.check_comparison_widths(op, lhs, rhs, lt, rt, signed, span);
             return;
         }
         let l = self.show(lt);

@@ -131,7 +131,7 @@ pub module I2cMaster {
 
     // ── Bit-period clock divider ───────────────────────────────
     let clks_per_phase : u6 = if fast_mode { CLKS_PER_PHASE_FAST } else { CLKS_PER_PHASE_STD }
-    let phase_end = clk_count_r >= clks_per_phase - 1
+    let phase_end = clk_count_r >= (clks_per_phase - 1)[5:0] as u6
     // Phase 1 is "SCL released": it only ends once the line really reads
     // high. A slave holding SCL low (clock stretching) — or just the two
     // synchroniser clocks — stalls the divider here.

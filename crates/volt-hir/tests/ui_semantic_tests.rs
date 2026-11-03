@@ -165,6 +165,16 @@ fn ui_fail_219_extern_raw_reset_w3011() {
 }
 
 #[test]
+fn ui_fail_220_223_compare_width_e2031() {
+    // ADR-0106 (#106): farklı doğal genişlikte aritmetik karşılaştırma;
+    // satır içi, tipsiz let, kontrat ve sığmayan sabit aynı kod.
+    assert_ui_fail("fail/220_compare_width_inline.volt");
+    assert_ui_fail("fail/221_compare_width_let.volt");
+    assert_ui_fail("fail/222_compare_width_contract.volt");
+    assert_ui_fail("fail/223_compare_width_constant_out_of_range.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");
@@ -323,8 +333,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0083: 119-123 match ifadesi (modül, blok, fn, tip itme + struct,
     //           kontrat), 124-126 blok let'i (on/comb, gölgeleme, comb sırası),
     //           127 const'ta if/match ifadesi (Aşama 3);
-    // #80: 132 tipsiz literal let (W2012, i32 tel).
-    assert_eq!(checked, 118);
+    // #80: 132 tipsiz literal let (W2012, i32 tel),
+    // ADR-0106: 133 farklı genişlikte karşılaştırmanın kabul edilen biçimleri.
+    assert_eq!(checked, 119);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -651,10 +651,17 @@ fn comparison_bool_with_uint_e2003() {
 }
 
 #[test]
-fn comparison_of_flex_result_with_same_width_ok() {
-    // (a + b) esnek [8,9] ile u8 kesişir — karşılaştırma geçerli.
-    let c = codes("module M {\n    in  a : u8\n    in  b : u8\n    in  m : u8\n    out y : bool\n\n    y = (a + b) == m\n}\n");
-    assert!(c.is_empty(), "{c:?}");
+fn comparison_of_flex_result_with_narrower_value_is_e2031() {
+    // (a + b) esnek [8,9] ile u8 kesişir; ADR-0025 bunu 8 bitte (taşmayı
+    // atarak) karşılaştırıyordu. ADR-0106: doğal genişlikler farklı
+    // (9 ve 8), yazan seçer — E2031; `as` ile iki yazım da geçer.
+    let m = |body: &str| {
+        format!("module M {{\n    in  a : u8\n    in  b : u8\n    in  m : u8\n    out y : bool\n\n    y = {body}\n}}\n")
+    };
+    assert_eq!(codes(&m("(a + b) == m")), vec!["E2031"]);
+    assert!(codes(&m("(a + b)[7:0] as u8 == m")).is_empty());
+    assert!(codes(&m("(a + b) == (m as u9)")).is_empty());
+    assert!(codes(&m("(a + b) == (m + a)")).is_empty());
 }
 
 // ═══ Mantıksal ════════════════════════════════════════════════════

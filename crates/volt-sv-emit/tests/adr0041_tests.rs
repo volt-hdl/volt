@@ -81,8 +81,11 @@ fn compound_expression_is_not_wrapped_only_its_atoms() {
 
 #[test]
 fn shift_left_operand_keeps_own_width_result_is_wrapped() {
+    // ADR-0106 §6: boyut dönüşümü içini hedef genişlikte hesaplar
+    // (`16'(a << 2)` a'yı 16 bite genişletip kaydırır); kaydırma
+    // `$unsigned` ile kendi genişliğinde yalıtılır.
     let out = sv("module M { in a : u8\n out y : u16\n y = a >> 2 }");
-    assert_has(&out, "assign y = 16'(a >> 2);");
+    assert_has(&out, "assign y = 16'($unsigned(a >> 2));");
 }
 
 #[test]

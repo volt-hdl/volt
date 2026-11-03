@@ -1,7 +1,7 @@
 # ADR-0099: Öneri, İleti ve Açıklama Kalitesi — Gidiş-Dönüş Denetimi, Okura Dönük Metin, W0025, Derleme Damgası, Ön Uç E3002
 
 > Statü: Uygulandı
-> İlgili: ADR-0004 (5 parçanın spec referansı `volt explain <KOD>` satırıdır; JSON `explain_url` kitapta sayfa olmadığından `null`), ADR-0091 (quick fix çok düzenlemeli olabilir; kesin düzeltme kuralı aynı), ADR-0094 (Docker köprüsü: derleme damgası arka ucu ve imaj özetini taşır; test düzeninde arka uç açık), ADR-0098 (eki 2'nin flop denetimi üreticide yedek kalır; ön uç E3002), ADR-0031 (uN/iN 1..=64; daha genişi E0003 sınırı söyler), ADR-0061 (Volt.toml araması), ADR-0079 (araç gerektiren testlerin atlama/düşme kuralı).
+> İlgili: ADR-0004 (5 parçanın spec referansı `volt explain <KOD>` satırıdır; JSON `explain_url` kitapta sayfa olmadığından `null`), ADR-0091 (quick fix çok düzenlemeli olabilir; kesin düzeltme kuralı aynı), ADR-0094 (Docker köprüsü: derleme damgası arka ucu ve imaj özetini taşır; test düzeninde arka uç açık), ADR-0098 (eki 2'nin flop denetimi üreticide yedek kalır; ön uç E3002), ADR-0031 (uN/iN 1..=64; daha genişi E0003 sınırı söyler), ADR-0061 (Volt.toml araması), ADR-0079 (araç gerektiren testlerin atlama/düşme kuralı), ADR-0106 (E2031'in iki `as` önerisi gidiş-dönüş denetiminde).
 > Tarih: 2026-10-03
 > Etkilenen: volt-diagnostics (`Suggestion` düzenlemeleri, `a_an`, W0025, explain metinleri, `explain_url`), volt-hir (öneriler, `manifest_lint`, ön uç E3002), volt-syntax, volt-sv-emit (E0003 geniş tamsayı, E2028 önerisi), volt-lsp (çok düzenlemeli quick fix), volt-driver (doctor, `verify --engine`, derleme damgası, testler), `scripts/check-consistency.*` (kontrol 16, 17), `book/tools/check_book.py`, `book/src/limitations.md`, `docs/roadmap.md`.
 

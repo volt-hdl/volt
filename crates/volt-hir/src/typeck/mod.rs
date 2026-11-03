@@ -30,6 +30,7 @@
 mod binop;
 mod cast;
 mod check;
+mod compare_width;
 mod contract;
 mod diag;
 mod enums;

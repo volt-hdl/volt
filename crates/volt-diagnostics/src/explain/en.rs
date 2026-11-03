@@ -516,6 +516,15 @@ extern module CounterWrap {   // ✓
             "enum Op : u4 { Add = 0, Sub = 1, Jal = 8 }   // ✓\nenum Mode : u1 { A = 0, B = 1 }             // ✓",
         ),
 
+        E2031 => Explanation::new(
+            "Comparison of values with different widths from arithmetic",
+            "One side of the comparison is an arithmetic result one or more bits wider than the other side, and Volt does not know whether the comparison should drop or keep the extra bits.",
+            "An addition keeps its carry: with a and b of type u3, 'b + 1' is a 4-bit value (b = 7 gives 8). Compared with the 3-bit 'a', the comparison can drop the carry, wrapping at 3 bits (then 'a == b + 1' is true for a = 0, b = 7), or keep it (then it is false). Both are reasonable and they give different answers, so Volt asks you to write the width. The same holds for an untyped let ('let s = b + 1' keeps the carry) and for contracts.\n\nThe rule does not apply when one side is a constant known at compile time and fits the other side: 'count == LIMIT - 1' compares the same way at either width. If the wide side is a constant that does not fit the narrow side, the comparison has the same result in every cycle, and the error says so.",
+            "in  a : u3\nin  b : u3\nlet s = b + 1\n\ny = a == b + 1      // ✗ E2031: u3 compared with a 4-bit sum\nz = a == s          // ✗ E2031: s is 4 bits wide",
+            "y = a == (b + 1)[2:0] as u3     // ✓ wrap at 3 bits\ny = (a as u4) == b + 1          // ✓ keep the carry\nz = a == s[2:0] as u3           // ✓ the same with the let\n\n// the same two forms in a contract:\ninvariant: l == (prev(l) + 1)[2:0] as u3   // ✓\ninvariant: (l as u4) == prev(l) + 1        // ✓",
+        )
+        .with_note("'(b + 1)[2:0] as u3' keeps the low 3 bits explicitly; a plain '(b + 1) as u3' is the same truncation but warns (W2010), like every narrowing 'as'. A typed let works too: 'let wrapped : u3 = b + 1' wraps, 'let widened : u4 = a' keeps the carry; in a contract, where a let cannot hold prev(), use 'as'."),
+
         // ─── Clock/reset domains (domain-inference.md) ───
         E3001 => Explanation::new(
             "Clock Domain Crossing (CDC) violation",

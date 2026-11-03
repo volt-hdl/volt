@@ -47,7 +47,7 @@ pub module Blinker {
         if regs.control.mode != MODE_BLINK {
             timer_r <= 0
             phase_r <= false
-        } else if timer_r + 1 >= regs.period.cycles {
+        } else if (timer_r + 1)[15:0] as u16 >= regs.period.cycles {
             timer_r <= 0
             phase_r <= !phase_r
             regs.status.toggles <= regs.status.toggles + 1

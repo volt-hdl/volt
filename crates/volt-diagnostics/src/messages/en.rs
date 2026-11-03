@@ -80,6 +80,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         E2028 => "Invalid range (end < start)",
         E2029 => "Constant array index out of bounds",
         E2030 => "Invalid enum encoding",
+        E2031 => "Comparison of values with different widths from arithmetic",
 
         // ─── Clock/reset domains (domain-inference.md) ───
         E3001 => "Clock domain mismatch (CDC)",
