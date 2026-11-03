@@ -202,6 +202,40 @@ Karşılaştırma bağlamı doğal genişlik olduğundan tipsiz `let`'in okunan
 genişliği doğru kaydedilir: taşma biti karşılaştırmada okunuyorsa yorum ve
 `UNUSEDSIGNAL` susturması basılmaz.
 
+### 6. Kendi genişlikli alt ifade daha geniş bağlamda
+
+CI'ın Verilator lint işi §4'ün çıktısında düştü:
+`32'((32'd1 << div_cnt) - 33'd1)` → `%Warning-WIDTHEXPAND: Operator SHIFTL
+expects 33 bits on the LHS`. Kök neden §4'e özgü değil: kendi genişliğinde
+hesaplanması gereken bir alt ifade daha geniş bir aritmetik bağlama
+yalıtılmadan konuyordu. SV'de boyut dönüşümü içini hedef genişlikte
+hesaplar; Verilator 5.052'de ölçüldü (a = 8'hFF, n = 4; a = 8'h00):
+
+| SV | Sonuç | Volt anlamı |
+|---|---|---|
+| `12'(a << n)` | `ff0` | `0f0` (`a << n` u8'dir) |
+| `{4'b0, (a << n)}` | `0f0` | |
+| `12'($unsigned(a << n))` | `0f0`, `-Wall` temiz | |
+| `12'(~a)` | `fff` | `0ff` (`~a` u8'dir) |
+| `12'($unsigned(~a))` | `0ff`, `-Wall` temiz | |
+| `12'($signed(x <<< n))`, x = -1 | `ff0` (8 bitte taşar, işaret genişler) | aynı |
+
+Karar: daha geniş bağlamdaki dar operand açıkça genişletilir.
+`$unsigned`/`$signed` argümanı kendi genişliğinde hesaplandığı için kaydırma
+ve `~` `W'($unsigned(...))` / `W'($signed(...))` ile yalıtılır; değeri
+bağlamdan etkilenmeyen seçim, dönüşüm ve birleştirme `W'(...)` ile
+genişletilir (yalnız WIDTHEXPAND uyarısı içindir). `~x`'e dış bağlam itilmez.
+
+Main'de (e33959d2) aynı sınıf ölçüldü: `let w : u12 = (a << n) + b` ve
+`y = a << n` (y: u12) `volt test`'te Verilator WIDTHEXPAND ile duruyordu;
+`let w : u12 = (~a) + 0` uyarısız derlenip a = 0 için 4095 veriyordu
+(sessiz yanlış sonuç, Volt anlamı 255); `a[7:4]`, `8'(e)`, struct
+birleştirmesi daha geniş bağlamda WIDTHEXPAND veriyordu. Korpusta (386
+dosya) bu sınıftan yalnız değeri değişmeyen üç dosyanın metni değişti
+(`ui/pass/06`, `/10`, `fixtures/parity/fn10`: dar birleştirme ya da dönüşüm
+artık `W'(...)` ile sarılı); değişen yedi dosyanın RTL'i, SVA'sı ve
+`--sva inline` çıktısı Verilator 5.052 `-Wall` ile temiz.
+
 ## Davranış değişiklikleri
 
 - Farklı doğal genişlikte aritmetik karşılaştırma E2031 (önce sessizce
@@ -209,6 +243,8 @@ genişliği doğru kaydedilir: taşma biti karşılaştırmada okunuyorsa yorum 
 - Kabul edilen karşılaştırmalar doğal genişlikte: `c + d == 5`,
   `c + d < 300`, `c + d == c + r` artık taşma bitini tutar.
 - Bileşik değerden seçim geçerli SV üretir.
+- Daha geniş aritmetik bağlamdaki kaydırma ve `~` kendi genişliğinde
+  hesaplanır (§6); `~a` önceden sessizce üst bitleri de çeviriyordu.
 - Örnekler ve `volt new --template mmio` şablonu sarma biçimine geçti
   (anlam aynı).
 
@@ -222,4 +258,6 @@ değişti, `as` biçimleri eklendi. Yeni: `ui/pass/133`, `tests/suggestions/
 e2031_{inline,let,contract}` (iki öneri ayrı ayrı uygulanır, tanı gider, yeni
 tanı çıkmaz, `volt build` geçer), `compare_width_tests` (öneriler JSON'dan
 uygulanır; Verilator'da b = 7, a = 0 için sarma eşit, taşmayı tutma eşit
-değil).
+değil). §6 için `self_sized_operand_tests` (main ve §6 öncesi emitter'la
+6/6 düşer) ve Verilator'da `a << 4` = 240, `~a` = 255 (main'de kaydırma
+WIDTHEXPAND ile durur, `~a` 4095 verir).

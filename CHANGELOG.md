@@ -29,6 +29,14 @@ toplanır.
   E2001'in kendi önerisi) geçerli SystemVerilog üretir: `4'(9'(a) + 9'd1)`.
   Önceden `(a + 8'd1)[3:0]` yazılıyor, Verilator ve Yosys sözdizimi
   hatasıyla reddediyordu (ADR-0106 §4).
+- **Davranış değişikliği.** Daha geniş bir aritmetik bağlamdaki kaydırma
+  ve `~` kendi genişliğinde hesaplanır (ADR-0106 §6): `a : u8` iken
+  `let w : u12 = (~a) + 0`, a = 0 için 255 verir (önceden uyarısız 4095;
+  üst bitler de çevriliyordu). `let w : u12 = (a << n) + b` ve
+  `y = a << n` (y: u12) `volt test`'te Verilator WIDTHEXPAND ile
+  duruyordu; artık `12'($unsigned(a << n))` ile 8 bitte kayar. Seçim,
+  dönüşüm ve birleştirme daha geniş bağlamda `W'(...)` ile açıkça
+  genişletilir.
 - Taşma biti bir karşılaştırmada okunan tipsiz `let` için yanlış
   `// carry bit of '...' unused` yorumu ve `UNUSEDSIGNAL` susturması
   basılmaz.

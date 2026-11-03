@@ -140,3 +140,53 @@ fn wrapping_and_keeping_the_carry_differ_for_b_7_a_0() {
         assert!(text.contains("2 passed; 0 failed"), "öneri {i}:\n{text}");
     }
 }
+
+/// ADR-0106 §6: kendi genişlikli alt ifade daha geniş bağlamda Volt
+/// anlamını korur. `a << 4` u8'dir (a = 255 → 240), `~a` u8'dir
+/// (a = 0 → 255); SV boyut dönüşümü yalıtmasaydı 4080 ve 4095 olurdu.
+const SELF_SIZED: &str = "module Wide {
+    in  a : u8
+    in  n : u3
+    out s : u12
+    out t : u12
+
+    let ws : u12 = (a << n) + 0
+    let wt : u12 = (~a) + 0
+    s = ws
+    t = wt
+}
+";
+
+#[test]
+fn shift_and_not_keep_their_own_width_in_simulation() {
+    if tools::require(tools::Tool::Verilator).is_none() {
+        return;
+    }
+    let dir = temp_dir("selfsized");
+    std::fs::write(dir.join("wide.volt"), SELF_SIZED).expect("yaz");
+    std::fs::write(
+        dir.join("wide_test.volt"),
+        "test \"own widths\" {
+    let dut = Wide { };
+    dut.a = 255;
+    dut.n = 4;
+    step(1);
+    assert_eq(dut.s, 240);
+    dut.a = 0;
+    step(1);
+    assert_eq(dut.t, 255);
+}
+",
+    )
+    .expect("yaz");
+    let out = volt(&dir, &["test", "wide_test.volt", "--target-dir", "build"]);
+    let text = format!(
+        "{}
+--- stderr
+{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("1 passed; 0 failed"), "{text}");
+}
