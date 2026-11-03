@@ -7,7 +7,7 @@
 //!
 //! Keşif Verilator'suz sınanır: "Compiling" satırları ve "running N
 //! tests" Verilator aranmadan basılır (VOLT_VERILATOR geçersiz yola
-//! çevrilir). Verilator varsa (integration işi) testler gerçekten koşar.
+//! çevrilir). Verilator varsa (CI'ın araçlı işi) testler gerçekten koşar.
 
 mod tools;
 

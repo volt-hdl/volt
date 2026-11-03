@@ -2,8 +2,8 @@
 //!
 //! Derleme zamanı (E8512) testleri her ortamda koşar. Çalışma zamanı
 //! testleri gerçek bir Verilator ister (`VOLT_VERILATOR` ya da `PATH`);
-//! yoksa atlanır — CI'ın `cargo test` işi Verilator kurmaz, bu testler
-//! Docker tarifinde (examples/README.md) koşar.
+//! yoksa atlanır; CI'ın araçlı işi bunları Verilator zorunluyken koşturur
+//! (ADR-0107).
 
 mod tools;
 

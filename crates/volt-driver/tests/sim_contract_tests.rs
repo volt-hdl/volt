@@ -4,7 +4,8 @@
 //! çalıştırılamayan bir dosyaya çevrilir, sürücü SV/testbench'i yazar ve
 //! araç başlatılamaz (sim_golden_tests hilesi). Çalışma zamanı testleri
 //! gerçek bir Verilator ister (`VOLT_VERILATOR` ya da `PATH`); yoksa
-//! atlanır — CI'ın Verilator'lu işi bunları koşturur.
+//! atlanır — CI'ın araçlı işi bunları Verilator zorunluyken koşturur
+//! (ADR-0107).
 
 mod tools;
 

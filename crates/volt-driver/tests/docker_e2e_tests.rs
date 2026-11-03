@@ -9,11 +9,15 @@
 //! Ağır koşu: aynı anda tek konteyner (CLAUDE.md bellek kuralı), adımlar
 //! sırayla tek test fonksiyonunda.
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+/// `VOLT_DOCKER_E2E=1` mi? Sonuç araç defterine yazılır (ADR-0107 §2):
+/// `docker-backend` işi bu testi sıfır SKIP ile koşturur.
 fn enabled() -> bool {
-    std::env::var("VOLT_DOCKER_E2E").is_ok_and(|v| v == "1")
+    tools::opt_in("VOLT_DOCKER_E2E")
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -111,7 +115,6 @@ fn assert_owned_by_caller(_root: &Path) {}
 #[test]
 fn new_test_verify_and_run_through_docker() {
     if !enabled() {
-        eprintln!("SKIP: VOLT_DOCKER_E2E=1 değil (gerçek Docker koşusu)");
         return;
     }
     let ctx = Ctx::new();

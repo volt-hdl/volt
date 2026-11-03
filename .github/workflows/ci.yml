@@ -7,6 +7,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # ADR-0107: every tool lookup of a test (tools::require, tools::opt_in)
+  # appends a SKIP or RAN line here. Each job that runs tests reports the
+  # count at its end; the tool-coverage job cross-checks the ledgers.
+  # Outside the checkout: the tests leave the working tree clean.
+  VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
 
 jobs:
   test:
@@ -24,6 +29,17 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test --all
+      # ADR-0107: how many tests skipped for a missing tool, and which.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job test
+      - name: Upload tool ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tool-ledger-test
+          path: ${{ env.VOLT_TOOL_LEDGER }}
+          if-no-files-found: ignore
       # A test writes into a temporary directory, never into the checkout:
       # after the tests the working tree is exactly the commit.
       - name: Tests leave the working tree clean
@@ -137,6 +153,17 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: verilator,cc,cxx,rustc
         run: cargo test -p volt-driver --test output_net_tests -- verilator cc_ cxx_ rustc_
+      # ADR-0107: how many tests skipped for a missing tool, and which.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job integration --require-zero-skips
+      - name: Upload tool ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tool-ledger-integration
+          path: ${{ env.VOLT_TOOL_LEDGER }}
+          if-no-files-found: ignore
       # A test writes into a temporary directory, never into the checkout:
       # after the tests the working tree is exactly the commit.
       - name: Tests leave the working tree clean
@@ -260,6 +287,17 @@ jobs:
         env:
           VOLT_REQUIRE_TOOLS: yosys
         run: cargo test -p volt-driver --test output_net_tests -- yosys
+      # ADR-0107: how many tests skipped for a missing tool, and which.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job verify --require-zero-skips
+      - name: Upload tool ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tool-ledger-verify
+          path: ${{ env.VOLT_TOOL_LEDGER }}
+          if-no-files-found: ignore
 
   timing:
     name: Timing constraints (OpenSTA second net)
@@ -326,10 +364,15 @@ jobs:
         run: python3 scripts/sta/run.py --design examples/hybrid_accel/hybrid_top.volt --top HybridTop
       # ADR-0079 output net: every .sdc the corpus produces (both styles)
       # read by OpenSTA -- no Error/Warning, every get_cells pattern names a cell.
+      # ADR-0107: the fixtures marked NET-SKIP / SYNTH-SKIP are left out, each
+      # printed with the reason its marker carries (and as a notice). Two today:
+      # tests/ui/pass/62_extern_domains.volt (extern modules without an
+      # @source body) and 69_opendrain_basic.volt (Yosys cannot parse the
+      # 'tri1' pull-up net). A new marker changes this count in the same PR.
       - name: Output net - every .sdc through OpenSTA read_sdc (ADR-0079)
         env:
           VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
-        run: python3 scripts/sta/sweep.py
+        run: python3 scripts/sta/sweep.py --expect-excluded 2
       - name: Upload OpenSTA reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -364,6 +407,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Coverage report
         run: just coverage
+      # ADR-0107: how many tests skipped for a missing tool, and which.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job coverage
+      - name: Upload tool ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tool-ledger-coverage
+          path: ${{ env.VOLT_TOOL_LEDGER }}
+          if-no-files-found: ignore
       - name: Upload HTML report
         uses: actions/upload-artifact@v7
         with:
@@ -443,7 +497,43 @@ jobs:
         env:
           VOLT_DOCKER_E2E: "1"
         run: cargo test -p volt-driver --test docker_e2e_tests -- --nocapture
+      # ADR-0107: how many tests skipped for a missing tool, and which.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job docker-backend --require-zero-skips --min-ran 1
+      - name: Upload tool ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tool-ledger-docker-backend
+          path: ${{ env.VOLT_TOOL_LEDGER }}
+          if-no-files-found: ignore
       - name: Generated files belong to the runner user
         run: |
           left=$(find "$(pwd)/target/tmp" -path "*volt-docker-e2e*" ! -user "$(id -u)" | head -5)
           test -z "$left" || { echo "not owned by $(id -un): $left"; exit 1; }
+
+  tool-coverage:
+    name: Tool coverage (every tool test ran with its tool required)
+    runs-on: ubuntu-latest
+    # ADR-0107: the tool-less job sees every test that asks for a tool (it
+    # skips there, or finds a compiler the runner ships). Each of those
+    # (test, tool) pairs must have RAN in a tool job with the tool in
+    # VOLT_REQUIRE_TOOLS; one that never ran, or ran only where its tool was
+    # optional, fails this job by name. Runs after a failed job too, so a
+    # missing ledger is reported instead of hidden.
+    needs: [test, integration, verify, docker-backend]
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tool-ledger-*
+          path: ledgers
+      - name: Ledgers
+        run: ls -l ledgers/*/ || true
+      - name: Script self-test
+        run: python3 scripts/ci/tool_ledger.py --self-test
+      - name: Every tool test ran with its tool required
+        run: |
+          python3 scripts/ci/tool_ledger.py cover             --inventory ledgers/tool-ledger-test/volt-tool-ledger.tsv             --tools ledgers/tool-ledger-integration/volt-tool-ledger.tsv                     ledgers/tool-ledger-verify/volt-tool-ledger.tsv                     ledgers/tool-ledger-docker-backend/volt-tool-ledger.tsv

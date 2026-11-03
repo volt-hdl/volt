@@ -1260,7 +1260,7 @@ fn verify_fake_sby_fail_json_reports_e5001() {
 
 #[test]
 fn verify_provable_invariant_with_real_sby() {
-    // Gerçek araç testi: sby kurulu değilse SKIP (CI'da opsiyonel job koşar).
+    // Gerçek araç testi: sby kurulu değilse SKIP (CI'ın araçlı işinde zorunlu, ADR-0107).
     if !sby_on_path() {
         eprintln!("SKIP: sby PATH'te yok — kurulum için 'volt explain verify-setup'");
         return;

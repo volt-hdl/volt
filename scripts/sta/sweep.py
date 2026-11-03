@@ -16,7 +16,12 @@ parity negatives) is read by the real consumer:
 
 Fixtures marked `//~ NET-SKIP` or `//~ SYNTH-SKIP` (see
 crates/volt-driver/tests/output_net_tests.rs) are left out: they cannot be
-synthesized by Yosys on purpose.
+synthesized by Yosys on purpose. The marker must carry its reason, and
+every excluded fixture is printed to the log with that reason and as a
+GitHub notice, so that a new exclusion is visible in the CI run that adds
+it (ADR-0107). The exclusion is not silent in the other direction either:
+output_net_tests feeds the marked fixtures to Verilator and Yosys and
+fails when the marker is stale (the fixture would pass).
 
 Tools as in run.py (VOLT_STA_YOSYS, VOLT_STA_STA, VOLT_BIN). A missing tool
 is an error, never a skip (ADR-0079 section 3). Exit 0 only when every file
@@ -50,9 +55,18 @@ def corpus() -> list[pathlib.Path]:
     return files
 
 
-def skipped(design: pathlib.Path) -> bool:
-    text = design.read_text(encoding="utf-8")
-    return any(line.strip().startswith(SKIP_MARKERS) for line in text.splitlines())
+def skip_reason(design: pathlib.Path) -> tuple[str, str] | None:
+    """(marker, reason) of an excluded fixture, None when it is swept.
+    A marker without a reason is an error, as in output_net_tests."""
+    for line in design.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        for marker in SKIP_MARKERS:
+            if line.startswith(marker):
+                reason = line[len(marker):].removeprefix(":").strip()
+                if not line[len(marker):].startswith(":") or not reason:
+                    raise SystemExit(f"{design}: '{line}': the marker needs a reason ('{marker}: <reason>')")
+                return marker.removeprefix("//~ "), reason
+    return None
 
 
 def has_commands(sdc: pathlib.Path) -> bool:
@@ -125,13 +139,19 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", type=pathlib.Path, default=ROOT / "build" / "sta" / "sweep", help="work dir")
     ap.add_argument("--min-files", type=int, default=20, help="fail if fewer .sdc files were read (empty corpus guard)")
+    ap.add_argument("--expect-excluded", type=int, default=None,
+                    help="fail unless exactly this many fixtures carry NET-SKIP / SYNTH-SKIP: "
+                         "a new exclusion changes the CI file in the same pull request")
     args = ap.parse_args()
     work_root = args.work.resolve()
     work_root.mkdir(parents=True, exist_ok=True)
     total, problems, skipped_designs = 0, [], []
     for design in corpus():
-        if skipped(design):
-            skipped_designs.append(design.relative_to(ROOT).as_posix())
+        skip = skip_reason(design)
+        if skip is not None:
+            rel = design.relative_to(ROOT).as_posix()
+            skipped_designs.append(f"{rel} ({skip[0]}: {skip[1]})")
+            print(f"::notice file={rel},title=SDC sweep exclusion ({skip[0]})::{skip[1]}", flush=True)
             continue
         checked, found = sweep_design(design, work_root)
         if checked:
@@ -142,10 +162,17 @@ def main() -> int:
         "# ADR-0079 SDC sweep (OpenSTA read_sdc)",
         "",
         f"- .sdc files read: {total} (both styles)",
-        f"- skipped (NET-SKIP / SYNTH-SKIP): {', '.join(skipped_designs) or 'none'}",
+        f"- excluded (NET-SKIP / SYNTH-SKIP): {len(skipped_designs)}",
+        *[f"  - {d}" for d in skipped_designs],
         f"- problems: {len(problems)}",
         *[f"  - {p}" for p in problems],
     ]
+    if args.expect_excluded is not None and len(skipped_designs) != args.expect_excluded:
+        msg = (f"{len(skipped_designs)} fixture(s) excluded, expected {args.expect_excluded}: "
+               "a NET-SKIP / SYNTH-SKIP marker was added or removed; update --expect-excluded in "
+               ".github/workflows/ci.yml in the same pull request")
+        problems.append(msg)
+        lines.append(f"- FAIL: {msg}")
     if total < args.min_files:
         problems.append(f"only {total} .sdc files read (< {args.min_files})")
         lines.append(f"- FAIL: only {total} .sdc files read (< {args.min_files})")

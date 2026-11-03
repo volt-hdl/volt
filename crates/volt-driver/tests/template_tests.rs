@@ -3,8 +3,8 @@
 //!
 //! 1. gömülü kaynakla (`templates/<ad>/`) bayt aynıdır,
 //! 2. `volt check` / `volt build` tanısız geçer (uyarı da yok),
-//! 3. `volt test` geçer (Verilator; integration işi zorunlu kılar),
-//! 4. `volt verify` bmc/prove/cover geçer (sby; verify işi zorunlu kılar).
+//! 3. `volt test` geçer (Verilator; CI'ın araçlı işi zorunlu kılar),
+//! 4. `volt verify` bmc/prove/cover geçer (sby; aynı iş zorunlu kılar, ADR-0107).
 //!
 //! Verilator `-Wall`, Yosys elaborasyonu ve sürücü derlemesi çıktı
 //! doğrulama ağındadır (`output_net_tests`, korpusta `templates/`).
