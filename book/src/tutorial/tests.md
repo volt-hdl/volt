@@ -8,6 +8,8 @@ You will write simulation tests beyond the basics: loops, `let` bindings, loadin
 
 > **This chapter is planned.** It will be written after feedback on the Tour and the counter chapter. Until then, these show the same topic:
 >
+> - [A counter](counter.md#test-it) and [Tests and waveforms](../tour/tests-and-waveforms.md): `test` blocks, `step()` and asserts
+> - [Two clocks and CDC](two-clocks.md#test-it): a test of a design with two clocks
 > - [ADR-0033: test blocks](https://github.com/volt-hdl/volt/blob/main/docs/adr/ADR-0033-test-bloklari-ve-simulasyon.md)
 > - [ADR-0058: the extended test language](https://github.com/volt-hdl/volt/blob/main/docs/adr/ADR-0058-test-dili-genisletme.md)
 > - [ADR-0064: contracts in simulation](https://github.com/volt-hdl/volt/blob/main/docs/adr/ADR-0064-simulasyonda-kontratlar.md)

@@ -173,13 +173,13 @@ rewrite a sentence without them.
 
 ## Book writing rules
 
-The book's guided pages (`book/src/setup.md`,
-`book/src/cookbook/existing-project.md` and every chapter in
-`book/src/tour/`) are written for a beginner on Windows who has never
-used a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
+The book's guided pages (`book/src/setup.md`, every chapter in
+`book/src/tour/`, and the chapters listed in `book/CONTRIBUTING-BOOK.md`,
+"Guided pages") are written for a beginner on Windows who has never used
+a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
 details and examples; `book/tools/check_book.py` enforces rules 2 and 3
 (the box, the labels, no `$ ` prompt, `output` on output blocks, the
-file name on file blocks).
+file name on file blocks) and rule 6 (the recap of Tutorial chapters).
 
 1. **Assume nothing about the computer.** The book does not assume that
    the reader knows the terminal, folders, an editor or how to create a
@@ -203,6 +203,13 @@ file name on file blocks).
 5. **Output comes from a real run** on the system the page names; never
    typed or edited by hand. The one allowed change is replacing the
    recorder's user name in a path, which the page says.
+6. **Every Tutorial chapter ends with a recap.** Its last section is
+   `## What we learned`: a short list of what the chapter taught,
+   followed by a paragraph that starts with `Next:` and links to the next
+   written page. A planned chapter does not count; when the next chapter
+   in the table of contents is planned, link the next written one.
+   `book/tools/check_book.py` checks this on every written page in
+   `book/src/tutorial/`.
 
 ## Machines with limited resources
 

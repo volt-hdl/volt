@@ -40,8 +40,8 @@ pub module Counter {
 Line by line:
 
 - `pub module Counter { ... }` declares a circuit named `Counter`. `pub`
-  lets other files use it; the [multi-file chapter](multi-file.md) comes
-  back to that.
+  lets other files use it; a chapter on projects with several files,
+  still planned, comes back to that.
 - `in clk : clock` and `out count : u8` are the ports: the wires that
   connect the module to the outside. Each port has a direction (`in` or
   `out`), a name and a type. `clock` is a clock input; `u8` is an unsigned
@@ -361,7 +361,7 @@ design to those edges on purpose, as the last test does.
 
 </div>
 
-## What you learned
+## What we learned
 
 - A `module` has typed `in` and `out` ports; `clock`, `bool`, `u8` and
   `bits<4>` are types.

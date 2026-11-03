@@ -57,6 +57,14 @@ jobs:
         run: python3 scripts/release/notes.py --self-test
       - name: Check docs/release-notes
         run: python3 scripts/release/notes.py --check
+      # A link in the README, the release notes or a written book page
+      # must not lead to a planned chapter: the site root shows the book of
+      # the latest release, where a planned page stays empty until the next
+      # release. SUMMARY.md marks every planned chapter "(planned)".
+      - name: Links to planned book chapters, self-test
+        run: python3 book/tools/check_book.py --links-only --self-test
+      - name: Links to planned book chapters
+        run: python3 book/tools/check_book.py --links-only
 
   examples:
     name: Book code examples
@@ -72,7 +80,7 @@ jobs:
         with:
           path: ~/oss-cad-suite
           key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite (verilator), with retries
+      - name: Download OSS CAD Suite (verilator, yosys, sby), with retries
         if: steps.oss-cad-cache.outputs.cache-hit != 'true'
         run: |
           stamp="${OSS_CAD_SUITE_DATE//-/}"
@@ -80,10 +88,12 @@ jobs:
           curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
           tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
           rm /tmp/oss-cad-suite.tgz
-      - name: Put Verilator on PATH
+      - name: Put Verilator and SymbiYosys on PATH
         run: |
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
           "$HOME/oss-cad-suite/bin/verilator" --version
+          "$HOME/oss-cad-suite/bin/yosys" -V
+          ls -l "$HOME/oss-cad-suite/bin/sby" "$HOME/oss-cad-suite/bin/yosys-smtbmc" "$HOME/oss-cad-suite/bin/boolector"
       - name: Build volt
         run: cargo build -p volt-driver --bin volt
       # The checker's own tests: a block with a compile error, a wrong
@@ -92,9 +102,10 @@ jobs:
       - name: Checker self-test
         run: python3 book/tools/check_book.py --volt target/debug/volt --self-test
       # Every ```volt block passes `volt check` (or fails with the code it
-      # declares); every *_test.volt block runs in Verilator. Verilator is
-      # installed above, so the Docker bridge must not be used.
-      - name: Every volt block compiles, every test block runs
+      # declares); every *_test.volt block runs in Verilator and every
+      # verify= block in SymbiYosys. Both come with the OSS CAD Suite above,
+      # so the Docker bridge must not be used.
+      - name: Every volt block compiles, every test and verify block runs
         env:
           VOLT_TOOL_BACKEND: local
         run: python3 book/tools/check_book.py --volt target/debug/volt --run-tests
