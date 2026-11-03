@@ -267,7 +267,7 @@ pub module Occupancy {
     empty = level_r == 0
 
     invariant: level_r <= 4
-    ensures: prev(push) && !prev(pop) -> level == prev(level) + 1
+    ensures: prev(push) && !prev(pop) -> !empty
     cover: full
 }
 ```
@@ -281,7 +281,7 @@ What changed:
 - `ensures: ... -> ...` is a promise about the outputs. `a -> b` reads
   "if `a`, then `b`". `prev(x)` is the value `x` had one cycle earlier,
   and `prev(x, 2)` two cycles earlier. The line says: after a cycle with
-  a push and no pop, the level is one higher than it was.
+  a push and no pop, the buffer is not empty.
 
 **Type this:**
 
@@ -295,9 +295,9 @@ volt verify occupancy.volt
    Verifying occupancy.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
      [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.28s)
-    Finished 1.44s
+    Finished 1.54s
         Note 2 assumption(s) about the environment, not verified: Occupancy.req_0, Occupancy.req_1
-      Result 3 properties verified in 1.4s (16 jobs; bmc, depth 20)
+      Result 3 properties verified in 1.5s (16 jobs; bmc, depth 20)
 ```
 
 All three properties hold. The `Note` line lists the two `requires`:
@@ -324,10 +324,10 @@ volt verify --mode cover occupancy.volt
 ```text,output
    Verifying occupancy.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.22s)
-    Finished 1.44s
+     [1/1] Occupancy (3 properties, 2 assumed) ... ok (0.24s)
+    Finished 1.34s
         Note 2 assumption(s) about the environment, not verified: Occupancy.req_0, Occupancy.req_1
-      Result 3 properties verified in 1.4s (16 jobs; cover, depth 20)
+      Result 3 properties verified in 1.3s (16 jobs; cover, depth 20)
 ```
 
 In cover mode the solver searches for a way to reach each `cover` within
@@ -397,9 +397,9 @@ volt verify divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... ok (0.28s)
-    Finished 1.38s
-      Result 3 properties verified in 1.4s (16 jobs; bmc, depth 20)
+     [1/1] Divider (3 properties) ... ok (0.32s)
+    Finished 1.68s
+      Result 3 properties verified in 1.7s (16 jobs; bmc, depth 20)
 ```
 
 Every property holds, because the count reaches 25 after more than 20
@@ -420,7 +420,7 @@ volt verify --mode prove divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... unknown (0.24s)
+     [1/1] Divider (3 properties) ... unknown (0.33s)
 error[E5002]: contract not proven: the induction step failed
    ┌─ divider.volt:19:16
    │
@@ -433,7 +433,7 @@ error[E5002]: contract not proven: the induction step failed
    = for more: volt explain E5002
 
 
-    Finished 1.38s
+    Finished 1.35s
     Failures:
       Divider.inv_0  E5002 not proven (induction step failed)
       Result 0 of 3 properties failed, 1 not proven in 1.4s (16 jobs; prove, depth 20)
@@ -458,7 +458,7 @@ volt verify --depth 30 divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... FAIL (0.31s)
+     [1/1] Divider (3 properties) ... FAIL (0.36s)
 error[E5001]: contract violated
    ┌─ divider.volt:19:16
    │
@@ -471,7 +471,7 @@ error[E5001]: contract violated
    = for more: volt explain E5001
 
 
-    Finished 1.44s
+    Finished 1.42s
     Failures:
       Divider.inv_0  E5001 contract violated at cycle 27
       Result 1 of 3 properties failed in 1.4s (16 jobs; bmc, depth 30)
@@ -517,9 +517,9 @@ volt verify --mode prove divider.volt
 ```text,output
    Verifying divider.volt
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-     [1/1] Divider (3 properties) ... ok (0.24s)
-    Finished 1.33s
-      Result 3 properties verified in 1.3s (16 jobs; prove, depth 20)
+     [1/1] Divider (3 properties) ... ok (0.31s)
+    Finished 1.40s
+      Result 3 properties verified in 1.4s (16 jobs; prove, depth 20)
 ```
 
 Proved: the invariant holds in every cycle, however long the design
