@@ -106,6 +106,14 @@ Verilator is not installed and Docker is running, Volt runs it in a
 pinned container image by itself; `volt doctor` shows which way each
 command will run.
 
+**Every clock runs at the same rate in simulation.** `volt test` and
+`volt run` give each clock port of the design one rising edge per cycle,
+all at the same moment. A design with several clocks cannot be simulated
+with clocks of different speeds or with a phase shift between them, so
+a test checks the order and the latency of a crossing, not its timing.
+The crossing itself is checked by the compiler (`E3001`). An example is
+in [Two clocks and CDC](tutorial/two-clocks.md#test-it).
+
 **Test values are at most 64 bits wide.** The test language cannot write
 to a port wider than 64 bits (`E2003`) or compare a wider value.
 Workaround: test the design through a small wrapper module whose ports

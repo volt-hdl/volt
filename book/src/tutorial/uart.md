@@ -2,7 +2,7 @@
 
 <div class="chapter-goal">
 
-You will build a complete serial transmitter from the counter and the state machine of the previous chapters. The chapter covers constants, bit timing, shifting data out, and a handshake with the rest of the design.
+You will build a complete serial transmitter from the counter and the state machine of the earlier chapters. The chapter covers constants, bit timing, shifting data out, and a handshake with the rest of the design.
 
 </div>
 
