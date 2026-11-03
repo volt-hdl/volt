@@ -21,9 +21,11 @@ the pages after it link back to it.
 
 ## Guided pages (checked)
 
-`src/setup.md`, `src/cookbook/existing-project.md` and every chapter in
-`src/tour/` are *guided pages*: a beginner on Windows follows them
-keystroke by keystroke. On top of the
+`src/setup.md`, the cookbook pages `src/cookbook/existing-project.md` and
+`src/cookbook/reset-sync.md`, the tutorial chapters
+`src/tutorial/two-clocks.md` and `src/tutorial/contracts-formal.md`, and
+every chapter in `src/tour/` are *guided pages*: a beginner on Windows
+follows them keystroke by keystroke. On top of the
 rest of this guide they follow these rules.
 
 1. **"Before you start" box.** The page opens with it, after the goal
@@ -118,8 +120,27 @@ being the sole or earliest tool slips through. Rewrite instead:
 
 Every chapter must be listed in `src/SUMMARY.md` (checked).
 
-A planned chapter keeps its title and goal paragraph and lists existing
-examples on the same topic.
+## Planned chapters (checked)
+
+A chapter that is not written yet keeps its title and goal paragraph,
+then a quote that starts with the line `> **This chapter is planned.**`
+and lists existing material on the same topic ("Until then, these show
+the same topic"): written pages of the book, files in the repository,
+`volt explain` topics. `check_book.py` finds planned chapters by that
+line, and checks:
+
+- `src/SUMMARY.md` writes `(planned)` after the title of every planned
+  chapter, and after no written one;
+- `README.md`, `docs/release-notes/*.md` and every written page of the
+  book link to no planned chapter: not on the site
+  (`https://volt-hdl.github.io/volt/...html`, `/dev/` too), not on GitHub,
+  not with a relative link. The site root shows the book of the latest
+  release, so a planned page stays empty there until the next release.
+  `SUMMARY.md` and the planned chapters may link to planned chapters.
+
+`python3 book/tools/check_book.py --links-only` runs this check alone; it
+needs no `volt` binary. When you write a planned chapter, delete the quote
+and the `(planned)` in `SUMMARY.md` in the same change.
 
 ## Side boxes
 
@@ -173,10 +194,14 @@ Attributes follow the language, separated by commas:
 | ```` ```volt,file=x_test.volt,test_fails ```` | a test file whose test is meant to fail (the checker expects `volt test` to exit 5) |
 | ```` ```volt,from=templates/minimal/counter.volt ```` | must be identical to that repository file, so a template shown in the book cannot drift from the real one |
 | ```` ```volt,file=counter.volt,output ```` | shown for reading ("You should see"), not created by the reader: checked like any block, shown without a copy button |
+| ```` ```volt,file=occupancy.volt,verify=bmc:6 ```` | with `--run-tests`: `volt verify --mode bmc` on the saved file must exit with code 6 (a counterexample). The value is `MODE[@DEPTH][:EXIT]`: mode `bmc`, `prove` or `cover`, `@30` adds `--depth 30`, exit `0` (proved, the default), `6` or `7` (not proven). The attribute may repeat; the runs follow one another |
 | ```` ```systemverilog,file=rtl/RisePulse.sv ```` | a SystemVerilog file the reader creates for an `extern` module's `@source`: saved in the workspace of the part, so that the ```` ```volt ```` blocks after it find it; not checked itself |
 
 With `--run-tests` (on in CI), every block saved as `*_test.volt` also
-runs `volt test`.
+runs `volt test`, and every `verify=` runs `volt verify`. They need
+Verilator and SymbiYosys; with `--backend docker` Volt runs them in
+Docker, one container at a time. The checker prints how long each
+`volt verify` took.
 
 - Show complete files. If a chapter changes one line, show the whole file
   again with the same `file=` name, or show the change as a `diff` block

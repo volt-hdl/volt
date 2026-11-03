@@ -173,10 +173,10 @@ rewrite a sentence without them.
 
 ## Book writing rules
 
-The book's guided pages (`book/src/setup.md`,
-`book/src/cookbook/existing-project.md` and every chapter in
-`book/src/tour/`) are written for a beginner on Windows who has never
-used a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
+The book's guided pages (`book/src/setup.md`, every chapter in
+`book/src/tour/`, and the chapters listed in `book/CONTRIBUTING-BOOK.md`,
+"Guided pages") are written for a beginner on Windows who has never used
+a terminal. `book/CONTRIBUTING-BOOK.md` ("Guided pages") has the
 details and examples; `book/tools/check_book.py` enforces rules 2 and 3
 (the box, the labels, no `$ ` prompt, `output` on output blocks, the
 file name on file blocks).

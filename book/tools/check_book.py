@@ -5,6 +5,7 @@ Usage:
     python3 book/tools/check_book.py --volt target/debug/volt
     python3 book/tools/check_book.py --volt target/debug/volt --run-tests
     python3 book/tools/check_book.py --volt target/debug/volt --self-test
+    python3 book/tools/check_book.py --links-only [--self-test]
 
 Code blocks (CONTRIBUTING-BOOK.md, "Code blocks"). The info string is
 `volt` followed by comma-separated attributes:
@@ -23,10 +24,18 @@ Code blocks (CONTRIBUTING-BOOK.md, "Code blocks"). The info string is
                        or an example shown verbatim stays in sync with it)
     output             shown for reading ("You should see"), not created by
                        the reader; the theme hides its copy button
+    verify=MODE[@DEPTH][:EXIT]
+                       with --run-tests: `volt verify --mode MODE` (bmc,
+                       prove or cover; `--depth DEPTH` when given) must
+                       exit with EXIT: 0 proved (the default), 6 a
+                       counterexample, 7 not proven. May repeat, one run
+                       each, in order
 
 Every other ```volt block must pass `volt check` with no error and no
 warning. With --run-tests, every block saved as *_test.volt also runs
-`volt test` (Verilator, locally or through Volt's Docker bridge).
+`volt test` (Verilator, locally or through Volt's Docker bridge), and
+every `verify=` runs `volt verify` (SymbiYosys, the same way). The blocks
+run one after another, so at most one container runs at a time.
 
 A SystemVerilog block with `file=PATH.sv` (```systemverilog,file=rtl/x.sv)
 is saved into the part's workspace, so that a later ```volt block finds it
@@ -34,8 +43,15 @@ through `@source("rtl/x.sv")`. It is not checked itself.
 
 Prose outside code is checked for the words the style guide bans.
 
-Guided pages (setup.md, cookbook/existing-project.md and every chapter in
-tour/; CONTRIBUTING-BOOK.md, "Guided pages") follow three more rules:
+Links to planned chapters (CONTRIBUTING-BOOK.md, "Planned chapters"):
+SUMMARY.md marks each planned chapter "(planned)", and README.md,
+docs/release-notes/*.md and the written book pages link to none of them
+(check_planned_links). --links-only runs this check alone, without volt.
+
+Guided pages (setup.md, the cookbook pages existing-project.md and
+reset-sync.md, the tutorial chapters two-clocks.md and contracts-formal.md,
+and every chapter in tour/; CONTRIBUTING-BOOK.md, "Guided pages") follow
+three more rules:
     1. a command block ("Type this") has no "$ " prompt;
     2. the page opens with a "Before you start" box;
     3. every block outside a side box carries a label: "Type this", "You
@@ -52,6 +68,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -76,7 +93,10 @@ BANNED_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in BANNED_WORDS) + r
 
 FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})(.*)$")
 DIAG_RE = re.compile(r"^(error|warning)\[([EW]\d{4})\]", re.MULTILINE)
-KNOWN_ATTRS = {"file", "should_fail", "should_warn", "test_fails", "from", "output"}
+KNOWN_ATTRS = {"file", "should_fail", "should_warn", "test_fails", "from", "output", "verify"}
+# verify=MODE[@DEPTH][:EXIT]: `volt verify --mode MODE [--depth DEPTH]` exits
+# with EXIT (0 proved, 6 counterexample, 7 not proven; default 0).
+VERIFY_RE = re.compile(r"(bmc|prove|cover)(?:@(\d+))?(?::(0|6|7))?")
 # Languages whose `file=` blocks are saved for `@source`, and the paths they
 # may take: relative, inside the workspace.
 SOURCE_LANGS = {"systemverilog", "verilog"}
@@ -84,7 +104,13 @@ SOURCE_PATH_RE = re.compile(r"(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:sv|svh|v|vh
 
 # Guided pages: the pages a beginner follows step by step.
 GUIDED_DIRS = {SRC_DIR / "tour"}
-GUIDED_FILES = {SRC_DIR / "setup.md", SRC_DIR / "cookbook" / "existing-project.md"}
+GUIDED_FILES = {
+    SRC_DIR / "setup.md",
+    SRC_DIR / "cookbook" / "existing-project.md",
+    SRC_DIR / "cookbook" / "reset-sync.md",
+    SRC_DIR / "tutorial" / "two-clocks.md",
+    SRC_DIR / "tutorial" / "contracts-formal.md",
+}
 GUIDED_MARK = "guided page"  # a self-test fixture's top line opts in
 BEFORE_BOX = '<div class="before-you-start">'
 LABEL_RE = re.compile(r"\*\*(Type this|You should see|Create this file|Replace this file)( \([^)]*\))?:\*\*(.*)", re.DOTALL)
@@ -92,6 +118,17 @@ FILE_NAME_RE = re.compile(r"^\s*`([^`]+)`")
 PROMPT_RE = re.compile(r"^\s*\$ ")
 
 EXIT_TESTS_FAILED = 5
+
+# Planned chapters (CONTRIBUTING-BOOK.md, "Planned chapters"): a page that
+# holds this line has a title and a goal paragraph, no content yet.
+PLANNED_MARK_RE = re.compile(r"^> \*\*This chapter is planned\.\*\*", re.MULTILINE)
+PLANNED_TITLE = "(planned)"
+SUMMARY_ENTRY_RE = re.compile(r"\[([^\]]+)\]\(([^)#]+\.md)\)")
+# The ways a page is reached: on the published site (the latest release or
+# /dev/), as a file on GitHub, and through a relative Markdown link.
+SITE_LINK_RE = re.compile(r"https://volt-hdl\.github\.io/volt/(?:dev/)?([A-Za-z0-9_./-]+?)\.html")
+GITHUB_LINK_RE = re.compile(r"https://github\.com/volt-hdl/volt/(?:blob|tree)/[^/\s)]+/book/src/([A-Za-z0-9_./-]+?\.md)")
+RELATIVE_LINK_RE = re.compile(r"\]\((?!https?:|mailto:|#)([^)\s#]+\.md)(?:#[^)\s]*)?\)")
 
 
 @dataclass
@@ -101,6 +138,7 @@ class Block:
     attrs: dict[str, str]
     code: str
     lang: str = "volt"
+    verify: list[str] = field(default_factory=list)  # verify= specs, in order
 
 
 @dataclass
@@ -108,6 +146,7 @@ class Report:
     failures: list[str] = field(default_factory=list)
     checked: int = 0
     tests_run: int = 0
+    verify_runs: int = 0
 
     def fail(self, path: Path, line: int, msg: str, detail: str = "") -> None:
         rel = display(path)
@@ -162,12 +201,17 @@ def parse_markdown(path: Path, report: Report) -> tuple[list[Block], list[tuple[
         if not parts or parts[0] != "volt":
             continue
         attrs: dict[str, str] = {}
+        verify: list[str] = []
         for p in parts[1:]:
             key, _, value = p.partition("=")
             if key not in KNOWN_ATTRS:
                 report.fail(path, start + 1, f"unknown code block attribute '{key}' (known: {', '.join(sorted(KNOWN_ATTRS))})")
+            if key == "verify":
+                if not VERIFY_RE.fullmatch(value):
+                    report.fail(path, start + 1, f"verify={value}: expected MODE[@DEPTH][:EXIT], MODE bmc, prove or cover, EXIT 0, 6 or 7")
+                verify.append(value)
             attrs[key] = value
-        blocks.append(Block(path, start + 1, attrs, "\n".join(body) + "\n"))
+        blocks.append(Block(path, start + 1, attrs, "\n".join(body) + "\n", verify=verify))
     return blocks, prose
 
 
@@ -277,6 +321,94 @@ def check_block_label(path: Path, lines: list[str], start: int, info: str, body:
             report.fail(path, line, f"a '{kind}' block is created by the reader: drop `output` from its info string")
 
 
+def planned_pages(src_dir: Path) -> set[Path]:
+    return {p.resolve() for p in src_dir.rglob("*.md") if PLANNED_MARK_RE.search(p.read_text(encoding="utf-8"))}
+
+
+def linked_pages(text: str, page: Path, root: Path) -> list[Path]:
+    """The book pages a line of `page` links to, as files under book/src/."""
+    src_dir = root / "book" / "src"
+    targets = [src_dir / f"{m.group(1)}.md" for m in SITE_LINK_RE.finditer(text)]
+    targets += [src_dir / m.group(1) for m in GITHUB_LINK_RE.finditer(text)]
+    targets += [page.parent / m.group(1) for m in RELATIVE_LINK_RE.finditer(text)]
+    return [t.resolve() for t in targets]
+
+
+def check_planned_links(root: Path, report: Report) -> None:
+    """A reader who follows a link lands on a written page.
+
+    1. SUMMARY.md marks every planned chapter "(planned)" after its title,
+       and no written one.
+    2. README.md, docs/release-notes/*.md and the written book pages link
+       to no planned chapter: not on the site (the root shows the book of
+       the latest release, so a planned page stays empty there until the
+       next release), not on GitHub, not with a relative link. SUMMARY.md
+       and the planned pages themselves may link to planned pages.
+    """
+    src_dir = root / "book" / "src"
+    planned = planned_pages(src_dir)
+    summary = src_dir / "SUMMARY.md"
+    for line_no, text in enumerate(summary.read_text(encoding="utf-8").splitlines(), 1):
+        for m in SUMMARY_ENTRY_RE.finditer(text):
+            title, target = m.group(1).strip(), (src_dir / m.group(2)).resolve()
+            marked = title.endswith(PLANNED_TITLE)
+            if target in planned and not marked:
+                report.fail(summary, line_no, f"'{title}' is a planned chapter: write '{title} {PLANNED_TITLE}'")
+            elif target not in planned and marked:
+                report.fail(summary, line_no, f"'{title}' is written: drop '{PLANNED_TITLE}' from its title")
+    sources = [root / "README.md", *sorted((root / "docs" / "release-notes").glob("*.md"))]
+    sources += [p for p in sorted(src_dir.rglob("*.md")) if p.resolve() not in planned and p.resolve() != summary.resolve()]
+    for path in sources:
+        if not path.is_file():
+            continue
+        for line_no, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for target in linked_pages(text, path, root):
+                if target in planned:
+                    report.fail(path, line_no, f"links to the planned chapter {target.relative_to(src_dir.resolve()).as_posix()}, "
+                                               "which has no content yet: link a written page instead")
+
+
+def self_test_links() -> int:
+    """check_planned_links on small trees: each case names its failure count."""
+    planned_page = "# Later\n\n> **This chapter is planned.** Until then:\n>\n> - [Ready](ready.md)\n> - [Other](other.md)\n"
+    base = {
+        "book/src/SUMMARY.md": "[Ready](ready.md)\n- [Later (planned)](part/later.md)\n- [Other (planned)](other.md)\n",
+        "book/src/ready.md": "# Ready\n\nSee the [setup](ready.md#top).\n",
+        "book/src/part/later.md": planned_page.replace("(ready.md)", "(../ready.md)").replace("(other.md)", "(../other.md)"),
+        "book/src/other.md": planned_page,
+        "README.md": "[book](https://volt-hdl.github.io/volt/ready.html)\n",
+        "docs/release-notes/v0.1.0.md": "# Volt 0.1.0\n",
+    }
+    cases = [
+        ("a clean tree; planned pages link each other", {}, 0),
+        ("release notes link a planned page on the site",
+         {"docs/release-notes/v0.1.0.md": "In the book: [Later](https://volt-hdl.github.io/volt/part/later.html#goal).\n"}, 1),
+        ("the README links a planned page on /dev/ and on GitHub",
+         {"README.md": "[a](https://volt-hdl.github.io/volt/dev/other.html) "
+                       "[b](https://github.com/volt-hdl/volt/blob/main/book/src/part/later.md)\n"}, 2),
+        ("a written page links a planned page", {"book/src/ready.md": "Next: [later](part/later.md).\n"}, 1),
+        ("SUMMARY.md does not mark a planned page",
+         {"book/src/SUMMARY.md": "[Ready](ready.md)\n- [Later](part/later.md)\n- [Other (planned)](other.md)\n"}, 1),
+        ("SUMMARY.md marks a written page",
+         {"book/src/SUMMARY.md": "[Ready (planned)](ready.md)\n- [Later (planned)](part/later.md)\n- [Other (planned)](other.md)\n"}, 1),
+    ]
+    bad = 0
+    for name, changes, want in cases:
+        with tempfile.TemporaryDirectory(prefix="volt-links-") as tmp:
+            root = Path(tmp)
+            for rel, text in {**base, **changes}.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text, encoding="utf-8")
+            print(f"--- links self-test: {name} (expect {want} failure(s))")
+            report = Report()
+            check_planned_links(root, report)
+            if len(report.failures) != want:
+                print(f"SELF-TEST FAILED: {name}: {len(report.failures)} failure(s), expected {want}")
+                bad += 1
+    print(f"links self-test: {len(cases) - bad}/{len(cases)} cases behaved as expected")
+    return 1 if bad else 0
+
+
 # Where `volt test` runs Verilator: set explicitly (never the automatic
 # fallback), so a missing Verilator fails the check instead of silently
 # starting Docker containers. `--backend docker` opts in.
@@ -354,6 +486,10 @@ def check_block(volt: str, block: Block, workdir: Path, index: int, run_tests: b
             return
     print(f"ok   {display(block.path)}:{block.line}: {label}")
 
+    if run_tests and not want_error:
+        for spec in block.verify:
+            run_verify(volt, block, name, target_dir, spec, report)
+
     if run_tests and name.endswith("_test.volt") and not want_error:
         code, out = run([volt, "test", name], target_dir)
         report.tests_run += 1
@@ -364,6 +500,24 @@ def check_block(volt: str, block: Block, workdir: Path, index: int, run_tests: b
             report.fail(block.path, block.line, f"{name}: volt test failed (exit {code})", out)
         else:
             print(f"ok   {display(block.path)}:{block.line}: volt test {name}" + (" (fails as expected)" if want_fail else ""))
+
+
+def run_verify(volt: str, block: Block, name: str, workdir: Path, spec: str, report: Report) -> None:
+    """`volt verify` on a saved block: the exit code says proved (0), counterexample (6) or not proven (7)."""
+    m = VERIFY_RE.fullmatch(spec)
+    if not m:
+        return  # reported while parsing
+    mode, depth, want = m.group(1), m.group(2), int(m.group(3) or 0)
+    args = ["verify", "--mode", mode] + (["--depth", depth] if depth else []) + [name]
+    shown = " ".join(["volt", *args])
+    started = time.monotonic()
+    code, out = run([volt, *args], workdir)
+    seconds = time.monotonic() - started
+    report.verify_runs += 1
+    if code != want:
+        report.fail(block.path, block.line, f"{shown}: expected exit {want}, got exit {code}", out)
+    else:
+        print(f"ok   {display(block.path)}:{block.line}: {shown} (exit {code}, {seconds:.1f} s)")
 
 
 def check_book(volt: str, files: list[Path], run_tests: bool) -> Report:
@@ -432,13 +586,24 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap =argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--volt", default="volt", help="path to the volt binary")
-    ap.add_argument("--run-tests", action="store_true", help="also run `volt test` on *_test.volt blocks")
+    ap.add_argument("--run-tests", action="store_true",
+                    help="also run `volt test` on *_test.volt blocks and `volt verify` on verify= blocks")
     ap.add_argument("--self-test", action="store_true", help="check the checker against book/tools/selftest/")
     ap.add_argument("--backend", choices=["local", "docker"], default="local",
-                    help="where `volt test` runs Verilator (VOLT_TOOL_BACKEND; default local: a missing Verilator fails)")
+                    help="where `volt test` and `volt verify` run Verilator and SymbiYosys "
+                         "(VOLT_TOOL_BACKEND; default local: a missing tool fails)")
+    ap.add_argument("--links-only", action="store_true",
+                    help="check links to planned chapters alone (no volt binary needed); with --self-test, its own tests")
     args = ap.parse_args()
     global TOOL_BACKEND
     TOOL_BACKEND = args.backend
+    if args.links_only:
+        if args.self_test:
+            return self_test_links()
+        report = Report()
+        check_planned_links(BOOK_DIR.parent, report)
+        print(f"links to planned chapters: {len(report.failures)} failure(s)")
+        return 1 if report.failures else 0
     # Blocks run in their own directories: a relative binary path must not
     # depend on the working directory.
     volt = shutil.which(args.volt) if os.sep not in args.volt and "/" not in args.volt else str(Path(args.volt).resolve())
@@ -448,14 +613,16 @@ def main() -> int:
     args.volt = volt
 
     if args.self_test:
-        return self_test(args.volt)
+        return max(self_test(args.volt), self_test_links())
 
     listing = Report()
     files = book_files(listing)
+    check_planned_links(BOOK_DIR.parent, listing)
     report = check_book(args.volt, files, args.run_tests)
     report.failures[:0] = listing.failures
     print()
-    print(f"{report.checked} volt block(s) checked, {report.tests_run} test file(s) run, {len(report.failures)} failure(s)")
+    print(f"{report.checked} volt block(s) checked, {report.tests_run} test file(s) run, "
+          f"{report.verify_runs} verify run(s), {len(report.failures)} failure(s)")
     if report.checked == 0:
         print("no ```volt block found: the check is not running on the book")
         return 1
