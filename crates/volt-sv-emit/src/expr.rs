@@ -1781,7 +1781,9 @@ impl<'a> Emitter<'a> {
                 signed: src.signed,
             };
             let text = self.emit_prec(operand, Some(ctx), PREC_ATOM, false);
-            return fix_sign(text, src.signed);
+            // Boyut dönüşümü sınırdır: dışta ikinci bir dönüşüm
+            // (`x as i13 as i40`) bağlamı içeri itmesin.
+            return fix_sign(format!("{}'({text})", target.width), src.signed);
         }
         if target.width > src.width {
             let n = target.width - src.width;
@@ -1959,6 +1961,20 @@ impl<'a> Emitter<'a> {
         // İşaretli bağlamda her taban işaretli yazılır: işaretsiz bir
         // işlenen SV'de bütün işlemi işaretsiz yapar (#116).
         let s = if sig.signed { "s" } else { "" };
+        // Bağlamdan geniş pozitif literal (esnek işlenenin yanındaki
+        // literal, daha dar bit işlemi bağlamında): SV onu zaten keser;
+        // kesilmiş örüntüyle yazılır, Verilator WIDTHTRUNC vermez (#123).
+        let max = if sig.signed {
+            (1u128 << (w - 1)) - 1
+        } else if w >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << w) - 1
+        };
+        if value >= 0 && w < 128 && value as u128 > max {
+            let pattern = (value as u128) & ((1u128 << w) - 1);
+            return format!("{w}'{s}h{pattern:X}");
+        }
         // `-W'sdM`, M = 2^(W-1) iken `W'sdM` kendisi negatiftir; daha geniş
         // bağlamda genişleyip olumsuzlanınca pozitif olurdu (#116): en
         // küçük negatif değer örüntüsüyle yazılır (`8'sh80`).

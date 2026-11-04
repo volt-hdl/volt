@@ -225,7 +225,7 @@ fn widening_cast_of_a_stable_sum_widens_its_atoms() {
         "    o = (a + a + (-512)) as u62",
     );
     assert!(
-        out.contains("assign o = $unsigned((62'(a) + 62'(a) + -62'sd512));"),
+        out.contains("assign o = $unsigned(62'((62'(a) + 62'(a) + -62'sd512)));"),
         "{out}"
     );
 }
@@ -249,4 +249,25 @@ fn same_width_cast_of_a_composite_in_a_wider_target_is_isolated() {
         "    o = ((p & q) | (r as bits<4>)) as u4",
     );
     assert!(out.contains("assign o = 8'($unsigned("), "{out}");
+}
+
+#[test]
+fn nested_widening_casts_keep_a_boundary() {
+    // #123: `40'((-(13'(a) & 13'sd0)))` Verilator'da WIDTHEXPAND verirdi.
+    let out = sv(
+        "    in  a : i6\n    out o : i40",
+        "    o = (-(a & 0)) as i13 as i40",
+    );
+    assert!(out.contains("13'("), "{out}");
+    assert!(!out.contains("40'((-("), "{out}");
+}
+
+#[test]
+fn a_literal_wider_than_its_bitwise_context_is_written_truncated() {
+    // #123: `1'd3` Verilator'da WIDTHTRUNC verirdi; SV onu zaten keser.
+    let out = sv(
+        "    in  a : u1\n    in  b : u1\n    in  c : u1\n    out o : bool",
+        "    o = ((a + b) | 3) & c as bool",
+    );
+    assert!(!out.contains("1'd3"), "{out}");
 }

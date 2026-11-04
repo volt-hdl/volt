@@ -136,8 +136,9 @@ toplanır.
   ve parça seçimi başlangıcı kaydırmaya iner (`x[i]`, x : u15, i : u3 →
   `1'((x) >> i)`); bileşik değerin
   genişleten dönüşümü hedef genişlikte, atomları açık (`(a + b) as i32` →
-  `(32'(a) + 32'(b))`, önce `32'((a + b))`); daha geniş hedefteki aynı
-  genişlikte dönüşüm yalıtılır.
+  `32'((32'(a) + 32'(b)))`, önce `32'((a + b))`); daha geniş hedefteki
+  aynı genişlikte dönüşüm yalıtılır; bağlamdan geniş literal kesilmiş
+  örüntüsüyle yazılır.
 - `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
   (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
   bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).

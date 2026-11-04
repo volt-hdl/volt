@@ -99,7 +99,7 @@ fn compound_cast_uses_size_cast_instead_of_e2005() {
     let out = sv("module M { in a : i16\n in b : i16\n out y : i32\n y = (a + b) as i32 }");
     // #123: hedef genişlikte, atomlar açıkça genişletilmiş; `32'((a + b))`
     // Verilator'da WIDTHEXPAND verirdi (içteki örtük genişleme).
-    assert_has(&out, "assign y = (32'(a) + 32'(b));");
+    assert_has(&out, "assign y = 32'((32'(a) + 32'(b)));");
     assert!(
         !codes("module M { in a : i16\n in b : i16\n out y : i32\n y = (a + b) as i32 }")
             .contains(&"E2005")
