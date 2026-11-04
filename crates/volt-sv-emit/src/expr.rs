@@ -652,16 +652,56 @@ impl<'a> Emitter<'a> {
     fn widen_if_narrow(&mut self, idx: Idx<Expr>, text: String, ctx: Option<Sig>) -> String {
         let Some(target) = ctx else { return text };
         let kind = &self.ast.exprs[idx].kind;
-        let isolate = matches!(
-            kind,
-            ExprKind::Binary {
-                op: BinOp::Shl | BinOp::Shr,
-                ..
-            } | ExprKind::Unary {
-                op: UnOp::BitNot,
-                ..
+        // Aynı genişlikte, aynı işaretli dönüşüm bileşik işlenenini çıplak
+        // basar (`p & q | r`): boyut dönüşümü bağlamı içeri iterdi,
+        // Verilator içteki örtük genişlemeye WIDTHEXPAND verir (#123).
+        let bare_cast = match kind {
+            ExprKind::Cast { expr, .. } => {
+                !matches!(
+                    self.ast.exprs[*expr].kind,
+                    ExprKind::Path(_)
+                        | ExprKind::Field { .. }
+                        | ExprKind::Index { .. }
+                        | ExprKind::Range { .. }
+                        | ExprKind::PartSelect { .. }
+                        | ExprKind::Concat(_)
+                        | ExprKind::IntLit { .. }
+                        | ExprKind::Cast { .. }
+                ) && !text.starts_with('$')
+                    && !text.starts_with('{')
+                    && !starts_with_size_cast(&text)
             }
-        );
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
+        };
+        let isolate = bare_cast
+            || matches!(
+                kind,
+                ExprKind::Binary {
+                    op: BinOp::Shl | BinOp::Shr,
+                    ..
+                } | ExprKind::Unary {
+                    op: UnOp::BitNot,
+                    ..
+                }
+            );
         let self_sized = matches!(
             kind,
             ExprKind::Range { .. }

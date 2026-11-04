@@ -237,3 +237,14 @@ fn down_part_select_start_of_a_computed_value_is_sized() {
     );
     assert!(out.contains("(5'(s) - 5'd27)"), "{out}");
 }
+
+#[test]
+fn same_width_cast_of_a_composite_in_a_wider_target_is_isolated() {
+    // #123: `8'((p & q | r))` Verilator'da WIDTHEXPAND verirdi; aynı
+    // genişlikte dönüşüm sınır kurmaz, boyut dönüşümü bağlamı içeri iter.
+    let out = sv(
+        "    in  p : bits<4>\n    in  q : bits<4>\n    in  r : u4\n    out o : u8",
+        "    o = ((p & q) | (r as bits<4>)) as u4",
+    );
+    assert!(out.contains("assign o = 8'($unsigned("), "{out}");
+}

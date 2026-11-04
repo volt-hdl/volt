@@ -130,10 +130,13 @@ toplanır.
   birinin en küçük örneği fark testinin sabit regresyon kümesindedir.
   Spesifikasyonun açık bıraktığı okumalar (derleyicinin modelle aynı
   davrandığı yerler) karar için #122'de.
-- Değişken indeks ve parça seçimi başlangıcı tabanın adres genişliğinde
-  basılır (#123): `x[i]` (x : u15, i : u3) `x[4'(i)]`. Önceden Verilator
-  WIDTH uyarısı veriyor (varsayılan olarak ölümcül), `volt test`
-  geçerli tasarımda duruyordu.
+- Üretilen SV Verilator WIDTH uyarısı vermez (#123); önceden uyarı
+  varsayılan olarak ölümcül olduğundan `volt test` geçerli tasarımda
+  duruyordu. Değişken indeks ve parça seçimi başlangıcı tabanın adres
+  genişliğinde (`x[i]`, x : u15, i : u3 → `x[4'(i)]`); bileşik değerin
+  genişleten dönüşümü hedef genişlikte, atomları açık (`(a + b) as i32` →
+  `(32'(a) + 32'(b))`, önce `32'((a + b))`); daha geniş hedefteki aynı
+  genişlikte dönüşüm yalıtılır.
 - `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
   (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
   bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).
