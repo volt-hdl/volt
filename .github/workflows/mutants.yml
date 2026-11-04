@@ -13,6 +13,10 @@ name: Mutation test
 
 on:
   workflow_dispatch:
+  # TEMPORARY: the first run before the workflow is on main (workflow_dispatch
+  # needs the file on the default branch). The next commit removes it.
+  pull_request:
+    paths: [".github/workflows/mutants.yml"]
 
 permissions:
   contents: read
