@@ -9,9 +9,9 @@ in the book's
 
 - **No dates.** Volt has a single maintainer; an item is done when it is
   done.
-- **The order can change.** Sections are ordered by intent (before v0.1,
-  after v0.1, before 1.0, research), and items within a section roughly by
-  priority. Feedback from users moves items.
+- **The order can change.** Sections are ordered by intent (after v0.1,
+  before 1.0, research), and items within a section roughly by priority.
+  Feedback from users moves items.
 - **Every item links to its design decision** (ADR) when one exists. The
   ADRs are written in Turkish; their index is
   [docs/adr/README.md](adr/README.md). A new feature that changes the
@@ -21,30 +21,6 @@ in the book's
 - **Status** is checked against the code: *Partial* means part of the item
   works today (the item says which part), *Not started* means nothing of
   it is implemented. Finished items leave this page.
-
-## Toward v0.1
-
-v0.1 is the earliest public release. It makes no stability promise:
-syntax, diagnostics and output may change in any later release.
-
-### The v0.1.0 release
-
-- **What:** tag `v0.1.0`, so that the release workflow publishes the
-  prebuilt binaries, the VS Code extension (`.vsix`) and the checksums.
-- **Why:** until a release exists, the one-line install commands have
-  nothing to download and building from source is the sole way to install
-  Volt.
-- **Status:** Partial. The release workflow, its dry run and the install
-  scripts are in place, and the release notes are drafted
-  ([docs/release-notes/v0.1.0.md](release-notes/v0.1.0.md)); no release
-  has been published. The release-day steps are in
-  [RELEASING.md](../RELEASING.md).
-- **ADR:** [ADR-0093](adr/ADR-0093-hazir-ikililer-surum-is-akisi.md),
-  [ADR-0096](adr/ADR-0096-kurulum-betikleri.md),
-  [ADR-0100](adr/ADR-0100-0x-surum-politikasi.md) (what a 0.x version
-  number means, release notes, the book follows the release),
-  [ADR-0105](adr/ADR-0105-kuru-kosu-ve-surum-notu.md) (a dry run that
-  publishes nothing, the release notes file)
 
 ## Next
 

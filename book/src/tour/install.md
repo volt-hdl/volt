@@ -55,10 +55,6 @@ A terminal program that is already running, such as Windows Terminal or
 VS Code, hands its old `PATH` to every new tab: **close it completely**
 and start it again.
 
-While no release is published, the command installs nothing and says
-"No Volt release has been published yet.", followed by the commands to
-[build from source](#build-from-source).
-
 | Platform | Supported by the script |
 |---|---|
 | Windows x86_64 (10 and 11) | yes |
@@ -270,8 +266,7 @@ install script does), `xattr` says so and you can go on.
 
 ## Build from source
 
-For contributors, for platforms without a prebuilt binary, and while no
-release is published. You need [Rust](https://rustup.rs) (stable) and
+For contributors and for platforms without a prebuilt binary. You need [Rust](https://rustup.rs) (stable) and
 [Git](https://git-scm.com/). The commands are the same on every system:
 
 **Type this:**
