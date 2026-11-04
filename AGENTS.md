@@ -114,7 +114,10 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   from the spec, independent of the compiler: the crate has no
   dependencies, never add a `volt-*` one. Every root cause it finds gets
   its minimized example, with the issue number, in
-  `crates/volt-difftest/src/regress.rs`. Where the spec is silent, the
+  `crates/volt-difftest/src/regress.rs`, and at least one example per
+  issue carries expected values computed by hand from the spec (`pin`),
+  with the reasoning in a comment: the runner checks them against
+  Verilator without the model. Where the spec is silent, the
   model's reading is an assumption tag in `model.rs` and a row in
   ADR-0108; a difference that only such a reading makes is an issue with
   the options for the maintainer to decide, not a fix.

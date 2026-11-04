@@ -115,6 +115,16 @@ denenir, farkı koruyan en küçük aday seçilir.
 Her bulunan kök nedenin en küçük örneği `regress.rs`'te sabit regresyon
 kümesidir (issue numarasıyla); her koşunun ilk toplu koşusudur.
 
+Regresyon kümesinin beklenen değeri iki kaynaktan gelir. Her vektörde
+model; ayrıca her issue'nun en az bir örneğinde spesifikasyondan elle
+hesaplanmış giriş/çıkış çiftleri (`pin`), gerekçesi (type-inference
+bölümleri, ADR-0025, ADR-0035) örneğin yanında yorum olarak. Koşucu elle
+değerleri son vektörlere yazar ve a–e biçimlerinin Verilator çıktısını
+onlarla modelden bağımsız karşılaştırır: model ile derleyici aynı yanlışı
+yapsa da küme onu yakalar. Elle değer modelinkinden farklıysa araçsız
+birim testi düşer. Değeri bir varsayım etiketine bağlı örnek elle
+sabitlenmez.
+
 ### 5. CI
 
 - "Verilator lint" (araçlı iş, ADR-0107) bütün testleri koşturur; fark
@@ -146,6 +156,19 @@ kümesidir (issue numarasıyla); her koşunun ilk toplu koşusudur.
 `'sh`); §16.1'in "bileşik alt ifadeye bağlam içeri aktarılır" kuralı
 değeri genişlikten bağımsız alt ifadeler için geçerli kalır.
 Spesifikasyon metni değişmez; çelişki burada kayıtlıdır.
+
+Düzeltmelerin varsayım etiketleriyle ilişkisi (etiketler regresyon
+örneklerinde modelin kullandıklarıdır):
+
+| Issue | Dayandığı okuma | Önceki davranış | Yeni davranış |
+|---|---|---|---|
+| #115 | Yok: `as T`'nin sonucu `T` tipindedir (type-inference §3.6), karşılaştırmanın ve kaydırmanın işareti `T`'den gelir. Bir örnekte A7 var (`s as i1`'in geçerli olması); derleyici onu önce de sonra da W2010 ile kabul eder, farkı belirlemez | SV ifadesi hedefin işaretini taşımıyor: `a as i11 > 880` (a : i10 = -1) doğru | `$signed(...)`/`$unsigned(...)` sınırı: yanlış |
+| #116 | Yok: soneksiz literal bağlamın tipini alır (§4), yazımı değeri değiştirmez. Örnekte A6 var (i2 → u35), değer pozitif olduğundan sonucu belirlemez | `s > 0x0` (s : i50 = -1) işaretsiz, doğru; `-1'sd1` geniş bağlamda +1 | `50'sh0`, yanlış; en küçük negatif değer örüntüsüyle |
+| #117 | Kısmen. İşaretsiz çıkarmalı örnekler A2 ve A3'e (biri A1'e), esnek toplamın kaydırması A4'e dayanır; bit işlemiyle düşen taşma, dönüşüm altında `~` ve kaydırma içinde `-x` etiketsizdir (ADR-0025 kesişimi, §3.4) | Satır içinde SV bağlamı alt ifadeye itiliyordu (sv-mapping §16.1: çıkarma hedef genişlikte sarar), `let` biçiminde doğal genişlikteki değer kullanılıyordu: `(a - b) + c9` satır içinde 1023 + c9, `let`'le 511 + c9 | İki biçim de 511 + c9. A2'nin okuması seçim değil: `let` teli doğal genişlikte bildirilir ve ADR-0106'ya göre `let`'e çıkarmak değeri değiştirmez, satır içi biçim ona uyar. A1 ve A3'ün kendisi (çıkarmanın negatif sonucu tanımlı mı) #122'de açık |
+| #118 | Yok | `--(...)`, geçersiz SV | `-(-(...))` |
+| #119 | Yok | `29'(q)[27]`, geçersiz SV | `1'((29'(q)) >> 27)` |
+| #120 | Yok | skaler `logic`'ten seçim, geçersiz SV; işaretli 1 bitlik taban işaretli kalıyordu | tabanın kendisi; işaretli tabanda `$unsigned(...)` |
+| #123 | Yok: değer değişmez. Değişken parça seçiminin sınır dışı bitleri dilde x'tir (ADR-0035); kaydırma biçimi onları 0 okur, model karşılaştırmaz | WIDTH uyarısı, `volt test` durur | kaydırma biçimi ve açık genişlikler, uyarı yok |
 
 ## Spesifikasyon belirsizlikleri
 
@@ -216,7 +239,7 @@ PR #121:
      654.704 sözleşme örneklemesi; her parçada `diffs=0`, WIDTH uyarısı
      yok, regresyonlar 24/24, `SKIP: 0`. Yumuşak uyarılar: CMPCONST,
      UNSIGNED, UNUSEDSIGNAL (ifadenin kendisi) ve sabite katlanan sınır
-     dışı başlangıçta SELRANGE (#123'te not).
+     dışı başlangıçta SELRANGE (#124'e ayrıldı).
 7. **Yerel** (Docker, Verilator 5.052, tohum 777): düzeltmeden önce 3000
    ifadede 2442 fark; düzeltmeden sonra 1500 hedefte 1646 kabul, 0 fark.
 8. **Külliyat** (455 dosya, main ile `volt build --emit=sva`; #123'ten
@@ -242,6 +265,8 @@ PR #121:
   hepsi değişirdi; yalıtma yalnız değeri genişliğe bağlı alt ifadede.
 
 ## Sınırlar
+
+Kapsamın genişletilmesi #125'te (v0.1.1).
 
 - `if`, `match`, `/`, `%`, `prev()`, fonksiyon çağrısı, struct ve enum
   ifadeleri üretilmez.

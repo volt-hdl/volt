@@ -36,7 +36,36 @@ toplanır.
   (`p << m * k`, `q[i + j +: 16]` doğal genişlikte). Önceden satır içi
   biçim `let`'e çıkarılmış biçimden farklı değer veriyordu: `a`, `b : u8`,
   a = 0, b = 1 için `(a - b) + c9` 1023 + c9, `let s = a - b; s + c9`
-  511 + c9.
+  511 + c9. Şimdi ikisi de 511 + c9:
+  `10'($unsigned(9'(a) - 9'(b))) + 10'(c9)`.
+- **Davranış değişikliği.** `-(-x)` geçerli SystemVerilog üretir (#118,
+  ADR-0108): `o = -(-s56)` (s56 : i56) artık `assign o = -(-(58'(s56)));`.
+  Önceden `--(58'(s56))` yazılıyordu; `--` SV'de azaltma işlecidir,
+  Verilator `ASSIGNIN` hatasıyla reddediyordu.
+- **Davranış değişikliği.** Bileşik değerden seçimin seçimi geçerli
+  SystemVerilog üretir (#119, ADR-0108): `(q as bits<34>)[28:0][27]`
+  artık `1'((29'(q)) >> 27)`, `(v >> k)[69:0][69:0]` artık
+  `70'(70'(v >> k))`. Önceden `29'(q)[27]` ve `70'(v >> k)[69:0]`
+  yazılıyordu (boyut dönüşümünden seçim); Verilator ve Yosys sözdizimi
+  hatası veriyordu.
+- **Davranış değişikliği.** 1 bitlik değerden (`u1`, `i1`, `bits<1>`)
+  `[0]`, `[0:0]` ve `[0 +: 1]` seçimi tabanın kendisidir (#120,
+  ADR-0108): `one[0]` artık `one`, `bit1[0:0]` artık `bit1`; işaretli
+  tabanda seçim işaretsizdir (`s[0:0]`, s : i1 → `$unsigned(s)`).
+  Önceden skaler `logic`'ten seçim yazılıyordu, Verilator
+  reddediyordu.
+- **Davranış değişikliği.** Üretilen SystemVerilog Verilator WIDTH
+  uyarısı vermez (#123, ADR-0108). Uyarı varsayılan olarak ölümcül
+  olduğundan `volt test` geçerli bir tasarımda duruyordu. Değişen
+  yazımlar: genişliği tabanın adres genişliğine uymayan değişken indeks
+  ve parça seçimi başlangıcı kaydırmaya iner (`x[i]`, x : u15, i : u3 →
+  `1'((x) >> i)`; `q[k +: 35]`, q : u51, k : u8 → `35'((q) >> k)`);
+  bileşik değerin genişleten dönüşümü hedef genişlikte, atomları açık
+  (`(a + b) as i32` → `32'((32'(a) + 32'(b)))`, önce `32'((a + b))`);
+  daha geniş hedefteki aynı genişlikte dönüşüm yalıtılır; bağlamdan geniş
+  literal kesilmiş örüntüsüyle yazılır (`1'd3` yerine `1'h1`). Değerler
+  aynı; yalnız değişken parça seçiminin tabanın dışına taşan bitleri
+  (dilde x, ADR-0035) artık 0 okunur.
 - **Davranış değişikliği.** Bileşik bir değerden indexed part-select
   (`(a + b)[4 +: 4]`, `(a + b)[i +: 4]`, `-:` biçimleri) geçerli
   SystemVerilog üretir (#112, ADR-0106 §4'ün yöntemi): değer doğal
@@ -129,20 +158,11 @@ toplanır.
   Verilator WIDTH uyarısı). Yedisi de bu sürümde düzeltildi; her
   birinin en küçük örneği fark testinin sabit regresyon kümesindedir.
   Spesifikasyonun açık bıraktığı okumalar (derleyicinin modelle aynı
-  davrandığı yerler) karar için #122'de.
-- Üretilen SV Verilator WIDTH uyarısı vermez (#123); önceden uyarı
-  varsayılan olarak ölümcül olduğundan `volt test` geçerli tasarımda
-  duruyordu. Genişliği tabanın adres genişliğine uymayan değişken indeks
-  ve parça seçimi başlangıcı kaydırmaya iner (`x[i]`, x : u15, i : u3 →
-  `1'((x) >> i)`); bileşik değerin
-  genişleten dönüşümü hedef genişlikte, atomları açık (`(a + b) as i32` →
-  `32'((32'(a) + 32'(b)))`, önce `32'((a + b))`); daha geniş hedefteki
-  aynı genişlikte dönüşüm yalıtılır; bağlamdan geniş literal kesilmiş
-  örüntüsüyle yazılır.
-- `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
-  (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
-  bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).
-  Önceden Verilator ve Yosys bunları reddediyordu.
+  davrandığı yerler) karar için #122'de. Yedi düzeltmenin kullanıcıya
+  görünen etkisi örnekleriyle yukarıda, Behavior changes bölümünde.
+- Regresyon kümesinde her issue'nun en az bir örneğinin beklenen değeri
+  spesifikasyondan elle hesaplanmıştır (gerekçesi testte yorum); koşucu
+  bu değerleri Verilator çıktısıyla modelden bağımsız karşılaştırır.
 
 ### Değişti — Araç isteyen testler CI'da sessizce atlanamaz (ADR-0107, 2026-11-04)
 
