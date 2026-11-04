@@ -7,8 +7,8 @@
 //! alt modül x < 10 ister) çıkış 0 ile geçiyordu.
 //!
 //! Araçsız testler (E5005/E5006, `.sby` düzeni, sahte sby ile JSON) her
-//! ortamda koşar. Gerçek sby testleri sby yoksa atlanır; CI'ın `verify`
-//! işinde `VOLT_REQUIRE_TOOLS=sby` ile zorunludur (ADR-0079 §3). Gerçek
+//! ortamda koşar. Gerçek sby testleri sby yoksa atlanır; CI'ın araçlı
+//! işinde `VOLT_REQUIRE_TOOLS` ile zorunludur (ADR-0079 §3, ADR-0107). Gerçek
 //! koşuların hedef dizini depo içindedir (`CARGO_TARGET_TMPDIR`): Docker
 //! sarmalayıcısı (yerelde `VOLT_SBY`) kısa Windows temp yollarını bağlayamaz.
 
@@ -273,7 +273,7 @@ fn unmapped_failure_in_a_contractless_parent_falls_back_to_the_obligation() {
     assert!(err.contains("instance 'c' of 'Child' in 'Parent'"), "{err}");
 }
 
-// ═══ Gerçek sby (yoksa atlanır; CI verify işinde zorunlu) ═════════════
+// ═══ Gerçek sby (yoksa atlanır; CI'ın araçlı işinde zorunlu) ═════════════
 
 fn real_verify(fixture_name: &str, tag: &str) -> Option<Output> {
     let sby = tools::require(tools::Tool::Sby)?;

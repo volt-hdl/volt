@@ -5,7 +5,7 @@
 //! zaman E5001 kalır.
 //!
 //! Sahte sby (VOLT_SBY) ile araçsız uçtan uca; satır biçimi gerçek sby
-//! 0.36 cover çıktısından. Gerçek sby varsa (verify işi) koşum ofseti de
+//! 0.36 cover çıktısından. Gerçek sby varsa (CI'ın araçlı işi) koşum ofseti de
 //! ölçülür: 5 artışlık sayaç derinlik 7'de nota, 8'de doğrulamaya düşer.
 
 mod tools;

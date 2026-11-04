@@ -3,7 +3,8 @@
 //! iletisi, reddedilmeyen konumların temiz SV'si, Verilator C++
 //! sözcüklü portların susturma sarması ve `__SYM__` testbench adı,
 //! `@mmio` sürücülerinin Rust/C derlemesi. Gerçek Verilator/rustc/cc
-//! gerektiren testler araç yoksa atlanır (CI `integration` işi koşar).
+//! gerektiren testler araç yoksa atlanır (CI'ın araçlı işi
+//! araçlar zorunluyken koşar, ADR-0107).
 
 mod tools;
 

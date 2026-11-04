@@ -87,6 +87,26 @@ toplanır.
   ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
   taşındı (yazımı aynı).
 
+### Değişti — Araç isteyen testler CI'da sessizce atlanamaz (ADR-0107, 2026-11-04)
+
+- Araçlı CI işi ("Verilator lint") artık çalışma alanının bütün testlerini
+  `VOLT_REQUIRE_TOOLS=all cargo test --workspace` ile koşturur; test
+  ikililerinin elle tutulan listesi ve ad süzgeçleri kalktı. Listeye
+  girmeyen bir test CI'da hiç koşmuyor, araçsız işte `ok` görünüyordu
+  (#111'in iki testi #113'e kadar böyleydi). Formal işinin sby testleri de
+  bu işe taşındı; formal işi `volt verify` komut adımlarını tutar.
+- Testlerin her araç sorgusu araç defterine (`VOLT_TOOL_LEDGER`) yazılır.
+  Test koşan her iş sonunda `Tool ledger [<iş>]: ... SKIP: N` satırını ve
+  atlayan testleri adıyla basar; araçların kurulu olduğu işlerde N > 0 işi
+  düşürür. Yeni "Tool coverage" işi, araçsız işte görülen her araçlı testin
+  bir araçlı işte aracı zorunluyken koştuğunu denetler.
+- `VOLT_DOCKER_E2E` ile açılan Docker uçtan uca testi de deftere girer;
+  "Docker backend" işinde sıfır SKIP zorunlu.
+- OpenSTA taramasının `NET-SKIP`/`SYNTH-SKIP` istisnaları gerekçesiz
+  olamaz, günlüğe gerekçesiyle basılır ve sayısı CI'da sabittir (bugün 2:
+  `tests/ui/pass/62_extern_domains.volt`, `69_opendrain_basic.volt`).
+- Kullanıcıya dönük davranış değişmedi.
+
 ### Belgeler — README denetimi; sürüm günü metinleri RELEASING.md'de (2026-10-06)
 
 - README baştan sona bugünkü `volt` ile denendi; yanlış ya da eskimiş

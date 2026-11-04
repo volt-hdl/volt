@@ -1,6 +1,6 @@
 # ADR-0079: Çıktı Doğrulama Ağı — Her Çıktı Gerçek Tüketicisiyle Denetlenir
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0107
 > İlgili: ADR-0053 (HW-SW köprüsü), ADR-0063 (regmap tutarlılığı), ADR-0065 (SDC ikinci ağ), ADR-0070 (tanı paritesi), ADR-0071 (ui/pass build), ADR-0072 (örnek çıkışı susturması), ADR-0078 (ayrılmış sözcükler).
 > Tarih: 2026-09-25
 > Etkilenen: volt-driver/tests (`output_net_tests.rs` — YENİ: ağ;
