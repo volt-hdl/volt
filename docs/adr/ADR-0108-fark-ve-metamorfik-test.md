@@ -194,27 +194,38 @@ PR #121:
    x'i karşılaştırıyordu (85f2e3eb), 4096 biti aşan `$display` parçası
    girişlerle açıklanamayan değer basıyordu (1fddec7a; ara koşu
    41765714347'de sözleşmeler gitmiş, 7 değer farkı kalmıştı).
-4. **Son durum** (1fddec7a):
-   - CI run 41767138224, araçlı iş: `difftest: seed=20261104 target=2000
-     generated=2250 accepted=2118 rejected-as-predicted=126 unsupported=6
-     unspecified=0 values-compared=205933 diffs=0`, `difftest:
-     regressions=22 failed=0`, `Tool ledger [integration]: 65 test(s)
-     asked for a tool; 67 lookup(s) found the tool (67 required), SKIP:
-     0`; "Tool coverage" `68 (test, tool) pair(s) in the ledgers, 68 ran
-     with the tool required, 0 did not`.
-   - Büyük koşu run 41767138333, tohumlar 20261105–20261108: kabul
+4. **50.293 ifade, 0 fark** (1fddec7a, büyük koşu run 41767138333):
+   değer, sözleşme ve SV geçerliliği temiz. Tam uyarı sayımı (run
+   41768507802) ayrıca `WIDTHEXPAND=315 WIDTHTRUNC=15` gösterdi: Verilator
+   WIDTH uyarısı varsayılan olarak ölümcüldür, `volt test` durur → #123.
+5. **#123** (ee92755b, d5246c2e, 91ea38f0, 53ca196e, 24e70f09): ilk biçim
+   (açık genişletilmiş indeks `p[7'(i) +: 69]`) Verilator 5.053'ün DFG
+   iyileştiricisinde iç hataya yol açtı (run 41776172748: `Internal
+   Error: ... V3DfgPeephole.cpp:1508: Out of range select should have been
+   fixed up earlier`); genişliği uymayan vektör indeksi kaydırmaya indi.
+   Ardından iç içe genişleten dönüşüm ve bağlamdan geniş literal.
+6. **Son durum** (24e70f09):
+   - CI run 41779299711 yeşil; araçlı işte `difftest: seed=20261104
+     target=2000 generated=2250 accepted=2118 ... diffs=0`,
+     `regressions=24 failed=0`, `SKIP: 0`.
+   - Büyük koşu run 41779299601, tohumlar 20261105–20261108: kabul
      edilen 12.724 + 12.514 + 12.537 + 12.518 = **50.293 ifade**
      (üretilen 53.250; modelin öngördüğü gibi reddedilen 2.697; E0003
      ile reddedilen `concat()` 260; tanımsız 0); 349.400 biçim,
      4.926.905 değer karşılaştırıldı (x olduğu için atlanan 663.495),
-     654.704 sözleşme örneklemesi; her parçada `diffs=0`, regresyonlar
-     22/22, `SKIP: 0`.
-5. **Yerel** (Docker, Verilator 5.052, tohum 777): düzeltmeden önce 3000
+     654.704 sözleşme örneklemesi; her parçada `diffs=0`, WIDTH uyarısı
+     yok, regresyonlar 24/24, `SKIP: 0`. Yumuşak uyarılar: CMPCONST,
+     UNSIGNED, UNUSEDSIGNAL (ifadenin kendisi) ve sabite katlanan sınır
+     dışı başlangıçta SELRANGE (#123'te not).
+7. **Yerel** (Docker, Verilator 5.052, tohum 777): düzeltmeden önce 3000
    ifadede 2442 fark; düzeltmeden sonra 1500 hedefte 1646 kabul, 0 fark.
-6. **Külliyat** (455 dosya, main ile `volt build --emit=sva`): 15
+8. **Külliyat** (455 dosya, main ile `volt build --emit=sva`; #123'ten
+   önceki hâliyle ölçüldü, #123'ün biçimleri ölçüme girmedi): 15
    dosyanın SV/SVA metni değişti, değerleri aynı (`$signed({...})`
    sınırı, `8'sh80`, kaydırma miktarı doğal genişlikte, `bits<13>`
-   dönüşümünde `$unsigned`).
+   dönüşümünde `$unsigned`). Son kodda araçlı işin bütün testleri
+   (ui/pass ve örneklerin Verilator `-Wall` taraması dahil,
+   `output_net_tests`) geçer.
 
 ## Reddedilenler
 
