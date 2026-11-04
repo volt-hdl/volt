@@ -1457,10 +1457,16 @@ impl<'a> Emitter<'a> {
                 None => {
                     let s = self.emit_plain(start);
                     // Sabit, başlangıcın genişliğinde yazılır (Verilator
-                    // -Wall WIDTHEXPAND vermez); sığmıyorsa boyutsuz.
-                    match self.width_of(start) {
+                    // -Wall WIDTHEXPAND vermez); sığmıyorsa fark sabitin
+                    // genişliğinde (`(5'(s) - 5'd27)`, s : u1, #123):
+                    // başlangıç sabitten küçükse seçim zaten sınır dışı (x).
+                    let need = 128 - (down as u128).leading_zeros();
+                    match self.natural_sig(start) {
                         Some(sig) if sig.width < 127 && down < (1i128 << sig.width) => {
                             format!("({s} - {}'d{down})", sig.width)
+                        }
+                        Some(sig) if sig.width < need => {
+                            format!("({need}'({s}) - {need}'d{down})")
                         }
                         _ => format!("({s} - {down})"),
                     }
@@ -1706,6 +1712,18 @@ impl<'a> Emitter<'a> {
                 | ExprKind::IntLit { .. }
                 | ExprKind::Cast { .. }
         );
+        // Değeri genişlikten bağımsız bileşik işlenen hedef genişlikte
+        // basılır, atomları açıkça genişletilerek: `W'(a + b)` SV'de içini
+        // W bitte hesaplar ama Verilator içteki örtük genişlemeye WIDTHEXPAND
+        // verir (varsayılan olarak ölümcül, #123).
+        if target.width > src.width && !simple && !self_sized && !tree_dep {
+            let ctx = Sig {
+                width: target.width,
+                signed: src.signed,
+            };
+            let text = self.emit_prec(operand, Some(ctx), PREC_ATOM, false);
+            return fix_sign(text, src.signed);
+        }
         if target.width > src.width {
             let n = target.width - src.width;
             match (src.signed, simple, self_sized) {

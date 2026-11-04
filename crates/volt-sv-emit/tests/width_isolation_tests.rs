@@ -214,3 +214,26 @@ fn variable_index_is_sized_to_the_address_width() {
     // Adres genişliğinde indeks değişmez.
     assert!(out.contains("assign s = r[j];"), "{out}");
 }
+
+#[test]
+fn widening_cast_of_a_stable_sum_widens_its_atoms() {
+    // #123: `62'((a + a + 10'sh200))` Verilator'da WIDTHEXPAND verirdi.
+    let out = sv(
+        "    in  a : i10\n    out o : u62",
+        "    o = (a + a + (-512)) as u62",
+    );
+    assert!(
+        out.contains("assign o = $unsigned((62'(a) + 62'(a) + -62'sd512));"),
+        "{out}"
+    );
+}
+
+#[test]
+fn down_part_select_start_of_a_computed_value_is_sized() {
+    // #123: `(s - 27)` (s : u1) Verilator'da WIDTHEXPAND verirdi.
+    let out = sv(
+        "    in  p : u39\n    in  s : u1\n    out o : bits<28>",
+        "    o = (p + p)[s -: 28]",
+    );
+    assert!(out.contains("(5'(s) - 5'd27)"), "{out}");
+}

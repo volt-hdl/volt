@@ -97,7 +97,8 @@ fn most_negative_literal_is_written_as_its_pattern() {
         "    o = (a * (-1)) as u35\n    p = b == (-128)",
     );
     assert!(
-        out.contains("assign o = $unsigned(35'((a * 1'sh1)));"),
+        // #123: hedef genişlikte; literal de 35 bitte (en küçük negatif değil).
+        out.contains("assign o = $unsigned((35'(a) * -35'sd1));"),
         "{out}"
     );
     assert!(out.contains("assign p = b == 8'sh80;"), "{out}");
