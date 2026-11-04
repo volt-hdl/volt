@@ -1,6 +1,6 @@
 # cargo-mutants configuration (ADR-0109). cargo-mutants 27.1.0 reads this
 # file from the workspace root; the workflow is .github/workflows/mutants.yml
-# (workflow_dispatch, 8 shards). Never run the full set locally: list
+# (workflow_dispatch, sharded). Never run the full set locally: list
 # it (`cargo mutants --list`) or try one small file with `-j 1`.
 
 # Scope, phase 1: the files below are mutated, no other file or crate is
@@ -66,6 +66,6 @@ minimum_test_timeout = 600
 # A mutation that just adds a warning still builds.
 cap_lints = true
 
-# Mutant i runs on shard i % 8: files mix across shards, which evens out
+# Mutant i runs on shard i % N: files mix across shards, which evens out
 # their cost.
 sharding = "round-robin"

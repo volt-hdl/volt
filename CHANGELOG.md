@@ -15,7 +15,8 @@ Yok.
 
 - Mutasyon testi (ADR-0109): cargo-mutants 27.1.0, kapsam
   `.cargo/mutants.toml`'da (SV ifade üretimi, genişlik ve tür çıkarımı;
-  952 mutant), elle tetiklenen sekiz parçalı `mutants.yml` iş akışı.
+  952 mutant), elle tetiklenen on üç parçalı `mutants.yml` iş akışı;
+  parça sayısı ölçülen mutant süresinden hesaplanır.
 
 ## [0.1.0] - 2026-11-04
 

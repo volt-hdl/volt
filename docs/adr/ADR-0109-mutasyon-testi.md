@@ -1,4 +1,4 @@
-# ADR-0109: Mutasyon Testi — cargo-mutants, Yalnız Elle Tetiklenen Sekiz Parçalı Koşu, Kapsam ve Hariç Tutma Kuralı
+# ADR-0109: Mutasyon Testi — cargo-mutants, Yalnız Elle Tetiklenen Parçalı Koşu, Kapsam ve Hariç Tutma Kuralı
 
 > Statü: Uygulandı
 > İlgili: ADR-0107 (her parça araçlı işin araçlarıyla ve `VOLT_REQUIRE_TOOLS=all` ile koşar, defterde sıfır SKIP), ADR-0108 (fark testi mutantları yakalayan testlerden biridir; büyük koşusunun elle tetiklenen parçalı yapısı örnek alındı)
@@ -78,21 +78,45 @@ dosyalardır. Sonraki aşamaların adayları, bu sırayla: `match_expr.rs`,
 `lib.rs` (modül ve deyim üretimi), `structs/`, `inline/`,
 `builtin_prim.rs`; volt-hir'de `typeck/`'in kalanı.
 
-### 3. İş akışı: yalnız `workflow_dispatch`, sekiz parça
+### 3. İş akışı: yalnız `workflow_dispatch`, parça sayısı ölçülen hızdan
 
 `.github/workflows/mutants.yml`:
 
 - **Yalnız elle tetiklenir** (`workflow_dispatch`). PR'da ve push'ta koşmaz,
-  zorunlu kontrol değildir. Bir koşu sekiz işte saatler sürer; her PR'a bu
+  zorunlu kontrol değildir. Bir koşu on üç işte saatler sürer; her PR'a bu
   maliyeti eklemek CI'ı kullanılmaz kılar. Sonuç bir ölçümdür, kapı değil:
   missed mutant işi düşürmez.
-- **Sekiz parça** (`cargo mutants --shard k/8`, `sharding =
-  "round-robin"`: mutant i, i mod 8 numaralı parçada; dosyalar parçalara
-  karışır, maliyet dengelenir). 952 mutant parça başına 119 eder. Bir
-  parça temel koşuyu da yapar (derleme ve bütün takım). Dört parça (fark testinin büyük
-  koşusu) mutant başına ~3 dakikalık bir bütçe ile 6 saate sığmazdı; sekiz
-  parçada ~2,5 saat payla sığar ve koşu, aynı anda verilen eşzamanlı iş
-  sınırının içinde kalır.
+- **Parçalar** (`cargo mutants --shard k/N`, `sharding = "round-robin"`:
+  mutant i, i mod N numaralı parçada; dosyalar parçalara karışır, maliyet
+  dengelenir). N iş akışında `MUTANTS_SHARDS`'tır, şimdi **13**; matris
+  0..N-1'i sayar, bir adım ikisinin eşitliğini denetler. Her parça temel
+  koşuyu da yapar (derleme ve bütün takım).
+- **N'nin hesabı.** Hedef: bir parça 4 saati geçmesin (GitHub'ın iş sınırı
+  6 saat; aradaki pay yavaş bir parça içindir). Herkese açık depoda aynı
+  anda en çok 20 iş koşar; N'nin üst sınırı 20'dir.
+
+  ```
+  N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
+  M = kapsamdaki mutant sayısı           = 952
+  t = mutant başına ölçülen süre          = 170 sn
+  S = parçanın kurulumu ve temel koşusu   = 15 dakika
+  N = 13: ⌈952 / 13⌉ = 74 mutant · 170 sn = 210 dk + 15 dk = 225 dk
+  (N = 12: 80 · 170 sn = 227 dk + 15 dk = 242 dk > 240)
+  ```
+
+  t, sekiz parçalı koşunun (41876659281, aşağıda Kanıt) iptal edilene
+  kadar test ettiği 580 mutanttan ölçüldü (`outcomes.json`, derleme +
+  test): ortalama 133 sn; yakalanan 118 sn (19 derleme + 99 test),
+  missed 329 sn (17 + 312: bütün takım koşar), unviable 2,5 sn. Parça
+  ortalamaları 97–167 sn arasıydı; t en yavaş parçanın ortalamasının
+  yukarı yuvarlanmışıdır, çünkü süreyi en yavaş parça belirler. S ölçülen
+  6–8 dakikalık kurulumun (önbellek dolu) ve temel koşunun önbelleksiz
+  bir koşu için büyütülmüşüdür. Sekiz parçada parça başına 119 mutant 119 ·
+  170 sn ≈ 5,6 saat eder: 6 saat sınırına çarpardı.
+
+  **Kapsam büyüdükçe ya da takım yavaşladıkça N yeniden hesaplanır**: M
+  `cargo mutants --list`'ten, t son tam koşunun `outcomes.json`'undan (en
+  yavaş parçanın ortalaması). 20 parça yetmezse kapsam iki koşuya bölünür.
 - Her parça araçlı işin (ADR-0107) kurulumunu yapar: sabit tarihli OSS CAD
   Suite (Verilator, Yosys, sby, çözücüler); `VOLT_REQUIRE_TOOLS=all`.
   Araçsız bir parça temel koşuda düşer: bir mutantta düşen araçlı test
@@ -103,16 +127,22 @@ dosyalardır. Sonraki aşamaların adayları, bu sırayla: `match_expr.rs`,
 - `--in-place`: mutant ağacın kopyasında değil checkout'ta denenir, önbellekli
   `target/` yeniden kullanılır; dosya her mutanttan sonra geri yazılır.
   Yerelde kopya kipi kullanılır (§5).
-- cargo-mutants 320 dakikada `timeout` ile kesilir; iş 355 dakikada.
-  Böylece bitmeyen bir parça da o ana kadarki sonuçlarını yükler ve kırmızı
-  görünür (çıkış kodu 124).
-- Her parça `mutants.out/` klasörünü ve parçanın mutant listesini
-  `mutants-out-<k>` artifact'ı olarak yükler. Son iş
+- cargo-mutants 300 dakikada `timeout` ile kesilir (çıkış kodu 124); işin
+  sınırı 330 dakikadır (`timeout-minutes`, 6 saatin altında). cargo-mutants
+  her sonucu geldikçe yazar; "Upload mutants.out" adımı `if: always()`
+  ile koşar, adım düşse, iş iptal edilse ya da sınırına varsa da o ana
+  kadarki sonuçlar yüklenir (sekiz parçalı koşu iptal edildiğinde sekiz
+  parça da yükledi).
+- İlk iş her parçanın mutant listesini (`cargo mutants --list --shard
+  k/N`) `mutants-list` artifact'ı olarak yükler. Her parça `mutants.out/`
+  klasörünü `mutants-out-<k>` artifact'ı olarak yükler. Son iş
   (`scripts/ci/mutants_summary.py`) parçaları birleştirir ve iş özetine
-  toplam / yakalanan / missed / timeout / unviable sayılarını, parça
-  tablosunu ve missed listesini (dosya:satır, değişiklik) yazar; birleşik
-  listeler `mutants-summary` artifact'ıdır. Eksik ya da bitmemiş parça bu
-  işi düşürür.
+  toplam / test edilen / test edilmeyen / yakalanan / missed / timeout /
+  unviable sayılarını, parça tablosunu ve missed listesini (dosya:satır,
+  değişiklik) yazar; birleşik listeler `mutants-summary` artifact'ıdır.
+  **Tamamlanmayan parça** (artifact'ı yok ya da listesindeki her mutantın
+  sonucu yok) özetin başında "NOT COMPLETED" diye adlandırılır, test
+  edilmeyen mutantları listelenir ve özet işi düşer; sessizce atlanmaz.
 - Mutasyon skoru için rozet yoktur; README skor iddiası taşımaz.
 
 ### 4. Missed mutantların sınıflandırılması ve hariç tutma kuralı
@@ -155,8 +185,8 @@ düşer: her mutant yanlışlıkla "caught" görünür. Yerel denemede `TMP` ve
 
 **Kapsam.** `cargo mutants --list`: 952 mutant (expr.rs 500, let_width.rs
 64, select.rs 65, stmt.rs 60, ty.rs 44, check.rs 44, width.rs 43,
-binop.rs 40, synth.rs 34, cast.rs 29, compare_width.rs 29); `--shard k/8`
-her parçada 119.
+binop.rs 40, synth.rs 34, cast.rs 29, compare_width.rs 29); `--shard k/13`
+parça başına 73 ya da 74.
 
 **Yerel deneme** (Windows, `-j 1`, kopya kipi, `typeck/cast.rs`'in
 `check_enum_cast` fonksiyonundaki 8 mutant, `--timeout 900`):
@@ -178,11 +208,23 @@ her parçada 119.
   (`examine_globs` yalnız `cast.rs`) koştu. `exclude_re` girdileri ilk
   koşudan sonra bu türde mutantlar için ayrıca sınanır.
 
-**İlk CI koşusu.** Bu bölüm koşu bitince doldurulur.
+**Sekiz parçalı koşular.**
+
+- 41875380104: sekiz parça da "Put the tools on PATH" adımında düştü
+  (`cargo-mutants --version` doğrudan çağrılınca alt komut adını ister:
+  `cargo-mutants mutants --version`). Düzeltildi.
+- 41876659281: sekiz parçanın temel koşusu araçlarla geçti; mutantlar
+  17:26–17:29 UTC'de başladı. Ölçülen hızla 119 mutantlık bir parça ~4,4–5,5
+  saat sürecekti, 6 saat sınırına çarpacaktı; koşu 20:11 UTC'de iptal
+  edildi. İptalde sekiz parça da `mutants.out/`'unu yükledi: 952 mutantın
+  580'i test edilmişti (430 caught, 80 missed, 0 timeout, 70 unviable);
+  §3'teki t bu 580 mutanttan ölçüldü.
+
+**On üç parçalı koşu.** Bu bölüm koşu bitince doldurulur.
 
 ## Reddedilenler
 
-- **PR'da koşmak.** Sekiz iş, saatler; her PR'ı bekletir. Değişen satırlarla
+- **PR'da koşmak.** On üç iş, saatler; her PR'ı bekletir. Değişen satırlarla
   sınırlı koşu aşağıda "İleride"dir.
 - **`cargo test` ile koşmak.** §1: birim testlerin yakaladığı mutant bile
   bütün takımın süresine mal olur.
@@ -191,7 +233,15 @@ her parçada 119.
   (fark testi, simülasyon testleri); crate'in kendi testleri onları görmez.
 - **Kodda `#[mutants::skip]`.** Gerekçesiz, dağınık ve `mutants` crate'ine
   bağımlılık ister; §4.
-- **Dört parça.** §3.
+- **Dört ya da sekiz parça.** §3: parça başına 238 ya da 119 mutant 6
+  saate sığmaz.
+- **Test kapsamını daraltmak** (yalnız mutasyona uğrayan crate'in testleri
+  ya da araçsız testler). Mutant başına süreyi kısaltırdı, ama üretici
+  hatalarını en çok Verilator'lı testler yakalar; parça sayısı artırılır,
+  kapsam daraltılmaz.
+- **Fazla parça, 20'ye kadar.** Toplam iş süresi aynı kalır, her parça
+  kurulumu yeniden öder ve eşzamanlı iş sınırının tamamını alıp aynı
+  hesaptaki diğer CI işlerini bekletir; N hedefi tutan en küçük sayıdır.
 - **Rozet ya da README'de skor.** Skor kapsamın ve hariç tutmaların
   fonksiyonudur; kapsam aşama aşama genişlerken bir sayı yanıltır.
 
