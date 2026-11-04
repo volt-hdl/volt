@@ -1047,9 +1047,7 @@ impl<'a> Emitter<'a> {
                     }
                     None => match self.select_from_value(base, index, None) {
                         Some(text) => (text, PREC_ATOM),
-                        None if self.is_scalar_base(base) => {
-                            (self.emit_prec(base, None, PREC_ATOM, false), PREC_ATOM)
-                        }
+                        None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                         None => {
                             let b = self.emit_prec(base, None, PREC_ATOM, false);
                             let i = self.emit_plain(index);
@@ -1062,9 +1060,7 @@ impl<'a> Emitter<'a> {
                 let (base, hi, lo) = (*base, *hi, *lo);
                 match self.select_from_value(base, hi, Some(lo)) {
                     Some(text) => (text, PREC_ATOM),
-                    None if self.is_scalar_base(base) => {
-                        (self.emit_prec(base, None, PREC_ATOM, false), PREC_ATOM)
-                    }
+                    None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);
                         let hi = self.emit_plain(hi);
@@ -1082,9 +1078,7 @@ impl<'a> Emitter<'a> {
                 let (base, start, width, asc) = (*base, *start, *width, *ascending);
                 match self.part_select_from_value(base, start, width, asc) {
                     Some(text) => (text, PREC_ATOM),
-                    None if self.is_scalar_base(base) => {
-                        (self.emit_prec(base, None, PREC_ATOM, false), PREC_ATOM)
-                    }
+                    None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);
                         let s = self.emit_plain(start);
@@ -1391,6 +1385,18 @@ impl<'a> Emitter<'a> {
     /// 1 bitlik değer SV'de skaler `logic`tir: `x[0]`, `x[0:0]` ve
     /// `x[0 +: 1]` geçersizdir, seçim değerin kendisidir (#120). Unpacked
     /// dizinin adı (eleman seçimi) bu kurala girmez.
+    /// 1 bitlik tabandan seçim: değerin kendisi, seçim işaretsizdir
+    /// (`i1` taban `$unsigned`, yoksa parça seçimi başlangıcında 1, -1
+    /// okunur).
+    fn scalar_select(&mut self, base: Idx<Expr>) -> String {
+        let text = self.emit_prec(base, None, PREC_ATOM, false);
+        if self.width_of(base).is_some_and(|s| s.signed) {
+            format!("$unsigned({text})")
+        } else {
+            text
+        }
+    }
+
     fn is_scalar_base(&mut self, base: Idx<Expr>) -> bool {
         if crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n)) {
             return false;

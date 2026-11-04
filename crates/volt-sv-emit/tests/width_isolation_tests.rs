@@ -182,3 +182,16 @@ fn bit_zero_of_a_one_bit_value_is_the_value() {
     assert!(out.contains("assign o = one;"), "{out}");
     assert!(out.contains("assign p = bit1;"), "{out}");
 }
+
+#[test]
+fn bit_zero_of_a_signed_one_bit_value_is_unsigned() {
+    // Seçim işaretsizdir: `s[0:0]` (s : i1) parça seçimi başlangıcında 1
+    // okunmalı, -1 değil.
+    let out = sv(
+        "    in  s : i1
+    in  q : bits<69>
+    out o : bits<68>",
+        "    o = q[s[0:0] as u1 +: 68]",
+    );
+    assert!(out.contains("assign o = q[$unsigned(s) +: 68];"), "{out}");
+}

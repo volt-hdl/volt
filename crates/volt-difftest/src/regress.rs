@@ -195,6 +195,17 @@ pub fn all() -> Vec<Regression> {
             vec![Bits(1)],
             range(p(0), 0, 0),
         ),
+        r(
+            "#120",
+            "bit 0 of a signed one-bit value is unsigned (part-select start)",
+            vec![Bits(69), SInt(1)],
+            Expr::Part(
+                Box::new(p(0)),
+                Box::new(cast(range(p(1), 0, 0), UInt(1))),
+                68,
+                true,
+            ),
+        ),
     ]
 }
 
