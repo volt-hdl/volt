@@ -11,6 +11,8 @@ never ran) or the report counts a difference.
 """
 
 import argparse
+import contextlib
+import io
 import re
 import sys
 import tempfile
@@ -42,9 +44,11 @@ def summarize(path: Path, job: str) -> int:
 
 
 def self_test() -> int:
+    # Sınanan durumlar `::error`/`::notice` basar; öz-sınamanın çıktısı
+    # yutulur ki CI günlüğüne gerçek bir not düşmesin.
     ok = "difftest: seed=7 target=10 generated=12 accepted=10 rejected-as-predicted=1 unsupported=0 unspecified=1 values-compared=99 diffs=0\n"
     bad = ok.replace("diffs=0", "diffs=2")
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
         p = Path(d) / "s.txt"
         assert summarize(p, "t") == 1, "missing file must fail"
         p.write_text(ok, encoding="utf-8")

@@ -80,6 +80,8 @@ pub enum Class {
     CodeMismatch,
     /// Üretilen SV'de Verilator -Wall uyarısı (soft).
     Lint,
+    /// Sınamanın kendisi bozuk (testbench girişleri DUT'a ulaşmadı).
+    Harness,
 }
 
 impl Class {
@@ -97,6 +99,7 @@ impl Class {
             Class::InvalidSv => "generated SV does not compile in Verilator",
             Class::CodeMismatch => "both reject, different code (soft)",
             Class::Lint => "Verilator -Wall warning in the generated SV (soft)",
+            Class::Harness => "harness error: testbench inputs did not reach the design",
         }
     }
 }
@@ -441,6 +444,10 @@ impl<'a> Runner<'a> {
             );
         }
         let vecs = vectors(&ports, self.cfg.vectors, &mut rng);
+        let mut cases = cases;
+        for c in &mut cases {
+            c.drop_x_contract(&ports, &vecs);
+        }
         let batch = Batch { cases, ports, vecs };
         let out = self.run_batch(&batch, false);
         let mut failed = BTreeSet::new();
@@ -480,6 +487,10 @@ impl<'a> Runner<'a> {
             .map(|(i, e)| Case::new(i, e, &pool.ports, rng))
             .collect();
         let vecs = vectors(&pool.ports, self.cfg.vectors, rng);
+        let mut cases: Vec<Case> = cases;
+        for c in &mut cases {
+            c.drop_x_contract(&pool.ports, &vecs);
+        }
         Batch {
             cases,
             ports: pool.ports,
@@ -781,7 +792,9 @@ impl<'a> Runner<'a> {
             testbench(built, &b.ports, self.cfg.vectors),
         )
         .expect("tb.sv");
-        std::fs::write(dir.join("vec.hex"), vec_hex(built, &b.ports, &b.vecs)).expect("vec.hex");
+        for (ci, text) in vec_hex(built, &b.ports, &b.vecs).into_iter().enumerate() {
+            std::fs::write(dir.join(format!("vec{ci}.hex")), text).expect("vec.hex");
+        }
         let rel_sv = format!("build/rtl/{}.sv", crate::harness::MODULE);
         let (ok, vout, verr) =
             run_cmd(Command::new(&self.tools.verilator).current_dir(dir).args([
@@ -868,6 +881,16 @@ impl<'a> Runner<'a> {
         );
         let vals = parse_sim(built, &sout, self.cfg.vectors)
             .unwrap_or_else(|e| panic!("simülasyon çıktısı: {e}\n{sout}\n{serr}"));
+        // Girişler DUT'a ulaşmadıysa karşılaştırma anlamsızdır: sert bulgu.
+        if let Err(e) = crate::harness::check_echo(built, &b.ports, &b.vecs, &sout) {
+            let c = &b.cases[active[0]];
+            let mut f = self.finding(Class::Harness, c, b, None, e, vec![]);
+            f.key = "testbench input echo".into();
+            return Ok(Outcome {
+                accepted: vec![],
+                findings: vec![f],
+            });
+        }
         let mut accepted = BTreeSet::new();
         let mut diffed = BTreeSet::new();
         for (j, o) in built.outputs.iter().enumerate() {
@@ -1042,11 +1065,14 @@ impl<'a> Runner<'a> {
                     vecs[5][k] = *v;
                 }
             }
-            let cases: Vec<Case> = cands
+            let mut cases: Vec<Case> = cands
                 .iter()
                 .enumerate()
                 .map(|(i, e)| Case::new(i, e.clone(), &ports, &mut rng))
                 .collect();
+            for c in &mut cases {
+                c.drop_x_contract(&ports, &vecs);
+            }
             let batch = Batch {
                 cases,
                 ports: ports.clone(),

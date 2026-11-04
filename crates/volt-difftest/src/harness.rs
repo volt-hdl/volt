@@ -196,6 +196,16 @@ impl Case {
         case
     }
 
+    /// Sözleşme biçimi (g) iki x'i karşılaştırırdı: modelin herhangi bir
+    /// vektörde x dediği ifadede (sınır dışı değişken seçim, ADR-0035)
+    /// sözleşme konmaz; değer biçimleri o vektörü zaten atlar.
+    pub fn drop_x_contract(&mut self, ports: &[PortTy], vecs: &[Vec<u128>]) {
+        let model = Model { ports };
+        if vecs.iter().any(|v| model.eval(&self.expr, v).is_none()) {
+            self.variants.retain(|v| *v != Variant::G);
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         matches!(self.kind, Kind::Valid(_))
     }
@@ -447,22 +457,29 @@ pub fn build(cases: &[Case], ports: &[PortTy]) -> Built {
 /// Çıkışlar `$display` başına bu kadar (çok geniş tek birleştirmeden kaçınır).
 pub const CHUNK: usize = 64;
 
-/// SV testbench: vektörleri `$readmemh` ile okur, her vektörde çıkışları
-/// parça parça basar ve sözleşmeler için bir saat kenarı üretir.
+/// Giriş portları `$readmemh` dosyası başına bu kadar: binlerce bitlik tek
+/// bir birleştirme ataması yerine küçük parçalar.
+pub const IN_CHUNK: usize = 32;
+
+fn in_chunk_width(ports: &[PortTy], chunk: &[usize]) -> u32 {
+    chunk.iter().map(|k| ports[*k].width()).sum::<u32>().max(1)
+}
+
+/// SV testbench: vektörleri parça parça `$readmemh` ile okur, her vektörde
+/// girişleri geri basar (koşucu denetler), çıkışları parça parça basar ve
+/// sözleşmeler için bir saat kenarı üretir.
 pub fn testbench(b: &Built, ports: &[PortTy], nvec: usize) -> String {
-    let in_w: u32 = b
-        .inputs
-        .iter()
-        .map(|k| ports[*k].width())
-        .sum::<u32>()
-        .max(1);
+    let chunks: Vec<&[usize]> = b.inputs.chunks(IN_CHUNK).collect();
     let mut s = String::new();
     s.push_str("`timescale 1ns/1ps\nmodule tb;\n    logic clk;\n    logic rst;\n");
-    s.push_str(&format!(
-        "    logic [{}:0] vecs [0:{}];\n",
-        in_w - 1,
-        nvec - 1
-    ));
+    for (ci, ch) in chunks.iter().enumerate() {
+        let w = in_chunk_width(ports, ch);
+        s.push_str(&format!(
+            "    logic [{}:0] vecs{ci} [0:{}];\n",
+            w - 1,
+            nvec - 1
+        ));
+    }
     for k in &b.inputs {
         s.push_str(&format!("    {} {};\n", ports[*k].sv(), port_name(*k)));
     }
@@ -470,19 +487,29 @@ pub fn testbench(b: &Built, ports: &[PortTy], nvec: usize) -> String {
         s.push_str(&format!("    {} {};\n", o.ty.sv(), o.name));
     }
     s.push_str(&format!("    {MODULE} dut (.*);\n"));
-    s.push_str("    initial begin\n        $readmemh(\"vec.hex\", vecs);\n");
+    s.push_str("    initial begin\n");
+    for ci in 0..chunks.len() {
+        s.push_str(&format!("        $readmemh(\"vec{ci}.hex\", vecs{ci});\n"));
+    }
     s.push_str("        rst = 1'b1;\n        clk = 1'b0;\n        #1 clk = 1'b1;\n        #1 clk = 1'b0;\n        rst = 1'b0;\n");
     s.push_str(&format!("        for (int i = 0; i < {nvec}; i++) begin\n"));
-    if b.inputs.is_empty() {
-        s.push_str("            vecs[i] = vecs[i];\n");
-    } else {
-        let names: Vec<String> = b.inputs.iter().rev().map(|k| port_name(*k)).collect();
-        s.push_str(&format!(
-            "            {{{}}} = vecs[i];\n",
-            names.join(", ")
-        ));
+    let names = |ch: &[usize]| -> String {
+        ch.iter()
+            .rev()
+            .map(|k| port_name(*k))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    for (ci, ch) in chunks.iter().enumerate() {
+        s.push_str(&format!("            {{{}}} = vecs{ci}[i];\n", names(ch)));
     }
     s.push_str("            #1;\n");
+    for (ci, ch) in chunks.iter().enumerate() {
+        s.push_str(&format!(
+            "            $display(\"I %0d {ci} %h\", i, {{{}}});\n",
+            names(ch)
+        ));
+    }
     for (ci, chunk) in b.outputs.chunks(CHUNK).enumerate() {
         let names: Vec<&str> = chunk.iter().rev().map(|o| o.name.as_str()).collect();
         s.push_str(&format!(
@@ -576,26 +603,72 @@ impl BitVec {
     }
 }
 
-pub fn vec_hex(b: &Built, ports: &[PortTy], vecs: &[Vec<u128>]) -> String {
-    let in_w: u32 = b
-        .inputs
-        .iter()
-        .map(|k| ports[*k].width())
-        .sum::<u32>()
-        .max(1);
-    let mut out = String::new();
-    for v in vecs {
-        let mut bits = BitVec::default();
-        let mut off = 0;
-        for k in &b.inputs {
-            let w = ports[*k].width();
-            bits.set(off, w, v[*k]);
-            off += w;
-        }
-        out.push_str(&bits.hex(in_w));
-        out.push('\n');
+/// Giriş parçası başına bir `vec<N>.hex` içeriği.
+pub fn vec_hex(b: &Built, ports: &[PortTy], vecs: &[Vec<u128>]) -> Vec<String> {
+    b.inputs
+        .chunks(IN_CHUNK)
+        .map(|ch| {
+            let w = in_chunk_width(ports, ch);
+            let mut out = String::new();
+            for v in vecs {
+                out.push_str(&pack(ch, ports, v).hex(w));
+                out.push('\n');
+            }
+            out
+        })
+        .collect()
+}
+
+fn pack(chunk: &[usize], ports: &[PortTy], v: &[u128]) -> BitVec {
+    let mut bits = BitVec::default();
+    let mut off = 0;
+    for k in chunk {
+        let w = ports[*k].width();
+        bits.set(off, w, v[*k]);
+        off += w;
     }
-    out
+    bits
+}
+
+/// Testbench'in geri bastığı girişler vektörlerle aynı mı? Değilse
+/// sınamanın kendisi bozuktur (girişler DUT'a ulaşmadı).
+pub fn check_echo(
+    b: &Built,
+    ports: &[PortTy],
+    vecs: &[Vec<u128>],
+    stdout: &str,
+) -> Result<(), String> {
+    let chunks: Vec<&[usize]> = b.inputs.chunks(IN_CHUNK).collect();
+    let mut seen = 0;
+    for line in stdout.lines() {
+        let Some(rest) = line.trim().strip_prefix("I ") else {
+            continue;
+        };
+        let mut it = rest.split_whitespace();
+        let (Some(i), Some(ci), Some(hex)) = (it.next(), it.next(), it.next()) else {
+            return Err(format!("bozuk satır: {line}"));
+        };
+        let (Ok(i), Ok(ci)) = (i.parse::<usize>(), ci.parse::<usize>()) else {
+            return Err(format!("bozuk satır: {line}"));
+        };
+        let (Some(ch), Some(v)) = (chunks.get(ci), vecs.get(i)) else {
+            return Err(format!("bilinmeyen parça: {line}"));
+        };
+        let want = pack(ch, ports, v).hex(in_chunk_width(ports, ch));
+        if !hex.eq_ignore_ascii_case(&want) {
+            return Err(format!(
+                "vektör {i}, giriş parçası {ci}: testbench {hex}, beklenen {want}"
+            ));
+        }
+        seen += 1;
+    }
+    if seen != chunks.len() * vecs.len() {
+        return Err(format!(
+            "{seen} giriş satırı, beklenen {}",
+            chunks.len() * vecs.len()
+        ));
+    }
+    Ok(())
 }
 
 /// Simülasyon çıktısı: `[vektör][çıkış indeksi]`.
@@ -837,5 +910,29 @@ mod tests {
         assert_eq!(own[4], Some((5, Variant::G)));
         assert_eq!(own[6], Some((5, Variant::G)));
         assert_eq!(own[7], Some((7, Variant::C)));
+    }
+}
+
+#[cfg(test)]
+mod echo_tests {
+    use super::*;
+
+    #[test]
+    fn echo_check_accepts_the_vectors_and_rejects_a_changed_input() {
+        let ports = vec![PortTy::UInt(8), PortTy::Bits(70), PortTy::SInt(3)];
+        let mut rng = Rng::new(3);
+        let e = Expr::bin(BinOp::Eq, Expr::Port(1), Expr::Port(1));
+        let mut cases = vec![Case::new(0, e, &ports, &mut rng)];
+        cases.push(Case::new(1, Expr::Port(0), &ports, &mut rng));
+        let b = build(&cases, &ports);
+        let vecs = vectors(&ports, 2, &mut rng);
+        let hex = vec_hex(&b, &ports, &vecs);
+        assert_eq!(hex.len(), 1);
+        let lines: Vec<&str> = hex[0].lines().collect();
+        let good = format!("I 0 0 {}\nI 1 0 {}\n", lines[0], lines[1]);
+        assert_eq!(check_echo(&b, &ports, &vecs, &good), Ok(()));
+        let bad = format!("I 0 0 {}\nI 1 0 {}\n", lines[0], lines[0]);
+        assert!(check_echo(&b, &ports, &vecs, &bad).is_err());
+        assert!(check_echo(&b, &ports, &vecs, "I 0 0 00\n").is_err());
     }
 }
