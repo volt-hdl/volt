@@ -7,11 +7,15 @@ name: Differential test (large run)
 # seed, its count and its tool ledger; a shard fails on any difference.
 
 on:
+  # TEMPORARY (PR #121): the large run on this pull request, as evidence;
+  # a workflow that is not on the default branch cannot be dispatched.
+  # Removed by the next commit.
+  pull_request:
   workflow_dispatch:
     inputs:
       seed:
         description: "First seed (shard k uses seed + k)"
-        default: "20261104"
+        default: "20261105"
         required: true
       count:
         description: "Accepted expressions per shard"
@@ -58,8 +62,8 @@ jobs:
       - name: Seed and count of this shard
         id: shard
         env:
-          SEED: ${{ inputs.seed }}
-          COUNT: ${{ inputs.count }}
+          SEED: ${{ inputs.seed || '20261105' }}
+          COUNT: ${{ inputs.count || '12500' }}
           SHARD: ${{ matrix.shard }}
         run: |
           seed=$((SEED + SHARD))
