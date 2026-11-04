@@ -252,10 +252,10 @@ and open a new one**: a terminal that was already open does not know the
 new `volt` command. If you use the Windows *Terminal* app or VS Code, close
 the whole program, not just the tab.
 
-If the script says "No Volt release has been published yet.", there is
-no prebuilt `volt` to download yet: build it from source as
-[Install Volt](tour/install.md#build-from-source) shows. That page also
-explains what the script changes and how to update or remove Volt.
+[Install Volt](tour/install.md) explains what the script changes, how to
+update or remove Volt, and how to
+[build it from source](tour/install.md#build-from-source) on a system the
+script does not support.
 
 ## Check Volt
 

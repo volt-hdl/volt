@@ -2,9 +2,9 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
-> **Status:** early-stage project (started 2026-09). No release has been
-> published yet: build Volt from source ([Installation](#installation)).
-> Not used in production. No silicon. See [Limitations](#limitations).
+> **Status:** early-stage project (started 2026-09). Version 0.1.0 is the
+> earliest release; it makes no stability promise. Not used in production.
+> No silicon. See [Limitations](#limitations).
 
 ![A terminal: volt check reports error E3001 on crossing.volt, the sync() line from its help line is added in nano, and volt check reports 0 errors](demo/cdc-demo.gif)
 
@@ -432,10 +432,8 @@ Planned work: [Roadmap](docs/roadmap.md).
 - **CDC bridges are limited to `sync()` / `sync3()` and the built-in
   dual-clock primitives.** User-written synchronizers are not recognized;
   a multi-bit `sync()` is a warning (`W3003`), not an error.
-- **The VS Code extension is not published.** Until the earliest
-  release, package it from `editors/vscode/` (see
-  [Installation](#installation)); it is not on the Visual Studio
-  Marketplace or Open VSX.
+- **The VS Code extension is not on the Visual Studio Marketplace or
+  Open VSX.** Each release carries it as a `.vsix` file.
 - **Single maintainer, no external users yet.** No published crate, no
   paper, no FPGA board or tape-out results.
 
@@ -472,10 +470,6 @@ irm https://volt-hdl.github.io/volt/install.ps1 | iex
 curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
 ```
 
-**No release has been published yet.** Until then, both commands print
-`No Volt release has been published yet.` with the command that builds
-Volt from source, and install nothing. Use **From source** below.
-
 The script downloads the newest release for your platform (Windows
 x86_64, Linux x86_64, macOS Apple silicon and Intel), checks it against the
 release's `SHA256SUMS`, puts `volt` into `%LOCALAPPDATA%\Programs\Volt\bin`
@@ -497,17 +491,10 @@ cd volt
 cargo install --locked --path crates/volt-driver
 ```
 
-**VS Code:** until the earliest release, package the extension from
-source (Node.js 18 or later):
-
-```sh
-cd editors/vscode
-npm ci
-npx vsce package
-code --install-extension volt-hdl-0.1.0.vsix
-```
-
-The extension starts
+**VS Code:** download `volt-hdl-<version>.vsix` from the
+[latest release](https://github.com/volt-hdl/volt/releases/latest) and
+install it with `code --install-extension volt-hdl-<version>.vsix`. The
+extension starts
 the language server as `volt lsp`, so `volt` must be on `PATH`; otherwise
 set `volt.serverPath` to the full path of the binary.
 

@@ -5,13 +5,15 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.0] - 2026-11-04
 
 ### Behavior changes
 
-Bu bölüm sürüm kesilirken tamamlanır (ADR-0100); aşağıdaki girdilerde
-"**Davranış değişikliği.**" diye işaretli önceki maddeler de buraya
-toplanır.
+Karşılaştırılacak önceki sürüm yok. Aşağıdakiler, bu sürümden önce
+`main`'den derlenmiş Volt'a göre aynı girdinin farklı sonuç verdiği
+değişikliklerdir. Tarihli girdilerde davranış değişikliği diye işaretlenen
+maddelerin hepsi buraya taşındı (ADR-0100 §3). İngilizce özetleri
+`docs/release-notes/v0.1.0.md`'nin "Behavior changes" bölümündedir.
 
 - **Davranış değişikliği.** Genişlik değiştiren `as` dönüşümünün
   SystemVerilog ifadesi hedef tipin işaretini taşır (#115, ADR-0108):
@@ -80,16 +82,18 @@ toplanır.
   ilki 3 bitte sararak, ikincisi 4 bitte derleniyordu; b = 7, a = 0 için
   sonuçlar farklıydı). Kontratlarda da geçerli. Bir yan derleme anında
   bilinen ve karşı yana sığan bir sabitse (`r == LIMIT - 1`) hata yok.
-  Yardım satırı ve iki öneri her yerde `as` ile: sarma
-  `a == (b + 1)[2:0] as u3`, taşmayı tutma `(a as u4) == b + 1`.
+  Yardım satırı ve iki öneri her yerde `as` ile: sarma `a == (b + 1)[2:0]
+  as u3`, taşmayı tutma `(a as u4) == b + 1`. `examples/riscv_core.volt`
+  (iki kontrat), `examples/i2c/i2c_master.volt` ve `volt new --template
+  mmio` şablonu sarma biçimine geçti; üretilen donanımın anlamı aynı.
 - **Davranış değişikliği.** Kabul edilen karşılaştırma iki yanın doğal
   genişliğinde yapılır (ADR-0106): `c + d == 5` ve `c + d == c + r`
   (`u8`) taşma bitini tutar; `c + d < 300` artık `8'd300` (= 44) değil
   `9'd300` ile karşılaştırılır.
-- Bileşik bir değerden bit ya da aralık seçimi (`(a + 1)[3:0]`,
-  E2001'in kendi önerisi) geçerli SystemVerilog üretir: `4'(9'(a) + 9'd1)`.
-  Önceden `(a + 8'd1)[3:0]` yazılıyor, Verilator ve Yosys sözdizimi
-  hatasıyla reddediyordu (ADR-0106 §4).
+- **Davranış değişikliği.** Bileşik bir değerden bit ya da aralık seçimi
+  (`(a + 1)[3:0]`, E2001'in kendi önerisi) geçerli SystemVerilog üretir:
+  `4'(9'(a) + 9'd1)`. Önceden `(a + 8'd1)[3:0]` yazılıyor, Verilator ve
+  Yosys sözdizimi hatasıyla reddediyordu (ADR-0106 §4).
 - **Davranış değişikliği.** Daha geniş bir aritmetik bağlamdaki kaydırma
   ve `~` kendi genişliğinde hesaplanır (ADR-0106 §6): `a : u8` iken
   `let w : u12 = (~a) + 0`, a = 0 için 255 verir (önceden uyarısız 4095;
@@ -98,47 +102,105 @@ toplanır.
   duruyordu; artık `12'($unsigned(a << n))` ile 8 bitte kayar. Seçim,
   dönüşüm ve birleştirme daha geniş bağlamda `W'(...)` ile açıkça
   genişletilir.
-- Taşma biti bir karşılaştırmada okunan tipsiz `let` için yanlış
-  `// carry bit of '...' unused` yorumu ve `UNUSEDSIGNAL` susturması
-  basılmaz.
-- `examples/riscv_core.volt` (iki kontrat), `examples/i2c/i2c_master.volt`
-  ve `volt new --template mmio` şablonu E2031'in sarma biçimine geçti;
-  üretilen donanımın anlamı aynı.
-- `volt check` (argümansız, proje kipi) `volt test`'in keşfettiği her test
-  dosyasını da denetler — alt dizinler dahil, `build/` atlanır — ve her
-  birini `Checking <dosya>` satırıyla yazar. Önceden geçen bir proje,
-  test dosyasında hata varsa artık çıkış 1 verir. (Argümansız check'in
-  test dosyalarını okuması PR #72 ile geldi; 2026-10-01'den eski
-  ikililerde yoktur.)
-- Kardeş `X.volt`'u olmayan `X_test.volt` dosyası `volt check`, `volt
-  build` ve editörde `volt test` ile aynı tam denetimden geçer: bulunmayan
-  DUT modülü E8501 (önceden yalnız `volt test`'te).
-- `volt test`'in `Compiling` satırları öneksiz göreli yol yazar
-  (`counter_test.volt`, `sim/deep_test.volt`; önceden `.\counter_test.volt`).
-- Standart kütüphane adını taşıyan `extern module` (`EdgeDetect`,
-  `SyncFifo`, `Counter`, ...) ve böyle adlı bir Volt modülünün başka bir
-  modülde örneklenmesi yeni **E1016** hatasıdır (ADR-0102, #92). Önceden
-  yerine sessizce yerleşik modül alınıyordu: `volt build` çıkış 0 ile
-  extern'ün SystemVerilog'unu kullanmayan, tanımsız tel okuyan SV
-  yazabiliyor ya da yerleşiğin generic argümanını isteyen E0003 ile
-  düşüyordu. Bu adla üst modül (`volt new` şablonundaki `Counter`) geçerli
-  kalır.
-- Tipsiz literal `let` (`let k = 100`) artık derlenir: yalnız W2012 verir
-  ve `i32` tel olur (#80). Önceden aynı satır W2012 ve E2005 verip çıkış
-  1 ile düşüyordu. `i32`'ye sığmayan literal (`let k = 5000000000`) açık
-  tipli `let` gibi E2010'dur.
-- `volt --version`, argümansız `volt`, üretilen SV başlığının `Version:`
-  satırı ve SDC/XDC başlığı derlendiği commit'in kısaltmasını da yazar:
-  `volt 0.1.0 (abcdefg)`, `// Version: 0.1.0 (abcdefg)` (ADR-0104). Git
-  olmadan ya da sürüm kaynak arşivinden derlenen ikili yalnız sürümü
-  yazar; derleme tarihi yazılmaz.
-- `--color auto|always|never`, `--no-color` ve `VOLT_COLOR` her komutta
-  geçerlidir ve hata/uyarı tanılarını renklendirir (cli-contract.md §3,
-  #95). Önceden `volt check --color` "unexpected argument" ile çıkış 2
-  veriyordu ve tanılar hiç renklenmiyordu; terminalde tanılar artık
-  varsayılan olarak renklidir (terminal değilse, `NO_COLOR` ya da `CI`
-  ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
-  taşındı (yazımı aynı).
+- **Davranış değişikliği.** Taşma biti bir karşılaştırmada okunan tipsiz
+  `let` için yanlış `// carry bit of '...' unused` yorumu ve
+  `UNUSEDSIGNAL` susturması üretilen SV'ye basılmaz.
+- **Davranış değişikliği.** `volt check` (argümansız, proje kipi)
+  `volt test`'in keşfettiği her test dosyasını da denetler — alt dizinler
+  dahil, `build/` atlanır — ve her birini `Checking <dosya>` satırıyla
+  yazar. Önceden geçen bir proje, test dosyasında hata varsa artık çıkış 1
+  verir. (Argümansız check'in test dosyalarını okuması PR #72 ile geldi;
+  2026-10-01'den eski ikililerde yoktur.)
+- **Davranış değişikliği.** Kardeş `X.volt`'u olmayan `X_test.volt`
+  dosyası `volt check`, `volt build` ve editörde `volt test` ile aynı tam
+  denetimden geçer: bulunmayan DUT modülü E8501 (önceden yalnız
+  `volt test`'te).
+- **Davranış değişikliği.** `volt test`'in `Compiling` satırları öneksiz
+  göreli yol yazar (`counter_test.volt`, `sim/deep_test.volt`; önceden
+  `.\counter_test.volt`).
+- **Davranış değişikliği.** Standart kütüphane adını taşıyan
+  `extern module` (`EdgeDetect`, `SyncFifo`, `Counter`, ...) ve böyle adlı
+  bir Volt modülünün başka bir modülde örneklenmesi yeni **E1016**
+  hatasıdır (ADR-0102, #92). Önceden yerine sessizce yerleşik modül
+  alınıyordu: `volt build` çıkış 0 ile extern'ün SystemVerilog'unu
+  kullanmayan, tanımsız tel okuyan SV yazabiliyor ya da yerleşiğin generic
+  argümanını isteyen E0003 ile düşüyordu. Bu adla üst modül (`volt new`
+  şablonundaki `Counter`) geçerli kalır.
+- **Davranış değişikliği.** Tipsiz literal `let` (`let k = 100`) artık
+  derlenir: yalnız W2012 verir ve `i32` tel olur (#80). Önceden aynı satır
+  W2012 ve E2005 verip çıkış 1 ile düşüyordu. `i32`'ye sığmayan literal
+  (`let k = 5000000000`) açık tipli `let` gibi E2010'dur.
+- **Davranış değişikliği.** `volt --version`, argümansız `volt`, üretilen
+  SV başlığının `Version:` satırı ve SDC/XDC başlığı derlendiği commit'in
+  kısaltmasını da yazar: `volt 0.1.0 (abcdefg)`,
+  `// Version: 0.1.0 (abcdefg)` (ADR-0104). Git olmadan ya da sürüm kaynak
+  arşivinden derlenen ikili yalnız sürümü yazar; derleme tarihi yazılmaz.
+- **Davranış değişikliği.** `--color auto|always|never`, `--no-color` ve
+  `VOLT_COLOR` her komutta geçerlidir ve hata/uyarı tanılarını
+  renklendirir (cli-contract.md §3, #95). Önceden `volt check --color`
+  "unexpected argument" ile çıkış 2 veriyordu ve tanılar hiç
+  renklenmiyordu; terminalde tanılar artık varsayılan olarak renklidir
+  (terminal değilse, `NO_COLOR` ya da `CI` ayarlıysa renksiz).
+  `volt explain`'e özel `--color` genel bayrağa taşındı (yazımı aynı).
+- **Davranış değişikliği.** Yeni **W3011** (ADR-0103, #93, 2026-10-06):
+  ham reset portu (`in rst : reset(...)`) modülün register'larına bırakma
+  senkronizörüyle giderken aynı port bir extern örneğine bağlanırsa uyarı.
+  Çıktı değişmez; extern ham reset'i almaya devam eder. Senkronize
+  kopyanın extern'e verilmesi v0.2'de ayrı karar;
+  `book/src/limitations.md`'de.
+- **Davranış değişikliği.** `on X`'te X saat portu değilse ve saat portu
+  açıklamaları döngü kuruyorsa E3002 artık ön uçtan gelir (ADR-0099,
+  2026-10-03): `volt check` ve editör gösterir. Saat portunun başka saat
+  portuyla açıklaması port sırasından bağımsız çözülür.
+- **Davranış değişikliği.** **E3016** (ADR-0098 eki 2, 2026-10-02) artık
+  `clock = none` alanındaki bir saatin flop üreten her kullanımını kapsar,
+  yalnız `on` bloğunu değil: `sync()` hedefi; kaynağı, alanının saat
+  portuyla önce yakalandığında `sync()` kaynağı; yerleşik primitifin saat
+  portu (`SyncFifo { clk: .. }` ve diğerleri); alanı kenarlı olan alt
+  modül saat portu; kontratların örneklendiği saat (modülün ilk saat
+  portu). Bunlar önceden derleniyor ve `posedge` flop üretiyordu; artık
+  hata verir. Saat portu olmayan kenarsız alandan `sync()` (asenkron
+  giriş) geçerli kalır.
+- **Davranış değişikliği.** **E0020** (ADR-0098 eki 2, 2026-10-02) çıkış
+  portlarını da kapsar: `out q` ve `on clk { q <= d }` reset dalı boş bir
+  flop üretiyordu; artık hata verir. Modülün çıkışı olan bundle alanı
+  (ters çevrilmiş `in` portunun `out` alanı dahil) da aynı kuralı alır.
+  Değeri bir register'da tutun ve portu ondan sürün: `reg q_r : u8 = 0`,
+  `on clk { q_r <= d }`, `q = q_r`.
+- **Davranış değişikliği.** SV üretimi her flop'un saat kenarını ve reset
+  dalını kaynaktan türetir, türetemediğinde varsaymaz (ADR-0098 eki 2,
+  2026-10-02): üretimden önce bir flop denetimi yapılır, ihlalde hiçbir
+  modül üretilmez. İki girdi bu yüzden artık hata verir: tetikleyicisi
+  saat portu olmayan `on` bloğu (`on d`, `d : bool`; önceden ilk saatin
+  reset'iyle `@(posedge d)` üretiliyordu) ve iki saat portunun birbirini
+  açıklaması (`in c1 : clock @c2`, `in c2 : clock @c1`). İkisi de
+  **E3002** alır.
+- **Davranış değişikliği.** Başka bir saat portuyla açıklanan saat
+  (`in c2 : clock @c1`) o saatin alanını alır (ADR-0098 eki 2,
+  2026-10-02). `c1` kenarı `negedge` olan bir alandaysa `on c2` flop'u
+  önceden `posedge` üretiliyordu.
+- **Davranış değişikliği.** **E0020** (yeni, ADR-0098 eki, 2026-10-02):
+  tel `on` bloğunda `<=` ile yazılamaz. `wire w : u8` ve
+  `on clk { w <= d }` önceden derleniyordu ve reset dalı boş bir flop
+  üretiyordu: reset sonrasında `w` önceki değerini koruyordu. Bu kod artık
+  hata verir. Öneri bildirimi reset değerli bir register olarak yeniden
+  yazar (`reg w : u8 = 0`, `bool` için `= false`, alan açıklaması
+  korunur); dizi, struct ve enum tiplerinde reset değerini siz yazarsınız.
+  Sinyal kombinasyonelse `comb` bloğunda ya da modül düzeyinde `=` ile
+  atayın.
+- **Davranış değişikliği.** **E3016** (yeni, ADR-0098 eki, 2026-10-02):
+  `clock = none` ile bildirilen (saat kenarı olmayan) alandaki bir saatin
+  `on` bloğu. Önceden derleniyor ve `always_ff @(posedge clk)` üretiyordu:
+  alanın var olmadığını söylediği bir kenarla zamanlanan flop. Bu kod
+  artık hata verir. Alana bir kenar verin (`clock = posedge`) ya da
+  sinyali kombinasyonel yazın. Kenarsız alandaki kombinasyonel sinyaller
+  geçerli kalır.
+- **Davranış değişikliği.** Tipsiz `let` (PR #72, ADR-0025 eki,
+  2026-10-01) artık type-inference.md §3.3'teki doğal genişlikte üretilir:
+  `+`/`-` bir bit, `*` iki katı genişler, tekli `-` `iN`'i `i(N+1)` yapar.
+  `a`, `b` `u8` iken `let s = a + b` artık 9 bittir (`wire [8:0] s`);
+  önceden 8 bitti ve 255 + 1 0 veriyordu. Kaydırma, bit düzeyi işleçler,
+  `/` ve `%` genişlemez.
 
 ### Eklendi — Aritmetik anlamın fark ve metamorfik testi (ADR-0108, 2026-11-04)
 
@@ -227,11 +289,8 @@ toplanır.
 
 ### Tanılar — v0.1.0 öncesi düzeltmeler (2026-10-06)
 
-- Yeni **W3011** (ADR-0103, #93): ham reset portu (`in rst : reset(...)`)
-  modülün register'larına bırakma senkronizörüyle giderken aynı port bir
-  extern örneğine bağlanırsa uyarı. Çıktı değişmez; extern ham reset'i
-  almaya devam eder. Senkronize kopyanın extern'e verilmesi v0.2'de ayrı
-  karar; `book/src/limitations.md`'de.
+- Bu girdinin maddesi (yeni W3011) sürüm başındaki Behavior changes
+  bölümüne taşındı.
 
 ### Belgeler — README demosu ve mevcut projede Volt (2026-10-05)
 
@@ -336,13 +395,10 @@ toplanır.
   sınırı söyler ve `bits<N>` önerir. Tanı, `volt explain` ve `volt
   doctor` metinleri ADR numarası ve ölü bağlantı taşımaz; kitap
   bağlantıları https://volt-hdl.github.io/volt/ altındadır.
+- E3002'nin ön uca taşınması sürüm başındaki Behavior changes bölümünde.
 - **Yeni uyarı W0025:** Volt.toml'da Volt'un okumadığı anahtar ya da
   bölüm ("did you mean"); `[dependencies]` paket yönetiminin henüz
   olmadığını söyler.
-- **Davranış değişikliği.** `on X`'te X saat portu değilse ve saat portu
-  açıklamaları döngü kuruyorsa E3002 artık ön uçtan gelir: `volt check`
-  ve editör gösterir. Saat portunun başka saat portuyla açıklaması port
-  sırasından bağımsız çözülür.
 - `volt doctor`: Docker kurulu ama kapalıysa "start Docker Desktop";
   imajda olmayan çözücü yalnız `volt verify --engine bitwuzla` Docker'da
   koşarken söylenir (çıkış 3, konteyner başlatılmaz).
@@ -353,48 +409,16 @@ toplanır.
 
 ### Değişti — Üretici varsayım yapmaz (ADR-0098 eki 2, 2026-10-02)
 
-- **Davranış değişikliği.** **E3016** artık `clock = none` alanındaki bir
-  saatin flop üreten her kullanımını kapsar, yalnız `on` bloğunu değil:
-  `sync()` hedefi; kaynağı, alanının saat portuyla önce yakalandığında
-  `sync()` kaynağı; yerleşik primitifin saat portu (`SyncFifo { clk: ..
-  }` ve diğerleri); alanı kenarlı olan alt modül saat portu; kontratların
-  örneklendiği saat (modülün ilk saat portu). Bunlar önceden derleniyor
-  ve `posedge` flop üretiyordu; artık hata verir. Saat portu olmayan
-  kenarsız alandan `sync()` (asenkron giriş) geçerli kalır.
-- **Davranış değişikliği.** **E0020** çıkış portlarını da kapsar: `out q`
-  ve `on clk { q <= d }` reset dalı boş bir flop üretiyordu; artık hata
-  verir. Modülün çıkışı olan bundle alanı (ters çevrilmiş `in` portunun
-  `out` alanı dahil) da aynı kuralı alır. Değeri bir register'da tutun ve
-  portu ondan sürün: `reg q_r : u8 = 0`, `on clk { q_r <= d }`, `q = q_r`.
-- **Davranış değişikliği.** SV üretimi her flop'un saat kenarını ve reset
-  dalını kaynaktan türetir, türetemediğinde varsaymaz: üretimden önce bir
-  flop denetimi yapılır, ihlalde hiçbir modül üretilmez. İki girdi bu
-  yüzden artık hata verir: tetikleyicisi saat portu olmayan `on` bloğu
-  (`on d`, `d : bool`; önceden ilk saatin reset'iyle `@(posedge d)`
-  üretiliyordu) ve iki saat portunun birbirini açıklaması (`in c1 : clock
-  @c2`, `in c2 : clock @c1`). İkisi de **E3002** alır.
-- **Düzeltildi.** Başka bir saat portuyla açıklanan saat (`in c2 : clock
-  @c1`) o saatin alanını alır. `c1` kenarı `negedge` olan bir alandaysa
-  `on c2` flop'u önceden `posedge` üretiliyordu.
+- Bu girdinin dört maddesi (E3016 ve E0020'nin genişlemesi, flop
+  denetimi, açıklanan saatin alanı) sürüm başındaki Behavior changes
+  bölümüne taşındı.
 - Bilinen sınırlar: kontratta dizi literali (`r == [prev(a), prev(b)]`)
   çoğu kipte araç hatasıyla durur; eleman eleman karşılaştırın.
 
 ### Değişti — Son sessiz yanlışlar (ADR-0098 eki, 2026-10-02)
 
-- **Davranış değişikliği.** **E0020** (yeni): tel `on` bloğunda `<=` ile
-  yazılamaz. `wire w : u8` ve `on clk { w <= d }` önceden derleniyordu ve
-  reset dalı boş bir flop üretiyordu: reset sonrasında `w` önceki değerini
-  koruyordu. Bu kod artık hata verir. Öneri bildirimi reset değerli bir
-  register olarak yeniden yazar (`reg w : u8 = 0`, `bool` için `= false`,
-  alan açıklaması korunur); dizi, struct ve enum tiplerinde reset değerini
-  siz yazarsınız. Sinyal kombinasyonelse `comb` bloğunda ya da modül
-  düzeyinde `=` ile atayın.
-- **Davranış değişikliği.** **E3016** (yeni): `clock = none` ile bildirilen
-  (saat kenarı olmayan) alandaki bir saatin `on` bloğu. Önceden derleniyor
-  ve `always_ff @(posedge clk)` üretiyordu: alanın var olmadığını söylediği
-  bir kenarla zamanlanan flop. Bu kod artık hata verir. Alana bir kenar
-  verin (`clock = posedge`) ya da sinyali kombinasyonel yazın. Kenarsız
-  alandaki kombinasyonel sinyaller geçerli kalır.
+- Bu girdinin iki maddesi (yeni E0020 ve E3016) sürüm başındaki Behavior
+  changes bölümüne taşındı.
 
 ### Düzeltildi — Kontratta parça seçimi ve dizi literali (ADR-0098 eki, 2026-10-02)
 
@@ -504,11 +528,8 @@ toplanır.
 
 ### Değişti — Tipsiz `let` doğal genişliği alır (PR #72, ADR-0025 eki, 2026-10-01)
 
-- **Davranış değişikliği.** Tipsiz `let` artık type-inference.md §3.3'teki
-  doğal genişlikte üretilir: `+`/`-` bir bit, `*` iki katı genişler, tekli
-  `-` `iN`'i `i(N+1)` yapar. `a`, `b` `u8` iken `let s = a + b` artık 9
-  bittir (`wire [8:0] s`); önceden 8 bitti ve 255 + 1 0 veriyordu. Kaydırma,
-  bit düzeyi işleçler, `/` ve `%` genişlemez.
+- Tipsiz `let`'in doğal genişliği sürüm başındaki Behavior changes
+  bölümünde.
 - 2^N sarmasına dayanan kod hedef tipi açıkça yazmalıdır: `let addr : u32
   = pc + 4`. Tipli `let` ve dar hedefe atama değişmedi (atama kesmeyi
   açık yazar: `wrap = s` → `8'(s)`). `examples/riscv_core.volt`'ta
@@ -2174,7 +2195,7 @@ toplanır.
 - Test: +81 (516 toplam); ui/fail 03, 04, 10, 11, 12, 17, 20 artık
   doğru kodu üretiyor; kapsam %83,9 (typeck %82,9).
 
-## [0.1.0] - 2026-09-03 — F0 tamamlandı
+## F0 aşaması - 2026-09-03 — sürüm değil
 
 ### Eklendi
 
