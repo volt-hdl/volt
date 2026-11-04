@@ -1375,7 +1375,7 @@ impl<'a> Emitter<'a> {
         hi: Idx<Expr>,
         lo: Option<Idx<Expr>>,
     ) -> Option<String> {
-        if self.is_selectable_base(base) {
+        if self.is_selectable_base(base) && (lo.is_some() || !self.index_width_mismatch(base, hi)) {
             return None;
         }
         // Bit seçimi değişken indeksle de olur; aralığın iki ucu sabittir.
@@ -1437,30 +1437,49 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Değişken indeks ve parça seçimi başlangıcı tabanın adres
-    /// genişliğinde (`clog2`): Verilator, genişliği farklı indekse WIDTH
-    /// uyarısı verir ve uyarı varsayılan olarak ölümcüldür (`x[i]`, x : u15,
-    /// i : u3 → `x[4'(i)]`, #123). Sınır dışı indeks zaten x'tir
-    /// (ADR-0035); kesmek anlamı değiştirmez. Sabit ve 32 bitlik indeks
-    /// (Verilator tamsayı indeksini uyarmaz) olduğu gibi kalır.
-    fn sized_index(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> String {
-        let text = self.emit_plain(index);
-        if self.eval_const(index).is_some() {
-            return text;
-        }
+    /// Vektörün adres genişliği (`clog2`); 1 bitlik taban ve bilinmeyen
+    /// genişlik `None`.
+    fn address_width(&mut self, base: Idx<Expr>) -> Option<u32> {
         let len = match crate::path_single(self.ast, base).and_then(|n| self.array_dims.get(n)) {
             Some(n) => *n,
-            None => match self.width_of(base) {
-                Some(s) => s.width,
-                None => return text,
-            },
+            None => self.width_of(base)?.width,
         };
-        if len < 2 {
+        (len >= 2).then(|| 32 - (len - 1).leading_zeros())
+    }
+
+    /// Değişken indeksin genişliği vektörün adres genişliğinden farklı mı?
+    /// Verilator böyle bir indekse WIDTH uyarısı verir (varsayılan olarak
+    /// ölümcül, #123); 32 bitlik (tamsayı) indeks uyarılmaz. Unpacked
+    /// dizinin elemanı (`regs[i]`) burada değil, `sized_index`'te.
+    fn index_width_mismatch(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> bool {
+        if self.eval_const(index).is_some()
+            || crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n))
+        {
+            return false;
+        }
+        match (self.address_width(base), self.natural_sig(index)) {
+            (Some(need), Some(s)) => s.width != need && s.width != 32,
+            _ => false,
+        }
+    }
+
+    /// Unpacked dizinin değişken indeksi dizinin adres genişliğinde
+    /// (Verilator WIDTH, #123): `regs[5'(i)]`. Sınır dışı indeks x'tir
+    /// (ADR-0035). Vektör seçiminde genişliği uymayan indeks kaydırmaya
+    /// iner (`select_from_value`): açık genişletilmiş başlangıçlı parça
+    /// seçimi (`p[7'(i) +: 69]`) Verilator 5.053'te iç hataya yol açar
+    /// (V3DfgPeephole "Out of range select").
+    fn sized_index(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> String {
+        let text = self.emit_plain(index);
+        let array =
+            crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n));
+        if !array || self.eval_const(index).is_some() {
             return text;
         }
-        let need = 32 - (len - 1).leading_zeros();
-        match self.natural_sig(index) {
-            Some(s) if s.width != need && s.width != 32 => format!("{need}'({text})"),
+        match (self.address_width(base), self.natural_sig(index)) {
+            (Some(need), Some(s)) if s.width != need && s.width != 32 => {
+                format!("{need}'({text})")
+            }
             _ => text,
         }
     }
@@ -1483,7 +1502,7 @@ impl<'a> Emitter<'a> {
         width: Idx<Expr>,
         ascending: bool,
     ) -> Option<String> {
-        if self.is_selectable_base(base) {
+        if self.is_selectable_base(base) && !self.index_width_mismatch(base, start) {
             return None;
         }
         let width = self.eval_const(width).filter(|&w| w >= 1)?;
