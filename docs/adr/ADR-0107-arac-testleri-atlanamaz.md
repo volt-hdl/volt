@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0079 — §6'daki iş tablosu: her araçlı CI adımının çalıştıracağı test ikililerini ve `VOLT_REQUIRE_TOOLS` değerini elle seçmesi
-> İlgili: ADR-0094 (Docker köprüsü: `docker_e2e_tests` kendi işinde, sıfır SKIP ile), ADR-0099 (testlerde araç arka ucu açık), ADR-0108 (fark testi araçlı işte, defterle)
+> İlgili: ADR-0094 (Docker köprüsü: `docker_e2e_tests` kendi işinde, sıfır SKIP ile), ADR-0099 (testlerde araç arka ucu açık), ADR-0108 (fark testi araçlı işte, defterle), ADR-0109 (mutasyon testinin her parçası araçlı işin araçlarıyla, sıfır SKIP)
 > Tarih: 2026-11-04
 > Etkilenen: `crates/volt-driver/tests/tools/mod.rs` (defter, `opt_in`),
 > `require_tools_tests.rs` (defter testleri, sondalar yalnız alt süreçte),

@@ -1,0 +1,71 @@
+# cargo-mutants configuration (ADR-0109). cargo-mutants 27.1.0 reads this
+# file from the workspace root; the workflow is .github/workflows/mutants.yml
+# (workflow_dispatch, 8 shards). Never run the full set locally: list
+# it (`cargo mutants --list`) or try one small file with `-j 1`.
+
+# Scope, phase 1: the files below are mutated, no other file or crate is
+# in scope in this phase (ADR-0109 section 2 lists what comes next).
+examine_globs = [
+    # 1. SystemVerilog emission of expressions: precedence, signed casts and
+    #    literals, isolation of width-dependent sub-expressions (ADR-0106 §6,
+    #    ADR-0108), self-determined positions, select forms.
+    "crates/volt-sv-emit/src/expr.rs",
+    # Wire width of an untyped `let` (natural width, ADR-0025).
+    "crates/volt-sv-emit/src/let_width.rs",
+    # 2. Width and type inference.
+    "crates/volt-hir/src/ty.rs",
+    "crates/volt-hir/src/typeck/width.rs",
+    "crates/volt-hir/src/typeck/binop.rs",
+    # E2031: comparison of different natural widths (ADR-0106).
+    "crates/volt-hir/src/typeck/compare_width.rs",
+    # W2010: narrowing `as`; E2009.
+    "crates/volt-hir/src/typeck/cast.rs",
+    "crates/volt-hir/src/typeck/check.rs",
+    "crates/volt-hir/src/typeck/synth.rs",
+    # `let` statements, natural-width `let`.
+    "crates/volt-hir/src/typeck/stmt.rs",
+    "crates/volt-hir/src/typeck/select.rs",
+]
+
+# Equivalent mutants (group A of ADR-0109 section 4): a mutation that does
+# not change behavior. Each entry is a regex over the mutant name as
+# `cargo mutants --list` prints it, with its reason in a comment above it.
+# Exclusions live here, never as `#[mutants::skip]` in the code.
+exclude_re = []
+
+# Every test of the workspace runs for every mutant: emitter faults are
+# caught by tests in other crates (volt-driver's difftest_tests, ADR-0108).
+test_workspace = true
+
+# nextest runs the test binaries in parallel and stops at the earliest failure.
+# `cargo test` runs them one after the other and the volt-hir and
+# volt-sv-emit unit tests come last (after ~8.5 minutes in the tool job), so
+# a mutant those tests catch would cost the whole suite.
+test_tool = "nextest"
+
+# --max-fail=1:immediate: at the earliest failing test the mutant is caught;
+# the tests still running (the differential test alone takes ~75 s) are
+# stopped instead of waited for.
+# docker_e2e_tests pulls ~650 MB of images and hides the local tools; as in
+# the CI tool job it is excluded by name (ADR-0107: it runs in its own job).
+additional_cargo_test_args = [
+    "--max-fail=1:immediate",
+    "-E", "not test(new_test_verify_and_run_through_docker)",
+]
+
+# Timeouts. cargo-mutants 27.1.0 tests the baseline (the unmutated tree) with
+# the mutated packages alone, even with test_workspace = true (src/lab.rs,
+# run_baseline), so a timeout derived from it is far too short for the
+# workspace suite that every mutant runs. The workflow therefore runs its own
+# baseline (every workspace test, every tool required), measures it and
+# passes `--baseline skip --timeout <2 x baseline, at least 300 s>`. Without
+# an explicit --timeout (a local try), this floor keeps the workspace suite
+# from timing out.
+minimum_test_timeout = 600
+
+# A mutation that just adds a warning still builds.
+cap_lints = true
+
+# Mutant i runs on shard i % 8: files mix across shards, which evens out
+# their cost.
+sharding = "round-robin"

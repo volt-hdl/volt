@@ -31,3 +31,7 @@ obj_*/
 # it in a temporary directory; fake_verilator_writes_nothing_into_the_source_tree
 # fails if it lands in the source tree again.
 verilator_args.txt
+
+# cargo-mutants output (ADR-0109); runs go to CI, a local try leaves this
+mutants.out/
+mutants.out.old/
