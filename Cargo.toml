@@ -13,6 +13,7 @@ members = [
     "crates/volt-tools",
     "crates/volt-driver",
     "crates/volt-lsp",
+    "crates/volt-difftest",
 ]
 
 [workspace.package]

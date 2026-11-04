@@ -1,0 +1,12 @@
+[package]
+name = "volt-difftest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Differential and metamorphic testing of Volt expression semantics against an independent reference model (ADR-0108)"
+
+# Bilerek boş: referans model derleyiciden bağımsızdır. Bu crate hiçbir
+# volt-* crate'ine bağlanmaz; derleyiciyi yalnız `volt` ikilisi olarak,
+# Verilator'u da bir süreç olarak çağırır (ADR-0108 §1).
+[dependencies]

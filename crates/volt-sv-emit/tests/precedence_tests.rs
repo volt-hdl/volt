@@ -329,13 +329,23 @@ impl SvParser {
     }
 }
 
-/// Boyut dönüşümü önekleri (`9'(a)`) parantez olarak okunur: öncelik
-/// ağacını değiştirmezler (karşılaştırma bağlamı, ADR-0106).
+/// Boyut dönüşümü önekleri (`9'(a)`) ve `$unsigned(`/`$signed(`
+/// sınırları parantez olarak okunur: öncelik ağacını değiştirmezler
+/// (karşılaştırma bağlamı ADR-0106, alt ifade yalıtımı #117).
 fn strip_size_casts(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
+        let rest: String = chars[i..].iter().collect();
+        if let Some(n) = ["$unsigned(", "$signed("]
+            .iter()
+            .find(|p| rest.starts_with(**p))
+            .map(|p| p.len() - 1)
+        {
+            i += n;
+            continue;
+        }
         let digits = chars[i..].iter().take_while(|c| c.is_ascii_digit()).count();
         let starts_word = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
         if digits > 0

@@ -28,3 +28,5 @@ anstyle-query.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 volt-tools = { path = "../volt-tools" }
+# ADR-0108: fark testinin referans modeli ve koşucusu (derleyiciden bağımsız)
+volt-difftest = { path = "../volt-difftest" }

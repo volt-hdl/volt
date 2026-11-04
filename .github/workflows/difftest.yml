@@ -1,0 +1,80 @@
+name: Differential test (large run)
+
+# ADR-0108: the large run of the differential and metamorphic test. Every
+# pull request runs a small fixed-seed run in the CI workflow's tool job
+# ("Verilator lint"); this workflow runs a large one on demand, split over
+# shards with consecutive seeds (seed, seed + 1, ...). Each shard prints its
+# seed, its count and its tool ledger; a shard fails on any difference.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "First seed (shard k uses seed + k)"
+        default: "20261105"
+        required: true
+      count:
+        description: "Accepted expressions per shard"
+        default: "12500"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
+  VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest.txt
+  OSS_CAD_SUITE_DATE: 2026-09-21
+
+jobs:
+  difftest:
+    name: Differential test, shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (verilator), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put OSS CAD Suite on PATH
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/verilator" --version
+      - name: Seed and count of this shard
+        id: shard
+        env:
+          SEED: ${{ inputs.seed || '20261105' }}
+          COUNT: ${{ inputs.count || '12500' }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          seed=$((SEED + SHARD))
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Differential test shard $SHARD::seed=$seed count=$COUNT"
+      - name: Differential test (Verilator required)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
+          VOLT_DIFFTEST_SEED: ${{ steps.shard.outputs.seed }}
+          VOLT_DIFFTEST_COUNT: ${{ steps.shard.outputs.count }}
+        run: cargo test --release -p volt-driver --test difftest_tests
+      - name: Differential test summary
+        if: always()
+        run: python3 scripts/ci/difftest_summary.py "$VOLT_DIFFTEST_SUMMARY" --job "shard ${{ matrix.shard }}"
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "difftest-${{ matrix.shard }}" --require-zero-skips --min-ran 1

@@ -12,6 +12,9 @@ env:
   # count at its end; the tool-coverage job cross-checks the ledgers.
   # Outside the checkout: the tests leave the working tree clean.
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
+  # ADR-0108: the differential test appends its report here (seed, count,
+  # accepted expressions, differences); the tool job prints it.
+  VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest.txt
 
 jobs:
   test:
@@ -104,10 +107,21 @@ jobs:
       # One exclusion, by name: docker_e2e_tests pulls ~650 MB of images and
       # hides the local tools; it runs in the docker-backend job with
       # VOLT_DOCKER_E2E=1 and zero skips required there.
+      # ADR-0108: difftest_tests runs here too, with a fixed seed and count
+      # (the large run is the "Differential test (large run)" workflow).
       - name: Every test, every tool required (ADR-0079, ADR-0107)
         env:
           VOLT_REQUIRE_TOOLS: all
+          VOLT_DIFFTEST_SEED: "20261104"
+          VOLT_DIFFTEST_COUNT: "2000"
         run: cargo test --workspace --no-fail-fast -- --skip new_test_verify_and_run_through_docker
+      # ADR-0108: seed, count, accepted expressions and differences of the
+      # differential test; fails when the test did not run or found one.
+      - name: Differential test summary (ADR-0108)
+        if: always()
+        run: |
+          python3 scripts/ci/difftest_summary.py --self-test
+          python3 scripts/ci/difftest_summary.py "$VOLT_DIFFTEST_SUMMARY" --job integration
       # ADR-0107: how many tests skipped for a missing tool, and which.
       - name: Tool ledger - SKIP count
         if: always()

@@ -54,7 +54,8 @@ fn an_unsuffixed_literal_let_is_w2012_alone_and_an_i32_wire() {
     for (tag, value, literal) in [
         ("dec", "100", "32'sd100"),
         ("big", "100000", "32'sd100000"),
-        ("hex", "0x10", "32'h10"),
+        // #116: işaretli telde onaltılık literal de işaretli (`'sh`).
+        ("hex", "0x10", "32'sh10"),
     ] {
         let (code, codes, sv) = build(tag, value);
         assert_eq!(codes, vec!["W2012"], "let k = {value}");
