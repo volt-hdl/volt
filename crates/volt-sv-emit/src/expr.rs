@@ -652,56 +652,16 @@ impl<'a> Emitter<'a> {
     fn widen_if_narrow(&mut self, idx: Idx<Expr>, text: String, ctx: Option<Sig>) -> String {
         let Some(target) = ctx else { return text };
         let kind = &self.ast.exprs[idx].kind;
-        // Aynı genişlikte, aynı işaretli dönüşüm bileşik işlenenini çıplak
-        // basar (`p & q | r`): boyut dönüşümü bağlamı içeri iterdi,
-        // Verilator içteki örtük genişlemeye WIDTHEXPAND verir (#123).
-        let bare_cast = match kind {
-            ExprKind::Cast { expr, .. } => {
-                !matches!(
-                    self.ast.exprs[*expr].kind,
-                    ExprKind::Path(_)
-                        | ExprKind::Field { .. }
-                        | ExprKind::Index { .. }
-                        | ExprKind::Range { .. }
-                        | ExprKind::PartSelect { .. }
-                        | ExprKind::Concat(_)
-                        | ExprKind::IntLit { .. }
-                        | ExprKind::Cast { .. }
-                ) && !text.starts_with('$')
-                    && !text.starts_with('{')
-                    && !starts_with_size_cast(&text)
+        let isolate = matches!(
+            kind,
+            ExprKind::Binary {
+                op: BinOp::Shl | BinOp::Shr,
+                ..
+            } | ExprKind::Unary {
+                op: UnOp::BitNot,
+                ..
             }
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
-            | ExprKind::Binary { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => false,
-        };
-        let isolate = bare_cast
-            || matches!(
-                kind,
-                ExprKind::Binary {
-                    op: BinOp::Shl | BinOp::Shr,
-                    ..
-                } | ExprKind::Unary {
-                    op: UnOp::BitNot,
-                    ..
-                }
-            );
+        );
         let self_sized = matches!(
             kind,
             ExprKind::Range { .. }
@@ -713,12 +673,7 @@ impl<'a> Emitter<'a> {
         if !(atom || isolate || self_sized) {
             return text;
         }
-        let own = if isolate {
-            self.natural_sig(idx)
-        } else {
-            self.width_of(idx)
-        };
-        match own {
+        match self.width_of(idx) {
             Some(src) if src.width < target.width && src.signed == target.signed => {
                 if isolate {
                     let sign = if src.signed { "$signed" } else { "$unsigned" };
@@ -728,10 +683,8 @@ impl<'a> Emitter<'a> {
                 }
             }
             // Doğal genişlikteki tipsiz `let` dar hedefe: taşma biti
-            // bilerek atılır (ADR-0025), kesme açık yazılır. Kendi
-            // genişliğini taşıyan ifade (kaydırma, seçim, dönüşüm) de: SV'de
-            // geniş işlenen bağlamı genişletirdi (`(p | q << 4) == t`, #117).
-            Some(src) if src.width > target.width && src.signed == target.signed => {
+            // bilerek atılır (ADR-0025), kesme açık yazılır.
+            Some(src) if atom && src.width > target.width && src.signed == target.signed => {
                 format!("{}'({text})", target.width)
             }
             _ => text,
@@ -764,35 +717,8 @@ impl<'a> Emitter<'a> {
     /// Atama konumu (assign / let / `<=` / `=` / port bağlama): RHS
     /// hedef imzasıyla basılır, dar atom ya da kaydırma sonucu sarılır.
     pub(crate) fn emit_assigned(&mut self, idx: Idx<Expr>, target: Option<Sig>) -> String {
-        // ADR-0041 itmesi: en üstteki aritmetik işlem, işlenenler hedefe
-        // sığıyorsa hedef genişlikte yapılır (işlenenler `emit_operand`'da
-        // yalıtılır). Başka bir ifade daha geniş hedefe doğal değeriyle
-        // girer (#117).
-        if !self.pushes_into(idx, target) {
-            if let Some(text) = self.isolate_if_dependent(idx, target) {
-                return text;
-            }
-        }
         let text = self.emit_expr(idx, target);
         self.widen_if_narrow(idx, text, target)
-    }
-
-    /// Check kipinde itme (ADR-0041): aritmetik işlemin literal olmayan
-    /// her işleneni hedefle aynı işaretli ve doğal genişliği hedefe sığıyor.
-    fn pushes_into(&mut self, idx: Idx<Expr>, target: Option<Sig>) -> bool {
-        let Some(t) = target else { return false };
-        let ExprKind::Binary { op, lhs, rhs } = self.ast.exprs[idx].kind else {
-            return false;
-        };
-        if !is_arith(op) {
-            return false;
-        }
-        [lhs, rhs].into_iter().all(|o| {
-            matches!(self.ast.exprs[o].kind, ExprKind::IntLit { .. })
-                || self
-                    .natural_sig(o)
-                    .is_some_and(|s| s.signed == t.signed && s.width <= t.width)
-        })
     }
 
     /// Aritmetik/tekli/ternary operandı: bağlamla basılır, dar atom sarılır.
@@ -803,9 +729,6 @@ impl<'a> Emitter<'a> {
         parent_prec: u8,
         is_right: bool,
     ) -> String {
-        if let Some(text) = self.isolate_if_dependent(idx, ctx) {
-            return text;
-        }
         let text = self.emit_prec(idx, ctx, parent_prec, is_right);
         self.widen_if_narrow(idx, text, ctx)
     }
@@ -848,79 +771,8 @@ impl<'a> Emitter<'a> {
             | ExprKind::Todo { .. }
             | ExprKind::Error => match self.eval_const(idx) {
                 Some(v) => v.to_string(),
-                None => self.emit_self_sized(idx),
+                None => self.emit_prec(idx, None, PREC_ATOM, false),
             },
-        }
-    }
-
-    /// Öz-belirlenimli konum (indeks, parça seçimi başlangıcı, kaydırma
-    /// miktarı): bağlam yoktur, SV ifadeyi işlenenlerinin genişliğinde
-    /// hesaplar. Değer doğal genişliğinde olmalı (`p[(a + b) +: 4]` taşmayı
-    /// okur, #117): işlenenler doğal genişliğe genişletilir; değeri
-    /// genişliğe bağlı ağaç `$unsigned`/`$signed` sınırıyla yalıtılır
-    /// (araç indeksi daha geniş hesaplayabilir).
-    fn emit_self_sized(&mut self, idx: Idx<Expr>) -> String {
-        let nat = self.natural_sig(idx);
-        let text = self.emit_prec(idx, nat, PREC_ATOM, false);
-        match nat {
-            Some(n)
-                if self.tree_width_dependent(idx)
-                    && !matches!(self.ast.exprs[idx].kind, ExprKind::Path(_)) =>
-            {
-                let sign = if n.signed { "$signed" } else { "$unsigned" };
-                format!("{sign}({text})")
-            }
-            _ => text,
-        }
-    }
-
-    /// `width_dependent`, bağlamın içeri aktığı ağaç boyunca: aritmetik,
-    /// bit işlemi ve `-` işlenenlerinde; seçim, dönüşüm, karşılaştırma
-    /// kendi sınırıdır.
-    pub(crate) fn tree_width_dependent(&mut self, idx: Idx<Expr>) -> bool {
-        if self.width_dependent(idx) {
-            return true;
-        }
-        let ast = self.ast;
-        match &ast.exprs[idx].kind {
-            ExprKind::Binary { op, lhs, rhs } if is_arith(*op) || is_bitwise(*op) => {
-                let (lhs, rhs) = (*lhs, *rhs);
-                self.tree_width_dependent(lhs) || self.tree_width_dependent(rhs)
-            }
-            ExprKind::Unary {
-                op: UnOp::Neg,
-                operand,
-            } => {
-                let o = *operand;
-                self.tree_width_dependent(o)
-            }
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                self.tree_width_dependent(t) || self.tree_width_dependent(e)
-            }
-            ExprKind::Binary { .. }
-            | ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => false,
         }
     }
 
@@ -999,29 +851,6 @@ impl<'a> Emitter<'a> {
                     }
                 }
             }
-            // `-K` literaldir: değer işaretiyle biçimlenir, en küçük negatif
-            // değer örüntüsüyle (`1'sh1`, #116).
-            ExprKind::Unary {
-                op: UnOp::Neg,
-                operand,
-            } if matches!(
-                ast.exprs[*operand].kind,
-                ExprKind::IntLit { suffix: None, .. }
-            ) =>
-            {
-                let ExprKind::IntLit { value, base, .. } = ast.exprs[*operand].kind else {
-                    unreachable!()
-                };
-                let value = i128::try_from(value).unwrap_or(i128::MAX);
-                let text = self.fmt_int(-value, base, ctx, span);
-                // Tekli `-` önceliği (eski `-8'sd3` yazımıyla aynı parantezler).
-                let prec = if text.starts_with('-') {
-                    PREC_UNARY
-                } else {
-                    PREC_ATOM
-                };
-                (text, prec)
-            }
             ExprKind::Unary { op, operand } => {
                 let operand = *operand;
                 let sym = op.symbol();
@@ -1044,8 +873,7 @@ impl<'a> Emitter<'a> {
                 // dönüşümünü (`-9'(a)`, `~9'(a)`) "Static cast with zero or
                 // negative size" ile reddeder; parantez anlamı değiştirmez
                 // (ADR-0079 §1.3).
-                // `-(-x)` SV'de `--` (azaltma) olurdu (#118).
-                if starts_with_size_cast(&inner) || (sym == "-" && inner.starts_with('-')) {
+                if starts_with_size_cast(&inner) {
                     (format!("{sym}({inner})"), PREC_UNARY)
                 } else {
                     (format!("{sym}{inner}"), PREC_UNARY)
@@ -1087,10 +915,9 @@ impl<'a> Emitter<'a> {
                     }
                     None => match self.select_from_value(base, index, None) {
                         Some(text) => (text, PREC_ATOM),
-                        None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                         None => {
                             let b = self.emit_prec(base, None, PREC_ATOM, false);
-                            let i = self.sized_index(base, index);
+                            let i = self.emit_plain(index);
                             (format!("{b}[{i}]"), PREC_ATOM)
                         }
                     },
@@ -1100,7 +927,6 @@ impl<'a> Emitter<'a> {
                 let (base, hi, lo) = (*base, *hi, *lo);
                 match self.select_from_value(base, hi, Some(lo)) {
                     Some(text) => (text, PREC_ATOM),
-                    None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);
                         let hi = self.emit_plain(hi);
@@ -1118,10 +944,9 @@ impl<'a> Emitter<'a> {
                 let (base, start, width, asc) = (*base, *start, *width, *ascending);
                 match self.part_select_from_value(base, start, width, asc) {
                     Some(text) => (text, PREC_ATOM),
-                    None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);
-                        let s = self.sized_index(base, start);
+                        let s = self.emit_plain(start);
                         let w = self.emit_plain(width);
                         let op = if asc { "+:" } else { "-:" };
                         (format!("{b}[{s} {op} {w}]"), PREC_ATOM)
@@ -1306,9 +1131,8 @@ impl<'a> Emitter<'a> {
                 width: 1,
                 signed: false,
             }),
-            // Kaydırmada sol operanda dış bağlam itilmez (ADR-0036); sol
-            // operand doğal genişliğindedir (`(a + b) >> n` taşmayı okur, #117).
-            BinOp::Shl | BinOp::Shr => self.natural_sig(lhs),
+            // Kaydırmada sol operanda dış bağlam itilmez (ADR-0036).
+            BinOp::Shl | BinOp::Shr => self.width_of(lhs),
             BinOp::Add
             | BinOp::Sub
             | BinOp::Mul
@@ -1328,8 +1152,6 @@ impl<'a> Emitter<'a> {
         let widen = is_arith(op) || is_comparison(op);
         let l = if widen {
             self.emit_operand(lhs, operand_ctx, prec, false)
-        } else if let Some(text) = self.isolate_if_dependent(lhs, operand_ctx) {
-            text
         } else {
             let text = self.emit_prec(lhs, operand_ctx, prec, false);
             let text = self.paren_comparison_under_bitwise(op, lhs, text);
@@ -1345,8 +1167,6 @@ impl<'a> Emitter<'a> {
             }
         } else if widen {
             self.emit_operand(rhs, operand_ctx, prec, true)
-        } else if let Some(text) = self.isolate_if_dependent(rhs, operand_ctx) {
-            text
         } else {
             let text = self.emit_prec(rhs, operand_ctx, prec, true);
             let text = self.paren_comparison_under_bitwise(op, rhs, text);
@@ -1375,7 +1195,7 @@ impl<'a> Emitter<'a> {
         hi: Idx<Expr>,
         lo: Option<Idx<Expr>>,
     ) -> Option<String> {
-        if self.is_selectable_base(base) && (lo.is_some() || !self.index_width_mismatch(base, hi)) {
+        if self.is_selectable_base(base) {
             return None;
         }
         // Bit seçimi değişken indeksle de olur; aralığın iki ucu sabittir.
@@ -1392,103 +1212,14 @@ impl<'a> Emitter<'a> {
     /// Seçimin tabanı SystemVerilog'da doğrudan seçilebilir bir ad mı
     /// (sinyal, dizi elemanı, alan, seçim)? Katlanan sabit seçilemez.
     fn is_selectable_base(&self, base: Idx<Expr>) -> bool {
-        // Tek boyutlu paketlenmiş vektörün seçimi yeniden seçilemez
-        // (`a[7:0][3:0]` geçersiz SV) ve bileşik değerin seçimi boyut
-        // dönüşümüdür (`70'(...)[69:0]` geçersiz, #119); seçilebilen
-        // yalnız ad, alan ve unpacked dizinin elemanıdır.
-        let selectable = match &self.ast.exprs[base].kind {
-            ExprKind::Path(_) | ExprKind::Field { .. } => true,
-            ExprKind::Index { base: b, .. } => {
-                crate::path_single(self.ast, *b).is_some_and(|n| self.array_dims.contains_key(n))
-            }
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Binary { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Cast { .. }
-            | ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => false,
-        };
-        selectable && self.eval_const(base).is_none()
-    }
-
-    /// 1 bitlik değer SV'de skaler `logic`tir: `x[0]`, `x[0:0]` ve
-    /// `x[0 +: 1]` geçersizdir, seçim değerin kendisidir (#120). Unpacked
-    /// dizinin adı (eleman seçimi) bu kurala girmez.
-    /// 1 bitlik tabandan seçim: değerin kendisi, seçim işaretsizdir
-    /// (`i1` taban `$unsigned`, yoksa parça seçimi başlangıcında 1, -1
-    /// okunur).
-    fn scalar_select(&mut self, base: Idx<Expr>) -> String {
-        let text = self.emit_prec(base, None, PREC_ATOM, false);
-        if self.width_of(base).is_some_and(|s| s.signed) {
-            format!("$unsigned({text})")
-        } else {
-            text
-        }
-    }
-
-    /// Vektörün adres genişliği (`clog2`); 1 bitlik taban ve bilinmeyen
-    /// genişlik `None`.
-    fn address_width(&mut self, base: Idx<Expr>) -> Option<u32> {
-        let len = match crate::path_single(self.ast, base).and_then(|n| self.array_dims.get(n)) {
-            Some(n) => *n,
-            None => self.width_of(base)?.width,
-        };
-        (len >= 2).then(|| 32 - (len - 1).leading_zeros())
-    }
-
-    /// Değişken indeksin genişliği vektörün adres genişliğinden farklı mı?
-    /// Verilator böyle bir indekse WIDTH uyarısı verir (varsayılan olarak
-    /// ölümcül, #123); 32 bitlik (tamsayı) indeks uyarılmaz. Unpacked
-    /// dizinin elemanı (`regs[i]`) burada değil, `sized_index`'te.
-    fn index_width_mismatch(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> bool {
-        if self.eval_const(index).is_some()
-            || crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n))
-        {
-            return false;
-        }
-        match (self.address_width(base), self.natural_sig(index)) {
-            (Some(need), Some(s)) => s.width != need && s.width != 32,
-            _ => false,
-        }
-    }
-
-    /// Unpacked dizinin değişken indeksi dizinin adres genişliğinde
-    /// (Verilator WIDTH, #123): `regs[5'(i)]`. Sınır dışı indeks x'tir
-    /// (ADR-0035). Vektör seçiminde genişliği uymayan indeks kaydırmaya
-    /// iner (`select_from_value`): açık genişletilmiş başlangıçlı parça
-    /// seçimi (`p[7'(i) +: 69]`) Verilator 5.053'te iç hataya yol açar
-    /// (V3DfgPeephole "Out of range select").
-    fn sized_index(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> String {
-        let text = self.emit_plain(index);
-        let array =
-            crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n));
-        if !array || self.eval_const(index).is_some() {
-            return text;
-        }
-        match (self.address_width(base), self.natural_sig(index)) {
-            (Some(need), Some(s)) if s.width != need && s.width != 32 => {
-                format!("{need}'({text})")
-            }
-            _ => text,
-        }
-    }
-
-    fn is_scalar_base(&mut self, base: Idx<Expr>) -> bool {
-        if crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n)) {
-            return false;
-        }
-        self.width_of(base).is_some_and(|s| s.width == 1)
+        matches!(
+            self.ast.exprs[base].kind,
+            ExprKind::Path(_)
+                | ExprKind::Index { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::Range { .. }
+                | ExprKind::PartSelect { .. }
+        ) && self.eval_const(base).is_none()
     }
 
     /// Bileşik değerden indexed part-select (#112): `(a + b)[i +: 4]` →
@@ -1502,7 +1233,7 @@ impl<'a> Emitter<'a> {
         width: Idx<Expr>,
         ascending: bool,
     ) -> Option<String> {
-        if self.is_selectable_base(base) && !self.index_width_mismatch(base, start) {
+        if self.is_selectable_base(base) {
             return None;
         }
         let width = self.eval_const(width).filter(|&w| w >= 1)?;
@@ -1516,16 +1247,10 @@ impl<'a> Emitter<'a> {
                 None => {
                     let s = self.emit_plain(start);
                     // Sabit, başlangıcın genişliğinde yazılır (Verilator
-                    // -Wall WIDTHEXPAND vermez); sığmıyorsa fark sabitin
-                    // genişliğinde (`(5'(s) - 5'd27)`, s : u1, #123):
-                    // başlangıç sabitten küçükse seçim zaten sınır dışı (x).
-                    let need = 128 - (down as u128).leading_zeros();
-                    match self.natural_sig(start) {
+                    // -Wall WIDTHEXPAND vermez); sığmıyorsa boyutsuz.
+                    match self.width_of(start) {
                         Some(sig) if sig.width < 127 && down < (1i128 << sig.width) => {
                             format!("({s} - {}'d{down})", sig.width)
-                        }
-                        Some(sig) if sig.width < need => {
-                            format!("({need}'({s}) - {need}'d{down})")
                         }
                         _ => format!("({s} - {down})"),
                     }
@@ -1678,28 +1403,7 @@ impl<'a> Emitter<'a> {
             let inner = self.emit_prec(operand, Some(target), PREC_TERNARY, false);
             return format!("{}'({inner})", target.width);
         }
-        let simple = matches!(&self.ast.exprs[operand].kind, ExprKind::Path(_));
-        // Kaynak doğal genişliğindedir (ADR-0025: `as` aralığı doğal
-        // genişliğe sabitler): bileşik işlenen o genişlikte hesaplanır,
-        // `(a - b) as u16` borç bitini, `(x + x) as u7` taşmayı görür (#117).
-        // Değeri genişlikten bağımsız işlenende (taşmasız `+`, `*`, bit
-        // işlemi) boyut dönüşümünün bağlamı yeter ve kaba genişlik eski
-        // metni korur.
-        let rough = self.width_of(operand);
-        let nat = if simple {
-            rough
-        } else {
-            self.natural_sig(operand)
-        };
-        // Değeri genişlikten bağımsız ağaçta kaba genişlik yeter (boyut
-        // dönüşümü bağlamı kurar, eski metin korunur), yalnız kaba genişlik
-        // hedefe eşitken değil: `(x + y) as i25` (x, y : i25) doğal
-        // genişlikte (i26) daraltmadır, dönüşüm düşmemeli.
-        let tree_dep = !simple && self.tree_width_dependent(operand);
-        let src = match rough {
-            Some(r) if !tree_dep && r.width != target.width => rough,
-            _ => nat,
-        };
+        let src = self.width_of(operand);
         // Soneksiz literal (`0 as bits<8>`): hedef genişliğinde
         // boyutlandırılmış literal — ara genişlik yoktur (ADR-0051).
         if src.is_none() && matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) {
@@ -1731,70 +1435,14 @@ impl<'a> Emitter<'a> {
                 inner
             };
         }
-        // Bileşik işlenen değeri genişliğe bağlıysa (`~`, kaydırma,
-        // işaretsiz çıkarma, kesilen esnek işlenen) genişleten boyut
-        // dönüşümü ve dış bağlam (aynı genişlikte, aynı işaretli dönüşüm
-        // işlenenini olduğu gibi bırakır) onu daha geniş hesaplardı:
-        // öz-belirlenimli sınırla yalıtılır. Daraltmada ve işaret
-        // değişiminde gerekmez (boyut dönüşümü işleneni doğal genişliğinde
-        // görür; `$signed`/`$unsigned` zaten sınırdır).
-        let isolate = tree_dep
-            && (target.width > src.width
-                || (target.width == src.width && target.signed == src.signed));
-        let inner = if isolate {
-            let sign = if src.signed { "$signed" } else { "$unsigned" };
-            format!("{sign}({inner})")
-        } else {
-            inner
-        };
-        // SV ifadesinin işareti hedefin işareti olmalı (#115): birleştirme
-        // ve dilim işaretsizdir, boyut dönüşümü kaynağın işaretini taşır.
-        let fix_sign = |text: String, sv_signed: bool| -> String {
-            match (target.signed, sv_signed) {
-                (true, false) => format!("$signed({text})"),
-                (false, true) => format!("$unsigned({text})"),
-                _ => text,
-            }
-        };
-        // Kendi genişliğini taşıyan kaynak (ad, alan, seçim, birleştirme,
-        // literal, dönüşüm) birleştirmeyle sıfır genişletilir; bileşik
-        // ifade birleştirmede kendi (kaba) genişliğinde hesaplanırdı
-        // (`{{8{1'b0}}, (a - b)}` borç bitini kaybeder, #117).
-        let self_sized = matches!(
-            &self.ast.exprs[operand].kind,
-            ExprKind::Path(_)
-                | ExprKind::Field { .. }
-                | ExprKind::Index { .. }
-                | ExprKind::Range { .. }
-                | ExprKind::PartSelect { .. }
-                | ExprKind::Concat(_)
-                | ExprKind::IntLit { .. }
-                | ExprKind::Cast { .. }
-        );
-        // Değeri genişlikten bağımsız bileşik işlenen hedef genişlikte
-        // basılır, atomları açıkça genişletilerek: `W'(a + b)` SV'de içini
-        // W bitte hesaplar ama Verilator içteki örtük genişlemeye WIDTHEXPAND
-        // verir (varsayılan olarak ölümcül, #123).
-        if target.width > src.width && !simple && !self_sized && !tree_dep {
-            let ctx = Sig {
-                width: target.width,
-                signed: src.signed,
-            };
-            let text = self.emit_prec(operand, Some(ctx), PREC_ATOM, false);
-            // Boyut dönüşümü sınırdır: dışta ikinci bir dönüşüm
-            // (`x as i13 as i40`) bağlamı içeri itmesin.
-            return fix_sign(format!("{}'({text})", target.width), src.signed);
-        }
+        let simple = matches!(&self.ast.exprs[operand].kind, ExprKind::Path(_));
         if target.width > src.width {
             let n = target.width - src.width;
-            match (src.signed, simple, self_sized) {
+            match (src.signed, simple) {
                 // sign-extend: {{N{a[msb]}}, a} — basit isimde
-                (true, true, _) => fix_sign(
-                    format!("{{{{{n}{{{inner}[{}]}}}}, {inner}}}", src.width - 1),
-                    false,
-                ),
-                (false, _, true) => fix_sign(format!("{{{{{n}{{1'b0}}}}, {inner}}}"), false),
-                _ => fix_sign(format!("{}'({inner})", target.width), src.signed),
+                (true, true) => format!("{{{{{n}{{{inner}[{}]}}}}, {inner}}}", src.width - 1),
+                (false, _) => format!("{{{{{n}{{1'b0}}}}, {inner}}}"),
+                (true, false) => format!("{}'({inner})", target.width),
             }
         } else if target.width == src.width {
             // Aynı genişlikte işaret DEĞİŞİYORSA no-op değildir (ADR-0036):
@@ -1810,126 +1458,10 @@ impl<'a> Emitter<'a> {
             }
         } else if simple {
             // daraltma: basit isim dilimlenir
-            fix_sign(format!("{inner}[{}:0]", target.width - 1), false)
+            format!("{inner}[{}:0]", target.width - 1)
         } else {
-            fix_sign(format!("{}'({inner})", target.width), src.signed)
+            format!("{}'({inner})", target.width)
         }
-    }
-
-    /// Değeri hesaplandığı genişliğe bağlı mı (#117)? Daha geniş bir SV
-    /// bağlamında hesaplanınca doğal genişliğindeki değerinin genişletilmişi
-    /// olmayan işlem: kaydırma ve `~` (ADR-0106 §6), işaretsiz çıkarma
-    /// (borç doğal genişlikte sarar), işleneni sonucun doğal genişliğinden
-    /// geniş olan aritmetik ve bit işlemi (esnek işlenenin kesilen taşması,
-    /// ADR-0025). Yerel bakar: iç işlenenler kendi bağlamlarında yalıtılır.
-    pub(crate) fn width_dependent(&mut self, idx: Idx<Expr>) -> bool {
-        let ast = self.ast;
-        match &ast.exprs[idx].kind {
-            ExprKind::Binary { op, lhs, rhs } => {
-                let (op, lhs, rhs) = (*op, *lhs, *rhs);
-                match op {
-                    BinOp::Shl | BinOp::Shr => true,
-                    BinOp::Sub
-                        if self.natural_sig(idx).is_some_and(|s| !s.signed)
-                            && self.eval_const(idx).is_none() =>
-                    {
-                        true
-                    }
-                    // Esnek işlenen: iki yanın doğal genişliği farklıysa işlem
-                    // ortak genişlikte (kesişimin üst ucu) yapılır, geniş yan
-                    // kesilir ya da sonuç doğal genişliğinde sarar
-                    // (`s + c`, s : u8..u9 → 9 bitte 766 sarar).
-                    BinOp::Add
-                    | BinOp::Sub
-                    | BinOp::Mul
-                    | BinOp::BitAnd
-                    | BinOp::BitOr
-                    | BinOp::BitXor => {
-                        let is_lit = |e: &Self, o: Idx<Expr>| {
-                            matches!(e.ast.exprs[o].kind, ExprKind::IntLit { .. })
-                                || e.eval_const(o).is_some()
-                        };
-                        if is_lit(self, lhs) || is_lit(self, rhs) {
-                            return false;
-                        }
-                        match (self.natural_sig(lhs), self.natural_sig(rhs)) {
-                            (Some(l), Some(r)) => l.width != r.width,
-                            _ => false,
-                        }
-                    }
-                    BinOp::Div
-                    | BinOp::Rem
-                    | BinOp::Eq
-                    | BinOp::Ne
-                    | BinOp::Lt
-                    | BinOp::Gt
-                    | BinOp::Le
-                    | BinOp::Ge
-                    | BinOp::And
-                    | BinOp::Or
-                    | BinOp::Imp => false,
-                }
-            }
-            ExprKind::Unary {
-                op: UnOp::BitNot, ..
-            } => true,
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                self.width_dependent(t) || self.width_dependent(e)
-            }
-            // Dönüşüm kendi sınırını kurar (`emit_cast`); seçim, ad, literal
-            // ve karşılaştırma değeri genişlikten bağımsızdır.
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => false,
-        }
-    }
-
-    /// Daha geniş bağlama giren değeri genişliğe bağlı işlenen (#117):
-    /// doğal genişliğinde hesaplanır ve `W'($unsigned(...))` /
-    /// `W'($signed(...))` ile yalıtılır. Kaydırma ve `~` zaten
-    /// `widen_if_narrow`'da yalıtılır (ADR-0106 §6).
-    fn isolate_if_dependent(&mut self, idx: Idx<Expr>, ctx: Option<Sig>) -> Option<String> {
-        let ctx = ctx?;
-        let kind = &self.ast.exprs[idx].kind;
-        if matches!(
-            kind,
-            ExprKind::Binary {
-                op: BinOp::Shl | BinOp::Shr,
-                ..
-            } | ExprKind::Unary {
-                op: UnOp::BitNot,
-                ..
-            }
-        ) {
-            return None;
-        }
-        let nat = self.natural_sig(idx)?;
-        if nat.width >= ctx.width || nat.signed != ctx.signed || !self.width_dependent(idx) {
-            return None;
-        }
-        let inner = self.emit_prec(idx, Some(nat), PREC_TERNARY, false);
-        let sign = if nat.signed { "$signed" } else { "$unsigned" };
-        Some(format!("{}'({sign}({inner}))", ctx.width))
     }
 
     /// Sayısal literal boyutlandırma (§10). Negatif değer `-16'sd2`.
@@ -1958,35 +1490,12 @@ impl<'a> Emitter<'a> {
         let w = sig.width;
         let neg = if value < 0 { "-" } else { "" };
         let mag = value.unsigned_abs();
-        // İşaretli bağlamda her taban işaretli yazılır: işaretsiz bir
-        // işlenen SV'de bütün işlemi işaretsiz yapar (#116).
-        let s = if sig.signed { "s" } else { "" };
-        // Bağlamdan geniş pozitif literal (esnek işlenenin yanındaki
-        // literal, daha dar bit işlemi bağlamında): SV onu zaten keser;
-        // kesilmiş örüntüyle yazılır, Verilator WIDTHTRUNC vermez (#123).
-        let max = if sig.signed {
-            (1u128 << (w - 1)) - 1
-        } else if w >= 128 {
-            u128::MAX
-        } else {
-            (1u128 << w) - 1
-        };
-        if value >= 0 && w < 128 && value as u128 > max {
-            let pattern = (value as u128) & ((1u128 << w) - 1);
-            return format!("{w}'{s}h{pattern:X}");
-        }
-        // `-W'sdM`, M = 2^(W-1) iken `W'sdM` kendisi negatiftir; daha geniş
-        // bağlamda genişleyip olumsuzlanınca pozitif olurdu (#116): en
-        // küçük negatif değer örüntüsüyle yazılır (`8'sh80`).
-        if sig.signed && value < 0 && w < 128 && mag >= 1u128 << (w - 1) {
-            let pattern = (value as u128) & ((1u128 << w) - 1);
-            return format!("{w}'sh{pattern:X}");
-        }
         match base {
-            NumBase::Hex => format!("{neg}{w}'{s}h{mag:X}"),
-            NumBase::Bin => format!("{neg}{w}'{s}b{mag:b}"),
-            NumBase::Oct => format!("{neg}{w}'{s}o{mag:o}"),
-            NumBase::Dec => format!("{neg}{w}'{s}d{mag}"),
+            NumBase::Hex => format!("{neg}{w}'h{mag:X}"),
+            NumBase::Bin => format!("{neg}{w}'b{mag:b}"),
+            NumBase::Oct => format!("{neg}{w}'o{mag:o}"),
+            NumBase::Dec if sig.signed => format!("{neg}{w}'sd{mag}"),
+            NumBase::Dec => format!("{neg}{w}'d{mag}"),
         }
     }
 }
