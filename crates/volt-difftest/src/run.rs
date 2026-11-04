@@ -85,6 +85,9 @@ pub enum Class {
     /// Üretilen SV'de Verilator WIDTH uyarısı: varsayılan olarak ölümcül,
     /// `volt test` durur (#123).
     WidthLint,
+    /// Regresyon örneğinin spesifikasyondan elle hesaplanmış değeri
+    /// Verilator'unkinden farklı (modelden bağımsız, `regress.rs`).
+    PinnedDiff,
 }
 
 impl Class {
@@ -106,6 +109,7 @@ impl Class {
             Class::WidthLint => {
                 "Verilator WIDTH warning in the generated SV (fatal by default, volt test stops)"
             }
+            Class::PinnedDiff => "value differs from the hand-computed (spec) value",
         }
     }
 }
@@ -127,6 +131,8 @@ pub struct Finding {
 pub struct Report {
     /// Regresyon kümesi: (örnek sayısı, düşen örnek sayısı).
     pub regressions: (usize, usize),
+    /// Elle hesaplanmış değerler: (toplam, Verilator'la karşılaştırılan).
+    pub pinned: (usize, usize),
     pub seed: u64,
     pub target: usize,
     pub generated: usize,
@@ -154,7 +160,7 @@ impl Report {
     }
 
     pub fn ok(&self) -> bool {
-        self.hard_findings() == 0 && self.accepted >= self.target
+        self.hard_findings() == 0 && self.accepted >= self.target && self.pinned.0 == self.pinned.1
     }
 
     pub fn summary_line(&self) -> String {
@@ -177,8 +183,8 @@ impl Report {
         let _ = writeln!(s, "{}", self.summary_line());
         let _ = writeln!(
             s,
-            "difftest: regressions={} failed={}",
-            self.regressions.0, self.regressions.1
+            "difftest: regressions={} failed={} hand-computed={} compared={}",
+            self.regressions.0, self.regressions.1, self.pinned.0, self.pinned.1
         );
         let _ = writeln!(
             s,
@@ -355,6 +361,9 @@ struct Batch {
     cases: Vec<Case>,
     ports: Vec<PortTy>,
     vecs: Vec<Vec<u128>>,
+    /// Elle hesaplanmış değerler: (ifade kimliği, vektör, beklenen bit
+    /// örüntüsü). Yalnız regresyon toplu koşusunda.
+    pins: Vec<(usize, usize, u128)>,
 }
 
 /// Bir toplu koşunun sonucu (rapora eklenir).
@@ -486,12 +495,40 @@ impl<'a> Runner<'a> {
                 c.kind
             );
         }
-        let vecs = vectors(&ports, self.cfg.vectors, &mut rng);
+        let mut vecs = vectors(&ports, self.cfg.vectors, &mut rng);
+        // Elle hesaplanmış girişler son vektörlere yazılır (ilk beşi kenar
+        // değerleri); her örnek kendi portlarını değiştirir.
+        let mut pins = Vec::new();
+        let mut off = 0;
+        for (c, r) in cases.iter().zip(&regs) {
+            assert!(
+                r.pins.len() <= self.cfg.vectors - 5,
+                "{}: çok fazla elle değer",
+                r.what
+            );
+            let Kind::Valid(nat) = c.kind else {
+                unreachable!("yukarıda denetlendi")
+            };
+            for (k, pin) in r.pins.iter().enumerate() {
+                let vi = self.cfg.vectors - 1 - k;
+                for (j, v) in pin.inputs.iter().enumerate() {
+                    vecs[vi][off + j] = (*v as u128) & mask(r.ports[j].width());
+                }
+                pins.push((c.id, vi, (pin.want as u128) & mask(nat.width())));
+            }
+            off += r.ports.len();
+        }
+        self.report.pinned.0 = pins.len();
         let mut cases = cases;
         for c in &mut cases {
             c.drop_x_contract(&ports, &vecs);
         }
-        let batch = Batch { cases, ports, vecs };
+        let batch = Batch {
+            cases,
+            ports,
+            vecs,
+            pins,
+        };
         let out = self.run_batch(&batch, false);
         let mut failed = BTreeSet::new();
         for mut f in out.findings {
@@ -538,6 +575,7 @@ impl<'a> Runner<'a> {
             cases,
             ports: pool.ports,
             vecs,
+            pins: Vec::new(),
         }
     }
 
@@ -1022,6 +1060,52 @@ impl<'a> Runner<'a> {
                 }
             }
         }
+        // Elle hesaplanmış değerler (regresyon kümesi): modelden bağımsız,
+        // değer biçimlerinin (a–e, doğal tipte çıkış) her biri.
+        for &(id, vi, want) in &b.pins {
+            let Some(i) = by_id(id) else {
+                continue;
+            };
+            let c = &b.cases[i];
+            let mut seen = false;
+            for (j, o) in built.outputs.iter().enumerate() {
+                if o.case != id
+                    || !matches!(
+                        o.variant,
+                        Variant::A | Variant::B | Variant::C | Variant::D | Variant::E
+                    )
+                {
+                    continue;
+                }
+                seen = true;
+                let got = vals[vi][j] & mask(o.ty.width());
+                if got != want {
+                    let mut ps = Vec::new();
+                    c.expr.ports(&mut ps);
+                    ps.sort_unstable();
+                    ps.dedup();
+                    let inputs: Vec<String> = ps
+                        .iter()
+                        .map(|k| format!("p{k}={:#x}", b.vecs[vi][*k]))
+                        .collect();
+                    findings.push(self.finding(
+                        Class::PinnedDiff,
+                        c,
+                        b,
+                        Some(o.variant),
+                        format!(
+                            "inputs: {}\nhand-computed: {want:#x}, Verilator: {got:#x} ({})",
+                            inputs.join(" "),
+                            o.ty.volt()
+                        ),
+                        b.vecs[vi].clone(),
+                    ));
+                }
+            }
+            if seen {
+                self.report.pinned.1 += 1;
+            }
+        }
         // Sözleşmeler: her ensures her vektörde bir kez örneklenir.
         if account {
             self.report.contracts_checked += ens.len() * self.cfg.vectors;
@@ -1145,6 +1229,7 @@ impl<'a> Runner<'a> {
                 cases,
                 ports: ports.clone(),
                 vecs,
+                pins: Vec::new(),
             };
             let out = self.run_batch(&batch, false);
             let hit = out
