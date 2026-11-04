@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı — §4'ün yöntemi bileşik tabanlı indexed part-select'e de uygulandı (#112: `(a + b)[i +: 4]` → `4'((9'(a) + 9'(b)) >> i)`)
 > Önceki karar: ADR-0025 — Karar'daki "Operand uyumu aralık KESİŞİMİYLE kurulur" kuralının karşılaştırma işleçlerindeki uygulanışı (kesişimin alt ucunda, taşma bitini atarak karşılaştırma) ve ekin (2026-10-01) zincir kuralının karşılaştırmayı dışarıda bırakması
-> İlgili: ADR-0041 (aynı işaretli genişleme ve açık boyut dönüşümü: karşılaştırma bağlamı aynı mekanizmayla basılır), ADR-0099 (iki öneri gidiş-dönüş denetiminden geçer)
+> İlgili: ADR-0041 (aynı işaretli genişleme ve açık boyut dönüşümü: karşılaştırma bağlamı aynı mekanizmayla basılır), ADR-0099 (iki öneri gidiş-dönüş denetiminden geçer), ADR-0108 (§6'nın yalıtması değeri genişliğe bağlı bütün alt ifadelere genişler)
 > Tarih: 2026-11-03
 > Etkilenen: volt-hir (`typeck/compare_width.rs` YENİ, `typeck/binop.rs`, `typeck/diag.rs`),
 > volt-sv-emit (`expr.rs`, `let_width.rs`), volt-syntax (`parser::expr_text`,

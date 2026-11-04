@@ -108,6 +108,16 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   expected diagnostic, and each file starts with `//~ EXXXX` (or `WXXXX`).
   Numeric file prefixes do not repeat within a directory.
 - `tests/fixtures/` holds input and expected-output pairs.
+- **Expression semantics (ADR-0108).** The differential test
+  (`crates/volt-difftest`, run by `difftest_tests` in the tool job)
+  compares the generated SV in Verilator with a reference model written
+  from the spec, independent of the compiler: the crate has no
+  dependencies, never add a `volt-*` one. Every root cause it finds gets
+  its minimized example, with the issue number, in
+  `crates/volt-difftest/src/regress.rs`. Where the spec is silent, the
+  model's reading is an assumption tag in `model.rs` and a row in
+  ADR-0108; a difference that only such a reading makes is an issue with
+  the options for the maintainer to decide, not a fix.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

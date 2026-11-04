@@ -1261,6 +1261,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "volt-difftest"
+version = "0.1.0"
+
+[[package]]
 name = "volt-driver"
 version = "0.1.0"
 dependencies = [
@@ -1270,6 +1274,7 @@ dependencies = [
  "serde_json",
  "volt-ast",
  "volt-diagnostics",
+ "volt-difftest",
  "volt-hir",
  "volt-lower",
  "volt-lsp",
