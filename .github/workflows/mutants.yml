@@ -97,7 +97,9 @@ jobs:
       - name: Put the tools on PATH
         run: |
           echo "$HOME/mutants-tools/bin" >> "$GITHUB_PATH"
-          "$HOME/mutants-tools/bin/cargo-mutants" --version
+          # Called directly, a cargo subcommand binary takes its own name first.
+          "$HOME/mutants-tools/bin/cargo-mutants" mutants --version
+          "$HOME/mutants-tools/bin/cargo-nextest" nextest --version
       # Same pinned OSS CAD Suite as the CI tool job ("Verilator lint"):
       # Verilator, Yosys, sby and the solvers.
       - name: Cache OSS CAD Suite
@@ -127,8 +129,13 @@ jobs:
       # own baseline tests the mutated packages alone (ADR-0109 §1), so it
       # is skipped below and the test timeout comes from this measurement:
       # twice the baseline, at least 300 seconds.
+      # Incremental builds on (rust-cache turns them off): the mutated crate is
+      # rebuilt for every mutant. Same value in both steps, or the mutants
+      # would rebuild everything once.
       - name: Baseline - every workspace test, every tool required
         id: baseline
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
           cargo nextest run --workspace --no-run
           start=$(date +%s)
@@ -144,6 +151,8 @@ jobs:
       # 3 some timed out: the run is complete either way. 124: the
       # 320-minute stop (timeout) interrupted it.
       - name: cargo mutants --shard ${{ matrix.shard }}/8 (every tool required)
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
           set +e
           timeout --signal=INT --kill-after=5m 320m \
