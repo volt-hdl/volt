@@ -200,6 +200,9 @@ impl Case {
     /// vektörde x dediği ifadede (sınır dışı değişken seçim, ADR-0035)
     /// sözleşme konmaz; değer biçimleri o vektörü zaten atlar.
     pub fn drop_x_contract(&mut self, ports: &[PortTy], vecs: &[Vec<u128>]) {
+        if !self.is_valid() {
+            return;
+        }
         let model = Model { ports };
         if vecs.iter().any(|v| model.eval(&self.expr, v).is_none()) {
             self.variants.retain(|v| *v != Variant::G);
@@ -454,12 +457,43 @@ pub fn build(cases: &[Case], ports: &[PortTy]) -> Built {
     }
 }
 
-/// Çıkışlar `$display` başına bu kadar (çok geniş tek birleştirmeden kaçınır).
-pub const CHUNK: usize = 64;
+/// `$display` ve `$readmemh` parçası başına en çok bu kadar bit: çok geniş
+/// tek birleştirmeden kaçınılır (64 çıkışlık, 4096 biti aşan parçada
+/// Verilator'un bastığı değerler girişlerle açıklanamıyordu).
+pub const CHUNK_BITS: u32 = 1024;
 
-/// Giriş portları `$readmemh` dosyası başına bu kadar: binlerce bitlik tek
-/// bir birleştirme ataması yerine küçük parçalar.
-pub const IN_CHUNK: usize = 32;
+/// Sıralı öğeleri, genişlikleri toplamı `CHUNK_BITS`'i aşmayan parçalara
+/// böler (tek öğe sınırı aşsa da kendi parçasıdır); `(başlangıç, bitiş)`.
+pub fn chunks_by_width(widths: &[u32]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut acc = 0;
+    for (i, w) in widths.iter().enumerate() {
+        if i > start && acc + w > CHUNK_BITS {
+            out.push((start, i));
+            start = i;
+            acc = 0;
+        }
+        acc += w;
+    }
+    if start < widths.len() {
+        out.push((start, widths.len()));
+    }
+    out
+}
+
+fn out_chunks(b: &Built) -> Vec<(usize, usize)> {
+    let w: Vec<u32> = b.outputs.iter().map(|o| o.ty.width()).collect();
+    chunks_by_width(&w)
+}
+
+fn in_chunks<'a>(b: &'a Built, ports: &[PortTy]) -> Vec<&'a [usize]> {
+    let w: Vec<u32> = b.inputs.iter().map(|k| ports[*k].width()).collect();
+    chunks_by_width(&w)
+        .into_iter()
+        .map(|(s, e)| &b.inputs[s..e])
+        .collect()
+}
 
 fn in_chunk_width(ports: &[PortTy], chunk: &[usize]) -> u32 {
     chunk.iter().map(|k| ports[*k].width()).sum::<u32>().max(1)
@@ -469,7 +503,7 @@ fn in_chunk_width(ports: &[PortTy], chunk: &[usize]) -> u32 {
 /// girişleri geri basar (koşucu denetler), çıkışları parça parça basar ve
 /// sözleşmeler için bir saat kenarı üretir.
 pub fn testbench(b: &Built, ports: &[PortTy], nvec: usize) -> String {
-    let chunks: Vec<&[usize]> = b.inputs.chunks(IN_CHUNK).collect();
+    let chunks: Vec<&[usize]> = in_chunks(b, ports);
     let mut s = String::new();
     s.push_str("`timescale 1ns/1ps\nmodule tb;\n    logic clk;\n    logic rst;\n");
     for (ci, ch) in chunks.iter().enumerate() {
@@ -510,7 +544,8 @@ pub fn testbench(b: &Built, ports: &[PortTy], nvec: usize) -> String {
             names(ch)
         ));
     }
-    for (ci, chunk) in b.outputs.chunks(CHUNK).enumerate() {
+    for (ci, (start, end)) in out_chunks(b).into_iter().enumerate() {
+        let chunk = &b.outputs[start..end];
         let names: Vec<&str> = chunk.iter().rev().map(|o| o.name.as_str()).collect();
         s.push_str(&format!(
             "            $display(\"R %0d {ci} %h\", i, {{{}}});\n",
@@ -605,8 +640,8 @@ impl BitVec {
 
 /// Giriş parçası başına bir `vec<N>.hex` içeriği.
 pub fn vec_hex(b: &Built, ports: &[PortTy], vecs: &[Vec<u128>]) -> Vec<String> {
-    b.inputs
-        .chunks(IN_CHUNK)
+    in_chunks(b, ports)
+        .into_iter()
         .map(|ch| {
             let w = in_chunk_width(ports, ch);
             let mut out = String::new();
@@ -638,7 +673,7 @@ pub fn check_echo(
     vecs: &[Vec<u128>],
     stdout: &str,
 ) -> Result<(), String> {
-    let chunks: Vec<&[usize]> = b.inputs.chunks(IN_CHUNK).collect();
+    let chunks: Vec<&[usize]> = in_chunks(b, ports);
     let mut seen = 0;
     for line in stdout.lines() {
         let Some(rest) = line.trim().strip_prefix("I ") else {
@@ -673,6 +708,7 @@ pub fn check_echo(
 
 /// Simülasyon çıktısı: `[vektör][çıkış indeksi]`.
 pub fn parse_sim(b: &Built, stdout: &str, nvec: usize) -> Result<Vec<Vec<u128>>, String> {
+    let chunks = out_chunks(b);
     let mut vals = vec![vec![None; b.outputs.len()]; nvec];
     let mut done = false;
     for line in stdout.lines() {
@@ -691,8 +727,9 @@ pub fn parse_sim(b: &Built, stdout: &str, nvec: usize) -> Result<Vec<Vec<u128>>,
         let i: usize = i.parse().map_err(|_| format!("bozuk satır: {line}"))?;
         let ci: usize = ci.parse().map_err(|_| format!("bozuk satır: {line}"))?;
         let bits = BitVec::from_hex(hex).ok_or_else(|| format!("bozuk onaltılık: {line}"))?;
-        let start = ci * CHUNK;
-        let end = (start + CHUNK).min(b.outputs.len());
+        let Some(&(start, end)) = chunks.get(ci) else {
+            return Err(format!("bilinmeyen çıkış parçası: {line}"));
+        };
         let mut off = 0;
         for (j, o) in b.outputs[start..end].iter().enumerate() {
             let w = o.ty.width();
@@ -934,5 +971,18 @@ mod echo_tests {
         let bad = format!("I 0 0 {}\nI 1 0 {}\n", lines[0], lines[0]);
         assert!(check_echo(&b, &ports, &vecs, &bad).is_err());
         assert!(check_echo(&b, &ports, &vecs, "I 0 0 00\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod chunk_tests {
+    use super::*;
+
+    #[test]
+    fn chunks_stay_under_the_bit_limit() {
+        let w = vec![700, 400, 70, 70, 2000, 1, 1];
+        let c = chunks_by_width(&w);
+        assert_eq!(c, vec![(0, 1), (1, 4), (4, 5), (5, 7)]);
+        assert_eq!(chunks_by_width(&[]), vec![]);
     }
 }

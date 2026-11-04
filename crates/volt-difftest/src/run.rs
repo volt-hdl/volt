@@ -850,6 +850,22 @@ impl<'a> Runner<'a> {
             );
             return Err(bad.into_iter().collect());
         }
+        // Testbench'in bağlantı uyarısı (PINMISSING, PINNOTFOUND, ...):
+        // bir giriş ya da çıkış DUT'a bağlanmadı, değerler anlamsız.
+        let pin: Vec<String> = msgs
+            .iter()
+            .filter(|(_, code, file, ..)| file.ends_with("tb.sv") && code.starts_with("PIN"))
+            .map(|(_, code, _, line, msg)| format!("tb.sv:{line}: {code}:{msg}"))
+            .collect();
+        if !pin.is_empty() {
+            let c = &b.cases[active[0]];
+            let mut f = self.finding(Class::Harness, c, b, None, pin.join("\n"), vec![]);
+            f.key = "testbench port connection".into();
+            return Ok(Outcome {
+                accepted: vec![],
+                findings: vec![f],
+            });
+        }
         // Uyarılar (soft): yalnız üretilen SV'de ve bir ifadeye ait satırda.
         let mut linted = BTreeSet::new();
         for (level, code, file, line, msg) in &msgs {

@@ -622,6 +622,9 @@ impl Model<'_> {
                 (idx < u128::from(w)).then(|| (v >> idx) & 1)
             }
             Expr::Range(b, h, l) => {
+                if h < l {
+                    return None;
+                }
                 let v = self.eval(b, inp)?;
                 Some((v >> l) & mask(h - l + 1))
             }
