@@ -185,6 +185,27 @@ impl Report {
         }
         for (class, fs) in &by_class {
             let _ = writeln!(s, "difftest: {} — {}", class.name(), fs.len());
+            // Uyarılar kodlarına göre: her koddan en küçük dört ifade (ad
+            // sırasıyla ilk 25 grup bir kodu hiç göstermeyebiliyordu).
+            if *class == Class::Lint {
+                let mut by_code: BTreeMap<&str, Vec<&Finding>> = BTreeMap::new();
+                for f in fs {
+                    by_code
+                        .entry(f.key.split(' ').next().unwrap_or("?"))
+                        .or_default()
+                        .push(f);
+                }
+                for (code, mut g) in by_code {
+                    g.sort_by_key(|f| f.expr.size());
+                    let _ = writeln!(s, "  {code}: {}", g.len());
+                    for f in g.iter().take(4) {
+                        for line in f.text.lines().take(6) {
+                            let _ = writeln!(s, "      {line}");
+                        }
+                    }
+                }
+                continue;
+            }
             let mut groups: BTreeMap<&str, Vec<&Finding>> = BTreeMap::new();
             for f in fs {
                 groups.entry(f.key.as_str()).or_default().push(f);
