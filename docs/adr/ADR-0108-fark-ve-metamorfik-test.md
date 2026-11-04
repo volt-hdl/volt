@@ -100,9 +100,14 @@ Hatalı ifade çıkarılıp yeniden denetlenir (önceki aşamanın hataları
 sonrakini gizlediği için tanısız ifade temiz tura kadar bekletilir).
 Sonra `volt build --emit=sva --sva inline`, Verilator `--binary --timing
 --assert -Wall -Wno-fatal` ile tek derleme: testbench 16 vektörü
-`$readmemh` ile okur (sıfır, hepsi bir, yalnız üst bit, üst bit dışında
-hepsi, bir, sonra rastgele), her vektörde çıkışları basar ve bir saat
-kenarı üretir (sözleşmeler). Fark bulunan ifade küçültülür: bir düğümü
+(sıfır, hepsi bir, yalnız üst bit, üst bit dışında hepsi, bir, sonra
+rastgele) en çok 1024 bitlik parçalar hâlinde `$readmemh` ile okur, her
+vektörde girişleri geri basar, çıkışları aynı sınırla parça parça basar ve
+bir saat kenarı üretir (sözleşmeler). Geri basılan giriş beklenenden
+farklıysa ya da testbench'te bir port bağlanmadıysa (Verilator `PIN*`)
+sınamanın kendisi bozuktur: sert "harness" bulgusu. Modelin herhangi bir
+vektörde x dediği ifadeye (sınır dışı değişken seçim) sözleşme biçimi
+konmaz: iki x'i karşılaştırırdı. Fark bulunan ifade küçültülür: bir düğümü
 çocuğuyla ya da aynı tipte bir portla değiştiren adaylar tek toplu koşuda
 denenir, farkı koruyan en küçük aday seçilir.
 
@@ -144,7 +149,8 @@ Spesifikasyon metni değişmez; çelişki burada kayıtlıdır.
 
 Modelin varsayım etiketleri (`model::ASSUMPTIONS`) ve modelin
 karşılaştırmadığı biçimler. "Derleyici" sütunu düzeltmeden sonraki
-gözlemdir.
+gözlemdir. Hiçbirinde derleyici modelden farklı değer vermez; yazılması
+gereken okumalar ve seçenekleri bakıcının kararına #122'de açıktır.
 
 | Kimlik | Belirsizlik | Modelin okuması | Derleyici |
 |---|---|---|---|
@@ -170,7 +176,43 @@ gözlemdir.
 
 ## Kanıt
 
-Bkz. "Ölçüm" — doldurulur.
+PR #121:
+
+1. **Önce düşen** (yalnız test altyapısı, d023e6b2; run 41763373693):
+   araçlı işte `difftest: seed=20261104 target=2000 generated=2250
+   accepted=2061 ... diffs=1613` ve `difftest: regressions=21 failed=21`;
+   `width_isolation_tests` 15/15, `cast_literal_sign_tests` 8'de 7 düştü
+   (geçen, işaretsiz bağlamdaki literalin değişmediğini sınayan koruma
+   testi).
+2. **Düzeltme** (5fee6881; run 41763452442): regresyonlar 21/21 geçti; aynı
+   tohumda 5 fark kaldı, hepsi #120 düzeltmesinin işaretli 1 bitlik
+   tabanı (`s[0:0]`, s : i1, SV'de işaretli kalıyordu) → 3ae72064.
+3. **Büyük koşu, ilk** (run 41763520527, 4 × 12.500): 10 sözleşme düşmesi
+   ve 7 değer farkı; ikisi de koşucudan: sözleşme sınır dışı seçimde iki
+   x'i karşılaştırıyordu (85f2e3eb), 4096 biti aşan `$display` parçası
+   girişlerle açıklanamayan değer basıyordu (1fddec7a; ara koşu
+   41765714347'de sözleşmeler gitmiş, 7 değer farkı kalmıştı).
+4. **Son durum** (1fddec7a):
+   - CI run 41767138224, araçlı iş: `difftest: seed=20261104 target=2000
+     generated=2250 accepted=2118 rejected-as-predicted=126 unsupported=6
+     unspecified=0 values-compared=205933 diffs=0`, `difftest:
+     regressions=22 failed=0`, `Tool ledger [integration]: 65 test(s)
+     asked for a tool; 67 lookup(s) found the tool (67 required), SKIP:
+     0`; "Tool coverage" `68 (test, tool) pair(s) in the ledgers, 68 ran
+     with the tool required, 0 did not`.
+   - Büyük koşu run 41767138333, tohumlar 20261105–20261108: kabul
+     edilen 12.724 + 12.514 + 12.537 + 12.518 = **50.293 ifade**
+     (üretilen 53.250; modelin öngördüğü gibi reddedilen 2.697; E0003
+     ile reddedilen `concat()` 260; tanımsız 0); 349.400 biçim,
+     4.926.905 değer karşılaştırıldı (x olduğu için atlanan 663.495),
+     654.704 sözleşme örneklemesi; her parçada `diffs=0`, regresyonlar
+     22/22, `SKIP: 0`.
+5. **Yerel** (Docker, Verilator 5.052, tohum 777): düzeltmeden önce 3000
+   ifadede 2442 fark; düzeltmeden sonra 1500 hedefte 1646 kabul, 0 fark.
+6. **Külliyat** (455 dosya, main ile `volt build --emit=sva`): 15
+   dosyanın SV/SVA metni değişti, değerleri aynı (`$signed({...})`
+   sınırı, `8'sh80`, kaydırma miktarı doğal genişlikte, `bits<13>`
+   dönüşümünde `$unsigned`).
 
 ## Reddedilenler
 

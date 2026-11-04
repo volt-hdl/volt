@@ -199,6 +199,18 @@ impl Report {
                 let _ = writeln!(s, "  ... {} more groups", groups.len() - 25);
             }
         }
+        // Verilator -Wall uyarılarının tam sayımı (yukarıdaki liste ilk 25
+        // grubu gösterir).
+        let mut lint: BTreeMap<&str, usize> = BTreeMap::new();
+        for f in self.findings.iter().filter(|f| f.class == Class::Lint) {
+            *lint
+                .entry(f.key.split(' ').next().unwrap_or("?"))
+                .or_default() += 1;
+        }
+        if !lint.is_empty() {
+            let list: Vec<String> = lint.iter().map(|(c, n)| format!("{c}={n}")).collect();
+            let _ = writeln!(s, "difftest: lint codes: {}", list.join(" "));
+        }
         if !self.rejected_codes.is_empty() {
             let list: Vec<String> = self
                 .rejected_codes

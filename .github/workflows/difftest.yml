@@ -7,10 +7,6 @@ name: Differential test (large run)
 # seed, its count and its tool ledger; a shard fails on any difference.
 
 on:
-  # TEMPORARY (PR #121): the large run on this pull request, as evidence;
-  # a workflow that is not on the default branch cannot be dispatched.
-  # Removed by the next commit.
-  pull_request:
   workflow_dispatch:
     inputs:
       seed:

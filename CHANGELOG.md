@@ -127,6 +127,8 @@ toplanır.
 - Bulunan kök nedenler: #115, #116, #117 (sessiz yanlış sonuç), #118,
   #119, #120 (geçersiz SystemVerilog). Altısı da bu sürümde düzeltildi; her
   birinin en küçük örneği fark testinin sabit regresyon kümesindedir.
+  Spesifikasyonun açık bıraktığı okumalar (derleyicinin modelle aynı
+  davrandığı yerler) karar için #122'de.
 - `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
   (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
   bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).
