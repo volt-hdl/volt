@@ -13,6 +13,30 @@ Bu bölüm sürüm kesilirken tamamlanır (ADR-0100); aşağıdaki girdilerde
 "**Davranış değişikliği.**" diye işaretli önceki maddeler de buraya
 toplanır.
 
+- **Davranış değişikliği.** Genişlik değiştiren `as` dönüşümünün
+  SystemVerilog ifadesi hedef tipin işaretini taşır (#115, ADR-0108):
+  `a as i16` artık `$signed({{8{a[7]}}, a})`, `(x + y) as u7` (x, y
+  işaretli) `$unsigned(7'(...))`. Önceden işaretli hedefe genişletme ve
+  daraltma işaretsiz bir birleştirme/dilim, işaretsiz hedefe dönüşüm
+  işaretli bir boyut dönüşümüydü: `a as i11 > 880` (a = -1) doğru, `a as
+  i50 >> 8` mantıksal kaydırma, `-(a as i4)` yanlış değer veriyordu.
+- **Davranış değişikliği.** İşaretli bağlamdaki onaltılık, ikili ve
+  sekizli literal işaretli basılır (`50'sh0`, #116); önceden `s > 0x0`
+  (s : i50) işaretsiz karşılaştırılıyor, s = -1 için doğru veriyordu.
+  Genişliğin en küçük negatif değeri örüntüsüyle yazılır (`8'sh80`,
+  `1'sh1`): `-1'sd1` daha geniş bağlamda +1'e dönüyordu (`(a * (-1)) as
+  u35`, a : i1 = -1, 1 yerine tüm bitler bir).
+- **Davranış değişikliği.** Değeri genişliğe bağlı bir alt ifade daha
+  geniş bir SystemVerilog bağlamına doğal genişliğindeki değeriyle girer
+  (#117, #106 sınıfı, ADR-0108): işaretsiz çıkarma (`(a - b) + c9`,
+  `(x - 4095) * y`), doğal genişlikleri farklı işlenenlerin işlemi
+  (`((a + b) | c) + c`), bileşik `as` işleneni (`(a - b) as u16`), aynı
+  genişlikte dönüşüm altındaki `~`, kaydırma içindeki `-x`, esnek toplamın
+  kaydırması (`(a + b) >> n` taşmayı okur), kaydırma miktarı ve indeks
+  (`p << m * k`, `q[i + j +: 16]` doğal genişlikte). Önceden satır içi
+  biçim `let`'e çıkarılmış biçimden farklı değer veriyordu: `a`, `b : u8`,
+  a = 0, b = 1 için `(a - b) + c9` 1023 + c9, `let s = a - b; s + c9`
+  511 + c9.
 - **Davranış değişikliği.** Bileşik bir değerden indexed part-select
   (`(a + b)[4 +: 4]`, `(a + b)[i +: 4]`, `-:` biçimleri) geçerli
   SystemVerilog üretir (#112, ADR-0106 §4'ün yöntemi): değer doğal
@@ -86,6 +110,27 @@ toplanır.
   varsayılan olarak renklidir (terminal değilse, `NO_COLOR` ya da `CI`
   ayarlıysa renksiz). `volt explain`'e özel `--color` genel bayrağa
   taşındı (yazımı aynı).
+
+### Eklendi — Aritmetik anlamın fark ve metamorfik testi (ADR-0108, 2026-11-04)
+
+- Yeni `crates/volt-difftest`: Volt ifade anlamını spesifikasyondan
+  doğrudan uygulayan, derleyiciden bağımsız (bağımlılıksız) bir referans
+  model; tip yönlü rastgele ifade üreteci (`+ - * ~ & | ^ << >>`,
+  karşılaştırma, bit/aralık/parça seçimi, `as`, işaretli/işaretsiz, 1–64
+  bit tam sayı, 1–70 bit `bits<N>`, iç içelik 1–5) ve koşucu. Her ifade
+  satır içi, `let`'te, alt ifadesi `let`'e çıkarılmış, ek parantezli,
+  işlenenleri yer değiştirmiş, karşılaştırmada, daha geniş hedefte ve
+  sözleşmede (`ensures`) sınanır; tek Verilator derlemesinde 250 ifade.
+- Araçlı CI işi sabit tohumlu küçük bir koşu yapar (tohum 20261104, 2000
+  ifade); tohum, sayı ve sonuç günlükte görünür. Büyük koşu elle
+  tetiklenir (`Differential test (large run)`, `workflow_dispatch`).
+- Bulunan kök nedenler: #115, #116, #117 (sessiz yanlış sonuç), #118,
+  #119, #120 (geçersiz SystemVerilog). Altısı da bu sürümde düzeltildi; her
+  birinin en küçük örneği fark testinin sabit regresyon kümesindedir.
+- `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
+  (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
+  bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).
+  Önceden Verilator ve Yosys bunları reddediyordu.
 
 ### Değişti — Araç isteyen testler CI'da sessizce atlanamaz (ADR-0107, 2026-11-04)
 

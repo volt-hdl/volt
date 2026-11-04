@@ -109,7 +109,8 @@ fn compound_narrowing_cast_uses_size_cast() {
 #[test]
 fn simple_signal_cast_keeps_adr0036_forms() {
     let out = sv("module M { in a : i8\n out y : i16\n y = a as i16 }");
-    assert_has(&out, "assign y = {{8{a[7]}}, a};");
+    // #115: birleştirme SV'de işaretsizdir; işaretli hedefin işareti `$signed`.
+    assert_has(&out, "assign y = $signed({{8{a[7]}}, a});");
 }
 
 // ═══ 2. const diziler ═════════════════════════════════════════════
