@@ -125,10 +125,15 @@ toplanır.
   ifade); tohum, sayı ve sonuç günlükte görünür. Büyük koşu elle
   tetiklenir (`Differential test (large run)`, `workflow_dispatch`).
 - Bulunan kök nedenler: #115, #116, #117 (sessiz yanlış sonuç), #118,
-  #119, #120 (geçersiz SystemVerilog). Altısı da bu sürümde düzeltildi; her
+  #119, #120 (geçersiz SystemVerilog), #123 (`volt test`'i durduran
+  Verilator WIDTH uyarısı). Yedisi de bu sürümde düzeltildi; her
   birinin en küçük örneği fark testinin sabit regresyon kümesindedir.
   Spesifikasyonun açık bıraktığı okumalar (derleyicinin modelle aynı
   davrandığı yerler) karar için #122'de.
+- Değişken indeks ve parça seçimi başlangıcı tabanın adres genişliğinde
+  basılır (#123): `x[i]` (x : u15, i : u3) `x[4'(i)]`. Önceden Verilator
+  WIDTH uyarısı veriyor (varsayılan olarak ölümcül), `volt test`
+  geçerli tasarımda duruyordu.
 - `-(-x)` artık `--(...)` (SV azaltma işleci) değil `-(-(...))` üretir
   (#118); seçimin seçimi (`q[43:0][42:15]`, `(v >> k)[69:0][69:0]`) ve 1
   bitlik değerden `[0]`/`[0:0]` seçimi geçerli SV üretir (#119, #120).

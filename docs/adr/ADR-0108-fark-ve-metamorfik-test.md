@@ -89,7 +89,8 @@ reddedilmeli ve aynı kodla. Modelin geçerli dediği bir ifadeyi derleyici
 reddederse, model hatalı dediğini derleyici kabul ederse, biçimler
 farklı tanı verirse ya da üretilen SV Verilator'da derlenmezse ayrı bulgu
 sınıfıdır; ikisi de reddedip kodlar farklıysa yumuşak bulgu (raporlanır,
-koşuyu düşürmez). Verilator `-Wall` uyarıları da yumuşak bulgudur.
+koşuyu düşürmez). Verilator `-Wall` uyarıları yumuşak bulgudur; WIDTH uyarıları sert
+(varsayılan olarak ölümcül, `volt test` durur).
 
 ### 4. Koşucu
 
@@ -137,7 +138,8 @@ kümesidir (issue numarasıyla); her koşunun ilk toplu koşusudur.
 | #117 | Değeri genişliğe bağlı alt ifade daha geniş SV bağlamına yalıtılmadan giriyor (#106 sınıfı): işaretsiz çıkarma, doğal genişlikleri farklı işlenenlerin işlemi, bileşik `as` işleneni, aynı genişlikte dönüşüm altında `~`, `$signed(...)` içinde `-x`, esnek sol işlenenin kaydırması, öz-belirlenimli konumda (kaydırma miktarı, indeks, başlangıç) bileşik ifade, bağlamdan geniş kaydırma işleneni | ADR-0106 §6'nın yöntemi genel kural olur: değeri genişliğe bağlı işlenen daha geniş bağlama doğal genişliğinde hesaplanıp `W'($unsigned(...))`/`W'($signed(...))` ile girer; en üstteki aritmetik işlem ADR-0041 itmesiyle hedefte kalır; öz-belirlenimli konumdaki bileşik ifadenin işlenenleri doğal genişliğe genişler; kaydırmanın sol işleneni doğal genişliğindedir; bağlamdan geniş kendi genişlikli işlenen bağlama kesilir |
 | #118 | `-(-x)` → `--(...)` (SV azaltma işleci) | `-(-(...))` |
 | #119 | Seçimin seçimi: tabanı seçim olan seçim "seçilebilir ad" sayılıyordu; `70'(...)[69:0]` ve `q[43:0][42:15]` geçersiz SV | Seçilebilir taban yalnız ad, alan ve unpacked dizi elemanı; geri kalanı boyut dönüşümüne iner (`28'((q[43:0]) >> 15)`) |
-| #120 | 1 bitlik değerden seçim: `u1`/`i1`/`bits<1>` SV'de skaler `logic`, `x[0]` ve `x[0:0]` geçersiz | 1 bitlik tabandan seçim tabanın kendisi |
+| #120 | 1 bitlik değerden seçim: `u1`/`i1`/`bits<1>` SV'de skaler `logic`, `x[0]` ve `x[0:0]` geçersiz | 1 bitlik tabandan seçim tabanın kendisi; işaretli tabanda `$unsigned(...)` (seçim işaretsizdir) |
+| #123 | Değişken indeksin ya da parça seçimi başlangıcının genişliği tabanın adres genişliğinden farklı: Verilator WIDTH uyarısı varsayılan olarak ölümcül, `volt test` durur (`x[i]`, x : u15, i : u3) | İndeks adres genişliğinde (`clog2`) basılır: `x[4'(i)]`; sınır dışı indeks zaten x'tir (ADR-0035). Fark testinde WIDTH uyarısı sert bulgudur |
 
 `sv-mapping.md` §6 tablosundaki `a as i16` → `{{8{a[7]}}, a}` satırı ve
 §10'daki literal biçimleri bu ADR'yle değişir (`$signed(...)` sınırı,
@@ -236,6 +238,6 @@ PR #121:
   formal akış (Yosys/sby) fark testinin dışında.
 - 64 bitten geniş tam sayı (E0003) ve `concat()` (E0003) yalnız reddin
   sayılması için üretilir.
-- Verilator `-Wall` uyarıları yumuşak bulgudur: üretilen ifadenin kendisi
-  sabit karşılaştırma (CMPCONST, UNSIGNED) ya da kısmen okunan `let`
-  (UNUSEDSIGNAL) içerebilir.
+- Verilator `-Wall` uyarıları (WIDTH dışında) yumuşak bulgudur: üretilen
+  ifadenin kendisi sabit karşılaştırma (CMPCONST, UNSIGNED) ya da kısmen
+  okunan `let` (UNUSEDSIGNAL) içerebilir.

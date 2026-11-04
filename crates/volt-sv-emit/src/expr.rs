@@ -1050,7 +1050,7 @@ impl<'a> Emitter<'a> {
                         None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                         None => {
                             let b = self.emit_prec(base, None, PREC_ATOM, false);
-                            let i = self.emit_plain(index);
+                            let i = self.sized_index(base, index);
                             (format!("{b}[{i}]"), PREC_ATOM)
                         }
                     },
@@ -1081,7 +1081,7 @@ impl<'a> Emitter<'a> {
                     None if self.is_scalar_base(base) => (self.scalar_select(base), PREC_ATOM),
                     None => {
                         let b = self.emit_prec(base, None, PREC_ATOM, false);
-                        let s = self.emit_plain(start);
+                        let s = self.sized_index(base, start);
                         let w = self.emit_plain(width);
                         let op = if asc { "+:" } else { "-:" };
                         (format!("{b}[{s} {op} {w}]"), PREC_ATOM)
@@ -1394,6 +1394,34 @@ impl<'a> Emitter<'a> {
             format!("$unsigned({text})")
         } else {
             text
+        }
+    }
+
+    /// Değişken indeks ve parça seçimi başlangıcı tabanın adres
+    /// genişliğinde (`clog2`): Verilator, genişliği farklı indekse WIDTH
+    /// uyarısı verir ve uyarı varsayılan olarak ölümcüldür (`x[i]`, x : u15,
+    /// i : u3 → `x[4'(i)]`, #123). Sınır dışı indeks zaten x'tir
+    /// (ADR-0035); kesmek anlamı değiştirmez. Sabit ve 32 bitlik indeks
+    /// (Verilator tamsayı indeksini uyarmaz) olduğu gibi kalır.
+    fn sized_index(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> String {
+        let text = self.emit_plain(index);
+        if self.eval_const(index).is_some() {
+            return text;
+        }
+        let len = match crate::path_single(self.ast, base).and_then(|n| self.array_dims.get(n)) {
+            Some(n) => *n,
+            None => match self.width_of(base) {
+                Some(s) => s.width,
+                None => return text,
+            },
+        };
+        if len < 2 {
+            return text;
+        }
+        let need = 32 - (len - 1).leading_zeros();
+        match self.natural_sig(index) {
+            Some(s) if s.width != need && s.width != 32 => format!("{need}'({text})"),
+            _ => text,
         }
     }
 

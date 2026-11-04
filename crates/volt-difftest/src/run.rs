@@ -82,6 +82,9 @@ pub enum Class {
     Lint,
     /// Sınamanın kendisi bozuk (testbench girişleri DUT'a ulaşmadı).
     Harness,
+    /// Üretilen SV'de Verilator WIDTH uyarısı: varsayılan olarak ölümcül,
+    /// `volt test` durur (#123).
+    WidthLint,
 }
 
 impl Class {
@@ -100,6 +103,9 @@ impl Class {
             Class::CodeMismatch => "both reject, different code (soft)",
             Class::Lint => "Verilator -Wall warning in the generated SV (soft)",
             Class::Harness => "harness error: testbench inputs did not reach the design",
+            Class::WidthLint => {
+                "Verilator WIDTH warning in the generated SV (fatal by default, volt test stops)"
+            }
         }
     }
 }
@@ -187,7 +193,7 @@ impl Report {
             let _ = writeln!(s, "difftest: {} — {}", class.name(), fs.len());
             // Uyarılar kodlarına göre: her koddan en küçük dört ifade (ad
             // sırasıyla ilk 25 grup bir kodu hiç göstermeyebiliyordu).
-            if *class == Class::Lint {
+            if matches!(class, Class::Lint | Class::WidthLint) {
                 let mut by_code: BTreeMap<&str, Vec<&Finding>> = BTreeMap::new();
                 for f in fs {
                     by_code
@@ -223,7 +229,11 @@ impl Report {
         // Verilator -Wall uyarılarının tam sayımı (yukarıdaki liste ilk 25
         // grubu gösterir).
         let mut lint: BTreeMap<&str, usize> = BTreeMap::new();
-        for f in self.findings.iter().filter(|f| f.class == Class::Lint) {
+        for f in self
+            .findings
+            .iter()
+            .filter(|f| matches!(f.class, Class::Lint | Class::WidthLint))
+        {
             *lint
                 .entry(f.key.split(' ').next().unwrap_or("?"))
                 .or_default() += 1;
@@ -899,7 +909,10 @@ impl<'a> Runner<'a> {
                 findings: vec![f],
             });
         }
-        // Uyarılar (soft): yalnız üretilen SV'de ve bir ifadeye ait satırda.
+        // Uyarılar: yalnız üretilen SV'de ve bir ifadeye ait satırda. WIDTH
+        // uyarıları Verilator'da varsayılan olarak ölümcüldür (`volt test`
+        // durur, #123): sert bulgu; gerisi (CMPCONST, UNSIGNED,
+        // UNUSEDSIGNAL: ifadenin kendisi) yumuşak.
         let mut linted = BTreeSet::new();
         for (level, code, file, line, msg) in &msgs {
             if level != "%Warning" || !file.ends_with(&format!("{}.sv", crate::harness::MODULE)) {
@@ -909,8 +922,13 @@ impl<'a> Runner<'a> {
                 if let Some(i) = by_id(id) {
                     if linted.insert((i, code.clone())) {
                         let sv_line = sv.lines().nth(line - 1).unwrap_or("").trim().to_string();
+                        let class = if code.starts_with("WIDTH") {
+                            Class::WidthLint
+                        } else {
+                            Class::Lint
+                        };
                         let mut f = self.finding(
-                            Class::Lint,
+                            class,
                             &b.cases[i],
                             b,
                             Some(v),
@@ -1057,6 +1075,7 @@ impl<'a> Runner<'a> {
                         | Class::ContractFired
                         | Class::InvalidSv
                         | Class::ModelValidRejected
+                        | Class::WidthLint
                 )
             })
             .filter(|f| seen.insert(format!("{:?}", f.expr)))

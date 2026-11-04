@@ -206,6 +206,19 @@ pub fn all() -> Vec<Regression> {
                 true,
             ),
         ),
+        // ── Verilator WIDTH (ölümcül): indeks adres genişliğinde değil ──
+        r(
+            "#123",
+            "variable bit index narrower than the address width",
+            vec![UInt(15), UInt(3)],
+            index(p(0), p(1)),
+        ),
+        r(
+            "#123",
+            "variable part-select start wider than the address width",
+            vec![UInt(51), UInt(8)],
+            Expr::Part(Box::new(p(0)), Box::new(p(1)), 35, true),
+        ),
     ]
 }
 

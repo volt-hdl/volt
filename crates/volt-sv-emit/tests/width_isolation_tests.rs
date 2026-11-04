@@ -119,7 +119,8 @@ fn shift_amount_and_index_are_computed_at_their_natural_width() {
     // m * k : u4 (SV kendi genişliğinde 2 bitte sarardı).
     assert!(out.contains("assign o = p << ((4'(m) * 4'(k)));"), "{out}");
     assert!(
-        out.contains("assign r = q[(4'(i) + 4'(j)) +: 16];"),
+        // i + j : u4 doğal genişlikte; adres genişliği 5 bit (#123).
+        out.contains("assign r = q[5'((4'(i) + 4'(j))) +: 16];"),
         "{out}"
     );
 }
@@ -193,5 +194,23 @@ fn bit_zero_of_a_signed_one_bit_value_is_unsigned() {
     out o : bits<68>",
         "    o = q[s[0:0] as u1 +: 68]",
     );
-    assert!(out.contains("assign o = q[$unsigned(s) +: 68];"), "{out}");
+    assert!(
+        out.contains("assign o = q[7'($unsigned(s)) +: 68];"),
+        "{out}"
+    );
+}
+
+#[test]
+fn variable_index_is_sized_to_the_address_width() {
+    // #123: Verilator WIDTH uyarısı (varsayılan olarak ölümcül) indeksin
+    // genişliği adres genişliğinden farklıysa; sınır dışı indeks x'tir
+    // (ADR-0035), boyutlandırmak anlamı değiştirmez.
+    let out = sv(
+        "    in  x : u15\n    in  i : u3\n    in  q : u51\n    in  k : u8\n    in  r : u16\n    in  j : u4\n    out o : bool\n    out p : bits<35>\n    out s : bool",
+        "    o = x[i]\n    p = q[k +: 35]\n    s = r[j]",
+    );
+    assert!(out.contains("assign o = x[4'(i)];"), "{out}");
+    assert!(out.contains("assign p = q[6'(k) +: 35];"), "{out}");
+    // Adres genişliğinde indeks değişmez.
+    assert!(out.contains("assign s = r[j];"), "{out}");
 }

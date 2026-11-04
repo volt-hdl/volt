@@ -64,6 +64,8 @@ fn signed_value_is_selected_as_raw_bits() {
 #[test]
 fn part_select_of_a_signal_is_unchanged() {
     let out = sv("    y = a[i +: 4]");
-    assert!(out.contains("assign y = a[i +: 4];"), "{out}");
+    // #123: indeks tabanın adres genişliğinde (a : u8 → 3 bit; i : u4
+    // olduğu gibi Verilator WIDTHTRUNC verirdi).
+    assert!(out.contains("assign y = a[3'(i) +: 4];"), "{out}");
     assert!(!out.contains(")["), "{out}");
 }
