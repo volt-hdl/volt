@@ -10,6 +10,9 @@ examine_globs = [
     #    literals, isolation of width-dependent sub-expressions (ADR-0106 §6,
     #    ADR-0108), self-determined positions, select forms.
     "crates/volt-sv-emit/src/expr.rs",
+    # Name resolution of the emitter: the scope chain every lookup goes
+    # through (moved out of expr.rs, #128).
+    "crates/volt-sv-emit/src/scope.rs",
     # Wire width of an untyped `let` (natural width, ADR-0025).
     "crates/volt-sv-emit/src/let_width.rs",
     # 2. Width and type inference.
@@ -54,10 +57,10 @@ exclude_re = [
     # A1. `value >= 0 && w < 128 && value > max`: at w == 128, max is
     # 2^127 - 1 (signed) or u128::MAX, and a non-negative i128 never exceeds
     # either.
-    "volt-sv-emit/src/expr\\.rs:1974:28: replace < with <= in Emitter<'a>::fmt_int$",
+    "volt-sv-emit/src/expr\\.rs:1935:28: replace < with <= in Emitter<'a>::fmt_int$",
     # A1. `value < 0 && ... && mag >= 2^(w-1)`: at value == 0, mag is 0,
     # below 2^(w-1) for every width w >= 1.
-    "volt-sv-emit/src/expr\\.rs:1981:32: replace < with <= in Emitter<'a>::fmt_int$",
+    "volt-sv-emit/src/expr\\.rs:1942:32: replace < with <= in Emitter<'a>::fmt_int$",
     # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace > with >= in Emitter<'_>::comparison_ctx$",
     # A1. demand(): at c.width == width both arms return the same number.
@@ -68,15 +71,15 @@ exclude_re = [
     # A2, assumes is_right_operand is true only from the binary-operator
     # callers, which pass sv_prec 1..=10: then my_prec == parent_prec >= 1
     # and `>= 0` changes nothing.
-    "volt-sv-emit/src/expr\\.rs:1280:93: replace > with >= in Emitter<'a>::emit_prec$",
+    "volt-sv-emit/src/expr\\.rs:1247:93: replace > with >= in Emitter<'a>::emit_prec$",
     # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
     # highest) and a right operand's parent has 1..=10: an atom never needs
     # parentheses.
-    "volt-sv-emit/src/expr\\.rs:1281:35: replace < with <= in Emitter<'a>::emit_prec$",
+    "volt-sv-emit/src/expr\\.rs:1248:35: replace < with <= in Emitter<'a>::emit_prec$",
     # A2, assumes a select width fits a u16 (type check, base_width: u16), so
     # need <= 16: the arm runs when the start is 127+ bits wide or when
     # down >= 2^width (then need > width); sig.width == need is impossible.
-    "volt-sv-emit/src/expr\\.rs:1527:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    "volt-sv-emit/src/expr\\.rs:1500:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a

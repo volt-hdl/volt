@@ -319,3 +319,43 @@ bir PR'ın eklediği kör noktayı o PR'da gösterir. Bu turda kurulmadı:
 önce tam koşunun süresi ve missed listesinin eşdeğer kalemleri
 (`exclude_re`) oturmalı, yoksa her PR aynı eşdeğer mutantları yeniden
 raporlar.
+
+## Hedefli koşu (#128, 2026-11-05)
+
+Bir düzeltmenin öldürmesi gereken mutantlar (bir PR'ın kör noktası,
+missed listesinin bir dosyası) için on beş parçalı tam koşu gereksiz
+pahalıdır. `mutants.yml` iki isteğe bağlı `workflow_dispatch` girdisi
+alır; önceki karar metni (§1–§5) değişmedi, girdiler boşken koşu tam
+koşudur.
+
+- **`re`**: mutant adına (`cargo mutants --list`'in yazdığı biçim) karşı
+  regex; yalnız eşleşen mutantlar denenir.
+- **`shards`**: parça sayısı, 1–20. Boşsa §3'ün hesabı, koşunun mutant
+  sayısıyla (M = süzülmüş listenin uzunluğu, t = 210 sn, S = 15 dk, en çok
+  20): ilk iş `scripts/ci/mutants_target.py shards` ile N'yi bulur, matris
+  ve özet ondan kurulur. Tam koşu da artık N'yi böyle bulur; sabit
+  `MUTANTS_SHARDS: 15` kalktı. Parça mutanttan fazla olmaz.
+
+**cargo-mutants hatası.** 27.1.0'da `--re` ve `--exclude-re` alan silme
+mutantlarını ("delete field … from struct … expression") süzmüyor (bkz.
+Kanıt): `--re 'scope\.rs'` listesine `stmt.rs:161` ve
+`let_width.rs:283`'ün alan silme mutantları da girdi. Bu yüzden hedefli
+koşu listeyi ikinci kez, satırla daraltır: `mutants_target.py diff`
+`--re` listesinden regex'e uyan adları seçer ve hunk'ları tam o satırlara
+dokunan bir birleşik diff yazar (her satır kendisine "değişir", diff ağaçla
+eşleşir); her `cargo mutants` çağrısı `--re <re> --in-diff target.diff`
+ile koşar. Alan silme mutantı istenen bir mutantla aynı satırdaysa yine
+sızabilir; bu yüzden ilk iş son listeyi `mutants_target.py check` ile
+doğrular: listede regex'e uymayan bir ad varsa ya da liste boşsa iş düşer.
+Her parça kendi listesini ilk işin parça listesiyle karşılaştırır; farklıysa
+düşer. Süzgeç (`filter.txt`) ve diff `mutants-list` artifact'ındadır.
+
+**Kapsam.** Üreticinin ad çözücüsü `crates/volt-sv-emit/src/scope.rs`
+`examine_globs`'a girdi: #128'in düzeltmesi `expr.rs`'teki hijyen
+denetimlerini (PR #127'nin missed listesinde `expr.rs` 219, 222, 440, 825
+ve `let_width.rs` 222) oraya taşıdı. `expr.rs`'in satırları kaydığından
+satır sabitli beş `exclude_re` girdisi yeni satırlarına taşındı (1974 →
+1935, 1981 → 1942, 1280 → 1247, 1281 → 1248, 1527 → 1500; aynı satır,
+aynı sütun). Kapsam 961 mutant; §3 hesabıyla tam koşu 16 parça
+(⌈961 / 16⌉ = 61 · 210 sn = 213,5 dk + 15 dk = 228,5 dk; 15 parçada
+242,5 dk).
