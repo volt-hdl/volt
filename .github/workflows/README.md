@@ -50,8 +50,12 @@
   arka ucunun imajını (`SIMULATION_IMAGE`) karşılaştırır.
 - Sürüm güncellemesi ayrı bir PR'dır: `verilator.env` ve `docker.rs`
   birlikte değişir, kanarya testi
-  (`crates/volt-driver/tests/verilator_canary_tests.rs`) geçer, fark
-  testinin büyük koşusu yeni hakemle yeniden koşar.
+  (`crates/volt-driver/tests/verilator_canary_tests.rs`) yeni sürümle
+  geçer, fark testinin büyük koşusu yeni hakemle yeniden koşar.
+- `verilated.mk`'nin `OBJCACHE ?= ccache` satırı kopyada boşaltılır:
+  imaj ccache ile yapılandırılmış, koşucuda ccache yok.
+- Sınır: 5.052'nin de aynı sınıftan bir DFG yanlış derlemesi var (#148);
+  kanarya yalnız #145'in tetikleyicisini kapsar.
 
 ## Coverage
 

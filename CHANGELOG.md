@@ -105,6 +105,19 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Tests
 
+- Hakem sürümü sabit (ADR-0107 eki, #145): CI'da simülasyon yapan her iş
+  ("Verilator lint", kitabın örnekleri, fark testinin büyük koşusu,
+  mutasyon testi) Verilator'ı OSS CAD Suite'in geliştirme derlemesinden
+  (5.053 devel) değil, Docker arka ucunun özetle sabitlenmiş
+  `verilator/verilator:v5.052` imajından alır; sürüm tek yerde
+  (`scripts/ci/verilator.env`), `verilator --version` başka bir şey
+  derse iş düşer, bir test CI'ın sürümüyle Docker arka ucununkini
+  karşılaştırır. Kanarya testi (`verilator_canary_tests`) #145'in yanlış
+  derlemesini yeniden üreten tasarımı elle hesaplanmış değerlerle koşar
+  (5.053 devel'de düşer, 5.052'de geçer). 5.052'nin de aynı sınıftan bir
+  yanlış derlemesi var (#148, açık).
+- `verilator_pin_tests`: CI'ın sabitlediği Verilator ile Docker arka
+  ucunun imajı aynı sürüm ve özet.
 - Fark testinin r biçimi (ADR-0108 eki): çağıran taraf generic bir
   modüldür; parametreleri kök const'larla ve döngü değişkeniyle aynı adı
   taşır, çağrı ya `comb` içindeki blok `let`'inden ya da modül düzeyi
