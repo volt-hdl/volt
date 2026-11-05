@@ -338,7 +338,7 @@ koşudur.
 
 **cargo-mutants hatası.** 27.1.0'da `--re` ve `--exclude-re` alan silme
 mutantlarını ("delete field … from struct … expression") süzmüyor (bkz.
-Kanıt): `--re 'scope\.rs'` listesine `stmt.rs:161` ve
+aşağıda "Hedefli koşunun kanıtı"): `--re 'scope\.rs'` listesine `stmt.rs:161` ve
 `let_width.rs:283`'ün alan silme mutantları da girdi. Bu yüzden hedefli
 koşu listeyi ikinci kez, satırla daraltır: `mutants_target.py diff`
 `--re` listesinden regex'e uyan adları seçer ve hunk'ları tam o satırlara
@@ -355,7 +355,29 @@ düşer. Süzgeç (`filter.txt`) ve diff `mutants-list` artifact'ındadır.
 denetimlerini (PR #127'nin missed listesinde `expr.rs` 219, 222, 440, 825
 ve `let_width.rs` 222) oraya taşıdı. `expr.rs`'in satırları kaydığından
 satır sabitli beş `exclude_re` girdisi yeni satırlarına taşındı (1974 →
-1935, 1981 → 1942, 1280 → 1247, 1281 → 1248, 1527 → 1500; aynı satır,
-aynı sütun). Kapsam 961 mutant; §3 hesabıyla tam koşu 16 parça
-(⌈961 / 16⌉ = 61 · 210 sn = 213,5 dk + 15 dk = 228,5 dk; 15 parçada
-242,5 dk).
+1940, 1981 → 1947, 1280 → 1252, 1281 → 1253, 1527 → 1505; aynı satır,
+aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
+(⌈964 / 16⌉ = 61 · 210 sn = 213,5 dk + 15 dk = 228,5 dk; 15 parçada
+⌈964 / 15⌉ = 65, 242,5 dk).
+
+### Hedefli koşunun kanıtı
+
+- **Alan silme hatası.** 41981695174'ün ilk işi, `--re` listesinden
+  regex'e uymayan iki adı düşürdü ve son listeyi doğruladı:
+  `dropped (does not match the regex): crates/volt-hir/src/typeck/stmt.rs:161:17: delete field start from struct Span expression …`,
+  `dropped (does not match the regex): crates/volt-sv-emit/src/let_width.rs:283:21: delete field hi from struct Range expression …`,
+  `all 78 mutants in the list match '…'`.
+- **İlk koşu** (41981695174, `re` = `scope.rs` ve hijyen denetimlerinin
+  `expr.rs` satırları, 78 mutant, `shards` boş → 2 parça): 36 caught,
+  4 missed, 0 timeout, 38 unviable. `scope.rs`'in bütün mutantları
+  caught. Missed dördü `expr.rs`'te: `eval_const_depth` ve
+  `const_match_key`'in derinlik sayacı (`depth + 1` → `* 1`, `- 1`) ve
+  `index_width_mismatch`'in `||` → `&&`'si. İlk üçü gerçek bir eksiği
+  gösterdi: `const_match_key` derinlik sınırını hiç denetlemiyordu,
+  döngüsel enum const zincirinde üretici yığın taşıyordu (#131'de
+  düzeltildi; zincir sınırı #133). Dördüncüsünü genişliği adres genişliğinden
+  farklı (32 de değil) sabit indeks (`const K : u4`, `a[K]`) öldürür.
+  Öldüren testler: `name_scope_tests` (döngüsel u32 ve enum zinciri,
+  63/64 halkalı enum zinciri), `part_select_value_tests`
+  (`a_constant_index_of_another_width_keeps_the_select`), ui/pass/135.
+

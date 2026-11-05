@@ -553,3 +553,89 @@ fn a_loop_variable_shadows_an_outer_block_let() {
     assert!(has_line(&sv, "ys[8 +: 8] = xs[8 +: 8];"), "{sv}");
     assert!(has_line(&sv, "y = xs[8 * (i) +: 8];"), "{sv}");
 }
+
+/// Tanı kodları (HIR'sız emitter; döngüsel const'u HIR E2020 ile reddeder).
+fn emit_codes(src: &str) -> (Vec<String>, String) {
+    let out = emit_src(src);
+    let codes = out
+        .diagnostics
+        .iter()
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    (codes, out.sv)
+}
+
+/// Döngüsel const zinciri (`A → B → A`) emitter'da sonsuz özyinelemeye
+/// girmez: derinlik sınırında değerlendirme biter, katlanamayan const
+/// E0003 olur. (HIR bu girdiyi E2020 ile emitter'a varmadan reddeder;
+/// emitter'ın kendi sınırı yine de yığın taşmasını önler.)
+#[test]
+fn a_cyclic_const_chain_stops_at_the_depth_limit() {
+    let (codes, sv) = emit_codes(
+        "const A : u32 = B
+const B : u32 = A
+module M {
+    out o : u32
+    o = A
+}
+",
+    );
+    assert_eq!(codes, ["E0003"], "{sv}");
+}
+
+/// Enum tipli döngüsel const zinciri match'in sınananında: `const_match_key`
+/// kendini çağırır; derinlik sınırı orada da denetlenir. Düzeltmeden önce
+/// yığın taşıyordu.
+#[test]
+fn a_cyclic_enum_const_chain_in_a_match_stops_at_the_depth_limit() {
+    let (codes, sv) = emit_codes(
+        "enum E { X, Y }
+const A : E = B
+const B : E = A
+const N : u8 = match A { E::X => 1, E::Y => 2 }
+module M {
+    out o : u8
+    o = N
+}
+",
+    );
+    assert_eq!(codes, ["E0003"], "{sv}");
+}
+
+/// `n` halkalı enum const zinciri: `A0 = A1`, …, `A{n-1} = E::Y`.
+fn enum_chain(n: usize) -> String {
+    let mut src = String::from("enum E { X, Y }\n");
+    for j in 0..n {
+        let value = if j + 1 == n {
+            "E::Y".to_string()
+        } else {
+            format!("A{}", j + 1)
+        };
+        src.push_str(&format!("const A{j} : E = {value}\n"));
+    }
+    src.push_str(
+        "const N : u8 = match A0 { E::X => 1, E::Y => 2 }
+module M {
+    out o : u8
+    o = N
+}
+",
+    );
+    src
+}
+
+/// Derinlik sınırı 64'tür (u32 zinciriyle aynı sınır). Derinlik 0'dan
+/// sayılır: N'nin match'i 0, sınanan `A0` 1, `A{j}` j + 1, son halkanın
+/// değeri `E::Y` n + 1; 64'ü aşan derinlik değerlendirilmez. n = 63'te
+/// `E::Y` 64. derinlikte: E::Y kolu seçilir, N = 2, u8 → `8'd2`. n = 64'te
+/// 65. derinlikte: N katlanamaz, E0003.
+#[test]
+fn an_enum_const_chain_folds_up_to_the_depth_limit() {
+    let src = enum_chain(63);
+    let (codes, sv) = emit_codes(&src);
+    assert!(codes.is_empty(), "{codes:?}\n{sv}");
+    assert!(has_line(&sv, "assign o = 8'd2;"), "{sv}");
+
+    let (codes, sv) = emit_codes(&enum_chain(64));
+    assert_eq!(codes, ["E0003"], "{sv}");
+}

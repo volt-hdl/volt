@@ -16,6 +16,10 @@ use volt_diagnostics::{lstr, ErrorCode};
 use crate::scope::Res;
 use crate::Emitter;
 
+/// Sabit değerlendirmenin özyineleme sınırı: döngüsel const zincirinde
+/// (HIR E2020 tanısını üretmiş olsa da) yığın taşmasını önler.
+const MAX_CONST_DEPTH: u32 = 64;
+
 /// Sinyal genişliği ve işareti.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sig {
@@ -141,10 +145,8 @@ impl<'a> Emitter<'a> {
         self.eval_const_depth(idx, 0)
     }
 
-    /// Derinlik sınırı, döngüsel const zincirinde (HIR tanısı üretilmiş
-    /// olsa da) yığın taşmasını önler.
+    /// Derinlik sınırı: [`MAX_CONST_DEPTH`].
     fn eval_const_depth(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
-        const MAX_CONST_DEPTH: u32 = 64;
         if depth > MAX_CONST_DEPTH {
             return None;
         }
@@ -254,7 +256,6 @@ impl<'a> Emitter<'a> {
     /// Derleme zamanı mantıksal değer: literal, karşılaştırma, `&&`/`||`/
     /// `->`, `!`, bool const'u. Başka bir şey 0/1 değerlendiriyorsa o.
     fn eval_const_bool(&self, idx: Idx<Expr>, depth: u32) -> Option<bool> {
-        const MAX_CONST_DEPTH: u32 = 64;
         if depth > MAX_CONST_DEPTH {
             return None;
         }
@@ -345,8 +346,12 @@ impl<'a> Emitter<'a> {
     }
 
     /// Sabit match'in sınananı: tamsayı sabiti ya da enum varyantının
-    /// kodu (varyant yolu veya enum tipli `const`).
+    /// kodu (varyant yolu veya enum tipli `const`). Enum tipli const
+    /// zinciri kendini çağırır: derinlik sınırı burada da denetlenir.
     fn const_match_key(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
+        if depth > MAX_CONST_DEPTH {
+            return None;
+        }
         if let ExprKind::BoolLit(b) = self.ast.exprs[idx].kind {
             return Some(i128::from(b));
         }

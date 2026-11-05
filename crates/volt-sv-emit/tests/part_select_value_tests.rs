@@ -69,3 +69,26 @@ fn part_select_of_a_signal_is_unchanged() {
     assert!(out.contains("assign y = 4'((a) >> i);"), "{out}");
     assert!(!out.contains(")["), "{out}");
 }
+
+/// Sabit indeks seçilebilir tabanda seçim biçiminde kalır; indeksin tipi
+/// vektörün adres genişliğinden (u8 → 3 bit) farklı olsa da: genişlik
+/// uyuşmazlığı (#123) yalnız değişken indeksin sorunudur. `K : u4` (4 bit,
+/// 32 değil) kaydırmaya inmez: `a[4'd2]`, `a[4'd2 +: 4]` (const bildirilen
+/// tipinde boyutlu literal, ADR-0041).
+#[test]
+fn a_constant_index_of_another_width_keeps_the_select() {
+    let src = "const K : u4 = 2
+module M {
+    in  a : u8
+    out o : bool
+    out y : bits<4>
+    o = a[K]
+    y = a[K +: 4]
+}
+";
+    let parsed = volt_syntax::parser::parse(FileId(0), src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let out = emit(&parsed.ast, "test.volt").sv;
+    assert!(out.contains("assign o = a[4'd2];"), "{out}");
+    assert!(out.contains("assign y = a[4'd2 +: 4];"), "{out}");
+}

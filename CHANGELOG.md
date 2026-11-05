@@ -26,6 +26,12 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `fn` gövdesindeki ya da const değerindeki adla aynı adı taşıyan bir
   döngü değişkeni, blok `let`'i ya da port kullanan tasarımın SV'si
   değişebilir; derleyicinin verdiği W1002 uyarısı bu yerleri gösterir.
+- **Davranış değişikliği.** Bir `match`'in sınananı olan enum tipli const
+  zinciri (`const A0 : E = A1`, …) 63 halkadan uzunsa artık E0003 verir;
+  önceden katlanıyordu. Üretici sabitleri 64 derinlik sınırıyla
+  değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
+  takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
+  uzun bir zincir kısaltılmalı (#133).
 
 ### Düzeltildi — Üreticinin ad çözümü (#128, 2026-11-05)
 
@@ -36,6 +42,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   kapsamı, kök kapsam. Açılmış fn gövdesinin const'a bağlı yolları, fn
   bildiriminin tip ve desen ifadeleri ve const öğelerinin değerleri kök
   kapsamdadır.
+- Enum tipli const zincirinin `match` değerlendirmesi derinlik sınırını
+  denetlemiyordu: döngüsel zincirde (`const A : E = B`, `const B : E = A`)
+  üretici yığın taşıyordu. `volt check`, `volt build` ve LSP bu girdiyi
+  E2020 ile üreticiye varmadan reddettiğinden yalnız kitaplık API'sinden
+  erişilebiliyordu.
 - Farklı kök nedenli benzer yanlışlar (parser'ın generic ve modül düzeyi
   `for` ikamesi iç gölgelemeyi görmüyor) düzeltilmedi: #130. Fark
   testinin r biçiminin bulduğu, ad hijyeniyle ilgisiz hata (`comb`
