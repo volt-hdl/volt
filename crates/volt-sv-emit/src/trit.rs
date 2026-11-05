@@ -10,6 +10,7 @@
 use volt_ast::{BinOp, Expr, ExprKind, Idx, NumBase, TypeRef, TypeRefKind, UnOp};
 
 use crate::expr::{sv_prec, Sig, PREC_UNARY};
+use crate::scope::Res;
 use crate::Emitter;
 
 /// +1 ve -1'in SV kodlaması.
@@ -54,15 +55,14 @@ impl Emitter<'_> {
                 } else {
                     idx
                 };
-                // Modül sembolü üst düzey const'u gölgeler (width_of sırası).
-                crate::path_single(self.ast, base).is_some_and(|n| {
-                    if self.symbols.contains_key(n) {
-                        return self.trits.contains(n);
-                    }
-                    self.consts
-                        .get(n)
-                        .is_some_and(|&(ty, _)| self.is_trit_typeref(ty))
-                })
+                // Ad kapsam zinciriyle çözülür (scope.rs).
+                match self.resolve(base) {
+                    Res::Module => self
+                        .module_path(base)
+                        .is_some_and(|n| self.trits.contains(n)),
+                    Res::Const { ty, .. } => self.is_trit_typeref(ty),
+                    Res::Local(_) | Res::Loop(_) | Res::Unbound => false,
+                }
             }
             ExprKind::Unary {
                 op: UnOp::Neg,

@@ -428,13 +428,28 @@ impl<'a> Emitter<'a> {
     }
 
     pub(crate) fn local_index(&self, name: &str) -> Option<usize> {
+        self.local_frame(name).map(|(_, i)| i)
+    }
+
+    /// Volt adının görünen süreç yereli: (blok kapsamının indeksi,
+    /// `locals` indeksi), içten dışa.
+    pub(crate) fn local_frame(&self, name: &str) -> Option<(usize, usize)> {
         self.proc
             .scopes
             .iter()
+            .enumerate()
             .rev()
-            .flat_map(|s| s.iter().rev())
-            .find(|(n, _)| n == name)
-            .map(|&(_, i)| i)
+            .find_map(|(f, s)| {
+                s.iter()
+                    .rev()
+                    .find(|(n, _)| n == name)
+                    .map(|&(_, i)| (f, i))
+            })
+    }
+
+    /// Açık blok kapsamı sayısı.
+    pub(crate) fn local_frames(&self) -> usize {
+        self.proc.scopes.len()
     }
 
     /// `let t = v` blok satırları: değer, ad kapsama girmeden ÖNCE

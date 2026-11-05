@@ -13,6 +13,7 @@
 use volt_ast::{BinOp, Expr, ExprKind, Idx, UnOp};
 
 use crate::expr::Sig;
+use crate::scope::Res;
 use crate::Emitter;
 
 /// Sonuç genişliğinin üst sınırı (volt-hir `consteval::MAX_WIDTH`).
@@ -214,13 +215,15 @@ impl Emitter<'_> {
                     (None, None) => None,
                 }
             }
-            ExprKind::Path(path) if path.segments.len() == 1 => {
-                let name = &path.segments[0].text;
-                let global = self.inline_notes.global_paths.contains(&idx);
-                let lo = match self.local(name).filter(|_| !global) {
-                    Some(l) => Some(l.lo),
-                    None if !global => self.flex_lets.get(name).copied(),
-                    None => None,
+            // Esnek aralığın alt ucu yalnız tipsiz yerelde ve tipsiz modül
+            // `let`'inde vardır; ad kapsam zinciriyle çözülür (scope.rs).
+            ExprKind::Path(_) => {
+                let lo = match self.resolve(idx) {
+                    Res::Local(i) => Some(self.proc.locals[i].lo),
+                    Res::Module => self
+                        .module_path(idx)
+                        .and_then(|n| self.flex_lets.get(n).copied()),
+                    Res::Loop(_) | Res::Const { .. } | Res::Unbound => None,
                 };
                 let sig = self.width_of(idx)?;
                 Some(Range {
@@ -232,7 +235,6 @@ impl Emitter<'_> {
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
             | ExprKind::Unary { .. }
             | ExprKind::Index { .. }
             | ExprKind::Range { .. }
@@ -342,11 +344,9 @@ impl Emitter<'_> {
         *entry = (*entry).max(read);
     }
 
-    /// Süreç yereline başvuru: okunan genişlik kaydedilir.
-    pub(crate) fn note_local_use(&mut self, name: &str, ctx: Option<Sig>) {
-        let Some(i) = self.local_index(name) else {
-            return;
-        };
+    /// Süreç yereline (`proc.locals[i]`) başvuru: okunan genişlik
+    /// kaydedilir.
+    pub(crate) fn note_local_use(&mut self, i: usize, ctx: Option<Sig>) {
         let local = &mut self.proc.locals[i];
         local.read = local.read.max(demand(local.sig.width, ctx));
     }

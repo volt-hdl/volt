@@ -335,8 +335,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           127 const'ta if/match ifadesi (Aşama 3);
     // #80: 132 tipsiz literal let (W2012, i32 tel),
     // ADR-0106: 133 farklı genişlikte karşılaştırmanın kabul edilen biçimleri,
-    // #112: 134 bileşik değerden indexed part-select.
-    assert_eq!(checked, 120);
+    // #112: 134 bileşik değerden indexed part-select,
+    // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
+    //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede).
+    assert_eq!(checked, 121);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

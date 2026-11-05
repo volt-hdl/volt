@@ -92,7 +92,11 @@ impl<'a> Emitter<'a> {
             return;
         };
         for v in s..e {
-            self.loop_vars.push((f.var.text.clone(), v));
+            self.loop_vars.push(crate::scope::LoopVar {
+                name: f.var.text.clone(),
+                value: v,
+                frame: self.local_frames(),
+            });
             lines.extend(self.emit_block(f.body, indent));
             self.loop_vars.pop();
         }

@@ -23,6 +23,7 @@ mod past;
 mod reach;
 mod reset_sync;
 mod sby;
+mod scope;
 pub mod sim;
 mod sim_contract;
 mod sim_script;
@@ -601,6 +602,10 @@ fn new_emitter<'a>(
         const_array_style,
         array_consts_used: Vec::new(),
         loop_vars: Vec::new(),
+        root_paths: scope::root_scoped_paths(ast)
+            .into_iter()
+            .chain(inline_notes.global_paths.iter().copied())
+            .collect(),
         pre_decls: Vec::new(),
         bus_wires: HashMap::new(),
         sources,
@@ -879,8 +884,12 @@ pub(crate) struct Emitter<'a> {
     /// kullanım sırasıyla) — gövde başına tablo bildirimi üretilir.
     pub(crate) array_consts_used: Vec<String>,
     /// Açılmakta olan `for` döngülerinin değişkenleri (içten dışa
-    /// gölgeleme; en son eklenen kazanır).
-    pub(crate) loop_vars: Vec<(String, i128)>,
+    /// gölgeleme; en son eklenen kazanır). Ad çözümü `scope::resolve`.
+    pub(crate) loop_vars: Vec<scope::LoopVar>,
+    /// Kullanıldığı yerin değil kök kapsamın adlarına bağlanan yollar
+    /// (`scope::root_scoped_paths` ve açılımın const'a bağladığı gövde
+    /// yolları).
+    pub(crate) root_paths: HashSet<Idx<Expr>>,
     /// Gövde başına konan ön bildirimler: örnek çıkış telleri.
     /// Örnek çıkış telleri: (tel adı, bildirim satırı).
     pub(crate) pre_decls: Vec<(String, String)>,
@@ -2047,11 +2056,11 @@ impl<'a> Emitter<'a> {
     ) -> Vec<String> {
         match &self.ast.exprs[init].kind {
             // `reg r : [T; N] = COEFFS` — dizi sabiti literaline açılır.
-            ExprKind::Path(p)
-                if p.segments.len() == 1 && self.is_const_array(&p.segments[0].text) =>
-            {
-                let (_, value) = self.consts[&p.segments[0].text];
-                self.array_reset_lines(name, value, sig, n)
+            ExprKind::Path(_) if self.const_array_at(init).is_some() => {
+                match self.const_path(init) {
+                    Some((_, _, value)) => self.array_reset_lines(name, value, sig, n),
+                    None => Vec::new(),
+                }
             }
             ExprKind::ArrayLit(ArrayLitKind::Repeat { value, .. }) => {
                 let value = *value;
