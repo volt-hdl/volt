@@ -74,6 +74,17 @@ pub fn instance_name(id: usize) -> String {
     format!("u{id}r")
 }
 
+/// Monomorfun SV dosyasının (`R12r_0_3.sv`) ait olduğu ifadenin kimliği.
+pub fn case_of_module_file(name: &str) -> Option<usize> {
+    let rest = name.strip_prefix('R')?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let tail = &rest[digits.len()..];
+    if digits.is_empty() || !tail.starts_with("r_") || !tail.ends_with(".sv") {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 /// Çağıranın `s<id>r` generic parametresinin değeri. 0 her tam sayı
 /// tipine sığar: ad gölgelenmezse argüman bu literal olur ve değer
 /// değişir (#130); `bits<N>` argümanda tip hatası olur. (3 gibi bir değer
@@ -479,6 +490,16 @@ mod tests {
         let h = Hygiene::new(3, &e, Some(&ex), "s3c").expect("argüman yereli var");
         assert!(h.body_let.is_none());
         assert_eq!(print(&h.body, Style::Min), "(p0 + p1)[p1]");
+    }
+
+    /// Verilator iletisinin dosyası R biçiminin hangi ifadesine ait.
+    #[test]
+    fn a_monomorph_file_names_its_case() {
+        assert_eq!(case_of_module_file("R12r_0_3.sv"), Some(12));
+        assert_eq!(case_of_module_file("R0r_0_29.sv"), Some(0));
+        assert_eq!(case_of_module_file("Dt.sv"), None);
+        assert_eq!(case_of_module_file("Rr_0.sv"), None);
+        assert_eq!(case_of_module_file("R1x_0.sv"), None);
     }
 
     /// Bitleri seçilen port bir yerelden geçirilmez; başka çakışma yoksa

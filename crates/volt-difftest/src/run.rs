@@ -897,21 +897,43 @@ impl<'a> Runner<'a> {
                 "-O0",
                 "tb.sv",
                 &rel_sv,
+                // R biçiminin çağıran generic modülleri ayrı dosyalarda
+                // (`R<id>r_<argümanlar>.sv`, hygiene.rs): Verilator onları
+                // örnek adından bulur. `tb.sv`'nin `timescale`'i komut
+                // satırındaki sonraki dosyaya geçer, kitaplıktan yüklenene
+                // geçmez (TIMESCALEMOD): varsayılan aynı birim.
+                "-y",
+                "build/rtl",
+                "--timescale",
+                "1ns/1ps",
             ]));
         let vtext = format!("{vout}{verr}");
         let msgs = verilator_msgs(&vtext);
         let by_id = |id: usize| active.iter().copied().find(|i| b.cases[*i].id == id);
+        // Bir Verilator iletisinin sahibi ve SV satırı: test modülünde satır
+        // tablosundan, R biçiminin çağıran modülünde dosya adından.
+        let owner_of = |file: &str, line: usize| -> Option<((usize, Variant), String)> {
+            if file.ends_with(&format!("{}.sv", crate::harness::MODULE)) {
+                let o = owners.get(line.checked_sub(1)?).copied().flatten()?;
+                return Some((o, sv.lines().nth(line - 1).unwrap_or("").trim().to_string()));
+            }
+            let name = file.rsplit('/').next()?;
+            let id = crate::hygiene::case_of_module_file(name)?;
+            let text = std::fs::read_to_string(dir.join("build").join("rtl").join(name))
+                .unwrap_or_default();
+            let sv_line = text.lines().nth(line.checked_sub(1)?).unwrap_or("").trim();
+            Some(((id, Variant::R), sv_line.to_string()))
+        };
         let mut findings = Vec::new();
         if !ok {
             let mut bad: BTreeMap<usize, Finding> = BTreeMap::new();
             for (level, code, file, line, msg) in &msgs {
-                if level != "%Error" || !file.ends_with(&format!("{}.sv", crate::harness::MODULE)) {
+                if level != "%Error" {
                     continue;
                 }
-                if let Some((id, v)) = owners.get(line - 1).copied().flatten() {
+                if let Some(((id, v), sv_line)) = owner_of(file, *line) {
                     if let Some(i) = by_id(id) {
                         let c = &b.cases[i];
-                        let sv_line = sv.lines().nth(line - 1).unwrap_or("").trim().to_string();
                         bad.entry(i).or_insert_with(|| {
                             self.finding(
                                 Class::InvalidSv,
@@ -953,13 +975,12 @@ impl<'a> Runner<'a> {
         // UNUSEDSIGNAL: ifadenin kendisi) yumuşak.
         let mut linted = BTreeSet::new();
         for (level, code, file, line, msg) in &msgs {
-            if level != "%Warning" || !file.ends_with(&format!("{}.sv", crate::harness::MODULE)) {
+            if level != "%Warning" {
                 continue;
             }
-            if let Some((id, v)) = owners.get(line - 1).copied().flatten() {
+            if let Some(((id, v), sv_line)) = owner_of(file, *line) {
                 if let Some(i) = by_id(id) {
                     if linted.insert((i, code.clone())) {
-                        let sv_line = sv.lines().nth(line - 1).unwrap_or("").trim().to_string();
                         let class = if code.starts_with("WIDTH") {
                             Class::WidthLint
                         } else {
