@@ -344,6 +344,20 @@ pub fn all() -> Vec<Regression> {
         // bitleri: 1.
         .pin(&[1_125_899_906_842_625, 16], 17_179_869_184)
         .pin(&[1_125_899_906_842_625, 0], 1),
+        // ── Ad hijyeni: açılmış fn gövdesinin const'u (r biçimi) ──
+        r(
+            "#128",
+            "constant index in an inlined function called in a loop whose variable has the constant's name",
+            vec![UInt(8)],
+            index(p(0), lit(1)),
+        )
+        // `p0[1]`, p0 : u8: bool, bit 1 (ADR-0035). r biçiminde `1` kök
+        // `const t<id>r : u32 = 1` olur ve çağrı `for t<id>r in 2..3`
+        // içindedir; gövde t<id>r'yi fn kapsamında, kökte çözer (ADR-0081
+        // Karar 12.1, name-resolution.md §2): yine bit 1. p0 = 0b10 → 1;
+        // p0 = 0b100 → 0 (#128'de döngü değişkeni seçilirdi: bit 2, 1).
+        .pin(&[2], 1)
+        .pin(&[4], 0),
     ]
 }
 

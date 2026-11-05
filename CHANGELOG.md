@@ -9,7 +9,49 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
-Yok.
+- **Davranış değişikliği.** Bir ad, üretilen SystemVerilog'da da
+  şartnamenin kapsam zinciriyle çözülür (#128, name-resolution.md §2, §6;
+  ADR-0081 Karar 12.1). Satır içi açılan bir `fn`'in gövdesindeki const,
+  çağrı aynı adlı bir döngü değişkeninin içindeyse artık o değişkenin
+  değerini almaz: `fn pick(x: [u8; 4]) -> u8 { x[I] }` (`const I = 1`),
+  `for I in 0..4 { ys[I] = pick(xs) }` içinde 0.1.0'da `ys[k] = xs[k]`
+  üretiyordu, şimdi `ys[k] = xs[1]`. Aynı düzeltme şunları da değiştirir:
+  gövdedeki const parça seçimi başlangıcında, aralık sınırında, iç içe
+  açılımda ve `match` deseninde; gövdenin tip genişliği (`uint<W>`) ve
+  dizi sabiti (`T[i]`) çağıranın aynı adlı adıyla artık E2005 vermez; bir
+  const'un değeri (`const J = I + 1`) kullanıldığı döngünün `I`'sıyla
+  değişmez; blok `let`'i ve döngü değişkeni dıştaki aynı adı hesaplanan
+  indekste ve değer konumunda da gölgeler (`for i in 0..4 { zs[i] = i }`
+  aynı adlı bir port varken portu değil `k`'yi yazar). Yükseltme: bir
+  `fn` gövdesindeki ya da const değerindeki adla aynı adı taşıyan bir
+  döngü değişkeni, blok `let`'i ya da port kullanan tasarımın SV'si
+  değişebilir; derleyicinin verdiği W1002 uyarısı bu yerleri gösterir.
+- **Davranış değişikliği.** Bir `match`'in sınananı olan enum tipli const
+  zinciri (`const A0 : E = A1`, …) 63 halkadan uzunsa artık E0003 verir;
+  önceden katlanıyordu. Üretici sabitleri 64 derinlik sınırıyla
+  değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
+  takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
+  uzun bir zincir kısaltılmalı (#133).
+
+### Düzeltildi — Üreticinin ad çözümü (#128, 2026-11-05)
+
+- Üretici (volt-sv-emit) adı her yerde kendi sırasıyla metinle arıyordu;
+  açılımın hijyen işaretine yalnız bazı yerler bakıyordu. Artık her tek
+  parçalı ad `scope.rs`'teki tek çözücüden geçer: blok kapsamları (süreç
+  yerelleri ve döngü değişkenleri, iç içe geçme sırasıyla), modül
+  kapsamı, kök kapsam. Açılmış fn gövdesinin const'a bağlı yolları, fn
+  bildiriminin tip ve desen ifadeleri ve const öğelerinin değerleri kök
+  kapsamdadır.
+- Enum tipli const zincirinin `match` değerlendirmesi derinlik sınırını
+  denetlemiyordu: döngüsel zincirde (`const A : E = B`, `const B : E = A`)
+  üretici yığın taşıyordu. `volt check`, `volt build` ve LSP bu girdiyi
+  E2020 ile üreticiye varmadan reddettiğinden yalnız kitaplık API'sinden
+  erişilebiliyordu.
+- Farklı kök nedenli benzer yanlışlar (parser'ın generic ve modül düzeyi
+  `for` ikamesi iç gölgelemeyi görmüyor) düzeltilmedi: #130. Fark
+  testinin r biçiminin bulduğu, ad hijyeniyle ilgisiz hata (`comb`
+  içindeki fn çağrısında tipsiz gövde `let`'i esnek genişliğini kaybediyor)
+  düzeltilmedi: #132.
 
 ### Tests
 
@@ -18,6 +60,16 @@ Yok.
   952 mutant, 12 eşdeğeri gerekçesiyle hariç), elle tetiklenen on beş
   parçalı `mutants.yml` iş akışı; parça sayısı ölçülen mutant süresinden
   hesaplanır.
+- Hedefli mutasyon koşusu (ADR-0109, "Hedefli koşu"): `mutants.yml`'in
+  `re` girdisi yalnız adı eşleşen mutantları dener (alan silme mutantları
+  satır diff'iyle süzülür, son liste doğrulanır), `shards` girdisi parça
+  sayısını verir; boşsa ADR-0109 §3'ün hesabı. Üreticinin ad çözücüsü
+  (`scope.rs`) kapsama girdi.
+- Fark testinin r biçimi (ADR-0108, #128): ifade bir `fn` gövdesinde,
+  seçim literalleri kök const'larda; çağrı bu const'la aynı adlı döngü
+  değişkeninin içinde, çağıranın `let`'i bir const'la aynı adda. Sonuç a
+  biçimininkiyle aynı olmalı. Gövdenin `let`'i `VOLT_DIFFTEST_FN_LET=1`
+  ile; açıkken ikame kipindeki tipsiz fn `let`'inin hatasını (#132) bulur.
 
 ## [0.1.0] - 2026-11-04
 

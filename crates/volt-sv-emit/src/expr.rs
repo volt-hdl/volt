@@ -13,7 +13,12 @@
 use volt_ast::{BinOp, Expr, ExprKind, Idx, MatchArmBody, NumBase, TypeRefKind, UnOp};
 use volt_diagnostics::{lstr, ErrorCode};
 
+use crate::scope::Res;
 use crate::Emitter;
+
+/// Sabit değerlendirmenin özyineleme sınırı: döngüsel const zincirinde
+/// (HIR E2020 tanısını üretmiş olsa da) yığın taşmasını önler.
+const MAX_CONST_DEPTH: u32 = 64;
 
 /// Sinyal genişliği ve işareti.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,19 +145,8 @@ impl<'a> Emitter<'a> {
         self.eval_const_depth(idx, 0)
     }
 
-    /// En içteki (gölgeleyen) döngü değişkeninin değeri.
-    pub(crate) fn loop_var(&self, name: &str) -> Option<i128> {
-        self.loop_vars
-            .iter()
-            .rev()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| *v)
-    }
-
-    /// Derinlik sınırı, döngüsel const zincirinde (HIR tanısı üretilmiş
-    /// olsa da) yığın taşmasını önler.
+    /// Derinlik sınırı: [`MAX_CONST_DEPTH`].
     fn eval_const_depth(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
-        const MAX_CONST_DEPTH: u32 = 64;
         if depth > MAX_CONST_DEPTH {
             return None;
         }
@@ -214,25 +208,17 @@ impl<'a> Emitter<'a> {
                     | BinOp::Imp => None,
                 }
             }
-            // Modül sinyalleri gölgeler; döngü değişkeni const'tan önce —
-            // açılmış fn gövdesinin const'u hariç (ADR-0081 hijyen).
-            ExprKind::Path(p) if p.segments.len() == 1 => {
-                let name = &p.segments[0].text;
-                let global = self.inline_notes.global_paths.contains(&idx);
-                if !global && self.symbols.contains_key(name) {
-                    return None;
-                }
-                if let Some(v) = self.loop_var(name).filter(|_| !global) {
-                    return Some(v);
-                }
-                let &(_, value) = self.consts.get(name)?;
-                self.eval_const_depth(value, depth + 1)
-            }
+            // Ad kapsam zinciriyle çözülür (scope.rs): döngü değişkeni ve
+            // const sabittir; yerel ve modül adı değildir.
+            ExprKind::Path(_) => match self.resolve(idx) {
+                Res::Loop(v) => Some(v),
+                Res::Const { value, .. } => self.eval_const_depth(value, depth + 1),
+                Res::Local(_) | Res::Module | Res::Unbound => None,
+            },
             // Sabit dizi elemanı: `COEFFS[k]`, k sabit (ADR-0041).
             ExprKind::Index { base, index } => {
-                let name = crate::path_single(self.ast, *base)?;
                 let i = self.eval_const_depth(*index, depth + 1)?;
-                self.const_array_element(name, i)
+                self.const_array_element(*base, i)
             }
             // `const N : u32 = match K { … }` (ADR-0083 Karar 5): ilk
             // eşleşen kolun değeri; muhafızlı ya da çözülemeyen desen `None`.
@@ -252,7 +238,6 @@ impl<'a> Emitter<'a> {
                 None
             }
             ExprKind::StringLit(_)
-            | ExprKind::Path(_)
             | ExprKind::Unary { .. }
             | ExprKind::Range { .. }
             | ExprKind::PartSelect { .. }
@@ -271,7 +256,6 @@ impl<'a> Emitter<'a> {
     /// Derleme zamanı mantıksal değer: literal, karşılaştırma, `&&`/`||`/
     /// `->`, `!`, bool const'u. Başka bir şey 0/1 değerlendiriyorsa o.
     fn eval_const_bool(&self, idx: Idx<Expr>, depth: u32) -> Option<bool> {
-        const MAX_CONST_DEPTH: u32 = 64;
         if depth > MAX_CONST_DEPTH {
             return None;
         }
@@ -362,8 +346,12 @@ impl<'a> Emitter<'a> {
     }
 
     /// Sabit match'in sınananı: tamsayı sabiti ya da enum varyantının
-    /// kodu (varyant yolu veya enum tipli `const`).
+    /// kodu (varyant yolu veya enum tipli `const`). Enum tipli const
+    /// zinciri kendini çağırır: derinlik sınırı burada da denetlenir.
     fn const_match_key(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
+        if depth > MAX_CONST_DEPTH {
+            return None;
+        }
         if let ExprKind::BoolLit(b) = self.ast.exprs[idx].kind {
             return Some(i128::from(b));
         }
@@ -371,13 +359,9 @@ impl<'a> Emitter<'a> {
             if let Some((decl, i)) = self.enum_variant_of_path(p) {
                 return i128::try_from(*self.enum_layout(decl)?.values.get(i)?).ok();
             }
-            if let [seg] = p.segments.as_slice() {
-                if !self.symbols.contains_key(&seg.text) {
-                    if let Some(&(ty, value)) = self.consts.get(&seg.text) {
-                        if self.enum_of_type(ty).is_some() {
-                            return self.const_match_key(value, depth + 1);
-                        }
-                    }
+            if let Res::Const { ty, value } = self.resolve(idx) {
+                if self.enum_of_type(ty).is_some() {
+                    return self.const_match_key(value, depth + 1);
                 }
             }
         }
@@ -427,21 +411,14 @@ impl<'a> Emitter<'a> {
             }),
             ExprKind::Path(path) if path.segments.len() >= 2 => self.enum_variant_sig(path),
             ExprKind::Path(path) => {
-                let name = path.segments.first()?;
-                let global = self.inline_notes.global_paths.contains(&idx);
-                // Blok `let`'i (süreç yereli) modül adlarını gölgeler.
-                if let Some(l) = self.local(&name.text).filter(|_| !global) {
-                    return Some(l.sig);
-                }
-                if let Some(sig) = self.symbols.get(&name.text).copied().filter(|_| !global) {
-                    return Some(sig);
-                }
-                // Döngü değişkeni bağlamla boyutlanan literal gibidir.
-                if !global && self.loop_var(&name.text).is_some() {
-                    return None;
-                }
-                // Üst düzey const: genişlik bildirilen tipinden gelir.
-                let &(ty, _) = self.consts.get(&name.text)?;
+                let ty = match self.resolve(idx) {
+                    Res::Local(i) => return Some(self.proc.locals[i].sig),
+                    Res::Module => return self.symbols.get(&path.segments.first()?.text).copied(),
+                    // Döngü değişkeni bağlamla boyutlanan literal gibidir.
+                    Res::Loop(_) | Res::Unbound => return None,
+                    // Üst düzey const: genişlik bildirilen tipinden gelir.
+                    Res::Const { ty, .. } => ty,
+                };
                 if matches!(
                     ast.types[crate::alias::resolve(ast, ty)].kind,
                     TypeRefKind::Array { .. }
@@ -491,7 +468,7 @@ impl<'a> Emitter<'a> {
             // de eleman imzasını taşır (ADR-0041); bit seçimi 1 bittir.
             ExprKind::Index { base, .. } => {
                 let base = *base;
-                if let Some(name) = crate::path_single(self.ast, base) {
+                if let Some(name) = self.module_path(base) {
                     if self.array_dims.contains_key(name) {
                         return self.symbols.get(name).copied();
                     }
@@ -499,8 +476,9 @@ impl<'a> Emitter<'a> {
                     if let Some(&(elem, _)) = self.packed_arrays.get(name) {
                         return Some(elem);
                     }
-                    let name = name.to_string();
-                    if let Some((sig, _, _)) = self.const_array_info(&name) {
+                }
+                if let Some(name) = self.const_array_at(base) {
+                    if let Some((sig, _, _)) = self.array_const_info(name) {
                         return Some(sig);
                     }
                 }
@@ -579,7 +557,7 @@ impl<'a> Emitter<'a> {
     /// bir örnek adıysa port tablosundan okunur (ADR-0027/0029).
     pub(crate) fn builtin_field_sig(&self, base: Idx<Expr>, field: &str) -> Option<Sig> {
         use volt_ast::builtin::PortKind;
-        let inst = crate::path_single(self.ast, base)?;
+        let inst = self.module_path(base)?;
         let info = self.builtin_insts.get(inst)?;
         let port = info.prim.port(field)?;
         Some(match port.kind {
@@ -610,14 +588,11 @@ impl<'a> Emitter<'a> {
     /// cast kendi genişliğini taşır, bileşik ifadeye bağlam içeri akar.
     fn is_widen_atom(&self, idx: Idx<Expr>) -> bool {
         match &self.ast.exprs[idx].kind {
-            ExprKind::Path(p) => p
-                .segments
-                .first()
-                .is_some_and(|n| self.symbols.contains_key(&n.text)),
+            ExprKind::Path(_) => self
+                .module_path(idx)
+                .is_some_and(|n| self.symbols.contains_key(n)),
             // Dizi sabiti elemanı literale katlanır — sarılmaz.
-            ExprKind::Index { base, .. } => {
-                !crate::path_single(self.ast, *base).is_some_and(|n| self.is_const_array(n))
-            }
+            ExprKind::Index { base, .. } => self.const_array_at(*base).is_none(),
             ExprKind::Field { .. } => true,
             ExprKind::Call { callee, .. } => self.is_prev_call(*callee),
             ExprKind::IntLit { .. }
@@ -756,9 +731,7 @@ impl<'a> Emitter<'a> {
 
     /// Süreç yereline (blok `let`i) başvuru mu?
     fn is_local_path(&self, idx: Idx<Expr>) -> bool {
-        crate::path_single(self.ast, idx).is_some_and(|n| {
-            self.local(n).is_some() && !self.inline_notes.global_paths.contains(&idx)
-        })
+        matches!(self.resolve(idx), Res::Local(_))
     }
 
     /// Atama konumu (assign / let / `<=` / `=` / port bağlama): RHS
@@ -822,15 +795,16 @@ impl<'a> Emitter<'a> {
     pub(crate) fn emit_plain(&mut self, idx: Idx<Expr>) -> String {
         match &self.ast.exprs[idx].kind {
             ExprKind::IntLit { value, .. } => value.to_string(),
-            ExprKind::Path(p) if p.segments.len() == 1 => {
-                match self.loop_var(&p.segments[0].text) {
-                    Some(v) => v.to_string(),
-                    None => self.emit_prec(idx, None, PREC_ATOM, false),
+            // Döngü değişkeni çıplak sayı; başka her ad (yerel, modül adı,
+            // const) kendi biçimiyle (scope.rs, ADR-0081 hijyen).
+            ExprKind::Path(_) => match self.resolve(idx) {
+                Res::Loop(v) => v.to_string(),
+                Res::Local(_) | Res::Module | Res::Const { .. } | Res::Unbound => {
+                    self.emit_prec(idx, None, PREC_ATOM, false)
                 }
-            }
+            },
             ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
             | ExprKind::Binary { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Index { .. }
@@ -963,31 +937,28 @@ impl<'a> Emitter<'a> {
                 (name, PREC_ATOM)
             }
             // Blok `let`'i: sürecin yeniden adlandırılmış yereli (ADR-0083).
-            ExprKind::Path(path)
-                if path.segments.len() == 1
-                    && !self.inline_notes.global_paths.contains(&idx)
-                    && self.local(&path.segments[0].text).is_some() =>
-            {
-                self.note_local_use(&path.segments[0].text, ctx);
-                let sv = self.local(&path.segments[0].text).map(|l| l.sv.clone());
-                (sv.unwrap_or_default(), PREC_ATOM)
-            }
+            ExprKind::Path(_) if self.is_local_path(idx) => match self.resolve(idx) {
+                Res::Local(i) => {
+                    self.note_local_use(i, ctx);
+                    (self.proc.locals[i].sv.clone(), PREC_ATOM)
+                }
+                Res::Loop(_) | Res::Module | Res::Const { .. } | Res::Unbound => {
+                    unreachable!("is_local_path yalnız yerele bağlanan yolu geçirir")
+                }
+            },
             ExprKind::Path(path) => {
                 // Üst düzey const referansı boyutlandırılmış literale
-                // katlanır — üretilen RTL'de tanımsız isim kalmaz. Açılmış
-                // fn gövdesindeki const çağıranın aynı adlı sinyaline
-                // bağlanmaz (ADR-0081 hijyen).
-                let global = self.inline_notes.global_paths.contains(&idx);
-                match self.fold_const_path(path, ctx, span, global) {
+                // katlanır — üretilen RTL'de tanımsız isim kalmaz. Ad kapsam
+                // zinciriyle çözülür: açılmış fn gövdesindeki const
+                // çağıranın aynı adlı sinyaline bağlanmaz (scope.rs).
+                match self.fold_const_path(idx, ctx, span) {
                     Some(folded) => {
                         let prec = lit_prec(&folded);
                         (folded, prec)
                     }
                     None => {
-                        if let [seg] = path.segments.as_slice() {
-                            if !global {
-                                self.note_let_use(&seg.text, ctx);
-                            }
+                        if let Some(name) = self.module_path(idx) {
+                            self.note_let_use(name, ctx);
                         }
                         let name = path
                             .segments
@@ -1064,8 +1035,9 @@ impl<'a> Emitter<'a> {
             }
             ExprKind::Index { base, index } => {
                 let (base, index) = (*base, *index);
-                let packed =
-                    crate::path_single(ast, base).and_then(|n| self.packed_arrays.get(n).copied());
+                let packed = self
+                    .module_path(base)
+                    .and_then(|n| self.packed_arrays.get(n).copied());
                 match self.try_emit_const_array_index(base, index, ctx, span) {
                     Some(folded) => {
                         let prec = lit_prec(&folded);
@@ -1133,7 +1105,7 @@ impl<'a> Emitter<'a> {
                 let name = field.text.clone();
                 // Yerleşik primitif ya da kullanıcı modülü çıkışı:
                 // `f.rd_data` → `f_rd_data`.
-                match crate::path_single(ast, base).filter(|inst| {
+                match self.module_path(base).filter(|inst| {
                     self.builtin_insts.contains_key(*inst) || self.user_insts.contains_key(*inst)
                 }) {
                     Some(inst) => (format!("{inst}_{name}"), PREC_ATOM),
@@ -1398,9 +1370,9 @@ impl<'a> Emitter<'a> {
         // yalnız ad, alan ve unpacked dizinin elemanıdır.
         let selectable = match &self.ast.exprs[base].kind {
             ExprKind::Path(_) | ExprKind::Field { .. } => true,
-            ExprKind::Index { base: b, .. } => {
-                crate::path_single(self.ast, *b).is_some_and(|n| self.array_dims.contains_key(n))
-            }
+            ExprKind::Index { base: b, .. } => self
+                .module_path(*b)
+                .is_some_and(|n| self.array_dims.contains_key(n)),
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
@@ -1440,7 +1412,7 @@ impl<'a> Emitter<'a> {
     /// Vektörün adres genişliği (`clog2`); 1 bitlik taban ve bilinmeyen
     /// genişlik `None`.
     fn address_width(&mut self, base: Idx<Expr>) -> Option<u32> {
-        let len = match crate::path_single(self.ast, base).and_then(|n| self.array_dims.get(n)) {
+        let len = match self.module_path(base).and_then(|n| self.array_dims.get(n)) {
             Some(n) => *n,
             None => self.width_of(base)?.width,
         };
@@ -1453,7 +1425,9 @@ impl<'a> Emitter<'a> {
     /// dizinin elemanı (`regs[i]`) burada değil, `sized_index`'te.
     fn index_width_mismatch(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> bool {
         if self.eval_const(index).is_some()
-            || crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n))
+            || self
+                .module_path(base)
+                .is_some_and(|n| self.array_dims.contains_key(n))
         {
             return false;
         }
@@ -1471,8 +1445,9 @@ impl<'a> Emitter<'a> {
     /// (V3DfgPeephole "Out of range select").
     fn sized_index(&mut self, base: Idx<Expr>, index: Idx<Expr>) -> String {
         let text = self.emit_plain(index);
-        let array =
-            crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n));
+        let array = self
+            .module_path(base)
+            .is_some_and(|n| self.array_dims.contains_key(n));
         if !array || self.eval_const(index).is_some() {
             return text;
         }
@@ -1485,7 +1460,10 @@ impl<'a> Emitter<'a> {
     }
 
     fn is_scalar_base(&mut self, base: Idx<Expr>) -> bool {
-        if crate::path_single(self.ast, base).is_some_and(|n| self.array_dims.contains_key(n)) {
+        if self
+            .module_path(base)
+            .is_some_and(|n| self.array_dims.contains_key(n))
+        {
             return false;
         }
         self.width_of(base).is_some_and(|s| s.width == 1)
@@ -1594,26 +1572,14 @@ impl<'a> Emitter<'a> {
     /// çıplak kullanılamaz (E2005 — sessiz sızıntı yasak).
     fn fold_const_path(
         &mut self,
-        path: &volt_ast::Path,
+        idx: Idx<Expr>,
         ctx: Option<Sig>,
         span: volt_span::Span,
-        global: bool,
     ) -> Option<String> {
-        if path.segments.len() != 1 {
-            return None;
-        }
-        let name = &path.segments[0].text;
-        if !global
-            && (self.symbols.contains_key(name)
-                || self.builtin_insts.contains_key(name)
-                || self.user_insts.contains_key(name))
-        {
-            return None;
-        }
-        if let Some(v) = self.loop_var(name).filter(|_| !global) {
+        if let Res::Loop(v) = self.resolve(idx) {
             return Some(self.fmt_int(v, NumBase::Dec, ctx, span));
         }
-        let &(ty, value_idx) = self.consts.get(name)?;
+        let (name, ty, value_idx) = self.const_path(idx)?;
         if matches!(
             self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
             TypeRefKind::Array { .. }

@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 
 use crate::ast::{BinOp, Expr, LitFmt, PortTy};
+use crate::hygiene::Hygiene;
 use crate::model::Model;
 use crate::print::{port_name, print, print_operand, Style};
 use crate::rng::Rng;
@@ -34,10 +35,14 @@ pub enum Variant {
     W,
     /// Sözleşmede: `ensures: o == e`.
     G,
+    /// Ad hijyeni (#128): ifade bir fn gövdesinde, seçim literalleri kök
+    /// const'larda; çağrı aynı adlı döngü değişkeninin içinde, gövdenin ve
+    /// çağıranın `let`'leri bir const'la aynı adda (`hygiene`).
+    R,
 }
 
 impl Variant {
-    pub const ALL: [Variant; 9] = [
+    pub const ALL: [Variant; 10] = [
         Variant::A,
         Variant::B,
         Variant::C,
@@ -47,6 +52,7 @@ impl Variant {
         Variant::K,
         Variant::W,
         Variant::G,
+        Variant::R,
     ];
 
     pub fn letter(self) -> char {
@@ -60,6 +66,7 @@ impl Variant {
             Variant::K => 'k',
             Variant::W => 'w',
             Variant::G => 'g',
+            Variant::R => 'r',
         }
     }
 
@@ -78,6 +85,7 @@ impl Variant {
             Variant::K => "compared with a literal",
             Variant::W => "assigned to a wider target",
             Variant::G => "contract (ensures)",
+            Variant::R => "in a function, names colliding with the caller's loop variable and lets",
         }
     }
 }
@@ -105,6 +113,8 @@ pub struct Case {
     pub cmp_lit: Option<(BinOp, i128)>,
     /// W biçimi: daha geniş hedef.
     pub wide: Option<PortTy>,
+    /// R biçimi: fn gövdesi ve çakışan adlar.
+    pub hygiene: Option<Hygiene>,
     /// Modüle giren biçimler (modelin geçerli dediği).
     pub variants: Vec<Variant>,
 }
@@ -142,6 +152,7 @@ impl Case {
             extracted: None,
             cmp_lit: None,
             wide: None,
+            hygiene: None,
             variants: vec![],
         };
         let Kind::Valid(nat) = case.kind else {
@@ -184,12 +195,18 @@ impl Case {
                 }
             }
         }
+        // Gövde `let`'i #132 düzelene kadar isteğe bağlı (`hygiene`).
+        let body_let = crate::hygiene::body_let_enabled()
+            .then_some(case.extracted.as_ref())
+            .flatten();
+        case.hygiene = Hygiene::new(id, &case.expr, body_let, &sub_name(id));
         case.variants = Variant::ALL
             .into_iter()
             .filter(|v| match v {
                 Variant::C => case.extracted.is_some(),
                 Variant::K => case.cmp_lit.is_some(),
                 Variant::W => case.wide.is_some(),
+                Variant::R => case.hygiene.is_some(),
                 _ => true,
             })
             .collect();
@@ -234,6 +251,11 @@ impl Case {
             }
             Variant::W => model.eval_check(&self.expr, self.wide?, inp),
             Variant::G => None,
+            // Gövdenin `let`'i C biçiminin alt ifadesidir.
+            Variant::R => match self.hygiene.as_ref()?.body_let {
+                Some(_) => model.eval_check(self.extracted.as_ref()?, nat, inp),
+                None => model.eval_check(&self.expr, nat, inp),
+            },
         }
     }
 
@@ -248,6 +270,10 @@ impl Case {
                 .wide
                 .map_or(0, |t| model.check(&self.expr, t).unwrap_or(0)),
             Variant::C => self
+                .extracted
+                .as_ref()
+                .map_or(0, |e| model.check(e, nat).unwrap_or(0)),
+            Variant::R if self.hygiene.as_ref().is_some_and(|h| h.body_let.is_some()) => self
                 .extracted
                 .as_ref()
                 .map_or(0, |e| model.check(e, nat).unwrap_or(0)),
@@ -324,6 +350,35 @@ impl Case {
                 out_name(id, Variant::A),
                 print_operand(&self.expr, BinOp::Eq, Style::Min)
             ),
+            Variant::R => {
+                let h = self.hygiene.as_ref().expect("R biçimi");
+                let ret = self.out_ty(v).expect("R biçiminin çıkışı");
+                // Rapor için portların tipi bilinmez; gövde ve çağrı yeter.
+                let mut lines: Vec<String> = h
+                    .consts
+                    .iter()
+                    .map(|(n, v)| format!("const {n} : u32 = {v}"))
+                    .collect();
+                if let Some(l) = &h.body_let {
+                    lines.push(format!(
+                        "fn {}(..) -> {} {{ let {} = {}; {} }}",
+                        crate::hygiene::fn_name(id),
+                        ret.volt(),
+                        crate::hygiene::let_name(id),
+                        print(l, Style::Min),
+                        print(&h.body, Style::Min)
+                    ));
+                } else {
+                    lines.push(format!(
+                        "fn {}(..) -> {} {{ {} }}",
+                        crate::hygiene::fn_name(id),
+                        ret.volt(),
+                        print(&h.body, Style::Min)
+                    ));
+                }
+                lines.extend(h.module_lines(id, &out_name(id, v)));
+                lines.join("\n")
+            }
         }
     }
 }
@@ -436,12 +491,29 @@ pub fn build(cases: &[Case], ports: &[PortTy]) -> Built {
                     format!("{} = {}", out_name(id, *v), print(ex, Style::Min))
                 }
                 Variant::G => continue,
+                Variant::R => {
+                    let h = c.hygiene.as_ref().expect("R biçimi");
+                    for l in h.module_lines(id, &out_name(id, *v)) {
+                        lines.push((l, Some((id, Variant::R))));
+                    }
+                    continue;
+                }
                 _ => c.variant_text(*v),
             };
             lines.push((format!("    {text}"), Some((id, *v))));
         }
     }
     lines.push(("}".into(), None));
+    // R biçiminin const'ları ve fn'i modülden sonra (öğe düzeyinde ileri
+    // başvuru serbest, name-resolution.md §4).
+    for c in cases.iter().filter(|c| c.variants.contains(&Variant::R)) {
+        let (Some(h), Some(ret)) = (&c.hygiene, c.out_ty(Variant::R)) else {
+            continue;
+        };
+        for l in h.item_lines(c.id, ports, ret) {
+            lines.push((l, Some((c.id, Variant::R))));
+        }
+    }
     let mut text = String::new();
     let mut line_owner = Vec::new();
     for (l, o) in lines {
@@ -810,7 +882,7 @@ fn first_owned_name(line: &str) -> Option<(usize, Variant)> {
                         let ok = match c {
                             b'o' => true,
                             b't' => true,
-                            _ => v == Variant::C,
+                            _ => v == Variant::C || v == Variant::R,
                         };
                         if ok {
                             return Some((id, v));

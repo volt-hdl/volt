@@ -11,9 +11,25 @@ name: Mutation test
 # names every shard that did not complete.
 #
 #   gh workflow run mutants.yml --ref <branch>
+#   gh workflow run mutants.yml --ref <branch> -f re='scope\.rs' [-f shards=2]
+#
+# Targeted run (ADR-0109, "Hedefli koşu"): `re` keeps the mutants whose
+# names (as `cargo mutants --list` prints them) the regex matches. cargo-mutants
+# 27.1.0 lets field-deletion mutants through --re, so the list is narrowed a
+# second time by line (--in-diff, scripts/ci/mutants_target.py) and the
+# first job fails unless every mutant in the final list matches `re`.
 
 on:
   workflow_dispatch:
+    inputs:
+      re:
+        description: "Regex over mutant names: try only the matching mutants (empty: every mutant in scope)"
+        required: false
+        default: ""
+      shards:
+        description: "Number of shards, 1-20 (empty: ADR-0109 section 3 from the number of mutants)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -22,11 +38,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_MUTANTS_VERSION: 27.1.0
   CARGO_NEXTEST_VERSION: 0.9.151
-  # The number of shards (ADR-0109 section 3 has the calculation): a shard
-  # should stay under 4 hours at the measured cost per mutant. Recompute it
-  # when the scope grows. The matrix of the mutants job lists
-  # 0..MUTANTS_SHARDS-1; a step there checks that the two agree.
-  MUTANTS_SHARDS: 15
+  # Inputs reach the shell through the environment, never inline.
+  MUTANTS_RE: ${{ inputs.re }}
   OSS_CAD_SUITE_DATE: 2026-09-21
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
   # No debug info: smaller target, faster links; a mutant is rebuilt ~75
@@ -39,6 +52,9 @@ jobs:
     name: Tools and the mutants in scope
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+      matrix: ${{ steps.shards.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -53,9 +69,13 @@ jobs:
         run: |
           cargo install --locked --root ~/mutants-tools cargo-mutants --version "$CARGO_MUTANTS_VERSION"
           cargo install --locked --root ~/mutants-tools cargo-nextest --version "$CARGO_NEXTEST_VERSION"
-      # The mutants of every shard, as the summary job expects them: a shard
-      # that never uploads its outcomes still shows its untested mutants.
-      - name: Mutants in scope (.cargo/mutants.toml), per shard
+      - name: Script self-test
+        run: python3 scripts/ci/mutants_target.py --self-test
+      # Targeted run: the --re list, narrowed by line to the names the regex
+      # matches (target.diff), and the proof that the final list holds only
+      # those. Every later `cargo mutants` call takes the same filter
+      # (mutants-filter.txt).
+      - name: Mutants of the run (.cargo/mutants.toml, input re)
         env:
           CARGO_TERM_COLOR: never
         run: |
@@ -63,9 +83,49 @@ jobs:
           cargo mutants --version
           cargo nextest --version
           mkdir -p mutants-list
-          cargo mutants --list > mutants-list/all.txt
+          : > mutants-list/filter.txt
+          if [ -n "$MUTANTS_RE" ]; then
+            cargo mutants --list --re "$MUTANTS_RE" > mutants-list/re.txt
+            python3 scripts/ci/mutants_target.py diff --re "$MUTANTS_RE" --list mutants-list/re.txt --out mutants-list/target.diff
+            printf '%s\n' --re "$MUTANTS_RE" --in-diff mutants-list/target.diff > mutants-list/filter.txt
+          fi
+          mapfile -t filter < mutants-list/filter.txt
+          cargo mutants --list "${filter[@]}" > mutants-list/all.txt
+          if [ -n "$MUTANTS_RE" ]; then
+            python3 scripts/ci/mutants_target.py check --re "$MUTANTS_RE" --list mutants-list/all.txt
+            echo "::notice title=Targeted mutation run::$(wc -l < mutants-list/all.txt) mutants match the regex $MUTANTS_RE"
+          fi
+      # ADR-0109 section 3, from the number of mutants of this run, unless
+      # the input gives it.
+      - name: Number of shards
+        id: shards
+        env:
+          SHARDS_INPUT: ${{ inputs.shards }}
+        run: |
+          total=$(wc -l < mutants-list/all.txt)
+          if [ -n "$SHARDS_INPUT" ]; then
+            n="$SHARDS_INPUT"
+            if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt 20 ]; then
+              echo "::error title=Mutation test::shards must be 1-20, got '$n'"
+              exit 1
+            fi
+          else
+            n=$(python3 scripts/ci/mutants_target.py shards --mutants "$total")
+          fi
+          if [ "$n" -gt "$total" ]; then n="$total"; fi
+          echo "shards=$n" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python3 -c "import json,sys; print(json.dumps(list(range(int(sys.argv[1])))))" "$n")" >> "$GITHUB_OUTPUT"
+          echo "MUTANTS_SHARDS=$n" >> "$GITHUB_ENV"
+      # The mutants of every shard, as the summary job expects them: a shard
+      # that never uploads its outcomes still shows its untested mutants.
+      - name: Mutants of the run, per shard
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          mapfile -t filter < mutants-list/filter.txt
           for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
-            cargo mutants --list --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
+            cargo mutants --list "${filter[@]}" --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
           done
           total=$(wc -l < mutants-list/all.txt)
           sharded=$(cat mutants-list/shard-*.txt | wc -l)
@@ -75,7 +135,11 @@ jobs:
             exit 1
           fi
           {
-            echo "### Mutants in scope: $total, $MUTANTS_SHARDS shards"
+            if [ -n "$MUTANTS_RE" ]; then
+              echo "### Targeted run: $total mutants match \`$MUTANTS_RE\`, $MUTANTS_SHARDS shards"
+            else
+              echo "### Mutants in scope: $total, $MUTANTS_SHARDS shards"
+            fi
             echo
             echo '| Mutants | File |'
             echo '|---:|---|'
@@ -110,10 +174,11 @@ jobs:
       VOLT_REQUIRE_TOOLS: all
       VOLT_DIFFTEST_SEED: "20261104"
       VOLT_DIFFTEST_COUNT: "2000"
+      MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        shard: ${{ fromJSON(needs.tools.outputs.matrix) }}
     steps:
       - name: The matrix has MUTANTS_SHARDS shards
         run: |
@@ -122,6 +187,11 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v7
+      # The filter of the run (empty for a full run) and its target.diff.
+      - uses: actions/download-artifact@v8
+        with:
+          name: mutants-list
+          path: mutants-list
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -163,7 +233,13 @@ jobs:
         env:
           CARGO_TERM_COLOR: never
         run: |
-          cargo mutants --list --shard ${{ matrix.shard }}/$MUTANTS_SHARDS > mutants-shard.txt
+          mapfile -t filter < mutants-list/filter.txt
+          cargo mutants --list "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS > mutants-shard.txt
+          if ! cmp -s mutants-shard.txt "mutants-list/shard-${{ matrix.shard }}.txt"; then
+            echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::the mutants differ from the list of the first job"
+            diff mutants-shard.txt "mutants-list/shard-${{ matrix.shard }}.txt" || true
+            exit 1
+          fi
           echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < mutants-shard.txt) mutants"
       # The baseline: the unmutated tree runs every workspace test, with
       # every tool required, exactly as each mutant will. cargo-mutants'
@@ -196,9 +272,10 @@ jobs:
         env:
           CARGO_INCREMENTAL: "1"
         run: |
+          mapfile -t filter < mutants-list/filter.txt
           set +e
           timeout --signal=INT --kill-after=5m 300m \
-            cargo mutants --in-place --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \
+            cargo mutants --in-place "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \
               --baseline skip --timeout ${{ steps.baseline.outputs.timeout }} --build-timeout 1200
           code=$?
           set -e
@@ -229,6 +306,8 @@ jobs:
     # Also after a failed or stopped shard: the summary names it.
     if: ${{ !cancelled() && needs.tools.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8

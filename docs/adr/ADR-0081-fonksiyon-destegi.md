@@ -1015,3 +1015,52 @@ modülleri + örnekleme kapanışıdır, modülsüz birim SV üretmez (ADR-0042
 "Ek — Çıktı kümesi"). `riscv_pipeline` immediate'leri ortak
 `examples/riscv_imm.volt`'tan alır; `riscv_core` da aynı dosyayı kullanır;
 üç SV dosyası da tamamen byte-aynı.
+
+## Ek: Üreticinin ad çözümü tek çözücüden geçer (#128, 2026-11-05, dal `fix/inline-name-hygiene`)
+
+**Sorun.** Karar 12.1'in hijyeni ("ad değil çözüm") açılımda doğru
+kuruldu: gövdedeki const'a bağlı yollar `global_paths` notuna yazılıyordu.
+Ama üretici (volt-sv-emit) bir adı her yerde kendi sırasıyla metinle
+arıyordu ve nota yalnız bazı yerler bakıyordu. `emit_plain` (indeks,
+parça seçimi başlangıcı, aralık sınırı) bakmıyordu: `for I in 0..4 {
+ys[I] = pick(xs) }` içinde `pick`'in `x[I]`'sı döngü değişkenini
+seçiyordu (#128, mutasyon testi PR #127). Denetim aynı kökten başka yanlışlar
+da buldu: açılım fn bildiriminin tip ve desen ifadelerini kopyalamaz,
+kaynak düğümler nota hiç girmiyordu (`uint<W>` E2005, `match x { I => … }`
+döngü değişkeninin değeri, enum const deseni çağıranın portu); dizi sabiti
+gölgelemeyi kendi denetiyordu (E2005); const'un değeri kullanıldığı yerin
+kapsamında değerlendiriliyordu (`const J = I + 1` döngünün `I`'sıyla);
+blok kapsamında sabit değerlendirme yereli görmüyor (`let K = s; xs[K +
+0]` const'u okuyordu), değer ve hesaplanan indeks konumunda modül sinyali
+döngü değişkeninden önce aranıyordu, `emit_plain` döngü değişkenini onu
+gölgeleyen gövde `let`'inden önce arıyordu.
+
+**Uygulama.** Üreticinin bütün tek parçalı değer adı çözümü
+`crates/volt-sv-emit/src/scope.rs`'teki `Emitter::resolve`'dan geçer
+(`Local` / `Loop` / `Module` / `Const` / `Unbound`). Sıra şartnamenin
+kapsam zinciridir (name-resolution.md §2, §3.1): içten dışa blok
+kapsamları (süreç yerelleri ve döngü değişkenleri birlikte; döngü
+değişkeni döngü başladığında açık blokların yerellerini, döngü gövdesinin
+yereli onu gölgeler), modül kapsamı (port, reg, tel, modül `let`'i,
+örnek), kök kapsam (const). Kök kapsamlı yollar (`root_paths`) blok ve
+modül kapsamını atlar: açılımın const'a bağladığı gövde yolları, fn
+bildiriminin tip ifadeleri ve desenleri, const öğelerinin değer ve tip
+ifadeleri. Sabit değerlendirme, genişlik çıkarımı, düz yazım, katlama,
+esnek aralık, enum çıkarımı, dizi sabiti ve modül dizisi/örnek tabloları
+bu çözümü kullanır; `loop_var`, `is_shadowed` ve yerlerdeki `global`
+denetimleri kalktı.
+
+W1002 HIR'ın tanısıdır ve değişmedi: iç kapsamdaki bildirim dıştaki adı
+gölgelediğinde çıkar (§6). Parser'ın generic ve modül düzeyi `for`
+ikamesindeki benzer yanlışlar başka bir kök nedendir (ad çözümünden önce,
+metinle ikame): #130.
+
+**Testler.** `crates/volt-driver/tests/name_scope_sim_tests.rs` (her
+denetim hücresi davranış olarak: tasarım Verilator'da simüle edilir,
+beklenen değerler şartnameden elle; 16'sı düzeltmeden önce düşüyordu),
+`crates/volt-sv-emit/tests/name_scope_tests.rs` (HIR'ın emitter'a
+ulaştırmadığı girdiler: E2031'li esnek `let`, E2020'li döngüsel const),
+`crates/volt-driver/tests/name_hygiene_tests.rs` (W1002 yalnız
+gölgelemede), `tests/ui/pass/135_fn_const_name_hygiene.volt`,
+`tests/ui/fail/224_loop_var_shadows_inlined_const.volt`; fark testinin r
+biçimi (ADR-0108).

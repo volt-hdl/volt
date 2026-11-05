@@ -31,20 +31,9 @@ pub enum ConstArrayStyle {
 const MAX_TABLE_LEN: u32 = 4096;
 
 impl<'a> Emitter<'a> {
-    /// Ad modül sinyali, örnek adı ya da döngü değişkeniyle gölgeleniyor mu?
-    pub(crate) fn is_shadowed(&self, name: &str) -> bool {
-        self.symbols.contains_key(name)
-            || self.builtin_insts.contains_key(name)
-            || self.user_insts.contains_key(name)
-            || self.loop_var(name).is_some()
-    }
-
-    /// Gölgelenmemiş üst düzey dizi sabiti: (eleman imzası, uzunluk,
-    /// değer ifadesi). Dizi tipli değilse sessizce None.
-    pub(crate) fn const_array_info(&mut self, name: &str) -> Option<(Sig, u32, Idx<Expr>)> {
-        if self.is_shadowed(name) {
-            return None;
-        }
+    /// Dizi tipli üst düzey const'un (eleman imzası, uzunluk, değer
+    /// ifadesi); dizi tipli değilse sessizce None.
+    pub(crate) fn array_const_info(&mut self, name: &str) -> Option<(Sig, u32, Idx<Expr>)> {
         let &(ty, value) = self.consts.get(name)?;
         if !matches!(
             self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
@@ -57,23 +46,21 @@ impl<'a> Emitter<'a> {
         Some((sig, len, value))
     }
 
-    /// Bildirilen tipi dizi olan, gölgelenmemiş sabit mi?
-    pub(crate) fn is_const_array(&self, name: &str) -> bool {
-        !self.is_shadowed(name)
-            && self.consts.get(name).is_some_and(|&(ty, _)| {
-                matches!(
-                    self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
-                    TypeRefKind::Array { .. }
-                )
-            })
+    /// `path` bir dizi sabitine bağlanıyorsa adı (kapsam zinciriyle:
+    /// yerel, döngü değişkeni ya da modül adı gölgeler — scope.rs).
+    pub(crate) fn const_array_at(&self, path: Idx<Expr>) -> Option<&'a str> {
+        let (name, ty, _) = self.const_path(path)?;
+        matches!(
+            self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
+            TypeRefKind::Array { .. }
+        )
+        .then_some(name)
     }
 
-    /// Dizi sabitinin `i`. elemanı (derleme zamanı değeri); sınır dışı
-    /// ya da sabit olmayan elemanda None.
-    pub(crate) fn const_array_element(&self, name: &str, i: i128) -> Option<i128> {
-        if !self.is_const_array(name) {
-            return None;
-        }
+    /// Dizi sabitinin `i`. elemanı (derleme zamanı değeri); `path` dizi
+    /// sabitine bağlanmıyorsa, sınır dışı ya da sabit olmayan elemanda None.
+    pub(crate) fn const_array_element(&self, path: Idx<Expr>, i: i128) -> Option<i128> {
+        let name = self.const_array_at(path)?;
         let &(_, value) = self.consts.get(name)?;
         let elems = self.const_array_elements(value)?;
         usize::try_from(i).ok().and_then(|i| elems.get(i).copied())
@@ -91,18 +78,14 @@ impl<'a> Emitter<'a> {
                 let n = usize::try_from(self.eval_const(*count)?).ok()?;
                 (n as u128 <= u128::from(MAX_TABLE_LEN)).then(|| vec![v; n])
             }
-            ExprKind::Path(p) if p.segments.len() == 1 => {
-                let name = &p.segments[0].text;
-                if !self.is_const_array(name) {
-                    return None;
-                }
+            ExprKind::Path(_) => {
+                let name = self.const_array_at(value)?;
                 let &(_, inner) = self.consts.get(name)?;
                 self.const_array_elements(inner)
             }
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
             | ExprKind::Binary { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Index { .. }
@@ -131,10 +114,10 @@ impl<'a> Emitter<'a> {
         ctx: Option<Sig>,
         span: Span,
     ) -> Option<String> {
-        let name = crate::path_single(self.ast, base)?.to_string();
-        let (sig, len, _) = self.const_array_info(&name)?;
+        let name = self.const_array_at(base)?.to_string();
+        let (sig, len, _) = self.array_const_info(&name)?;
         match self.eval_const(index) {
-            Some(i) => match self.const_array_element(&name, i) {
+            Some(i) => match self.const_array_element(base, i) {
                 // Eleman literali bağlam genişliğiyle boyutlanır (ADR-0041).
                 Some(v) => Some(self.fmt_int(v, NumBase::Dec, widen_sig(Some(sig), ctx), span)),
                 None => {
@@ -166,7 +149,7 @@ impl<'a> Emitter<'a> {
     /// Değişken indeksle kullanılan dizi sabitinin modül içi tablo
     /// bildirimi. TEK üretim noktası: biçim `const_array_style`'a bağlı.
     pub(crate) fn emit_const_array_decl(&mut self, name: &str) -> Option<String> {
-        let (sig, len, value) = self.const_array_info(name)?;
+        let (sig, len, value) = self.array_const_info(name)?;
         let span = self.ast.exprs[value].span;
         let Some(elems) = self.const_array_elements(value) else {
             self.error(

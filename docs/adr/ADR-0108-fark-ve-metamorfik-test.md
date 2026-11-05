@@ -277,3 +277,76 @@ Kapsamın genişletilmesi #125'te (v0.1.1).
 - Verilator `-Wall` uyarıları (WIDTH dışında) yumuşak bulgudur: üretilen
   ifadenin kendisi sabit karşılaştırma (CMPCONST, UNSIGNED) ya da kısmen
   okunan `let` (UNUSEDSIGNAL) içerebilir.
+
+## Ek: r biçimi — ad hijyeni (#128, 2026-11-05)
+
+#128'i fark testi değil mutasyon testi buldu (PR #127): ifadeler tek
+modülde, fonksiyonsuz, sabit adsız üretiliyordu; bir adın yanlış tanıma
+bağlanabileceği hiçbir girdi yoktu. Onuncu biçim bu sınıfı sınar:
+
+| Biçim | Volt | Beklenen |
+|---|---|---|
+| r | ifade `fn h<id>r`'nin gövdesinde; seçim konumundaki literaller (`x[3]`'ün indeksi, `x[2 +: 4]`'ün başlangıcı) kök `const t<id>r`, `K<id>r<n>`; (yalnız `VOLT_DIFFTEST_FN_LET=1` ile) c biçiminin alt ifadesi gövdede `let s<id>r`'ye bağlı ve aynı adlı kök `const s<id>r`'yi gölgeler; çağrı `comb` içinde, `for t<id>r in V..V+1` döngüsünde (V, `t<id>r`'nin değerinden bir fazla), bitleri seçilmeyen bir argüman çağıranın `let s<id>r`'sinden geçer | a (gövde `let`'i varsa c) ile aynı |
+
+Ad çakışmaları anlamı değiştirmemeli (name-resolution.md §2, §6;
+ADR-0081 Karar 12.1: fn kapsamının ebeveyni kök kapsamdır): gövdedeki
+`t<id>r` const'tur, döngü değişkeni değil; gövdedeki `s<id>r` gövdenin
+`let`'idir, ne kök const ne çağıranın yereli. Gölgelemeler W1002
+uyarısıdır, koşucu uyarıları saymaz. `let` satırı `;` ile biter (son
+ifade `(` ile başlarsa `let`'in değeri çağrı gibi sürerdi; `LetDecl = …
+[";"]`). İkame kipinin desteklemediği iki durum biçime girmez: bitleri
+seçilen gövde `let`'i (o zaman gövde `let`'siz) ve bitleri seçilen
+parametreye yerel geçirmek (o argüman port olarak geçer). Çakışacak ad
+yoksa (seçim literali yok, `let` yok, yerelden geçecek argüman yok) biçim
+konmaz.
+
+**Gövde `let`'i isteğe bağlı (#132).** İlk CI koşusunda (tohum 20261104,
+2000 ifade) gövde `let`'li r biçimi 9 değer farkı ve 44 WIDTH uyarısı
+buldu; hepsi gövdenin tipsiz `let`'ini içeriyor ve çakışan ad olmadan da
+oluyor: ikame kipindeki tipsiz fn `let`'i esnek genişliğinin kesişimini
+kaybediyor, aynı fn `comb` içinde ve modül düzeyinde farklı değer veriyor.
+Kök neden ad hijyeni değil; #132'de. Bu yüzden gövde `let`'i varsayılan
+olarak kapalı, `VOLT_DIFFTEST_FN_LET=1` ile açılır (açık koşu #132'yi
+bulur); #132 düzelince varsayılan açılır.
+
+Regresyon kümesine #128'in örneği eklendi (`p0[1]`, elle hesaplanmış iki
+değer): r biçimi düzeltmesiz derleyicide bit 2'yi seçer.
+
+Düzeltme olmadan: yerelde 8 toplu koşunun 1816 r çıkışından 297'sinin SV
+satırı farklı (döngü değişkeninin değeri), diğer biçimlerin bütün satırları
+aynı. Düzeltmesi geri alınmış dalda (`test/hygiene-revert-demo`)
+`difftest.yml` (41978380162, dört parça, tohum 20261104–20261107, parça
+başına 2000): dört parça da düştü (diffs 299, 281, 276, 293), küçültülmüş
+bulguların hepsi r biçiminde, örneğin "regression #128 … — r u8[K]".
+
+Koşunun günlüğünden alıntı (GitHub günlükleri 90 gün sonra siler; dal
+silindi). Dalın tek commit'i (a7b646dd) bu PR'ın ağacında yalnız
+`crates/volt-sv-emit/src`'yi `main`'deki haline döndürüyordu (9 dosya,
+`scope.rs` silinir). Her parçanın özet satırları ve ilk iki bulgusu:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2118 rejected-as-predicted=126 unsupported=6 unspecified=0 values-compared=234541 diffs=299
+[shard 0] difftest: regressions=25 failed=3 hand-computed=31 compared=31
+[shard 0]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 0]   [value differs from the model] r u13[K]
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2127 rejected-as-predicted=116 unsupported=7 unspecified=0 values-compared=236594 diffs=281
+[shard 1] difftest: regressions=25 failed=3 hand-computed=31 compared=31
+[shard 1]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 1]   [value differs from the model] r bits<38>[K +: w]
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2111 rejected-as-predicted=125 unsupported=14 unspecified=0 values-compared=235738 diffs=276
+[shard 2] difftest: regressions=25 failed=2 hand-computed=31 compared=31
+[shard 2]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 2]   [value differs from the model] r u5[K]
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2108 rejected-as-predicted=132 unsupported=10 unspecified=0 values-compared=233529 diffs=293
+[shard 3] difftest: regressions=25 failed=2 hand-computed=31 compared=31
+[shard 3]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 3]   [value differs from the model] r u60[K]
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+(`Tool ledger` satırı dört parçada da aynı, `difftest-0`..`difftest-3`.)
+
+Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgelemeyi
+görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde
+ve `comb` içinde (ikame kipi) üretilir; tel kipi (modül düzeyi çağrı) ve
+`on` bloğu sınanmaz. Gövde `let`'i #132'ye kadar varsayılan kapalı.

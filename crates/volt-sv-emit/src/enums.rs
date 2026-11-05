@@ -15,6 +15,7 @@ use volt_ast::{EnumDecl, Expr, ExprKind, Idx, ItemKind, Path, TypeRef};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
+use crate::scope::Res;
 use crate::{Emitter, Sig};
 
 impl<'a> Emitter<'a> {
@@ -117,20 +118,17 @@ impl<'a> Emitter<'a> {
     pub(crate) fn enum_of_expr(&self, idx: Idx<Expr>) -> Option<&'a EnumDecl> {
         let ast = self.ast;
         match &ast.exprs[idx].kind {
-            ExprKind::Path(p) if p.segments.len() == 1 => {
-                let name = &p.segments[0].text;
-                if let Some(l) = self.local(name) {
-                    return enum_layout::enum_named(ast, l.enum_name.as_deref()?);
+            // Ad kapsam zinciriyle çözülür (scope.rs).
+            ExprKind::Path(p) if p.segments.len() == 1 => match self.resolve(idx) {
+                Res::Local(i) => {
+                    enum_layout::enum_named(ast, self.proc.locals[i].enum_name.as_deref()?)
                 }
-                if let Some(e) = self.enum_sigs.get(name) {
-                    return enum_layout::enum_named(ast, e);
+                Res::Module => {
+                    enum_layout::enum_named(ast, self.enum_sigs.get(&p.segments[0].text)?)
                 }
-                if self.symbols.contains_key(name) {
-                    return None;
-                }
-                let &(ty, _) = self.consts.get(name)?;
-                self.enum_of_type(ty)
-            }
+                Res::Const { ty, .. } => self.enum_of_type(ty),
+                Res::Loop(_) | Res::Unbound => None,
+            },
             ExprKind::Path(p) => self.enum_variant_of_path(p).map(|(d, _)| d),
             ExprKind::Call { callee, args } if self.is_prev_call(*callee) => {
                 self.enum_of_expr(*args.first()?)
@@ -148,7 +146,7 @@ impl<'a> Emitter<'a> {
                 volt_ast::MatchArmBody::Block(_) => None,
             }),
             ExprKind::Field { base, field } => {
-                let inst = crate::path_single(ast, *base)?;
+                let inst = self.module_path(*base)?;
                 let module = &self.user_insts.get(inst)?.module;
                 let target = ast.items.iter().find_map(|&i| {
                     let ItemKind::Module(m) = &ast.items_arena[i].kind else {
