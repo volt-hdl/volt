@@ -375,12 +375,22 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   `index_width_mismatch`'in `||` → `&&`'si. Bunlardan üçü gerçek bir eksiği
   gösterdi: `const_match_key` derinlik sınırını hiç denetlemiyordu,
   döngüsel enum const zincirinde üretici yığın taşıyordu (#131'de
-  düzeltildi; zincir sınırı #133). Öldüren testler `name_scope_tests`'te:
-  döngüsel u32 ve enum zinciri, 63/64 halkalı enum zinciri.
+  düzeltildi; zincir sınırı #133). Öldüren testler: volt-sv-emit
+  `name_scope_tests`'te döngüsel u32 ve enum zinciri ve 64 halkalı zincirin
+  E0003'ü (tanı testleri), volt-driver `name_scope_sim_tests`'te 63 halkalı
+  zincirin simüle edilen değeri.
   Dördüncüsünü ayıran girdi, tipi adres genişliğinden farklı ve 32
   bit olmayan sabit indekstir (`const K : u4`, `a[K]`); o girdide
   bugünkü çıktı (`a[4'd2]`) Verilator'da WIDTHTRUNC verir, mutantınki
   (`1'((a) >> 4'd2)`) vermez. Bugünkü biçimi sabitleyen test yanlış olurdu
   (ui/pass/135'e eklenen örnek CI'ın Verilator ağına takıldı, 41991580408):
-  mutant #134 düzeltilene kadar missed kalır.
+  mutant "#134 düzelene kadar açık".
+- **Testler davranışı sınar.** Koşu 1'in caught'larının bir kısmını
+  üretilen SV'nin metnini karşılaştıran testler öldürüyordu. Bu testler
+  davranış testine çevrildi (`name_scope_sim_tests`: Verilator
+  simülasyonu, elle hesaplanmış değerler; AGENTS.md "Emitter tests test
+  behavior"); metin testi yalnız biçimi bir ADR tanımlıyorsa kalır
+  (esnek `let`'in doğal genişlikte bildirimi, ADR-0025 eki). Davranış
+  testlerinden kaçan mutant metin testiyle öldürülmez: A2 (gerekçesiyle)
+  ya da bağlı olduğu hata düzelene kadar açık.
 

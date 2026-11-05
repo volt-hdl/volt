@@ -3,8 +3,10 @@
 //! §2, §3.1; ADR-0081 Karar 12.1). Çözüm SV'yi değiştirir, uyarıyı
 //! değiştirmez: iç kapsamın dış adı gölgelediği her yerde W1002 çıkmaya
 //! devam eder (§6 "aynı kapsamda yasak, iç kapsamda izinli + uyarı"),
-//! başka yerde çıkmaz. Üretilen SV'nin ayrıntılı denetimi
-//! volt-sv-emit'in `name_scope_tests`'indedir.
+//! başka yerde çıkmaz. Bu dosya tanıları ve derlemenin başarısını sınar;
+//! SV metnini karşılaştırmaz. Çözümün anlamını (simülasyon değerleri)
+//! `name_scope_sim_tests` sınar; ui/pass/135'in SV'si `output_net_tests`'te
+//! Verilator `-Wall` ile lint'lenir.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -77,7 +79,8 @@ fn errors(env: &Value) -> Vec<(String, u64)> {
         .collect()
 }
 
-fn build_sv(file: &Path, target: &Path, module: &str) -> String {
+/// `volt build` başarılı ve `module`'ün SV dosyası yazıldı.
+fn build_ok(file: &Path, target: &Path, module: &str) {
     let out = Command::new(env!("CARGO_BIN_EXE_volt"))
         .args(["--lang", "en", "build", "--target-dir"])
         .arg(target)
@@ -89,8 +92,10 @@ fn build_sv(file: &Path, target: &Path, module: &str) -> String {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    std::fs::read_to_string(target.join("rtl").join(format!("{module}.sv")))
-        .unwrap_or_else(|e| panic!("{module}.sv okunmalı: {e}"))
+    assert!(
+        target.join("rtl").join(format!("{module}.sv")).is_file(),
+        "{module}.sv yazılmalı"
+    );
 }
 
 /// Satırları 1'den sayılan kaynakta `marker` içeren satırların numaraları.
@@ -103,9 +108,10 @@ fn lines_with(src: &str, marker: &str) -> Vec<u64> {
 }
 
 /// #128'in fixture'ı: W1002 döngü değişkeninin satırında (işaretli), hata
-/// yok; her k için `ys[k] = xs[1]`.
+/// yok, derlenir. (Değeri, her k için `ys[k] = xs[1]`:
+/// `name_scope_sim_tests::issue_128_…`.)
 #[test]
-fn ui_fail_224_warns_w1002_and_the_function_reads_the_const() {
+fn ui_fail_224_warns_w1002_and_builds() {
     let file = root().join("tests/ui/fail/224_loop_var_shadows_inlined_const.volt");
     let text = std::fs::read_to_string(&file).expect("okunmalı");
     let marked = lines_with(&text, "//~^ ERROR 'I' shadows")[0] - 1;
@@ -113,18 +119,15 @@ fn ui_fail_224_warns_w1002_and_the_function_reads_the_const() {
     assert_eq!(w1002_lines(&env), vec![marked], "{:?}", diags(&env));
     assert!(errors(&env).is_empty(), "{:?}", errors(&env));
     let target = temp_dir("224");
-    let sv = build_sv(&file, &target, "LoopVarShadowsInlinedConst");
-    for k in 0..4 {
-        let line = format!("ys[{} +: 8] = xs[8 * (32'd1) +: 8];", 8 * k);
-        assert!(sv.lines().any(|l| l.trim() == line), "{line}\n{sv}");
-    }
+    build_ok(&file, &target, "LoopVarShadowsInlinedConst");
     let _ = std::fs::remove_dir_all(&target);
 }
 
 /// ui/pass/135: her gölgeleme bir W1002 (port `W`, üç döngü değişkeni),
-/// hata yok; SV'de gövdenin const'ları.
+/// hata yok, derlenir. (Gövdelerin const'larını okuduğunu
+/// `name_scope_sim_tests` simüle eder; SV `output_net_tests`'te lint'lenir.)
 #[test]
-fn ui_pass_135_warns_once_per_shadowing_and_builds_with_the_consts() {
+fn ui_pass_135_warns_once_per_shadowing_and_builds() {
     let file = root().join("tests/ui/pass/135_fn_const_name_hygiene.volt");
     let text = std::fs::read_to_string(&file).expect("okunmalı");
     let mut expected = lines_with(&text, "in  W  : u8");
@@ -135,23 +138,17 @@ fn ui_pass_135_warns_once_per_shadowing_and_builds_with_the_consts() {
     assert_eq!(w1002_lines(&env), expected, "{:?}", diags(&env));
     assert!(errors(&env).is_empty(), "{:?}", errors(&env));
     let target = temp_dir("135");
-    let sv = build_sv(&file, &target, "FnConstHygiene");
-    for line in [
-        "ys[24 +: 8] = xs[8 * (32'd1) +: 8];",
-        "ps[0 +: 2] = a[32'd1 +: 2];",
-        "qs[4 +: 4] = 4'(b + 4'd1);",
-        "2'd1: cls_0 = 8'd7;",
-        "wire [7:0] lut_0 = T_at(s);",
-    ] {
-        assert!(sv.lines().any(|l| l.trim() == line), "{line}\n{sv}");
-    }
+    build_ok(&file, &target, "FnConstHygiene");
     let _ = std::fs::remove_dir_all(&target);
 }
 
 /// §6: W1002 iç kapsamdaki bildirimin satırında — fn parametresi ve fn
 /// `let`'i kök const'u (fn kapsamının ebeveyni kök), blok `let`'i ve
 /// döngü değişkeni dıştaki adı gölgeler. Aynı adın gölgelemeyen kullanımı
-/// (gövdedeki `x[I]`, çağıranın `ys[i]`'si) uyarı değildir.
+/// (gövdedeki `x[I]`, çağıranın `ys[i]`'si) uyarı değildir. Her
+/// bildirimin kendi bağlamasını okuduğunu aynı tasarımla
+/// `name_scope_sim_tests::every_shadowing_declaration_reads_its_own_binding`
+/// simüle eder.
 #[test]
 fn w1002_marks_every_inner_declaration_that_shadows_and_only_those() {
     let src = "const I : u32 = 1
@@ -201,17 +198,6 @@ module M {
     expected.sort_unstable();
     assert_eq!(w1002_lines(&env), expected, "{:?}", diags(&env));
     assert!(errors(&env).is_empty(), "{:?}", errors(&env));
-    let sv = build_sv(&file, &dir.join("out"), "M");
-    for line in [
-        // blok let'i K = s
-        "a = xs[8 * (K) +: 8];",
-        // döngü gövdesinin let'i i = s (SV'de port `i` ile çakışmasın diye
-        // `i_2`, sv-mapping.md §19); by_root'un I'sı const 1
-        "ys[8 * (i_2) +: 8] = xs[8 * (32'd1) +: 8];",
-        // modül düzeyinde i porttur
-        "assign d = xs[8 * (i) +: 8];",
-    ] {
-        assert!(sv.lines().any(|l| l.trim() == line), "{line}\n{sv}");
-    }
+    build_ok(&file, &dir.join("out"), "M");
     let _ = std::fs::remove_dir_all(&dir);
 }

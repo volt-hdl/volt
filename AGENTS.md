@@ -108,6 +108,14 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   expected diagnostic, and each file starts with `//~ EXXXX` (or `WXXXX`).
   Numeric file prefixes do not repeat within a directory.
 - `tests/fixtures/` holds input and expected-output pairs.
+- **Emitter tests test behavior.** A test of the emitter checks what the
+  generated SV does: its value in Verilator simulation, computed by hand
+  from the spec, or a clean Verilator lint. It compares the SV text only
+  where an ADR defines that form, and names the ADR in a comment. The
+  compiler's current text is not an expected value. A mutant that
+  survives the behavior tests is not killed with a text test: it is
+  classified (A2 with the reason, or open until the issue it depends on
+  is fixed).
 - **Expression semantics (ADR-0108).** The differential test
   (`crates/volt-difftest`, run by `difftest_tests` in the tool job)
   compares the generated SV in Verilator with a reference model written

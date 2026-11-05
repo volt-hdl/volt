@@ -1055,9 +1055,11 @@ gölgelediğinde çıkar (§6). Parser'ın generic ve modül düzeyi `for`
 ikamesindeki benzer yanlışlar başka bir kök nedendir (ad çözümünden önce,
 metinle ikame): #130.
 
-**Testler.** `crates/volt-sv-emit/tests/name_scope_tests.rs` (her denetim
-hücresi, elle beklenen SV ve çakışan adı yeniden adlandırınca SV'nin
-aynı kalması; 16'sı düzeltmeden önce düşüyordu),
+**Testler.** `crates/volt-driver/tests/name_scope_sim_tests.rs` (her
+denetim hücresi davranış olarak: tasarım Verilator'da simüle edilir,
+beklenen değerler şartnameden elle; 16'sı düzeltmeden önce düşüyordu),
+`crates/volt-sv-emit/tests/name_scope_tests.rs` (HIR'ın emitter'a
+ulaştırmadığı girdiler: E2031'li esnek `let`, E2020'li döngüsel const),
 `crates/volt-driver/tests/name_hygiene_tests.rs` (W1002 yalnız
 gölgelemede), `tests/ui/pass/135_fn_const_name_hygiene.volt`,
 `tests/ui/fail/224_loop_var_shadows_inlined_const.volt`; fark testinin r
