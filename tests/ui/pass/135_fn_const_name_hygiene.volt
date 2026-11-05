@@ -29,6 +29,8 @@ module FnConstHygiene {
     out qs : [u4; 2]
     out y  : u8
     out z  : u8
+    out xo : [u8; 4]
+    out ao : u8
 
     comb {
         for I in 0..4 { ys[I] = pick(xs) }
@@ -37,4 +39,7 @@ module FnConstHygiene {
     }
     y = cls(s) + lut(s)
     z = W
+    // Girişlerin bütün bitleri okunur (Verilator -Wall UNUSEDSIGNAL).
+    xo = xs
+    ao = a
 }
