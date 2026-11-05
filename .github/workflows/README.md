@@ -34,6 +34,25 @@
   `book/src`'ye eşler, explain'de `/dev/` bağlantısını ve `/dev/` altındaki
   kurulum betiği adresini (kontrol 13) reddeder.
 
+## Verilator: sabit hakem (ADR-0107, "Hakem sürümü"; #145)
+
+- Simülasyon yapan her iş (`ci.yml` "Verilator lint", `book.yml` "Book code
+  examples", `difftest.yml`, `mutants.yml`'nin parçaları) Verilator'ı
+  `.github/actions/verilator` eyleminden alır. Sürüm tek bir yerde
+  tanımlıdır: `scripts/ci/verilator.env` (sürüm, imaj, özet).
+- Eylem Verilator'ı Docker arka ucunun özetle sabitlenmiş imajından
+  (`verilator/verilator:v5.052`) kopyalar, `~/verilator` altında önbelleğe
+  alır (anahtar: sürüm + özet), OSS CAD Suite'in kendi Verilator'ını
+  (geliştirme derlemesi) siler ve `verilator --version` beklenen sürümü
+  vermezse ya da PATH'te birden çok `verilator` varsa işi düşürür.
+- Yosys, sby ve çözücüler OSS CAD Suite'ten gelmeye devam eder.
+- `crates/volt-tools/tests/verilator_pin_tests.rs` CI'ın sürümüyle Docker
+  arka ucunun imajını (`SIMULATION_IMAGE`) karşılaştırır.
+- Sürüm güncellemesi ayrı bir PR'dır: `verilator.env` ve `docker.rs`
+  birlikte değişir, kanarya testi
+  (`crates/volt-driver/tests/verilator_canary_tests.rs`) geçer, fark
+  testinin büyük koşusu yeni hakemle yeniden koşar.
+
 ## Coverage
 
 - `ci.yml`'deki coverage işi ("Coverage (informational)") bilgilendirme
