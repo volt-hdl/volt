@@ -30,7 +30,7 @@ env:
   # should stay under 4 hours at the measured cost per mutant. Recompute it
   # when the scope grows. The matrix of the mutants job lists
   # 0..MUTANTS_SHARDS-1; a step there checks that the two agree.
-  MUTANTS_SHARDS: 13
+  MUTANTS_SHARDS: 15
   OSS_CAD_SUITE_DATE: 2026-09-21
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
   # No debug info: smaller target, faster links; a mutant is rebuilt ~75
@@ -117,7 +117,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     steps:
       - name: The matrix has MUTANTS_SHARDS shards
         run: |

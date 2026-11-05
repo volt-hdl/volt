@@ -83,12 +83,12 @@ dosyalardır. Sonraki aşamaların adayları, bu sırayla: `match_expr.rs`,
 `.github/workflows/mutants.yml`:
 
 - **Yalnız elle tetiklenir** (`workflow_dispatch`). PR'da ve push'ta koşmaz,
-  zorunlu kontrol değildir. Bir koşu on üç işte saatler sürer; her PR'a bu
+  zorunlu kontrol değildir. Bir koşu on beş işte saatler sürer; her PR'a bu
   maliyeti eklemek CI'ı kullanılmaz kılar. Sonuç bir ölçümdür, kapı değil:
   missed mutant işi düşürmez.
 - **Parçalar** (`cargo mutants --shard k/N`, `sharding = "round-robin"`:
   mutant i, i mod N numaralı parçada; dosyalar parçalara karışır, maliyet
-  dengelenir). N iş akışında `MUTANTS_SHARDS`'tır, şimdi **13**; matris
+  dengelenir). N iş akışında `MUTANTS_SHARDS`'tır, şimdi **15**; matris
   0..N-1'i sayar, bir adım ikisinin eşitliğini denetler. Her parça temel
   koşuyu da yapar (derleme ve bütün takım).
 - **N'nin hesabı.** Hedef: bir parça 4 saati geçmesin (GitHub'ın iş sınırı
@@ -97,22 +97,29 @@ dosyalardır. Sonraki aşamaların adayları, bu sırayla: `match_expr.rs`,
 
   ```
   N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
-  M = kapsamdaki mutant sayısı           = 952
-  t = mutant başına ölçülen süre          = 170 sn
+  M = kapsamdaki mutant sayısı           = 940
+  t = mutant başına ölçülen süre          = 210 sn
   S = parçanın kurulumu ve temel koşusu   = 15 dakika
-  N = 13: ⌈952 / 13⌉ = 74 mutant · 170 sn = 210 dk + 15 dk = 225 dk
-  (N = 12: 80 · 170 sn = 227 dk + 15 dk = 242 dk > 240)
+  N = 15: ⌈940 / 15⌉ = 63 mutant · 210 sn = 220,5 dk + 15 dk = 235,5 dk
+  (N = 14: 68 · 210 sn = 238 dk + 15 dk = 253 dk > 240)
   ```
 
-  t, sekiz parçalı koşunun (41876659281, aşağıda Kanıt) iptal edilene
-  kadar test ettiği 580 mutanttan ölçüldü (`outcomes.json`, derleme +
-  test): ortalama 133 sn; yakalanan 118 sn (19 derleme + 99 test),
-  missed 329 sn (17 + 312: bütün takım koşar), unviable 2,5 sn. Parça
-  ortalamaları 97–167 sn arasıydı; t en yavaş parçanın ortalamasının
-  yukarı yuvarlanmışıdır, çünkü süreyi en yavaş parça belirler. S ölçülen
-  6–8 dakikalık kurulumun (önbellek dolu) ve temel koşunun önbelleksiz
-  bir koşu için büyütülmüşüdür. Sekiz parçada parça başına 119 mutant 119 ·
-  170 sn ≈ 5,6 saat eder: 6 saat sınırına çarpardı.
+  t, on üç parçalı tam koşunun (41905442445, aşağıda Kanıt) en yavaş
+  parçasından ölçüldü: 5. parçanın mutant adımı 73 mutantta 254,8 dakika
+  sürdü, mutant başına 209 sn (`outcomes.json`'daki derleme + test
+  sürelerinin toplamı adımın süresine eşit). Parça ortalamaları 109–209
+  sn, bütün koşunun ortalaması 154 sn; t en yavaş parçanın ortalamasının
+  yukarı yuvarlanmışıdır, çünkü süreyi en yavaş parça belirler ve
+  round-robin dağılım pahalı mutantları (missed: bütün takım koşar)
+  parçalara eşit dağıtmaz. S ölçülen 6–9 dakikalık kurulumun (önbellek
+  dolu) önbelleksiz bir koşu için büyütülmüşüdür.
+
+  Önceki hesap (N = 13, t = 170 sn) iptal edilen sekiz parçalı koşunun
+  test ettiği 580 mutanttan ölçülmüştü (ortalama 133 sn; yakalanan 118
+  sn, missed 329 sn, unviable 2,5 sn; parça ortalamaları 97–167 sn). On
+  üç parçalı koşuda iki parça 4 saati geçti (5. parça 4 sa 23 dk, 8.
+  parça 4 sa 17 dk): kısmi koşunun ölçtüğü mutantlar bütünü temsil
+  etmiyordu. t her tam koşudan sonra yeniden ölçülür.
 
   **Kapsam büyüdükçe ya da takım yavaşladıkça N yeniden hesaplanır**: M
   `cargo mutants --list`'ten, t son tam koşunun `outcomes.json`'undan (en
@@ -149,11 +156,19 @@ dosyalardır. Sonraki aşamaların adayları, bu sırayla: `match_expr.rs`,
 
 Her koşunun missed listesi üç gruba ayrılır:
 
-- **(A) Eşdeğer mutant:** davranışı gerçekten değiştirmeyen değişiklik (ör.
-  yalnız hata metnini, günlüğü ya da performansı etkiler). Gerekçesiyle
+- **(A) Eşdeğer mutant:** hiçbir girdi için gözlenebilir çıktıyı
+  değiştirmeyen değişiklik; çıktı üretilen SV, tanı kodları **ve tanı
+  metinleridir** (ileti, etiket, yardım satırı). Yalnız bir tanının
+  metnini değiştiren mutant eşdeğer değildir, (B)'dir: tanı metni
+  kullanıcıya görünür ve onu denetleyen bir test mutantı yakalar. Eşdeğer
+  olduğu kanıtlanamayan mutant da (B)'dir. Gerekçesiyle
   `.cargo/mutants.toml`'daki `exclude_re` listesine girer: her girdi mutant
   adını (`cargo mutants --list` biçimi) eşleyen bir regex'tir, üstünde
-  gerekçesini söyleyen bir yorum vardır. **Kodun içine `#[mutants::skip]`
+  gerekçesini söyleyen bir yorum vardır. Girdi dosyayı, değişikliği ve
+  fonksiyonu adlandırır; satır:sütunu yalnız aynı değişiklik aynı
+  fonksiyonda birden çok kez geçiyorsa sabitler. Kod kayınca sabitlenmiş
+  bir girdi hiçbir şeyi eşlemez ve mutantı missed listesine geri döner;
+  başka bir mutantı sessizce gizlemez. **Kodun içine `#[mutants::skip]`
   yazılmaz**: hariç tutmalar tek yerde, gerekçeleriyle okunur.
 - **(B) Kör nokta:** davranışı değiştiren ama hiçbir testin yakalamadığı
   değişiklik. Listelenir (dosya:satır, değişiklik, onu açığa çıkaracak Volt
@@ -183,10 +198,11 @@ düşer: her mutant yanlışlıkla "caught" görünür. Yerel denemede `TMP` ve
 
 ## Kanıt
 
-**Kapsam.** `cargo mutants --list`: 952 mutant (expr.rs 500, let_width.rs
-64, select.rs 65, stmt.rs 60, ty.rs 44, check.rs 44, width.rs 43,
-binop.rs 40, synth.rs 34, cast.rs 29, compare_width.rs 29); `--shard k/13`
-parça başına 73 ya da 74.
+**Kapsam.** `cargo mutants --list`: hariç tutmalardan önce 952 mutant
+(expr.rs 500, let_width.rs 64, select.rs 65, stmt.rs 60, ty.rs 44,
+check.rs 44, width.rs 43, binop.rs 40, synth.rs 34, cast.rs 29,
+compare_width.rs 29); `exclude_re`'nin 12 girdisiyle 940. `--shard k/15`
+parça başına 62 ya da 63.
 
 **Yerel deneme** (Windows, `-j 1`, kopya kipi, `typeck/cast.rs`'in
 `check_enum_cast` fonksiyonundaki 8 mutant, `--timeout 900`):
@@ -205,8 +221,10 @@ parça başına 73 ya da 74.
 - cargo-mutants 27.1.0'da `-E/--exclude-re` ve `--re` alan silme
   mutantlarını ("delete field ... from struct ... expression") süzmedi;
   bu yüzden deneme yapılandırmanın tek dosyalık bir kopyasıyla
-  (`examine_globs` yalnız `cast.rs`) koştu. `exclude_re` girdileri ilk
-  koşudan sonra bu türde mutantlar için ayrıca sınanır.
+  (`examine_globs` yalnız `cast.rs`) koştu. Yapılandırmadaki
+  `exclude_re` girdileri alan silme mutantı değildir; yerelde `cargo
+  mutants --list` 952'den 940'a indi, düşen 12 mutant girdilerin tam
+  olarak eşledikleridir.
 
 **Sekiz parçalı koşular.**
 
@@ -220,11 +238,25 @@ parça başına 73 ya da 74.
   580'i test edilmişti (430 caught, 80 missed, 0 timeout, 70 unviable);
   §3'teki t bu 580 mutanttan ölçüldü.
 
-**On üç parçalı koşu.** Bu bölüm koşu bitince doldurulur.
+**On üç parçalı koşu** (41905442445, `55d0a57c`). 20:19–00:42 UTC, 4 sa
+23 dk; parçalar 2 sa 18 dk ile 4 sa 23 dk arası (5. ve 8. parça 4 saati
+geçti, §3). Her parçanın temel koşusu araçlarla geçti, her parçanın
+defteri `SKIP: 0`. 952 mutantın hepsi test edildi, tamamlanmayan parça
+yok:
+
+| Toplam | Caught | Missed | Timeout | Unviable |
+|---:|---:|---:|---:|---:|
+| 952 | 711 | 157 | 0 | 84 |
+
+Sınıflandırma (§4): 12 missed mutant (A) eşdeğer, `exclude_re`'ye girdi;
+144'ü (B) kör nokta; 1'i (`expr.rs:825:34`, `emit_plain`) (C): açılan
+fn'in global const'u aynı adlı döngü değişkeniyle değiştiriliyor, issue
+[#128](https://github.com/volt-hdl/volt/issues/128). Kör noktaların
+listesi PR #127'dedir; testleri ayrı işlerdir.
 
 ## Reddedilenler
 
-- **PR'da koşmak.** On üç iş, saatler; her PR'ı bekletir. Değişen satırlarla
+- **PR'da koşmak.** On beş iş, saatler; her PR'ı bekletir. Değişen satırlarla
   sınırlı koşu aşağıda "İleride"dir.
 - **`cargo test` ile koşmak.** §1: birim testlerin yakaladığı mutant bile
   bütün takımın süresine mal olur.
@@ -233,8 +265,8 @@ parça başına 73 ya da 74.
   (fark testi, simülasyon testleri); crate'in kendi testleri onları görmez.
 - **Kodda `#[mutants::skip]`.** Gerekçesiz, dağınık ve `mutants` crate'ine
   bağımlılık ister; §4.
-- **Dört ya da sekiz parça.** §3: parça başına 238 ya da 119 mutant 6
-  saate sığmaz.
+- **Dört, sekiz ya da on üç parça.** §3: parça başına 238 ya da 119
+  mutant 6 saate sığmaz; on üç parçada iki parça 4 saati geçti.
 - **Test kapsamını daraltmak** (yalnız mutasyona uğrayan crate'in testleri
   ya da araçsız testler). Mutant başına süreyi kısaltırdı, ama üretici
   hatalarını en çok Verilator'lı testler yakalar; parça sayısı artırılır,
