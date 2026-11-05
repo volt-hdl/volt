@@ -403,3 +403,97 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   (`index_width_mismatch`, `||` → `&&`; Koşu 1'deki satırı 1423):
   "#134 düzelene kadar açık", gerekçesi yukarıda.
 
+
+## Kapsam genişlemesi ve hedefli koşu (#130, 2026-11-05)
+
+**Kapsam.** `examine_globs`'a altı dosya girdi:
+
+- ayrıştırıcının ikamesi (#130, ADR-0081 eki "Ayrıştırıcının ikamesi
+  kapsam zincirinden geçer"):
+  - `crates/volt-syntax/src/parser/mono/scope.rs` (kapsam zinciri, 14 mutant);
+  - `mono/clone.rs` (zinciri soran klonlayıcı, 128);
+  - `mono/pattern.rs` (kolun kapsamı, desen adı, 10);
+- PR #131'de `Emitter::resolve` ile ad çözen ama kapsam dışında kalan
+  üretici dosyaları: `crates/volt-sv-emit/src/const_array.rs` (37),
+  `enums.rs` (71), `trit.rs` (16).
+
+`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 9'u
+eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1231 mutant**.
+§3'ün hesabı (t = 210 sn, S = 15 dk):
+
+```
+N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
+M = 1231
+N = 20: ⌈1231 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
+(N = 19: ⌈1231 / 19⌉ = 65 · 210 sn = 227,5 dk + 15 dk = 242,5 dk > 240)
+```
+
+Tam koşu 20 parçadır, yani §3'ün üst sınırında. Kapsam bir kez daha
+büyürse ya da t artarsa tam koşu iki koşuya bölünür (§3).
+
+**Hedefli koşu** (42034192061):
+
+- Kapsam:
+  - `re` = `(volt-sv-emit/src/(const_array|enums|trit)|volt-syntax/src/parser/mono/(scope|clone|pattern))\.rs:`
+  - `shards` boş → 5 parça.
+- Kapsam işinin çıktısı:
+  - `276 of 278 listed mutants match the regex`;
+  - iki alan silme mutantı regex'e uymadığı için düşürüldü (`stmt.rs:161`, `let_width.rs:283`; hata yukarıda);
+  - `all 276 mutants in the list match '…'`.
+- Özet: `| 276 | 276 | 0 | 140 | 44 | 0 | 92 |` (Mutants, Tested, Not tested, Caught, Missed, Timeout, Unviable).
+- Beş parçada da `Tool ledger [mutants-N]: 112 test(s) asked for a tool; 114 lookup(s) found the tool (114 required), SKIP: 0`.
+
+İlk tetikleme (42032815198) temel koşuda düştü. r biçiminin monomorf
+dosyaları Verilator'a verilmiyordu (MODMISSING, ADR-0108 eki); koşucu
+düzeltildikten sonra koşu yeniden tetiklendi.
+
+| Dosya | Caught | Missed | Unviable |
+|---|---:|---:|---:|
+| `const_array.rs` | 29 | 0 | 8 |
+| `enums.rs` | 48 | 15 | 8 |
+| `trit.rs` | 10 | 5 | 1 |
+| `mono/scope.rs` | 8 | 1 | 5 |
+| `mono/clone.rs` | 44 | 22 | 62 |
+| `mono/pattern.rs` | 1 | 1 | 8 |
+
+**Yerine koyma dosyalarının 24 missed'i** (`scope.rs`, `clone.rs`, `pattern.rs`):
+
+- **A1 (2), `exclude_re`:** `fold_binary`'nin `r != 0` korumaları (340, 341) → `true`. r = 0'da `checked_div`/`checked_rem` `None` verir; bu, korumanın düştüğü `_ => None` ile aynıdır.
+- **A2 (7, biri hariç tutulamaz):**
+  - `fold_binary` (5): `Sub` kolunun silinmesi; `r != 0` → `false`; `!=` → `==`. Katlama yalnız SV metnini kısaltır. Blok `let`'inin generic argümanı bir literal ya da tek addır (`W<2 - 1>` E0010); ifadenin diğer tüketicileri literal aritmetiğini kendileri hesaplar. Davranış testinden kaçan mutant metin testiyle öldürülmez (AGENTS.md).
+  - `Concat` kolunun silinmesi: ayrıştırıcı `Concat` kurmaz (ADR-0077 Karar 5).
+  - `declare_pattern_binding` → `()`: yük taşıyan enum desteklenmez (E0003); kısaltma bağı SV'ye ulaşmaz, tanılar aynıdır. Elle uygulanınca `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` geçti. Yük taşıyan enum gelince yeniden incelenir.
+  - `clone.rs:388` `AutoOrigin`'in `from` alanının silinmesi: otomatik kontratlar monomorfizasyondan sonra eklenir (`add_auto_contracts` son geçit), klonlanan kontratta `auto` yoktur. cargo-mutants 27.1.0 `exclude_re`'yi alan silme mutantlarına uygulamadığı için listeye giremez (yukarıdaki hata); missed listesinde görünmeye devam eder.
+- **B (14), her birine test yazıldı.** Her mutant elle uygulandı, test düştü, mutant geri alındı:
+
+  | Mutant | Testi |
+  |---|---|
+  | `clone.rs:218` `+` → `*`, `-` (`rename_name`'in bütçe sayımı) | `parser_scope_diag_tests::the_expansion_budget_counts_a_renamed_declaration_once` (40 yinelemede E2027 yok, 1500'de var; eşik bugün 1324) |
+  | `clone.rs:253` `&&` → `\|\|` (`check_pattern_name`) | `a_let_of_an_inner_module_level_loop_in_a_pattern_is_a_let` |
+  | `clone.rs:264` `enter_scope` → `()`, `clone.rs:268` `leave_scope` → `()` | `parser_scope_sim_tests::a_match_arm_scope_ends_with_the_arm_and_the_block_scope_with_the_block` (Verilator; mutantta `left: 0, right: 3`) |
+  | `clone.rs:46` `module_level` → `true` | `a_loop_inside_a_match_arm_is_not_a_module_level_loop` |
+  | `clone.rs:536` `\|\|` → `&&` (`bare_param_type`) | `a_type_argument_with_its_own_arguments_is_not_a_bare_parameter` |
+  | `clone.rs:666` `Range` kolunun silinmesi | `parser_scope_sim_tests::a_range_select_in_a_clone_reads_the_substituted_bounds` (mutantta derleyici panikler) |
+  | `clone.rs:766` `ArrayLit` ve `clone.rs:779` `TupleLit` kollarının silinmesi | `array_and_tuple_literals_in_a_clone_give_the_handwritten_diagnostics` |
+  | `clone.rs:809` `copy_attrs_shallow` → `vec![]` | `a_statement_attribute_in_a_generic_module_reaches_the_constraints` (`@multicycle(2)` monomorfun SDC'sinde) |
+  | `clone.rs:900` `LetDecl.domain`'in silinmesi | `a_domain_annotation_on_a_let_survives_monomorphization` (E3001) |
+  | `pattern.rs:77` `copy_pattern_args` → `None` | `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` |
+  | `scope.rs:149` `!=` → `==` (W1002'nin ikincil etiketi) | `w1002_labels_the_shadowed_definition` |
+
+- **C:** yok.
+
+**Diğer üç dosyanın 20 missed'i** yalnız listelenir. Görev gereği bu işte test yazılmadı. Eşdeğerliği gösterilmedi, (B) sayılır:
+
+- **`enums.rs`:**
+  - 108 `enum_variant_sig` → `None` (varyant yolunun genişliği; girdi: varyantın genişlik bağlamında kullanımı);
+  - 122 `p.segments.len() == 1` → `true` (çok parçalı varyant yolu `resolve`'a gider);
+  - 133 `is_prev_call` → `false`/`true` (`match prev(m)`);
+  - 155, 157 `==` → `!=` (alt modülün enum tipli çıkışı, `match u.state`);
+  - 230, 231 `||` → `&&` (`enum_localparams`'ın ad çakışması: örnek ya da yerleşik örnek adıyla);
+  - 289 `!` silme (üç mutant), 293 `|=` → `&=`, 303 `&&` → `||` (`enum_match_plan`: kapsanan kol, varsayılan kol);
+  - 328 koruma → `true`, 337 `|=` → `&=` (`pattern_variants`: başka enum'un varyantı, `|` deseni).
+- **`trit.rs`:**
+  - 75, 80 `&&` → `||` (`is_trit`: `Trit * Trit`, `if`);
+  - 103 `trit_sum_sig` → `None`;
+  - 127 `+` → `*`, `-` (`try_emit_trit_mul`).
+- **`const_array.rs`:** missed yok.
