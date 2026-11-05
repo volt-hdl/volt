@@ -955,3 +955,135 @@ test "the bounds are the substituted values" {
 "#;
     sim("range", src, 1);
 }
+
+/// Açılımın sabit katlaması (ADR-0056) dar hedefte değeri belirler:
+/// döngü değişkeni ikame edilince `i / 2`, `i % 3`, `i - 1` iki literalli
+/// aritmetiktir ve katlanmış değer hedefe sığar. (Katlanmamış literal
+/// aritmetiği üretici her literali hedef genişliğine keserek yazıyor, #144:
+/// `2 / 2` u1'de `1'h0 / 1'h0`.) Değerler: i = 2: i - 1 = 1, i / 2 = 1;
+/// i = 4: i % 3 = 1; i = 7: i - 5 = 2, i / 3 = 2.
+#[test]
+fn folded_loop_arithmetic_fits_a_narrow_target() {
+    let src = r#"module M {
+    out b0 : u1
+    out b1 : u1
+    out b2 : u1
+    out b3 : u2
+    out b4 : u2
+    for i in 2..3 {
+        b0 = i - 1
+        b1 = i / 2
+    }
+    for i in 4..5 { b2 = i % 3 }
+    for i in 7..8 {
+        b3 = i - 5
+        b4 = i / 3
+    }
+}
+test "narrow targets get the folded value" {
+    let dut = M { };
+    step(1);
+    assert_eq(dut.b0, 1);
+    assert_eq(dut.b1, 1);
+    assert_eq(dut.b2, 1);
+    assert_eq(dut.b3, 2);
+    assert_eq(dut.b4, 2);
+}
+"#;
+    sim("fold_narrow", src, 1);
+}
+
+/// Geniş bağlamda katlanmış ve katlanmamış literal aritmetiği aynı değeri
+/// verir; testi değişikliklere karşı bekçidir. Konumlar: sol ve sağ taraf
+/// indeksi, parça seçimi başlangıcı, aralık sınırları, değer.
+/// xs = 10, 20, 30, 40; a = 182 (0b1011_0110); i = 2, 3:
+/// - ys[i - 2] = xs[i - 1]: 20, 30;
+/// - zs[i - 2] = a[i - 1 +: 2]: (182 >> 1) & 3 = 3, (182 >> 2) & 3 = 1;
+/// - qs[i - 2] = a[i:i - 2]: 182 & 7 = 6, (182 >> 1) & 7 = 3;
+/// - ws[i - 2] = xs[i / 2]: 20, 20; vs[i - 2] = xs[i % 2]: 10, 20;
+/// - cs[i - 2] = i - 1: 1, 2; ds[i - 2] = i / 2: 1, 1; rs[i - 2] = i % 2: 0, 1;
+/// - h = xs[3] ^ a = 40 ^ 182 = 158 (bütün bitler okunur, lint temiz).
+#[test]
+fn folded_loop_arithmetic_in_wide_positions_has_its_value() {
+    let src = format!(
+        r#"module M {{
+{XS_PORTS}    in  a : u8
+    out h : u8
+    out y0 : u8
+    out y1 : u8
+    out z0 : u2
+    out z1 : u2
+    out q0 : u3
+    out q1 : u3
+    out w0 : u8
+    out w1 : u8
+    out v0 : u8
+    out v1 : u8
+    out c0 : u8
+    out c1 : u8
+    out d0 : u8
+    out d1 : u8
+    out r0 : u8
+    out r1 : u8
+{XS_WIRE}    wire ys : [u8; 2]
+    wire zs : [u2; 2]
+    wire qs : [u3; 2]
+    wire ws : [u8; 2]
+    wire vs : [u8; 2]
+    wire cs : [u8; 2]
+    wire ds : [u8; 2]
+    wire rs : [u8; 2]
+    h = xs[3] ^ a
+    for i in 2..4 {{
+        ys[i - 2] = xs[i - 1]
+        zs[i - 2] = a[i - 1 +: 2] as u2
+        qs[i - 2] = a[i:i - 2] as u3
+        ws[i - 2] = xs[i / 2]
+        vs[i - 2] = xs[i % 2]
+        cs[i - 2] = i - 1
+        ds[i - 2] = i / 2
+        rs[i - 2] = i % 2
+    }}
+    y0 = ys[0]
+    y1 = ys[1]
+    z0 = zs[0]
+    z1 = zs[1]
+    q0 = qs[0]
+    q1 = qs[1]
+    w0 = ws[0]
+    w1 = ws[1]
+    v0 = vs[0]
+    v1 = vs[1]
+    c0 = cs[0]
+    c1 = cs[1]
+    d0 = ds[0]
+    d1 = ds[1]
+    r0 = rs[0]
+    r1 = rs[1]
+}}
+test "the unrolled arithmetic has its value" {{
+    let dut = M {{ }};
+{XS_DRIVE}    dut.a = 182;
+    step(1);
+    assert_eq(dut.h, 158);
+    assert_eq(dut.y0, 20);
+    assert_eq(dut.y1, 30);
+    assert_eq(dut.z0, 3);
+    assert_eq(dut.z1, 1);
+    assert_eq(dut.q0, 6);
+    assert_eq(dut.q1, 3);
+    assert_eq(dut.w0, 20);
+    assert_eq(dut.w1, 20);
+    assert_eq(dut.v0, 10);
+    assert_eq(dut.v1, 20);
+    assert_eq(dut.c0, 1);
+    assert_eq(dut.c1, 2);
+    assert_eq(dut.d0, 1);
+    assert_eq(dut.d1, 1);
+    assert_eq(dut.r0, 0);
+    assert_eq(dut.r1, 1);
+}}
+"#
+    );
+    sim("fold_wide", &src, 1);
+}

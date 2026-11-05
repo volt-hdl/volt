@@ -101,15 +101,6 @@ exclude_re = [
     # with the guard `true`, r == 0 gives checked_div/checked_rem -> None,
     # the same as the `_ => None` arm the guard falls through to.
     "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with true in Cloner<'a>::fold_binary$",
-    # A2, assumes folding in the loop unrolling only shortens the SV text: a
-    # generic argument of a block `let` is a literal or a single name (the
-    # parser reads `W<2 - 1>` as a comparison, E0010), and every other
-    # consumer of a cloned expression (HIR const-eval, the parser's
-    # eval_const, the SV) computes literal arithmetic itself. A mutant that
-    # survives the behaviour tests is not killed with a text test (AGENTS.md).
-    "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm BinOp::Sub in Cloner<'a>::fold_binary$",
-    "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with false in Cloner<'a>::fold_binary$",
-    "parser/mono/clone\\.rs:\\d+:\\d+: replace != with == in Cloner<'a>::fold_binary$",
     # A2, assumes the parser never builds ExprKind::Concat: only the SV
     # emitter's struct lowering does (ADR-0077 Karar 5; volt-ast doc).
     "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm ExprKind::Concat\\(parts\\) in Cloner<'a>::clone_aggregate_expr$",

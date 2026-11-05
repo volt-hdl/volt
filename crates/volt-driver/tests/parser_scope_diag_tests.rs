@@ -757,3 +757,26 @@ pub module Top {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Açılımın katlaması karşılaştırmanın sabitini belirler: `for i in 3..4`
+/// içinde `x < i - 1` `x < 2`'dir; 2 u1'e sığmaz, E2010 (type-inference.md
+/// §3.1, §4: literal karşı tarafın tipine uyarlanır; ADR-0106 §1: dar yana
+/// sığmayan sabitle karşılaştırma hatadır). Katlanmamış `3 - 1` bugün
+/// sessizce `x < 0` olarak kabul ediliyor (#144).
+#[test]
+fn a_folded_loop_constant_that_does_not_fit_the_comparison_is_e2010() {
+    let src = "module M {
+    in  x : u1
+    out c : bool
+    for i in 3..4 {
+        c = x < i - 1
+    }
+}
+";
+    let diags = check("fold_cmp", src);
+    assert_eq!(
+        errors(&diags),
+        vec![("E2010".to_string(), lines_with(src, "c = x < i - 1")[0])],
+        "{diags:?}"
+    );
+}
