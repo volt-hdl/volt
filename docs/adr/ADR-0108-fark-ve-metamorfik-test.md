@@ -319,6 +319,33 @@ aynı. Düzeltmesi geri alınmış dalda (`test/hygiene-revert-demo`)
 başına 2000): dört parça da düştü (diffs 299, 281, 276, 293), küçültülmüş
 bulguların hepsi r biçiminde, örneğin "regression #128 … — r u8[K]".
 
+Koşunun günlüğünden alıntı (GitHub günlükleri 90 gün sonra siler; dal
+silindi). Dalın tek commit'i (a7b646dd) bu PR'ın ağacında yalnız
+`crates/volt-sv-emit/src`'yi `main`'deki haline döndürüyordu (9 dosya,
+`scope.rs` silinir). Her parçanın özet satırları ve ilk iki bulgusu:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2118 rejected-as-predicted=126 unsupported=6 unspecified=0 values-compared=234541 diffs=299
+[shard 0] difftest: regressions=25 failed=3 hand-computed=31 compared=31
+[shard 0]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 0]   [value differs from the model] r u13[K]
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2127 rejected-as-predicted=116 unsupported=7 unspecified=0 values-compared=236594 diffs=281
+[shard 1] difftest: regressions=25 failed=3 hand-computed=31 compared=31
+[shard 1]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 1]   [value differs from the model] r bits<38>[K +: w]
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2111 rejected-as-predicted=125 unsupported=14 unspecified=0 values-compared=235738 diffs=276
+[shard 2] difftest: regressions=25 failed=2 hand-computed=31 compared=31
+[shard 2]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 2]   [value differs from the model] r u5[K]
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2108 rejected-as-predicted=132 unsupported=10 unspecified=0 values-compared=233529 diffs=293
+[shard 3] difftest: regressions=25 failed=2 hand-computed=31 compared=31
+[shard 3]   [value differs from the model] regression #128: constant index in an inlined function called in a loop whose variable has the constant's name — r u8[K]
+[shard 3]   [value differs from the model] r u60[K]
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+(`Tool ledger` satırı dört parçada da aynı, `difftest-0`..`difftest-3`.)
+
 Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgelemeyi
 görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde
 ve `comb` içinde (ikame kipi) üretilir; tel kipi (modül düzeyi çağrı) ve
