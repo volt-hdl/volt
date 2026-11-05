@@ -1,7 +1,7 @@
 # ADR-0081: Fonksiyon Desteği — Saf Kombinasyonel `fn` Donanıma İner
 
 > Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler + eşdeğerlik kanıtı); notlar sonda
-> İlgili: ADR-0083 (fn gövdesinde `match`).
+> İlgili: ADR-0083 (fn gövdesinde `match`), ADR-0041 ve ADR-0056 (ek "Ayrıştırıcının ikamesi kapsam zincirinden geçer": generic ve modül düzeyi `for` ikamesi kapsam zincirinde; generic parametrenin gölgelemesi W1002, #130, #122).
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-ast (paylaşılan çizge yardımcısı `graph` —
 > ADR-0069'un Tarjan'ı buraya taşınır), volt-syntax (fn gövdesinde
@@ -1064,3 +1064,120 @@ ulaştırmadığı girdiler: E2031'li esnek `let`, E2020'li döngüsel const),
 gölgelemede), `tests/ui/pass/135_fn_const_name_hygiene.volt`,
 `tests/ui/fail/224_loop_var_shadows_inlined_const.volt`; fark testinin r
 biçimi (ADR-0108).
+
+## Ek: Ayrıştırıcının ikamesi kapsam zincirinden geçer (#130, #122, 2026-11-05, dal `fix/parser-scoped-substitution`)
+
+**Sorun.** Generic monomorfizasyonu (ADR-0041) ve modül düzeyi `for`
+açılımı (ADR-0056) ayrıştırıcıda, ad çözümünden önce koşar ve gövdedeki
+adları değiştirir: const generic parametre ile döngü değişkeni literale,
+döngü gövdesinin `let`'i yineleme sonekli ada. `Cloner` bunu adın
+metniyle yapıyordu (`subst.get(ad)`, `rename.get(ad)`); iç kapsamda aynı
+adla yeniden bildirilen ad (blok `let`'i, `comb` içi ya da iç içe `for`,
+gövde `let`'i) da değişiyordu. Sonuç: sessiz yanlış değer (`comb { let N
+= s; y = N }` `G<3>`'te 3), yanlış red (`comb { for N in 0..2 { ys[N] = N
+} }` E2006), eksik W1002 (çözücü ne generic'i ne döngü değişkenini
+görür), aynı kapsamdaki çift tanımın kaçması (generic `N` ile port `N`,
+E1003 yok), desendeki döngü değişkeninin kabulü (E1015 yok), kısaltılmış
+bağlamanın (`P { i }`) E1001'i ve modül düzeyi `for` sınırının port
+yerine kök const'u okuması. #128'in eki (yukarıda) üreticide aynı ilkeyi
+uygulamıştı; bu ek ayrıştırıcının ikamesi içindir.
+
+**Seçenekler.** (a) Önce ad çözümü, sonra çözülmüş bağlamaya göre ikame:
+çözücü (volt-hir) şablonu çözer, ikame yalnız generic parametreye ya da
+döngü değişkenine bağlanan düğümlere uygulanır. (b) Kapsam bilen
+(capture-avoiding) ikame: klonlayıcı ağacı gezerken şartnamenin kapsam
+zincirini kurar, her adı o zincirde çözer, yalnız ikame edilen bağa
+çözülen yolu değiştirir.
+
+**Karar: (b).** Gerekçe:
+
+- Bağımlılık yönü volt-syntax → volt-hir; çözücü ayrıştırıcının içinde
+  koşamaz. (a) için çözümün sonucu (düğüm → bağ) şablondan her klona ve her
+  yinelemeye taşınmalı; iç içe `for` gövdesi önce dış yinelemede, sonra
+  kendi açılımında iki kez klonlanır, her klonda tablo yeniden
+  eşlenmeliydi. İkinci bir eşleme tablosu ikinci bir mekanizmadır.
+- (b)'de karar klonlamanın kendisinde, tek yerde verilir:
+  `crates/volt-syntax/src/parser/mono/scope.rs`'teki `Scopes::resolve`.
+  Ayrıştırıcının bütün tek parçalı ad kararları oradan geçer: ifade yolu,
+  tip konumundaki çıplak parametre (`Foo<N>`), blok içi generic argüman
+  (`W<N> { }`), kısaltılmış bağlama (`P { i }`, `S { x }`), atama
+  hedefinin tabanı, modül düzeyi `for`'un sınırı.
+- Sıra şartnamenin ve çözücünün sırasıdır (name-resolution.md §2, §4,
+  §6), `Emitter::resolve` de aynı sırayı izler: içten dışa blok kapsamı
+  (`on`/`comb`, `if`/`else` dalı, kol gövdesi), döngü kapsamı, `match`
+  kolu, modül kapsamı (önce generic parametreler, sonra portlar, sonra
+  gövdenin bildirimleri sırayla), kök kapsam. Bildirim, bildirim
+  noktasından sonra görünür; `let`'in tipi ve değeri bildirimden önceki
+  kapsamda çözülür (`let i = i + 1` dıştaki `i`'yi okur). Aynı kapsamdaki
+  ikinci bildirim bağlanmaz (E1003 çözücünündür). Görünür bağ yoksa ad
+  sıralı gövdede daha aşağıda bildirilmiş olabilir: çözücü orada E1002
+  verir; açılım o adı yine yineleme adına çevirir, E1002 o ada düşer.
+
+**Gölgeleme tanıları.** Kural (§6): iç bildirim dıştaki adı gölgeleyince,
+iç bildirimin satırında bir W1002. Gölgelemenin iki ucunu çözücü
+görüyorsa W1002'yi çözücü verir, görmüyorsa açılım verir; aynı satır için
+ikisi birden vermez (`Entry::resolver_sees`).
+
+- Monomorfun generic parametrelerini çözücü görür: klonlama
+  parametrelerin adlarını `GenerateInfo::mono_generics`'e yazar (klonun
+  ad span'i → parametre adları), çözücü onları modül kapsamının ilk
+  bildirimleri olarak `declare_checked` ile bildirir (şablondaki gibi).
+  Böylece blok `let`'inin ve `comb` içi döngü değişkeninin generic'i
+  gölgelemesi W1002, aynı adlı port ya da modül `let`'i E1003 verir.
+- Modül düzeyi döngü değişkenini ve yeniden adlanan gövde `let`'ini
+  çözücü görmez: onların gölgelemesinde (döngü değişkeni → kök const,
+  port, modül sinyali, generic; gövde `let`'i → döngü değişkeni, kök const,
+  dış gövdenin `let`'i) W1002'yi açılım verir. Açılımın zinciri kök
+  kapsamı (birimin öğeleri) ve modül kapsamını (monomorfun parametreleri,
+  portlar, `for`'dan önceki bildirimler) içerir. Tanı kaynak satırı başına
+  bir kezdir: en dış döngünün değişkeni için döngü açılmadan, gövdedeki
+  bildirimler için en dış döngünün ilk yinelemesinin klonunda (iç içe
+  döngüler dahil); span `for` deyiminin bağlamını taşır, yineleme notu
+  almaz. Generic modülün her örneğindeki kopya katlanır (ADR-0068).
+- Desendeki ad bir değerdir (§5.1, ADR-0085): modül düzeyi döngü
+  değişkeni desende E1015 (açılım verir, metin çözücününkiyle aynı);
+  generic parametre değer desenidir ve literale ikame edilir; onu
+  gölgeleyen blok `let`'i desende `let`'tir (E1015, çözücü).
+- W1002'nin metni tek kurucudadır (`volt_syntax::shadowing_warning`);
+  çözücünün `warn_shadowing`'i de onu kullanır.
+
+**Karar (#122): generic parametrenin kök öğeyi gölgelemesi W1002.**
+Bakımcı kararı. Generic parametre bir kök öğeyi (ör. `const N`)
+gölgelediğinde, portun gölgelemesi gibi W1002 verilir; gövdede ad
+parametredir. Gerekçe: §6'nın genel kuralı ("aynı kapsamda yasak, iç
+kapsamda izinli + uyarı") ile tutarlılık; #128 ailesindeki hataların
+hepsi bu tür gölgelemelerden çıktı. Çözücü şablonda bunu zaten
+`declare_checked` ile yapıyordu (örneklenmemiş şablonda W1002 çıkıyordu);
+örneklenen modülde parametreler klonda yoktu ve uyarı kayboluyordu, yan
+tablo onu geri getirir. Şartnamede name-resolution.md §5'in sözde kodu
+generic parametreleri `declare_checked` ile bildirir ve §6'da bir generic
+parametre örneği vardır.
+
+**Sınır değerlendirmesi.** Modül düzeyi `for`'un sınırı (`0..K`) `for`un
+bulunduğu kapsamda çözülür: `K` kök kapsamın içinde (port, modül sinyali,
+monomorfun parametresi, dış gövdenin `let`'i) bir bildirime bağlıysa kök
+const sayılmaz, sınır sabit değildir (E2021). `eval_const_scoped`; diğer
+`eval_const` çağıranları (bundle dizisi, sayaç kontratı) bu kapsamı
+taşımaz: #136, #138.
+
+**Ayrıştırıcının başka ad aramaları.** Denetim (PR açıklamasındaki
+tablo) aynı ilkeyi bozan, ama ayrı mekanizmalarda duran yerleri buldu;
+bu ekin kapsamı dışında, issue olarak açıldı: bundle dizisi indeksi ve
+uzunluğu (#136), bundle alanı, bidir, mmio ve pipeline yeniden yazmaları
+(#137), sayaç kontratı çıkarımı (#138), başka dosyanın özel const'u
+(#139), döngü değişkenine atamanın tanısı ve E1002'nin yineleme adı
+(#140), yerleşik adlı kullanıcı öğeleri (#141, karar).
+
+**Sınırlar.** Açılım yerleşik adların (prelude, name-resolution.md §7)
+gölgelemesini bilmez: `for sync in ...` W1003 vermez (çözücü döngüyü
+görmez). Hiç yinelemesi olmayan modül düzeyi `for`'un (`0..0`) gövdesi
+klonlanmaz, gövdesindeki gölgeleme uyarı vermez.
+
+**Testler.** `crates/volt-driver/tests/parser_scope_sim_tests.rs` (her
+değer hücresi davranış olarak, Verilator'da; beklenen değerler
+şartnameden elle; bekçiler dışındakiler düzeltmeden önce düşüyordu),
+`crates/volt-driver/tests/parser_scope_diag_tests.rs` (W1002 satırları,
+E1003, E1015, E2005/E2008/E2021, E1002), `crates/volt-syntax`'ta
+`scope.rs` birim testleri, `tests/ui/pass/136_generic_and_module_for_scopes.volt`,
+`tests/ui/fail/225`–`229`; fark testinin r biçimi generic modül ve modül
+düzeyi `for` üretir (ADR-0108 eki).

@@ -11,11 +11,19 @@
 //!   ile, #132);
 //! - çağrı, ilk const'la aynı adlı ve başka bir değer alan döngü
 //!   değişkeninin (`for t<id>r in V..V+1`) içindedir;
-//! - bir argüman, `s<id>r` adlı bir blok `let`'inden geçer (çağıranın
-//!   yereli, gövdenin `let`'i ve kök const aynı adı taşır).
+//! - bir argüman, `s<id>r` adlı bir `let`'ten geçer (çağıranın yereli,
+//!   gövdenin `let`'i ve kök const aynı adı taşır);
+//! - çağıran taraf generic bir modüldür, `R<id>r<const s<id>r, const
+//!   t<id>r>` (ADR-0041): parametreler kök const'larla ve döngü
+//!   değişkeniyle aynı adı, ama başka değerleri taşır; döngü değişkeni ve
+//!   çağıranın `let`'i onları gölgeler (#130). Çift kimlikli ifadede çağrı
+//!   `comb` içindedir (blok `let`'i, `comb` içi `for`), tek kimliklide
+//!   modül düzeyi `for t<id>r`'nin gövdesinde (gövde `let`'i, ADR-0056
+//!   açılımı; çağrı modül düzeyinde, tel kipi).
 //!
 //! Gövdenin bir adı çağıranın adına bağlanırsa değer değişir: #128'de
-//! `x[t<id>r]` döngü değişkeninin değerini seçiyordu.
+//! `x[t<id>r]` döngü değişkeninin değerini seçiyordu; #130'da çağıranın
+//! `s<id>r`'si generic parametrenin değerine ikame ediliyordu.
 
 use crate::ast::{Expr, PortTy};
 use crate::print::{port_name, print, Style};
@@ -51,9 +59,31 @@ pub fn lit_name(id: usize, n: usize) -> String {
     }
 }
 
-/// fn gövdesinin `let`'i, çağıranın blok `let`'i ve bir kök const.
+/// fn gövdesinin `let`'i, çağıranın `let`'i, bir kök const ve çağıran
+/// modülün generic parametresi.
 pub fn let_name(id: usize) -> String {
     format!("s{id}r")
+}
+
+/// Çağıran generic modül ve örneği.
+pub fn module_name(id: usize) -> String {
+    format!("R{id}r")
+}
+
+pub fn instance_name(id: usize) -> String {
+    format!("u{id}r")
+}
+
+/// Çağıranın `s<id>r` generic parametresinin değeri. 0 her tam sayı
+/// tipine sığar: ad gölgelenmezse argüman bu literal olur ve değer
+/// değişir (#130); `bits<N>` argümanda tip hatası olur. (3 gibi bir değer
+/// dar tipte E2010 verir, ikame değer farkı olarak görünmezdi.)
+pub const GENERIC_LET_VALUE: i128 = 0;
+
+/// Çağrı modül düzeyi `for`'un gövdesinde mi (tek kimlik), `comb` içinde
+/// mi (çift)?
+pub fn module_level(id: usize) -> bool {
+    id % 2 == 1
 }
 
 /// Gövdenin `let`'i (c biçiminin alt ifadesi) yalnız
@@ -141,15 +171,23 @@ impl Hygiene {
         }
         out.push(format!("    {}", print(&self.body, Style::Min)));
         out.push("}".into());
+        out.extend(self.caller_module(id, ports, ret));
         out
     }
 
-    /// Modül gövdesindeki `comb` bloğu; `out` R biçiminin çıkışı.
-    pub fn module_lines(&self, id: usize, out: &str) -> Vec<String> {
-        let mut lines = vec!["    comb {".to_string()];
-        if let Some(k) = self.caller_let {
-            lines.push(format!("        let {} = {}", let_name(id), port_name(k)));
+    /// Çağıran generic modül: parametreleri `s<id>r` ve döngü değişkeninin
+    /// adı (`t<id>r`); gövdesi çağrıyı döngünün ve `let`'in içinde yapar.
+    fn caller_module(&self, id: usize, ports: &[PortTy], ret: PortTy) -> Vec<String> {
+        let mut out = vec![format!(
+            "module {}<const {}: u32, const {}: u32> {{",
+            module_name(id),
+            let_name(id),
+            self.loop_var
+        )];
+        for k in &self.params {
+            out.push(format!("    in {} : {}", port_name(*k), ports[*k].volt()));
         }
+        out.push(format!("    out o : {}", ret.volt()));
         let args: Vec<String> = self
             .params
             .iter()
@@ -161,20 +199,58 @@ impl Hygiene {
                 }
             })
             .collect();
-        lines.push(format!(
-            "        for {} in {}..{} {{",
+        let call = format!("o = {}({})", fn_name(id), args.join(", "));
+        let let_line = self
+            .caller_let
+            .map(|k| format!("let {} = {}", let_name(id), port_name(k)));
+        let for_line = format!(
+            "for {} in {}..{} {{",
             self.loop_var,
             self.loop_value,
             self.loop_value + 1
-        ));
-        lines.push(format!(
-            "            {out} = {}({})",
-            fn_name(id),
-            args.join(", ")
-        ));
-        lines.push("        }".into());
-        lines.push("    }".into());
-        lines
+        );
+        if module_level(id) {
+            out.push(format!("    {for_line}"));
+            if let Some(l) = &let_line {
+                out.push(format!("        {l}"));
+            }
+            out.push(format!("        {call}"));
+            out.push("    }".into());
+        } else {
+            out.push("    comb {".into());
+            if let Some(l) = &let_line {
+                out.push(format!("        {l}"));
+            }
+            out.push(format!("        {for_line}"));
+            out.push(format!("            {call}"));
+            out.push("        }".into());
+            out.push("    }".into());
+        }
+        out.push("}".into());
+        out
+    }
+
+    /// Test modülündeki satırlar: çağıran generic modülün örneği; `out` R
+    /// biçiminin çıkışı. `s<id>r` parametresi [`GENERIC_LET_VALUE`],
+    /// döngü değişkeninin adını taşıyan parametre döngünün değerinden bir
+    /// fazla: ikisi de gölgelenmeli, gövdeye ulaşmamalı.
+    pub fn module_lines(&self, id: usize, out: &str) -> Vec<String> {
+        let binds: Vec<String> = self
+            .params
+            .iter()
+            .map(|k| format!("{0}: {0}", port_name(*k)))
+            .collect();
+        vec![
+            format!(
+                "    let {} = {}<{}, {}> {{ {} }}",
+                instance_name(id),
+                module_name(id),
+                GENERIC_LET_VALUE,
+                self.loop_value + 1,
+                binds.join(", ")
+            ),
+            format!("    {out} = {}.o", instance_name(id)),
+        ]
     }
 }
 
@@ -313,6 +389,7 @@ mod tests {
             p(1),
         );
         let h = Hygiene::new(7, &e, None, "s7c").expect("çakışma var");
+        // Tek kimlik: çağrı modül düzeyi `for`'un gövdesinde.
         assert_eq!(
             h.item_lines(7, &ports, PortTy::UInt(5)),
             vec![
@@ -321,17 +398,51 @@ mod tests {
                 "fn h7r(p0: u4, p1: u4) -> u5 {",
                 "    p0[t7r] as u4 + p1",
                 "}",
+                "module R7r<const s7r: u32, const t7r: u32> {",
+                "    in p0 : u4",
+                "    in p1 : u4",
+                "    out o : u5",
+                "    for t7r in 2..3 {",
+                "        let s7r = p1",
+                "        o = h7r(p0, s7r)",
+                "    }",
+                "}",
             ]
         );
         assert_eq!(
             h.module_lines(7, "o7r"),
             vec![
+                "    let u7r = R7r<0, 3> { p0: p0, p1: p1 }",
+                "    o7r = u7r.o",
+            ]
+        );
+    }
+
+    /// Çift kimlik: çağrı generic modülün `comb`'unda; blok `let`'i ve
+    /// `comb` içi `for` generic parametreleri gölgeler.
+    #[test]
+    fn an_even_id_calls_from_a_comb_block_of_the_generic_module() {
+        let ports = [PortTy::UInt(4), PortTy::UInt(4)];
+        let e = Expr::bin(BinOp::Xor, p(0), p(1));
+        let h = Hygiene::new(4, &e, None, "s4c").expect("p0 yerelden geçer");
+        let text = h.item_lines(4, &ports, PortTy::UInt(4));
+        let tail: Vec<&str> = text
+            .iter()
+            .rev()
+            .take(7)
+            .rev()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            tail,
+            vec![
                 "    comb {",
-                "        let s7r = p1",
-                "        for t7r in 2..3 {",
-                "            o7r = h7r(p0, s7r)",
+                "        let s4r = p0",
+                "        for K4r in 1..2 {",
+                "            o = h4r(s4r, p1)",
                 "        }",
                 "    }",
+                "}",
             ]
         );
     }

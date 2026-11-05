@@ -164,24 +164,10 @@ impl Resolver<'_> {
                           tr: "farklı bir isim seçin — yerleşik fonksiyon bu kapsamda erişilmez olur"),
                 ));
             } else if !matches!(outer_data.kind, DefKind::Error | DefKind::Import) {
-                let outer_span = outer_data.span;
-                self.diagnostics.push(
-                    Diagnostic::warning(
-                        ErrorCode::W1002,
-                        lstr!(en: "'{}' shadows a definition in an outer scope", shown;
-                              tr: "'{}' dış kapsamdaki tanımı gölgeliyor", shown),
-                        LabeledSpan::primary(
-                            name.span,
-                            lstr!(en: "inner definition here"; tr: "iç tanım burada"),
-                        ),
-                        lstr!(en: "use a different name to avoid confusion";
-                              tr: "karışıklığı önlemek için farklı bir isim kullanın"),
-                    )
-                    .with_secondary(
-                        outer_span,
-                        lstr!(en: "shadowed definition here"; tr: "gölgelenen tanım burada"),
-                    ),
-                );
+                // Metin açılımın W1002'siyle ortak (döngü değişkeni ve
+                // yeniden adlanan `let`'i açılım bildirir, #130).
+                let d = volt_syntax::shadowing_warning(shown, name.span, outer_data.span);
+                self.diagnostics.push(d);
             }
         }
     }

@@ -20,6 +20,7 @@
 mod budget;
 mod clone;
 mod pattern;
+mod scope;
 pub(crate) mod unroll;
 
 use std::collections::HashMap;
@@ -35,6 +36,7 @@ use volt_span::Span;
 use budget::ExpansionBudget;
 pub(crate) use budget::MAX_EXPANSION_NODES;
 use clone::Cloner;
+pub use scope::shadowing_warning;
 
 /// İç içe generic örnekleme derinliği sınırı.
 const MAX_ROUNDS: usize = 64;
@@ -228,16 +230,11 @@ impl Mono<'_> {
                 }
                 // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
                 // doyurulur.
-                let subst = params
+                let values = values
                     .iter()
-                    .map(|(n, _)| n.clone())
-                    .zip(
-                        values
-                            .iter()
-                            .map(|&v| i128::try_from(v).unwrap_or(i128::MAX)),
-                    )
+                    .map(|&v| i128::try_from(v).unwrap_or(i128::MAX))
                     .collect();
-                let item = self.clone_template(template, subst, mangled.clone());
+                let item = self.clone_template(template, values, mangled.clone());
                 self.produced.insert(mangled.clone(), item);
                 self.expansions.entry(template).or_default().push(item);
                 (item, true)
@@ -274,10 +271,11 @@ impl Mono<'_> {
         Some(values)
     }
 
+    /// Şablonu klonlar; `values` generic parametrelerin sırasıyla değeri.
     fn clone_template(
         &mut self,
         template: Idx<Item>,
-        subst: HashMap<String, i128>,
+        values: Vec<i128>,
         mangled: String,
     ) -> Idx<Item> {
         let (span, doc, visibility) = {
@@ -292,9 +290,26 @@ impl Mono<'_> {
             let attrs_src = template_attrs(self.ast, template);
             let ctx = self.next_ctx;
             self.next_ctx = self.next_ctx.saturating_add(1);
-            let mut cloner = Cloner::new(self.ast, &mut self.budget, subst, ctx);
+            // Kapsam zinciri: modül kapsamının ilk bildirimleri const generic
+            // parametreler (name-resolution.md §5); gövdede onlara bağlanan
+            // yol literal olur, iç kapsamda yeniden bildirilen ad olmaz (#130).
+            let params: Vec<(Name, i128)> = template_decl
+                .generics
+                .iter()
+                .filter_map(|g| match &g.kind {
+                    GenericParamKind::Const { name, .. } => Some(name.clone()),
+                    GenericParamKind::Type { .. } => None,
+                })
+                .zip(values)
+                .collect();
+            let mut cloner = Cloner::new(self.ast, &mut self.budget, ctx).with_generics(&params);
             let module = cloner.clone_module(&template_decl, mangled);
             let attrs = cloner.clone_attrs(&attrs_src);
+            // Çözücü parametreleri bu tablodan bildirir (gölgeleme, E1003).
+            let names = params.iter().map(|(n, _)| cloner.tag_name(n)).collect();
+            cloner
+                .ast
+                .write(|ast| ast.generate.mono_generics.insert(module.name.span, names));
             (attrs, ItemKind::Module(module))
         };
         restore_module_shallow(self.ast, template, template_decl);

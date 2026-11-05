@@ -1,6 +1,7 @@
 # ADR-0056: Düzenli Yapılar — `for` İçinde Örnekleme, Bundle Dizileri, Paketlenmiş Dizi Portları
 
 > Statü: Uygulandı
+> İlgili: ADR-0081 (eki: döngü değişkeni ve gövde `let`'i kapsam zincirinde çözülür; "Sınırlar"daki "gölgeleme tanısı yok" maddesi kapandı, gölgeleme W1002, #130)
 > Tarih: 2026-09-17
 > Etkilenen: volt-ast (`SourceFile::generate`: `GenerateInfo`,
 > `GenerateIter`, `block_generic_args`), volt-syntax (`parser/mono/unroll.rs`

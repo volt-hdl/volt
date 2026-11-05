@@ -15,6 +15,17 @@ examine_globs = [
     "crates/volt-sv-emit/src/scope.rs",
     # Wire width of an untyped `let` (natural width, ADR-0025).
     "crates/volt-sv-emit/src/let_width.rs",
+    # Emitter files that resolve names through Emitter::resolve (#128):
+    # constant arrays, enum-typed values and patterns, trit selection.
+    "crates/volt-sv-emit/src/const_array.rs",
+    "crates/volt-sv-emit/src/enums.rs",
+    "crates/volt-sv-emit/src/trit.rs",
+    # The parser's substitution of generic parameters and module-level
+    # `for` variables: the scope chain and the cloner that consults it
+    # (#130, ADR-0081 appendix).
+    "crates/volt-syntax/src/parser/mono/scope.rs",
+    "crates/volt-syntax/src/parser/mono/clone.rs",
+    "crates/volt-syntax/src/parser/mono/pattern.rs",
     # 2. Width and type inference.
     "crates/volt-hir/src/ty.rs",
     "crates/volt-hir/src/typeck/width.rs",

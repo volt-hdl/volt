@@ -88,6 +88,15 @@ pub struct GenerateInfo {
     /// Tanılar kaynak adı gösterir; aksi hâlde her kopyada farklı mesaj
     /// katlanmaz ve `_pe_0` gibi yazılamayacak bir düzeltme önerilir.
     pub source_names: HashMap<Span, String>,
+    /// Monomorf modülün (ADR-0041) const generic parametreleri: klonun
+    /// ad span'i (monomorf ctx'li) → şablonun parametre adları (aynı
+    /// ctx'le). Klonun gövdesinde parametreye bağlanan her yol literale
+    /// ikame edildi ve `generics` listesi boş; ad çözücü parametreleri bu
+    /// tablodan modül kapsamının ilk bildirimleri olarak bildirir
+    /// (name-resolution.md §5): iç kapsamdaki aynı ad onu gölgeler
+    /// (W1002), aynı kapsamdaki port ya da sinyal E1003 verir, parametre
+    /// bir kök öğeyi gölgelerse W1002 (#122, #130).
+    pub mono_generics: HashMap<Span, Vec<Name>>,
 }
 
 /// Açılmış bir `for` yinelemesi.

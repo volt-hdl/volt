@@ -36,7 +36,7 @@ use volt_span::{FileId, Span};
 
 use crate::lexer::tokenize;
 use crate::token::{Token, TokenKind};
-pub use mono::monomorphize;
+pub use mono::{monomorphize, shadowing_warning};
 
 /// İfadenin kaynak biçimi, tanı yardım satırları için (ADR-0106): ad,
 /// tam sayı, ikili/tekli işlem ve çağrı yazılır; başka biçimde `None`.
