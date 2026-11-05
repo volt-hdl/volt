@@ -110,6 +110,21 @@ exclude_re = [
     # (parser_scope_diag_tests::enum_patterns_in_a_clone_keep_their_arguments_and_bindings).
     # Review when payload enums are implemented.
     "parser/mono/clone\\.rs:\\d+:\\d+: replace Cloner<'a>::declare_pattern_binding with \\(\\)$",
+    # A2 (unreachable), assumes the type checker rejects a variant pattern of
+    # another enum before emission (E2003 "pattern of type 'Kind' cannot
+    # match a value of enum 'Mode'", typeck/matching.rs;
+    # parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission):
+    # in pattern_variants `d` is always the scrutinee's enum.
+    "volt-sv-emit/src/enums\\.rs:\\d+:\\d+: replace match guard d\\.name\\.text == decl\\.name\\.text with true in Emitter<'a>::pattern_variants$",
+    # A2 (reachable, same SV), assumes `t` has passed is_trit (a Trit atom,
+    # negation, Trit * Trit or `if`: SV precedence 12, 11, 10 or 0) and
+    # emit_prec parenthesizes only when my_prec < parent_prec (is_right is
+    # false here): parent Eq + 1 = 7, Eq * 1 = 6 and Eq - 1 = 5 decide alike.
+    # With either mutant the SV of parser_scope_sim_tests::
+    # trit_products_of_every_precedence_class_have_their_value is byte
+    # identical, the simulation passes and verilator -Wall is clean.
+    "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with \\* in Emitter<'_>::try_emit_trit_mul$",
+    "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with - in Emitter<'_>::try_emit_trit_mul$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

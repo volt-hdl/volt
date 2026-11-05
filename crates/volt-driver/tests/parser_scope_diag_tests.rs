@@ -780,3 +780,27 @@ fn a_folded_loop_constant_that_does_not_fit_the_comparison_is_e2010() {
         "{diags:?}"
     );
 }
+
+/// Başka bir enum'un varyantı desende tip hatasıdır (E2003, §5.1: değer
+/// deseni `x == P` gibi tiplenir); üreticiye ulaşmaz. ADR-0109'un A2
+/// girdisinin (enums.rs `pattern_variants`) ulaşılamazlık kanıtı.
+#[test]
+fn a_variant_pattern_of_another_enum_is_rejected_before_emission() {
+    let src = "enum Mode { A, B }
+enum Kind { X, Y }
+module M {
+    in  m : Mode
+    out y : u8
+    y = match m {
+        Kind::X => 1,
+        _ => 0,
+    }
+}
+";
+    let diags = check("other_enum", src);
+    assert_eq!(
+        errors(&diags),
+        vec![("E2003".to_string(), lines_with(src, "Kind::X =>")[0])],
+        "{diags:?}"
+    );
+}

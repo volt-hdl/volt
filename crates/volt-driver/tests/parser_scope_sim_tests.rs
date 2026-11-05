@@ -1087,3 +1087,62 @@ test "the unrolled arithmetic has its value" {{
     );
     sim("fold_wide", &src, 1);
 }
+
+/// Trit çarpımının (type-inference.md §3.3, ui/pass/16) her öncelik
+/// sınıfındaki Trit işleneni: ad, `-t`, `t * u`, `if`. Trit'ler u2
+/// kodlarından kurulur (1 → +1, 3 → -1, başka → 0); test dili eksi literal
+/// yazamadığından çıkışlar i9'da 100 kaydırılır. a = 5:
+/// - t = +1, u = -1, c = 1: t·a = 5, (-t)·a = -5, (t·u)·a = -5, (c ? t : u)·a = 5 → 105, 95, 95, 105;
+/// - t = -1, u = 0, c = 0: -5, 5, 0, 0 → 95, 105, 100, 100.
+///
+/// Bekçi: üretici `t`'yi `sv_prec(Eq) + 1` bağlamında yazar; ADR-0109'un A2
+/// girdisi (trit.rs `+` → `*`, `-`) bu girdide aynı SV'yi gösterir.
+#[test]
+fn trit_products_of_every_precedence_class_have_their_value() {
+    let src = r#"module M {
+    in  tc : u2
+    in  uc : u2
+    in  c  : bool
+    in  a  : i8
+    out y1 : i9
+    out y2 : i9
+    out y3 : i9
+    out y4 : i9
+    let t : Trit = match tc {
+        1 => 1,
+        3 => -1,
+        _ => 0,
+    }
+    let u : Trit = match uc {
+        1 => 1,
+        3 => -1,
+        _ => 0,
+    }
+    y1 = (t * a) + 100
+    y2 = ((-t) * a) + 100
+    y3 = ((t * u) * a) + 100
+    y4 = ((if c { t } else { u }) * a) + 100
+}
+test "trit products by precedence class" {
+    let dut = M { };
+    dut.a = 5;
+    dut.tc = 1;
+    dut.uc = 3;
+    dut.c = true;
+    step(1);
+    assert_eq(dut.y1, 105);
+    assert_eq(dut.y2, 95);
+    assert_eq(dut.y3, 95);
+    assert_eq(dut.y4, 105);
+    dut.tc = 3;
+    dut.uc = 0;
+    dut.c = false;
+    step(1);
+    assert_eq(dut.y1, 95);
+    assert_eq(dut.y2, 105);
+    assert_eq(dut.y3, 100);
+    assert_eq(dut.y4, 100);
+}
+"#;
+    sim("trit_prec", src, 1);
+}
