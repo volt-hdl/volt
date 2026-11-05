@@ -121,7 +121,7 @@ fn ui_fail_224_warns_w1002_and_the_function_reads_the_const() {
     let _ = std::fs::remove_dir_all(&target);
 }
 
-/// ui/pass/135: her gölgeleme bir W1002 (port `W`, dört döngü değişkeni),
+/// ui/pass/135: her gölgeleme bir W1002 (port `W`, üç döngü değişkeni),
 /// hata yok; SV'de gövdenin const'ları.
 #[test]
 fn ui_pass_135_warns_once_per_shadowing_and_builds_with_the_consts() {
@@ -130,7 +130,6 @@ fn ui_pass_135_warns_once_per_shadowing_and_builds_with_the_consts() {
     let mut expected = lines_with(&text, "in  W  : u8");
     expected.extend(lines_with(&text, "for I in"));
     expected.extend(lines_with(&text, "for T in"));
-    expected.extend(lines_with(&text, "for B in"));
     expected.sort_unstable();
     let env = check_json(&file);
     assert_eq!(w1002_lines(&env), expected, "{:?}", diags(&env));
@@ -143,7 +142,6 @@ fn ui_pass_135_warns_once_per_shadowing_and_builds_with_the_consts() {
         "qs[4 +: 4] = 4'(b + 4'd1);",
         "2'd1: cls_0 = 8'd7;",
         "wire [7:0] lut_0 = T_at(s);",
-        "bs[1 +: 1] = a[4'd2];",
     ] {
         assert!(sv.lines().any(|l| l.trim() == line), "{line}\n{sv}");
     }

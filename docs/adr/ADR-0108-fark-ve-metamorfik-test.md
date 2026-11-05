@@ -317,7 +317,7 @@ satırı farklı (döngü değişkeninin değeri), diğer biçimlerin bütün sa
 aynı. Düzeltmesi geri alınmış dalda (`test/hygiene-revert-demo`)
 `difftest.yml` (41978380162, dört parça, tohum 20261104–20261107, parça
 başına 2000): dört parça da düştü (diffs 299, 281, 276, 293), küçültülmüş
-bulguların hepsi r biçiminde, ilki "regression #128 … — r u8[K]".
+bulguların hepsi r biçiminde, örneğin "regression #128 … — r u8[K]".
 
 Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgelemeyi
 görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde

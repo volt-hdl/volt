@@ -332,7 +332,7 @@ koşudur.
   regex; yalnız eşleşen mutantlar denenir.
 - **`shards`**: parça sayısı, 1–20. Boşsa §3'ün hesabı, koşunun mutant
   sayısıyla (M = süzülmüş listenin uzunluğu, t = 210 sn, S = 15 dk, en çok
-  20): ilk iş `scripts/ci/mutants_target.py shards` ile N'yi bulur, matris
+  20): kapsam işi ("Tools and the mutants in scope") `scripts/ci/mutants_target.py shards` ile N'yi bulur, matris
   ve özet ondan kurulur. Tam koşu da artık N'yi böyle bulur; sabit
   `MUTANTS_SHARDS: 15` kalktı. Parça mutanttan fazla olmaz.
 
@@ -345,9 +345,9 @@ koşu listeyi ikinci kez, satırla daraltır: `mutants_target.py diff`
 dokunan bir birleşik diff yazar (her satır kendisine "değişir", diff ağaçla
 eşleşir); her `cargo mutants` çağrısı `--re <re> --in-diff target.diff`
 ile koşar. Alan silme mutantı istenen bir mutantla aynı satırdaysa yine
-sızabilir; bu yüzden ilk iş son listeyi `mutants_target.py check` ile
+sızabilir; bu yüzden kapsam işi son listeyi `mutants_target.py check` ile
 doğrular: listede regex'e uymayan bir ad varsa ya da liste boşsa iş düşer.
-Her parça kendi listesini ilk işin parça listesiyle karşılaştırır; farklıysa
+Her parça kendi listesini kapsam işinin parça listesiyle karşılaştırır; farklıysa
 düşer. Süzgeç (`filter.txt`) ve diff `mutants-list` artifact'ındadır.
 
 **Kapsam.** Üreticinin ad çözücüsü `crates/volt-sv-emit/src/scope.rs`
@@ -362,22 +362,25 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
 
 ### Hedefli koşunun kanıtı
 
-- **Alan silme hatası.** 41981695174'ün ilk işi, `--re` listesinden
+- **Alan silme hatası.** 41981695174'ün kapsam işi, `--re` listesinden
   regex'e uymayan iki adı düşürdü ve son listeyi doğruladı:
   `dropped (does not match the regex): crates/volt-hir/src/typeck/stmt.rs:161:17: delete field start from struct Span expression …`,
   `dropped (does not match the regex): crates/volt-sv-emit/src/let_width.rs:283:21: delete field hi from struct Range expression …`,
   `all 78 mutants in the list match '…'`.
-- **İlk koşu** (41981695174, `re` = `scope.rs` ve hijyen denetimlerinin
+- **Koşu 1** (41981695174, `re` = `scope.rs` ve hijyen denetimlerinin
   `expr.rs` satırları, 78 mutant, `shards` boş → 2 parça): 36 caught,
   4 missed, 0 timeout, 38 unviable. `scope.rs`'in bütün mutantları
   caught. Missed dördü `expr.rs`'te: `eval_const_depth` ve
   `const_match_key`'in derinlik sayacı (`depth + 1` → `* 1`, `- 1`) ve
-  `index_width_mismatch`'in `||` → `&&`'si. İlk üçü gerçek bir eksiği
+  `index_width_mismatch`'in `||` → `&&`'si. Bunlardan üçü gerçek bir eksiği
   gösterdi: `const_match_key` derinlik sınırını hiç denetlemiyordu,
   döngüsel enum const zincirinde üretici yığın taşıyordu (#131'de
-  düzeltildi; zincir sınırı #133). Dördüncüsünü genişliği adres genişliğinden
-  farklı (32 de değil) sabit indeks (`const K : u4`, `a[K]`) öldürür.
-  Öldüren testler: `name_scope_tests` (döngüsel u32 ve enum zinciri,
-  63/64 halkalı enum zinciri), `part_select_value_tests`
-  (`a_constant_index_of_another_width_keeps_the_select`), ui/pass/135.
+  düzeltildi; zincir sınırı #133). Öldüren testler `name_scope_tests`'te:
+  döngüsel u32 ve enum zinciri, 63/64 halkalı enum zinciri.
+  Dördüncüsünü ayıran girdi, tipi adres genişliğinden farklı ve 32
+  bit olmayan sabit indekstir (`const K : u4`, `a[K]`); o girdide
+  bugünkü çıktı (`a[4'd2]`) Verilator'da WIDTHTRUNC verir, mutantınki
+  (`1'((a) >> 4'd2)`) vermez. Bugünkü biçimi sabitleyen test yanlış olurdu
+  (ui/pass/135'e eklenen örnek CI'ın Verilator ağına takıldı, 41991580408):
+  mutant #134 düzeltilene kadar missed kalır.
 
