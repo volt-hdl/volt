@@ -358,6 +358,33 @@ pub fn all() -> Vec<Regression> {
         // p0 = 0b100 → 0 (#128'de döngü değişkeni seçilirdi: bit 2, 1).
         .pin(&[2], 1)
         .pin(&[4], 0),
+        // ── Ayrıştırıcının ikamesi: generic parametreyi gölgeleyen `let` ──
+        // İki örnek art arda: kimlikleri (listedeki sıra, 25 ve 26) birini
+        // modül düzeyi `for` gövdesine, birini `comb`'a koyar
+        // (`hygiene::module_level`).
+        r(
+            "#130",
+            "argument through a body let of a module-level for that shadows a generic parameter",
+            vec![UInt(8), UInt(8)],
+            bin(BinOp::Xor, p(0), p(1)),
+        )
+        // `p0 ^ p1`, ikisi u8: u8 (type-inference §3.3, bit işlemi). r
+        // biçiminde p0, çağıran `R<id>r<0, ..>`'nin `let s<id>r = p0`'ından
+        // geçer; `let` generic `s<id>r`'yi gölgeler (name-resolution.md §2,
+        // §6), argüman p0'dır: 15 ^ 240 = 255; 1 ^ 2 = 3. (#130'da argüman
+        // generic'in değeri 0 olurdu: 240, 2.)
+        .pin(&[15, 240], 255)
+        .pin(&[1, 2], 3),
+        r(
+            "#130",
+            "argument through a block let in comb that shadows a generic parameter",
+            vec![UInt(8), UInt(8)],
+            bin(BinOp::Xor, p(0), p(1)),
+        )
+        // Aynı ifade, çağrı `comb` içinde: blok `let s<id>r` generic'i
+        // gölgeler. 85 ^ 170 = 255; 5 ^ 7 = 2 (#130'da 170, 7).
+        .pin(&[85, 170], 255)
+        .pin(&[5, 7], 2),
     ]
 }
 

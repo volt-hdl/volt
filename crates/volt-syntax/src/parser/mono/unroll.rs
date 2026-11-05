@@ -25,6 +25,13 @@
 //! Monomorfizasyon turunun içinde koşar: klonlanan generic gövdede
 //! `0..N` sınırı ikame sonrası literaldir; açılan gövdedeki generic
 //! örneklemeler (`Pe<8> { }`) aynı turda istek olarak toplanır.
+//!
+//! Adlar kapsam zincirinde çözülür ([`Scopes`], #130): döngü değişkeni
+//! döngünün kapsamında, gövdenin `let`'i gövde bloğunda bildirilir; iç
+//! kapsamda yeniden bildirilen ad ikame edilmez. Çözücü (HIR) döngü
+//! değişkenini ve yeniden adlanan `let`'i görmez, bu yüzden onların
+//! gölgelemesinde W1002'yi ve döngü değişkeni deseninde E1015'i açılım
+//! verir (name-resolution.md §5.1, §6).
 
 use std::collections::HashMap;
 
@@ -38,7 +45,8 @@ use volt_diagnostics::{
 use volt_span::Span;
 
 use super::budget::{ExpansionBudget, MAX_EXPANSION_NODES};
-use super::clone::Cloner;
+use super::clone::{BlockRole, Cloner};
+use super::scope::{shadowing_warning, Binding, Entry, Scopes};
 
 /// Açılabilecek en fazla yineleme (const-eval.md §8, E2027).
 pub(crate) const MAX_UNROLL: i128 = 4096;
@@ -78,6 +86,7 @@ pub(super) fn unroll_module(
         return;
     }
     let consts = collect_consts(ast);
+    let mut chain = module_chain(ast, item);
     let ItemKind::Module(m) = &mut ast.items_arena[item].kind else {
         return;
     };
@@ -92,6 +101,8 @@ pub(super) fn unroll_module(
     let mut out = Vec::with_capacity(body.len());
     for stmt in body {
         if !matches!(u.ast.stmts[stmt].kind, StmtKind::For(_)) {
+            // Modül içi sıralı (§4): sonraki `for` bu bildirimi görür.
+            declare_outer(&mut chain, decl_name(&u.ast.stmts[stmt].kind));
             out.push(stmt);
             continue;
         }
@@ -100,10 +111,73 @@ pub(super) fn unroll_module(
         else {
             unreachable!()
         };
-        out.extend(u.expand_for(f, span, 0, &HashMap::new(), ""));
+        let lifted = u.expand_for(f, span, 0, "", &chain);
+        for &s in &lifted {
+            declare_outer(&mut chain, decl_name(&u.ast.stmts[s].kind));
+        }
+        out.extend(lifted);
     }
     if let ItemKind::Module(m) = &mut u.ast.items_arena[item].kind {
         m.body = out;
+    }
+}
+
+/// Modül düzeyi `for`'un bulunduğu yerin kapsam zinciri: kök kapsam
+/// (birimin öğeleri) ve modül kapsamı (monomorfun generic parametreleri,
+/// portlar). Modül gövdesinin bildirimleri sırayla eklenir.
+fn module_chain(ast: &SourceFile, item: Idx<Item>) -> Scopes {
+    let mut chain = Scopes::default();
+    chain.push();
+    for &i in &ast.items {
+        let name = match &ast.items_arena[i].kind {
+            ItemKind::Module(m) => &m.name,
+            ItemKind::Domain(d) => &d.name,
+            ItemKind::Fn(f) => &f.name,
+            ItemKind::Struct(s) => &s.name,
+            ItemKind::Enum(e) => &e.name,
+            ItemKind::Const(c) => &c.name,
+            ItemKind::TypeAlias(t) => &t.name,
+            ItemKind::Extern(x) => &x.name,
+            ItemKind::Test(_) | ItemKind::Error => continue,
+        };
+        declare_outer(&mut chain, Some(name));
+    }
+    chain.push();
+    if let ItemKind::Module(m) = &ast.items_arena[item].kind {
+        if let Some(params) = ast.generate.mono_generics.get(&m.name.span) {
+            for p in params {
+                declare_outer(&mut chain, Some(p));
+            }
+        }
+        for p in &m.ports {
+            declare_outer(&mut chain, Some(&p.name));
+        }
+    }
+    chain
+}
+
+/// Çözücünün de gördüğü bir bildirim (öğe, port, modül sinyali).
+fn declare_outer(chain: &mut Scopes, name: Option<&volt_ast::Name>) {
+    if let Some(name) = name {
+        chain.declare(
+            &name.text,
+            Entry {
+                binding: Binding::Outer,
+                span: name.span,
+                resolver_sees: true,
+            },
+        );
+    }
+}
+
+/// Modül gövdesinde ad bildiren deyimin adı.
+fn decl_name(kind: &StmtKind) -> Option<&volt_ast::Name> {
+    match kind {
+        StmtKind::Reg(r) => Some(&r.name),
+        StmtKind::Let(l) => Some(&l.name),
+        StmtKind::Wire(w) => Some(&w.name),
+        StmtKind::Instance(i) => Some(&i.name),
+        _ => None,
     }
 }
 
@@ -120,22 +194,41 @@ pub(crate) fn collect_consts(ast: &SourceFile) -> HashMap<String, Idx<volt_ast::
 
 impl Unroller<'_> {
     /// Bir `for`u açar; üretilen modül seviyesi deyimler sırayla döner.
-    /// `parent_ctx` iç içe döngüde dış yinelemenin bağlamı, `rename`
-    /// dış gövdenin isim haritası, `suffix` dış yinelemelerin soneki.
+    /// `parent_ctx` iç içe döngüde dış yinelemenin bağlamı (0: en dış
+    /// döngü), `suffix` dış yinelemelerin soneki, `chain` `for`un
+    /// bulunduğu modülün kapsam zinciri (kök + modül kapsamı). İç içe
+    /// döngünün gövdesi dış yinelemede klonlandı: dış adlar orada çözüldü,
+    /// gölgeleme tanıları da orada verildi.
     fn expand_for(
         &mut self,
         f: ForStmt,
         span: Span,
         parent_ctx: u16,
-        rename: &HashMap<String, String>,
         suffix: &str,
+        chain: &Scopes,
     ) -> Vec<Idx<Stmt>> {
         // Bütçe başka bir açılımda (mono klonu dahil) dolmuş olabilir:
         // döngü açılmadan atlanıyorsa tanı mutlaka verilmiş olmalı.
         if self.over_budget(&f.var.text, span) {
             return Vec::new();
         }
-        let Some((start, end)) = self.bounds(&f, span) else {
+        // En dış döngünün değişkeni: dış tanımı gölgeliyorsa W1002 (§6);
+        // çözücü döngüyü görmez. İç içe döngününkini dış yineleme verdi.
+        let outermost = parent_ctx == 0;
+        if outermost {
+            let mut scope = chain.clone();
+            scope.push();
+            let entry = Entry {
+                binding: Binding::LoopVar(0),
+                span: f.var.span,
+                resolver_sees: false,
+            };
+            if let Some(outer) = scope.declare(&f.var.text, entry) {
+                self.diagnostics
+                    .push(shadowing_warning(&f.var.text, f.var.span, outer.span));
+            }
+        }
+        let Some((start, end)) = self.bounds(&f, span, chain) else {
             return Vec::new();
         };
         let declared = declared_names(self.ast, f.body);
@@ -165,18 +258,28 @@ impl Unroller<'_> {
                 },
             );
             let suffix_v = format!("{suffix}_{v}");
-            let mut rename_v = rename.clone();
-            for name in &declared {
-                rename_v.insert(name.clone(), format!("{name}{suffix_v}"));
+            let rename_v: HashMap<String, String> = declared
+                .iter()
+                .map(|name| (name.clone(), format!("{name}{suffix_v}")))
+                .collect();
+            let mut cloner = Cloner::new(self.ast, self.budget, ctx).for_iteration(
+                chain.clone(),
+                &f.var,
+                v,
+                rename_v,
+            );
+            // Gölgeleme ve desen tanıları kaynak başına bir kez: en dış
+            // döngünün ilk yinelemesi (iç içe döngüler de onun klonunda).
+            if outermost && v == start {
+                cloner = cloner.with_lint(span.ctx);
             }
-            let subst = HashMap::from([(f.var.text.clone(), v)]);
-            let mut cloner =
-                Cloner::new(self.ast, self.budget, subst, ctx).with_rename(rename_v.clone());
-            let block = cloner.clone_block(f.body);
+            let block = cloner.clone_block(f.body, BlockRole::Iteration);
             let recovered = cloner.saw_recovery();
+            let lints = cloner.take_diagnostics();
+            self.diagnostics.extend(lints);
             let stmts = std::mem::take(&mut self.ast.blocks[block].stmts);
             for bs in stmts {
-                self.lift(bs, ctx, &rename_v, &suffix_v, &mut out);
+                self.lift(bs, ctx, &suffix_v, chain, &mut out);
             }
             // Her yinelemeden sonra: bu döngünün özdeş tanıları katlanır
             // (ADR-0068). Sonradan katlamak yetmez — 283² kopya önce
@@ -234,8 +337,8 @@ impl Unroller<'_> {
         &mut self,
         bs: BlockStmt,
         ctx: u16,
-        rename: &HashMap<String, String>,
         suffix: &str,
+        chain: &Scopes,
         out: &mut Vec<Idx<Stmt>>,
     ) {
         match bs {
@@ -249,7 +352,7 @@ impl Unroller<'_> {
             }
             BlockStmt::For(inner) => {
                 let span = self.ast.blocks[inner.body].span;
-                out.extend(self.expand_for(inner, span, ctx, rename, suffix));
+                out.extend(self.expand_for(inner, span, ctx, suffix, chain));
             }
             BlockStmt::NonBlockAssign { span, .. } => self.err_unsupported(
                 span,
@@ -364,8 +467,9 @@ impl Unroller<'_> {
     }
 
     /// `[start, end)` — sabit değilse E2021, ters aralık E2028, sınır
-    /// üstü E2027.
-    fn bounds(&mut self, f: &ForStmt, span: Span) -> Option<(i128, i128)> {
+    /// üstü E2027. Sınır `for`un bulunduğu kapsamda çözülür: kök const'u
+    /// gölgeleyen port ya da modül sinyali sabit değildir (#130).
+    fn bounds(&mut self, f: &ForStmt, span: Span, chain: &Scopes) -> Option<(i128, i128)> {
         let var = f.var.text.clone();
         // Hata kurtarmanın bıraktığı sınır (ör. E0018 ile kesilen ifade,
         // ADR-0080) zaten raporlandı: E2021 kaskadı değil.
@@ -373,7 +477,7 @@ impl Unroller<'_> {
         if recovered(f.start) || recovered(f.end) {
             return None;
         }
-        let (Some(s), Some(e)) = (self.eval(f.start, 0), self.eval(f.end, 0)) else {
+        let (Some(s), Some(e)) = (self.eval(f.start, chain), self.eval(f.end, chain)) else {
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E2021,
                 lstr!(
@@ -438,8 +542,9 @@ impl Unroller<'_> {
         Some((s, e))
     }
 
-    fn eval(&self, e: Idx<volt_ast::Expr>, depth: u32) -> Option<i128> {
-        eval_const(self.ast, &self.consts, e, depth)
+    fn eval(&self, e: Idx<volt_ast::Expr>, chain: &Scopes) -> Option<i128> {
+        let root_const = |name: &str| !chain.bound_above_root(name);
+        eval_const_scoped(self.ast, &self.consts, e, 0, &root_const)
     }
 
     fn err_unsupported(&mut self, span: Span, what: &str, help: &str) {
@@ -483,6 +588,19 @@ pub(crate) fn eval_const(
     e: Idx<volt_ast::Expr>,
     depth: u32,
 ) -> Option<i128> {
+    eval_const_scoped(ast, consts, e, depth, &|_| true)
+}
+
+/// [`eval_const`]; `root_const(ad)` yanlışsa ad kök const'a bağlanmaz
+/// (kullanıldığı yerde bir iç tanım onu gölgeler). Const'un kendi değeri
+/// kök kapsamda çözülür (name-resolution.md §4).
+fn eval_const_scoped(
+    ast: &SourceFile,
+    consts: &HashMap<String, Idx<volt_ast::Expr>>,
+    e: Idx<volt_ast::Expr>,
+    depth: u32,
+    root_const: &dyn Fn(&str) -> bool,
+) -> Option<i128> {
     use volt_ast::{BinOp, UnOp};
     if depth > MAX_CONST_DEPTH {
         return None;
@@ -492,10 +610,10 @@ pub(crate) fn eval_const(
         ExprKind::Unary {
             op: UnOp::Neg,
             operand,
-        } => eval_const(ast, consts, *operand, depth + 1)?.checked_neg(),
+        } => eval_const_scoped(ast, consts, *operand, depth + 1, root_const)?.checked_neg(),
         ExprKind::Binary { op, lhs, rhs } => {
-            let l = eval_const(ast, consts, *lhs, depth + 1)?;
-            let r = eval_const(ast, consts, *rhs, depth + 1)?;
+            let l = eval_const_scoped(ast, consts, *lhs, depth + 1, root_const)?;
+            let r = eval_const_scoped(ast, consts, *rhs, depth + 1, root_const)?;
             match op {
                 BinOp::Add => l.checked_add(r),
                 BinOp::Sub => l.checked_sub(r),
@@ -507,7 +625,7 @@ pub(crate) fn eval_const(
                 _ => None,
             }
         }
-        ExprKind::Path(p) if p.segments.len() == 1 => {
+        ExprKind::Path(p) if p.segments.len() == 1 && root_const(&p.segments[0].text) => {
             let value = *consts.get(&p.segments[0].text)?;
             eval_const(ast, consts, value, depth + 1)
         }

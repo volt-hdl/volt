@@ -15,6 +15,17 @@ examine_globs = [
     "crates/volt-sv-emit/src/scope.rs",
     # Wire width of an untyped `let` (natural width, ADR-0025).
     "crates/volt-sv-emit/src/let_width.rs",
+    # Emitter files that resolve names through Emitter::resolve (#128):
+    # constant arrays, enum-typed values and patterns, trit selection.
+    "crates/volt-sv-emit/src/const_array.rs",
+    "crates/volt-sv-emit/src/enums.rs",
+    "crates/volt-sv-emit/src/trit.rs",
+    # The parser's substitution of generic parameters and module-level
+    # `for` variables: the scope chain and the cloner that consults it
+    # (#130, ADR-0081 appendix).
+    "crates/volt-syntax/src/parser/mono/scope.rs",
+    "crates/volt-syntax/src/parser/mono/clone.rs",
+    "crates/volt-syntax/src/parser/mono/pattern.rs",
     # 2. Width and type inference.
     "crates/volt-hir/src/ty.rs",
     "crates/volt-hir/src/typeck/width.rs",
@@ -85,6 +96,35 @@ exclude_re = [
     # `< width` alone: returning c.width >= width instead of width for a
     # context at least as wide as the wire decides the same.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
+    # Source: targeted run 42034192061 (#130; parser/mono, 276 mutants).
+    # A1. fold_binary: `BinOp::Div if r != 0 => l.checked_div(r)` (and Rem):
+    # with the guard `true`, r == 0 gives checked_div/checked_rem -> None,
+    # the same as the `_ => None` arm the guard falls through to.
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with true in Cloner<'a>::fold_binary$",
+    # A2, assumes the parser never builds ExprKind::Concat: only the SV
+    # emitter's struct lowering does (ADR-0077 Karar 5; volt-ast doc).
+    "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm ExprKind::Concat\\(parts\\) in Cloner<'a>::clone_aggregate_expr$",
+    # A2, assumes enums with data-carrying variants stay unsupported (E0003):
+    # a struct-pattern shorthand (`Msg::Data { x }`) never reaches the SV, and
+    # without the binding the arm body's diagnostics are the same
+    # (parser_scope_diag_tests::enum_patterns_in_a_clone_keep_their_arguments_and_bindings).
+    # Review when payload enums are implemented.
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace Cloner<'a>::declare_pattern_binding with \\(\\)$",
+    # A2 (unreachable), assumes the type checker rejects a variant pattern of
+    # another enum before emission (E2003 "pattern of type 'Kind' cannot
+    # match a value of enum 'Mode'", typeck/matching.rs;
+    # parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission):
+    # in pattern_variants `d` is always the scrutinee's enum.
+    "volt-sv-emit/src/enums\\.rs:\\d+:\\d+: replace match guard d\\.name\\.text == decl\\.name\\.text with true in Emitter<'a>::pattern_variants$",
+    # A2 (reachable, same SV), assumes `t` has passed is_trit (a Trit atom,
+    # negation, Trit * Trit or `if`: SV precedence 12, 11, 10 or 0) and
+    # emit_prec parenthesizes only when my_prec < parent_prec (is_right is
+    # false here): parent Eq + 1 = 7, Eq * 1 = 6 and Eq - 1 = 5 decide alike.
+    # With either mutant the SV of parser_scope_sim_tests::
+    # trit_products_of_every_precedence_class_have_their_value is byte
+    # identical, the simulation passes and verilator -Wall is clean.
+    "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with \\* in Emitter<'_>::try_emit_trit_mul$",
+    "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with - in Emitter<'_>::try_emit_trit_mul$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

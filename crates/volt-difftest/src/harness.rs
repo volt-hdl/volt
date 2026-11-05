@@ -353,7 +353,8 @@ impl Case {
             Variant::R => {
                 let h = self.hygiene.as_ref().expect("R biçimi");
                 let ret = self.out_ty(v).expect("R biçiminin çıkışı");
-                // Rapor için portların tipi bilinmez; gövde ve çağrı yeter.
+                // Rapor için portların tipi bilinmez; gövde, çağıran modülün
+                // kipi ve örnekleme yeter.
                 let mut lines: Vec<String> = h
                     .consts
                     .iter()
@@ -376,6 +377,15 @@ impl Case {
                         print(&h.body, Style::Min)
                     ));
                 }
+                lines.push(format!(
+                    "module {}<..> {{ {} }}",
+                    crate::hygiene::module_name(id),
+                    if crate::hygiene::module_level(id) {
+                        "for .. { let ..; o = call }"
+                    } else {
+                        "comb { let ..; for .. { o = call } }"
+                    }
+                ));
                 lines.extend(h.module_lines(id, &out_name(id, v)));
                 lines.join("\n")
             }

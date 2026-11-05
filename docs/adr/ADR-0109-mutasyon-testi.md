@@ -403,3 +403,128 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   (`index_width_mismatch`, `||` → `&&`; Koşu 1'deki satırı 1423):
   "#134 düzelene kadar açık", gerekçesi yukarıda.
 
+
+## Kapsam genişlemesi ve hedefli koşu (#130, 2026-11-05)
+
+**Kapsam.** `examine_globs`'a altı dosya girdi:
+
+- ayrıştırıcının ikamesi (#130, ADR-0081 eki "Ayrıştırıcının ikamesi
+  kapsam zincirinden geçer"):
+  - `crates/volt-syntax/src/parser/mono/scope.rs` (kapsam zinciri, 14 mutant);
+  - `mono/clone.rs` (zinciri soran klonlayıcı, 128);
+  - `mono/pattern.rs` (kolun kapsamı, desen adı, 10);
+- PR #131'de `Emitter::resolve` ile ad çözen ama kapsam dışında kalan
+  üretici dosyaları: `crates/volt-sv-emit/src/const_array.rs` (37),
+  `enums.rs` (71), `trit.rs` (16).
+
+`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 7'si
+eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1233 mutant**.
+§3'ün hesabı (t = 210 sn, S = 15 dk):
+
+```
+N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
+M = 1233
+N = 20: ⌈1233 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
+(N = 19: ⌈1233 / 19⌉ = 65 · 210 sn = 227,5 dk + 15 dk = 242,5 dk > 240)
+```
+
+Tam koşu 20 parçadır, yani §3'ün üst sınırında. Kapsam bir kez daha
+büyürse ya da t artarsa tam koşu iki koşuya bölünür (§3).
+
+**Hedefli koşu** (42034192061):
+
+- Kapsam:
+  - `re` = `(volt-sv-emit/src/(const_array|enums|trit)|volt-syntax/src/parser/mono/(scope|clone|pattern))\.rs:`
+  - `shards` boş → 5 parça.
+- Kapsam işinin çıktısı:
+  - `276 of 278 listed mutants match the regex`;
+  - iki alan silme mutantı regex'e uymadığı için düşürüldü (`stmt.rs:161`, `let_width.rs:283`; hata yukarıda);
+  - `all 276 mutants in the list match '…'`.
+- Özet: `| 276 | 276 | 0 | 140 | 44 | 0 | 92 |` (Mutants, Tested, Not tested, Caught, Missed, Timeout, Unviable).
+- Beş parçada da `Tool ledger [mutants-N]: 112 test(s) asked for a tool; 114 lookup(s) found the tool (114 required), SKIP: 0`.
+
+İlk tetikleme (42032815198) temel koşuda düştü. r biçiminin monomorf
+dosyaları Verilator'a verilmiyordu (MODMISSING, ADR-0108 eki); koşucu
+düzeltildikten sonra koşu yeniden tetiklendi.
+
+| Dosya | Caught | Missed | Unviable |
+|---|---:|---:|---:|
+| `const_array.rs` | 29 | 0 | 8 |
+| `enums.rs` | 48 | 15 | 8 |
+| `trit.rs` | 10 | 5 | 1 |
+| `mono/scope.rs` | 8 | 1 | 5 |
+| `mono/clone.rs` | 44 | 22 | 62 |
+| `mono/pattern.rs` | 1 | 1 | 8 |
+
+**Yerine koyma dosyalarının 24 missed'i** (`scope.rs`, `clone.rs`, `pattern.rs`):
+
+- **A1 (2), `exclude_re`:** `fold_binary`'nin `r != 0` korumaları (340, 341) → `true`. r = 0'da `checked_div`/`checked_rem` `None` verir; bu, korumanın düştüğü `_ => None` ile aynıdır. Yol ulaşılabilir (döngü değişkeninin bölümü). Mutantlı derleyicide aşağıdaki üç katlama testi (dar hedef, geniş konumlar, E2010) geçer, geniş testin SV'si `verilator --lint-only -Wall` ile temizdir.
+- **A2 (3, biri hariç tutulamaz):**
+  - `Concat` kolunun silinmesi. Ulaşılamaz: ayrıştırıcı `Concat` kurmaz, yalnız üreticinin struct indirgemesi kurar (ADR-0077 Karar 5; volt-ast belgesi).
+  - `declare_pattern_binding` → `()`. Ulaşılamaz: yük taşıyan enum desteklenmez (E0003); kısaltma bağı SV'ye ulaşmaz. Tanılar aynıdır; elle uygulanınca `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` geçti. Yük taşıyan enum gelince yeniden incelenir.
+  - `clone.rs:388` `AutoOrigin`'in `from` alanının silinmesi. Ulaşılamaz: otomatik kontratlar monomorfizasyondan sonra eklenir (`add_auto_contracts` son geçit), klonlanan kontratta `auto` yoktur. cargo-mutants 27.1.0 `exclude_re`'yi alan silme mutantlarına uygulamadığı için listeye giremez (yukarıdaki hata); missed listesinde görünmeye devam eder.
+- **B, katlama (5): ilk sınıflandırmada A2 sayıldı, yanlıştı.** `fold_binary`'nin `Sub` kolunun silinmesi, `Div`/`Rem` korumaları → `false` ve `!=` → `==`. İlk gerekçe "katlama yalnız SV metnini değiştirir" idi; bu bir eşdeğerlik kanıtı değil. Yol ulaşılabilir: döngü değişkeni ikame edilince `i - 1`, `i / 2`, `i % 3` iki literalli aritmetiktir. Katlanmamış literal aritmetiğini üretici her literali bağlamın genişliğine keserek yazar (#144):
+  - `i / 2` (i = 2, u1): `1'h0 / 1'h0` → 0, beklenen 1;
+  - `i % 3` (i = 4, u1): `1'h0 % 1'h1` → 0, beklenen 1;
+  - `x < i - 1` (i = 3, x : u1): mutantta E2010 yerine `x < 1'h1 - 1'd1` (`x < 0`).
+
+  Öldüren testler:
+  - `parser_scope_sim_tests::folded_loop_arithmetic_fits_a_narrow_target`: Div, Rem; mutantta `left: 0, right: 1`.
+  - `parser_scope_diag_tests::a_folded_loop_constant_that_does_not_fit_the_comparison_is_e2010`: Sub.
+  - Bekçi: `folded_loop_arithmetic_in_wide_positions_has_its_value` geniş konumlarda (indeks, parça seçimi, aralık, değer) bütün mutantlarda geçer, lint temizdir.
+
+  Her mutant elle uygulandı, testi düştü, geri alındı.
+- **B (14), her birine test yazıldı.** Her mutant elle uygulandı, test düştü, mutant geri alındı:
+
+  | Mutant | Testi |
+  |---|---|
+  | `clone.rs:218` `+` → `*`, `-` (`rename_name`'in bütçe sayımı) | `parser_scope_diag_tests::the_expansion_budget_counts_a_renamed_declaration_once` (40 yinelemede E2027 yok, 1500'de var; eşik bugün 1324) |
+  | `clone.rs:253` `&&` → `\|\|` (`check_pattern_name`) | `a_let_of_an_inner_module_level_loop_in_a_pattern_is_a_let` |
+  | `clone.rs:264` `enter_scope` → `()`, `clone.rs:268` `leave_scope` → `()` | `parser_scope_sim_tests::a_match_arm_scope_ends_with_the_arm_and_the_block_scope_with_the_block` (Verilator; mutantta `left: 0, right: 3`) |
+  | `clone.rs:46` `module_level` → `true` | `a_loop_inside_a_match_arm_is_not_a_module_level_loop` |
+  | `clone.rs:536` `\|\|` → `&&` (`bare_param_type`) | `a_type_argument_with_its_own_arguments_is_not_a_bare_parameter` |
+  | `clone.rs:666` `Range` kolunun silinmesi | `parser_scope_sim_tests::a_range_select_in_a_clone_reads_the_substituted_bounds` (mutantta derleyici panikler) |
+  | `clone.rs:766` `ArrayLit` ve `clone.rs:779` `TupleLit` kollarının silinmesi | `array_and_tuple_literals_in_a_clone_give_the_handwritten_diagnostics` |
+  | `clone.rs:809` `copy_attrs_shallow` → `vec![]` | `a_statement_attribute_in_a_generic_module_reaches_the_constraints` (`@multicycle(2)` monomorfun SDC'sinde) |
+  | `clone.rs:900` `LetDecl.domain`'in silinmesi | `a_domain_annotation_on_a_let_survives_monomorphization` (E3001) |
+  | `pattern.rs:77` `copy_pattern_args` → `None` | `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` |
+  | `scope.rs:149` `!=` → `==` (W1002'nin ikincil etiketi) | `w1002_labels_the_shadowed_definition` |
+
+- **C:** yok.
+
+**Diğer üç dosyanın 20 missed'i** sınıflandırıldı. Görev gereği B'lerine bu işte test yazılmadı, yalnız listelendi; A2'lerin kanıtı yazıldı (sona eklenen "eşdeğerliğin kanıtı" kuralı).
+
+| Mutant | Sınıf | Gerekçe ya da açığa çıkaracak girdi |
+|---|---|---|
+| `enums.rs:108` `enum_variant_sig` → `None` | B | varyant yolunun genişliği: `let t = Mode::B`, `m == Mode::B` |
+| `enums.rs:122` `p.segments.len() == 1` → `true` | B | çok parçalı varyant yolu `resolve`'a gider, enum kaybolur: `match Mode::B { … }` |
+| `enums.rs:133` `is_prev_call` → `false` | B | `match prev(state) { … }` |
+| `enums.rs:133` `is_prev_call` → `true` | B | enum argümanlı fn çağrısı enum sanılır: `match f(state)` |
+| `enums.rs:155`, `157` `==` → `!=` | B | alt modülün enum tipli çıkışı: `match u.state` |
+| `enums.rs:230`, `231` `\|\|` → `&&` | B | varyant localparam'ı bir örnekle ya da yerleşik örnekle çakışır (`let Mode_A = …`); ui/fail/92 yalnız sinyal çakışmasını sınar |
+| `enums.rs:289` `!` silme (3) | B | kapsanmış kolun atlanması: aynı varyantı iki kez adlandıran `match` |
+| `enums.rs:293` `\|=` → `&=`, `303` `&&` → `\|\|` | B | bütün varyantlar ve `_` (3 varyant, 2 bit): kod 3 için varsayılan kol değişir |
+| `enums.rs:328` koruma `d.name.text == decl.name.text` → `true` | A2, `exclude_re` | ulaşılamaz: tip denetimi başka enum'un varyantını reddeder (E2003 "pattern of type 'Kind' cannot match a value of enum 'Mode'"); test `parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission` |
+| `enums.rs:337` `\|=` → `&=` | B | `Mode::A \| _` kabul edilir (SV `default: y = 8'd1`); mutantta `_` görülmez |
+| `trit.rs:75` `&&` → `\|\|` | B | `Trit * i8` (üçlü MAC, ui/pass/16) Trit sanılır: `(t * a) + (t * a)` |
+| `trit.rs:80` `&&` → `\|\|` | B | `if c { t } else { 1 }` Trit sanılır |
+| `trit.rs:103` `trit_sum_sig` → `None` | B | `t1 + t2` (i3) genişliği |
+| `trit.rs:127` `+` → `*`, `-` (2) | A2, `exclude_re` | ulaşılabilir, SV aynı: `t` `is_trit`'ten geçmiştir (öncelik 12, 11, 10 ya da 0); `emit_prec` yalnız `my_prec < parent_prec` iken parantez koyar (burada `is_right` yanlış). Ebeveyn 7, 6 ve 5 aynı kararı verir. Mutantlı derleyicide `parser_scope_sim_tests::trit_products_of_every_precedence_class_have_their_value` (dört öncelik sınıfı) bayt bayt aynı SV'yi üretir, simülasyon geçer, `verilator --lint-only -Wall` temizdir |
+
+`const_array.rs`: missed yok.
+
+Özet: 20'nin 17'si B, 3'ü A2, A1 ve C yok.
+
+### §4'ün A tanımına ek: eşdeğerliğin kanıtı (#130)
+
+§4'ün karar metni değişmez (AGENTS.md); bu kural onun A tanımına eklenir:
+
+> Üretilen SV metninin değişmesi tek başına eşdeğerlik gerekçesi değildir; eşdeğerlik, ulaşılamazlıkla ya da lint ve simülasyon değerinin aynı kalmasıyla gösterilir.
+
+Uygulaması:
+
+- (a) **Ulaşılamazlık:** bu yola Volt kaynağından ulaşan bir girdi yoktur. Varsayım tek satırla yazılır ve onu sınayan bir tanı ya da davranış testi gösterilir.
+- (b) **Ulaşılıyorsa:** mutantlı derleyicinin bu girdi için ürettiği SV `verilator --lint-only -Wall`'dan uyarısız geçer ve simülasyon değeri şartnameden elle hesaplanan değerle aynıdır. Girdi bir davranış testi olarak eklenir; ileride eşdeğerliği bozan bir değişikliği yakalar.
+
+Lint ya da değer farkı çıkarsa mutant A değil B'dir: davranış testiyle öldürülür; bir hataya işaret ediyorsa issue açılır. Bu bölümün katlama mutantları böyle B'ye geçti (#144).
+

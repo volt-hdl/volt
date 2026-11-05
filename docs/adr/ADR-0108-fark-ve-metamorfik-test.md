@@ -350,3 +350,98 @@ Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgeleme
 görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde
 ve `comb` içinde (ikame kipi) üretilir; tel kipi (modül düzeyi çağrı) ve
 `on` bloğu sınanmaz. Gövde `let`'i #132'ye kadar varsayılan kapalı.
+
+## Ek: r biçimi generic modül ve modül düzeyi `for` üretir (#130, 2026-11-05)
+
+Önceki ekin sınırı ("generic modül üretilmez; parser'ın generic ikamesi
+iç gölgelemeyi görmüyor, #130") kalktı. r biçiminin çağıran tarafı artık
+bir generic modüldür:
+
+| Biçim | Volt | Beklenen |
+|---|---|---|
+| r | önceki ekteki gibi `fn h<id>r` ve kök const'lar; çağrı test modülünde değil, `R<id>r<const s<id>r: u32, const t<id>r: u32>` modülünde (ikinci parametrenin adı döngü değişkeninin adıdır); test modülü onu `R<id>r<0, V+1>` olarak örnekler. Çift kimlikli ifadede çağrı `comb` içindedir: `let s<id>r = p`, `for t<id>r in V..V+1 { o = h<id>r(..., s<id>r, ...) }`; tek kimlikli ifadede modül düzeyi `for t<id>r in V..V+1 { let s<id>r = p  o = h<id>r(...) }` (ADR-0056 açılımı, çağrı modül düzeyinde: tel kipi) | a ile aynı |
+
+Generic parametreler çağıranın adlarıyla aynıdır ama başka değerleri
+taşır: `s<id>r` 0 (her tam sayı tipine sığar; 3 gibi bir değer dar tipte
+E2010 verir, ikame değer farkı olarak görünmezdi), `t<id>r` döngünün
+değerinden bir fazla. Blok `let`'i, gövde `let`'i ve döngü değişkeni
+onları gölgeler (name-resolution.md §2, §6); gölgelenmeyen ad argümana
+generic'in literali olarak girer. Gölgelemeler W1002'dir, koşucu
+uyarıları saymaz.
+
+Koşucu Verilator'a monomorfların dosyalarını verir: `-y build/rtl`
+(`R<id>r_<argümanlar>.sv` örnek adından bulunur) ve `--timescale 1ns/1ps`
+(`tb.sv`'nin birimi komut satırında sonraki dosyaya geçer, kitaplıktan
+yüklenene geçmez: TIMESCALEMOD). Bu dosyalardaki hata ve uyarılar dosya
+adından ifadenin r biçimine eşlenir. Bu ikisi olmadan ilk koşu
+(42032953987) MODMISSING ile düştü.
+
+Regresyon kümesine #130'un iki örneği eklendi: `p0 ^ p1` (u8, u8), biri
+modül düzeyi `for`'da (kimlik 25), biri `comb`'da (kimlik 26); elle
+hesaplanmış değerler (15 ^ 240 = 255, 1 ^ 2 = 3; 85 ^ 170 = 255, 5 ^ 7 =
+2). Düzeltmesiz derleyicide argüman generic'in literali (0) olur.
+
+Gövde `let`'i (#132) bu ekte de kapalı (`VOLT_DIFFTEST_FN_LET`).
+
+**Düzeltme geri alındığında #130'u yakalıyor.**
+
+- Araçsız (yerel): regresyon toplu koşusunun `dt.volt`'u düzeltmesiz
+  derleyicide (`main`, e1c7663) iki `bits<N>` argümanlı r biçiminde E2003
+  verdi (argüman literal oldu); o biçimler çıkarılınca #130 örneklerinin
+  SV'si `assign o = 8'd0 ^ p40;` ve `o = 8'(8'd0 ^ p42);` (düzeltmeyle
+  `p39`/`p41` okunur).
+- Verilator'lı (CI), dört tohum (20261104–20261107, parça başına 2000
+  ifade):
+  - düzeltmesi geri alınmış dal `test/parser-scope-revert-demo` (yalnız
+    `crates/volt-syntax/src`, `crates/volt-hir/src`, `crates/volt-ast/src`
+    `main`'deki hâline döner; birleştirilmez; satırlar aşağıda
+    alıntılandıktan sonra silindi):
+    https://github.com/volt-hdl/volt/actions/runs/42034067237 — dört parça
+    da düştü, `diffs=1703`, `1698`, `1715`, `1670`; `regressions=27
+    failed=20`. Küçültülmüş 600 bulgunun 591'i r biçiminde, iki kipte de
+    (`module R95r<..> { for .. { let ..; o = call } }`, `module R176r<..>
+    { comb { let ..; for .. { o = call } } }`).
+  - düzeltme dalı: https://github.com/volt-hdl/volt/actions/runs/42034073521
+    — dört parça geçti, her parçada `diffs=0`, `regressions=27 failed=0
+    hand-computed=35 compared=35`, WIDTH yok.
+
+Günlükten alıntı (GitHub günlükleri 90 gün sonra siler; parça öneki eklendi, bulgu satırları kısaltıldı):
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2500 accepted=2188 rejected-as-predicted=137 unsupported=7 unspecified=0 values-compared=242539 diffs=1703
+[shard 0] difftest: regressions=27 failed=20 hand-computed=35 compared=33
+[shard 0]   [1x] r !!(i13 as u13 >> u6)[u3]
+[shard 0]       module R95r<..> { for .. { let ..; o = call } }
+[shard 0]       inputs: p84=0x9ec p92=0x1 p122=0x6
+[shard 0]       model: 0x1, Verilator: 0x0 (bool)
+[shard 1] difftest: seed=20261105 target=2000 generated=2500 accepted=2177 rejected-as-predicted=134 unsupported=10 unspecified=0 values-compared=240422 diffs=1698
+[shard 1] difftest: regressions=27 failed=20 hand-computed=35 compared=33
+[shard 2] difftest: seed=20261106 target=2000 generated=2500 accepted=2139 rejected-as-predicted=136 unsupported=16 unspecified=0 values-compared=239865 diffs=1715
+[shard 2] difftest: regressions=27 failed=20 hand-computed=35 compared=33
+[shard 3] difftest: seed=20261107 target=2000 generated=2500 accepted=2160 rejected-as-predicted=142 unsupported=11 unspecified=0 values-compared=238562 diffs=1670
+[shard 3] difftest: regressions=27 failed=20 hand-computed=35 compared=33
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+(`Tool ledger` satırı dört parçada da aynı.) Düzeltme dalı:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2118 rejected-as-predicted=126 unsupported=6 unspecified=0 values-compared=233605 diffs=0
+[shard 0] difftest: regressions=27 failed=0 hand-computed=35 compared=35
+[shard 0] difftest: lint codes: CMPCONST=8 UNSIGNED=12 UNUSEDSIGNAL=863
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2127 rejected-as-predicted=116 unsupported=7 unspecified=0 values-compared=235614 diffs=0
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2111 rejected-as-predicted=125 unsupported=14 unspecified=0 values-compared=234746 diffs=0
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2108 rejected-as-predicted=132 unsupported=10 unspecified=0 values-compared=232746 diffs=0
+```
+
+Satır içi üç bulgu açıklandı (#145). Geri alma koşusunun 3. parçasında 150 küçültülmüş bulgunun üçü satır içi biçimlerdeydi: a, b, d; `p247 - p247`, p247 = 0, Verilator `0xf`. Kaynak Volt değil, CI'ın Verilator'ı:
+
+- OSS CAD Suite 2026-09-21, `5.053 devel rev v5.052-159-g46774fded`.
+- Yerelde aynı commit ve tohumla (MINIMIZE=0, Docker) Verilator 5.052 bu üç bulguyu vermiyor (`diffs=1667`). 5.053 devel aynısını veriyor (`diffs=1670`).
+- Toplu koşu 9'un SV'si aynen derlenince o151a/b/d/e 16 vektörün 8'inde sıfırdan farklı; `-fno-dfg` ile 0'ında.
+- Aynı metinli `o151e` her vektörde doğru.
+
+DFG optimizasyonunun yanlış derlemesi. Düzeltme dalının dört parçasında değer farkı yok. CI aracı için seçenekler #145'te.
+
+Sınırlar: modül düzeyi çağrının ikame kipi (`comb` içinde açılım) ve tel
+kipi (modül düzeyi) artık ikisi de sınanır; `on` bloğu sınanmaz.

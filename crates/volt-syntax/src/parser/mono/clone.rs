@@ -1,18 +1,25 @@
-//! Modül derin klonu + generic parametre ikamesi (ADR-0041).
+//! Modül derin klonu + generic parametre ikamesi (ADR-0041) ve modül
+//! düzeyi `for` yinelemesinin klonu (ADR-0056).
 //!
 //! Şablon modülün her düğümü YENİ arena düğümlerine kopyalanır; span'ler
 //! korunur ki tanılar kullanıcının yazdığı satırı göstersin. Tek
-//! segmentli `Path` ifadesi bir const generic parametresini adlıyorsa
-//! argüman değerinin `IntLit`'i ile değiştirilir. Tip konumunda çıplak
-//! bir parametre adı (`Foo<TAPS>` → parser `GenericArg::Type`) da sabit
-//! argümana dönüşür; iç içe generic örneklemeler böylece sonraki turda
-//! literal argümanla yakalanır.
+//! segmentli bir ad kapsam zincirinde ([`Scopes`]) çözülür: bir const
+//! generic parametreye ya da açılan döngü değişkenine bağlanıyorsa
+//! değerin `IntLit`'i olur, açılan gövdenin `let`'ine bağlanıyorsa
+//! yineleme sonekli adı alır; iç kapsamda yeniden bildirilmiş ad (blok
+//! `let`'i, iç döngü değişkeni) dokunulmadan kalır (name-resolution.md
+//! §2, §6; #130). Tip konumunda çıplak bir parametre adı (`Foo<TAPS>` →
+//! parser `GenericArg::Type`) da aynı çözümle sabit argümana dönüşür; iç
+//! içe generic örneklemeler böylece sonraki turda literal argümanla
+//! yakalanır.
 
 use std::collections::HashMap;
 
+use volt_diagnostics::Diagnostic;
 use volt_span::Span;
 
 use super::budget::{AstWriter, ExpansionBudget};
+use super::scope::{loop_var_pattern_error, shadowing_warning, Binding, Entry, Scopes};
 use volt_ast::{
     ArrayLitKind, AttrArg, Attribute, Block, BlockStmt, BundleOrigin, Contract, ElseBranch, Expr,
     ExprKind, FieldInit, ForStmt, GenericArg, Idx, IfStmt, InstanceDecl, LValue, LValueSuffix,
@@ -20,19 +27,46 @@ use volt_ast::{
     RegDecl, SourceFile, Stmt, StmtKind, TypeRef, TypeRefKind, WireDecl,
 };
 
+/// Klonlanan bloğun rolü: içindeki bildirimlerin bağını belirler.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum BlockRole {
+    /// `on`/`comb` gövdesi, `if`/`else` dalı, kol gövdesi: çözücü (HIR)
+    /// bildirimleri olduğu gibi görür.
+    Plain,
+    /// Henüz açılmamış bir modül düzeyi `for`'un gövdesi: bildirimleri
+    /// kendi açılımında yeniden adlanır, çözücü onları bu adla görmez.
+    ModuleFor,
+    /// Şu an açılan yinelemenin gövdesi: `let`'ler yineleme adını alır.
+    Iteration,
+}
+
+impl BlockRole {
+    /// Bu bloğun içindeki `for` modül düzeyi mi (açılımda açılır)?
+    fn module_level(self) -> bool {
+        !matches!(self, BlockRole::Plain)
+    }
+}
+
+/// Bir yolun ikamesi.
+enum Use {
+    Literal(i128),
+    Rename(String),
+    Keep,
+}
+
 pub(super) struct Cloner<'a> {
     /// Yazma kapısı (ADR-0068 §6): her yazım açılım bütçesinden düşer.
     pub(super) ast: AstWriter<'a>,
     /// Monomorf bağlamı: klonlanan her span bu etiketi taşır (ADR-0041),
     /// resolve'un Span anahtarlı tabloları klonlar arasında çakışmaz.
     ctx: u16,
-    /// const generic parametre (ya da açılan döngü değişkeni, ADR-0056)
-    /// adı → değer. Negatif değer `-lit` olarak yazılır.
-    subst: HashMap<String, i128>,
+    /// Klonlanan yerin kapsam zinciri: generic parametreler, açılan döngü
+    /// değişkeni, gövdenin `let`'leri ve klonlanırken bildirilen her ad.
+    scopes: Scopes,
     /// Döngü açılımı (ADR-0056): gövdede bildirilen isim → yineleme
-    /// sonekli adı (`pe` → `pe_0`). Bildirimlere ve tek segmentli yol /
-    /// LValue tabanı referanslarına uygulanır; alan ve port adlarına
-    /// dokunmaz.
+    /// sonekli adı (`pe` → `pe_0`). Yalnız yineleme gövdesinin
+    /// ([`BlockRole::Iteration`]) bildirimlerine ve onlara bağlanan
+    /// yollara uygulanır; alan ve port adlarına dokunmaz.
     rename: HashMap<String, String>,
     /// Her iki operandı literale inen aritmetik katlanır (`0*4+1` → `1`);
     /// yalnız döngü açılımında açık — SV çıktısı okunur kalsın.
@@ -40,23 +74,81 @@ pub(super) struct Cloner<'a> {
     /// Hata kurtarma düğümü (`Error` türü) klonlandı: şablon zaten
     /// tanılanmış, açıcı onu yeniden çoğaltmaz (ADR-0068 §6).
     saw_recovery: bool,
+    /// Açılımın kendisinin vermesi gereken tanılar (çözücü görmez): W1002
+    /// ve döngü değişkeni deseni E1015. `Some(ctx)`: açık; tanının span'i
+    /// `for` deyiminin bağlamını taşır (yineleme notu almaz). Bir `for`
+    /// için yalnız ilk yinelemenin klonu açar.
+    lint: Option<u16>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Cloner<'a> {
-    pub(super) fn new(
-        ast: &'a mut SourceFile,
-        budget: &'a mut ExpansionBudget,
-        subst: HashMap<String, i128>,
-        ctx: u16,
-    ) -> Self {
+    pub(super) fn new(ast: &'a mut SourceFile, budget: &'a mut ExpansionBudget, ctx: u16) -> Self {
         Self {
             ast: AstWriter::new(ast, budget),
-            subst,
             ctx,
+            scopes: Scopes::default(),
             rename: HashMap::new(),
             fold: false,
             saw_recovery: false,
+            lint: None,
+            diagnostics: Vec::new(),
         }
+    }
+
+    /// Monomorfizasyon (ADR-0041): modül kapsamının ilk bildirimleri const
+    /// generic parametrelerdir (name-resolution.md §5).
+    pub(super) fn with_generics(mut self, params: &[(Name, i128)]) -> Self {
+        self.scopes.push();
+        for (name, value) in params {
+            let span = self.tag(name.span);
+            self.scopes.declare(
+                &name.text,
+                Entry {
+                    binding: Binding::Generic(*value),
+                    span,
+                    resolver_sees: true,
+                },
+            );
+        }
+        self
+    }
+
+    /// Döngü açılımı kipi (ADR-0056): `chain` `for` deyiminin bulunduğu
+    /// yerin kapsam zinciri; döngü değişkeni bu yinelemenin değerine
+    /// bağlanır, gövdenin `let`'leri `rename` ile adlanır, sabit katlama
+    /// açılır.
+    pub(super) fn for_iteration(
+        mut self,
+        chain: Scopes,
+        var: &Name,
+        value: i128,
+        rename: HashMap<String, String>,
+    ) -> Self {
+        self.scopes = chain;
+        self.scopes.push();
+        self.scopes.declare(
+            &var.text,
+            Entry {
+                binding: Binding::LoopVar(value),
+                span: var.span,
+                resolver_sees: false,
+            },
+        );
+        self.rename = rename;
+        self.fold = true;
+        self
+    }
+
+    /// Gölgeleme ve desen tanılarını açar; `ctx` `for` deyiminin bağlamı.
+    pub(super) fn with_lint(mut self, ctx: u16) -> Self {
+        self.lint = Some(ctx);
+        self
+    }
+
+    /// Klonlamanın ürettiği tanılar.
+    pub(super) fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.diagnostics)
     }
 
     /// Klonlanan ağaçta hata kurtarma düğümü vardı.
@@ -70,28 +162,144 @@ impl<'a> Cloner<'a> {
         kind
     }
 
-    /// Döngü açılımı kipi: isim yeniden yazma + sabit katlama (ADR-0056).
-    pub(super) fn with_rename(mut self, rename: HashMap<String, String>) -> Self {
-        self.rename = rename;
-        self.fold = true;
-        self
+    // ═══ Kapsam zinciri ═══════════════════════════════════════════
+
+    /// Bildirimi en içteki kapsama bağlar; çözücünün göremeyeceği bir
+    /// gölgelemede W1002 verir (name-resolution.md §6).
+    fn declare(&mut self, name: &Name, entry: Entry) {
+        let resolver_sees = entry.resolver_sees;
+        let span = entry.span;
+        let Some(outer) = self.scopes.declare(&name.text, entry) else {
+            return;
+        };
+        let Some(ctx) = self.lint else {
+            return;
+        };
+        if resolver_sees && outer.resolver_sees {
+            return; // iki ucu da görünür: W1002'yi çözücü verir
+        }
+        self.diagnostics.push(shadowing_warning(
+            &name.text,
+            span.with_ctx(ctx),
+            outer.span,
+        ));
     }
 
-    /// Gövdede bildirilen ismin bu yinelemedeki adı.
-    fn declared_name(&mut self, n: &Name) -> Name {
+    /// Klonlanan bloktaki `let` adını bağlar; yineleme gövdesinde ad
+    /// yineleme sonekini alır.
+    fn declare_local(&mut self, n: &Name, role: BlockRole) -> Name {
         let mut name = self.tag_name(n);
-        if let Some(new) = self.rename.get(&n.text) {
-            name.text = new.clone();
-            self.ast.charge_text(new.len() + n.text.len());
-            // Kaynak adı tanılar için (ADR-0072). İç içe açılımda da `n`
-            // şablondaki addır: iç gövde dış yinelemede yeniden
-            // adlandırılmadan klonlanır.
-            let source = n.text.clone();
-            self.ast
-                .write(|ast| ast.generate.source_names.insert(name.span, source));
+        let renamed = match role {
+            BlockRole::Iteration => self.rename.get(&n.text).cloned(),
+            BlockRole::Plain | BlockRole::ModuleFor => None,
+        };
+        let binding = match &renamed {
+            Some(new) => Binding::Renamed(new.clone()),
+            None => Binding::Inner { loop_var: false },
+        };
+        self.declare(
+            n,
+            Entry {
+                binding,
+                span: name.span,
+                resolver_sees: role == BlockRole::Plain,
+            },
+        );
+        if let Some(new) = renamed {
+            self.rename_name(&mut name, &n.text, new);
         }
         name
     }
+
+    /// `name`'i yineleme adına çevirir; kaynak adı tanılar için saklanır
+    /// (ADR-0072). İç içe açılımda da `source` şablondaki addır: iç gövde
+    /// dış yinelemede yeniden adlandırılmadan klonlanır.
+    fn rename_name(&mut self, name: &mut Name, source: &str, new: String) {
+        self.ast.charge_text(new.len() + source.len());
+        name.text = new;
+        let source = source.to_string();
+        let span = name.span;
+        self.ast
+            .write(|ast| ast.generate.source_names.insert(span, source));
+    }
+
+    /// Tek parçalı bir kullanımın ikamesi (kapsam zincirinde çözülür).
+    fn use_of(&self, name: &str) -> Use {
+        match self.scopes.resolve(name).map(|e| &e.binding) {
+            Some(Binding::Generic(v) | Binding::LoopVar(v)) => Use::Literal(*v),
+            Some(Binding::Renamed(new)) => Use::Rename(new.clone()),
+            Some(Binding::Inner { .. } | Binding::Outer) | None => Use::Keep,
+        }
+    }
+
+    /// Desendeki çıplak ad (§5.1) çözücünün göremeyeceği bir döngü
+    /// değişkenine bağlanıyorsa E1015.
+    pub(super) fn check_pattern_name(&mut self, e: Idx<Expr>) {
+        let Some(ctx) = self.lint else {
+            return;
+        };
+        let ExprKind::Path(p) = &self.ast.exprs[e].kind else {
+            return;
+        };
+        if p.segments.len() != 1 {
+            return;
+        }
+        let name = &p.segments[0];
+        let Some(entry) = self.scopes.resolve(&name.text) else {
+            return;
+        };
+        let hidden_loop_var = match entry.binding {
+            Binding::LoopVar(_) => true,
+            Binding::Inner { loop_var } => loop_var && !entry.resolver_sees,
+            _ => false,
+        };
+        if hidden_loop_var {
+            let d = loop_var_pattern_error(&name.text, name.span.with_ctx(ctx), entry.span);
+            self.diagnostics.push(d);
+        }
+    }
+
+    /// `match` kolunun kapsamı (çözücünün `MatchArm` kapsamı).
+    pub(super) fn enter_scope(&mut self) {
+        self.scopes.push();
+    }
+
+    pub(super) fn leave_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    /// Desendeki `Foo { x }` kısaltması `x`'i kol kapsamına bağlar.
+    pub(super) fn declare_pattern_binding(&mut self, n: &Name) {
+        let span = self.tag(n.span);
+        self.declare(
+            n,
+            Entry {
+                binding: Binding::Inner { loop_var: false },
+                span,
+                resolver_sees: true,
+            },
+        );
+    }
+
+    /// Kısaltılmış bağlama (`P { x }` ≡ `P { x: x }`): değer `x` adının
+    /// kullanımıdır; ikame ediliyorsa açık değere döner.
+    fn shorthand_value(&mut self, n: &Name) -> Option<Idx<Expr>> {
+        let span = self.tag(n.span);
+        let kind = match self.use_of(&n.text) {
+            Use::Literal(v) => self.subst_expr_kind(v, span),
+            Use::Rename(new) => {
+                self.ast.charge_text(new.len());
+                ExprKind::Path(Path {
+                    span,
+                    segments: vec![Name { text: new, span }],
+                })
+            }
+            Use::Keep => return None,
+        };
+        Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
+    }
+
+    // ═══ İkame ════════════════════════════════════════════════════
 
     /// İkame değerini literal (negatifse `-lit`) olarak yazar.
     fn subst_expr_kind(&mut self, v: i128, span: Span) -> ExprKind {
@@ -328,7 +536,9 @@ impl<'a> Cloner<'a> {
         if !args.is_empty() || path.segments.len() != 1 {
             return None;
         }
-        let value = *self.subst.get(&path.segments[0].text)?;
+        let Use::Literal(value) = self.use_of(&path.segments[0].text) else {
+            return None;
+        };
         let kind = self.subst_expr_kind(value, span);
         Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
     }
@@ -396,20 +606,19 @@ impl<'a> Cloner<'a> {
             }
             ExprKind::Error => self.recovery(ExprKind::Error),
             ExprKind::Path(p) => {
-                // İkame: const generic parametre / döngü değişkeni → literal.
-                if p.segments.len() == 1 {
-                    if let Some(&v) = self.subst.get(&p.segments[0].text) {
-                        let span = self.tag(self.ast.exprs[e].span);
-                        return self.subst_expr_kind(v, span);
-                    }
-                }
                 let p = p.clone();
                 let mut p = self.tag_path(&p);
-                // Yineleme sonekli isim (ADR-0056): `pe.out` → `pe_0.out`.
                 if p.segments.len() == 1 {
-                    if let Some(new) = self.rename.get(&p.segments[0].text) {
-                        p.segments[0].text = new.clone();
-                        self.ast.charge_text(new.len());
+                    // Ad kapsam zincirinde çözülür (#130): generic
+                    // parametre / döngü değişkeni → literal, yineleme
+                    // gövdesinin `let`'i → sonekli ad (`pe.out` → `pe_0.out`).
+                    match self.use_of(&p.segments[0].text) {
+                        Use::Literal(v) => return self.subst_expr_kind(v, p.span),
+                        Use::Rename(new) => {
+                            self.ast.charge_text(new.len());
+                            p.segments[0].text = new;
+                        }
+                        Use::Keep => {}
                     }
                 }
                 ExprKind::Path(p)
@@ -545,8 +754,11 @@ impl<'a> Cloner<'a> {
                         .into_iter()
                         .map(|(span, name, value)| FieldInit {
                             span: self.tag(span),
+                            value: match value {
+                                Some(v) => Some(self.clone_expr(v)),
+                                None => self.shorthand_value(&name),
+                            },
                             name: self.tag_name(&name),
-                            value: value.map(|v| self.clone_expr(v)),
                         })
                         .collect(),
                 }
@@ -615,6 +827,8 @@ impl<'a> Cloner<'a> {
             .collect()
     }
 
+    /// Modül gövdesinin deyimi (monomorf klon): bildirimler modül
+    /// kapsamına, sırayla bağlanır (§4, §5).
     fn clone_stmt_kind(&mut self, s: Idx<Stmt>) -> StmtKind {
         match &self.ast.stmts[s].kind {
             StmtKind::Error => self.recovery(StmtKind::Error),
@@ -641,12 +855,12 @@ impl<'a> Cloner<'a> {
                 };
                 StmtKind::On(OnBlock {
                     trigger,
-                    body: self.clone_block(body),
+                    body: self.clone_block(body, BlockRole::Plain),
                 })
             }
             StmtKind::Comb(b) => {
                 let b = *b;
-                StmtKind::Comb(self.clone_block(b))
+                StmtKind::Comb(self.clone_block(b, BlockRole::Plain))
             }
             StmtKind::Assign(a) => {
                 let lhs = self.copy_lvalue(&a.lhs);
@@ -658,21 +872,24 @@ impl<'a> Cloner<'a> {
             }
             StmtKind::For(f) => {
                 let (var, start, end, body) = (f.var.clone(), f.start, f.end, f.body);
-                StmtKind::For(self.clone_for(var, start, end, body))
+                StmtKind::For(self.clone_for(var, start, end, body, true))
             }
         }
     }
 
-    /// reg / let / wire bildirimleri.
+    /// reg / let / wire bildirimleri (modül kapsamı).
     fn clone_decl_stmt(&mut self, s: Idx<Stmt>) -> StmtKind {
         match &self.ast.stmts[s].kind {
             StmtKind::Reg(r) => {
                 let (name, domain, ty, init) = (r.name.clone(), r.domain.clone(), r.ty, r.init);
+                let domain = domain.as_ref().map(|d| self.tag_name(d));
+                let ty = ty.map(|t| self.clone_type(t));
+                let init = self.clone_expr(init);
                 StmtKind::Reg(RegDecl {
-                    name: self.tag_name(&name),
-                    domain: domain.as_ref().map(|d| self.tag_name(d)),
-                    ty: ty.map(|t| self.clone_type(t)),
-                    init: self.clone_expr(init),
+                    name: self.declare_local(&name, BlockRole::Plain),
+                    domain,
+                    ty,
+                    init,
                 })
             }
             StmtKind::Let(l) => {
@@ -681,16 +898,17 @@ impl<'a> Cloner<'a> {
                 let domain = domain.map(|d| self.tag_name(&d));
                 StmtKind::Let(LetDecl {
                     domain,
-                    ..self.clone_let(name, ty, value)
+                    ..self.clone_let(name, ty, value, BlockRole::Plain)
                 })
             }
             StmtKind::Wire(w) => {
                 let (name, ty) = (w.name.clone(), w.ty);
                 let domain = w.domain.clone();
                 let domain = domain.map(|d| self.tag_name(&d));
+                let ty = self.clone_type(ty);
                 StmtKind::Wire(WireDecl {
-                    name: self.tag_name(&name),
-                    ty: self.clone_type(ty),
+                    name: self.declare_local(&name, BlockRole::Plain),
+                    ty,
                     domain,
                 })
             }
@@ -698,27 +916,61 @@ impl<'a> Cloner<'a> {
         }
     }
 
-    fn clone_let(&mut self, name: Name, ty: Option<Idx<TypeRef>>, value: Idx<Expr>) -> LetDecl {
+    /// `let`: tip ve değer bildirimden önceki kapsamda çözülür, ad sonra
+    /// bağlanır (`let i = i + 1` dıştaki `i`'yi okur; §4, ADR-0083 K8).
+    fn clone_let(
+        &mut self,
+        name: Name,
+        ty: Option<Idx<TypeRef>>,
+        value: Idx<Expr>,
+        role: BlockRole,
+    ) -> LetDecl {
+        let ty = ty.map(|t| self.clone_type(t));
+        let value = self.clone_expr(value);
         LetDecl {
-            name: self.declared_name(&name),
-            ty: ty.map(|t| self.clone_type(t)),
+            name: self.declare_local(&name, role),
+            ty,
             domain: None,
-            value: self.clone_expr(value),
+            value,
         }
     }
 
+    /// `for`: sınırlar dış kapsamda, değişken döngü kapsamında, gövde
+    /// onun içinde bir blok kapsamında (çözücünün `resolve_for`'u).
+    /// `module_level`: modül düzeyi `for` (açılımda açılır, çözücü
+    /// değişkenini ve gövdesinin bildirimlerini görmez).
     fn clone_for(
         &mut self,
         var: Name,
         start: Idx<Expr>,
         end: Idx<Expr>,
         body: Idx<Block>,
+        module_level: bool,
     ) -> ForStmt {
+        let start = self.clone_expr(start);
+        let end = self.clone_expr(end);
+        let var_name = self.tag_name(&var);
+        self.scopes.push();
+        self.declare(
+            &var,
+            Entry {
+                binding: Binding::Inner { loop_var: true },
+                span: var_name.span,
+                resolver_sees: !module_level,
+            },
+        );
+        let role = if module_level {
+            BlockRole::ModuleFor
+        } else {
+            BlockRole::Plain
+        };
+        let body = self.clone_block(body, role);
+        self.scopes.pop();
         ForStmt {
-            var: self.tag_name(&var),
-            start: self.clone_expr(start),
-            end: self.clone_expr(end),
-            body: self.clone_block(body),
+            var: var_name,
+            start,
+            end,
+            body,
         }
     }
 
@@ -740,24 +992,32 @@ impl<'a> Cloner<'a> {
         }
     }
 
+    /// Modül düzeyi örnekleme (monomorf klon): bağlamalar ve generic
+    /// argümanlar modül kapsamında, ad sonra bağlanır.
     fn clone_instance(&mut self, inst: InstanceDecl) -> InstanceDecl {
+        let module_path = self.tag_path(&inst.module_path);
+        let generic_args = inst
+            .generic_args
+            .iter()
+            .map(|a| self.clone_generic_arg(a))
+            .collect();
+        let bindings = inst
+            .bindings
+            .into_iter()
+            .map(|b| PortBinding {
+                span: self.tag(b.span),
+                value: match b.value {
+                    Some(v) => Some(self.clone_expr(v)),
+                    None => self.shorthand_value(&b.port_name),
+                },
+                port_name: self.tag_name(&b.port_name),
+            })
+            .collect();
         InstanceDecl {
-            name: self.declared_name(&inst.name),
-            module_path: self.tag_path(&inst.module_path),
-            generic_args: inst
-                .generic_args
-                .iter()
-                .map(|a| self.clone_generic_arg(a))
-                .collect(),
-            bindings: inst
-                .bindings
-                .into_iter()
-                .map(|b| PortBinding {
-                    span: self.tag(b.span),
-                    port_name: self.tag_name(&b.port_name),
-                    value: b.value.map(|v| self.clone_expr(v)),
-                })
-                .collect(),
+            name: self.declare_local(&inst.name, BlockRole::Plain),
+            module_path,
+            generic_args,
+            bindings,
         }
     }
 
@@ -809,25 +1069,60 @@ impl<'a> Cloner<'a> {
                 LValueSuffix::Field(n) => LValueSuffix::Field(self.tag_name(&n)),
             })
             .collect();
+        // Taban bir addır, kapsam zincirinde çözülür (atama hedefi).
+        let mut base = self.tag_name(&l.base);
+        if let Use::Rename(new) = self.use_of(&l.base.text) {
+            self.rename_name(&mut base, &l.base.text, new);
+        }
         LValue {
             span: self.tag(l.span),
-            base: self.declared_name(&l.base),
+            base,
             suffixes,
         }
     }
 
-    pub(super) fn clone_block(&mut self, b: Idx<Block>) -> Idx<Block> {
+    /// Bloğu kendi kapsamında klonlar (çözücünün `resolve_block`'u).
+    pub(super) fn clone_block(&mut self, b: Idx<Block>, role: BlockRole) -> Idx<Block> {
         let (span, tail, context) = {
             let blk = &self.ast.blocks[b];
             (self.tag(blk.span), blk.tail, blk.context)
         };
+        self.scopes.push();
+        if role == BlockRole::Iteration {
+            // Gövdenin `let`'leri: bildirimden önceki kullanım çözücüde
+            // E1002 olur; ad o hatanın yineleme adına düşmesi için şimdiden
+            // beklenir.
+            let later: Vec<(Name, String)> = self.ast.blocks[b]
+                .stmts
+                .iter()
+                .filter_map(|s| match s {
+                    BlockStmt::Let(l) => self
+                        .rename
+                        .get(&l.name.text)
+                        .map(|new| (l.name.clone(), new.clone())),
+                    _ => None,
+                })
+                .collect();
+            for (name, new) in later {
+                let span = self.tag(name.span);
+                self.scopes.expect(
+                    &name.text,
+                    Entry {
+                        binding: Binding::Renamed(new),
+                        span,
+                        resolver_sees: false,
+                    },
+                );
+            }
+        }
         let count = self.ast.blocks[b].stmts.len();
         let mut stmts = Vec::with_capacity(count);
         for i in 0..count {
-            let cloned = self.clone_block_stmt(b, i);
+            let cloned = self.clone_block_stmt(b, i, role);
             stmts.push(cloned);
         }
         let tail = tail.map(|t| self.clone_expr(t));
+        self.scopes.pop();
         self.ast.write(|ast| {
             ast.blocks.alloc(Block {
                 span,
@@ -838,7 +1133,7 @@ impl<'a> Cloner<'a> {
         })
     }
 
-    fn clone_block_stmt(&mut self, b: Idx<Block>, i: usize) -> BlockStmt {
+    fn clone_block_stmt(&mut self, b: Idx<Block>, i: usize, role: BlockRole) -> BlockStmt {
         match &self.ast.blocks[b].stmts[i] {
             BlockStmt::Error => self.recovery(BlockStmt::Error),
             BlockStmt::NonBlockAssign { lhs, rhs, span } => {
@@ -872,11 +1167,11 @@ impl<'a> Cloner<'a> {
             }
             BlockStmt::Let(l) => {
                 let (name, ty, value) = (l.name.clone(), l.ty, l.value);
-                BlockStmt::Let(self.clone_let(name, ty, value))
+                BlockStmt::Let(self.clone_let(name, ty, value, role))
             }
             BlockStmt::For(f) => {
                 let (var, start, end, body) = (f.var.clone(), f.start, f.end, f.body);
-                BlockStmt::For(self.clone_for(var, start, end, body))
+                BlockStmt::For(self.clone_for(var, start, end, body, role.module_level()))
             }
         }
     }
@@ -898,9 +1193,9 @@ impl<'a> Cloner<'a> {
         IfStmt {
             span: self.tag(i.span),
             cond: self.clone_expr(i.cond),
-            then_block: self.clone_block(i.then_block),
+            then_block: self.clone_block(i.then_block, BlockRole::Plain),
             else_branch: i.else_branch.map(|e| match e {
-                ElseBranch::Block(b) => ElseBranch::Block(self.clone_block(b)),
+                ElseBranch::Block(b) => ElseBranch::Block(self.clone_block(b, BlockRole::Plain)),
                 ElseBranch::If(nested) => ElseBranch::If(Box::new(self.clone_if(*nested))),
             }),
         }

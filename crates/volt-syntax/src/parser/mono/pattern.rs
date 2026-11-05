@@ -1,8 +1,12 @@
 //! Match kolları ve desen klonu (ADR-0041) — `Cloner`'ın desen yüzü.
+//!
+//! Kol kendi kapsamıdır (çözücünün `MatchArm` kapsamı): desen, koruma ve
+//! gövde onun içinde çözülür. Desendeki çıplak ad bir değerdir (§5.1);
+//! yalnız `Foo { x }` kısaltması kol kapsamına ad bağlar.
 
 use volt_ast::{FieldPattern, Idx, MatchArm, MatchArmBody, Pattern, PatternArgs, PatternKind};
 
-use super::clone::Cloner;
+use super::clone::{BlockRole, Cloner};
 
 impl Cloner<'_> {
     /// Kolların sahipli kopyası (Idx alanları Copy, gövde türü küçük).
@@ -21,15 +25,20 @@ impl Cloner<'_> {
     }
 
     pub(super) fn clone_arm(&mut self, a: &MatchArm) -> MatchArm {
-        MatchArm {
+        self.enter_scope();
+        let arm = MatchArm {
             span: self.tag(a.span),
             pattern: self.clone_pattern(a.pattern),
             guard: a.guard.map(|g| self.clone_expr(g)),
             body: match &a.body {
-                MatchArmBody::Block(b) => MatchArmBody::Block(self.clone_block(*b)),
+                MatchArmBody::Block(b) => {
+                    MatchArmBody::Block(self.clone_block(*b, BlockRole::Plain))
+                }
                 MatchArmBody::Expr(e) => MatchArmBody::Expr(self.clone_expr(*e)),
             },
-        }
+        };
+        self.leave_scope();
+        arm
     }
 
     fn clone_pattern(&mut self, p: Idx<Pattern>) -> Idx<Pattern> {
@@ -39,6 +48,7 @@ impl Cloner<'_> {
             PatternKind::Error => self.recovery(PatternKind::Error),
             PatternKind::Literal(e) => {
                 let e = *e;
+                self.check_pattern_name(e);
                 PatternKind::Literal(self.clone_expr(e))
             }
             PatternKind::Tuple(items) => {
@@ -87,10 +97,19 @@ impl Cloner<'_> {
             PatternArgs::Struct(fields) => PatternArgs::Struct(
                 fields
                     .into_iter()
-                    .map(|f| FieldPattern {
-                        span: self.tag(f.span),
-                        name: self.tag_name(&f.name),
-                        pattern: f.pattern.map(|p| self.clone_pattern(p)),
+                    .map(|f| {
+                        let pattern = match f.pattern {
+                            Some(p) => Some(self.clone_pattern(p)),
+                            None => {
+                                self.declare_pattern_binding(&f.name);
+                                None
+                            }
+                        };
+                        FieldPattern {
+                            span: self.tag(f.span),
+                            name: self.tag_name(&f.name),
+                            pattern,
+                        }
                     })
                     .collect(),
             ),

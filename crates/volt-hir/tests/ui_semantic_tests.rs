@@ -338,7 +338,7 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #112: 134 bileşik değerden indexed part-select,
     // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
     //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede).
-    assert_eq!(checked, 121);
+    assert_eq!(checked, 122);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

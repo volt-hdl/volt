@@ -104,8 +104,17 @@ impl Resolver<'_> {
         let module_def = self.lookup_item_def(&m.name.text);
         let scope = self.new_scope(ScopeKind::Module(module_def), Some(self.root));
 
-        // 1. Generic parametreler (en önce).
+        // 1. Generic parametreler (en önce). Monomorfta (ADR-0041) liste
+        //    boştur, parametreler açılımın yan tablosundadır: gövdede
+        //    onlara bağlanan yollar literale ikame edildi, ama iç kapsamın
+        //    gölgelemesi (W1002), aynı kapsamdaki port/sinyal (E1003) ve
+        //    parametrenin kök öğeyi gölgelemesi (W1002, #122) şablondaki
+        //    gibi çözülür (#130).
         self.declare_generics(&m.generics, scope);
+        let mono = self.ast.generate.mono_generics.get(&m.name.span).cloned();
+        for name in mono.unwrap_or_default() {
+            self.declare_checked(&name, DefKind::GenericParam, scope, false);
+        }
 
         // 2. Portlar — birbirini görebilir, sıra anlamsal bilgi taşımaz.
         self.declare_ports(m, scope);

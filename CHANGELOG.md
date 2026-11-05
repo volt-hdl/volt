@@ -9,6 +9,38 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Generic modülün ve modül düzeyi `for`'un
+  gövdesinde ad, ayrıştırıcının ikamesinde de kapsam zincirinde çözülür
+  (#130; name-resolution.md §2, §6; ADR-0081 eki). Generic parametreyi ya
+  da döngü değişkenini gölgeleyen iç bildirim (blok `let`'i, `comb` içi ya
+  da iç içe `for`, döngü gövdesinin `let`'i) artık literale ikame edilmez;
+  kullanım iç bildirimi okur. Üretilen SV değişir: `G<3>` içinde `comb {
+  let N = s  y = N }` 0.1.0'da `y = 3` yazıyordu, şimdi `y = s`; `for i in
+  0..1 { let i = s  y = i }` 0.1.0'da `y = 0`, şimdi `y = s`. Önceden
+  reddedilen girdiler derlenir (`comb { for N in 0..2 { ys[N] = N } }`
+  generic `N`'li modülde E2006 veriyordu; kısaltılmış bağlama `P { i }`
+  E1001 veriyordu).
+- **Davranış değişikliği.** Yeni W1002 uyarıları: modül düzeyi `for`'un
+  değişkeni bir kök öğeyi, portu, modül sinyalini ya da generic
+  parametreyi gölgelediğinde; döngü gövdesinin `let`'i döngü değişkenini,
+  kök öğeyi ya da dış gövdenin `let`'ini gölgelediğinde; örneklenen generic
+  modülde generic parametre bir kök öğeyi gölgelediğinde (#122 kararı) ve
+  blok `let`'i ya da `comb` içi döngü değişkeni generic parametreyi
+  gölgelediğinde. Uyarıları hata sayan derlemeler (CI betikleri)
+  düşebilir.
+- **Davranış değişikliği.** Önceden kabul edilen bazı girdiler artık
+  reddedilir: generic parametreyle aynı adlı port ya da modül `let`'i
+  E1003; desende modül düzeyi döngü değişkeni E1015; generic parametreyi
+  gölgeleyen blok `let`'i desende E1015, tip genişliğinde (`uint<N>`)
+  E2005; döngü gövdesinin `let`'i generic argümanda (`W<i>`) E2008, tip
+  genişliğinde E2021; kök const'u gölgeleyen port ya da modül sinyali
+  modül düzeyi `for` sınırında E2021. Bunların hepsinde 0.1.0'ın çıktısı
+  gölgelenen değeri (generic'in ya da döngünün literalini, kök const'u)
+  kullanıyordu.
+
+  0.1.0'dan yükseltirken: generic parametreyle ya da modül düzeyi döngü
+  değişkeniyle aynı adı içeride yeniden kullanan bir tasarımın SV'si
+  değişebilir; yeni W1002 uyarıları bu yerleri gösterir.
 - **Davranış değişikliği.** Bir ad, üretilen SystemVerilog'da da
   şartnamenin kapsam zinciriyle çözülür (#128, name-resolution.md §2, §6;
   ADR-0081 Karar 12.1). Satır içi açılan bir `fn`'in gövdesindeki const,
@@ -53,8 +85,36 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   içindeki fn çağrısında tipsiz gövde `let`'i esnek genişliğini kaybediyor)
   düzeltilmedi: #132.
 
+### Düzeltildi — Ayrıştırıcının ikamesi (#130, 2026-11-05)
+
+- Monomorfizasyon ve modül düzeyi `for` açılımı adları metinle ikame
+  ediyordu. Artık tek parçalı her ad `parser/mono/scope.rs`'teki kapsam
+  zincirinde çözülür (blok, döngü, `match` kolu, modül, kök; bildirim
+  sıralı); yalnız generic parametreye, açılan döngü değişkenine ya da
+  açılan gövdenin `let`'ine bağlanan ad değişir. Kısaltılmış bağlama
+  (`P { i }`), tip konumundaki çıplak parametre ve modül düzeyi `for`'un
+  sınırı aynı çözümü kullanır.
+- Çözücü monomorfun generic parametrelerini görür (yan tablo
+  `mono_generics`): iç gölgeleme W1002, aynı kapsamdaki port E1003,
+  parametrenin kök öğeyi gölgelemesi W1002 (#122).
+- Ayrıştırıcının başka geçitlerinde bulunan, farklı kök nedenli yanlışlar
+  düzeltilmedi: #136, #137, #138, #139, #140, #141 (karar), #143
+  (örneklenmemiş generic şablon SV'ye yazılıyor, parametre aynı adlı kök
+  const'a çözülüyor), #144 (yalnız literalli aritmetik her literali bağlamın
+  genişliğine keserek yazılıyor: `2 / 2` u1'de 0; 0.1.0'da da var).
+
 ### Tests
 
+- Fark testinin r biçimi (ADR-0108 eki): çağıran taraf generic bir
+  modüldür; parametreleri kök const'larla ve döngü değişkeniyle aynı adı
+  taşır, çağrı ya `comb` içindeki blok `let`'inden ya da modül düzeyi
+  `for`'un gövde `let`'inden geçer. Regresyon kümesine #130'un iki örneği
+  eklendi (elle hesaplanmış değerlerle).
+- Mutasyon kapsamına (ADR-0109) volt-syntax'ın `mono/scope.rs`,
+  `mono/clone.rs`, `mono/pattern.rs` dosyaları ve üreticinin `const_array.rs`,
+  `enums.rs`, `trit.rs` dosyaları girdi: 1240 mutant, hedefli koşudan
+  sonra 7 eşdeğeri gerekçesiyle hariç (1233), tam koşu 20 parça. Hedefli
+  koşunun yerine koyma dosyalarındaki 19 kör noktasına test yazıldı.
 - Mutasyon testi (ADR-0109): cargo-mutants 27.1.0, kapsam
   `.cargo/mutants.toml`'da (SV ifade üretimi, genişlik ve tür çıkarımı;
   952 mutant, 12 eşdeğeri gerekçesiyle hariç), elle tetiklenen on beş
