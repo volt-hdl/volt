@@ -853,3 +853,105 @@ test "values and transposition" {{
     );
     sim("f_controls", &src, 1);
 }
+
+// ═══ Hedefli mutasyon koşusunun kör noktaları (ADR-0109, #130) ══════════
+
+/// `match` kolunun kapsamı kolla biter (çözücünün `MatchArm` kapsamı):
+/// koldan sonra bloğun `let N`'si hâlâ görünür (z = s), bloğun sonunda
+/// biter (ikinci `comb`'da v = generic N = 3). s = 42, t = 0: y = 1,
+/// z = 42, w = 1, v = 3; c = 0: w = 0, v = 3.
+#[test]
+fn a_match_arm_scope_ends_with_the_arm_and_the_block_scope_with_the_block() {
+    let src = r#"module G<const N: u32> {
+    in  c : bool
+    in  s : u8
+    in  t : u8
+    out y : u8
+    out z : u8
+    out w : u8
+    out v : u8
+    comb {
+        let N = s
+        y = match t {
+            0 => 1,
+            _ => 2,
+        }
+        z = N
+    }
+    comb {
+        if c {
+            let N = t
+            w = match N {
+                0 => 1,
+                _ => 2,
+            }
+        } else {
+            w = 0
+        }
+        v = N
+    }
+}
+module Top {
+    in  c : bool
+    in  s : u8
+    in  t : u8
+    out y : u8
+    out z : u8
+    out w : u8
+    out v : u8
+    let g = G<3> { c: c, s: s, t: t }
+    y = g.y
+    z = g.z
+    w = g.w
+    v = g.v
+}
+test "scopes end where they should" {
+    let dut = Top { };
+    dut.c = true;
+    dut.s = 42;
+    dut.t = 0;
+    step(1);
+    assert_eq(dut.y, 1);
+    assert_eq(dut.z, 42);
+    assert_eq(dut.w, 1);
+    assert_eq(dut.v, 3);
+    dut.c = false;
+    step(1);
+    assert_eq(dut.w, 0);
+    assert_eq(dut.v, 3);
+}
+"#;
+    sim("arm_scope", src, 1);
+}
+
+/// Aralık seçimi klonda ikame edilir: `G<2>` içinde `a[N + 3:N]` =
+/// a[5:2]; modül düzeyi `for i in 1..2` içinde `a[i + 3:i]` = a[4:1].
+/// a = 182 (0b1011_0110): a[5:2] = (182 >> 2) & 15 = 13; a[4:1] = (182 >>
+/// 1) & 15 = 11.
+#[test]
+fn a_range_select_in_a_clone_reads_the_substituted_bounds() {
+    let src = r#"module G<const N: u32> {
+    in  a : u8
+    out y : u4
+    out z : u4
+    y = a[N + 3:N] as u4
+    for i in 1..2 { z = a[i + 3:i] as u4 }
+}
+module Top {
+    in  a : u8
+    out y : u4
+    out z : u4
+    let g = G<2> { a: a }
+    y = g.y
+    z = g.z
+}
+test "the bounds are the substituted values" {
+    let dut = Top { };
+    dut.a = 182;
+    step(1);
+    assert_eq(dut.y, 13);
+    assert_eq(dut.z, 11);
+}
+"#;
+    sim("range", src, 1);
+}

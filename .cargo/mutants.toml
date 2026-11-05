@@ -96,6 +96,29 @@ exclude_re = [
     # `< width` alone: returning c.width >= width instead of width for a
     # context at least as wide as the wire decides the same.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
+    # Source: targeted run 42034192061 (#130; parser/mono, 276 mutants).
+    # A1. fold_binary: `BinOp::Div if r != 0 => l.checked_div(r)` (and Rem):
+    # with the guard `true`, r == 0 gives checked_div/checked_rem -> None,
+    # the same as the `_ => None` arm the guard falls through to.
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with true in Cloner<'a>::fold_binary$",
+    # A2, assumes folding in the loop unrolling only shortens the SV text: a
+    # generic argument of a block `let` is a literal or a single name (the
+    # parser reads `W<2 - 1>` as a comparison, E0010), and every other
+    # consumer of a cloned expression (HIR const-eval, the parser's
+    # eval_const, the SV) computes literal arithmetic itself. A mutant that
+    # survives the behaviour tests is not killed with a text test (AGENTS.md).
+    "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm BinOp::Sub in Cloner<'a>::fold_binary$",
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with false in Cloner<'a>::fold_binary$",
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace != with == in Cloner<'a>::fold_binary$",
+    # A2, assumes the parser never builds ExprKind::Concat: only the SV
+    # emitter's struct lowering does (ADR-0077 Karar 5; volt-ast doc).
+    "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm ExprKind::Concat\\(parts\\) in Cloner<'a>::clone_aggregate_expr$",
+    # A2, assumes enums with data-carrying variants stay unsupported (E0003):
+    # a struct-pattern shorthand (`Msg::Data { x }`) never reaches the SV, and
+    # without the binding the arm body's diagnostics are the same
+    # (parser_scope_diag_tests::enum_patterns_in_a_clone_keep_their_arguments_and_bindings).
+    # Review when payload enums are implemented.
+    "parser/mono/clone\\.rs:\\d+:\\d+: replace Cloner<'a>::declare_pattern_binding with \\(\\)$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
