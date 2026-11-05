@@ -37,7 +37,9 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/verilator
-        key: verilator-linux-x64-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.digest }}
+        # The last part names the layout of ~/verilator (bump it when the
+        # copy step below changes).
+        key: verilator-linux-x64-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.digest }}-copy2
 
     # The image is Ubuntu 24.04, like the runner; verilator_bin links only
     # libc and libm. The generated C++ is built by the runner's g++ and make.
@@ -60,6 +62,15 @@ runs:
         done
         docker cp "$cid:/usr/local/share/verilator" "$HOME/verilator/share/verilator"
         docker rm "$cid" > /dev/null
+        # The image was configured with ccache, which the runner does not
+        # have: verilated.mk prefixes every compile with `ccache`. Drop that
+        # prefix; it is a compiler cache and changes no generated code.
+        mk="$HOME/verilator/share/verilator/include/verilated.mk"
+        sed -i 's/^OBJCACHE ?= ccache$/OBJCACHE ?=/' "$mk"
+        if ! grep -qx 'OBJCACHE ?=' "$mk"; then
+          echo "::error title=Verilator pin::verilated.mk has no 'OBJCACHE ?= ccache' line to drop"
+          exit 1
+        fi
         du -sh "$HOME/verilator"
 
     - name: Put Verilator ${{ steps.pin.outputs.version }} on PATH, remove the OSS CAD Suite's
