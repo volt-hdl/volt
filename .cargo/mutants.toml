@@ -32,50 +32,56 @@ examine_globs = [
 # text) for any input. Each entry is a regex over the mutant name as
 # `cargo mutants --list` prints it, with its reason in a comment above it.
 # Exclusions live here, never as `#[mutants::skip]` in the code.
+# A1: equivalent within the function itself, whatever calls it.
+# A2: equivalent given today's callers or the text the emitter writes; the
+#     comment names that assumption. When the function or caller an A2
+#     entry rests on changes, the entry is reviewed again.
 # An entry names the file, the change and the function; it pins line:col
 # only where the same change occurs twice in that function. A pinned entry
 # that stops matching after an edit lets its mutant back in (it shows up as
 # missed again): it never hides a different mutant without that showing.
 # Source: run 41905442445 (952 mutants, 157 missed).
 exclude_re = [
-    # `a == b || (a < b && ...)`: with `<=`, a == b is already true from the
-    # first disjunct.
+    # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
+    # the first disjunct.
     "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",
-    # `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
+    # A1. `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
     # agree wherever this line runs.
     "typeck/compare_width\\.rs:\\d+:\\d+: replace > with >= in TypeChecker<'_, '_>::check_comparison_widths$",
-    # Sig is {width, signed}; with equal sign and equal width, c == d, so
+    # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
     # returning c instead of d returns the same value.
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",
-    # `>=` adds the case of text starting with `'(`, an apostrophe with no
-    # width before it; the emitter never writes such text.
-    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in starts_with_size_cast$",
-    # `my_prec == parent_prec && is_right_operand && my_prec > 0`: a right
-    # operand comes from a binary operator whose precedence is 1..=10
-    # (sv_prec), so my_prec == parent_prec >= 1 and `>= 0` changes nothing.
-    "volt-sv-emit/src/expr\\.rs:1280:93: replace > with >= in Emitter<'a>::emit_prec$",
-    # `needs_paren && my_prec < PREC_ATOM`: an atom (PREC_ATOM, the highest
-    # precedence) never needs parentheses, since no parent passes more than
-    # PREC_ATOM and a right operand's parent has 1..=10.
-    "volt-sv-emit/src/expr\\.rs:1281:35: replace < with <= in Emitter<'a>::emit_prec$",
-    # `sig.width < need` is reached when the start is 127+ bits wide (need is
-    # at most 16: a select fits a u16 width) or when down >= 2^width (then
-    # need > width); sig.width == need is impossible in both.
-    "volt-sv-emit/src/expr\\.rs:1527:48: replace < with <= in Emitter<'a>::part_select_from_value$",
-    # `value >= 0 && w < 128 && value > max`: at w == 128, max is 2^127 - 1
-    # (signed) or u128::MAX, and a non-negative i128 never exceeds either.
+    # A1. `value >= 0 && w < 128 && value > max`: at w == 128, max is
+    # 2^127 - 1 (signed) or u128::MAX, and a non-negative i128 never exceeds
+    # either.
     "volt-sv-emit/src/expr\\.rs:1974:28: replace < with <= in Emitter<'a>::fmt_int$",
-    # `value < 0 && ... && mag >= 2^(w-1)`: at value == 0, mag is 0, below
-    # 2^(w-1) for every width w >= 1.
+    # A1. `value < 0 && ... && mag >= 2^(w-1)`: at value == 0, mag is 0,
+    # below 2^(w-1) for every width w >= 1.
     "volt-sv-emit/src/expr\\.rs:1981:32: replace < with <= in Emitter<'a>::fmt_int$",
-    # `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
+    # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace > with >= in Emitter<'_>::comparison_ctx$",
-    # demand(): when the context is at least as wide as the wire, the
-    # mutants return c.width >= width instead of width; both readers of the
-    # result (flex_demand, Local::read) compare it with `>= width` or
-    # `< width` alone, so they decide the same.
-    "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
+    # A1. demand(): at c.width == width both arms return the same number.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace < with <= in demand$",
+    # A2, assumes the emitter writes `'(` only after a decimal width (every
+    # `{}'(` format in expr.rs): `>=` adds text that starts with a bare `'(`.
+    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in starts_with_size_cast$",
+    # A2, assumes is_right_operand is true only from the binary-operator
+    # callers, which pass sv_prec 1..=10: then my_prec == parent_prec >= 1
+    # and `>= 0` changes nothing.
+    "volt-sv-emit/src/expr\\.rs:1280:93: replace > with >= in Emitter<'a>::emit_prec$",
+    # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
+    # highest) and a right operand's parent has 1..=10: an atom never needs
+    # parentheses.
+    "volt-sv-emit/src/expr\\.rs:1281:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # A2, assumes a select width fits a u16 (type check, base_width: u16), so
+    # need <= 16: the arm runs when the start is 127+ bits wide or when
+    # down >= 2^width (then need > width); sig.width == need is impossible.
+    "volt-sv-emit/src/expr\\.rs:1527:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
+    # Local::read in match_expr.rs) compare its result with `>= width` or
+    # `< width` alone: returning c.width >= width instead of width for a
+    # context at least as wide as the wire decides the same.
+    "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

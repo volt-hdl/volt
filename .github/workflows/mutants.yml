@@ -14,10 +14,6 @@ name: Mutation test
 
 on:
   workflow_dispatch:
-  # TEMPORARY, for the runs of the pull request that adds this workflow
-  # (workflow_dispatch needs the workflow on the default branch). Removed in
-  # the last commit before merge: the workflow runs on workflow_dispatch alone.
-  pull_request:
 
 permissions:
   contents: read

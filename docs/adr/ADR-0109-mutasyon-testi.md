@@ -168,7 +168,16 @@ Her koşunun missed listesi üç gruba ayrılır:
   fonksiyonu adlandırır; satır:sütunu yalnız aynı değişiklik aynı
   fonksiyonda birden çok kez geçiyorsa sabitler. Kod kayınca sabitlenmiş
   bir girdi hiçbir şeyi eşlemez ve mutantı missed listesine geri döner;
-  başka bir mutantı sessizce gizlemez. **Kodun içine `#[mutants::skip]`
+  başka bir mutantı sessizce gizlemez. Girdiler iki alt gruptadır, yorumu
+  etiketini taşır:
+  - **A1, koşulsuz eşdeğer:** fonksiyonun kendi içinde, kim çağırırsa
+    çağırsın eşdeğer.
+  - **A2, varsayıma bağlı eşdeğer:** bugünkü çağıranlara ya da üreticinin
+    yazdığı metne bağlı eşdeğer; yorum dayandığı varsayımı söyler. A2'deki
+    bir girdinin dayandığı fonksiyon ya da çağıran değişirse, o girdi
+    yeniden incelenir.
+
+  **Kodun içine `#[mutants::skip]`
   yazılmaz**: hariç tutmalar tek yerde, gerekçeleriyle okunur.
 - **(B) Kör nokta:** davranışı değiştiren ama hiçbir testin yakalamadığı
   değişiklik. Listelenir (dosya:satır, değişiklik, onu açığa çıkaracak Volt
@@ -248,11 +257,27 @@ yok:
 |---:|---:|---:|---:|---:|
 | 952 | 711 | 157 | 0 | 84 |
 
-Sınıflandırma (§4): 12 missed mutant (A) eşdeğer, `exclude_re`'ye girdi;
-144'ü (B) kör nokta; 1'i (`expr.rs:825:34`, `emit_plain`) (C): açılan
+Sınıflandırma (§4): 12 missed mutant (A) eşdeğer (7 A1, 5 A2),
+`exclude_re`'ye girdi; 144'ü (B) kör nokta; 1'i (`expr.rs:825:34`, `emit_plain`) (C): açılan
 fn'in global const'u aynı adlı döngü değişkeniyle değiştiriliyor, issue
 [#128](https://github.com/volt-hdl/volt/issues/128). Kör noktaların
 listesi PR #127'dedir; testleri ayrı işlerdir.
+
+**On beş parçalı koşu** (41944996471, `0469e3e4`, 12 `exclude_re`
+girdisiyle 940 mutant). 00:56–04:27 UTC, 3 sa 30 dk; parçalar 1 sa 59 dk
+ile 3 sa 30 dk arası, hepsi 4 saatin altında (§3'ün tahmini 235,5 dk; en
+yavaş parçanın mutant başına süresi 193 sn, t = 210 sn'nin altında).
+Her parçanın temel koşusu araçlarla geçti (231–397 sn), her parçanın
+defteri `SKIP: 0`, cargo mutants her parçada çıkış kodu 2 ile bitti
+(missed var). 940 mutantın hepsi test edildi, tamamlanmayan parça yok:
+
+| Toplam | Caught | Missed | Timeout | Unviable |
+|---:|---:|---:|---:|---:|
+| 940 | 711 | 145 | 0 | 84 |
+
+940 mutantın her biri on üç parçalı koşudaki sonucunu aldı (mutant mutant
+karşılaştırıldı, fark yok): hariç tutma yalnız 12 eşdeğer missed mutantı
+düşürdü, sonuçlar parça bölümünden bağımsız.
 
 ## Reddedilenler
 
