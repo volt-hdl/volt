@@ -434,11 +434,14 @@ Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool
 [shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2108 rejected-as-predicted=132 unsupported=10 unspecified=0 values-compared=232746 diffs=0
 ```
 
-Açıklanmayan gözlem: geri alma koşusunun 3. parçasında 150 küçültülmüş
-bulgunun üçü satır içi biçimlerde (a, b, d; `p247 - p247`, p247 = 0,
-Verilator `0xf`). Bu değer o SV'den (`4'(p247) - 4'(p247)`) çıkamaz;
-yalnız hatalı derleyiciyle kurulan bir toplu koşuda görüldü, düzeltme
-dalının dört parçasında değer farkı yok. İncelenmedi.
+Satır içi üç bulgu açıklandı (#145). Geri alma koşusunun 3. parçasında 150 küçültülmüş bulgunun üçü satır içi biçimlerdeydi: a, b, d; `p247 - p247`, p247 = 0, Verilator `0xf`. Kaynak Volt değil, CI'ın Verilator'ı:
+
+- OSS CAD Suite 2026-09-21, `5.053 devel rev v5.052-159-g46774fded`.
+- Yerelde aynı commit ve tohumla (MINIMIZE=0, Docker) Verilator 5.052 bu üç bulguyu vermiyor (`diffs=1667`). 5.053 devel aynısını veriyor (`diffs=1670`).
+- Toplu koşu 9'un SV'si aynen derlenince o151a/b/d/e 16 vektörün 8'inde sıfırdan farklı; `-fno-dfg` ile 0'ında.
+- Aynı metinli `o151e` her vektörde doğru.
+
+DFG optimizasyonunun yanlış derlemesi. Düzeltme dalının dört parçasında değer farkı yok. CI aracı için seçenekler #145'te.
 
 Sınırlar: modül düzeyi çağrının ikame kipi (`comb` içinde açılım) ve tel
 kipi (modül düzeyi) artık ikisi de sınanır; `on` bloğu sınanmaz.
