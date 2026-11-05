@@ -315,9 +315,10 @@ pub fn resolve_file(&mut self, ast: &SourceFile) -> ResolveResult {
 fn resolve_module_body(&mut self, m: &ModuleDecl, parent: ScopeId) {
     let scope = self.new_scope(ScopeKind::Module(m.def_id), Some(parent));
 
-    // 1. Generic parametreler (en önce)
+    // 1. Generic parametreler (en önce). Portlar gibi denetimli: kök
+    //    öğeyi gölgeleyen parametre W1002 (§6; ADR-0081 eki, #122).
     for g in &m.generics {
-        self.declare(g.name, DefKind::GenericParam, scope, g.span);
+        self.declare_checked(g.name, DefKind::GenericParam, scope, g.span);
     }
 
     // 2. Tüm portlar — birbirini görebilir
@@ -375,6 +376,13 @@ module Example {
             let temp = 2   // ⚠ W1002: dış 'temp' gölgeleniyor
         }
     }
+}
+
+const N : u32 = 7
+
+module Fir<const N: u32> {  // ⚠ W1002: kök 'N' gölgeleniyor (ADR-0081 eki, #122)
+    out y : u8
+    y = N                   // generic parametre: Fir<3> içinde 3
 }
 ```
 
