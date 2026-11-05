@@ -1,0 +1,122 @@
+# cargo-mutants configuration (ADR-0109). cargo-mutants 27.1.0 reads this
+# file from the workspace root; the workflow is .github/workflows/mutants.yml
+# (workflow_dispatch, sharded). Never run the full set locally: list
+# it (`cargo mutants --list`) or try one small file with `-j 1`.
+
+# Scope, phase 1: the files below are mutated, no other file or crate is
+# in scope in this phase (ADR-0109 section 2 lists what comes next).
+examine_globs = [
+    # 1. SystemVerilog emission of expressions: precedence, signed casts and
+    #    literals, isolation of width-dependent sub-expressions (ADR-0106 §6,
+    #    ADR-0108), self-determined positions, select forms.
+    "crates/volt-sv-emit/src/expr.rs",
+    # Wire width of an untyped `let` (natural width, ADR-0025).
+    "crates/volt-sv-emit/src/let_width.rs",
+    # 2. Width and type inference.
+    "crates/volt-hir/src/ty.rs",
+    "crates/volt-hir/src/typeck/width.rs",
+    "crates/volt-hir/src/typeck/binop.rs",
+    # E2031: comparison of different natural widths (ADR-0106).
+    "crates/volt-hir/src/typeck/compare_width.rs",
+    # W2010: narrowing `as`; E2009.
+    "crates/volt-hir/src/typeck/cast.rs",
+    "crates/volt-hir/src/typeck/check.rs",
+    "crates/volt-hir/src/typeck/synth.rs",
+    # `let` statements, natural-width `let`.
+    "crates/volt-hir/src/typeck/stmt.rs",
+    "crates/volt-hir/src/typeck/select.rs",
+]
+
+# Equivalent mutants (group A of ADR-0109 section 4): a mutation that
+# changes no observable output (generated SV, diagnostic codes, diagnostic
+# text) for any input. Each entry is a regex over the mutant name as
+# `cargo mutants --list` prints it, with its reason in a comment above it.
+# Exclusions live here, never as `#[mutants::skip]` in the code.
+# A1: equivalent within the function itself, whatever calls it.
+# A2: equivalent given today's callers or the text the emitter writes; the
+#     comment names that assumption. When the function or caller an A2
+#     entry rests on changes, the entry is reviewed again.
+# An entry names the file, the change and the function; it pins line:col
+# only where the same change occurs twice in that function. A pinned entry
+# that stops matching after an edit lets its mutant back in (it shows up as
+# missed again): it never hides a different mutant without that showing.
+# Source: run 41905442445 (952 mutants, 157 missed).
+exclude_re = [
+    # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
+    # the first disjunct.
+    "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",
+    # A1. `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
+    # agree wherever this line runs.
+    "typeck/compare_width\\.rs:\\d+:\\d+: replace > with >= in TypeChecker<'_, '_>::check_comparison_widths$",
+    # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
+    # returning c instead of d returns the same value.
+    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",
+    # A1. `value >= 0 && w < 128 && value > max`: at w == 128, max is
+    # 2^127 - 1 (signed) or u128::MAX, and a non-negative i128 never exceeds
+    # either.
+    "volt-sv-emit/src/expr\\.rs:1974:28: replace < with <= in Emitter<'a>::fmt_int$",
+    # A1. `value < 0 && ... && mag >= 2^(w-1)`: at value == 0, mag is 0,
+    # below 2^(w-1) for every width w >= 1.
+    "volt-sv-emit/src/expr\\.rs:1981:32: replace < with <= in Emitter<'a>::fmt_int$",
+    # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
+    "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace > with >= in Emitter<'_>::comparison_ctx$",
+    # A1. demand(): at c.width == width both arms return the same number.
+    "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace < with <= in demand$",
+    # A2, assumes the emitter writes `'(` only after a decimal width (every
+    # `{}'(` format in expr.rs): `>=` adds text that starts with a bare `'(`.
+    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in starts_with_size_cast$",
+    # A2, assumes is_right_operand is true only from the binary-operator
+    # callers, which pass sv_prec 1..=10: then my_prec == parent_prec >= 1
+    # and `>= 0` changes nothing.
+    "volt-sv-emit/src/expr\\.rs:1280:93: replace > with >= in Emitter<'a>::emit_prec$",
+    # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
+    # highest) and a right operand's parent has 1..=10: an atom never needs
+    # parentheses.
+    "volt-sv-emit/src/expr\\.rs:1281:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # A2, assumes a select width fits a u16 (type check, base_width: u16), so
+    # need <= 16: the arm runs when the start is 127+ bits wide or when
+    # down >= 2^width (then need > width); sig.width == need is impossible.
+    "volt-sv-emit/src/expr\\.rs:1527:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
+    # Local::read in match_expr.rs) compare its result with `>= width` or
+    # `< width` alone: returning c.width >= width instead of width for a
+    # context at least as wide as the wire decides the same.
+    "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
+]
+
+# Every test of the workspace runs for every mutant: emitter faults are
+# caught by tests in other crates (volt-driver's difftest_tests, ADR-0108).
+test_workspace = true
+
+# nextest runs the test binaries in parallel and stops at the earliest failure.
+# `cargo test` runs them one after the other and the volt-hir and
+# volt-sv-emit unit tests come last (after ~8.5 minutes in the tool job), so
+# a mutant those tests catch would cost the whole suite.
+test_tool = "nextest"
+
+# --max-fail=1:immediate: at the earliest failing test the mutant is caught;
+# the tests still running (the differential test alone takes ~75 s) are
+# stopped instead of waited for.
+# docker_e2e_tests pulls ~650 MB of images and hides the local tools; as in
+# the CI tool job it is excluded by name (ADR-0107: it runs in its own job).
+additional_cargo_test_args = [
+    "--max-fail=1:immediate",
+    "-E", "not test(new_test_verify_and_run_through_docker)",
+]
+
+# Timeouts. cargo-mutants 27.1.0 tests the baseline (the unmutated tree) with
+# the mutated packages alone, even with test_workspace = true (src/lab.rs,
+# run_baseline), so a timeout derived from it is far too short for the
+# workspace suite that every mutant runs. The workflow therefore runs its own
+# baseline (every workspace test, every tool required), measures it and
+# passes `--baseline skip --timeout <2 x baseline, at least 300 s>`. Without
+# an explicit --timeout (a local try), this floor keeps the workspace suite
+# from timing out.
+minimum_test_timeout = 600
+
+# A mutation that just adds a warning still builds.
+cap_lints = true
+
+# Mutant i runs on shard i % N: files mix across shards, which evens out
+# their cost.
+sharding = "round-robin"

@@ -5,6 +5,20 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+Yok.
+
+### Tests
+
+- Mutasyon testi (ADR-0109): cargo-mutants 27.1.0, kapsam
+  `.cargo/mutants.toml`'da (SV ifade üretimi, genişlik ve tür çıkarımı;
+  952 mutant, 12 eşdeğeri gerekçesiyle hariç), elle tetiklenen on beş
+  parçalı `mutants.yml` iş akışı; parça sayısı ölçülen mutant süresinden
+  hesaplanır.
+
 ## [0.1.0] - 2026-11-04
 
 ### Behavior changes

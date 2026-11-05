@@ -1,0 +1,255 @@
+name: Mutation test
+
+# ADR-0109: mutation testing with cargo-mutants. It measures the tests, not
+# the compiler: each mutant is one small change in a file in scope
+# (.cargo/mutants.toml), and a mutant that the whole test suite lets through
+# is "missed". On demand (workflow_dispatch): never on a pull request or a
+# push, never a required check. MUTANTS_SHARDS shards (cargo mutants --shard
+# k/N), each with the tools of the CI tool job and VOLT_REQUIRE_TOOLS=all, so
+# that no tool test skips (ADR-0107). Every shard uploads its mutants.out,
+# even when it is stopped; the last job merges them into the job summary and
+# names every shard that did not complete.
+#
+#   gh workflow run mutants.yml --ref <branch>
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_MUTANTS_VERSION: 27.1.0
+  CARGO_NEXTEST_VERSION: 0.9.151
+  # The number of shards (ADR-0109 section 3 has the calculation): a shard
+  # should stay under 4 hours at the measured cost per mutant. Recompute it
+  # when the scope grows. The matrix of the mutants job lists
+  # 0..MUTANTS_SHARDS-1; a step there checks that the two agree.
+  MUTANTS_SHARDS: 15
+  OSS_CAD_SUITE_DATE: 2026-09-21
+  VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
+  # No debug info: smaller target, faster links; a mutant is rebuilt ~75
+  # times per shard.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+jobs:
+  tools:
+    name: Tools and the mutants in scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo-mutants and cargo-nextest
+        id: tools-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/mutants-tools
+          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Build cargo-mutants and cargo-nextest (pinned versions)
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --root ~/mutants-tools cargo-mutants --version "$CARGO_MUTANTS_VERSION"
+          cargo install --locked --root ~/mutants-tools cargo-nextest --version "$CARGO_NEXTEST_VERSION"
+      # The mutants of every shard, as the summary job expects them: a shard
+      # that never uploads its outcomes still shows its untested mutants.
+      - name: Mutants in scope (.cargo/mutants.toml), per shard
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          cargo mutants --version
+          cargo nextest --version
+          mkdir -p mutants-list
+          cargo mutants --list > mutants-list/all.txt
+          for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
+            cargo mutants --list --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
+          done
+          total=$(wc -l < mutants-list/all.txt)
+          sharded=$(cat mutants-list/shard-*.txt | wc -l)
+          echo "::notice title=Mutants in scope::$total in $MUTANTS_SHARDS shards"
+          if [ "$total" -ne "$sharded" ]; then
+            echo "::error title=Mutants in scope::the shard lists hold $sharded mutants, the full list $total"
+            exit 1
+          fi
+          {
+            echo "### Mutants in scope: $total, $MUTANTS_SHARDS shards"
+            echo
+            echo '| Mutants | File |'
+            echo '|---:|---|'
+            cut -d: -f1 mutants-list/all.txt | sort | uniq -c | sort -rn | awk '{ print "| " $1 " | `" $2 "` |" }'
+            echo
+            echo '| Shard | Mutants |'
+            echo '|---:|---:|'
+            for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
+              echo "| $k | $(wc -l < "mutants-list/shard-$k.txt") |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the mutant lists
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-list
+          path: mutants-list/
+          if-no-files-found: error
+
+  mutants:
+    name: Mutation test, shard ${{ matrix.shard }}/${{ strategy.job-total }}
+    needs: tools
+    runs-on: ubuntu-latest
+    # Below GitHub's 6-hour job limit. cargo mutants itself stops at 300
+    # minutes (below), so the outcomes so far are uploaded and the job ends
+    # before this limit; "Upload mutants.out" runs with always() even if the
+    # limit is reached. A shard is planned for under 4 hours (ADR-0109 §3).
+    timeout-minutes: 330
+    # ADR-0107: a missing tool fails a test instead of skipping it; here it
+    # fails the baseline, so a mutant is never "caught" by a missing tool.
+    # The differential test runs with the seed and count of the CI tool job.
+    env:
+      VOLT_REQUIRE_TOOLS: all
+      VOLT_DIFFTEST_SEED: "20261104"
+      VOLT_DIFFTEST_COUNT: "2000"
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    steps:
+      - name: The matrix has MUTANTS_SHARDS shards
+        run: |
+          if [ "${{ strategy.job-total }}" -ne "$MUTANTS_SHARDS" ]; then
+            echo "::error title=Mutation test::the matrix has ${{ strategy.job-total }} shards, MUTANTS_SHARDS is $MUTANTS_SHARDS"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mutants
+          save-if: ${{ matrix.shard == 0 }}
+      - name: Restore cargo-mutants and cargo-nextest
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/mutants-tools
+          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
+          fail-on-cache-miss: true
+      - name: Put the tools on PATH
+        run: |
+          echo "$HOME/mutants-tools/bin" >> "$GITHUB_PATH"
+          # Called directly, a cargo subcommand binary takes its own name first.
+          "$HOME/mutants-tools/bin/cargo-mutants" mutants --version
+          "$HOME/mutants-tools/bin/cargo-nextest" nextest --version
+      # Same pinned OSS CAD Suite as the CI tool job ("Verilator lint"):
+      # Verilator, Yosys, sby and the solvers.
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (verilator, yosys, sby + solvers), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put OSS CAD Suite on PATH (Verilator, Yosys, sby)
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/verilator" --version
+      - name: Mutants of this shard
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          cargo mutants --list --shard ${{ matrix.shard }}/$MUTANTS_SHARDS > mutants-shard.txt
+          echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < mutants-shard.txt) mutants"
+      # The baseline: the unmutated tree runs every workspace test, with
+      # every tool required, exactly as each mutant will. cargo-mutants'
+      # own baseline tests the mutated packages alone (ADR-0109 §1), so it
+      # is skipped below and the test timeout comes from this measurement:
+      # twice the baseline, at least 300 seconds.
+      # Incremental builds on (rust-cache turns them off): the mutated crate is
+      # rebuilt for every mutant. Same value in both steps, or the mutants
+      # would rebuild everything once.
+      - name: Baseline - every workspace test, every tool required
+        id: baseline
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          cargo nextest run --workspace --no-run
+          start=$(date +%s)
+          cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
+          secs=$(( $(date +%s) - start ))
+          limit=$(( secs * 2 ))
+          if [ "$limit" -lt 300 ]; then limit=300; fi
+          echo "timeout=$limit" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS baseline::${secs} s; test timeout per mutant ${limit} s"
+      # --in-place reuses the target directory the baseline built instead of
+      # copying the tree; the source file is restored after each mutant.
+      # Exit codes of cargo mutants: 0 every mutant caught, 2 some missed,
+      # 3 some timed out: the run is complete either way. 124: the
+      # 300-minute stop (timeout) interrupted it. cargo-mutants writes each
+      # outcome as it comes, so an interrupted shard keeps what it reached.
+      - name: cargo mutants --shard ${{ matrix.shard }}/${{ strategy.job-total }} (every tool required)
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=5m 300m \
+            cargo mutants --in-place --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \
+              --baseline skip --timeout ${{ steps.baseline.outputs.timeout }} --build-timeout 1200
+          code=$?
+          set -e
+          case "$code" in
+            0|2|3) echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::cargo mutants finished, exit code $code" ;;
+            124) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: stopped after 300 minutes; the outcomes so far are in the artifact"; exit 1 ;;
+            *) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: cargo mutants exit code $code"; exit 1 ;;
+          esac
+      # always(): also when a step failed, the job was cancelled or reached
+      # its time limit, so the outcomes reached so far are kept.
+      - name: Upload mutants.out
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-out-${{ matrix.shard }}
+          path: |
+            mutants.out/
+            mutants-shard.txt
+          if-no-files-found: warn
+      # ADR-0107: the baseline and every mutant ran their tool tests.
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "mutants-${{ matrix.shard }}" --require-zero-skips --min-ran 60
+
+  summary:
+    name: Mutation test summary
+    needs: [tools, mutants]
+    # Also after a failed or stopped shard: the summary names it.
+    if: ${{ !cancelled() && needs.tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: mutants-list
+          path: lists
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mutants-out-*
+          path: shards
+      - name: Script self-test
+        run: python3 scripts/ci/mutants_summary.py --self-test
+      # A shard with no artifact, or with fewer outcomes than mutants, is
+      # marked NOT COMPLETED at the top of the summary with its untested
+      # mutants, and fails this step.
+      - name: Merge the shards into the job summary
+        run: python3 scripts/ci/mutants_summary.py shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload the merged lists
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-summary
+          path: merged/
+          if-no-files-found: warn
