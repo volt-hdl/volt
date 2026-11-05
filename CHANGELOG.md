@@ -37,7 +37,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   bildiriminin tip ve desen ifadeleri ve const öğelerinin değerleri kök
   kapsamdadır.
 - Farklı kök nedenli benzer yanlışlar (parser'ın generic ve modül düzeyi
-  `for` ikamesi iç gölgelemeyi görmüyor) düzeltilmedi: #130.
+  `for` ikamesi iç gölgelemeyi görmüyor) düzeltilmedi: #130. Fark
+  testinin r biçiminin bulduğu, ad hijyeniyle ilgisiz hata (`comb`
+  içindeki fn çağrısında tipsiz gövde `let`'i esnek genişliğini kaybediyor)
+  düzeltilmedi: #132.
 
 ### Tests
 
@@ -53,8 +56,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (`scope.rs`) kapsama girdi.
 - Fark testinin r biçimi (ADR-0108, #128): ifade bir `fn` gövdesinde,
   seçim literalleri kök const'larda; çağrı bu const'la aynı adlı döngü
-  değişkeninin içinde, gövdenin ve çağıranın `let`'leri bir const'la aynı
-  adda. Sonuç a biçimininkiyle aynı olmalı.
+  değişkeninin içinde, çağıranın `let`'i bir const'la aynı adda. Sonuç a
+  biçimininkiyle aynı olmalı. Gövdenin `let`'i `VOLT_DIFFTEST_FN_LET=1`
+  ile; açıkken ikame kipindeki tipsiz fn `let`'inin hatasını (#132) bulur.
 
 ## [0.1.0] - 2026-11-04
 

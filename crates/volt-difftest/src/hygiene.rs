@@ -7,7 +7,8 @@
 //! - seçim konumundaki literaller (`x[3]`, `x[2 +: 4]`) kök `const`'lara
 //!   çıkar (`t<id>r`, `K<id>r<n>`);
 //! - C biçiminin alt ifadesi gövdede bir `let`'e bağlanır; adı (`s<id>r`)
-//!   aynı adlı bir kök const'u gölgeler;
+//!   aynı adlı bir kök const'u gölgeler (yalnız `VOLT_DIFFTEST_FN_LET=1`
+//!   ile, #132);
 //! - çağrı, ilk const'la aynı adlı ve başka bir değer alan döngü
 //!   değişkeninin (`for t<id>r in V..V+1`) içindedir;
 //! - bir argüman, `s<id>r` adlı bir blok `let`'inden geçer (çağıranın
@@ -53,6 +54,14 @@ pub fn lit_name(id: usize, n: usize) -> String {
 /// fn gövdesinin `let`'i, çağıranın blok `let`'i ve bir kök const.
 pub fn let_name(id: usize) -> String {
     format!("s{id}r")
+}
+
+/// Gövdenin `let`'i (c biçiminin alt ifadesi) yalnız
+/// `VOLT_DIFFTEST_FN_LET=1` ile: ikame kipindeki tipsiz fn `let`'i esnek
+/// genişliğini kaybediyor (#132, ad hijyeninden ayrı kök neden); açık
+/// koşu o sınıfı bulur ve düşer. #132 düzelince varsayılan açılır.
+pub fn body_let_enabled() -> bool {
+    std::env::var("VOLT_DIFFTEST_FN_LET").is_ok_and(|v| v == "1")
 }
 
 impl Hygiene {

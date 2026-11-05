@@ -286,7 +286,7 @@ bağlanabileceği hiçbir girdi yoktu. Onuncu biçim bu sınıfı sınar:
 
 | Biçim | Volt | Beklenen |
 |---|---|---|
-| r | ifade `fn h<id>r`'nin gövdesinde; seçim konumundaki literaller (`x[3]`'ün indeksi, `x[2 +: 4]`'ün başlangıcı) kök `const t<id>r`, `K<id>r<n>`; c biçiminin alt ifadesi gövdede `let s<id>r`'ye bağlı ve aynı adlı kök `const s<id>r`'yi gölgeler; çağrı `comb` içinde, `for t<id>r in V..V+1` döngüsünde (V, `t<id>r`'nin değerinden bir fazla), bitleri seçilmeyen bir argüman çağıranın `let s<id>r`'sinden geçer | a (gövde `let`'i varsa c) ile aynı |
+| r | ifade `fn h<id>r`'nin gövdesinde; seçim konumundaki literaller (`x[3]`'ün indeksi, `x[2 +: 4]`'ün başlangıcı) kök `const t<id>r`, `K<id>r<n>`; (yalnız `VOLT_DIFFTEST_FN_LET=1` ile) c biçiminin alt ifadesi gövdede `let s<id>r`'ye bağlı ve aynı adlı kök `const s<id>r`'yi gölgeler; çağrı `comb` içinde, `for t<id>r in V..V+1` döngüsünde (V, `t<id>r`'nin değerinden bir fazla), bitleri seçilmeyen bir argüman çağıranın `let s<id>r`'sinden geçer | a (gövde `let`'i varsa c) ile aynı |
 
 Ad çakışmaları anlamı değiştirmemeli (name-resolution.md §2, §6;
 ADR-0081 Karar 12.1: fn kapsamının ebeveyni kök kapsamdır): gövdedeki
@@ -300,15 +300,26 @@ parametreye yerel geçirmek (o argüman port olarak geçer). Çakışacak ad
 yoksa (seçim literali yok, `let` yok, yerelden geçecek argüman yok) biçim
 konmaz.
 
+**Gövde `let`'i isteğe bağlı (#132).** İlk CI koşusunda (tohum 20261104,
+2000 ifade) gövde `let`'li r biçimi 9 değer farkı ve 44 WIDTH uyarısı
+buldu; hepsi gövdenin tipsiz `let`'ini içeriyor ve çakışan ad olmadan da
+oluyor: ikame kipindeki tipsiz fn `let`'i esnek genişliğinin kesişimini
+kaybediyor, aynı fn `comb` içinde ve modül düzeyinde farklı değer veriyor.
+Kök neden ad hijyeni değil; #132'de. Bu yüzden gövde `let`'i varsayılan
+olarak kapalı, `VOLT_DIFFTEST_FN_LET=1` ile açılır (açık koşu #132'yi
+bulur); #132 düzelince varsayılan açılır.
+
 Regresyon kümesine #128'in örneği eklendi (`p0[1]`, elle hesaplanmış iki
 değer): r biçimi düzeltmesiz derleyicide bit 2'yi seçer.
 
-Düzeltme olmadan: yerelde 8 toplu koşunun 1870 r çıkışından 297'sinin SV
+Düzeltme olmadan: yerelde 8 toplu koşunun 1816 r çıkışından 297'sinin SV
 satırı farklı (döngü değişkeninin değeri), diğer biçimlerin bütün satırları
-aynı. Verilator'lı kanıt PR'ın açıklamasında (düzeltmesi geri alınmış dalda
-koşu).
+aynı. Düzeltmesi geri alınmış dalda (`test/hygiene-revert-demo`)
+`difftest.yml` (41978380162, dört parça, tohum 20261104–20261107, parça
+başına 2000): dört parça da düştü (diffs 299, 281, 276, 293), küçültülmüş
+bulguların hepsi r biçiminde, ilki "regression #128 … — r u8[K]".
 
 Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgelemeyi
 görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde
 ve `comb` içinde (ikame kipi) üretilir; tel kipi (modül düzeyi çağrı) ve
-`on` bloğu sınanmaz.
+`on` bloğu sınanmaz. Gövde `let`'i #132'ye kadar varsayılan kapalı.

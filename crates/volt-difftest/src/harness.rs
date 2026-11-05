@@ -195,7 +195,11 @@ impl Case {
                 }
             }
         }
-        case.hygiene = Hygiene::new(id, &case.expr, case.extracted.as_ref(), &sub_name(id));
+        // Gövde `let`'i #132 düzelene kadar isteğe bağlı (`hygiene`).
+        let body_let = crate::hygiene::body_let_enabled()
+            .then_some(case.extracted.as_ref())
+            .flatten();
+        case.hygiene = Hygiene::new(id, &case.expr, body_let, &sub_name(id));
         case.variants = Variant::ALL
             .into_iter()
             .filter(|v| match v {
