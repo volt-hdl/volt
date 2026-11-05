@@ -417,15 +417,15 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   üretici dosyaları: `crates/volt-sv-emit/src/const_array.rs` (37),
   `enums.rs` (71), `trit.rs` (16).
 
-`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 9'u
-eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1231 mutant**.
+`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 4'ü
+eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1236 mutant**.
 §3'ün hesabı (t = 210 sn, S = 15 dk):
 
 ```
 N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
-M = 1231
-N = 20: ⌈1231 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
-(N = 19: ⌈1231 / 19⌉ = 65 · 210 sn = 227,5 dk + 15 dk = 242,5 dk > 240)
+M = 1236
+N = 20: ⌈1236 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
+(N = 19: ⌈1236 / 19⌉ = 66 · 210 sn = 231 dk + 15 dk = 246 dk > 240)
 ```
 
 Tam koşu 20 parçadır, yani §3'ün üst sınırında. Kapsam bir kez daha
@@ -458,12 +458,22 @@ düzeltildikten sonra koşu yeniden tetiklendi.
 
 **Yerine koyma dosyalarının 24 missed'i** (`scope.rs`, `clone.rs`, `pattern.rs`):
 
-- **A1 (2), `exclude_re`:** `fold_binary`'nin `r != 0` korumaları (340, 341) → `true`. r = 0'da `checked_div`/`checked_rem` `None` verir; bu, korumanın düştüğü `_ => None` ile aynıdır.
-- **A2 (7, biri hariç tutulamaz):**
-  - `fold_binary` (5): `Sub` kolunun silinmesi; `r != 0` → `false`; `!=` → `==`. Katlama yalnız SV metnini kısaltır. Blok `let`'inin generic argümanı bir literal ya da tek addır (`W<2 - 1>` E0010); ifadenin diğer tüketicileri literal aritmetiğini kendileri hesaplar. Davranış testinden kaçan mutant metin testiyle öldürülmez (AGENTS.md).
-  - `Concat` kolunun silinmesi: ayrıştırıcı `Concat` kurmaz (ADR-0077 Karar 5).
-  - `declare_pattern_binding` → `()`: yük taşıyan enum desteklenmez (E0003); kısaltma bağı SV'ye ulaşmaz, tanılar aynıdır. Elle uygulanınca `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` geçti. Yük taşıyan enum gelince yeniden incelenir.
-  - `clone.rs:388` `AutoOrigin`'in `from` alanının silinmesi: otomatik kontratlar monomorfizasyondan sonra eklenir (`add_auto_contracts` son geçit), klonlanan kontratta `auto` yoktur. cargo-mutants 27.1.0 `exclude_re`'yi alan silme mutantlarına uygulamadığı için listeye giremez (yukarıdaki hata); missed listesinde görünmeye devam eder.
+- **A1 (2), `exclude_re`:** `fold_binary`'nin `r != 0` korumaları (340, 341) → `true`. r = 0'da `checked_div`/`checked_rem` `None` verir; bu, korumanın düştüğü `_ => None` ile aynıdır. Yol ulaşılabilir (döngü değişkeninin bölümü). Mutantlı derleyicide aşağıdaki üç katlama testi (dar hedef, geniş konumlar, E2010) geçer, geniş testin SV'si `verilator --lint-only -Wall` ile temizdir.
+- **A2 (3, biri hariç tutulamaz):**
+  - `Concat` kolunun silinmesi. Ulaşılamaz: ayrıştırıcı `Concat` kurmaz, yalnız üreticinin struct indirgemesi kurar (ADR-0077 Karar 5; volt-ast belgesi).
+  - `declare_pattern_binding` → `()`. Ulaşılamaz: yük taşıyan enum desteklenmez (E0003); kısaltma bağı SV'ye ulaşmaz. Tanılar aynıdır; elle uygulanınca `enum_patterns_in_a_clone_keep_their_arguments_and_bindings` geçti. Yük taşıyan enum gelince yeniden incelenir.
+  - `clone.rs:388` `AutoOrigin`'in `from` alanının silinmesi. Ulaşılamaz: otomatik kontratlar monomorfizasyondan sonra eklenir (`add_auto_contracts` son geçit), klonlanan kontratta `auto` yoktur. cargo-mutants 27.1.0 `exclude_re`'yi alan silme mutantlarına uygulamadığı için listeye giremez (yukarıdaki hata); missed listesinde görünmeye devam eder.
+- **B, katlama (5): ilk sınıflandırmada A2 sayıldı, yanlıştı.** `fold_binary`'nin `Sub` kolunun silinmesi, `Div`/`Rem` korumaları → `false` ve `!=` → `==`. İlk gerekçe "katlama yalnız SV metnini değiştirir" idi; bu bir eşdeğerlik kanıtı değil. Yol ulaşılabilir: döngü değişkeni ikame edilince `i - 1`, `i / 2`, `i % 3` iki literalli aritmetiktir. Katlanmamış literal aritmetiğini üretici her literali bağlamın genişliğine keserek yazar (#144):
+  - `i / 2` (i = 2, u1): `1'h0 / 1'h0` → 0, beklenen 1;
+  - `i % 3` (i = 4, u1): `1'h0 % 1'h1` → 0, beklenen 1;
+  - `x < i - 1` (i = 3, x : u1): mutantta E2010 yerine `x < 1'h1 - 1'd1` (`x < 0`).
+
+  Öldüren testler:
+  - `parser_scope_sim_tests::folded_loop_arithmetic_fits_a_narrow_target`: Div, Rem; mutantta `left: 0, right: 1`.
+  - `parser_scope_diag_tests::a_folded_loop_constant_that_does_not_fit_the_comparison_is_e2010`: Sub.
+  - Bekçi: `folded_loop_arithmetic_in_wide_positions_has_its_value` geniş konumlarda (indeks, parça seçimi, aralık, değer) bütün mutantlarda geçer, lint temizdir.
+
+  Her mutant elle uygulandı, testi düştü, geri alındı.
 - **B (14), her birine test yazıldı.** Her mutant elle uygulandı, test düştü, mutant geri alındı:
 
   | Mutant | Testi |
@@ -497,3 +507,17 @@ düzeltildikten sonra koşu yeniden tetiklendi.
   - 103 `trit_sum_sig` → `None`;
   - 127 `+` → `*`, `-` (`try_emit_trit_mul`).
 - **`const_array.rs`:** missed yok.
+
+### §4'ün A tanımına ek: eşdeğerliğin kanıtı (#130)
+
+§4'ün karar metni değişmez (AGENTS.md); bu kural onun A tanımına eklenir:
+
+> Üretilen SV metninin değişmesi tek başına eşdeğerlik gerekçesi değildir; eşdeğerlik, ulaşılamazlıkla ya da lint ve simülasyon değerinin aynı kalmasıyla gösterilir.
+
+Uygulaması:
+
+- (a) **Ulaşılamazlık:** bu yola Volt kaynağından ulaşan bir girdi yoktur. Varsayım tek satırla yazılır ve onu sınayan bir tanı ya da davranış testi gösterilir.
+- (b) **Ulaşılıyorsa:** mutantlı derleyicinin bu girdi için ürettiği SV `verilator --lint-only -Wall`'dan uyarısız geçer ve simülasyon değeri şartnameden elle hesaplanan değerle aynıdır. Girdi bir davranış testi olarak eklenir; ileride eşdeğerliği bozan bir değişikliği yakalar.
+
+Lint ya da değer farkı çıkarsa mutant A değil B'dir: davranış testiyle öldürülür; bir hataya işaret ediyorsa issue açılır. Bu bölümün katlama mutantları böyle B'ye geçti (#144).
+

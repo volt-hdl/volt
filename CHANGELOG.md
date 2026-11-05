@@ -100,7 +100,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Ayrıştırıcının başka geçitlerinde bulunan, farklı kök nedenli yanlışlar
   düzeltilmedi: #136, #137, #138, #139, #140, #141 (karar), #143
   (örneklenmemiş generic şablon SV'ye yazılıyor, parametre aynı adlı kök
-  const'a çözülüyor).
+  const'a çözülüyor), #144 (yalnız literalli aritmetik her literali bağlamın
+  genişliğine keserek yazılıyor: `2 / 2` u1'de 0; 0.1.0'da da var).
 
 ### Tests
 
@@ -112,8 +113,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Mutasyon kapsamına (ADR-0109) volt-syntax'ın `mono/scope.rs`,
   `mono/clone.rs`, `mono/pattern.rs` dosyaları ve üreticinin `const_array.rs`,
   `enums.rs`, `trit.rs` dosyaları girdi: 1240 mutant, hedefli koşudan
-  sonra 9 eşdeğeri gerekçesiyle hariç (1231), tam koşu 20 parça. Hedefli
-  koşunun yerine koyma dosyalarındaki 14 kör noktasına test yazıldı.
+  sonra 4 eşdeğeri gerekçesiyle hariç (1236), tam koşu 20 parça. Hedefli
+  koşunun yerine koyma dosyalarındaki 19 kör noktasına test yazıldı.
 - Mutasyon testi (ADR-0109): cargo-mutants 27.1.0, kapsam
   `.cargo/mutants.toml`'da (SV ifade üretimi, genişlik ve tür çıkarımı;
   952 mutant, 12 eşdeğeri gerekçesiyle hariç), elle tetiklenen on beş
