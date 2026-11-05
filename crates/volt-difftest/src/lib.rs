@@ -9,12 +9,15 @@
 //! - [`harness`]: ifadeleri satır içi, `let`'te, karşılaştırmada ve
 //!   sözleşmede; let'e çıkarılmış, ek parantezli ve yer değiştirmiş
 //!   biçimleriyle tek modülde toplar; testbench ve vektörler.
+//! - [`hygiene`]: R biçimi — ifade bir fn gövdesinde, gövdenin adları
+//!   çağıranın döngü değişkeni ve yerelleriyle çakışır (#128).
 //! - [`run`]: `volt check` → `volt build` → Verilator → karşılaştırma,
 //!   farkların küçültülmesi ve rapor.
 
 pub mod ast;
 pub mod gen;
 pub mod harness;
+pub mod hygiene;
 pub mod model;
 pub mod print;
 pub mod regress;

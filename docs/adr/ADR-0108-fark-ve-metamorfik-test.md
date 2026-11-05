@@ -277,3 +277,38 @@ Kapsamın genişletilmesi #125'te (v0.1.1).
 - Verilator `-Wall` uyarıları (WIDTH dışında) yumuşak bulgudur: üretilen
   ifadenin kendisi sabit karşılaştırma (CMPCONST, UNSIGNED) ya da kısmen
   okunan `let` (UNUSEDSIGNAL) içerebilir.
+
+## Ek: r biçimi — ad hijyeni (#128, 2026-11-05)
+
+#128'i fark testi değil mutasyon testi buldu (PR #127): ifadeler tek
+modülde, fonksiyonsuz, sabit adsız üretiliyordu; bir adın yanlış tanıma
+bağlanabileceği hiçbir girdi yoktu. Onuncu biçim bu sınıfı sınar:
+
+| Biçim | Volt | Beklenen |
+|---|---|---|
+| r | ifade `fn h<id>r`'nin gövdesinde; seçim konumundaki literaller (`x[3]`'ün indeksi, `x[2 +: 4]`'ün başlangıcı) kök `const t<id>r`, `K<id>r<n>`; c biçiminin alt ifadesi gövdede `let s<id>r`'ye bağlı ve aynı adlı kök `const s<id>r`'yi gölgeler; çağrı `comb` içinde, `for t<id>r in V..V+1` döngüsünde (V, `t<id>r`'nin değerinden bir fazla), bitleri seçilmeyen bir argüman çağıranın `let s<id>r`'sinden geçer | a (gövde `let`'i varsa c) ile aynı |
+
+Ad çakışmaları anlamı değiştirmemeli (name-resolution.md §2, §6;
+ADR-0081 Karar 12.1: fn kapsamının ebeveyni kök kapsamdır): gövdedeki
+`t<id>r` const'tur, döngü değişkeni değil; gövdedeki `s<id>r` gövdenin
+`let`'idir, ne kök const ne çağıranın yereli. Gölgelemeler W1002
+uyarısıdır, koşucu uyarıları saymaz. `let` satırı `;` ile biter (son
+ifade `(` ile başlarsa `let`'in değeri çağrı gibi sürerdi; `LetDecl = …
+[";"]`). İkame kipinin desteklemediği iki durum biçime girmez: bitleri
+seçilen gövde `let`'i (o zaman gövde `let`'siz) ve bitleri seçilen
+parametreye yerel geçirmek (o argüman port olarak geçer). Çakışacak ad
+yoksa (seçim literali yok, `let` yok, yerelden geçecek argüman yok) biçim
+konmaz.
+
+Regresyon kümesine #128'in örneği eklendi (`p0[1]`, elle hesaplanmış iki
+değer): r biçimi düzeltmesiz derleyicide bit 2'yi seçer.
+
+Düzeltme olmadan: yerelde 8 toplu koşunun 1870 r çıkışından 297'sinin SV
+satırı farklı (döngü değişkeninin değeri), diğer biçimlerin bütün satırları
+aynı. Verilator'lı kanıt PR'ın açıklamasında (düzeltmesi geri alınmış dalda
+koşu).
+
+Sınırlar: generic modül üretilmez; parser'ın generic ikamesi iç gölgelemeyi
+görmüyor (#130), eklenirse koşu düşer. Fonksiyon çağrısı yalnız bu biçimde
+ve `comb` içinde (ikame kipi) üretilir; tel kipi (modül düzeyi çağrı) ve
+`on` bloğu sınanmaz.
