@@ -393,4 +393,13 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   (esnek `let`'in doğal genişlikte bildirimi, ADR-0025 eki). Davranış
   testlerinden kaçan mutant metin testiyle öldürülmez: A2 (gerekçesiyle)
   ya da bağlı olduğu hata düzelene kadar açık.
+- **Koşu 2** (42001466794, testler davranışa çevrildikten sonra; `re`
+  Koşu 1'in satırları ve `const_match_key`'in yeni koruması, 85 mutant,
+  2 parça): kapsam işi `85 of 87 listed mutants match the regex`,
+  `all 85 mutants in the list match '…'`; 46 caught, 1 missed, 0 timeout,
+  38 unviable; iki parçada da `Tool ledger [mutants-N]: … SKIP: 0`.
+  Koşu 1'in caught'ları ve yeni korumanın mutantları davranış ve tanı
+  testleriyle caught. Missed tek mutant `expr.rs:1428`
+  (`index_width_mismatch`, `||` → `&&`; Koşu 1'deki satırı 1423):
+  "#134 düzelene kadar açık", gerekçesi yukarıda.
 
