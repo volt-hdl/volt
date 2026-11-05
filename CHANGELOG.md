@@ -113,7 +113,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Mutasyon kapsamına (ADR-0109) volt-syntax'ın `mono/scope.rs`,
   `mono/clone.rs`, `mono/pattern.rs` dosyaları ve üreticinin `const_array.rs`,
   `enums.rs`, `trit.rs` dosyaları girdi: 1240 mutant, hedefli koşudan
-  sonra 4 eşdeğeri gerekçesiyle hariç (1236), tam koşu 20 parça. Hedefli
+  sonra 7 eşdeğeri gerekçesiyle hariç (1233), tam koşu 20 parça. Hedefli
   koşunun yerine koyma dosyalarındaki 19 kör noktasına test yazıldı.
 - Mutasyon testi (ADR-0109): cargo-mutants 27.1.0, kapsam
   `.cargo/mutants.toml`'da (SV ifade üretimi, genişlik ve tür çıkarımı;

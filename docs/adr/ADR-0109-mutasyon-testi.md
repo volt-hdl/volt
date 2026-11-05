@@ -417,15 +417,15 @@ aynı sütun). Kapsam 964 mutant; §3 hesabıyla tam koşu 16 parça
   üretici dosyaları: `crates/volt-sv-emit/src/const_array.rs` (37),
   `enums.rs` (71), `trit.rs` (16).
 
-`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 4'ü
-eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1236 mutant**.
+`cargo mutants --list` 964 → 1240 (276 yeni). Hedefli koşudan sonra 7'si
+eşdeğer olarak `exclude_re`'ye girdi (aşağıda): kapsam **1233 mutant**.
 §3'ün hesabı (t = 210 sn, S = 15 dk):
 
 ```
 N = en küçük n ki: ⌈M / n⌉ · t + S ≤ 240 dakika   (n ≤ 20)
-M = 1236
-N = 20: ⌈1236 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
-(N = 19: ⌈1236 / 19⌉ = 66 · 210 sn = 231 dk + 15 dk = 246 dk > 240)
+M = 1233
+N = 20: ⌈1233 / 20⌉ = 62 mutant · 210 sn = 217 dk + 15 dk = 232 dk
+(N = 19: ⌈1233 / 19⌉ = 65 · 210 sn = 227,5 dk + 15 dk = 242,5 dk > 240)
 ```
 
 Tam koşu 20 parçadır, yani §3'ün üst sınırında. Kapsam bir kez daha
@@ -492,21 +492,28 @@ düzeltildikten sonra koşu yeniden tetiklendi.
 
 - **C:** yok.
 
-**Diğer üç dosyanın 20 missed'i** yalnız listelenir. Görev gereği bu işte test yazılmadı. Eşdeğerliği gösterilmedi, (B) sayılır:
+**Diğer üç dosyanın 20 missed'i** sınıflandırıldı. Görev gereği B'lerine bu işte test yazılmadı, yalnız listelendi; A2'lerin kanıtı yazıldı (sona eklenen "eşdeğerliğin kanıtı" kuralı).
 
-- **`enums.rs`:**
-  - 108 `enum_variant_sig` → `None` (varyant yolunun genişliği; girdi: varyantın genişlik bağlamında kullanımı);
-  - 122 `p.segments.len() == 1` → `true` (çok parçalı varyant yolu `resolve`'a gider);
-  - 133 `is_prev_call` → `false`/`true` (`match prev(m)`);
-  - 155, 157 `==` → `!=` (alt modülün enum tipli çıkışı, `match u.state`);
-  - 230, 231 `||` → `&&` (`enum_localparams`'ın ad çakışması: örnek ya da yerleşik örnek adıyla);
-  - 289 `!` silme (üç mutant), 293 `|=` → `&=`, 303 `&&` → `||` (`enum_match_plan`: kapsanan kol, varsayılan kol);
-  - 328 koruma → `true`, 337 `|=` → `&=` (`pattern_variants`: başka enum'un varyantı, `|` deseni).
-- **`trit.rs`:**
-  - 75, 80 `&&` → `||` (`is_trit`: `Trit * Trit`, `if`);
-  - 103 `trit_sum_sig` → `None`;
-  - 127 `+` → `*`, `-` (`try_emit_trit_mul`).
-- **`const_array.rs`:** missed yok.
+| Mutant | Sınıf | Gerekçe ya da açığa çıkaracak girdi |
+|---|---|---|
+| `enums.rs:108` `enum_variant_sig` → `None` | B | varyant yolunun genişliği: `let t = Mode::B`, `m == Mode::B` |
+| `enums.rs:122` `p.segments.len() == 1` → `true` | B | çok parçalı varyant yolu `resolve`'a gider, enum kaybolur: `match Mode::B { … }` |
+| `enums.rs:133` `is_prev_call` → `false` | B | `match prev(state) { … }` |
+| `enums.rs:133` `is_prev_call` → `true` | B | enum argümanlı fn çağrısı enum sanılır: `match f(state)` |
+| `enums.rs:155`, `157` `==` → `!=` | B | alt modülün enum tipli çıkışı: `match u.state` |
+| `enums.rs:230`, `231` `\|\|` → `&&` | B | varyant localparam'ı bir örnekle ya da yerleşik örnekle çakışır (`let Mode_A = …`); ui/fail/92 yalnız sinyal çakışmasını sınar |
+| `enums.rs:289` `!` silme (3) | B | kapsanmış kolun atlanması: aynı varyantı iki kez adlandıran `match` |
+| `enums.rs:293` `\|=` → `&=`, `303` `&&` → `\|\|` | B | bütün varyantlar ve `_` (3 varyant, 2 bit): kod 3 için varsayılan kol değişir |
+| `enums.rs:328` koruma `d.name.text == decl.name.text` → `true` | A2, `exclude_re` | ulaşılamaz: tip denetimi başka enum'un varyantını reddeder (E2003 "pattern of type 'Kind' cannot match a value of enum 'Mode'"); test `parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission` |
+| `enums.rs:337` `\|=` → `&=` | B | `Mode::A \| _` kabul edilir (SV `default: y = 8'd1`); mutantta `_` görülmez |
+| `trit.rs:75` `&&` → `\|\|` | B | `Trit * i8` (üçlü MAC, ui/pass/16) Trit sanılır: `(t * a) + (t * a)` |
+| `trit.rs:80` `&&` → `\|\|` | B | `if c { t } else { 1 }` Trit sanılır |
+| `trit.rs:103` `trit_sum_sig` → `None` | B | `t1 + t2` (i3) genişliği |
+| `trit.rs:127` `+` → `*`, `-` (2) | A2, `exclude_re` | ulaşılabilir, SV aynı: `t` `is_trit`'ten geçmiştir (öncelik 12, 11, 10 ya da 0); `emit_prec` yalnız `my_prec < parent_prec` iken parantez koyar (burada `is_right` yanlış). Ebeveyn 7, 6 ve 5 aynı kararı verir. Mutantlı derleyicide `parser_scope_sim_tests::trit_products_of_every_precedence_class_have_their_value` (dört öncelik sınıfı) bayt bayt aynı SV'yi üretir, simülasyon geçer, `verilator --lint-only -Wall` temizdir |
+
+`const_array.rs`: missed yok.
+
+Özet: 20'nin 17'si B, 3'ü A2, A1 ve C yok.
 
 ### §4'ün A tanımına ek: eşdeğerliğin kanıtı (#130)
 
