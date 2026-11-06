@@ -106,6 +106,15 @@ Verilator is not installed and Docker is running, Volt runs it in a
 pinned container image by itself; `volt doctor` shows which way each
 command will run.
 
+**Verilator runs with its DFG optimizer turned off.** `volt test` and
+`volt run` pass `-fno-dfg` to every Verilator build, locally and in
+Docker. With that optimizer on, Verilator 5.052 prints wrong values for
+some correct SystemVerilog
+([#148](https://github.com/volt-hdl/volt/issues/148)). On the example
+designs the option changed the time of `volt test` by less than the
+difference between two runs. If you run Verilator on the generated
+SystemVerilog yourself, add `-fno-dfg` too.
+
 **Every clock runs at the same rate in simulation.** `volt test` and
 `volt run` give each clock port of the design one rising edge per cycle,
 all at the same moment. A design with several clocks cannot be simulated

@@ -9,6 +9,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** `volt test`, `volt run` ve `volt test
+  --waves` Verilator'ı artık `-fno-dfg` ile çalıştırır, yerelde de Docker
+  arka ucunda da: Verilator 5.052'nin DFG eniyileyicisi doğru
+  SystemVerilog'u yanlış derleyip simülasyonda yanlış değer basabiliyor
+  (#148). Ölçülen maliyet gürültü düzeyinde: `examples/`'ın
+  dokuz test dosyası ve kitabın testleri toplamda %−0,5 (ADR-0107, "Ek:
+  DFG kapalı"). Üretilen SV değişmez; Verilator'ı
+  üretilen SV üzerinde kendisi çalıştıran kullanıcı da `-fno-dfg`
+  eklemelidir.
 - **Davranış değişikliği.** Generic modülün ve modül düzeyi `for`'un
   gövdesinde ad, ayrıştırıcının ikamesinde de kapsam zincirinde çözülür
   (#130; name-resolution.md §2, §6; ADR-0081 eki). Generic parametreyi ya
@@ -105,6 +114,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Tests
 
+- DFG kapalı (ADR-0107 eki "Ek: DFG kapalı", #148): Volt'un Verilator
+  seçenekleri tek yerde (`volt_tools::VERILATOR_BUILD_FLAGS`,
+  `-fno-dfg`); `volt test`/`volt run`/`--waves` (yerel ve Docker), fark
+  testinin koşucusu (`Tools::verilator_flags`) ve kanarya onu kullanır.
+  Her yolun komut satırı kendi testinde denetlenir;
+  `verilator_flags_tests` depoda Verilator'ı derleme için çağıran başka
+  bir yer açılırsa düşer. İkinci kanarya (`issue148.sv`): #148'in
+  tasarımı, elle hesaplanmış değerlerle; 5.052'de bayraksız düşer,
+  bayrakla geçer.
 - Hakem sürümü sabit (ADR-0107 eki, #145): CI'da simülasyon yapan her iş
   ("Verilator lint", kitabın örnekleri, fark testinin büyük koşusu,
   mutasyon testi) Verilator'ı OSS CAD Suite'in geliştirme derlemesinden

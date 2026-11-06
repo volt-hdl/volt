@@ -387,6 +387,8 @@ contracts of the design run as monitors on every cycle. There is no `initial` bl
 UVM. A passing run records no waveform, so it costs nothing; `volt test
 --waves` records every test. The `.gtkw` file and the translate tables are
 extra files next to the VCD; the generated SystemVerilog does not change.
+Volt builds the testbench with Verilator's `-fno-dfg` option
+([Known limitations](../limitations.md#simulation-and-tests) says why).
 
 </div>
 

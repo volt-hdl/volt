@@ -231,3 +231,153 @@ PR #147:
 - Eylem Verilator'ı imajdan koşucuya kopyalar (ikisi de Ubuntu 24.04;
   `verilator_bin` yalnız libc ve libm'e bağlı). Üretilen C++'ı koşucunun
   g++'ı derler; imajdaki g++ ile aynı sürüm olması denetlenmez.
+
+## Ek: DFG kapalı (#148, 2026-11-06)
+
+### Gerekçe
+
+Sabitlenen hakem de hatasız değil (yukarıda, "Sınırlar"): #145'in
+kanarya tasarımından `o150a`'yı okuyan sözleşme çıkarılınca Verilator
+5.052 de `assign o151a = 4'(p247) - 4'(p247);`'yi `4'hf` basar (#148).
+Mekanizma #145'inkidir: DFG 1 bitlik karşılaştırmaları geniş `$display`
+birleştirmesine `((a >= b) << 0x1f) | …` olarak gömer, C++'ta `bool << 31`
+işaretli `int`tir, kelime bölmenin `>>` kaydırması işaret bitini komşu
+alanlara yayar. `-fno-dfg` ile iki sürüm de doğru basar. Bu yalnız CI'ın
+hakemini değil, kullanıcının `volt test`'ini de (yerel Verilator ya da
+Docker arka ucunun 5.052'si) etkiler: Volt doğru SV üretse de simülasyon
+sessizce yanlış değer verebilir.
+
+Bakımcı kararı (#148'in (a), (c) ve (d) seçenekleri): DFG, Volt'un
+Verilator'ı derleme ya da simülasyon için çağırdığı her yerde kapalıdır;
+hata Verilator'a bildirilir; #148'in tasarımı ikinci kanaryadır.
+
+### Kural
+
+1. **Tek tanım.** Volt'un Verilator'a her derlemede verdiği seçenekler
+   `volt_tools::VERILATOR_BUILD_FLAGS`'tır (bugün `["-fno-dfg"]`).
+2. **Her derleme yolu onu kullanır:**
+   - `volt test`, `volt run`, `volt test --waves`, yerel ve Docker arka
+     ucu: `volt-driver` `sim/verilator.rs` (`VerilateJob::args`; Docker
+     kolu aynı argümanları konteynere verir);
+   - fark testinin koşucusu: `volt-difftest` `run.rs`
+     (`Tools::verilator_flags`; crate `volt-*`'a bağlanmaz, ADR-0108 §1,
+     listeyi `difftest_tests` verir);
+   - hakem kanaryası: `verilator_canary_tests`.
+
+   Davranış testleri, kitabın test blokları (`check_book.py`) ve
+   mutasyon testi Verilator'ı `volt test` üzerinden çağırır, bayrağı
+   oradan alır. `--lint-only` çağrıları (CI'ın "Verilator lint" adımı,
+   `output_net_tests`, `reserved_name_tests`) eniyileme yapmaz, bayrak
+   almaz.
+3. **Mekanik denetim.** Her yolun komut satırı kendi testinde denetlenir
+   (`sim/verilator.rs` `every_verilate_path_passes_volts_build_flags`,
+   `docker_backend_tests`, `volt-difftest`
+   `verilator_command_carries_the_callers_flags`);
+   `crates/volt-tools/tests/verilator_flags_tests.rs` depoyu tarar:
+   Verilator'ı derleme kipinde çağıran (`"--binary"`, `"--cc"`,
+   `"--build"`; betik ve iş akışlarında `verilator --binary|--cc|--build`)
+   ve envanterde olmayan ya da bayrağı tek tanımdan almayan her yer testi
+   düşürür.
+4. **İki kanarya.** `verilator_canary/issue145.sv` (#145) ve
+   `verilator_canary/issue148.sv` (#148, aynı tasarım, sözleşmesiz; aynı
+   alanlar, aynı girişler, ortak elle hesaplanmış beklenenler). İkisi de
+   `VERILATOR_BUILD_FLAGS` ile derlenir.
+
+### Ölçülen maliyet
+
+`volt test`'in duvar saati süresi, `main`'in `volt`'u (f3a78bde,
+bayraksız) ile bu değişikliğin `volt`'u (`-fno-dfg`), aynı Linux
+konteynerinde (Verilator 5.052, g++ 13.3, 4 çekirdek; ccache kapalı,
+`OBJCACHE=`), her koşu boş bir `--target-dir` ile (Verilator ve C++
+derlemesi baştan). `examples/` altındaki dokuz test dosyası üç tur (2. tur
+ters sırada), kitap iki tur. Hücre: medyan (turlar). Kitap satırında 7
+`volt verify` koşusu konteynerde sby olmadığından iki ikilide de aynı
+biçimde düşer (çıkış 3); sekiz test dosyası iki ikilide de geçer.
+
+| Tasarım | Test | Bayraksız (main), s | `-fno-dfg` (dal), s | Fark |
+|---|---|---:|---:|---:|
+| `axi4lite_slave_test.volt` | ok. 5 passed; 0 failed | 6.43 (7.8, 6.4, 6.2) | 6.51 (7.6, 6.4, 6.5) | +1.2 % |
+| `fir_filter_test.volt` | ok. 10 passed; 0 failed | 19.16 (22.4, 19.2, 18.2) | 19.11 (22.2, 19.1, 18.1) | -0.3 % |
+| `hybrid_accel/hybrid_test.volt` | ok. 6 passed; 0 failed | 27.36 (34.5, 27.4, 26.9) | 28.01 (33.6, 28.0, 27.9) | +2.4 % |
+| `i2c/i2c_test.volt` | ok. 12 passed; 0 failed | 6.33 (6.6, 6.3, 6.3) | 6.53 (6.8, 6.5, 6.4) | +3.2 % |
+| `riscv_core_test.volt` | ok. 59 passed; 0 failed | 13.61 (14.6, 13.6, 13.6) | 13.52 (14.7, 13.5, 13.4) | -0.7 % |
+| `riscv_pipeline_test.volt` | ok. 15 passed; 0 failed | 6.85 (6.8, 6.4, 7.1) | 6.43 (7.1, 6.3, 6.4) | -6.1 % |
+| `soc/top_test.volt` | ok. 5 passed; 0 failed | 6.82 (7.2, 6.8, 6.8) | 7.13 (7.1, 6.8, 7.2) | +4.5 % |
+| `uart_tx_test.volt` | ok. 4 passed; 0 failed | 6.07 (6.5, 6.1, 6.1) | 6.10 (6.7, 6.1, 6.1) | +0.5 % |
+| `vga/vga_top_test.volt` | ok. 7 passed; 0 failed | 19.21 (19.7, 18.1, 19.2) | 18.54 (19.2, 18.5, 18.5) | -3.5 % |
+| kitap (`check_book.py --run-tests`) | 8 test dosyası, 30 blok | 50.15 (49.9, 50.4) | 49.27 (49.5, 49.1) | -1.8 % |
+| **Toplam (medyanlar)** | | 161.99 | 161.15 | -0.5 % |
+
+Ölçülebilir bir maliyet yok: tek tasarımlarda fark −%6 ile +%5 arasında,
+işareti karışık; toplamda %−0,5. Aynı ikilinin ilk turu ile sonraki
+turları arasındaki fark (ısınma, %20'ye kadar) bayrağın etkisinden
+büyüktür. Ölçülmeyen: uzun bir simülasyonda DFG'nin eniyilediği modelin
+koşu süresi; buradaki testler kısadır ve süreyi derleme belirler.
+
+### Bayrağın kaldırılma ölçütü
+
+`-fno-dfg` ancak şunların hepsi sağlanınca kaldırılır:
+
+1. Hata Verilator'da düzeltilmiştir (bildirilen issue kapanmış, düzeltme
+   bir sürümdedir);
+2. `scripts/ci/verilator.env` ile `docker.rs` o sürüme geçmiştir (ayrı PR,
+   yukarıdaki kural 4);
+3. o sürümle, `VERILATOR_BUILD_FLAGS` boşken iki kanarya da geçer ve fark
+   testinin büyük koşusu fark vermez.
+
+Kaldırma kendi PR'ıdır; CHANGELOG'da davranış değişikliği olarak yazılır.
+Bu ölçüt sağlanmadan bayrağı kaldıran bir değişiklik `verilator_flags_tests`'i
+(`the_flags_turn_dfg_off`) düşürür.
+
+### Kanıt
+
+Kanaryalar, Verilator'ın kendisiyle (`verilator --binary --timing
+--assert -Wall -Wno-fatal -Wno-DECLFILENAME --top-module tb -Mdir obj -o
+vtb -j 2 -CFLAGS -O0 [-fno-dfg] issueNNN.sv`), `R 0 17` satırının ilk 11
+hanesi (doğrusu `fc0040003f8`, `o151a..o151k` yanlışken `fc00ffffff8`):
+
+| Verilator | Seçenek | `issue145.sv` | `issue148.sv` |
+|---|---|---|---|
+| 5.052 (`verilator/verilator:v5.052`) | — | doğru | **yanlış** |
+| 5.052 | `-fno-dfg` | doğru | doğru |
+| 5.053 devel (OSS CAD Suite 2026-09-21) | — | **yanlış** | **yanlış** |
+| 5.053 devel | `-fno-dfg` | doğru | doğru |
+
+Aynı cargo testi, `VERILATOR_BUILD_FLAGS` boşaltılmış bir kopyada (5.052,
+Linux): `issue145` geçer, `issue148` düşer (`o151k: expected 0x0, got
+0x1`, `o151e/o151d/o151b/o151a: expected 0x0, got 0xf`); bayrakla iki
+kanarya da geçer.
+
+PR #149:
+
+- "Verilator lint" (CI run 42229639709): `Verilator version check: OK
+  (Verilator 5.052 2026-09-05 rev v5.052)`; 180 test özetinde 3683
+  geçti, 0 düştü; `verilator_canary_tests` 3 geçti (iki kanarya dahil),
+  `name_scope_sim_tests` 23, `parser_scope_sim_tests` 29 geçti; fark
+  testi (tohum 20261104, 2000) `diffs=0`, `regressions=27 failed=0`;
+  `Tool ledger [integration]: 119 test(s) asked for a tool; 121
+  lookup(s) found the tool (121 required), SKIP: 0`; "Tool coverage"
+  `122 ran with the tool required, 0 did not`.
+- Fark testinin büyük koşusu (difftest.yml, run 42229656156, tohum
+  20261105-20261108, parça başına 12500, `-fno-dfg` ile): dört parça
+  `diffs=0`, toplam 50.293 kabul edilmiş ifade, her parçada `SKIP: 0`.
+- Kitabın "Book code examples" işi (run 42229639719): `30 volt block(s)
+  checked, 8 test file(s) run, 7 verify run(s), 0 failure(s)`.
+- CI süresi: "Verilator lint" 782 s (`main`'in son koşusu 42161602424:
+  817 s), içinde `difftest_tests` 105,5 s (108,8 s); büyük koşunun dört
+  parçası toplam 2111 s (bayraksız önceki koşu 42112584394: 1962 s;
+  parça başına −%11 ile +%32 arası, koşucu gürültüsü).
+
+Verilator deposunda (verilator/verilator) aynı mekanizmayı anlatan bir
+issue bulunamadı (2026-11-06, salt okuma araması); hata raporu bakımcı
+tarafından gönderilir.
+
+### Sınırlar
+
+- `-fno-dfg` Verilator 5.002'den (DFG'nin geldiği sürüm, 2022-10) beri
+  vardır; `volt doctor`'ın alt sınırı 5.0'dır, desteklenen her sürüm
+  seçeneği tanır.
+- Bayrak bilinen tetikleyiciyi kapatır, Verilator'ın başka
+  eniyileyicilerindeki hataları değil.
+- Kullanıcının üretilen SV'yi Verilator'da kendisi derlemesi Volt'un
+  dışındadır; kitap (`limitations.md`) `-fno-dfg` eklemesini önerir.
