@@ -5,7 +5,9 @@
 //! `docs/spec/sv-mapping.md` §6, ADR-0025 (esnek genişlik aralığı),
 //! ADR-0035 (değişken indeks, `+:`/`-:`), ADR-0036 (işaretli kaydırma,
 //! dönüşüm), ADR-0041 (check kipinde aynı işaretli genişleme ve itme),
-//! ADR-0106 (karşılaştırma genişliği, bileşik değerden seçim).
+//! ADR-0106 (karşılaştırma genişliği, bileşik değerden seçim),
+//! `docs/spec/const-eval.md` §1, §4 (literal aritmetiği: `i128` tam değer,
+//! taşma E2022, sıfıra bölme E2023; sığma E2010, #144).
 //!
 //! Derleyicinin hiçbir parçası kullanılmaz (sabit katlayıcı, tip
 //! denetleyicisi, emitter): bu crate'in bağımlılığı yoktur.
@@ -127,6 +129,13 @@ pub mod tag {
     /// A12: işaretli `>>` genişlik kadar ya da fazla kaydırınca işaretle
     /// dolar (W2013 "sonuç hep 0" der).
     pub const SHR_OVERSHIFT: u32 = 1 << 11;
+    /// A13: çalışma zamanında işaretli `/` sıfıra doğru keser, `%`
+    /// bölünenin işaretini alır (const-eval.md §4'ün `checked_div` /
+    /// `checked_rem`'i; şartname çalışma zamanını söylemez).
+    pub const SIGNED_DIV: u32 = 1 << 12;
+    /// A14: `iN::MIN / -1` sonucun genişliğinde sarar (`iN::MIN`); §3.3
+    /// "bölme/mod genişlemez" der, taşmayı söylemez.
+    pub const DIV_OVERFLOW: u32 = 1 << 13;
 }
 
 /// `(etiket, kimlik, açıklama)` — rapor ve ADR için.
@@ -190,6 +199,16 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
         tag::SHR_OVERSHIFT,
         "A12",
         "signed >> by the width or more fills with the sign bit",
+    ),
+    (
+        tag::SIGNED_DIV,
+        "A13",
+        "signed / truncates toward zero and % takes the sign of the dividend at run time",
+    ),
+    (
+        tag::DIV_OVERFLOW,
+        "A14",
+        "iN::MIN / -1 wraps to iN::MIN at the result width",
     ),
 ];
 
@@ -360,7 +379,9 @@ impl Model<'_> {
     fn binary(&self, op: BinOp, a: Ty, b: Ty) -> R<(Ty, u32)> {
         if op.is_arith() {
             return match (a, b) {
-                (Ty::Lit(_), Ty::Lit(_)) => Err(Reject::Unspecified("literal-literal arithmetic")),
+                // §3.3: literal + literal → literal; değer derleme zamanında
+                // tam hesaplanır (const-eval.md §1, §4; #144).
+                (Ty::Lit(x), Ty::Lit(y)) => Ok((Ty::Lit(Self::lit_arith(op, x, y)?), 0)),
                 // §3.3: literal somut tipe uyarlanır.
                 (Ty::Lit(v), t @ Ty::Int { .. }) | (t @ Ty::Int { .. }, Ty::Lit(v)) => {
                     let lt = Self::lit_in(v, t)?;
@@ -528,6 +549,8 @@ impl Model<'_> {
         let n = match op {
             BinOp::Add | BinOp::Sub => c + 1,
             BinOp::Mul => 2 * c,
+            // §3.3: bölme/mod genişlemez.
+            BinOp::Div | BinOp::Rem => c,
             _ => unreachable!(),
         };
         if n > MAX_INT {
@@ -540,6 +563,12 @@ impl Model<'_> {
         if op == BinOp::Sub && !s1 {
             tags |= tag::UNSIGNED_SUB;
         }
+        if op.is_div() && s1 {
+            tags |= tag::SIGNED_DIV;
+            if op == BinOp::Div {
+                tags |= tag::DIV_OVERFLOW;
+            }
+        }
         Ok((
             Ty::Int {
                 signed: s1,
@@ -548,6 +577,44 @@ impl Model<'_> {
             },
             tags,
         ))
+    }
+
+    /// İki literalin aritmetiği (const-eval.md §4 `eval_binop`): `i128`'de
+    /// tam değer, `checked_*` taşması E2022, bölen 0 E2023.
+    pub fn lit_arith(op: BinOp, a: i128, b: i128) -> R<i128> {
+        if op.is_div() && b == 0 {
+            return Err(Reject::Invalid("E2023"));
+        }
+        match op {
+            BinOp::Add => a.checked_add(b),
+            BinOp::Sub => a.checked_sub(b),
+            BinOp::Mul => a.checked_mul(b),
+            BinOp::Div => a.checked_div(b),
+            BinOp::Rem => a.checked_rem(b),
+            _ => unreachable!("lit_arith yalnız aritmetik işleçle"),
+        }
+        .ok_or(Reject::Invalid("E2022"))
+    }
+
+    /// `n` bitlik iki örüntünün aritmetiği, sonucun `n` bitlik örüntüsü;
+    /// bölen 0 `None` (SV'de x, karşılaştırılmaz).
+    fn arith_bits(op: BinOp, a: u128, b: u128, n: u32, signed: bool) -> Option<u128> {
+        let r = match op {
+            BinOp::Add => a.wrapping_add(b),
+            BinOp::Sub => a.wrapping_sub(b),
+            BinOp::Mul => a.wrapping_mul(b),
+            BinOp::Div | BinOp::Rem if b & mask(n) == 0 => return None,
+            BinOp::Div | BinOp::Rem if signed => {
+                // A13: sıfıra doğru; A14: MIN / -1 n bitte sarar (i128'de
+                // taşmaz, n <= 64).
+                let (x, y) = (to_i128(a, n, true), to_i128(b, n, true));
+                (if op == BinOp::Div { x / y } else { x % y }) as u128
+            }
+            BinOp::Div => (a & mask(n)) / (b & mask(n)),
+            BinOp::Rem => (a & mask(n)) % (b & mask(n)),
+            _ => unreachable!("arith_bits yalnız aritmetik işleçle"),
+        };
+        Some(r & mask(n))
     }
 
     /// §3.6 `check_cast_legal`; esnek kaynak doğal genişliğine sabitlenir
@@ -691,19 +758,21 @@ impl Model<'_> {
         let ty = self.synth(y).ok()?.ty;
         if op.is_arith() || op.is_bitwise() {
             let rt = self.binary(op, tx, ty).ok()?.0;
+            // Literal aritmetiğinin değeri tam değerdir (#144).
+            if let Ty::Lit(v) = rt {
+                return Some(v as u128);
+            }
             let n = rt.width();
             let a = self.operand(x, n, inp)?;
             let b = self.operand(y, n, inp)?;
-            let r = match op {
-                BinOp::Add => a.wrapping_add(b),
-                BinOp::Sub => a.wrapping_sub(b),
-                BinOp::Mul => a.wrapping_mul(b),
-                BinOp::And => a & b,
-                BinOp::Or => a | b,
-                BinOp::Xor => a ^ b,
-                _ => unreachable!(),
-            };
-            return Some(r & mask(n));
+            let signed = matches!(rt, Ty::Int { signed: true, .. });
+            return match op {
+                BinOp::And => Some(a & b),
+                BinOp::Or => Some(a | b),
+                BinOp::Xor => Some(a ^ b),
+                _ => Self::arith_bits(op, a, b, n, signed),
+            }
+            .map(|r| r & mask(n));
         }
         if op.is_shift() {
             let w = tx.width();
@@ -758,17 +827,12 @@ impl Model<'_> {
             return Ok(None);
         }
         let mut tags = 0;
-        let mut lits = 0;
+        let mut lits = Vec::new();
         for side in [x, y] {
             let t = self.synth(side)?;
             tags |= t.tags;
             match t.ty {
-                Ty::Lit(v) => {
-                    lits += 1;
-                    if !fits(v, w, signed) {
-                        return Err(Reject::Invalid("E2010"));
-                    }
-                }
+                Ty::Lit(v) => lits.push(v),
                 Ty::Int { signed: s, hi, .. } if s == signed && hi <= w => {
                     if let Expr::Bin(inner, ..) = &**side {
                         if inner.is_arith() && hi < w {
@@ -779,11 +843,22 @@ impl Model<'_> {
                 _ => return Ok(None),
             }
         }
-        if lits == 2 {
+        // İki yan da literal: itme yok, literal aritmetiği (#144) sentez
+        // yolunda tam değerle katlanır; yaprakların hedefe sığması gerekmez.
+        if lits.len() == 2 {
             return Ok(None);
+        }
+        if lits.iter().any(|&v| !fits(v, w, signed)) {
+            return Err(Reject::Invalid("E2010"));
         }
         if *op == BinOp::Sub && !signed {
             tags |= tag::UNSIGNED_SUB;
+        }
+        if op.is_div() && signed {
+            tags |= tag::SIGNED_DIV;
+            if *op == BinOp::Div {
+                tags |= tag::DIV_OVERFLOW;
+            }
         }
         Ok(Some(tags))
     }
@@ -836,13 +911,7 @@ impl Model<'_> {
                     };
                     let a = self.operand(x, w, inp)?;
                     let b = self.operand(y, w, inp)?;
-                    let r = match op {
-                        BinOp::Add => a.wrapping_add(b),
-                        BinOp::Sub => a.wrapping_sub(b),
-                        BinOp::Mul => a.wrapping_mul(b),
-                        _ => unreachable!(),
-                    };
-                    return Some(r & mask(w));
+                    return Self::arith_bits(*op, a, b, w, signed);
                 }
                 let t = self.synth(e).ok()?.ty;
                 let v = self.eval(e, inp)?;
@@ -1024,6 +1093,75 @@ mod tests {
         assert_eq!(m().eval(&wide, &inp), Some(0xF80));
         let u = E::cast(p(3), PortTy::UInt(8));
         assert_eq!(m().eval(&u, &inp), Some(0x80));
+    }
+
+    /// const-eval.md §1, §4 (#144): literal aritmetiği tam değer; `/` ve
+    /// `%` sıfıra doğru; bölen 0 E2023; sonuç karşı yanın ya da hedefin
+    /// tipine sığmalı (E2010).
+    #[test]
+    fn literal_arithmetic_is_exact_and_must_fit() {
+        let div = E::bin(BinOp::Div, lit(7), lit(3));
+        assert_eq!(ty(&div), Ok(Ty::Lit(2)));
+        assert_eq!(ty(&E::bin(BinOp::Rem, lit(5), lit(3))), Ok(Ty::Lit(2)));
+        let neg9 = E::un(UnOp::Neg, lit(9));
+        assert_eq!(
+            ty(&E::bin(BinOp::Div, neg9.clone(), lit(2))),
+            Ok(Ty::Lit(-4))
+        );
+        assert_eq!(ty(&E::bin(BinOp::Rem, neg9, lit(4))), Ok(Ty::Lit(-1)));
+        let wide = E::bin(BinOp::Div, E::bin(BinOp::Mul, lit(100), lit(3)), lit(150));
+        assert_eq!(ty(&wide), Ok(Ty::Lit(2)));
+        assert_eq!(
+            ty(&E::bin(
+                BinOp::Div,
+                lit(1),
+                E::bin(BinOp::Sub, lit(2), lit(2))
+            )),
+            Err(Reject::Invalid("E2023"))
+        );
+        assert_eq!(m().check(&div, PortTy::UInt(2)), Ok(0));
+        let seven = E::bin(BinOp::Add, lit(5), lit(2));
+        assert_eq!(
+            m().check(&seven, PortTy::UInt(2)),
+            Err(Reject::Invalid("E2010"))
+        );
+        // p6 : u3; 7 / 3 u3'e uyarlanır.
+        let mut inp = vec![0u128; PORTS.len()];
+        inp[6] = 2;
+        let eq = E::bin(BinOp::Eq, p(6), div.clone());
+        assert_eq!(m().eval(&eq, &inp), Some(1));
+        let out = E::bin(BinOp::Add, p(6), E::bin(BinOp::Add, lit(6), lit(2)));
+        assert_eq!(ty(&out), Err(Reject::Invalid("E2010")));
+    }
+
+    /// §3.3: `/` ve `%` genişlemez; çalışma zamanında bölen 0 x'tir
+    /// (karşılaştırılmaz). İşaretli: A13 (sıfıra doğru), A14 (MIN / -1).
+    #[test]
+    fn runtime_division_and_remainder() {
+        let mut inp = vec![0u128; PORTS.len()];
+        inp[0] = 200;
+        inp[1] = 7;
+        let div = E::bin(BinOp::Div, p(0), p(1));
+        let rem = E::bin(BinOp::Rem, p(0), p(1));
+        assert_eq!(ty(&div), Ok(Ty::int(false, 8)));
+        assert_eq!(m().eval(&div, &inp), Some(28));
+        assert_eq!(m().eval(&rem, &inp), Some(4));
+        inp[1] = 0;
+        assert_eq!(m().eval(&div, &inp), None);
+        assert_eq!(m().eval(&rem, &inp), None);
+        // p3 : i8. -7 / 2 = -3, -7 % 2 = -1; -128 / -1 sarar: -128.
+        let sdiv = E::bin(BinOp::Div, p(3), lit(2));
+        let srem = E::bin(BinOp::Rem, p(3), lit(2));
+        inp[3] = (-7i128 as u128) & 0xFF;
+        assert_eq!(m().eval(&sdiv, &inp), Some(0xFD));
+        assert_eq!(m().eval(&srem, &inp), Some(0xFF));
+        let t = m().synth(&sdiv).unwrap().tags;
+        assert_ne!(t & tag::SIGNED_DIV, 0);
+        inp[3] = 0x80;
+        let min = E::bin(BinOp::Div, p(3), E::un(UnOp::Neg, lit(1)));
+        assert_eq!(m().eval(&min, &inp), Some(0x80));
+        // ADR-0041: check kipinde i12 hedefte işlem i12'de: -128 / -1 = 128.
+        assert_eq!(m().eval_check(&min, PortTy::SInt(12), &inp), Some(128));
     }
 
     #[test]

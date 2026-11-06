@@ -385,6 +385,73 @@ pub fn all() -> Vec<Regression> {
         // gölgeler. 85 ^ 170 = 255; 5 ^ 7 = 2 (#130'da 170, 7).
         .pin(&[85, 170], 255)
         .pin(&[5, 7], 2),
+        // ── Literal aritmetiği tam değerle katlanır (#144) ──
+        // Listenin sonunda: #130'un iki örneğinin kimlikleri (25, 26) kaymaz.
+        r(
+            "#144",
+            "literal division compared with a narrow signal",
+            vec![UInt(2)],
+            bin(BinOp::Eq, p(0), bin(BinOp::Div, lit(7), lit(3))),
+        )
+        // `p0 == 7 / 3`, p0 : u2. type-inference §3.3: iki literalin
+        // aritmetiği literaldir; const-eval §1, §4: değeri i128'de tam, 7 / 3
+        // = 2 (sıfıra doğru). §4 ve ADR-0106 §1: literal karşı yanın tipine
+        // (u2) uyarlanır, 2 sığar. p0 = 2'de doğru, 1'de yanlış. (#144'te SV
+        // `p0 == 2'h3 / 2'd3`: sağ yan 1.)
+        .pin(&[2], 1)
+        .pin(&[1], 0),
+        r(
+            "#144",
+            "literal remainder as the bound of an ordering comparison",
+            vec![UInt(2)],
+            bin(BinOp::Lt, p(0), bin(BinOp::Rem, lit(5), lit(3))),
+        )
+        // `p0 < 5 % 3`: 5 % 3 = 2 (const-eval §4 `checked_rem`), u2'ye
+        // sığar. p0 = 1'de doğru, 2'de yanlış (#144'te sağ yan 1: 1 < 1
+        // yanlış).
+        .pin(&[1], 1)
+        .pin(&[2], 0),
+        r(
+            "#144",
+            "literal division as a bitwise operand",
+            vec![UInt(2)],
+            bin(BinOp::And, p(0), bin(BinOp::Div, lit(7), lit(3))),
+        )
+        // `p0 & (7 / 3)`: literal u2'ye uyarlanır (§3.3 bit işlemi), değeri
+        // 2: 3 & 2 = 2; 1 & 2 = 0. (#144'te `p0 & 2'h3 / 2'd3` = p0 & 1.)
+        .pin(&[3], 2)
+        .pin(&[1], 0),
+        r(
+            "#144",
+            "intermediate value of literal arithmetic wider than the context",
+            vec![UInt(2)],
+            bin(
+                BinOp::Add,
+                p(0),
+                bin(BinOp::Div, bin(BinOp::Mul, lit(100), lit(3)), lit(150)),
+            ),
+        )
+        // `p0 + 100 * 3 / 150`: ara değer 300 hiçbir dar tipe sığmaz ama
+        // kesilmez (const-eval §1); 300 / 150 = 2, u2'ye sığar. Toplam u3
+        // (§3.3: u2 + u2 → u3): 1 + 2 = 3, 3 + 2 = 5. (#144'te literaller u3
+        // bağlamına kesiliyordu: 3'h4 * 3'd3 / 3'h6.)
+        .pin(&[1], 3)
+        .pin(&[3], 5),
+        r(
+            "#144",
+            "signed literal division compared with a signed signal",
+            vec![SInt(4)],
+            bin(
+                BinOp::Eq,
+                p(0),
+                bin(BinOp::Div, Expr::un(UnOp::Neg, lit(9)), lit(2)),
+            ),
+        )
+        // `p0 == -9 / 2`, p0 : i4. -9 i4'e (-8..=7) sığmaz ama ara değerdir;
+        // -9 / 2 = -4 (const-eval §4 `checked_div`, sıfıra doğru), i4'e sığar.
+        // p0 = -4'te doğru, -5'te yanlış. (#144'te `4'sh7 / 4'sd2` = 3.)
+        .pin(&[-4], 1)
+        .pin(&[-5], 0),
     ]
 }
 

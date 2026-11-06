@@ -445,3 +445,64 @@ DFG optimizasyonunun yanlış derlemesi. Düzeltme dalının dört parçasında 
 
 Sınırlar: modül düzeyi çağrının ikame kipi (`comb` içinde açılım) ve tel
 kipi (modül düzeyi) artık ikisi de sınanır; `on` bloğu sınanmaz.
+
+## Ek: `/` ve `%`, literal aritmetiği (#144, 2026-11-06)
+
+#144'ü (yalnız literal içeren aritmetik, her literal bağlam genişliğine
+kesilerek SV'ye yazılıyordu: u2'de `7 / 3` = 1) fark testi yakalamadı
+(#125): üreteç `/` ve `%` üretmiyordu, model iki literalin aritmetiğini
+"unspecified" sayıyordu (`literal-literal arithmetic`) ve `+ - *`'da
+kesme sonucu değiştirmez. Bu ek ikisini de kapsama alır. Önceki karar
+metni (§1–§6) değişmedi.
+
+**Model (şartnameden).**
+
+- §3.3: `/` ve `%` genişlemez; esnek işlenende sonucun doğal genişliği
+  kesişimin üst ucudur (`+ - *` ile aynı buluşma, ADR-0025).
+- İki literalin aritmetiği literaldir (§3.3) ve değeri derleme zamanında
+  `i128`'de tam hesaplanır (const-eval.md §1); ara değerler kesilmez.
+  const-eval.md §4: `checked_*` taşması E2022, bölen 0 E2023, `/` ve `%`
+  sıfıra doğru. Literal ifadesinin değeri karşı yanın ya da hedefin tipine
+  sığmalı (§4, E2010); karşılaştırmada ADR-0106 §1, §2.
+- Check kipinde itme (ADR-0041; type-inference.md §5 "`+ - * / %`") `/`
+  ve `%`'yi de hedef genişlikte yapar. Modelin `push`'u iki literal
+  işlenende yaprakların hedefe sığmasını istiyordu; derleyicinin
+  `widen_operands`'ı gibi önce iki yanın literal olup olmadığına bakar
+  (itme yok, değer katlanır).
+- Çalışma zamanında bölen 0: değer SV'de x'tir, model karşılaştırmaz
+  (`eval` `None`; G biçimi o ifadede düşer). Şartname tanımlamıyor: #122.
+
+Yeni varsayım etiketleri ("Spesifikasyon belirsizlikleri" tablosunun
+devamı; #122):
+
+| Kimlik | Okuma | Şartnamenin söylediği |
+|---|---|---|
+| A13 | çalışma zamanında işaretli `/` sıfıra doğru keser, `%` bölünenin işaretini alır | const-eval.md §4 derleme anını (`checked_div`, `checked_rem`) tanımlar; çalışma zamanını söylemez |
+| A14 | `iN::MIN / -1` sonucun genişliğinde sarar (`iN::MIN`) | §3.3 "bölme/mod genişlemez"; taşmayı söylemez |
+
+**Üreteç.**
+
+- Aritmetik düğüm `+ - * / %` arasından seçer (genişlik 32'yi aşınca
+  `*` yok).
+- İşlenen çiftinin ikinci yanı (%10) ve karşılaştırmanın literal yanı
+  (%10) bir literal aritmetiği ağacıdır (`lit_expr`): değeri bağlamın
+  aralığına sığar, yaprakları bilerek geniştir. `/` ve `%` ağırlıklı
+  (`a / b == q` için `a = q·b + r`, `a % b == q` için `a = ±m·|b| + q`),
+  derinlik en çok 2. Yaprakları bağlam genişliğine kesen derleyici `/` ve
+  `%`'de yanlış değer verir; `+ - *`'da kesme sonucu değiştirmez, onların
+  hatası sığmayan sonucun kabulüdür.
+- İki yeni geçersiz biçim: değeri karşı yanın tipine sığmayan literal
+  ağacı (aritmetik, bit işlemi ve karşılaştırmada; E2010) ve sıfır bölenli
+  literal bölmesi ya da kalanı (`k / (z - z)`, E2023).
+- Üst düzeyde literal ifadesi üretilmez: çıkışın tipi ifadenin doğal
+  tipidir, literalin doğal tipi yoktur (`untyped literal expression`).
+  Literal aritmetiği işlenen ve karşılaştırma konumlarında sınanır.
+
+**Regresyon kümesi.** #144'ün beş örneği (kimlik 27–31), hepsi elle
+hesaplanmış değerli: `p0 == 7 / 3` ve `p0 < 5 % 3` (u2), `p0 & (7 / 3)`,
+`p0 + 100 * 3 / 150` (ara değer 300) ve işaretli `p0 == -9 / 2` (i4; -9
+i4'e sığmaz, -4 sığar). #130'un örnekleri (25, 26) kaymadı.
+
+Sınırlar: bit işlemi, kaydırma ve dönüşümde iki literalli biçimler
+(`7 | 1`, `6 >> 1`, `(7 / 3) as u8`) model için hâlâ unspecified
+(#122); üreteç onları üretmez.

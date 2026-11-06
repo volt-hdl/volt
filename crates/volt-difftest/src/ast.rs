@@ -59,6 +59,8 @@ pub enum BinOp {
     Add,
     Sub,
     Mul,
+    Div,
+    Rem,
     And,
     Or,
     Xor,
@@ -78,6 +80,8 @@ impl BinOp {
             BinOp::Add => "+",
             BinOp::Sub => "-",
             BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Rem => "%",
             BinOp::And => "&",
             BinOp::Or => "|",
             BinOp::Xor => "^",
@@ -102,12 +106,20 @@ impl BinOp {
             BinOp::And => 7,
             BinOp::Shl | BinOp::Shr => 8,
             BinOp::Add | BinOp::Sub => 9,
-            BinOp::Mul => 10,
+            BinOp::Mul | BinOp::Div | BinOp::Rem => 10,
         }
     }
 
     pub fn is_arith(self) -> bool {
-        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul)
+        matches!(
+            self,
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+        )
+    }
+
+    /// `/` ya da `%`: genişlemez (type-inference.md §3.3).
+    pub fn is_div(self) -> bool {
+        matches!(self, BinOp::Div | BinOp::Rem)
     }
 
     pub fn is_bitwise(self) -> bool {
@@ -134,7 +146,7 @@ impl BinOp {
             BinOp::Gt => Some(BinOp::Lt),
             BinOp::Le => Some(BinOp::Ge),
             BinOp::Ge => Some(BinOp::Le),
-            BinOp::Sub | BinOp::Shl | BinOp::Shr => None,
+            BinOp::Sub | BinOp::Div | BinOp::Rem | BinOp::Shl | BinOp::Shr => None,
         }
     }
 
