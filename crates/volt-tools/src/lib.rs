@@ -24,6 +24,23 @@ pub use probe::{probe_version, Probe, DEFAULT_TIMEOUT};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// Volt'un Verilator'ı derleme ve simülasyon için çağırdığı her yerde
+/// eklenen seçenekler — tek tanım (#148; ADR-0107, "Ek: DFG kapalı").
+///
+/// `-fno-dfg`: Verilator 5.052'nin (Docker arka ucunun ve CI'ın sabitlenmiş
+/// sürümü) ve 5.053 devel'in DFG eniyileyicisi doğru SV'yi yanlış derler:
+/// karşılaştırmaları geniş bir birleştirmeye `(a >= b) << 31` diye gömer ve
+/// C++'ın işaretli kaydırması işaret bitini komşu alanlara yayar (#145,
+/// #148). Kullananlar: `volt test`, `volt run` ve `volt test --waves`
+/// (yerel ve Docker, `volt-driver` `sim/verilator.rs`), fark testinin
+/// koşucusu (`volt-difftest`, `Tools::verilator_flags`), hakem kanaryası.
+/// `--lint-only` çağrıları eniyileme yapmaz, bayrak almaz.
+///
+/// Kaldırma ölçütü (ADR-0107 eki): hata Verilator'da düzeltilir, sabitlenen
+/// sürüm o düzeltmeyi içerir ve iki kanarya (`verilator_canary_tests`) bu
+/// liste boşken geçer.
+pub const VERILATOR_BUILD_FLAGS: &[&str] = &["-fno-dfg"];
+
 /// Volt'un tanıdığı dış araçlar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {

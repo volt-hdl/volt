@@ -22,6 +22,54 @@ use crate::value::mask;
 pub struct Tools {
     pub volt: PathBuf,
     pub verilator: PathBuf,
+    /// Volt'un Verilator'a her derlemede verdiği seçenekler (#148:
+    /// `-fno-dfg`). Bu crate `volt-*`'a bağlanmaz (ADR-0108 §1); çağıran
+    /// `volt_tools::VERILATOR_BUILD_FLAGS`'ı verir, hakem `volt test`'le
+    /// aynı Verilator yapılandırmasıyla ölçer.
+    pub verilator_flags: Vec<String>,
+}
+
+/// Verilator'ın fark testindeki komut satırı: `tb.sv` + test modülü,
+/// `--binary`, DFG Volt'un seçeneklerine bağlı (`flags`), `-O0`.
+fn verilator_args(flags: &[String], rel_sv: &str) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--binary",
+        "--timing",
+        "--assert",
+        "-Wall",
+        "-Wno-fatal",
+        "-Wno-DECLFILENAME",
+        "--top-module",
+        "tb",
+        "-Mdir",
+        "obj",
+        "-o",
+        "vtb",
+        "-j",
+        "2",
+        "-CFLAGS",
+        "-O0",
+    ]
+    .map(String::from)
+    .to_vec();
+    args.extend(flags.iter().cloned());
+    args.extend(
+        [
+            "tb.sv",
+            rel_sv,
+            // R biçiminin çağıran generic modülleri ayrı dosyalarda
+            // (`R<id>r_<argümanlar>.sv`, hygiene.rs): Verilator onları
+            // örnek adından bulur. `tb.sv`'nin `timescale`'i komut
+            // satırındaki sonraki dosyaya geçer, kitaplıktan yüklenene
+            // geçmez (TIMESCALEMOD): varsayılan aynı birim.
+            "-y",
+            "build/rtl",
+            "--timescale",
+            "1ns/1ps",
+        ]
+        .map(String::from),
+    );
+    args
 }
 
 #[derive(Clone, Debug)]
@@ -877,36 +925,11 @@ impl<'a> Runner<'a> {
             std::fs::write(dir.join(format!("vec{ci}.hex")), text).expect("vec.hex");
         }
         let rel_sv = format!("build/rtl/{}.sv", crate::harness::MODULE);
-        let (ok, vout, verr) =
-            run_cmd(Command::new(&self.tools.verilator).current_dir(dir).args([
-                "--binary",
-                "--timing",
-                "--assert",
-                "-Wall",
-                "-Wno-fatal",
-                "-Wno-DECLFILENAME",
-                "--top-module",
-                "tb",
-                "-Mdir",
-                "obj",
-                "-o",
-                "vtb",
-                "-j",
-                "2",
-                "-CFLAGS",
-                "-O0",
-                "tb.sv",
-                &rel_sv,
-                // R biçiminin çağıran generic modülleri ayrı dosyalarda
-                // (`R<id>r_<argümanlar>.sv`, hygiene.rs): Verilator onları
-                // örnek adından bulur. `tb.sv`'nin `timescale`'i komut
-                // satırındaki sonraki dosyaya geçer, kitaplıktan yüklenene
-                // geçmez (TIMESCALEMOD): varsayılan aynı birim.
-                "-y",
-                "build/rtl",
-                "--timescale",
-                "1ns/1ps",
-            ]));
+        let (ok, vout, verr) = run_cmd(
+            Command::new(&self.tools.verilator)
+                .current_dir(dir)
+                .args(verilator_args(&self.tools.verilator_flags, &rel_sv)),
+        );
         let vtext = format!("{vout}{verr}");
         let msgs = verilator_msgs(&vtext);
         let by_id = |id: usize| active.iter().copied().find(|i| b.cases[*i].id == id);
@@ -1287,6 +1310,18 @@ mod tests {
     fn parses_short_diagnostics() {
         let t = "dt.volt:17:10: error[E2001]: bit width mismatch\ndt.volt:3:1: warning[W4001]: unused\n";
         assert_eq!(volt_errors(t), vec![(17, "E2001".to_string())]);
+    }
+
+    #[test]
+    fn verilator_command_carries_the_callers_flags() {
+        // #148: hakem `volt test`'in Verilator seçenekleriyle derler.
+        let flags = vec!["-fno-dfg".to_string()];
+        let args = verilator_args(&flags, "build/rtl/Dt.sv");
+        assert!(args.iter().any(|a| a == "-fno-dfg"), "{args:?}");
+        assert!(args.iter().any(|a| a == "--binary"), "{args:?}");
+        assert!(args.iter().any(|a| a == "build/rtl/Dt.sv"), "{args:?}");
+        let none = verilator_args(&[], "build/rtl/Dt.sv");
+        assert_eq!(none.len() + 1, args.len());
     }
 
     #[test]

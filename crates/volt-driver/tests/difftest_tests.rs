@@ -32,6 +32,11 @@ fn volt_expressions_match_the_reference_model_in_verilator() {
     let tools = volt_difftest::Tools {
         volt: env!("CARGO_BIN_EXE_volt").into(),
         verilator,
+        // #148: hakem `volt test`'in Verilator seçenekleriyle derler.
+        verilator_flags: volt_tools::VERILATOR_BUILD_FLAGS
+            .iter()
+            .map(|f| (*f).to_string())
+            .collect(),
     };
     let report = volt_difftest::run(&cfg, &tools, &work);
     let text = report.render();
