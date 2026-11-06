@@ -175,6 +175,45 @@ fn ui_fail_220_223_compare_width_e2031() {
 }
 
 #[test]
+fn ui_fail_230_236_240_literal_arithmetic_out_of_range_e2010() {
+    // #144: literal aritmetiği tam değerle katlanır ve sonucu beklenen
+    // tipe sığmalı (type-inference.md §3.3, §4; const-eval.md §1, §4):
+    // atama, karşılaştırma, negatif sonuç, tipli let, generic parametre,
+    // comb içi for değişkeni (aritmetikte ve çıplak, 240).
+    assert_ui_fail("fail/230_literal_arith_add_overflow.volt");
+    assert_ui_fail("fail/231_literal_arith_mul_overflow.volt");
+    assert_ui_fail("fail/232_literal_arith_comparison_overflow.volt");
+    assert_ui_fail("fail/233_literal_arith_negative_in_unsigned.volt");
+    assert_ui_fail("fail/234_literal_arith_typed_let_overflow.volt");
+    assert_ui_fail("fail/235_literal_arith_generic_overflow.volt");
+    assert_ui_fail("fail/236_literal_arith_comb_for_overflow.volt");
+    assert_ui_fail("fail/240_comb_for_variable_out_of_range.volt");
+}
+
+#[test]
+fn ui_fail_237_239_literal_division_by_zero_e2023() {
+    // #144: literal aritmetiğinde sıfıra bölme ve sıfıra göre kalan
+    // E2023 (const-eval.md §4, §9, §12).
+    assert_ui_fail("fail/237_literal_division_by_zero.volt");
+    assert_ui_fail("fail/238_literal_remainder_by_zero.volt");
+    assert_ui_fail("fail/239_literal_division_by_zero_in_comb_for.volt");
+}
+
+#[test]
+fn ui_fail_241_literal_arithmetic_compile_time_overflow_e2022() {
+    // #144: literal aritmetiği 128 bitlik derleme zamanı aralığında
+    // hesaplanır; dışına çıkan çarpım E2022 (const-eval.md §1, §4).
+    assert_ui_fail("fail/241_literal_arith_compile_time_overflow.volt");
+}
+
+#[test]
+fn ui_fail_242_literal_arithmetic_trit_out_of_range_e2011() {
+    // #144: Trit hedefe uyarlanan literal aritmetiği -1, 0 ya da +1
+    // olmalı (type-inference.md §4, E2011).
+    assert_ui_fail("fail/242_literal_arith_trit_out_of_range.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");
@@ -338,7 +377,7 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #112: 134 bileşik değerden indexed part-select,
     // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
     //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede).
-    assert_eq!(checked, 122);
+    assert_eq!(checked, 123);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

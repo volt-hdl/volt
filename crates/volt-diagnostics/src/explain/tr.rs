@@ -388,10 +388,12 @@ extern module CounterWrap {   // ✓
         ),
         E2010 => Explanation::new(
             "Literal hedef tipe sığmıyor",
-            "Literalin değeri bu tipin temsil edebileceği aralığın dışında.",
-            "Bir u4 0..15 tutar; 200 atamak başka dillerde sessizce yalnız alt bitleri saklardı. Volt reddeder: ya tipi genişletin ya değeri düzeltin.",
-            "let x : u4 = 200        // ✗ E2010: u4 en fazla 15",
-            "let x : u8 = 200        // ✓",
+            "Literalin ya da literal aritmetiğinin değeri bu tipin temsil edebileceği aralığın dışında.",
+            "Bir u4 0..15 tutar; 200 atamak başka dillerde sessizce yalnız alt bitleri saklardı. Volt reddeder: ya tipi genişletin ya değeri düzeltin. Literal aritmetiği (5 + 2, generic N ile N / 3, döngü değişkeni i ile i * 2) derleme zamanında tam değerle hesaplanır ve sonuç aynı biçimde sığmalıdır; hedef genişliğe hiçbir zaman sarılmaz.",
+            "let x : u4 = 200        // ✗ E2010: u4 en fazla 15
+let y : u2 = 5 + 2      // ✗ E2010: 7 > 3",
+            "let x : u8 = 200        // ✓
+let y : u3 = 5 + 2      // ✓",
         ),
         E2011 => Explanation::new(
             "Geçersiz Trit literali",
@@ -454,10 +456,10 @@ extern module CounterWrap {   // ✓
         ),
         E2022 => Explanation::new(
             "Derleme zamanı taşması",
-            "Bu sabit ifadeyi hesaplamak tipini taşırıyor.",
-            "Sabit değerlendirme, bildirilen tipin kesin aralığını — donanımın sahip olacağı aynı aralığı — kullanır. Derleme zamanındaki taşma, değerin donanımda asla var olamayacağı anlamına gelir; sessiz sarmalama değil, hatadır.",
-            "const X : u8 = 250 + 10;    // ✗ E2022: 260 > 255",
-            "const X : u16 = 250 + 10;   // ✓",
+            "Bu sabit ifadeyi hesaplamak derleme zamanı aralığının dışına çıkıyor.",
+            "Sabit ifadeler, her Volt tam sayı tipinden geniş 128 bitlik bir aralıkta tam değerle hesaplanır; bildirilen tipe sığmayan sonuç E2010'dur. Bu aralığın da dışına çıkan bir ara değerin tam değeri yoktur; sessiz sarmalama değil, hatadır.",
+            "const X : u64 = 18446744073709551615 * 18446744073709551615  // ✗ E2022",
+            "const X : u64 = 18446744073709551615                         // ✓",
         ),
         E2023 => Explanation::new(
             "Sıfıra bölme",

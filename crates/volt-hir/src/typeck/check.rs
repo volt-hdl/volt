@@ -22,6 +22,9 @@ impl TypeChecker<'_, '_> {
         }
         let ast = self.ast;
         let span = ast.exprs[expr].span;
+        // #144: literal aritmetiği tam değerle katlanır, değer hedefe
+        // sığmalı (E2010). Tip kaydı aşağıdaki olağan yoldan geçer.
+        self.check_literal_expr(expr, expected);
         match &ast.exprs[expr].kind {
             ExprKind::IntLit {
                 value,

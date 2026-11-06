@@ -122,6 +122,32 @@ fn is_arith(op: BinOp) -> bool {
     )
 }
 
+/// İki literalin aritmetiği, `i128`'de (const-eval.md §4 `checked_*`);
+/// taşma ya da bölen 0 `None`. Aritmetik olmayan işleç de `None`.
+fn literal_op(op: BinOp, l: i128, r: i128) -> Option<i128> {
+    match op {
+        BinOp::Add => l.checked_add(r),
+        BinOp::Sub => l.checked_sub(r),
+        BinOp::Mul => l.checked_mul(r),
+        BinOp::Div => l.checked_div(r),
+        BinOp::Rem => l.checked_rem(r),
+        BinOp::BitAnd
+        | BinOp::BitOr
+        | BinOp::BitXor
+        | BinOp::Shl
+        | BinOp::Shr
+        | BinOp::Eq
+        | BinOp::Ne
+        | BinOp::Lt
+        | BinOp::Gt
+        | BinOp::Le
+        | BinOp::Ge
+        | BinOp::And
+        | BinOp::Or
+        | BinOp::Imp => None,
+    }
+}
+
 fn is_comparison_or_logical(op: BinOp) -> bool {
     matches!(
         op,
@@ -143,6 +169,68 @@ impl<'a> Emitter<'a> {
     /// Derleme zamanı tam sayı değeri (i128 — negatif sabitler dahil).
     pub(crate) fn eval_const(&self, idx: Idx<Expr>) -> Option<i128> {
         self.eval_const_depth(idx, 0)
+    }
+
+    /// Literal aritmetiğinin tam değeri (#144; type-inference.md §3.3,
+    /// §4; const-eval.md §1, §4): yalnız soneksiz literal, döngü
+    /// değişkeni (`Res::Loop`) ve `+ - * / %`, tekli `-` taşıyan, en az bir
+    /// ikili aritmetik işlemli ağaç. Değer `i128`'de hesaplanır, ara
+    /// değerler kesilmez; `/` ve `%` sıfıra doğru. Sığma denetimi (E2010)
+    /// ve sıfıra bölme (E2023) tip denetiminindir; bölen 0 ya da taşma
+    /// `None` (ağaç olduğu gibi yazılır, tanı zaten verildi).
+    pub(crate) fn fold_literal_arith(&self, idx: Idx<Expr>) -> Option<i128> {
+        if !self.has_literal_binary(idx) {
+            return None;
+        }
+        self.literal_value(idx, 0)
+    }
+
+    /// Ağaçta (tekli `-`'lerin altında) bir ikili aritmetik işlem var mı.
+    fn has_literal_binary(&self, idx: Idx<Expr>) -> bool {
+        let kind = &self.ast.exprs[idx].kind;
+        if let ExprKind::Binary { op, .. } = kind {
+            return is_arith(*op);
+        }
+        if let ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } = kind
+        {
+            return self.has_literal_binary(*operand);
+        }
+        false
+    }
+
+    fn literal_value(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
+        if depth > MAX_CONST_DEPTH {
+            return None;
+        }
+        let kind = &self.ast.exprs[idx].kind;
+        if let ExprKind::IntLit { value, suffix, .. } = kind {
+            return suffix.is_none().then(|| i128::try_from(*value).ok())?;
+        }
+        if let ExprKind::Path(_) = kind {
+            return match self.resolve(idx) {
+                Res::Loop(v) => Some(v),
+                Res::Local(_) | Res::Module | Res::Const { .. } | Res::Unbound => None,
+            };
+        }
+        if let ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } = kind
+        {
+            return self.literal_value(*operand, depth + 1)?.checked_neg();
+        }
+        let ExprKind::Binary { op, lhs, rhs } = kind else {
+            return None;
+        };
+        if !is_arith(*op) {
+            return None;
+        }
+        let l = self.literal_value(*lhs, depth + 1)?;
+        let r = self.literal_value(*rhs, depth + 1)?;
+        literal_op(*op, l, r)
     }
 
     /// Derinlik sınırı: [`MAX_CONST_DEPTH`].
@@ -918,7 +1006,16 @@ impl<'a> Emitter<'a> {
                 None => inner,
             };
         }
+        // #144: literal aritmetiği tam değeriyle katlanır ve bağlamın
+        // literali olarak yazılır; işlenenler ayrı ayrı kesilmez.
+        let folded = self.fold_literal_arith(idx);
         let (text, my_prec) = match &ast.exprs[idx].kind {
+            _ if folded.is_some() => {
+                let value = folded.expect("koşul katlanmış değeri denetledi");
+                let text = self.fmt_int(value, NumBase::Dec, ctx, span);
+                let prec = lit_prec(&text);
+                (text, prec)
+            }
             ExprKind::IntLit {
                 value,
                 suffix,

@@ -1,0 +1,423 @@
+//! Literal aritmetiğinin katlanması (#144).
+//!
+//! Yalnız soneksiz literallerden, blok içi `for` değişkenlerinden ve
+//! aritmetik işleçlerden (`+ - * / %`, tekli `-`) oluşan ifade bir literal
+//! ifadesidir. Tipi `IntLit`'tir (type-inference.md §3.3: iki literalin
+//! aritmetiği "hâlâ literal"), değeri derleme zamanında hesaplanır. Hesap
+//! const-eval.md §1'in hassasiyetindedir: tam sayı `i128`'de "geniş
+//! tutulur, sığdırma sonra kontrol edilir"; ara değerler kesilmez. §4'ün
+//! kuralları: taşma hatadır (E2022), sıfıra bölme ve sıfıra göre kalan
+//! E2023'tür (`DivisionByZero`), `/` ve `%` sıfıra doğru keser
+//! (`checked_div`, `checked_rem`).
+//!
+//! Literal ifadesi beklenen somut tipe uyarlanırken (§4 check kipi:
+//! atama, tipli `let`, karşılaştırmanın ve aritmetiğin karşı yanı) değeri
+//! o tipe sığmalıdır; sığmazsa E2010 (const-eval.md §4 gerekçesi: `const X
+//! : u8 = 200 + 100; // ✗ E2010`). Üretici aynı değeri yazar
+//! (volt-sv-emit `fold_literal_arith`).
+//!
+//! Generic parametreler ve modül düzeyi `for` değişkenleri ayrıştırıcıda
+//! literale dönüşür (ADR-0041, ADR-0056); burada literaldirler. Blok içi
+//! `for` değişkeninin değeri sınırlarından gelir (`loop_bounds`,
+//! const-eval.md §8): ifade her yinelemenin değeriyle denetlenir.
+
+use volt_ast::{BinOp, Expr, ExprKind, Idx, UnOp};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
+use volt_span::Span;
+
+use super::TypeChecker;
+use crate::resolve::DefId;
+use crate::ty::{Ty, TypeId};
+
+/// Döngü değişkeni değerlerinin denetlenen en çok bileşimi. Blok içi
+/// döngüler açılım sınırının (E2027) altındadır; iç içe döngülerin çarpımı
+/// bu sınırı aşarsa denetim yapılmaz (değer üretici tarafında yine tam
+/// değerdir).
+const MAX_ASSIGNMENTS: u64 = 1 << 16;
+
+/// Değerlendirme hatası.
+enum Fault {
+    /// Bölen 0 (raporu `check_literal_divisor` verir).
+    DivZero,
+    /// `i128` taşması (const-eval.md §4 `checked_*`).
+    Overflow(Span),
+}
+
+/// Blok içi döngü değişkeni ve `[start, end)` sınırı.
+type LoopVar = (DefId, u32, u32);
+
+/// Döngü değişkenlerinin bir yinelemedeki değerleri.
+type Env = Vec<(DefId, i128)>;
+
+/// Sığmayan ya da taşan ilk yineleme.
+enum Finding {
+    OutOfRange(i128, Env),
+    Overflow(Span, Env),
+}
+
+impl TypeChecker<'_, '_> {
+    /// `expr` literal ifadesiyse içindeki blok içi döngü değişkenleri.
+    /// Sınırı bilinmeyen döngü değişkeni, sonekli literal ya da başka her
+    /// biçim `None`.
+    fn literal_vars(&self, expr: Idx<Expr>) -> Option<Vec<LoopVar>> {
+        let mut vars = Vec::new();
+        self.collect_literal_vars(expr, &mut vars).then_some(vars)
+    }
+
+    fn collect_literal_vars(&self, expr: Idx<Expr>, vars: &mut Vec<LoopVar>) -> bool {
+        let kind = &self.ast.exprs[expr].kind;
+        if let ExprKind::IntLit { suffix, .. } = kind {
+            return suffix.is_none();
+        }
+        if let ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } = kind
+        {
+            return self.collect_literal_vars(*operand, vars);
+        }
+        if let ExprKind::Binary { op, lhs, rhs } = kind {
+            return is_arith(*op)
+                && self.collect_literal_vars(*lhs, vars)
+                && self.collect_literal_vars(*rhs, vars);
+        }
+        let Some((def, start, end)) = self.bounded_loop_var(expr) else {
+            return false;
+        };
+        if !vars.iter().any(|v| v.0 == def) {
+            vars.push((def, start, end));
+        }
+        true
+    }
+
+    /// İfade, sınırları bilinen blok içi döngü değişkeniyse kimliği ve
+    /// `[start, end)` sınırı.
+    fn bounded_loop_var(&self, expr: Idx<Expr>) -> Option<LoopVar> {
+        let ExprKind::Path(path) = &self.ast.exprs[expr].kind else {
+            return None;
+        };
+        let [seg] = path.segments.as_slice() else {
+            return None;
+        };
+        let def = *self.res.use_spans.get(&seg.span)?;
+        let &(start, end) = self.loop_bounds.get(&def)?;
+        Some((def, start, end))
+    }
+
+    /// Literal ifadesinin değeri; döngü değişkenleri `env`'den.
+    fn eval_literal(&self, expr: Idx<Expr>, env: &[(DefId, i128)]) -> Result<i128, Fault> {
+        let e = &self.ast.exprs[expr];
+        if let ExprKind::IntLit { value, .. } = &e.kind {
+            return i128::try_from(*value).map_err(|_| Fault::Overflow(e.span));
+        }
+        if let ExprKind::Unary { operand, .. } = &e.kind {
+            return self
+                .eval_literal(*operand, env)?
+                .checked_neg()
+                .ok_or(Fault::Overflow(e.span));
+        }
+        if let ExprKind::Binary { op, lhs, rhs } = &e.kind {
+            let l = self.eval_literal(*lhs, env)?;
+            let r = self.eval_literal(*rhs, env)?;
+            if matches!(op, BinOp::Div | BinOp::Rem) && r == 0 {
+                return Err(Fault::DivZero);
+            }
+            return literal_op(*op, l, r).ok_or(Fault::Overflow(e.span));
+        }
+        // `literal_vars` yalnız sınırı bilinen döngü değişkenini geçirir;
+        // değeri ortamdadır.
+        let (def, ..) = self
+            .bounded_loop_var(expr)
+            .expect("literal_vars yalnız literal biçimleri geçirir");
+        Ok(env
+            .iter()
+            .find(|(d, _)| *d == def)
+            .map(|(_, v)| *v)
+            .expect("döngü değişkeni ortamda"))
+    }
+
+    /// Döngü değişkenlerinin her değer bileşimi için `f`; `f` `false`
+    /// dönerse durur. Bileşim sayısı [`MAX_ASSIGNMENTS`]'ı aşarsa hiç
+    /// çağrılmaz.
+    fn for_each_assignment(&self, vars: &[LoopVar], mut f: impl FnMut(&[(DefId, i128)]) -> bool) {
+        let total = vars.iter().try_fold(1u64, |acc, &(_, s, e)| {
+            acc.checked_mul(u64::from(e.saturating_sub(s)))
+        });
+        if total.is_none_or(|t| t > MAX_ASSIGNMENTS) {
+            return;
+        }
+        if vars.iter().any(|&(_, s, e)| s >= e) {
+            return; // boş döngü: gövde hiç açılmaz
+        }
+        let mut env: Env = vars.iter().map(|&(d, s, _)| (d, i128::from(s))).collect();
+        loop {
+            if !f(&env) {
+                return;
+            }
+            // Sayaç gibi ilerlet: son değişken en hızlı.
+            let mut k = vars.len();
+            loop {
+                if k == 0 {
+                    return;
+                }
+                k -= 1;
+                env[k].1 += 1;
+                if env[k].1 < i128::from(vars[k].2) {
+                    break;
+                }
+                env[k].1 = i128::from(vars[k].1);
+            }
+        }
+    }
+
+    /// Check kipi (§4): `expr` literal ifadesiyse (en az bir aritmetik
+    /// işlem ya da döngü değişkeni taşıyan) değeri `expected`'a sığmalı;
+    /// sığmazsa E2010, `i128` taşması E2022. Çıplak literal ve `-literal`
+    /// `check_int_lit`'in yoludur; sıfıra bölmeyi sentez yolu bildirir
+    /// (`check_literal_divisor`), üst düzey `const`'ın taşmasını const-eval.
+    pub(super) fn check_literal_expr(&mut self, expr: Idx<Expr>, expected: TypeId) {
+        let kind = &self.ast.exprs[expr].kind;
+        let compound = match kind {
+            ExprKind::Binary { op, .. } => is_arith(*op),
+            ExprKind::Unary {
+                op: UnOp::Neg,
+                operand,
+            } => !matches!(self.ast.exprs[*operand].kind, ExprKind::IntLit { .. }),
+            ExprKind::Path(_) => true,
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
+        };
+        if !compound {
+            return;
+        }
+        let Some((min, max)) = self.literal_range(expected) else {
+            return;
+        };
+        let Some(vars) = self.literal_vars(expr) else {
+            return;
+        };
+        let in_const = self.in_const_item;
+        let mut found: Option<Finding> = None;
+        self.for_each_assignment(&vars, |env| {
+            let value = self.eval_literal(expr, env);
+            if let Ok(v) = value {
+                if (min..=max).contains(&v) {
+                    return true;
+                }
+                found = Some(Finding::OutOfRange(v, env.to_vec()));
+            } else if let Err(Fault::Overflow(at)) = value {
+                // Üst düzey `const`'ın taşmasını const-eval bildirir.
+                if !in_const {
+                    found = Some(Finding::Overflow(at, env.to_vec()));
+                }
+            }
+            // Sıfıra bölme sentez yolunda raporlanır.
+            false
+        });
+        let span = self.ast.exprs[expr].span;
+        let (diag, env) = match found {
+            None => return,
+            Some(Finding::OutOfRange(value, env)) => (
+                self.literal_out_of_range(value, expected, min, max, span),
+                env,
+            ),
+            Some(Finding::Overflow(at, env)) => (
+                Diagnostic::error(
+                    ErrorCode::E2022,
+                    lstr!(en: "compile-time overflow in a literal expression"; tr: "literal ifadesinde derleme zamanı taşması"),
+                    LabeledSpan::primary(
+                        at,
+                        lstr!(en: "the value exceeds the 128-bit compile-time range"; tr: "değer 128 bitlik derleme zamanı aralığını aşıyor"),
+                    ),
+                    lstr!(en: "use smaller literals"; tr: "daha küçük literaller kullanın"),
+                ),
+                env,
+            ),
+        };
+        let diag = self.with_loop_values(diag, &vars, &env);
+        self.push_once(diag);
+    }
+
+    /// Sentez yolu: iki yanı literal olan `/` ve `%`'nin böleni bir
+    /// yinelemede 0 ise E2023 (const-eval.md §4 `DivisionByZero`, §12
+    /// `1 / 0`). Bölünen değerlendirilmez: sıfıra bölme bölüneni
+    /// gerektirmez. Üst düzey `const`'ta tanıyı const-eval verir.
+    pub(super) fn check_literal_divisor(
+        &mut self,
+        op: BinOp,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        span: Span,
+    ) {
+        if !matches!(op, BinOp::Div | BinOp::Rem) || self.in_const_item {
+            return;
+        }
+        // Bölünen de literal ifadesi olmalı: `x / 0` çalışma zamanı bölmesidir.
+        let (Some(_), Some(rvars)) = (self.literal_vars(lhs), self.literal_vars(rhs)) else {
+            return;
+        };
+        let mut zero_at: Option<Env> = None;
+        self.for_each_assignment(&rvars, |env| {
+            if matches!(self.eval_literal(rhs, env), Ok(0)) {
+                zero_at = Some(env.to_vec());
+                return false;
+            }
+            true
+        });
+        let Some(env) = zero_at else {
+            return;
+        };
+        let message = if op == BinOp::Rem {
+            lstr!(en: "remainder by zero"; tr: "sıfıra göre kalan")
+        } else {
+            lstr!(en: "division by zero"; tr: "sıfıra bölme")
+        };
+        let diag = Diagnostic::error(
+            ErrorCode::E2023,
+            message,
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "the divisor is 0 at compile time"; tr: "bölen derleme zamanında 0"),
+            ),
+            lstr!(en: "make the divisor a nonzero constant"; tr: "böleni sıfırdan farklı bir sabit yapın"),
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(en: "literal arithmetic is evaluated at compile time; its result must be a number"; tr: "literal aritmetiği derleme zamanında hesaplanır; sonucu bir sayı olmalı"),
+        );
+        let diag = self.with_loop_values(diag, &rvars, &env);
+        self.push_once(diag);
+    }
+
+    /// Aynı ifade hem sentezlenip hem denetlenebilir (karşılaştırmanın ve
+    /// aritmetiğin literal yanı önce sentezlenir, sonra karşı tipe göre
+    /// denetlenir): aynı kod ve konumdaki tanı bir kez eklenir.
+    fn push_once(&mut self, diag: Diagnostic) {
+        let span = diag.primary_span().map(|s| s.span);
+        let seen = self
+            .diagnostics
+            .iter()
+            .any(|d| d.code == diag.code && d.primary_span().map(|s| s.span) == span);
+        if !seen {
+            self.diagnostics.push(diag);
+        }
+    }
+
+    /// Beklenen tipin değer aralığı: `uN`, `iN`, esnek aralığın üst ucu
+    /// (`check_int_lit` gibi), Trit `-1..=1`. Başka tiplerin uyumsuzluğunu
+    /// atanabilirlik denetimi bildirir.
+    fn literal_range(&self, expected: TypeId) -> Option<(i128, i128)> {
+        let ty = self.types.ty(expected);
+        if let Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } = *ty {
+            return (width < 127).then(|| (0, (1i128 << width) - 1));
+        }
+        if let Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } = *ty {
+            return (1..=127).contains(&width).then(|| {
+                let half = 1i128 << (width - 1);
+                (-half, half - 1)
+            });
+        }
+        matches!(ty, Ty::Trit).then_some((-1, 1))
+    }
+
+    /// E2010 (Trit için E2011): literal ifadesinin değeri aralık dışında.
+    fn literal_out_of_range(
+        &self,
+        value: i128,
+        expected: TypeId,
+        min: i128,
+        max: i128,
+        span: Span,
+    ) -> Diagnostic {
+        let shown = self.show(expected);
+        let code = if matches!(self.types.ty(expected), Ty::Trit) {
+            ErrorCode::E2011
+        } else {
+            ErrorCode::E2010
+        };
+        Diagnostic::error(
+            code,
+            lstr!(en: "literal expression evaluates to {value}, which does not fit in type {shown} ({min}..={max})"; tr: "literal ifadesinin değeri {value}, {shown} tipine sığmıyor ({min}..={max})"),
+            LabeledSpan::primary(
+                span,
+                lstr!(en: "evaluates to {value} at compile time"; tr: "derleme zamanında {value}"),
+            ),
+            lstr!(en: "use a wider type or change the literals so that the result fits"; tr: "daha geniş bir tip kullanın ya da sonucun sığacağı literaller yazın"),
+        )
+        .with_note(
+            NoteKind::Reason,
+            lstr!(en: "arithmetic on literals is computed exactly at compile time; the result is not wrapped to the target width"; tr: "literal aritmetiği derleme zamanında tam değerle hesaplanır; sonuç hedef genişliğe sarılmaz"),
+        )
+    }
+
+    /// Döngü değişkeni taşıyan ifadede hangi yinelemenin hatalı olduğu.
+    fn with_loop_values(
+        &self,
+        diag: Diagnostic,
+        vars: &[LoopVar],
+        env: &[(DefId, i128)],
+    ) -> Diagnostic {
+        if vars.is_empty() {
+            return diag;
+        }
+        let values: Vec<String> = env
+            .iter()
+            .filter(|(d, _)| vars.iter().any(|v| v.0 == *d))
+            .map(|(d, v)| format!("{} = {v}", self.res.defs[d.0 as usize].name))
+            .collect();
+        let values = values.join(", ");
+        diag.with_note(
+            NoteKind::Note,
+            lstr!(en: "in the iteration {values}"; tr: "{values} yinelemesinde"),
+        )
+    }
+}
+
+fn is_arith(op: BinOp) -> bool {
+    matches!(
+        op,
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+    )
+}
+
+/// İki literalin aritmetiği, `i128`'de (const-eval.md §4 `checked_*`);
+/// taşma ya da bölen 0 `None`. Yalnız aritmetik işleçle çağrılır.
+fn literal_op(op: BinOp, l: i128, r: i128) -> Option<i128> {
+    match op {
+        BinOp::Add => l.checked_add(r),
+        BinOp::Sub => l.checked_sub(r),
+        BinOp::Mul => l.checked_mul(r),
+        BinOp::Div => l.checked_div(r),
+        BinOp::Rem => l.checked_rem(r),
+        BinOp::BitAnd
+        | BinOp::BitOr
+        | BinOp::BitXor
+        | BinOp::Shl
+        | BinOp::Shr
+        | BinOp::Eq
+        | BinOp::Ne
+        | BinOp::Lt
+        | BinOp::Gt
+        | BinOp::Le
+        | BinOp::Ge
+        | BinOp::And
+        | BinOp::Or
+        | BinOp::Imp => unreachable!("literal_op yalnız aritmetik işleçle çağrılır"),
+    }
+}

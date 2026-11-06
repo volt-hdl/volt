@@ -9,6 +9,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Yalnız literal içeren aritmetik (iki literal,
+  generic parametre, `comb` içi `for` değişkeni) derleme anında tam
+  değeriyle hesaplanır ve SystemVerilog'a tek bir literal olarak yazılır
+  (#144; type-inference.md §3.3, §4; const-eval.md §1, §4). 0.1.0 her
+  literali bağlamın genişliğine kesip işlemi SV'ye bırakıyordu: `y : u2 =
+  7 / 3` 0.1.0'da `2'h3 / 2'd3` (1) yazıyordu, şimdi `2'd2`; `x == 7 / 3`
+  ve `x < 5 % 3` da yanlış sağ yanla karşılaştırılıyordu. Sonucu hedefe
+  sığmayan literal aritmetiği artık E2010 verir (`y : u2 = 5 + 2`,
+  `const X : u8 = 200 + 100`, `x < 3 - 1` x : u1 iken; 0.1.0 sessizce
+  sarıyordu), sıfıra bölme ve sıfıra göre kalan E2023 verir
+  (`7 / 0`, `5 % (2 - 2)`); `comb` içi `for` değişkeni hedefe sığmazsa da
+  E2010 (`ys[i] = i` ile i hedefin aralığını aşarken). 0.1.0'dan yükselten
+  kullanıcı için: derleme yeni bir E2010 ya da E2023 veriyorsa o satırın
+  0.1.0'daki SV'si zaten yanlış değeri hesaplıyordu.
 - **Davranış değişikliği.** `volt test`, `volt run` ve `volt test
   --waves` Verilator'ı artık `-fno-dfg` ile çalıştırır, yerelde de Docker
   arka ucunda da: Verilator 5.052'nin DFG eniyileyicisi doğru

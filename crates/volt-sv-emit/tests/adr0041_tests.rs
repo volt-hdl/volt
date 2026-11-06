@@ -278,9 +278,13 @@ fn nested_for_unrolls_both_levels() {
 
 #[test]
 fn loop_var_in_arithmetic_is_sized_by_context() {
+    // ADR-0041: literal bağlamın genişliğiyle boyutlanır. Döngü değişkeni
+    // bir literaldir (const-eval.md §8); `i + 1` literal aritmetiğidir ve
+    // tam değeriyle katlanır (#144; type-inference.md §3.3, §4), katlanmış
+    // değer de bağlamın (u8) literalidir.
     let out = sv("module M { in clk : clock\n out y : u8\n reg r : [u8; 2] = [0; 2]\n on clk { for i in 0..2 { r[i] <= i + 1 } }\n y = r[1] }");
-    assert_has(&out, "r[0] <= 8'd0 + 8'd1;");
-    assert_has(&out, "r[1] <= 8'd1 + 8'd1;");
+    assert_has(&out, "r[0] <= 8'd1;");
+    assert_has(&out, "r[1] <= 8'd2;");
 }
 
 #[test]

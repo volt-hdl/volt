@@ -37,6 +37,7 @@ mod enums;
 mod func;
 mod gated;
 mod instance;
+mod literal_fold;
 mod matching;
 mod output_register;
 mod select;
@@ -93,6 +94,7 @@ pub fn typecheck<'a>(
         fn_sigs: HashMap::new(),
         in_fn: false,
         out_ports: Default::default(),
+        in_const_item: false,
     };
     checker.run();
     TypeckResult {
@@ -131,6 +133,10 @@ struct TypeChecker<'a, 'ev> {
     in_fn: bool,
     /// Denetlenen modülün çıkış portları (E0020, ADR-0098 eki 2).
     out_ports: output_register::OutPorts,
+    /// Üst düzey `const` değeri denetleniyor: değerlendirme hatalarını
+    /// (E2022, E2023) const-eval bildirir; literal aritmetiği yalnız
+    /// sığmayı (E2010) denetler (#144, `literal_fold`).
+    in_const_item: bool,
 }
 
 impl TypeChecker<'_, '_> {
@@ -142,7 +148,9 @@ impl TypeChecker<'_, '_> {
             if let ItemKind::Const(c) = &ast.items_arena[item_idx].kind {
                 let ty = self.resolve_type_ref(c.ty);
                 self.record_def_type(&c.name, ty);
+                self.in_const_item = true;
                 self.check(c.value, ty);
+                self.in_const_item = false;
             }
         }
         for &item_idx in &ast.items {
