@@ -59,11 +59,14 @@ jobs:
     # ADR-0107 this is THE tool job: every test with every tool required.
     name: Verilator lint
     runs-on: ubuntu-latest
-    # ADR-0079: Verilator comes from the same pinned, cached OSS CAD Suite as
-    # the formal and timing jobs. The apt package floated with the runner
-    # image (5.020 on ubuntu-24.04) and cannot build valid SV such as a
-    # delayed array reset loop longer than 64 (BLKLOOPINIT,
-    # examples/riscv_sw/hello_soc.volt).
+    # ADR-0079: Yosys, sby and the solvers come from the same pinned, cached
+    # OSS CAD Suite as the formal and timing jobs. The apt Verilator floated
+    # with the runner image (5.020 on ubuntu-24.04) and cannot build valid SV
+    # such as a delayed array reset loop longer than 64 (BLKLOOPINIT,
+    # examples/riscv_sw/hello_soc.volt). The Suite's Verilator is a
+    # development build that miscompiles correct SV (#145), so Verilator is
+    # the release pinned in scripts/ci/verilator.env, copied out of the
+    # Docker backend's image (ADR-0107, "Hakem sürümü").
     env:
       OSS_CAD_SUITE_DATE: 2026-09-21
     steps:
@@ -76,7 +79,7 @@ jobs:
         with:
           path: ~/oss-cad-suite
           key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite (verilator, yosys, sby + solvers), with retries
+      - name: Download OSS CAD Suite (yosys, sby + solvers), with retries
         if: steps.oss-cad-cache.outputs.cache-hit != 'true'
         run: |
           stamp="${OSS_CAD_SUITE_DATE//-/}"
@@ -84,10 +87,14 @@ jobs:
           curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
           tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
           rm /tmp/oss-cad-suite.tgz
-      - name: Put OSS CAD Suite on PATH (Verilator, Yosys, sby)
+      - name: Put OSS CAD Suite on PATH (Yosys, sby)
         run: |
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
-          "$HOME/oss-cad-suite/bin/verilator" --version
+          "$HOME/oss-cad-suite/bin/yosys" -V
+      # Verilator is the pinned release, not the Suite's development build
+      # (#145); the action fails the job on any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
       - name: Compile counter.volt
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
       # ADR-0024: the output file name derives from the module name
@@ -100,8 +107,9 @@ jobs:
       # required. There is no list of test files: a new test that asks for a
       # tool (tools::require) runs in this step with its tool required and
       # fails, instead of skipping, when the tool is missing. The OSS CAD
-      # Suite brings Verilator, Yosys, sby and the solvers; the runner brings
-      # cc, c++, make and docker; the toolchain brings rustc. This replaces
+      # Suite brings Yosys, sby and the solvers; the pinned image brings
+      # Verilator; the runner brings cc, c++, make and docker; the toolchain
+      # brings rustc. This replaces
       # the per-binary steps of ADR-0079 section 6 (the formal job's sby tests
       # included): a test missing from those lists never ran in CI (#111).
       # One exclusion, by name: docker_e2e_tests pulls ~650 MB of images and

@@ -5,6 +5,8 @@ name: Differential test (large run)
 # ("Verilator lint"); this workflow runs a large one on demand, split over
 # shards with consecutive seeds (seed, seed + 1, ...). Each shard prints its
 # seed, its count and its tool ledger; a shard fails on any difference.
+# The reference is the Verilator release pinned in scripts/ci/verilator.env,
+# the same as the tool job's (#145); this workflow needs no other tool.
 
 on:
   workflow_dispatch:
@@ -22,7 +24,6 @@ env:
   CARGO_TERM_COLOR: always
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
   VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest.txt
-  OSS_CAD_SUITE_DATE: 2026-09-21
 
 jobs:
   difftest:
@@ -37,24 +38,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Cache OSS CAD Suite
-        id: oss-cad-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/oss-cad-suite
-          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite (verilator), with retries
-        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
-        run: |
-          stamp="${OSS_CAD_SUITE_DATE//-/}"
-          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
-          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
-          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
-          rm /tmp/oss-cad-suite.tgz
-      - name: Put OSS CAD Suite on PATH
-        run: |
-          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
-          "$HOME/oss-cad-suite/bin/verilator" --version
+      # Verilator is the pinned release, not the Suite's development build
+      # (#145); the action fails the job on any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
       - name: Seed and count of this shard
         id: shard
         env:

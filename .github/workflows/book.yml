@@ -80,7 +80,7 @@ jobs:
         with:
           path: ~/oss-cad-suite
           key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
-      - name: Download OSS CAD Suite (verilator, yosys, sby), with retries
+      - name: Download OSS CAD Suite (yosys, sby), with retries
         if: steps.oss-cad-cache.outputs.cache-hit != 'true'
         run: |
           stamp="${OSS_CAD_SUITE_DATE//-/}"
@@ -88,12 +88,15 @@ jobs:
           curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
           tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
           rm /tmp/oss-cad-suite.tgz
-      - name: Put Verilator and SymbiYosys on PATH
+      - name: Put SymbiYosys on PATH
         run: |
           echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
-          "$HOME/oss-cad-suite/bin/verilator" --version
           "$HOME/oss-cad-suite/bin/yosys" -V
           ls -l "$HOME/oss-cad-suite/bin/sby" "$HOME/oss-cad-suite/bin/yosys-smtbmc" "$HOME/oss-cad-suite/bin/boolector"
+      # Verilator is the pinned release, not the Suite's development build
+      # (#145); the action fails the job on any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
       - name: Build volt
         run: cargo build -p volt-driver --bin volt
       # The checker's own tests: a block with a compile error, a wrong
@@ -103,8 +106,9 @@ jobs:
         run: python3 book/tools/check_book.py --volt target/debug/volt --self-test
       # Every ```volt block passes `volt check` (or fails with the code it
       # declares); every *_test.volt block runs in Verilator and every
-      # verify= block in SymbiYosys. Both come with the OSS CAD Suite above,
-      # so the Docker bridge must not be used.
+      # verify= block in SymbiYosys. Both are installed above (SymbiYosys
+      # from the OSS CAD Suite, Verilator pinned), so the Docker bridge must
+      # not be used.
       - name: Every volt block compiles, every test and verify block runs
         env:
           VOLT_TOOL_BACKEND: local

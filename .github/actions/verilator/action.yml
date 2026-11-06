@@ -1,0 +1,111 @@
+name: Pinned Verilator
+description: >-
+  Puts the Verilator pinned in scripts/ci/verilator.env on PATH and fails the
+  job unless `verilator --version` reports exactly that release (ADR-0107,
+  "Hakem sürümü"; #145). Verilator is copied out of the digest-pinned image
+  that the Docker backend runs (crates/volt-tools/src/docker.rs), so CI and a
+  user's `volt test` without a local Verilator use the same binary. Run it
+  after the OSS CAD Suite steps: it removes the Suite's own Verilator (a
+  development build) so that only the pinned one is on PATH. Yosys, sby and
+  the solvers keep coming from the OSS CAD Suite.
+
+runs:
+  using: composite
+  steps:
+    - name: Read the Verilator pin (scripts/ci/verilator.env)
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . scripts/ci/verilator.env
+        for v in VERILATOR_VERSION VERILATOR_IMAGE VERILATOR_DIGEST; do
+          if [ -z "${!v:-}" ]; then
+            echo "::error title=Verilator pin::$v is missing from scripts/ci/verilator.env"
+            exit 1
+          fi
+        done
+        {
+          echo "version=$VERILATOR_VERSION"
+          echo "image=$VERILATOR_IMAGE"
+          echo "digest=$VERILATOR_DIGEST"
+        } >> "$GITHUB_OUTPUT"
+        echo "Pinned Verilator: $VERILATOR_VERSION ($VERILATOR_IMAGE@$VERILATOR_DIGEST)"
+
+    - name: Cache Verilator ${{ steps.pin.outputs.version }}
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ~/verilator
+        # The last part names the layout of ~/verilator (bump it when the
+        # copy step below changes).
+        key: verilator-linux-x64-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.digest }}-copy2
+
+    # The image is Ubuntu 24.04, like the runner; verilator_bin links only
+    # libc and libm. The generated C++ is built by the runner's g++ and make.
+    - name: Copy Verilator out of the pinned image, with retries
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        REF: ${{ steps.pin.outputs.image }}@${{ steps.pin.outputs.digest }}
+      run: |
+        set -euo pipefail
+        for i in 1 2 3 4 5; do
+          docker pull --platform linux/amd64 "$REF" && break
+          if [ "$i" = 5 ]; then exit 1; fi
+          sleep 20
+        done
+        cid=$(docker create --platform linux/amd64 "$REF")
+        mkdir -p "$HOME/verilator/bin" "$HOME/verilator/share"
+        for f in verilator verilator_bin verilator_coverage verilator_gantt verilator_profcfunc; do
+          docker cp "$cid:/usr/local/bin/$f" "$HOME/verilator/bin/$f"
+        done
+        docker cp "$cid:/usr/local/share/verilator" "$HOME/verilator/share/verilator"
+        docker rm "$cid" > /dev/null
+        # The image was configured with ccache, which the runner does not
+        # have: verilated.mk prefixes every compile with `ccache`. Drop that
+        # prefix; it is a compiler cache and changes no generated code.
+        mk="$HOME/verilator/share/verilator/include/verilated.mk"
+        sed -i 's/^OBJCACHE ?= ccache$/OBJCACHE ?=/' "$mk"
+        if ! grep -qx 'OBJCACHE ?=' "$mk"; then
+          echo "::error title=Verilator pin::verilated.mk has no 'OBJCACHE ?= ccache' line to drop"
+          exit 1
+        fi
+        du -sh "$HOME/verilator"
+
+    - name: Put Verilator ${{ steps.pin.outputs.version }} on PATH, remove the OSS CAD Suite's
+      shell: bash
+      run: |
+        set -euo pipefail
+        if compgen -G "$HOME/oss-cad-suite/bin/verilator*" > /dev/null; then
+          echo "Removing the OSS CAD Suite's Verilator:"
+          ls "$HOME"/oss-cad-suite/bin/verilator*
+          rm -f "$HOME"/oss-cad-suite/bin/verilator*
+        fi
+        echo "$HOME/verilator/bin" >> "$GITHUB_PATH"
+        echo "VERILATOR_ROOT=$HOME/verilator/share/verilator" >> "$GITHUB_ENV"
+
+    # The check reads `verilator` from PATH, as the tests do: a job that
+    # would simulate with any other Verilator stops here.
+    - name: Verilator version check (expected ${{ steps.pin.outputs.version }})
+      shell: bash
+      env:
+        EXPECTED: ${{ steps.pin.outputs.version }}
+      run: |
+        set -euo pipefail
+        found=$(type -ap verilator || true)
+        echo "verilator on PATH:"
+        echo "$found"
+        if [ "$(printf '%s\n' "$found" | grep -c .)" -ne 1 ]; then
+          echo "::error title=Verilator version check::expected exactly one verilator on PATH, found: $(echo $found)"
+          exit 1
+        fi
+        actual=$(verilator --version)
+        echo "verilator --version: $actual"
+        # A release prints "Verilator 5.052 2026-09-05 rev v5.052"; a
+        # development build prints "Verilator 5.053 devel rev v5.052-159-g...".
+        if ! printf '%s\n' "$actual" | grep -Eq "^Verilator ${EXPECTED//./\\.} [0-9]{4}-[0-9]{2}-[0-9]{2} rev v${EXPECTED//./\\.}\$"; then
+          echo "::error title=Verilator version check::expected Verilator $EXPECTED (scripts/ci/verilator.env), got: $actual"
+          exit 1
+        fi
+        echo "Verilator version check: OK ($actual)"

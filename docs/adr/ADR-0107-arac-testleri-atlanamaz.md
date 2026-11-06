@@ -142,3 +142,92 @@ yapar.
   kuralına eklenmesi depo sahibinin işidir.
 - Bir testin aracı modül dışında araması (ör. `Command::new("verilator")`
   doğrudan) deftere girmez; AGENTS.md bunu yasaklar, mekanik denetim yok.
+
+## Ek: Hakem sürümü (#145, 2026-11-06)
+
+Araçlı testler doğru değeri Verilator simülasyonundan alır: davranış
+testleri, fark testi (ADR-0108), mutasyon testi (ADR-0109), kitabın test
+blokları. Verilator'ın kendisi yanlış derlerse ya sahte bulgu çıkar ya da
+gerçek bir hata gizlenir. CI, Verilator'ı OSS CAD Suite 2026-09-21'den
+alıyordu; paketteki `5.053 devel rev v5.052-159-g46774fded` doğru bir
+SV'de `assign o151a = 4'(p247) - 4'(p247);`'yi `4'hf` bastı (#145).
+Yerel Docker arka ucu ise `verilator/verilator:v5.052` koşturuyordu: CI
+ile kullanıcı farklı hakemle ölçülüyordu.
+
+### Kural
+
+1. **Hakem sürümü sabittir.** Simülasyon yapan her CI işi ("Verilator
+   lint", kitabın "Book code examples" işi, `difftest.yml`, `mutants.yml`)
+   Verilator'ı tek bir tanımdan alır: `scripts/ci/verilator.env` (sürüm,
+   imaj, özet). Değer bir sürüm etiketidir; geliştirme derlemesi ya da
+   gecelik paket kullanılmaz. Yosys, sby ve çözücüler OSS CAD Suite'ten
+   gelmeye devam eder; kural yalnız Verilator içindir.
+2. **CI ile Docker arka ucu aynı ikiliyi kullanır.** `.github/actions/verilator`
+   eylemi Verilator'ı Docker arka ucunun özetle sabitlenmiş imajından
+   (`docker.rs`, `SIMULATION_IMAGE`) kopyalar ve OSS CAD Suite'in
+   Verilator'ını siler. `crates/volt-tools/tests/verilator_pin_tests.rs`
+   sürüm dosyasıyla `SIMULATION_IMAGE`'ın adını, özetini ve `volt doctor`
+   metnini karşılaştırır.
+3. **Her iş sürümü denetler.** Eylemin son adımı `verilator --version`'ı
+   PATH'ten okur; çıktı `Verilator <sürüm> <tarih> rev v<sürüm>` değilse ya
+   da PATH'te birden çok `verilator` varsa iş açık bir hatayla düşer.
+4. **Güncelleme ayrı bir PR'dır ve kanaryadan geçer.** `verilator.env` ile
+   `docker.rs` birlikte değişir; kanarya testi
+   (`crates/volt-driver/tests/verilator_canary_tests.rs`) yeni sürümle
+   geçer; fark testinin büyük koşusu yeni hakemle koşar ve sonucu PR'da
+   raporlanır.
+
+### Kanarya
+
+#145'in toplu koşusundan (tohum 20261107, 9. toplu koşu, a577d7a9)
+küçültülmüş, tek vektörlü (bütün girişler 0) 256 satırlık doğru bir SV:
+`verilator_canary/issue145.sv`. Beklenen değerler alan alan SV anlamından
+elle hesaplandı ve testte yazılı. Komut satırı fark testininkiyle aynıdır
+(DFG açık, `-O0`). Aynı cargo testi Linux'ta (Docker, Ubuntu 24.04):
+
+- 5.053 devel: `o151k: expected 0x0, got 0x1`, `o151e/o151d/o151b/o151a:
+  expected 0x0, got 0xf` — düşer;
+- 5.052: `2 passed` — geçer.
+
+Mekanizma (üretilen C++): DFG `o150a..o150e` karşılaştırmalarını geniş
+`$display` birleştirmesine `((a >= b) << 0x1f) | …` olarak gömer; C++'ta
+`bool << 31` işaretli `int`tir, kelime bölmenin `>>` kaydırması aritmetik
+olduğundan işaret biti komşu alanlara yayılır. Küçültme sırasında hata
+alanların bit konumlarına bağlı çıktı: sabit çıkışları birleştirmek ya da
+bir alanı silmek hatayı iki sürümde de gizler.
+
+### Kanıt
+
+PR #147:
+
+- "Verilator lint" (run 42112543425): `verilator --version: Verilator
+  5.052 2026-09-05 rev v5.052`, `Verilator version check: OK`, OSS CAD
+  Suite'in yedi `verilator*` dosyası silindi; 178 test özetinde 3675
+  geçti, 0 düştü; fark testi (tohum 20261104, 2000) `diffs=0`; `Tool
+  ledger [integration]: 117 test(s) asked for a tool; 119 lookup(s)
+  found the tool (119 required), SKIP: 0`; "Tool coverage" `120 ran with
+  the tool required, 0 did not`.
+- Fark testinin büyük koşusu (difftest.yml, run 42112584394, tohum
+  20261105-20261108, parça başına 12500): dört parça `diffs=0`, toplam
+  50.293 kabul edilmiş ifade, her parçada `SKIP: 0`. 20261107 #145'in
+  tohumudur.
+- İlk koşuda (run 42111275983) imajın `verilated.mk`'si her derlemenin
+  önüne `ccache` koyduğundan `volt test` "make: ccache: No such file or
+  directory" ile düştü; eylem kopyadaki `OBJCACHE ?= ccache` satırını
+  boşaltır (yalnız derleme önbelleği; üretilen kod değişmez).
+
+### Sınırlar
+
+- **5.052 de bu sınıftan bir yanlış derleme yapıyor** (#148): kanarya
+  tasarımından `o150a`'yı okuyan sözleşme çıkarılınca 5.052 de `4'hf`
+  basar, `-fno-dfg` ile doğrudur. Sabitleme CI ile kullanıcıyı aynı
+  hakeme bağlar ve #145'in tetikleyicisini kapatır; hakemi hatasız
+  yapmaz. `-fno-dfg` ya da başka bir sürüm bakımcının kararıdır (#148).
+- Kanarya hatanın bir tetikleyicisini yakalar, sınıfın tamamını değil;
+  tetik bit konumlarına duyarlıdır, tasarım yeniden biçimlendirilmez.
+- "Formal verification" ve "Timing constraints" işleri Verilator
+  kullanmaz; OSS CAD Suite'in Verilator'ı orada PATH'te kalır ve
+  denetlenmez.
+- Eylem Verilator'ı imajdan koşucuya kopyalar (ikisi de Ubuntu 24.04;
+  `verilator_bin` yalnız libc ve libm'e bağlı). Üretilen C++'ı koşucunun
+  g++'ı derler; imajdaki g++ ile aynı sürüm olması denetlenmez.
