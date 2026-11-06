@@ -65,7 +65,9 @@ pub(super) struct VerilateJob<'a> {
 
 impl VerilateJob<'_> {
     /// Verilator argümanları (sıra sabittir); girdiler sim dizinine
-    /// göreli olduğundan yerelde ve konteynerde aynıdır.
+    /// göreli olduğundan yerelde ve konteynerde aynıdır. Volt'un
+    /// derleme seçenekleri (`VERILATOR_BUILD_FLAGS`, #148) `-Mdir`'den
+    /// sonra, `--trace`'ten önce gelir.
     fn args(&self) -> Vec<OsString> {
         let mut args: Vec<OsString> = vec!["--cc".into()];
         args.extend(self.inputs.iter().map(OsString::from));
@@ -81,6 +83,7 @@ impl VerilateJob<'_> {
             ]
             .map(OsString::from),
         );
+        args.extend(volt_tools::VERILATOR_BUILD_FLAGS.iter().map(OsString::from));
         if self.trace {
             args.push("--trace".into());
         }
@@ -434,10 +437,52 @@ mod tests {
                 "--top-module",
                 "X",
                 "-Mdir",
-                "obj_x"
+                "obj_x",
+                "-fno-dfg"
             ]
         );
         assert_eq!(cmd.get_current_dir(), Some(Path::new("build/sim/x_test")));
+    }
+
+    /// #148: Volt'un Verilator derleme seçenekleri (`-fno-dfg`) her derleme
+    /// yolunda vardır: `volt test`, `volt run`, `volt test --waves` aynı
+    /// `VerilateJob`'u kurar; yerel komut ile Docker komutu aynı
+    /// argümanları taşır (izlemeli ve izlemesiz).
+    #[test]
+    fn every_verilate_path_passes_volts_build_flags() {
+        assert!(
+            volt_tools::VERILATOR_BUILD_FLAGS.contains(&"-fno-dfg"),
+            "#148: DFG kapalı olmalı"
+        );
+        let dir = std::env::temp_dir().join(format!("volt-flags-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let inputs = ["X.sv".to_string()];
+        for trace in [false, true] {
+            let mut j = job(&inputs, trace);
+            j.sim_dir = &dir;
+            let local = args_of(&j.command(Path::new("verilator")));
+            let (mounts, workdir) = sim_mounts(&dir, &[]).expect("bağlama");
+            let tool = DockerTool {
+                docker: PathBuf::from("docker"),
+                image: &volt_tools::docker::SIMULATION_IMAGE,
+            };
+            let docker = args_of(&tool.command(&mounts, workdir, None, None, &dir, j.args()));
+            for flag in volt_tools::VERILATOR_BUILD_FLAGS {
+                assert!(
+                    local.iter().any(|a| a == flag),
+                    "yerel, trace={trace}: {local:?}"
+                );
+                assert!(
+                    docker.iter().any(|a| a == flag),
+                    "Docker, trace={trace}: {docker:?}"
+                );
+            }
+            assert!(
+                docker.ends_with(&local),
+                "Docker komutu yerelin argümanlarıyla biter: {docker:?} / {local:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

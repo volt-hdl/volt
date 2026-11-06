@@ -244,12 +244,14 @@ fn test_in_docker_prints_one_note_and_mounts_only_the_sim_dir() {
         "{}",
         runs[0]
     );
-    assert!(
-        runs[0]
-            .ends_with("--cc Echo.sv --exe tb_Echo.cpp --build --top-module Echo -Mdir obj_echo"),
-        "{}",
-        runs[0]
+    // #148: Docker'daki derleme de Volt'un Verilator seçeneklerini
+    // (`-fno-dfg`) taşır.
+    let verilate = format!(
+        "--cc Echo.sv --exe tb_Echo.cpp --build --top-module Echo -Mdir obj_echo {}",
+        volt_tools::VERILATOR_BUILD_FLAGS.join(" ")
     );
+    assert!(runs[0].ends_with(&verilate), "{}", runs[0]);
+    assert!(runs[0].ends_with(" -fno-dfg"), "{}", runs[0]);
     let exe = format!("--entrypoint {container}/obj_echo/VEcho ");
     assert!(runs[1].contains(&exe), "{}", runs[1]);
     if cfg!(windows) {

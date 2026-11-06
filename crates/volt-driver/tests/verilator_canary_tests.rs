@@ -1,19 +1,30 @@
-//! Hakem kanaryası (ADR-0107, "Hakem sürümü"; #145).
+//! Hakem kanaryası (ADR-0107, "Hakem sürümü" ve "Ek: DFG kapalı"; #145,
+//! #148).
 //!
 //! Davranış testleri, fark testi ve mutasyon testi doğru değeri Verilator
 //! simülasyonundan alır: hakemin kendisi yanlışsa ya sahte bulgu çıkar ya
 //! da gerçek bir hata gizlenir. Bu test Volt'u değil, PATH'teki
-//! Verilator'ı sınar: `verilator_canary/issue145.sv` doğru bir SV'dir ve
-//! #145'teki yanlış derlemeyi yeniden üretir. Verilator 5.053 devel (OSS
-//! CAD Suite 2026-09-21) `o151a = 4'(p247) - 4'(p247)`'yi `4'hf` basar;
-//! sabitlenen 5.052 doğru (0) basar. Verilator güncellenirse (ayrı bir PR,
+//! Verilator'ı Volt'un yapılandırmasıyla sınar. İki doğru SV, DFG
+//! eniyileyicisinin aynı sınıftan iki yanlış derlemesini yeniden üretir:
+//!
+//! - `verilator_canary/issue145.sv` (#145): DFG açıkken 5.053 devel (OSS
+//!   CAD Suite 2026-09-21) `o151a = 4'(p247) - 4'(p247)`'yi `4'hf` basar;
+//!   5.052 doğru (0) basar.
+//! - `verilator_canary/issue148.sv` (#148): aynı tasarım, `o150a`'yı okuyan
+//!   sözleşme yok; DFG açıkken 5.052 de 5.053 devel de `4'hf` basar.
+//!
+//! İkisi de `-fno-dfg` ile doğrudur. Volt bu bayrağı Verilator'ın her
+//! derlemesine verir (`volt_tools::VERILATOR_BUILD_FLAGS`); kanarya o
+//! listeyle derler. Verilator güncellenirse (ayrı bir PR,
 //! `scripts/ci/verilator.env`) bu test aynı sınıftan bir yanlışın geri
-//! gelip gelmediğini gösterir.
+//! gelip gelmediğini gösterir; bayrağı kaldıran PR listeyi boşaltır ve iki
+//! kanarya bayraksız geçmelidir (ADR-0107 ekindeki ölçüt).
 //!
 //! Beklenen değerler SV anlamından elle hesaplandı (aşağıda, alan alan);
-//! derleyicinin ya da bir Verilator'ın çıktısı beklenen değer değildir.
-//! Komut satırı fark testininkiyle aynıdır (`crates/volt-difftest`,
-//! `run_batch_in`): DFG açık, `-O0`.
+//! derleyicinin ya da bir Verilator'ın çıktısı beklenen değer değildir. İki
+//! tasarım aynı alanları aynı girişlerle (hepsi 0) basar: beklenenler
+//! ortaktır. Komut satırı fark testininkiyle aynıdır (`crates/volt-difftest`,
+//! `verilator_args`): Volt'un seçenekleri, `-O0`.
 //!
 //! Verilator yoksa test atlar; araçlı CI işinde (`VOLT_REQUIRE_TOOLS=all`)
 //! yokluk testi düşürür (ADR-0107).
@@ -23,7 +34,8 @@ mod tools;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DESIGN: &str = include_str!("verilator_canary/issue145.sv");
+const ISSUE_145: &str = include_str!("verilator_canary/issue145.sv");
+const ISSUE_148: &str = include_str!("verilator_canary/issue148.sv");
 
 /// Gösterilen birleştirmenin alanları, en anlamlı bitten başlayarak:
 /// (ad, genişlik, beklenen değer). Tek vektör: bütün girişler 0
@@ -158,8 +170,10 @@ fn decode(hex: &str) -> Vec<(&'static str, u64, u64)> {
         .collect()
 }
 
-fn run(dir: &Path, verilator: &Path) -> String {
-    std::fs::write(dir.join("issue145.sv"), DESIGN).expect("issue145.sv");
+/// `design`'ı `file` adıyla derler ve koşturur; standart çıktıyı döndürür.
+/// Verilator seçenekleri Volt'unkiler (`VERILATOR_BUILD_FLAGS`, #148).
+fn run(dir: &Path, verilator: &Path, file: &str, design: &str) -> String {
+    std::fs::write(dir.join(file), design).expect(file);
     let build = Command::new(verilator)
         .current_dir(dir)
         .args([
@@ -179,13 +193,15 @@ fn run(dir: &Path, verilator: &Path) -> String {
             "2",
             "-CFLAGS",
             "-O0",
-            "issue145.sv",
         ])
+        .args(volt_tools::VERILATOR_BUILD_FLAGS)
+        .arg(file)
         .output()
         .expect("verilator çalıştırılamadı");
     assert!(
         build.status.success(),
-        "Verilator kanarya tasarımını derleyemedi:\n{}{}",
+        "Verilator kanarya tasarımını ({file}) derleyemedi:
+{}{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
@@ -197,17 +213,24 @@ fn run(dir: &Path, verilator: &Path) -> String {
     String::from_utf8_lossy(&sim.stdout).into_owned()
 }
 
-#[test]
-fn the_pinned_verilator_simulates_the_issue_145_design_correctly() {
+/// Tasarımı koşturur ve gösterilen her alanı elle hesaplanmış değerle
+/// karşılaştırır.
+fn check(issue: u32, design: &str) {
     let Some(verilator) = tools::require(tools::Tool::Verilator) else {
         return;
     };
-    let dir = temp_dir("issue145");
-    let out = run(&dir, &verilator);
+    let tag = format!("issue{issue}");
+    let dir = temp_dir(&tag);
+    let out = run(&dir, &verilator, &format!("{tag}.sv"), design);
     let line = out
         .lines()
         .find(|l| l.starts_with("R 0 17 "))
-        .unwrap_or_else(|| panic!("simülasyon `R 0 17` satırını basmadı:\n{out}"));
+        .unwrap_or_else(|| {
+            panic!(
+                "simülasyon `R 0 17` satırını basmadı:
+{out}"
+            )
+        });
     let hex = line.trim_start_matches("R 0 17 ").trim();
     let wrong: Vec<String> = decode(hex)
         .into_iter()
@@ -216,20 +239,33 @@ fn the_pinned_verilator_simulates_the_issue_145_design_correctly() {
         .collect();
     assert!(
         wrong.is_empty(),
-        "this Verilator simulates correct SystemVerilog wrongly (the #145 class: \
-         DFG inlines comparisons into a wide concatenation and a signed shift \
-         spreads the sign bit). It must not be the reference of the tests; \
-         keep the release pinned in scripts/ci/verilator.env.\n{}\nline: {line}",
-        wrong.join("\n")
+        "this Verilator, with Volt's options {:?}, simulates correct SystemVerilog          wrongly (the #{issue} design; the #145 class: DFG inlines comparisons into          a wide concatenation and a signed shift spreads the sign bit). It must not          be the reference of the tests; keep the release pinned in          scripts/ci/verilator.env and -fno-dfg in volt_tools::VERILATOR_BUILD_FLAGS.
+{}
+line: {line}",
+        volt_tools::VERILATOR_BUILD_FLAGS,
+        wrong.join("
+")
     );
+    eprintln!("canary #{issue}: {line}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
+fn the_pinned_verilator_simulates_the_issue_145_design_correctly() {
+    check(145, ISSUE_145);
+}
+
+#[test]
+fn the_pinned_verilator_simulates_the_issue_148_design_correctly() {
+    check(148, ISSUE_148);
+}
+
+#[test]
 fn the_canary_expectation_rejects_the_value_verilator_5_053_devel_prints() {
-    // Elle: 5.052 (doğru) ve 5.053 devel (#145) bu tasarım için şu satırları
-    // basar. Çözücü doğruyu kabul etmeli, devel'inkini o151a dahil
-    // reddetmeli; yoksa kanarya hiçbir şey yakalamaz.
+    // Elle: doğru Verilator ve DFG'nin yanlış derlemesi (#145'te 5.053
+    // devel; #148'de 5.052 de) iki tasarım için şu satırları basar. Çözücü
+    // doğruyu kabul etmeli, yanlışı o151a dahil reddetmeli; yoksa kanarya
+    // hiçbir şey yakalamaz.
     // 560 bit = 140 onaltılık hane: ilk 11 hane o152r..o149r'nin üç biti,
     // son 16 hane o147r..o141b (bit 63..57 birler), arası sıfır.
     let zeros = "0".repeat(140 - 11 - 16);
