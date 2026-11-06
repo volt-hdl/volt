@@ -243,7 +243,10 @@ impl Case {
             }
             Variant::C => model.eval_check(self.extracted.as_ref()?, nat, inp),
             Variant::E => model.eval_check(&self.expr.commuted(), nat, inp),
-            Variant::F => Some(1),
+            // `e == t` her zaman doğrudur, ama değer x olan vektörde (sınır
+            // dışı değişken seçim, ADR-0035 §1) iki x'in eşitliği tanımsız:
+            // `e` ve `t` farklı SV biçimleriyle hesaplanır (karşılaştırılmaz).
+            Variant::F => model.eval(&self.expr, inp).map(|_| 1),
             Variant::K => {
                 let (op, k) = self.cmp_lit?;
                 let e = Expr::bin(op, self.expr.clone(), Expr::Lit(k, LitFmt::Dec));
@@ -988,6 +991,22 @@ mod tests {
         let back = BitVec::from_hex(&h).unwrap();
         assert_eq!(back.get(0, 8), 0xA5);
         assert_eq!(back.get(8, 70), (1u128 << 69) | 3);
+    }
+
+    /// F biçimi (`e == t`) değeri x olan vektörde karşılaştırılmaz: tohum
+    /// 20261107'nin büyük koşusunda `p178[p14 -: 21]` (p14 = 10, sınır
+    /// dışı) iki ayrı SV biçiminde farklı x değeri aldı.
+    #[test]
+    fn the_let_comparison_is_not_compared_where_the_value_is_x() {
+        let ports = vec![PortTy::UInt(39), PortTy::UInt(6)];
+        let mut rng = Rng::new(7);
+        let part = Expr::Part(Box::new(Expr::Port(0)), Box::new(Expr::Port(1)), 21, false);
+        let c = Case::new(0, part, &ports, &mut rng);
+        assert!(c.is_valid(), "{:?}", c.kind);
+        let model = Model { ports: &ports };
+        // p1 = 10: [10 -: 21] sınır dışı (x); p1 = 30: [30:10] sınır içi.
+        assert_eq!(c.expected(Variant::F, &model, &[0, 10]), None);
+        assert_eq!(c.expected(Variant::F, &model, &[0, 30]), Some(1));
     }
 
     #[test]
