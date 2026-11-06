@@ -1,4 +1,5 @@
 // Referee canary for the pinned Verilator (ADR-0107, "Hakem sürümü"; #145).
+// Reported upstream: https://github.com/verilator/verilator/issues/9060
 //
 // Correct SystemVerilog, reduced from the differential-test batch of #145
 // (seed 20261107, batch 9, commit a577d7a9): Verilator 5.053 devel
@@ -12,7 +13,7 @@
 // neighbouring fields (o151k, o151e/d/b/a). Verilator 5.052 keeps the
 // comparisons in variables here because the assertion ens_0 reads o150a too;
 // without that second reader 5.052 inlines them as well and computes the
-// same wrong value (see the issue linked from ADR-0107).
+// same wrong value (verilator/verilator#9060).
 //
 // The bit positions of every field matter: merging the constant outputs
 // (o141..o149) into wider ones, or removing any field, hides the bug in both

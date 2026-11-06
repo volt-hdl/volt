@@ -319,7 +319,7 @@ koşu süresi; buradaki testler kısadır ve süreyi derleme belirler.
 `-fno-dfg` ancak şunların hepsi sağlanınca kaldırılır:
 
 1. Hata Verilator'da düzeltilmiştir (bildirilen issue kapanmış, düzeltme
-   bir sürümdedir);
+   bir sürümdedir; issue: https://github.com/verilator/verilator/issues/9060);
 2. `scripts/ci/verilator.env` ile `docker.rs` o sürüme geçmiştir (ayrı PR,
    yukarıdaki kural 4);
 3. o sürümle, `VERILATOR_BUILD_FLAGS` boşken iki kanarya da geçer ve fark

@@ -1,5 +1,6 @@
 //! Hakem kanaryası (ADR-0107, "Hakem sürümü" ve "Ek: DFG kapalı"; #145,
-//! #148).
+//! #148). Verilator'a bildirildi:
+//! https://github.com/verilator/verilator/issues/9060.
 //!
 //! Davranış testleri, fark testi ve mutasyon testi doğru değeri Verilator
 //! simülasyonundan alır: hakemin kendisi yanlışsa ya sahte bulgu çıkar ya
