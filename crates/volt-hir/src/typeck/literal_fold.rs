@@ -421,3 +421,152 @@ fn literal_op(op: BinOp, l: i128, r: i128) -> Option<i128> {
         | BinOp::Imp => unreachable!("literal_op yalnız aritmetik işleçle çağrılır"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::testutil::{codes, diagnostics};
+
+    fn module(body: &str) -> String {
+        format!("module M {{\n{body}\n}}\n")
+    }
+
+    /// Son yinelemenin değeri (i = 3) u2'ye sığar; sınırın kendisi (4)
+    /// döngü değeri değildir (`[start, end)`).
+    #[test]
+    fn the_end_of_the_range_is_not_an_iteration() {
+        let c = codes(&module(
+            "    out ys : [u2; 4]\n    comb {\n        for i in 0..4 {\n            ys[i] = i\n        }\n    }",
+        ));
+        assert!(!c.contains(&"E2010"), "{c:?}");
+    }
+
+    /// İç içe döngüde her bileşim denetlenir; sığmayan tek bileşim
+    /// sonuncusudur (i = 1, j = 2: 2 > 1) ve not onu adlandırır.
+    #[test]
+    fn every_combination_of_nested_loops_is_checked() {
+        let d = diagnostics(&module(
+            "    out zs : [u1; 6]\n    comb {\n        for i in 0..2 {\n            for j in 0..3 {\n                zs[i * 3 + j] = i * j\n            }\n        }\n    }",
+        ));
+        let e = d
+            .iter()
+            .find(|d| d.code.as_str() == "E2010")
+            .expect("E2010 beklenir");
+        assert!(e.message.contains("evaluates to 2"), "{}", e.message);
+        assert!(
+            e.notes.iter().any(|n| n.text.contains("i = 1, j = 2")),
+            "{:?}",
+            e.notes
+        );
+        assert_eq!(d.iter().filter(|d| d.code.as_str() == "E2010").count(), 1);
+    }
+
+    /// Bileşik ifadenin `-`'si literal ifadesidir: `-(2 + 1)` = -3 u2'ye
+    /// sığmaz, `-(1 - 2)` = 1 sığar.
+    #[test]
+    fn negation_of_literal_arithmetic_is_folded() {
+        let bad = codes(&module("    out y : u2\n    y = -(2 + 1)"));
+        assert!(bad.contains(&"E2010"), "{bad:?}");
+        let good = codes(&module("    out y : u2\n    y = -(1 - 2)"));
+        assert!(!good.contains(&"E2010"), "{good:?}");
+    }
+
+    /// Sığma denetimi işaretli aralığın iki ucunu da kullanır: i4'te -8 ve
+    /// 7 sığar, -9 ve 8 sığmaz.
+    #[test]
+    fn signed_range_bounds() {
+        for (expr, fits) in [
+            ("0 - 8", true),
+            ("3 + 4", true),
+            ("0 - 9", false),
+            ("4 + 4", false),
+        ] {
+            let c = codes(&module(&format!("    out y : i4\n    y = {expr}")));
+            assert_eq!(!c.contains(&"E2010"), fits, "{expr}: {c:?}");
+        }
+    }
+
+    /// Aynı ifade hem sentezlenip hem denetlendiğinde tanı bir kez
+    /// (karşılaştırmanın literal yanı); farklı konumdaki iki tanı ikisi de.
+    #[test]
+    fn a_diagnostic_is_reported_once_per_position() {
+        let one = codes(&module(
+            "    in  x : u1\n    out c : bool\n    c = x == 7 / 0",
+        ));
+        assert_eq!(one.iter().filter(|c| **c == "E2023").count(), 1, "{one:?}");
+        let two = codes(&module(
+            "    out a : u2\n    out b : u2\n    a = 7 / 0\n    b = 5 % 0",
+        ));
+        assert_eq!(two.iter().filter(|c| **c == "E2023").count(), 2, "{two:?}");
+    }
+
+    /// Bileşim sınırının kendisi (65 536 = 16⁴) hâlâ denetlenir: dört iç
+    /// içe `0..16` döngüsünde `i * j * k * l`'nin en büyüğü 15⁴ = 50 625,
+    /// u15'e (en çok 32 767) sığmaz.
+    #[test]
+    fn a_loop_nest_of_exactly_the_combination_limit_is_checked() {
+        let c = codes(&module(
+            "    out y : u15\n    comb {\n        for i in 0..16 {\n            for j in 0..16 {\n                for k in 0..16 {\n                    for l in 0..16 {\n                        y = i * j * k * l\n                    }\n                }\n            }\n        }\n    }",
+        ));
+        assert!(c.contains(&"E2010"), "{c:?}");
+    }
+
+    /// Sıfır bölenli `%` kalanı, `/` bölmeyi adlandırır.
+    #[test]
+    fn the_zero_divisor_message_names_the_operator() {
+        for (expr, text) in [
+            ("7 % 0", "remainder by zero"),
+            ("7 / 0", "division by zero"),
+        ] {
+            let d = diagnostics(&module(&format!("    out y : u3\n    y = {expr}")));
+            let e = d
+                .iter()
+                .find(|d| d.code.as_str() == "E2023")
+                .unwrap_or_else(|| panic!("{expr}: E2023 beklenir"));
+            assert_eq!(e.message.to_string(), text, "{expr}");
+        }
+    }
+
+    /// 127 bitlik ve daha geniş hedefin aralığı `i128`'de yazılmaz; literal
+    /// aritmetiği orada sığma denetimine girmez ve derleyici düşmez.
+    #[test]
+    fn a_target_of_127_bits_or_more_is_not_range_checked() {
+        for width in [127, 128] {
+            let c = codes(&module(&format!("    out y : u{width}\n    y = 5 + 2")));
+            assert!(!c.contains(&"E2010"), "u{width}: {c:?}");
+        }
+    }
+
+    /// Trit'in aralığı -1..=1: `0 - 1`, `1 - 1` ve `2 - 1` sığar, `0 - 2`
+    /// sığmaz (E2011).
+    #[test]
+    fn trit_range_bounds() {
+        for (expr, fits) in [
+            ("0 - 1", true),
+            ("1 - 1", true),
+            ("2 - 1", true),
+            ("0 - 2", false),
+        ] {
+            let c = codes(&module(&format!("    out t : Trit\n    t = {expr}")));
+            assert_eq!(!c.contains(&"E2011"), fits, "{expr}: {c:?}");
+        }
+    }
+
+    /// Tek döngü değişkeninde not hatalı yinelemeyi adlandırır: `i + 2`
+    /// i = 2'de 4, u2'ye sığmaz (i = 0, 1 sığar; 2'de durulur).
+    #[test]
+    fn the_note_names_the_failing_iteration_of_a_single_loop() {
+        let d = diagnostics(&module(
+            "    out ys : [u2; 4]\n    comb {\n        for i in 0..4 {\n            ys[i] = i + 2\n        }\n    }",
+        ));
+        let e = d
+            .iter()
+            .find(|d| d.code.as_str() == "E2010")
+            .expect("E2010 beklenir");
+        assert!(e.message.contains("evaluates to 4"), "{}", e.message);
+        assert!(
+            e.notes.iter().any(|n| n.text == "in the iteration i = 2"),
+            "{:?}",
+            e.notes
+        );
+    }
+}
