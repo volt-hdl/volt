@@ -522,3 +522,62 @@ olduğundan elle sabitlenmez. #130'un örnekleri (25, 26) kaymadı.
 Sınırlar: bit işlemi, kaydırma ve dönüşümde iki literalli biçimler
 (`7 | 1`, `6 >> 1`, `(7 / 3) as u8`) model için hâlâ unspecified
 (#122); üreteç onları üretmez.
+
+
+**Düzeltme geri alındığında #144'ü yakalıyor.** Verilator'lı (CI), dört
+tohum (20261104–20261107, parça başına 2000 ifade), Verilator 5.052:
+
+- düzeltmesi geri alınmış dal `test/literal-arith-revert-demo` (yalnız
+  derleyicinin düzeltmesi, `crates/volt-hir/src/typeck/{binop,check,mod}.rs`,
+  `literal_fold.rs` ve `crates/volt-sv-emit/src/expr.rs`, `main`'deki
+  hâline döner; fark testi değişiklikleri kalır; birleştirilmez; satırlar
+  alıntılandıktan sonra silindi):
+  https://github.com/volt-hdl/volt/actions/runs/42264802166 — dört parça
+  da düştü, `diffs=822`, `700`, `741`, `636`; `regressions=33 failed=6`
+  (#144'ün altı örneği); model geçersiz derken derleyicinin kabul ettiği
+  ifade 10, 16, 9, 15 (E2010 ve E2023).
+- düzeltme dalı: https://github.com/volt-hdl/volt/actions/runs/42265535639
+  — dört parça geçti, her parçada `diffs=0`, `regressions=33 failed=0
+  hand-computed=45 compared=45`, WIDTH yok.
+
+Günlükten alıntı (parça öneki eklendi, bulgu satırları kısaltıldı):
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=81 unsupported=20 unspecified=0 values-compared=234839 diffs=822
+[shard 0] difftest: regressions=33 failed=6 hand-computed=45 compared=45
+[shard 0] difftest: value differs from the model — 769
+[shard 0] difftest: model: invalid, compiler: accepted — 10
+[shard 0]   [value differs from the model] regression #144: literal division compared with a narrow signal — a (u2 == (K / K))
+[shard 0]       o27a = p43 == 7 / 3
+[shard 0]       inputs: p43=0x2
+[shard 0]       model: 0x1, Verilator: 0x0 (bool)
+[shard 0]           assign o27a = p43 == 2'h3 / 2'd3;
+[shard 0]   [2x] regression #144: intermediate value of literal arithmetic wider than the context — a (u2 + ((K * K) / K))
+[shard 0]       o30a = p46 + 100 * 3 / 150
+[shard 0]       hand-computed: 0x3, Verilator: 0x1 (u3)
+[shard 0]       ((62 & p67) << p24) - ((-3808) + 3872)
+[shard 0]       model: E2010, compiler: no error
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2129 rejected-as-predicted=94 unsupported=9 unspecified=0 values-compared=229335 diffs=700
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2134 rejected-as-predicted=99 unsupported=6 unspecified=0 values-compared=233999 diffs=741
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2132 rejected-as-predicted=90 unsupported=9 unspecified=0 values-compared=233644 diffs=636
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+(`Tool ledger` satırı dört parçada da aynı; `regressions=33 failed=6`
+dört parçada da.) Düzeltme dalı:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=91 unsupported=20 unspecified=0 values-compared=229801 diffs=0
+[shard 0] difftest: regressions=33 failed=0 hand-computed=45 compared=45
+[shard 0] difftest: lint codes: CMPCONST=17 UNSIGNED=4 UNUSEDSIGNAL=802
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2131 rejected-as-predicted=110 unsupported=9 unspecified=0 values-compared=224133 diffs=0
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2136 rejected-as-predicted=108 unsupported=6 unspecified=0 values-compared=229303 diffs=0
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2136 rejected-as-predicted=105 unsupported=9 unspecified=0 values-compared=229091 diffs=0
+```
+
+Düzeltme dalının ilk büyük koşusu (42264796429) 3. parçada bir fark
+verdi; #144'le ilgisiz, koşucunun F biçiminde (`e == t`) önceden var olan
+bir hata: değer x olan vektörde (sınır dışı `p178[p14 -: 21]`, p14 = 10,
+ADR-0035 §1) iki x'in eşitliği tanımsız, ama F her vektörde 1 bekliyordu.
+Artık F modelin x dediği vektörde karşılaştırılmaz (G gibi); yukarıdaki
+koşu bu düzeltmeyle.
