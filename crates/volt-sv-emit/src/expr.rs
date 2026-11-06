@@ -840,6 +840,8 @@ impl<'a> Emitter<'a> {
 
     /// Check kipinde itme (ADR-0041): aritmetik işlemin literal olmayan
     /// her işleneni hedefle aynı işaretli ve doğal genişliği hedefe sığıyor.
+    /// Literal aritmetiği (`852 - x` içinde `34090 / 40`) de literaldir:
+    /// tip denetimi onu `IntLit` sayar ve iter (#144).
     fn pushes_into(&mut self, idx: Idx<Expr>, target: Option<Sig>) -> bool {
         let Some(t) = target else { return false };
         let ExprKind::Binary { op, lhs, rhs } = self.ast.exprs[idx].kind else {
@@ -850,6 +852,7 @@ impl<'a> Emitter<'a> {
         }
         [lhs, rhs].into_iter().all(|o| {
             matches!(self.ast.exprs[o].kind, ExprKind::IntLit { .. })
+                || self.fold_literal_arith(o).is_some()
                 || self
                     .natural_sig(o)
                     .is_some_and(|s| s.signed == t.signed && s.width <= t.width)

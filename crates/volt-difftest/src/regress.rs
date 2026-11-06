@@ -452,6 +452,19 @@ pub fn all() -> Vec<Regression> {
         // p0 = -4'te doğru, -5'te yanlış. (#144'te `4'sh7 / 4'sd2` = 3.)
         .pin(&[-4], 1)
         .pin(&[-5], 0),
+        r(
+            "#144",
+            "literal arithmetic as an operand of a subtraction pushed into a wider target",
+            vec![UInt(11)],
+            bin(BinOp::Sub, bin(BinOp::Div, lit(34090), lit(40)), p(0)),
+        ),
+        // `34090 / 40 - p0`, p0 : u11. Literal aritmetiği literaldir (§3.3):
+        // W biçiminde (daha geniş hedef) ADR-0041'in itmesi çıkarmayı hedef
+        // genişlikte yapar, literal işlenen itmeyi engellemez (type-inference
+        // §5: "literal olmayan operandları"). Düzeltmeden önce üretici yalnız
+        // çıplak literali literal sayıyordu: `17'($unsigned(12'd852 -
+        // 12'(p0)))`, doğal 12 bitte sarıp genişletiyordu. Değer işaretsiz
+        // çıkarmanın sarmasına (A3) bağlı, elle sabitlenmez.
     ]
 }
 
