@@ -31,6 +31,16 @@ impl Pool {
     }
 }
 
+/// Çalışma zamanı `/` ve `%`'nin bileşik işlenenleri (aritmetik ifade,
+/// esnek tip) yalnız `VOLT_DIFFTEST_DIV_OPERANDS=1` ile: üretici bölmeyi
+/// bağlamın genişliğinde yapıyor, işlenen bölmeden önce kesiliyor ya da
+/// sarmıyor (#150; `+ - *` kesmeyle sıra değiştirir, `/` ve `%`
+/// değiştirmez). Varsayılan biçimde işlenenler atomdur: port, portun
+/// dönüşümü, literal, literal aritmetiği. Issue kapanınca varsayılan açılır.
+pub fn div_operands_enabled() -> bool {
+    std::env::var("VOLT_DIFFTEST_DIV_OPERANDS").is_ok_and(|v| v == "1")
+}
+
 fn floor_log2(n: u32) -> u32 {
     31 - n.leading_zeros()
 }
@@ -244,6 +254,22 @@ impl Gen<'_> {
         }
     }
 
+    /// Bölmenin atom işlenenleri (`div_operands_enabled` kapalıyken).
+    fn div_operands(&mut self, s: bool, w: u32, d: u32) -> (Expr, Expr) {
+        let x = self.int_leaf(s, w);
+        let sd = self.sub_depth(d);
+        let y = match self.rng.weighted(&[30, 15, 55]) {
+            0 => self.lit(s, w),
+            1 => self.lit_expr(s, w, sd),
+            _ => self.int_leaf(s, w),
+        };
+        if self.rng.chance(15) {
+            (y, x)
+        } else {
+            (x, y)
+        }
+    }
+
     fn shift_amount(&mut self, w: u32, d: u32) -> Expr {
         match self.rng.weighted(&[40, 40, 20]) {
             0 => Expr::Lit(i128::from(self.rng.range(0, w + 1)), LitFmt::Dec),
@@ -268,7 +294,11 @@ impl Gen<'_> {
                     &[BinOp::Add, BinOp::Sub, BinOp::Div, BinOp::Rem]
                 };
                 let op = self.rng.pick(ops);
-                let (x, y) = self.operand_pair(s, w, d);
+                let (x, y) = if op.is_div() && !div_operands_enabled() {
+                    self.div_operands(s, w, d)
+                } else {
+                    self.operand_pair(s, w, d)
+                };
                 Expr::bin(op, x, y)
             }
             1 => {

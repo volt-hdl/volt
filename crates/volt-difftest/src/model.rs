@@ -133,9 +133,6 @@ pub mod tag {
     /// bölünenin işaretini alır (const-eval.md §4'ün `checked_div` /
     /// `checked_rem`'i; şartname çalışma zamanını söylemez).
     pub const SIGNED_DIV: u32 = 1 << 12;
-    /// A14: `iN::MIN / -1` sonucun genişliğinde sarar (`iN::MIN`); §3.3
-    /// "bölme/mod genişlemez" der, taşmayı söylemez.
-    pub const DIV_OVERFLOW: u32 = 1 << 13;
 }
 
 /// `(etiket, kimlik, açıklama)` — rapor ve ADR için.
@@ -204,11 +201,6 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
         tag::SIGNED_DIV,
         "A13",
         "signed / truncates toward zero and % takes the sign of the dividend at run time",
-    ),
-    (
-        tag::DIV_OVERFLOW,
-        "A14",
-        "iN::MIN / -1 wraps to iN::MIN at the result width",
     ),
 ];
 
@@ -565,9 +557,6 @@ impl Model<'_> {
         }
         if op.is_div() && s1 {
             tags |= tag::SIGNED_DIV;
-            if op == BinOp::Div {
-                tags |= tag::DIV_OVERFLOW;
-            }
         }
         Ok((
             Ty::Int {
@@ -597,7 +586,9 @@ impl Model<'_> {
     }
 
     /// `n` bitlik iki örüntünün aritmetiği, sonucun `n` bitlik örüntüsü;
-    /// bölen 0 `None` (SV'de x, karşılaştırılmaz).
+    /// bölen 0 `None` (SV'de x, karşılaştırılmaz). `iN::MIN / -1` de
+    /// `None`: sonuç N bite sığmaz, §3.3 "bölme/mod genişlemez" der ama
+    /// taşmayı söylemez (#122); karşılaştırılmaz.
     fn arith_bits(op: BinOp, a: u128, b: u128, n: u32, signed: bool) -> Option<u128> {
         let r = match op {
             BinOp::Add => a.wrapping_add(b),
@@ -605,9 +596,12 @@ impl Model<'_> {
             BinOp::Mul => a.wrapping_mul(b),
             BinOp::Div | BinOp::Rem if b & mask(n) == 0 => return None,
             BinOp::Div | BinOp::Rem if signed => {
-                // A13: sıfıra doğru; A14: MIN / -1 n bitte sarar (i128'de
-                // taşmaz, n <= 64).
+                // A13: sıfıra doğru, kalan bölünenin işaretinde (n <= 64,
+                // i128'de taşmaz).
                 let (x, y) = (to_i128(a, n, true), to_i128(b, n, true));
+                if op == BinOp::Div && y == -1 && x == -(1i128 << (n - 1)) {
+                    return None;
+                }
                 (if op == BinOp::Div { x / y } else { x % y }) as u128
             }
             BinOp::Div => (a & mask(n)) / (b & mask(n)),
@@ -856,9 +850,6 @@ impl Model<'_> {
         }
         if op.is_div() && signed {
             tags |= tag::SIGNED_DIV;
-            if *op == BinOp::Div {
-                tags |= tag::DIV_OVERFLOW;
-            }
         }
         Ok(Some(tags))
     }
@@ -1134,8 +1125,8 @@ mod tests {
         assert_eq!(ty(&out), Err(Reject::Invalid("E2010")));
     }
 
-    /// §3.3: `/` ve `%` genişlemez; çalışma zamanında bölen 0 x'tir
-    /// (karşılaştırılmaz). İşaretli: A13 (sıfıra doğru), A14 (MIN / -1).
+    /// §3.3: `/` ve `%` genişlemez; çalışma zamanında bölen 0 ve
+    /// `iN::MIN / -1` x'tir (karşılaştırılmaz). İşaretli: A13.
     #[test]
     fn runtime_division_and_remainder() {
         let mut inp = vec![0u128; PORTS.len()];
@@ -1149,7 +1140,8 @@ mod tests {
         inp[1] = 0;
         assert_eq!(m().eval(&div, &inp), None);
         assert_eq!(m().eval(&rem, &inp), None);
-        // p3 : i8. -7 / 2 = -3, -7 % 2 = -1; -128 / -1 sarar: -128.
+        // p3 : i8. -7 / 2 = -3, -7 % 2 = -1; -128 / -1 i8'e sığmaz,
+        // karşılaştırılmaz (#122).
         let sdiv = E::bin(BinOp::Div, p(3), lit(2));
         let srem = E::bin(BinOp::Rem, p(3), lit(2));
         inp[3] = (-7i128 as u128) & 0xFF;
@@ -1159,7 +1151,11 @@ mod tests {
         assert_ne!(t & tag::SIGNED_DIV, 0);
         inp[3] = 0x80;
         let min = E::bin(BinOp::Div, p(3), E::un(UnOp::Neg, lit(1)));
-        assert_eq!(m().eval(&min, &inp), Some(0x80));
+        assert_eq!(m().eval(&min, &inp), None);
+        assert_eq!(
+            m().eval(&E::bin(BinOp::Rem, p(3), E::un(UnOp::Neg, lit(1))), &inp),
+            Some(0)
+        );
         // ADR-0041: check kipinde i12 hedefte işlem i12'de: -128 / -1 = 128.
         assert_eq!(m().eval_check(&min, PortTy::SInt(12), &inp), Some(128));
     }

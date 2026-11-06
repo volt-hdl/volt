@@ -469,16 +469,17 @@ metni (§1–§6) değişmedi.
   işlenende yaprakların hedefe sığmasını istiyordu; derleyicinin
   `widen_operands`'ı gibi önce iki yanın literal olup olmadığına bakar
   (itme yok, değer katlanır).
-- Çalışma zamanında bölen 0: değer SV'de x'tir, model karşılaştırmaz
-  (`eval` `None`; G biçimi o ifadede düşer). Şartname tanımlamıyor: #122.
+- Çalışma zamanında bölen 0 ve `iN::MIN / -1`: şartname değeri
+  tanımlamıyor (§3.3 yalnız sonucun genişliğini verir; `iN::MIN / -1`
+  N bite sığmaz). Model karşılaştırmaz (`eval` `None`, bölen 0'da SV
+  değeri de x'tir; G biçimi o ifadede düşer). Karar #122'de.
 
-Yeni varsayım etiketleri ("Spesifikasyon belirsizlikleri" tablosunun
+Yeni varsayım etiketi ("Spesifikasyon belirsizlikleri" tablosunun
 devamı; #122):
 
 | Kimlik | Okuma | Şartnamenin söylediği |
 |---|---|---|
 | A13 | çalışma zamanında işaretli `/` sıfıra doğru keser, `%` bölünenin işaretini alır | const-eval.md §4 derleme anını (`checked_div`, `checked_rem`) tanımlar; çalışma zamanını söylemez |
-| A14 | `iN::MIN / -1` sonucun genişliğinde sarar (`iN::MIN`) | §3.3 "bölme/mod genişlemez"; taşmayı söylemez |
 
 **Üreteç.**
 
@@ -494,14 +495,29 @@ devamı; #122):
 - İki yeni geçersiz biçim: değeri karşı yanın tipine sığmayan literal
   ağacı (aritmetik, bit işlemi ve karşılaştırmada; E2010) ve sıfır bölenli
   literal bölmesi ya da kalanı (`k / (z - z)`, E2023).
+- Çalışma zamanı `/` ve `%`'nin işlenenleri varsayılan olarak atomdur:
+  port, portun dönüşümü, literal, literal aritmetiği. Bileşik işlenen
+  (aritmetik ifade, esnek tip) `VOLT_DIFFTEST_DIV_OPERANDS=1` ile açılır.
+  Açık koşu bir sınıf buldu (#150): üretici bölmeyi bağlamın genişliğinde
+  yapıyor, işlenen bölmeden önce kesiliyor ya da sarmıyor; `+ - *`'da bu
+  strateji değeri değiştirmez, `/` ve `%`'de değiştirir. Esnek işlenenin
+  bölmedeki değeri ADR-0025'in açık bıraktığı bir okumaya bağlı (A1
+  ailesi), karar o issue'da. Issue kapanınca varsayılan açılır
+  (`VOLT_DIFFTEST_FN_LET` ile aynı düzen, #132).
 - Üst düzeyde literal ifadesi üretilmez: çıkışın tipi ifadenin doğal
   tipidir, literalin doğal tipi yoktur (`untyped literal expression`).
   Literal aritmetiği işlenen ve karşılaştırma konumlarında sınanır.
 
-**Regresyon kümesi.** #144'ün beş örneği (kimlik 27–31), hepsi elle
+**Regresyon kümesi.** #144'ün altı örneği (kimlik 27–32). Beşi elle
 hesaplanmış değerli: `p0 == 7 / 3` ve `p0 < 5 % 3` (u2), `p0 & (7 / 3)`,
 `p0 + 100 * 3 / 150` (ara değer 300) ve işaretli `p0 == -9 / 2` (i4; -9
-i4'e sığmaz, -4 sığar). #130'un örnekleri (25, 26) kaymadı.
+i4'e sığmaz, -4 sığar). Altıncısı (`34090 / 40 - p0`, p0 : u11) yeni
+biçimin ilk yerel koşusunun bulgusudur: W biçiminde (daha geniş hedef)
+tip denetimi literal ağacını literal sayıp çıkarmayı hedef genişlikte
+yapıyordu (type-inference.md §5), üreticinin `pushes_into`'su yalnız
+çıplak literali sayıyordu ve doğal 12 bitte sarıp genişletiyordu. Aynı
+PR'da düzeltildi; değeri işaretsiz çıkarmanın sarmasına (A3) bağlı
+olduğundan elle sabitlenmez. #130'un örnekleri (25, 26) kaymadı.
 
 Sınırlar: bit işlemi, kaydırma ve dönüşümde iki literalli biçimler
 (`7 | 1`, `6 >> 1`, `(7 / 3) as u8`) model için hâlâ unspecified
