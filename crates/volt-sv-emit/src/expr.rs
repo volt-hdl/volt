@@ -177,12 +177,15 @@ impl<'a> Emitter<'a> {
     /// ikili aritmetik işlemli ağaç. Değer `i128`'de hesaplanır, ara
     /// değerler kesilmez; `/` ve `%` sıfıra doğru. Sığma denetimi (E2010)
     /// ve sıfıra bölme (E2023) tip denetiminindir; bölen 0 ya da taşma
-    /// `None` (ağaç olduğu gibi yazılır, tanı zaten verildi).
+    /// `None` (ağaç olduğu gibi yazılır, tanı zaten verildi). Derinlik
+    /// sınırı yoktur: tip denetimi ağacın tamamını katlayıp denetler,
+    /// burada kesilen bir ağaç eski yola (her literal bağlamın genişliğinde)
+    /// döner ve yanlış değer verirdi.
     pub(crate) fn fold_literal_arith(&self, idx: Idx<Expr>) -> Option<i128> {
         if !self.has_literal_binary(idx) {
             return None;
         }
-        self.literal_value(idx, 0)
+        self.literal_value(idx)
     }
 
     /// Ağaçta (tekli `-`'lerin altında) bir ikili aritmetik işlem var mı.
@@ -201,10 +204,7 @@ impl<'a> Emitter<'a> {
         false
     }
 
-    fn literal_value(&self, idx: Idx<Expr>, depth: u32) -> Option<i128> {
-        if depth > MAX_CONST_DEPTH {
-            return None;
-        }
+    fn literal_value(&self, idx: Idx<Expr>) -> Option<i128> {
         let kind = &self.ast.exprs[idx].kind;
         if let ExprKind::IntLit { value, suffix, .. } = kind {
             return suffix.is_none().then(|| i128::try_from(*value).ok())?;
@@ -220,7 +220,7 @@ impl<'a> Emitter<'a> {
             operand,
         } = kind
         {
-            return self.literal_value(*operand, depth + 1)?.checked_neg();
+            return self.literal_value(*operand)?.checked_neg();
         }
         let ExprKind::Binary { op, lhs, rhs } = kind else {
             return None;
@@ -228,8 +228,8 @@ impl<'a> Emitter<'a> {
         if !is_arith(*op) {
             return None;
         }
-        let l = self.literal_value(*lhs, depth + 1)?;
-        let r = self.literal_value(*rhs, depth + 1)?;
+        let l = self.literal_value(*lhs)?;
+        let r = self.literal_value(*rhs)?;
         literal_op(*op, l, r)
     }
 

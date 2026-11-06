@@ -29,12 +29,6 @@ use super::TypeChecker;
 use crate::resolve::DefId;
 use crate::ty::{Ty, TypeId};
 
-/// Döngü değişkeni değerlerinin denetlenen en çok bileşimi. Blok içi
-/// döngüler açılım sınırının (E2027) altındadır; iç içe döngülerin çarpımı
-/// bu sınırı aşarsa denetim yapılmaz (değer üretici tarafında yine tam
-/// değerdir).
-const MAX_ASSIGNMENTS: u64 = 1 << 16;
-
 /// Değerlendirme hatası.
 enum Fault {
     /// Bölen 0 (raporu `check_literal_divisor` verir).
@@ -137,15 +131,11 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Döngü değişkenlerinin her değer bileşimi için `f`; `f` `false`
-    /// dönerse durur. Bileşim sayısı [`MAX_ASSIGNMENTS`]'ı aşarsa hiç
-    /// çağrılmaz.
+    /// dönerse durur. Bileşim sayısına üst sınır konmaz: şartname koymaz,
+    /// üretici blok içi döngünün her bileşimini zaten açar (döngü başına
+    /// sınır E2027); burada sınır, aşan bileşimde sığmayan değeri sessizce
+    /// geçirirdi (#152).
     fn for_each_assignment(&self, vars: &[LoopVar], mut f: impl FnMut(&[(DefId, i128)]) -> bool) {
-        let total = vars.iter().try_fold(1u64, |acc, &(_, s, e)| {
-            acc.checked_mul(u64::from(e.saturating_sub(s)))
-        });
-        if total.is_none_or(|t| t > MAX_ASSIGNMENTS) {
-            return;
-        }
         if vars.iter().any(|&(_, s, e)| s >= e) {
             return; // boş döngü: gövde hiç açılmaz
         }
@@ -499,11 +489,11 @@ mod tests {
         assert_eq!(two.iter().filter(|c| **c == "E2023").count(), 2, "{two:?}");
     }
 
-    /// Bileşim sınırının kendisi (65 536 = 16⁴) hâlâ denetlenir: dört iç
-    /// içe `0..16` döngüsünde `i * j * k * l`'nin en büyüğü 15⁴ = 50 625,
-    /// u15'e (en çok 32 767) sığmaz.
+    /// Dört iç içe döngünün her bileşimi (16⁴ = 65 536) denetlenir: `0..16`
+    /// döngülerinde `i * j * k * l`'nin en büyüğü 15⁴ = 50 625, u15'e (en
+    /// çok 32 767) sığmaz.
     #[test]
-    fn a_loop_nest_of_exactly_the_combination_limit_is_checked() {
+    fn four_nested_loops_are_checked_in_every_combination() {
         let c = codes(&module(
             "    out y : u15\n    comb {\n        for i in 0..16 {\n            for j in 0..16 {\n                for k in 0..16 {\n                    for l in 0..16 {\n                        y = i * j * k * l\n                    }\n                }\n            }\n        }\n    }",
         ));
@@ -567,6 +557,25 @@ mod tests {
             e.notes.iter().any(|n| n.text == "in the iteration i = 2"),
             "{:?}",
             e.notes
+        );
+    }
+
+    /// Bileşim sayısının üst sınırı yoktur (şartname koymaz; üretici de
+    /// her bileşimi açar): üç `0..41` döngüsü 68 921 bileşimdir, son
+    /// bileşimde `i * j * k` = 40³ = 64 000 u15'e (en çok 32 767) sığmaz.
+    #[test]
+    fn a_loop_nest_above_65536_combinations_is_checked() {
+        let d = diagnostics(&module(
+            "    out y : u15\n    comb {\n        for i in 0..41 {\n            for j in 0..41 {\n                for k in 0..41 {\n                    y = i * j * k\n                }\n            }\n        }\n    }",
+        ));
+        let e = d
+            .iter()
+            .find(|d| d.code.as_str() == "E2010")
+            .expect("E2010 beklenir");
+        assert!(
+            e.message.contains("does not fit in type u15"),
+            "{}",
+            e.message
         );
     }
 }

@@ -380,3 +380,31 @@ test "the literal operand is 2" {
         1,
     );
 }
+
+/// Derin literal ağacı da tam değeriyle katlanır: 70 terimlik
+/// `1 + 1 + … + 1` = 70, `70 / 10` = 7 (const-eval.md §4 `checked_div`),
+/// u3'e sığar (0..=7). Ağacın derinliği 70'tir; derinlik sınırı yoktur
+/// (tip denetimi de ağacın tamamını katlar). Düzeltmeden önce 64'ten derin
+/// ağaçta katlama bırakılıp eski yola dönülüyordu: 65 terimlik alt ağaç
+/// bağlamın literali olarak `3'h1` (65 mod 8), bölen `3'h2` yazılıyordu;
+/// `(1 + 5) / 2` = 3.
+#[test]
+fn issue_144_a_deep_literal_tree_is_folded_with_its_exact_value() {
+    let ones = vec!["1"; 70].join(" + ");
+    sim(
+        "deep",
+        &format!(
+            r#"module M {{
+    out y : u3
+    y = ({ones}) / 10
+}}
+test "seventy ones divided by ten is 7" {{
+    let dut = M {{ }};
+    step(1);
+    assert_eq(dut.y, 7);
+}}
+"#
+        ),
+        1,
+    );
+}

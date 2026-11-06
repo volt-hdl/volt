@@ -20,9 +20,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `const X : u8 = 200 + 100`, `x < 3 - 1` x : u1 iken; 0.1.0 sessizce
   sarıyordu), sıfıra bölme ve sıfıra göre kalan E2023 verir
   (`7 / 0`, `5 % (2 - 2)`); `comb` içi `for` değişkeni hedefe sığmazsa da
-  E2010 (`ys[i] = i` ile i hedefin aralığını aşarken). 0.1.0'dan yükselten
-  kullanıcı için: derleme yeni bir E2010 ya da E2023 veriyorsa o satırın
-  0.1.0'daki SV'si zaten yanlış değeri hesaplıyordu.
+  E2010 (`ys[i] = i` ile i hedefin aralığını aşarken; iç içe döngülerde
+  her bileşim denetlenir, #152; ağacın derinliğinden bağımsız, #153).
+  0.1.0'dan yükselten kullanıcı için: derleme yeni bir E2010 ya da E2023
+  veriyorsa o satırın 0.1.0'daki SV'si zaten yanlış değeri hesaplıyordu.
 - **Davranış değişikliği.** `volt test`, `volt run` ve `volt test
   --waves` Verilator'ı artık `-fno-dfg` ile çalıştırır, yerelde de Docker
   arka ucunda da: Verilator 5.052'nin DFG eniyileyicisi doğru
