@@ -280,20 +280,15 @@ impl crate::parser::Parser<'_> {
     /// Gezilen gövdenin yerelini (blok `let`'i, döngü değişkeni) birim sonu
     /// geçidinin zincirine ([`Parser::scopes`]) bildirir. Yerel, çözücünün
     /// görmediği bir adı (bundle portu, `@mmio` tutamacı) gölgeliyorsa
-    /// W1002'yi geçit verir (§6); monomorflar ve yinelemeler aynı kaynak
-    /// satırını bir kez uyarır.
+    /// W1002'yi geçit verir (§6). Generic modülün monomorflarındaki
+    /// kopyalar yalnız `Span.ctx`'leriyle ayrışır; sürücü onları
+    /// `volt_hir::annotate_generate`'te katlar (ADR-0068), kaynak satırı
+    /// başına bir uyarı kalır.
     pub(crate) fn declare_block_local(&mut self, name: &Name, loop_var: bool) {
         let Some(outer) = self.scopes.declare_local(name, loop_var) else {
             return;
         };
-        if outer.resolver_sees {
-            return;
-        }
-        let same = |a: Span, b: Span| a.file == b.file && a.start == b.start && a.end == b.end;
-        let seen = self.diagnostics.iter().any(|d| {
-            d.code == ErrorCode::W1002 && d.spans.first().is_some_and(|l| same(l.span, name.span))
-        });
-        if !seen {
+        if !outer.resolver_sees {
             self.diagnostics
                 .push(shadowing_warning(&name.text, name.span, outer.span));
         }

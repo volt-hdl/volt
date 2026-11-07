@@ -1228,8 +1228,9 @@ Her adım gövdeyi gezerken zinciri kurar:
 gölgelemenin iki ucunu çözücü görüyorsa W1002'yi çözücü verir. Bundle
 portu düz portlara açılır, `regs` tutamacı register haritasına; çözücü
 ikisini de görmez ve onları gölgeleyen yerelin W1002'sini adım verir
-(`Parser::declare_block_local`), kaynak satırı başına bir kez (generic
-modülün monomorfları aynı satırı yeniden uyarmaz). Çift yönlü port port
+(`Parser::declare_block_local`). Generic modülün monomorflarındaki
+kopyalar yalnız `Span.ctx`'leriyle ayrışır ve sürücüde katlanır
+(ADR-0068, `annotate_generate`): kaynak satırı başına bir uyarı. Çift yönlü port port
 olarak kalır, aşama değeri modül düzeyi `let`'e taşınır: bunların
 gölgelemesini çözücü uyarır.
 

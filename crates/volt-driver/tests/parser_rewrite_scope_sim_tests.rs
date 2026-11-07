@@ -290,8 +290,8 @@ test "inner names shadow the stage value" {{
 
 /// #137: B aşamasındaki `for a in 0..2` aşama değeri `a`'yı gölgeler; `r[a]`
 /// döngü değişkeniyle indekslenir: bir kenarda r = [x, x] = [10, 10].
-/// Hatada iki yazma da `r[a_a_r]`'ye (sınır register'ı, sıfırlamada 0)
-/// gider: y1 = 0.
+/// Hatada iki yazma da `r[a_a_r]`'ye (aşama değerinin sınır register'ı)
+/// gider; geri alma koşusunda y0 = 0.
 #[test]
 fn a_loop_variable_in_a_stage_shadows_the_stage_value() {
     let src = pipeline(
@@ -310,7 +310,8 @@ fn a_loop_variable_in_a_stage_shadows_the_stage_value() {
 /// #137: B'deki `if c { let a = 5 }` dalında `a` yereldir (5); `else`
 /// dalında aşama değeridir (B'nin görünümü: bir kenar önceki x + 1).
 /// x = 10, c = 1: bir kenarda r[0] = 5. c = 0: sınır register'ı ilk
-/// kenarda 11 olmuştu, ikinci kenarda r[0] = 11. Hatada c = 1'de de 11.
+/// kenarda 11 olmuştu, ikinci kenarda r[0] = 11. Hatada c = 1'de de sınır
+/// register'ı okunur: ilk kenarda sıfırlama değeri 0.
 #[test]
 fn a_block_let_in_a_stage_branch_shadows_the_stage_value() {
     let src = pipeline(
@@ -334,7 +335,7 @@ fn a_block_let_in_a_stage_branch_shadows_the_stage_value() {
 
 /// #137: `match` kolunun bloğundaki `let a` aşama değerini gölgeler; öteki
 /// kolda `a` aşama değeridir. x = 10, s = 0: r[1] = 9; s = 1: r[1] = 11.
-/// Hatada s = 0'da da 11.
+/// Hatada s = 0'da da sınır register'ı okunur: ilk kenarda 0.
 #[test]
 fn a_block_let_in_a_match_arm_of_a_stage_shadows_the_stage_value() {
     let src = pipeline(

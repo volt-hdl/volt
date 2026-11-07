@@ -502,3 +502,28 @@ fn fresh_in_block(src: &str, local: &str, fresh: &str) -> String {
     }
     out
 }
+
+/// `regs` tutamacının alan zinciri tek parçalı bir adla başlar
+/// (ADR-0044 §1): `regs::x.control.enable` tutamaç değildir, yeniden
+/// yazılmaz ve çözücü `regs`'i bulamaz (E1001). Hedefli mutasyon
+/// koşusunun kör noktası: `mmio_field_chain`'in koruması `||` olunca çok
+/// parçalı yol da tutamaç sayılıp sessizce register haritasına
+/// bağlanıyordu.
+#[test]
+fn a_qualified_path_is_not_the_register_handle() {
+    let src = "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module G {
+    in  clk : clock
+    out en  : bool
+    @reg(offset = 0x00, access = ReadWrite)
+    control : {
+        enable : bool,
+        @reserved : bits<31>,
+    }
+    en = regs::x.control.enable // use
+}
+";
+    let got = check("qualified", src);
+    let line = lines_with(src, "// use")[0];
+    assert_eq!(errors(&got), vec![("E1001".to_string(), line)], "{got:?}");
+}
