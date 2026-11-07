@@ -1071,3 +1071,287 @@ test "an unchecked array port" {
 "#;
     sim("array_unchecked", src, 1);
 }
+
+/// `out`'taki otomatik FSM geçiş cover'larının satırları (ADR-0066 F3).
+fn transition_covers(out: &str) -> Vec<&str> {
+    out.lines()
+        .filter(|l| l.contains("auto FSM transition"))
+        .collect()
+}
+
+/// #138: `comb`'daki `let st : Color` FSM register'ı `st`'yi gölgeler; o
+/// bloktaki `match st` yerel enum'un üzerindedir, register'ın değil. FSM
+/// kontratı kalır: üç geçiş cover'ı (0 → 1, 1 → 2, `_` → 0), her biri bir
+/// kez. Hatada yerelin `match`'i register'ınki sayılıyordu; `Color::R`
+/// deseni `u2` register'ına uymadığından FSM tümüyle düşüyor, cover
+/// kalmıyordu (`main`'de 0 cover). Durum 0 → 1 → 2 → 0; `o` = (col == R).
+#[test]
+fn a_match_on_a_local_enum_named_like_the_state_keeps_the_fsm() {
+    let src = r#"enum Color { R, G }
+module M {
+    in  clk : clock
+    in  col : Color
+    out q   : u2
+    out o   : bool
+    reg st : u2 = 0
+    on clk {
+        match st {
+            0 => { st <= 1 }
+            1 => { st <= 2 }
+            _ => { st <= 0 }
+        }
+    }
+    comb {
+        let st : Color = col
+        match st {
+            Color::R => { o = true }
+            _ => { o = false }
+        }
+    }
+    q = st
+}
+test "a match on a local enum" {
+    let dut = M { };
+    dut.col = Color::R;
+    step(1);
+    assert_eq(dut.q, 1);
+    assert_eq(dut.o, true);
+    dut.col = Color::G;
+    step(1);
+    assert_eq(dut.q, 2);
+    assert_eq(dut.o, false);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("fsm_local_enum", src, 1) else {
+        return;
+    };
+    let covers = transition_covers(&out);
+    assert_eq!(covers.len(), 3, "{out}");
+    assert!(covers.iter().all(|l| l.ends_with("hit 1 time")), "{out}");
+}
+
+/// Döngü içindeki yazma tanıyıcının dışındadır (ADR-0066): register
+/// kirlenir, sayaç kontratı çıkarılmaz. Yazılan 3 sınırın (5) altında
+/// olduğundan tanıyıcı onu sabit yazma sayıp `r <= 5` kontratını ve sarma
+/// cover'ını üretebilirdi; hedefli mutasyon koşusunun kör noktası
+/// (`scan.rs`'in `||` → `&&`'si döngü içi yazmayı kirletmiyordu). r: beş
+/// kenarda 5, altıncıda 0; set ile 3, sonra 4.
+#[test]
+fn a_constant_written_in_a_loop_gets_no_counter_contract() {
+    let src = r#"module M {
+    in  clk : clock
+    in  set : bool
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if r == 5 {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+        for i in 0..1 {
+            if set {
+                r <= 3
+            }
+        }
+    }
+    q = r
+}
+test "a write in a loop" {
+    let dut = M { };
+    dut.set = false;
+    step(5);
+    assert_eq(dut.q, 5);
+    step(1);
+    assert_eq(dut.q, 0);
+    dut.set = true;
+    step(1);
+    assert_eq(dut.q, 3);
+    dut.set = false;
+    step(1);
+    assert_eq(dut.q, 4);
+}
+"#;
+    let Some(out) = sim("cnt_in_loop", src, 1) else {
+        return;
+    };
+    assert!(!out.contains("auto counter"), "{out}");
+}
+
+/// Reset değerine hiç dönmeyen FSM de FSM'dir: reset değerinden farklı
+/// bir değer yazılıyor (ADR-0066). Geçişler 0 → 1 ve 1 → 2; `_` kolunun
+/// `st <= 2`'si öz-döngüdür (2 adı geçmeyen değerdir), cover almaz. Hedefli
+/// mutasyon koşusunun kör noktası (`fsm.rs`'te ayrık değer sayımının
+/// `!=` → `==`'si, reset değeri yazılmayınca FSM'i düşürüyordu). Durum
+/// 0 → 1 → 2 → 2.
+#[test]
+fn an_fsm_that_never_returns_to_reset_keeps_its_transition_covers() {
+    let src = r#"module M {
+    in  clk : clock
+    out q   : u2
+    reg st : u2 = 0
+    on clk {
+        match st {
+            0 => { st <= 1 }
+            1 => { st <= 2 }
+            _ => { st <= 2 }
+        }
+    }
+    q = st
+}
+test "no way back" {
+    let dut = M { };
+    step(1);
+    assert_eq(dut.q, 1);
+    step(1);
+    assert_eq(dut.q, 2);
+    step(1);
+    assert_eq(dut.q, 2);
+}
+"#;
+    let Some(out) = sim("fsm_no_return", src, 1) else {
+        return;
+    };
+    let covers = transition_covers(&out);
+    assert_eq!(covers.len(), 2, "{out}");
+    assert!(covers.iter().all(|l| l.ends_with("hit 1 time")), "{out}");
+}
+
+/// Bir kolda iki kez yazılan aynı hedef tek geçiştir, tek cover alır
+/// (ADR-0066 F3: kol başına geçiş). Geçişler 0 → 1, 1 → 2, `_` → 0: üç
+/// cover. Hedefli mutasyon koşusunun kör noktası (`fsm.rs`'in tekrar
+/// denetiminde `==` → `!=`: 0 → 1 iki cover alıyordu). c = true ile
+/// 0 → 1 → 2 → 0, c = false ile yine 0 → 1: 0 → 1 iki kez tetiklenir.
+#[test]
+fn one_transition_written_twice_in_an_arm_is_one_cover() {
+    let src = r#"module M {
+    in  clk : clock
+    in  c   : bool
+    out q   : u2
+    reg st : u2 = 0
+    on clk {
+        match st {
+            0 => {
+                if c {
+                    st <= 1
+                } else {
+                    st <= 1
+                }
+            }
+            1 => { st <= 2 }
+            _ => { st <= 0 }
+        }
+    }
+    q = st
+}
+test "one transition written twice" {
+    let dut = M { };
+    dut.c = true;
+    step(1);
+    assert_eq(dut.q, 1);
+    step(1);
+    assert_eq(dut.q, 2);
+    step(1);
+    assert_eq(dut.q, 0);
+    dut.c = false;
+    step(1);
+    assert_eq(dut.q, 1);
+}
+"#;
+    let Some(out) = sim("fsm_dup", src, 1) else {
+        return;
+    };
+    let covers = transition_covers(&out);
+    assert_eq!(covers.len(), 3, "{out}");
+    assert!(covers[0].ends_with("hit 2 times"), "{out}");
+}
+
+/// Aynalanmış koşul `5 == x` de sayacı değil başka bir sinyali
+/// karşılaştırır: sınır değildir (`bound_of`'un aynalanmış kolundaki
+/// `&&`; mutant `||` `5`'i sınır sayıp `invariant r <= 5` üretir, r = 6'da
+/// ihlal edilir). x = 0: sekiz kenarda 8; x = 5: 0.
+#[test]
+fn a_mirrored_guard_on_another_signal_is_not_a_counter_bound() {
+    let src = r#"module M {
+    in  clk : clock
+    in  x   : u8
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if 5 == x {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    q = r
+}
+test "the mirrored guard compares another signal" {
+    let dut = M { };
+    dut.x = 0;
+    step(8);
+    assert_eq(dut.q, 8);
+    dut.x = 5;
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("bound_mirrored", src, 1) else {
+        return;
+    };
+    assert!(!out.contains("auto counter"), "{out}");
+}
+
+/// Register üzerindeki `match` `comb` bloğunda da FSM'i tanıtır
+/// (ADR-0066): `st` sabitlerle yazılır (1, 2), yazmalar bir `match`
+/// kolunda olmadığından geçiş yoktur; geçiş hedefi olmayan iki durum
+/// (1, 2) birer durum cover'ı alır. Hedefli mutasyon koşusunun kör
+/// noktası (`scan_module`'ün `comb` kolu silinince `match` görülmüyor, FSM
+/// düşüyordu). c = 1: st = 1, o = true; c = 0: st = 2, o = false.
+#[test]
+fn a_match_in_comb_makes_the_register_an_fsm() {
+    let src = r#"module M {
+    in  clk : clock
+    in  c   : bool
+    out q   : u2
+    out o   : bool
+    reg st : u2 = 0
+    on clk {
+        if c {
+            st <= 1
+        } else {
+            st <= 2
+        }
+    }
+    comb {
+        match st {
+            1 => { o = true }
+            _ => { o = false }
+        }
+    }
+    q = st
+}
+test "a match in comb" {
+    let dut = M { };
+    dut.c = true;
+    step(1);
+    assert_eq(dut.q, 1);
+    assert_eq(dut.o, true);
+    dut.c = false;
+    step(1);
+    assert_eq(dut.q, 2);
+    assert_eq(dut.o, false);
+}
+"#;
+    let Some(out) = sim("fsm_in_comb", src, 1) else {
+        return;
+    };
+    let states: Vec<&str> = out
+        .lines()
+        .filter(|l| l.contains("auto FSM state"))
+        .collect();
+    assert_eq!(states.len(), 2, "{out}");
+    assert!(states.iter().all(|l| l.ends_with("hit 1 time")), "{out}");
+}

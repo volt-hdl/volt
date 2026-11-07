@@ -77,6 +77,12 @@ exclude_re = [
     # A1. `Some(s) if vstage == s` is the arm before `vstage < s`, so at
     # vstage == s the `<=` mutant never reaches its arm (#137 targeted run).
     "parser/desugar\\.rs:\\d+:\\d+: replace < with <= in Parser<'_>::rw_expr$",
+    # A2, assumes a module-level `=` to a register is always E0019
+    # (register_assign.rs, ADR-0098): without this arm the register gets a
+    # counter contract, but the build stops at E0019 and the diagnostics are
+    # the same (parser_rewrite_scope_diag_tests::
+    # a_counter_assigned_at_module_level_is_only_e0019; #138 targeted run).
+    "parser/auto_contract/scan\\.rs:\\d+:\\d+: delete match arm StmtKind::Assign\\(a\\) in scan_module$",
     # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
     # the first disjunct.
     "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",

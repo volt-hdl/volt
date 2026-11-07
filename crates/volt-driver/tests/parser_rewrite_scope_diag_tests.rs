@@ -590,3 +590,29 @@ module G {
     let got = check("module-write", src);
     assert!(errors(&got).is_empty(), "{got:?}");
 }
+
+/// Register'a modül düzeyinde `=` her zaman E0019'dur (ADR-0098), sayaç
+/// olsa da. `scan_module`'ün `StmtKind::Assign` kolu böyle register'ı
+/// kirletir; kol silinince sayaç kontratı çıkarılır ama derleme E0019'da
+/// durur ve tanılar aynı kalır. Bu test o eşdeğerliğin (A2,
+/// `.cargo/mutants.toml`) dayanağıdır: kontrat bir tanı eklerse düşer.
+#[test]
+fn a_counter_assigned_at_module_level_is_only_e0019() {
+    let src = "module M {
+    in  clk : clock
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if r == 5 {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    r = 3
+    q = r
+}
+";
+    let got = check("assign-counter", src);
+    assert_eq!(got, vec![("error".to_string(), "E0019".to_string(), 12)]);
+}

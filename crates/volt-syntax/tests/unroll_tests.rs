@@ -421,3 +421,94 @@ fn unroll_node_budget_stops_expansion_with_a_single_e2027() {
         r.ast.stmts.len() + r.ast.exprs.len()
     );
 }
+
+/// Modülün `let` adlarından `prefix_<i>` biçimindekilerin sayısı.
+fn iterations(ast: &SourceFile, m: &ModuleDecl, prefix: &str) -> usize {
+    let_names(ast, m)
+        .iter()
+        .filter(|n| {
+            n.strip_prefix(prefix)
+                .and_then(|r| r.strip_prefix('_'))
+                .is_some_and(|i| i.parse::<u32>().is_ok())
+        })
+        .count()
+}
+
+/// Sınırdaki sabit aritmetiğin her işleci katlanır (const-eval.md; N = 1,
+/// D = 7, tamsayı bölmesi kırpar): N + 1 = 2, D - 4 = 3, N * 3 = 3,
+/// D / 2 = 3, D % 4 = 3, N << 1 = 2, D >> 1 = 3, -(-2) = 2. Hedefli
+/// mutasyon koşusunun kör noktası: `eval_const_scoped`'un `+`, `/`, `%`,
+/// `<<` kolları silinince bu sınırlar E2021 alıyordu.
+#[test]
+fn every_arithmetic_operator_of_a_bound_is_folded() {
+    let src = "const N : u32 = 1
+const D : u32 = 7
+module M {
+    in  x : [u8; 8]
+    for a in 0..N + 1 { let ta = x[a] }
+    for b in 0..D - 4 { let tb = x[b] }
+    for c in 0..N * 3 { let tc = x[c] }
+    for d in 0..D / 2 { let td = x[d] }
+    for e in 0..D % 4 { let te = x[e] }
+    for f in 0..(N << 1) { let tf = x[f] }
+    for g in 0..(D >> 1) { let tg = x[g] }
+    for h in 0..-(-2) { let th = x[h] }
+}
+";
+    let r = p(src);
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let m = module(&r.ast, "M");
+    let counts: Vec<usize> = ["ta", "tb", "tc", "td", "te", "tf", "tg", "th"]
+        .iter()
+        .map(|t| iterations(&r.ast, m, t))
+        .collect();
+    assert_eq!(counts, [2, 3, 3, 3, 3, 2, 3, 2]);
+}
+
+/// 64 derinliğe kadar iç içe sabit ifade ve 63 halkalı const zinciri
+/// sınırdır. 64 terimlik `1 + … + 1` sola iç içedir; en içteki literal
+/// 64. düzeydedir: 64 - 62 = 2 yineleme. Zincir `C63 → … → C0 = 2`: 2
+/// yineleme. Hedefli mutasyon koşusunun kör noktası: derinlik
+/// denetiminin `>` → `>=`, `==` mutantları ikisini de E2021 ile
+/// reddediyordu. Bir düzey daha derini bugün E2021 alıyor; şartnamede
+/// sınır yok (#159).
+#[test]
+fn a_bound_nested_64_deep_is_folded() {
+    let sum = vec!["1"; 64].join(" + ");
+    let mut chain = String::from("const C0 : u32 = 2\n");
+    for k in 1..=63 {
+        chain.push_str(&format!("const C{k} : u32 = C{}\n", k - 1));
+    }
+    let src = format!(
+        "{chain}module M {{
+    in  x : [u8; 2]
+    for i in 0..{sum} - 62 {{ let ti = x[i] }}
+    for j in 0..C63 {{ let tj = x[j] }}
+}}
+"
+    );
+    let r = p(&src);
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let m = module(&r.ast, "M");
+    assert_eq!(iterations(&r.ast, m, "ti"), 2);
+    assert_eq!(iterations(&r.ast, m, "tj"), 2);
+}
+
+/// Sınırdaki döngüsel const (const-eval.md §5) bir hatadır, yığın taşması
+/// değil. Hedefli mutasyon koşusunun kör noktası: const adından geçerken
+/// derinlik artmayınca (`depth + 1` → `depth * 1`) değerlendirici
+/// döngüde sonsuza iniyordu. Tanı kodu bugün E2021, şartnamenin kodu
+/// E2020 (#159); test kodu sabitlemez.
+#[test]
+fn a_const_cycle_in_a_bound_is_an_error_not_a_stack_overflow() {
+    let r = p("const A : u32 = B
+const B : u32 = A
+module M {
+    in  x : [u8; 2]
+    for i in 0..A { let t = x[i] }
+}
+");
+    assert!(!r.error_codes().is_empty());
+    let m = module(&r.ast, "M");
+    assert!(!has_for(&r.ast, m));
+}
