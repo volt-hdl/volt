@@ -74,6 +74,9 @@ examine_globs = [
 # missed again): it never hides a different mutant without that showing.
 # Source: run 41905442445 (952 mutants, 157 missed).
 exclude_re = [
+    # A1. `Some(s) if vstage == s` is the arm before `vstage < s`, so at
+    # vstage == s the `<=` mutant never reaches its arm (#137 targeted run).
+    "parser/desugar\.rs:\d+:\d+: replace < with <= in Parser<'_>::rw_expr$",
     # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
     # the first disjunct.
     "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",

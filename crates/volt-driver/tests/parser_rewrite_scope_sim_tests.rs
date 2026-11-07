@@ -829,3 +829,245 @@ test "the local is read" {
 "#;
     sim("stall_guard", src, 1);
 }
+
+// ═══ Hedefli mutasyon koşusunun kör noktaları (ADR-0109 eki) ═══════════
+//
+// Değişen fonksiyonların önceki mantığı da koşuya girdi; missed'lerden
+// davranışı değiştirenler (B) aşağıda. Her mutant elle uygulandı, girdi
+// mutantlı derleyicide farklı davrandı (test düşer), mutant geri alındı.
+
+/// Sınır ifadesi `K >> 0`: ikili işlemde bir yan bile yereldeyse ifade
+/// sabit değildir (`is_const_expr`'ın `&&`'i; mutant `||` kök K'yı, 5'i,
+/// okuyup `invariant r <= 5` üretir). Sayaç lim'e (10) kadar sayar: sekiz
+/// kenarda 8, üç kenar daha: 9, 10, 0.
+#[test]
+fn a_binary_bound_with_one_local_operand_is_not_constant() {
+    let src = r#"const K : u8 = 5
+module M {
+    in  clk : clock
+    in  lim : u8
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        let K : u8 = lim
+        if r == K >> 0 {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    q = r
+}
+test "the bound is the block let shifted by zero" {
+    let dut = M { };
+    dut.lim = 10;
+    step(8);
+    assert_eq(dut.q, 8);
+    step(3);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("bound_shift", src, 1) else {
+        return;
+    };
+    assert!(!out.contains("auto counter"), "{out}");
+}
+
+/// `-(-5)` sabittir (literal aritmetiği, #144): sayaç sözleşmesi çıkarılır.
+/// Mutant (`is_const_expr`'ın eksi kolu silinir) sözleşmeyi düşürür. r beş
+/// kenarda 5, altıncıda 0; sarma kapsam ölçüsü bir kez görülür.
+#[test]
+fn a_negated_constant_bound_keeps_the_counter_contract() {
+    let src = r#"module M {
+    in  clk : clock
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if r == -(-5) {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    q = r
+}
+test "the negated bound is a constant" {
+    let dut = M { };
+    step(5);
+    assert_eq(dut.q, 5);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("bound_neg", src, 1) else {
+        return;
+    };
+    let wrap = out
+        .lines()
+        .find(|l| l.contains("auto counter wrap"))
+        .unwrap_or_else(|| {
+            panic!(
+                "sarma kapsam ölçüsü yok
+{out}"
+            )
+        });
+    assert!(wrap.ends_with("hit 1 time"), "{out}");
+}
+
+/// Aynı sınırla korunan iki artış tek sayaçtır (`recognize`'ın `c.bound ==
+/// v` kolu; mutant `false` sözleşmeyi düşürür). en = 1: beş kenarda 5;
+/// en = 0: dört kenarda 9, bir kenarda 0.
+#[test]
+fn two_increments_under_the_same_bound_keep_the_counter_contract() {
+    let src = r#"module M {
+    in  clk : clock
+    in  en  : bool
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if en {
+            if r == 9 {
+                r <= 0
+            } else {
+                r <= r + 1
+            }
+        } else {
+            if r == 9 {
+                r <= 0
+            } else {
+                r <= r + 1
+            }
+        }
+    }
+    q = r
+}
+test "two increments under the same bound" {
+    let dut = M { };
+    dut.en = true;
+    step(5);
+    assert_eq(dut.q, 5);
+    dut.en = false;
+    step(4);
+    assert_eq(dut.q, 9);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("bound_twice", src, 1) else {
+        return;
+    };
+    assert!(out.contains("auto counter wrap"), "{out}");
+}
+
+/// Koşul `x == 5` sayacı değil başka bir sinyali karşılaştırır: sınır
+/// değildir (`bound_of`'un `&&`'i; mutant `||` 5'i sınır sayıp `invariant
+/// r <= 5` üretir ve r = 6'da ihlal edilir). x = 0: sekiz kenarda 8;
+/// x = 5: 0.
+#[test]
+fn a_guard_on_another_signal_is_not_a_counter_bound() {
+    let src = r#"module M {
+    in  clk : clock
+    in  x   : u8
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if x == 5 {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    q = r
+}
+test "the guard compares another signal" {
+    let dut = M { };
+    dut.x = 0;
+    step(8);
+    assert_eq(dut.q, 8);
+    dut.x = 5;
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("bound_other", src, 1) else {
+        return;
+    };
+    assert!(!out.contains("auto counter"), "{out}");
+}
+
+/// Register üzerinde `match` yoksa FSM değildir (`recognize`'ın `&&`'i;
+/// mutant `||` başka bir sinyalin `match`'ini alıp durum kapsam ölçüleri
+/// üretir). c = 1: st = 1; c = 0: st = 2. `o = s == 0`.
+#[test]
+fn a_register_without_a_match_on_it_is_not_an_fsm() {
+    let src = r#"module M {
+    in  clk : clock
+    in  c   : bool
+    in  s   : u2
+    out q   : u2
+    out o   : bool
+    reg st : u2 = 0
+    on clk {
+        if c {
+            st <= 1
+        } else {
+            st <= 2
+        }
+    }
+    comb {
+        match s {
+            0 => { o = true }
+            _ => { o = false }
+        }
+    }
+    q = st
+}
+test "no match on the register" {
+    let dut = M { };
+    dut.c = true;
+    dut.s = 0;
+    step(1);
+    assert_eq(dut.q, 1);
+    assert_eq(dut.o, true);
+    dut.c = false;
+    dut.s = 1;
+    step(1);
+    assert_eq(dut.q, 2);
+    assert_eq(dut.o, false);
+}
+"#;
+    let Some(out) = sim("no_fsm_match", src, 1) else {
+        return;
+    };
+    assert!(!out.contains("auto FSM"), "{out}");
+}
+
+/// `@no_protocol_check` bundle dizisi portunda da protokol sözleşmesini
+/// kapatır (ADR-0050; `flatten_bundles`'ın `||`'i; mutant `&&` öğe
+/// düzeyinde nitelik yoksa varsayımları üretir). Uyarıcı `ready` = 0
+/// iken `valid`'i düşürür: protokole aykırı, ama denetim kapalı; `y` veri
+/// girişi 7'dir. Nitelik olmadan aynı test "assumption violated by test
+/// stimulus" ile düşer.
+#[test]
+fn no_protocol_check_on_a_bundle_array_port_drops_its_assumptions() {
+    let src = r#"module M {
+    in  clk : clock
+    @no_protocol_check
+    in  rx : [Handshake<u8>; 2]
+    out y  : u8
+    rx[0].ready = false
+    rx[1].ready = false
+    y = rx[0].data
+}
+test "an unchecked array port" {
+    let dut = M { };
+    dut.rx_0_valid = true;
+    dut.rx_0_data = 7;
+    step(1);
+    dut.rx_0_valid = false;
+    step(1);
+    assert_eq(dut.y, 7);
+}
+"#;
+    sim("array_unchecked", src, 1);
+}

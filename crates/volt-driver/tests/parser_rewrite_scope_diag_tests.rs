@@ -527,3 +527,66 @@ module G {
     let line = lines_with(src, "// use")[0];
     assert_eq!(errors(&got), vec![("E1001".to_string(), line)], "{got:?}");
 }
+
+/// Bundle portunun alan zinciri de tek parçalı adla başlar: `aw::x.addr`
+/// port değildir, çözücü E1001 verir. Hedefli mutasyon koşusunun kör
+/// noktası: `field_chain`'in koruması `||` ya da `true` olunca çok parçalı
+/// yol porta (`aw_addr`) yazılıp sessizce kabul ediliyordu.
+#[test]
+fn a_qualified_path_is_not_a_bundle_port() {
+    let src = format!(
+        "{REQ}module M {{
+    in  aw  : Req
+    out y   : u8
+    aw.ack = true
+    y = aw::x.addr // use
+}}
+"
+    );
+    let got = check("qualified-bundle", &src);
+    let line = lines_with(&src, "// use")[0];
+    assert_eq!(errors(&got), vec![("E1001".to_string(), line)], "{got:?}");
+}
+
+/// Bundle dizisi 1..=256 elemanlıdır (ADR-0056): 0 ve 257 E2008. Hedefli
+/// mutasyon koşusunun kör noktası: `bundle_array_len`'in koruması `true`
+/// olunca 0 elemanlı dizi sessizce kabul ediliyordu.
+#[test]
+fn a_bundle_array_length_outside_1_to_256_is_e2008() {
+    for n in [0, 257] {
+        let src = format!(
+            "module M {{
+    in  rx : [Handshake<u8>; {n}]
+    out y  : u8
+    y = 0
+}}
+"
+        );
+        let got = check(&format!("len-{n}"), &src);
+        assert_eq!(errors(&got), vec![("E2008".to_string(), 2)], "{n}: {got:?}");
+    }
+}
+
+/// Modül düzeyinde donanıma ait (`volatile`) register alanına atama
+/// yeniden yazılır (ADR-0044 §2; modül kapsamında yerel yok). Hedefli
+/// mutasyon koşusunun kör noktası: `mmio_rw_stmt`'teki `!` silinince
+/// atama yeniden yazılmıyor, `regs` E1001 veriyordu.
+#[test]
+fn a_module_level_write_to_a_hardware_field_is_rewritten() {
+    let src = "@mmio(base = 0x4000_0000, bus = AXI4Lite)
+module G {
+    in  clk : clock
+    in  x   : u8
+    out en  : bool
+    @reg(offset = 0x00, access = ReadOnly, volatile)
+    status : {
+        count : u8,
+        @reserved : bits<24>,
+    }
+    regs.status.count = x
+    en = true
+}
+";
+    let got = check("module-write", src);
+    assert!(errors(&got).is_empty(), "{got:?}");
+}
