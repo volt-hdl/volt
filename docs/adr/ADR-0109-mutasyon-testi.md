@@ -562,3 +562,11 @@ literal_fold\.rs|expr\.rs:.*(fold_literal_arith|has_literal_binary|literal_value
 - **C (5): #153, aynı PR'da düzeltildi.** `expr.rs:205:18` `>` → `==`, `>=`; `223:55`, `231:48`, `232:48` `depth + 1` → `depth * 1` (`literal_value`). Mutantlar derinlik sınırını bozar ve daha doğru davranır: 64'ten derin literal ağacında üretici katlamayı bırakıp her literali bağlamın genişliğinde yazıyordu (70 terimlik `1 + … + 1` bölü 10, u3'te 7 yerine 3). §4 C'yi o işte düzeltmez; burada hata mutasyon işinin değil, PR'ın asıl işinin (#144'ün katlaması) eksiğidir ve PR'ın hedefi literal aritmetiğinin şartnameye göre katlanmasıdır. Derinlik sınırı kaldırıldı (özyineleme ayrıştırıcının 256 düzeylik sınırıyla, E0018, zaten sınırlı); `literal_arith_sim_tests::issue_144_a_deep_literal_tree_is_folded_with_its_exact_value` düzeltmeden önce Verilator'da `left: 3, right: 7` ile düştü, sonra geçti. Derinlik parametresi kalktığı için mutantlar da kalktı.
 
 **Koşunun dışında bulunan: #152, aynı PR'da düzeltildi.** B testleri yazılırken bileşim sınırının (`MAX_ASSIGNMENTS` = 65 536) üstü incelendi: aşan `comb` döngü yuvasında sığma denetimi yapılmıyor, üretici kesilmiş değeri yazıyordu (41³ bileşimde `y : u15 = i * j * k` → `15'h7A00`; şartnamede E2010). Şartname bir bileşim sınırı koymaz; sınır kaldırıldı. Maliyet üreticinin açılımıyla aynı mertebede: 4096 × 64 = 262 144 bileşimde `volt check` 0,77 sn'den 0,96 sn'ye (debug derleme), aynı tasarımın SV'si 262 163 satır. `a_loop_nest_above_65536_combinations_is_checked` düzeltmeden önce düştü.
+
+**Düzeltmeden sonraki koşu.** #152 ve #153'ün düzeltmesi (6e600b6a) koşudan sonra yapıldığı için değiştirdiği fonksiyonlar yeniden koşuldu: https://github.com/volt-hdl/volt/actions/runs/42309936490 (6e600b6a, iki parça, ikisi de `completed`; her parçada `Tool ledger [mutants-N]: 132 test(s) asked for a tool; 134 lookup(s) found the tool (134 required), SKIP: 0`). `re`:
+
+```
+literal_fold\.rs:.*for_each_assignment|expr\.rs:.*(fold_literal_arith|literal_value)
+```
+
+21 mutant: 20 caught, 0 missed, 1 timeout (`literal_fold.rs:154` `+=` → `*=`, sayaç ilerlemez; yukarıdakiyle aynı), 0 unviable. Derinlik sayacının mutantları koddan kalktığı için listede yok.
