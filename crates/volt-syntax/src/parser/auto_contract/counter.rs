@@ -22,7 +22,7 @@ use volt_ast::{AutoReach, AutoRule, BinOp, ContractKind, Expr, ExprKind, Idx, So
 
 use super::super::mono::unroll::eval_const;
 use super::gen::{Spec, G};
-use super::scan::{Branch, Cond, RegInfo, Scan};
+use super::scan::{Cond, RegInfo, Scan};
 
 const DEPTH0: u32 = 0;
 
@@ -88,7 +88,7 @@ fn recognize(
                 .conds
                 .iter()
                 .rev()
-                .find_map(|c| bound_of(ast, consts, name, c))?;
+                .find_map(|&c| bound_of(ast, consts, &scan.locals, name, c))?;
             let v = eval_const(ast, consts, e, DEPTH0)?;
             match &found {
                 None => {
@@ -102,7 +102,7 @@ fn recognize(
                 Some(c) if c.bound == v => {}
                 Some(_) => return None,
             }
-        } else if super::is_const_expr(ast, &w.scope, w.rhs) {
+        } else if super::is_const_expr(ast, &scan.locals, w.rhs) {
             consts_written.push(eval_const(ast, consts, w.rhs, DEPTH0)?);
         } else {
             return None;
@@ -156,19 +156,20 @@ fn is_one(ast: &SourceFile, e: Idx<Expr>) -> bool {
 fn bound_of(
     ast: &SourceFile,
     consts: &HashMap<String, Idx<Expr>>,
+    locals: &std::collections::HashSet<String>,
     name: &str,
-    cond: &Cond,
+    cond: Cond,
 ) -> Option<(Idx<Expr>, Idx<Expr>)> {
     // then: `&&` bağlaçlarından biri r < E / r != E (E > r / E != r);
     // else: `||` ayraçlarından biri r == E / r >= E (E == r / E <= r).
-    let (joiner, e, direct, mirrored): (BinOp, _, &[BinOp], &[BinOp]) = match cond.branch {
-        Branch::Then(e) => (
+    let (joiner, e, direct, mirrored): (BinOp, _, &[BinOp], &[BinOp]) = match cond {
+        Cond::Then(e) => (
             BinOp::And,
             e,
             &[BinOp::Lt, BinOp::Ne],
             &[BinOp::Gt, BinOp::Ne],
         ),
-        Branch::Else(e) => (
+        Cond::Else(e) => (
             BinOp::Or,
             e,
             &[BinOp::Eq, BinOp::Ge],
@@ -188,8 +189,7 @@ fn bound_of(
         } else {
             return None;
         };
-        // Sınırdaki ad `if`'in bulunduğu yerde çözülür (#138).
-        let constant = super::is_const_expr(ast, &cond.scope, bound)
+        let constant = super::is_const_expr(ast, locals, bound)
             && eval_const(ast, consts, bound, DEPTH0).is_some();
         constant.then_some((bound, p))
     })

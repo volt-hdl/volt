@@ -31,7 +31,6 @@ use std::collections::HashSet;
 use volt_ast::{enum_layout, ContractKind, Expr, ExprKind, Idx, ItemKind, SourceFile, UnOp};
 
 use super::handshake::has_attr;
-use super::mono::scope::Scopes;
 use super::mono::unroll::collect_consts;
 use super::Parser;
 
@@ -56,7 +55,7 @@ fn add_auto_contracts(ast: &mut SourceFile) {
         let ItemKind::Module(m) = &it.kind else {
             continue;
         };
-        let Some(scan) = scan::scan_module(ast, &consts, item, m) else {
+        let Some(scan) = scan::scan_module(ast, &consts, m) else {
             continue;
         };
         let user = user_contracts(ast, m);
@@ -152,23 +151,21 @@ pub(super) fn max_value(width: u32) -> i128 {
     (1i128 << width) - 1
 }
 
-/// Derleme zamanı sabiti mi (literal, kök kapsamın adı, aritmetik)?
-/// Değer `eval_const` ile ayrıca hesaplanır; bu süzgeç, ifadenin
-/// bulunduğu yerin kapsam zincirinde (`scope`, #138) kök const'u gölgeleyen
-/// adları dışlar: port, reg, modül `let`'i/`wire`'ı/örneği, blok `let`'i,
-/// döngü değişkeni (name-resolution.md §2, §6).
-pub(super) fn is_const_expr(ast: &SourceFile, scope: &Scopes, e: Idx<Expr>) -> bool {
+/// Derleme zamanı sabiti mi (literal, modül içi olmayan ad, aritmetik)?
+/// Değer `eval_const` ile ayrıca hesaplanır; bu süzgeç yerel adların
+/// (port, reg, let) aynı adlı `const`'u gölgelemesini dışlar.
+pub(super) fn is_const_expr(ast: &SourceFile, locals: &HashSet<String>, e: Idx<Expr>) -> bool {
     match &ast.exprs[e].kind {
         ExprKind::IntLit { .. } => true,
         ExprKind::Path(p) if p.segments.len() >= 2 => enum_variant(ast, p).is_some(),
-        ExprKind::Path(p) => p.segments.len() == 1 && !scope.bound_above_root(&p.segments[0].text),
+        ExprKind::Path(p) => p.segments.len() == 1 && !locals.contains(&p.segments[0].text),
         ExprKind::Binary { lhs, rhs, .. } => {
-            is_const_expr(ast, scope, *lhs) && is_const_expr(ast, scope, *rhs)
+            is_const_expr(ast, locals, *lhs) && is_const_expr(ast, locals, *rhs)
         }
         ExprKind::Unary {
             op: UnOp::Neg,
             operand,
-        } => is_const_expr(ast, scope, *operand),
+        } => is_const_expr(ast, locals, *operand),
         _ => false,
     }
 }

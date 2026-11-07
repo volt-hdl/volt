@@ -237,7 +237,7 @@ fn recognize(
     let mut transitions: Vec<Transition> = Vec::new();
     let mut edges: Vec<(Source, i128)> = Vec::new();
     for w in writes {
-        if !super::is_const_expr(ast, &w.scope, w.rhs) {
+        if !super::is_const_expr(ast, &scan.locals, w.rhs) {
             return None;
         }
         let v = value_of(ast, consts, w.rhs).filter(|&v| in_range(v))?;

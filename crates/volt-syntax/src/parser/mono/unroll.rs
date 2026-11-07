@@ -86,7 +86,7 @@ pub(super) fn unroll_module(
         return;
     }
     let consts = collect_consts(ast);
-    let mut chain = Scopes::module(ast, item);
+    let mut chain = module_chain(ast, item);
     let ItemKind::Module(m) = &mut ast.items_arena[item].kind else {
         return;
     };
@@ -122,15 +122,56 @@ pub(super) fn unroll_module(
     }
 }
 
+/// Modül düzeyi `for`'un bulunduğu yerin kapsam zinciri: kök kapsam
+/// (birimin öğeleri) ve modül kapsamı (monomorfun generic parametreleri,
+/// portlar). Modül gövdesinin bildirimleri sırayla eklenir.
+fn module_chain(ast: &SourceFile, item: Idx<Item>) -> Scopes {
+    let mut chain = Scopes::default();
+    chain.push();
+    for &i in &ast.items {
+        let name = match &ast.items_arena[i].kind {
+            ItemKind::Module(m) => &m.name,
+            ItemKind::Domain(d) => &d.name,
+            ItemKind::Fn(f) => &f.name,
+            ItemKind::Struct(s) => &s.name,
+            ItemKind::Enum(e) => &e.name,
+            ItemKind::Const(c) => &c.name,
+            ItemKind::TypeAlias(t) => &t.name,
+            ItemKind::Extern(x) => &x.name,
+            ItemKind::Test(_) | ItemKind::Error => continue,
+        };
+        declare_outer(&mut chain, Some(name));
+    }
+    chain.push();
+    if let ItemKind::Module(m) = &ast.items_arena[item].kind {
+        if let Some(params) = ast.generate.mono_generics.get(&m.name.span) {
+            for p in params {
+                declare_outer(&mut chain, Some(p));
+            }
+        }
+        for p in &m.ports {
+            declare_outer(&mut chain, Some(&p.name));
+        }
+    }
+    chain
+}
+
 /// Çözücünün de gördüğü bir bildirim (öğe, port, modül sinyali).
 fn declare_outer(chain: &mut Scopes, name: Option<&volt_ast::Name>) {
     if let Some(name) = name {
-        chain.declare_outer(name);
+        chain.declare(
+            &name.text,
+            Entry {
+                binding: Binding::Outer,
+                span: name.span,
+                resolver_sees: true,
+            },
+        );
     }
 }
 
 /// Modül gövdesinde ad bildiren deyimin adı.
-pub(crate) fn decl_name(kind: &StmtKind) -> Option<&volt_ast::Name> {
+fn decl_name(kind: &StmtKind) -> Option<&volt_ast::Name> {
     match kind {
         StmtKind::Reg(r) => Some(&r.name),
         StmtKind::Let(l) => Some(&l.name),
@@ -553,7 +594,7 @@ pub(crate) fn eval_const(
 /// [`eval_const`]; `root_const(ad)` yanlışsa ad kök const'a bağlanmaz
 /// (kullanıldığı yerde bir iç tanım onu gölgeler). Const'un kendi değeri
 /// kök kapsamda çözülür (name-resolution.md §4).
-pub(crate) fn eval_const_scoped(
+fn eval_const_scoped(
     ast: &SourceFile,
     consts: &HashMap<String, Idx<volt_ast::Expr>>,
     e: Idx<volt_ast::Expr>,

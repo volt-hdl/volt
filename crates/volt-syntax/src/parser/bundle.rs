@@ -31,8 +31,7 @@ use volt_span::Span;
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
 use super::handshake::{has_attr, HandshakeInfo, HANDSHAKE, NO_PROTOCOL_CHECK};
-use super::mono::scope::Scopes;
-use super::mono::unroll::{collect_consts, decl_name, eval_const_scoped};
+use super::mono::unroll::{collect_consts, eval_const};
 use super::Parser;
 
 /// Bundle dizisi portunun en fazla eleman sayısı (ADR-0056).
@@ -162,20 +161,11 @@ impl Parser<'_> {
             let item_span = self.ast.items_arena[item].span;
             let item_no_check = has_attr(&self.ast.items_arena[item].attrs, NO_PROTOCOL_CHECK);
             let is_module = matches!(self.ast.items_arena[item].kind, ItemKind::Module(_));
-            // Dizi uzunluğu portların görüldüğü modül kapsamında çözülür
-            // (#136): aynı adlı port kök const'u gölgeler.
-            self.scopes = Scopes::module(&self.ast, item);
-            if let ItemKind::Extern(x) = &self.ast.items_arena[item].kind {
-                for p in &x.ports {
-                    self.scopes.declare_outer(&p.name);
-                }
-            }
             let ports = match &mut self.ast.items_arena[item].kind {
                 ItemKind::Module(m) => std::mem::take(&mut m.ports),
                 ItemKind::Extern(x) => std::mem::take(&mut x.ports),
                 _ => continue,
             };
-            let originals: Vec<Name> = ports.iter().map(|p| p.name.clone()).collect();
             let mut flat = Flat::default();
             let mut counter = 0u32;
             let mut out = Vec::with_capacity(ports.len());
@@ -247,11 +237,6 @@ impl Parser<'_> {
             if let Some((over, port_name)) = flat.budget.take() {
                 self.err_flatten_budget(item, over, &port_name);
             }
-            // Açılan (düz porta dönen) bundle portlarının adları.
-            let vanished: Vec<Name> = originals
-                .into_iter()
-                .filter(|n| !out.iter().any(|p| p.name.text == n.text))
-                .collect();
             // Tanılar düzleştirilmiş adı (`hs_data`) değil kaynaktaki alan
             // yolunu (`hs.data`) gösterir — ADR-0072 açılım adı deseni
             // (ADR-0075). Anahtar düzleştirilmiş portun benzersiz ad span'i.
@@ -273,43 +258,20 @@ impl Parser<'_> {
                 }
                 ItemKind::Extern(x) => {
                     x.ports = out;
-                    self.scopes = Scopes::default();
                     continue;
                 }
                 _ => unreachable!(),
             };
             if flat.is_empty() {
-                self.scopes = Scopes::default();
                 continue;
             }
             self.consts = consts.clone();
-            // Yeniden yazma kapsam zincirinden geçer (#136, #137): kök,
-            // modül kapsamı (düz portlar; açılan bundle portları çözücünün
-            // görmediği adlar olarak), modül gövdesinin bildirimleri sırayla,
-            // blokların yerelleri. Yerel, bundle portunu gölgeler.
-            let module_chain = |ast: &volt_ast::SourceFile| {
-                let mut chain = Scopes::module(ast, item);
-                for name in &vanished {
-                    chain.declare_vanishing(name);
-                }
-                chain
-            };
-            // Kontratlar modülün bütün bildirimlerini görür.
-            let mut contract_chain = module_chain(&self.ast);
-            for &s in &body {
-                if let Some(name) = decl_name(&self.ast.stmts[s].kind) {
-                    contract_chain.declare_outer(name);
-                }
-            }
-            self.scopes = contract_chain;
             for e in contracts {
                 self.rw_bundle_expr(e, &flat);
             }
-            self.scopes = module_chain(&self.ast);
             for s in body {
                 self.rw_bundle_stmt(s, &flat);
             }
-            self.scopes = Scopes::default();
             // Otomatik protokol kontratları düz isimlerle üretilir;
             // yeniden yazmaya girmez.
             let mut auto = Vec::new();
@@ -440,9 +402,7 @@ impl Parser<'_> {
         consts: &HashMap<String, Idx<Expr>>,
     ) -> Option<i128> {
         let name = port.name.text.clone();
-        let chain = &self.scopes;
-        let root_const = |n: &str| !chain.bound_above_root(n);
-        match eval_const_scoped(&self.ast, consts, len, 0, &root_const) {
+        match eval_const(&self.ast, consts, len, 0) {
             Some(n) if (1..=MAX_BUNDLE_ARRAY).contains(&n) => Some(n),
             Some(n) => {
                 self.diagnostics.push(
@@ -643,16 +603,8 @@ impl Parser<'_> {
             StmtKind::On(on) => blocks.push(on.body),
             StmtKind::Comb(b) => blocks.push(*b),
             StmtKind::For(f) => {
-                // Açılmamış modül düzeyi `for` (hatalı sınır): değişkeni
-                // gövdesini kuşatır.
-                let f = f.clone();
-                self.rw_bundle_expr(f.start, flat);
-                self.rw_bundle_expr(f.end, flat);
-                self.scopes.push();
-                self.declare_block_local(&f.var, true);
-                self.rw_bundle_block(f.body, flat);
-                self.scopes.pop();
-                return;
+                exprs.extend([f.start, f.end]);
+                blocks.push(f.body);
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
@@ -681,26 +633,17 @@ impl Parser<'_> {
         for b in blocks {
             self.rw_bundle_block(b, flat);
         }
-        // Modül içi sıralı (§4, §5): sonraki deyimler bu bildirimi görür.
-        if let Some(name) = decl_name(&self.ast.stmts[si].kind).cloned() {
-            self.scopes.declare_outer(&name);
-        }
     }
 
     fn rw_bundle_block(&mut self, bi: Idx<Block>, flat: &Flat) {
         let mut stmts = std::mem::take(&mut self.ast.blocks[bi].stmts);
-        self.scopes.push();
         for bs in &mut stmts {
             self.rw_bundle_block_stmt(bs, flat);
-            if let BlockStmt::Let(l) = bs {
-                self.declare_block_local(&l.name, false);
-            }
         }
         self.ast.blocks[bi].stmts = stmts;
         if let Some(tail) = self.ast.blocks[bi].tail {
             self.rw_bundle_expr(tail, flat);
         }
-        self.scopes.pop();
     }
 
     fn rw_bundle_block_stmt(&mut self, bs: &mut BlockStmt, flat: &Flat) {
@@ -731,10 +674,7 @@ impl Parser<'_> {
             BlockStmt::For(f) => {
                 self.rw_bundle_expr(f.start, flat);
                 self.rw_bundle_expr(f.end, flat);
-                self.scopes.push();
-                self.declare_block_local(&f.var, true);
                 self.rw_bundle_block(f.body, flat);
-                self.scopes.pop();
             }
             BlockStmt::Error => {}
         }
@@ -837,12 +777,7 @@ impl Parser<'_> {
                     parts.push(field.text.clone());
                     cur = *base;
                 }
-                // Taban kapsam zincirinde çözülür (#137): yerel (blok `let`'i,
-                // döngü değişkeni) bundle portunu gölgeler, zincir onundur.
                 ExprKind::Path(p) if p.segments.len() == 1 && !parts.is_empty() => {
-                    if self.scopes.is_local(&p.segments[0].text) {
-                        return None;
-                    }
                     parts.push(p.segments[0].text.clone());
                     parts.reverse();
                     return Some(parts.join("."));
@@ -852,7 +787,7 @@ impl Parser<'_> {
                     let ExprKind::Path(p) = &self.ast.exprs[base].kind else {
                         return None;
                     };
-                    if p.segments.len() != 1 || self.scopes.is_local(&p.segments[0].text) {
+                    if p.segments.len() != 1 {
                         return None;
                     }
                     let port = p.segments[0].text.clone();
@@ -871,11 +806,7 @@ impl Parser<'_> {
     /// E2008 + None.
     fn bundle_index(&mut self, port: &str, len: i128, index: Idx<Expr>) -> Option<i128> {
         let span = self.ast.exprs[index].span;
-        // İndeks kullanıldığı yerin kapsamında çözülür (#136): port, modül
-        // `let`'i, blok `let`'i ya da döngü değişkeni kök const'u gölgeler.
-        let chain = &self.scopes;
-        let root_const = |n: &str| !chain.bound_above_root(n);
-        match eval_const_scoped(&self.ast, &self.consts, index, 0, &root_const) {
+        match eval_const(&self.ast, &self.consts, index, 0) {
             Some(k) if (0..len).contains(&k) => Some(k),
             other => {
                 self.err_bundle_index(span, port, len, other);
@@ -888,10 +819,6 @@ impl Parser<'_> {
     /// `ch_0_ready = x` (öndeki indeks/alan sonekleri düşer, kalan
     /// indeks/aralık sonekleri kalır).
     fn rw_lvalue(&mut self, lv: &mut LValue, flat: &Flat) {
-        // Atama hedefinin tabanı yerelse bundle portu değildir (#137).
-        if self.scopes.is_local(&lv.base.text) {
-            return;
-        }
         let mut key = lv.base.text.clone();
         let mut best: Option<(usize, String)> = None;
         let mut start = 0;

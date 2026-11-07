@@ -20,7 +20,7 @@
 mod budget;
 mod clone;
 mod pattern;
-pub(crate) mod scope;
+mod scope;
 pub(crate) mod unroll;
 
 use std::collections::HashMap;

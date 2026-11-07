@@ -3,17 +3,15 @@
 //! deyimleri. Tanıyıcılar (fsm, counter) yalnız bu özeti okur.
 
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 use volt_ast::{
-    Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, Item, MatchArmBody, ModuleDecl,
-    OnTrigger, PatternKind, SourceFile, StmtKind, TypeRefKind,
+    Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, MatchArmBody, ModuleDecl, OnTrigger,
+    PatternKind, SourceFile, StmtKind, TypeRefKind,
 };
 use volt_span::Span;
 
 use super::super::handshake::has_attr;
-use super::super::mono::scope::Scopes;
-use super::super::mono::unroll::{decl_name, eval_const};
+use super::super::mono::unroll::eval_const;
 use super::NO_AUTO_CONTRACTS;
 
 /// Sabit değerlendirme özyineleme başlangıç derinliği.
@@ -42,17 +40,9 @@ pub(super) struct RegInfo {
 
 /// Bir yazmayı kuşatan `if` dalı: koşul ve hangi kolda olduğu.
 #[derive(Clone, Copy)]
-pub(super) enum Branch {
+pub(super) enum Cond {
     Then(Idx<Expr>),
     Else(Idx<Expr>),
-}
-
-/// Koşul ve `if` deyiminin bulunduğu yerin kapsam zinciri: koşuldaki ad
-/// orada çözülür (#138).
-#[derive(Clone)]
-pub(super) struct Cond {
-    pub branch: Branch,
-    pub scope: Rc<Scopes>,
 }
 
 /// Yazmayı kuşatan `match` kolu.
@@ -66,9 +56,6 @@ pub(super) struct ArmCtx {
 /// `r <= e` — ilk saat alanındaki sıralı bloktan, soneksiz.
 pub(super) struct Write {
     pub rhs: Idx<Expr>,
-    /// Yazmanın bulunduğu yerin kapsam zinciri: sağ taraftaki ad orada
-    /// çözülür (#138; blok `let`'i kök const'u gölgeler).
-    pub scope: Rc<Scopes>,
     pub span: Span,
     /// Dıştan içe kuşatan koşullar.
     pub conds: Vec<Cond>,
@@ -134,13 +121,15 @@ pub(super) struct Scan {
     /// sonekli hedef, `for` içi, başka saat alanı).
     pub tainted: HashSet<String>,
     pub matches: Vec<RegMatch>,
+    /// Modül içi adlar (port, reg, let, wire, örnek): sınır ifadesindeki
+    /// ad bunlardan biriyse sabit sayılmaz.
+    pub locals: HashSet<String>,
 }
 
 /// Modülü tarar; saat portu yoksa None (kontratlar ilk saatte örneklenir).
 pub(super) fn scan_module(
     ast: &SourceFile,
     consts: &HashMap<String, Idx<Expr>>,
-    item: Idx<Item>,
     m: &ModuleDecl,
 ) -> Option<Scan> {
     let clock = m
@@ -159,9 +148,8 @@ pub(super) fn scan_module(
             writes: HashMap::new(),
             tainted: HashSet::new(),
             matches: Vec::new(),
+            locals: m.ports.iter().map(|p| p.name.text.clone()).collect(),
         },
-        scopes: contract_chain(ast, item, m),
-        snapshot: None,
         conds: Vec::new(),
         arms: Vec::new(),
         in_for: false,
@@ -171,6 +159,7 @@ pub(super) fn scan_module(
         let stmt = &ast.stmts[si];
         match &stmt.kind {
             StmtKind::Reg(r) => {
+                w.scan.locals.insert(r.name.text.clone());
                 let info = r.ty.and_then(|t| {
                     uint_width(ast, consts, t)
                         .map(|w| (w, None))
@@ -185,6 +174,15 @@ pub(super) fn scan_module(
                         opted_out: has_attr(&stmt.attrs, NO_AUTO_CONTRACTS),
                     });
                 }
+            }
+            StmtKind::Let(l) => {
+                w.scan.locals.insert(l.name.text.clone());
+            }
+            StmtKind::Wire(x) => {
+                w.scan.locals.insert(x.name.text.clone());
+            }
+            StmtKind::Instance(x) => {
+                w.scan.locals.insert(x.name.text.clone());
             }
             StmtKind::On(on) => {
                 w.on_clock = match &on.trigger {
@@ -202,21 +200,6 @@ pub(super) fn scan_module(
         }
     }
     Some(w.scan)
-}
-
-/// Taramanın modül kapsamı: kök, portlar ve modül gövdesinin BÜTÜN
-/// bildirimleri. Üretilen kontrat modül kapsamında yaşar ve oradaki her
-/// bildirimi görür; sınırdaki ya da sabit yazmadaki ad hem yazmanın
-/// bulunduğu yerde hem kontratta kök const'a bağlı olmalıdır. Bloklar bu
-/// zincirin üstüne kendi yerellerini ekler (#138).
-fn contract_chain(ast: &SourceFile, item: Idx<Item>, m: &ModuleDecl) -> Scopes {
-    let mut chain = Scopes::module(ast, item);
-    for &si in &m.body {
-        if let Some(name) = decl_name(&ast.stmts[si].kind) {
-            chain.declare_outer(name);
-        }
-    }
-    chain
 }
 
 /// `uN` / `uint<N>` genişliği; 1..=64 dışı None (u128 aşımı olmasın).
@@ -268,11 +251,6 @@ struct Walker<'a> {
     consts: &'a HashMap<String, Idx<Expr>>,
     clock: String,
     scan: Scan,
-    /// Gezilen yerin kapsam zinciri (#138): kök, modül kapsamı, modül
-    /// gövdesinin bildirimleri sırayla, blokların yerelleri.
-    scopes: Scopes,
-    /// Zincirin son anlık görüntüsü; zincir değişince düşer.
-    snapshot: Option<Rc<Scopes>>,
     conds: Vec<Cond>,
     arms: Vec<ArmCtx>,
     in_for: bool,
@@ -281,21 +259,7 @@ struct Walker<'a> {
 }
 
 impl Walker<'_> {
-    /// Zinciri değiştirir; anlık görüntü geçersizleşir.
-    fn declare(&mut self, f: impl FnOnce(&mut Scopes)) {
-        f(&mut self.scopes);
-        self.snapshot = None;
-    }
-
-    /// Bulunulan yerin kapsam zinciri (paylaşılan anlık görüntü).
-    fn scope(&mut self) -> Rc<Scopes> {
-        self.snapshot
-            .get_or_insert_with(|| Rc::new(self.scopes.clone()))
-            .clone()
-    }
-
     fn block(&mut self, b: Idx<Block>) {
-        self.declare(Scopes::push);
         for s in &self.ast.blocks[b].stmts {
             match s {
                 BlockStmt::NonBlockAssign { lhs, rhs, span } => {
@@ -304,10 +268,8 @@ impl Walker<'_> {
                         self.scan.tainted.insert(name);
                         continue;
                     }
-                    let scope = self.scope();
                     self.scan.writes.entry(name).or_default().push(Write {
                         rhs: *rhs,
-                        scope,
                         span: *span,
                         conds: self.conds.clone(),
                         arms: self.arms.clone(),
@@ -320,36 +282,20 @@ impl Walker<'_> {
                 BlockStmt::Match(ms) => self.match_stmt(ms),
                 BlockStmt::For(f) => {
                     let outer = std::mem::replace(&mut self.in_for, true);
-                    self.declare(|s| {
-                        s.push();
-                        s.declare_local(&f.var, true);
-                    });
                     self.block(f.body);
-                    self.declare(Scopes::pop);
                     self.in_for = outer;
                 }
-                BlockStmt::Let(l) => self.declare(|s| {
-                    s.declare_local(&l.name, false);
-                }),
-                BlockStmt::Error => {}
+                BlockStmt::Let(_) | BlockStmt::Error => {}
             }
         }
-        self.declare(Scopes::pop);
     }
 
     fn if_stmt(&mut self, ifs: &IfStmt) {
-        let scope = self.scope();
-        self.conds.push(Cond {
-            branch: Branch::Then(ifs.cond),
-            scope: scope.clone(),
-        });
+        self.conds.push(Cond::Then(ifs.cond));
         self.block(ifs.then_block);
         self.conds.pop();
         if let Some(els) = &ifs.else_branch {
-            self.conds.push(Cond {
-                branch: Branch::Else(ifs.cond),
-                scope,
-            });
+            self.conds.push(Cond::Else(ifs.cond));
             match els {
                 ElseBranch::Block(b) => self.block(*b),
                 ElseBranch::If(inner) => self.if_stmt(inner),
@@ -359,14 +305,8 @@ impl Walker<'_> {
     }
 
     fn match_stmt(&mut self, ms: &volt_ast::MatchStmt) {
-        // Yerel (blok `let`'i, döngü değişkeni) register'ı gölgeler: o
-        // `match` register üzerinde değildir (#138).
         let scrutinee = match &self.ast.exprs[ms.scrutinee].kind {
-            ExprKind::Path(p)
-                if p.segments.len() == 1 && !self.scopes.is_local(&p.segments[0].text) =>
-            {
-                Some(p.segments[0].text.clone())
-            }
+            ExprKind::Path(p) if p.segments.len() == 1 => Some(p.segments[0].text.clone()),
             _ => None,
         };
         let match_id = self.scan.matches.len();
