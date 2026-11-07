@@ -680,3 +680,151 @@ test "the contract holds" {
         .unwrap_or_else(|| panic!("sarma kapsam ölçüsü yok\n{out}"));
     assert!(wrap.ends_with("hit 1 time"), "{out}");
 }
+
+/// Bekçiler: çıkarımın değişmediği üç hücre.
+///
+/// * C1: sayaç yazması `for K in 5..6` içinde; döngü içi yazma tanıyıcının
+///   dışındadır (ADR-0066), kontrat yok. Döngü değişkeni K = 5: r beş
+///   kenarda 5, altıncıda 0.
+/// * F1: durum register'ı `st` sabitlerle yazılır, FSM kontratı (geçiş
+///   kapsam ölçüleri) çıkarılır; `comb`'daki `let st` register'ı gölgeler ve
+///   onun `match`'i register üzerinde değildir (o = x == 3). Durum 0 → 1 →
+///   2 → 0.
+/// * C2: modül `let K`'si `on` bloğundan SONRA bildirilir; blokta `K` kök
+///   const'tur (5, §4, §5), sayaç beşte sarar. Kontrat çıkarılmaz: modül
+///   kapsamında yaşayan kontratta `K` o `let`'e bağlanırdı.
+#[test]
+fn inferred_contracts_that_do_not_change() {
+    let src = r#"const K : u8 = 5
+module C1 {
+    in  clk : clock
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        for K in 5..6 {
+            if r == K {
+                r <= 0
+            } else {
+                r <= r + 1
+            }
+        }
+    }
+    q = r
+}
+module F1 {
+    in  clk : clock
+    in  x   : u2
+    out q   : u2
+    out o   : bool
+    reg st : u2 = 0
+    on clk {
+        match st {
+            0 => { st <= 1 }
+            1 => { st <= 2 }
+            _ => { st <= 0 }
+        }
+    }
+    comb {
+        let st : u2 = x
+        match st {
+            3 => { o = true }
+            _ => { o = false }
+        }
+    }
+    q = st
+}
+module C2 {
+    in  clk : clock
+    in  lim : u8
+    out q   : u8
+    reg r : u8 = 0
+    on clk {
+        if r == K {
+            r <= 0
+        } else {
+            r <= r + 1
+        }
+    }
+    let K : u8 = lim
+    q = r
+}
+test "loop" {
+    let dut = C1 { };
+    step(5);
+    assert_eq(dut.q, 5);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+test "fsm" {
+    let dut = F1 { };
+    dut.x = 3;
+    step(1);
+    assert_eq(dut.q, 1);
+    assert_eq(dut.o, true);
+    dut.x = 2;
+    step(1);
+    assert_eq(dut.q, 2);
+    assert_eq(dut.o, false);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+test "later" {
+    let dut = C2 { };
+    dut.lim = 9;
+    step(5);
+    assert_eq(dut.q, 5);
+    step(1);
+    assert_eq(dut.q, 0);
+}
+"#;
+    let Some(out) = sim("contracts_unchanged", src, 3) else {
+        return;
+    };
+    assert!(
+        out.contains("F1.cov_0") && out.contains("auto FSM transition"),
+        "{out}"
+    );
+    assert!(!out.contains("auto counter"), "{out}");
+}
+
+/// Bekçi: pipeline'ın `stall` muhafızı modül düzeyi `let stall_decode`
+/// olarak üretilir; `comb`'daki aynı adlı `let` onu gölgeler (çözücü W1002
+/// verir) ve `stalled` yereli (q) okur. Muhafızın üretilmesi davranışı
+/// değiştirmez.
+#[test]
+fn a_block_let_named_like_a_stall_guard_is_the_local() {
+    let src = r#"pipeline(3) Basic {
+    in  clk : clock
+    in  x : u32
+    in  q : bool
+    out y : u32
+    out stalled : bool
+    stage Fetch {
+        let a : u32 = x + 1
+    }
+    stage Decode {
+        let b : u32 = a + 2
+        stall when stage(Execute).c == 0
+    }
+    stage Execute {
+        let c : u32 = b + stage(Fetch).a
+    }
+    y = stage(Execute).c
+    comb {
+        let stall_decode : bool = q
+        stalled = stall_decode
+    }
+}
+test "the local is read" {
+    let dut = Basic { };
+    dut.x = 1;
+    dut.q = true;
+    step(1);
+    assert_eq(dut.stalled, true);
+    dut.q = false;
+    step(1);
+    assert_eq(dut.stalled, false);
+}
+"#;
+    sim("stall_guard", src, 1);
+}
