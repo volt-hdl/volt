@@ -164,6 +164,12 @@ test count can never go below `.test-baseline`.
    maintainer merges, tags and releases.
 6. Remove any git worktrees you created.
 
+Evidence branches are the only exception to running pre-commit checks:
+the branch name starts with `evidence/`, the commit that deliberately
+reverts a fix may skip the checks, the branch is deleted when the
+evidence is recorded, and the PR description says so and quotes the log
+lines as text.
+
 ## Verifying CI from the logs
 
 A green check mark is not evidence. A step can pass while the tests it was
