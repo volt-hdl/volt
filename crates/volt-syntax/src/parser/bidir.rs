@@ -41,6 +41,8 @@ use volt_diagnostics::{
 use volt_span::Span;
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
+use super::mono::scope::Scopes;
+use super::mono::unroll::decl_name;
 use super::Parser;
 
 /// `opendrain` bağlamsal anahtar kelimesi (ADR-0023 tarzı: yalnız port
@@ -101,6 +103,11 @@ impl Parser<'_> {
             return None;
         };
         let port = port.clone();
+        // Blok `let`'i ya da döngü değişkeni portu gölgeler (§2, §6; #137):
+        // çağrı yereldedir, sıradan deyim yolu tanısını verir.
+        if self.scopes.is_local(&port.text) {
+            return None;
+        }
         let dir = *self.bidir.ports.get(&port.text)?;
         let regs = dir.bidir_regs(&port.text)?;
         self.eat(crate::token::TokenKind::Semi);
@@ -238,12 +245,16 @@ impl Parser<'_> {
                 .map(|(n, s)| (n.clone(), (self.port_dir(&ports, n), s.regs.clone())))
                 .collect();
             let mut referenced: HashSet<String> = HashSet::new();
+            // Taban kapsam zincirinde çözülür (#137): blok `let`'i ya da
+            // döngü değişkeni portu gölgeler.
+            self.scopes = Scopes::module(&self.ast, item);
             for e in contracts {
                 self.rw_bidir_expr(e, &table, &mut referenced);
             }
             for &s in &body {
                 self.rw_bidir_stmt(s, &table, &mut referenced);
             }
+            self.scopes = Scopes::default();
             // Sürülen portlar: gövdede `<enable> <= ...` ataması olanlar
             // (parse aşamasında yöntem çağrılarından üretildi).
             let mut written: HashSet<String> = HashSet::new();
@@ -426,8 +437,14 @@ impl Parser<'_> {
             StmtKind::On(on) => blocks.push(on.body),
             StmtKind::Comb(b) => blocks.push(*b),
             StmtKind::For(f) => {
-                exprs.extend([f.start, f.end]);
-                blocks.push(f.body);
+                let f = f.clone();
+                self.rw_bidir_expr(f.start, table, referenced);
+                self.rw_bidir_expr(f.end, table, referenced);
+                self.scopes.push();
+                self.scopes.declare_local(&f.var, true);
+                self.rw_bidir_block(f.body, table, referenced);
+                self.scopes.pop();
+                return;
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
@@ -441,6 +458,9 @@ impl Parser<'_> {
         for b in blocks {
             self.rw_bidir_block(b, table, referenced);
         }
+        if let Some(name) = decl_name(&self.ast.stmts[si].kind).cloned() {
+            self.scopes.declare_outer(&name);
+        }
     }
 
     fn rw_bidir_block(
@@ -450,13 +470,18 @@ impl Parser<'_> {
         referenced: &mut HashSet<String>,
     ) {
         let stmts = std::mem::take(&mut self.ast.blocks[bi].stmts);
+        self.scopes.push();
         for bs in &stmts {
             self.rw_bidir_block_stmt(bs, table, referenced);
+            if let BlockStmt::Let(l) = bs {
+                self.scopes.declare_local(&l.name, false);
+            }
         }
         self.ast.blocks[bi].stmts = stmts;
         if let Some(tail) = self.ast.blocks[bi].tail {
             self.rw_bidir_expr(tail, table, referenced);
         }
+        self.scopes.pop();
     }
 
     fn rw_bidir_block_stmt(
@@ -491,7 +516,10 @@ impl Parser<'_> {
             BlockStmt::For(f) => {
                 self.rw_bidir_expr(f.start, table, referenced);
                 self.rw_bidir_expr(f.end, table, referenced);
+                self.scopes.push();
+                self.scopes.declare_local(&f.var, true);
                 self.rw_bidir_block(f.body, table, referenced);
+                self.scopes.pop();
             }
             BlockStmt::Error => {}
         }
@@ -624,8 +652,8 @@ impl Parser<'_> {
         let [port] = p.segments.as_slice() else {
             return None;
         };
-        table
-            .contains_key(&port.text)
+        // Yerel portu gölgeler (§6, #137): `dq.read()` yerelin üyesidir.
+        (table.contains_key(&port.text) && !self.scopes.is_local(&port.text))
             .then(|| (port.clone(), field.clone()))
     }
 }

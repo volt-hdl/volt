@@ -206,6 +206,10 @@ pub(crate) struct Parser<'s> {
     pub(crate) recursive_types: HashSet<String>,
     /// Ayrıştırılan nitelikler (ADR-0098): bağlanmayan W0024 alır.
     pub(crate) attr_ledger: Vec<attr_use::AttrMark>,
+    /// Ad eşleyen adımların kapsam zinciri (#136, #137, #138): ayrıştırma
+    /// anında açık blokların yerelleri (`p.drive(v)`, ADR-0051), birim
+    /// sonu geçitlerinde gezilen modülün zinciri. Geçit bitince boştur.
+    pub(crate) scopes: mono::scope::Scopes,
 }
 
 impl<'s> Parser<'s> {
@@ -243,6 +247,7 @@ impl<'s> Parser<'s> {
             consts: std::collections::HashMap::new(),
             recursive_types: HashSet::new(),
             attr_ledger: Vec::new(),
+            scopes: mono::scope::Scopes::default(),
         }
     }
 

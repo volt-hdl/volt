@@ -35,6 +35,8 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
+use super::mono::scope::Scopes;
+use super::mono::unroll::decl_name;
 use super::{GeneratedSource, Parser};
 
 /// Register sözcüğü genişliği (AXI4-Lite veri yolu).
@@ -444,7 +446,7 @@ impl Parser<'_> {
             self.check_driver_names(&map, &infos);
             self.check_driver_stem(item, &module_name, &mut stems);
             self.regmaps.push(map);
-            self.rewrite_user_side(item, &infos);
+            self.rewrite_user_side(item, &infos, from);
             self.splice(item, gen);
         }
     }
@@ -974,7 +976,10 @@ impl Parser<'_> {
 
     // ═══ Kullanıcı tarafı: E4006 + regs.reg.alan yeniden yazımı ═══
 
-    fn rewrite_user_side(&mut self, item: Idx<volt_ast::Item>, regs: &[RegInfo]) {
+    /// `handle`: `regs` tutamacının bildirim yeri sayılan `@mmio` niteliği.
+    /// Tutamaç modül kapsamının adıdır (ADR-0044 §1); blok `let`'i ya da
+    /// döngü değişkeni onu gölgeler (name-resolution.md §2, §6; #137).
+    fn rewrite_user_side(&mut self, item: Idx<volt_ast::Item>, regs: &[RegInfo], handle: Span) {
         let (body, contracts) = match &self.ast.items_arena[item].kind {
             ItemKind::Module(m) => (
                 m.body.clone(),
@@ -997,10 +1002,20 @@ impl Parser<'_> {
                 map.insert(format!("{REGS_HANDLE}.{}.{field}", r.name), target);
             }
         }
+        let handle = volt_ast::Name {
+            text: REGS_HANDLE.to_string(),
+            span: handle,
+        };
+        let module_chain = |ast: &volt_ast::SourceFile| {
+            let mut chain = Scopes::module(ast, item);
+            chain.declare_vanishing(&handle);
+            chain
+        };
         // E4006: bus'a ait ya da sabit alana RTL yazması (kaynak adlarıyla).
         let mut writes = Vec::new();
+        let mut chain = module_chain(&self.ast);
         for &si in &body {
-            self.collect_lvalues_stmt(si, &mut writes);
+            self.collect_lvalues_stmt(si, &mut chain, &mut writes);
         }
         for (span, reg_name, field_name) in writes {
             let Some(r) = regs.iter().find(|r| r.name == reg_name) else {
@@ -1024,49 +1039,93 @@ impl Parser<'_> {
                 ),
             );
         }
+        // Kontratlar modülün bütün bildirimlerini görür; gövde sıralıdır.
+        let mut contract_chain = module_chain(&self.ast);
+        for &si in &body {
+            if let Some(name) = decl_name(&self.ast.stmts[si].kind) {
+                contract_chain.declare_outer(name);
+            }
+        }
+        self.scopes = contract_chain;
         for e in contracts {
             self.mmio_rw_expr(e, &map);
         }
+        self.scopes = module_chain(&self.ast);
         for si in body {
             self.mmio_rw_stmt(si, &map);
         }
+        self.scopes = Scopes::default();
     }
 
-    fn collect_lvalues_stmt(&self, si: Idx<Stmt>, out: &mut Vec<(Span, String, String)>) {
+    fn collect_lvalues_stmt(
+        &self,
+        si: Idx<Stmt>,
+        chain: &mut Scopes,
+        out: &mut Vec<(Span, String, String)>,
+    ) {
         match &self.ast.stmts[si].kind {
-            StmtKind::Assign(a) => push_regs_lvalue(&a.lhs, out),
-            StmtKind::On(on) => self.collect_lvalues_block(on.body, out),
-            StmtKind::Comb(b) => self.collect_lvalues_block(*b, out),
-            StmtKind::For(f) => self.collect_lvalues_block(f.body, out),
-            _ => {}
-        }
-    }
-
-    fn collect_lvalues_block(&self, bi: Idx<Block>, out: &mut Vec<(Span, String, String)>) {
-        for bs in &self.ast.blocks[bi].stmts {
-            match bs {
-                BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
-                    push_regs_lvalue(lhs, out);
+            StmtKind::Assign(a) => push_regs_lvalue(&a.lhs, chain, out),
+            StmtKind::On(on) => self.collect_lvalues_block(on.body, chain, out),
+            StmtKind::Comb(b) => self.collect_lvalues_block(*b, chain, out),
+            StmtKind::For(f) => {
+                chain.push();
+                chain.declare_local(&f.var, true);
+                self.collect_lvalues_block(f.body, chain, out);
+                chain.pop();
+            }
+            kind => {
+                if let Some(name) = decl_name(kind) {
+                    chain.declare_outer(name);
                 }
-                BlockStmt::If(ifs) => self.collect_lvalues_if(ifs, out),
-                BlockStmt::Match(m) => {
-                    for arm in &m.arms {
-                        if let MatchArmBody::Block(b) = &arm.body {
-                            self.collect_lvalues_block(*b, out);
-                        }
-                    }
-                }
-                BlockStmt::For(f) => self.collect_lvalues_block(f.body, out),
-                BlockStmt::Let(_) | BlockStmt::Error => {}
             }
         }
     }
 
-    fn collect_lvalues_if(&self, ifs: &IfStmt, out: &mut Vec<(Span, String, String)>) {
-        self.collect_lvalues_block(ifs.then_block, out);
+    fn collect_lvalues_block(
+        &self,
+        bi: Idx<Block>,
+        chain: &mut Scopes,
+        out: &mut Vec<(Span, String, String)>,
+    ) {
+        chain.push();
+        for bs in &self.ast.blocks[bi].stmts {
+            match bs {
+                BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
+                    push_regs_lvalue(lhs, chain, out);
+                }
+                BlockStmt::If(ifs) => self.collect_lvalues_if(ifs, chain, out),
+                BlockStmt::Match(m) => {
+                    for arm in &m.arms {
+                        if let MatchArmBody::Block(b) = &arm.body {
+                            self.collect_lvalues_block(*b, chain, out);
+                        }
+                    }
+                }
+                BlockStmt::For(f) => {
+                    chain.push();
+                    chain.declare_local(&f.var, true);
+                    self.collect_lvalues_block(f.body, chain, out);
+                    chain.pop();
+                }
+                BlockStmt::Let(l) => {
+                    chain.declare_local(&l.name, false);
+                }
+                BlockStmt::Error => {}
+            }
+        }
+        chain.pop();
+    }
+
+    fn collect_lvalues_if(
+        &self,
+        ifs: &IfStmt,
+        chain: &mut Scopes,
+        out: &mut Vec<(Span, String, String)>,
+    ) {
+        self.collect_lvalues_block(ifs.then_block, chain, out);
         match &ifs.else_branch {
-            Some(ElseBranch::Block(b)) => self.collect_lvalues_block(*b, out),
-            Some(ElseBranch::If(inner)) => self.collect_lvalues_if(inner, out),
+            Some(ElseBranch::Block(b)) => self.collect_lvalues_block(*b, chain, out),
+            Some(ElseBranch::If(inner)) => self.collect_lvalues_if(inner, chain, out),
             None => {}
         }
     }
@@ -1080,15 +1139,25 @@ impl Parser<'_> {
             StmtKind::Reg(r) => exprs.push(r.init),
             StmtKind::Let(l) => exprs.push(l.value),
             StmtKind::Assign(a) => {
-                rw_lvalue(&mut a.lhs, map);
+                if !self.scopes.is_local(&a.lhs.base.text) {
+                    rw_lvalue(&mut a.lhs, map);
+                }
                 exprs.push(a.rhs);
                 exprs.extend(a.lhs.suffixes.iter().flat_map(lvalue_suffix_exprs));
             }
             StmtKind::On(on) => blocks.push(on.body),
             StmtKind::Comb(b) => blocks.push(*b),
             StmtKind::For(f) => {
-                exprs.extend([f.start, f.end]);
-                blocks.push(f.body);
+                // Modül düzeyi `for` (açılım bu geçitten sonra): değişkeni
+                // gövdesini kuşatır.
+                let f = f.clone();
+                self.mmio_rw_expr(f.start, map);
+                self.mmio_rw_expr(f.end, map);
+                self.scopes.push();
+                self.declare_block_local(&f.var, true);
+                self.mmio_rw_block(f.body, map);
+                self.scopes.pop();
+                return;
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
@@ -1102,24 +1171,35 @@ impl Parser<'_> {
         for b in blocks {
             self.mmio_rw_block(b, map);
         }
+        // Modül içi sıralı (§4, §5).
+        if let Some(name) = decl_name(&self.ast.stmts[si].kind).cloned() {
+            self.scopes.declare_outer(&name);
+        }
     }
 
     fn mmio_rw_block(&mut self, bi: Idx<Block>, map: &HashMap<String, Rewrite>) {
         let mut stmts = std::mem::take(&mut self.ast.blocks[bi].stmts);
+        self.scopes.push();
         for bs in &mut stmts {
             self.mmio_rw_block_stmt(bs, map);
+            if let BlockStmt::Let(l) = bs {
+                self.declare_block_local(&l.name, false);
+            }
         }
         self.ast.blocks[bi].stmts = stmts;
         if let Some(tail) = self.ast.blocks[bi].tail {
             self.mmio_rw_expr(tail, map);
         }
+        self.scopes.pop();
     }
 
     fn mmio_rw_block_stmt(&mut self, bs: &mut BlockStmt, map: &HashMap<String, Rewrite>) {
         match bs {
             BlockStmt::NonBlockAssign { lhs, rhs, .. }
             | BlockStmt::BlockAssign { lhs, rhs, .. } => {
-                rw_lvalue(lhs, map);
+                if !self.scopes.is_local(&lhs.base.text) {
+                    rw_lvalue(lhs, map);
+                }
                 self.mmio_rw_expr(*rhs, map);
                 let idxs: Vec<Idx<Expr>> =
                     lhs.suffixes.iter().flat_map(lvalue_suffix_exprs).collect();
@@ -1143,7 +1223,10 @@ impl Parser<'_> {
             BlockStmt::For(f) => {
                 self.mmio_rw_expr(f.start, map);
                 self.mmio_rw_expr(f.end, map);
+                self.scopes.push();
+                self.declare_block_local(&f.var, true);
                 self.mmio_rw_block(f.body, map);
+                self.scopes.pop();
             }
             BlockStmt::Error => {}
         }
@@ -1235,7 +1318,12 @@ impl Parser<'_> {
                     parts.push(field.text.as_str());
                     cur = *base;
                 }
+                // Taban kapsam zincirinde çözülür (#137): yerel `regs`
+                // tutamacı gölgeler.
                 ExprKind::Path(p) if p.segments.len() == 1 && !parts.is_empty() => {
+                    if self.scopes.is_local(&p.segments[0].text) {
+                        return None;
+                    }
                     parts.push(p.segments[0].text.as_str());
                     parts.reverse();
                     return Some(parts.join("."));
@@ -1336,8 +1424,8 @@ fn path(name: &str, span: Span) -> Path {
 }
 
 /// `regs.<reg>.<alan>[...]` sol tarafı → (span, reg, alan).
-fn push_regs_lvalue(lv: &LValue, out: &mut Vec<(Span, String, String)>) {
-    if lv.base.text != REGS_HANDLE {
+fn push_regs_lvalue(lv: &LValue, chain: &Scopes, out: &mut Vec<(Span, String, String)>) {
+    if lv.base.text != REGS_HANDLE || chain.is_local(&lv.base.text) {
         return;
     }
     let (Some(LValueSuffix::Field(r)), Some(LValueSuffix::Field(f))) =

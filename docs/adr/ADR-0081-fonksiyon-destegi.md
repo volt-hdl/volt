@@ -1181,3 +1181,95 @@ E1003, E1015, E2005/E2008/E2021, E1002), `crates/volt-syntax`'ta
 `scope.rs` birim testleri, `tests/ui/pass/136_generic_and_module_for_scopes.volt`,
 `tests/ui/fail/225`–`229`; fark testinin r biçimi generic modül ve modül
 düzeyi `for` üretir (ADR-0108 eki).
+
+## Ek: Ayrıştırıcının öteki adımları da kapsam zincirinden geçer (#136, #137, #138, 2026-11-07, dal `fix/parser-scope-rewrites`)
+
+**Sorun.** Önceki ek generic ve modül düzeyi `for` ikamesini kapsam
+zincirine bağladı. Aynı denetim, ayrıştırıcının ad çözümünden (HIR) önce
+koşan başka adımlarının da bir adı kapsamı bilmeden çözdüğünü gösterdi:
+bundle dizisinin indeksi ve uzunluğu adı yalnız kök const'larda arıyordu
+(#136); bundle alanı, çift yönlü port üyesi, `@mmio` tutamacı ve
+pipeline aşama değeri tabanın metniyle yeniden yazılıyordu, aradaki blok
+`let`'i ya da döngü değişkeni görülmüyordu (#137); çıkarılan sayaç
+sözleşmesi blok `let`'ini sabit sanıyordu (#138). Üçü de sessiz yanlıştı:
+port okunuyor, sahte bir `invariant` üretiliyor, ya da geçerli girdi
+reddediliyordu (modül düzeyi `comb`'daki yerel aşama değeri sanılıp
+E5012).
+
+**Karar.** Yeni bir çözüm mekanizması yok: adımlar önceki ekin
+`Scopes`'unu kullanır (`crates/volt-syntax/src/parser/mono/scope.rs`).
+Her adım gövdeyi gezerken zinciri kurar:
+
+- blok (`on`/`comb`, `if`/`else` dalı, kol gövdesi) bir kapsam açar;
+  blok `let`'i değeri gezildikten sonra, döngü değişkeni gövdesini
+  kuşatan kapsamda bildirilir (`Scopes::declare_local`);
+- modül gövdesinin bildirimleri sırayla eklenir (§4, §5): indeksten
+  sonra bildirilen modül `let`'i indeksi gölgelemez, çözücü de orada kök
+  const'u bağlar;
+- bir taban yeniden yazılmadan önce `Scopes::is_local` sorulur (içte
+  `Scopes::resolve`): yerele bağlıysa yeniden yazılmaz ve girdi, adı taze
+  olan aynı girdi gibi davranır;
+- sabit değerlendirme `eval_const_scoped` ile yapılır: ad kök kapsamın
+  içinde bir bildirime bağlıysa (`Scopes::bound_above_root`) kök const
+  sayılmaz.
+
+| Adım | Çözülen ad | Zincir |
+|---|---|---|
+| Bundle dizisi uzunluğu (`bundle_array_len`) | `[Handshake<u8>; K]`'daki `K` | kök + modül kapsamı (portlar): port `K` kök const'u gölgeler, E2008 |
+| Bundle dizisi indeksi (`bundle_index`) | `rx[K]`'daki `K` | kök + modül kapsamı + gövdenin bildirimleri sırayla + bloklar |
+| Bundle alanı, sanal alan, atama hedefi (`field_chain`, `rw_lvalue`) | `aw.addr`, `tx.fired`, `aw.ack = …`'nın tabanı | aynı; açılan bundle portunun adı çözücünün görmediği ad olarak (`declare_vanishing`) |
+| Çift yönlü port, ayrıştırma anında (`try_bidir_call`) | `dq.drive(v)`'nin tabanı | ayrıştırıcının açık blokları (`parse_block`, `parse_for_stmt`): blokta ifade deyimi olmadığından çağrı ayrıştırılırken atamaya çevrilir |
+| Çift yönlü port, birim sonunda (`bidir_member`) | `dq.read()`, `dq.released`, `dq.driving` | modül zinciri + bloklar |
+| `@mmio` tutamacı (`mmio_field_chain`, `rw_lvalue`, E4006 denetimi) | `regs.<reg>.<alan>` | modül zinciri; `regs` `@mmio` niteliğinin yerinde çözücünün görmediği ad olarak |
+| Pipeline aşama değeri (`rw_expr`) | aşama gövdesinin üst düzey `let`'i | aşama gövdesinin iç blokları, modül düzeyi bloklar ve modül düzeyi `for` |
+| Sayaç ve FSM sözleşmesi (`is_const_expr`, `bound_of`, `match` konusu) | sınır `E`, sabit yazma, `match r` | modülün bütün bildirimleri + bloklar; koşul `if`'in, sabit yazma yazmanın bulunduğu yerde |
+
+**Gölgeleme tanısı.** Önceki ekin kuralı (`Entry::resolver_sees`):
+gölgelemenin iki ucunu çözücü görüyorsa W1002'yi çözücü verir. Bundle
+portu düz portlara açılır, `regs` tutamacı register haritasına; çözücü
+ikisini de görmez ve onları gölgeleyen yerelin W1002'sini adım verir
+(`Parser::declare_block_local`), kaynak satırı başına bir kez (generic
+modülün monomorfları aynı satırı yeniden uyarmaz). Çift yönlü port port
+olarak kalır, aşama değeri modül düzeyi `let`'e taşınır: bunların
+gölgelemesini çözücü uyarır.
+
+**`regs` tutamacı.** ADR-0044 §1'e göre `regs` her `@mmio` modülünün
+örtük tutamacıdır, yani modül kapsamının bir adıdır; §6'ya göre blok
+`let`'i onu gölgeler ve W1002 alır. #137 adın ayrılmış sayılmasını (yerel
+`let regs` için bir E-kodu) bir seçenek olarak andı; bu ek şartnamenin
+genel kuralını uygular, ayrılmış ad kararı bakımcınındır.
+
+**Sözleşmede modül kapsamı.** Çıkarılan sözleşme modül kapsamında yaşar
+ve modülün bütün bildirimlerini görür. Sınırdaki ya da sabit yazmadaki ad
+hem yazmanın bulunduğu yerde hem sözleşmede kök const'a bağlı olmalıdır:
+taramanın modül kapsamı gövdenin bütün bildirimlerini baştan içerir
+(önceki `locals` kümesinin kapsadığı adlar), bloklar üstüne eklenir. Sıralı
+zincir burada yanlış olurdu: `on` bloğundan sonra bildirilen modül
+`let K`'si bloktaki `K`'yı gölgelemez, ama sözleşmeye kopyalanan `K`
+modül kapsamında o `let`'e bağlanır (sözleşmede sinyal, E1001).
+
+**Sınırlar.**
+
+- Adımlar fonksiyon gövdesine girmez; fonksiyonun parametresi ve `let`'i
+  hiçbir zaman yeniden yazılmaz (bekçi testi).
+- Yük taşıyan enum deseni (E0003) olmadığından `match` kolunun desen bağı
+  zincire eklenmez.
+- Kaybolan adla aynı kapsamda bildirilen modül `let`'i (bundle portu
+  `aw` ile modül `let aw`'si, `regs` ile modül `let regs`'i) E1003
+  almaz: çözücü kaybolan adı görmez. Ayrı kök neden: #155.
+- Üretici, struct `let`'inin düzleşmiş alanını (`p_x`) aynı adlı portun
+  önüne koyar; kaynakta portu okuyan kullanım SV'de yerelin alanını okur.
+  Ayrı kök neden (üreticinin ad hijyeni): #154. Bundle portunu gölgeleyen
+  struct `let`'inin alanı düzeltmeden önce de doğru değeri bu yüzden
+  veriyordu.
+
+**Testler.** `crates/volt-driver/tests/parser_rewrite_scope_sim_tests.rs`
+(her değer hücresi davranış olarak, Verilator'da; beklenen değerler
+şartnameden elle; bekçiler dışındakiler düzeltmeden önce düşüyordu;
+sözleşmeler simülasyonda izlendiğinden sahte `invariant` testi
+düşürür), `crates/volt-driver/tests/parser_rewrite_scope_diag_tests.rs`
+(E2008, adı taze olan girdinin tanılarıyla aynılık, W1002 satırları),
+`scope.rs` birim testleri,
+`tests/ui/pass/138_locals_shadow_rewritten_names.volt` (çözücünün
+uyardığı gölgelemeler; `ui/pass` dosyasında ayrıştırıcı tanı vermez),
+`tests/ui/fail/243_bundle_index_shadowed_by_block_let.volt`.

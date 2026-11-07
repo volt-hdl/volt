@@ -513,7 +513,12 @@ impl Parser<'_> {
             self.alloc_error_expr(self.current_span())
         };
 
+        // Döngü değişkeni gövdeyi kuşatan kapsamda (§2): gövdedeki
+        // `var.drive(v)` çift yönlü portu değil değişkeni anar (#137).
+        self.scopes.push();
+        self.scopes.declare_local(&var, true);
         let body = self.parse_block(ctx);
+        self.scopes.pop();
         ForStmt {
             var,
             start,
@@ -586,16 +591,24 @@ impl Parser<'_> {
             &lstr!(en: "write it as {{ ... }}"; tr: "{{ ... }} biçiminde yazın"),
         );
 
+        // Bloğun yerelleri (§2, §4): `let`'ten sonraki `ad.drive(v)` çift
+        // yönlü portu değil yereli anar (#137, `Scopes::is_local`).
+        self.scopes.push();
         let mut stmts = Vec::new();
         while !self.at(RBrace) && !self.at_eof() {
             let before = self.pos;
-            stmts.push(self.parse_block_stmt(ctx));
+            let stmt = self.parse_block_stmt(ctx);
+            if let BlockStmt::Let(l) = &stmt {
+                self.scopes.declare_local(&l.name, false);
+            }
+            stmts.push(stmt);
             // `p.drive(v)` iki deyim üretir (ADR-0051); ikincisi burada.
             stmts.append(&mut self.bidir.pending);
             if self.pos == before {
                 self.bump_any(); // ilerleme garantisi — sonsuz döngü koruması
             }
         }
+        self.scopes.pop();
 
         self.expect_closing(RBrace, "}", open);
         self.depth = entry;
