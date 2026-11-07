@@ -26,6 +26,21 @@ examine_globs = [
     "crates/volt-syntax/src/parser/mono/scope.rs",
     "crates/volt-syntax/src/parser/mono/clone.rs",
     "crates/volt-syntax/src/parser/mono/pattern.rs",
+    # The parser's other name-matching steps, wired to the same scope chain
+    # (#136, #137, #138; ADR-0081 appendix): bundle flattening, bidirectional
+    # ports (parse-time `p.drive(v)` in stmt.rs, the post pass in bidir.rs),
+    # the @mmio handle, pipeline stage values, inferred counter and FSM
+    # contracts, and the module chain and constant evaluation they share.
+    "crates/volt-syntax/src/parser/bundle.rs",
+    "crates/volt-syntax/src/parser/bidir.rs",
+    "crates/volt-syntax/src/parser/stmt.rs",
+    "crates/volt-syntax/src/parser/mmio.rs",
+    "crates/volt-syntax/src/parser/desugar.rs",
+    "crates/volt-syntax/src/parser/mono/unroll.rs",
+    "crates/volt-syntax/src/parser/auto_contract/mod.rs",
+    "crates/volt-syntax/src/parser/auto_contract/scan.rs",
+    "crates/volt-syntax/src/parser/auto_contract/counter.rs",
+    "crates/volt-syntax/src/parser/auto_contract/fsm.rs",
     # 2. Width and type inference.
     "crates/volt-hir/src/ty.rs",
     "crates/volt-hir/src/typeck/width.rs",
