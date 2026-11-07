@@ -1,4 +1,5 @@
 // Second referee canary (ADR-0107, "Ek: DFG kapalı"; #148).
+// Reported upstream: https://github.com/verilator/verilator/issues/9060
 //
 // Correct SystemVerilog: the design of issue145.sv without the assertion
 // ens_0 (the second reader of o150a) and without Dt's clk/rst ports. Every

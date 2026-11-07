@@ -445,3 +445,139 @@ DFG optimizasyonunun yanlış derlemesi. Düzeltme dalının dört parçasında 
 
 Sınırlar: modül düzeyi çağrının ikame kipi (`comb` içinde açılım) ve tel
 kipi (modül düzeyi) artık ikisi de sınanır; `on` bloğu sınanmaz.
+
+## Ek: `/` ve `%`, literal aritmetiği (#144, 2026-11-06)
+
+#144'ü (yalnız literal içeren aritmetik, her literal bağlam genişliğine
+kesilerek SV'ye yazılıyordu: u2'de `7 / 3` = 1) fark testi yakalamadı
+(#125): üreteç `/` ve `%` üretmiyordu, model iki literalin aritmetiğini
+"unspecified" sayıyordu (`literal-literal arithmetic`) ve `+ - *`'da
+kesme sonucu değiştirmez. Bu ek ikisini de kapsama alır. Önceki karar
+metni (§1–§6) değişmedi.
+
+**Model (şartnameden).**
+
+- §3.3: `/` ve `%` genişlemez; esnek işlenende sonucun doğal genişliği
+  kesişimin üst ucudur (`+ - *` ile aynı buluşma, ADR-0025).
+- İki literalin aritmetiği literaldir (§3.3) ve değeri derleme zamanında
+  `i128`'de tam hesaplanır (const-eval.md §1); ara değerler kesilmez.
+  const-eval.md §4: `checked_*` taşması E2022, bölen 0 E2023, `/` ve `%`
+  sıfıra doğru. Literal ifadesinin değeri karşı yanın ya da hedefin tipine
+  sığmalı (§4, E2010); karşılaştırmada ADR-0106 §1, §2.
+- Check kipinde itme (ADR-0041; type-inference.md §5 "`+ - * / %`") `/`
+  ve `%`'yi de hedef genişlikte yapar. Modelin `push`'u iki literal
+  işlenende yaprakların hedefe sığmasını istiyordu; derleyicinin
+  `widen_operands`'ı gibi önce iki yanın literal olup olmadığına bakar
+  (itme yok, değer katlanır).
+- Çalışma zamanında bölen 0 ve `iN::MIN / -1`: şartname değeri
+  tanımlamıyor (§3.3 yalnız sonucun genişliğini verir; `iN::MIN / -1`
+  N bite sığmaz). Model karşılaştırmaz (`eval` `None`, bölen 0'da SV
+  değeri de x'tir; G biçimi o ifadede düşer). Karar #122'de.
+
+Yeni varsayım etiketi ("Spesifikasyon belirsizlikleri" tablosunun
+devamı; #122):
+
+| Kimlik | Okuma | Şartnamenin söylediği |
+|---|---|---|
+| A13 | çalışma zamanında işaretli `/` sıfıra doğru keser, `%` bölünenin işaretini alır | const-eval.md §4 derleme anını (`checked_div`, `checked_rem`) tanımlar; çalışma zamanını söylemez |
+
+**Üreteç.**
+
+- Aritmetik düğüm `+ - * / %` arasından seçer (genişlik 32'yi aşınca
+  `*` yok).
+- İşlenen çiftinin ikinci yanı (%10) ve karşılaştırmanın literal yanı
+  (%10) bir literal aritmetiği ağacıdır (`lit_expr`): değeri bağlamın
+  aralığına sığar, yaprakları bilerek geniştir. `/` ve `%` ağırlıklı
+  (`a / b == q` için `a = q·b + r`, `a % b == q` için `a = ±m·|b| + q`),
+  derinlik en çok 2. Yaprakları bağlam genişliğine kesen derleyici `/` ve
+  `%`'de yanlış değer verir; `+ - *`'da kesme sonucu değiştirmez, onların
+  hatası sığmayan sonucun kabulüdür.
+- İki yeni geçersiz biçim: değeri karşı yanın tipine sığmayan literal
+  ağacı (aritmetik, bit işlemi ve karşılaştırmada; E2010) ve sıfır bölenli
+  literal bölmesi ya da kalanı (`k / (z - z)`, E2023).
+- Çalışma zamanı `/` ve `%`'nin işlenenleri varsayılan olarak atomdur:
+  port, portun dönüşümü, literal, literal aritmetiği. Bileşik işlenen
+  (aritmetik ifade, esnek tip) `VOLT_DIFFTEST_DIV_OPERANDS=1` ile açılır.
+  Açık koşu bir sınıf buldu (#150): üretici bölmeyi bağlamın genişliğinde
+  yapıyor, işlenen bölmeden önce kesiliyor ya da sarmıyor; `+ - *`'da bu
+  strateji değeri değiştirmez, `/` ve `%`'de değiştirir. Esnek işlenenin
+  bölmedeki değeri ADR-0025'in açık bıraktığı bir okumaya bağlı (A1
+  ailesi), karar o issue'da. Issue kapanınca varsayılan açılır
+  (`VOLT_DIFFTEST_FN_LET` ile aynı düzen, #132).
+- Üst düzeyde literal ifadesi üretilmez: çıkışın tipi ifadenin doğal
+  tipidir, literalin doğal tipi yoktur (`untyped literal expression`).
+  Literal aritmetiği işlenen ve karşılaştırma konumlarında sınanır.
+
+**Regresyon kümesi.** #144'ün altı örneği (kimlik 27–32). Beşi elle
+hesaplanmış değerli: `p0 == 7 / 3` ve `p0 < 5 % 3` (u2), `p0 & (7 / 3)`,
+`p0 + 100 * 3 / 150` (ara değer 300) ve işaretli `p0 == -9 / 2` (i4; -9
+i4'e sığmaz, -4 sığar). Altıncısı (`34090 / 40 - p0`, p0 : u11) yeni
+biçimin ilk yerel koşusunun bulgusudur: W biçiminde (daha geniş hedef)
+tip denetimi literal ağacını literal sayıp çıkarmayı hedef genişlikte
+yapıyordu (type-inference.md §5), üreticinin `pushes_into`'su yalnız
+çıplak literali sayıyordu ve doğal 12 bitte sarıp genişletiyordu. Aynı
+PR'da düzeltildi; değeri işaretsiz çıkarmanın sarmasına (A3) bağlı
+olduğundan elle sabitlenmez. #130'un örnekleri (25, 26) kaymadı.
+
+Sınırlar: bit işlemi, kaydırma ve dönüşümde iki literalli biçimler
+(`7 | 1`, `6 >> 1`, `(7 / 3) as u8`) model için hâlâ unspecified
+(#122); üreteç onları üretmez.
+
+
+**Düzeltme geri alındığında #144'ü yakalıyor.** Verilator'lı (CI), dört
+tohum (20261104–20261107, parça başına 2000 ifade), Verilator 5.052:
+
+- düzeltmesi geri alınmış dal `test/literal-arith-revert-demo` (yalnız
+  derleyicinin düzeltmesi, `crates/volt-hir/src/typeck/{binop,check,mod}.rs`,
+  `literal_fold.rs` ve `crates/volt-sv-emit/src/expr.rs`, `main`'deki
+  hâline döner; fark testi değişiklikleri kalır; birleştirilmez; satırlar
+  alıntılandıktan sonra silindi):
+  https://github.com/volt-hdl/volt/actions/runs/42264802166 — dört parça
+  da düştü, `diffs=822`, `700`, `741`, `636`; `regressions=33 failed=6`
+  (#144'ün altı örneği); model geçersiz derken derleyicinin kabul ettiği
+  ifade 10, 16, 9, 15 (E2010 ve E2023).
+- düzeltme dalı: https://github.com/volt-hdl/volt/actions/runs/42265535639
+  — dört parça geçti, her parçada `diffs=0`, `regressions=33 failed=0
+  hand-computed=45 compared=45`, WIDTH yok.
+
+Günlükten alıntı (parça öneki eklendi, bulgu satırları kısaltıldı):
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=81 unsupported=20 unspecified=0 values-compared=234839 diffs=822
+[shard 0] difftest: regressions=33 failed=6 hand-computed=45 compared=45
+[shard 0] difftest: value differs from the model — 769
+[shard 0] difftest: model: invalid, compiler: accepted — 10
+[shard 0]   [value differs from the model] regression #144: literal division compared with a narrow signal — a (u2 == (K / K))
+[shard 0]       o27a = p43 == 7 / 3
+[shard 0]       inputs: p43=0x2
+[shard 0]       model: 0x1, Verilator: 0x0 (bool)
+[shard 0]           assign o27a = p43 == 2'h3 / 2'd3;
+[shard 0]   [2x] regression #144: intermediate value of literal arithmetic wider than the context — a (u2 + ((K * K) / K))
+[shard 0]       o30a = p46 + 100 * 3 / 150
+[shard 0]       hand-computed: 0x3, Verilator: 0x1 (u3)
+[shard 0]       ((62 & p67) << p24) - ((-3808) + 3872)
+[shard 0]       model: E2010, compiler: no error
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2129 rejected-as-predicted=94 unsupported=9 unspecified=0 values-compared=229335 diffs=700
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2134 rejected-as-predicted=99 unsupported=6 unspecified=0 values-compared=233999 diffs=741
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2132 rejected-as-predicted=90 unsupported=9 unspecified=0 values-compared=233644 diffs=636
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+(`Tool ledger` satırı dört parçada da aynı; `regressions=33 failed=6`
+dört parçada da.) Düzeltme dalı:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=91 unsupported=20 unspecified=0 values-compared=229801 diffs=0
+[shard 0] difftest: regressions=33 failed=0 hand-computed=45 compared=45
+[shard 0] difftest: lint codes: CMPCONST=17 UNSIGNED=4 UNUSEDSIGNAL=802
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2131 rejected-as-predicted=110 unsupported=9 unspecified=0 values-compared=224133 diffs=0
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2136 rejected-as-predicted=108 unsupported=6 unspecified=0 values-compared=229303 diffs=0
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2136 rejected-as-predicted=105 unsupported=9 unspecified=0 values-compared=229091 diffs=0
+```
+
+Düzeltme dalının ilk büyük koşusu (42264796429) 3. parçada bir fark
+verdi; #144'le ilgisiz, koşucunun F biçiminde (`e == t`) önceden var olan
+bir hata: değer x olan vektörde (sınır dışı `p178[p14 -: 21]`, p14 = 10,
+ADR-0035 §1) iki x'in eşitliği tanımsız, ama F her vektörde 1 bekliyordu.
+Artık F modelin x dediği vektörde karşılaştırılmaz (G gibi); yukarıdaki
+koşu bu düzeltmeyle.

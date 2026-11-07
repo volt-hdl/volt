@@ -388,10 +388,12 @@ extern module CounterWrap {   // ✓
         ),
         E2010 => Explanation::new(
             "Literal does not fit the target type",
-            "The literal's value is outside the range this type can represent.",
-            "A u4 can hold 0..15; assigning 200 would silently keep only the low bits in other languages. Volt rejects it: either widen the type or fix the value.",
-            "let x : u4 = 200        // ✗ E2010: u4 max is 15",
-            "let x : u8 = 200        // ✓",
+            "The literal's value, or the value of arithmetic on literals, is outside the range this type can represent.",
+            "A u4 can hold 0..15; assigning 200 would silently keep only the low bits in other languages. Volt rejects it: either widen the type or fix the value. Arithmetic on literals (5 + 2, N / 3 with a generic N, i * 2 with a loop variable i) is computed exactly at compile time and the result must fit in the same way; it is never wrapped to the target width.",
+            "let x : u4 = 200        // ✗ E2010: u4 max is 15
+let y : u2 = 5 + 2      // ✗ E2010: 7 > 3",
+            "let x : u8 = 200        // ✓
+let y : u3 = 5 + 2      // ✓",
         ),
         E2011 => Explanation::new(
             "Invalid Trit literal",
@@ -454,10 +456,10 @@ extern module CounterWrap {   // ✓
         ),
         E2022 => Explanation::new(
             "Compile-time overflow",
-            "Evaluating this constant expression overflows its type.",
-            "Constant evaluation uses the declared type's exact range — the same range the hardware will have. An overflow at compile time means the value could never exist in hardware, so it is an error, not a silent wrap.",
-            "const X : u8 = 250 + 10;    // ✗ E2022: 260 > 255",
-            "const X : u16 = 250 + 10;   // ✓",
+            "Evaluating this constant expression leaves the compile-time range.",
+            "Constant expressions are computed exactly, in a 128-bit range wider than any Volt integer type; a result that does not fit the declared type is E2010. An intermediate value outside even that range has no exact value, so it is an error, not a silent wrap.",
+            "const X : u64 = 18446744073709551615 * 18446744073709551615  // ✗ E2022",
+            "const X : u64 = 18446744073709551615                         // ✓",
         ),
         E2023 => Explanation::new(
             "Division by zero",

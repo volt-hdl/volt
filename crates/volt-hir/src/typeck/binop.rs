@@ -73,7 +73,13 @@ impl TypeChecker<'_, '_> {
             return self.types.error();
         }
         match (self.types.is_int_lit(lt), self.types.is_int_lit(rt)) {
-            (true, true) => return self.types.int_lit(),
+            // Literal + literal → literal (§3.3); değeri check kipinde
+            // katlanır (`check_literal_expr`). Sıfıra bölme burada: tipsiz
+            // `let` gibi beklenen tipsiz konumda da açık hata (E2023).
+            (true, true) => {
+                self.check_literal_divisor(op, lhs, rhs, span);
+                return self.types.int_lit();
+            }
             // Literal somut tarafa uyarlanır (sınır denetimiyle).
             (true, false) => {
                 if !self.adapt_literal_operand(lhs, rt) {

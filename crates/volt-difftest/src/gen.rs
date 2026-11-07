@@ -31,6 +31,16 @@ impl Pool {
     }
 }
 
+/// Çalışma zamanı `/` ve `%`'nin bileşik işlenenleri (aritmetik ifade,
+/// esnek tip) yalnız `VOLT_DIFFTEST_DIV_OPERANDS=1` ile: üretici bölmeyi
+/// bağlamın genişliğinde yapıyor, işlenen bölmeden önce kesiliyor ya da
+/// sarmıyor (#150; `+ - *` kesmeyle sıra değiştirir, `/` ve `%`
+/// değiştirmez). Varsayılan biçimde işlenenler atomdur: port, portun
+/// dönüşümü, literal, literal aritmetiği. Issue kapanınca varsayılan açılır.
+pub fn div_operands_enabled() -> bool {
+    std::env::var("VOLT_DIFFTEST_DIV_OPERANDS").is_ok_and(|v| v == "1")
+}
+
 fn floor_log2(n: u32) -> u32 {
     31 - n.leading_zeros()
 }
@@ -117,6 +127,79 @@ impl Gen<'_> {
         Expr::Lit(v, fmt)
     }
 
+    /// Değeri `w` bitlik (işaretli ya da işaretsiz) aralığa sığan literal
+    /// aritmetiği (#144): `/` ve `%` ağırlıklı, yaprakları bilerek
+    /// aralıktan geniş. Değer derleme zamanında tam hesaplanır (const-eval.md
+    /// §1, §4); yaprakları bağlam genişliğine kesen bir derleyici `/` ve
+    /// `%`'de yanlış değer verir.
+    pub fn lit_expr(&mut self, s: bool, w: u32, d: u32) -> Expr {
+        let Expr::Lit(q, _) = self.lit(s, w) else {
+            unreachable!("lit bir literal üretir")
+        };
+        let d = d.clamp(1, 2);
+        self.lit_tree(q, d)
+    }
+
+    /// Bölen ya da fark için büyüklük: çoğu küçük, bir kısmı bağlamdan
+    /// geniş (en çok 2^12).
+    fn lit_magnitude(&mut self) -> i128 {
+        let k = self.rng.range(1, 12);
+        i128::from(self.rng.range(1, 1 << k))
+    }
+
+    /// Değeri tam `q` olan literal ağacı, iç içelik en çok `d`.
+    pub fn lit_tree(&mut self, q: i128, d: u32) -> Expr {
+        if d == 0 {
+            return Expr::Lit(q, LitFmt::Dec);
+        }
+        let (op, a, b) = match self.rng.weighted(&[35, 30, 13, 12, 10]) {
+            0 => {
+                // a / b == q: a = q·b + r, |r| < |b|, r bölünenin işaretinde.
+                let mut b = self.lit_magnitude();
+                if q < 0 && self.rng.chance(50) {
+                    b = -b;
+                }
+                let sign = if q < 0 { -1 } else { 1 };
+                let r = i128::from(self.rng.below(b.unsigned_abs() as u64)) * sign;
+                let a = q * b + r;
+                let a = if b != 0 && a / b == q { a } else { q * b };
+                (BinOp::Div, a, b)
+            }
+            1 => {
+                // a % b == q: |b| > |q|, a = ±m·|b| + q (bölünenin işareti q'nunki).
+                let bb = q.abs() + self.lit_magnitude();
+                let m = i128::from(self.rng.range(0, 64));
+                let a = if q < 0 { q - m * bb } else { q + m * bb };
+                let b = if self.rng.chance(30) { -bb } else { bb };
+                (BinOp::Rem, a, b)
+            }
+            2 => {
+                let b = self.lit_magnitude() << self.rng.range(0, 40);
+                (BinOp::Sub, q + b, b)
+            }
+            3 => {
+                let b = self.lit_magnitude();
+                (BinOp::Add, q - b, b)
+            }
+            _ => {
+                let b = if q % 3 == 0 { 3 } else { 1 };
+                (BinOp::Mul, q / b, b)
+            }
+        };
+        let sub = d - 1;
+        let a = if sub > 0 && self.rng.chance(30) {
+            self.lit_tree(a, sub)
+        } else {
+            Expr::Lit(a, LitFmt::Dec)
+        };
+        let b = if sub > 0 && self.rng.chance(20) {
+            self.lit_tree(b, sub)
+        } else {
+            Expr::Lit(b, LitFmt::Dec)
+        };
+        Expr::bin(op, a, b)
+    }
+
     fn contains(t: Option<Ty>, s: bool, w: u32) -> bool {
         matches!(t, Some(Ty::Int { signed, lo, hi }) if signed == s && lo <= w && w <= hi)
     }
@@ -159,10 +242,26 @@ impl Gen<'_> {
     fn operand_pair(&mut self, s: bool, w: u32, d: u32) -> (Expr, Expr) {
         let x = self.int(s, w, d - 1);
         let sd = self.sub_depth(d);
-        let y = if self.rng.chance(30) {
-            self.lit(s, w)
+        let y = match self.rng.weighted(&[22, 10, 68]) {
+            0 => self.lit(s, w),
+            1 => self.lit_expr(s, w, sd),
+            _ => self.int(s, w, sd),
+        };
+        if self.rng.chance(15) {
+            (y, x)
         } else {
-            self.int(s, w, sd)
+            (x, y)
+        }
+    }
+
+    /// Bölmenin atom işlenenleri (`div_operands_enabled` kapalıyken).
+    fn div_operands(&mut self, s: bool, w: u32, d: u32) -> (Expr, Expr) {
+        let x = self.int_leaf(s, w);
+        let sd = self.sub_depth(d);
+        let y = match self.rng.weighted(&[30, 15, 55]) {
+            0 => self.lit(s, w),
+            1 => self.lit_expr(s, w, sd),
+            _ => self.int_leaf(s, w),
         };
         if self.rng.chance(15) {
             (y, x)
@@ -190,12 +289,16 @@ impl Gen<'_> {
         match self.rng.weighted(&[30, 14, 6, 6, 12, 14, 18]) {
             0 => {
                 let ops: &[BinOp] = if 2 * w <= MAX_INT {
-                    &[BinOp::Add, BinOp::Sub, BinOp::Mul]
+                    &[BinOp::Add, BinOp::Sub, BinOp::Mul, BinOp::Div, BinOp::Rem]
                 } else {
-                    &[BinOp::Add, BinOp::Sub]
+                    &[BinOp::Add, BinOp::Sub, BinOp::Div, BinOp::Rem]
                 };
                 let op = self.rng.pick(ops);
-                let (x, y) = self.operand_pair(s, w, d);
+                let (x, y) = if op.is_div() && !div_operands_enabled() {
+                    self.div_operands(s, w, d)
+                } else {
+                    self.operand_pair(s, w, d)
+                };
                 Expr::bin(op, x, y)
             }
             1 => {
@@ -351,10 +454,10 @@ impl Gen<'_> {
                 let nat = self.natural(&x);
                 let op = self.rng.pick(&BinOp::CMP);
                 let sd = self.sub_depth(d);
-                let y = if self.rng.chance(35) {
-                    self.lit(s, nat)
-                } else {
-                    self.int_exact(s, nat, sd)
+                let y = match self.rng.weighted(&[25, 10, 65]) {
+                    0 => self.lit(s, nat),
+                    1 => self.lit_expr(s, nat, sd),
+                    _ => self.int_exact(s, nat, sd),
                 };
                 if self.rng.chance(20) {
                     Expr::bin(op, y, x)
@@ -432,7 +535,10 @@ impl Gen<'_> {
         let d = self.rng.range(1, 3);
         let w = self.rng.range(2, 32);
         let s = self.rng.chance(40);
-        match self.rng.weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10]) {
+        match self
+            .rng
+            .weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10, 8, 5])
+        {
             0 => {
                 let op = self
                     .rng
@@ -482,6 +588,37 @@ impl Gen<'_> {
                 Expr::cast(self.bits(w, d), t)
             }
             7 => Expr::un(UnOp::Neg, self.int(false, w, d)),
+            // #144: değeri karşı yanın tipine sığmayan literal aritmetiği
+            // (E2010); aritmetik, bit işlemi ve karşılaştırma.
+            9 => {
+                let x = self.int_exact(s, w, d);
+                let v = if s && self.rng.chance(50) {
+                    -(1i128 << (w - 1)) - 1
+                } else if s {
+                    1i128 << (w - 1)
+                } else {
+                    1i128 << w
+                };
+                let op = self
+                    .rng
+                    .pick(&[BinOp::Add, BinOp::Sub, BinOp::And, BinOp::Eq, BinOp::Lt]);
+                let y = self.lit_tree(v, 1);
+                Expr::bin(op, x, y)
+            }
+            // #144: literal aritmetiğinde sıfıra bölme ya da sıfıra göre
+            // kalan (E2023); bölen literal aritmetiğinin değeri 0.
+            10 => {
+                let x = self.int_exact(s, w, d);
+                let z = self.lit_magnitude();
+                let zero = Expr::bin(
+                    BinOp::Sub,
+                    Expr::Lit(z, LitFmt::Dec),
+                    Expr::Lit(z, LitFmt::Dec),
+                );
+                let op = self.rng.pick(&[BinOp::Div, BinOp::Rem]);
+                let k = Expr::Lit(self.lit_magnitude(), LitFmt::Dec);
+                Expr::bin(BinOp::Add, x, Expr::bin(op, k, zero))
+            }
             _ => {
                 let x = self.int_exact(false, w, d);
                 let v = 1i128 << w;
@@ -524,6 +661,48 @@ mod tests {
         }
         assert!(valid > 450, "{valid}/500 geçerli");
         assert!(deep > 100, "{deep}/500 derin");
+    }
+
+    /// #144: literal aritmetiği ağacının değeri istenen aralıkta; ağaçların
+    /// çoğunda bir yaprak aralıktan geniş (kesen derleyici yanılır).
+    #[test]
+    fn literal_trees_fit_their_range_with_wider_leaves() {
+        let mut rng = Rng::new(144);
+        let mut pool = Pool::default();
+        let mut wider = 0;
+        for i in 0..400 {
+            let s = i % 3 == 0;
+            let w = 1 + (i % 12) as u32;
+            let mut g = Gen {
+                rng: &mut rng,
+                pool: &mut pool,
+            };
+            let e = g.lit_expr(s, w, 2);
+            let Ok(t) = (Model { ports: &pool.ports }).synth(&e) else {
+                panic!("geçersiz literal ağacı: {e:?}")
+            };
+            let Ty::Lit(v) = t.ty else {
+                panic!("literal değil: {e:?}")
+            };
+            assert!(crate::value::fits(v, w, s), "{v} {s} {w}: {e:?}");
+            let mut leaves = vec![];
+            collect_lits(&e, &mut leaves);
+            if leaves.iter().any(|&l| !crate::value::fits(l, w, s)) {
+                wider += 1;
+            }
+        }
+        assert!(wider > 200, "{wider}/400 geniş yapraklı");
+    }
+
+    fn collect_lits(e: &Expr, out: &mut Vec<i128>) {
+        match e {
+            Expr::Lit(v, _) => out.push(*v),
+            Expr::Bin(_, a, b) => {
+                collect_lits(a, out);
+                collect_lits(b, out);
+            }
+            _ => {}
+        }
     }
 
     #[test]

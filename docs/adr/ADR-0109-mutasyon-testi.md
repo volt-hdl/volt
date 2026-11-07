@@ -528,3 +528,45 @@ Uygulaması:
 
 Lint ya da değer farkı çıkarsa mutant A değil B'dir: davranış testiyle öldürülür; bir hataya işaret ediyorsa issue açılır. Bu bölümün katlama mutantları böyle B'ye geçti (#144).
 
+
+## Hedefli koşu (#144, 2026-11-06)
+
+PR #151'in değiştirdiği kodun mutantları; önceki karar metni değişmedi.
+
+**Kapsam.** Yeni dosya `crates/volt-hir/src/typeck/literal_fold.rs` `examine_globs`'a eklendi. `expr.rs`'in satıra sabitlenmiş `exclude_re` girdileri (`fmt_int` 2040:28 ve 2047:32, `emit_prec` 1352:93 ve 1353:35, `part_select_from_value` 1605:48) yeni kodun kaydırdığı satırlara taşındı; her satırda başka mutantların hâlâ listelendiği denetlendi.
+
+**Koşu.** https://github.com/volt-hdl/volt/actions/runs/42264871411 (94c463c0, iki parça; parça 0 4 sa 20 dk, parça 1 2 sa 47 dk, ikisi de `completed`; her parçada `Tool ledger [mutants-N]: ... SKIP: 0`). `re`:
+
+```
+literal_fold\.rs|expr\.rs:.*(fold_literal_arith|has_literal_binary|literal_value|literal_op|pushes_into)|expr\.rs:1016:
+```
+
+(`expr.rs:1016` `emit_prec`'in katlanmış literal kolu.) 112 mutant: 93 caught, 14 missed, 1 timeout, 4 unviable.
+
+- **Timeout (1):** `literal_fold.rs:164:26` `+=` → `*=` (`for_each_assignment`'ın sayacı ilerlemez, sonsuz döngü). §4'e göre yakalandı sayılır.
+- **Unviable (4):** `literal_vars`, `bounded_loop_var`, `with_loop_values`, `literal_out_of_range`'ın `Default::default()` dönüşleri; derlenmez.
+- **A1, A2:** yok.
+- **B (9), her birine test yazıldı.** Her mutant elle uygulandı, test düştü, mutant geri alındı. Testler `literal_fold.rs`'in birim testleridir (tanının kodu, mesajı ve notu davranıştır):
+
+  | Mutant | Testi |
+  |---|---|
+  | `87:37` `==` → `!=` (`collect_literal_vars`, aynı değişken bir kez) | `every_combination_of_nested_loops_is_checked` (mutantta ikinci değişken ortama girmez, derleyici panikler) |
+  | `146:35` `>` → `==`, `>=` (bileşim sınırı) | `four_nested_loops_are_checked_in_every_combination` (16⁴ = 65 536 bileşim; u15'e 15⁴ sığmaz). Sınır sonra kaldırıldı (aşağıda, #152); mutantların satırı da kalktı |
+  | `185:18` `!` silme (bileşik `-`) | `negation_of_literal_arithmetic_is_folded` (`-(2 + 1)` u2'de E2010) |
+  | `286:29` `==` → `!=` (E2023'ün mesajı) | `the_zero_divisor_message_names_the_operator` |
+  | `316:29` `==` → `!=` (`push_once`) | `a_diagnostic_is_reported_once_per_position` (`x == 7 / 0`'da tek E2023) |
+  | `328:27` `<` → `<=` (u127 aralığı) | `a_target_of_127_bits_or_more_is_not_range_checked` (mutantta `i128` taşması, derleyici düşer) |
+  | `336:43` `-` silme (Trit aralığı) | `trit_range_bounds` |
+  | `381:54` `==` → `!=` (notun değişkenleri) | `the_note_names_the_failing_iteration_of_a_single_loop` (tek değişkende not boş kalır; iki değişkende mutant aynı notu verir) |
+
+- **C (5): #153, aynı PR'da düzeltildi.** `expr.rs:205:18` `>` → `==`, `>=`; `223:55`, `231:48`, `232:48` `depth + 1` → `depth * 1` (`literal_value`). Mutantlar derinlik sınırını bozar ve daha doğru davranır: 64'ten derin literal ağacında üretici katlamayı bırakıp her literali bağlamın genişliğinde yazıyordu (70 terimlik `1 + … + 1` bölü 10, u3'te 7 yerine 3). §4 C'yi o işte düzeltmez; burada hata mutasyon işinin değil, PR'ın asıl işinin (#144'ün katlaması) eksiğidir ve PR'ın hedefi literal aritmetiğinin şartnameye göre katlanmasıdır. Derinlik sınırı kaldırıldı (özyineleme ayrıştırıcının 256 düzeylik sınırıyla, E0018, zaten sınırlı); `literal_arith_sim_tests::issue_144_a_deep_literal_tree_is_folded_with_its_exact_value` düzeltmeden önce Verilator'da `left: 3, right: 7` ile düştü, sonra geçti. Derinlik parametresi kalktığı için mutantlar da kalktı.
+
+**Koşunun dışında bulunan: #152, aynı PR'da düzeltildi.** B testleri yazılırken bileşim sınırının (`MAX_ASSIGNMENTS` = 65 536) üstü incelendi: aşan `comb` döngü yuvasında sığma denetimi yapılmıyor, üretici kesilmiş değeri yazıyordu (41³ bileşimde `y : u15 = i * j * k` → `15'h7A00`; şartnamede E2010). Şartname bir bileşim sınırı koymaz; sınır kaldırıldı. Maliyet üreticinin açılımıyla aynı mertebede: 4096 × 64 = 262 144 bileşimde `volt check` 0,77 sn'den 0,96 sn'ye (debug derleme), aynı tasarımın SV'si 262 163 satır. `a_loop_nest_above_65536_combinations_is_checked` düzeltmeden önce düştü.
+
+**Düzeltmeden sonraki koşu.** #152 ve #153'ün düzeltmesi (6e600b6a) koşudan sonra yapıldığı için değiştirdiği fonksiyonlar yeniden koşuldu: https://github.com/volt-hdl/volt/actions/runs/42309936490 (6e600b6a, iki parça, ikisi de `completed`; her parçada `Tool ledger [mutants-N]: 132 test(s) asked for a tool; 134 lookup(s) found the tool (134 required), SKIP: 0`). `re`:
+
+```
+literal_fold\.rs:.*for_each_assignment|expr\.rs:.*(fold_literal_arith|literal_value)
+```
+
+21 mutant: 20 caught, 0 missed, 1 timeout (`literal_fold.rs:154` `+=` → `*=`, sayaç ilerlemez; yukarıdakiyle aynı), 0 unviable. Derinlik sayacının mutantları koddan kalktığı için listede yok.
