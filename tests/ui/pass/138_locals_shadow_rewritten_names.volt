@@ -23,8 +23,8 @@ module InoutShadow {
     reg r : bool = false
     on clk {
         dq.drive(w)
-        let dq : St = St { released: s, driving: false }
-        r <= dq.released
+        let dq : St = St { released: s, driving: !s }
+        r <= dq.released && !dq.driving
     }
     y = r
 }
@@ -34,7 +34,9 @@ pipeline(2) StageValueShadow {
     in  x   : u32
     out y0  : u32
     out y1  : u32
+    out z   : u32
     reg r : [u32; 2] = [0; 2]
+    reg rz : u32 = 0
     stage A {
         let a : u32 = x + 1
     }
@@ -42,9 +44,12 @@ pipeline(2) StageValueShadow {
         for a in 0..2 {
             r[a] <= x
         }
+        // The loop's scope has ended: `a` is the stage value again.
+        rz <= a
     }
     y0 = r[0]
     y1 = r[1]
+    z = rz
 }
 
 // No counter contract: the bound K is the block let (the input lim), not
