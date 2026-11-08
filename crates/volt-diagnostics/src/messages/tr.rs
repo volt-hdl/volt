@@ -173,6 +173,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W1003 => "Yerleşik ismin gölgelenmesi",
         W1004 => "Yazılıp okunmayan register",
         W1005 => "Kullanılmayan import",
+        W1006 => "Generic modül hiç örneklenmiyor; SystemVerilog üretilmez",
         W2010 => "Daraltıcı dönüşüm (bilgi kaybı)",
         W2011 => "Kullanılmayan tip parametresi",
         W2012 => "Tip belirtilmedi, varsayılan kullanıldı",

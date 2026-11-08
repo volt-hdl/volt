@@ -20,6 +20,9 @@ examine_globs = [
     "crates/volt-sv-emit/src/const_array.rs",
     "crates/volt-sv-emit/src/enums.rs",
     "crates/volt-sv-emit/src/trit.rs",
+    # Uninstantiated generic module: skipped by the emitter, W1006 in the
+    # main file (#143, ADR-0111).
+    "crates/volt-sv-emit/src/template.rs",
     # The parser's substitution of generic parameters and module-level
     # `for` variables: the scope chain and the cloner that consults it
     # (#130, ADR-0081 appendix).
