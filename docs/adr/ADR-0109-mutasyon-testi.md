@@ -725,6 +725,14 @@ PR #164'ün değiştirdiği fonksiyonların mutantları; önceki karar metni de�
 
 Özet: 26 missed. 21'i B (testi yazıldı), 1'i A2, 3'ü C (#159), 1'i açık (#166).
 
+**Doğrulama koşusu.** https://github.com/volt-hdl/volt/actions/runs/42480097838 (3ffc2f84, testler eklendikten sonra; 10 parça, en uzunu 52 dk). `re` yalnız missed konumlarıdır (aynı satırdaki öteki mutantlarla):
+
+```
+^crates/volt-syntax/src/parser/(auto_contract/mod\.rs:(119|121):|bundle\.rs:992:|handshake\.rs:(125|126|145|155|178):|mono/scope\.rs:(112|303|308|311|323|334):|mono/unroll\.rs:(465|522|608|610|611):)
+```
+
+`41 of 46 listed mutants match the regex` (A2 `exclude_re` ile listede yok; beşi alan silme). 41 mutant: 37 caught, 4 missed, 0 timeout, 0 unviable. Missed yalnız beklenen dördü: `unroll.rs` 608:61, 610:64, 611:64 (C, #159) ve `auto_contract/mod.rs:121:32` → `true` (açık, #166). On parçada `Tool ledger [mutants-N]: 166 test(s) asked for a tool; 168 lookup(s) found the tool (168 required), SKIP: 0`.
+
 - **A2 (1), `exclude_re`:** `auto_contract/mod.rs:119:34` (`value_of`'un `p.segments.len() == 1` koruması → `true`). Önceki kol `len() >= 2`'yi alır; `true` aynı `len() == 1` yollarını eşler, fark yalnız segmentsiz yolda olurdu. Ulaşılamazlık (§4 eki (a)): dilbilgisi yolu tanımlayıcıyla başlatır (`parse_path`), `parser/`'daki her yeniden yazım en az bir segment kurar. `value_of`'un okuduğu iki konumda (register'ın başlangıç değeri, FSM yazmasının sağ tarafı) boş yol kurmaya çalışan girdiler (`::Idle`, `State::`, `State::::Idle`, `::Run`, boş ifade) E0001'dir ve AST'de segmentsiz yol bırakmaz: `auto_contract_tests::inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path`.
 - **Açık (1): #166.** `auto_contract/mod.rs:121:32` (const'un değeri yolsa izleme koruması → `true`). Mutant daha yeteneklidir: başka bir const üzerinden tanımlanan enum const'u (`A = B`, `B = State::Idle`) varyantına izler ve FSM 4 otomatik kontrat alır; bugün 0 alır (#139'dan önce de). Tamsayı zincirinde fark yok. Tanıma ADR-0066'ya göre muhafazakârdır, eksik cover yanlış çıktı değildir: C değil, iyileştirme. Sınırlama test ile sabitlenmedi; #166 kapanana kadar açık.
 - **C (3): #159.** `eval_const_scoped`'un eksi ve ikili kollarındaki derinlik sayacı. Mutantlar 64'ten derin ifadeyi kabul eder; şartnamede sınır yok. #136–#138 koşusunun aynı mutantlarıyla aynı sınıf.
