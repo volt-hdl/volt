@@ -269,6 +269,29 @@ fn unroll_limit_is_e2027() {
     assert_eq!(r.error_codes(), vec!["E2027"]);
 }
 
+/// Eksik aralık sonu ayrıştırıcının E0001'idir; kurtarmanın bıraktığı
+/// sınır E2021 kaskadı almaz (ADR-0080; sınırlardan biri kurtarılmışsa
+/// yeter). Hedefli mutasyon koşusunun kör noktası (#139): `bounds`'un `||`
+/// → `&&` mutantı yalnız bitiş kurtarıldığında E2021'i de veriyordu.
+#[test]
+fn a_missing_range_end_is_only_e0001() {
+    let r =
+        p("module M {\n    in  x : [u8; 4]\n    for i in 0.. {\n        let t = x[i]\n    }\n}");
+    assert_eq!(r.error_codes(), vec!["E0001"]);
+}
+
+/// Sınır yineleme sayısıdır (e - s), uçların değeri değil (ADR-0056,
+/// `MAX_UNROLL = 4096`): `4095..4097` iki yinelemedir, E2027 yok.
+/// Hedefli mutasyon koşusunun kör noktası (#139): `bounds`'un `-` → `+`
+/// mutantı 4095 + 4097 = 8192'yi sınırla karşılaştırıp E2027 veriyordu.
+#[test]
+fn unroll_limit_counts_iterations_not_bound_values() {
+    let r = p("module M {\n    for i in 4095..4097 { let t = i }\n}");
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let m = module(&r.ast, "M");
+    assert_eq!(iterations(&r.ast, m, "t"), 2);
+}
+
 #[test]
 fn empty_range_produces_nothing() {
     let r = p("module M { in x : u8\n out y : u8\n for i in 2..2 { y = x }\n y = x }");

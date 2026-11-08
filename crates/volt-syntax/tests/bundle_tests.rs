@@ -562,6 +562,46 @@ fn builtin_handshake_array_payload_skips_stability_contract() {
     assert_eq!(contracts(&res, 0).len(), 1);
 }
 
+/// Enum payload'ının eşitliği tanımlıdır (ADR-0050: tutma + kararlılık
+/// `data == prev(data)`): iki kontrat. Hedefli mutasyon koşusunun kör
+/// noktası (#139): `is_comparable`'ın yol kolu silinince kararlılık
+/// kontratı düşüyordu.
+#[test]
+fn builtin_handshake_enum_payload_gets_a_stability_contract() {
+    let res = p("enum Mode { A, B }\nmodule M { out tx : Handshake<Mode>\n tx.valid = true }");
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    assert_eq!(contracts(&res, 1).len(), 2);
+}
+
+/// Generic struct payload'ı (`Pair<u8>`) eşitliği tanımlı bir tip değildir
+/// (ADR-0050: kararlılık kontratı `==` ister; struct değil, ADR-0039'un
+/// generic struct sınırı onu açmaz): yalnız tutma kontratı, 1. Hedefli
+/// mutasyon koşusunun kör noktası (#139): `is_comparable`'ın `&&` → `||`
+/// mutantı `data == prev(data)` ekliyordu (kullanıcıya görünen sonucu:
+/// `tx.data` için W1001 kayboluyordu).
+#[test]
+fn builtin_handshake_generic_struct_payload_skips_stability_contract() {
+    let res =
+        p("struct Pair<T> { a : T }\nmodule M { out tx : Handshake<Pair<u8>>\n tx.valid = true }");
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    assert_eq!(contracts(&res, 1).len(), 1);
+}
+
+/// Argümansız generic struct payload'ı sade struct sayılmaz, alanlarına
+/// açılmaz: `data` tek, opak port kalır (sıra: data, valid, ready) ve HIR
+/// onu E0003 ile reddeder ("generic struct type as a signal type").
+/// Hedefli mutasyon koşusunun kör noktası (#139):
+/// `collect_plain_struct_defs`'in koşulu → `true` mutantı onu `tx_data_a :
+/// T`'ye açıyor, kullanıcı E0003 yerine E1001 'T' görüyordu.
+#[test]
+fn builtin_handshake_bare_generic_struct_payload_stays_opaque() {
+    let res =
+        p("struct Pair<T> { a : T }\nmodule M { out tx : Handshake<Pair>\n tx.valid = true }");
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    let names: Vec<String> = ports(&res, 1).into_iter().map(|(_, n)| n).collect();
+    assert_eq!(names, vec!["tx_data", "tx_valid", "tx_ready"]);
+}
+
 #[test]
 fn no_protocol_check_on_port_suppresses_contracts() {
     let res = p(
@@ -777,6 +817,52 @@ fn nesting_deeper_than_eight_is_e4010_not_silent_truncation() {
     }
     src.push_str("module M { in x : L0 }");
     let res = p(&src);
+    assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
+}
+
+/// Sınırın içi (ADR-0067, `MAX_NESTING = 8`, `depth > 8` hata): port
+/// `L0` ile derinlik 0'da açılır, her iç içe alan bir artırır; `L0 → …
+/// → L8` zincirinde en derin bundle `L8` derinlik 8'dedir, E4010 yok.
+/// Tek yaprak: `x` + sekiz `_n` + `_d`. Hedefli mutasyon koşusunun kör
+/// noktası (#139): `expand`'in `>` → `>=` mutantı bunu reddediyordu.
+#[test]
+fn nesting_exactly_eight_deep_is_flattened() {
+    let mut src = String::from("struct port L8 { out d : u8 }\n");
+    for i in (0..8).rev() {
+        let n = i + 1;
+        src.push_str(&format!("struct port L{i} {{ out n : L{n} }}\n"));
+    }
+    src.push_str("module M { in x : L0 }");
+    let res = p(&src);
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    let leaf = format!("x{}_d", "_n".repeat(8));
+    assert_eq!(ports(&res, 9), vec![(PortDir::In, leaf)]);
+}
+
+/// Handshake payload'ında aynı sınır yaprak tipte de sayılır: payload
+/// `L0` derinlik 0'dadır, `Lk` derinlik k'da, `Lk`'nın `u8` alanı k + 1'de
+/// (`payload_fields` derinliği tipten önce denetler). `L0 → … → L7`
+/// zincirinde yaprak derinlik 8'dedir: temiz, payload yedi `_n` + `_d`
+/// alanına açılır. `L0 → … → L8`'de yaprak 9'dadır: E4010. Hedefli
+/// mutasyon koşusunun kör noktası (#139): `payload_fields`'in `>` → `>=`
+/// mutantı ilkini reddediyordu.
+#[test]
+fn handshake_payload_nesting_limit_counts_the_leaf() {
+    let chain = |last: usize| {
+        let mut src = format!("struct L{last} {{ d : u8 }}\n");
+        for i in (0..last).rev() {
+            let n = i + 1;
+            src.push_str(&format!("struct L{i} {{ n : L{n} }}\n"));
+        }
+        src.push_str("module M {\n    in clk : clock\n    in x : Handshake<L0>\n}");
+        src
+    };
+    let res = p(&chain(7));
+    assert!(res.diagnostics.is_empty(), "{:?}", res.error_codes());
+    let leaf = format!("x_data{}_d", "_n".repeat(7));
+    let names: Vec<String> = ports(&res, 8).into_iter().map(|(_, n)| n).collect();
+    assert!(names.contains(&leaf), "{names:?}");
+    let res = p(&chain(8));
     assert_eq!(count_code(&res, "E4010"), 1, "{:?}", res.error_codes());
 }
 

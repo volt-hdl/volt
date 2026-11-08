@@ -367,6 +367,174 @@ fn an_undefined_name_as_a_for_bound_keeps_e2021() {
     );
 }
 
+/// Denetim: birimde başka dosya ve başka adlı öğeler olsa da tanımsız ad
+/// E2021'de kalır; yalnız aynı adla başka dosyada bildirilmiş ad E1001
+/// olur. Hedefli mutasyon koşusunun kör noktası: `declared_elsewhere`'in
+/// ad karşılaştırması (`==` → `!=`) başka adlı her öğeyi eşliyor, tanımsız
+/// `Q`'yu E1001 yapıyordu; tek dosyalı test bunu göremez.
+#[test]
+fn an_undefined_name_beside_another_file_keeps_e2021() {
+    let main = format!("use other::X;\n{}", low_bits("Q"));
+    assert_diags(
+        "undef2",
+        &[
+            ("other.volt", "pub const X : u32 = 2\nconst K : u32 = 1\n"),
+            ("main.volt", &main),
+        ],
+        false,
+        &["main.volt:5:5: E2021"],
+    );
+}
+
+/// Görünmeyen ad tekli eksinin altında da bulunur: `0..-K`'da `K` başka
+/// dosyanın private const'u, E1001 (`K`'nin konumu). Hedefli mutasyon
+/// koşusunun kör noktası: `invisible_name`'in `-` kolu silinince ad
+/// bulunmuyor, E2021 veriliyordu.
+#[test]
+fn private_const_of_another_file_under_a_negation_is_e1001() {
+    let main = format!("use other::X;\n{}", low_bits("-K"));
+    assert_diags(
+        "neg",
+        &[
+            ("other.volt", "pub const X : u32 = 2\nconst K : u32 = 1\n"),
+            ("main.volt", &main),
+        ],
+        false,
+        &["main.volt:5:18: E1001"],
+    );
+}
+
+/// Denetim: görünmezlik tanısı yalnız yalın adlar içindir (§3.3, yalın
+/// adla kullanım). Nitelikli yol (`Mode::B`, başka dosyanın private
+/// enum'unun varyantı) tamsayı sabiti değildir: sınır E2021 kalır
+/// (ADR-0072, `for`'un konumu). Hedefli mutasyon koşusunun kör noktası:
+/// `invisible_name`'in yol koşulu (`len() == 1` → `true`) yolun ilk
+/// parçasını (`Mode`) yalın ad sayıp E1001 veriyordu.
+#[test]
+fn a_qualified_path_bound_keeps_e2021() {
+    let main = format!("use other::X;\n{}", low_bits("Mode::B"));
+    assert_diags(
+        "qualified",
+        &[
+            ("other.volt", "pub const X : u32 = 2\nenum Mode { A, B }\n"),
+            ("main.volt", &main),
+        ],
+        false,
+        &["main.volt:5:5: E2021"],
+    );
+}
+
+/// İkili ifadenin içinde de: `0..1 + K`'da `K` E1001 (`K`'nin konumu).
+/// Hedefli mutasyon koşusunun kör noktası: `invisible_name`'in ikili kolu
+/// silinince ad bulunmuyor, E2021 veriliyordu.
+#[test]
+fn private_const_of_another_file_inside_a_binary_bound_is_e1001() {
+    let main = format!("use other::X;\n{}", low_bits("1 + K"));
+    assert_diags(
+        "binary",
+        &[
+            ("other.volt", "pub const X : u32 = 2\nconst K : u32 = 1\n"),
+            ("main.volt", &main),
+        ],
+        false,
+        &["main.volt:5:21: E1001"],
+    );
+}
+
+/// E1001'in yardım satırı öğenin görünürlüğüne göre değişir (tanı metni
+/// davranıştır, ADR-0109 §4): `pub` öğe için yalnız içe aktarma, private
+/// öğe için önce `pub`. Hedefli mutasyon koşusunun kör noktası:
+/// `invisible_name_error`'ın `pub` kolu silinince `pub` `K` için de
+/// "private" yardımı veriliyordu.
+#[test]
+fn the_e1001_help_says_whether_the_name_is_pub() {
+    let main = format!("use other::X;\n{}", low_bits("K"));
+    for (other, help) in [
+        (
+            "pub const X : u32 = 7\npub const K : u32 = 2\n",
+            "'K' is declared in another file of this design: import it with 'use <package>::K;'",
+        ),
+        (
+            "pub const X : u32 = 7\nconst K : u32 = 2\n",
+            "'K' is private to another file of this design: mark it 'pub' there and import it with 'use <package>::K;'",
+        ),
+    ] {
+        let dir = unit("help", &[("other.volt", other), ("main.volt", &main)]);
+        let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+            .env("VOLT_LANG", "en")
+            .env("NO_COLOR", "1")
+            .current_dir(&dir)
+            .args(["build", "main.volt", "--target-dir", "build"])
+            .output()
+            .expect("volt build");
+        let text = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(!out.status.success(), "{text}");
+        assert!(text.contains("error[E1001]"), "{text}");
+        assert!(text.contains(help), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Takma adla getirilen ad (`use other::K as J`) üçüncü bir dosyanın aynı
+/// adlı private `J`'siyle karışmaz: sınır `K` = 2 olur (E1001 yok). `a =
+/// 15`, iki düşük bit: `y` = 3.
+#[test]
+fn an_alias_is_not_hidden_by_a_private_name_of_a_third_file() {
+    let main = format!(
+        "use other::K as J;\nuse third::Z;\n{}{LOW_BITS_TEST}",
+        low_bits("J").replace("y[3] = false", "y[3] = Z")
+    );
+    let files = [
+        ("other.volt", "pub const K : u32 = 2\n"),
+        (
+            "third.volt",
+            "pub const Z : bool = false\nconst J : u32 = 0\n",
+        ),
+        ("main.volt", main.as_str()),
+    ];
+    assert_diags("alias-hide", &files, true, &[]);
+    sim("alias-hide-sim", &files, 1);
+}
+
+/// Takma ad kök çerçevede yerel adıyla bağlıdır (§3.3): sabit olmayan
+/// sınırda (`J + n`, `n` port) görünmez ad aranırken `J` bulunur, tanı
+/// E2021 kalır (ADR-0072, `for`'un konumu). Hedefli mutasyon koşusunun kör
+/// noktası (#139): `Scopes::module`'ün takma ad koşulu (`local != item` →
+/// `==`) `J`'yi zincire koymuyor, `invisible_name` onu `third.volt`'un
+/// private `J`'si sanıp `J`'nin konumunda E1001 veriyordu. Private `J`
+/// takma adın kaynağı `other.volt`'ta olsaydı mutant görünmezdi: kök
+/// çerçeve o dosyadan getirilen yerel adla aynı adlı öğesini de bildirir
+/// (`RootFilter::sees` tanım dosyasına bakar).
+#[test]
+fn an_alias_in_a_non_constant_bound_keeps_e2021() {
+    assert_diags(
+        "alias-e2021",
+        &[
+            ("other.volt", "pub const K : u32 = 2\n"),
+            (
+                "third.volt",
+                "pub const Z : bool = false\nconst J : u32 = 0\n",
+            ),
+            (
+                "main.volt",
+                "use other::K as J;
+use third::Z;
+module M {
+    in  n : u2
+    out y : bool
+    for i in 0..J + n {
+        let t = i
+    }
+    y = Z
+}
+",
+            ),
+        ],
+        false,
+        &["main.volt:6:5: E2021"],
+    );
+}
+
 // ═══ (a), (d) Denetim: HIR'ın gördüğü konumlar ═══════════════════════════
 
 /// Ad ayrıştırıcıda kaybolmuyorsa çözücü E1001 verir; düzeltmeden önce de

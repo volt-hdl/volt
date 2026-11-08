@@ -690,3 +690,43 @@ koştu.
   `let st : Color`'ın `match`'i register'ınki sayılıyordu. `Color::R`
   deseni `u2` register'ına uymadığından FSM düşüyordu (3 geçiş cover'ı →
   0). Test `main` ikilisinde düşüyor.
+
+## Hedefli koşu (#139, 2026-11-08)
+
+PR #164'ün değiştirdiği fonksiyonların mutantları; önceki karar metni değişmedi.
+
+**Kapsam.** `examine_globs`'a dört dosya girdi: dosya sınırındaki görünürlük kuralı (`crates/volt-ast/src/visibility.rs`, YENİ), dosya kapsamlarını kuran import denetimi (`crates/volt-syntax/src/unit.rs`, `volt-hir`'den taşındı), çözücünün kök araması (`crates/volt-hir/src/resolve/imports.rs`) ve Handshake payload'ı (`crates/volt-syntax/src/parser/handshake.rs`).
+
+**Hedefli regex.** Değişen fonksiyonlar: `RootFilter::root_name`, `sees`, `pick`, `item_name`, `mono_base`; `check_entry`; `Resolver::scope_get`; `Scopes::module`, `invisible_name`, `declared_elsewhere`, `invisible_name_error`; `collect_consts`, `visible_const`, `eval_const_scoped`, `Unroller::bounds`; `bundle.rs`'in `visible_type`, `expand`, `bundle_name`, `is_bundle_type`, `collect_bundle_defs`, `expand_port`, `reject_bundle_payload`, `bundle_array_len`, `bundle_index`'i; `handshake.rs`'in `PlainDefs::lookup`, `is_comparable`, `payload_fields`, `collect_plain_struct_defs`, `expand_handshake`'i; `value_of`. Kapsam işi: `186 of 191 listed mutants match the regex`, `all 186 mutants in the list match '…'`. Düşürülen beşi alan silme mutantı (§ "Hedefli koşu" cargo-mutants hatası).
+
+**Koşu.** https://github.com/volt-hdl/volt/actions/runs/42457156304 (428fe0d3, üç parça; parça 0 3 sa 7 dk, parça 1 5 sa 8 dk, parça 2 3 sa 54 dk, üçü de `completed`; her parçada `Tool ledger [mutants-N]: 165 test(s) asked for a tool; 167 lookup(s) found the tool (167 required), SKIP: 0`). 186 mutant: 144 caught, 26 missed, 0 timeout, 16 unviable.
+
+**Sınıflandırma (§4).** Her B mutantı elle uygulandı, test düştü, mutant geri alındı.
+
+| Mutant | Sınıf | Öldüren test |
+|---|---|---|
+| `auto_contract/mod.rs:119:51` `==` → `!=`, `119:34` koruma → `false`, `121:32` koruma → `false` | B | `auto_contract_tests::enum_typed_const_initial_state_is_followed_to_its_variant` |
+| `auto_contract/mod.rs:119:34` koruma → `true` | A2 | aşağıda |
+| `auto_contract/mod.rs:121:32` koruma → `true` | açık, #166 | aşağıda |
+| `bundle.rs:992:14` `>` → `>=`, `==` (`expand`) | B | `bundle_tests::nesting_exactly_eight_deep_is_flattened` |
+| `handshake.rs:145:14` `>` → `>=`, `==`, `155:23` `+` → `*` (`payload_fields`) | B | `bundle_tests::handshake_payload_nesting_limit_counts_the_leaf` |
+| `handshake.rs:125:9` yol kolu silme (`is_comparable`) | B | `bundle_tests::builtin_handshake_enum_payload_gets_a_stability_contract` |
+| `handshake.rs:126:50` `&&` → `\|\|` (`is_comparable`) | B | `bundle_tests::builtin_handshake_generic_struct_payload_skips_stability_contract` (mutantta kullanıcı `tx.data` W1001'ini görmüyordu) |
+| `handshake.rs:178:40` koruma → `true`, `178:51` `&&` → `\|\|` | B | `bundle_tests::builtin_handshake_bare_generic_struct_payload_stays_opaque` (mutantta E0003 yerine E1001 'T') |
+| `scope.rs:112:22` `!=` → `==` (`Scopes::module`, takma ad) | B | `cross_file_visibility_tests::an_alias_in_a_non_constant_bound_keeps_e2021` |
+| `scope.rs:303:30` koruma → `true` (`invisible_name`) | B | `cross_file_visibility_tests::a_qualified_path_bound_keeps_e2021` |
+| `scope.rs:308:9` ikili kol silme | B | `cross_file_visibility_tests::private_const_of_another_file_inside_a_binary_bound_is_e1001` |
+| `scope.rs:311:9` eksi kolu silme | B | `cross_file_visibility_tests::private_const_of_another_file_under_a_negation_is_e1001` |
+| `scope.rs:323:40` `&&` → `\|\|`, `323:86` `==` → `!=` (`declared_elsewhere`) | B | `cross_file_visibility_tests::an_undefined_name_beside_another_file_keeps_e2021` |
+| `scope.rs:334:9` `pub` kolu silme (`invisible_name_error`, yardım metni) | B | `cross_file_visibility_tests::the_e1001_help_says_whether_the_name_is_pub` |
+| `unroll.rs:465:31` `\|\|` → `&&` (`bounds`, kurtarılmış sınır) | B | `unroll_tests::a_missing_range_end_is_only_e0001` |
+| `unroll.rs:522:14` `-` → `+` (`bounds`, açılım sınırı) | B | `unroll_tests::unroll_limit_counts_iterations_not_bound_values` |
+| `unroll.rs:608:61`, `610:64`, `611:64` `depth + 1` → `depth * 1` | C | #159 |
+
+Özet: 26 missed. 21'i B (testi yazıldı), 1'i A2, 3'ü C (#159), 1'i açık (#166).
+
+- **A2 (1), `exclude_re`:** `auto_contract/mod.rs:119:34` (`value_of`'un `p.segments.len() == 1` koruması → `true`). Önceki kol `len() >= 2`'yi alır; `true` aynı `len() == 1` yollarını eşler, fark yalnız segmentsiz yolda olurdu. Ulaşılamazlık (§4 eki (a)): dilbilgisi yolu tanımlayıcıyla başlatır (`parse_path`), `parser/`'daki her yeniden yazım en az bir segment kurar. `value_of`'un okuduğu iki konumda (register'ın başlangıç değeri, FSM yazmasının sağ tarafı) boş yol kurmaya çalışan girdiler (`::Idle`, `State::`, `State::::Idle`, `::Run`, boş ifade) E0001'dir ve AST'de segmentsiz yol bırakmaz: `auto_contract_tests::inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path`.
+- **Açık (1): #166.** `auto_contract/mod.rs:121:32` (const'un değeri yolsa izleme koruması → `true`). Mutant daha yeteneklidir: başka bir const üzerinden tanımlanan enum const'u (`A = B`, `B = State::Idle`) varyantına izler ve FSM 4 otomatik kontrat alır; bugün 0 alır (#139'dan önce de). Tamsayı zincirinde fark yok. Tanıma ADR-0066'ya göre muhafazakârdır, eksik cover yanlış çıktı değildir: C değil, iyileştirme. Sınırlama test ile sabitlenmedi; #166 kapanana kadar açık.
+- **C (3): #159.** `eval_const_scoped`'un eksi ve ikili kollarındaki derinlik sayacı. Mutantlar 64'ten derin ifadeyi kabul eder; şartnamede sınır yok. #136–#138 koşusunun aynı mutantlarıyla aynı sınıf.
+- **Bulgu, #167:** `unroll.rs:465` için girdi aranırken görüldü. Kurtarılmış bir alt ifade içeren sınır (`0..2 + {`) E0001'in ardından E2021 kaskadı alıyor. Tüm sınır kurtarılmışsa (`0.. {`) almıyor. Açık hata, yanlış sonuç değil.
+- **Not:** `RootFilter::sees` tanım dosyasına bakar, öğeye değil. Bir dosya `use other::K as J` ile getirirse ve `other`'da private bir `J` de varsa, `Scopes::module` o `J`'yi de kök çerçeveye koyar. Yanlış sonuç yok: `J` zaten takma adla kök çerçevededir ve değeri `root_name` ile `K`'ye çözülür. `scope.rs:112:22`'nin öldürücü girdisi bu yüzden private `J`'yi üçüncü bir dosyaya koyar.

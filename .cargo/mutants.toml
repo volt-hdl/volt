@@ -160,6 +160,16 @@ exclude_re = [
     # identical, the simulation passes and verilator -Wall is clean.
     "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with \\* in Emitter<'_>::try_emit_trit_mul$",
     "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with - in Emitter<'_>::try_emit_trit_mul$",
+    # A2 (unreachable), assumes every Path has at least one segment: the
+    # grammar starts a path with an identifier (parse_path) and every
+    # rewrite in parser/ builds one with a segment. The arm before takes
+    # len >= 2, so `true` matches the same len == 1 paths. Inputs that try
+    # an empty path at the two places value_of reads (`::Idle`, `State::`,
+    # `State::::Idle`, an empty initial value or right-hand side) are E0001
+    # and leave no segmentless path in the AST: auto_contract_tests::
+    # inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path
+    # (#139 targeted run).
+    "parser/auto_contract/mod\\.rs:\\d+:\\d+: replace match guard p\\.segments\\.len\\(\\) == 1 with true in value_of$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
