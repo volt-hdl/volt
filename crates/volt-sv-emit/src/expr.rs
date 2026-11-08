@@ -772,16 +772,11 @@ impl<'a> Emitter<'a> {
                 | ExprKind::Cast { .. }
                 | ExprKind::Concat(_)
         );
-        // ADR-0081 ikame kipi: açılmış fn'in tipsiz `let`'i tel kipindeki
-        // telin (`<fn>_<k>_<let>`) yerindedir; o tel gibi atomdur ve
-        // genişliği doğal genişliğidir. Esnek aralığın kesişimine daraltan
-        // işlem onu da daraltır (`8'(9'(a + b)) | c`, ADR-0025, #132).
-        let inlined_let = self.inline_notes.self_sized.contains(&idx);
-        let atom = self.is_widen_atom(idx) || self.is_local_path(idx) || inlined_let;
+        let atom = self.is_widen_atom(idx) || self.is_local_path(idx);
         if !(atom || isolate || self_sized) {
             return text;
         }
-        let own = if isolate || inlined_let {
+        let own = if isolate {
             self.natural_sig(idx)
         } else {
             self.width_of(idx)
