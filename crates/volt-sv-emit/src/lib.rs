@@ -530,22 +530,9 @@ pub fn emit_unit(
     let mut file_notes = emitter.obligation_notes();
     let mut per_module = Vec::new();
     let mut multiclock_modules = Vec::new();
-    // Ana dosya (ADR-0042): `use` ile yüklenen kütüphanenin modülleri
-    // çıktı kümesine girmez (sürücünün `retain_reachable`'ı), örneklenmemiş
-    // şablonu için uyarı yok.
-    let main_file = sources.first().map(|s| s.file);
     for &item_idx in &ast.items {
         let item = &ast.items_arena[item_idx];
         if let ItemKind::Module(module) = &item.kind {
-            // ADR-0111 (#143): monomorfizasyondan (ADR-0041) sonra generic
-            // parametreli kalan modül hiç örneklenmemiş şablondur; parametre
-            // değeri yoktur, SV'si yazılmaz.
-            if !module.generics.is_empty() {
-                if main_file.is_none_or(|f| f == item.span.file) {
-                    emitter.diagnostics.push(uninstantiated_generic(module));
-                }
-                continue;
-            }
             if emitter.collect_clock_ports(module).len() >= 2 {
                 multiclock_modules.push(module.name.text.clone());
             }
@@ -586,28 +573,6 @@ pub fn emit_unit(
         waves,
         diagnostics: emitter.diagnostics,
     }
-}
-
-/// #171: parametreli SV önerisi (v0.2.0); W1006'nın metni onu gösterir.
-const PARAMETERIZED_SV_ISSUE: u32 = 171;
-
-/// W1006 (ADR-0111, #143): hiç örneklenmemiş generic modül şablon kalır,
-/// SV'si yazılmaz.
-fn uninstantiated_generic(module: &ModuleDecl) -> Diagnostic {
-    let name = &module.name.text;
-    let issue = PARAMETERIZED_SV_ISSUE;
-    Diagnostic::warning(
-        ErrorCode::W1006,
-        lstr!(en: "module '{name}' is generic and is never instantiated; no SystemVerilog is generated for it (parameterized output is planned: #{issue})";
-              tr: "'{name}' modülü generic ve hiç örneklenmiyor; onun için SystemVerilog üretilmez (parametreli çıktı planlanıyor: #{issue})"),
-        LabeledSpan::primary(
-            module.name.span,
-            lstr!(en: "a template: its parameters have no values in this file";
-                  tr: "bir şablon: parametrelerinin bu dosyada değeri yok"),
-        ),
-        lstr!(en: "instantiate it with concrete arguments where it is used (for example 'let u = {name}<8> {{ ... }}' generates '{name}_8'), or remove it";
-              tr: "kullanıldığı yerde somut argümanlarla örnekleyin ('let u = {name}<8> {{ ... }}' '{name}_8'i üretir) ya da silin"),
-    )
 }
 
 /// Emitter'ı kurar (asıl emit ve fn doğrulaması aynı kurulumu kullanır).
