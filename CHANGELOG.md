@@ -180,6 +180,25 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   işlenen ile hedefe itilen bölme (`o : u9 = (a + b) / c`) uyarı almaz.
   Uyarıları hata sayan derlemeler (CI betikleri) düşebilir; depodaki
   örneklerin ve testlerin hiçbiri bu uyarıyı almıyor.
+- **Davranış değişikliği.** `volt test --watch` koşu sürerken kaydedilen
+  dosya için bir yeniden koşu daha yapar (#176); 0.1.0 o kaydı yok sayıp
+  eski içeriğin sonucunda bekliyordu. Ayrıntı: aşağıda "Düzeltildi —
+  `volt test --watch`".
+
+### Düzeltildi — `volt test --watch` koşu sürerken gelen kaydı kaçırıyordu (#176, 2026-11-08)
+
+- İzleyici değişiklik karşılaştırmasının tabanını koşudan *sonra*
+  alıyordu: koşu (derleme, Verilator, simülasyon) sürerken kaydedilen
+  dosya tabana karışıyor, yeniden koşu hiç başlamıyordu. Ekranda eski
+  içeriğin sonucu kalıyordu ("tests passed" yazabilirdi) ve izleyici bir
+  sonraki kayda dek bekliyordu. Taban artık koşudan önce alınır; koşu
+  sürerken gelen kayıt koşu biter bitmez yeni bir koşu başlatır. Özetteki
+  `waiting for changes in K file(s)` sayısı koşunun başladığı kümeyi
+  sayar.
+- Bilinen sınır (değişmedi, ADR-0095 §4): kaydın yazımı 250 ms'den uzun
+  durursa (yavaş disk) izleyici yarım dosyayı kullanıcının kaydından
+  ayıramaz ve onu da koşar; yazım bitince son içerik yeniden koşar, son
+  söz son kaydındır.
 
 ### Düzeltildi — Üreticinin ad çözümü (#128, 2026-11-05)
 
