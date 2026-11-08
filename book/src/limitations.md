@@ -46,6 +46,16 @@ decisions.
 
 **SystemVerilog is the sole output language.** There is no VHDL output.
 
+**The width of a division with a wider arithmetic operand will change.**
+`/` and `%` do not widen: `a * b / c` (all `u8`) divides at 8 bits, and
+the product, up to 16 bits wide, is cut to 8 bits before the division.
+The generated SystemVerilog does not always do the same, and the rule
+changes in v0.2.0. Until then Volt warns (`W2015`) wherever an operand is
+cut. Write the width you mean on both operands, as in
+`(a * b) as u16 / (c as u16)`: the warning goes away and the value does
+not depend on the rule. Tracked in
+[issue #150](https://github.com/volt-hdl/volt/issues/150).
+
 **Combinational loops are not detected.** `volt check` and `volt build`
 accept wires that feed each other (`a = b + x` and `b = a`), a `comb`
 block that reads the signal it assigns, and a loop through an output port

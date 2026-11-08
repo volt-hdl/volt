@@ -129,6 +129,8 @@ error_codes! {
     W3011,
     // Volt.toml'da bilinmeyen anahtar ya da bölüm (ADR-0099)
     W0025,
+    // Bölmenin işleneni bölmeden önce kesiliyor; geçici (ADR-0112, #150)
+    W2015,
 }
 
 impl ErrorCode {

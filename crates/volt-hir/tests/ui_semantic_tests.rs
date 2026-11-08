@@ -376,8 +376,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0106: 133 farklı genişlikte karşılaştırmanın kabul edilen biçimleri,
     // #112: 134 bileşik değerden indexed part-select,
     // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
-    //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede).
-    assert_eq!(checked, 124);
+    //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede),
+    // #173: 140 bölmenin genişliği açık (W2015 yok).
+    assert_eq!(checked, 125);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

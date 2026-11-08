@@ -1208,6 +1208,15 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: erişilemez\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
         ),
+        W2015 => Explanation::new(
+            "Bölmenin işleneni bölmeden önce kesiliyor",
+            "'/' ya da '%' işleminin bir işleneni, bölmenin yapıldığı genişlikten geniş bir aritmetik değer; üst bitleri bölmeden önce atılıyor.",
+            "Toplam ve çarpım taşma bitini korur (iki u8'in 'a * b'si 16 bite kadar genişler), ama '/' ve '%' genişlemez: bölme iki işlenenin ortak genişliğinde, burada 8 bitte yapılır ve geniş işlenen önce ona kesilir. Bölüm, elle hesaplayacağınızdan farklı çıkabilir. Bu kural v0.2.0'da değişecek (issue #150); o zamana kadar Volt uyarır. Kastettiğiniz genişliği iki işlenende de 'as' ile yazın: uyarı kalkar ve değer kurala bağlı olmaz.",
+            "out q : u8
+q = a * b / c           // ⚠ W2015: 'a * b' 8 bite kesiliyor",
+            "out q : u16
+q = (a * b) as u16 / (c as u16)   // ✓ 16 bitte böler",
+        ),
         W2020 => Explanation::new(
             "Sabit koşul",
             "Bu koşul her zaman aynı değeri veriyor; dal hiç değişmiyor.",

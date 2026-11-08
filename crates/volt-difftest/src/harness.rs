@@ -262,6 +262,18 @@ impl Case {
         }
     }
 
+    /// Model, a biçiminde (`o = e`, çıkış ifadenin doğal tipinde) bir
+    /// bölme işleneninin bölmeden önce kesildiğini söylüyor mu
+    /// (`tag::DIV_CUT`)? Derleyicinin W2015'iyle karşılaştırılır.
+    pub fn div_cut(&self, model: &Model) -> bool {
+        let Kind::Valid(nat) = self.kind else {
+            return false;
+        };
+        model
+            .check(&self.expr, nat)
+            .is_ok_and(|t| t & crate::model::tag::DIV_CUT != 0)
+    }
+
     /// Biçimin varsayım etiketleri (modelin bu biçim için kullandığı).
     pub fn tags(&self, v: Variant, model: &Model) -> u32 {
         let Kind::Valid(nat) = self.kind else {

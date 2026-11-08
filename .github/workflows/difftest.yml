@@ -19,6 +19,10 @@ on:
         description: "Accepted expressions per shard"
         default: "12500"
         required: true
+      div_operands:
+        description: "1: composite operands of / and % (VOLT_DIFFTEST_DIV_OPERANDS, #150; ADR-0112)"
+        default: "0"
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -58,6 +62,8 @@ jobs:
           VOLT_REQUIRE_TOOLS: verilator
           VOLT_DIFFTEST_SEED: ${{ steps.shard.outputs.seed }}
           VOLT_DIFFTEST_COUNT: ${{ steps.shard.outputs.count }}
+          # Inputs reach the shell through the environment, never inline.
+          VOLT_DIFFTEST_DIV_OPERANDS: ${{ inputs.div_operands || '0' }}
         run: cargo test --release -p volt-driver --test difftest_tests
       - name: Differential test summary
         if: always()

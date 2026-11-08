@@ -133,6 +133,11 @@ pub mod tag {
     /// bölünenin işaretini alır (const-eval.md §4'ün `checked_div` /
     /// `checked_rem`'i; şartname çalışma zamanını söylemez).
     pub const SIGNED_DIV: u32 = 1 << 12;
+    /// İşaret, varsayım değil (`ASSUMPTIONS`'ta yok; ADR-0112, #173): bir
+    /// `/` ya da `%` işleneninin doğal genişliği bölmenin yapıldığı
+    /// genişlikten (kesişimin üst ucu, §3.3) geniş; işlenen bölmeden önce
+    /// kesilir. Derleyicinin W2015'i aynı ifadelerde çıkmalı.
+    pub const DIV_CUT: u32 = 1 << 13;
 }
 
 /// `(etiket, kimlik, açıklama)` — rapor ve ADR için.
@@ -557,6 +562,9 @@ impl Model<'_> {
         }
         if op.is_div() && s1 {
             tags |= tag::SIGNED_DIV;
+        }
+        if op.is_div() && h1.max(h2) > c {
+            tags |= tag::DIV_CUT;
         }
         Ok((
             Ty::Int {
@@ -1169,5 +1177,39 @@ mod tests {
         assert_eq!(m().eval(&part, &inp), Some(0xA));
         inp[7] = 5;
         assert_eq!(m().eval(&part, &inp), None);
+    }
+
+    /// ADR-0112: `tag::DIV_CUT` W2015'in koşuludur: bölmenin işleneni
+    /// kesişimin üst ucundan geniş (§3.3, ADR-0025). İtilen bölme (check
+    /// kipi, ADR-0041) ve literal işlenen kesilmez.
+    #[test]
+    fn div_cut_marks_an_operand_wider_than_the_division() {
+        let cut = |e: &E, t: PortTy| m().check(e, t).unwrap() & tag::DIV_CUT != 0;
+        let prod = E::bin(BinOp::Mul, p(0), p(1)); // u8..u16
+        let sum = E::bin(BinOp::Add, p(0), p(1)); // u8..u9
+                                                  // `a * b / a`: 8 bitte bölme, çarpım 16 bitten kesilir.
+        assert!(cut(
+            &E::bin(BinOp::Div, prod.clone(), p(0)),
+            PortTy::UInt(8)
+        ));
+        // `%` de; bölen tarafı da.
+        assert!(cut(&E::bin(BinOp::Rem, sum.clone(), p(0)), PortTy::UInt(8)));
+        assert!(cut(&E::bin(BinOp::Div, p(0), sum.clone()), PortTy::UInt(8)));
+        // #150: `a * b / a + b` (u9): üstteki `+` itilir, bölme itilmez.
+        let issue = E::bin(BinOp::Add, E::bin(BinOp::Div, prod.clone(), p(0)), p(1));
+        assert!(cut(&issue, PortTy::UInt(9)));
+        // İtilen bölme: `(a + b) / a` u9 hedefte 9 bitte, kesilmez.
+        assert!(!cut(
+            &E::bin(BinOp::Div, sum.clone(), p(0)),
+            PortTy::UInt(9)
+        ));
+        // Atom ve literal işlenen.
+        assert!(!cut(&E::bin(BinOp::Div, p(0), p(1)), PortTy::UInt(8)));
+        assert!(!cut(
+            &E::bin(BinOp::Div, sum.clone(), lit(3)),
+            PortTy::UInt(9)
+        ));
+        // DIV_CUT bir varsayım değil: rapor listesinde yok.
+        assert!(ASSUMPTIONS.iter().all(|(t, ..)| *t != tag::DIV_CUT));
     }
 }

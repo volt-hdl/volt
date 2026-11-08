@@ -142,6 +142,18 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
   takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
   uzun bir zincir kısaltılmalı (#133).
+- **Davranış değişikliği.** Yeni uyarı W2015 (#173, #150'nin geçici
+  uyarısı; ADR-0112): `/` ya da `%`'nin işleneni, doğal genişliği bölmenin
+  yapıldığı genişlikten (esnek aralıkların kesişimi, type-inference.md
+  §3.3) geniş bir aritmetik değerse, ör. `o : u9 = a * b / c + d` (dördü
+  u8) içinde `a * b`: "this operand of '/' is cut to 8 bits before the
+  division (its natural width is 16); the rule changes in v0.2.0 (#150)".
+  Uyarı reddetmez, üretilen SV değişmez; bu bölmelerin değeri v0.2.0'da
+  değişebilir. Genişliği iki işlenende de açıkça yazan ifade (`(a * b) as
+  u16 / (c as u16)`) uyarı almaz. Literal, const ve aynı genişlikteki atom
+  işlenen ile hedefe itilen bölme (`o : u9 = (a + b) / c`) uyarı almaz.
+  Uyarıları hata sayan derlemeler (CI betikleri) düşebilir; depodaki
+  örneklerin ve testlerin hiçbiri bu uyarıyı almıyor.
 
 ### Düzeltildi — Üreticinin ad çözümü (#128, 2026-11-05)
 
@@ -230,6 +242,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değişkeninin içinde, çağıranın `let`'i bir const'la aynı adda. Sonuç a
   biçimininkiyle aynı olmalı. Gövdenin `let`'i `VOLT_DIFFTEST_FN_LET=1`
   ile; açıkken ikame kipindeki tipsiz fn `let`'inin hatasını (#132) bulur.
+- `division_cut_warning_tests` (#173): #150'nin durumlarında W2015 var
+  (`a * b / c + d`, toplam, `%`, bölen tarafı, işaretli, fark testinin
+  bulgusu `p * p / (p & p)`, tipsiz `let`); literal, const, aynı
+  genişlikteki atom, itilen bölme ve açık genişlikte yok; `volt check` ve
+  `volt build` aynı uyarıları veriyor; depodaki 724 `.volt` dosyasında
+  W2015 yok. `tests/ui/fail/245`, `tests/ui/pass/140`.
+- Fark testi (ADR-0112): koşucu a biçimindeki W2015'i modelin kesilen
+  bölme işleneniyle (`tag::DIV_CUT`) karşılaştırır, ayrışma bulgudur;
+  özet satırı `difftest: division operand cut (W2015, variant a): model=…
+  compiler=… mismatches=…`. `difftest.yml`'in `div_operands` girdisi
+  bileşik bölme işlenenlerini açar (`VOLT_DIFFTEST_DIV_OPERANDS`).
 
 ## [0.1.0] - 2026-11-04
 

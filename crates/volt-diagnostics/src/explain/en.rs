@@ -1208,6 +1208,15 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: unreachable\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
         ),
+        W2015 => Explanation::new(
+            "Division operand is cut before the division",
+            "An operand of '/' or '%' is an arithmetic value wider than the width the division is done at, so its upper bits are dropped before dividing.",
+            "A sum or product keeps its carry ('a * b' of two u8 values is up to 16 bits wide), but '/' and '%' do not widen: the division is done at the width both operands share, here 8 bits, and the wider operand is cut to it first. The quotient can then differ from the one you would compute by hand. This rule changes in v0.2.0 (issue #150); until then Volt warns. Write the width you mean with 'as' on both operands: the warning goes away and the value no longer depends on the rule.",
+            "out q : u8
+q = a * b / c           // ⚠ W2015: 'a * b' cut to 8 bits",
+            "out q : u16
+q = (a * b) as u16 / (c as u16)   // ✓ divides at 16 bits",
+        ),
         W2020 => Explanation::new(
             "Constant condition",
             "This condition always evaluates to the same value, so the branch never changes.",
