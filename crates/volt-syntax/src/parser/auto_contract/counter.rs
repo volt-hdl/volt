@@ -16,22 +16,15 @@
 //! * C1 (genişlik sınırı) ve C4 (etkinsizken değişmez) üretilmez:
 //!   C1 `uN` sarması yüzünden anlamsız, C4 kodun yeniden yazımıdır.
 
-use std::collections::HashMap;
-
 use volt_ast::{AutoReach, AutoRule, BinOp, ContractKind, Expr, ExprKind, Idx, SourceFile};
 
-use super::super::mono::unroll::eval_const;
+use super::super::mono::unroll::{eval_const, Consts};
 use super::gen::{Spec, G};
 use super::scan::{Branch, Cond, RegInfo, Scan};
 
 const DEPTH0: u32 = 0;
 
-pub(super) fn specs(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    scan: &Scan,
-    reg: &RegInfo,
-) -> Vec<Spec> {
+pub(super) fn specs(ast: &SourceFile, consts: &Consts, scan: &Scan, reg: &RegInfo) -> Vec<Spec> {
     let Some(c) = recognize(ast, consts, scan, reg) else {
         return Vec::new();
     };
@@ -70,12 +63,7 @@ struct Counter {
     min_steps: u32,
 }
 
-fn recognize(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    scan: &Scan,
-    reg: &RegInfo,
-) -> Option<Counter> {
+fn recognize(ast: &SourceFile, consts: &Consts, scan: &Scan, reg: &RegInfo) -> Option<Counter> {
     let name = reg.name.as_str();
     let writes = scan.writes.get(name)?;
     let max = super::max_value(reg.width);
@@ -155,7 +143,7 @@ fn is_one(ast: &SourceFile, e: Idx<Expr>) -> bool {
 /// Koşul `r`'nin `E`'den küçük olduğunu garanti ediyorsa (E, karşılaştırma).
 fn bound_of(
     ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
+    consts: &Consts,
     name: &str,
     cond: &Cond,
 ) -> Option<(Idx<Expr>, Idx<Expr>)> {

@@ -680,6 +680,77 @@ fn enum_recovery_wildcard_after_every_variant_gets_no_transition_cover() {
     assert_eq!(t.len(), 3, "{t:?}");
 }
 
+/// Enum tipli `const` başlangıç değeri (`reg s : State = START`,
+/// `START = State::Idle`) varyantına izlenir (ADR-0074): FSM tanınır,
+/// geçişleri `ENUM_FSM`'inkilerdir. Hedefli mutasyon koşusunun kör
+/// noktası (#139): `value_of`'un tek parçalı yol kolu (`len() == 1` →
+/// `!=`) düşünce başlangıç değeri bulunmuyor, FSM tanınmıyordu.
+#[test]
+fn enum_typed_const_initial_state_is_followed_to_its_variant() {
+    let src = ENUM_FSM
+        .replace(
+            "enum State { Idle, Run, Done }",
+            "enum State { Idle, Run, Done }\nconst START : State = State::Idle",
+        )
+        .replace("reg s : State = State::Idle", "reg s : State = START");
+    let res = p(&src);
+    assert_eq!(
+        texts(&res, 2, AutoRule::FsmTransition),
+        [
+            "prev(s) == State::Idle && s == State::Run",
+            "prev(s) == State::Run && s == State::Done",
+            "prev(s) == State::Done && s == State::Idle",
+        ]
+    );
+}
+
+/// `value_of`'un yol kolları (`len() >= 2`, ardından `len() == 1`) boş
+/// yolu `_` koluna bırakır; `.cargo/mutants.toml`'daki A2 girdisi (`== 1`
+/// → `true`) her yolun en az bir segmenti olduğu varsayımına dayanır
+/// (ADR-0109 ek (a), ulaşılamazlık). Kontratın okuduğu iki konumda —
+/// register'ın başlangıç değeri ve FSM yazmasının sağ tarafı — boş yol
+/// kurmaya çalışan girdiler (`::Idle`, `State::`, `State::::Idle`, boş
+/// ifade) E0001 ile reddedilir; kurtarma bir hata ifadesi koyar, yol
+/// değil: AST'de segmentsiz yol yoktur. Beklenen kod şartnameden:
+/// grammar-full.ebnf `Path = Ident { "::" Ident }` (yol tanımlayıcıyla
+/// başlar ve biter), beklenmeyen token error-recovery.md'de E0001'dir ve
+/// eksik ifadenin yerine `Error` ifadesi konur. `::Run`'daki ikinci E0001
+/// kurtarmanın sonucudur: `::` atlanınca `Run` yeni deyimin başı olur ve
+/// `}`'de atama işleci beklenir (`volt check`'in iletisi: "expected
+/// assignment operator '<='").
+#[test]
+fn inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path() {
+    let cases: [(&str, &str, &[&str]); 7] = [
+        ("::Idle", "State::Run", &["E0001"]),
+        ("State::", "State::Run", &["E0001"]),
+        ("State::::Idle", "State::Run", &["E0001"]),
+        ("", "State::Run", &["E0001"]),
+        ("State::Idle", "::Run", &["E0001", "E0001"]),
+        ("State::Idle", "State::", &["E0001"]),
+        ("State::Idle", "", &["E0001"]),
+    ];
+    for (init, write, codes) in cases {
+        let src = ENUM_FSM
+            .replace(
+                "reg s : State = State::Idle",
+                &format!("reg s : State = {init}"),
+            )
+            .replace(
+                "if go { s <= State::Run }",
+                &format!("if go {{ s <= {write} }}"),
+            );
+        let res = parse(FileId(0), &src);
+        assert_eq!(res.error_codes(), codes, "init `{init}`, write `{write}`");
+        assert!(
+            res.ast
+                .exprs
+                .iter()
+                .all(|e| !matches!(&e.kind, ExprKind::Path(p) if p.segments.is_empty())),
+            "init `{init}`, write `{write}`: segmentsiz yol"
+        );
+    }
+}
+
 #[test]
 fn enum_fsm_opt_out_also_disables_state_valid() {
     let src = ENUM_FSM.replace(

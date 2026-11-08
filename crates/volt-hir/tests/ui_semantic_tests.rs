@@ -661,12 +661,6 @@ fn analyze_multifile_dir(dir: &str, entry: &str) -> Vec<&'static str> {
         .enumerate()
         .map(|(i, t)| (FileId(i as u32), t.as_str()))
         .collect();
-    let parsed = volt_syntax::parse_unit(&sources);
-    assert!(
-        parsed.diagnostics.is_empty(),
-        "{dir} ayrışmalı: {:?}",
-        parsed.error_codes()
-    );
     let mut info = volt_hir::UnitInfo::default();
     for (i, n) in names.iter().enumerate() {
         info.add(
@@ -674,12 +668,15 @@ fn analyze_multifile_dir(dir: &str, entry: &str) -> Vec<&'static str> {
             vec![n.trim_end_matches(".volt").to_string()],
         );
     }
+    let parsed = volt_syntax::parse_unit(&sources, &info);
+    // Ayrıştırıcının birim sonu adımları da ad çözer (#139): tanıları
+    // dönen kodlara girer.
+    let mut codes: Vec<&'static str> = parsed.error_codes();
+    if !codes.is_empty() {
+        return codes;
+    }
     let imports = volt_hir::check_imports(&parsed.ast, &info);
-    let mut codes: Vec<&'static str> = imports
-        .diagnostics
-        .iter()
-        .map(|d| d.code.as_str())
-        .collect();
+    codes.extend(imports.diagnostics.iter().map(|d| d.code.as_str()));
     let result = volt_hir::analyze_unit(&parsed.ast, &imports.scopes);
     codes.extend(
         result
@@ -709,6 +706,21 @@ fn ui_multifile_notfound_is_e1011() {
     assert!(codes.contains(&"E1011"), "{codes:?}");
 }
 
+/// #139: başka dosyanın private const'u, ayrıştırıcının yok ettiği bir
+/// konumda da (bundle dizisi indeksi) görünmez.
+#[test]
+fn ui_multifile_privconst_is_e1001() {
+    let codes = analyze_multifile_dir("privconst", "main.volt");
+    assert_eq!(codes, ["E1001"]);
+}
+
+/// #139: takma adla getirilen const ayrıştırıcının konumunda da çözülür.
+#[test]
+fn ui_multifile_aliasconst_passes() {
+    let codes = analyze_multifile_dir("aliasconst", "main.volt");
+    assert!(codes.is_empty(), "{codes:?}");
+}
+
 #[test]
 fn ui_multifile_entry_files_declare_expected_outcome() {
     let base = format!("{}/../../tests/ui/multifile", env!("CARGO_MANIFEST_DIR"));
@@ -717,6 +729,8 @@ fn ui_multifile_entry_files_declare_expected_outcome() {
         ("pubpriv", "main.volt"),
         ("notfound", "main.volt"),
         ("cyclic", "a.volt"),
+        ("privconst", "main.volt"),
+        ("aliasconst", "main.volt"),
     ] {
         let first = std::fs::read_to_string(format!("{base}/{dir}/{entry}"))
             .expect("giriş dosyası")

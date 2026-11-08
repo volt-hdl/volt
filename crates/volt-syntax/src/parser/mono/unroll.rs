@@ -35,6 +35,7 @@
 
 use std::collections::HashMap;
 
+use volt_ast::visibility::RootFilter;
 use volt_ast::{
     AssignStmt, BlockStmt, ExprKind, ForStmt, GenerateIter, Idx, InstanceDecl, Item, ItemKind,
     LetDecl, PortBinding, SourceFile, Stmt, StmtKind,
@@ -42,11 +43,13 @@ use volt_ast::{
 use volt_diagnostics::{
     fold_duplicates, lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Suggestion,
 };
-use volt_span::Span;
+use volt_span::{FileId, Span};
 
 use super::budget::{ExpansionBudget, MAX_EXPANSION_NODES};
 use super::clone::{BlockRole, Cloner};
-use super::scope::{shadowing_warning, Binding, Entry, Scopes};
+use super::scope::{
+    invisible_name, invisible_name_error, shadowing_warning, Binding, Entry, Scopes,
+};
 
 /// Açılabilecek en fazla yineleme (const-eval.md §8, E2027).
 pub(crate) const MAX_UNROLL: i128 = 4096;
@@ -64,7 +67,7 @@ pub(super) struct Unroller<'a> {
     budget: &'a mut ExpansionBudget,
     diagnostics: &'a mut Vec<Diagnostic>,
     /// Üst düzey `const AD = ...` değerleri (sınır ifadeleri için).
-    consts: HashMap<String, Idx<volt_ast::Expr>>,
+    consts: Consts,
 }
 
 /// Bir modülün gövdesindeki tüm modül seviyesi `for`ları açar.
@@ -140,15 +143,41 @@ pub(crate) fn decl_name(kind: &StmtKind) -> Option<&volt_ast::Name> {
     }
 }
 
-/// Dosyadaki üst düzey const öğeleri (isim → değer ifadesi).
-pub(crate) fn collect_consts(ast: &SourceFile) -> HashMap<String, Idx<volt_ast::Expr>> {
-    ast.items
-        .iter()
-        .filter_map(|&i| match &ast.items_arena[i].kind {
-            ItemKind::Const(c) => Some((c.name.text.clone(), c.value)),
-            _ => None,
-        })
-        .collect()
+/// Birimin üst düzey const öğeleri: kök ad → (tanım dosyası, değer
+/// ifadesi). Aynı ad iki dosyada E1003'tür (ADR-0042 §4, çözücü verir);
+/// tablo ikisini de tutar, arama görüneni seçer ([`visible_const`]).
+pub(crate) type Consts = HashMap<String, Vec<(FileId, Idx<volt_ast::Expr>)>>;
+
+/// Birimdeki üst düzey const öğeleri ([`Consts`]).
+pub(crate) fn collect_consts(ast: &SourceFile) -> Consts {
+    let mut consts = Consts::new();
+    for &i in &ast.items {
+        let item = &ast.items_arena[i];
+        if let ItemKind::Const(c) = &item.kind {
+            consts
+                .entry(c.name.text.clone())
+                .or_default()
+                .push((item.span.file, c.value));
+        }
+    }
+    consts
+}
+
+/// `at` ifadesindeki yalın `name`in bağlandığı kök const'un değer
+/// ifadesi. Ad yazıldığı dosyanın kapsamında çözülür (#139): kendi
+/// dosyasının const'u ya da o dosyaya `use` ile getirilen (takma adla da)
+/// const; başka dosyanın getirilmemiş const'u görünmez (name-resolution.md
+/// §3.3, E1001). Kural çözücününkidir (`RootFilter`). Bir const'un değeri
+/// kendi dosyasında yazıldığından iç içe değerlendirme o dosyada sürer.
+pub(crate) fn visible_const(
+    ast: &SourceFile,
+    consts: &Consts,
+    at: Idx<volt_ast::Expr>,
+    name: &str,
+) -> Option<Idx<volt_ast::Expr>> {
+    let file = ast.exprs[at].span.file;
+    let filter = RootFilter::new(ast.file_scopes.as_ref());
+    filter.pick(file, name, consts.get(filter.root_name(file, name))?)
 }
 
 impl Unroller<'_> {
@@ -437,6 +466,13 @@ impl Unroller<'_> {
             return None;
         }
         let (Some(s), Some(e)) = (self.eval(f.start, chain), self.eval(f.end, chain)) else {
+            // Başka dosyanın görünmeyen öğesi sabit değil, tanımsızdır (#139).
+            let invisible = invisible_name(self.ast, chain, f.start)
+                .or_else(|| invisible_name(self.ast, chain, f.end));
+            if let Some(name) = invisible {
+                self.diagnostics.push(invisible_name_error(self.ast, name));
+                return None;
+            }
             self.diagnostics.push(Diagnostic::error(
                 ErrorCode::E2021,
                 lstr!(
@@ -543,7 +579,7 @@ fn declared_names(ast: &SourceFile, body: Idx<volt_ast::Block>) -> Vec<String> {
 /// uzunluğu/indeksi) ihtiyacı budur.
 pub(crate) fn eval_const(
     ast: &SourceFile,
-    consts: &HashMap<String, Idx<volt_ast::Expr>>,
+    consts: &Consts,
     e: Idx<volt_ast::Expr>,
     depth: u32,
 ) -> Option<i128> {
@@ -555,7 +591,7 @@ pub(crate) fn eval_const(
 /// kök kapsamda çözülür (name-resolution.md §4).
 pub(crate) fn eval_const_scoped(
     ast: &SourceFile,
-    consts: &HashMap<String, Idx<volt_ast::Expr>>,
+    consts: &Consts,
     e: Idx<volt_ast::Expr>,
     depth: u32,
     root_const: &dyn Fn(&str) -> bool,
@@ -585,7 +621,7 @@ pub(crate) fn eval_const_scoped(
             }
         }
         ExprKind::Path(p) if p.segments.len() == 1 && root_const(&p.segments[0].text) => {
-            let value = *consts.get(&p.segments[0].text)?;
+            let value = visible_const(ast, consts, e, &p.segments[0].text)?;
             eval_const(ast, consts, value, depth + 1)
         }
         _ => None,

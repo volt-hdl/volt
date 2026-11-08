@@ -104,11 +104,16 @@ pub fn parse_on_current_stack(file: FileId, source: &str) -> ParseResult {
 /// dosyasını taşır. Monomorfizasyon tüm dosyalar okunduktan sonra bir
 /// kez koşar — generic tanım ile örneklemesi farklı dosyalarda olabilir.
 /// [`parse`] gibi derleyici yığınında koşar.
-pub fn parse_unit(files: &[(FileId, &str)]) -> ParseResult {
-    crate::with_compiler_stack(|| parse_unit_on_stack(files))
+///
+/// `info` dosya ↔ paket eşlemesidir: öğeler okununca dosya kapsamları
+/// ([`crate::unit::check_imports`], tanıları sürücü verir) kurulur ve
+/// `SourceFile::file_scopes`'a yazılır; birim sonu adımları kök öğe
+/// aramalarını çözücüyle aynı kuralla süzer (#139).
+pub fn parse_unit(files: &[(FileId, &str)], info: &crate::unit::UnitInfo) -> ParseResult {
+    crate::with_compiler_stack(|| parse_unit_on_stack(files, info))
 }
 
-fn parse_unit_on_stack(files: &[(FileId, &str)]) -> ParseResult {
+fn parse_unit_on_stack(files: &[(FileId, &str)], info: &crate::unit::UnitInfo) -> ParseResult {
     let mut ast = SourceFile::default();
     let mut diagnostics = Vec::new();
     let mut generated = Vec::new();
@@ -123,6 +128,8 @@ fn parse_unit_on_stack(files: &[(FileId, &str)]) -> ParseResult {
             // ADR-0039 bundle düzleştirmesi — hepsi tüm birim üzerinde
             // bir kez (generic tanım ile örneklemesi farklı dosyada olabilir).
             parser.next_synthetic = next_synthetic;
+            let scopes = crate::unit::check_imports(&parser.ast, info).scopes;
+            parser.ast.file_scopes = Some(scopes);
             parser.desugar_mmio();
             parser.finish_unit_desugar();
         }
@@ -200,7 +207,7 @@ pub(crate) struct Parser<'s> {
     pub(crate) bidir: bidir::BidirState,
     /// Üst düzey const'lar (ad → değer ifadesi) — bundle dizisi
     /// indekslerinin sabit değerlendirmesi için (ADR-0056).
-    pub(crate) consts: std::collections::HashMap<String, Idx<Expr>>,
+    pub(crate) consts: mono::unroll::Consts,
     /// Bir döngüye ulaşan tip adları (ADR-0069, `type_graph`): bundle ve
     /// Handshake açılımı bunları açmaz.
     pub(crate) recursive_types: HashSet<String>,

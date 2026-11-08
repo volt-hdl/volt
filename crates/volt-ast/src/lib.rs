@@ -16,6 +16,7 @@ pub mod mmio_names;
 pub mod reserved;
 pub mod reset_chain;
 pub mod struct_layout;
+pub mod visibility;
 pub mod visit;
 
 pub use arena::{Arena, Idx};
@@ -66,6 +67,11 @@ pub struct SourceFile {
     /// Modül seviyesi `for` açılımı yan tablosu (ADR-0056) — bkz.
     /// [`GenerateInfo`].
     pub generate: GenerateInfo,
+    /// Derleme biriminde dosya başına import görünürlüğü (ADR-0042 §3):
+    /// `parse_unit` öğeler okununca kurar, ayrıştırıcının birim sonu
+    /// adımları kök öğe aramalarını bununla süzer
+    /// ([`visibility::RootFilter`], #139). `None`: tek dosya, süzgeç yok.
+    pub file_scopes: Option<visibility::FileScopes>,
 }
 
 /// Modül seviyesi `for` açılımının izi (ADR-0056). Parser her

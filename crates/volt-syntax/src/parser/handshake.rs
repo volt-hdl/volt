@@ -31,13 +31,16 @@
 
 use std::collections::{HashMap, HashSet};
 
+use volt_ast::visibility::FileScopes;
 use volt_ast::{
     Attribute, AutoOrigin, AutoRule, BinOp, BundleOrigin, Contract, ContractKind, Expr, ExprKind,
     GenericArg, Idx, ItemKind, Name, Path, Port, PortDir, TypeRef, TypeRefKind, UnOp,
 };
-use volt_span::Span;
+use volt_span::{FileId, Span};
 
-use super::bundle::{flip, fresh_name_span, Flat, Overflow, Virtual, MAX_FLAT_PORTS, MAX_NESTING};
+use super::bundle::{
+    flip, fresh_name_span, visible_type, Flat, Overflow, Virtual, MAX_FLAT_PORTS, MAX_NESTING,
+};
 use super::Parser;
 
 /// Yerleşik bundle'ın adı.
@@ -52,21 +55,32 @@ const FIELD_FIRED: &str = "fired";
 const FIELD_STALLED: &str = "stalled";
 const PREV: &str = "prev";
 
+/// Sade struct'ın alanları: (ad, tip).
+type PlainFields = Vec<(String, Idx<TypeRef>)>;
+
 /// Sade (yönsüz, generic olmayan) struct tanımları: payload açılımı için.
 pub(super) struct PlainDefs {
-    fields: HashMap<String, Vec<(String, Idx<TypeRef>)>>,
+    /// Kök ad → (tanım dosyası, alanlar).
+    fields: HashMap<String, (FileId, PlainFields)>,
     /// Bir döngüye ulaşan struct'lar (ADR-0069 tip çizgesi; struct'ın
     /// kendisi E4009 alır): payload olarak açılmaz, `data` opak kalır.
     cyclic: HashSet<String>,
+    /// Birimin dosya kapsamları (`SourceFile::file_scopes`).
+    scopes: Option<FileScopes>,
 }
 
 impl PlainDefs {
-    fn get(&self, name: &str) -> Option<&Vec<(String, Idx<TypeRef>)>> {
-        self.fields.get(name)
-    }
-
-    fn contains_key(&self, name: &str) -> bool {
-        self.fields.contains_key(name)
+    /// `ty` görünen bir sade struct'ı adlandırıyorsa kök adı ve alanları:
+    /// ad yazıldığı dosyanın kapsamında çözülür (#139, `visible_type`).
+    fn lookup<'a>(
+        &'a self,
+        types: &'a volt_ast::Arena<TypeRef>,
+        ty: Idx<TypeRef>,
+    ) -> Option<(&'a str, &'a PlainFields)> {
+        let root = visible_type(types, self.scopes.as_ref(), ty, |n| {
+            self.fields.get(n).map(|d| d.0)
+        })?;
+        Some((root, &self.fields.get(root)?.1))
     }
 }
 
@@ -109,7 +123,7 @@ fn is_comparable(types: &volt_ast::Arena<TypeRef>, plain: &PlainDefs, ty: Idx<Ty
         | TypeRefKind::SIntN(_) => true,
         // enum / alias: eşitlik tanımlı; struct değil.
         TypeRefKind::Path { .. } => {
-            plain_path_name(types, ty).is_some_and(|n| !plain.contains_key(n))
+            plain_path_name(types, ty).is_some() && plain.lookup(types, ty).is_none()
         }
         _ => false,
     }
@@ -131,7 +145,7 @@ fn payload_fields(
     if depth > MAX_NESTING {
         return Err(Overflow::Depth);
     }
-    if let Some(fields) = plain_path_name(types, ty).and_then(|n| plain.get(n)) {
+    if let Some((_, fields)) = plain.lookup(types, ty) {
         for (name, fty) in fields {
             payload_fields(
                 types,
@@ -156,21 +170,23 @@ impl Parser<'_> {
     /// Dosyadaki sade struct'lar (`struct Aw { addr : u32, prot : u3 }`)
     /// ve döngüye ulaşanların kümesi (ADR-0069 tip çizgesinden).
     pub(super) fn collect_plain_struct_defs(&self) -> PlainDefs {
-        let fields: HashMap<String, Vec<(String, Idx<TypeRef>)>> = self
+        let fields: HashMap<String, (FileId, PlainFields)> = self
             .ast
             .items
             .iter()
             .filter_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Struct(s) if !s.is_port && s.generics.is_empty() => Some(s),
+                ItemKind::Struct(s) if !s.is_port && s.generics.is_empty() => {
+                    Some((self.ast.items_arena[i].span.file, s))
+                }
                 _ => None,
             })
-            .map(|s| {
+            .map(|(file, s)| {
                 let fields = s
                     .fields
                     .iter()
                     .map(|f| (f.name.text.clone(), f.ty))
                     .collect();
-                (s.name.text.clone(), fields)
+                (s.name.text.clone(), (file, fields))
             })
             .collect();
         let cyclic = fields
@@ -178,7 +194,11 @@ impl Parser<'_> {
             .filter(|n| self.recursive_types.contains(*n))
             .cloned()
             .collect();
-        PlainDefs { fields, cyclic }
+        PlainDefs {
+            fields,
+            cyclic,
+            scopes: self.ast.file_scopes.clone(),
+        }
     }
 
     /// Port tipi `Handshake<T>` (tam bir tip argümanı) ise `T`.
@@ -226,9 +246,10 @@ impl Parser<'_> {
         // Özyineli struct (E4009) ve bütçe aşımı (E4010) tek opak `data`
         // olarak kalır — kaskad yok, modül zaten hatalı.
         let mut payload_paths = Vec::new();
-        let recursive = plain_path_name(&self.ast.types, payload)
-            .filter(|n| plain.cyclic.contains(*n))
-            .map(str::to_string);
+        let recursive = plain
+            .lookup(&self.ast.types, payload)
+            .filter(|(n, _)| plain.cyclic.contains(*n))
+            .map(|(n, _)| n.to_string());
         if recursive.is_some() {
             payload_paths.push((FIELD_DATA.to_string(), payload));
         } else if let Err(over) = payload_fields(

@@ -9,6 +9,26 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Ayrıştırıcının ad çözümünden önce koşan
+  adımları dosya görünürlüğünü çözücüyle aynı kuralla uygular (#139;
+  name-resolution.md §3.3; ADR-0042 §3 ve eki "Ayrıştırıcının birim sonu
+  adımları dosya görünürlüğünü izler"). Başka dosyanın `use` ile
+  getirilmemiş ya da `pub` olmayan const'u modül düzeyi `for` sınırında,
+  bundle dizisinin uzunluğunda ve indeksinde, struct'u bundle tipi ya da
+  `Handshake` payload'ı olarak artık E1001 verir: 0.1.0 onu sessizce
+  okuyordu (`y = rx[K].data` başka dosyanın private `K = 1`'iyle
+  `rx_1_data`'yı seçiyor, `for` onunla açılıyor, port açılıyordu). Glob
+  (`use a::*`) private öğeyi getirmez. Generic modülün gövdesi
+  tanımlandığı dosyada çözülür: örnekleyen dosyanın private const'u
+  orada E1001. `use a::X as J` ile getirilen const ve bundle tipi
+  bu konumlarda artık çözülür (0.1.0'da E2008, E2021 ya da E4001). Döngü
+  değişkeni başka dosyanın görünmeyen adıyla aynıysa W1002 verilmez.
+  0.1.0'da derlenen bir tasarım şimdi E1001 veriyorsa üretilen SV başka
+  dosyanın görünmemesi gereken değerini kullanıyordu.
+
+  0.1.0'dan yükseltirken: yeni bir E1001, adı kullanan dosyanın onu
+  görmediğini söyler; adı tanımlayan dosyada `pub` yapın ve kullanan
+  dosyaya `use paket::Ad;` ekleyin.
 - **Davranış değişikliği.** Ayrıştırıcının ad eşleyen öteki adımlarında
   da ad kapsam zincirinde çözülür (#136, #137, #138; name-resolution.md
   §2, §4, §6; ADR-0081 eki "Ayrıştırıcının öteki adımları da kapsam

@@ -32,7 +32,7 @@ use volt_ast::{enum_layout, ContractKind, Expr, ExprKind, Idx, ItemKind, SourceF
 
 use super::handshake::has_attr;
 use super::mono::scope::Scopes;
-use super::mono::unroll::collect_consts;
+use super::mono::unroll::{collect_consts, visible_const, Consts};
 use super::Parser;
 
 /// FSM ve sayaç kontratlarını kapatan nitelik (modül ya da `reg`).
@@ -104,11 +104,7 @@ fn user_contracts(ast: &SourceFile, m: &volt_ast::ModuleDecl) -> HashSet<(Contra
 
 /// Sabit değer: `eval_const` + enum varyant yolu (`State::Run` → kodu,
 /// ADR-0074) ve enum tipli `const` (`START` → `State::Idle`).
-pub(super) fn value_of(
-    ast: &SourceFile,
-    consts: &std::collections::HashMap<String, Idx<Expr>>,
-    e: Idx<Expr>,
-) -> Option<i128> {
+pub(super) fn value_of(ast: &SourceFile, consts: &Consts, e: Idx<Expr>) -> Option<i128> {
     const MAX_DEPTH: u32 = 64;
     let mut cur = e;
     for _ in 0..MAX_DEPTH {
@@ -120,13 +116,15 @@ pub(super) fn value_of(
                 })?;
                 return i128::try_from(layout.values[idx]).ok();
             }
-            ExprKind::Path(p) if p.segments.len() == 1 => match consts.get(&p.segments[0].text) {
-                Some(&v) if matches!(&ast.exprs[v].kind, ExprKind::Path(q) if q.segments.len() >= 2) =>
-                {
-                    cur = v;
+            ExprKind::Path(p) if p.segments.len() == 1 => {
+                match visible_const(ast, consts, cur, &p.segments[0].text) {
+                    Some(v) if matches!(&ast.exprs[v].kind, ExprKind::Path(q) if q.segments.len() >= 2) =>
+                    {
+                        cur = v;
+                    }
+                    _ => return super::mono::unroll::eval_const(ast, consts, cur, 0),
                 }
-                _ => return super::mono::unroll::eval_const(ast, consts, cur, 0),
-            },
+            }
             _ => return super::mono::unroll::eval_const(ast, consts, cur, 0),
         }
     }

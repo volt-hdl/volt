@@ -262,3 +262,93 @@ Uyarı ya da hata DEĞİL: kütüphane dosyasını tek başına derlemek (örne�
   modül/sva/prop/regmap/kısıt süzgeçlerinden her biri, birleşik SV'yi
   yeniden kurmamak, hatalı derlemede erken dönmemek, build'de ya da
   verify'da süzmemek, modülsüz birimde eski düzen, bilgi notunu atlamak.
+
+## Ek: Ayrıştırıcının birim sonu adımları dosya görünürlüğünü izler (#139, 2026-11-08, dal `fix/cross-file-const-visibility`)
+
+### Sorun
+
+§3'ün görünürlük kuralı yalnız çözücüde (HIR, `resolve::imports::scope_get`)
+uygulanıyordu. Ayrıştırıcının ad çözümünden önce koşan adımları —
+sabit değerlendirmesi (`mono/unroll.rs` `collect_consts`), bundle ve
+payload tip tabloları, kapsam zincirinin kök çerçevesi (`Scopes::module`,
+ADR-0081 ekleri) — birimin bütün kök öğelerini dosyaya bakmadan
+görüyordu. Bu adımlar adı yok ettiğinden (`rx[K]` → `rx_1_data`, `for`
+açılımı, port düzleştirmesi) çözücü E1001 veremiyordu: başka dosyanın
+private const'u değer veriyor, private struct'u port açıyordu. Aynı
+adımlar `use a::X as J` takma adını hiç bulmuyordu (E2008, E2021, E4001).
+
+### Denetim
+
+Birim içinde adla kök öğe arayan her yer, küçük bir çok dosyalı girdiyle
+(`other.volt` + `main.volt`) denendi. "Önce" `main` (ffb877a), "sonra" bu
+dal.
+
+| Yer | Öğe | Önce | Sonra |
+|---|---|---|---|
+| Ayrıştırıcı, `unroll.rs` sabit tablosu: modül düzeyi `for` sınırı | const | private `K` ile döngü açılıyor (tanı yok); `as` takma adı E2021 | E1001; takma ad çözülür |
+| Aynı tablo, `bundle.rs` bundle dizisi indeksi | const | `rx[K]` = `rx_1_data` (tanı yok); glob private'ı da getiriyor; takma ad E2008 | E1001; glob yalnız `pub`; takma ad çözülür |
+| Aynı tablo, bundle dizisi uzunluğu | const | private `K` ile dizi açılıyor | E1001 |
+| Aynı tablo, generic gövdesi (monomorf `S_4`'teki `for`) | const | örnekleyen dosyanın private `K`'si gövdeye giriyor | gövde tanımlandığı dosyada çözülür: E1001 |
+| Aynı tablo, çıkarılan sayaç/FSM sözleşmesi (`value_of`, `eval_const`, ADR-0066) | const | görünmeyen sınırla sözleşme üretiliyor, sözleşmede anlamsız konumlu iki E1001 daha | sözleşme yok; yalnız gövdenin E1001'i |
+| `Scopes::module` kök çerçevesi | her öğe | birimin bütün öğeleri: döngü değişkeni başka dosyanın görünmeyen adını "gölgeler", W1002 | dosyadan görünenler (takma adlılar yerel adlarıyla) |
+| `bundle.rs` bundle tipi tablosu (`is_bundle_type`, `expand_port`, iç içe alan) | `struct port` | private tip ile port açılıyor; takma adlı tip açılmıyor (E4001) | E1001; takma ad açılır |
+| `handshake.rs` payload tablosu | `struct` | `Handshake<Hdr>` private `Hdr` ile alanlara açılıyor | E1001 |
+| `bundle.rs` `user_defines_handshake` | `struct port Handshake` | birim geneli: başka dosyanın private `Handshake`'i yerleşiği kapatıyor | değişmedi, karar #122 |
+| `mono/mod.rs` generic şablon tablosu | generic modül | ad (`S_3`) kalır, çözücü E1001; takma ad E0003 | değişmedi; takma ad #161 |
+| `struct_lit.rs`, `type_graph.rs`, `bidir.rs`, bundle portlu örnek | struct, modül | ad kalır, çözücü karar verir | değişmedi |
+| HIR `scope_get` | her öğe | uyguluyor (yerel ad kümesi) | aynı kural, `RootFilter`'dan |
+| HIR çözüme bağlı geçitler (tip, genişlik `uint<K>`, dizi uzunluğu, alan, değer konumu) | const, tip, alan | çözümden devralır: E1001 / E3002 | değişmedi; takma ad (E2005, E3002) #161 |
+| Test dili sabit tablosu (`sim_const`) | const | test bloğu private const'u okuyor | #162 |
+| Çözücünün kullanım dosyası (öğenin dosyası) | bundle alanına kopyalanan tip adı | kütüphanenin kendi private struct'u kullanan dosyada E1001 | #163 |
+| Üretici (`collect_consts`, `scope.rs`, `alias.rs`, örnek hedefi, `inline/`) | her öğe | adla arar; kök adlar birimde tektir (E1003) ve her başvuruyu çözücü denetledi: görünürlük doğru | değişmedi; takma ad metni SV'ye yazılıyor (`assign y = J;`) #161 |
+
+Aynı ad iki dosyada (§4 "Bilinen sınır") değişmedi: içe aktarılan `pub X` ile
+üçüncü dosyanın private `X`'i, dosyanın kendi `K`'si ile başka dosyanın
+private `K`'si, biri içe aktarılan iki `pub X` E1003; ikisi de içe
+aktarılırsa E1010.
+
+### Karar
+
+Yeni bir mekanizma yok; kural tek yerde, `volt_ast::visibility::RootFilter`:
+
+- `root_name(dosya, ad)`: `as` takma adı kök ada açılır;
+- `sees(dosya, ad, tanım dosyası)`: kendi dosyasının öğesi her zaman;
+  başka dosyanınki yalnız o dosyadan getirilmişse; monomorf örnek şablon
+  adıyla.
+
+Çözücünün `scope_get`'i ve ayrıştırıcının adımları bunu sorar. Dosya
+kapsamlarını kuran `check_imports` `volt-hir`'den `volt_syntax::unit`'e
+taşındı (`volt-hir` aynı adları yeniden dışa açar): `parse_unit` artık
+`UnitInfo` alır, öğeler okununca kapsamları kurar ve
+`SourceFile::file_scopes`'a yazar. Sürücü çözücü için `check_imports`'u
+birim sonunda yine çağırır; tanılar (E1004, E1010, E1011) oradan gelir.
+İki çağrı aynı fonksiyondur.
+
+`FileScope::visible` artık yerel ad → tanım dosyasıdır (§3.3'ün
+`file.visible[local] → def`'i): getirilen ad başka bir dosyanın aynı adlı
+öğesini görünür kılmaz.
+
+Ad yazıldığı dosyanın kapsamında çözülür: sabit aramasında ifadenin
+span'inin dosyası, tip adında tipin span'inin dosyası, kök çerçevede
+modülün dosyası (monomorfta şablonun dosyası). Bir const'un değeri kendi
+dosyasında yazıldığından iç içe değerlendirme o dosyada sürer: `pub X = K`
+ve private `K` aynı dosyadaysa `X` başka dosyadan kullanılınca `K` yine
+çözülür.
+
+Sabit konumunda (for sınırı, bundle dizisi uzunluğu ve indeksi) başka
+dosyada bildirilmiş ama zincirde bağı olmayan ad E1001 alır (§3.3); başlık
+ve etiket çözücünün E1001'iyle aynı, yardım `pub` ve `use`'u söyler. Hiç
+tanımlanmamış adın tanısı değişmedi (ADR-0072'nin E2021'i, bundle
+dizisinde E2008); §3.1 ile hangisinin geçerli olduğu #122'de.
+
+### Testler
+
+`crates/volt-driver/tests/cross_file_visibility_tests.rs`: tanı tablosu
+(düzeltmeden önce düşen dokuz test: bundle indeksi, uzunluğu, `for`
+sınırı, glob, generic gövdesi, bundle tipi, payload, W1002), denetimler
+(çözücünün gördüğü konumlar, sayaç sınırı, alan, E1003/E1010, tanımsız
+adın E2021'i) ve Verilator'da davranış (takma adlı const ile bundle
+seçimi ve `for` sınırı, takma adlı bundle tipi; denetim: private'tan
+tanımlanan `pub` const, glob, generic gövdesinin kendi private'ı; beklenen
+değerler elle). `volt_ast::visibility` birim testleri,
+`tests/ui/multifile/privconst` (E1001) ve `aliasconst` (PASS).

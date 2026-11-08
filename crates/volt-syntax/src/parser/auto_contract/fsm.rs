@@ -25,6 +25,7 @@ use std::collections::HashMap;
 
 use volt_ast::{AutoReach, AutoRule, BinOp, ContractKind, Expr, Idx, SourceFile};
 
+use super::super::mono::unroll::Consts;
 use super::gen::{Spec, G};
 use super::scan::{ArmPat, Lit, RegInfo, RegMatch, Scan};
 use super::value_of;
@@ -34,12 +35,7 @@ pub(super) const MAX_TRANSITIONS: usize = 16;
 /// FSM başına en çok durum cover'ı; aşılırsa F2 üretilmez.
 pub(super) const MAX_STATES: usize = 16;
 
-pub(super) fn specs(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    scan: &Scan,
-    reg: &RegInfo,
-) -> Vec<Spec> {
+pub(super) fn specs(ast: &SourceFile, consts: &Consts, scan: &Scan, reg: &RegInfo) -> Vec<Spec> {
     let Some(fsm) = recognize(ast, consts, scan, reg) else {
         return Vec::new();
     };
@@ -198,12 +194,7 @@ fn transition_reach(m: &RegMatch, arm: usize, dist: &HashMap<i128, u32>) -> Auto
     }
 }
 
-fn recognize(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    scan: &Scan,
-    reg: &RegInfo,
-) -> Option<Fsm> {
+fn recognize(ast: &SourceFile, consts: &Consts, scan: &Scan, reg: &RegInfo) -> Option<Fsm> {
     let name = &reg.name;
     let writes = scan.writes.get(name)?;
     let max = super::max_value(reg.width);

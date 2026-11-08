@@ -580,7 +580,7 @@ pub fn load_unit_with_text(main: &Path, main_text: Option<String>) -> std::io::R
         .iter()
         .map(|(fid, _)| (*fid, loader.texts[fid].as_str()))
         .collect();
-    let parsed = volt_syntax::parse_unit(&sources);
+    let parsed = volt_syntax::parse_unit(&sources, &loader.info);
     register_generated(&mut loader.map, &parsed.generated);
     Ok(LoadedUnit {
         map: loader.map,
