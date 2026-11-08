@@ -115,6 +115,11 @@ impl Parser<'_> {
         }
 
         let mut ctx = self.build_ctx(&p, refs, full_span);
+        // Aşama değerinin adı kullanıldığı yerin kapsam zincirinde çözülür
+        // (#137): iç bloğun `let`'i ya da döngü değişkeni onu gölgeler.
+        // Aşama gövdesinin üst düzey `let`'leri aşama değerinin kendisidir.
+        let outer_scopes = std::mem::take(&mut self.scopes);
+        self.scopes.push();
 
         // Aşama gövdelerini yeniden yaz; let'leri kaldır (hoist).
         // hoisted: (isim, aşama, LetDecl); remainder: aşamada kalan
@@ -164,6 +169,7 @@ impl Parser<'_> {
         // Çözülmemiş stage referansları (bozuk hedefler) Error kalır;
         // tanıları resolve_stage_ref üretti. Kalanları temizle.
         ctx.refs.clear();
+        self.scopes = outer_scopes;
 
         // Stall/flush kümeleri.
         let (stall_conds, ends_at) = self.stall_sets(&p, &ctx);
@@ -420,8 +426,17 @@ impl Parser<'_> {
             StmtKind::On(on) => blocks.push(on.body),
             StmtKind::Comb(b) => blocks.push(*b),
             StmtKind::For(f) => {
-                exprs.extend([f.start, f.end]);
-                blocks.push(f.body);
+                // Modül düzeyi `for` (açılım sonra): değişkeni gövdesini
+                // kuşatır.
+                let f = f.clone();
+                let mut fl = RefFlags::default();
+                self.rw_expr(f.start, None, ctx, &mut fl);
+                self.rw_expr(f.end, None, ctx, &mut fl);
+                self.scopes.push();
+                self.scopes.declare_local(&f.var, true);
+                self.rw_block(f.body, None, ctx);
+                self.scopes.pop();
+                return;
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
@@ -445,14 +460,19 @@ impl Parser<'_> {
 
     fn rw_block(&mut self, bi: Idx<Block>, cs: Option<usize>, ctx: &mut Ctx) {
         let stmts = std::mem::take(&mut self.ast.blocks[bi].stmts);
+        self.scopes.push();
         for bs in &stmts {
             self.rw_block_stmt(bs, cs, ctx);
+            if let BlockStmt::Let(l) = bs {
+                self.scopes.declare_local(&l.name, false);
+            }
         }
         self.ast.blocks[bi].stmts = stmts;
         if let Some(tail) = self.ast.blocks[bi].tail {
             let mut fl = RefFlags::default();
             self.rw_expr(tail, cs, ctx, &mut fl);
         }
+        self.scopes.pop();
     }
 
     fn rw_block_stmt(&mut self, bs: &BlockStmt, cs: Option<usize>, ctx: &mut Ctx) {
@@ -483,7 +503,10 @@ impl Parser<'_> {
             BlockStmt::For(f) => {
                 self.rw_expr(f.start, cs, ctx, &mut fl);
                 self.rw_expr(f.end, cs, ctx, &mut fl);
+                self.scopes.push();
+                self.scopes.declare_local(&f.var, true);
                 self.rw_block(f.body, cs, ctx);
+                self.scopes.pop();
             }
             BlockStmt::Error => {}
         }
@@ -513,7 +536,14 @@ impl Parser<'_> {
             if path.segments.len() == 1 {
                 let nm = path.segments[0].text.clone();
                 let span = self.ast.exprs[e].span;
-                if let Some(vstage) = ctx.values.get(&nm).map(|v| v.stage) {
+                // Yerel (iç blok `let`'i, döngü değişkeni) aşama değerini
+                // gölgeler: kullanım yereldedir, yeniden yazılmaz (#137).
+                let value = ctx
+                    .values
+                    .get(&nm)
+                    .filter(|_| !self.scopes.is_local(&nm))
+                    .map(|v| v.stage);
+                if let Some(vstage) = value {
                     match cs {
                         Some(s) if vstage == s => {}
                         Some(s) if vstage < s => {

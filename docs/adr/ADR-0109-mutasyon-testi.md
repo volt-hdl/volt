@@ -570,3 +570,123 @@ literal_fold\.rs:.*for_each_assignment|expr\.rs:.*(fold_literal_arith|literal_va
 ```
 
 21 mutant: 20 caught, 0 missed, 1 timeout (`literal_fold.rs:154` `+=` → `*=`, sayaç ilerlemez; yukarıdakiyle aynı), 0 unviable. Derinlik sayacının mutantları koddan kalktığı için listede yok.
+
+## Kapsam genişlemesi ve hedefli koşu (#136, #137, #138, 2026-11-08)
+
+PR'ın değiştirdiği fonksiyonların mutantları; önceki karar metni değişmedi.
+
+**Kapsam.** `examine_globs`'a on dosya girdi: ayrıştırıcının ad eşleyen
+öteki adımları, #130'un kapsam zincirine bağlandıkları için (ADR-0081 eki
+"Ayrıştırıcının öteki adımları da kapsam zincirinden geçer"):
+
+- `crates/volt-syntax/src/parser/bundle.rs`, `bidir.rs`, `stmt.rs`
+  (ayrıştırma anındaki `p.drive(v)`), `mmio.rs`, `desugar.rs`;
+- `parser/mono/unroll.rs` (modül zinciri ve `eval_const_scoped`'in
+  paylaşılan kullanımı);
+- `parser/auto_contract/mod.rs`, `scan.rs`, `counter.rs`, `fsm.rs`.
+
+`cargo mutants --list` 1360 → 2478 (bu ekin iki `exclude_re` girdisinden sonra). **Tam koşu §3'e sığmaz:** N = 20'de
+⌈2478 / 20⌉ = 124 · 210 sn ≈ 434 dk + 15 dk. #144'ten sonraki 1360 de
+sığmıyordu (⌈1360 / 20⌉ = 68 · 210 sn = 238 dk + 15 dk = 253 dk > 240).
+#130 ekinin öngördüğü bölme (iki koşu) iş akışında yok. Seçenekler
+#156'da, karar bakımcının. Hedefli koşular bu sınırdan etkilenmez.
+
+**Ölçülen t.** Bu koşularda bir mutantın testi 400–680 sn sürdü (derleme
+10–34 sn): §3'ün varsaydığı 210 sn'nin iki-üç katı. Araçlı testler
+(Verilator, 147–155 araç araması) mutant başına tekrar koşuyor. 64
+mutantlık parça bu hızla ~11 saat sürer, `mutants.yml`'ın parça işi
+sınırını (`timeout-minutes: 330`) aşar. Bu yüzden ikinci koşu 10 parçaya bölündü (#156'ya
+eklendi).
+
+**Hedefli regex.** Değişen fonksiyonlar (`Scopes::module`,
+`declare_outer`, `declare_vanishing`, `declare_local`, `is_local`,
+`declare_block_local`; `unroll_module`, `eval_const_scoped`;
+`parse_block`, `parse_for_stmt`; `bidir.rs`, `bundle.rs`, `mmio.rs`,
+`desugar.rs`'in yeniden yazıcıları; `scan_module`, `contract_chain`,
+`Walker`'ın `declare`, `scope`, `block`, `if_stmt`, `match_stmt`'i;
+`counter`/`fsm` `recognize`, `bound_of`, `is_const_expr`,
+`add_auto_contracts`). Kapsam işi: `184 of 189 listed mutants match the
+regex`, `all 184 mutants in the list match '…'`. Düşürülen beşi alan
+silme mutantı (§ "Hedefli koşu" cargo-mutants hatası).
+
+**Koşular.**
+
+| Koşu | Commit | Liste | Parça | Sonuç |
+|---|---|---|---|---|
+| 42399483964 | 7602326d | 184 | 3 | İptal. Parça 1/3 runner'ın kapanma sinyaliyle düştü (aşağıda), 0/3 ve 2/3 elle iptal edildi. Düşmeden önce 4 + 6 + 8 missed yazdılar. |
+| 42414759728 | bfdc073d | 184 | 10 | Parça 1 yine runner'ın kapanma sinyaliyle düştü; özet `NOT COMPLETED: 1 of 10 shard(s) (1); 19 mutant(s) not tested`, iş düştü (§3). Tamamlanan dokuz parça: 165 test edildi, 136 caught, 27 missed, 0 timeout, 2 unviable; her parçada `Tool ledger [mutants-N]: 147 test(s) asked for a tool; 149 lookup(s) found the tool (149 required), SKIP: 0`. |
+| 42418129389 | 1910f9f3 | 24: parça 1/10'un listesi, `stmt.rs:598:32` hariç (18 konum) | 3 | 24 test edildi: 19 caught, 4 missed, 0 timeout, 1 unviable. Üç parçada `Tool ledger [mutants-N]: 153 test(s) asked for a tool; 155 lookup(s) found the tool (155 required), SKIP: 0`. |
+| 42425788445 | dc0b7693 | 37 missed konumu (bütün koşuların birleşimi; A1 ve A2 `exclude_re`'de) | 10 | 49 test edildi: 46 caught, 3 missed, 0 timeout, 0 unviable. Missed yalnız üç C mutantı (`unroll.rs:572:61`, `574:64`, `575:64`, #159). On parçada `Tool ledger [mutants-N]: 159 test(s) asked for a tool; 161 lookup(s) found the tool (161 required), SKIP: 0`. |
+
+**Runner'ı düşüren mutant.** `stmt.rs:598:32` (`parse_block`, `&&` →
+`||`): `while !self.at(RBrace) && !self.at_eof()` döngüsü dosya sonunda
+durmaz. Kapanmamış blokta (`tests/ui/fail`'de var) ayrıştırıcı her
+turda bir hata deyimi ekler; bellek dolar ve runner kapanır. İki koşuda
+da parça 1, bu mutant listesine geldiği anda `##[error]The runner has
+received a shutdown signal` ile düştü. Mutantın test edilen son
+mutantından ~1 dk sonra düştü. Parçanın özeti ve `Tool ledger` satırı
+yazılmadı, çünkü adım bitmedi. §4'e göre timeout gibi yakalanmış sayılır:
+testler sonlanmayan yolu açığa çıkarıyor. Yerelde doğrulandı: kapanmamış `on clk {` bloğunda mutantlı `volt check` 4 sn'de bitmedi, bellek saniyede ~250 MB büyüdü (266, 513, 789, 1017 MB; süreç öldürüldü); mutantsız ikili hemen bitti. Bu mutantı koşudan
+çıkarmanın ya da `cargo mutants`'a bellek sınırı vermenin kararı #156'da.
+
+**Sınıflandırma (§4).** Missed'lerin birleşimi (aynı mutant iki koşuda
+missed ise bir kez sayıldı). Her B mutantı elle uygulandı, test düştü,
+mutant geri alındı. Araçlı testler yerelde Verilator 5.052 imajında
+(`VOLT_REQUIRE_TOOLS=verilator`) ya da `volt test`'in Docker arka ucuyla
+koştu.
+
+| Mutant | Sınıf | Öldüren test |
+|---|---|---|
+| `counter.rs:102:28` koruma `c.bound == v` → `false` | B | sim `two_increments_under_the_same_bound_keep_the_counter_contract` |
+| `counter.rs:184:45` `&&` → `\|\|` | B | sim `a_guard_on_another_signal_is_not_a_counter_bound` |
+| `counter.rs:186:42` `&&` → `\|\|` (aynalanmış kol) | B | sim `a_mirrored_guard_on_another_signal_is_not_a_counter_bound` |
+| `fsm.rs:215:44` `&&` → `\|\|` | B | sim `a_register_without_a_match_on_it_is_not_an_fsm` |
+| `fsm.rs:269:33` `==` → `!=` (geçiş tekrarı) | B | sim `one_transition_written_twice_in_an_arm_is_one_cover` (mutantta 0 → 1 iki cover) |
+| `fsm.rs:280:53` `!=` → `==` (ayrık değer sayımı) | B | sim `an_fsm_that_never_returns_to_reset_keeps_its_transition_covers` (mutantta cover yok) |
+| `auto_contract/mod.rs:166:45` `&&` → `\|\|` | B | sim `a_binary_bound_with_one_local_operand_is_not_constant` |
+| `auto_contract/mod.rs:168:9` eksi kolu silme | B | sim `a_negated_constant_bound_keeps_the_counter_contract` |
+| `scan.rs:197:13` `comb` kolu silme | B | sim `a_match_in_comb_makes_the_register_an_fsm` (mutantta durum cover'ı yok) |
+| `scan.rs:198:13` `Assign` kolu silme | A2 | aşağıda |
+| `scan.rs:303:49` `\|\|` → `&&` | B | sim `a_constant_written_in_a_loop_gets_no_counter_contract` (mutantta `auto counter wrap`) |
+| `scan.rs:366:20` koruma → `true`, `366:42` `&&` → `\|\|` | #138 hücresi a05b | sim `a_match_on_a_local_enum_named_like_the_state_keeps_the_fsm` (aşağıda) |
+| `bidir.rs:132:54` koruma → `true`, `157:13` `(BIDIR_READ, _)` kolu silme | B (tanı metni) | `bidir_tests::e4008_names_a_read_statement_and_the_drive_low_arity` |
+| `bidir.rs:144:13` kol silme, `147:47` `==` → `!=` | B | aynı test |
+| `bidir.rs:211:17` extern kolu silme | B | `bidir_tests::an_extern_inout_port_must_be_scalar` |
+| `bundle.rs:237:39` `\|\|` → `&&` | B | sim `no_protocol_check_on_a_bundle_array_port_drops_its_assumptions` |
+| `bundle.rs:446:24` koruma → `true` | B | diag `a_bundle_array_length_outside_1_to_256_is_e2008` |
+| `bundle.rs:842:38` koruma → `true`, `842:60` `&&` → `\|\|` | B | diag `a_qualified_path_is_not_a_bundle_port` |
+| `mmio.rs:1142:20` `!` silme | B | diag `a_module_level_write_to_a_hardware_field_is_rewritten` |
+| `mmio.rs:1323:38` koruma → `true`, `1323:60` `&&` → `\|\|` | B | diag `a_qualified_path_is_not_the_register_handle` |
+| `desugar.rs:549:43` `<` → `<=` | A1 | aşağıda |
+| `unroll.rs:564:14` `>` → `>=`, `==` | B | `unroll_tests::a_bound_nested_64_deep_is_folded` |
+| `unroll.rs` 577, 579, 580, 581, 582, 583: `+`, `*`, `/`, `%`, `<<`, `>>` kolunu silme | B | `unroll_tests::every_arithmetic_operator_of_a_bound_is_folded` |
+| `unroll.rs:589:50` `depth + 1` → `depth * 1` (const adı) | B | `unroll_tests::a_const_cycle_in_a_bound_is_an_error_not_a_stack_overflow` (mutantta yığın taşar) |
+| `unroll.rs` 572:61, 574:64, 575:64 `depth + 1` → `depth * 1` | C | #159 |
+| `stmt.rs:598:32` `&&` → `\|\|` | timeout gibi (yukarıda) | runner'ı düşürür |
+
+Özet: 37 konumda 38 missed mutant. 33'ü B ya da #138 (testi yazıldı), 1'i A1, 1'i A2, 3'ü C (#159). Ek olarak `stmt.rs:598:32` sonlanmıyor.
+
+- **A1 (1), `exclude_re`:** `desugar.rs:549:43` `<` → `<=` (`rw_expr`):
+  `Some(s) if vstage == s` kolu bir önceki koldur. `vstage == s`'de `<=`
+  kolu hiç çalışmaz.
+- **A2 (1), `exclude_re`:** `scan.rs:198:13`, `scan_module`'ün
+  `StmtKind::Assign` kolunun silinmesi. Ulaşılabilir ama gözlenemez:
+  register'a modül düzeyinde `=` her zaman E0019'dur
+  (`register_assign.rs`, ADR-0098). Kol silinince register sayaç
+  kontratı alır, ama derleme E0019'da durur ve tanılar aynıdır
+  (`md5` aynı). Dayanağı test:
+  `parser_rewrite_scope_diag_tests::a_counter_assigned_at_module_level_is_only_e0019`.
+- **C (3): #159.** `eval_const_scoped`'un derinlik sayacı (`unroll.rs`
+  572:61, 574:64, 575:64, `depth + 1` → `depth * 1`). Mutantlar 64'ten
+  derin ifadeyi kabul eder: daha doğru davranırlar. Şartnamede derinlik
+  sınırı yok: 65 terimlik `1 + … + 1` sınırı E2021 alıyor, döngüsel const
+  E2020 yerine E2021 alıyor, 64 halkalı zincirin sayacı kontratsız
+  kalıyor. §4'e göre bu işte düzeltilmedi, #159 düzelene kadar açık.
+  Aynı sayacın const adı kolundaki mutantı (589:50) döngüsel const'ta
+  yığını taşırır, B olarak öldürüldü.
+- **Bulunan hata: #138'in bir hücresi (a05b), aynı PR'da düzeltildi.**
+  `scan.rs:366:20` (`match_stmt`'in `is_local` koruması → `true`). Bu
+  PR'ın koruması `main`'de yoktu. `comb`'da FSM register'ını gölgeleyen
+  `let st : Color`'ın `match`'i register'ınki sayılıyordu. `Color::R`
+  deseni `u2` register'ına uymadığından FSM düşüyordu (3 geçiş cover'ı →
+  0). Test `main` ikilisinde düşüyor.

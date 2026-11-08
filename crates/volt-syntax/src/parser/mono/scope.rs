@@ -22,9 +22,20 @@
 //! (HIR) gölgelemenin iki ucunu da gördüğünde W1002'yi kendisi verir;
 //! uçlardan biri açılımda kaybolursa (döngü değişkeni, yeniden adlanan
 //! gövde `let`'i) W1002'yi açılım verir ([`shadowing_warning`]).
+//!
+//! Aynı zincir ayrıştırıcının ad eşleyen öteki adımlarında da kullanılır
+//! (#136, #137, #138; ADR-0081 eki "Ayrıştırıcının öteki adımları da
+//! kapsam zincirinden geçer"): bundle düzleştirmesi, çift yönlü port
+//! açılımı, `@mmio` tutamacı, pipeline aşama değerleri ve otomatik
+//! kontrat çıkarımı gövdeyi gezerken blok `let`'ini ve döngü değişkenini
+//! [`Scopes::declare_local`] ile bildirir, bir tabanı yeniden yazmadan
+//! önce [`Scopes::is_local`] ile sorar; ayrıştırıcının sabit
+//! değerlendirmesi kök const'u yalnız [`Scopes::bound_above_root`] yanlışsa
+//! kabul eder.
 
 use std::collections::HashMap;
 
+use volt_ast::{Idx, Item, ItemKind, Name, SourceFile};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
@@ -73,6 +84,89 @@ pub(crate) struct Scopes {
 }
 
 impl Scopes {
+    /// Bir modül gövdesinin kapsam zinciri: kök kapsam (birimin öğeleri)
+    /// ve modül kapsamı (monomorfun generic parametreleri, portlar). Modül
+    /// gövdesinin bildirimlerini gezen geçit sırayla ekler (§4, §5).
+    pub(crate) fn module(ast: &SourceFile, item: Idx<Item>) -> Scopes {
+        let mut chain = Scopes::default();
+        chain.push();
+        for &i in &ast.items {
+            let name = match &ast.items_arena[i].kind {
+                ItemKind::Module(m) => &m.name,
+                ItemKind::Domain(d) => &d.name,
+                ItemKind::Fn(f) => &f.name,
+                ItemKind::Struct(s) => &s.name,
+                ItemKind::Enum(e) => &e.name,
+                ItemKind::Const(c) => &c.name,
+                ItemKind::TypeAlias(t) => &t.name,
+                ItemKind::Extern(x) => &x.name,
+                ItemKind::Test(_) | ItemKind::Error => continue,
+            };
+            chain.declare_outer(name);
+        }
+        chain.push();
+        if let ItemKind::Module(m) = &ast.items_arena[item].kind {
+            if let Some(params) = ast.generate.mono_generics.get(&m.name.span) {
+                for p in params {
+                    chain.declare_outer(p);
+                }
+            }
+            for p in &m.ports {
+                chain.declare_outer(&p.name);
+            }
+        }
+        chain
+    }
+
+    /// Çözücünün de gördüğü bir bildirim (öğe, port, modül sinyali).
+    pub(crate) fn declare_outer(&mut self, name: &Name) {
+        self.declare(
+            &name.text,
+            Entry {
+                binding: Binding::Outer,
+                span: name.span,
+                resolver_sees: true,
+            },
+        );
+    }
+
+    /// Açılımda kaybolan modül kapsamı adı: bundle portu (düz portlara
+    /// açılır) ya da `@mmio` tutamacı `regs`. Çözücü onu görmez; onu
+    /// gölgeleyen yerelin W1002'sini gezen geçit verir.
+    pub(crate) fn declare_vanishing(&mut self, name: &Name) {
+        self.declare(
+            &name.text,
+            Entry {
+                binding: Binding::Outer,
+                span: name.span,
+                resolver_sees: false,
+            },
+        );
+    }
+
+    /// Gezilen gövdenin yereli: blok `let`'i ya da döngü değişkeni. Dönüş:
+    /// örttüğü dış bağ (gölgeleme, §6).
+    pub(crate) fn declare_local(&mut self, name: &Name, loop_var: bool) -> Option<Entry> {
+        self.declare(
+            &name.text,
+            Entry {
+                binding: Binding::Inner { loop_var },
+                span: name.span,
+                resolver_sees: true,
+            },
+        )
+    }
+
+    /// Ad, gezilen gövdenin bir yereline (blok `let`'i, döngü değişkeni)
+    /// mı bağlı? Öyleyse dıştaki port, tutamaç ya da aşama değeri
+    /// gölgelenmiştir ve kullanım yeniden yazılmaz (§2, §6).
+    pub(crate) fn is_local(&self, name: &str) -> bool {
+        matches!(
+            self.resolve(name).map(|e| &e.binding),
+            Some(Binding::Inner { .. })
+        )
+    }
+
     pub(crate) fn push(&mut self) {
         self.frames.push(Frame::default());
     }
@@ -182,6 +276,25 @@ pub(crate) fn loop_var_pattern_error(text: &str, span: Span, decl: Span) -> Diag
     )
 }
 
+impl crate::parser::Parser<'_> {
+    /// Gezilen gövdenin yerelini (blok `let`'i, döngü değişkeni) birim sonu
+    /// geçidinin zincirine ([`Parser::scopes`]) bildirir. Yerel, çözücünün
+    /// görmediği bir adı (bundle portu, `@mmio` tutamacı) gölgeliyorsa
+    /// W1002'yi geçit verir (§6). Generic modülün monomorflarındaki
+    /// kopyalar yalnız `Span.ctx`'leriyle ayrışır; sürücü onları
+    /// `volt_hir::annotate_generate`'te katlar (ADR-0068), kaynak satırı
+    /// başına bir uyarı kalır.
+    pub(crate) fn declare_block_local(&mut self, name: &Name, loop_var: bool) {
+        let Some(outer) = self.scopes.declare_local(name, loop_var) else {
+            return;
+        };
+        if !outer.resolver_sees {
+            self.diagnostics
+                .push(shadowing_warning(&name.text, name.span, outer.span));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +365,86 @@ mod tests {
             Some(&Binding::Renamed("i_0".into()))
         );
         assert!(s.resolve("b").is_none());
+    }
+
+    fn name(text: &str, start: u32) -> Name {
+        Name {
+            text: text.into(),
+            span: Span::new(volt_span::FileId(0), start, start + 1),
+        }
+    }
+
+    /// Yeniden yazan adımların sorusu (#137): ad bir yerele mi bağlı? Port
+    /// ya da tutamaç yerel değildir; blok `let`'i ve döngü değişkeni
+    /// yereldir ve yalnız kendi kapsamında.
+    #[test]
+    fn only_a_block_let_or_a_loop_variable_is_local() {
+        let mut s = Scopes::default();
+        s.push();
+        s.declare_outer(&name("aw", 0));
+        s.declare_vanishing(&name("regs", 1));
+        assert!(!s.is_local("aw"));
+        assert!(!s.is_local("regs"));
+        assert!(!s.is_local("unknown"));
+        s.push();
+        assert!(s.declare_local(&name("x", 2), false).is_none());
+        let shadowed = s.declare_local(&name("aw", 3), false);
+        assert_eq!(shadowed.map(|e| e.binding), Some(Binding::Outer));
+        assert!(s.is_local("aw"));
+        assert!(s.is_local("x"));
+        s.push();
+        s.declare_local(&name("regs", 4), true);
+        assert!(s.is_local("regs"));
+        s.pop();
+        assert!(!s.is_local("regs"));
+        s.pop();
+        assert!(!s.is_local("aw"));
+        assert!(!s.is_local("x"));
+    }
+
+    /// Kaybolan adı gölgeleyen yerel, çözücünün görmediği bağı döndürür
+    /// (W1002'yi adım verir); görünen adı gölgeleyen yerel görüleni.
+    #[test]
+    fn a_local_reports_whether_the_resolver_sees_what_it_shadows() {
+        let mut s = Scopes::default();
+        s.push();
+        s.declare_outer(&name("p", 0));
+        s.declare_vanishing(&name("regs", 1));
+        s.push();
+        let seen = s.declare_local(&name("p", 2), false).expect("gölgeler");
+        assert!(seen.resolver_sees);
+        let vanished = s.declare_local(&name("regs", 3), false).expect("gölgeler");
+        assert!(!vanished.resolver_sees);
+        assert_eq!(vanished.span, name("regs", 1).span);
+    }
+
+    /// Modül zinciri: kök kapsamda birimin öğeleri, modül kapsamında
+    /// portlar; port kök const'u gölgeler (`bound_above_root`), öğe
+    /// gölgelemez (#136).
+    #[test]
+    fn the_module_chain_puts_items_at_the_root_and_ports_above_it() {
+        let src = "const K : u32 = 1
+const J : u32 = 2
+module M {
+    in  K : u8
+    out y : u8
+    y = K
+}
+";
+        let parsed = crate::parse(volt_span::FileId(0), src);
+        let ast = &parsed.ast;
+        let item = ast
+            .items
+            .iter()
+            .copied()
+            .find(|&i| matches!(ast.items_arena[i].kind, ItemKind::Module(_)))
+            .expect("modül");
+        let s = Scopes::module(ast, item);
+        assert!(s.bound_above_root("K"));
+        assert!(!s.bound_above_root("J"));
+        assert!(!s.bound_above_root("M"));
+        assert!(s.resolve("J").is_some());
+        assert!(s.resolve("y").is_some());
+        assert!(!s.is_local("K"));
     }
 }

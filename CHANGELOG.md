@@ -9,6 +9,40 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Ayrıştırıcının ad eşleyen öteki adımlarında
+  da ad kapsam zincirinde çözülür (#136, #137, #138; name-resolution.md
+  §2, §4, §6; ADR-0081 eki "Ayrıştırıcının öteki adımları da kapsam
+  zincirinden geçer"). Bir blok `let`'i ya da döngü değişkeni bundle
+  portunu, çift yönlü portu, `@mmio` tutamacı `regs`'i ya da pipeline
+  aşama değerini gölgelediğinde kullanım artık yereli okur. Üretilen SV
+  değişir (#137): `let tx : Flags = …` sonrası `tx.fired` 0.1.0'da
+  portun `tx_valid && tx_ready`'siydi, şimdi yerelin alanı; `let dq : St
+  = …` sonrası `dq.released` `!dq_oe` değil yerelin alanı; `let regs :
+  Regs = …` sonrası `regs.control.enable` register haritası değil
+  yerelin alanı; aşamadaki `for a in 0..2 { r[a] <= x }` 0.1.0'da iki
+  kez `r[a_a_r]`'ye yazıyordu, şimdi `r[0]` ve `r[1]`'e. Bundle dizisinin
+  indeksi ve uzunluğu kullanıldığı yerde değerlendirilir (#136): kök
+  const'u gölgeleyen port, modül `let`'i, blok `let`'i ya da döngü
+  değişkeni artık E2008 verir (0.1.0 kök const'u okuyup `rx[0]`'ı
+  seçiyordu). Çıkarılan sözleşme değişir (#138): sınırı ya da sabit
+  yazması bir blok `let`'i olan sayaç ve FSM artık sözleşme almaz; 0.1.0
+  `let`'i gölgelediği kök const sanıp tasarımda doğru olmayan bir
+  `invariant` (`volt test`'te ihlal, `volt verify`'da karşı örnek) ya da
+  hiç olmayan bir geçişin kapsam ölçüsünü üretiyordu. FSM register'ını
+  gölgeleyen enum tipli yerelin `match`'i (`comb { let st : Color = c;
+  match st { … } }`) artık FSM'i düşürmez: 0.1.0 o `match`'i register'ın
+  sanıp geçiş kapsam ölçülerinin hiçbirini üretmiyordu. Önceden reddedilen
+  girdiler derlenir (pipeline'ın modül düzeyi `comb`'undaki yerel `let`,
+  aşama değeriyle aynı adda olunca E5012 veriyordu); bundle portunu ya da
+  `regs`'i gölgeleyen yerel yeni bir W1002 alır, bundle portunu
+  gölgeleyen `u8` yerelin alanına erişim artık E2003, `inout` portu
+  gölgeleyen yerelde `dq.drive(v)` E0001, yerelin `regs` alanına yazma
+  E4006 yerine E4001 verir.
+
+  0.1.0'dan yükseltirken: bir port, tutamaç, aşama değeri ya da kök
+  const'la aynı adı bir blokta yeniden kullanan tasarımın SV'si ve
+  çıkarılan sözleşmeleri değişebilir; yeni W1002 uyarıları ve E2008
+  hataları bu yerleri gösterir.
 - **Davranış değişikliği.** Yalnız literal içeren aritmetik (iki literal,
   generic parametre, `comb` içi `for` değişkeni) derleme anında tam
   değeriyle hesaplanır ve SystemVerilog'a tek bir literal olarak yazılır

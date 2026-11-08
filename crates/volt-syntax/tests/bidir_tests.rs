@@ -282,3 +282,38 @@ fn drive_calls_inside_nested_if_and_match_are_rewritten() {
         vec![("reg", "sda_drive_low".to_string())]
     );
 }
+
+/// E4008'in metni yanlışın kendisini adlandırır (ADR-0109 §4: tanı metni
+/// gözlenebilir çıktıdır). `p.read()` deyim olarak "bir ifadedir", bilinmeyen
+/// üye değil; `drive_low(x)` argüman sayısını söyler. Hedefli mutasyon
+/// koşusunun (#136–#138) kör noktaları: `read` kolunun silinmesi ve
+/// `drive_low` koruması `true` olunca kod aynı kalıyordu.
+#[test]
+fn e4008_names_a_read_statement_and_the_drive_low_arity() {
+    let message = |src: &str| {
+        let res = p(src);
+        assert_eq!(res.error_codes(), vec!["E4008"], "{src}");
+        res.diagnostics[0].message.clone()
+    };
+    let read = message(
+        "module M {\n    in clk : clock\n    inout dq : u8\n    in w : u8\n    on clk {\n        dq.read()\n        dq.drive(w)\n    }\n}\n",
+    );
+    assert_eq!(read, "'dq.read()' is an expression, not a statement");
+    let arity = message(
+        "module M {\n    in clk : clock\n    in c : bool\n    opendrain sda : bool\n    on clk { sda.drive_low(c) }\n}\n",
+    );
+    assert_eq!(arity, "'sda.drive_low()' takes 0 argument(s), 1 given");
+}
+
+/// Extern modülün çift yönlü portu da tip kuralına tabidir (ADR-0051):
+/// dizi tipli `inout` E4008. Hedefli mutasyon koşusunun kör noktası:
+/// `expand_bidir_ports`'un extern kolu silinince kabul ediliyordu.
+#[test]
+fn an_extern_inout_port_must_be_scalar() {
+    let res = p("extern module Pad {\n    inout dq : [u8; 2]\n}\n");
+    assert_eq!(res.error_codes(), vec!["E4008"]);
+    assert_eq!(
+        res.diagnostics[0].message,
+        "an 'inout' port must be 'bool', 'uN', 'iN' or 'bits<N>'"
+    );
+}
