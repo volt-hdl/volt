@@ -4,6 +4,13 @@ use volt_span::FileId;
 use volt_sv_emit::{emit_full, emit_unit, ConstArrayStyle, SourceText, SvaMode};
 use volt_syntax::{parse, parse_unit};
 
+/// Dosya 0 `lib` paketidir (ADR-0042).
+fn lib_info() -> volt_syntax::unit::UnitInfo {
+    let mut info = volt_syntax::unit::UnitInfo::default();
+    info.add(FileId(0), vec!["lib".to_string()]);
+    info
+}
+
 const TWO: &str = "module A { in clk : clock in x : bool out y : bool y = x }\nmodule B { in clk : clock in x : bool out y : bool y = !x }\n";
 
 #[test]
@@ -41,7 +48,7 @@ fn emit_full_returns_one_sv_per_module_with_module_header() {
 fn per_module_header_names_the_module_source_file() {
     let a = "package lib;\npub module A { in clk : clock in x : bool out y : bool y = x }\n";
     let b = "use lib::A;\nmodule B { in clk : clock in x : bool out y : bool y = !x }\n";
-    let parsed = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let parsed = parse_unit(&[(FileId(0), a), (FileId(1), b)], &lib_info());
     let sources = [
         SourceText {
             file: FileId(1),
@@ -79,7 +86,7 @@ fn per_module_header_names_the_module_source_file() {
 fn sva_comment_lines_are_numbered_per_source_file() {
     let a = "package lib;\n\n\npub module A {\n    in clk : clock\n    in x : bool\n    out y : bool\n    invariant: y == x\n    y = x\n}\n";
     let b = "use lib::A;\nmodule B {\n    in clk : clock\n    in x : bool\n    out y : bool\n    invariant: y != x\n    y = !x\n}\n";
-    let parsed = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let parsed = parse_unit(&[(FileId(0), a), (FileId(1), b)], &lib_info());
     let sources = [
         SourceText {
             file: FileId(1),

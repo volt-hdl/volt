@@ -3,13 +3,13 @@
 //! (ADR-0042, §3.3) kayıt `unit::check_imports`'ta yapılmıştır, burada
 //! yalnız kök kapsam araması dosya başına süzülür.
 
+use volt_ast::visibility::RootFilter;
 use volt_ast::{Name, UseTree};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use super::def::{synthetic_span, DefId, DefKind};
 use super::scope::ScopeId;
 use super::Resolver;
-use crate::unit::mono_base;
 
 impl Resolver<'_> {
     pub(super) fn collect_imports(&mut self) {
@@ -60,26 +60,22 @@ impl Resolver<'_> {
     }
 
     /// Kapsamda ad araması. Kök kapsamda derleme birimi süzgeci uygulanır
-    /// (ADR-0042): başka dosyanın öğesi yalnız import edilmişse görünür;
-    /// `use a::B as C` takma adı kök addan önce çözülür. Monomorfize
-    /// örnekler (`Fifo_8_16`) şablon adının görünürlüğünü devralır.
+    /// (ADR-0042): başka dosyanın öğesi yalnız o dosyadan import
+    /// edilmişse görünür; `use a::B as C` takma adı kök addan önce çözülür.
+    /// Monomorfize örnekler (`Fifo_8_16`) şablon adının görünürlüğünü
+    /// devralır. Kural `volt_ast::visibility::RootFilter`'dadır;
+    /// ayrıştırıcının birim sonu adımları da onu sorar (#139).
     pub(super) fn scope_get(&self, scope: ScopeId, name: &str) -> Option<DefId> {
         let bindings = &self.scope(scope).bindings;
         let Some(scopes) = self.file_scopes.filter(|_| scope == self.root) else {
             return bindings.get(name).copied();
         };
-        let file_scope = scopes.get(&self.current_file);
-        let target = file_scope
-            .and_then(|s| s.aliases.get(name))
-            .map_or(name, String::as_str);
-        let def = bindings.get(target).copied()?;
-        let data = &self.def(def);
-        if data.span.file == self.current_file || data.span == synthetic_span() {
-            return Some(def);
-        }
-        let visible = file_scope
-            .is_some_and(|s| s.visible.contains(name) || s.visible.contains(mono_base(name)));
-        visible.then_some(def)
+        let filter = RootFilter::new(Some(scopes));
+        let def = bindings
+            .get(filter.root_name(self.current_file, name))
+            .copied()?;
+        let span = self.def(def).span;
+        (span == synthetic_span() || filter.sees(self.current_file, name, span.file)).then_some(def)
     }
 }
 

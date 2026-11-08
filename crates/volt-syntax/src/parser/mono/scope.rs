@@ -35,6 +35,7 @@
 
 use std::collections::HashMap;
 
+use volt_ast::visibility::{item_name, RootFilter};
 use volt_ast::{Idx, Item, ItemKind, Name, SourceFile};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -84,25 +85,33 @@ pub(crate) struct Scopes {
 }
 
 impl Scopes {
-    /// Bir modül gövdesinin kapsam zinciri: kök kapsam (birimin öğeleri)
-    /// ve modül kapsamı (monomorfun generic parametreleri, portlar). Modül
-    /// gövdesinin bildirimlerini gezen geçit sırayla ekler (§4, §5).
+    /// Bir modül gövdesinin kapsam zinciri: kök kapsam ve modül kapsamı
+    /// (monomorfun generic parametreleri, portlar). Modül gövdesinin
+    /// bildirimlerini gezen geçit sırayla ekler (§4, §5).
+    ///
+    /// Kök kapsam, modülün dosyasından görünen öğelerdir (§3.3, #139):
+    /// kendi dosyasının öğeleri ve `use` ile getirilenler (takma adlılar
+    /// yerel adlarıyla). Başka dosyanın getirilmemiş öğesi kökte yoktur:
+    /// onu ne gölgeleme (W1002) ne de sabit değerlendirmesi görür.
     pub(crate) fn module(ast: &SourceFile, item: Idx<Item>) -> Scopes {
         let mut chain = Scopes::default();
         chain.push();
+        let file = ast.items_arena[item].span.file;
+        let filter = RootFilter::new(ast.file_scopes.as_ref());
         for &i in &ast.items {
-            let name = match &ast.items_arena[i].kind {
-                ItemKind::Module(m) => &m.name,
-                ItemKind::Domain(d) => &d.name,
-                ItemKind::Fn(f) => &f.name,
-                ItemKind::Struct(s) => &s.name,
-                ItemKind::Enum(e) => &e.name,
-                ItemKind::Const(c) => &c.name,
-                ItemKind::TypeAlias(t) => &t.name,
-                ItemKind::Extern(x) => &x.name,
-                ItemKind::Test(_) | ItemKind::Error => continue,
+            let it = &ast.items_arena[i];
+            let Some(name) = item_name(&it.kind) else {
+                continue;
             };
-            chain.declare_outer(name);
+            if filter.sees(file, &name.text, it.span.file) {
+                chain.declare_outer(name);
+            }
+        }
+        let imported = ast.file_scopes.as_ref().and_then(|s| s.get(&file));
+        for (local, (_, item, name)) in imported.map(|s| &s.origin).into_iter().flatten() {
+            if local != item {
+                chain.declare_outer(name);
+            }
         }
         chain.push();
         if let ItemKind::Module(m) = &ast.items_arena[item].kind {
@@ -273,6 +282,72 @@ pub(crate) fn loop_var_pattern_error(text: &str, span: Span, decl: Span) -> Diag
     .with_secondary(
         decl,
         lstr!(en: "'{text}' is declared here"; tr: "'{text}' burada bildiriliyor"),
+    )
+}
+
+/// Sabit konumundaki ifadede (modül düzeyi `for` sınırı, bundle dizisi
+/// uzunluğu ya da indeksi) birimin başka bir dosyasında bildirilmiş ama
+/// buradan görünmeyen ilk yalın ad: zincirde (yerel, port, modül
+/// bildirimi, ileride bildirilecek ad, modülün dosyasından görünen kök
+/// öğe) bağı yok. Ayrıştırıcı bu konumları açarken adı yok eder; çözücü
+/// onu göremeyeceğinden E1001'i (name-resolution.md §3.3) açılım verir
+/// ([`invisible_name_error`], #139). Hiç tanımlanmamış ad burada değil:
+/// onun tanısı ADR-0072'nin E2021/E2008'i kalır (#122).
+pub(crate) fn invisible_name<'a>(
+    ast: &'a SourceFile,
+    chain: &Scopes,
+    e: Idx<volt_ast::Expr>,
+) -> Option<&'a Name> {
+    use volt_ast::{ExprKind, UnOp};
+    match &ast.exprs[e].kind {
+        ExprKind::Path(p) if p.segments.len() == 1 => {
+            let name = &p.segments[0];
+            (chain.resolve(&name.text).is_none() && declared_elsewhere(ast, name).is_some())
+                .then_some(name)
+        }
+        ExprKind::Binary { lhs, rhs, .. } => {
+            invisible_name(ast, chain, *lhs).or_else(|| invisible_name(ast, chain, *rhs))
+        }
+        ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } => invisible_name(ast, chain, *operand),
+        _ => None,
+    }
+}
+
+/// `name`in yazıldığı dosyadan başka bir dosyada aynı adla bildirilmiş
+/// kök öğe.
+fn declared_elsewhere<'a>(ast: &'a SourceFile, name: &Name) -> Option<&'a Item> {
+    ast.items.iter().map(|&i| &ast.items_arena[i]).find(|it| {
+        it.span.file != name.span.file && item_name(&it.kind).is_some_and(|n| n.text == name.text)
+    })
+}
+
+/// E1001 — başka dosyanın görünmeyen öğesi (name-resolution.md §3.3);
+/// başlık ve etiket çözücünün E1001'iyle aynı. Yardım öğeyi görünür
+/// kılmayı söyler: başka dosyanın öğesi yalnız `use` ile getirilirse
+/// görünür, getirilebilmesi için `pub` olmalıdır.
+pub(crate) fn invisible_name_error(ast: &SourceFile, name: &Name) -> Diagnostic {
+    let text = &name.text;
+    let help = match declared_elsewhere(ast, name).map(|it| it.visibility) {
+        Some(volt_ast::Visibility::Public) => lstr!(
+            en: "'{text}' is declared in another file of this design: import it with 'use <package>::{text};'";
+            tr: "'{text}' bu tasarımın başka bir dosyasında bildirilmiş: 'use <paket>::{text};' ile içe aktarın"
+        ),
+        _ => lstr!(
+            en: "'{text}' is private to another file of this design: mark it 'pub' there and import it with 'use <package>::{text};'";
+            tr: "'{text}' bu tasarımın başka bir dosyasına özel: orada 'pub' yapın ve 'use <paket>::{text};' ile içe aktarın"
+        ),
+    };
+    Diagnostic::error(
+        ErrorCode::E1001,
+        lstr!(en: "undefined name: '{text}'"; tr: "tanımsız isim: '{text}'"),
+        LabeledSpan::primary(
+            name.span,
+            lstr!(en: "this name could not be resolved"; tr: "bu isim çözülemedi"),
+        ),
+        help,
     )
 }
 

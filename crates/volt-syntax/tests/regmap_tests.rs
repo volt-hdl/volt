@@ -195,7 +195,10 @@ module TimerRegs {
     en = regs.ctrl.enable
 }
 "#;
-    let result = parse_unit(&[(FileId(0), other), (FileId(1), GPIO)]);
+    let result = parse_unit(
+        &[(FileId(0), other), (FileId(1), GPIO)],
+        &Default::default(),
+    );
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
     let names: Vec<&str> = result.regmaps.iter().map(|m| m.module.as_str()).collect();
     assert_eq!(names, ["TimerRegs", "GpioRegs"]);

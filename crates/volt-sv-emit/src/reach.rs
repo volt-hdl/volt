@@ -112,7 +112,7 @@ mod tests {
             .enumerate()
             .map(|(i, t)| (FileId(i as u32), *t))
             .collect();
-        let parsed = volt_syntax::parse_unit(&sources);
+        let parsed = volt_syntax::parse_unit(&sources, &Default::default());
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         parsed.ast
     }

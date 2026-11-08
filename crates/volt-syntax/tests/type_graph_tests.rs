@@ -297,7 +297,7 @@ fn generic_plain_struct_is_not_e0003() {
 fn cycle_across_files_of_one_unit_is_found() {
     let a = "struct A { b : B }\n";
     let b = "struct B { a : A }\nmodule M { in x : u8 }\n";
-    let res = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let res = parse_unit(&[(FileId(0), a), (FileId(1), b)], &Default::default());
     assert_eq!(count(&res, "E4009"), 2, "{:?}", res.error_codes());
 }
 

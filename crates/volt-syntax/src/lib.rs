@@ -7,6 +7,7 @@ pub mod parser;
 pub mod span;
 pub mod stack;
 pub mod token;
+pub mod unit;
 
 pub use lexer::{tokenize, tokenize_with_trivia, LexOutput};
 pub use parser::{

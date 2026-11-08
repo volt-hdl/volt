@@ -22,8 +22,6 @@ fn analyze(files: &[(&str, &str)]) -> (Vec<&'static str>, AnalysisResult) {
         .enumerate()
         .map(|(i, (_, src))| (FileId(i as u32), *src))
         .collect();
-    let parsed = parse_unit(&sources);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
     let mut info = UnitInfo::default();
     for (i, (pkg, _)) in files.iter().enumerate() {
         info.add(
@@ -31,6 +29,8 @@ fn analyze(files: &[(&str, &str)]) -> (Vec<&'static str>, AnalysisResult) {
             pkg.split("::").map(str::to_string).collect(),
         );
     }
+    let parsed = parse_unit(&sources, &info);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
     let imports = check_imports(&parsed.ast, &info);
     let mut codes: Vec<&'static str> = imports
         .diagnostics

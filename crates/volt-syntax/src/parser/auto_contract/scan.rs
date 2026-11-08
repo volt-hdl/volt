@@ -13,7 +13,7 @@ use volt_span::Span;
 
 use super::super::handshake::has_attr;
 use super::super::mono::scope::Scopes;
-use super::super::mono::unroll::{decl_name, eval_const};
+use super::super::mono::unroll::{decl_name, eval_const, Consts};
 use super::NO_AUTO_CONTRACTS;
 
 /// Sabit değerlendirme özyineleme başlangıç derinliği.
@@ -139,7 +139,7 @@ pub(super) struct Scan {
 /// Modülü tarar; saat portu yoksa None (kontratlar ilk saatte örneklenir).
 pub(super) fn scan_module(
     ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
+    consts: &Consts,
     item: Idx<Item>,
     m: &ModuleDecl,
 ) -> Option<Scan> {
@@ -220,11 +220,7 @@ fn contract_chain(ast: &SourceFile, item: Idx<Item>, m: &ModuleDecl) -> Scopes {
 }
 
 /// `uN` / `uint<N>` genişliği; 1..=64 dışı None (u128 aşımı olmasın).
-fn uint_width(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    ty: Idx<volt_ast::TypeRef>,
-) -> Option<u32> {
+fn uint_width(ast: &SourceFile, consts: &Consts, ty: Idx<volt_ast::TypeRef>) -> Option<u32> {
     let w = match &ast.types[ty].kind {
         TypeRefKind::UInt(n) => i128::from(*n),
         TypeRefKind::UIntN(e) => eval_const(ast, consts, *e, DEPTH0)?,
@@ -237,7 +233,7 @@ fn uint_width(
 /// ve varyant kodları.
 fn enum_width(
     ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
+    consts: &Consts,
     ty: Idx<volt_ast::TypeRef>,
 ) -> Option<(u32, Option<EnumInfo>)> {
     let decl = volt_ast::enum_layout::enum_of_type(ast, ty)?;
@@ -265,7 +261,7 @@ fn enum_width(
 
 struct Walker<'a> {
     ast: &'a SourceFile,
-    consts: &'a HashMap<String, Idx<Expr>>,
+    consts: &'a Consts,
     clock: String,
     scan: Scan,
     /// Gezilen yerin kapsam zinciri (#138): kök, modül kapsamı, modül
@@ -411,11 +407,7 @@ impl Walker<'_> {
 
 /// Literal / sabit adı / enum varyantı / alternatif / joker desen; başkası
 /// None.
-fn arm_pattern(
-    ast: &SourceFile,
-    consts: &HashMap<String, Idx<Expr>>,
-    p: Idx<volt_ast::Pattern>,
-) -> Option<ArmPat> {
+fn arm_pattern(ast: &SourceFile, consts: &Consts, p: Idx<volt_ast::Pattern>) -> Option<ArmPat> {
     match &ast.patterns[p].kind {
         PatternKind::Wildcard => Some(ArmPat::Wildcard),
         // Sabit adı deseni (`LIMIT`, ADR-0085) değeriyle; kontrata ad kopyalanır.

@@ -22,17 +22,18 @@
 
 use std::collections::HashMap;
 
+use volt_ast::visibility::{FileScopes, RootFilter};
 use volt_ast::{
     BinOp, Block, BlockStmt, BundleOrigin, ElseBranch, Expr, ExprKind, Idx, IfStmt, Item, ItemKind,
     LValue, LValueSuffix, Name, Path, Port, PortDir, Stmt, StmtKind, TypeRef, TypeRefKind, UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
-use volt_span::Span;
+use volt_span::{FileId, Span};
 
 use super::desugar::{collect_arm_idxs, expr_children, lvalue_suffix_exprs};
 use super::handshake::{has_attr, HandshakeInfo, HANDSHAKE, NO_PROTOCOL_CHECK};
-use super::mono::scope::Scopes;
-use super::mono::unroll::{collect_consts, decl_name, eval_const_scoped};
+use super::mono::scope::{invisible_name, invisible_name_error, Scopes};
+use super::mono::unroll::{collect_consts, decl_name, eval_const_scoped, Consts};
 use super::Parser;
 
 /// Bundle dizisi portunun en fazla eleman sayısı (ADR-0056).
@@ -94,6 +95,28 @@ impl Flat {
     fn is_empty(&self) -> bool {
         self.names.is_empty() && self.virtuals.is_empty()
     }
+}
+
+/// Bundle tanımları: kök ad → (tanım dosyası, alanlar). Aynı ad iki
+/// dosyada E1003'tür (ADR-0042 §4, çözücü verir).
+type BundleDefs = HashMap<String, (FileId, Vec<FieldInfo>)>;
+
+/// `ty` tek segmentli, argümansız bir tip yoluysa ve `def_file`ın
+/// bildiği (kök ad → tanım dosyası) bir öğeyi adlandırıyorsa o öğenin
+/// kök adı. Ad yazıldığı dosyanın kapsamında çözülür (#139): kendi
+/// dosyasının öğesi ya da o dosyaya `use` ile (takma adla da) getirilen;
+/// kural çözücününkidir (`RootFilter`, name-resolution.md §3.3).
+pub(super) fn visible_type<'a>(
+    types: &'a volt_ast::Arena<TypeRef>,
+    scopes: Option<&'a FileScopes>,
+    ty: Idx<TypeRef>,
+    def_file: impl Fn(&str) -> Option<FileId>,
+) -> Option<&'a str> {
+    let local = simple_type_name(types, ty)?;
+    let file = types[ty].span.file;
+    let filter = RootFilter::new(scopes);
+    let root = filter.root_name(file, local);
+    filter.sees(file, local, def_file(root)?).then_some(root)
 }
 
 /// Bir portun / alanın tipi tek segmentli, argümansız bir yol ise adı.
@@ -330,7 +353,7 @@ impl Parser<'_> {
         port: Port,
         prefix: &str,
         ty: Idx<TypeRef>,
-        defs: &HashMap<String, Vec<FieldInfo>>,
+        defs: &BundleDefs,
         plain: &super::handshake::PlainDefs,
         builtin_handshake: bool,
         no_check: bool,
@@ -341,9 +364,7 @@ impl Parser<'_> {
         item_span: Span,
         handshakes: &mut Vec<HandshakeInfo>,
     ) {
-        let bundle = simple_type_name(&self.ast.types, ty)
-            .filter(|n| defs.contains_key(*n))
-            .map(str::to_string);
+        let bundle = self.bundle_name(ty, defs);
         let payload = if builtin_handshake {
             self.handshake_payload(ty)
         } else {
@@ -376,17 +397,11 @@ impl Parser<'_> {
     /// §3.1). Payload tek yönlü veridir (üretici sürer); içteki `ready`
     /// ters yönde akardı. E0003 + payload hata tipine çevrilir ki çözümleme
     /// açılmamış iç tipi "tanımsız ad" (E1001) diye raporlamasın.
-    fn reject_bundle_payload(
-        &mut self,
-        payload: Idx<TypeRef>,
-        defs: &HashMap<String, Vec<FieldInfo>>,
-    ) -> Idx<TypeRef> {
+    fn reject_bundle_payload(&mut self, payload: Idx<TypeRef>, defs: &BundleDefs) -> Idx<TypeRef> {
         let inner = if self.handshake_payload(payload).is_some() {
             HANDSHAKE.to_string()
-        } else if let Some(n) =
-            simple_type_name(&self.ast.types, payload).filter(|n| defs.contains_key(*n))
-        {
-            n.to_string()
+        } else if let Some(n) = self.bundle_name(payload, defs) {
+            n
         } else {
             return payload;
         };
@@ -421,24 +436,22 @@ impl Parser<'_> {
 
     /// Eleman tipi bir bundle (kullanıcı `struct port` ya da yerleşik
     /// `Handshake<T>`) mi?
-    fn is_bundle_type(
-        &self,
-        ty: Idx<TypeRef>,
-        defs: &HashMap<String, Vec<FieldInfo>>,
-        builtin_handshake: bool,
-    ) -> bool {
-        simple_type_name(&self.ast.types, ty).is_some_and(|n| defs.contains_key(n))
+    fn is_bundle_type(&self, ty: Idx<TypeRef>, defs: &BundleDefs, builtin_handshake: bool) -> bool {
+        self.bundle_name(ty, defs).is_some()
             || (builtin_handshake && self.handshake_payload(ty).is_some())
+    }
+
+    /// `ty` görünen bir bundle tipini adlandırıyorsa kök adı ([`visible_type`]).
+    fn bundle_name(&self, ty: Idx<TypeRef>, defs: &BundleDefs) -> Option<String> {
+        visible_type(&self.ast.types, self.ast.file_scopes.as_ref(), ty, |n| {
+            defs.get(n).map(|d| d.0)
+        })
+        .map(str::to_string)
     }
 
     /// `[Bundle; N]` uzunluğu — sabit değilse ya da 1..=256 dışındaysa
     /// E2008; port düşürülür (kaskad bastırma).
-    fn bundle_array_len(
-        &mut self,
-        port: &Port,
-        len: Idx<Expr>,
-        consts: &HashMap<String, Idx<Expr>>,
-    ) -> Option<i128> {
+    fn bundle_array_len(&mut self, port: &Port, len: Idx<Expr>, consts: &Consts) -> Option<i128> {
         let name = port.name.text.clone();
         let chain = &self.scopes;
         let root_const = |n: &str| !chain.bound_above_root(n);
@@ -466,6 +479,11 @@ impl Parser<'_> {
                 None
             }
             None => {
+                // Başka dosyanın görünmeyen öğesi sabit değil, tanımsızdır (#139).
+                if let Some(n) = invisible_name(&self.ast, &self.scopes, len) {
+                    self.diagnostics.push(invisible_name_error(&self.ast, n));
+                    return None;
+                }
                 self.diagnostics.push(
                     Diagnostic::error(
                         ErrorCode::E2008,
@@ -552,18 +570,25 @@ impl Parser<'_> {
     /// Dosyadaki generic olmayan `struct port` bildirimleri. Bir döngüye
     /// ulaşan tanımlar (`recursive_types`, E4009 — ADR-0069 tip çizgesi)
     /// dışarıda bırakılır: açılım sonludur ve modül portu olduğu gibi kalır.
-    fn collect_bundle_defs(&self) -> HashMap<String, Vec<FieldInfo>> {
-        let port_structs: Vec<&volt_ast::StructDecl> = self
+    fn collect_bundle_defs(&self) -> BundleDefs {
+        let port_structs: Vec<(FileId, &volt_ast::StructDecl)> = self
             .ast
             .items
             .iter()
             .filter_map(|&i| match &self.ast.items_arena[i].kind {
-                ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => Some(s),
+                ItemKind::Struct(s) if s.is_port && s.generics.is_empty() => {
+                    Some((self.ast.items_arena[i].span.file, s))
+                }
                 _ => None,
             })
             .collect();
-        let mut defs: HashMap<String, Vec<FieldInfo>> = HashMap::new();
-        for s in &port_structs {
+        let files: HashMap<&str, FileId> = port_structs
+            .iter()
+            .map(|(f, s)| (s.name.text.as_str(), *f))
+            .collect();
+        let scopes = self.ast.file_scopes.as_ref();
+        let mut defs = BundleDefs::new();
+        for (file, s) in &port_structs {
             let fields: Vec<FieldInfo> = s
                 .fields
                 .iter()
@@ -573,12 +598,12 @@ impl Parser<'_> {
                     name: f.name.text.clone(),
                     ty: f.ty,
                     domain: f.domain.clone(),
-                    nested: simple_type_name(&self.ast.types, f.ty)
-                        .filter(|n| port_structs.iter().any(|p| p.name.text == *n))
+                    // Alan tipi struct'ın dosyasında çözülür (#139).
+                    nested: visible_type(&self.ast.types, scopes, f.ty, |n| files.get(n).copied())
                         .map(str::to_string),
                 })
                 .collect();
-            defs.insert(s.name.text.clone(), fields);
+            defs.insert(s.name.text.clone(), (*file, fields));
         }
         defs.retain(|name, _| !self.recursive_types.contains(name));
         defs
@@ -877,6 +902,17 @@ impl Parser<'_> {
         let root_const = |n: &str| !chain.bound_above_root(n);
         match eval_const_scoped(&self.ast, &self.consts, index, 0, &root_const) {
             Some(k) if (0..len).contains(&k) => Some(k),
+            // Başka dosyanın görünmeyen öğesi sabit değil, tanımsızdır (#139).
+            None => {
+                match invisible_name(&self.ast, chain, index) {
+                    Some(name) => {
+                        let d = invisible_name_error(&self.ast, name);
+                        self.diagnostics.push(d);
+                    }
+                    None => self.err_bundle_index(span, port, len, None),
+                }
+                None
+            }
             other => {
                 self.err_bundle_index(span, port, len, other);
                 None
@@ -938,7 +974,7 @@ pub(super) fn flatten_note() -> String {
 /// Bir bundle portunu düz portlara açar (iç içe bundle'larda özyineli).
 #[allow(clippy::too_many_arguments)]
 fn expand(
-    defs: &HashMap<String, Vec<FieldInfo>>,
+    defs: &BundleDefs,
     port: &Port,
     bundle: &str,
     prefix: &str,
@@ -957,7 +993,7 @@ fn expand(
         flat.budget = Some((Overflow::Depth, port.name.clone()));
         return;
     }
-    let Some(fields) = defs.get(bundle) else {
+    let Some((_, fields)) = defs.get(bundle) else {
         return;
     };
     for f in fields {

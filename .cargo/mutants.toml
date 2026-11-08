@@ -41,6 +41,14 @@ examine_globs = [
     "crates/volt-syntax/src/parser/auto_contract/scan.rs",
     "crates/volt-syntax/src/parser/auto_contract/counter.rs",
     "crates/volt-syntax/src/parser/auto_contract/fsm.rs",
+    # Visibility across files (#139, ADR-0042 appendix): the rule the
+    # resolver and the parser's unit-end steps share, the import check
+    # that builds the file scopes, the resolver's root lookup, and the
+    # Handshake payload lookup.
+    "crates/volt-ast/src/visibility.rs",
+    "crates/volt-syntax/src/unit.rs",
+    "crates/volt-hir/src/resolve/imports.rs",
+    "crates/volt-syntax/src/parser/handshake.rs",
     # 2. Width and type inference.
     "crates/volt-hir/src/ty.rs",
     "crates/volt-hir/src/typeck/width.rs",

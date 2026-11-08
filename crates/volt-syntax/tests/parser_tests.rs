@@ -2899,7 +2899,9 @@ fn delayed_in_let_annotation_desugars() {
 fn parse_unit_merges_files_and_records_package_per_file() {
     let a = "package lib;\npub module A { in clk : clock in x : bool out y : bool y = x }\n";
     let b = "use lib::A;\nmodule B { in clk : clock in x : bool out y : bool y = x }\n";
-    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let mut info = volt_syntax::unit::UnitInfo::default();
+    info.add(FileId(0), vec!["lib".to_string()]);
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)], &info);
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
     assert_eq!(result.ast.items.len(), 2);
     assert_eq!(result.ast.packages.len(), 1);
@@ -2919,7 +2921,7 @@ fn parse_unit_merges_files_and_records_package_per_file() {
 fn parse_unit_duplicate_package_is_per_file() {
     let a = "package a;\n";
     let b = "package b;\npackage c;\n";
-    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)], &Default::default());
     assert_eq!(result.error_codes(), ["E0001"]);
     assert_eq!(result.ast.packages.len(), 2);
 }
@@ -2930,7 +2932,9 @@ fn parse_unit_flattens_bundle_ports_across_files() {
     // runs once over the whole unit, so the port is expanded.
     let a = "package bus;\npub struct port Link { out v : bool\n in r : bool }\n";
     let b = "use bus::Link;\nmodule M { in clk : clock in l : Link\n l.r = l.v }\n";
-    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)]);
+    let mut info = volt_syntax::unit::UnitInfo::default();
+    info.add(FileId(0), vec!["bus".to_string()]);
+    let result = parse_unit(&[(FileId(0), a), (FileId(1), b)], &info);
     assert!(result.diagnostics.is_empty(), "{:?}", result.error_codes());
     let m = result
         .ast
