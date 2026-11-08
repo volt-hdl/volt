@@ -9,6 +9,18 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Satır içi açılan bir `fn`'in tipsiz `let`'i,
+  çağrı `comb` içinde (ya da başka bir ikame konumunda: blok içi `for`,
+  kontrat, reg başlangıcı) olduğunda da esnek genişliğini korur (#132;
+  type-inference.md §3.3, ADR-0025, ADR-0081 Karar 12.2). `let`'i
+  kullanan işlem, modül düzeyindeki çağrıda olduğu gibi aralıkların
+  kesişiminde yapılır: `fn g(a: u8, b: u8, c: u8) -> u9 { let s = a + b;
+  (s | c) + c }`, a = b = c = 255 iken `comb { x = g(a, b, c) }` 0.1.0'da
+  254 veriyordu (`s | c` 9 bitte, 511), modül düzeyindeki `y = g(a, b, c)`
+  510; şimdi ikisi de 510. Aynı sınıfın bir kısmı Verilator WIDTH
+  uyarısıyla `volt test`'i durduruyordu (`(s | c) as u16`, `(s ^ ~c) as
+  u14`); o tasarımlar artık simüle olur. Yükseltme: `comb` içinden çağrılan
+  ve tipsiz `let`'ini dar bir işlemde kullanan `fn`'lerin SV'si değişir.
 - **Davranış değişikliği.** Ayrıştırıcının ad çözümünden önce koşan
   adımları dosya görünürlüğünü çözücüyle aynı kuralla uygular (#139;
   name-resolution.md §3.3; ADR-0042 §3 ve eki "Ayrıştırıcının birim sonu
@@ -183,6 +195,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Tests
 
+- Fark testinin r biçiminde gövde `let`'i (c biçiminin alt ifadesi fn
+  gövdesinin tipsiz `let`'inde) artık varsayılan olarak açık (ADR-0108,
+  "Ek: gövde `let`'i varsayılan açık", #132); `VOLT_DIFFTEST_FN_LET=0`
+  kapatır. Regresyon kümesine #132'nin iki örneği eklendi (`((p0 + p1) |
+  p2) + p2`, biri tel, biri ikame kipinde, elle hesaplanmış değerlerle);
+  regresyon örneği C biçiminin çıkaracağı alt ifadenin yolunu
+  sabitleyebilir (`Regression::extract`), gövde `let`'i tohumdan bağımsız.
+  `inline_flex_let_sim_tests`: aynı `fn` `comb` içinde ve modül düzeyinde
+  çağrılır, iki çıkış da elle hesaplanan değeri vermeli (Verilator).
 - DFG kapalı (ADR-0107 eki "Ek: DFG kapalı", #148): Volt'un Verilator
   seçenekleri tek yerde (`volt_tools::VERILATOR_BUILD_FLAGS`,
   `-fno-dfg`); `volt test`/`volt run`/`--waves` (yerel ve Docker), fark
