@@ -24,9 +24,9 @@ and more about Docker.
 
 </div>
 
-The output in the Tour was recorded with Volt 0.1.0 on Windows 11, with
-Docker Desktop running the simulator. On Linux and macOS the paths use `/`
-instead of `\`; everything else looks the same.
+The output on this page was recorded with Volt 0.1.1 on Windows 11. On
+Linux and macOS the paths use `/` instead of `\`; everything else looks the
+same.
 
 ## Install with one command
 
@@ -77,7 +77,7 @@ volt --version
 **You should see:**
 
 ```text,output
-volt 0.1.0 (63a1c76)
+volt 0.1.1 (6516d75)
 ```
 
 The part in parentheses names the commit the binary was built from, so
@@ -307,7 +307,7 @@ volt doctor
 **You should see (Docker Desktop not running):**
 
 ```text,output
-volt 0.1.0 (windows-x86_64)
+volt 0.1.1 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✗ test, run — Verilator, C++ compiler, make not found
@@ -361,7 +361,7 @@ volt doctor
 **You should see (Docker Desktop running):**
 
 ```text,output
-volt 0.1.0 (windows-x86_64)
+volt 0.1.1 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)

@@ -22,6 +22,53 @@ before upgrading. Roadmap:
 board or tape-out results; the examples run in simulation and formal
 verification.
 
+## Known bugs
+
+These are bugs, not design limits: each one has an issue and is planned
+for a fix. Until then, the workaround after each one avoids it. The
+division bug ([#150](https://github.com/volt-hdl/volt/issues/150)) is
+under [Language](#language) below.
+
+**A struct `let` whose flattened field name equals another name.** A
+struct `let` in a block becomes one signal per field in the generated
+SystemVerilog: `let p : S` with a field `x` becomes `p_x`. If a port or
+signal is also called `p_x`, a read of it in that block reads the field
+of the local, without a warning. Do not name a port or signal
+`<let>_<field>`; rename the `let`. Tracked in
+[issue #154](https://github.com/volt-hdl/volt/issues/154).
+
+**A module-level `let` with the name of a bundle port or of `regs`** is
+accepted without error `E1003`, and the name then means two different
+things: the port in one place, the `let` in another. Give the `let` a
+name of its own. Tracked in
+[issue #155](https://github.com/volt-hdl/volt/issues/155).
+
+**An import alias reaches the generated SystemVerilog.** With
+`use other::X as J`, a constant used as a value (`y = J`) is written
+into the SystemVerilog as `assign y = J;`, a name that does not exist
+there, without a diagnostic; an aliased type, function, domain or module
+is rejected. Import such items without `as`. Tracked in
+[issue #161](https://github.com/volt-hdl/volt/issues/161).
+
+**A test block can read a private constant of another file**, without
+error `E1001`. Make the constant `pub` and import it with `use` in the
+test file, as the visibility rules require. Tracked in
+[issue #162](https://github.com/volt-hdl/volt/issues/162).
+
+**Constant evaluation stops at depth 64 in `for` bounds and bundle
+arrays.** A module-level `for` bound or a bundle array length that is a
+constant expression deeper than 64 levels, or the end of a chain of 64
+constants, is rejected with `E2021`; a cycle there is `E2021` instead of
+`E2020`; and a counter whose limit is such a chain gets no inferred
+contract. Keep constant chains and expressions shallower than 64 levels.
+Tracked in [issue #159](https://github.com/volt-hdl/volt/issues/159).
+
+**A generic module that is never instantiated and uses its parameter in
+a type** (`in x : uint<N>`) is rejected with `E2021` ("this is a generic
+parameter (runtime value)"), also in a file loaded with `use`. Instantiate
+the module once, for example `Fir<8> { ... }`. Tracked in
+[issue #172](https://github.com/volt-hdl/volt/issues/172).
+
 ## Language
 
 **Some constructs pass the type checker but have no SystemVerilog mapping
