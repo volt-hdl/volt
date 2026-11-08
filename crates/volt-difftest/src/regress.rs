@@ -465,6 +465,35 @@ pub fn all() -> Vec<Regression> {
         // çıplak literali literal sayıyordu: `17'($unsigned(12'd852 -
         // 12'(p0)))`, doğal 12 bitte sarıp genişletiyordu. Değer işaretsiz
         // çıkarmanın sarmasına (A3) bağlı, elle sabitlenmez.
+        // ── Açılmış fn'in tipsiz gövde `let`'i (#132) ──
+        // İki örnek art arda (kimlikleri 33 ve 34): r biçiminde birinin
+        // çağrısı modül düzeyi `for`'da (tel kipi), öbürününki `comb`'da
+        // (ikame kipi, `hygiene::module_level`). Tek iç düğüm `p0 + p1`'dir:
+        // c biçimi onu seçer, r biçiminde gövdenin `let s<id>r`'si olur.
+        r(
+            "#132",
+            "untyped body let of an inlined function narrowed by a bitwise operation (module level)",
+            vec![UInt(8), UInt(8), UInt(8)],
+            bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+        )
+        // `(p0 + p1) | p2`, üçü u8. type-inference §3.3, ADR-0025: `p0 + p1`
+        // esnek u8..u9; `| p2` aralıkların kesişiminde, 8 bitte, sonuç u8
+        // (bit işleminde kesişimin üst ucu sonucun doğal genişliğidir, A1'in
+        // iki okuması aynı). 128 + 128 = 256, 8 bitte 0; 0 | 128 = 128.
+        // 255 + 255 = 510, 8 bitte 254; 254 | 1 = 255.
+        .pin(&[128, 128, 128], 128)
+        .pin(&[255, 255, 1], 255),
+        r(
+            "#132",
+            "untyped body let of an inlined function narrowed by a bitwise operation (comb)",
+            vec![UInt(8), UInt(8), UInt(8)],
+            bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+        )
+        // Aynı ifade, çağrı `comb` içinde. Düzeltmeden önce ikame kipi
+        // `let`'i doğal genişliğinde yazıyor, `|`'yu 9 bitte yapıyordu
+        // (`8'(9'(9'(p0) + 9'(p1)) | p2)`: Verilator WIDTHEXPAND).
+        .pin(&[128, 128, 128], 128)
+        .pin(&[255, 255, 1], 255),
     ]
 }
 
@@ -533,6 +562,24 @@ mod tests {
                 "{i}: elle hesaplanmış değer yok"
             );
         }
+    }
+
+    /// #132'nin iki örneği r biçiminde biri tel, biri ikame kipindedir:
+    /// kimlikleri (listedeki sıra) farklı tekliktedir.
+    #[test]
+    fn issue_132_examples_cover_both_inlining_modes() {
+        let ids: Vec<usize> = all()
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.issue == "#132")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(ids.len(), 2, "{ids:?}");
+        assert_ne!(
+            crate::hygiene::module_level(ids[0]),
+            crate::hygiene::module_level(ids[1]),
+            "{ids:?}"
+        );
     }
 
     #[test]

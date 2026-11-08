@@ -195,7 +195,7 @@ impl Case {
                 }
             }
         }
-        // Gövde `let`'i #132 düzelene kadar isteğe bağlı (`hygiene`).
+        // Gövde `let`'i varsayılan açık; `VOLT_DIFFTEST_FN_LET=0` kapatır (`hygiene`).
         let body_let = crate::hygiene::body_let_enabled()
             .then_some(case.extracted.as_ref())
             .flatten();
