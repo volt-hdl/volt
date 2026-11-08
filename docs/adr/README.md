@@ -201,6 +201,7 @@ denetler.
 | [0076](ADR-0076-extern-kaynaklari.md) | extern Modül Kaynakları — `@source`, Extern İçi CDC ve Flop'suz Modülün Reset Portu | `@source` extern modülün SV kaynağını bağlar (E1012); extern içi CDC gizlenmez, raporlanır. | Uygulandı |
 | [0078](ADR-0078-hedef-dil-ayrilmis-sozcukleri.md) | Hedef Dillerin Ayrılmış Sözcükleri — SV Anahtar Sözcüğü Ad Olamaz | Hedef dillerin (SV, Rust, C/C++) ayrılmış sözcükleri ad olamaz (E1013); sessiz yeniden adlandırma yok. | Uygulandı |
 | [0090](ADR-0090-uretilen-ad-carpismalari.md) | Üretilen Ad Çarpışmaları ve `let x = sync(...)` | Üretilen SV adı başka bir adla çakışırsa E1003 olur; `let x = sync(...)` desteklenir. | Uygulandı |
+| [0111](ADR-0111-orneklenmemis-generic-modul.md) | Hiç Örneklenmemiş Generic Modül — SystemVerilog Üretilmez, W1006 | Monomorfizasyondan sonra generic parametreli kalan modül şablondur: SV'si, SVA'sı ve kısıtları üretilmez; ana dosyadaki şablon W1006 alır (metni parametreli çıktı önerisini, #171, gösterir). Generic olmayan örneklenmemiş modül değişmez. | Uygulandı |
 
 ## Zamanlama kısıtları (SDC/XDC)
 

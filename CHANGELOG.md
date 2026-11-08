@@ -142,6 +142,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
   takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
   uzun bir zincir kısaltılmalı (#133).
+- **Davranış değişikliği.** Hiç örneklenmemiş generic modül (şablon) için
+  SystemVerilog üretilmez; ana dosyadaki şablon yeni W1006 uyarısını alır
+  (#143, ADR-0111): "module 'Fir' is generic and is never instantiated; no
+  SystemVerilog is generated for it (parameterized output is planned:
+  #171)". 0.1.0 şablonu SV modülü olarak yazıyordu ve gövdesindeki
+  generic parametre aynı adlı bir kök const'a çözülüyordu (`const N : u32
+  = 7` ile `module Fir<const N: u32> { out y : u8  y = N }` → `Fir.sv`'de
+  `assign y = 32'd7;`, Verilator WIDTHTRUNC) ya da SV'de tanımsız ad
+  olarak kalıyordu (`assign y = N;`). Örneklenen generic modülün monomorfu
+  (`Fir_4.sv`) ve generic olmayan modüller değişmez; `use` ile yüklenen
+  dosyanın şablonu uyarı almaz. Yükseltme: `build/rtl/`'de şablonun
+  dosyasını bekleyen bir betik onu artık bulamaz; şablonu kullanıldığı
+  yerde örnekleyin (`let u = Fir<8> { ... }` `Fir_8.sv`'yi üretir).
+  Uyarıları hata sayan derlemeler (CI betikleri) düşebilir.
 
 ### Düzeltildi — Üreticinin ad çözümü (#128, 2026-11-05)
 
@@ -230,6 +244,12 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değişkeninin içinde, çağıranın `let`'i bir const'la aynı adda. Sonuç a
   biçimininkiyle aynı olmalı. Gövdenin `let`'i `VOLT_DIFFTEST_FN_LET=1`
   ile; açıkken ikame kipindeki tipsiz fn `let`'inin hatasını (#132) bulur.
+- `uninstantiated_generic_tests` (#143): örneklenmemiş generic modülün
+  dosyası yazılmıyor ve W1006 (metni #171'i gösterir) `volt build` ve
+  `volt check`'te veriliyor; örneklenen generic modülün monomorfu, generic
+  olmayan örneklenmemiş modüller ve kütüphane dosyasındaki şablon
+  değişmedi; örneklenen şablonun değeri Verilator'da elle hesaplanan
+  değer. `tests/ui/fail/244`, `tests/ui/pass/139`.
 
 ## [0.1.0] - 2026-11-04
 

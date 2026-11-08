@@ -1173,6 +1173,20 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
             "use fifo::AsyncFifo     // ⚠ W1005: hiç kullanılmıyor",
             "// (kaldırıldı)          // ✓",
         ),
+        W1006 => Explanation::new(
+            "Generic modül hiç örneklenmiyor; SystemVerilog üretilmez",
+            "Bu dosyada generic modülü hiçbir şey örneklemiyor; modül şablon olarak kalır ve onun için SystemVerilog dosyası yazılmaz.",
+            "Generic bir modül ancak somut argümanlarla örneklenince donanım olur: 'Fir<8> { ... }' 'Fir_8' modülünü üretir. Şablonun parametre değerleri yoktur, yazılacak bir şey yoktur; Volt henüz parametreli SystemVerilog modülü üretmiyor. Modülü kullanıldığı yerde örnekleyin ya da hiçbir şey ona ihtiyaç duymuyorsa silin. 'use' ile yüklenen bir dosyadaki şablon bu uyarıyı almaz.",
+            "module Fir<const N: u32> {   // ⚠ W1006: hiç örneklenmiyor
+    out y : u8
+    y = N
+}",
+            "module Top {
+    out z : u8
+    let f = Fir<8> { }   // ✓ Fir_8 üretilir
+    z = f.y
+}",
+        ),
         W2010 => Explanation::new(
             "Daraltıcı dönüşüm",
             "Bu 'as' dönüşümü üst bitleri düşürüyor — bilgi kaybı var.",
