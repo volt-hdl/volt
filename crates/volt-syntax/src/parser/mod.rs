@@ -129,7 +129,9 @@ fn parse_unit_on_stack(files: &[(FileId, &str)], info: &crate::unit::UnitInfo) -
             // bir kez (generic tanım ile örneklemesi farklı dosyada olabilir).
             parser.next_synthetic = next_synthetic;
             let scopes = crate::unit::check_imports(&parser.ast, info).scopes;
-            parser.ast.file_scopes = Some(scopes);
+            // KANIT (#139): düzeltme bilerek geri alındı — ayrıştırıcı dosya
+            // kapsamlarını görmez, eski davranış.
+            let _ = scopes;
             parser.desugar_mmio();
             parser.finish_unit_desugar();
         }
