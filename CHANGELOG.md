@@ -28,7 +28,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   yazması bir blok `let`'i olan sayaç ve FSM artık sözleşme almaz; 0.1.0
   `let`'i gölgelediği kök const sanıp tasarımda doğru olmayan bir
   `invariant` (`volt test`'te ihlal, `volt verify`'da karşı örnek) ya da
-  hiç olmayan bir geçişin kapsam ölçüsünü üretiyordu. Önceden reddedilen
+  hiç olmayan bir geçişin kapsam ölçüsünü üretiyordu. FSM register'ını
+  gölgeleyen enum tipli yerelin `match`'i (`comb { let st : Color = c;
+  match st { … } }`) artık FSM'i düşürmez: 0.1.0 o `match`'i register'ın
+  sanıp geçiş kapsam ölçülerinin hiçbirini üretmiyordu. Önceden reddedilen
   girdiler derlenir (pipeline'ın modül düzeyi `comb`'undaki yerel `let`,
   aşama değeriyle aynı adda olunca E5012 veriyordu); bundle portunu ya da
   `regs`'i gölgeleyen yerel yeni bir W1002 alır, bundle portunu
