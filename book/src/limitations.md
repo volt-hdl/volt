@@ -219,6 +219,14 @@ no command maps a SystemVerilog line back to Volt. Signal names follow
 the Volt names, so searching for the name is the workaround. Roadmap:
 [Source mapping](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#source-mapping-in-generated-systemverilog).
 
+**No parameterized SystemVerilog modules.** A generic module becomes
+SystemVerilog when it is instantiated: `Fir<8> { ... }` generates the
+module `Fir_8`, with the parameter replaced by its value. A generic module
+that nothing in the file instantiates generates no SystemVerilog file, and
+Volt warns about it (`W1006`). Writing it as a parameterized module
+(`module Fir #(parameter N)`) is a proposal for v0.2.0, tracked in
+[issue #171](https://github.com/volt-hdl/volt/issues/171).
+
 **Register maps use AXI4-Lite with 32-bit registers**, and reset values
 are 0. Register documentation is Markdown (`--emit=regmap-md`); there is
 no SVD, IP-XACT or UVM output.

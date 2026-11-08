@@ -1173,6 +1173,20 @@ Declare the frequency in the domain so that every module sharing it is constrain
             "use fifo::AsyncFifo     // ⚠ W1005: never used",
             "// (removed)            // ✓",
         ),
+        W1006 => Explanation::new(
+            "Generic module is never instantiated; no SystemVerilog is generated",
+            "Nothing in this file instantiates the generic module, so it stays a template: no SystemVerilog file is written for it.",
+            "A generic module becomes hardware only when it is instantiated with concrete arguments: 'Fir<8> { ... }' generates the module 'Fir_8'. The template itself has no parameter values, so there is nothing to write; Volt does not generate parameterized SystemVerilog modules yet. Instantiate the module where it is used, or remove it if nothing needs it. A template in a file loaded with 'use' does not get this warning.",
+            "module Fir<const N: u32> {   // ⚠ W1006: never instantiated
+    out y : u8
+    y = N
+}",
+            "module Top {
+    out z : u8
+    let f = Fir<8> { }   // ✓ generates Fir_8
+    z = f.y
+}",
+        ),
         W2010 => Explanation::new(
             "Narrowing conversion",
             "This 'as' cast drops high bits — information is lost.",

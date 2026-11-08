@@ -1305,8 +1305,16 @@ fn build(
         // Bağlama göre sonraki adım (UX Anayasası: kullanıcı belgeye
         // gitmeden bir sonraki komutu görür).
         let name = file.display();
+        // Yalnız örneklenmemiş generic şablon içeren dosya kütüphane değildir;
+        // W1006 neden SV yazılmadığını söyler (ADR-0111).
+        let only_templates = compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == volt_diagnostics::ErrorCode::W1006);
         if compiled.modules.is_empty() {
-            print_library_note(file);
+            if !only_templates {
+                print_library_note(file);
+            }
         } else if project::is_project_mode() {
             eprintln!(
                 "{}",

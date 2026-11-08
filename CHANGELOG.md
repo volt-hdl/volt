@@ -9,6 +9,18 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Satır içi açılan bir `fn`'in tipsiz `let`'i,
+  çağrı `comb` içinde (ya da başka bir ikame konumunda: blok içi `for`,
+  kontrat, reg başlangıcı) olduğunda da esnek genişliğini korur (#132;
+  type-inference.md §3.3, ADR-0025, ADR-0081 Karar 12.2). `let`'i
+  kullanan işlem, modül düzeyindeki çağrıda olduğu gibi aralıkların
+  kesişiminde yapılır: `fn g(a: u8, b: u8, c: u8) -> u9 { let s = a + b;
+  (s | c) + c }`, a = b = c = 255 iken `comb { x = g(a, b, c) }` 0.1.0'da
+  254 veriyordu (`s | c` 9 bitte, 511), modül düzeyindeki `y = g(a, b, c)`
+  510; şimdi ikisi de 510. Aynı sınıfın bir kısmı Verilator WIDTH
+  uyarısıyla `volt test`'i durduruyordu (`(s | c) as u16`, `(s ^ ~c) as
+  u14`); o tasarımlar artık simüle olur. Yükseltme: `comb` içinden çağrılan
+  ve tipsiz `let`'ini dar bir işlemde kullanan `fn`'lerin SV'si değişir.
 - **Davranış değişikliği.** Ayrıştırıcının ad çözümünden önce koşan
   adımları dosya görünürlüğünü çözücüyle aynı kuralla uygular (#139;
   name-resolution.md §3.3; ADR-0042 §3 ve eki "Ayrıştırıcının birim sonu
@@ -142,6 +154,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
   takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
   uzun bir zincir kısaltılmalı (#133).
+- **Davranış değişikliği.** Hiç örneklenmemiş generic modül (şablon) için
+  SystemVerilog üretilmez; ana dosyadaki şablon yeni W1006 uyarısını alır
+  (#143, ADR-0111): "module 'Fir' is generic and is never instantiated; no
+  SystemVerilog is generated for it (parameterized output is planned:
+  #171)". 0.1.0 şablonu SV modülü olarak yazıyordu ve gövdesindeki
+  generic parametre aynı adlı bir kök const'a çözülüyordu (`const N : u32
+  = 7` ile `module Fir<const N: u32> { out y : u8  y = N }` → `Fir.sv`'de
+  `assign y = 32'd7;`, Verilator WIDTHTRUNC) ya da SV'de tanımsız ad
+  olarak kalıyordu (`assign y = N;`). Örneklenen generic modülün monomorfu
+  (`Fir_4.sv`) ve generic olmayan modüller değişmez; `use` ile yüklenen
+  dosyanın şablonu uyarı almaz. Yükseltme: `build/rtl/`'de şablonun
+  dosyasını bekleyen bir betik onu artık bulamaz; şablonu kullanıldığı
+  yerde örnekleyin (`let u = Fir<8> { ... }` `Fir_8.sv`'yi üretir).
+  Uyarıları hata sayan derlemeler (CI betikleri) düşebilir.
 - **Davranış değişikliği.** Yeni uyarı W2015 (#173, #150'nin geçici
   uyarısı; ADR-0112): `/` ya da `%`'nin işleneni, doğal genişliği bölmenin
   yapıldığı genişlikten (esnek aralıkların kesişimi, type-inference.md
@@ -195,6 +221,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Tests
 
+- Fark testinin r biçiminde gövde `let`'i (c biçiminin alt ifadesi fn
+  gövdesinin tipsiz `let`'inde) artık varsayılan olarak açık (ADR-0108,
+  "Ek: gövde `let`'i varsayılan açık", #132); `VOLT_DIFFTEST_FN_LET=0`
+  kapatır. Regresyon kümesine #132'nin iki örneği eklendi (`((p0 + p1) |
+  p2) + p2`, biri tel, biri ikame kipinde, elle hesaplanmış değerlerle);
+  regresyon örneği C biçiminin çıkaracağı alt ifadenin yolunu
+  sabitleyebilir (`Regression::extract`), gövde `let`'i tohumdan bağımsız.
+  `inline_flex_let_sim_tests`: aynı `fn` `comb` içinde ve modül düzeyinde
+  çağrılır, iki çıkış da elle hesaplanan değeri vermeli (Verilator).
 - DFG kapalı (ADR-0107 eki "Ek: DFG kapalı", #148): Volt'un Verilator
   seçenekleri tek yerde (`volt_tools::VERILATOR_BUILD_FLAGS`,
   `-fno-dfg`); `volt test`/`volt run`/`--waves` (yerel ve Docker), fark
@@ -242,12 +277,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   değişkeninin içinde, çağıranın `let`'i bir const'la aynı adda. Sonuç a
   biçimininkiyle aynı olmalı. Gövdenin `let`'i `VOLT_DIFFTEST_FN_LET=1`
   ile; açıkken ikame kipindeki tipsiz fn `let`'inin hatasını (#132) bulur.
+- `uninstantiated_generic_tests` (#143): örneklenmemiş generic modülün
+  dosyası yazılmıyor ve W1006 (metni #171'i gösterir) `volt build` ve
+  `volt check`'te veriliyor; örneklenen generic modülün monomorfu, generic
+  olmayan örneklenmemiş modüller ve kütüphane dosyasındaki şablon
+  değişmedi; örneklenen şablonun değeri Verilator'da elle hesaplanan
+  değer. `tests/ui/fail/244`, `tests/ui/pass/139`. Şablon kararı
+  `crates/volt-sv-emit/src/template.rs`'te; dosya mutasyon kapsamına
+  (ADR-0109) girdi.
 - `division_cut_warning_tests` (#173): #150'nin durumlarında W2015 var
   (`a * b / c + d`, toplam, `%`, bölen tarafı, işaretli, fark testinin
   bulgusu `p * p / (p & p)`, tipsiz `let`); literal, const, aynı
   genişlikteki atom, itilen bölme ve açık genişlikte yok; `volt check` ve
-  `volt build` aynı uyarıları veriyor; depodaki 724 `.volt` dosyasında
-  W2015 yok. `tests/ui/fail/245`, `tests/ui/pass/140`.
+  `volt build` aynı uyarıları veriyor; depodaki `.volt` dosyalarının
+  hiçbirinde (W2015 bekleyen ui/fail 245 dışında) W2015 yok.
+  `tests/ui/fail/245`, `tests/ui/pass/140`.
 - Fark testi (ADR-0112): koşucu a biçimindeki W2015'i modelin kesilen
   bölme işleneniyle (`tag::DIV_CUT`) karşılaştırır, ayrışma bulgudur;
   özet satırı `difftest: division operand cut (W2015, variant a): model=…

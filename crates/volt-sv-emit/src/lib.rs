@@ -33,6 +33,7 @@ mod structs;
 mod sv_collisions;
 mod sv_names;
 mod sva;
+mod template;
 mod trit;
 mod waves;
 
@@ -530,9 +531,17 @@ pub fn emit_unit(
     let mut file_notes = emitter.obligation_notes();
     let mut per_module = Vec::new();
     let mut multiclock_modules = Vec::new();
+    // Ana dosya (ADR-0042): kaynak listesinin ilki.
+    let main_file = sources.first().map(|s| s.file);
     for &item_idx in &ast.items {
         let item = &ast.items_arena[item_idx];
         if let ItemKind::Module(module) = &item.kind {
+            // ADR-0111 (#143): hiç örneklenmemiş generic şablonun SV'si
+            // yazılmaz; ana dosyadaysa W1006.
+            if let Some(warning) = template::skip(module, item.span.file, main_file) {
+                emitter.diagnostics.extend(warning);
+                continue;
+            }
             if emitter.collect_clock_ports(module).len() >= 2 {
                 multiclock_modules.push(module.name.text.clone());
             }

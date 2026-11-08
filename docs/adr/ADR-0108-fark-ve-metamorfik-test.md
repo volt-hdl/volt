@@ -581,3 +581,83 @@ bir hata: değer x olan vektörde (sınır dışı `p178[p14 -: 21]`, p14 = 10,
 ADR-0035 §1) iki x'in eşitliği tanımsız, ama F her vektörde 1 bekliyordu.
 Artık F modelin x dediği vektörde karşılaştırılmaz (G gibi); yukarıdaki
 koşu bu düzeltmeyle.
+
+## Ek: gövde `let`'i varsayılan açık (#132, 2026-11-08)
+
+"Ek: r biçimi — ad hijyeni"nin "Gövde `let`'i isteğe bağlı" paragrafı ve
+sonraki eklerin "Gövde `let`'i #132'ye kadar varsayılan kapalı"
+sınırları kalktı. Önceki karar metni değişmedi.
+
+**Kök neden.** İkame kipinde (ADR-0081 Karar 12.2: `comb`, blok içi
+`for`, kontrat, reg başlangıcı) tipsiz fn `let`'i değeriyle yer
+değiştirir ve tel kipindeki telin (`<fn>_<k>_<let>`) genişliğinde, doğal
+genişliğinde yazılır (`9'(9'(a) + 9'(b))`). Tel kipinde aynı `let` bir
+`wire`'dır ve üretici onu atom sayar: kullanıldığı işlem esnek aralığın
+kesişiminde yapılırken (ADR-0025) tel o genişliğe daraltılır
+(`8'(g_0_s) | c`). İkame edilen ifade atom sayılmıyordu, daraltma
+yapılmıyordu: `| c` 9 bitte, taşma biti işlemde kalıyordu. Düzeltme
+(`crates/volt-sv-emit/src/expr.rs`, `widen_if_narrow`): ikame edilen
+`let` şablonu (`InlineNotes::self_sized`) tel gibi atomdur, genişliği
+doğal genişliğidir.
+
+**Biçim.** r biçiminin gövde `let`'i (c biçiminin alt ifadesi, fn
+gövdesinin tipsiz `let s<id>r`'si) varsayılan olarak açık;
+`VOLT_DIFFTEST_FN_LET=0` kapatır. Önceki eklerin tablolarındaki "(yalnız
+`VOLT_DIFFTEST_FN_LET=1` ile)" koşulu düştü.
+
+**Regresyon kümesi.** #132'nin iki örneği (kimlik 33 ve 34), #132'nin
+kendi ifadesi `((p0 + p1) | p2) + p2` (üçü u8): 33'te çağrı modül düzeyi
+`for`'da (tel kipi), 34'te `comb`'da (ikame kipi). İki örnek de elle
+hesaplanmış değer taşır: 255, 255, 255 → 510; 128, 128, 128 → 256 (bit
+işleminde kesişimin üst ucu sonucun doğal genişliğidir; A1'in iki okuması
+aynı değeri verir). Regresyon örneği C biçiminin çıkaracağı alt ifadenin
+yolunu sabitleyebilir (`Regression::extract`, `Case::new_extracting`):
+#132'nin örneklerinde gövdenin `let`'i her tohumda `p0 + p1`'dir.
+Rastgele seçim yine yapılır, öteki örneklerin seçimleri kaymaz. İlk
+denemede örnek `(p0 + p1) | p2`'ydi ve düzeltme geri alındığında
+yakalamadı (bit işlemi kökte, sonucu daha geniş bir bağlama girmiyor):
+sabit yol ve dış toplam bu yüzden.
+
+**Düzeltme geri alındığında #132'yi yakalıyor.** `difftest.yml`, dört
+tohum (20261104–20261107, parça başına 2000 ifade), Verilator 5.052,
+gövde `let`'i varsayılan açık:
+
+- düzeltmesi geri alınmış dal `evidence/132-revert` (yalnız
+  `crates/volt-sv-emit/src/expr.rs` `main`'deki hâline döner; fark testi
+  ve testler kalır; birleştirilmez, satırlar alıntılandıktan sonra
+  silindi): https://github.com/volt-hdl/volt/actions/runs/42499044704 —
+  dört parça da düştü, `diffs=14`, `15`, `14`, `18`; her parçada #132'nin
+  `comb` örneği (kimlik 34) değer farkı ve WIDTHEXPAND verdi
+  (`regressions=35 failed=2`, `2`, `1`, `1`; ikinci düşen #117'nin aynı
+  ifadeli örneği, gövde `let`'i tohuma göre `p0 + p1` olduğunda).
+- düzeltme dalı: https://github.com/volt-hdl/volt/actions/runs/42499048088
+  — dört parça geçti, her parçada `diffs=0`, `regressions=35 failed=0
+  hand-computed=49 compared=49`.
+
+Günlükten alıntı (parça öneki eklendi):
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=91 unsupported=20 unspecified=0 values-compared=230798 diffs=14
+[shard 0] difftest: regressions=35 failed=2 hand-computed=49 compared=49
+[shard 0]   [1x] regression #132: untyped body let of an inlined function narrowed by a bitwise operation, in a wider sum (comb) — r (((u8 + u8) | u8) + u8)
+[shard 0]       fn h34r(..) -> u9 { let s34r = p52 + p53; (s34r | p54) + p54 }
+[shard 0]       inputs: p52=0xff p53=0xff p54=0xff
+[shard 0]       model: 0x1fe, Verilator: 0xfe (u9)
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2131 rejected-as-predicted=110 unsupported=9 unspecified=0 values-compared=224901 diffs=15
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2136 rejected-as-predicted=108 unsupported=6 unspecified=0 values-compared=230112 diffs=14
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2136 rejected-as-predicted=105 unsupported=9 unspecified=0 values-compared=230238 diffs=18
+Tool ledger [difftest-0]: 1 test(s) asked for a tool; 1 lookup(s) found the tool (1 required), SKIP: 0
+```
+
+Düzeltme dalı:
+
+```
+[shard 0] difftest: seed=20261104 target=2000 generated=2250 accepted=2139 rejected-as-predicted=91 unsupported=20 unspecified=0 values-compared=230798 diffs=0
+[shard 0] difftest: regressions=35 failed=0 hand-computed=49 compared=49
+[shard 1] difftest: seed=20261105 target=2000 generated=2250 accepted=2131 rejected-as-predicted=110 unsupported=9 unspecified=0 values-compared=224901 diffs=0
+[shard 2] difftest: seed=20261106 target=2000 generated=2250 accepted=2136 rejected-as-predicted=108 unsupported=6 unspecified=0 values-compared=230112 diffs=0
+[shard 3] difftest: seed=20261107 target=2000 generated=2250 accepted=2136 rejected-as-predicted=105 unsupported=9 unspecified=0 values-compared=230238 diffs=0
+```
+
+(`Tool ledger` satırı dört parçada da `SKIP: 0`.) 255, 255, 255'te model
+510, ikame kipinin SV'si 254 (`(510 | 255) + 255` 9 bitte).

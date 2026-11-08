@@ -173,6 +173,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W1003 => "Shadowing of a builtin name",
         W1004 => "Register written but never read",
         W1005 => "Unused import",
+        W1006 => "Generic module is never instantiated; no SystemVerilog is generated",
         W2010 => "Narrowing conversion (information loss)",
         W2011 => "Unused type parameter",
         W2012 => "Type not specified, default used",

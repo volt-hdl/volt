@@ -134,6 +134,19 @@ pub fn sub_name(id: usize) -> String {
 impl Case {
     /// Modelle sınıflandırır ve biçimleri seçer.
     pub fn new(id: usize, expr: Expr, ports: &[PortTy], rng: &mut Rng) -> Case {
+        Case::new_extracting(id, expr, ports, rng, None)
+    }
+
+    /// `new`; `extract` verilmişse C biçimi o yoldaki alt ifadeyi çıkarır
+    /// (regresyon örneği, `regress.rs`). Rastgele seçim yine yapılır:
+    /// sonraki örneklerin seçimleri kaymaz.
+    pub fn new_extracting(
+        id: usize,
+        expr: Expr,
+        ports: &[PortTy],
+        rng: &mut Rng,
+        extract: Option<&[usize]>,
+    ) -> Case {
         let model = Model { ports };
         let kind = match model.synth(&expr) {
             Ok(t) => match t.ty.natural() {
@@ -173,7 +186,14 @@ impl Case {
             })
             .collect();
         if !inner.is_empty() {
-            let path = &inner[rng.below(inner.len() as u64) as usize];
+            let picked = &inner[rng.below(inner.len() as u64) as usize];
+            let path = match extract {
+                Some(p) => {
+                    assert!(inner.iter().any(|q| q == p), "çıkarılamaz yol: {p:?}");
+                    p
+                }
+                None => picked.as_slice(),
+            };
             let sub = case.expr.at(path).clone();
             let named = Expr::Name(sub_name(id), Box::new(sub));
             case.extracted = Some(case.expr.replaced(path, named));
@@ -195,7 +215,7 @@ impl Case {
                 }
             }
         }
-        // Gövde `let`'i #132 düzelene kadar isteğe bağlı (`hygiene`).
+        // Gövde `let`'i varsayılan açık; `VOLT_DIFFTEST_FN_LET=0` kapatır (`hygiene`).
         let body_let = crate::hygiene::body_let_enabled()
             .then_some(case.extracted.as_ref())
             .flatten();

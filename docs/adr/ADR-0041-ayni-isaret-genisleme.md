@@ -1,7 +1,7 @@
 # ADR-0041: Aritmetik Ergonomisi — Aynı-İşaret Genişleme, Const Diziler, Generic Örnekleme
 
 > Statü: Uygulandı
-> İlgili: ADR-0056 (`for` açılımı parser'da), ADR-0069 (generic struct port reddi), ADR-0083 (check kipi), ADR-0106 (karşılaştırma bağlamı aynı açık genişletmeyle basılır), ADR-0108 (itmede işlenen doğal değeriyle genişler; değeri genişliğe bağlı alt ifade yalıtılır), ADR-0081 (eki: generic ikamesi kapsam zincirinden geçer, iç gölgeleme ikame edilmez; generic parametre kök öğeyi gölgelerse W1002, #130, #122).
+> İlgili: ADR-0056 (`for` açılımı parser'da), ADR-0069 (generic struct port reddi), ADR-0083 (check kipi), ADR-0106 (karşılaştırma bağlamı aynı açık genişletmeyle basılır), ADR-0108 (itmede işlenen doğal değeriyle genişler; değeri genişliğe bağlı alt ifade yalıtılır), ADR-0081 (eki: generic ikamesi kapsam zincirinden geçer, iç gölgeleme ikame edilmez; generic parametre kök öğeyi gölgelerse W1002, #130, #122), ADR-0111 (hiç örneklenmemiş şablon SV'ye yazılmaz, W1006, #143).
 > Tarih: 2026-09-13
 > Etkilenen: type-inference.md §5, const-eval.md §8, sv-mapping.md §2/§5/§9/§16,
 > grammar-full.ebnf (PrimitiveType), ast-nodes.md (TypeRefKind),

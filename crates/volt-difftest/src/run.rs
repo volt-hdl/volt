@@ -563,7 +563,8 @@ impl<'a> Runner<'a> {
         let cases: Vec<Case> = exprs
             .into_iter()
             .enumerate()
-            .map(|(i, e)| Case::new(i, e, &ports, &mut rng))
+            .zip(&regs)
+            .map(|((i, e), r)| Case::new_extracting(i, e, &ports, &mut rng, r.extract.as_deref()))
             .collect();
         for (c, r) in cases.iter().zip(&regs) {
             assert!(
