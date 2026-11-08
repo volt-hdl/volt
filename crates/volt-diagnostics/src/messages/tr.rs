@@ -178,6 +178,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2011 => "Kullanılmayan tip parametresi",
         W2012 => "Tip belirtilmedi, varsayılan kullanıldı",
         W2013 => "Kaydırma miktarı genişliği aşıyor (sonuç hep 0)",
+        W2015 => "Bölmenin işleneni bölmeden önce kesiliyor",
         W2014 => "Erişilemez match kolu (varyant zaten kapsandı)",
         W2020 => "Sabit koşul — dal her zaman aynı sonuç veriyor",
         W2021 => "Kullanılmayan const bildirimi",

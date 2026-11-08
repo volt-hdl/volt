@@ -95,7 +95,49 @@ impl TypeChecker<'_, '_> {
             }
             (false, false) => {}
         }
+        if matches!(op, BinOp::Div | BinOp::Rem) {
+            self.warn_cut_division_operands(op, lhs, rhs, lt, rt);
+        }
         self.arith_result(op, lt, rt, span)
+    }
+
+    /// W2015 (ADR-0112, #173): `/` ya da `%` aralıkların kesişiminde
+    /// yapılır (§3.3, ADR-0025); doğal genişliği bu genişlikten geniş
+    /// (esnek) işlenen bölmeden önce kesilir. Kural v0.2.0'da değişecek
+    /// (#150); o zamana kadar uyarı. İtilen bölme (check kipi, ADR-0041:
+    /// işlenenler hedefe sığıyor) buraya gelmez, hiçbir şey kesilmez.
+    fn warn_cut_division_operands(
+        &mut self,
+        op: BinOp,
+        lhs: Idx<Expr>,
+        rhs: Idx<Expr>,
+        lt: TypeId,
+        rt: TypeId,
+    ) {
+        let IntMeet::Common { signed, hi, .. } = self.meet_int_ranges(lt, rt) else {
+            return;
+        };
+        let sym = if op == BinOp::Div { "/" } else { "%" };
+        let p = if signed { "i" } else { "u" };
+        for (e, t) in [(lhs, lt), (rhs, rt)] {
+            let Some((_, _, natural)) = self.types.int_range(t) else {
+                continue;
+            };
+            if natural <= hi {
+                continue;
+            }
+            let span = self.ast.exprs[e].span;
+            self.warning(
+                ErrorCode::W2015,
+                span,
+                lstr!(en: "this operand of '{sym}' is cut to {hi} bits before the division (its natural width is {natural}); the rule changes in v0.2.0 (#150)";
+                      tr: "'{sym}' işleminin bu işleneni bölmeden önce {hi} bite kesiliyor (doğal genişliği {natural}); kural v0.2.0'da değişecek (#150)"),
+                lstr!(en: "a {natural}-bit value, divided at {hi} bits";
+                      tr: "{natural} bitlik değer, {hi} bitte bölünüyor"),
+                lstr!(en: "write the width explicitly, e.g. '(a + b) as {p}{natural} / (n as {p}{natural})' divides at {natural} bits and keeps every bit";
+                      tr: "genişliği açıkça yazın: ör. '(a + b) as {p}{natural} / (n as {p}{natural})' {natural} bitte böler, hiçbir bit kesilmez"),
+            );
+        }
     }
 
     pub(super) fn arith_result(&mut self, op: BinOp, lt: TypeId, rt: TypeId, span: Span) -> TypeId {

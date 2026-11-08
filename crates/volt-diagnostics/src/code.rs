@@ -131,6 +131,8 @@ error_codes! {
     W0025,
     // Hiç örneklenmemiş generic modül: SV üretilmez (ADR-0111, #143)
     W1006,
+    // Bölmenin işleneni bölmeden önce kesiliyor; geçici (ADR-0112, #150)
+    W2015,
 }
 
 impl ErrorCode {

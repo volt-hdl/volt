@@ -136,6 +136,9 @@ pub enum Class {
     /// Regresyon örneğinin spesifikasyondan elle hesaplanmış değeri
     /// Verilator'unkinden farklı (modelden bağımsız, `regress.rs`).
     PinnedDiff,
+    /// a biçiminde derleyicinin W2015'i (bölmenin işleneni kesiliyor) ile
+    /// modelin `tag::DIV_CUT`'u farklı (ADR-0112, #173).
+    DivCutWarning,
 }
 
 impl Class {
@@ -158,6 +161,9 @@ impl Class {
                 "Verilator WIDTH warning in the generated SV (fatal by default, volt test stops)"
             }
             Class::PinnedDiff => "value differs from the hand-computed (spec) value",
+            Class::DivCutWarning => {
+                "W2015 (division operand cut) differs from the model's cut operands"
+            }
         }
     }
 }
@@ -198,6 +204,9 @@ pub struct Report {
     /// Spesifikasyonun tanımlamadığı: (görülen, kabul edilen, reddedilen).
     pub unspecified: BTreeMap<String, (usize, usize, usize)>,
     pub tag_counts: BTreeMap<String, usize>,
+    /// a biçiminde bölme işleneni kesilen ifadeler (ADR-0112): (modele
+    /// göre, derleyicinin W2015 verdiği, ikisinin ayrıştığı).
+    pub div_cut: (usize, usize, usize),
     pub findings: Vec<Finding>,
     pub minimized: Vec<String>,
 }
@@ -238,6 +247,11 @@ impl Report {
             s,
             "difftest: batches={} variants-compared={} x-skipped={} contracts={}",
             self.batches, self.variants_compared, self.x_skipped, self.contracts_checked
+        );
+        let _ = writeln!(
+            s,
+            "difftest: division operand cut (W2015, variant a): model={} compiler={} mismatches={}",
+            self.div_cut.0, self.div_cut.1, self.div_cut.2
         );
         let mut by_class: BTreeMap<Class, Vec<&Finding>> = BTreeMap::new();
         for f in &self.findings {
@@ -353,6 +367,22 @@ fn volt(tools: &Tools, dir: &Path, args: &[&str]) -> (bool, String) {
 }
 
 /// `dt.volt:L:C: error[CODE]: ...` → (satır, kod).
+/// `volt check --format=short` çıktısında `code` uyarısının satırları.
+fn volt_warning_lines(text: &str, code: &str) -> BTreeSet<usize> {
+    let tag = format!("warning[{code}]");
+    text.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("dt.volt:")?;
+            let mut it = rest.splitn(3, ':');
+            let (l, _, msg) = (it.next()?, it.next()?, it.next()?);
+            msg.trim_start()
+                .starts_with(&tag)
+                .then(|| l.parse().ok())
+                .flatten()
+        })
+        .collect()
+}
+
 fn volt_errors(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for line in text.lines() {
@@ -646,12 +676,22 @@ impl<'a> Runner<'a> {
         let dir = dir.to_path_buf();
         let model = Model { ports: &b.ports };
         let mut active: Vec<usize> = (0..b.cases.len()).collect();
+        // W2015 karşılaştırması ifade başına bir kez (temiz tur derleme
+        // hatasından sonra yinelenebilir).
+        let mut div_cut_seen = BTreeSet::new();
         // Tanılar: (ifade kimliği → biçim → kodlar)
         loop {
             let cases: Vec<Case> = active.iter().map(|i| b.cases[*i].clone()).collect();
             let built = build(&cases, &b.ports);
             std::fs::write(dir.join("dt.volt"), &built.text).expect("dt.volt");
-            let (_, text) = volt(self.tools, &dir, &["check", "--format=short", "dt.volt"]);
+            // Sınırsız tanı: W2015 karşılaştırması (ADR-0112) her uyarıyı
+            // görmeli; varsayılan üst sınır (1000, ADR-0068) toplu dosyanın
+            // uyarılarının bir kısmını gizliyordu.
+            let (_, text) = volt(
+                self.tools,
+                &dir,
+                &["check", "--format=short", "--max-diagnostics=0", "dt.volt"],
+            );
             let errs = volt_errors(&text);
             let mut by_case: BTreeMap<usize, BTreeMap<Variant, Vec<String>>> = BTreeMap::new();
             for (l, code) in &errs {
@@ -687,6 +727,15 @@ impl<'a> Runner<'a> {
             if !clean {
                 continue;
             }
+            self.compare_div_cut(
+                b,
+                &built,
+                &text,
+                &active,
+                account,
+                &mut div_cut_seen,
+                &mut out,
+            );
             if active.is_empty() {
                 return out;
             }
@@ -748,6 +797,57 @@ impl<'a> Runner<'a> {
                         active.retain(|x| *x != i);
                     }
                 }
+            }
+        }
+    }
+
+    /// ADR-0112: a biçiminin satırındaki W2015 ile modelin `DIV_CUT`'u aynı
+    /// ifadelerde olmalı. Uyarı reddetmez; yalnız kabul edilen ifadeler.
+    #[allow(clippy::too_many_arguments)]
+    fn compare_div_cut(
+        &mut self,
+        b: &Batch,
+        built: &Built,
+        text: &str,
+        active: &[usize],
+        account: bool,
+        seen: &mut BTreeSet<usize>,
+        out: &mut Outcome,
+    ) {
+        let model = Model { ports: &b.ports };
+        let warned: BTreeSet<usize> = volt_warning_lines(text, "W2015")
+            .into_iter()
+            .filter_map(|l| built.line_owner.get(l - 1).copied().flatten())
+            .filter(|(_, v)| *v == Variant::A)
+            .map(|(id, _)| id)
+            .collect();
+        for &i in active {
+            let c = &b.cases[i];
+            if !c.is_valid() || !seen.insert(c.id) {
+                continue;
+            }
+            let model_cut = c.div_cut(&model);
+            let compiler_cut = warned.contains(&c.id);
+            if account {
+                self.report.div_cut.0 += usize::from(model_cut);
+                self.report.div_cut.1 += usize::from(compiler_cut);
+                self.report.div_cut.2 += usize::from(model_cut != compiler_cut);
+            }
+            if model_cut != compiler_cut {
+                let yn = |x: bool| if x { "cut" } else { "not cut" };
+                out.findings.push(self.finding(
+                    Class::DivCutWarning,
+                    c,
+                    b,
+                    Some(Variant::A),
+                    format!(
+                        "model: {}, compiler: {} (W2015 {})",
+                        yn(model_cut),
+                        yn(compiler_cut),
+                        if compiler_cut { "given" } else { "not given" }
+                    ),
+                    vec![],
+                ));
             }
         }
     }
@@ -1311,6 +1411,21 @@ mod tests {
     fn parses_short_diagnostics() {
         let t = "dt.volt:17:10: error[E2001]: bit width mismatch\ndt.volt:3:1: warning[W4001]: unused\n";
         assert_eq!(volt_errors(t), vec![(17, "E2001".to_string())]);
+    }
+
+    #[test]
+    fn parses_warning_lines_of_one_code() {
+        let t = "dt.volt:12:9: warning[W2015]: cut
+dt.volt:3:1: warning[W4001]: unused
+                 dt.volt:14:5: error[E2001]: mismatch
+dt.volt:20:7: warning[W2015]: cut
+";
+        assert_eq!(
+            volt_warning_lines(t, "W2015")
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![12, 20]
+        );
     }
 
     #[test]

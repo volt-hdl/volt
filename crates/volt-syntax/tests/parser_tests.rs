@@ -2388,7 +2388,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 125, "ui/pass 125 dosya içermeli");
+    assert_eq!(total, 126, "ui/pass 126 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2438,10 +2438,10 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // const'u ve aynı adlı döngü değişkeni), #144 137'yi (literal
     // aritmetiğinin katlanması), #137/#138 138'i (yerelin gölgelediği
     // çift yönlü port, aşama değeri ve sayaç sınırı), #143 139'u
-    // (örneklenen generic modül).
+    // (örneklenen generic modül), #173 140'ı (bölmenin genişliği açık).
     assert_eq!(
-        clean, 125,
-        "125/125 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 126,
+        "126/126 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

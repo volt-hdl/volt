@@ -377,8 +377,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #112: 134 bileşik değerden indexed part-select,
     // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
     //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede),
-    // #143: 139 örneklenen generic modül (W1006 yok).
-    assert_eq!(checked, 125);
+    // #143: 139 örneklenen generic modül (W1006 yok),
+    // #173: 140 bölmenin genişliği açık (W2015 yok).
+    assert_eq!(checked, 126);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
