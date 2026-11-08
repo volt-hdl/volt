@@ -7,8 +7,8 @@
 //! - seçim konumundaki literaller (`x[3]`, `x[2 +: 4]`) kök `const`'lara
 //!   çıkar (`t<id>r`, `K<id>r<n>`);
 //! - C biçiminin alt ifadesi gövdede bir `let`'e bağlanır; adı (`s<id>r`)
-//!   aynı adlı bir kök const'u gölgeler (yalnız `VOLT_DIFFTEST_FN_LET=1`
-//!   ile, #132);
+//!   aynı adlı bir kök const'u gölgeler (#132'den sonra varsayılan açık,
+//!   `VOLT_DIFFTEST_FN_LET=0` kapatır);
 //! - çağrı, ilk const'la aynı adlı ve başka bir değer alan döngü
 //!   değişkeninin (`for t<id>r in V..V+1`) içindedir;
 //! - bir argüman, `s<id>r` adlı bir `let`'ten geçer (çağıranın yereli,
@@ -98,11 +98,11 @@ pub fn module_level(id: usize) -> bool {
 }
 
 /// Gövdenin `let`'i (c biçiminin alt ifadesi) yalnız
-/// `VOLT_DIFFTEST_FN_LET=1` ile: ikame kipindeki tipsiz fn `let`'i esnek
-/// genişliğini kaybediyor (#132, ad hijyeninden ayrı kök neden); açık
-/// koşu o sınıfı bulur ve düşer. #132 düzelince varsayılan açılır.
+/// Varsayılan açık; `VOLT_DIFFTEST_FN_LET=0` kapatır. #132'ye kadar
+/// kapalıydı: ikame kipindeki tipsiz fn `let`'i esnek genişliğini
+/// kaybediyordu (ad hijyeninden ayrı kök neden); açık koşu o sınıfı bulur.
 pub fn body_let_enabled() -> bool {
-    std::env::var("VOLT_DIFFTEST_FN_LET").is_ok_and(|v| v == "1")
+    !std::env::var("VOLT_DIFFTEST_FN_LET").is_ok_and(|v| v == "0")
 }
 
 impl Hygiene {
