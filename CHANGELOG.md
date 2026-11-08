@@ -198,8 +198,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Fark testinin r biçiminde gövde `let`'i (c biçiminin alt ifadesi fn
   gövdesinin tipsiz `let`'inde) artık varsayılan olarak açık (ADR-0108,
   "Ek: gövde `let`'i varsayılan açık", #132); `VOLT_DIFFTEST_FN_LET=0`
-  kapatır. Regresyon kümesine #132'nin iki örneği eklendi (`(p0 + p1) |
-  p2`, biri tel, biri ikame kipinde, elle hesaplanmış değerlerle).
+  kapatır. Regresyon kümesine #132'nin iki örneği eklendi (`((p0 + p1) |
+  p2) + p2`, biri tel, biri ikame kipinde, elle hesaplanmış değerlerle);
+  regresyon örneği C biçiminin çıkaracağı alt ifadenin yolunu
+  sabitleyebilir (`Regression::extract`), gövde `let`'i tohumdan bağımsız.
   `inline_flex_let_sim_tests`: aynı `fn` `comb` içinde ve modül düzeyinde
   çağrılır, iki çıkış da elle hesaplanan değeri vermeli (Verilator).
 - DFG kapalı (ADR-0107 eki "Ek: DFG kapalı", #148): Volt'un Verilator
