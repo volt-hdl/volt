@@ -134,53 +134,115 @@ impl Drop for Watcher {
     }
 }
 
-#[test]
-fn watch_reruns_once_per_burst_of_saves_and_ignores_build_output() {
-    // Arrange: araç çalıştırılamaz — her koşu hızla "could not run" biter.
-    let dir = project("watch");
+fn spawn_watcher(mut cmd: Command) -> (Watcher, Arc<Mutex<Vec<String>>>) {
     let mut watcher = Watcher(
-        volt(&dir)
-            .args(["test", "--watch"])
+        cmd.args(["test", "--watch"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .expect("volt"),
     );
-    let child = &mut watcher.0;
-    let lines = collect_stderr(child);
-    assert!(wait_until(&lines, "waiting for changes", 1), "{:?}", lines);
+    let lines = collect_stderr(&mut watcher.0);
+    (watcher, lines)
+}
 
-    // Act 1: derleme çıktısı yazmak tetiklemez.
+/// Koşu özetleri (`Watched <sonuç> in …; waiting for changes in K file(s)`).
+fn summaries(lines: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+    let all = lines.lock().expect("kilit");
+    all.iter()
+        .filter(|l| l.contains("waiting for changes"))
+        .cloned()
+        .collect()
+}
+
+/// Bozuk test dosyası: koşusu `Watched compile errors` diye biter, öteki
+/// her içerikten ayırt edilir.
+const BROKEN_TESTS: &str = "test \"counts\" {\n";
+
+#[test]
+fn watch_reruns_on_the_last_save_and_ignores_build_output() {
+    // Arrange: araç çalıştırılamaz — her koşu hızla "could not run" biter.
+    let dir = project("watch");
+    let (mut watcher, lines) = spawn_watcher(volt(&dir));
+    assert!(wait_until(&lines, "waiting for changes", 1), "{lines:?}");
+
+    // Act: derleme çıktısı, sonra art arda iki kayıt; sonuncusu bozuk.
     std::fs::write(dir.join("build/sim/counter_test/extra.txt"), "x").expect("yaz");
-    std::thread::sleep(Duration::from_millis(1500));
-    let runs_after_build = lines
-        .lock()
-        .expect("kilit")
-        .iter()
-        .filter(|l| l.contains("volt test --watch"))
-        .count();
-
-    // Act 2: art arda iki kayıt → tek yeniden koşu.
     std::fs::write(dir.join("counter_test.volt"), format!("{TESTS}\n")).expect("yaz");
-    std::fs::write(dir.join("counter_test.volt"), format!("{TESTS}\n\n")).expect("yaz");
-    assert!(wait_until(&lines, "waiting for changes", 2), "{:?}", lines);
-    std::thread::sleep(Duration::from_millis(1500));
+    std::fs::write(dir.join("counter_test.volt"), BROKEN_TESTS).expect("yaz");
 
-    // Assert
-    let all = lines.lock().expect("kilit").clone();
-    let runs = all
-        .iter()
-        .filter(|l| l.contains("volt test --watch"))
-        .count();
-    assert_eq!(runs_after_build, 1, "{all:?}");
-    assert_eq!(runs, 2, "{all:?}");
-    assert!(all.iter().any(|l| l.contains("run 2")), "{all:?}");
-    assert!(
-        all.iter().any(|l| l.contains("could not run the tests")),
-        "{all:?}"
-    );
-    stop(child, &lines);
+    // Assert: son kayıt mutlaka koşar. Kaç koşu olduğu yazıcının hızına
+    // bağlıdır — yavaş bir yazımın ara durumu da koşabilir (#176); iki
+    // kaydın tek koşuya toplanması sanal saatle sınanır (watch.rs birim
+    // testleri). Duvar saatine bağlı bekleme yok: koşul + süre sınırı.
+    assert!(wait_until(&lines, "Watched compile errors", 1), "{lines:?}");
+    let runs = summaries(&lines);
+    assert!(runs.len() >= 2, "{runs:?}");
+    assert!(runs[0].contains("could not run the tests"), "{runs:?}");
+    assert!(runs[runs.len() - 1].contains("compile errors"), "{runs:?}");
+    // Derleme çıktısı izlenmez: build/ altındaki dosyalar (ilk koşunun
+    // testbench'i, extra.txt) her koşunun izlenen kümesinde yok.
+    assert!(runs.iter().all(|r| r.contains("in 4 file(s)")), "{runs:?}");
+    stop(&mut watcher.0, &lines);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Koşul + süre sınırı: `path` belirene dek bekler.
+#[cfg(unix)]
+fn wait_for_path(path: &Path) -> bool {
+    let end = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < end {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+/// #176: koşu sürerken gelen kayıt bir sonraki koşuyu tetikler. Sahte
+/// Verilator koşuyu test izin verene dek tutar; kayıt koşunun ortasına
+/// kesin düşer (zamanlama yok). Eskiden taban koşudan sonra alındığı için
+/// kayıt kayboluyor, izleyici eski içeriğin sonucunda bekliyordu. Unix:
+/// sahte araç kabuk betiği; Windows'ta aynı durum `watch.rs` birim
+/// testinde.
+#[cfg(unix)]
+#[test]
+fn watch_reruns_for_a_save_made_while_a_run_is_in_progress() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Arrange: ilk çağrıda `started` bırakan, `release` gelene dek (en
+    // çok 60 s) bekleyen sahte araç.
+    let dir = project("busy");
+    let tool = dir.join("slow-verilator");
+    let started = dir.join("build/started");
+    let release = dir.join("build/release");
+    std::fs::write(
+        &tool,
+        format!(
+            "#!/bin/sh\ntouch '{}'\ni=0\n\
+             while [ ! -e '{}' ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done\nexit 1\n",
+            started.display(),
+            release.display()
+        ),
+    )
+    .expect("yaz");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).expect("izin");
+    let mut cmd = volt(&dir);
+    cmd.env("VOLT_VERILATOR", &tool);
+    let (mut watcher, lines) = spawn_watcher(cmd);
+
+    // Act: koşu 1 araçta beklerken kaydet, sonra koşuyu bırak.
+    assert!(wait_for_path(&started), "{lines:?}");
+    std::fs::write(dir.join("counter_test.volt"), BROKEN_TESTS).expect("yaz");
+    std::fs::write(&release, "").expect("yaz");
+
+    // Assert: kayıt kaybolmaz — koşu 2 bozuk dosyayı derler.
+    assert!(wait_until(&lines, "Watched compile errors", 1), "{lines:?}");
+    let runs = summaries(&lines);
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    stop(&mut watcher.0, &lines);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

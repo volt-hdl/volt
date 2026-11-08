@@ -14,6 +14,7 @@
 //! kayıtlar (editörün geçici dosyası, birden çok dosyayı kaydetme) tek
 //! koşu olur.
 
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -46,19 +47,65 @@ pub(crate) fn watch(filter: Option<&str>, opts: TestOptions<'_>) -> ExitCode {
         return ExitCode::from(3);
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let scope = WatchScope::new(&cwd, filter, opts.target_dir);
+    let mut live = Live {
+        scope: WatchScope::new(&cwd, filter, opts.target_dir),
+        filter,
+        opts,
+    };
     // Döngüden yalnız Ctrl-C çıkar (`interrupt`, çıkış kodu 130).
-    let mut run: u64 = 0;
-    loop {
-        run += 1;
-        print_rule(run);
+    watch_loop(&mut live);
+    ExitCode::SUCCESS
+}
+
+/// İzleme döngüsünün dış dünyası: anlık görüntü, bekleme ve test koşusu.
+/// Gerçeği `Live`'dır; birim testleri sanal saatle sürer.
+trait WatchEnv {
+    /// İzlenen kümenin anlık görüntüsü.
+    fn snapshot(&mut self) -> Vec<Stamp>;
+    fn sleep(&mut self, d: Duration);
+    /// `n`'inci koşu; `files` izlenen dosya sayısı (özette). `Break`
+    /// döngüyü bitirir — yalnız testlerde; gerçek döngüden Ctrl-C çıkar.
+    fn run(&mut self, n: u64, files: usize) -> ControlFlow<()>;
+}
+
+/// Koşu, değişiklik bekleme, koşu… Bir koşunun tabanı koşudan ÖNCE
+/// alınır: koşu sürerken gelen kayıt tabandan ayrılır ve bir sonraki
+/// koşuyu tetikler. (Taban koşudan sonra alınınca o kayıt tabana karışıyor,
+/// izleyici eski içeriğin sonucunu gösterip bekliyordu — #176.)
+fn watch_loop(env: &mut impl WatchEnv) {
+    let mut base = env.snapshot();
+    for n in 1u64.. {
+        if env.run(n, base.len()).is_break() {
+            return;
+        }
+        base = wait_for_change(env, &base);
+    }
+}
+
+/// Gerçek ortam: dosya sistemi, duvar saati, `sim::test`.
+struct Live<'a> {
+    scope: WatchScope,
+    filter: Option<&'a str>,
+    opts: TestOptions<'a>,
+}
+
+impl WatchEnv for Live<'_> {
+    fn snapshot(&mut self) -> Vec<Stamp> {
+        self.scope.snapshot()
+    }
+
+    fn sleep(&mut self, d: Duration) {
+        std::thread::sleep(d);
+    }
+
+    fn run(&mut self, n: u64, files: usize) -> ControlFlow<()> {
+        print_rule(n);
         let started = Instant::now();
-        let code = sim::test(filter, opts);
+        let code = sim::test(self.filter, self.opts);
         // İstemcisi ölmüş bir konteyner koşudan sonra kalmasın.
         crate::interrupt::sweep();
-        let before = scope.snapshot();
-        print_summary(code, started.elapsed(), before.len());
-        wait_for_change(&scope, before);
+        print_summary(code, started.elapsed(), files);
+        ControlFlow::Continue(())
     }
 }
 
@@ -138,22 +185,21 @@ fn flat_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Küme değişene, sonra `SETTLE` boyunca sabit kalana kadar bekler.
-fn wait_for_change(scope: &WatchScope, before: Vec<Stamp>) {
-    let mut last = before;
-    loop {
-        std::thread::sleep(POLL);
-        let now = scope.snapshot();
-        if now != last {
-            last = now;
-            break;
+/// Küme `base`'den ayrılana, sonra `SETTLE` boyunca sabit kalana kadar
+/// bekler; sabitlenen kümeyi döner.
+fn wait_for_change(env: &mut impl WatchEnv, base: &[Stamp]) -> Vec<Stamp> {
+    let mut last = loop {
+        env.sleep(POLL);
+        let now = env.snapshot();
+        if now != base {
+            break now;
         }
-    }
+    };
     loop {
-        std::thread::sleep(SETTLE);
-        let now = scope.snapshot();
+        env.sleep(SETTLE);
+        let now = env.snapshot();
         if now == last {
-            return;
+            return now;
         }
         last = now;
     }
@@ -221,6 +267,124 @@ mod tests {
         assert!(is_watched(Path::new("data/image.hex")));
         assert!(!is_watched(Path::new("a/.counter.volt.swp")));
         assert!(!is_watched(Path::new("a/counter.volt~")));
+    }
+
+    /// Sanal saatli ortam: tek dosya, zamanı belli yazımlar. Bekleme saati
+    /// ilerletir; koşu, başladığı andaki dosya boyutunu okur ve `run_takes`
+    /// sürer. Duvar saati yok: sonuç her makinede aynı (#176).
+    struct Script {
+        now: Duration,
+        /// (an, boyut), zaman sırasıyla; `fs::write` = kısalt (0) + yaz.
+        writes: Vec<(Duration, u64)>,
+        initial: u64,
+        run_takes: Duration,
+        /// Her koşunun okuduğu boyut.
+        runs: Vec<u64>,
+        max_runs: usize,
+    }
+
+    /// Bu sanal sürede koşu gelmezse test düşer (asılı kalmaz).
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    impl Script {
+        fn new(initial: u64, writes: &[(u64, u64)]) -> Script {
+            Script {
+                now: Duration::ZERO,
+                writes: writes.iter().map(|&(t, len)| (ms(t), len)).collect(),
+                initial,
+                run_takes: ms(10),
+                runs: Vec::new(),
+                max_runs: 2,
+            }
+        }
+
+        fn len_now(&self) -> u64 {
+            self.writes
+                .iter()
+                .rev()
+                .find(|(t, _)| *t <= self.now)
+                .map_or(self.initial, |&(_, len)| len)
+        }
+
+        fn drive(mut self) -> Vec<u64> {
+            watch_loop(&mut self);
+            self.runs
+        }
+    }
+
+    impl WatchEnv for Script {
+        fn snapshot(&mut self) -> Vec<Stamp> {
+            let changed = self.writes.iter().rev().find(|(t, _)| *t <= self.now);
+            let mtime = UNIX_EPOCH + changed.map_or(Duration::ZERO, |(t, _)| *t);
+            vec![(PathBuf::from("a.volt"), Some(mtime), self.len_now())]
+        }
+
+        fn sleep(&mut self, d: Duration) {
+            self.now += d;
+            assert!(
+                self.now < DEADLINE,
+                "no run for the last change within {DEADLINE:?} (virtual); runs read {:?}",
+                self.runs
+            );
+        }
+
+        fn run(&mut self, _n: u64, _files: usize) -> ControlFlow<()> {
+            self.runs.push(self.len_now());
+            self.now += self.run_takes;
+            if self.runs.len() == self.max_runs {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    #[test]
+    fn a_burst_of_saves_inside_the_settle_window_is_one_run() {
+        // Arrange: iki kayıt (her biri kısalt + yaz) 200 ms arayla; bir
+        // yoklama aralarına düşer (1210 ms ilkini görür).
+        let script = Script::new(10, &[(1100, 0), (1100, 11), (1300, 0), (1300, 12)]);
+
+        // Act
+        let runs = script.drive();
+
+        // Assert: ilk koşu + son içerikle tek yeniden koşu.
+        assert_eq!(runs, [10, 12]);
+    }
+
+    #[test]
+    fn a_writer_stalled_longer_than_the_settle_window_is_run_then_rerun() {
+        // Arrange (#176'nın düzeneği): yazıcı dosyayı kısaltıp 600 ms
+        // durur (yavaş disk; Linux'ta kısaltma süren geri yazımı bekler).
+        // Boş dosya 250 ms'den uzun sabit: izleyici bunu kullanıcının boş
+        // kaydından ayıramaz.
+        let mut script = Script::new(10, &[(1000, 0), (1600, 12)]);
+        script.max_runs = 3;
+
+        // Act
+        let runs = script.drive();
+
+        // Assert: ara durum koşar, son içerik yeniden koşar — son söz son
+        // kaydındır; koşu sayısı yazıcının hızına bağlıdır.
+        assert_eq!(runs, [10, 0, 12]);
+    }
+
+    #[test]
+    fn a_save_during_a_run_triggers_the_next_run() {
+        // Arrange: koşu 2 s sürer; kayıt koşunun ortasında gelir — koşu
+        // dosyayı eski haliyle okudu.
+        let mut script = Script::new(10, &[(500, 0), (500, 11)]);
+        script.run_takes = ms(2000);
+
+        // Act
+        let runs = script.drive();
+
+        // Assert: kayıt kaybolmaz; yeniden koşu yeni içeriği okur.
+        assert_eq!(runs, [10, 11]);
     }
 
     fn temp_project(tag: &str) -> PathBuf {

@@ -104,6 +104,9 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
 - For a bug fix, write the test that reproduces the bug, run it and see it
   fail, then fix the code and see it pass. Name these tests in the report
   ("failed before, passes after").
+- **A flaky test is a bug:** do not rerun it to green or lengthen its
+  sleeps; find whether the product or the test is at fault and fix that.
+  Tests wait on conditions with a timeout, not on fixed sleeps.
 - `tests/ui/pass/` must compile; `tests/ui/fail/` must produce the
   expected diagnostic, and each file starts with `//~ EXXXX` (or `WXXXX`).
   Numeric file prefixes do not repeat within a directory.
