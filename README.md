@@ -2,8 +2,8 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
-> **Status:** early-stage project (started 2026-09). Version 0.1.0 is the
-> earliest release; it makes no stability promise. Not used in production.
+> **Status:** early-stage project (started 2026-09). Version 0.1.1 is the
+> latest release; it makes no stability promise. Not used in production.
 > No silicon. See [Limitations](#limitations).
 
 ![A terminal: volt check reports error E3001 on crossing.volt, the sync() line from its help line is added in nano, and volt check reports 0 errors](demo/cdc-demo.gif)

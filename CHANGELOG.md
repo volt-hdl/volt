@@ -5,7 +5,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.1] - 2026-11-08
 
 ### Behavior changes
 
@@ -110,7 +110,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   reddedilen girdiler derlenir (`comb { for N in 0..2 { ys[N] = N } }`
   generic `N`'li modülde E2006 veriyordu; kısaltılmış bağlama `P { i }`
   E1001 veriyordu).
-- **Davranış değişikliği.** Yeni W1002 uyarıları: modül düzeyi `for`'un
+- **Davranış değişikliği.** Yeni W1002 uyarıları (#130): modül düzeyi `for`'un
   değişkeni bir kök öğeyi, portu, modül sinyalini ya da generic
   parametreyi gölgelediğinde; döngü gövdesinin `let`'i döngü değişkenini,
   kök öğeyi ya da dış gövdenin `let`'ini gölgelediğinde; örneklenen generic
@@ -119,7 +119,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   gölgelediğinde. Uyarıları hata sayan derlemeler (CI betikleri)
   düşebilir.
 - **Davranış değişikliği.** Önceden kabul edilen bazı girdiler artık
-  reddedilir: generic parametreyle aynı adlı port ya da modül `let`'i
+  reddedilir (#130): generic parametreyle aynı adlı port ya da modül `let`'i
   E1003; desende modül düzeyi döngü değişkeni E1015; generic parametreyi
   gölgeleyen blok `let`'i desende E1015, tip genişliğinde (`uint<N>`)
   E2005; döngü gövdesinin `let`'i generic argümanda (`W<i>`) E2008, tip
@@ -152,8 +152,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   zinciri (`const A0 : E = A1`, …) 63 halkadan uzunsa artık E0003 verir;
   önceden katlanıyordu. Üretici sabitleri 64 derinlik sınırıyla
   değerlendirir; u32 zinciri bu sınıra zaten takılıyordu, enum zinciri
-  takılmıyordu ve döngüsel zincirde yığın taşıyordu. Yükseltme: bu kadar
-  uzun bir zincir kısaltılmalı (#133).
+  takılmıyordu ve döngüsel zincirde yığın taşıyordu (#128'in PR'ı;
+  sınırın kendisi açık: #133). Yükseltme: bu kadar uzun bir zincir
+  kısaltılmalı.
 - **Davranış değişikliği.** Hiç örneklenmemiş generic modül (şablon) için
   SystemVerilog üretilmez; ana dosyadaki şablon yeni W1006 uyarısını alır
   (#143, ADR-0111): "module 'Fir' is generic and is never instantiated; no
