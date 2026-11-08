@@ -61,6 +61,10 @@ pub struct Regression {
     pub ports: Vec<PortTy>,
     pub expr: Expr,
     pub pins: Vec<Pin>,
+    /// C biçiminin `let`'e çıkaracağı alt ifadenin yolu (`Expr::at`);
+    /// `None`: rastgele iç düğüm. Sabit yol, r biçiminin gövde `let`'ini
+    /// tohumdan bağımsız kılar (#132).
+    pub extract: Option<Vec<usize>>,
 }
 
 impl Regression {
@@ -72,6 +76,11 @@ impl Regression {
         });
         self
     }
+
+    fn extracting(mut self, path: &[usize]) -> Regression {
+        self.extract = Some(path.to_vec());
+        self
+    }
 }
 
 fn r(issue: &'static str, what: &'static str, ports: Vec<PortTy>, expr: Expr) -> Regression {
@@ -81,6 +90,7 @@ fn r(issue: &'static str, what: &'static str, ports: Vec<PortTy>, expr: Expr) ->
         ports,
         expr,
         pins: Vec::new(),
+        extract: None,
     }
 }
 
@@ -468,32 +478,44 @@ pub fn all() -> Vec<Regression> {
         // ── Açılmış fn'in tipsiz gövde `let`'i (#132) ──
         // İki örnek art arda (kimlikleri 33 ve 34): r biçiminde birinin
         // çağrısı modül düzeyi `for`'da (tel kipi), öbürününki `comb`'da
-        // (ikame kipi, `hygiene::module_level`). Tek iç düğüm `p0 + p1`'dir:
-        // c biçimi onu seçer, r biçiminde gövdenin `let s<id>r`'si olur.
+        // (ikame kipi, `hygiene::module_level`). C biçimi sabit yoldaki
+        // `p0 + p1`'i çıkarır; r biçiminde o gövdenin `let s<id>r`'si olur.
         r(
             "#132",
-            "untyped body let of an inlined function narrowed by a bitwise operation (module level)",
+            "untyped body let of an inlined function narrowed by a bitwise operation, in a wider sum (module level)",
             vec![UInt(8), UInt(8), UInt(8)],
-            bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+            bin(
+                BinOp::Add,
+                bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+                p(2),
+            ),
         )
-        // `(p0 + p1) | p2`, üçü u8. type-inference §3.3, ADR-0025: `p0 + p1`
-        // esnek u8..u9; `| p2` aralıkların kesişiminde, 8 bitte, sonuç u8
-        // (bit işleminde kesişimin üst ucu sonucun doğal genişliğidir, A1'in
-        // iki okuması aynı). 128 + 128 = 256, 8 bitte 0; 0 | 128 = 128.
-        // 255 + 255 = 510, 8 bitte 254; 254 | 1 = 255.
-        .pin(&[128, 128, 128], 128)
-        .pin(&[255, 255, 1], 255),
+        .extracting(&[0, 0])
+        // `((p0 + p1) | p2) + p2`, üçü u8 (#132'nin örneği). type-inference
+        // §3.3, ADR-0025: `p0 + p1` esnek u8..u9; `| p2` aralıkların
+        // kesişiminde, 8 bitte, sonuç u8 (bit işleminde kesişimin üst ucu
+        // sonucun doğal genişliğidir, A1'in iki okuması aynı); `+ p2` u8 + u8
+        // → u9. 255, 255, 255: 510 → 8 bitte 254; 254 | 255 = 255; 255 + 255
+        // = 510. 128, 128, 128: 256 → 0; 0 | 128 = 128; + 128 = 256.
+        .pin(&[255, 255, 255], 510)
+        .pin(&[128, 128, 128], 256),
         r(
             "#132",
-            "untyped body let of an inlined function narrowed by a bitwise operation (comb)",
+            "untyped body let of an inlined function narrowed by a bitwise operation, in a wider sum (comb)",
             vec![UInt(8), UInt(8), UInt(8)],
-            bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+            bin(
+                BinOp::Add,
+                bin(BinOp::Or, bin(BinOp::Add, p(0), p(1)), p(2)),
+                p(2),
+            ),
         )
+        .extracting(&[0, 0])
         // Aynı ifade, çağrı `comb` içinde. Düzeltmeden önce ikame kipi
-        // `let`'i doğal genişliğinde yazıyor, `|`'yu 9 bitte yapıyordu
-        // (`8'(9'(9'(p0) + 9'(p1)) | p2)`: Verilator WIDTHEXPAND).
-        .pin(&[128, 128, 128], 128)
-        .pin(&[255, 255, 1], 255),
+        // `let`'i doğal genişliğinde yazıyor, `|`'yu 9 bitte yapıyordu:
+        // (510 | 255) + 255 = 766 → 9 bitte 254; (256 | 128) + 128 = 512 →
+        // 0 (ve Verilator WIDTHEXPAND).
+        .pin(&[255, 255, 255], 510)
+        .pin(&[128, 128, 128], 256),
     ]
 }
 
@@ -580,6 +602,33 @@ mod tests {
             crate::hygiene::module_level(ids[1]),
             "{ids:?}"
         );
+    }
+
+    /// #132'nin örneklerinde gövdenin `let`'i tohumdan bağımsız olarak
+    /// `p0 + p1`'dir (sabit çıkarma yolu); rastgele seçim `| p2`'yi de
+    /// seçebilirdi, o zaman hata görünmezdi.
+    #[test]
+    fn issue_132_examples_put_the_sum_in_the_body_let_for_every_seed() {
+        for seed in [1, 20_261_104, 20_261_106] {
+            for (i, r) in all().iter().enumerate().filter(|(_, r)| r.issue == "#132") {
+                let mut rng = crate::rng::Rng::new(seed);
+                let c = crate::harness::Case::new_extracting(
+                    i,
+                    r.expr.clone(),
+                    &r.ports,
+                    &mut rng,
+                    r.extract.as_deref(),
+                );
+                let h = c.hygiene.as_ref().expect("r biçimi");
+                assert!(
+                    matches!(&h.body_let, Some(Expr::Bin(BinOp::Add, a, b))
+                        if matches!(**a, Expr::Port(0)) && matches!(**b, Expr::Port(1))),
+                    "tohum {seed}, {}: {:?}",
+                    r.what,
+                    h.body_let
+                );
+            }
+        }
     }
 
     #[test]
