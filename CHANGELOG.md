@@ -249,7 +249,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `volt check`'te veriliyor; örneklenen generic modülün monomorfu, generic
   olmayan örneklenmemiş modüller ve kütüphane dosyasındaki şablon
   değişmedi; örneklenen şablonun değeri Verilator'da elle hesaplanan
-  değer. `tests/ui/fail/244`, `tests/ui/pass/139`.
+  değer. `tests/ui/fail/244`, `tests/ui/pass/139`. Şablon kararı
+  `crates/volt-sv-emit/src/template.rs`'te; dosya mutasyon kapsamına
+  (ADR-0109) girdi.
 
 ## [0.1.0] - 2026-11-04
 

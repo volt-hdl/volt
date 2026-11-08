@@ -3,8 +3,10 @@
 > Statü: Uygulandı
 > İlgili: ADR-0041 (monomorfizasyon: örneklenmemiş şablon dokunulmadan kalır; artık SV'ye de yazılmaz), ADR-0056 (örneklenmemiş generic şablon açılmaz), ADR-0042 (eki: çıktı kümesi; kütüphane dosyasının şablonu uyarı almaz)
 > Tarih: 2026-11-08
-> Etkilenen: `crates/volt-sv-emit/src/lib.rs` (`emit_unit`,
-> `uninstantiated_generic`), `crates/volt-diagnostics` (`W1006`: kod,
+> Etkilenen: `crates/volt-sv-emit/src/lib.rs` (`emit_unit`),
+> `crates/volt-sv-emit/src/template.rs` (YENİ: `skip`,
+> `uninstantiated_generic`; mutasyon kapsamında, `.cargo/mutants.toml`),
+> `crates/volt-diagnostics` (`W1006`: kod,
 > kısa açıklama ve `volt explain` metni, en/tr),
 > `crates/volt-driver/src/main.rs` (yalnız şablon içeren dosyaya
 > "kütüphane dosyası" notu basılmaz),
