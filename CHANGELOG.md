@@ -9,9 +9,38 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
-- Davranış değişikliği yok: bu bölümdeki değişiklikler test ve belgedir.
+- **Davranış değişikliği.** Saatsiz bir modül ya da saatsiz bir `extern`
+  üzerinden başka bir saat alanına geçen kombinasyonel yol artık E3001
+  alır (#189, ADR-0114; sessiz yanlış düzeltmesi). Saatsiz modülün
+  çıkışı, örneklendiği yerde bağlı olduğu girişlerin saat alanını taşır:
+  `let p = Pass { a: fast_flag }; slow_flag = p.y` 0.1.1'de hatasız
+  derlenip senkronizörsüz bir `assign` üretiyordu. Saatsiz modül iki
+  alandan gelen girişleri aynı çıkışta birleştirirse E3001 örneğin
+  olduğu yerde verilir, çıkış okunmasa da. Öneri çıkışı önce adlandırır:
+  `let p_y_raw = p.y` + `sync(p_y_raw, <saat>)`.
+- **Davranış değişikliği.** Saatsiz `extern` için şartname değişti:
+  domain-inference.md K8a bu durumu izinliyordu (saatsiz extern portları
+  `Timeless`); güvenlik nedeniyle artık gövdesi görünmeyen saatsiz
+  extern'in anotasyonsuz her çıkışı saat dışı her girişine bağlı sayılır
+  (en kötü durum, ADR-0114 K4). Bağımsız yolları farklı alanlarda olan
+  bir extern'in portlarına `@Alan` anotasyonu yazılır.
+- **Davranış değişikliği.** Alt modül, saatsiz `extern` ve yerleşik
+  `EdgeDetect`, `RoundRobinArbiter`, `PriorityArbiter` üzerinden
+  `ready`'den `valid`'e giden yol artık E4007 alır (#193, ADR-0114);
+  tanının notu yolu örnekle yazar (`tx.valid <- g.y (AndGate: y <- b) <-
+  tx_ready`). Saatli `extern` bu denetim için opak kalır (#196).
+  Saatsiz extern'in en kötü durum varsayımı gerçekte olmayan bir yolu
+  gösterirse kaçış yolu portta `@no_protocol_check`'tir: E4007 o portta
+  yalnız bu varsayıma dayanan yolları yok sayar; görünür bir yol yine
+  E4007'dir.
+- Depodaki tasarımların, kitabın ve tohumlanmış hata derleminin temiz
+  tasarımlarının hiçbiri yeni tanı almıyor (ölçüm PR açıklamasında).
 
 ### Belgeler
+
+- Kitabın "Limitations" sayfası (ADR-0114): `Handshake<T>` denetimi alt
+  modüllerin içinden geçer, saatli `extern`'ün içine bakmaz (#196);
+  alt modül bağımlılıkları bit düzeyinde değil port düzeyinde izlenir.
 
 - Kitabın "Limitations" sayfası: güç alanı anahtarları (`voltage`,
   `always_on`, `retention`, `isolation`) ayrılmış sözcüktür ve E0003
@@ -40,6 +69,12 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   listesinde. Güvenli ikizleri (bağımsız iki yol, sabit çıkış, `sync()`
   ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
   alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
+- Modül özeti (ADR-0114): yukarıdaki on bir bilinen açık kapandı, liste
+  boş. Yeni `tests/ui` dosyaları (fail 246–253, pass 141–147), üç öneri
+  gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
+  `@no_protocol_check` kaçışı) ve `builtin_summary_tests`: yerleşik
+  primitif özet tablosunun her satırı primitifin ürettiği SystemVerilog'un
+  Yosys ile kombinasyonel yol analizine karşı denetlenir (araçlı işte).
 
 ## [0.1.1] - 2026-11-08
 

@@ -231,16 +231,33 @@ fn extern_single_clock_unannotated_is_clean() {
 }
 
 #[test]
-fn extern_clockless_ports_are_timeless() {
-    // Kombinasyonel extern: her alandan bağlanabilir, çıkışı her alana gider.
-    let result = check(&src(&[
+fn extern_clockless_output_carries_its_inputs_domain() {
+    // ADR-0114 K4 (önceden K8a: saatsiz extern portları Timeless'tı ve
+    // bu test çıkışın her alana gittiğini doğruluyordu; o okuma bir
+    // kombinasyonel CDC'yi kabul ediyordu, #189). Kombinasyonel extern:
+    // girişi her alandan bağlanabilir, çıkışı bağlanan alanı taşır.
+    let inv = "extern module Inv {\n    in a : u8\n    out y : u8\n}\n";
+    let cross = check(&src(&[
         DOMAINS,
-        "extern module Inv {\n    in a : u8\n    out y : u8\n}\n",
+        inv,
         "module M {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    \
          in fast_d : u8 @Fast\n    out slow_q : u8 @Slow\n    \
          let i = Inv { a: fast_d }\n    slow_q = i.y\n}\n",
     ]));
-    assert!(!result.has_errors(), "{:?}", result.error_codes());
+    let errors: Vec<&str> = cross
+        .error_codes()
+        .into_iter()
+        .filter(|c| c.starts_with('E'))
+        .collect();
+    assert_eq!(errors, ["E3001"]);
+    let same = check(&src(&[
+        DOMAINS,
+        inv,
+        "module M {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    \
+         in slow_d : u8 @Slow\n    out slow_q : u8 @Slow\n    \
+         let i = Inv { a: slow_d }\n    slow_q = i.y\n}\n",
+    ]));
+    assert!(!same.has_errors(), "{:?}", same.error_codes());
 }
 
 // ═══ K8 — örneklemede sembolik → gerçek alan haritası ═════════════

@@ -1,7 +1,7 @@
 # ADR-0113: Tohumlanmış Hata Testi — Güvenlik Denetimleri Güvensiz Tasarımı Kaçırıyor mu?
 
 > Statü: Uygulandı
-> İlgili: ADR-0108 (fark testi derleyicinin ürettiği SV'yi ölçer, bu test derleyicinin reddetmesi gereken tasarımı; beklenen değer ikisinde de derleyiciden bağımsızdır), ADR-0109 (mutasyon testi derleyiciyi değiştirip testleri ölçer, bu test tasarımı değiştirip denetimleri ölçer)
+> İlgili: ADR-0108 (fark testi derleyicinin ürettiği SV'yi ölçer, bu test derleyicinin reddetmesi gereken tasarımı; beklenen değer ikisinde de derleyiciden bağımsızdır), ADR-0109 (mutasyon testi derleyiciyi değiştirip testleri ölçer, bu test tasarımı değiştirip denetimleri ölçer), ADR-0114 (#189 ve #193 satırları kapandı; bilinen açıklar listesi boş)
 > Tarih: 2026-11-09
 > Etkilenen: `crates/volt-driver/tests/seeded_bug_tests.rs` (YENİ),
 > `crates/volt-driver/tests/seeded_bugs/` (YENİ: `mod.rs`, `scan.rs`,

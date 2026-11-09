@@ -68,6 +68,16 @@ examine_globs = [
     # Literal arithmetic folded with its exact value: E2010, E2022, E2023
     # (#144; the emitter's side is fold_literal_arith in expr.rs).
     "crates/volt-hir/src/typeck/literal_fold.rs",
+    # 3. Module summary at instance sites (#189, #193, ADR-0114): the
+    #    shared combinational graph and the summaries, the E4007 check that
+    #    reads them, the clock domain of a clockless target's outputs with
+    #    the instance-site E3001 and the two-edit sync() fix, and the
+    #    built-in table.
+    "crates/volt-hir/src/summary.rs",
+    "crates/volt-hir/src/handshake.rs",
+    "crates/volt-hir/src/domain/instance.rs",
+    "crates/volt-hir/src/domain/assign.rs",
+    "crates/volt-ast/src/builtin.rs",
 ]
 
 # Equivalent mutants (group A of ADR-0109 section 4): a mutation that

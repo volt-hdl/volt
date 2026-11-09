@@ -391,6 +391,12 @@ pub struct BundleOrigin {
     pub declared: PortDir,
     /// Port `in` yazıldığı için yön tersine çevrildi mi?
     pub flipped: bool,
+    /// `Handshake<T>` portu `@no_protocol_check` taşıyor (port ya da modül
+    /// düzeyinde, ADR-0050): otomatik kontrat üretilmez ve E4007 yalnız
+    /// saatsiz extern'in en kötü durum varsayımına dayanan yolları yok
+    /// sayar (ADR-0114 K4). Düzleştirilmiş port nitelik taşımadığı için
+    /// bilgi burada durur.
+    pub no_protocol_check: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

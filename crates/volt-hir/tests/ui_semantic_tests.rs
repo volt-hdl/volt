@@ -378,8 +378,11 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #128: 135 açılmış fn gövdesinin const'u çağıranın aynı adlı döngü
     //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede),
     // #143: 139 örneklenen generic modül (W1006 yok),
-    // #173: 140 bölmenin genişliği açık (W2015 yok).
-    assert_eq!(checked, 126);
+    // #173: 140 bölmenin genişliği açık (W2015 yok),
+    // ADR-0114: 141-147 modül özetinin yakın ıskaları (bağımsız yollar,
+    //           sabit çıkış, köprülenen saatsiz çıkış, anotasyonlu extern,
+    //           register'lı çocuk, FIFO boşaltma, @no_protocol_check).
+    assert_eq!(checked, 133);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

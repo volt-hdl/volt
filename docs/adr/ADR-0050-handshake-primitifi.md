@@ -1,6 +1,6 @@
 # ADR-0050: `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0114 — §4'teki örnek çıkışı opaklığı ve Sınırlar'daki E4007 maddesi: E4007 alt modül, saatsiz extern ve yerleşik primitif özetinden geçer, saatli extern opak kalır; `@no_protocol_check` yalnız saatsiz extern varsayımına dayanan yolu kapatır
 > Tarih: 2026-09-14
 > Etkilenen: volt-syntax (parser/handshake.rs YENİ, parser/bundle.rs
 > sanal alan + otomatik kontrat, item.rs `@no_protocol_check`),
@@ -204,3 +204,30 @@ bundle_semantic_tests.rs (+13), volt-sv-emit/tests/bundle_emit_tests.rs
   yolları görmez; kontrat kanıtı (tutma kuralı) bu boşluğu kapatır.
 - `HandshakeSync<T>` değişmedi: CDC (iki saat) için o, tek alan için
   `Handshake<T>` (docs/stdlib.md karar tablosu).
+
+## Ek (2026-11-09): E4007 örnek sınırından geçer — ADR-0114
+
+Bu bölüm sonradan eklendi; yukarıdaki karar metni değişmedi.
+
+- **"Örnek çıkışları opaktır" (§4).** E4007 bir alt modülün içinden geçen
+  `valid` → `ready` yolunu görmüyordu (#193): `let g = AndGate { a: have,
+  b: tx.ready }; tx.valid = g.y` hatasız derleniyordu; aynısı saatsiz
+  extern ve yerleşik `EdgeDetect`, `RoundRobinArbiter`, `PriorityArbiter`
+  üzerinden de geçerliydi. "Tutma kontratı bu boşluğu kapatır" gerekçesi
+  tutmuyor: `valid = ready && have` biçiminde tutma kuralının öncülü
+  ulaşılamaz, kural boş yere kanıtlanır; "valid ready'ye bağlı değil" iki
+  izli bir özelliktir, tek izli bir `invariant` onu ifade edemez.
+  ADR-0114 opaklığı modül özetiyle değiştirdi: E4007'nin grafı `inst.out`
+  okumasını özet üzerinden çocuğun girişlerine bağlar ve yolu örnekle
+  birlikte yazar (`tx.valid <- g.y (AndGate: y <- b) <- tx_ready`).
+  Saatli extern opak kalır (#196).
+- **"`for` (generate) gövdelerinden geçen yolları görmez" (Sınırlar).**
+  Bu madde ADR-0056'dan (2026-09-17) beri geçersizdi: modül düzeyi `for`
+  parser'da açılır ve E4007 açılmış gövdeyi zaten görüyordu (ölçüldü).
+  `for` içindeki bir örneğin içinden geçen yol ise örnek sorunuydu ve
+  ADR-0114 ile kapandı.
+- **`@no_protocol_check` (§3).** Nitelik E4007'yi kapatmaz (bu ADR'nin
+  ilkesi korunur), ama E4007 o portta yalnız saatsiz extern'in en kötü
+  durum varsayımıyla kurulan yolları yok sayar (ADR-0114 K4): varsayım
+  gerçekte olmayan bir yolu gösterirse kaçış yolu budur; görünür bir yol
+  yine E4007'dir.

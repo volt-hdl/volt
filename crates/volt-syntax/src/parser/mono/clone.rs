@@ -424,6 +424,7 @@ impl<'a> Cloner<'a> {
                 path: b.path.clone(),
                 declared: b.declared,
                 flipped: b.flipped,
+                no_protocol_check: b.no_protocol_check,
             }),
         }
     }

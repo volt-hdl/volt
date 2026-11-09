@@ -29,6 +29,7 @@ mod sim_load;
 mod sim_port;
 mod sim_struct;
 mod sim_top;
+pub mod summary;
 pub mod testdata;
 pub mod timing;
 pub mod trust;
@@ -127,7 +128,10 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let typeck = typecheck(ast, &resolve, &mut evaluator);
     // Fonksiyonlar (ADR-0081): saflık, özyineleme, açılım bütçesi.
     let fn_diags = functions::check_functions(ast, &resolve);
-    let domain = infer_domains(ast, &resolve, &typeck);
+    // Modül özeti (ADR-0114): birim başına bir kez; alan çıkarımı ve
+    // E4007 aynı özeti okur.
+    let summaries = summary::Summaries::compute(ast, &resolve);
+    let domain = infer_domains(ast, &resolve, &typeck, &summaries);
 
     // Güven seviyeleri (ADR-0052): saat çıkarımının sonucu üzerinde
     // bilgi akışı denetimi; trust_level/declassify yoksa hiç koşmaz.
@@ -150,7 +154,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
 
     // Handshake protokolü (ADR-0050): üretici valid'i ready'ye
     // kombinasyonel bağlayamaz (E4007).
-    let handshake_diags = handshake::check_handshakes(ast, &resolve);
+    let handshake_diags = handshake::check_handshakes(ast, &resolve, &summaries);
 
     // Zamanlama kısıtları (ADR-0054): @timing / @false_path / @multicycle
     // biçim ve tutarlılık denetimi (E0017); W0022 yalnız --emit=sdc,xdc'de.

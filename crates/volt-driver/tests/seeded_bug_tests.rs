@@ -113,7 +113,20 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("cdc.port-domain-swap | tests/ui/pass/13_cdc_correct_bridge.volt | CdcBridge.fast_flag: @Fast -> @Slow", Hand::Expect(&["W3002"]), SYNC_ONLY),
     ("cdc.port-domain-swap | examples/vga/vga_top.volt | VgaTop.invert: @SysDomain -> @PixDomain", Hand::Expect(&["W3002"]), SYNC_ONLY),
     ("cdc.port-domain-swap | tests/fixtures/parity/p24_sync_src_width.volt | M.x: @A -> @B", Hand::Expect(&["W3002"]), SYNC_ONLY),
+    // ── the same through a clockless child: its output carries the
+    //    input's domain (ADR-0114 / K8b), so the sync() after it becomes
+    //    redundant ──
+    ("cdc.port-domain-swap | tests/ui/pass/141_clockless_child_independent_paths.volt | Bridge.fast_flag: @Fast -> @Slow", Hand::Expect(&["W3002"]), SYNC_CHILD),
+    ("cdc.port-domain-swap | tests/ui/pass/142_clockless_child_constant_output.volt | Bridge.fast_flag: @Fast -> @Slow", Hand::Expect(&["W3002"]), SYNC_CHILD),
+    ("cdc.port-domain-swap | tests/ui/pass/143_clockless_child_synchronized.volt | Bridge.fast_flag: @Fast -> @Slow", Hand::Expect(&["W3002"]), SYNC_CHILD),
+    (
+        "cdc.port-domain-swap | tests/ui/pass/142_clockless_child_constant_output.volt | Bridge.slow_one: @Slow -> @Fast",
+        Hand::Safe(&[]),
+        "domain-inference.md §1 and K6: slow_one = k.k and k = true reads no input, a constant (Timeless) fits every domain",
+    ),
 ];
+
+const SYNC_CHILD: &str = "K9 + K8b (ADR-0114): the port reaches only a clockless child whose output goes into sync(); with the port in the destination domain the child's output is there too, the sync is redundant (W3002)";
 
 const R5: &str =
     "ADR-0065 R5: two async domains of one polarity share the automatic `rst_n`: E3003";
@@ -128,55 +141,7 @@ const CDC_READ: &[&str] = seeded_bugs::kinds::CDC_READ;
 
 /// Mutants the compiler accepts although the specification rejects
 /// them, with the issue that tracks each root cause.
-const KNOWN_MISSES: &[(&str, u32)] = &[
-    // #189: a clockless module or extern instance is Timeless at the
-    // instance site, so the crossing through it is not seen.
-    (
-        "cdc.leak-clockless-child | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = p.y (Pass { a: fast_flag }, no clock)",
-        189,
-    ),
-    (
-        "cdc.merge-in-clockless-child | tests/ui/pass/13_cdc_correct_bridge.volt | And2 { a: fast_flag, b: slow_in }, y unread",
-        189,
-    ),
-    (
-        "cdc.leak-clockless-nested | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = o.y (Outer { a: fast_flag } holds Pass, no clock)",
-        189,
-    ),
-    (
-        "cdc.leak-clockless-extern | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = i.y (extern Inv { a: fast_flag }, no clock)",
-        189,
-    ),
-    // #193: E4007 treats instance outputs as opaque.
-    (
-        "handshake.valid-via-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (AndGate { a: valid_r, b: tx.ready }, no clock)",
-        193,
-    ),
-    (
-        "handshake.valid-via-clocked-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (AndClk { clk: clk, a: valid_r, b: tx.ready }, y = a && b)",
-        193,
-    ),
-    (
-        "handshake.valid-via-for-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = go[0] (for i in 0..1 { AndGate { b: tx.ready } })",
-        193,
-    ),
-    (
-        "handshake.valid-via-clockless-extern | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (extern AndExt { a: valid_r, b: tx.ready }, no clock)",
-        193,
-    ),
-    (
-        "handshake.valid-via-edgedetect | tests/ui/pass/66_handshake_basic.volt | tx.valid = valid_r && ed.rising (EdgeDetect { signal: tx.ready })",
-        193,
-    ),
-    (
-        "handshake.valid-via-priority-arbiter | tests/ui/pass/66_handshake_basic.volt | tx.valid = arb.grant[0] (PriorityArbiter<2>, req[0] = valid_r && tx.ready)",
-        193,
-    ),
-    (
-        "handshake.valid-via-round-robin-arbiter | tests/ui/pass/66_handshake_basic.volt | tx.valid = arb.grant[0] (RoundRobinArbiter<2>, req[0] = valid_r && tx.ready)",
-        193,
-    ),
-];
+const KNOWN_MISSES: &[(&str, u32)] = &[];
 
 /// Mutants rejected, but with another code than the specification
 /// gives; the second field is the new codes, comma-separated.

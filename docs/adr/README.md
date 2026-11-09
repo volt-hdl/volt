@@ -137,10 +137,11 @@ denetler.
 | No | Başlık | Özet | Durum |
 |---|---|---|---|
 | [0002](ADR-0002-domain-semantigi.md) | Domain Semantiği — `@Domain` Anotasyonu ve Birleşik Domain (Saat + Sıfırlama + Güç + Güven) | Saat, sıfırlama, güç ve güven tek bir `@Domain` anotasyonunda birleşir; saat alanı uyuşmazlığı tip denetiminde yakalanır. | Kabul edildi |
-| [0047](ADR-0047-extern-domain-anotasyonu.md) | Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları | Extern modül sınırındaki portlar sembolik saat alanlarıyla anotasyonlanır. | Uygulandı |
+| [0047](ADR-0047-extern-domain-anotasyonu.md) | Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları | Extern modül sınırındaki portlar sembolik saat alanlarıyla anotasyonlanır. | Kısmen yerini aldı: ADR-0114 |
 | [0065](ADR-0065-rdc-ve-hedefli-sdc.md) | RDC Denetimi ve Hedefli SDC Kısıtları — İki Güvenlik Ağı, İki Ayrı Yırtık | RDC denetimi (E3003) ve üretilen reset bırakma senkronizörü gelir; SDC'de hedefli kısıtlar varsayılan olur. | Uygulandı |
 | [0103](ADR-0103-extern-ham-reset-uyarisi.md) | Senkronize Reset'li Modülde Ham Reset'in Extern'e Gidişi — W3011 | Ham reset portu register'lara senkronizörle bırakılırken aynı port bir extern'e bağlanınca W3011; çıktı değişmez, senkronize kopyanın extern'e verilmesi v0.2'de ayrı karar. | Uygulandı |
 | [0088](ADR-0088-bildirimde-alan-aciklamasi.md) | Sinyal Bildirimlerinde Saat Alanı Açıklaması | `wire` / `let` / `reg` bildirimleri denetlenen bir `@Alan` saat alanı açıklaması taşıyabilir. | Uygulandı |
+| [0114](ADR-0114-modul-ozeti.md) | Modül Özeti — Örnek Sınırında Kombinasyonel Bağımlılık: Saatsiz Modülün Çıkışı Girişlerinin Alanını Taşır, E4007 Alt Modülün İçinden Geçer | Her modül için bir kez, çocuktan başlayarak çıkış → kombinasyonel bağlı girişler özeti çıkarılır (port başına; `on`, register ve `sync()` keser). Saatsiz modülün ve saatsiz extern'in (en kötü durum) çıkışı örnek sitesinde bağlı girişlerinin alanını taşır; iki alan aynı çıkışta birleşirse E3001 örnek sitesinde. E4007 alt modül, saatsiz extern ve yerleşik primitiften (Yosys ile denetlenen tablo) geçer; saatli extern opak; `@no_protocol_check` yalnız saatsiz extern varsayımına dayanan yolu kapatır. | Uygulandı |
 
 ## Yerleşik primitifler (stdlib)
 
@@ -149,7 +150,7 @@ denetler.
 | [0027](ADR-0027-stdlib-mimarisi.md) | Stdlib Mimarisi — CDC Primitifleri Derleyicide Yerleşik | CDC primitifleri (AsyncFifo, HandshakeSync, …) derleyicide yerleşik stdlib bileşenleridir. | Uygulandı |
 | [0029](ADR-0029-stdlib-gunluk-yapi-taslari.md) | Stdlib Genişletmesi — Tek Saatli Günlük Yapı Taşları | Tek saatli günlük yapı taşları (FIFO, RAM, kaydırma yazmacı, arbiter …) yerleşik primitif olur. | Uygulandı |
 | [0049](ADR-0049-domain-aware-bellek.md) | Domain-Aware Bellek — `AsyncDualPortRam<T, DEPTH>` | `AsyncDualPortRam<T, DEPTH>` iki saat alanlı yerleşik bellektir. | Uygulandı |
-| [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı | `Handshake<T>` valid/ready el sıkışmasını otomatik protokol kontratlarıyla yerleşik bundle olarak sunar. | Uygulandı |
+| [0050](ADR-0050-handshake-primitifi.md) | `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı | `Handshake<T>` valid/ready el sıkışmasını otomatik protokol kontratlarıyla yerleşik bundle olarak sunar. | Kısmen yerini aldı: ADR-0114 |
 | [0087](ADR-0087-primitif-struct-ogeleri.md) | Yerleşik Primitiflerde Struct / Enum Öğe Tipi | Yerleşik primitifler struct/enum öğe tipini tek paketlenmiş sözcük olarak saklar. | Uygulandı |
 | [0102](ADR-0102-stdlib-adli-kullanici-modulu.md) | Standart Kütüphane Adını Taşıyan Kullanıcı Modülü — E1016 | Yerleşik adlı `extern module` bildirimde, yerleşik adlı Volt modülü örneklendiği yerde E1016; yerleşik artık sessizce yerine geçmez. Üst modül olarak bu ad geçerli kalır. | Uygulandı |
 
