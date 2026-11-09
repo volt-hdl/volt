@@ -36,7 +36,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   üzerinden geçen CDC; saatsiz ve saatli alt modül, `for` içindeki örnek,
   saatsiz extern, `EdgeDetect`, `PriorityArbiter` ve `RoundRobinArbiter`
   üzerinden `ready`'den `valid`'e giden yol. Derleyici bugün bunların
-  on birini de kaçırıyor; hepsi issue numaralarıyla bilinen açıklar
+  onunu da kaçırıyor; hepsi issue numaralarıyla bilinen açıklar
   listesinde. Güvenli ikizleri (bağımsız iki yol, sabit çıkış, `sync()`
   ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
   alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
