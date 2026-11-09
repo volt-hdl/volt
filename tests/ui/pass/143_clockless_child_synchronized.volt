@@ -28,3 +28,6 @@ module Bridge {
     let p_y_raw = p.y
     slow_flag = sync(p_y_raw, slow_clk)
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: _fast_clk declares the @Fast domain; sync() of a let has no capture stage in the source domain (#198)

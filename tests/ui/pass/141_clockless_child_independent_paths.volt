@@ -33,3 +33,6 @@ module Bridge {
     slow_flag = sync(ty1, slow_clk)
     slow_echo = t.y2
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: _fast_clk declares the @Fast domain; sync() of a let has no capture stage in the source domain (#198)

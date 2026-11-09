@@ -10,12 +10,12 @@ domain Slow {
     reset = sync active_high
 }
 
-module K {
-    in  a : bool
-    out y : bool
-    out k : bool
-    y = a
-    k = true
+module ConstOut {
+    in  a   : bool
+    out y   : bool
+    out one : bool
+    y   = a
+    one = true
 }
 
 module Bridge {
@@ -25,8 +25,11 @@ module Bridge {
     out slow_flag : bool  @Slow
     out slow_one  : bool  @Slow
 
-    let k = K { a: fast_flag }
-    let ky = k.y
-    slow_flag = sync(ky, slow_clk)
-    slow_one = k.k
+    let c = ConstOut { a: fast_flag }
+    let cy = c.y
+    slow_flag = sync(cy, slow_clk)
+    slow_one = c.one
 }
+
+// Output net (ADR-0079):
+//~ LINT-ALLOW: UNUSEDSIGNAL: _fast_clk declares the @Fast domain; sync() of a let has no capture stage in the source domain (#198)

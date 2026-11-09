@@ -122,7 +122,7 @@ const HAND: &[(&str, Hand, &str)] = &[
     (
         "cdc.port-domain-swap | tests/ui/pass/142_clockless_child_constant_output.volt | Bridge.slow_one: @Slow -> @Fast",
         Hand::Safe(&[]),
-        "domain-inference.md §1 and K6: slow_one = k.k and k = true reads no input, a constant (Timeless) fits every domain",
+        "domain-inference.md §1 and K6: slow_one = c.one and one = true reads no input, a constant (Timeless) fits every domain",
     ),
 ];
 
