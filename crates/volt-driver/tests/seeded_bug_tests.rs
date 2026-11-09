@@ -128,10 +128,55 @@ const CDC_READ: &[&str] = seeded_bugs::kinds::CDC_READ;
 
 /// Mutants the compiler accepts although the specification rejects
 /// them, with the issue that tracks each root cause.
-const KNOWN_MISSES: &[(&str, u32)] = &[(
-    "cdc.leak-clockless-child | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = p.y (Pass { a: fast_flag }, no clock)",
-    189,
-)];
+const KNOWN_MISSES: &[(&str, u32)] = &[
+    // #189: a clockless module or extern instance is Timeless at the
+    // instance site, so the crossing through it is not seen.
+    (
+        "cdc.leak-clockless-child | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = p.y (Pass { a: fast_flag }, no clock)",
+        189,
+    ),
+    (
+        "cdc.merge-in-clockless-child | tests/ui/pass/13_cdc_correct_bridge.volt | And2 { a: fast_flag, b: slow_in }, y unread",
+        189,
+    ),
+    (
+        "cdc.leak-clockless-nested | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = o.y (Outer { a: fast_flag } holds Pass, no clock)",
+        189,
+    ),
+    (
+        "cdc.leak-clockless-extern | tests/ui/pass/13_cdc_correct_bridge.volt | slow_flag = i.y (extern Inv { a: fast_flag }, no clock)",
+        189,
+    ),
+    // #193: E4007 treats instance outputs as opaque.
+    (
+        "handshake.valid-via-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (AndGate { a: valid_r, b: tx.ready }, no clock)",
+        193,
+    ),
+    (
+        "handshake.valid-via-clocked-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (AndClk { clk: clk, a: valid_r, b: tx.ready }, y = a && b)",
+        193,
+    ),
+    (
+        "handshake.valid-via-for-instance | tests/ui/pass/66_handshake_basic.volt | tx.valid = go[0] (for i in 0..1 { AndGate { b: tx.ready } })",
+        193,
+    ),
+    (
+        "handshake.valid-via-clockless-extern | tests/ui/pass/66_handshake_basic.volt | tx.valid = g.y (extern AndExt { a: valid_r, b: tx.ready }, no clock)",
+        193,
+    ),
+    (
+        "handshake.valid-via-edgedetect | tests/ui/pass/66_handshake_basic.volt | tx.valid = valid_r && ed.rising (EdgeDetect { signal: tx.ready })",
+        193,
+    ),
+    (
+        "handshake.valid-via-priority-arbiter | tests/ui/pass/66_handshake_basic.volt | tx.valid = arb.grant[0] (PriorityArbiter<2>, req[0] = valid_r && tx.ready)",
+        193,
+    ),
+    (
+        "handshake.valid-via-round-robin-arbiter | tests/ui/pass/66_handshake_basic.volt | tx.valid = arb.grant[0] (RoundRobinArbiter<2>, req[0] = valid_r && tx.ready)",
+        193,
+    ),
+];
 
 /// Mutants rejected, but with another code than the specification
 /// gives; the second field is the new codes, comma-separated.
@@ -451,10 +496,10 @@ fn seeded_bugs_are_caught_and_near_misses_stay_quiet() {
             .filter(|m| matches!(m.role, Role::NearMiss(_)))
             .count()
     );
-    println!("{:<34} caught missed differ quiet alarm", "kind");
+    println!("{:<40} caught missed differ quiet alarm", "kind");
     for (k, c) in &by_kind {
         println!(
-            "{k:<34} {:>6} {:>6} {:>6} {:>5} {:>5}",
+            "{k:<40} {:>6} {:>6} {:>6} {:>5} {:>5}",
             c[0], c[1], c[2], c[3], c[4]
         );
     }
@@ -477,7 +522,7 @@ fn seeded_bugs_are_caught_and_near_misses_stay_quiet() {
     }
     for (k, codes) in &caught_by {
         let list: Vec<String> = codes.iter().map(|(c, n)| format!("{c} x{n}")).collect();
-        println!("caught by: {k:<34} {}", list.join(", "));
+        println!("caught by: {k:<40} {}", list.join(", "));
     }
     for (m, (o, added)) in mutants.iter().zip(&outcomes) {
         if !matches!(o, Outcome::Caught | Outcome::Quiet) {

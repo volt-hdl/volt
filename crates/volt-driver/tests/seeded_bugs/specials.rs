@@ -35,6 +35,15 @@ const UI66: &str = "tests/ui/pass/66_handshake_basic.volt";
 const UI68: &str = "tests/ui/pass/68_inout_bidirectional.volt";
 const TXV: &str = "    tx.valid = valid_r";
 const E4007: &str = "ADR-0050 §4 (valid reaches ready through continuous assignments, lets, comb blocks or conditions: E4007)";
+
+// ── instance boundaries (#189, #193) ─────────────────────────────────
+const CDC13: &str = "module CdcBridge {";
+const SLOW_PORT13: &str = "    out slow_flag : bool  @Slow";
+const PRODUCER66: &str = "module Producer {";
+const K5_CHILD: &str = "domain-inference.md K5 (a combinational path keeps the join of its operands) + K2 (a clockless module is purely combinational) + K8: E3001";
+const E4007_INST: &str = "ADR-0050 §4 (valid must not depend combinationally on ready, AXI A3.3.1): the instance carries the path, the deadlock is the same: E4007";
+const E4007_ARB: &str =
+    "docs/stdlib.md (the arbiter's grant is combinational in req, same cycle) + ADR-0050 §4: E4007";
 const K5_COND: &str = "domain-inference.md K5 last paragraph / ADR-0083 Karar 8 (a condition, subject or guard is an operand: E3001)";
 
 const STATUS: &str = "    status = declassify(key_r != 0, \"key presence only\")";
@@ -208,6 +217,109 @@ pub const SPECIALS: &[Special] = &[
         near_miss: false,
         spec: "domain-inference.md K9 (sync() of a value wider than one bit: W3003)",
     },
+    Special {
+        kind: "cdc.merge-in-clockless-child",
+        design: UI13,
+        site: "And2 { a: fast_flag, b: slow_in }, y unread",
+        edits: &[
+            (CDC13, "module And2 {\n    in  a : bool\n    in  b : bool\n    out y : bool\n    y = a && b\n}\n\nmodule CdcBridge {"),
+            ("    in  fast_flag : bool  @Fast", "    in  fast_flag : bool  @Fast\n    in  slow_in   : bool  @Slow"),
+            (SLOW13, "    let g = And2 { a: fast_flag, b: slow_in }\n    slow_flag = sync(fast_flag, slow_clk)"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K5 (Fast and Slow joined in one combinational expression: E3001; the same gate as a fn call is E3001 at the call) + K2: the clockless module is that expression",
+    },
+    Special {
+        kind: "cdc.leak-clockless-nested",
+        design: UI13,
+        site: "slow_flag = o.y (Outer { a: fast_flag } holds Pass, no clock)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool\n    y = a\n}\n\nmodule Outer {\n    in  a : bool\n    out y : bool\n    let p = Pass { a: a }\n    y = !p.y\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let o = Outer { a: fast_flag }\n    slow_flag = o.y"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: K5_CHILD,
+    },
+    Special {
+        kind: "cdc.leak-clockless-extern",
+        design: UI13,
+        site: "slow_flag = i.y (extern Inv { a: fast_flag }, no clock)",
+        edits: &[
+            (CDC13, "extern module Inv {\n    in  a : bool\n    out y : bool\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let i = Inv { a: fast_flag }\n    slow_flag = i.y"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K5 + K6 (the value reaching slow_flag is fast_flag through a combinational gate: E3001); the extern's body is unseen, so its output may depend on every input (ADR-0114 K4 replaces K8a's Timeless reading)",
+    },
+    // ── clockless child: safe twins ───────────────────────────────────
+    Special {
+        kind: "near.clockless-independent-paths",
+        design: UI13,
+        site: "Two { a1: fast_flag, a2: slow_in }: y1 synchronized, y2 stays Slow",
+        edits: &[
+            (CDC13, "module Two {\n    in  a1 : bool\n    in  a2 : bool\n    out y1 : bool\n    out y2 : bool\n    y1 = a1\n    y2 = a2\n}\n\nmodule CdcBridge {"),
+            ("    in  fast_flag : bool  @Fast", "    in  fast_flag : bool  @Fast\n    in  slow_in   : bool  @Slow"),
+            (SLOW_PORT13, "    out slow_flag : bool  @Slow\n    out slow_echo : bool  @Slow"),
+            (SLOW13, "    let t = Two { a1: fast_flag, a2: slow_in }\n    let ty1 = t.y1\n    slow_flag = sync(ty1, slow_clk)\n    slow_echo = t.y2"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K5 (y2 = a2 reads only the Slow input; y1 crosses through sync(), K9)",
+    },
+    Special {
+        kind: "near.clockless-constant-output",
+        design: UI13,
+        site: "K { a: fast_flag }: k = true reaches Slow, y synchronized",
+        edits: &[
+            (CDC13, "module K {\n    in  a : bool\n    out y : bool\n    out k : bool\n    y = a\n    k = true\n}\n\nmodule CdcBridge {"),
+            (SLOW_PORT13, "    out slow_flag : bool  @Slow\n    out slow_echo : bool  @Slow"),
+            (SLOW13, "    let k = K { a: fast_flag }\n    let ky = k.y\n    slow_flag = sync(ky, slow_clk)\n    slow_echo = k.k"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md §1 and K6 (k is a constant: Timeless, it fits every domain)",
+    },
+    Special {
+        kind: "near.sync-after-clockless-nested",
+        design: UI13,
+        site: "let oy = o.y; slow_flag = sync(oy, slow_clk) (Outer holds Pass, no clock)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool\n    y = a\n}\n\nmodule Outer {\n    in  a : bool\n    out y : bool\n    let p = Pass { a: a }\n    y = !p.y\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let o = Outer { a: fast_flag }\n    let oy = o.y\n    slow_flag = sync(oy, slow_clk)"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K9 (sync() is the legal bridge into the destination domain)",
+    },
+    Special {
+        kind: "near.sync-after-clockless-extern",
+        design: UI13,
+        site: "let iy = i.y; slow_flag = sync(iy, slow_clk) (extern Inv, no clock)",
+        edits: &[
+            (CDC13, "extern module Inv {\n    in  a : bool\n    out y : bool\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let i = Inv { a: fast_flag }\n    let iy = i.y\n    slow_flag = sync(iy, slow_clk)"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K9 (sync() is the legal bridge into the destination domain)",
+    },
+    Special {
+        kind: "near.clockless-extern-annotated",
+        design: UI13,
+        site: "extern Bank { a1 @Fast, a2 @Slow }: annotated independent paths",
+        edits: &[
+            (CDC13, "extern module Bank {\n    in  a1 : bool @Fast\n    in  a2 : bool @Slow\n    out y1 : bool @Fast\n    out y2 : bool @Slow\n}\n\nmodule CdcBridge {"),
+            ("    in  fast_flag : bool  @Fast", "    in  fast_flag : bool  @Fast\n    in  slow_in   : bool  @Slow"),
+            (SLOW_PORT13, "    out slow_flag : bool  @Slow\n    out slow_echo : bool  @Slow"),
+            (SLOW13, "    let bk = Bank { a1: fast_flag, a2: slow_in }\n    let by1 = bk.y1\n    slow_flag = sync(by1, slow_clk)\n    slow_echo = bk.y2"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K8a (an annotated extern port keeps its own domain; each output is read in its domain, y1 through sync(), K9)",
+    },
     // ── clockless child, synchronized: the safe twin of the miss ─────
     Special {
         kind: "near.sync-after-clockless-child",
@@ -270,6 +382,125 @@ pub const SPECIALS: &[Special] = &[
         codes: &["E4007"],
         near_miss: false,
         spec: "ADR-0050 §4 + ADR-0081 (a function call is expanded at the call site: its arguments are operands): E4007",
+    },
+    // ── handshake: valid from ready through an instance (#193) ───────
+    Special {
+        kind: "handshake.valid-via-instance",
+        design: UI66,
+        site: "tx.valid = g.y (AndGate { a: valid_r, b: tx.ready }, no clock)",
+        edits: &[
+            (PRODUCER66, "module AndGate {\n    in  a : bool\n    in  b : bool\n    out y : bool\n    y = a && b\n}\n\nmodule Producer {"),
+            (TXV, "    let g = AndGate { a: valid_r, b: tx.ready }\n    tx.valid = g.y"),
+        ],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: E4007_INST,
+    },
+    Special {
+        kind: "handshake.valid-via-clocked-instance",
+        design: UI66,
+        site: "tx.valid = g.y (AndClk { clk: clk, a: valid_r, b: tx.ready }, y = a && b)",
+        edits: &[
+            (PRODUCER66, "module AndClk {\n    in  clk : clock\n    in  a   : bool\n    in  b   : bool\n    out y   : bool\n    y = a && b\n}\n\nmodule Producer {"),
+            (TXV, "    let g = AndClk { clk: clk, a: valid_r, b: tx.ready }\n    tx.valid = g.y"),
+        ],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: E4007_INST,
+    },
+    Special {
+        kind: "handshake.valid-via-for-instance",
+        design: UI66,
+        site: "tx.valid = go[0] (for i in 0..1 { AndGate { b: tx.ready } })",
+        edits: &[
+            (PRODUCER66, "module AndGate {\n    in  a : bool\n    in  b : bool\n    out y : bool\n    y = a && b\n}\n\nmodule Producer {"),
+            (TXV, "    wire go : [bool; 1]\n    for i in 0..1 {\n        let g = AndGate { a: valid_r, b: tx.ready }\n        go[i] = g.y\n    }\n    tx.valid = go[0]"),
+        ],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: E4007_INST,
+    },
+    Special {
+        kind: "handshake.valid-via-clockless-extern",
+        design: UI66,
+        site: "tx.valid = g.y (extern AndExt { a: valid_r, b: tx.ready }, no clock)",
+        edits: &[
+            (PRODUCER66, "extern module AndExt {\n    in  a : bool\n    in  b : bool\n    out y : bool\n}\n\nmodule Producer {"),
+            (TXV, "    let g = AndExt { a: valid_r, b: tx.ready }\n    tx.valid = g.y"),
+        ],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: "ADR-0050 §4: a clockless extern is combinational and its body is unseen, so y may depend on b = tx.ready (ADR-0114 K4, worst case): E4007",
+    },
+    Special {
+        kind: "handshake.valid-via-edgedetect",
+        design: UI66,
+        site: "tx.valid = valid_r && ed.rising (EdgeDetect { signal: tx.ready })",
+        edits: &[(TXV, "    let ed = EdgeDetect { clk: clk, signal: tx.ready }\n    tx.valid = valid_r && ed.rising")],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: "docs/stdlib.md (EdgeDetect: rising is derived from signal and the one-cycle history register, signal itself is not registered) + ADR-0050 §4: E4007",
+    },
+    Special {
+        kind: "handshake.valid-via-priority-arbiter",
+        design: UI66,
+        site: "tx.valid = arb.grant[0] (PriorityArbiter<2>, req[0] = valid_r && tx.ready)",
+        edits: &[(TXV, "    wire req : bits<2>\n    req[0] = valid_r && tx.ready\n    req[1] = false\n    let arb = PriorityArbiter<2> { clk: clk, req: req }\n    tx.valid = arb.grant[0]")],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: E4007_ARB,
+    },
+    Special {
+        kind: "handshake.valid-via-round-robin-arbiter",
+        design: UI66,
+        site: "tx.valid = arb.grant[0] (RoundRobinArbiter<2>, req[0] = valid_r && tx.ready)",
+        edits: &[(TXV, "    wire req : bits<2>\n    req[0] = valid_r && tx.ready\n    req[1] = false\n    let arb = RoundRobinArbiter<2> { clk: clk, req: req }\n    tx.valid = arb.grant[0]")],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: E4007_ARB,
+    },
+    // ── handshake through an instance: safe twins ────────────────────
+    Special {
+        kind: "near.valid-from-registered-child",
+        design: UI66,
+        site: "tx.valid = valid_r && rr.q (ReadyReg registers tx.ready)",
+        edits: &[
+            (PRODUCER66, "module ReadyReg {\n    in  clk : clock\n    in  r   : bool\n    out q   : bool\n    reg q_r : bool = false\n    on clk { q_r <= r }\n    q = q_r\n}\n\nmodule Producer {"),
+            (TXV, "    let rr = ReadyReg { clk: clk, r: tx.ready }\n    tx.valid = valid_r && rr.q"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "ADR-0050 §4 (an `on` block is a register: it cuts the combinational path, inside a child too)",
+    },
+    Special {
+        kind: "near.valid-from-builtin-register",
+        design: UI66,
+        site: "tx.valid = valid_r && sr.data_out (ShiftRegister<bool, 2> fed tx.ready)",
+        edits: &[(TXV, "    let sr = ShiftRegister<bool, 2> { clk: clk, data_in: tx.ready, shift_en: true }\n    tx.valid = valid_r && sr.data_out")],
+        codes: &[],
+        near_miss: true,
+        spec: "docs/stdlib.md (ShiftRegister: data_out is the oldest stage, a register) + ADR-0050 §4 (a register cuts the path)",
+    },
+    Special {
+        kind: "near.fifo-drain-clocked-extern",
+        design: UI66,
+        site: "tx.valid = !f.empty (extern VendorFifo { clk, rd_en: tx.fired })",
+        edits: &[
+            (PRODUCER66, "extern module VendorFifo {\n    in  clk   : clock\n    in  wr_en : bool\n    in  din   : u8\n    in  rd_en : bool\n    out dout  : u8\n    out empty : bool\n}\n\nmodule Producer {"),
+            (TXV, "    let f = VendorFifo { clk: clk, wr_en: valid_r, din: count, rd_en: tx.fired }\n    tx.valid = !f.empty"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "the standard FIFO drain: empty is the FIFO's registered state, rd_en = fired only pops (ADR-0050 §4 has no path); a clocked extern stays opaque for E4007 (ADR-0114 K5)",
+    },
+    Special {
+        kind: "near.fifo-drain-syncfifo",
+        design: UI66,
+        site: "tx.valid = !f.empty (SyncFifo<u8, 4> { rd_en: tx.fired })",
+        edits: &[(TXV, "    let f = SyncFifo<u8, 4> { clk: clk, wr_data: count, wr_en: valid_r, rd_en: tx.fired }\n    tx.valid = !f.empty")],
+        codes: &[],
+        near_miss: true,
+        spec: "docs/stdlib.md (SyncFifo: empty is count == 0, count is a register) + ADR-0050 §4 (a register cuts the path)",
     },
     Special {
         kind: "near.valid-from-registered-ready",

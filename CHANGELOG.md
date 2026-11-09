@@ -31,6 +31,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   Beklenen kodlar şartnameden elle belirlenir; kaçırılan mutantlar issue
   numaralarıyla katı bir listededir (bugün bir tane: saatsiz bir alt
   modül üzerinden geçen CDC, #189). `cargo test` içinde araçsız koşar.
+- Tohumlanmış hata testine örnek sınırı türleri (#189, #193): saatsiz alt
+  modülde iki alanın birleşmesi, iç içe saatsiz modül ve saatsiz extern
+  üzerinden geçen CDC; saatsiz ve saatli alt modül, `for` içindeki örnek,
+  saatsiz extern, `EdgeDetect`, `PriorityArbiter` ve `RoundRobinArbiter`
+  üzerinden `ready`'den `valid`'e giden yol. Derleyici bugün bunların
+  on birini de kaçırıyor; hepsi issue numaralarıyla bilinen açıklar
+  listesinde. Güvenli ikizleri (bağımsız iki yol, sabit çıkış, `sync()`
+  ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
+  alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
 
 ## [0.1.1] - 2026-11-08
 
