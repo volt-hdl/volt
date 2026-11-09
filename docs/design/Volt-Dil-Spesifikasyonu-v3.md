@@ -2,6 +2,13 @@
 
 > Bu belge Volt-HDL-Dil-Spesifikasyonu.md (v1) yerine geçer.
 > Konsolide edilmiş 45 özelliği içerir.
+>
+> **Durum notu (2026-11-09): güç alanı uygulanmadı.** Bu belgedeki güç
+> alanı içeriği (`voltage`, `always_on`, `retention`, `isolation`,
+> `power_sequence`, PDC denetimi E3006–E3008, UPF üretimi) bir plandır.
+> Bugün bu anahtarlar ayrılmış sözcüktür ve `volt check` onları E0003
+> ile reddeder; E3006–E3008 tanımlıdır ama hiç üretilmez. Güncel
+> sınırlar: `book/src/limitations.md` ("No power domains").
 
 ---
 
@@ -74,7 +81,7 @@ domain SysDomain {
     reset_sequence = 1              // sıra (küçük = önce)
     reset_requires = [pll_locked]   // koşullu sıfırlama
 
-    // ─── GÜÇ ───
+    // ─── GÜÇ — plan, uygulanmadı: anahtarlar bugün E0003 ───
     voltage        = 0.8.V
     always_on      = false
     retention      = true           // uyku modunda durum korunur
@@ -97,7 +104,7 @@ module CrossDomain {
     // slow_data = fast_data
     //   E3001: saat alanı uyumsuzluğu
     //   E3003: sıfırlama alanı uyumsuzluğu
-    //   E3006: güç alanı izolasyonsuz
+    //   E3006: güç alanı izolasyonsuz (plan; bugün denetlenmez)
 
     // Doğrusu: otomatik köprü
     slow_data = DomainBridge<u8, FastDomain, SlowDomain>(fast_data);

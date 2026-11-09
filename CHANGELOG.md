@@ -11,6 +11,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 - Davranış değişikliği yok: bu bölümdeki değişiklikler test ve belgedir.
 
+### Belgeler
+
+- Kitabın "Limitations" sayfası: güç alanı anahtarları (`voltage`,
+  `always_on`, `retention`, `isolation`) ayrılmış sözcüktür ve E0003
+  alır, E3006–E3008 hiç üretilmez; `Handshake<T>` denetimi (E4007) bir
+  alt modülün içinden geçen `valid` → `ready` yolunu izlemez (ADR-0050).
+  Yol haritası aynı notu taşır; `docs/design/` altındaki iki plan belgesi
+  güç alanını uygulanmış gibi anlatan yerlerde durum notu aldı.
+
 ### Tests
 
 - Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,

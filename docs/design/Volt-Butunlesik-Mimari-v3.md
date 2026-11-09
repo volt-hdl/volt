@@ -5,6 +5,13 @@
 > mimariye oturtur. Özellikler bağımsız eklentiler olarak değil,
 > birbirini besleyen katmanlar olarak tasarlanmıştır.
 >
+> **Durum notu (2026-11-09): güç alanı uygulanmadı.** Bu belgedeki güç
+> alanı içeriği (`voltage`, `always_on`, `retention`, `isolation`,
+> `power_sequence`, PDC denetimi E3006–E3008, UPF üretimi) bir plandır.
+> Bugün bu anahtarlar ayrılmış sözcüktür ve `volt check` onları E0003
+> ile reddeder; E3006–E3008 tanımlıdır ama hiç üretilmez. Güncel
+> sınırlar: `book/src/limitations.md` ("No power domains").
+>
 > ÖNCEKİ BELGELERİ GEÇERSİZ KILAR:
 >   - Volt-HDL-Dil-Spesifikasyonu.md (v1 → bu belge v3)
 >   - Volt-HDL-MVP-Yol-Haritasi.md (revize edildi)
@@ -99,7 +106,7 @@ domain SysDomain {
     reset_sequence = 1             // sıfırlama sırası (küçük = önce)
     reset_requires = []            // koşullu sıfırlama
 
-    // ─── GÜÇ (PDC) ───
+    // ─── GÜÇ (PDC) — plan, uygulanmadı: anahtarlar bugün E0003 ───
     voltage        = 0.8.V
     always_on      = false
     retention      = true          // uyku modunda durum korunur
@@ -134,7 +141,7 @@ Sinerjik kazanç:
   Bir domain geçişi üç açıdan aynı anda kontrol ediliyor:
     Saat farklı mı?     → E3001 (CDC)
     Sıfırlama farklı mı?→ E3003 (RDC)
-    Güç alanı farklı mı?→ E3006 (PDC)
+    Güç alanı farklı mı?→ E3006 (PDC; plan, bugün denetlenmez)
 
   Tek tip sistemi geçişi, üç sınıf hatayı kapatıyor.
   Hiçbir rakip HDL'de bu üçlü birleşim yok.
@@ -840,7 +847,7 @@ CIRCT lowering
    → ASIC ekipleri için kritik
 
 4. UPF üretimi (domain güç bilgisinden)        [1 ay]
-   → Güç alanları F2'de zaten var, üretim kolay
+   → Önce güç alanları gerekir: F2'de yapılmadı, anahtarlar bugün E0003
 
 5. Paket registry + SemVer donanım             [3 ay]
    → Ekosistem büyümesi
@@ -932,7 +939,7 @@ ADR-0022  SemVer donanım kuralları                 [YENİ]
 domain bloğu üç alanı birden tanımlar:
   clock/frequency        → CDC kontrolü (E3001-E3002)
   reset_*                → RDC kontrolü (E3003-E3005)
-  voltage/always_on/...  → PDC kontrolü (E3006-E3008)
+  voltage/always_on/...  → PDC kontrolü (E3006-E3008) — plan, uygulanmadı
   trust_level            → güvenlik akışı (E3009)
 
 Bu birleşimi BOZMA. Ayrı @clock/@reset/@power anotasyonu ekleme.
@@ -994,7 +1001,7 @@ ZİNCİR 1 — "Tek Domain, Üç Kontrol, Beş Artifact"
   domain tanımı
     → CDC kontrolü (E3001)
     → RDC kontrolü (E3003)
-    → PDC kontrolü (E3006)
+    → PDC kontrolü (E3006; plan, uygulanmadı)
     → SDC üretimi (clock groups)
     → UPF üretimi (power intent)
     → RDC raporu
