@@ -1,7 +1,7 @@
 # ADR-0109: Mutasyon Testi — cargo-mutants, Yalnız Elle Tetiklenen Parçalı Koşu, Kapsam ve Hariç Tutma Kuralı
 
 > Statü: Uygulandı
-> İlgili: ADR-0107 (her parça araçlı işin araçlarıyla ve `VOLT_REQUIRE_TOOLS=all` ile koşar, defterde sıfır SKIP), ADR-0108 (fark testi mutantları yakalayan testlerden biridir; büyük koşusunun elle tetiklenen parçalı yapısı örnek alındı)
+> İlgili: ADR-0107 (her parça araçlı işin araçlarıyla ve `VOLT_REQUIRE_TOOLS=all` ile koşar, defterde sıfır SKIP), ADR-0108 (fark testi mutantları yakalayan testlerden biridir; büyük koşusunun elle tetiklenen parçalı yapısı örnek alındı), ADR-0113 (tohumlanmış hata testi derleyiciyi değil tasarımı değiştirir ve güvenlik denetimlerini ölçer)
 > Tarih: 2026-11-04
 > Etkilenen: `.cargo/mutants.toml` (YENİ), `.github/workflows/mutants.yml`
 > (YENİ), `scripts/ci/mutants_summary.py` (YENİ),

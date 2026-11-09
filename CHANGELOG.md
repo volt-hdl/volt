@@ -5,6 +5,24 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- Davranış değişikliği yok: bu bölümdeki değişiklikler test ve belgedir.
+
+### Tests
+
+- Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,
+  kitabın ve fikstürlerin temiz derlenen her tasarımına tek noktalı
+  tehlike mutasyonları uygular (`sync()`'i kaldırmak, register'ı başka
+  saate taşımak, ham reset'i kaldırmak, `declassify`'ı kaldırmak, …) ve
+  güvenlik denetimlerinin onları şartnamenin verdiği kodla reddettiğini,
+  tehlikeli görünen ama güvenli değişikliklerde ise sustuğunu denetler.
+  Beklenen kodlar şartnameden elle belirlenir; kaçırılan mutantlar issue
+  numaralarıyla katı bir listededir (bugün bir tane: saatsiz bir alt
+  modül üzerinden geçen CDC, #189). `cargo test` içinde araçsız koşar.
+
 ## [0.1.1] - 2026-11-08
 
 ### Behavior changes
