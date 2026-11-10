@@ -465,6 +465,7 @@ jobs:
         with:
           pattern: tool-ledger-*
           path: ledgers
+      # || true: diagnostics only; a missing ledger fails "Every tool test ran with its tool required" below.
       - name: Ledgers
         run: ls -l ledgers/*/ || true
       - name: Script self-test

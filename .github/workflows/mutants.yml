@@ -241,6 +241,7 @@ jobs:
           cargo mutants --list "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS > mutants-shard.txt
           if ! cmp -s mutants-shard.txt "mutants-list/shard-${{ matrix.shard }}.txt"; then
             echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::the mutants differ from the list of the first job"
+            # || true, case (b): diff only shows the difference; the step exits 1 on the next line.
             diff mutants-shard.txt "mutants-list/shard-${{ matrix.shard }}.txt" || true
             exit 1
           fi
@@ -277,6 +278,7 @@ jobs:
           CARGO_INCREMENTAL: "1"
         run: |
           mapfile -t filter < mutants-list/filter.txt
+          # set +e, case (a): the exit code is captured below and checked by the case statement.
           set +e
           timeout --signal=INT --kill-after=5m 300m \
             cargo mutants --in-place "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \

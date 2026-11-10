@@ -143,6 +143,7 @@ jobs:
       - name: Find the latest release tag
         id: release
         run: |
+          # || true, case (c): grep exits 1 when there is no release tag; the empty $tag is handled below.
           tag=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if [ -n "$tag" ]; then

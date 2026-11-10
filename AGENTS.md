@@ -119,6 +119,9 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   survives the behavior tests is not killed with a text test: it is
   classified (A2 with the reason, or open until the issue it depends on
   is fixed).
+- Apply mutants by hand only in a throwaway worktree, never in the
+  working copy; after each check, confirm with `git diff` that the source
+  is back to its committed state.
 - **Expression semantics (ADR-0108).** The differential test
   (`crates/volt-difftest`, run by `difftest_tests` in the tool job)
   compares the generated SV in Verilator with a reference model written
@@ -179,10 +182,14 @@ Evidence branches are the only exception to running pre-commit checks:
 the branch name starts with `evidence/`, the commit that deliberately
 reverts a fix may skip the checks, the branch is deleted when the
 evidence is recorded, and the PR description says so and quotes the log
-lines as text. In a workflow, `set +e` or `|| true` is allowed only when
-the exit code is captured and checked explicitly in the same step; a
-workflow written for an evidence branch follows the same rule, and the
-evidence is a red run of the normal CI.
+lines as text. In a workflow, `set +e` or `|| true` must never hide a
+failure. It is allowed only when (a) the exit code is captured and
+checked explicitly in the same step, (b) the command only prints
+diagnostics on a path that already fails the step, or (c) a non-zero exit
+is a normal outcome (for example `grep` finding no match) and the step
+then checks the result it needed. Each use carries a short comment saying
+which case it is. A workflow written for an evidence branch follows the
+same rule, and the evidence is a red run of the normal CI.
 
 ## Verifying CI from the logs
 
