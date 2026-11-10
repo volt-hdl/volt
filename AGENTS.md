@@ -132,6 +132,14 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   model's reading is an assumption tag in `model.rs` and a row in
   ADR-0108; a difference that only such a reading makes is an issue with
   the options for the maintainer to decide, not a fix.
+- **Safety checks (ADR-0113).** A PR that adds a safety check or a
+  diagnostic code that guards a safety property adds at least one
+  mutation kind to the seeded-bug corpus
+  (`crates/volt-driver/tests/seeded_bugs/`). The expected code of every
+  mutant comes from the spec, by hand, never from the compiler's output.
+  A missed mutant goes into `KNOWN_MISSES` with its `silent-wrong` issue;
+  a fix that makes a listed mutant caught removes its entry in the same
+  PR.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

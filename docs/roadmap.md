@@ -402,7 +402,9 @@ they are built, and some may not be built.
 - **Why:** low-power designs get the same compile-time safety for power
   crossings as for clock crossings.
 - **Status:** Not started. The diagnostic for an unisolated power crossing
-  is reserved.
+  is reserved. The power keys of a `domain` (`voltage`, `always_on`,
+  `retention`, `isolation`) are reserved words: `volt check` rejects them
+  with `E0003`.
 - **ADR:** [ADR-0002](adr/ADR-0002-domain-semantigi.md),
   [ADR-0021](adr/ADR-0021-artifact-uretim-ve-cli-sozlesmesi.md)
 

@@ -5,6 +5,42 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- Davranış değişikliği yok: bu bölümdeki değişiklikler test ve belgedir.
+
+### Belgeler
+
+- Kitabın "Limitations" sayfası: güç alanı anahtarları (`voltage`,
+  `always_on`, `retention`, `isolation`) ayrılmış sözcüktür ve E0003
+  alır, E3006–E3008 hiç üretilmez; `Handshake<T>` denetimi (E4007) bir
+  alt modülün içinden geçen `valid` → `ready` yolunu izlemez (ADR-0050).
+  Yol haritası aynı notu taşır; `docs/design/` altındaki iki plan belgesi
+  güç alanını uygulanmış gibi anlatan yerlerde durum notu aldı.
+
+### Tests
+
+- Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,
+  kitabın ve fikstürlerin temiz derlenen her tasarımına tek noktalı
+  tehlike mutasyonları uygular (`sync()`'i kaldırmak, register'ı başka
+  saate taşımak, ham reset'i kaldırmak, `declassify`'ı kaldırmak, …) ve
+  güvenlik denetimlerinin onları şartnamenin verdiği kodla reddettiğini,
+  tehlikeli görünen ama güvenli değişikliklerde ise sustuğunu denetler.
+  Beklenen kodlar şartnameden elle belirlenir; kaçırılan mutantlar issue
+  numaralarıyla katı bir listededir (bugün bir tane: saatsiz bir alt
+  modül üzerinden geçen CDC, #189). `cargo test` içinde araçsız koşar.
+- Tohumlanmış hata testine örnek sınırı türleri (#189, #193): saatsiz alt
+  modülde iki alanın birleşmesi, iç içe saatsiz modül ve saatsiz extern
+  üzerinden geçen CDC; saatsiz ve saatli alt modül, `for` içindeki örnek,
+  saatsiz extern, `EdgeDetect`, `PriorityArbiter` ve `RoundRobinArbiter`
+  üzerinden `ready`'den `valid`'e giden yol. Derleyici bugün bunların
+  onunu da kaçırıyor; hepsi issue numaralarıyla bilinen açıklar
+  listesinde. Güvenli ikizleri (bağımsız iki yol, sabit çıkış, `sync()`
+  ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
+  alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
+
 ## [0.1.1] - 2026-11-08
 
 ### Behavior changes
