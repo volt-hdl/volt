@@ -179,7 +179,10 @@ Evidence branches are the only exception to running pre-commit checks:
 the branch name starts with `evidence/`, the commit that deliberately
 reverts a fix may skip the checks, the branch is deleted when the
 evidence is recorded, and the PR description says so and quotes the log
-lines as text.
+lines as text. In a workflow, `set +e` or `|| true` is allowed only when
+the exit code is captured and checked explicitly in the same step; a
+workflow written for an evidence branch follows the same rule, and the
+evidence is a red run of the normal CI.
 
 ## Verifying CI from the logs
 
