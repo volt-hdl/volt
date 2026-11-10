@@ -240,7 +240,7 @@ impl Inferencer<'_> {
             None => {
                 let anchor = self.cur_stmt?;
                 let call = format!("sync({named}, {clk})");
-                // suggestion: e3001_instance_output
+                // suggestion: e3001_instance_output, e3001_instance_output_name_taken
                 let fix =
                     Suggestion::line_above(anchor, let_line.clone(), Applicability::MaybeIncorrect)
                         .and_replace(src_span, call.clone());

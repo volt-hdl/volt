@@ -46,10 +46,10 @@ pub struct Summary {
     /// (K4) kurulan çiftleri: çıkış → o girişler. `@no_protocol_check`
     /// E4007'de yalnız bunları kapatır; görünür bir yol yine E4007'dir.
     pub assumed: BTreeMap<String, BTreeSet<String>>,
-    /// Hedefin saat portu yok (K2: tamamen kombinasyonel).
-    pub clockless: bool,
-    /// Hedef bir `extern module` (içi görünmez).
-    pub is_extern: bool,
+    /// Hedef gövdesi görünmeyen saatsiz bir extern: `comb` en kötü durum
+    /// varsayımıdır (K4). Volt modülünde her zaman `false` (saatsiz bir
+    /// Volt modülünün özeti gövdesinden hesaplanır).
+    pub worst_case: bool,
 }
 
 /// Birimin bütün modül ve extern özetleri; birim başına bir kez
@@ -125,7 +125,7 @@ impl Summaries {
             target: res.defs[target.0 as usize].name.clone(),
             inputs: ins.iter().cloned().collect(),
             assumed: sum.assumed.get(port).cloned().unwrap_or_default(),
-            worst_case: sum.is_extern && sum.clockless,
+            worst_case: sum.worst_case,
         })
     }
 
@@ -205,8 +205,7 @@ impl Summaries {
         Summary {
             comb,
             assumed,
-            clockless: !m.ports.iter().any(|p| is_clock_port(ast, p)),
-            is_extern: false,
+            worst_case: false,
         }
     }
 }
@@ -238,8 +237,7 @@ fn extern_summary(ast: &SourceFile, ports: &[Port]) -> Summary {
     Summary {
         comb,
         assumed,
-        clockless,
-        is_extern: true,
+        worst_case: clockless,
     }
 }
 
@@ -837,6 +835,56 @@ mod tests {
         assert_eq!(s.assumed["z"], set(&["b"]));
         let (x, _) = res.def_by_name("X").expect("X");
         assert_eq!(sums.get(x).expect("özet").assumed["y"], set(&["a", "b"]));
+    }
+
+    /// Özetin girişleri yalnız saat dışı giriş portlarıdır: bir çıkışı
+    /// okuyan çıkış o çıkışa değil, onun girişlerine bağlıdır (mutasyon
+    /// koşusu 42670004438, `summarize_module`'deki giriş filtresi).
+    #[test]
+    fn only_non_clock_inputs_are_summary_inputs() {
+        let src = "module M {\n    in clk : clock\n    in a : bool\n    out y : bool\n    out z : bool\n    y = a\n    z = !y\n}\n";
+        assert_eq!(summary_of(src, "M"), deps(&[("y", &["a"]), ("z", &["a"])]));
+    }
+
+    /// Erişilemezlik (ADR-0109 A2, `.cargo/mutants.toml`): `match`
+    /// ifadesinin kolu blok olamaz — `parse_match_expr` kolları blok
+    /// bağlamı olmadan ayrıştırır, blok kolu E0001'dir ve AST'de
+    /// `ExprKind::Match` blok kolu taşımaz. `Walker::block_reads` bu yüzden
+    /// bugün çağrılmaz; kod ileride blok kolu açılırsa diye durur.
+    #[test]
+    fn a_match_expression_never_has_a_block_arm() {
+        let src = "module M {\n    in s : bool\n    in a : bool\n    in b : bool\n    out y : bool\n    y = match s {\n        true => { a }\n        _ => { b }\n    }\n}\n";
+        let parsed = parse(FileId(0), src);
+        assert!(
+            parsed.error_codes().contains(&"E0001"),
+            "{:?}",
+            parsed.error_codes()
+        );
+        for e in parsed.ast.exprs.iter() {
+            if let volt_ast::ExprKind::Match { arms, .. } = &e.kind {
+                assert!(arms
+                    .iter()
+                    .all(|a| matches!(a.body, volt_ast::MatchArmBody::Expr(_))));
+            }
+        }
+    }
+
+    /// Yalnız saatsiz extern'in özeti en kötü durum olarak işaretlenir;
+    /// saatsiz bir Volt modülününki gövdesinden gelir.
+    #[test]
+    fn only_a_clockless_extern_is_worst_case() {
+        let src = "extern module X {\n    in a : bool\n    out y : bool\n}\nextern module K {\n    in clk : clock\n    in a : bool\n    out y : bool\n}\nmodule P {\n    in a : bool\n    out y : bool\n    y = a\n}\n";
+        let parsed = parse(FileId(0), src);
+        let res = resolve_file(&parsed.ast);
+        let sums = Summaries::compute(&parsed.ast, &res);
+        let worst = |n: &str| {
+            sums.get(res.def_by_name(n).expect("tanım").0)
+                .expect("özet")
+                .worst_case
+        };
+        assert!(worst("X"));
+        assert!(!worst("K"));
+        assert!(!worst("P"));
     }
 
     #[test]

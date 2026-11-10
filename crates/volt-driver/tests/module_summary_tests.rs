@@ -313,3 +313,142 @@ fn no_protocol_check_ignores_only_paths_that_rest_on_the_assumption() {
         "{d}"
     );
 }
+
+const TWO_DOMAINS: &str = "domain Fast {\n    clock = posedge\n    reset = sync active_high\n}\n\
+                           domain Slow {\n    clock = posedge\n    reset = sync active_high\n}\n";
+
+fn check_src(tag: &str, src: &str) -> Value {
+    let dir = temp_dir(tag);
+    let file = dir.join("m.volt");
+    std::fs::write(&file, src).unwrap();
+    let env = check_json_in(&dir, &file);
+    let _ = std::fs::remove_dir_all(&dir);
+    env
+}
+
+fn the_error(env: &Value, code: &str) -> Value {
+    let found: Vec<Value> = diagnostics(env)
+        .into_iter()
+        .filter(|d| d["code"] == code)
+        .collect();
+    assert_eq!(found.len(), 1, "tek {code} bekleniyor: {env}");
+    found[0].clone()
+}
+
+/// `sync()` yalnız tek biti köprüler (K9): çok bitli örnek çıkışında
+/// makinece uygulanan öneri yoktur, yardım genel biçimdedir.
+#[test]
+fn a_multi_bit_instance_output_gets_no_sync_fix() {
+    let src = format!(
+        "{TWO_DOMAINS}module Pass8 {{\n    in  a : u8\n    out y : u8\n    y = a\n}}\n\
+         module Cross {{\n    in  _fclk : clock @Fast\n    in  sclk  : clock @Slow\n    in  a     : u8    @Fast\n    out y     : u8    @Slow\n    let p = Pass8 {{ a: a }}\n    y = p.y\n}}\n"
+    );
+    let d = the_error(&check_src("wide", &src), "E3001");
+    assert_eq!(d["suggestions"].as_array().map(Vec::len), Some(0), "{d}");
+    assert!(
+        d["help"]
+            .as_str()
+            .is_some_and(|h| h.contains("dest = sync(src, <clock of Slow>)")),
+        "{d}"
+    );
+}
+
+/// Not, kaynağın alanını gerçekten taşıyan örnek çıkışı için yazılır:
+/// sabit bağlanmış saatsiz çocuğun çıkışı Timeless'tır, geçişin kaynağı
+/// başka bir işlenendir.
+#[test]
+fn the_origin_note_names_only_an_output_that_carries_the_domain() {
+    let src = format!(
+        "{TWO_DOMAINS}module Pass {{\n    in  a : bool\n    out y : bool\n    y = a\n}}\n\
+         module Cross {{\n    in  _fclk : clock @Fast\n    in  sclk  : clock @Slow\n    in  f     : bool  @Fast\n    out y     : bool  @Slow\n    let p = Pass {{ a: true }}\n    y = f && p.y\n}}\n"
+    );
+    let d = the_error(&check_src("note", &src), "E3001");
+    assert!(!note(&d, "note").contains("carries"), "{d}");
+}
+
+/// Birleşme tanısının ikincil etiketi ilk alanın İLK bağlamasıdır; aynı
+/// alandan ikinci bir giriş onu değiştirmez.
+#[test]
+fn the_merge_error_labels_the_first_binding_of_the_first_domain() {
+    let src = format!(
+        "{TWO_DOMAINS}module And3 {{\n    in  a : bool\n    in  b : bool\n    in  c : bool\n    out y : bool\n    y = a && b && c\n}}\n\
+         module Merge {{\n    in  _fc : clock @Fast\n    in  _sc : clock @Slow\n    in  f1  : bool  @Fast\n    in  f2  : bool  @Fast\n    in  s   : bool  @Slow\n    let g = And3 {{ a: f1, b: f2, c: s }}\n}}\n"
+    );
+    let d = the_error(&check_src("first", &src), "E3001");
+    let line = src
+        .lines()
+        .position(|l| l.contains("let g = And3"))
+        .unwrap() as u64
+        + 1;
+    let col = src
+        .lines()
+        .nth(line as usize - 1)
+        .unwrap()
+        .find("a: f1")
+        .unwrap() as u64
+        + 1;
+    let fast = d["spans"]
+        .as_array()
+        .expect("spans")
+        .iter()
+        .find(|s| s["label"] == "@Fast")
+        .cloned()
+        .unwrap_or_else(|| panic!("@Fast etiketi yok: {d}"));
+    assert_eq!(fast["start"]["line"].as_u64(), Some(line), "{d}");
+    assert_eq!(fast["start"]["col"].as_u64(), Some(col), "{d}");
+}
+
+/// Saatsiz çocuğun içinde değerin geçtiği her blok biçimi (ADR-0114 §1):
+/// `comb` ataması ve blok `let`'i değeri taşır; `if`/`else if` koşulu,
+/// `match` sınananı ve kol muhafızı işlenendir (domain-inference.md K5,
+/// ADR-0083 Karar 8); kol gövdesindeki ve `comb` içi `for`daki atama
+/// değeri taşır; `if` ve `match` ifadelerinin her parçası işlenendir.
+/// Beklenen kod şartnameden, elle: `f` @Fast ve `fk` @Fast, `o` @Slow;
+/// öteki girişler sabittir (Timeless, K6 muaf), dolayısıyla `p.y` @Fast
+/// olur ve `o = p.y` satırında E3001 (K8b). Güvenli ikizler aynı blokları
+/// kullanır ama `y` yalnız @Slow ya da sabit bir girişe bağlıdır: tanı yok
+/// (K2, port başına bağımlılık).
+#[test]
+fn a_value_through_a_block_of_a_clockless_child_carries_its_domain() {
+    // (ad, çocuğun gövdesi, bağlamalar, E3001 bekleniyor mu)
+    let cases: &[(&str, &str, &str, bool)] = &[
+        ("comb", "comb {\n        y = a\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("block-let", "comb {\n        let t = !a\n        y = t\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("if-cond", "comb {\n        if a {\n            y = true\n        } else {\n            y = false\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("else-if-cond", "comb {\n        if b {\n            y = true\n        } else if a {\n            y = false\n        } else {\n            y = true\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("if-branch", "comb {\n        if b {\n            y = a\n        } else {\n            y = false\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("match-scrutinee", "comb {\n        match k {\n            0 => { y = b }\n            _ => { y = false }\n        }\n        z = false\n    }", "a: true, b: true, k: fk", true),
+        ("match-guard", "comb {\n        match k {\n            0 if a => { y = true }\n            _ => { y = false }\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("match-arm", "comb {\n        match k {\n            0 => { y = a }\n            _ => { y = false }\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("comb-for", "comb {\n        y = false\n        for i in 0..2 {\n            if a {\n                y = true\n            }\n        }\n        z = false\n    }", "a: f, b: true, k: 0", true),
+        ("if-expr", "y = if a { true } else { b }\n    z = false", "a: f, b: true, k: 0", true),
+        ("match-expr", "y = match k { 0 => b, _ => false }\n    z = false", "a: true, b: true, k: fk", true),
+        // Güvenli ikizler: aynı biçimler, @Fast giriş yalnız `z`ye gider.
+        ("comb-twin", "comb {\n        y = b\n        z = a\n    }", "a: f, b: s, k: 0", false),
+        ("if-twin", "comb {\n        if b {\n            y = true\n        } else {\n            y = false\n        }\n        z = a\n    }", "a: f, b: s, k: 0", false),
+        ("match-twin", "comb {\n        match k {\n            0 => { y = b }\n            _ => { y = false }\n        }\n        z = a\n    }", "a: f, b: s, k: 0", false),
+    ];
+    for (name, body, binds, crossing) in cases {
+        let src = format!(
+            "{TWO_DOMAINS}module C {{\n    in  a : bool\n    in  b : bool\n    in  k : u2\n    out y : bool\n    out z : bool\n    {body}\n}}\n\
+             module Top {{\n    in  _fclk : clock @Fast\n    in  sclk  : clock @Slow\n    in  f     : bool  @Fast\n    in  fk    : u2    @Fast\n    in  s     : bool  @Slow\n    out o     : bool  @Slow\n    out q     : bool  @Fast\n    let p = C {{ {binds} }}\n    o = p.y\n    q = p.z\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors: Vec<Value> = diagnostics(&env)
+            .into_iter()
+            .filter(|d| d["severity"] == "error")
+            .collect();
+        if *crossing {
+            assert_eq!(errors.len(), 1, "{name}: tek E3001 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E3001", "{name}: {env}");
+            let line = src.lines().position(|l| l.trim() == "o = p.y").unwrap() as u64 + 1;
+            let prim = errors[0]["spans"]
+                .as_array()
+                .and_then(|s| s.iter().find(|s| s["primary"] == true))
+                .expect("birincil etiket");
+            assert_eq!(prim["start"]["line"].as_u64(), Some(line), "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}

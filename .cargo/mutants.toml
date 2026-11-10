@@ -183,6 +183,18 @@ exclude_re = [
     # inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path
     # (#139 targeted run).
     "parser/auto_contract/mod\\.rs:\\d+:\\d+: replace match guard p\\.segments\\.len\\(\\) == 1 with true in value_of$",
+    # Source: targeted run 42670004438 (#189, #193, ADR-0114; 114 mutants,
+    # 9 missed: 8 are caught by the tests added with this entry).
+    # A2 (unreachable), assumes a `match` expression never has a block arm:
+    # parse_match_expr parses its arms with parse_match_arm(None), which
+    # gives only MatchArmBody::Expr (a block arm is E0001), and every cloner
+    # copies the arm kind it gets (mono/pattern.rs, desugar.rs, visit.rs).
+    # Walker::block_reads is called from that arm alone; `comb`, `if` and
+    # `match` statements go through Walker::block. summary.rs::tests::
+    # a_match_expression_never_has_a_block_arm; module_summary_tests::
+    # a_value_through_a_block_of_a_clockless_child_carries_its_domain passes
+    # with the mutant. Review when match expressions get block arms.
+    "volt-hir/src/summary\\.rs:\\d+:\\d+: replace Walker<'_>::block_reads with \\(\\)$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
