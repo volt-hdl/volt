@@ -9,7 +9,6 @@ use super::{DomainId, Inferencer};
 
 impl Inferencer<'_> {
     pub(super) fn walk_stmt(&mut self, stmt_idx: Idx<Stmt>) {
-        self.cur_stmt = Some(self.ast.stmts[stmt_idx].span);
         match &self.ast.stmts[stmt_idx].kind {
             StmtKind::Reg(r) => {
                 // init sabittir; yine de yayılım için hesaplanır.

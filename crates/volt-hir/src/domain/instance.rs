@@ -1,12 +1,10 @@
 //! K8 — modül örnekleme: saat bağlamalarından alan haritası, diğer
 //! portların bu haritaya göre denetimi; extern sınırı dahil (ADR-0047).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
-use volt_ast::{ClockEdge, ExprKind, InstanceDecl, ItemKind, Port, PortBinding, PortDir};
-use volt_diagnostics::{
-    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
-};
+use volt_ast::{ClockEdge, InstanceDecl, ItemKind, Port, PortBinding};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::edgeless::EdgeUse;
@@ -51,11 +49,6 @@ impl<'a> Inferencer<'a> {
         for port in target_ports {
             let expected = self.expected_port_domain(port, &target_clocks, &mapping);
             port_domains.insert(port.name.text.clone(), expected);
-        }
-        // 3. Saatsiz hedef (K8b, ADR-0114): anotasyonsuz çıkış, modül
-        //    özetinde bağlı olduğu girişlerin alanlarının K5 join'idir.
-        if target_clocks.is_empty() {
-            self.clockless_outputs(inst, inst_def, target, target_ports, &mut port_domains);
         }
         self.check_port_bindings(inst, target_ports, &port_domains);
 
@@ -294,165 +287,6 @@ impl<'a> Inferencer<'a> {
         }
     }
 
-    /// K8b (ADR-0114): saatsiz hedefin anotasyonsuz çıkışı, özette bağlı
-    /// olduğu girişlere bağlanan değerlerin K5 join'ini taşır; `@Alan`
-    /// anotasyonlu giriş kendi alanıyla katılır, anotasyonlu çıkış kendi
-    /// alanında kalır. İki farklı alan aynı çıkışta birleşirse örnek
-    /// sitesinde, örnek başına bir kez E3001; çıkış `Error` olur (kaskad
-    /// yok). Modülün içinde tanı yoktur: içeride portlar Timeless'tır.
-    fn clockless_outputs(
-        &mut self,
-        inst: &InstanceDecl,
-        inst_def: DefId,
-        target: DefId,
-        target_ports: &[Port],
-        port_domains: &mut HashMap<String, DomainId>,
-    ) {
-        let Some(sum) = self.summaries.get(target) else {
-            return;
-        };
-        let target_name = self.res.defs[target.0 as usize].name.clone();
-        let mut deps_by_out: HashMap<String, Vec<String>> = HashMap::new();
-        let mut reported = false;
-        for port in target_ports.iter().filter(|p| p.direction == PortDir::Out) {
-            let out = &port.name.text;
-            let own = port_domains.get(out).copied().unwrap_or(DomainId::Timeless);
-            if !matches!(self.resolve_dom(own), DomainId::Timeless) {
-                continue;
-            }
-            let Some(deps) = sum.comb.get(out) else {
-                continue;
-            };
-            deps_by_out.insert(out.clone(), deps.iter().cloned().collect());
-            let mut dom = DomainId::Timeless;
-            let mut first: Option<(String, DomainId, Span)> = None;
-            for input in deps {
-                let Some(b) = inst.bindings.iter().find(|b| &b.port_name.text == input) else {
-                    continue;
-                };
-                let declared = port_domains
-                    .get(input)
-                    .copied()
-                    .unwrap_or(DomainId::Timeless);
-                let d = if matches!(self.resolve_dom(declared), DomainId::Timeless) {
-                    self.binding_domain(b)
-                } else {
-                    declared
-                };
-                let (cur, new) = (self.resolve_dom(dom), self.resolve_dom(d));
-                if let (DomainId::Explicit(x), DomainId::Explicit(y)) = (cur, new) {
-                    if x != y {
-                        if let (false, Some(a)) = (reported, first.clone()) {
-                            let merge = Merge {
-                                target: &target_name,
-                                output: out,
-                                deps,
-                                first: a,
-                                second: (input.clone(), d, b.span),
-                            };
-                            self.err_cdc_instance_merge(inst, merge, b);
-                            reported = true;
-                        }
-                        dom = DomainId::Error;
-                        break;
-                    }
-                }
-                if first.is_none() && !matches!(new, DomainId::Timeless) {
-                    first = Some((input.clone(), d, b.span));
-                }
-                dom = self.join(dom, d, b.span, b.span);
-            }
-            port_domains.insert(out.clone(), dom);
-        }
-        self.clockless_deps
-            .insert(inst_def, (target_name, deps_by_out));
-    }
-
-    /// E3001 (örnek biçimi, ADR-0114 K3): saatsiz hedef iki alandan gelen
-    /// girişleri aynı çıkışta birleştiriyor. Beş parça: kod, konum (ikinci
-    /// alanın bağlaması), açıklama, öneri (ikinci girişi ilk alana
-    /// senkronize et), gerekçe notu (çıkışın hangi girişlere bağlı olduğu)
-    /// + ikincil etiketler (ilk bağlama, iki alanın tanımı).
-    fn err_cdc_instance_merge(&mut self, inst: &InstanceDecl, m: Merge<'_>, second: &PortBinding) {
-        let (DomainId::Explicit(x), DomainId::Explicit(y)) =
-            (self.resolve_dom(m.first.1), self.resolve_dom(m.second.1))
-        else {
-            return;
-        };
-        let inst_name = &inst.name.text;
-        let (target, out, input) = (m.target, m.output, &m.second.0);
-        let (dx, dy) = (
-            self.domain_name(x).to_string(),
-            self.domain_name(y).to_string(),
-        );
-        let ports_en = quote_list(m.deps, "and");
-        let ports_tr = quote_list(m.deps, "ve");
-        let fix = self.binding_sync_fix(second, m.first.1);
-        let help = match &fix {
-            Some((line, synced)) => lstr!(
-                en: "synchronize '{input}' into @{dx} before the instance: add '{line}' above it and bind '{input}: {synced}'";
-                tr: "'{input}' girişini örnekten önce @{dx} alanına senkronize edin: üstüne '{line}' ekleyin ve '{input}: {synced}' bağlayın"
-            ),
-            None => lstr!(
-                en: "synchronize one input into the other's domain before the instance: let s = sync(<signal>, <clock of {dx}>), then bind s";
-                tr: "örnekten önce bir girişi ötekinin alanına senkronize edin: let s = sync(<sinyal>, <{dx} saati>), sonra s'yi bağlayın"
-            ),
-        };
-        let mut diag = Diagnostic::error(
-            ErrorCode::E3001,
-            lstr!(
-                en: "instance '{inst_name}' combines two clock domains in '{target}.{out}'";
-                tr: "'{inst_name}' örneği '{target}.{out}' çıkışında iki saat alanını birleştiriyor"
-            ),
-            LabeledSpan::primary(m.second.2, format!("@{dy}")),
-            help,
-        )
-        .with_secondary(m.first.2, format!("@{dx}"))
-        .with_secondary(self.domain_span(x), self.defined_here(x))
-        .with_secondary(self.domain_span(y), self.defined_here(y))
-        .with_note(
-            NoteKind::Reason,
-            lstr!(
-                en: "'{target}.{out}' depends on {ports_en}; '{target}' has no clock, so it is a combinational gate and the two domains meet inside it, where they can produce a glitch that the next register captures";
-                tr: "'{target}.{out}', {ports_tr} girişlerine bağlı; '{target}' saatsizdir, yani kombinasyonel bir kapıdır ve iki alan onun içinde birleşir; oluşan geçici darbeyi (glitch) sonraki register yakalayabilir"
-            ),
-        );
-        if let (Some((line, synced)), Some(anchor), Some(value)) =
-            (fix, self.cur_stmt, second.value)
-        {
-            // suggestion: e3001_clockless_instance
-            let s = Suggestion::line_above(anchor, line, Applicability::MaybeIncorrect)
-                .and_replace(self.ast.exprs[value].span, synced);
-            diag = diag.with_suggestion(s);
-        }
-        self.diagnostics.push(diag);
-    }
-
-    /// Bağlamanın değerini `dst` alanına taşıyan `let` satırı ve yeni ad:
-    /// yalnız tek bitlik, adı yazılabilen değer ve `dst`'nin bu modülde bir
-    /// saat portu varken (`sync()` kuralları, K9).
-    fn binding_sync_fix(&self, b: &PortBinding, dst: DomainId) -> Option<(String, String)> {
-        let e = b.value?;
-        let ExprKind::Path(path) = &self.ast.exprs[e].kind else {
-            return None;
-        };
-        let [name] = path.segments.as_slice() else {
-            return None;
-        };
-        if !self.is_one_bit(e) {
-            return None;
-        }
-        let dst = self.resolve_dom(dst);
-        let clock = self
-            .module_clocks
-            .iter()
-            .find(|c| self.resolve_dom(c.dom) == dst)?;
-        self.cur_stmt?;
-        let synced = self.fresh_name(&format!("{}_sync", name.text));
-        let line = format!("let {synced} = sync({}, {})", name.text, clock.name);
-        Some((line, synced))
-    }
-
     /// Hedef portu bulunamayan bağlama: ifadesi yine de yayılıma girer.
     pub(super) fn propagate_binding(&mut self, b: &PortBinding) {
         if let Some(e) = b.value {
@@ -479,27 +313,6 @@ impl<'a> Inferencer<'a> {
                 .map(|def| self.def_domain(def))
                 .unwrap_or(DomainId::Timeless),
         }
-    }
-}
-
-/// Saatsiz hedefte iki alanın birleştiği çıkış (E3001, örnek biçimi).
-struct Merge<'m> {
-    target: &'m str,
-    output: &'m str,
-    deps: &'m BTreeSet<String>,
-    /// (giriş, alan, bağlama span'i): ilk belirli alan.
-    first: (String, DomainId, Span),
-    /// İlkiyle çelişen giriş.
-    second: (String, DomainId, Span),
-}
-
-/// `'a' and 'b'`, `'a', 'b' and 'c'`.
-pub(super) fn quote_list(items: &BTreeSet<String>, and: &str) -> String {
-    let q: Vec<String> = items.iter().map(|s| format!("'{s}'")).collect();
-    match q.as_slice() {
-        [] => String::new(),
-        [one] => one.clone(),
-        [init @ .., last] => format!("{} {and} {last}", init.join(", ")),
     }
 }
 

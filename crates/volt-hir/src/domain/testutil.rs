@@ -78,8 +78,7 @@ fn front_end(src: &str) -> (SourceFile, ResolveResult, TypeckResult) {
 
 pub(super) fn inferred(src: &str) -> Inferred {
     let (ast, res, tyck) = front_end(src);
-    let sums = crate::summary::Summaries::compute(&ast, &res);
-    let dom = infer_domains(&ast, &res, &tyck, &sums);
+    let dom = infer_domains(&ast, &res, &tyck);
     Inferred { res, dom }
 }
 
@@ -87,8 +86,7 @@ pub(super) fn inferred(src: &str) -> Inferred {
 /// koşar (kafes işlemlerini modül yürüyüşü olmadan sınamak için).
 pub(super) fn with_inferencer<R>(src: &str, f: impl FnOnce(&mut Inferencer<'_>) -> R) -> R {
     let (ast, res, tyck) = front_end(src);
-    let sums = crate::summary::Summaries::compute(&ast, &res);
-    let mut inf = Inferencer::new(&ast, &res, &tyck, &sums);
+    let mut inf = Inferencer::new(&ast, &res, &tyck);
     inf.collect_domain_decls();
     f(&mut inf)
 }

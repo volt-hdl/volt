@@ -98,10 +98,7 @@ pub fn run_semantic_stages(
 
     // ── Aşama 4: domain çıkarımı ve CDC; güven seviyeleri (ADR-0052)
     // ve reset alanı denetimi (ADR-0065) onun sonucu üzerinde ──
-    // Modül özeti (ADR-0114): birim başına bir kez; alan çıkarımı ve
-    // E4007 aynı özeti okur.
-    let summaries = crate::summary::Summaries::compute(ast, resolve);
-    let domain = crate::infer_domains(ast, resolve, &typeck, &summaries);
+    let domain = crate::infer_domains(ast, resolve, &typeck);
     let trust = crate::check_trust(ast, resolve, &typeck, &domain);
     let rdc = crate::check_rdc(ast, resolve, &domain);
     out.extend(domain.diagnostics.iter().cloned());
@@ -112,7 +109,7 @@ pub fn run_semantic_stages(
     let timing = crate::analyze_timing(ast, resolve);
     out.extend(timing.diagnostics);
     // ── Handshake protokolü (ADR-0050) ──
-    out.extend(crate::check_handshakes(ast, resolve, &summaries));
+    out.extend(crate::check_handshakes(ast, resolve));
 
     // ── Test blokları (ADR-0033): `X_test.volt` birimiyle `volt test` ile
     // aynı tam denetim (ADR-0101); kardeş tasarım yüklendiyse de tam.

@@ -18,8 +18,7 @@ fn with_facts(src: &str, check: impl FnOnce(&UnitFacts)) {
     let mut evaluator = ConstEvaluator::new(&parsed.ast, &res);
     evaluator.eval_all_consts();
     let tyck = typecheck(&parsed.ast, &res, &mut evaluator);
-    let sums = crate::summary::Summaries::compute(&parsed.ast, &res);
-    let dom = infer_domains(&parsed.ast, &res, &tyck, &sums);
+    let dom = infer_domains(&parsed.ast, &res, &tyck);
     check(&UnitFacts::collect(&parsed.ast, &res, &dom));
 }
 
