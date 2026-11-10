@@ -516,7 +516,9 @@ module CdcBridge {
 
 - Sürekli atama, `let`, `comb` bloğu; koşul, `match` sınananı ve kol
   muhafızı da işlenendir (K5 son paragrafı). Fonksiyon çağrısının
-  argümanları işlenendir (K5, ADR-0081 Karar 9).
+  argümanları işlenendir (K5, ADR-0081 Karar 9). Atama hedefinin indeks,
+  aralık ve part-select ifadeleri de işlenendir: `y[sel] = d`'de `y`,
+  `sel`'e de bağlıdır.
 - Modül düzeyi `for` isim çözümlemeden önce açılır (ADR-0056); açılmış
   gövde sıradan deyimlerdir.
 - `on` bloğu, register ve `sync()`/`sync3()` yolu KESER.
