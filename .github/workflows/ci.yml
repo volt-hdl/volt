@@ -138,7 +138,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: tool-ledger-integration
+          # EVIDENCE ONLY: the tool job's ledger is uploaded under a name the
+          # tool-ledger-* pattern does not match, so the coverage step sees no ledger.
+          name: evidence-missing-ledger-integration
           path: ${{ env.VOLT_TOOL_LEDGER }}
           if-no-files-found: ignore
       # A test writes into a temporary directory, never into the checkout:
