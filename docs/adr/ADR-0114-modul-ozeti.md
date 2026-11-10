@@ -95,8 +95,8 @@ Her modül için bir kez, çocuktan başlayarak bir **özet** çıkarılır:
   `PriorityArbiter` `grant` ← `req`; öteki primitiflerin (FIFO'lar, RAM'ler,
   `Counter`, `ShiftRegister`, CDC primitifleri) bütün çıkışları
   register'dan okunur, özetleri boştur.
-- Extern: saatsiz extern en kötü durumdur — her çıkış saat dışı her
-  girişe bağlı ([K4]); saatli extern'in özeti boştur ([K5]).
+- Extern: saatsiz extern en kötü durumdur — her çıkış her girişe bağlı
+  ([K4]); saatli extern'in özeti boştur ([K5]).
 
 Uygulama tek bir graf kurucuyu paylaşır (`summary.rs`, eskiden
 `handshake.rs`'teki `CombGraph`): E4007 ve alan çıkarımı aynı özeti okur.
@@ -110,8 +110,10 @@ taşır; `@Alan` anotasyonlu giriş kendi alanıyla katılır, anotasyonlu çık
 kendi alanında kalır. Saatsiz Volt modülünün anotasyonlu çıkışı
 denetlenir ([K8]): özette bağlı olduğu anotasyonsuz girişlere bağlanan
 değerler anotasyonun alanında olmalıdır, başka alandan gelen değer
-örnek sitesinde E3001'dir. Saatsiz extern'de anotasyon kullanıcının
-beyanıdır, denetlenmez. Saatli hedefte değişiklik yoktur: portları saat
+örnek sitesinde E3001'dir. Saatsiz extern'de anotasyonlu çıkışın
+bağımlılıkları denetlenmez: kullanıcının beyanıdır; anotasyonlu girişe
+bağlanan değer K8 adım 2'deki gibi denetlenir. Saatli hedefte değişiklik
+yoktur: portları saat
 haritasından alanını zaten alır ve iç kombinasyonel yollar çocuğun kendi
 denetiminde E3001 alır.
 
@@ -123,7 +125,7 @@ and 'b'`). Örnek başına bir kez; çıkış `Error` olur, okumaları kaskad
 üretmez. Öneri, ikinci girişi ilkinin alanına senkronize eden bir
 `let ... = sync(...)` satırı ve bağlamanın o adla değiştirilmesidir
 (tek bitlik, adı yazılabilen değerde; ADR-0099 gidiş-dönüş). Modülün
-içinde tanı yoktur: içeride portlar `Timeless`'tır.
+içinde tanı yoktur: içeride anotasyonsuz portlar `Timeless`'tır.
 
 Çıkış başka bir alana atanırsa E3001'in mevcut atama biçimi geçerlidir;
 bir not çıkışın alanını nereden aldığını söyler (`'p.y' carries @Fast:
@@ -210,8 +212,10 @@ denetler: özette bağlı olduğu anotasyonsuz girişlere bağlanan
 değerlerden biri anotasyondan farklı bir alandaysa E3001 örnek sitesinde,
 o bağlamada, çıkış başına bir kez; çıkışın okumaları anotasyonun alanını
 taşır (kaskad yok). Anotasyonlu giriş modülün içinde denetlenir (K6),
-örnek sitesinde ikinci kez değil. Saatsiz extern'de anotasyonlu port
-denetlenmez: gövde görünmediğinden anotasyon kullanıcının beyanıdır.
+örnek sitesinde ikinci kez değil. Saatsiz extern'de anotasyonlu çıkışın
+bağımlılıkları denetlenmez: gövde görünmediğinden kullanıcının
+beyanıdır; anotasyonlu girişe bağlanan değer K8 adım 2'deki gibi
+denetlenir.
 
 ## Sonuçlar
 

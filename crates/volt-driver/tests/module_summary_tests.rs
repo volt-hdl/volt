@@ -601,3 +601,112 @@ module P {
         }
     }
 }
+
+/// `ready` → `valid` yolu bir çocuğun içinden geçer; çocuk `ready`'yi
+/// `sync()` ya da `sync3()` ile okursa yol iki ya da üç flop'tan geçer ve
+/// kesilir (domain-inference.md K8b: "`sync()`/`sync3()` yolu KESER"):
+/// E4007 yok. Senkronizörsüz ikizde yol kombinasyoneldir: E4007 (ADR-0050
+/// §4, ADR-0114 §3). Beklenen kodlar şartnameden, elle.
+#[test]
+fn sync_and_sync3_in_a_child_cut_the_handshake_path() {
+    // (ad, çocuktaki `ready` okuması, E4007 bekleniyor mu)
+    let cases: &[(&str, &str, bool)] = &[
+        ("hs-sync", "let s = sync(b, clk)\n    y = a && s", false),
+        ("hs-sync3", "let s = sync3(b, clk)\n    y = a && s", false),
+        ("hs-direct", "y = a && b", true),
+    ];
+    for (name, body, e4007) in cases {
+        let src = format!(
+            "module C {{\n    in  clk : clock\n    in  a   : bool\n    in  b   : bool\n    out y   : bool\n    {body}\n}}\n\
+             module Producer {{\n    in  clk  : clock\n    in  have : bool\n    out tx   : Handshake<u8>\n    reg count : u8 = 0\n    on clk {{\n        if tx.fired {{\n            count <= count + 1\n        }}\n    }}\n    let g = C {{ clk: clk, a: have, b: tx.ready }}\n    tx.valid = g.y\n    tx.data  = count\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        if *e4007 {
+            assert_eq!(errors.len(), 1, "{name}: tek E4007 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E4007", "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: yol kesilmeli: {env}");
+        }
+    }
+}
+
+/// K8b: saatsiz Volt modülünün `@Alan` anotasyonlu girişi, anotasyonsuz
+/// çıkışın join'ine bağlanan değerle değil kendi alanıyla katılır
+/// (domain-inference.md K8 adım 3, "anotasyonlu giriş kendi alanıyla
+/// katılır"). `P` `in a : bool @Fast`, `y = a`: `p.y` @Fast taşır; @Slow
+/// çıkışa atanması E3001, o satırda. Sabit bağlansa da: sabit Timeless'tır
+/// ama girişin alanı anotasyondan gelir. Güvenli ikiz: @Fast çıkışa atama.
+#[test]
+fn an_annotated_input_of_a_clockless_child_joins_with_its_own_domain() {
+    // (ad, bağlama, okuyan çıkışın alanı, E3001 bekleniyor mu)
+    let cases: &[(&str, &str, &str, bool)] = &[
+        ("annin-fast-value", "fast_flag", "Slow", true),
+        ("annin-constant", "true", "Slow", true),
+        ("annin-same-domain", "true", "Fast", false),
+    ];
+    for (name, bind, out_dom, crossing) in cases {
+        let src = format!(
+            "{TWO_DOMAINS}module P {{\n    in  a : bool @Fast\n    out y : bool\n    y = a\n}}\n\
+             module Top {{\n    in  _fast_clk : clock @Fast\n    in  _slow_clk : clock @Slow\n    in  fast_flag : bool  @Fast\n    out o         : bool  @{out_dom}\n    out keep      : bool  @Fast\n    let p = P {{ a: {bind} }}\n    o = p.y\n    keep = fast_flag\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        if *crossing {
+            assert_eq!(errors.len(), 1, "{name}: tek E3001 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E3001", "{name}: {env}");
+            let line = src.lines().position(|l| l.trim() == "o = p.y").unwrap() as u64 + 1;
+            assert_eq!(primary_line(&errors[0]), Some(line), "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}
+
+/// BİLİNEN TUTUCULUK (#195): güven seviyesi (K11) modül özetini kullanmaz
+/// (domain-inference.md K11 ve K8b: "Güven seviyesi (K11) özeti
+/// kullanmaz"). Örnek çıkışı, çocuğun sınıflandırılmış girişlerinin en
+/// yükseğini alır, çıkış o girişe bağlı olmasa da: `Two`'da `y2 = b`
+/// yalnız @Debug `ctl`'e bağlıdır, yine de `t.y2` @SecureCore `key`'in
+/// `secret` seviyesini taşır ve @Debug (public) çıkışa atanması E3009'dur.
+/// Bu test bugünkü şartnameyi bekler; #195 çözülüp K11 port başına özete
+/// geçtiğinde bu beklenti bilerek değişecek (tanı yok olacak) ve test o
+/// PR'da güncellenecek.
+#[test]
+fn trust_ignores_the_summary_known_conservative_until_195() {
+    let src = "domain SecureCore { clock = posedge, reset = sync active_high, trust_level = secret }\n\
+               domain Debug      { clock = posedge, reset = sync active_high, trust_level = public }\n\
+               module Two {\n    in  a  : u8\n    in  b  : u8\n    out y1 : u8\n    out y2 : u8\n    y1 = a\n    y2 = b\n}\n\
+               module Top {\n    in  key : u8 @SecureCore\n    in  ctl : u8 @Debug\n    out dbg : u8 @Debug\n    let t = Two { a: key, b: ctl }\n    dbg = t.y2\n}\n";
+    let env = check_src("trust-195", src);
+    let errors = errors_of(&env);
+    assert_eq!(errors.len(), 1, "tek E3009 bekleniyor: {env}");
+    assert_eq!(errors[0]["code"], "E3009", "{env}");
+    let line = src.lines().position(|l| l.trim() == "dbg = t.y2").unwrap() as u64 + 1;
+    assert_eq!(primary_line(&errors[0]), Some(line), "{env}");
+}
+
+/// `sync()` kaynağı bileşik olamaz: `sync(p.y, clk)` E0003 alır
+/// (domain-inference.md K8b, ADR-0114 §2); E3001'in önerisi bu yüzden
+/// çıkışı önce bir `let` ile adlandırır. İkiz: `let` ile adlandırılmış
+/// kaynak temiz derlenir.
+#[test]
+fn sync_of_an_instance_output_is_e0003_until_named_with_let() {
+    let src = |tail: &str| {
+        format!(
+            "{TWO_DOMAINS}module Pass {{\n    in  a : bool\n    out y : bool\n    y = a\n}}\n\
+             module Top {{\n    in  _fast_clk : clock @Fast\n    in  slow_clk  : clock @Slow\n    in  fast_flag : bool  @Fast\n    out slow_flag : bool  @Slow\n    let p = Pass {{ a: fast_flag }}\n    {tail}\n}}\n"
+        )
+    };
+    let bad = src("slow_flag = sync(p.y, slow_clk)");
+    let env = check_src("sync-compound", &bad);
+    let errors = errors_of(&env);
+    assert_eq!(errors.len(), 1, "tek E0003 bekleniyor: {env}");
+    assert_eq!(errors[0]["code"], "E0003", "{env}");
+    let line = bad.lines().position(|l| l.contains("sync(p.y")).unwrap() as u64 + 1;
+    assert_eq!(primary_line(&errors[0]), Some(line), "{env}");
+
+    let good = src("let p_y_raw = p.y\n    slow_flag = sync(p_y_raw, slow_clk)");
+    let env = check_src("sync-named", &good);
+    assert!(errors_of(&env).is_empty(), "tanı beklenmiyor: {env}");
+}
