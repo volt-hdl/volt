@@ -465,13 +465,12 @@ jobs:
         with:
           pattern: tool-ledger-*
           path: ledgers
-      # || true: diagnostics only; a missing ledger fails "Every tool test ran with its tool required" below.
-      - name: Ledgers
-        run: ls -l ledgers/*/ || true
       - name: Script self-test
         run: python3 scripts/ci/tool_ledger.py --self-test
       - name: Every tool test ran with its tool required
         run: |
+          # || true, case (b): diagnostics only; this step fails below if a ledger is missing.
+          ls -l ledgers/*/ || true
           python3 scripts/ci/tool_ledger.py cover \
             --inventory ledgers/tool-ledger-test/volt-tool-ledger.tsv \
             --tools ledgers/tool-ledger-integration/volt-tool-ledger.tsv \
