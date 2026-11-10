@@ -153,9 +153,19 @@ domain; through a submodule on a handshake path, the same output can
 give an `E4007` that the bits do not deserve. Split such an output into
 two ports. An `extern` module without a clock is assumed to connect each
 output to every input, because its body is not visible: give its ports
-clock domain annotations when its paths belong to different domains, and
-mark a handshake port `@no_protocol_check` when the assumption puts
-`ready` on the path to `valid` and the real module has no such path.
+clock domain annotations when its paths belong to different domains.
+
+**A handshake path through an `extern` module without a clock is
+assumed.** Volt cannot see inside such a module, so it assumes that each
+output depends on every input. When `ready` goes into it and `valid`
+comes out of it, `E4007` is reported even if the real module has no path
+from that input to that output; the error's note says that the path
+rests on this assumption. `@no_protocol_check` does not change this: it
+turns off the automatic protocol contracts of the port, not the check.
+Decide `valid` from a register, as `E4007`'s help shows (`reg valid_r
+...; on clk { ... }; tx.valid = valid_r`): that cuts the path whatever
+the module does. A way to declare which outputs of an `extern` module
+depend on which inputs is planned for v0.2.0.
 
 **Reset checks cover reset release, not reset ordering.** Volt reports an
 asynchronous reset shared by several clock domains or synchronized twice

@@ -305,7 +305,6 @@ impl Parser<'_> {
                     path,
                     declared,
                     flipped,
-                    no_protocol_check: false,
                 }),
             });
         }

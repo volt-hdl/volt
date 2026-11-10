@@ -1,6 +1,6 @@
 # ADR-0050: `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı
 
-> Statü: Kısmen yerini aldı: ADR-0114 — §4'teki örnek çıkışı opaklığı ve Sınırlar'daki E4007 maddesi: E4007 alt modül, saatsiz extern ve yerleşik primitif özetinden geçer, saatli extern opak kalır; `@no_protocol_check` yalnız saatsiz extern varsayımına dayanan yolu kapatır
+> Statü: Kısmen yerini aldı: ADR-0114 — §4'teki örnek çıkışı opaklığı ve Sınırlar'daki E4007 maddesi: E4007 alt modül, saatsiz extern ve yerleşik primitif özetinden geçer, saatli extern opak kalır; `@no_protocol_check` E4007'yi etkilemez
 > Tarih: 2026-09-14
 > Etkilenen: volt-syntax (parser/handshake.rs YENİ, parser/bundle.rs
 > sanal alan + otomatik kontrat, item.rs `@no_protocol_check`),
@@ -233,8 +233,8 @@ Bu bölüm sonradan eklendi; yukarıdaki karar metni değişmedi.
   `comb` içindeki `for`, üçü de ADR-0114'ten önce E4007 alıyordu).
   `for` içindeki bir örneğin içinden geçen yol ise örnek sorunuydu ve
   ADR-0114 ile kapandı.
-- **`@no_protocol_check` (§3).** Nitelik E4007'yi kapatmaz (bu ADR'nin
-  ilkesi korunur), ama E4007 o portta yalnız saatsiz extern'in en kötü
-  durum varsayımıyla kurulan yolları yok sayar (ADR-0114 K4): varsayım
-  gerçekte olmayan bir yolu gösterirse kaçış yolu budur; görünür bir yol
-  yine E4007'dir.
+- **`@no_protocol_check` (§3).** Nitelik E4007'yi etkilemez (bu ADR'nin
+  ilkesi korunur; ADR-0114 K4, karar B): tek işi otomatik protokol
+  kontratlarını kapatmaktır. Saatsiz extern'in en kötü durum
+  varsayımıyla kurulan yol da E4007'dir; tanının notu yolun varsayıma
+  dayandığını söyler.

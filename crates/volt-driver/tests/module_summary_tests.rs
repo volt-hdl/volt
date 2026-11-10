@@ -208,41 +208,51 @@ fn handshake_path_through_builtins() {
     );
 }
 
-/// K4: saatsiz extern en kötü durumdur; yanlış alarmın çıkış yolu portta
-/// `@no_protocol_check`'tir ve yardım metni bunu söyler.
+/// K4 (karar B): saatsiz extern en kötü durumdur; varsayımla kurulan yol
+/// da E4007'dir. Not yolun varsayıma dayandığını söyler, öneri valid'i
+/// register'da üretmektir; `@no_protocol_check` anılmaz.
 #[test]
-fn clockless_extern_handshake_names_no_protocol_check() {
+fn clockless_extern_handshake_note_names_the_assumption() {
     let d = assert_ui_fail("253_handshake_valid_via_clockless_extern.volt");
-    let help = d["help"].as_str().unwrap_or_default();
+    let n = note(&d, "note");
     assert!(
-        help.contains("The body of extern 'AndExt' is not visible")
-            && help.contains("mark the port @no_protocol_check"),
+        n.contains("extern 'AndExt' has no visible body; Volt assumes every output depends on every input, so 'y' is taken to depend on 'b'")
+            && n.contains("Decide valid from registered state"),
         "{d}"
     );
+    let help = d["help"].as_str().unwrap_or_default();
+    assert!(
+        help.starts_with("decide valid from registered state"),
+        "{d}"
+    );
+    assert!(!help.contains("@no_protocol_check"), "{d}");
 }
 
+/// K4 (karar B): `@no_protocol_check` E4007'yi etkilemez (ADR-0050 §3:
+/// yalnız otomatik protokol kontratları). Varsayımla kurulan yol port
+/// düzeyinde de, modül düzeyinde de, nitelik olmadan da E4007'dir.
 #[test]
-fn no_protocol_check_is_the_way_out_of_the_extern_assumption() {
-    let pass = root().join("tests/ui/pass/147_handshake_clockless_extern_no_protocol_check.volt");
-    let src = std::fs::read_to_string(&pass).expect("okunmalı");
-    let env = check_json_in(&root(), &pass);
-    assert!(!codes(&env).iter().any(|c| c == "E4007"), "{env}");
-    // Aynı tasarım nitelik olmadan E4007 alır: nitelik etkisiz değil.
+fn no_protocol_check_does_not_silence_e4007() {
+    let fail = root().join("tests/ui/fail/255_handshake_clockless_extern_no_protocol_check.volt");
+    let src = std::fs::read_to_string(&fail).expect("okunmalı");
+    let d = assert_ui_fail("255_handshake_clockless_extern_no_protocol_check.volt");
+    assert!(
+        note(&d, "note").contains("extern 'Pair' has no visible body"),
+        "{d}"
+    );
     let dir = temp_dir("npc");
-    let file = dir.join("without.volt");
+    let file = dir.join("variant.volt");
     let without = src.replace("    @no_protocol_check\n", "");
     assert_ne!(without, src);
-    std::fs::write(&file, without).unwrap();
-    let env = check_json_in(&dir, &file);
-    assert!(codes(&env).iter().any(|c| c == "E4007"), "{env}");
-    // Modül düzeyinde de kapanır.
-    let module_level = src
-        .replace("    @no_protocol_check\n", "")
-        .replace("module Producer {", "@no_protocol_check\nmodule Producer {");
-    std::fs::write(&file, module_level).unwrap();
-    let env = check_json_in(&dir, &file);
+    let module_level =
+        without.replace("module Producer {", "@no_protocol_check\nmodule Producer {");
+    for (name, variant) in [("without", without), ("module-level", module_level)] {
+        std::fs::write(&file, variant).unwrap();
+        let env = check_json_in(&dir, &file);
+        let e4007 = codes(&env).iter().filter(|c| *c == "E4007").count();
+        assert_eq!(e4007, 1, "{name}: {env}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(!codes(&env).iter().any(|c| c == "E4007"), "{env}");
 }
 
 /// Yakın ıskalar: register'lı çocuk, FIFO boşaltma, bağımsız yollar,
@@ -256,7 +266,6 @@ fn near_misses_stay_clean() {
         "144_clockless_extern_annotated.volt",
         "145_handshake_registered_child.volt",
         "146_handshake_fifo_drain.volt",
-        "147_handshake_clockless_extern_no_protocol_check.volt",
         "148_clockless_child_annotated_output.volt",
     ] {
         let env = check_json_in(&root(), &root().join("tests/ui/pass").join(name));
@@ -264,12 +273,12 @@ fn near_misses_stay_clean() {
     }
 }
 
-/// K4: `@no_protocol_check` yalnız saatsiz extern varsayımına dayanan
-/// yolu kapatır — varsayım iç içe bir Volt modülünün içinden gelse de.
-/// Görünür bir yol (Volt alt modülünün gerçek kapısı) yapısal kuraldır,
-/// nitelikle kapanmaz.
+/// K4 (karar B): varsayımla kurulan yol (iç içe bir Volt modülünün içindeki
+/// saatsiz extern) ve görünür yol (Volt alt modülünün gerçek kapısı)
+/// ikisi de E4007'dir, nitelikle ya da niteliksiz. Not yalnız varsayımla
+/// kurulan yolda varsayımı söyler; öneri ikisinde de aynıdır.
 #[test]
-fn no_protocol_check_ignores_only_paths_that_rest_on_the_assumption() {
+fn assumed_and_visible_paths_are_both_e4007() {
     let head = "extern module AndExt {\n    in  a : bool\n    in  b : bool\n    out y : bool\n}\n\
                 module Wrap {\n    in  a : bool\n    in  b : bool\n    out y : bool\n    let e = AndExt { a: a, b: b }\n    y = e.y\n}\n\
                 module AndGate {\n    in  a : bool\n    in  b : bool\n    out y : bool\n    y = a && b\n}\n";
@@ -284,35 +293,35 @@ fn no_protocol_check_ignores_only_paths_that_rest_on_the_assumption() {
         std::fs::write(&file, src).unwrap();
         check_json_in(&dir, &file)
     };
-    // Varsayım Wrap'in içindeki extern'den geliyor: nitelik kapatır.
-    let env = run(producer("@no_protocol_check\n    ", "Wrap"));
-    assert!(!codes(&env).iter().any(|c| c == "E4007"), "{env}");
-    // Nitelik yoksa E4007, öneri varsayımı ve niteliği anar.
-    let env = run(producer("", "Wrap"));
-    let d = diagnostics(&env)
-        .into_iter()
-        .find(|d| d["code"] == "E4007")
-        .unwrap_or_else(|| panic!("E4007 bekleniyor: {env}"));
-    assert!(
-        d["help"].as_str().is_some_and(|h| h
-            .contains("The path through 'w' rests on an extern without a clock inside 'Wrap'")
-            && h.contains("@no_protocol_check")),
-        "{d}"
-    );
-    // Görünür yol: nitelik E4007'yi kapatmaz; öneri niteliği anmaz.
-    let env = run(producer("@no_protocol_check\n    ", "AndGate"));
+    let the_e4007 = |env: &Value| {
+        let found: Vec<Value> = diagnostics(env)
+            .into_iter()
+            .filter(|d| d["code"] == "E4007")
+            .collect();
+        assert_eq!(found.len(), 1, "tek E4007 bekleniyor: {env}");
+        found[0].clone()
+    };
+    for attr in ["@no_protocol_check\n    ", ""] {
+        let d = the_e4007(&run(producer(attr, "Wrap")));
+        assert!(
+            note(&d, "note")
+                .contains("the path through 'w' rests on an extern without a clock inside 'Wrap'"),
+            "{attr:?}: {d}"
+        );
+        let d = the_e4007(&run(producer(attr, "AndGate")));
+        assert!(
+            note(&d, "note").is_empty(),
+            "{attr:?}: görünür yolda varsayım notu olmamalı: {d}"
+        );
+        assert!(
+            d["help"]
+                .as_str()
+                .is_some_and(|h| h.starts_with("decide valid from registered state")
+                    && !h.contains("@no_protocol_check")),
+            "{attr:?}: {d}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
-    let d = diagnostics(&env)
-        .into_iter()
-        .find(|d| d["code"] == "E4007")
-        .unwrap_or_else(|| panic!("E4007 bekleniyor: {env}"));
-    assert!(
-        !d["help"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("@no_protocol_check"),
-        "{d}"
-    );
 }
 
 const TWO_DOMAINS: &str = "domain Fast {\n    clock = posedge\n    reset = sync active_high\n}\n\
@@ -475,8 +484,9 @@ fn primary_line(d: &Value) -> Option<u64> {
 /// bağlanmalıdır; başka alandan gelen değer kapının içinden
 /// senkronizörsüz geçer: E3001 örnek sitesinde, uyuşmayan bağlamada, çıkış
 /// başına bir kez. Okuma anotasyonun alanını taşır (kaskad yok).
-/// Anotasyonlu giriş modülün içinde denetlenir; saatsiz extern'in
-/// anotasyonu kullanıcının beyanıdır, denetlenmez.
+/// Anotasyonlu giriş modülün içinde denetlenir; saatsiz extern'de
+/// anotasyonlu çıkışın bağımlılıkları kullanıcının beyanıdır,
+/// denetlenmez; anotasyonlu girişine bağlanan değer denetlenir (K8 adım 2).
 #[test]
 fn an_annotated_output_of_a_clockless_child_is_checked_against_its_inputs() {
     assert_ui_fail("254_clockless_child_annotated_output.volt");
@@ -537,6 +547,10 @@ module P {
     in  a : bool
     out y : bool @Fast
 }";
+    let ext_in = "extern module P {
+    in  a : bool @Fast
+    out y : bool @Fast
+}";
     let cases: &[(&str, &str, &str, Option<bool>)] = &[
         // Tehlike: iki giriş de @Slow, tek E3001 (çıkış başına bir kez).
         ("gate-both-slow", gate, "a: s, b: s", Some(true)),
@@ -550,6 +564,20 @@ module P {
         ("gate-constant", gate, "a: f, b: false", None),
         // Saatsiz extern: anotasyon kullanıcının beyanıdır.
         ("clockless-extern", ext, "a: s", None),
+        // ...ama anotasyonlu girişe bağlanan değer K8 adım 2'deki gibi
+        // denetlenir: @Fast girişe @Slow değer E3001.
+        (
+            "clockless-extern-annotated-input",
+            ext_in,
+            "a: s",
+            Some(true),
+        ),
+        (
+            "clockless-extern-annotated-input-same",
+            ext_in,
+            "a: f",
+            None,
+        ),
     ];
     for (name, child, binds, expect) in cases {
         let src = top(child, binds);

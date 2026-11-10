@@ -99,9 +99,10 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
     // Sayım, dizin okuması sessizce boş kalırsa testin boşuna geçmesini
     // önler; ui_semantic_tests.rs ve parser_tests.rs sayımlarıyla aynı.
-    // ADR-0114: 141-147 modül özeti (saatsiz alt modül, extern, el sıkışma);
-    // 148 saatsiz modülün anotasyonlu çıkışı (K8).
-    assert_eq!((built, check_only), (134, 0));
+    // ADR-0114: 141-146 modül özeti (saatsiz alt modül, extern, el sıkışma);
+    // 148 saatsiz modülün anotasyonlu çıkışı (K8). 147 karar B ile
+    // ui/fail/255 oldu (varsayımsal yol @no_protocol_check ile de E4007).
+    assert_eq!((built, check_only), (133, 0));
 }
 
 #[test]

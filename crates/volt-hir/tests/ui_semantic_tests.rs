@@ -379,11 +379,11 @@ fn ui_pass_files_have_no_semantic_errors() {
     //       değişkenine ve portuna bağlanmaz (W1002 yalnız gölgelemede),
     // #143: 139 örneklenen generic modül (W1006 yok),
     // #173: 140 bölmenin genişliği açık (W2015 yok),
-    // ADR-0114: 141-147 modül özetinin yakın ıskaları (bağımsız yollar,
+    // ADR-0114: 141-146 modül özetinin yakın ıskaları (bağımsız yollar,
     //           sabit çıkış, köprülenen saatsiz çıkış, anotasyonlu extern,
-    //           register'lı çocuk, FIFO boşaltma, @no_protocol_check);
-    //           148 saatsiz modülün anotasyonlu çıkışı (K8).
-    assert_eq!(checked, 134);
+    //           register'lı çocuk, FIFO boşaltma); 148 saatsiz modülün
+    //           anotasyonlu çıkışı (K8). 147 karar B ile ui/fail/255 oldu.
+    assert_eq!(checked, 133);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

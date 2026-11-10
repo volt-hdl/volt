@@ -43,8 +43,8 @@ pub struct Summary {
     /// Çıkış portu → kombinasyonel bağlı olduğu giriş portları.
     pub comb: BTreeMap<String, BTreeSet<String>>,
     /// `comb`'un yalnız bir saatsiz extern'in en kötü durum varsayımıyla
-    /// (K4) kurulan çiftleri: çıkış → o girişler. `@no_protocol_check`
-    /// E4007'de yalnız bunları kapatır; görünür bir yol yine E4007'dir.
+    /// (K4) kurulan çiftleri: çıkış → o girişler. Yalnız tanının notu
+    /// için: varsayımla kurulan yol da E4007'dir, not bunu söyler.
     pub assumed: BTreeMap<String, BTreeSet<String>>,
     /// Hedef gövdesi görünmeyen saatsiz bir extern: `comb` en kötü durum
     /// varsayımıdır (K4). Volt modülünde her zaman `false` (saatsiz bir

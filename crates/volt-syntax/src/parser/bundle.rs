@@ -381,17 +381,8 @@ impl Parser<'_> {
             (None, Some(payload)) => {
                 let payload = self.reject_bundle_payload(payload, defs);
                 let no_check = no_check || has_attr(&port.attrs, NO_PROTOCOL_CHECK);
-                let first = out.len();
                 let info = self
                     .expand_handshake(&port, prefix, payload, plain, out, flat, counter, item_span);
-                // E4007 bunu okur (ADR-0114 K4): düz portlar bilgiyi taşır.
-                if no_check {
-                    for p in &mut out[first..] {
-                        if let Some(b) = &mut p.bundle {
-                            b.no_protocol_check = true;
-                        }
-                    }
-                }
                 // extern modülün kontratı yoktur: sentezlenmez.
                 if !no_check && is_module {
                     handshakes.push(info);
@@ -1068,7 +1059,6 @@ fn expand(
                 path: field_path,
                 declared: f.dir,
                 flipped,
-                no_protocol_check: false,
             }),
         });
     }

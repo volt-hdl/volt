@@ -7,9 +7,7 @@
 > Etkilenen: domain-inference.md §1, K2, K8, K8a, YENİ K8b, §3, §8
 > (bakımcı yaması); volt-hir (`summary.rs` YENİ; `handshake.rs`,
 > `domain/{mod,instance,assign,walk}.rs`, `lib.rs`, `pipeline.rs`),
-> volt-ast (`BuiltinPrim::comb_inputs`, `BundleOrigin::no_protocol_check`),
-> volt-syntax (`parser/bundle.rs`, `parser/handshake.rs`,
-> `parser/mono/clone.rs`), volt-diagnostics (E3001 ve E4007
+> volt-ast (`BuiltinPrim::comb_inputs`), volt-diagnostics (E3001 ve E4007
 > açıklamaları en/tr), `tests/ui/{pass,fail}`, `tests/suggestions/`,
 > `crates/volt-driver/tests/{module_summary_tests,builtin_summary_tests,seeded_bug_tests}.rs`,
 > `.cargo/mutants.toml` (özet dosyaları mutasyon kapsamında; bir A2 kaydı),
@@ -143,14 +141,13 @@ bağlar. Tanının "kombinasyonel yol" notu yolu örnekle birlikte yazar:
 
 Özet, hangi bağımlılığın **yalnız** saatsiz extern'in en kötü durum
 varsayımıyla kurulduğunu da taşır (iç içe Volt modüllerinden geçse de).
-`@no_protocol_check` (port ya da modül düzeyinde, ADR-0050) E4007'de
-yalnız bu varsayımsal yolları yok sayar; derleyicinin gördüğü bir yol
-yapısal kuraldır ve nitelikle kapanmaz (ADR-0050'deki "E4007 kapanmaz"
-ilkesi korunur). Bu, [K4]'ün yanlış alarm için çıkış yoludur: bağımsız
-yolları olan saatsiz bir extern (`y` yalnız `a`'ya bağlıyken en kötü
-durum onu `b = tx.ready`'ye de bağlar) E4007 alırsa ve yol yalnız
-varsayımla kuruluyorsa yardım metni portu `@no_protocol_check` ile
-işaretlemeyi önerir.
+Bu bilgi yalnız tanının notu içindir ([K4], karar B): varsayımla kurulan
+yol da E4007'dir ve not yolun varsayıma dayandığını söyler (`extern
+'Pair' has no visible body; Volt assumes every output depends on every
+input, so 'y' is taken to depend on 'b'`). Öneri her durumda aynıdır:
+`valid`'i register'lanmış durumdan üretmek; bu, extern ne yaparsa yapsın
+yolu keser. `@no_protocol_check` E4007'yi etkilemez: tek işi ADR-0050
+§3'teki gibi portun otomatik protokol kontratlarını kapatmaktır.
 
 ### 4. Güven seviyesi değişmez
 
@@ -173,13 +170,22 @@ yanlış alarm ve SoC'de 10 yanlış E4007 üretti.
 
 **[K3] Tanının yeri: (a).** Örnek sitesinde, çıkış okunmasa da.
 
-**[K4] Saatsiz extern: (a).** En kötü durum (her anotasyonsuz çıkış saat
-dışı her girişin join'i). Bağımsız yolları farklı alanlardan beslenen
-extern'de E3001 için kaçış: portlara global `@Alan` anotasyonu (bugün de
-geçerli). E4007 için kaçış: Handshake portunda `@no_protocol_check` (§3):
-yalnız varsayımla kurulan yolu kapatır, görünür yolu kapatmaz; test
-edilir ve E4007'nin yardım metninde önerilir. ADR-0047'yi kısmen
-değiştirir.
+**[K4] Saatsiz extern: (a) en kötü durum; E4007'de karar B.** Saatsiz
+extern'in her çıkışı her girişe bağlı sayılır (anotasyonsuz çıkış
+girişlerinin join'ini taşır). Bağımsız yolları farklı alanlardan
+beslenen extern'de E3001 için kaçış: portlara global `@Alan` anotasyonu
+(bugün de geçerli); anotasyonlu çıkışın bağımlılıkları kullanıcının
+beyanıdır, anotasyonlu girişe bağlanan değer K8 adım 2'deki gibi
+denetlenir. ADR-0047'yi kısmen değiştirir.
+
+E4007'de karar **B**: varsayımla kurulan `valid` → `ready` yolu da
+E4007'dir; özet bağımlılığın varsayımsal olduğunu taşır ve tanının notu
+bunu söyler, öneri `valid`'i register'da üretmektir. `@no_protocol_check`
+E4007'ye bağlanmaz; tek işi ADR-0050'deki gibi otomatik protokol
+kontratlarını kapatmak olarak kalır. Gerekçe (bakımcı): varsayımsal bir
+E4007'yi susturmanın bedeli o portun kontratlarını da kaybetmek
+olmamalı. Değerlendirilen öteki seçenek A, Reddedilen alternatifler'de.
+Bu sürümde varsayımsal yol için kaçış yolu yoktur (Sınırlar).
 
 **[K5] Saatli extern ve E4007: (a).** Opak kalır (özet boş); kitabın
 sınırlar sayfasına yazılır. En kötü durum ölçüldü ve reddedildi: standart
@@ -226,14 +232,19 @@ iki alanı aynı çıkışta birleştirirse örnek sitesinde E3001; saatsiz
 modülün anotasyonlu çıkışına başka alandan değer ulaşırsa örnek sitesinde
 E3001 ([K8]); alt modül,
 saatsiz extern ve yerleşik `EdgeDetect`/arbiter üzerinden `ready`'den
-`valid`'e giden yol E4007 alır. `@no_protocol_check` taşıyan portta
-E4007 yalnız saatsiz extern varsayımına dayanan yolları yok sayar
-(önceden bu yollar hiç görülmüyordu; görünür yol eskisi gibi E4007).
+`valid`'e giden yol E4007 alır; saatsiz extern'in en kötü durum
+varsayımıyla kurulan yol da E4007'dir ve `@no_protocol_check` bunu
+değiştirmez (önceden bu yollar hiç görülmüyordu).
 
 ## Sınırlar
 
 - Saatli extern'in kombinasyonel yolları görünmez ([K5]): saatli bir
   extern'in içinden `ready`'den `valid`'e giden yol E4007 almaz (#196).
+- Saatsiz extern'den geçen varsayımsal `valid` → `ready` yolu için bu
+  sürümde kaçış yolu yoktur ([K4], karar B): gerçek extern'de yol
+  olmasa da E4007 verilir; çözüm `valid`'i register'da üretmektir. Açık
+  bağımlılık bildirimi (extern'de hangi çıkışın hangi girişe bağlı
+  olduğunu yazmak) v0.2.0'da.
 - Güven boyutu tutucu kalır ([K6], #195).
 - Özet port düzeyindedir, bit düzeyinde değil: `y[0] = a`, `y[1] = b`
   olan bir çıkış iki girişe de bağlı sayılır.
@@ -244,6 +255,14 @@ E4007 yalnız saatsiz extern varsayımına dayanan yolları yok sayar
 
 ## Reddedilen alternatifler
 
+- **A: `@no_protocol_check`'i E4007'ye de bağlamak ([K4]).** Nitelik
+  portta yalnız saatsiz extern varsayımıyla kurulan yolları yok sayardı
+  (görünür yol yine E4007). Reddedildi: nitelik aynı zamanda portun
+  otomatik protokol kontratlarını kapatır (ADR-0050 §3), yani varsayımsal
+  bir E4007'yi susturmanın bedeli `valid`'in `ready` gelene dek düşmemesi
+  ve verinin sabit kalması kontratlarını kaybetmek olurdu. Bir hatayı
+  susturmak bir güvenlik özelliğini kapatmamalı; doğru kaçış yolu
+  bağımlılığı açıkça bildirmektir (v0.2.0).
 - **Tutma kontratına güvenmek (ADR-0050'nin gerekçesi).** Kural başka
   bir özelliği kanıtlıyor; bağımlılık iki izli bir özellik (yukarıda).
 - **Çocuğu örnek sitesinde satır içi açmak.** Her örnek çocuğun bütün

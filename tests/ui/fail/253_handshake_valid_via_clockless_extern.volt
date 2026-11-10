@@ -1,8 +1,8 @@
 //~ E4007
 // ADR-0114 K4: an extern without a clock is combinational and its body
-// is not visible, so y may depend on b = tx.ready. When the real extern
-// has no such path, the help names @no_protocol_check (see
-// tests/ui/pass/147).
+// is not visible, so y may depend on b = tx.ready. The note says the path
+// rests on that assumption; @no_protocol_check does not change E4007
+// (tests/ui/fail/255).
 extern module AndExt {
     in  a : bool
     in  b : bool

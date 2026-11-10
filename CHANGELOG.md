@@ -45,9 +45,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   tanının notu yolu örnekle yazar (`tx.valid <- g.y (AndGate: y <- b) <-
   tx_ready`). Saatli `extern` bu denetim için opak kalır (#196).
   Saatsiz extern'in en kötü durum varsayımı gerçekte olmayan bir yolu
-  gösterirse kaçış yolu portta `@no_protocol_check`'tir: E4007 o portta
-  yalnız bu varsayıma dayanan yolları yok sayar; görünür bir yol yine
-  E4007'dir.
+  gösterse de yol E4007'dir; tanının notu yolun bu varsayıma dayandığını
+  söyler, çözüm `valid`'i register'da üretmektir. `@no_protocol_check`
+  E4007'yi etkilemez (yalnız portun otomatik protokol kontratlarını
+  kapatır); bu sürümde varsayımsal yol için kaçış yolu yok, açık
+  bağımlılık bildirimi v0.2.0'da.
 - Depodaki tasarımların, kitabın ve tohumlanmış hata derleminin temiz
   tasarımlarının hiçbiri yeni tanı almıyor (ölçüm PR açıklamasında).
 
@@ -85,10 +87,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
   alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
 - Modül özeti (ADR-0114): yukarıdaki on bir bilinen açık kapandı, liste
-  boş. Yeni `tests/ui` dosyaları (fail 246–253, pass 141–147), dört öneri
-  gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
-  `@no_protocol_check` kaçışı, saatsiz çocuğun `comb`, `if` ve `match`
-  bloklarından geçen değer) ve `builtin_summary_tests`: yerleşik
+  boş. Yeni `tests/ui` dosyaları (fail 246–255, pass 141–146 ve 148),
+  beş öneri gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
+  `@no_protocol_check`'in E4007'yi etkilemediği, saatsiz çocuğun `comb`,
+  `if` ve `match` bloklarından geçen değer) ve `builtin_summary_tests`: yerleşik
   primitif özet tablosunun her satırı primitifin ürettiği SystemVerilog'un
   Yosys ile kombinasyonel yol analizine karşı denetlenir (araçlı işte).
   Modül özeti dosyaları mutasyon testinin kapsamında (ADR-0109); hedefli
