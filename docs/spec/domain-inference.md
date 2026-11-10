@@ -836,8 +836,8 @@ Saatsiz modül, sabit çıkış başka alana    ✓ derlenir (ADR-0114)
 Saatsiz extern, çıkışı başka alana        ✗ E3001 (ADR-0114)
 Saatsiz modül çıkışı sync() ile köprüde   ✓ derlenir (ADR-0114)
 Saatsiz extern, anotasyonlu bağımsız yol  ✓ derlenir (ADR-0114)
-Saatsiz modül, @Fast çıkışa @Slow giriş   ✗ E3001 örnek sitesinde (ADR-0114)
-Saatsiz extern: @Fast çıkış, @Slow giriş  ✓ derlenir: anotasyon beyandır (ADR-0114)
+Saatsiz modül, @Fast çıkışa @Slow değer   ✗ E3001 örnek sitesinde (ADR-0114)
+Saatsiz extern: beyanlı @Fast çıkış       ✓ derlenir: bağımlılığı denetlenmez (ADR-0114)
 Saatsiz extern, varsayımsal valid→ready   ✗ E4007 (ADR-0114)
 Aynı domain içinde sync()                ⚠ W3002
 8-bit sync()                             ⚠ W3003
