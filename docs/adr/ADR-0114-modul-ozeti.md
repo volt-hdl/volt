@@ -109,7 +109,11 @@ Uygulama tek bir graf kurucuyu paylaşır (`summary.rs`, eskiden
 Saatsiz hedefin (modül ya da extern) anotasyonsuz çıkışı, örnek
 sitesinde özette bağlı olduğu girişlere bağlanan değerlerin **K5 join'ini**
 taşır; `@Alan` anotasyonlu giriş kendi alanıyla katılır, anotasyonlu çıkış
-kendi alanında kalır. Saatli hedefte değişiklik yoktur: portları saat
+kendi alanında kalır. Saatsiz Volt modülünün anotasyonlu çıkışı
+denetlenir ([K8]): özette bağlı olduğu anotasyonsuz girişlere bağlanan
+değerler anotasyonun alanında olmalıdır, başka alandan gelen değer
+örnek sitesinde E3001'dir. Saatsiz extern'de anotasyon kullanıcının
+beyanıdır, denetlenmez. Saatli hedefte değişiklik yoktur: portları saat
 haritasından alanını zaten alır ve iç kombinasyonel yollar çocuğun kendi
 denetiminde E3001 alır.
 
@@ -192,6 +196,17 @@ denetimiyle (Yosys ile primitifin ürettiği SV'de kombinasyonel yol
 analizi) doğrulanır (§1). Analizin kendisi de sınanır: bilinen bir kapı
 ile bir register'ı ayırt etmesi beklenir.
 
+**[K8] Saatsiz modülde anotasyonlu çıkış: denetlenir.** PR incelemesinde
+ölçüldü: saatsiz `P` (`in a : bool`, `out y : bool @Fast`, `y = a`)
+derleniyor ve `P { a: slow_flag }` örneğinin `p.y`'si `@Fast` bir çıkışa
+hatasız, senkronizörsüz atanıyordu (CDC kaçağı). K8 adım 3 anotasyonlu çıkışı da
+denetler: özette bağlı olduğu anotasyonsuz girişlere bağlanan
+değerlerden biri anotasyondan farklı bir alandaysa E3001 örnek sitesinde,
+o bağlamada, çıkış başına bir kez; çıkışın okumaları anotasyonun alanını
+taşır (kaskad yok). Anotasyonlu giriş modülün içinde denetlenir (K6),
+örnek sitesinde ikinci kez değil. Saatsiz extern'de anotasyonlu port
+denetlenmez: gövde görünmediğinden anotasyon kullanıcının beyanıdır.
+
 ## Sonuçlar
 
 - Depodaki bütün `.volt` dosyalarında, kitapta ve tohumlanmış hata
@@ -207,7 +222,9 @@ ile bir register'ı ayırt etmesi beklenir.
 
 Davranış değişikliği: saatsiz bir modül ya da saatsiz extern üzerinden
 başka bir saat alanına geçen kombinasyonel yol E3001 alır; saatsiz modül
-iki alanı aynı çıkışta birleştirirse örnek sitesinde E3001; alt modül,
+iki alanı aynı çıkışta birleştirirse örnek sitesinde E3001; saatsiz
+modülün anotasyonlu çıkışına başka alandan değer ulaşırsa örnek sitesinde
+E3001 ([K8]); alt modül,
 saatsiz extern ve yerleşik `EdgeDetect`/arbiter üzerinden `ready`'den
 `valid`'e giden yol E4007 alır. `@no_protocol_check` taşıyan portta
 E4007 yalnız saatsiz extern varsayımına dayanan yolları yok sayar

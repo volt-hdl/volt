@@ -24,6 +24,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   extern'in anotasyonsuz her çıkışı saat dışı her girişine bağlı sayılır
   (en kötü durum, ADR-0114 K4). Bağımsız yolları farklı alanlarda olan
   bir extern'in portlarına `@Alan` anotasyonu yazılır.
+- **Davranış değişikliği.** Saatsiz bir `extern`'in bağımsız yolları
+  farklı alanlardan beslenirse artık E3001 verilir: 0.1.1'de saatsiz
+  extern'in portları `Timeless` sayıldığı için `Bank { a1: fast_in, a2:
+  slow_in }` hatasız derleniyordu; şimdi anotasyonsuz her çıkış iki
+  girişe de bağlı sayılır ve iki alan aynı çıkışta birleşir (ADR-0114
+  K4). Çözüm portlara `@Alan` anotasyonu yazmaktır (`in a1 : bool @Fast`,
+  `out y1 : bool @Fast`); saatsiz extern'de anotasyon kullanıcının
+  beyanıdır, Volt onu denetlemez.
+- **Davranış değişikliği.** Saatsiz bir Volt modülünün `@Alan` anotasyonlu
+  çıkışına bağlı olduğu girişten başka bir alanın değeri ulaşırsa artık
+  örneğin olduğu yerde E3001 verilir (ADR-0114 K8; sessiz yanlış
+  düzeltmesi): `out y : bool @Fast` ile `y = a` yazılan saatsiz `P`'nin
+  `P { a: slow_flag }` örneği 0.1.1'de hatasız derlenip `@Slow` değeri
+  senkronizörsüz `@Fast` tarafa taşıyordu. Öneri, girişi örnekten önce
+  çıkışın alanına senkronize eder.
 - **Davranış değişikliği.** Alt modül, saatsiz `extern` ve yerleşik
   `EdgeDetect`, `RoundRobinArbiter`, `PriorityArbiter` üzerinden
   `ready`'den `valid`'e giden yol artık E4007 alır (#193, ADR-0114);

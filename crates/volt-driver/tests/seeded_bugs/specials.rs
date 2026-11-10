@@ -254,7 +254,31 @@ pub const SPECIALS: &[Special] = &[
         near_miss: false,
         spec: "domain-inference.md K5 + K6 (the value reaching slow_flag is fast_flag through a combinational gate: E3001); the extern's body is unseen, so its output may depend on every input (ADR-0114 K4 replaces K8a's Timeless reading)",
     },
+    Special {
+        kind: "cdc.leak-clockless-annotated-output",
+        design: UI13,
+        site: "slow_flag = p.y (Pass { a: fast_flag }, no clock, y declared @Slow)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Slow\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pass { a: fast_flag }\n    slow_flag = p.y"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K5 (a combinational path keeps the join of its operands; a clockless module is combinational, K2) + K8b (an annotated output of a clockless module keeps its domain, the inputs it depends on must carry it): E3001",
+    },
     // ── clockless child: safe twins ───────────────────────────────────
+    Special {
+        kind: "near.clockless-annotated-output-same-domain",
+        design: UI13,
+        site: "let py = p.y; slow_flag = sync(py, slow_clk) (Pass { a: fast_flag }, no clock, y declared @Fast)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Fast\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pass { a: fast_flag }\n    let py = p.y\n    slow_flag = sync(py, slow_clk)"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K8b (the input carries the output's declared domain) + K9 (sync() is the legal bridge into the destination domain)",
+    },
     Special {
         kind: "near.clockless-independent-paths",
         design: UI13,

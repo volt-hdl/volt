@@ -297,9 +297,10 @@ impl<'a> Inferencer<'a> {
     /// K8b (ADR-0114): saatsiz hedefin anotasyonsuz çıkışı, özette bağlı
     /// olduğu girişlere bağlanan değerlerin K5 join'ini taşır; `@Alan`
     /// anotasyonlu giriş kendi alanıyla katılır, anotasyonlu çıkış kendi
-    /// alanında kalır. İki farklı alan aynı çıkışta birleşirse örnek
-    /// sitesinde, örnek başına bir kez E3001; çıkış `Error` olur (kaskad
-    /// yok). Modülün içinde tanı yoktur: içeride portlar Timeless'tır.
+    /// alanında kalır (girişlerini `check_annotated_output` denetler). İki
+    /// farklı alan aynı çıkışta birleşirse örnek sitesinde, örnek başına
+    /// bir kez E3001; çıkış `Error` olur (kaskad yok). Modülün içinde tanı
+    /// yoktur: içeride anotasyonsuz portlar Timeless'tır.
     fn clockless_outputs(
         &mut self,
         inst: &InstanceDecl,
@@ -318,6 +319,15 @@ impl<'a> Inferencer<'a> {
             let out = &port.name.text;
             let own = port_domains.get(out).copied().unwrap_or(DomainId::Timeless);
             if !matches!(self.resolve_dom(own), DomainId::Timeless) {
+                if let (false, Some(deps)) = (sum.worst_case, sum.comb.get(out)) {
+                    let at = Annotated {
+                        target: &target_name,
+                        port,
+                        own,
+                        deps,
+                    };
+                    self.check_annotated_output(inst, at, port_domains);
+                }
                 continue;
             }
             let Some(deps) = sum.comb.get(out) else {
@@ -428,6 +438,111 @@ impl<'a> Inferencer<'a> {
         self.diagnostics.push(diag);
     }
 
+    /// K8b (ADR-0114): saatsiz Volt modülünün `@Alan` anotasyonlu çıkışı
+    /// kendi alanında kalır, ama özette bağlı olduğu anotasyonsuz girişlere
+    /// bağlanan değerler o alanda olmalıdır: başka alandan gelen değer
+    /// kapının içinden senkronizörsüz geçer. E3001 örnek sitesinde, çıkış
+    /// başına bir kez, ilk uyuşmayan bağlamada; çıkışın okumaları
+    /// anotasyonun alanını taşır (kaskad yok). Anotasyonlu giriş modülün
+    /// içinde denetlenir (K6). Saatsiz extern'de anotasyon kullanıcının
+    /// beyanıdır, denetlenmez (çağıran `worst_case`'i dışarıda bırakır).
+    fn check_annotated_output(
+        &mut self,
+        inst: &InstanceDecl,
+        at: Annotated<'_>,
+        port_domains: &HashMap<String, DomainId>,
+    ) {
+        let DomainId::Explicit(x) = self.resolve_dom(at.own) else {
+            return;
+        };
+        for input in at.deps {
+            let Some(b) = inst.bindings.iter().find(|b| &b.port_name.text == input) else {
+                continue;
+            };
+            let declared = port_domains
+                .get(input)
+                .copied()
+                .unwrap_or(DomainId::Timeless);
+            if !matches!(self.resolve_dom(declared), DomainId::Timeless) {
+                continue;
+            }
+            let d = self.binding_domain(b);
+            if let DomainId::Explicit(y) = self.resolve_dom(d) {
+                if y != x {
+                    self.err_cdc_annotated_output(inst, &at, input, (x, y), b);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// E3001 (örnek biçimi, ADR-0114): saatsiz hedefin anotasyonlu çıkışına
+    /// başka bir alandan değer ulaşıyor. Beş parça: kod, konum (uyuşmayan
+    /// bağlama), açıklama, öneri (girişi çıkışın alanına senkronize et),
+    /// gerekçe notu + ikincil etiketler (çıkışın anotasyonu, iki alanın
+    /// tanımı).
+    fn err_cdc_annotated_output(
+        &mut self,
+        inst: &InstanceDecl,
+        at: &Annotated<'_>,
+        input: &str,
+        (x, y): (u32, u32),
+        b: &PortBinding,
+    ) {
+        let inst_name = &inst.name.text;
+        let (target, out) = (at.target, &at.port.name.text);
+        let (dx, dy) = (
+            self.domain_name(x).to_string(),
+            self.domain_name(y).to_string(),
+        );
+        let fix = self.binding_sync_fix(b, at.own);
+        let help = match &fix {
+            Some((line, synced)) => lstr!(
+                en: "synchronize '{input}' into @{dx} before the instance: add '{line}' above it and bind '{input}: {synced}'";
+                tr: "'{input}' girişini örnekten önce @{dx} alanına senkronize edin: üstüne '{line}' ekleyin ve '{input}: {synced}' bağlayın"
+            ),
+            None => lstr!(
+                en: "synchronize the value bound to '{input}' into @{dx} before the instance: let s = sync(<signal>, <clock of {dx}>), then bind s";
+                tr: "'{input}' girişine bağlanan değeri örnekten önce @{dx} alanına senkronize edin: let s = sync(<sinyal>, <{dx} saati>), sonra s'yi bağlayın"
+            ),
+        };
+        let ann_span = at
+            .port
+            .domain
+            .as_ref()
+            .map_or(at.port.name.span, |a| a.span);
+        let mut diag = Diagnostic::error(
+            ErrorCode::E3001,
+            lstr!(
+                en: "instance '{inst_name}' drives '{target}.{out}', declared @{dx}, from @{dy}";
+                tr: "'{inst_name}' örneği @{dx} bildirilen '{target}.{out}' çıkışını @{dy} alanından sürüyor"
+            ),
+            LabeledSpan::primary(b.span, format!("@{dy}")),
+            help,
+        )
+        .with_secondary(
+            ann_span,
+            lstr!(en: "'{target}.{out}' is declared @{dx} here";
+                  tr: "'{target}.{out}' burada @{dx} bildirildi"),
+        )
+        .with_secondary(self.domain_span(x), self.defined_here(x))
+        .with_secondary(self.domain_span(y), self.defined_here(y))
+        .with_note(
+            NoteKind::Reason,
+            lstr!(
+                en: "'{target}.{out}' depends on '{input}' without a register in between; '{target}' has no clock, so the @{dy} value reaches an output declared @{dx} without a synchronizer";
+                tr: "'{target}.{out}', araya register girmeden '{input}' girişine bağlı; '{target}' saatsizdir, yani @{dy} değeri @{dx} bildirilen çıkışa senkronizörsüz ulaşır"
+            ),
+        );
+        if let (Some((line, synced)), Some(anchor), Some(value)) = (fix, self.cur_stmt, b.value) {
+            // suggestion: e3001_clockless_annotated_output
+            let s = Suggestion::line_above(anchor, line, Applicability::MaybeIncorrect)
+                .and_replace(self.ast.exprs[value].span, synced);
+            diag = diag.with_suggestion(s);
+        }
+        self.diagnostics.push(diag);
+    }
+
     /// Bağlamanın değerini `dst` alanına taşıyan `let` satırı ve yeni ad:
     /// yalnız tek bitlik, adı yazılabilen değer ve `dst`'nin bu modülde bir
     /// saat portu varken (`sync()` kuralları, K9).
@@ -491,6 +606,15 @@ struct Merge<'m> {
     first: (String, DomainId, Span),
     /// İlkiyle çelişen giriş.
     second: (String, DomainId, Span),
+}
+
+/// Saatsiz Volt hedefinin anotasyonlu çıkışı ve özetteki girişleri.
+struct Annotated<'m> {
+    target: &'m str,
+    port: &'m Port,
+    /// Anotasyonun alanı (örnek sitesindeki).
+    own: DomainId,
+    deps: &'m BTreeSet<String>,
 }
 
 /// `'a' and 'b'`, `'a', 'b' and 'c'`.

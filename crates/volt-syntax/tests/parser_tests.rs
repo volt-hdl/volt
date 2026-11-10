@@ -2388,7 +2388,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 133, "ui/pass 133 dosya içermeli");
+    assert_eq!(total, 134, "ui/pass 134 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2439,10 +2439,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // aritmetiğinin katlanması), #137/#138 138'i (yerelin gölgelediği
     // çift yönlü port, aşama değeri ve sayaç sınırı), #143 139'u
     // (örneklenen generic modül), #173 140'ı (bölmenin genişliği açık),
-    // ADR-0114 141-147'yi (modül özetinin yakın ıskaları).
+    // ADR-0114 141-147'yi (modül özetinin yakın ıskaları), 148'i
+    // (saatsiz modülün anotasyonlu çıkışı, K8).
     assert_eq!(
-        clean, 133,
-        "133/133 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 134,
+        "134/134 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

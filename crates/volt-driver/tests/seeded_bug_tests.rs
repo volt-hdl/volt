@@ -113,6 +113,7 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("cdc.port-domain-swap | tests/ui/pass/13_cdc_correct_bridge.volt | CdcBridge.fast_flag: @Fast -> @Slow", Hand::Expect(&["W3002"]), SYNC_ONLY),
     ("cdc.port-domain-swap | examples/vga/vga_top.volt | VgaTop.invert: @SysDomain -> @PixDomain", Hand::Expect(&["W3002"]), SYNC_ONLY),
     ("cdc.port-domain-swap | tests/fixtures/parity/p24_sync_src_width.volt | M.x: @A -> @B", Hand::Expect(&["W3002"]), SYNC_ONLY),
+    ("cdc.port-domain-swap | tests/ui/pass/148_clockless_child_annotated_output.volt | Top.slow_flag: @Slow -> @Fast", Hand::Expect(&["W3002"]), SYNC_ONLY),
     // ── the same through a clockless child: its output carries the
     //    input's domain (ADR-0114 / K8b), so the sync() after it becomes
     //    redundant ──

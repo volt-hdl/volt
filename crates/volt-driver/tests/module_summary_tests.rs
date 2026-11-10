@@ -257,6 +257,7 @@ fn near_misses_stay_clean() {
         "145_handshake_registered_child.volt",
         "146_handshake_fifo_drain.volt",
         "147_handshake_clockless_extern_no_protocol_check.volt",
+        "148_clockless_child_annotated_output.volt",
     ] {
         let env = check_json_in(&root(), &root().join("tests/ui/pass").join(name));
         assert!(codes(&env).is_empty(), "{name}: {env}");
@@ -449,6 +450,126 @@ fn a_value_through_a_block_of_a_clockless_child_carries_its_domain() {
             assert_eq!(prim["start"]["line"].as_u64(), Some(line), "{name}: {env}");
         } else {
             assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}
+
+/// Hata önem derecesindeki tanılar.
+fn errors_of(env: &Value) -> Vec<Value> {
+    diagnostics(env)
+        .into_iter()
+        .filter(|d| d["severity"] == "error")
+        .collect()
+}
+
+/// Birincil etiketin satırı (1 tabanlı).
+fn primary_line(d: &Value) -> Option<u64> {
+    d["spans"]
+        .as_array()
+        .and_then(|s| s.iter().find(|s| s["primary"] == true))
+        .and_then(|s| s["start"]["line"].as_u64())
+}
+
+/// K8b: saatsiz Volt modülünün `@Alan` anotasyonlu çıkışı kendi alanında
+/// kalır, ama bağlı olduğu anotasyonsuz girişlere o alanın değeri
+/// bağlanmalıdır; başka alandan gelen değer kapının içinden
+/// senkronizörsüz geçer: E3001 örnek sitesinde, uyuşmayan bağlamada, çıkış
+/// başına bir kez. Okuma anotasyonun alanını taşır (kaskad yok).
+/// Anotasyonlu giriş modülün içinde denetlenir; saatsiz extern'in
+/// anotasyonu kullanıcının beyanıdır, denetlenmez.
+#[test]
+fn an_annotated_output_of_a_clockless_child_is_checked_against_its_inputs() {
+    assert_ui_fail("254_clockless_child_annotated_output.volt");
+
+    let top = |child: &str, binds: &str| {
+        format!(
+            "{TWO_DOMAINS}{child}
+             module Top {{
+    in  _fclk : clock @Fast
+    in  _sclk : clock @Slow
+    in  f     : bool  @Fast
+    in  s     : bool  @Slow
+    out o     : bool  @Fast
+    let p = P {{ {binds} }}
+    o = p.y
+}}
+"
+        )
+    };
+    let binding_line = |src: &str| {
+        src.lines()
+            .position(|l| l.trim().starts_with("let p = P"))
+            .unwrap() as u64
+            + 1
+    };
+    // (ad, çocuk, bağlamalar, beklenen E3001 satırı: örnek mi, çocuk mu, yok mu)
+    let gate = "module P {
+    in  a : bool
+    in  b : bool
+    out y : bool @Fast
+    y = a && !b
+}";
+    let chain = "module P {
+    in  a : bool
+    out y : bool @Fast
+    let t = !a
+    comb {
+        y = t
+    }
+}";
+    let nested = "module Q {
+    in  a : bool
+    out y : bool
+    y = a
+}
+module P {
+    in  a : bool
+    out y : bool @Fast
+    let q = Q { a: a }
+    y = q.y
+}";
+    let annotated_in = "module P {
+    in  a : bool @Slow
+    out y : bool @Fast
+    y = a
+}";
+    let ext = "extern module P {
+    in  a : bool
+    out y : bool @Fast
+}";
+    let cases: &[(&str, &str, &str, Option<bool>)] = &[
+        // Tehlike: iki giriş de @Slow, tek E3001 (çıkış başına bir kez).
+        ("gate-both-slow", gate, "a: s, b: s", Some(true)),
+        ("gate-second-slow", gate, "a: f, b: s", Some(true)),
+        ("let-comb-chain", chain, "a: s", Some(true)),
+        ("nested-child", nested, "a: s", Some(true)),
+        // Anotasyonlu giriş: modülün içinde E3001 (K6), örnekte ikinci yok.
+        ("annotated-input", annotated_in, "a: s", Some(false)),
+        // Güvenli ikizler: aynı alan ya da sabit.
+        ("gate-fast", gate, "a: f, b: f", None),
+        ("gate-constant", gate, "a: f, b: false", None),
+        // Saatsiz extern: anotasyon kullanıcının beyanıdır.
+        ("clockless-extern", ext, "a: s", None),
+    ];
+    for (name, child, binds, expect) in cases {
+        let src = top(child, binds);
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        match expect {
+            Some(at_instance) => {
+                assert_eq!(errors.len(), 1, "{name}: tek E3001 bekleniyor: {env}");
+                assert_eq!(errors[0]["code"], "E3001", "{name}: {env}");
+                let line = primary_line(&errors[0]);
+                if *at_instance {
+                    assert_eq!(line, Some(binding_line(&src)), "{name}: {env}");
+                } else {
+                    assert!(
+                        line < Some(binding_line(&src)),
+                        "{name}: hata çocukta olmalı: {env}"
+                    );
+                }
+            }
+            None => assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}"),
         }
     }
 }
