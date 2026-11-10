@@ -214,16 +214,23 @@ Bu bölüm sonradan eklendi; yukarıdaki karar metni değişmedi.
   b: tx.ready }; tx.valid = g.y` hatasız derleniyordu; aynısı saatsiz
   extern ve yerleşik `EdgeDetect`, `RoundRobinArbiter`, `PriorityArbiter`
   üzerinden de geçerliydi. "Tutma kontratı bu boşluğu kapatır" gerekçesi
-  tutmuyor: `valid = ready && have` biçiminde tutma kuralının öncülü
-  ulaşılamaz, kural boş yere kanıtlanır; "valid ready'ye bağlı değil" iki
-  izli bir özelliktir, tek izli bir `invariant` onu ifade edemez.
+  ölçülerek çürütüldü: `let g = AndGate { a: have, b: tx.ready }; tx.valid
+  = g.y` tasarımında `volt verify --mode bmc` ve `--mode prove` iki
+  otomatik tutma kuralını da geçti (2/2 ok, çıkış 0), ama kuralların
+  öncülünün `cover`'ı (`prev(tx.valid) && !prev(tx.ready)`) derinlik
+  20'de hiç ulaşılmadı (E5001). `valid = ready && have` biçiminde öncül
+  hiçbir çevrimde doğru olmaz, kurallar boş yere (vacuously) kanıtlanır
+  ve bağımlılık görünmez kalır. Ayrıca "valid ready'ye bağlı değil" iki
+  izli bir özelliktir; tek izli bir `invariant` onu ifade edemez.
   ADR-0114 opaklığı modül özetiyle değiştirdi: E4007'nin grafı `inst.out`
   okumasını özet üzerinden çocuğun girişlerine bağlar ve yolu örnekle
   birlikte yazar (`tx.valid <- g.y (AndGate: y <- b) <- tx_ready`).
   Saatli extern opak kalır (#196).
 - **"`for` (generate) gövdelerinden geçen yolları görmez" (Sınırlar).**
   Bu madde ADR-0056'dan (2026-09-17) beri geçersizdi: modül düzeyi `for`
-  parser'da açılır ve E4007 açılmış gövdeyi zaten görüyordu (ölçüldü).
+  parser'da açılır ve E4007 açılmış gövdeyi zaten görüyordu (ölçüldü:
+  `for i in 0..1 { go[i] = have && tx.ready }`, generic sınırlı `for` ve
+  `comb` içindeki `for`, üçü de ADR-0114'ten önce E4007 alıyordu).
   `for` içindeki bir örneğin içinden geçen yol ise örnek sorunuydu ve
   ADR-0114 ile kapandı.
 - **`@no_protocol_check` (§3).** Nitelik E4007'yi kapatmaz (bu ADR'nin

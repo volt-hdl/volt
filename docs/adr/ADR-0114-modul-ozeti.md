@@ -12,6 +12,7 @@
 > `parser/mono/clone.rs`), volt-diagnostics (E3001 ve E4007
 > açıklamaları en/tr), `tests/ui/{pass,fail}`, `tests/suggestions/`,
 > `crates/volt-driver/tests/{module_summary_tests,builtin_summary_tests,seeded_bug_tests}.rs`,
+> `.cargo/mutants.toml` (özet dosyaları mutasyon kapsamında; bir A2 kaydı),
 > `book/src/limitations.md`, `CHANGELOG.md`, `docs/adr/README.md`,
 > ADR-0047 ve ADR-0050 (başlık satırları ve ek bölüm)
 

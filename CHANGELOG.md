@@ -70,11 +70,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
   alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
 - Modül özeti (ADR-0114): yukarıdaki on bir bilinen açık kapandı, liste
-  boş. Yeni `tests/ui` dosyaları (fail 246–253, pass 141–147), üç öneri
+  boş. Yeni `tests/ui` dosyaları (fail 246–253, pass 141–147), dört öneri
   gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
-  `@no_protocol_check` kaçışı) ve `builtin_summary_tests`: yerleşik
+  `@no_protocol_check` kaçışı, saatsiz çocuğun `comb`, `if` ve `match`
+  bloklarından geçen değer) ve `builtin_summary_tests`: yerleşik
   primitif özet tablosunun her satırı primitifin ürettiği SystemVerilog'un
   Yosys ile kombinasyonel yol analizine karşı denetlenir (araçlı işte).
+  Modül özeti dosyaları mutasyon testinin kapsamında (ADR-0109); hedefli
+  koşunun kaçırdığı dokuz mutantın sekizi testle yakalanır, biri
+  erişilemez koddadır ve gerekçesiyle dışlanır.
 
 ## [0.1.1] - 2026-11-08
 
