@@ -69,6 +69,24 @@ parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
 
+**A clock-domain crossing through a module without a clock.** When a
+signal of one clock domain passes through a submodule that has no clock
+port (or a clockless `extern module`) and reaches another domain,
+`volt check` reports no `E3001` and the generated SystemVerilog has no
+synchronizer. Synchronize the signal into the destination domain with
+`sync()` before it enters the clockless module, or read the module's
+output into a `let` and pass that `let` to `sync()`. Tracked in
+[issue #189](https://github.com/volt-hdl/volt/issues/189).
+
+**`valid` depending on `ready` through a submodule.** `E4007` does not
+follow a combinational path from a `Handshake` port's `ready` to its
+`valid` through a submodule instance or a built-in primitive
+(`EdgeDetect`, arbiters), and the automatic protocol contracts do not
+catch it either. Make the `valid` decision in a register of the
+producer, as `E4007`'s help shows (`reg valid_r ...; on clk { ... };
+tx.valid = valid_r`). Tracked in
+[issue #193](https://github.com/volt-hdl/volt/issues/193).
+
 ## Language
 
 **Some constructs pass the type checker but have no SystemVerilog mapping
@@ -116,19 +134,6 @@ of its signals in an `on` block. A
 register cannot close a loop this way: assigning it with `=` outside an
 `on` block is `E0019`. Roadmap:
 [Combinational loop check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#combinational-loop-check).
-
-**The handshake check does not look inside submodules.** On a
-`Handshake<T>` output, `valid` must not be computed from the same port's
-`ready` without a register in between: if each side waits for the other,
-no transfer ever finishes. Volt reports this as `E4007` when the path
-runs through assignments, `let`s, `comb` blocks, `if` and `match`
-conditions and function calls in the module that owns the port. A path
-through a submodule instance is not followed: when `ready` goes into a
-submodule and `valid` is computed from that submodule's output, the
-design compiles without an error. Volt treats every instance output as
-an unknown signal here, on purpose, because it does not look at the
-logic behind it. Compute `valid` in the module that owns the port, or
-register the value that comes back from the submodule.
 
 ## Clock and reset domains
 
