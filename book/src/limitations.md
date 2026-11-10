@@ -135,19 +135,6 @@ register cannot close a loop this way: assigning it with `=` outside an
 `on` block is `E0019`. Roadmap:
 [Combinational loop check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#combinational-loop-check).
 
-**The handshake check does not look inside submodules.** On a
-`Handshake<T>` output, `valid` must not be computed from the same port's
-`ready` without a register in between: if each side waits for the other,
-no transfer ever finishes. Volt reports this as `E4007` when the path
-runs through assignments, `let`s, `comb` blocks, `if` and `match`
-conditions and function calls in the module that owns the port. A path
-through a submodule instance is not followed: when `ready` goes into a
-submodule and `valid` is computed from that submodule's output, the
-design compiles without an error. Volt treats every instance output as
-an unknown signal here, on purpose, because it does not look at the
-logic behind it. Compute `valid` in the module that owns the port, or
-register the value that comes back from the submodule.
-
 ## Clock and reset domains
 
 **CDC bridges are `sync()`, `sync3()` and the built-in dual-clock
