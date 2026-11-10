@@ -130,7 +130,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let fn_diags = functions::check_functions(ast, &resolve);
     // Modül özeti (ADR-0114): birim başına bir kez; alan çıkarımı ve
     // E4007 aynı özeti okur.
-    let summaries = summary::Summaries::compute(ast, &resolve);
+    let summaries = summary::Summaries::compute(ast, &resolve, &typeck);
     let domain = infer_domains(ast, &resolve, &typeck, &summaries);
 
     // Güven seviyeleri (ADR-0052): saat çıkarımının sonucu üzerinde

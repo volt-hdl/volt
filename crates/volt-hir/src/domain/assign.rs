@@ -2,7 +2,7 @@
 //! alanda olmalı (E3001, atama biçimi); bloğun koşulu/seçicisi yabancı
 //! alandan okunamaz (E3012).
 
-use volt_ast::{Expr, ExprKind, Idx, LValue, LValueSuffix};
+use volt_ast::{ArrayLitKind, Expr, ExprKind, Idx, LValue, LValueSuffix, MatchArmBody};
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
 };
@@ -312,15 +312,29 @@ impl Inferencer<'_> {
                     else_expr,
                 } => stack.extend([*cond, *then_expr, *else_expr]),
                 ExprKind::Call { args, .. } => stack.extend(args.iter().copied()),
-                // Kaynağın alanını bir örnek çıkışından alması için okuma
-                // bunlardan geçmez ya da hiç okuma yoktur.
+                // Alanı tabanından ve işlenenlerinden alan biçimler (K5,
+                // `expr_domain` ile aynı): aralığın sınırları ve
+                // part-select genişliği sabittir.
+                ExprKind::Range { base, .. } => stack.push(*base),
+                ExprKind::PartSelect { base, start, .. } => stack.extend([*base, *start]),
+                ExprKind::Match { scrutinee, arms } => {
+                    stack.push(*scrutinee);
+                    for arm in arms {
+                        stack.extend(arm.guard);
+                        if let MatchArmBody::Expr(ae) = arm.body {
+                            stack.push(ae);
+                        }
+                    }
+                }
+                ExprKind::StructLit { fields, .. } => {
+                    stack.extend(fields.iter().filter_map(|f| f.value));
+                }
+                ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
+                    stack.extend(items.iter().copied());
+                }
+                ExprKind::ArrayLit(ArrayLitKind::Repeat { value, .. }) => stack.push(*value),
+                // Hiç okuma yoktur.
                 ExprKind::Path(_)
-                | ExprKind::Range { .. }
-                | ExprKind::PartSelect { .. }
-                | ExprKind::Match { .. }
-                | ExprKind::StructLit { .. }
-                | ExprKind::ArrayLit(_)
-                | ExprKind::TupleLit(_)
                 | ExprKind::IntLit { .. }
                 | ExprKind::BoolLit(_)
                 | ExprKind::StringLit(_)

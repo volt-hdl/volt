@@ -74,9 +74,10 @@ Her modül için bir kez, çocuktan başlayarak bir **özet** çıkarılır:
 (port başına bağımlılık, [K2]).
 
 - Kenarlar: sürekli atama, `let`, `comb` bloğu; koşul, `match` sınananı ve
-  kol muhafızı işlenendir (K5, ADR-0083 Karar 8); fn çağrısının
-  argümanları işlenendir (ADR-0081). `on` bloğu, register,
-  `sync()`/`sync3()` yolu keser.
+  kol muhafızı işlenendir (K5, ADR-0083 Karar 8); atama hedefinin indeks,
+  aralık ve part-select ifadeleri işlenendir (`y[sel] = d`'de `y` `sel`'e
+  de bağlıdır); fn çağrısının argümanları işlenendir (ADR-0081). `on`
+  bloğu, register, `sync()`/`sync3()` yolu keser.
 - Modül düzeyi `for` zaten açılmıştır (ADR-0056).
 - Alt örnek: `inst.out` okuması, çocuğun özetinde `out`un bağlı olduğu
   girişlere bağlanan ifadelerin okumasıdır. Aynı modülün her örneği aynı
@@ -96,7 +97,9 @@ Her modül için bir kez, çocuktan başlayarak bir **özet** çıkarılır:
   `Counter`, `ShiftRegister`, CDC primitifleri) bütün çıkışları
   register'dan okunur, özetleri boştur.
 - Extern: saatsiz extern en kötü durumdur — her çıkış her girişe bağlı
-  ([K4]); saatli extern'in özeti boştur ([K5]).
+  ([K4]); saatli extern'in özeti boştur ([K5]). Saat portu, alan
+  çıkarımında olduğu gibi çözümlenmiş türünden anlaşılır (`type Clk =
+  clock` ile bildirilen port da saattir, ADR-0070).
 
 Uygulama tek bir graf kurucuyu paylaşır (`summary.rs`, eskiden
 `handshake.rs`'teki `CombGraph`): E4007 ve alan çıkarımı aynı özeti okur.
@@ -110,12 +113,14 @@ taşır; `@Alan` anotasyonlu giriş kendi alanıyla katılır, anotasyonlu çık
 kendi alanında kalır. Saatsiz Volt modülünün anotasyonlu çıkışı
 denetlenir ([K8]): özette bağlı olduğu anotasyonsuz girişlere bağlanan
 değerler anotasyonun alanında olmalıdır, başka alandan gelen değer
-örnek sitesinde E3001'dir. Saatsiz extern'de anotasyonlu çıkışın
-bağımlılıkları denetlenmez: kullanıcının beyanıdır; anotasyonlu girişe
-bağlanan değer K8 adım 2'deki gibi denetlenir. Saatli hedefte değişiklik
-yoktur: portları saat
-haritasından alanını zaten alır ve iç kombinasyonel yollar çocuğun kendi
-denetiminde E3001 alır.
+örnek sitesinde E3001'dir. Denetim deyim sırasına bağlı değildir:
+alanı henüz belli olmayan bir değer (çok saatli modülde anotasyonsuz
+`wire`) çıkışın alanına bağlanır, sonradan yazılan sürücüsü o alana göre
+denetlenir (K6). Saatsiz extern'de anotasyonlu çıkışın bağımlılıkları
+denetlenmez: kullanıcının beyanıdır; anotasyonlu girişe bağlanan değer K8
+adım 2'deki gibi denetlenir. Saatli hedefte değişiklik yoktur: portları
+saat haritasından alanını zaten alır ve iç kombinasyonel yollar çocuğun
+kendi denetiminde E3001 alır.
 
 İki farklı alan aynı çıkışta birleşiyorsa **E3001 örnek sitesinde**
 verilir ([K3]), çıkış okunmasa da: kapı netlist'te vardır (fn çağrısı ve
@@ -124,7 +129,11 @@ verilir ([K3]), çıkış okunmasa da: kapı netlist'te vardır (fn çağrısı 
 and 'b'`). Örnek başına bir kez; çıkış `Error` olur, okumaları kaskad
 üretmez. Öneri, ikinci girişi ilkinin alanına senkronize eden bir
 `let ... = sync(...)` satırı ve bağlamanın o adla değiştirilmesidir
-(tek bitlik, adı yazılabilen değerde; ADR-0099 gidiş-dönüş). Modülün
+(tek bitlik, adı yazılabilen değerde; ADR-0099 gidiş-dönüş).
+Anotasyonlu girişin alanı sabittir (ona bağlanan değer K8 adım 2'de
+denetlenir): çakışan giriş anotasyonluysa öteki giriş onun alanına
+senkronize edilir; tek bir anotasyonsuz girişi senkronize etmek tanıyı
+gidermiyorsa öneri yoktur. Modülün
 içinde tanı yoktur: içeride anotasyonsuz portlar `Timeless`'tır.
 
 Çıkış başka bir alana atanırsa E3001'in mevcut atama biçimi geçerlidir;

@@ -382,8 +382,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // ADR-0114: 141-146 modül özetinin yakın ıskaları (bağımsız yollar,
     //           sabit çıkış, köprülenen saatsiz çıkış, anotasyonlu extern,
     //           register'lı çocuk, FIFO boşaltma); 148 saatsiz modülün
-    //           anotasyonlu çıkışı (K8). 147 karar B ile ui/fail/255 oldu.
-    assert_eq!(checked, 133);
+    //           anotasyonlu çıkışı (K8). 147 karar B ile ui/fail/255 oldu;
+    //           149 takma adlı saatli extern (saat türünden anlaşılır).
+    assert_eq!(checked, 134);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

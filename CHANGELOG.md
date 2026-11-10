@@ -21,7 +21,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - **Davranış değişikliği.** Saatsiz `extern` için şartname değişti:
   domain-inference.md K8a bu durumu izinliyordu (saatsiz extern portları
   `Timeless`); güvenlik nedeniyle artık gövdesi görünmeyen saatsiz
-  extern'in anotasyonsuz her çıkışı saat dışı her girişine bağlı sayılır
+  extern'in anotasyonsuz her çıkışı her girişine bağlı sayılır
   (en kötü durum, ADR-0114 K4). Bağımsız yolları farklı alanlarda olan
   bir extern'in portlarına `@Alan` anotasyonu yazılır.
 - **Davranış değişikliği.** Saatsiz bir `extern`'in bağımsız yolları
@@ -30,15 +30,18 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   slow_in }` hatasız derleniyordu; şimdi anotasyonsuz her çıkış iki
   girişe de bağlı sayılır ve iki alan aynı çıkışta birleşir (ADR-0114
   K4). Çözüm portlara `@Alan` anotasyonu yazmaktır (`in a1 : bool @Fast`,
-  `out y1 : bool @Fast`); saatsiz extern'de anotasyon kullanıcının
-  beyanıdır, Volt onu denetlemez.
+  `out y1 : bool @Fast`); saatsiz extern'de anotasyonlu çıkışın
+  bağımlılıkları kullanıcının beyanıdır, Volt onları denetlemez;
+  anotasyonlu girişe bağlanan değer denetlenir.
 - **Davranış değişikliği.** Saatsiz bir Volt modülünün `@Alan` anotasyonlu
   çıkışına bağlı olduğu girişten başka bir alanın değeri ulaşırsa artık
   örneğin olduğu yerde E3001 verilir (ADR-0114 K8; sessiz yanlış
   düzeltmesi): `out y : bool @Fast` ile `y = a` yazılan saatsiz `P`'nin
   `P { a: slow_flag }` örneği 0.1.1'de hatasız derlenip `@Slow` değeri
-  senkronizörsüz `@Fast` tarafa taşıyordu. Öneri, girişi örnekten önce
-  çıkışın alanına senkronize eder.
+  senkronizörsüz `@Fast` tarafa taşıyordu. Denetim deyim sırasına bağlı
+  değildir: girişe anotasyonsuz bir `wire` bağlanıp `wire`'ın başka alandan
+  sürücüsü örnekten sonra yazılsa da E3001 verilir (o satırda). Öneri,
+  girişi örnekten önce çıkışın alanına senkronize eder.
 - **Davranış değişikliği.** Alt modül, saatsiz `extern` ve yerleşik
   `EdgeDetect`, `RoundRobinArbiter`, `PriorityArbiter` üzerinden
   `ready`'den `valid`'e giden yol artık E4007 alır (#193, ADR-0114);
@@ -50,6 +53,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   E4007'yi etkilemez (yalnız portun otomatik protokol kontratlarını
   kapatır); bu sürümde varsayımsal yol için kaçış yolu yok, açık
   bağımlılık bildirimi v0.2.0'da.
+- **Davranış değişikliği.** Bir atamanın hedef indeksi (`y[sel] = d`,
+  `y[sel +: 2] = d`) artık modül özetinde ve E4007 grafında işlenendir:
+  `sel` değişince `d`'yi taşıyan bit değişir, `y` `sel`'e de
+  kombinasyonel bağlıdır (domain-inference.md K5). Saatsiz bir alt
+  modülün böyle sürülen çıkışı indeksin alanını da taşır (E3001, #189
+  ile aynı sessiz yanlış). E4007 tarafındaki açık 0.1.1'de de vardı:
+  `ready`, `valid`'e giden yolda yalnız bir hedef indeksi olarak
+  okunuyorsa (`vv[tx.ready as u1] = valid_r; tx.valid = vv[1]`) tanı
+  yoktu; artık E4007.
 - Depodaki tasarımların, kitabın ve tohumlanmış hata derleminin temiz
   tasarımlarının hiçbiri yeni tanı almıyor (ölçüm PR açıklamasında).
 
@@ -87,8 +99,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   ile köprülenen saatsiz çıkış, anotasyonlu saatsiz extern, register'lı
   alt modül çıkışı, FIFO boşaltma deseni) tanı üretmemeli.
 - Modül özeti (ADR-0114): yukarıdaki on bir bilinen açık kapandı, liste
-  boş. Yeni `tests/ui` dosyaları (fail 246–255, pass 141–146 ve 148),
-  beş öneri gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
+  boş. Yeni `tests/ui` dosyaları (fail 246–255, pass 141–146, 148 ve
+  149), altı öneri gidiş-dönüş fikstürü, `module_summary_tests` (tanı notları,
   `@no_protocol_check`'in E4007'yi etkilemediği, saatsiz çocuğun `comb`,
   `if` ve `match` bloklarından geçen değer) ve `builtin_summary_tests`: yerleşik
   primitif özet tablosunun her satırı primitifin ürettiği SystemVerilog'un
@@ -96,6 +108,14 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   Modül özeti dosyaları mutasyon testinin kapsamında (ADR-0109); hedefli
   koşunun kaçırdığı dokuz mutantın sekizi testle yakalanır, biri
   erişilemez koddadır ve gerekçesiyle dışlanır.
+- PR incelemesinin bulguları (ADR-0114): tohumlanmış hata derlemine üç
+  tür ve iki güvenli ikiz (saatsiz çocukta hedef indeksi, anotasyonlu
+  çıkışın sonradan yazılan sürücüsü, `valid`'e giden yolda hedef
+  indeksi); örnek zincirinde her (örnek, çıkış) çiftinin bir kez
+  açıldığını sayıyla denetleyen birim testi (zamana bakmaz);
+  `type Clk = clock` ile saatli extern'in E4007'de opak kaldığı
+  `tests/ui/pass/149`; birleşmede anotasyonlu girişin alanına
+  senkronize eden öneri fikstürü.
 
 ## [0.1.1] - 2026-11-08
 

@@ -11,31 +11,37 @@
 //!
 //! Tek graf kurucu ([`CombGraph`]) ikisinin de kaynağıdır. Kenarlar:
 //! sürekli atama, `let`, `comb` bloğu ve modül düzeyi `for` gövdesi;
-//! koşul, `match` sınananı ve kol muhafızı işlenendir (K5); fonksiyon
-//! çağrısının argümanları işlenendir (ADR-0081). `on` bloğu, register ve
+//! koşul, `match` sınananı, kol muhafızı ve hedefin indeks, aralık ve
+//! part-select ifadeleri işlenendir (K5); fonksiyon çağrısının
+//! argümanları işlenendir (ADR-0081). `on` bloğu, register ve
 //! `sync()`/`sync3()` yolu keser. Örnek çıkışı okuması (`inst.port`),
 //! çocuğun özetinde o çıkışın bağlı olduğu girişlere bağlanan ifadelerin
 //! okumasıdır; özeti olmayan hedef opaktır.
+//!
+//! Saat portu çözümlenmiş türünden anlaşılır (`type Clk = clock` de saattir,
+//! ADR-0070), alan çıkarımıyla aynı kural.
 //!
 //! Özet kaynakları:
 //! * Volt modülü (saatli ya da saatsiz): gövdeden hesaplanır. Generic
 //!   modülün her açılımı (ADR-0041) ayrı bir modüldür, ayrı özet alır.
 //! * Saatsiz extern: içi görünmez; anotasyonsuz ya da anotasyonlu her
-//!   çıkış saat dışı her girişe bağlı sayılır (en kötü durum, K4).
+//!   çıkış her girişe bağlı sayılır (en kötü durum, K4).
 //! * Saatli extern: özet boştur (K5): çıkışları saat haritasından
 //!   alanını alır, E4007 onun içinden geçen yolu görmez.
 //! * Yerleşik primitif: [`volt_ast::builtin::BuiltinPrim::comb_inputs`] tablosu (K7).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
-    MatchArmBody, ModuleDecl, Port, PortDir, SourceFile, StmtKind, TypeRefKind,
+    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, LValue,
+    LValueSuffix, MatchArmBody, ModuleDecl, Port, PortDir, SourceFile, StmtKind,
 };
 use volt_span::Span;
 
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
+use crate::ty::Ty;
+use crate::typeck::TypeckResult;
 
 /// Bir modülün ya da extern'in özeti.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -73,8 +79,9 @@ pub struct OutputDeps {
 
 impl Summaries {
     /// Birimdeki her modülün ve extern'in özeti, çocuktan başlayarak.
-    pub fn compute(ast: &SourceFile, res: &ResolveResult) -> Self {
+    pub fn compute(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult) -> Self {
         let mut s = Summaries::default();
+        let clk = Clocks { res, tyck };
         let mut busy = HashSet::new();
         for &item in &ast.items {
             let def = match &ast.items_arena[item].kind {
@@ -90,7 +97,7 @@ impl Summaries {
                 | ItemKind::Error => None,
             };
             if let Some(&def) = def {
-                s.summarize(ast, res, def, &mut busy);
+                s.summarize(ast, res, &clk, def, &mut busy);
             }
         }
         s
@@ -133,6 +140,7 @@ impl Summaries {
         &mut self,
         ast: &SourceFile,
         res: &ResolveResult,
+        clk: &Clocks<'_>,
         def: DefId,
         busy: &mut HashSet<DefId>,
     ) {
@@ -156,13 +164,13 @@ impl Summaries {
                         .get(&inst.name.span)
                         .and_then(|d| res.instance_module.get(d));
                     if let Some(&child) = child {
-                        self.summarize(ast, res, child, busy);
+                        self.summarize(ast, res, clk, child, busy);
                     }
                 }
                 busy.remove(&def);
-                self.summarize_module(ast, res, m)
+                self.summarize_module(ast, res, clk, m)
             }
-            ItemKind::Extern(x) => extern_summary(ast, &x.ports),
+            ItemKind::Extern(x) => extern_summary(clk, &x.ports),
             ItemKind::Domain(_)
             | ItemKind::Fn(_)
             | ItemKind::Struct(_)
@@ -175,11 +183,17 @@ impl Summaries {
         self.by_def.insert(def, sum);
     }
 
-    fn summarize_module(&self, ast: &SourceFile, res: &ResolveResult, m: &ModuleDecl) -> Summary {
+    fn summarize_module(
+        &self,
+        ast: &SourceFile,
+        res: &ResolveResult,
+        clk: &Clocks<'_>,
+        m: &ModuleDecl,
+    ) -> Summary {
         let inputs: HashMap<DefId, String> = m
             .ports
             .iter()
-            .filter(|p| p.direction == PortDir::In && !is_clock_port(ast, p))
+            .filter(|p| p.direction == PortDir::In && !clk.is_clock_port(p))
             .filter_map(|p| Some((*res.decl_spans.get(&p.name.span)?, p.name.text.clone())))
             .collect();
         let graph = CombGraph::build(ast, res, m, self);
@@ -210,10 +224,10 @@ impl Summaries {
     }
 }
 
-/// Extern'in özeti: saatsizse en kötü durum (her çıkış saat dışı her
-/// girişe bağlı, K4), saatliyse boş (K5).
-fn extern_summary(ast: &SourceFile, ports: &[Port]) -> Summary {
-    let clockless = !ports.iter().any(|p| is_clock_port(ast, p));
+/// Extern'in özeti: saatsizse en kötü durum (her çıkış her girişe bağlı,
+/// K4), saatliyse boş (K5).
+fn extern_summary(clk: &Clocks<'_>, ports: &[Port]) -> Summary {
+    let clockless = !ports.iter().any(|p| clk.is_clock_port(p));
     let inputs: BTreeSet<String> = if clockless {
         ports
             .iter()
@@ -241,8 +255,21 @@ fn extern_summary(ast: &SourceFile, ports: &[Port]) -> Summary {
     }
 }
 
-fn is_clock_port(ast: &SourceFile, p: &Port) -> bool {
-    matches!(ast.types[p.ty].kind, TypeRefKind::Clock)
+/// Saat portu: çözümlenmiş türü `clock` olan port (takma ad dahil,
+/// ADR-0070); alan çıkarımının `is_clock_port`'uyla aynı kural.
+struct Clocks<'a> {
+    res: &'a ResolveResult,
+    tyck: &'a TypeckResult,
+}
+
+impl Clocks<'_> {
+    fn is_clock_port(&self, p: &Port) -> bool {
+        self.res
+            .decl_spans
+            .get(&p.name.span)
+            .and_then(|d| self.tyck.def_types.get(d))
+            .is_some_and(|&t| matches!(self.tyck.types.ty(t), Ty::Clock))
+    }
 }
 
 /// Bir örnek çıkışının içinden geçen adım: E4007 yolunda
@@ -291,6 +318,9 @@ type Read = (DefId, Span, Option<Hop>);
 #[derive(Debug, Default)]
 pub struct CombGraph {
     pub edges: HashMap<DefId, Vec<Dep>>,
+    /// Kurulumda açılan (örnek, çıkış) sayısı: örnek zincirinde açılımın
+    /// aşama sayısıyla doğrusal kaldığını sınamak için.
+    pub expansions: usize,
 }
 
 /// Örnek sitesinde bağlanan değer.
@@ -332,13 +362,18 @@ impl CombGraph {
             bindings: &bindings,
             graph: &mut g,
             expanding: RefCell::new(HashSet::new()),
+            expanded: RefCell::new(HashMap::new()),
+            cuts: Cell::new(0),
+            expansions: Cell::new(0),
         };
         for &si in &m.body {
             let stmt = &ast.stmts[si];
             match &stmt.kind {
                 StmtKind::Assign(a) => {
                     if let Some(&target) = res.use_spans.get(&a.lhs.base.span) {
-                        w.add(target, a.rhs, &[], stmt.span);
+                        let mut ops = Vec::new();
+                        w.target_reads(&a.lhs, &mut ops);
+                        w.add(target, a.rhs, &ops, stmt.span);
                     }
                 }
                 StmtKind::Let(l) => {
@@ -360,6 +395,8 @@ impl CombGraph {
                 | StmtKind::Error => {}
             }
         }
+        let expansions = w.expansions.get();
+        g.expansions = expansions;
         g
     }
 
@@ -432,10 +469,40 @@ struct Walker<'a> {
     /// Açılmakta olan (örnek, çıkış) çiftleri: örnekler üzerinden kurulan
     /// kombinasyonel döngü açılımı sonsuz kılmaz.
     expanding: RefCell<HashSet<(DefId, String)>>,
+    /// Açılmış (örnek, çıkış) çiftlerinin okumaları: her çift bir kez
+    /// açılır. Aksi hâlde her aşaması öncekinin iki çıkışını okuyan bir
+    /// zincir 2^N açılım yapar.
+    expanded: RefCell<HashMap<(DefId, String), Vec<Read>>>,
+    /// Döngü kesimi sayacı: açılımı sırasında bir döngü kesilen çift
+    /// eksik okumayla saklanmaz (başka bir girişten okununca tam açılır).
+    cuts: Cell<usize>,
+    /// Açılan (örnek, çıkış) sayısı ([`CombGraph::expansions`]).
+    expansions: Cell<usize>,
 }
 
 impl Walker<'_> {
-    /// `target`'ın sürücüsü `rhs` (+ çevreleyen koşullar).
+    /// Hedefin indeks, aralık ve part-select ifadelerinin okumaları: `sel`
+    /// değişince `y[sel] = d`'de `d`'yi taşıyan bit değişir, `y` `sel`'e de
+    /// kombinasyonel bağlıdır (K5).
+    fn target_reads(&self, lhs: &LValue, out: &mut Vec<Read>) {
+        for suffix in &lhs.suffixes {
+            match suffix {
+                LValueSuffix::Index(e) => self.reads(*e, out),
+                LValueSuffix::Range { hi, lo } => {
+                    self.reads(*hi, out);
+                    self.reads(*lo, out);
+                }
+                LValueSuffix::PartSelect { start, width, .. } => {
+                    self.reads(*start, out);
+                    self.reads(*width, out);
+                }
+                LValueSuffix::Field(_) => {}
+            }
+        }
+    }
+
+    /// `target`'ın sürücüsü `rhs` (+ çevreleyen koşullar ve hedefin
+    /// indeksleri).
     fn add(&mut self, target: DefId, rhs: Idx<Expr>, conds: &[Read], stmt: Span) {
         let mut reads = Vec::new();
         self.reads(rhs, &mut reads);
@@ -458,7 +525,9 @@ impl Walker<'_> {
                 BlockStmt::BlockAssign { lhs, rhs, span }
                 | BlockStmt::NonBlockAssign { lhs, rhs, span } => {
                     if let Some(&target) = self.res.use_spans.get(&lhs.base.span) {
-                        self.add(target, *rhs, conds, *span);
+                        let mut ops = conds.clone();
+                        self.target_reads(lhs, &mut ops);
+                        self.add(target, *rhs, &ops, *span);
                     }
                 }
                 BlockStmt::Let(l) => {
@@ -512,10 +581,18 @@ impl Walker<'_> {
             return false;
         };
         let key = (inst, port.to_string());
-        if !self.expanding.borrow_mut().insert(key.clone()) {
-            // Örnekler üzerinden kombinasyonel döngü: bu adım zaten açık.
+        if let Some(reads) = self.expanded.borrow().get(&key) {
+            out.extend(reads.iter().cloned());
             return true;
         }
+        if !self.expanding.borrow_mut().insert(key.clone()) {
+            // Örnekler üzerinden kombinasyonel döngü: bu adım zaten açık.
+            self.cuts.set(self.cuts.get() + 1);
+            return true;
+        }
+        self.expansions.set(self.expansions.get() + 1);
+        let cuts = self.cuts.get();
+        let mut mine: Vec<Read> = Vec::new();
         for input in &deps.inputs {
             let hop = Hop {
                 inst: self.res.defs[inst.0 as usize].name.clone(),
@@ -532,14 +609,23 @@ impl Walker<'_> {
                 None => {}
             }
             // Dıştaki adım okumanın deyimine en yakın olandır; içteki bir
-            // adımın varsayımı dıştakine geçer.
-            out.extend(inner.into_iter().map(|(d, s, h)| {
-                let mut hop = hop.clone();
-                hop.assumed |= h.is_some_and(|h| h.assumed);
-                (d, s, Some(hop))
-            }));
+            // adımın varsayımı dıştakine geçer. İç adım düştüğünden aynı
+            // (tanım, konum, varsayım) bu giriş için bir kez yeter.
+            let mut seen = HashSet::new();
+            for (d, s, h) in inner {
+                let assumed = hop.assumed || h.is_some_and(|h| h.assumed);
+                if seen.insert((d, s, assumed)) {
+                    let mut hop = hop.clone();
+                    hop.assumed = assumed;
+                    mine.push((d, s, Some(hop)));
+                }
+            }
         }
         self.expanding.borrow_mut().remove(&key);
+        if self.cuts.get() == cuts {
+            self.expanded.borrow_mut().insert(key, mine.clone());
+        }
+        out.extend(mine);
         true
     }
 
@@ -700,14 +786,24 @@ mod tests {
     use volt_syntax::{parse, FileId};
 
     use super::Summaries;
-    use crate::resolve::resolve_file;
+    use crate::consteval::ConstEvaluator;
+    use crate::resolve::{resolve_file, ResolveResult};
+    use crate::typeck::typecheck;
+
+    /// Birimin özetleri, tip denetiminden sonra (saat portu türünden).
+    fn summaries(ast: &volt_ast::SourceFile, res: &ResolveResult) -> Summaries {
+        let mut ev = ConstEvaluator::new(ast, res);
+        ev.eval_all_consts();
+        let tyck = typecheck(ast, res, &mut ev);
+        Summaries::compute(ast, res, &tyck)
+    }
 
     /// `module`'ün özeti: çıkış → girişler, okunur biçimde.
     fn summary_of(src: &str, module: &str) -> Vec<(String, Vec<String>)> {
         let parsed = parse(FileId(0), src);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
         let res = resolve_file(&parsed.ast);
-        let sums = Summaries::compute(&parsed.ast, &res);
+        let sums = summaries(&parsed.ast, &res);
         let (def, _) = res.def_by_name(module).expect("modül");
         sums.get(def)
             .expect("özet")
@@ -820,7 +916,7 @@ mod tests {
                    let x = X { a: a, b: b }\n    y = x.y\n    z = x.y || a\n}\n";
         let parsed = parse(FileId(0), src);
         let res = resolve_file(&parsed.ast);
-        let sums = Summaries::compute(&parsed.ast, &res);
+        let sums = summaries(&parsed.ast, &res);
         let (w, _) = res.def_by_name("W").expect("W");
         let s = sums.get(w).expect("özet");
         let set = |v: &[&str]| {
@@ -876,7 +972,7 @@ mod tests {
         let src = "extern module X {\n    in a : bool\n    out y : bool\n}\nextern module K {\n    in clk : clock\n    in a : bool\n    out y : bool\n}\nmodule P {\n    in a : bool\n    out y : bool\n    y = a\n}\n";
         let parsed = parse(FileId(0), src);
         let res = resolve_file(&parsed.ast);
-        let sums = Summaries::compute(&parsed.ast, &res);
+        let sums = summaries(&parsed.ast, &res);
         let worst = |n: &str| {
             sums.get(res.def_by_name(n).expect("tanım").0)
                 .expect("özet")
@@ -892,5 +988,102 @@ mod tests {
         // Port düzeyi (ADR-0114 sınırı): y[0] = a, y[1] = b → y ikisine de bağlı.
         let src = "module M {\n    in a : bool\n    in b : bool\n    out y : bits<2>\n    comb {\n        y[0] = a\n        y[1] = b\n    }\n}\n";
         assert_eq!(summary_of(src, "M"), deps(&[("y", &["a", "b"])]));
+    }
+
+    /// Hedef indeksi işlenendir (ADR-0114 §1): `y[sel] = d`'de `sel`
+    /// değişince `d`'yi taşıyan bit değişir; part-select başlangıcı da aynı.
+    #[test]
+    fn a_target_index_is_an_operand() {
+        let src = "module M {
+    in sel : u3
+    in d : bool
+    in d2 : bits<2>
+    out y : u8
+    out z : u8
+    comb {
+        y = 0
+        y[sel] = d
+        z = 0
+        z[sel +: 2] = d2
+    }
+}
+";
+        assert_eq!(
+            summary_of(src, "M"),
+            deps(&[("y", &["d", "sel"]), ("z", &["d2", "sel"])])
+        );
+    }
+
+    /// Örnek zincirinde her (örnek, çıkış) bir kez açılır: `N` aşamalı,
+    /// her çıkışı iki girişe bağlı zincirde açılım `2N - 1`'dir (aşama
+    /// başına iki çıkış, son aşamada yalnız okunan), aşama sayısıyla
+    /// doğrusal; sonuncunun okuması her giriş için iki yaprak taşır.
+    /// Zamana değil sayıya bakar.
+    #[test]
+    fn an_instance_chain_expands_each_output_once() {
+        for n in [4usize, 8, 16] {
+            let mut src = String::from(
+                "module St {
+    in a : bool
+    in b : bool
+    out x : bool
+    out y : bool
+    x = a ^ b
+    y = a && b
+}
+module Top {
+    in a0 : bool
+    in b0 : bool
+    out o : bool
+    let s1 = St { a: a0, b: b0 }
+",
+            );
+            for i in 2..=n {
+                src.push_str(&format!(
+                    "    let s{i} = St {{ a: s{p}.x, b: s{p}.y }}
+",
+                    p = i - 1
+                ));
+            }
+            src.push_str(&format!(
+                "    o = s{n}.x
+}}
+"
+            ));
+            let parsed = parse(FileId(0), &src);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+            let res = resolve_file(&parsed.ast);
+            let sums = summaries(&parsed.ast, &res);
+            let (top_def, _) = res.def_by_name("Top").expect("Top");
+            let volt_ast::ItemKind::Module(top) =
+                &parsed.ast.items_arena[res.item_of_def[&top_def]].kind
+            else {
+                panic!("Top bir modül olmalı");
+            };
+            let g = super::CombGraph::build(&parsed.ast, &res, top, &sums);
+            assert_eq!(g.expansions, 2 * n - 1, "N = {n}: açılım sayısı");
+            let (o, _) = res.def_by_name("o").expect("o");
+            assert_eq!(g.edges[&o].len(), 4, "N = {n}: o'nun kenarları");
+        }
+    }
+
+    /// Saat portu türünden anlaşılır: takma adlı saat (ADR-0070) de
+    /// saattir; extern saatlidir (özet boş, K5), en kötü durum değildir.
+    #[test]
+    fn a_clock_through_a_type_alias_is_a_clock() {
+        let src = "type Clk = clock
+extern module K {
+    in clk : Clk
+    in a : bool
+    out y : bool
+}
+";
+        let parsed = parse(FileId(0), src);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+        let res = resolve_file(&parsed.ast);
+        let sums = summaries(&parsed.ast, &res);
+        let k = sums.get(res.def_by_name("K").expect("K").0).expect("özet");
+        assert!(!k.worst_case);
+        assert!(k.comb["y"].is_empty(), "{:?}", k.comb);
     }
 }

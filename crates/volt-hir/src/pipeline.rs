@@ -100,7 +100,7 @@ pub fn run_semantic_stages(
     // ve reset alanı denetimi (ADR-0065) onun sonucu üzerinde ──
     // Modül özeti (ADR-0114): birim başına bir kez; alan çıkarımı ve
     // E4007 aynı özeti okur.
-    let summaries = crate::summary::Summaries::compute(ast, resolve);
+    let summaries = crate::summary::Summaries::compute(ast, resolve, &typeck);
     let domain = crate::infer_domains(ast, resolve, &typeck, &summaries);
     let trust = crate::check_trust(ast, resolve, &typeck, &domain);
     let rdc = crate::check_rdc(ast, resolve, &domain);

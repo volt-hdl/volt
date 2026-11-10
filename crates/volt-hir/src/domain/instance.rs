@@ -353,6 +353,7 @@ impl<'a> Inferencer<'a> {
                 if let (DomainId::Explicit(x), DomainId::Explicit(y)) = (cur, new) {
                     if x != y {
                         if let (false, Some(a)) = (reported, first.clone()) {
+                            let fix = self.merge_fix(inst, deps, port_domains, a.1);
                             let merge = Merge {
                                 target: &target_name,
                                 output: out,
@@ -360,7 +361,7 @@ impl<'a> Inferencer<'a> {
                                 first: a,
                                 second: (input.clone(), d, b.span),
                             };
-                            self.err_cdc_instance_merge(inst, merge, b);
+                            self.err_cdc_instance_merge(inst, merge, fix);
                             reported = true;
                         }
                         dom = DomainId::Error;
@@ -380,29 +381,32 @@ impl<'a> Inferencer<'a> {
 
     /// E3001 (örnek biçimi, ADR-0114 K3): saatsiz hedef iki alandan gelen
     /// girişleri aynı çıkışta birleştiriyor. Beş parça: kod, konum (ikinci
-    /// alanın bağlaması), açıklama, öneri (ikinci girişi ilk alana
-    /// senkronize et), gerekçe notu (çıkışın hangi girişlere bağlı olduğu)
+    /// alanın bağlaması), açıklama, öneri (bir girişi ötekinin alanına
+    /// senkronize et, [`Self::merge_fix`]), gerekçe notu (çıkışın hangi girişlere bağlı olduğu)
     /// + ikincil etiketler (ilk bağlama, iki alanın tanımı).
-    fn err_cdc_instance_merge(&mut self, inst: &InstanceDecl, m: Merge<'_>, second: &PortBinding) {
+    fn err_cdc_instance_merge(&mut self, inst: &InstanceDecl, m: Merge<'_>, fix: Option<MergeFix>) {
         let (DomainId::Explicit(x), DomainId::Explicit(y)) =
             (self.resolve_dom(m.first.1), self.resolve_dom(m.second.1))
         else {
             return;
         };
         let inst_name = &inst.name.text;
-        let (target, out, input) = (m.target, m.output, &m.second.0);
+        let (target, out) = (m.target, m.output);
         let (dx, dy) = (
             self.domain_name(x).to_string(),
             self.domain_name(y).to_string(),
         );
         let ports_en = quote_list(m.deps, "and");
         let ports_tr = quote_list(m.deps, "ve");
-        let fix = self.binding_sync_fix(second, m.first.1);
         let help = match &fix {
-            Some((line, synced)) => lstr!(
-                en: "synchronize '{input}' into @{dx} before the instance: add '{line}' above it and bind '{input}: {synced}'";
-                tr: "'{input}' girişini örnekten önce @{dx} alanına senkronize edin: üstüne '{line}' ekleyin ve '{input}: {synced}' bağlayın"
-            ),
+            Some(f) => {
+                let (fin, line, synced) = (&f.input, &f.line, &f.synced);
+                let fdom = self.display(f.dom);
+                lstr!(
+                    en: "synchronize '{fin}' into {fdom} before the instance: add '{line}' above it and bind '{fin}: {synced}'";
+                    tr: "'{fin}' girişini örnekten önce {fdom} alanına senkronize edin: üstüne '{line}' ekleyin ve '{fin}: {synced}' bağlayın"
+                )
+            }
             None => lstr!(
                 en: "synchronize one input into the other's domain before the instance: let s = sync(<signal>, <clock of {dx}>), then bind s";
                 tr: "örnekten önce bir girişi ötekinin alanına senkronize edin: let s = sync(<sinyal>, <{dx} saati>), sonra s'yi bağlayın"
@@ -427,15 +431,74 @@ impl<'a> Inferencer<'a> {
                 tr: "'{target}.{out}', {ports_tr} girişlerine bağlı; '{target}' saatsizdir, yani kombinasyonel bir kapıdır ve iki alan onun içinde birleşir; oluşan geçici darbeyi (glitch) sonraki register yakalayabilir"
             ),
         );
-        if let (Some((line, synced)), Some(anchor), Some(value)) =
-            (fix, self.cur_stmt, second.value)
-        {
-            // suggestion: e3001_clockless_instance
-            let s = Suggestion::line_above(anchor, line, Applicability::MaybeIncorrect)
-                .and_replace(self.ast.exprs[value].span, synced);
+        if let (Some(f), Some(anchor)) = (fix, self.cur_stmt) {
+            // suggestion: e3001_clockless_instance, e3001_clockless_instance_annotated_input
+            let s = Suggestion::line_above(anchor, f.line, Applicability::MaybeIncorrect)
+                .and_replace(self.ast.exprs[f.value].span, f.synced);
             diag = diag.with_suggestion(s);
         }
         self.diagnostics.push(diag);
+    }
+
+    /// Birleşme önerisinin planı: değeri tek bir alana senkronize edilecek
+    /// tek bağlama. Anotasyonlu girişin alanı sabittir: ona bağlanan değer o
+    /// alanda olmalıdır (K8 adım 2), senkronize edilen o olamaz. Hedef alan
+    /// anotasyonlu girişlerin ortak alanıdır, anotasyonlu giriş yoksa ilk
+    /// alan. Hedef alanın dışında tek bir anotasyonsuz giriş kalmalıdır ki
+    /// öneri uygulanınca tanı gitsin (ADR-0099); kalmazsa öneri yoktur.
+    fn merge_fix(
+        &mut self,
+        inst: &InstanceDecl,
+        deps: &BTreeSet<String>,
+        port_domains: &HashMap<String, DomainId>,
+        first: DomainId,
+    ) -> Option<MergeFix> {
+        let mut annotated: Option<DomainId> = None;
+        let mut rows: Vec<(&String, &PortBinding, DomainId)> = Vec::new();
+        for input in deps {
+            let Some(b) = inst.bindings.iter().find(|b| &b.port_name.text == input) else {
+                continue;
+            };
+            let declared = port_domains
+                .get(input)
+                .copied()
+                .unwrap_or(DomainId::Timeless);
+            let declared = self.resolve_dom(declared);
+            let is_annotated = !matches!(declared, DomainId::Timeless);
+            let d = if is_annotated {
+                match annotated {
+                    None => annotated = Some(declared),
+                    Some(a) if a != declared => return None,
+                    Some(_) => {}
+                }
+                declared
+            } else {
+                let bound = self.binding_domain(b);
+                self.resolve_dom(bound)
+            };
+            rows.push((input, b, d));
+        }
+        // Anotasyonlu girişlerin hepsi hedef alandadır: dışarıda kalan
+        // anotasyonsuzdur.
+        let target = annotated.unwrap_or_else(|| self.resolve_dom(first));
+        if !matches!(target, DomainId::Explicit(_)) {
+            return None;
+        }
+        let mut outside = rows
+            .into_iter()
+            .filter(|(_, _, d)| matches!(d, DomainId::Explicit(_)) && *d != target);
+        let (input, b, _) = outside.next()?;
+        if outside.next().is_some() {
+            return None;
+        }
+        let (line, synced) = self.binding_sync_fix(b, target)?;
+        Some(MergeFix {
+            input: input.clone(),
+            dom: target,
+            line,
+            synced,
+            value: b.value?,
+        })
     }
 
     /// K8b (ADR-0114): saatsiz Volt modülünün `@Alan` anotasyonlu çıkışı
@@ -467,11 +530,17 @@ impl<'a> Inferencer<'a> {
                 continue;
             }
             let d = self.binding_domain(b);
-            if let DomainId::Explicit(y) = self.resolve_dom(d) {
-                if y != x {
+            match self.resolve_dom(d) {
+                DomainId::Explicit(y) if y != x => {
                     self.err_cdc_annotated_output(inst, &at, input, (x, y), b);
                     return;
                 }
+                // Henüz alanı belli olmayan değer (çok saatli modülde
+                // anotasyonsuz `wire`): çıkışın alanına bağlanır; sonraki
+                // bir sürücü o alana göre denetlenir (K6). Denetim deyim
+                // sırasına bağlı değildir.
+                DomainId::Unresolved(_) => self.bind_if_var(d, at.own),
+                DomainId::Explicit(_) | DomainId::Timeless | DomainId::Error => {}
             }
         }
     }
@@ -606,6 +675,16 @@ struct Merge<'m> {
     first: (String, DomainId, Span),
     /// İlkiyle çelişen giriş.
     second: (String, DomainId, Span),
+}
+
+/// Birleşme önerisi: `input`'a bağlanan değer `dom`'a senkronize edilir
+/// (`line` örneğin üstüne, bağlama `synced` olur).
+struct MergeFix {
+    input: String,
+    dom: DomainId,
+    line: String,
+    synced: String,
+    value: volt_ast::Idx<volt_ast::Expr>,
 }
 
 /// Saatsiz Volt hedefinin anotasyonlu çıkışı ve özetteki girişleri.

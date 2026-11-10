@@ -710,3 +710,205 @@ fn sync_of_an_instance_output_is_e0003_until_named_with_let() {
     let env = check_src("sync-named", &good);
     assert!(errors_of(&env).is_empty(), "tanı beklenmiyor: {env}");
 }
+
+/// Hedef indeksi işlenendir (ADR-0114 §1, domain-inference.md K8b
+/// kenarları): `y[sel] = d` ile sürülen `y`, `d`'ye olduğu kadar `sel`'e de
+/// bağlıdır; `sel` değişince `y`'nin hangi biti `d`'yi taşıdığı
+/// kombinasyonel olarak değişir. Saatsiz `Dec`'in `y`'si @Slow `d` ile
+/// @Fast `sel`'i birleştirir: E3001 örnek sitesinde (K3). Indeks ve
+/// part-select başlangıcı aynı kural; güvenli ikiz: sabit indeks.
+#[test]
+fn a_target_index_carries_its_domain_through_a_clockless_child() {
+    // (ad, hedef ataması, `sel` bağlaması, E3001 bekleniyor mu)
+    let cases: &[(&str, &str, &str, bool)] = &[
+        ("lhs-index", "y[sel] = d", "a_sig", true),
+        ("lhs-part-select", "y[sel +: 2] = d2", "a_sig", true),
+        ("lhs-index-constant", "y[sel] = d", "1", false),
+        ("lhs-part-select-constant", "y[sel +: 2] = d2", "2", false),
+    ];
+    for (name, assign, sel, merge) in cases {
+        let src = format!(
+            "{TWO_DOMAINS}module Dec {{\n    in  sel : u3\n    in  d   : bool\n    in  d2  : bits<2>\n    out y   : u8\n    comb {{\n        y = 0\n        {assign}\n    }}\n}}\n\
+             module Top {{\n    in  _fclk : clock   @Fast\n    in  _sclk : clock   @Slow\n    in  a_sig : u3      @Fast\n    in  b_sig : bool    @Slow\n    in  b2    : bits<2> @Slow\n    out o     : u8      @Slow\n    let p = Dec {{ sel: {sel}, d: b_sig, d2: b2 }}\n    o = p.y\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        if *merge {
+            assert_eq!(errors.len(), 1, "{name}: tek E3001 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E3001", "{name}: {env}");
+            assert!(
+                errors[0]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("combines two clock domains in 'Dec.y'")),
+                "{name}: {env}"
+            );
+            let line = src.lines().position(|l| l.contains("let p = Dec")).unwrap() as u64 + 1;
+            assert_eq!(primary_line(&errors[0]), Some(line), "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}
+
+/// Aynı kural E4007'de (ADR-0050 §4): `ready` bir hedef indeksi olarak
+/// `valid`'e giden yoldaysa `valid` kombinasyonel olarak `ready`'ye
+/// bağlıdır. Güvenli ikiz: sabit indeks.
+#[test]
+fn a_target_index_on_the_path_to_valid_is_e4007() {
+    // (ad, hedef ataması, E4007 bekleniyor mu)
+    let cases: &[(&str, &str, bool)] = &[
+        ("hs-lhs-index", "vv[tx.ready as u1] = valid_r", true),
+        ("hs-lhs-index-constant", "vv[1] = valid_r", false),
+    ];
+    for (name, assign, e4007) in cases {
+        let src = format!(
+            "module Producer {{\n    in  clk : clock\n    out tx  : Handshake<u8>\n    reg count   : u8   = 0\n    reg valid_r : bool = false\n    on clk {{\n        if !valid_r {{\n            valid_r <= true\n        }} else if tx.ready {{\n            valid_r <= false\n            count   <= count + 1\n        }}\n    }}\n    tx.data  = count\n    wire vv : u2\n    comb {{\n        vv = 0\n        {assign}\n    }}\n    tx.valid = vv[1]\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        if *e4007 {
+            assert_eq!(errors.len(), 1, "{name}: tek E4007 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E4007", "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}
+
+/// K8b: saatsiz çocuğun anotasyonlu çıkışına bağlı girişe bağlanan değer
+/// çıkışın alanında olmalıdır; bu deyim sırasına bağlı değildir. Bağlanan
+/// anotasyonsuz `wire`'ın @Fast sürücüsü örnekten önce de sonra da yazılsa
+/// tek E3001 (önce: örnek sitesinde; sonra: `wire` artık @Slow'dur ve
+/// @Fast atama doğrudan atama biçiminde E3001, K6). Güvenli ikiz: sürücü
+/// `sync()` ile @Slow'a köprülenmiş.
+#[test]
+fn an_annotated_output_is_checked_whatever_the_statement_order() {
+    // (ad, gövde, E3001 bekleniyor mu)
+    let cases: &[(&str, &str, bool)] = &[
+        ("order-driver-before", "    w = fast_flag\n    let p = Pass { a: w }\n    slow_flag = p.y", true),
+        ("order-driver-after", "    let p = Pass { a: w }\n    slow_flag = p.y\n    w = fast_flag", true),
+        ("order-driver-after-synced", "    let p = Pass { a: w }\n    slow_flag = p.y\n    let ws = sync(fast_flag, slow_clk)\n    w = ws", false),
+    ];
+    for (name, body, crossing) in cases {
+        let src = format!(
+            "{TWO_DOMAINS}module Pass {{\n    in  a : bool\n    out y : bool @Slow\n    y = a\n}}\n\
+             module Top {{\n    in  _fast_clk : clock @Fast\n    in  slow_clk  : clock @Slow\n    in  fast_flag : bool  @Fast\n    out slow_flag : bool  @Slow\n    wire w : bool\n{body}\n}}\n"
+        );
+        let env = check_src(name, &src);
+        let errors = errors_of(&env);
+        if *crossing {
+            assert_eq!(errors.len(), 1, "{name}: tek E3001 bekleniyor: {env}");
+            assert_eq!(errors[0]["code"], "E3001", "{name}: {env}");
+        } else {
+            assert!(errors.is_empty(), "{name}: tanı beklenmiyor: {env}");
+        }
+    }
+}
+
+/// Kaynak notu (K8b) saatsiz çocuğun çıkışını alanın geldiği her okuma
+/// biçiminde bulur: aralık, part-select ve `match` de alanı tabanından ya da
+/// işlenenlerinden alır (domain-inference.md K5).
+#[test]
+fn the_origin_note_follows_slices_part_selects_and_matches() {
+    // (ad, çıkış bildirimi, okuma)
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "note-range",
+            "out slow_o : bits<4> @Slow",
+            "slow_o = p.y[3:0]",
+        ),
+        (
+            "note-part-select",
+            "out slow_o : bits<4> @Slow",
+            "slow_o = p.y[0 +: 4]",
+        ),
+        (
+            "note-match",
+            "out slow_o : bool @Slow",
+            "slow_o = match p.y { 0 => true, _ => false }",
+        ),
+    ];
+    for (name, out, read) in cases {
+        let src = format!(
+            "{TWO_DOMAINS}module Pass {{\n    in  a : u8\n    out y : u8\n    y = a\n}}\n\
+             module Top {{\n    in  _fclk    : clock @Fast\n    in  _sclk    : clock @Slow\n    in  fast_bus : u8    @Fast\n    {out}\n    let p = Pass {{ a: fast_bus }}\n    {read}\n}}\n"
+        );
+        let d = the_error(&check_src(name, &src), "E3001");
+        assert!(
+            note(&d, "note").contains(
+                "'p.y' carries @Fast: 'Pass' has no clock, so its output 'y' carries the domain of the inputs it depends on ('a')"
+            ),
+            "{name}: {d}"
+        );
+    }
+}
+
+/// Birleşme önerisi (ADR-0114 §2, ADR-0099): anotasyonlu girişin alanı
+/// sabittir (ona bağlanan değer K8 adım 2'de denetlenir), senkronize
+/// edilen öteki giriştir; hedef alanın dışında birden çok giriş kalıyorsa
+/// ya da iki anotasyonlu giriş farklı alandaysa tek bir `sync()` tanıyı
+/// gidermez: öneri yoktur, yardım genel biçimdedir.
+#[test]
+fn the_merge_fix_synchronizes_one_unannotated_input_or_none() {
+    let top = |child: &str, binds: &str| {
+        format!(
+            "{TWO_DOMAINS}{child}\nmodule Top {{\n    in  _fclk : clock @Fast\n    in  sclk  : clock @Slow\n    in  f     : bool  @Fast\n    in  s1    : bool  @Slow\n    in  s2    : bool  @Slow\n    let g = C {{ {binds} }}\n}}\n"
+        )
+    };
+    // (ad, çocuk, bağlamalar, beklenen yardımın başı ya da genel yardım)
+    let cases: &[(&str, &str, &str, Option<&str>)] = &[
+        (
+            "merge-annotated-second",
+            "module C {\n    in  a : bool\n    in  b : bool @Slow\n    out y : bool\n    y = a && b\n}",
+            "a: f, b: s1",
+            Some("synchronize 'a' into @Slow before the instance: add 'let f_sync = sync(f, sclk)' above it and bind 'a: f_sync'"),
+        ),
+        (
+            "merge-two-outside",
+            "module C {\n    in  a : bool\n    in  b : bool\n    in  c : bool\n    out y : bool\n    y = a && b && c\n}",
+            "a: f, b: s1, c: s2",
+            None,
+        ),
+        (
+            "merge-two-annotated",
+            "module C {\n    in  a : bool @Fast\n    in  b : bool @Slow\n    out y : bool\n    y = a && b\n}",
+            "a: f, b: s1",
+            None,
+        ),
+    ];
+    for (name, child, binds, help) in cases {
+        let env = check_src(name, &top(child, binds));
+        let merge: Vec<Value> = errors_of(&env)
+            .into_iter()
+            .filter(|d| {
+                d["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("combines two clock domains"))
+            })
+            .collect();
+        assert_eq!(merge.len(), 1, "{name}: tek birleşme tanısı: {env}");
+        let d = &merge[0];
+        let h = d["help"].as_str().unwrap_or_default();
+        match help {
+            Some(want) => {
+                assert_eq!(h, *want, "{name}: {d}");
+                assert_eq!(
+                    d["suggestions"].as_array().map(Vec::len),
+                    Some(1),
+                    "{name}: {d}"
+                );
+            }
+            None => {
+                assert!(
+                    h.starts_with("synchronize one input into the other's domain"),
+                    "{name}: {d}"
+                );
+                assert_eq!(
+                    d["suggestions"].as_array().map(Vec::len),
+                    Some(0),
+                    "{name}: {d}"
+                );
+            }
+        }
+    }
+}
