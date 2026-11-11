@@ -356,6 +356,17 @@ assign busy = u_busy;
   üst modülün aynı adlı reset portuna bağlanır; bağlanmamış giriş portu
   E4011 (ADR-0072); generic argümanlı örnekleme monomorfizasyonla somut modül adına
   (`FirFilter<8, 16>` → `FirFilter_8_16`) çevrilmiş olarak gelir
+- Generic örneğin modül adı: modül adı, ardından her argüman değeri için
+  `_` ve değerin ondalık yazılışı (`FirFilter<8, 16>` → `FirFilter_8_16`,
+  `FirFilter<0x10, 2>` → `FirFilter_16_2`). Aynı modülün aynı argüman
+  değerleriyle her örneği aynı modülü kullanır. Üretilen modül adı derleme
+  biriminin modül ad alanındadır: iki FARKLI generic modül aynı adı
+  kurarsa (`M<1, 8>` ve `M_1<8>` ikisi de `M_1_8`) ya da üretilen ad
+  birimde kalan başka bir modülün (generic olmayan modül ya da hiç
+  örneklenmeyen generic modül) adıysa E1003. Volt üretilen adı kendiliğinden
+  değiştirmez (ADR-0090); modüllerden biri yeniden adlandırılır. Kural
+  örneklerin yazılış sırasından ve birimdeki dosya sırasından bağımsızdır
+  (#205)
 
 ---
 

@@ -7,8 +7,11 @@
 //! üretmek bu geçitlerin hiçbirinde değişiklik gerektirmez.
 //!
 //! Kurallar:
-//! * `FirFilter<8, 16>` → `FirFilter_8_16`; aynı argümanlarla ikinci
-//!   örnekleme aynı modülü kullanır.
+//! * `FirFilter<8, 16>` → `FirFilter_8_16`; aynı şablonun aynı
+//!   argümanlarla ikinci örneklemesi aynı modülü kullanır. Tablo
+//!   (şablon, argüman değerleri) ile anahtarlıdır: iki FARKLI şablon aynı
+//!   adı kurarsa (`M<1, 8>` ve `M_1<8>` → `M_1_8`, #205) E1003 — Volt
+//!   üretilen adı kendiliğinden değiştirmez (ADR-0090).
 //! * Yalnız const generic parametre; argüman tam sayı LİTERALİ olmalı
 //!   (yerleşik primitiflerle aynı kural, E2008). Tip parametresine
 //!   argüman E0003 (henüz yok).
@@ -46,6 +49,7 @@ pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
     let mut mono = Mono {
         modules: collect_modules(ast),
         produced: HashMap::new(),
+        names: HashMap::new(),
         expansions: HashMap::new(),
         diagnostics: Vec::new(),
         next_ctx: 1,
@@ -89,6 +93,17 @@ struct Request {
     args: Vec<ArgInfo>,
 }
 
+/// Bir monomorf adını ilk kuran örnekleme: çakışma tanısı iki şablonu ve
+/// iki örnek sitesini gösterir.
+#[derive(Clone)]
+struct NameOwner {
+    template: Idx<Item>,
+    /// Kaynaktaki yazılışı: `M<1, 8>`.
+    written: String,
+    /// Örneklemedeki modül adının konumu.
+    site: Span,
+}
+
 enum ArgInfo {
     Lit(u128),
     Other(Span),
@@ -97,8 +112,10 @@ enum ArgInfo {
 struct Mono<'a> {
     ast: &'a mut SourceFile,
     modules: HashMap<String, ModuleInfo>,
-    /// Üretilmiş monomorf adı → öğe.
-    produced: HashMap<String, Idx<Item>>,
+    /// (şablon, argüman değerleri) → monomorf öğesi.
+    produced: HashMap<(Idx<Item>, Vec<u128>), Idx<Item>>,
+    /// Üretilmiş monomorf adı → onu ilk kuran örnekleme (#205).
+    names: HashMap<String, NameOwner>,
     /// Şablon öğesi → monomorfları (üretim sırasıyla).
     expansions: HashMap<Idx<Item>, Vec<Idx<Item>>>,
     diagnostics: Vec<Diagnostic>,
@@ -216,9 +233,18 @@ impl Mono<'_> {
             return None;
         };
         let mangled = mangle(&req.target, &values);
-        let (item, is_new) = match self.produced.get(&mangled) {
+        let key = (template, values);
+        let (item, is_new) = match self.produced.get(&key) {
             Some(&existing) => (existing, false),
             None => {
+                // Ad başka bir (şablon, argümanlar) demetine ait: iki farklı
+                // şablon aynı adı kuruyor (#205). Yeniden adlandırma yok.
+                if let Some(owner) = self.names.get(&mangled).cloned() {
+                    let written = written(&req.target, &key.1);
+                    self.err_name_collision(&owner, template, req, &written, &mangled);
+                    self.clear_generic_args(req.stmt); // kaskad bastırma
+                    return None;
+                }
                 // Bütçe (ADR-0068 §6): klon sayısı × şablon boyu da
                 // sınırlı — aşımda tek E2027, sonraki örneklemeler açılmaz.
                 if self.budget.exhausted() {
@@ -230,12 +256,19 @@ impl Mono<'_> {
                 }
                 // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
                 // doyurulur.
-                let values = values
+                let values = key
+                    .1
                     .iter()
                     .map(|&v| i128::try_from(v).unwrap_or(i128::MAX))
                     .collect();
                 let item = self.clone_template(template, values, mangled.clone());
-                self.produced.insert(mangled.clone(), item);
+                let owner = NameOwner {
+                    template,
+                    written: written(&req.target, &key.1),
+                    site: req.target_span,
+                };
+                self.names.insert(mangled.clone(), owner);
+                self.produced.insert(key, item);
                 self.expansions.entry(template).or_default().push(item);
                 (item, true)
             }
@@ -355,6 +388,60 @@ impl Mono<'_> {
     }
 
     // ═══ Tanılar (5 parça: kod, konum, açıklama, öneri, spec notu) ═══
+
+    /// #205: iki farklı şablon aynı monomorf adını kuruyor — E1003
+    /// (ADR-0090: üretilen ad değiştirilmez). İleti iki örneklemeyi kaynak
+    /// sırasıyla adlandırır; birincil etiket sonrakinde, böylece ileti
+    /// örneklerin açılış sırasından bağımsızdır. İki şablon adı da
+    /// etiketlenir; help hangi modüllerin adının değişebileceğini söyler.
+    fn err_name_collision(
+        &mut self,
+        owner: &NameOwner,
+        template: Idx<Item>,
+        req: &Request,
+        written: &str,
+        name: &str,
+    ) {
+        let this = (req.target_span, written, template);
+        let other = (owner.site, owner.written.as_str(), owner.template);
+        let (first, second) = if span_order(other.0) <= span_order(this.0) {
+            (other, this)
+        } else {
+            (this, other)
+        };
+        let (a, b) = (first.1, second.1);
+        let (ta, ta_span) = self.module_name(first.2);
+        let (tb, tb_span) = self.module_name(second.2);
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E1003,
+                lstr!(en: "'{name}' is the generated module name of both {a} and {b}";
+                      tr: "'{name}' hem {a} hem {b} için üretilen modül adı"),
+                LabeledSpan::primary(
+                    second.0,
+                    lstr!(en: "becomes '{name}'"; tr: "'{name}' adını alıyor"),
+                ),
+                lstr!(en: "rename generic module '{ta}' or '{tb}' — Volt does not rename generated SystemVerilog module names";
+                      tr: "'{ta}' ya da '{tb}' generic modülünü yeniden adlandırın — Volt üretilen SystemVerilog modül adlarını değiştirmez"),
+            )
+            .with_secondary(first.0, lstr!(en: "also '{name}'"; tr: "bu da '{name}'"))
+            .with_secondary(ta_span, lstr!(en: "generic module '{ta}'"; tr: "generic modül '{ta}'"))
+            .with_secondary(tb_span, lstr!(en: "generic module '{tb}'"; tr: "generic modül '{tb}'"))
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a generic instance's module name is the module name followed by its argument values: {a} becomes '{name}'";
+                      tr: "generic örneğin modül adı, modül adının ardına argüman değerleri eklenerek kurulur: {a} '{name}' olur"),
+            ),
+        );
+    }
+
+    /// Şablon öğesinin adı ve ad konumu.
+    fn module_name(&self, item: Idx<Item>) -> (String, Span) {
+        match &self.ast.items_arena[item].kind {
+            ItemKind::Module(m) => (m.name.text.clone(), m.name.span),
+            _ => unreachable!("yalnız modüller monomorflanır"),
+        }
+    }
 
     fn err_not_generic(&mut self, req: &Request) {
         let name = &req.target;
@@ -487,6 +574,18 @@ fn mangle(name: &str, values: &[u128]) -> String {
         out.push_str(&v.to_string());
     }
     out
+}
+
+/// `M<1, 8>`: örneklemenin kaynaktaki yazılışı (değerler ondalık).
+fn written(name: &str, values: &[u128]) -> String {
+    let args: Vec<String> = values.iter().map(u128::to_string).collect();
+    format!("{name}<{}>", args.join(", "))
+}
+
+/// Konumların kaynak sırası (dosya, bayt, açılım bağlamı): tanının
+/// iletisi örneklerin açılış sırasından bağımsız olsun.
+fn span_order(span: Span) -> (u32, u32, u16) {
+    (span.file.0, span.start, span.ctx)
 }
 
 /// Şablon modülü öğeden geçici olarak çıkarır (yerine boş `Error`).

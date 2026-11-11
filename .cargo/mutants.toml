@@ -29,6 +29,10 @@ examine_globs = [
     "crates/volt-syntax/src/parser/mono/scope.rs",
     "crates/volt-syntax/src/parser/mono/clone.rs",
     "crates/volt-syntax/src/parser/mono/pattern.rs",
+    # The monomorphization table and the module name a generic instance
+    # gets (#205): keyed by (template, argument values); two different
+    # templates that build one name are E1003 (ADR-0090).
+    "crates/volt-syntax/src/parser/mono/mod.rs",
     # The parser's other name-matching steps, wired to the same scope chain
     # (#136, #137, #138; ADR-0081 appendix): bundle flattening, bidirectional
     # ports (parse-time `p.drive(v)` in stmt.rs, the post pass in bidir.rs),

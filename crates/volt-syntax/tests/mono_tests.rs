@@ -232,6 +232,61 @@ fn arguments_on_non_generic_module_is_e2003() {
     assert!(!d.notes.is_empty() && d.notes.iter().all(|n| !n.text.contains("ADR-")));
 }
 
+/// İç içe generic örnekleme zinciri tur sınırından (64) uzunsa tek E2003;
+/// sessiz bir kesinti değil (ADR-0109 hedefli koşu, #205:
+/// `err_depth_exceeded` → `()` kaçıyordu). Her `T<i><N>` gövdesinde
+/// `T<i+1><N>` örneklenir, her tur bir yeni monomorf üretir. (Örnekleme
+/// argümanında işleç yazılamaz, `R<N + 1>` E0010'dur; modül içi `const`
+/// yok: derinlik yalnız ayrı şablonlarla aşılır.)
+#[test]
+fn generic_instantiation_chain_longer_than_the_round_limit_is_e2003() {
+    let mut src = String::new();
+    for i in 0..70 {
+        src.push_str(&format!(
+            "module T{i}<const N: u32> {{ in a : bool  out b : bool  let x = T{}<N> {{ a: a }}  b = x.b }}\n",
+            i + 1
+        ));
+    }
+    src.push_str("module T70<const N: u32> { in a : bool  out b : bool  b = a }\n");
+    src.push_str("module Top { in a : bool  out b : bool  let x = T0<1> { a: a }  b = x.b }\n");
+    let r = p(&src);
+    assert_eq!(r.error_codes(), ["E2003"]);
+    assert!(
+        r.diagnostics[0]
+            .message
+            .contains("generic instantiation depth exceeded"),
+        "{}",
+        r.diagnostics[0].message
+    );
+}
+
+/// Generic örnekleme tanılarının notu kuralı söyler: her argüman demeti
+/// ayrı bir modüldür. Not boş ya da ilgisiz bir metin olamaz (ADR-0109
+/// hedefli koşu, #205: `adr_note` → `String::new()` / `"xyzzy"` kaçıyordu).
+#[test]
+fn generic_instantiation_diagnostics_say_each_argument_tuple_is_a_module() {
+    let not_generic = "module Plain { in a : bool  out b : bool  b = a }\n\
+                       module Top { in a : bool  out b : bool  let g = Plain<8> { a }  b = g.b }";
+    let type_arg = "module G<T> { in a : bool  out b : bool  b = a }\n\
+                    module Top { in a : bool  out b : bool  let g = G<u8> { a }  b = g.b }";
+    let arity = GENERIC_FIR.replace("Acc<4, 16>", "Acc<4>");
+    for src in [not_generic, type_arg, arity.as_str()] {
+        let r = p(src);
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.error_codes());
+        let notes: Vec<&str> = r.diagnostics[0]
+            .notes
+            .iter()
+            .map(|n| n.text.as_str())
+            .collect();
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.contains("monomorphised per argument tuple")),
+            "{notes:?}"
+        );
+    }
+}
+
 #[test]
 fn uninstantiated_generic_module_is_left_alone() {
     let src = "module Lonely<const N: u32> { in a : bits<N>  out b : bits<N>  b = a }";
@@ -330,4 +385,169 @@ fn builtin_primitive_instances_are_untouched() {
         .expect("örnekleme");
     assert_eq!(inst.generic_args.len(), 2);
     assert_eq!(inst.module_path.segments[0].text, "SyncFifo");
+}
+
+// ═══ #205: iki farklı şablon aynı monomorf adına iniyor ═══════════════
+
+/// #205'in örneği: `M<1, 8>` ve `M_1<8>` ikisi de `M_1_8` adını kurar.
+const ISSUE_205: &str = r#"module M<const A: u32, const B: u32> { in x : uint<B>  out y : uint<B>  y = x + A }
+module M_1<const C: u32>             { in x : u8       out y : u8       y = x ^ C }
+module Top {
+    in  x : u8
+    out a : u8
+    out b : u8
+    let p = M<1, 8> { x: x }
+    let q = M_1<8> { x: x }
+    a = p.y
+    b = q.y
+}
+"#;
+
+/// `module`'deki `inst` örneğinin bağlandığı modül adı.
+fn instance_target(ast: &SourceFile, module_name: &str, inst: &str) -> String {
+    module(ast, module_name)
+        .body
+        .iter()
+        .find_map(|&s| match &ast.stmts[s].kind {
+            StmtKind::Instance(i) if i.name.text == inst => {
+                Some(i.module_path.segments[0].text.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("örnek bulunamadı: {inst}"))
+}
+
+/// Öğe listesindeki `name` modülünün adı kaynakta hangi bayttan başlıyor:
+/// monomorf, şablonunun ad konumunu taşır (klon span'ı, bağlam ayrı).
+fn name_start(ast: &SourceFile, name: &str) -> u32 {
+    module(ast, name).name.span.start
+}
+
+/// `src`'de `module <template><` başlığındaki şablon adının ilk baytı.
+fn template_start(src: &str, template: &str) -> u32 {
+    let at = src
+        .find(&format!("module {template}<"))
+        .unwrap_or_else(|| panic!("şablon yok: {template}"));
+    u32::try_from(at + "module ".len()).expect("küçük dosya")
+}
+
+/// Her örnek ya kendi şablonunun bir monomorfuna bağlanır ya da (çakışma
+/// tanısından sonra) kendi şablonunda kalır; başka şablonun gövdesine
+/// ASLA bağlanmaz. Düzeltmeden önce `q` → `M_1_8` = `M`'nin klonu.
+fn assert_own_bodies(src: &str, pairs: &[(&str, &str)]) {
+    let r = p(src);
+    for &(inst, template) in pairs {
+        let target = instance_target(&r.ast, "Top", inst);
+        assert_eq!(
+            name_start(&r.ast, &target),
+            template_start(src, template),
+            "'{inst}' ({template}) '{target}' modülüne bağlandı; tanılar: {:?}",
+            r.error_codes()
+        );
+    }
+}
+
+#[test]
+fn issue_205_each_instance_is_bound_to_its_own_template() {
+    assert_own_bodies(ISSUE_205, &[("p", "M"), ("q", "M_1")]);
+}
+
+#[test]
+fn issue_205_each_instance_is_bound_to_its_own_template_in_the_other_order() {
+    let src = ISSUE_205.replace(
+        "    let p = M<1, 8> { x: x }\n    let q = M_1<8> { x: x }\n",
+        "    let q = M_1<8> { x: x }\n    let p = M<1, 8> { x: x }\n",
+    );
+    assert_own_bodies(&src, &[("p", "M"), ("q", "M_1")]);
+}
+
+#[test]
+fn issue_205_two_templates_building_one_name_is_e1003() {
+    let r = p(ISSUE_205);
+    assert_eq!(r.error_codes(), ["E1003"]);
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message
+            .contains("'M_1_8' is the generated module name of both M<1, 8> and M_1<8>"),
+        "{}",
+        d.message
+    );
+    // Dört konum: iki örnek sitesi (birincil: sonraki) ve iki şablon adı.
+    let starts: Vec<(u32, bool)> = d.spans.iter().map(|l| (l.span.start, l.primary)).collect();
+    let at = |needle: &str| u32::try_from(ISSUE_205.find(needle).expect(needle)).expect("küçük");
+    assert!(starts.contains(&(at("M_1<8> {"), true)), "{starts:?}");
+    assert!(starts.contains(&(at("M<1, 8> {"), false)), "{starts:?}");
+    assert!(
+        starts.contains(&(template_start(ISSUE_205, "M"), false)),
+        "{starts:?}"
+    );
+    assert!(
+        starts.contains(&(template_start(ISSUE_205, "M_1"), false)),
+        "{starts:?}"
+    );
+    assert_eq!(starts.len(), 4, "{starts:?}");
+    // Help hangi modüllerin adının değişebileceğini söyler.
+    let help = d.help.as_deref().unwrap_or_default();
+    assert!(help.contains("'M'") && help.contains("'M_1'"), "{help}");
+    // Kaskad bastırma: çakışan örneğin generic argümanları temizlenir, yolu
+    // kendi şablonunda kalır (diğer mono hatalarıyla aynı).
+    let q = module(&r.ast, "Top")
+        .body
+        .iter()
+        .find_map(|&s| match &r.ast.stmts[s].kind {
+            StmtKind::Instance(i) if i.name.text == "q" => Some(i),
+            _ => None,
+        })
+        .expect("q");
+    assert!(q.generic_args.is_empty());
+    assert_eq!(q.module_path.segments[0].text, "M_1");
+}
+
+/// Çakışma iç içe açılımda (ikinci tur) doğsa da bulunur: `W<8>`'in
+/// gövdesindeki `M<1, N>` ikame sonrası `M<1, 8>` olur.
+#[test]
+fn issue_205_collision_in_a_nested_instantiation_is_e1003() {
+    let src = r#"module M<const A: u32, const B: u32> { in x : uint<B>  out y : uint<B>  y = x + A }
+module M_1<const C: u32>             { in x : u8       out y : u8       y = x ^ C }
+module W<const N: u32> { in x : u8  out y : u8  let i = M<1, N> { x: x }  y = i.y }
+module Top {
+    in  x : u8
+    out a : u8
+    out b : u8
+    let p = W<8> { x: x }
+    let q = M_1<8> { x: x }
+    a = p.y
+    b = q.y
+}
+"#;
+    let r = p(src);
+    assert_eq!(r.error_codes(), ["E1003"]);
+    assert_own_bodies(src, &[("q", "M_1")]);
+    // Adı ilk kuran `q` (birinci tur) kaynakta SONRA gelir; ileti açılış
+    // sırasına değil kaynak sırasına bakar: W'nin gövdesindeki `M<1, N>`
+    // önce adlandırılır, birincil etiket `q`'da.
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message
+            .contains("'M_1_8' is the generated module name of both M<1, 8> and M_1<8>"),
+        "{}",
+        d.message
+    );
+    let primary = d.spans.iter().find(|l| l.primary).expect("birincil");
+    let q_site = u32::try_from(src.find("M_1<8> {").expect("q")).expect("küçük");
+    assert_eq!(primary.span.start, q_site);
+}
+
+/// Aynı şablonun farklı argüman listeleri ayrı adlara iner: argüman sayısı
+/// şablonda sabit, ondalık değerde `_` yok (`M<1, 23>` ≠ `M<12, 3>`).
+#[test]
+fn issue_205_one_template_with_two_argument_lists_builds_two_names() {
+    let src = "module M<const A: u32, const B: u32> { in x : u8  out y : u8  y = x + A + B }\n\
+               module Top { in x : u8  out a : u8  out b : u8\n\
+               let p = M<1, 23> { x: x }\n\
+               let q = M<12, 3> { x: x }\n\
+               a = p.y  b = q.y }";
+    let r = p(src);
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    assert_eq!(module_names(&r.ast), vec!["M_1_23", "M_12_3", "Top"]);
 }

@@ -9,6 +9,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** İki farklı generic modül aynı SystemVerilog
+  modül adını kurarsa artık E1003 verilir (#205; sessiz yanlış
+  düzeltmesi). Generic örnek `<modül>_<argüman değerleri>` adını alır;
+  0.1.1'de `M<1, 8>` ve `M_1<8>` ikisi de `M_1_8` oluyor, yalnız
+  `M_1_8.sv` (M'nin gövdesi) yazılıyor ve ikinci örnek de bu gövdeye
+  bağlanıyordu: `M_1<8>` örneği `x ^ 8` yerine `x + 1` hesaplıyordu. Tek
+  tanı yanıltıcı bir W1006'ydı ("`M_1` hiç örneklenmiyor"). Daha önce
+  böyle yanlış derlenen tasarımlar artık reddedilir; tanı iki örneği ve
+  iki generic modülü gösterir. Çözüm modüllerden birinin adını
+  değiştirmektir (Volt üretilen adı kendiliğinden değiştirmez). Çakışma
+  içermeyen tasarımların ürettiği SystemVerilog değişmez.
 - **Davranış değişikliği.** Bir uyarı artık ardından gelen hatayı yutmaz
   (#206; sessiz yanlış düzeltmesi). 0.1.1'de ayrıştırıcının kaskad
   bastırma penceresini uyarılar da (W0010, W0020) açıyordu: uyarıdan bir

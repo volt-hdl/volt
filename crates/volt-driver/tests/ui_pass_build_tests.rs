@@ -102,8 +102,9 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // ADR-0114: 141-146 modül özeti (saatsiz alt modül, extern, el sıkışma);
     // 148 saatsiz modülün anotasyonlu çıkışı (K8); 149 takma adlı saatli
     // extern. 147 karar B ile ui/fail/255 oldu (varsayımsal yol
-    // @no_protocol_check ile de E4007).
-    assert_eq!((built, check_only), (134, 0));
+    // @no_protocol_check ile de E4007). #205: 150 iki generic modülün iki
+    // ayrı modül adı.
+    assert_eq!((built, check_only), (135, 0));
 }
 
 #[test]
