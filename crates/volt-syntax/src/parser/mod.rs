@@ -33,7 +33,7 @@ use volt_ast::mmio::RegMap;
 use volt_ast::{
     Expr, ExprKind, Idx, Name, Path, Pattern, PatternKind, SourceFile, TypeRef, TypeRefKind,
 };
-use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, Severity};
 use volt_span::{FileId, Span};
 
 use crate::lexer::tokenize;
@@ -353,8 +353,19 @@ impl<'s> Parser<'s> {
 
     // ─── Tanılar ───
 
-    /// Kaskad bastırma penceresiyle hata ekler (error-recovery.md §5).
+    /// Ayrıştırma hatasını kaskad bastırma penceresiyle ekler
+    /// (error-recovery.md §5): bir hatadan sonraki iki token içindeki hata
+    /// aynı bozuk bölgenin sonucudur ve bastırılır.
+    ///
+    /// Pencereyi yalnız hata açar ve pencere yalnız hata bastırır (#206).
+    /// Uyarı ya da not [`Self::push_diag`]'e gider: çıkış kodunu
+    /// değiştirmeyen bir tanı ardından gelen hatayı yutsaydı hatalı kaynak
+    /// sessizce kabul edilirdi.
     pub(crate) fn push_error(&mut self, diag: Diagnostic) {
+        if diag.severity != Severity::Error {
+            self.push_diag(diag);
+            return;
+        }
         // Derinlik atlamasının bittiği yerdeki hata onun sonucudur: yapının
         // kalanı zaten tek E0018 ile atlandı (ADR-0080).
         if self.cut_by_depth() {
@@ -366,6 +377,19 @@ impl<'s> Parser<'s> {
             }
         }
         self.last_error_pos = Some(self.pos);
+        self.diagnostics.push(diag);
+    }
+
+    /// Kaskad penceresinin dışındaki tanı (#206): pencereyi açmaz, pencereye
+    /// takılmaz. İki yer kullanır:
+    ///
+    /// - uyarılar ve notlar (W0010, W0020, ...);
+    /// - ayrıştırılmış bildirimi bütün olarak denetleyen desugar geçitleri
+    ///   (`@mmio`, pipeline). Bunlar ayrıştırma imlecinde koşmaz: bütün
+    ///   tanıları aynı `pos`'tadır (dosya sonu, pipeline'ın kapanış `}`'i),
+    ///   pencere birbirinden bağımsız hataları ve imlecin hemen önündeki bir
+    ///   tanıdan sonrakilerin hepsini yutardı.
+    pub(crate) fn push_diag(&mut self, diag: Diagnostic) {
         self.diagnostics.push(diag);
     }
 

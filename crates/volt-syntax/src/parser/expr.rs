@@ -222,7 +222,7 @@ impl Parser<'_> {
             } else {
                 format!("{other_text} {} ({child_text})", op.symbol())
             };
-            self.push_error(
+            self.push_diag(
                 Diagnostic::warning(
                     ErrorCode::W0010,
                     lstr!(en: "'{a}' and '{b}' are mixed — parentheses recommended"; tr: "'{a}' ile '{b}' karışıyor — parantez önerilir"),

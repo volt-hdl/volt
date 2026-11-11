@@ -89,7 +89,7 @@ impl Parser<'_> {
         let name_span = p.name.span;
 
         if p.stages.is_empty() {
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5011,
                 name_span,
                 lstr!(en: "pipeline '{}' has no stages", p.name.text; tr: "'{}' pipeline'ında aşama yok", p.name.text),
@@ -106,7 +106,7 @@ impl Parser<'_> {
             });
         }
         if p.stages.len() as u32 != p.depth {
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5011,
                 p.depth_span,
                 lstr!(en: "pipeline declares {} stages but defines {}", p.depth, p.stages.len(); tr: "pipeline {} aşama bildiriyor ama {} aşama tanımlıyor", p.depth, p.stages.len()),
@@ -199,7 +199,7 @@ impl Parser<'_> {
                         lstr!(en: "crosses a stage boundary here"; tr: "aşama sınırını burada geçiyor"),
                     );
                 }
-                self.push_error(d);
+                self.push_diag(d);
                 continue;
             };
             for (b, slot) in boundary_regs
@@ -344,7 +344,7 @@ impl Parser<'_> {
         let mut lower = Vec::new();
         for (i, st) in p.stages.iter().enumerate() {
             if stage_index.insert(st.name.text.clone(), i).is_some() {
-                self.push_error(pipeline_err(
+                self.push_diag(pipeline_err(
                     ErrorCode::E5011,
                     st.name.span,
                     lstr!(en: "duplicate stage name '{}'", st.name.text; tr: "yinelenen aşama adı '{}'", st.name.text),
@@ -369,7 +369,7 @@ impl Parser<'_> {
                 .collect();
             for (nm, ty, nspan) in names {
                 if values.contains_key(&nm) {
-                    self.push_error(pipeline_err(
+                    self.push_diag(pipeline_err(
                         ErrorCode::E5016,
                         nspan,
                         lstr!(en: "stage-local value '{nm}' is defined in more than one stage"; tr: "aşama-yerel '{nm}' değeri birden çok aşamada tanımlı"),
@@ -552,7 +552,7 @@ impl Parser<'_> {
                             self.rewrite_path(e, &reg, span, ctx);
                         }
                         Some(_) => {
-                            self.push_error(pipeline_err(
+                            self.push_diag(pipeline_err(
                                 ErrorCode::E5012,
                                 span,
                                 lstr!(en: "'{nm}' is defined in a later stage — it does not exist here yet"; tr: "'{nm}' sonraki bir aşamada tanımlı — burada henüz yok"),
@@ -560,7 +560,7 @@ impl Parser<'_> {
                             ));
                         }
                         None => {
-                            self.push_error(pipeline_err(
+                            self.push_diag(pipeline_err(
                                 ErrorCode::E5012,
                                 span,
                                 lstr!(en: "stage-local value '{nm}' cannot be referenced by bare name at module level"; tr: "aşama-yerel '{nm}' değerine modül seviyesinde düz adla erişilemez"),
@@ -594,7 +594,7 @@ impl Parser<'_> {
             StageRefTarget::Named(n) => match ctx.stage_index.get(&n.text) {
                 Some(&i) => i,
                 None => {
-                    self.push_error(pipeline_err(
+                    self.push_diag(pipeline_err(
                         ErrorCode::E5012,
                         n.span,
                         lstr!(en: "unknown stage '{}'", n.text; tr: "bilinmeyen aşama '{}'", n.text),
@@ -605,7 +605,7 @@ impl Parser<'_> {
             },
             StageRefTarget::Relative(k) => {
                 let Some(cur) = sr.stage else {
-                    self.push_error(pipeline_err(
+                    self.push_diag(pipeline_err(
                         ErrorCode::E5012,
                         sr.span,
                         lstr!(en: "relative stage reference outside a stage body"; tr: "aşama gövdesi dışında göreli aşama referansı"),
@@ -615,7 +615,7 @@ impl Parser<'_> {
                 };
                 let t = cur as i64 + k;
                 if t < 0 || t > last as i64 {
-                    self.push_error(pipeline_err(
+                    self.push_diag(pipeline_err(
                         ErrorCode::E5012,
                         sr.span,
                         lstr!(en: "stage({k:+}) from stage {cur} lands on {t}, outside 0..={last}"; tr: "aşama {cur} içinden stage({k:+}) {t}'ye düşer, 0..={last} dışı"),
@@ -629,7 +629,7 @@ impl Parser<'_> {
 
         let field = &sr.field.text;
         let Some(def_stage) = ctx.values.get(field).map(|v| v.stage) else {
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5012,
                 sr.field.span,
                 lstr!(en: "unknown stage-local value '{field}'"; tr: "bilinmeyen aşama-yerel değer '{field}'"),
@@ -638,7 +638,7 @@ impl Parser<'_> {
             return;
         };
         if target < def_stage {
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5012,
                 sr.span,
                 lstr!(en: "'{field}' is defined in stage {def_stage}; it does not exist yet in stage {target}"; tr: "'{field}' aşama {def_stage}'de tanımlı; aşama {target}'de henüz yok"),
@@ -686,7 +686,7 @@ impl Parser<'_> {
                 match sd.in_stage {
                     Some(s) => s,
                     None => {
-                        self.push_error(pipeline_err(
+                        self.push_diag(pipeline_err(
                             ErrorCode::E5013,
                             sd.span,
                             lstr!(en: "module-level 'stall when' needs a stage list"; tr: "modül seviyesinde 'stall when' aşama listesi ister"),
@@ -716,7 +716,7 @@ impl Parser<'_> {
             match ctx.stage_index.get(&n.text) {
                 Some(&i) => idxs.push(i),
                 None => {
-                    self.push_error(pipeline_err(
+                    self.push_diag(pipeline_err(
                         ErrorCode::E5013,
                         n.span,
                         lstr!(en: "unknown stage '{}' in the stall list", n.text; tr: "stall listesinde bilinmeyen aşama '{}'", n.text),
@@ -730,7 +730,7 @@ impl Parser<'_> {
         idxs.dedup();
         let is_prefix = idxs.first() == Some(&0) && *idxs.last().unwrap() == idxs.len() - 1;
         if !is_prefix {
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5013,
                 span,
                 lstr!(en: "stalled stages must form a contiguous prefix starting at the first stage"; tr: "durdurulan aşamalar ilk aşamadan başlayan bitişik bir önek olmalı"),
@@ -745,7 +745,7 @@ impl Parser<'_> {
         let mut per_stage = vec![Vec::new(); ctx.nstages];
         for fd in &p.flushes {
             if fd.stages.is_empty() {
-                self.push_error(pipeline_err(
+                self.push_diag(pipeline_err(
                     ErrorCode::E5013,
                     fd.span,
                     lstr!(en: "'flush when' needs a stage list"; tr: "'flush when' aşama listesi ister"),
@@ -757,7 +757,7 @@ impl Parser<'_> {
                 match ctx.stage_index.get(&n.text) {
                     Some(&i) => per_stage[i].push(fd.cond),
                     None => {
-                        self.push_error(pipeline_err(
+                        self.push_diag(pipeline_err(
                             ErrorCode::E5013,
                             n.span,
                             lstr!(en: "unknown stage '{}' in the flush list", n.text; tr: "flush listesinde bilinmeyen aşama '{}'", n.text),
@@ -889,7 +889,7 @@ impl Parser<'_> {
                 .filter(|&i| !done[i])
                 .map(|i| pool[i].0.clone())
                 .collect();
-            self.push_error(pipeline_err(
+            self.push_diag(pipeline_err(
                 ErrorCode::E5015,
                 pl_span,
                 lstr!(en: "combinational cycle through stage references: {}", cyclic.join(" → "); tr: "aşama referansları üzerinden kombinasyonel çevrim: {}", cyclic.join(" → ")),
@@ -1005,7 +1005,7 @@ impl Parser<'_> {
         if clocks.len() == 1 {
             return Some(clocks.into_iter().next().unwrap());
         }
-        self.push_error(pipeline_err(
+        self.push_diag(pipeline_err(
             ErrorCode::E5011,
             name_span,
             lstr!(en: "a pipeline needs exactly one clock port (found {})", clocks.len(); tr: "pipeline tam bir saat portu ister ({} bulundu)", clocks.len()),
