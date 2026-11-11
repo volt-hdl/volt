@@ -51,6 +51,16 @@ const K11: &str =
     "domain-inference.md K11 / ADR-0052 §2 (a secret value reaches a public output: E3009)";
 const K11_SAFE: &str = "ADR-0052 §4 (declassify is the legal downgrade; it adds its W3008 record)";
 
+// ── field-init shorthand (#204) ──────────────────────────────────────
+const KEY71: &str = "module KeyPresence {";
+const BOTH44: &str = "    let both  = delay<1>(s1) + s2";
+const TIMED44: &str = "@strict_timing\nmodule DelayedAligned {";
+const SH_K5: &str = "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + domain-inference.md K5 (a struct literal joins its fields) + K6: E3001";
+const SH_K5_CHILD: &str = "grammar-full.ebnf PortBind (`x` is `x: x`, #204) + domain-inference.md K5, K2, K8 (a clockless child keeps the join of its inputs): E3001";
+const SH_K11: &str = "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + domain-inference.md K11 / ADR-0052 §2 (a secret field reaches a public output): E3009";
+const SH_E4007: &str = "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0050 §4 (valid reads a literal that reads ready): E4007";
+const SH_E5010: &str = "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0037 (a literal of a 1-cycle and a 2-cycle value under @strict_timing): E5010";
+
 pub const SPECIALS: &[Special] = &[
     // ── clock domains ────────────────────────────────────────────────
     Special {
@@ -1103,5 +1113,127 @@ pub const SPECIALS: &[Special] = &[
         codes: &[],
         near_miss: true,
         spec: "ADR-0052 §4 (only the inner expression is downgraded; `load` is public)",
+    },
+    // ── field-init shorthand (#204): the hazard written as `x` ────────
+    Special {
+        kind: "cdc.shorthand-field",
+        design: UI13,
+        site: "let w = Flag { fast_flag }; slow_flag = w.fast_flag",
+        edits: &[
+            (CDC13, "struct Flag {\n    fast_flag : bool,\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let w = Flag { fast_flag }\n    slow_flag = w.fast_flag"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: SH_K5,
+    },
+    Special {
+        kind: "cdc.shorthand-instance",
+        design: UI13,
+        site: "let p = Pass { fast_flag }; slow_flag = p.y (Pass: no clock)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  fast_flag : bool\n    out y : bool\n    y = fast_flag\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pass { fast_flag }\n    slow_flag = p.y"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: SH_K5_CHILD,
+    },
+    Special {
+        kind: "trust.shorthand-field",
+        design: UI71,
+        site: "let w = Wrap { key_r }; status = w.key_r != 0",
+        edits: &[
+            (KEY71, "struct Wrap {\n    key_r : u8,\n}\n\nmodule KeyPresence {"),
+            (STATUS, "    let w = Wrap { key_r }\n    status = w.key_r != 0"),
+        ],
+        codes: &["E3009"],
+        near_miss: false,
+        spec: SH_K11,
+    },
+    Special {
+        kind: "handshake.shorthand-field",
+        design: UI66,
+        site: "let ready = tx.ready; let g = Gate { ready }; tx.valid = valid_r && g.ready",
+        edits: &[
+            (PRODUCER66, "struct Gate {\n    ready : bool,\n}\n\nmodule Producer {"),
+            (TXV, "    let ready = tx.ready\n    let g = Gate { ready }\n    tx.valid = valid_r && g.ready"),
+        ],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: SH_E4007,
+    },
+    Special {
+        kind: "timing.shorthand-field",
+        design: UI44,
+        site: "let st = Pair { s1, s2 }; let both = st.s1 + st.s2",
+        edits: &[
+            (TIMED44, "struct Pair {\n    s1 : u32,\n    s2 : u32,\n}\n\n@strict_timing\nmodule DelayedAligned {"),
+            (BOTH44, "    let st = Pair { s1, s2 }\n    let both  = st.s1 + st.s2"),
+        ],
+        codes: &["E5010"],
+        near_miss: false,
+        spec: SH_E5010,
+    },
+    // ── field-init shorthand: safe twins ──────────────────────────────
+    Special {
+        kind: "near.shorthand-field-synchronized",
+        design: UI13,
+        site: "let slow_view = sync(fast_flag, slow_clk); let w = View { slow_view }; slow_flag = w.slow_view",
+        edits: &[
+            (CDC13, "struct View {\n    slow_view : bool,\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let slow_view = sync(fast_flag, slow_clk)\n    let w = View { slow_view }\n    slow_flag = w.slow_view"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + domain-inference.md K9 (the synchronized value is in the Slow domain)",
+    },
+    Special {
+        kind: "near.shorthand-instance-synchronized",
+        design: UI13,
+        site: "let slow_view = sync(fast_flag, slow_clk); let p = Pass { slow_view }; slow_flag = p.y (Pass: no clock)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  slow_view : bool\n    out y : bool\n    y = slow_view\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let slow_view = sync(fast_flag, slow_clk)\n    let p = Pass { slow_view }\n    slow_flag = p.y"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "grammar-full.ebnf PortBind (`x` is `x: x`, #204) + domain-inference.md K9 + K8 (the child's output keeps the Slow domain of its input)",
+    },
+    Special {
+        kind: "near.shorthand-field-same-trust",
+        design: UI71,
+        site: "let w = Wrap { key_r }; key = w.key_r",
+        edits: &[
+            (KEY71, "struct Wrap {\n    key_r : u8,\n}\n\nmodule KeyPresence {"),
+            ("    key    = key_r", "    let w = Wrap { key_r }\n    key    = w.key_r"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0052 §1 (secret → secret: same level)",
+    },
+    Special {
+        kind: "near.shorthand-field-registered-valid",
+        design: UI66,
+        site: "let g = Gate { valid_r }; tx.valid = g.valid_r",
+        edits: &[
+            (PRODUCER66, "struct Gate {\n    valid_r : bool,\n}\n\nmodule Producer {"),
+            (TXV, "    let g = Gate { valid_r }\n    tx.valid = g.valid_r"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0050 §4 (valid from a register does not wait for ready)",
+    },
+    Special {
+        kind: "near.shorthand-field-aligned",
+        design: UI44,
+        site: "let al = delay<1>(s1); let st = Pair { al, s2 }; let both = st.al + st.s2",
+        edits: &[
+            (TIMED44, "struct Pair {\n    al : u32,\n    s2 : u32,\n}\n\n@strict_timing\nmodule DelayedAligned {"),
+            (BOTH44, "    let al = delay<1>(s1)\n    let st = Pair { al, s2 }\n    let both  = st.al + st.s2"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0037 (delay<1> re-aligns s1 with s2: equal stages combine)",
     },
 ];
