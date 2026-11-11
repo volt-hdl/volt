@@ -1,7 +1,7 @@
 # ADR-0052: Güven Seviyeleri — `trust_level`, Bilgi Akışı Denetimi (E3009) ve `declassify`
 
 > Statü: Uygulandı
-> İlgili: ADR-0081 (fn'de `declassify` yok), ADR-0083 (K6/K7 örtük akış).
+> İlgili: ADR-0081 (fn'de `declassify` yok), ADR-0083 (K6/K7 örtük akış), ADR-0114 (modül özeti; K11 örnekleme kuralı değişmedi, inceltme #195).
 > Tarih: 2026-09-15
 > Etkilenen: volt-ast (`DomainKey::TrustLevel`, `DomainValue::Trust`,
 > `TrustLevel`, `TrustInfo` yan tablosu), volt-syntax (token.rs üç ayrılmış

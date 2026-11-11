@@ -298,6 +298,22 @@ impl BuiltinPrim {
         )
     }
 
+    /// Modül özeti (ADR-0114 K7): çıkış portunun aralarında register
+    /// olmadan bağlı olduğu giriş portları. Yalnız `EdgeDetect` (kenar,
+    /// `signal` ile bir çevrimlik geçmişinden türetilir) ve iki arbiter
+    /// (`grant`, `req`'in kombinasyonel işlevi) kombinasyonel çıkış taşır;
+    /// FIFO, RAM, sayaç, kaydırma register'ı ve CDC primitiflerinin
+    /// bütün çıkışları register'dan okunur. Tablonun her satırı Yosys ile
+    /// primitifin ürettiği SV'nin kombinasyonel yol analizine karşı
+    /// denetlenir (`volt-driver/tests/builtin_summary_tests.rs`).
+    pub fn comb_inputs(&self, output: &str) -> &'static [&'static str] {
+        match (self, output) {
+            (BuiltinPrim::EdgeDetect, "rising" | "falling" | "both") => &["signal"],
+            (BuiltinPrim::RoundRobinArbiter | BuiltinPrim::PriorityArbiter, "grant") => &["req"],
+            _ => &[],
+        }
+    }
+
     /// Beklenen tip argümanı sayısı (`T`).
     pub fn type_arg_count(&self) -> usize {
         match self {

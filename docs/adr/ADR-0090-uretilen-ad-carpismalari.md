@@ -1,7 +1,7 @@
 # ADR-0090: Üretilen Ad Çarpışmaları ve `let x = sync(...)`
 
 > Statü: Uygulandı
-> İlgili: ADR-0070 (tanı paritesi), ADR-0078 (ad değiştirmeme ilkesi), ADR-0065/ADR-0054 (SDC hücre adları), ADR-0084 §5 bulgu 4, ADR-0079 (çıktı doğrulama ağı).
+> İlgili: ADR-0070 (tanı paritesi), ADR-0078 (ad değiştirmeme ilkesi), ADR-0065/ADR-0054 (SDC hücre adları), ADR-0084 §5 bulgu 4, ADR-0079 (çıktı doğrulama ağı), ADR-0114 (öneri adı örnek çıkışının üretilen SV adından kaçınır).
 > Tarih: 2026-09-27
 > Etkilenen: volt-sv-emit (`sv_collisions.rs` — YENİ: modül metninde
 > çift bildirim denetimi + köken iletisi + yardımcı ad seçimi; `lib.rs`

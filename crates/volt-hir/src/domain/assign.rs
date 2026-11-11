@@ -2,12 +2,13 @@
 //! alanda olmalı (E3001, atama biçimi); bloğun koşulu/seçicisi yabancı
 //! alandan okunamaz (E3012).
 
-use volt_ast::{Expr, ExprKind, Idx, LValue, LValueSuffix};
+use volt_ast::{ArrayLitKind, Expr, ExprKind, Idx, LValue, LValueSuffix, MatchArmBody};
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
 };
 use volt_span::Span;
 
+use super::instance::quote_list;
 use super::{DomainId, Inferencer};
 use crate::ty::Ty;
 
@@ -156,16 +157,7 @@ impl Inferencer<'_> {
         if expr.span != src_span {
             return None;
         }
-        let ExprKind::Path(path) = &expr.kind else {
-            return None;
-        };
-        let [name] = path.segments.as_slice() else {
-            return None;
-        };
-        let one_bit = self.tyck.expr_types.get(&src).is_some_and(|&t| {
-            matches!(self.tyck.types.ty(t), Ty::Bool) || self.tyck.types.signal_width(t) == Some(1)
-        });
-        if !one_bit {
+        if !self.is_one_bit(src) {
             return None;
         }
         let dst = self.resolve_dom(dst);
@@ -173,6 +165,35 @@ impl Inferencer<'_> {
             .module_clocks
             .iter()
             .find(|c| self.resolve_dom(c.dom) == dst)?;
+        let name = match &expr.kind {
+            ExprKind::Path(path) => match path.segments.as_slice() {
+                [name] => name,
+                _ => return None,
+            },
+            // `p.y` (örnek çıkışı): `sync()` kaynağı bileşik olamaz (E0003);
+            // önce bir `let` ile adlandırılır (ADR-0114).
+            ExprKind::Field { base, field } => {
+                return self.field_sync_fix(src_span, *base, &field.text, &clock.name)
+            }
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Concat(_)
+            | ExprKind::Error
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_) => return None,
+        };
         let (name, clk) = (&name.text, &clock.name);
         match self.stmt_anchor {
             None => {
@@ -194,9 +215,143 @@ impl Inferencer<'_> {
         }
     }
 
+    /// `p.y` kaynağının `sync()` düzeltmesi: `sync()` kaynağı bileşik
+    /// olamadığından (E0003) çıkış önce `let p_y_raw = p.y` ile adlandırılır
+    /// (`p_y` örnek çıkışının SV adıdır). Modül düzeyinde kaynak
+    /// `sync(p_y_raw, clk)` olur; blok içinde bloğun üstüne bir de
+    /// `let p_y_raw_sync = sync(p_y_raw, clk)` eklenir.
+    fn field_sync_fix(
+        &self,
+        src_span: Span,
+        base: Idx<Expr>,
+        field: &str,
+        clk: &str,
+    ) -> Option<(String, Suggestion)> {
+        let ExprKind::Path(path) = &self.ast.exprs[base].kind else {
+            return None;
+        };
+        let [inst] = path.segments.as_slice() else {
+            return None;
+        };
+        let read = format!("{}.{field}", inst.text);
+        let named = self.fresh_name(&format!("{}_{field}_raw", inst.text));
+        let let_line = format!("let {named} = {read}");
+        match self.stmt_anchor {
+            None => {
+                let anchor = self.cur_stmt?;
+                let call = format!("sync({named}, {clk})");
+                // suggestion: e3001_instance_output, e3001_instance_output_name_taken
+                let fix =
+                    Suggestion::line_above(anchor, let_line.clone(), Applicability::MaybeIncorrect)
+                        .and_replace(src_span, call.clone());
+                Some((format!("{let_line}; then {call}"), fix))
+            }
+            Some(anchor) => {
+                let synced = self.fresh_name(&format!("{named}_sync"));
+                let sync_line = format!("let {synced} = sync({named}, {clk})");
+                // suggestion: e3001_instance_output_in_block
+                let fix =
+                    Suggestion::line_above(anchor, let_line.clone(), Applicability::MaybeIncorrect)
+                        .and_line_above(anchor, sync_line.clone())
+                        .and_replace(src_span, synced);
+                Some((format!("{let_line}' and '{sync_line}"), fix))
+            }
+        }
+    }
+
+    /// Tek bitlik değer mi (`sync()` yalnız tek biti köprüler, K9).
+    pub(super) fn is_one_bit(&self, e: Idx<Expr>) -> bool {
+        self.tyck.expr_types.get(&e).is_some_and(|&t| {
+            matches!(self.tyck.types.ty(t), Ty::Bool) || self.tyck.types.signal_width(t) == Some(1)
+        })
+    }
+
+    /// Kaynakta okunan, saatsiz hedefli bir örnek çıkışı alanını nereden
+    /// alıyor (K8b): E3001 notu. Kaynağın alanını taşıyan ilk okuma.
+    fn clockless_origin_note(&self, src: DomainId) -> Option<String> {
+        let e = self.fix_src?;
+        let want = self.resolve_dom(src);
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            match &self.ast.exprs[e].kind {
+                ExprKind::Field { base, field } => {
+                    let Some(&inst) = self.res.resolutions.get(base) else {
+                        continue;
+                    };
+                    let Some((target, outs)) = self.clockless_deps.get(&inst) else {
+                        continue;
+                    };
+                    let Some(inputs) = outs.get(&field.text) else {
+                        continue;
+                    };
+                    let dom = self
+                        .instance_ports
+                        .get(&inst)
+                        .and_then(|p| p.get(&field.text))
+                        .map(|&d| self.resolve_dom(d));
+                    if dom != Some(want) || inputs.is_empty() {
+                        continue;
+                    }
+                    let name = &self.res.defs[inst.0 as usize].name;
+                    let field = &field.text;
+                    let set: std::collections::BTreeSet<String> = inputs.iter().cloned().collect();
+                    let (en, tr) = (quote_list(&set, "and"), quote_list(&set, "ve"));
+                    let shown = self.display(want);
+                    return Some(lstr!(
+                        en: "'{name}.{field}' carries {shown}: '{target}' has no clock, so its output '{field}' carries the domain of the inputs it depends on ({en})";
+                        tr: "'{name}.{field}' {shown} taşıyor: '{target}' saatsizdir, çıkışı '{field}' bağlı olduğu girişlerin ({tr}) alanını taşır"
+                    ));
+                }
+                ExprKind::Binary { lhs, rhs, .. } => stack.extend([*lhs, *rhs]),
+                ExprKind::Unary { operand, .. } => stack.push(*operand),
+                ExprKind::Cast { expr, .. } => stack.push(*expr),
+                ExprKind::Index { base, index } => stack.extend([*base, *index]),
+                ExprKind::If {
+                    cond,
+                    then_expr,
+                    else_expr,
+                } => stack.extend([*cond, *then_expr, *else_expr]),
+                ExprKind::Call { args, .. } => stack.extend(args.iter().copied()),
+                // Alanı tabanından ve işlenenlerinden alan biçimler (K5,
+                // `expr_domain` ile aynı): aralığın sınırları ve
+                // part-select genişliği sabittir.
+                ExprKind::Range { base, .. } => stack.push(*base),
+                ExprKind::PartSelect { base, start, .. } => stack.extend([*base, *start]),
+                ExprKind::Match { scrutinee, arms } => {
+                    stack.push(*scrutinee);
+                    for arm in arms {
+                        stack.extend(arm.guard);
+                        if let MatchArmBody::Expr(ae) = arm.body {
+                            stack.push(ae);
+                        }
+                    }
+                }
+                ExprKind::StructLit { fields, .. } => {
+                    stack.extend(fields.iter().filter_map(|f| f.value));
+                }
+                ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
+                    stack.extend(items.iter().copied());
+                }
+                ExprKind::ArrayLit(ArrayLitKind::Repeat { value, .. }) => stack.push(*value),
+                // Hiç okuma yoktur.
+                ExprKind::Path(_)
+                | ExprKind::IntLit { .. }
+                | ExprKind::BoolLit(_)
+                | ExprKind::StringLit(_)
+                | ExprKind::Todo { .. }
+                | ExprKind::Concat(_)
+                | ExprKind::Error => {}
+            }
+        }
+        None
+    }
+
     /// Birimde tanımlı olmayan ad: `base`, gerekirse `base_2`, `base_3`...
-    fn fresh_name(&self, base: &str) -> String {
-        let taken = |n: &str| self.res.defs.iter().any(|d| d.name == n);
+    pub(super) fn fresh_name(&self, base: &str) -> String {
+        // Örnek çıkışlarının SV adları (`<örnek>_<port>`, ADR-0090) da
+        // doludur: aynı adlı `let` E1003 alır.
+        let generated = self.generated_instance_names();
+        let taken = |n: &str| self.res.defs.iter().any(|d| d.name == n) || generated.contains(n);
         if !taken(base) {
             return base.to_string();
         }
@@ -204,6 +359,35 @@ impl Inferencer<'_> {
             .map(|i| format!("{base}_{i}"))
             .find(|n| !taken(n))
             .expect("sonsuz aday")
+    }
+
+    /// Birimdeki örneklerin port adlarından üretilen SV adları.
+    fn generated_instance_names(&self) -> std::collections::HashSet<String> {
+        let mut out = std::collections::HashSet::new();
+        for (&inst, &target) in &self.res.instance_module {
+            let Some(&item) = self.res.item_of_def.get(&target) else {
+                continue;
+            };
+            let ports = match &self.ast.items_arena[item].kind {
+                volt_ast::ItemKind::Module(m) => &m.ports,
+                volt_ast::ItemKind::Extern(x) => &x.ports,
+                volt_ast::ItemKind::Domain(_)
+                | volt_ast::ItemKind::Fn(_)
+                | volt_ast::ItemKind::Struct(_)
+                | volt_ast::ItemKind::Enum(_)
+                | volt_ast::ItemKind::Const(_)
+                | volt_ast::ItemKind::TypeAlias(_)
+                | volt_ast::ItemKind::Test(_)
+                | volt_ast::ItemKind::Error => continue,
+            };
+            let name = &self.res.defs[inst.0 as usize].name;
+            out.extend(ports.iter().map(|p| format!("{name}_{}", p.name.text)));
+        }
+        for (&inst, prim) in &self.res.instance_builtin {
+            let name = &self.res.defs[inst.0 as usize].name;
+            out.extend(prim.ports().iter().map(|p| format!("{name}_{}", p.name)));
+        }
+        out
     }
 
     /// K6 — hedef ile kaynak aynı alanda mı? Timeless muaf.
@@ -282,6 +466,9 @@ impl Inferencer<'_> {
                 tr: "çok bitli veri için AsyncFifo daha güvenli olabilir"
             ),
         );
+        if let Some(note) = self.clockless_origin_note(s) {
+            diag = diag.with_note(NoteKind::Note, note);
+        }
         if let Some((_, fix)) = fix {
             diag = diag.with_suggestion(fix);
         }
@@ -381,6 +568,59 @@ mod tests {
         ));
         assert_eq!(r.codes(), ["E3001"]);
         assert_eq!(r.dom.diagnostics[0].spans[0].label, "@Slow");
+    }
+
+    /// K6 (domain-inference.md): sabit kaynak (`Timeless`) hedefi hiçbir
+    /// alana bağlamaz. Kısıtsız tel sonraki sürücüsünün alanını alır: koşul
+    /// @Fast olduğundan `s` @Fast'tir ve `y = s` E3001'dir. Tel sabite
+    /// bağlansaydı ihlal sessizce kaçardı.
+    #[test]
+    fn a_constant_driver_leaves_a_wire_unconstrained() {
+        let r = inferred(&two_clock(
+            "    in a : bool @Fast\n    out y : bool @Slow\n    wire s : bool\n    \
+             comb {\n        s = false\n        if a {\n            s = true\n        }\n    }\n    \
+             y = s",
+        ));
+        assert_eq!(r.codes(), ["E3001"]);
+        let d = &r.dom.diagnostics[0];
+        assert_eq!(
+            (d.spans[0].label.as_str(), d.spans[1].label.as_str()),
+            ("@Slow", "@Fast")
+        );
+    }
+
+    /// K6: kaynağı `Error` olan atama (sürücüsünün join'i zaten E3001)
+    /// hedefi `Error`'a bağlamaz. `s` kısıtsız kalır, `y = s` onu @Slow'a
+    /// bağlar ve `s`'yi @Fast'te de okumak ayrı bir ihlaldir.
+    #[test]
+    fn a_driver_whose_join_failed_leaves_a_wire_unconstrained() {
+        let r = inferred(&two_clock(
+            "    in a : bool @Fast\n    in b : bool @Slow\n    out y : bool @Slow\n    \
+             out z : bool @Fast\n    wire s : bool\n    s = a && b\n    y = s\n    z = s",
+        ));
+        assert_eq!(r.codes(), ["E3001", "E3001"]);
+        let d = &r.dom.diagnostics[1];
+        assert_eq!(
+            (d.spans[0].label.as_str(), d.spans[1].label.as_str()),
+            ("@Fast", "@Slow")
+        );
+    }
+
+    /// K5 (ADR-0083 Karar 8): koşula bağlı atamada sabit kaynağın alanını
+    /// koşul taşır; tanının kaynak etiketi koşuldadır. Sabit olmayan
+    /// kaynakta etiket kaynağın kendisindedir.
+    #[test]
+    fn the_source_label_of_a_conditional_assignment_is_where_its_domain_comes_from() {
+        for (stmt, want) in [("y = true", "f"), ("y = g", "g")] {
+            let src = two_clock(&format!(
+                "    in f : bool @Fast\n    in g : bool @Fast\n    out y : bool @Slow\n    \
+                 comb {{\n        y = false\n        if f {{\n            {stmt}\n        }}\n    }}"
+            ));
+            let r = inferred(&src);
+            assert_eq!(r.codes(), ["E3001"], "{stmt}");
+            let s = r.dom.diagnostics[0].spans[1].span;
+            assert_eq!(&src[s.start as usize..s.end as usize], want, "{stmt}");
+        }
     }
 
     #[test]

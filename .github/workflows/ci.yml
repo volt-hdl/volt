@@ -298,14 +298,16 @@ jobs:
       # ADR-0079 output net: every .sdc the corpus produces (both styles)
       # read by OpenSTA -- no Error/Warning, every get_cells pattern names a cell.
       # ADR-0107: the fixtures marked NET-SKIP / SYNTH-SKIP are left out, each
-      # printed with the reason its marker carries (and as a notice). Two today:
-      # tests/ui/pass/62_extern_domains.volt (extern modules without an
-      # @source body) and 69_opendrain_basic.volt (Yosys cannot parse the
-      # 'tri1' pull-up net). A new marker changes this count in the same PR.
+      # printed with the reason its marker carries (and as a notice). Five today:
+      # tests/ui/pass/62_extern_domains.volt, 144_clockless_extern_annotated,
+      # 146_handshake_fifo_drain and 149_handshake_clock_alias (extern modules
+      # without an @source body; ADR-0114 for the last three) and
+      # 69_opendrain_basic.volt (Yosys cannot parse the 'tri1' pull-up net).
+      # A new marker changes this count in the same PR.
       - name: Output net - every .sdc through OpenSTA read_sdc (ADR-0079)
         env:
           VOLT_STA_STA: docker run --rm -v {work}:/work -w /work --entrypoint /OpenSTA/build/sta opensta:pinned
-        run: python3 scripts/sta/sweep.py --expect-excluded 2
+        run: python3 scripts/sta/sweep.py --expect-excluded 5
       - name: Upload OpenSTA reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -463,12 +465,12 @@ jobs:
         with:
           pattern: tool-ledger-*
           path: ledgers
-      - name: Ledgers
-        run: ls -l ledgers/*/ || true
       - name: Script self-test
         run: python3 scripts/ci/tool_ledger.py --self-test
       - name: Every tool test ran with its tool required
         run: |
+          # || true, case (b): diagnostics only; this step fails below if a ledger is missing.
+          ls -l ledgers/*/ || true
           python3 scripts/ci/tool_ledger.py cover \
             --inventory ledgers/tool-ledger-test/volt-tool-ledger.tsv \
             --tools ledgers/tool-ledger-integration/volt-tool-ledger.tsv \

@@ -10,42 +10,34 @@
 //! Denetim modül gövdesindeki sürekli atamaları (`x = e`), `let`
 //! bağlarını ve `comb` bloklarını (koşullar dâhil) bir bağımlılık
 //! grafiğine çevirir; `on` blokları register olduğundan yolu keser.
-//! Örnek çıkışları (`inst.port`) opaktır: örneğin içinden geçen yol
-//! görülmez (bkz. ADR-0050 sınırlar).
+//! Örnek çıkışı (`inst.port`) modül özetiyle açılır (ADR-0114): yol alt
+//! modülün, saatsiz extern'in (en kötü durum) ve yerleşik primitifin
+//! içinden geçer; saatli extern opaktır. Graf alan çıkarımıyla ortak
+//! kurucudan gelir ([`crate::summary::CombGraph`]). Saatsiz extern'in en
+//! kötü durum varsayımıyla kurulan yol da E4007'dir; tanının notu yolun
+//! varsayıma dayandığını söyler (ADR-0114 K4). `@no_protocol_check`
+//! E4007'yi etkilemez: yalnız otomatik protokol kontratlarını kapatır
+//! (ADR-0050 §3).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
-    MatchArmBody, ModuleDecl, PortDir, SourceFile, StmtKind,
-};
+use volt_ast::{ItemKind, PortDir, SourceFile};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{DefId, ResolveResult};
+use crate::summary::{CombGraph, Dep, Summaries};
 
 const HANDSHAKE: &str = "Handshake";
 const FIELD_VALID: &str = "valid";
 const FIELD_READY: &str = "ready";
 
-/// Bir sinyalin kombinasyonel bağımlılığı: hangi tanımdan, nerede
-/// okunarak, hangi deyimle.
-#[derive(Debug, Clone, Copy)]
-struct Dep {
-    def: DefId,
-    /// Okuma konumu (`ready` burada okunuyor).
-    site: Span,
-    /// Sürücü deyimin konumu (`valid` burada sürülüyor).
-    stmt: Span,
-}
-
-#[derive(Default)]
-struct CombGraph {
-    edges: HashMap<DefId, Vec<Dep>>,
-}
-
 /// Her üretici Handshake portu için E4007 denetimi.
-pub fn check_handshakes(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic> {
+pub fn check_handshakes(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    sums: &Summaries,
+) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for &item in &ast.items {
         let ItemKind::Module(m) = &ast.items_arena[item].kind else {
@@ -74,13 +66,24 @@ pub fn check_handshakes(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic
         if valids.is_empty() {
             continue;
         }
-        let graph = CombGraph::build(ast, res, m);
+        let graph = CombGraph::build(ast, res, m, sums);
         for (valid, port, port_span) in valids {
             let Some(&ready) = readys.get(&port) else {
                 continue;
             };
-            if let Some(chain) = graph.find_path(valid, ready) {
-                diags.push(e4007(res, &port, port_span, &chain));
+            // Önce varsayımsız (görünür) yol, ki not kesin yolu yazsın;
+            // yoksa saatsiz extern varsayımıyla kurulan yol: o da E4007'dir
+            // ve notu varsayımı söyler (ADR-0114 K4).
+            let found = graph
+                .find_path(valid, ready, &|d: &Dep| !d.is_assumed())
+                .map(|chain| (chain, false))
+                .or_else(|| {
+                    graph
+                        .find_path(valid, ready, &|_: &Dep| true)
+                        .map(|chain| (chain, true))
+                });
+            if let Some((chain, assumed)) = found {
+                diags.push(e4007(res, &port, port_span, &chain, assumed));
             }
         }
     }
@@ -89,18 +92,58 @@ pub fn check_handshakes(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic
 
 /// E4007 — beş parça: kod, konum (valid'in sürücüsü), açıklama, öneri,
 /// gerekçe notu (ADR-0050) + ikincil etiketler (ready okuması, port).
-fn e4007(res: &ResolveResult, port: &str, port_span: Span, chain: &[Dep]) -> Diagnostic {
-    let first = chain[0];
-    let last = chain[chain.len() - 1];
-    let names: Vec<String> = std::iter::once(format!("{port}.valid"))
-        .chain(
-            chain
-                .iter()
-                .map(|d| res.defs[d.def.0 as usize].name.clone()),
-        )
-        .collect();
+/// Yol bir örneğin içinden geçiyorsa adımı yazılır:
+/// `tx.valid <- g.y (AndGate: y <- b) <- tx_ready` (ADR-0114).
+/// `assumed`: yol yalnız saatsiz extern'in en kötü durum varsayımıyla
+/// kuruluyor; bir not bunu söyler. Öneri her durumda aynıdır: valid'i
+/// register'lanmış durumdan üretmek, extern ne yaparsa yapsın yolu keser.
+fn e4007(
+    res: &ResolveResult,
+    port: &str,
+    port_span: Span,
+    chain: &[Dep],
+    assumed: bool,
+) -> Diagnostic {
+    let first = &chain[0];
+    let last = &chain[chain.len() - 1];
+    let mut names = vec![format!("{port}.valid")];
+    for d in chain {
+        if let Some(h) = &d.hop {
+            names.push(format!(
+                "{}.{} ({}: {} <- {})",
+                h.inst, h.output, h.target, h.output, h.input
+            ));
+        }
+        names.push(res.defs[d.def.0 as usize].name.clone());
+    }
     let path = names.join(" <- ");
-    Diagnostic::error(
+    // Saatsiz extern'in içi görünmez (en kötü durum, ADR-0114 K4): yol
+    // yalnız bu varsayımla kuruluyorsa not bunu söyler.
+    let hop = chain
+        .iter()
+        .filter_map(|d| d.hop.as_ref())
+        .find(|h| h.assumed)
+        .filter(|_| assumed);
+    let assumption = match hop {
+        Some(h) if h.worst_case => {
+            let (target, output, input) = (&h.target, &h.output, &h.input);
+            Some(
+                lstr!(en: "extern '{target}' has no visible body; Volt assumes every output depends on every input, so '{output}' is taken to depend on '{input}'. Decide valid from registered state: that cuts the path whatever the extern does";
+                       tr: "'{target}' extern'ünün görünür gövdesi yok; Volt her çıkışın her girişe bağlı olduğunu varsayar, bu yüzden '{output}', '{input}' girişine bağlı sayılır. valid'i register'lanmış durumdan üretin: extern ne yaparsa yapsın yol kesilir"),
+            )
+        }
+        Some(h) => {
+            let (inst, target) = (&h.inst, &h.target);
+            Some(
+                lstr!(en: "the path through '{inst}' rests on an extern without a clock inside '{target}'; the extern has no visible body, and Volt assumes every output depends on every input. Decide valid from registered state: that cuts the path whatever the extern does";
+                       tr: "'{inst}' içinden geçen yol '{target}' içindeki saatsiz bir extern'e dayanıyor; extern'ün görünür gövdesi yok ve Volt her çıkışın her girişe bağlı olduğunu varsayar. valid'i register'lanmış durumdan üretin: extern ne yaparsa yapsın yol kesilir"),
+            )
+        }
+        None => None,
+    };
+    let help = lstr!(en: "decide valid from registered state (reg valid_r : bool = false; on clk {{ ... }}; {port}.valid = valid_r); the consumer may derive ready from valid, the producer must not derive valid from ready";
+                     tr: "valid'i register'lanmış durumdan üretin (reg valid_r : bool = false; on clk {{ ... }}; {port}.valid = valid_r); tüketici ready'yi valid'den türetebilir, üretici valid'i ready'den türetemez");
+    let diag = Diagnostic::error(
         ErrorCode::E4007,
         lstr!(en: "handshake '{port}': valid depends combinationally on ready";
               tr: "'{port}' el sıkışması: valid, ready'ye kombinasyonel bağımlı"),
@@ -108,8 +151,7 @@ fn e4007(res: &ResolveResult, port: &str, port_span: Span, chain: &[Dep]) -> Dia
             first.stmt,
             lstr!(en: "valid is driven here"; tr: "valid burada sürülüyor"),
         ),
-        lstr!(en: "decide valid from registered state (reg valid_r : bool = false; on clk {{ ... }}; {port}.valid = valid_r); the consumer may derive ready from valid, the producer must not derive valid from ready";
-              tr: "valid'i register'lanmış durumdan üretin (reg valid_r : bool = false; on clk {{ ... }}; {port}.valid = valid_r); tüketici ready'yi valid'den türetebilir, üretici valid'i ready'den türetemez"),
+        help,
     )
     .with_secondary(
         last.site,
@@ -123,280 +165,9 @@ fn e4007(res: &ResolveResult, port: &str, port_span: Span, chain: &[Dep]) -> Dia
         NoteKind::Reason,
         lstr!(en: "combinational path: {path}. A producer that waits for ready before raising valid deadlocks against a consumer that waits for valid (AXI A3.3.1)";
               tr: "kombinasyonel yol: {path}. valid'i yükseltmek için ready'yi bekleyen üretici, valid'i bekleyen tüketiciyle kilitlenir (AXI A3.3.1)"),
-    )
-}
-
-impl CombGraph {
-    fn build(ast: &SourceFile, res: &ResolveResult, m: &ModuleDecl) -> Self {
-        let mut g = CombGraph::default();
-        let mut w = Walker {
-            ast,
-            res,
-            graph: &mut g,
-        };
-        for &si in &m.body {
-            let stmt = &ast.stmts[si];
-            match &stmt.kind {
-                StmtKind::Assign(a) => {
-                    if let Some(&target) = res.use_spans.get(&a.lhs.base.span) {
-                        w.add(target, a.rhs, &[], stmt.span);
-                    }
-                }
-                StmtKind::Let(l) => {
-                    if let Some(&target) = res.decl_spans.get(&l.name.span) {
-                        w.add(target, l.value, &[], stmt.span);
-                    }
-                }
-                StmtKind::Comb(b) => w.block(*b, &mut Vec::new()),
-                // Register sınırı: `on` blokları ve örnekler yolu keser.
-                StmtKind::On(_)
-                | StmtKind::Instance(_)
-                | StmtKind::Reg(_)
-                | StmtKind::Wire(_)
-                | StmtKind::For(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Error => {}
-            }
-        }
-        g
-    }
-
-    /// `from`dan `to`ya kombinasyonel yol (DFS); bulunursa kenar zinciri.
-    fn find_path(&self, from: DefId, to: DefId) -> Option<Vec<Dep>> {
-        let mut visited: HashSet<DefId> = HashSet::new();
-        let mut chain: Vec<Dep> = Vec::new();
-        if self.dfs(from, to, &mut visited, &mut chain) {
-            Some(chain)
-        } else {
-            None
-        }
-    }
-
-    fn dfs(
-        &self,
-        cur: DefId,
-        to: DefId,
-        visited: &mut HashSet<DefId>,
-        chain: &mut Vec<Dep>,
-    ) -> bool {
-        if !visited.insert(cur) {
-            return false;
-        }
-        let Some(deps) = self.edges.get(&cur) else {
-            return false;
-        };
-        for dep in deps {
-            chain.push(*dep);
-            if dep.def == to || self.dfs(dep.def, to, visited, chain) {
-                return true;
-            }
-            chain.pop();
-        }
-        false
-    }
-}
-
-/// Gövde gezici: ifadelerdeki okumaları toplar, koşul bağlamını taşır.
-struct Walker<'a> {
-    ast: &'a SourceFile,
-    res: &'a ResolveResult,
-    graph: &'a mut CombGraph,
-}
-
-impl Walker<'_> {
-    /// `target`'ın sürücüsü `rhs` (+ çevreleyen koşullar).
-    fn add(&mut self, target: DefId, rhs: Idx<Expr>, conds: &[(DefId, Span)], stmt: Span) {
-        let mut reads = Vec::new();
-        self.reads(rhs, &mut reads);
-        let deps = self.graph.edges.entry(target).or_default();
-        for (def, site) in reads.into_iter().chain(conds.iter().copied()) {
-            deps.push(Dep { def, site, stmt });
-        }
-    }
-
-    /// `comb` bloğu: atamalar koşullara da bağımlıdır.
-    fn block(&mut self, b: Idx<Block>, conds: &mut Vec<(DefId, Span)>) {
-        let block = &self.ast.blocks[b];
-        for bs in &block.stmts {
-            match bs {
-                BlockStmt::BlockAssign { lhs, rhs, span }
-                | BlockStmt::NonBlockAssign { lhs, rhs, span } => {
-                    if let Some(&target) = self.res.use_spans.get(&lhs.base.span) {
-                        self.add(target, *rhs, conds, *span);
-                    }
-                }
-                BlockStmt::Let(l) => {
-                    if let Some(&target) = self.res.decl_spans.get(&l.name.span) {
-                        self.add(target, l.value, conds, self.ast.exprs[l.value].span);
-                    }
-                }
-                BlockStmt::If(ifs) => self.if_stmt(ifs, conds),
-                BlockStmt::Match(m) => {
-                    let mark = conds.len();
-                    self.reads(m.scrutinee, conds);
-                    for arm in &m.arms {
-                        let inner = conds.len();
-                        if let Some(g) = arm.guard {
-                            self.reads(g, conds);
-                        }
-                        match arm.body {
-                            MatchArmBody::Block(ab) => self.block(ab, conds),
-                            MatchArmBody::Expr(_) => {}
-                        }
-                        conds.truncate(inner);
-                    }
-                    conds.truncate(mark);
-                }
-                BlockStmt::For(f) => self.block(f.body, conds),
-                BlockStmt::Error => {}
-            }
-        }
-    }
-
-    fn if_stmt(&mut self, ifs: &IfStmt, conds: &mut Vec<(DefId, Span)>) {
-        let mark = conds.len();
-        self.reads(ifs.cond, conds);
-        self.block(ifs.then_block, conds);
-        match &ifs.else_branch {
-            Some(ElseBranch::Block(b)) => self.block(*b, conds),
-            Some(ElseBranch::If(inner)) => self.if_stmt(inner, conds),
-            None => {}
-        }
-        conds.truncate(mark);
-    }
-
-    /// İfadedeki tüm çözümlenmiş isim okumaları (konumlarıyla).
-    fn reads(&self, e: Idx<Expr>, out: &mut Vec<(DefId, Span)>) {
-        let expr = &self.ast.exprs[e];
-        match &expr.kind {
-            ExprKind::Path(_) => {
-                if let Some(&def) = self.res.resolutions.get(&e) {
-                    out.push((def, expr.span));
-                }
-            }
-            ExprKind::Binary { lhs, rhs, .. } => {
-                self.reads(*lhs, out);
-                self.reads(*rhs, out);
-            }
-            ExprKind::Unary { operand, .. } => self.reads(*operand, out),
-            ExprKind::Index { base, index } => {
-                self.reads(*base, out);
-                self.reads(*index, out);
-            }
-            ExprKind::Range { base, hi, lo } => {
-                self.reads(*base, out);
-                self.reads(*hi, out);
-                self.reads(*lo, out);
-            }
-            ExprKind::PartSelect {
-                base, start, width, ..
-            } => {
-                self.reads(*base, out);
-                self.reads(*start, out);
-                self.reads(*width, out);
-            }
-            // Örnek çıkışı (`inst.port`) opaktır: taban örnek tanımıdır,
-            // ready'ye yol vermez.
-            ExprKind::Field { base, .. } => self.reads(*base, out),
-            ExprKind::Call { callee, args } => {
-                self.reads(*callee, out);
-                for a in args {
-                    self.reads(*a, out);
-                }
-            }
-            ExprKind::Cast { expr, .. } => self.reads(*expr, out),
-            ExprKind::If {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
-                self.reads(*cond, out);
-                self.reads(*then_expr, out);
-                self.reads(*else_expr, out);
-            }
-            ExprKind::Match { scrutinee, arms } => {
-                self.reads(*scrutinee, out);
-                for arm in arms {
-                    if let Some(g) = arm.guard {
-                        self.reads(g, out);
-                    }
-                    match arm.body {
-                        MatchArmBody::Expr(ae) => self.reads(ae, out),
-                        MatchArmBody::Block(ab) => self.block_reads(ab, out),
-                    }
-                }
-            }
-            ExprKind::StructLit { fields, .. } => {
-                for f in fields {
-                    if let Some(v) = f.value {
-                        self.reads(v, out);
-                    }
-                }
-            }
-            ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
-                for i in items {
-                    self.reads(*i, out);
-                }
-            }
-            ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => {
-                self.reads(*value, out);
-                self.reads(*count, out);
-            }
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Concat(_)
-            | ExprKind::Error => {}
-        }
-    }
-
-    /// İfade konumundaki blok (match kolu gövdesi): deyim sağ tarafları
-    /// ve kuyruk ifadesi.
-    fn block_reads(&self, b: Idx<Block>, out: &mut Vec<(DefId, Span)>) {
-        let block = &self.ast.blocks[b];
-        for bs in &block.stmts {
-            match bs {
-                BlockStmt::BlockAssign { rhs, .. } | BlockStmt::NonBlockAssign { rhs, .. } => {
-                    self.reads(*rhs, out)
-                }
-                BlockStmt::Let(l) => self.reads(l.value, out),
-                BlockStmt::If(ifs) => {
-                    self.reads(ifs.cond, out);
-                    self.block_reads(ifs.then_block, out);
-                    let mut eb = ifs.else_branch.as_ref();
-                    while let Some(branch) = eb {
-                        match branch {
-                            ElseBranch::Block(b) => {
-                                self.block_reads(*b, out);
-                                eb = None;
-                            }
-                            ElseBranch::If(inner) => {
-                                self.reads(inner.cond, out);
-                                self.block_reads(inner.then_block, out);
-                                eb = inner.else_branch.as_ref();
-                            }
-                        }
-                    }
-                }
-                BlockStmt::Match(m) => {
-                    self.reads(m.scrutinee, out);
-                    for arm in &m.arms {
-                        if let Some(g) = arm.guard {
-                            self.reads(g, out);
-                        }
-                        match arm.body {
-                            MatchArmBody::Expr(ae) => self.reads(ae, out),
-                            MatchArmBody::Block(ab) => self.block_reads(ab, out),
-                        }
-                    }
-                }
-                BlockStmt::For(f) => self.block_reads(f.body, out),
-                BlockStmt::Error => {}
-            }
-        }
-        if let Some(t) = block.tail {
-            self.reads(t, out);
-        }
+    );
+    match assumption {
+        Some(text) => diag.with_note(NoteKind::Note, text),
+        None => diag,
     }
 }

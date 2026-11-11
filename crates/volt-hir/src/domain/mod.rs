@@ -60,6 +60,7 @@ use volt_span::Span;
 pub use rdc::{check_rdc, without_raw_reset_unused};
 
 use crate::resolve::{DefId, ResolveResult};
+use crate::summary::Summaries;
 use crate::typeck::TypeckResult;
 
 /// Çözülmemiş domain değişkeni — çıkarım sırasında kısıt biriktirir.
@@ -121,8 +122,13 @@ pub struct DomainResult {
 }
 
 /// Dosyadaki tüm modüllerin saat alanlarını çıkarır ve CDC denetler.
-pub fn infer_domains(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult) -> DomainResult {
-    let mut inf = Inferencer::new(ast, res, tyck);
+pub fn infer_domains(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    tyck: &TypeckResult,
+    summaries: &Summaries,
+) -> DomainResult {
+    let mut inf = Inferencer::new(ast, res, tyck, summaries);
     inf.collect_domain_decls();
     for &item_idx in &ast.items {
         match &ast.items_arena[item_idx].kind {
@@ -162,6 +168,14 @@ struct Inferencer<'a> {
     vars: Vec<Option<DomainId>>,
     /// Instance tanımı → hedef port adı → beklenen domain (K8).
     instance_ports: HashMap<DefId, HashMap<String, DomainId>>,
+    /// Modül özetleri (ADR-0114, birim başına bir kez hesaplanır).
+    summaries: &'a Summaries,
+    /// Saatsiz hedefli örnek → (hedef adı, çıkış → bağlı girişler):
+    /// E3001 notu çıkışın alanının nereden geldiğini söyler (K8b).
+    clockless_deps: HashMap<DefId, (String, HashMap<String, Vec<String>>)>,
+    /// Yürünen modül düzeyi deyimin span'i (`sync()` önerisi bir `let`'i
+    /// bunun üstüne ekler).
+    cur_stmt: Option<Span>,
     diagnostics: Vec<Diagnostic>,
 
     // ── Modül bağlamı ──
@@ -206,7 +220,12 @@ struct ModuleClock {
 }
 
 impl<'a> Inferencer<'a> {
-    fn new(ast: &'a SourceFile, res: &'a ResolveResult, tyck: &'a TypeckResult) -> Self {
+    fn new(
+        ast: &'a SourceFile,
+        res: &'a ResolveResult,
+        tyck: &'a TypeckResult,
+        summaries: &'a Summaries,
+    ) -> Self {
         Inferencer {
             ast,
             res,
@@ -218,6 +237,9 @@ impl<'a> Inferencer<'a> {
             expr_domains: HashMap::new(),
             vars: Vec::new(),
             instance_ports: HashMap::new(),
+            summaries,
+            clockless_deps: HashMap::new(),
+            cur_stmt: None,
             diagnostics: Vec::new(),
             default_domain: DomainId::Timeless,
             multi_clock: false,

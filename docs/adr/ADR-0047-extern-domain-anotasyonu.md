@@ -1,6 +1,6 @@
 # ADR-0047: Extern Modül Sınırında Domain Anotasyonu — Sembolik Saat Alanları
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0114 — §3 tablosundaki "Clock portu yok | Timeless" satırı: gövdesi görünmeyen saatsiz extern'in anotasyonsuz çıkışı örnek sitesinde saat dışı bütün girişlerinin alanını taşır (en kötü durum); sembolik alanlar ve saatli extern değişmedi
 > İlgili: ADR-0071 (extern SV eşlemesi), ADR-0076 (extern kaynakları).
 > Tarih: 2026-09-14
 > Etkilenen: domain-inference.md K8a/§5/§8, name-resolution.md §2
@@ -204,3 +204,20 @@ denetleniyor, kara kutunun içi denetlenmiyor.
   güncellenmemiş).
 - `explain_tests.rs` — 113 kod, iki dilde tam açıklama, E3014
   metninde "extern".
+
+## Ek (2026-11-09): saatsiz extern — ADR-0114
+
+Bu bölüm sonradan eklendi; yukarıdaki karar metni değişmedi.
+
+§3 tablosu saatsiz extern'in portlarını `Timeless` sayıyordu
+(domain-inference.md K8a son cümlesi). Gövdesi görünmeyen bir saatsiz
+extern bir kombinasyonel kapıdır; `Timeless` okuması onun içinden geçen
+CDC'yi derleme hatası yapmıyordu (#189'un extern biçimi: `let i = Inv {
+a: fast_flag }; slow_flag = i.y` hatasız derlenip senkronizörsüz bir
+`assign` üretiyordu). ADR-0114 (K4) bu satırı değiştirdi: saatsiz
+extern'in anotasyonsuz her çıkışı saat dışı her girişine bağlı sayılır
+(en kötü durum) ve örnek sitesinde onların K5 join'ini taşır; iki farklı
+alan aynı çıkışta birleşirse E3001 örnek sitesinde verilir. `@Alan`
+anotasyonlu port kendi alanında kalır: bağımsız yolları farklı alanlarda
+olan bir extern bunu kullanır. Sembolik alanlar, E3014 ve saatli extern
+(K2 gibi davranır) değişmedi.

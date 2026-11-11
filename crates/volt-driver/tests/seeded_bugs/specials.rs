@@ -254,7 +254,55 @@ pub const SPECIALS: &[Special] = &[
         near_miss: false,
         spec: "domain-inference.md K5 + K6 (the value reaching slow_flag is fast_flag through a combinational gate: E3001); the extern's body is unseen, so its output may depend on every input (ADR-0114 K4 replaces K8a's Timeless reading)",
     },
+    Special {
+        kind: "cdc.leak-clockless-annotated-output",
+        design: UI13,
+        site: "slow_flag = p.y (Pass { a: fast_flag }, no clock, y declared @Slow)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Slow\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pass { a: fast_flag }\n    slow_flag = p.y"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K5 (a combinational path keeps the join of its operands; a clockless module is combinational, K2) + K8b (an annotated output of a clockless module keeps its domain, the inputs it depends on must carry it): E3001",
+    },
+    Special {
+        kind: "cdc.leak-clockless-target-index",
+        design: UI13,
+        site: "slow_flag = p.y[1] (Pick { sel: fast_flag, d: true }, no clock, y[sel as u1] = d)",
+        edits: &[
+            (CDC13, "module Pick {\n    in  sel : bool\n    in  d   : bool\n    out y   : u2\n    comb {\n        y = 0\n        y[sel as u1] = d\n    }\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pick { sel: fast_flag, d: true }\n    slow_flag = p.y[1]"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K5 (a target index is an operand: which bit of y carries d changes with sel) + K8b (a clockless output carries the domain of the inputs it depends on): E3001",
+    },
+    Special {
+        kind: "cdc.leak-clockless-annotated-output-late-driver",
+        design: UI13,
+        site: "wire w; let p = Pass { a: w }; slow_flag = p.y; w = fast_flag (Pass: no clock, y declared @Slow)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Slow\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    wire w : bool\n    let p = Pass { a: w }\n    slow_flag = p.y\n    w = fast_flag"),
+        ],
+        codes: &["E3001"],
+        near_miss: false,
+        spec: "domain-inference.md K8b (the inputs an annotated output of a clockless module depends on must carry its domain) + K6 (the check does not depend on statement order): E3001",
+    },
     // ── clockless child: safe twins ───────────────────────────────────
+    Special {
+        kind: "near.clockless-annotated-output-same-domain",
+        design: UI13,
+        site: "let py = p.y; slow_flag = sync(py, slow_clk) (Pass { a: fast_flag }, no clock, y declared @Fast)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Fast\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pass { a: fast_flag }\n    let py = p.y\n    slow_flag = sync(py, slow_clk)"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K8b (the input carries the output's declared domain) + K9 (sync() is the legal bridge into the destination domain)",
+    },
     Special {
         kind: "near.clockless-independent-paths",
         design: UI13,
@@ -268,6 +316,30 @@ pub const SPECIALS: &[Special] = &[
         codes: &[],
         near_miss: true,
         spec: "domain-inference.md K5 (y2 = a2 reads only the Slow input; y1 crosses through sync(), K9)",
+    },
+    Special {
+        kind: "near.clockless-target-index-synchronized",
+        design: UI13,
+        site: "let py = p.y[1]; slow_flag = sync(py, slow_clk) (Pick { sel: fast_flag, d: true }, no clock)",
+        edits: &[
+            (CDC13, "module Pick {\n    in  sel : bool\n    in  d   : bool\n    out y   : u2\n    comb {\n        y = 0\n        y[sel as u1] = d\n    }\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    let p = Pick { sel: fast_flag, d: true }\n    let py = p.y[1]\n    slow_flag = sync(py, slow_clk)"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K8b (p.y carries @Fast through the index) + K9 (sync() is the legal bridge into the destination domain)",
+    },
+    Special {
+        kind: "near.clockless-annotated-output-late-synced-driver",
+        design: UI13,
+        site: "wire w; let p = Pass { a: w }; slow_flag = p.y; w = sync(fast_flag, slow_clk) (y declared @Slow)",
+        edits: &[
+            (CDC13, "module Pass {\n    in  a : bool\n    out y : bool @Slow\n    y = a\n}\n\nmodule CdcBridge {"),
+            (SLOW13, "    wire w : bool\n    let p = Pass { a: w }\n    slow_flag = p.y\n    let ws = sync(fast_flag, slow_clk)\n    w = ws"),
+        ],
+        codes: &[],
+        near_miss: true,
+        spec: "domain-inference.md K8b (the input carries the output's declared domain) + K9 (sync() is the legal bridge into the destination domain)",
     },
     Special {
         kind: "near.clockless-constant-output",
@@ -382,6 +454,15 @@ pub const SPECIALS: &[Special] = &[
         codes: &["E4007"],
         near_miss: false,
         spec: "ADR-0050 §4 + ADR-0081 (a function call is expanded at the call site: its arguments are operands): E4007",
+    },
+    Special {
+        kind: "handshake.valid-via-target-index",
+        design: UI66,
+        site: "comb { vv = 0; vv[tx.ready as u1] = valid_r }; tx.valid = vv[1]",
+        edits: &[(TXV, "    wire vv : u2\n    comb {\n        vv = 0\n        vv[tx.ready as u1] = valid_r\n    }\n    tx.valid = vv[1]")],
+        codes: &["E4007"],
+        near_miss: false,
+        spec: "ADR-0050 §4 + domain-inference.md K5 (a target index is an operand: which bit carries valid_r changes with ready): E4007",
     },
     // ── handshake: valid from ready through an instance (#193) ───────
     Special {

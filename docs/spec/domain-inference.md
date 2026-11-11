@@ -3,7 +3,7 @@
 > STATÜ: BAĞLAYICI — Volt'un temel değer önerisi
 > İlgili: `type-inference.md`, UX Anayasası
 > Aşama: F2c
-> Karar kayıtları: ADR-0002 (`@Domain` anotasyonu ve birleşik domain §1), ADR-0020 (`trust_level` dördüncü boyut, K11)
+> Karar kayıtları: ADR-0002 (`@Domain` anotasyonu ve birleşik domain §1), ADR-0020 (`trust_level` dördüncü boyut, K11), ADR-0114 (modül özeti, K8b)
 
 ---
 
@@ -52,8 +52,13 @@ pub struct DomainInfo {
 }
 ```
 
-**`Timeless` kritik:** Sabitler ve saf kombinasyonel ifadeler
-hiçbir saat alanına ait değil. Her domainle birleşebilir.
+**`Timeless` kritik:** Sabitler ve yalnız sabitlerden kurulan ifadeler
+hiçbir saat alanına ait değil. Her domainle birleşebilir. Bir sinyal
+okuyan kombinasyonel ifade kendiliğinden Timeless sayılmaz: alanı
+işlenenlerinin birleşimidir (K5); yalnız bütün işlenenleri Timeless ise
+Timeless'tır. Saatsiz modülün anotasyonsuz portları yalnız modülün
+İÇİNDE `Timeless`'tır; örnek sitesinde çıkış, bağlı olduğu girişlerin
+alanını taşır (K8b).
 
 ---
 
@@ -103,7 +108,8 @@ fn infer_module_domains(&mut self, m: &ModuleDecl) {
 
     match clocks.len() {
         0 => {
-            // Saat yok → tamamen kombinasyonel modül
+            // Saat yok → tamamen kombinasyonel modül. İçeride Timeless;
+            // örnek sitesinde çıkışlar girişlerin alanını taşır (K8b).
             self.default_domain = DomainId::Timeless;
             // reg veya on bloğu varsa hata (K7)
         }
@@ -405,8 +411,35 @@ fn check_instance_domains(&mut self, inst: &InstanceDecl) {
             self.error_cdc_port(binding, expected, actual);
         }
     }
+
+    // 3. Saatsiz hedef (K8b): anotasyonsuz çıkışın alanı, modül
+    //    özetinde bağlı olduğu girişlerin alanlarının K5 join'idir.
+    //    Farklı iki alan → E3001 (kombinasyonel biçim) örnek sitesinde.
+    //    Saatsiz Volt modülünün anotasyonlu çıkışı kendi alanında kalır;
+    //    bağlı olduğu anotasyonsuz girişlere bağlanan değerler o alanda
+    //    olmalıdır, değilse E3001 örnek sitesinde. Saatsiz extern'de
+    //    anotasyonlu çıkışın bağımlılıkları kullanıcının beyanıdır:
+    //    denetlenmez (anotasyonlu giriş adım 2'de denetlenir).
+    if module.clock_ports().is_empty() {
+        for out in module.outputs() {
+            let deps = self.summary(module).comb_inputs(out);
+            match out.domain {
+                None => {
+                    let dom = self.join_inputs(inst, deps);
+                    self.set_instance_port_domain(inst, out, dom);
+                }
+                Some(own) if !module.is_extern() => {
+                    self.check_inputs_in(inst, deps, own);
+                }
+                Some(_) => {}
+            }
+        }
+    }
 }
 ```
+
+Saatli hedefte `inst.out` okuması portun haritadaki alanını taşır
+(adım 1-2); saatsiz hedefte adım 3'ün sonucunu.
 
 #### K8a — Extern Modül Sınırı (ADR-0047)
 
@@ -441,14 +474,117 @@ pix_q = f.rd_data         // f.rd_data @Dst = PixDomain (K8 haritası)
   portu yok").
 - Birden fazla clock portu olan extern'de saat dışı her port anotasyon
   taşımalıdır → **E3010** (K3 sınırda uygulanır). Tek saatli extern K2
-  gibi davranır (anotasyonsuz portlar o saatin alanında), saatsiz
-  extern portları Timeless'tır.
+  gibi davranır (anotasyonsuz portlar o saatin alanında). Saatsiz
+  extern'in içi görünmez: her çıkışı her girişine kombinasyonel bağlı
+  sayılır (en kötü durum özeti, K8b); anotasyonsuz çıkış örnek sitesinde
+  o girişlerin K5 join'ini taşır. `@Alan` anotasyonlu port kendi alanında
+  kalır. Anotasyonlu çıkışın bağımlılıkları denetlenmez: gövde
+  görünmediğinden kullanıcının beyanıdır; anotasyonlu girişe bağlanan
+  değer K8 adım 2'deki gibi denetlenir. Yolları bağımsız ve farklı
+  alanlarda olan saatsiz extern'in portlarına anotasyon yazılır.
 - K8 adım 1'de aynı anahtara (sembolik ya da açık alan) iki farklı
   alandan saat bağlanırsa → **E3014**; anahtar `Error`'a düşer, port
   denetimleri kaskad E3001 üretmez. Bu kural sıradan modüller için de
   geçerlidir (iki clock portu aynı `@Alan`ı taşıyorsa).
 - Bağlanmamış sembolik alan (`wr_clk` bağlanmadı) `Error`'dur:
   denetlenemez, yanlış pozitif de üretmez.
+
+#### K8b — Modül Özeti: Örnek Sınırında Kombinasyonel Bağımlılık (ADR-0114)
+
+Her modül için bir kez bir **özet** çıkarılır: hangi çıkış portu hangi
+giriş portuna KOMBİNASYONEL bağlıdır (aralarında register olmadan).
+Örnek sitesi, çocuğun içini görmeden bu özeti kullanır:
+
+```volt
+module Pass {            // saatsiz: özet { y ← a }
+    in  a : bool
+    out y : bool
+    y = a
+}
+
+module CdcBridge {
+    in  fast_clk  : clock @Fast
+    in  slow_clk  : clock @Slow
+    in  fast_flag : bool  @Fast
+    out slow_flag : bool  @Slow
+    let p = Pass { a: fast_flag }   // p.y ← a ← fast_flag  →  p.y @Fast
+    slow_flag = p.y                 // ← E3001 (K6)
+}
+```
+
+Özetin kenarları modül gövdesinden çıkarılır:
+
+- Sürekli atama, `let`, `comb` bloğu; koşul, `match` sınananı ve kol
+  muhafızı da işlenendir (K5 son paragrafı). Fonksiyon çağrısının
+  argümanları işlenendir (K5, ADR-0081 Karar 9). Atama hedefinin indeks,
+  aralık ve part-select ifadeleri de işlenendir: `y[sel] = d`'de `y`,
+  `sel`'e de bağlıdır.
+- Modül düzeyi `for` isim çözümlemeden önce açılır (ADR-0056); açılmış
+  gövde sıradan deyimlerdir.
+- `on` bloğu, register ve `sync()`/`sync3()` yolu KESER.
+- Alt örnek: `inst.out` okuması, çocuğun özetinde `out`un bağlı olduğu
+  girişlere bağlanan ifadelerin okumasıdır. Özet çocuktan başlayarak
+  hesaplanır; aynı modülün her örneği aynı özeti kullanır; generic
+  modülün her açılımı (ADR-0041) ayrı modüldür ve ayrı özet alır.
+  Örnekleme döngüsü zaten E1006'dır. Örnekler üzerinden kurulan
+  kombinasyonel döngü özeti sonsuz kılmaz: özet bir erişilebilirlik
+  kümesidir.
+- Yerleşik primitifin özeti bir tablodur; her satırı primitifin
+  ürettiği SystemVerilog'un kombinasyonel yol analiziyle (Yosys)
+  denetlenir (ADR-0114 K7). `EdgeDetect`: `rising`, `falling`, `both` ←
+  `signal`; `RoundRobinArbiter`, `PriorityArbiter`: `grant` ← `req`.
+  Öteki primitiflerin (FIFO, RAM, `Counter`, `ShiftRegister`, CDC
+  primitifleri) bütün çıkışları register'dır: özetleri boştur.
+- Extern'in içi görünmez. Saatsiz extern'in her çıkışı her girişe bağlı
+  sayılır (en kötü durum, K8a). Saatli extern'in özeti
+  boştur: çıkışlar saat haritasından alanını alır (K8a) ve E4007 onun
+  içinden geçen yolu görmez (ADR-0114 sınırı).
+- Özet port düzeyindedir, bit düzeyinde değil: `y[0] = a`, `y[1] = b`
+  olan `y` iki girişe de bağlıdır.
+
+Özet üç yerde kullanılır:
+
+1. **Saat alanı (K8 adım 3):** saatsiz hedefin anotasyonsuz çıkışı,
+   özette bağlı olduğu girişlere bağlanan değerlerin K5 join'ini taşır;
+   anotasyonlu giriş kendi alanıyla katılır. Saatsiz Volt modülünün
+   `@Alan` anotasyonlu çıkışı kendi alanında kalır, ama özette bağlı
+   olduğu anotasyonsuz girişlere bağlanan değerler o alanda olmalıdır:
+   başka alandan gelen değer kapının içinden senkronizörsüz geçer →
+   **E3001 örnek sitesinde**, o bağlamada, çıkış başına bir kez; çıkışın
+   okumaları anotasyonun alanını taşır (kaskad yok). Anotasyonlu giriş
+   modülün içinde denetlenir (K6), örnek sitesinde ikinci kez değil.
+   Saatsiz extern'de anotasyonlu çıkışın bağımlılıkları denetlenmez:
+   kullanıcının beyanıdır; anotasyonlu girişe bağlanan değer K8 adım
+   2'deki gibi denetlenir (K8a). Saatli hedefte değişiklik yoktur.
+2. **Tanının yeri:** saatsiz modül iki farklı alandan gelen girişleri
+   aynı çıkışta birleştiriyorsa **E3001 örnek sitesinde** verilir,
+   çıkış okunmasa da (kapı netlist'te vardır) — iki bağlama etiketlenir,
+   not çıkışın hangi girişlere bağlı olduğunu söyler (`'And2.y' depends
+   on 'a' and 'b'`). Örnek başına bir kez; çıkış `Error` olur, okumaları
+   kaskad üretmez. Modülün içinde tanı yoktur (içeride anotasyonsuz
+   portlar Timeless'tır); fonksiyon çağrısıyla aynı kural (K5). Bağımsız yollar
+   (`y1 = a1`, `y2 = a2`) ayrı alanlardan beslenebilir; hiçbir girişi
+   okumayan çıkış sabittir (Timeless). Çıkış başka bir alana atanırsa
+   K6'nın E3001'i geçerlidir; `sync()` kaynağı bileşik olamadığından
+   (`sync(p.y, clk)` E0003) çıkış önce bir `let` ile adlandırılır:
+   `let p_y_raw = p.y` ve `slow_flag = sync(p_y_raw, slow_clk)`. Ad,
+   birimdeki bir tanımla ya da bir örnek çıkışı için üretilen SV adıyla
+   (`<örnek>_<port>`, ADR-0090) çakışırsa sıradaki boş ad (`p_y_raw_2`,
+   `p_y_raw_3`, …) seçilir. Okuma bir `on`/`comb` bloğu içindeyse iki
+   `let` bloğun üstüne yazılır (`let p_y_raw = p.y`, `let p_y_raw_sync =
+   sync(p_y_raw, slow_clk)`) ve blok senkronize adı okur. `sync()` tek
+   biti köprüler (K9): çok bitli çıkışta makinece uygulanan öneri yoktur.
+3. **El sıkışma (E4007, ADR-0050 §4):** üretici `valid`'den `ready`'ye
+   yol, örnek çıkışlarından özet üzerinden geçer; tanının notu yolu
+   örnekle yazar (`tx.valid <- g.y (AndGate: y <- b) <- tx_ready`).
+   Özet, hangi bağımlılığın yalnız saatsiz extern'in en kötü durum
+   varsayımıyla kurulduğunu da taşır. Varsayımla kurulan yol da
+   E4007'dir; tanının notu yolun varsayımla kurulduğunu söyler, çözüm
+   `valid`'i register'da üretmektir. `@no_protocol_check` E4007'yi
+   etkilemez (ADR-0050: yalnız protokol kontratları).
+
+Güven seviyesi (K11) özeti kullanmaz: örnekleme kuralı (sınıflandırılmış
+girişlerin en yükseği) tutucu olarak kalır.
 
 ### K9 — `sync()` Köprüsü
 
@@ -524,6 +660,8 @@ ettiği bir sınır.
 
 6. ÖRNEK KONTROLÜ
    Saat bağlantılarından harita, sonra port kontrolü (K8)
+   Saatsiz hedefte çıkış alanı modül özetinden (K8b; özetler
+   çocuktan başlayarak, birim başına bir kez)
 
 7. KISIT ÇÖZÜMÜ
    Kalan Unresolved değişkenler
@@ -692,6 +830,17 @@ Extern: yanlış alandan port bağlama      ✗ E3001 (ADR-0047)
 Extern: sembolik alana iki farklı saat   ✗ E3014 (ADR-0047)
 Extern: sembolik alanın clock portu yok  ✗ E3002 (ADR-0047)
 Extern: çok saat, anotasyonsuz port      ✗ E3010 (ADR-0047)
+Saatsiz modül, çıkışı başka alana         ✗ E3001 (ADR-0114)
+Saatsiz modül iki alanı birleştiriyor     ✗ E3001 örnek sitesinde (ADR-0114)
+Saatsiz modül, bağımsız iki yol iki alan  ✓ derlenir (ADR-0114)
+Saatsiz modül, sabit çıkış başka alana    ✓ derlenir (ADR-0114)
+İç içe saatsiz modül, çıkışı başka alana  ✗ E3001 (ADR-0114)
+Saatsiz extern, çıkışı başka alana        ✗ E3001 (ADR-0114)
+Saatsiz modül çıkışı sync() ile köprüde   ✓ derlenir (ADR-0114)
+Saatsiz extern, anotasyonlu bağımsız yol  ✓ derlenir (ADR-0114)
+Saatsiz modül, @Fast çıkışa @Slow değer   ✗ E3001 örnek sitesinde (ADR-0114)
+Saatsiz extern: beyanlı @Fast çıkış       ✓ derlenir: bağımlılığı denetlenmez (ADR-0114)
+Saatsiz extern, varsayımsal valid→ready   ✗ E4007 (ADR-0114)
 Aynı domain içinde sync()                ⚠ W3002
 8-bit sync()                             ⚠ W3003
 ```

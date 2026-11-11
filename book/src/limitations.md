@@ -69,24 +69,6 @@ parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
 
-**A clock-domain crossing through a module without a clock.** When a
-signal of one clock domain passes through a submodule that has no clock
-port (or a clockless `extern module`) and reaches another domain,
-`volt check` reports no `E3001` and the generated SystemVerilog has no
-synchronizer. Synchronize the signal into the destination domain with
-`sync()` before it enters the clockless module, or read the module's
-output into a `let` and pass that `let` to `sync()`. Tracked in
-[issue #189](https://github.com/volt-hdl/volt/issues/189).
-
-**`valid` depending on `ready` through a submodule.** `E4007` does not
-follow a combinational path from a `Handshake` port's `ready` to its
-`valid` through a submodule instance or a built-in primitive
-(`EdgeDetect`, arbiters), and the automatic protocol contracts do not
-catch it either. Make the `valid` decision in a register of the
-producer, as `E4007`'s help shows (`reg valid_r ...; on clk { ... };
-tx.valid = valid_r`). Tracked in
-[issue #193](https://github.com/volt-hdl/volt/issues/193).
-
 ## Language
 
 **Some constructs pass the type checker but have no SystemVerilog mapping
@@ -135,6 +117,22 @@ register cannot close a loop this way: assigning it with `=` outside an
 `on` block is `E0019`. Roadmap:
 [Combinational loop check](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#combinational-loop-check).
 
+**The handshake check does not look inside an `extern` module with a
+clock.** On a `Handshake<T>` output, `valid` must not be computed from
+the same port's `ready` without a register in between: if each side
+waits for the other, no transfer ever finishes. Volt reports this as
+`E4007` when the path runs through assignments, `let`s, `comb` blocks,
+`if` and `match` conditions, function calls, submodules, `extern`
+modules without a clock and the built-in modules whose outputs follow
+their inputs in the same cycle (`EdgeDetect`, `RoundRobinArbiter`,
+`PriorityArbiter`). An `extern` module with a clock is not looked into:
+when `ready` goes into such a module and `valid` comes out of it through
+a path inside it, the design compiles without an error. Volt cannot tell
+that path from a registered one, such as the `empty` flag of a FIFO,
+which is the common and safe case. Register the value that comes back
+from the module, or compute `valid` in the module that owns the port.
+Tracked in [issue #196](https://github.com/volt-hdl/volt/issues/196).
+
 ## Clock and reset domains
 
 **CDC bridges are `sync()`, `sync3()` and the built-in dual-clock
@@ -144,6 +142,30 @@ as a bridge: the crossing into it is an `E3001` error. Wrap a
 hand-written or vendor synchronizer as an `extern` module with a clock
 domain on each port. A multi-bit `sync()` is a warning (`W3003`), not an
 error; use `AsyncFifo` or `HandshakeSync` for data.
+
+**A submodule's dependencies are tracked per port, not per bit.** For
+each output port of a module, Volt records which input ports it depends
+on without a register in between. An output whose bit 0 follows `a` and
+whose bit 1 follows `b` counts as depending on both. Through a module
+without a clock, `a` from one clock domain and `b` from another then
+make that output an `E3001` error, although each bit stays in its own
+domain; through a submodule on a handshake path, the same output can
+give an `E4007` that the bits do not deserve. Split such an output into
+two ports. An `extern` module without a clock is assumed to connect each
+output to every input, because its body is not visible: give its ports
+clock domain annotations when its paths belong to different domains.
+
+**A handshake path through an `extern` module without a clock is
+assumed.** Volt cannot see inside such a module, so it assumes that each
+output depends on every input. When `ready` goes into it and `valid`
+comes out of it, `E4007` is reported even if the real module has no path
+from that input to that output; the error's note says that the path
+rests on this assumption. `@no_protocol_check` does not change this: it
+turns off the automatic protocol contracts of the port, not the check.
+Decide `valid` from a register, as `E4007`'s help shows (`reg valid_r
+...; on clk { ... }; tx.valid = valid_r`): that cuts the path whatever
+the module does. A way to declare which outputs of an `extern` module
+depend on which inputs is planned for v0.2.0.
 
 **Reset checks cover reset release, not reset ordering.** Volt reports an
 asynchronous reset shared by several clock domains or synchronized twice

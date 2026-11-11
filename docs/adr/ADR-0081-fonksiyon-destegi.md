@@ -1,7 +1,7 @@
 # ADR-0081: Fonksiyon Desteği — Saf Kombinasyonel `fn` Donanıma İner
 
 > Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler + eşdeğerlik kanıtı); notlar sonda
-> İlgili: ADR-0083 (fn gövdesinde `match`), ADR-0041 ve ADR-0056 (ek "Ayrıştırıcının ikamesi kapsam zincirinden geçer": generic ve modül düzeyi `for` ikamesi kapsam zincirinde; generic parametrenin gölgelemesi W1002, #130, #122).
+> İlgili: ADR-0083 (fn gövdesinde `match`), ADR-0041 ve ADR-0056 (ek "Ayrıştırıcının ikamesi kapsam zincirinden geçer": generic ve modül düzeyi `for` ikamesi kapsam zincirinde; generic parametrenin gölgelemesi W1002, #130, #122), ADR-0114 (saatsiz modül örneği Karar 9'un join kuralını port başına uygular).
 > Tarih: 2026-09-26
 > Etkilenen (plan): volt-ast (paylaşılan çizge yardımcısı `graph` —
 > ADR-0069'un Tarjan'ı buraya taşınır), volt-syntax (fn gövdesinde

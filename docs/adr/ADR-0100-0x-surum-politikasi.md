@@ -1,7 +1,7 @@
 # ADR-0100: 1.0 Öncesi Sürüm Politikası — 0.x Numaraları, Yalnız Son Sürüm, "Behavior changes", Sürümle Eşleşen Kitap
 
 > Statü: Kısmen yerini aldı: ADR-0105 — §3'te notun kaynağı: taslak Release'in notu CHANGELOG bölümü değil, İngilizce `docs/release-notes/vX.Y.Z.md`'dir ve "Behavior changes" bölümü iş akışında denetlenir; kalanı yürürlükte, kitap düzeni (§6) kuruldu, ilk sürüm (v0.1.0) henüz atılmadı
-> İlgili: ADR-0093 (sürüm iş akışı: tag → taslak Release; bu ADR numaranın anlamını, notların biçimini ve desteği belirler), ADR-0022 (kullanıcı IP'si için SemVer — `@version`/`@abi_version`; Rezerve kalır, 1.0'ın önkoşulu olan SemVer sözünün parçasıdır), ADR-0096 (Pages düzenini genişletir: kurulum betikleri kökte ve her zaman main'den, kitabın kökü son sürüm).
+> İlgili: ADR-0093 (sürüm iş akışı: tag → taslak Release; bu ADR numaranın anlamını, notların biçimini ve desteği belirler), ADR-0022 (kullanıcı IP'si için SemVer — `@version`/`@abi_version`; Rezerve kalır, 1.0'ın önkoşulu olan SemVer sözünün parçasıdır), ADR-0096 (Pages düzenini genişletir: kurulum betikleri kökte ve her zaman main'den, kitabın kökü son sürüm), ADR-0114 (sessiz yanlış düzeltmesi olarak son hanede, v0.1.2).
 > Tarih: 2026-10-04
 > Etkilenen: `.github/workflows/book.yml` (kök = son sürümün kitabı, `/dev/` = main), `book/tools/assemble_site.py`
 > (YENİ: bantlar ve site birleştirme), `.github/workflows/README.md`,
