@@ -232,6 +232,61 @@ fn arguments_on_non_generic_module_is_e2003() {
     assert!(!d.notes.is_empty() && d.notes.iter().all(|n| !n.text.contains("ADR-")));
 }
 
+/// İç içe generic örnekleme zinciri tur sınırından (64) uzunsa tek E2003;
+/// sessiz bir kesinti değil (ADR-0109 hedefli koşu, #205:
+/// `err_depth_exceeded` → `()` kaçıyordu). Her `T<i><N>` gövdesinde
+/// `T<i+1><N>` örneklenir, her tur bir yeni monomorf üretir. (Örnekleme
+/// argümanında işleç yazılamaz, `R<N + 1>` E0010'dur; modül içi `const`
+/// yok: derinlik yalnız ayrı şablonlarla aşılır.)
+#[test]
+fn generic_instantiation_chain_longer_than_the_round_limit_is_e2003() {
+    let mut src = String::new();
+    for i in 0..70 {
+        src.push_str(&format!(
+            "module T{i}<const N: u32> {{ in a : bool  out b : bool  let x = T{}<N> {{ a: a }}  b = x.b }}\n",
+            i + 1
+        ));
+    }
+    src.push_str("module T70<const N: u32> { in a : bool  out b : bool  b = a }\n");
+    src.push_str("module Top { in a : bool  out b : bool  let x = T0<1> { a: a }  b = x.b }\n");
+    let r = p(&src);
+    assert_eq!(r.error_codes(), ["E2003"]);
+    assert!(
+        r.diagnostics[0]
+            .message
+            .contains("generic instantiation depth exceeded"),
+        "{}",
+        r.diagnostics[0].message
+    );
+}
+
+/// Generic örnekleme tanılarının notu kuralı söyler: her argüman demeti
+/// ayrı bir modüldür. Not boş ya da ilgisiz bir metin olamaz (ADR-0109
+/// hedefli koşu, #205: `adr_note` → `String::new()` / `"xyzzy"` kaçıyordu).
+#[test]
+fn generic_instantiation_diagnostics_say_each_argument_tuple_is_a_module() {
+    let not_generic = "module Plain { in a : bool  out b : bool  b = a }\n\
+                       module Top { in a : bool  out b : bool  let g = Plain<8> { a }  b = g.b }";
+    let type_arg = "module G<T> { in a : bool  out b : bool  b = a }\n\
+                    module Top { in a : bool  out b : bool  let g = G<u8> { a }  b = g.b }";
+    let arity = GENERIC_FIR.replace("Acc<4, 16>", "Acc<4>");
+    for src in [not_generic, type_arg, arity.as_str()] {
+        let r = p(src);
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.error_codes());
+        let notes: Vec<&str> = r.diagnostics[0]
+            .notes
+            .iter()
+            .map(|n| n.text.as_str())
+            .collect();
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.contains("monomorphised per argument tuple")),
+            "{notes:?}"
+        );
+    }
+}
+
 #[test]
 fn uninstantiated_generic_module_is_left_alone() {
     let src = "module Lonely<const N: u32> { in a : bits<N>  out b : bits<N>  b = a }";
