@@ -117,3 +117,19 @@ fn errors_still_suppress_their_cascade() {
         r.error_codes()
     );
 }
+
+/// Derleme biriminde (ADR-0042) `@mmio` desugar'ı son dosyanın
+/// ayrıştırıcısında, onun dosya sonu konumunda koşar: son dosyanın son
+/// deyimindeki W0010, başka bir dosyadaki `@mmio` modülünün E0015'lerini
+/// yutmamalı.
+#[test]
+fn w0010_in_the_last_file_then_mmio_desugar_errors_of_another_file() {
+    let mmio = MMIO_TAIL.replace("a & b | c", "(a & b) | c");
+    let last = "module N {\n in a : u8\n in b : u8\n in c : u8\n out o : u8\n o = a & b | c\n}\n";
+    let r = volt_syntax::parser::parse_unit(
+        &[(FileId(0), mmio.as_str()), (FileId(1), last)],
+        &Default::default(),
+    );
+    assert_eq!(count(&r, "W0010"), 1, "{:?}", r.error_codes());
+    assert_eq!(count(&r, "E0015"), 2, "{:?}", r.error_codes());
+}
