@@ -778,3 +778,14 @@ PR #200'ün (ADR-0114, modül özeti) dosyaları; önceki karar metni değişmed
 ```
 
 `25 of 30 listed mutants match the regex` (düşürülen beşi alan silme mutantı; A2 `exclude_re` ile listede yok: `summary.rs:590:43` ve `propagate_binding → ()` listede görünmez). 25 mutant: 21 B ve aynı satırlardaki 4 komşu (`instance.rs:97:42` `||` → `&&`, `97:45` `!` silme, `471:32` koruma → `false`, `471:34` `!=` → `==`). Parçada `Found 25 mutants to test`, `25 mutants tested in 3h: 25 caught`, `cargo mutants finished, exit code 0` ve `Tool ledger [mutants-0]: 173 test(s) asked for a tool; 175 lookup(s) found the tool (175 required), SKIP: 0`. Yüklenen `mutants-out-0` yapıtında `caught.txt` 25 satır; `missed.txt`, `timeout.txt`, `unviable.txt` boş. "Mutation test summary" işi `shard 0: NOT COMPLETED: no artifact, 25 not tested` ile düştü: tek parçalı koşuda `download-artifact` tek yapıtı alt dizin açmadan `shards/`'a çıkarır, betik `shards/mutants-out-0/` arar (#179). Aynı yapıt `shards/mutants-out-0/` altına konunca `mutants_summary.py` `caught=25 missed=0 timeout=0 unviable=0 untested=0 mutants=25` verir, çıkış 0.
+
+## Kapsam genişlemesi ve hedefli koşular (#206, 2026-11-11)
+
+PR #243'ün (uyarı kaskad bastırma penceresini açmaz, desugar geçitleri pencereyi kullanmaz) dosyaları; önceki karar metni değişmedi.
+
+**Kapsam.** `examine_globs`'a `crates/volt-syntax/src/parser/mod.rs` girdi: ayrıştırıcının tanı giriş noktaları. `push_error` kaskad bastırma penceresini (error-recovery.md §5) yalnız hata için kurar; `push_diag` uyarıları ve desugar geçitlerinin tanılarını pencerenin dışında ekler. Pencereyi bir uyarının açması ardından gelen hatayı yutuyor, kaynak çıkış 0 ile kabul ediliyordu. Dosya önce kapsam dışıydı, çünkü 1. aşama (§2) süreyle sınırlıydı ve sonraki ekler yalnız değiştirdikleri ayrıştırıcı dosyalarını aldı. `examine_globs` dosya düzeyindedir, fonksiyon seçmez; dosyanın 102 mutantı da girdi. `cargo mutants --list` 2845 → 2947. Tam koşu §3'e zaten sığmıyordu (#156); bu ek o sınırı değiştirmez, hedefli koşular etkilenmez.
+
+**Koşular.**
+
+| Koşu | Commit | `re` | Liste | Parça | Sonuç |
+|---|---|---|---|---|---|

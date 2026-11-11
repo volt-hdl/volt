@@ -40,6 +40,12 @@ examine_globs = [
     "crates/volt-syntax/src/parser/mmio.rs",
     "crates/volt-syntax/src/parser/desugar.rs",
     "crates/volt-syntax/src/parser/mono/unroll.rs",
+    # The parser's diagnostic entry points (#206): push_error keeps the
+    # cascade-suppression window (error-recovery.md §5) for errors only;
+    # push_diag adds warnings and the desugar passes' diagnostics outside
+    # it. A warning that opened the window swallowed the next error, and
+    # the source was accepted with exit 0.
+    "crates/volt-syntax/src/parser/mod.rs",
     "crates/volt-syntax/src/parser/auto_contract/mod.rs",
     "crates/volt-syntax/src/parser/auto_contract/scan.rs",
     "crates/volt-syntax/src/parser/auto_contract/counter.rs",
