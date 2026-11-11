@@ -659,6 +659,16 @@ fn analyze_multifile_dir(dir: &str, entry: &str) -> Vec<&'static str> {
         .collect();
     names.sort();
     names.push(entry.to_string());
+    analyze_multifile_files(dir, &names)
+}
+
+/// `names` sırasıyla (son = giriş dosyası) tek birim olarak analiz eder;
+/// `FileId` sırası dosya sırasıdır.
+fn analyze_multifile_files(dir: &str, names: &[String]) -> Vec<&'static str> {
+    let base = format!(
+        "{}/../../tests/ui/multifile/{dir}",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let texts: Vec<String> = names
         .iter()
         .map(|n| std::fs::read_to_string(format!("{base}/{n}")).expect("ui dosyası okunmalı"))
@@ -728,6 +738,20 @@ fn ui_multifile_aliasconst_passes() {
     assert!(codes.is_empty(), "{codes:?}");
 }
 
+/// #205: iki dosyadaki iki generic modül (`M<1, 8>`, `M_1<8>`) aynı
+/// modül adını (`M_1_8`) kurar: E1003, dosya sırası ne olursa olsun.
+#[test]
+fn ui_multifile_genericmangle_is_e1003_in_either_file_order() {
+    for order in [
+        ["liba.volt", "libb.volt", "main.volt"],
+        ["libb.volt", "liba.volt", "main.volt"],
+    ] {
+        let names: Vec<String> = order.iter().map(|n| n.to_string()).collect();
+        let codes = analyze_multifile_files("genericmangle", &names);
+        assert_eq!(codes, ["E1003"], "{order:?}");
+    }
+}
+
 #[test]
 fn ui_multifile_entry_files_declare_expected_outcome() {
     let base = format!("{}/../../tests/ui/multifile", env!("CARGO_MANIFEST_DIR"));
@@ -738,6 +762,7 @@ fn ui_multifile_entry_files_declare_expected_outcome() {
         ("cyclic", "a.volt"),
         ("privconst", "main.volt"),
         ("aliasconst", "main.volt"),
+        ("genericmangle", "main.volt"),
     ] {
         let first = std::fs::read_to_string(format!("{base}/{dir}/{entry}"))
             .expect("giriş dosyası")
