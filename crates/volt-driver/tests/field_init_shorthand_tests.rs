@@ -169,15 +169,30 @@ fn shorthand_and_long_form_give_the_same_diagnostics() {
     let mut bad = Vec::new();
     for (name, short, long) in PAIRS {
         let src = std::fs::read_to_string(root().join("tests/ui/fail").join(name)).expect("oku");
-        assert_eq!(
-            src.matches(short).count(),
-            1,
-            "{name}: '{short}' bir kez geçmeli"
-        );
+        // Yalnız kod satırları: başlık yorumu iki biçimi de anar. Satır
+        // sayısı değişmez, tanılar aynı satırlarda karşılaştırılır.
+        let is_code = |l: &str| !l.trim_start().starts_with("//");
+        let sites = src
+            .lines()
+            .filter(|l| is_code(l))
+            .map(|l| l.matches(short).count())
+            .sum::<usize>();
+        assert_eq!(sites, 1, "{name}: '{short}' kodda bir kez geçmeli");
+        let long_src: String = src
+            .lines()
+            .map(|l| {
+                if is_code(l) {
+                    l.replace(short, long)
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         let short_file = dir.join(format!("short_{name}"));
         let long_file = dir.join(format!("long_{name}"));
         std::fs::write(&short_file, &src).expect("yaz");
-        std::fs::write(&long_file, src.replace(short, long)).expect("yaz");
+        std::fs::write(&long_file, long_src).expect("yaz");
         let s = essence(&check_json(&dir, &short_file));
         let l = essence(&check_json(&dir, &long_file));
         assert!(!l.is_empty(), "{name}: uzun biçim tanı vermeli");
