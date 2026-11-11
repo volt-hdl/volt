@@ -243,6 +243,16 @@ exclude_re = [
     # A2, the same assumption and the same test: with the guard `false` every
     # N > 8 field takes the `N < 8` form, as with `==` above.
     "parser/mmio\\.rs:\\d+:\\d+: replace match guard w > 8 with false in FieldTy::zero$",
+    # A2, assumes the driver and the LSP register the generated @mmio text
+    # that was parsed (ParseResult.generated) and that the text is never
+    # written out: the mutant drops a comment line of the contract section
+    # and shifts every later line of `<mmio:Name>` up by one, but each
+    # diagnostic still shows, from the same text, the name it reports
+    # (desugar_blind_spot_tests::
+    # a_diagnostic_in_the_generated_mmio_source_shows_the_name_it_reports;
+    # a registered text one line off fails it). Review when the generated
+    # text is dumped to disk (an `--emit-mmio`) or registered separately.
+    "parser/mmio\\.rs:\\d+:\\d+: delete ! in render_contracts$",
     # A2, assumes a parse error stops the build before name resolution: after
     # E5015 the mutant drops the cyclic lets instead of the placeholders, which
     # only resolution would show. desugar_blind_spot_tests::
@@ -254,6 +264,21 @@ exclude_re = [
     # (desugar_pipeline builds it from 0..nstages): at b + 1 == N the `<=`
     # mutant looks up stage N, which is never there.
     "parser/desugar\\.rs:\\d+:\\d+: replace < with <= in Parser<'_>::build_on_block$",
+    # A2 (unreachable), the same assumption: `b * 1 < N` lets b = N - 1
+    # through, and stall_name has no stage N. Pinned: the same change in
+    # `stall_name.get(&(b + 1))` one line below is caught.
+    "parser/desugar\\.rs:1073:35: replace \\+ with \\* in Parser<'_>::build_on_block$",
+    # A2, assumes the fields of a register take disjoint bit ranges (laid out
+    # in order from bit 0, ADR-0044 section 2): OR and XOR of disjoint masks
+    # are equal. desugar_blind_spot_tests::mmio_fields_have_disjoint_bit_ranges
+    # (fails with an overlapping layout).
+    "parser/mmio\\.rs:\\d+:\\d+: replace \\| with \\^ in RegInfo::read_mask$",
+    # A2, assumes the generated text declares every reg and let before its
+    # first other statement (ADR-0044 section 2): the guard then never sees a
+    # declaration after an `on` or an assignment. desugar_blind_spot_tests::
+    # generated_mmio_declarations_come_before_every_other_statement (fails
+    # when render puts a let after the logic).
+    "parser/mmio\\.rs:\\d+:\\d+: replace match guard tail\\.is_empty\\(\\) with true in Parser<'_>::parse_generated$",
     # A2 (unreachable), assumes every if_else caller passes a non-empty else
     # (a boundary without registers is skipped in build_on_block); an empty
     # `else begin end` would be a no-op anyway.

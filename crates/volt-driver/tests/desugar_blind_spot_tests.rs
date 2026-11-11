@@ -155,6 +155,16 @@ fn a_register_at_the_last_32_bit_address_is_not_out_of_range() {
     assert!(got.iter().all(|d| d.code != "E0015"), "{got:?}");
 }
 
+/// `base` 32 bitlik bir tam sayıdır (ADR-0044 §2): 0x1_0000_0000 E0009,
+/// `@mmio` niteliğinin satırında. Kör nokta: koruma `true` olunca taban
+/// kabul ediliyor, hata register'ın offset'inde E0015'e dönüyordu.
+#[test]
+fn a_base_wider_than_32_bits_is_e0009() {
+    let src = one_reg("0x1_0000_0000", "offset = 0x00, access = ReadWrite");
+    let got = check("wide-base", &src);
+    assert_eq!(errors(&got), vec![("E0009".to_string(), 1)], "{got:?}");
+}
+
 /// 32 bitin ötesindeki adres aralık dışıdır: E0015, `@reg`'in satırında.
 /// Kör nokta: sınır `==` olunca 0x1_0000_0000 yerleşiyor, hata üretilen
 /// metinde E2010 olarak çıkıyordu.
@@ -183,6 +193,254 @@ fn a_type_alias_in_the_unit_does_not_hide_the_axi_bundles() {
     );
     let got = check("alias", &src);
     assert_eq!(got, vec![], "{got:?}");
+}
+
+// ═══ Üretilen kaynaktaki tanıların konumu (ADR-0044 §2; ADR-0109 §4 A2) ═
+
+/// İnsan biçimindeki `volt check` çıktısından, konumu `file` önekiyle
+/// başlayan her tanı: (başlık satırı, konum, gösterilen kaynak satırının
+/// numarası ve metni, altı çizili parça). Altı çizili parça, kaynak
+/// satırının `│`'den sonraki metninde, bir sonraki satırın `^`'lerinin
+/// sütunlarıdır.
+fn rendered_spans(src: &str, file: &str) -> Vec<(String, String, u64, String, String)> {
+    rendered_unit_spans(&[("case.volt", src)], file)
+}
+
+/// `rendered_spans`'in çok dosyalı biçimi: dosyalar aynı dizine yazılır,
+/// `volt check` ilk dosyayı (giriş) denetler; ötekiler `use` ile yüklenir.
+fn rendered_unit_spans(
+    files: &[(&str, &str)],
+    file: &str,
+) -> Vec<(String, String, u64, String, String)> {
+    // Paralel testler aynı dizini paylaşmasın.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = temp_dir(&format!("rendered-{n}"));
+    for (name, src) in files {
+        std::fs::write(dir.join(name), src).expect("yaz");
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("NO_COLOR", "1")
+        .args(["--lang", "en", "check", files[0].0])
+        .current_dir(&dir)
+        .output()
+        .expect("volt çalışmalı");
+    let _ = std::fs::remove_dir_all(&dir);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let after_bar = |l: &str| l.split_once("│ ").map(|(_, r)| r.to_string());
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    let mut header = String::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.starts_with("error[") || l.starts_with("warning[") {
+            header = l.to_string();
+            continue;
+        }
+        let Some(loc) = l.trim_start().strip_prefix("┌─ ") else {
+            continue;
+        };
+        if !loc.starts_with(file) {
+            continue;
+        }
+        // Konumdan sonra: (boş gutter), `N │ kaynak`, `  │ ^^^ etiket`.
+        let Some(j) = (i + 1..lines.len()).find(|&j| {
+            lines[j]
+                .trim_start()
+                .split_once(" │")
+                .is_some_and(|(n, _)| n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty())
+        }) else {
+            panic!("{loc}: kaynak satırı yok\n{text}");
+        };
+        let (num, _) = lines[j].trim_start().split_once(" │").unwrap();
+        let code = after_bar(lines[j]).unwrap_or_default();
+        let carets = after_bar(lines[j + 1]).unwrap_or_default();
+        let start = carets
+            .find('^')
+            .unwrap_or_else(|| panic!("{loc}: ^ yok\n{text}"));
+        let len = carets[start..].chars().take_while(|&c| c == '^').count();
+        let under: String = code.chars().skip(start).take(len).collect();
+        found.push((
+            header.clone(),
+            loc.to_string(),
+            num.parse().unwrap(),
+            code,
+            under,
+        ));
+    }
+    found
+}
+
+/// Üretilen `@mmio` kaynağına (`<mmio:G>`) düşen bir tanının konumu, aynı
+/// tanıda gösterilen kaynak parçasında adlandırdığı adı gösterir. Bu,
+/// `render_contracts`'ın kontrat bölümündeki yorum satırını koşula bağlayan
+/// `!`'in mutantının (A2, `exclude_re`) varsayımını sınar. Mutant o yorumu
+/// atar ve sonraki her satırı bir yukarı kaydırır (55 → 54). Tanı yine de
+/// doğru adı gösterir, çünkü konum ve gösterilen parça ayrıştırılanla aynı
+/// üretilen metinden gelir: sürücü de LSP de (`analysis.rs`)
+/// `ParseResult.generated`'ın metnini kaydeder. Metin diske yazılmaz
+/// (ADR-0044 §2), `--emit-mmio` gibi bir dökümü yok; satır numarası bu
+/// tanının dışında bir şey göstermez. Kaydedilen metin ayrıştırılandan
+/// ayrılırsa (ya da metin diske yazılırsa) bu test düşer ve A2 girdisi
+/// yeniden incelenir.
+///
+/// Tetikleyici: birimde tanımlı `AxiReadAddr` bundle'ı. Bugün bu girdi
+/// üretilen kodda `ar_*` adları için E1001 alıyor (#244). Bu tanılar hem
+/// yorumdan önceki kontratlarda hem sonraki `cover`'da ve mantık
+/// satırlarındadır. #244 düzelince bu girdi derlenir ve test düşer: yeni
+/// bir tetikleyici gerekir. İkinci tetikleyici yazılabilir register'ı
+/// olmayan bir haritadır. Orada `w.data` W1001 alır (ADR-0044 §2) ve
+/// gösterilen satır `in w : AxiWriteData` port bildirimidir. Düzleştirilmiş
+/// alanın sütunu bugün keyfidir (#246); bu yüzden yalnız satır sınanır.
+#[test]
+fn a_diagnostic_in_the_generated_mmio_source_shows_the_name_it_reports() {
+    let src = "pub struct port AxiReadAddr {
+    out addr  : u32
+    out prot  : u3
+    out valid : bool
+    in  ready : bool
+}
+
+@mmio(base = 0x0, bus = AXI4Lite)
+module G {
+    in  clk : clock
+    out en  : bool
+    @reg(offset = 0x00, access = ReadWrite)
+    control : {
+        enable : bool,
+        @reserved : bits<31>,
+    }
+    en = regs.control.enable
+}
+";
+    let spans = rendered_spans(src, "<mmio:G>:");
+    let e1001: Vec<_> = spans
+        .iter()
+        .filter(|(h, ..)| h.starts_with("error[E1001]"))
+        .collect();
+    assert!(e1001.len() >= 5, "{spans:#?}");
+    for (header, loc, _, code, under) in &e1001 {
+        let name = header.split('\'').nth(1).unwrap_or_default();
+        assert_eq!(under, name, "{loc}: {code}");
+    }
+    // Yorumdan sonraki satırlar da sınandı: bir `cover` ve bir `let`.
+    assert!(
+        e1001
+            .iter()
+            .any(|(.., code, _)| code.trim_start().starts_with("cover:")),
+        "{spans:#?}"
+    );
+    assert!(
+        e1001
+            .iter()
+            .any(|(.., code, _)| code.trim_start().starts_with("let ")),
+        "{spans:#?}"
+    );
+
+    let src = "@mmio(base = 0x0, bus = AXI4Lite)
+module T {
+    in  clk  : clock
+    in  tick : bool
+    out cnt  : u16
+    @reg(offset = 0x00, access = ReadOnly, volatile)
+    status : {
+        count   : u16,
+        @reserved : bits<16>,
+    }
+    on clk {
+        if tick {
+            regs.status.count <= regs.status.count + 1
+        }
+    }
+    cnt = regs.status.count
+}
+";
+    let spans = rendered_spans(src, "<mmio:T>:");
+    let w: Vec<_> = spans
+        .iter()
+        .filter(|(h, ..)| h.contains("unused input port: 'w."))
+        .collect();
+    assert_eq!(w.len(), 2, "{spans:#?}");
+    for (_, loc, _, code, _) in &w {
+        let tokens: Vec<&str> = code.split_whitespace().collect();
+        assert_eq!(tokens, ["in", "w", ":", "AxiWriteData"], "{loc}");
+    }
+}
+
+/// Bir tanının gösterdiği kaynak satırı, iletisinin adlandırdığı adı taşır:
+/// E1001'de altı çizili parça o addır, W1001'de (port kullanılmadı)
+/// satır o portun bildirimidir (`in <port> : …`; düzleştirilmiş alanın
+/// sütunu keyfi, #246).
+fn assert_shows_its_name(spans: &[(String, String, u64, String, String)]) {
+    for (header, loc, _, code, under) in spans {
+        let name = header.split('\'').nth(1).unwrap_or_default();
+        if header.starts_with("error[E1001]") {
+            assert_eq!(under, name, "{loc}: {code}");
+        } else if header.contains("unused input port") {
+            let port = name.split('.').next().unwrap_or_default();
+            let tokens: Vec<&str> = code.split_whitespace().collect();
+            assert_eq!(tokens.get(..2), Some(&["in", port][..]), "{loc}: {code}");
+        }
+    }
+}
+
+/// Bir birimin her `@mmio` modülü kendi üretilen kaynağını alır
+/// (`<mmio:TimerRegs>`, `<mmio:GpioRegs>`), her biri ayrı bir `FileId` ile:
+/// iki modülün tanıları kendi metnini gösterir. Kör nokta: sentetik dosya
+/// sayacının `+=`'si `*=` olunca iki kaynak aynı `FileId`'yi paylaşıyor,
+/// GpioRegs'in `w.data` uyarısı `<mmio:TimerRegs>:7:3`'te `out prot : u3`
+/// satırını gösteriyordu.
+///
+/// Birim bugün #220 yüzünden derlenmiyor (ikinci modül AXI bundle'larını
+/// bulamıyor, E1001). Test tanıların sayısını değil yalnız gösterdikleri
+/// yeri sınar; #220 düzelince iki modülde de `w.data`/`w.strb` W1001'i
+/// (yazılabilir register yok, ADR-0044 §2) kalır ve özellik onlarla sınanır.
+#[test]
+fn each_mmio_module_of_a_unit_has_its_own_generated_source() {
+    let timer = "@mmio(base = 0x100, bus = AXI4Lite)
+pub module TimerRegs {
+    in  clk  : clock
+    in  tick : bool
+    out cnt  : u16
+    @reg(offset = 0x00, access = ReadOnly, volatile)
+    status : {
+        count : u16,
+        @reserved : bits<16>,
+    }
+    on clk {
+        if tick {
+            regs.status.count <= regs.status.count + 1
+        }
+    }
+    cnt = regs.status.count
+}
+";
+    let main = "use timer::TimerRegs;
+
+@mmio(base = 0x0, bus = AXI4Lite)
+module GpioRegs {
+    in  clk : clock
+    out en  : bool
+    @reg(offset = 0x00, access = ReadOnly, volatile)
+    control : {
+        enable : bool,
+        @reserved : bits<31>,
+    }
+    en = regs.control.enable
+}
+";
+    let spans = rendered_unit_spans(&[("main.volt", main), ("timer.volt", timer)], "<mmio:");
+    for module in ["TimerRegs", "GpioRegs"] {
+        let prefix = format!("<mmio:{module}>:");
+        assert!(
+            spans.iter().any(|(_, loc, ..)| loc.starts_with(&prefix)),
+            "{module}: {spans:#?}"
+        );
+    }
+    assert_shows_its_name(&spans);
 }
 
 // ═══ Yazma etkinliği ve @w1c (ADR-0044 §2, §4) ═════════════════════════
@@ -260,6 +518,39 @@ module T {
 }
 ";
     let got = check("w1c-block", src);
+    assert_eq!(errors(&got), vec![], "{got:?}");
+}
+
+/// Alanı bir `match` kolunda yazan `on` bloğu da alanı yazan bloktur:
+/// temizleyici oraya girer, tasarım hatasız derlenir. Kör nokta:
+/// `block_assigns`'ın `match` kolu silinince temizleyici kendi bloğunda
+/// kalıyor, alan iki blokta sürülüyordu (E4001).
+#[test]
+fn a_w1c_clear_goes_into_an_on_block_that_sets_the_field_in_a_match() {
+    let src = "@mmio(base = 0x0, bus = AXI4Lite)
+module T {
+    in  clk  : clock
+    in  sel  : u2
+    out irq  : bool
+    @reg(offset = 0x00, access = ReadOnly, volatile)
+    status : {
+        count   : u16,
+        expired : bool @w1c,
+        @reserved : bits<15>,
+    }
+    on clk {
+        regs.status.count <= regs.status.count + 1
+    }
+    on clk {
+        match sel {
+            3 => { regs.status.expired <= true }
+            _ => { }
+        }
+    }
+    irq = regs.status.expired
+}
+";
+    let got = check("w1c-match", src);
     assert_eq!(errors(&got), vec![], "{got:?}");
 }
 
@@ -483,6 +774,33 @@ fn a_stage_reference_inside_an_if_of_an_on_block_is_rewritten() {
     assert_eq!(got, vec![], "{got:?}");
 }
 
+/// `on` bloğundaki bir `match` kolunun aşama referansı da yeniden yazılır:
+/// tasarım tanısız derlenir. Kör nokta: `collect_arm_idxs` hiçbir şey
+/// toplamayınca kollar gezilmiyor, referans yazılmadan kalıyor, tasarım
+/// yalnız "unused binding: 'b'" uyarısıyla kabul ediliyordu.
+#[test]
+fn a_stage_reference_inside_a_match_arm_of_an_on_block_is_rewritten() {
+    let src = "pipeline(2) P {
+    in  clk : clock
+    in  x : u32
+    in  sel : u2
+    out y : u32
+    stage F { let a : u32 = x }
+    stage D { let b : u32 = a + 1 }
+    reg r : u32 = 0
+    on clk {
+        match sel {
+            0 => { r <= stage(D).b }
+            _ => { r <= 0 }
+        }
+    }
+    y = r
+}
+";
+    let got = check("on-match-ref", src);
+    assert_eq!(got, vec![], "{got:?}");
+}
+
 /// Muhafız sinyalleri (`stall_<aşama>`) yalnız kullanılıyorsa üretilir;
 /// kullanıcının modül düzeyi `on` bloğunda okuduğu `stall_f` de
 /// kullanımdır (D'deki stall F'yi de durdurur, `stall_f` iç mantıkta
@@ -591,6 +909,95 @@ pipeline(2) P {
 ";
     let got = check("sint-n", src);
     assert_eq!(got, vec![], "{got:?}");
+}
+
+// ═══ Üretilen @mmio metninin iki değişmezi (ADR-0044 §2; ADR-0109 §4 A2) ═
+
+/// `@mmio` tasarımları: depodaki bütün geçerli örnekler.
+fn mmio_designs() -> Vec<(String, String)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    [
+        "tests/ui/pass/57_mmio_basic.volt",
+        "tests/ui/pass/58_mmio_access_control.volt",
+        "tests/ui/pass/72_mmio_driver_generation.volt",
+        "examples/soc/gpio.volt",
+    ]
+    .iter()
+    .map(|f| {
+        let src = std::fs::read_to_string(root.join(f)).expect("tasarım");
+        (f.to_string(), src)
+    })
+    .collect()
+}
+
+/// Bir register'ın alanları (rezerve dolgu dahil) en düşük bitten başlayıp
+/// sırayla yerleşir (ADR-0044 §2): bit aralıkları ayrıktır ve 32 biti
+/// aşmaz. `RegInfo::read_mask`'ın `|` → `^` mutantı (A2, `exclude_re`) bu
+/// varsayıma dayanır: ayrık maskelerde OR ile XOR aynıdır.
+#[test]
+fn mmio_fields_have_disjoint_bit_ranges() {
+    for (name, src) in mmio_designs() {
+        let parsed = volt_syntax::parser::parse(volt_span::FileId(0), &src);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{name}: {:?}",
+            parsed.error_codes()
+        );
+        assert!(!parsed.regmaps.is_empty(), "{name}");
+        for map in &parsed.regmaps {
+            for reg in &map.registers {
+                let mut used = 0u64;
+                for f in &reg.fields {
+                    assert!(f.lsb + f.width <= 32, "{name}: {}.{}", reg.name, f.name);
+                    let mask = ((1u64 << f.width) - 1) << f.lsb;
+                    assert_eq!(used & mask, 0, "{name}: {}.{} örtüşüyor", reg.name, f.name);
+                    used |= mask;
+                }
+            }
+        }
+    }
+}
+
+/// Üretilen modülün gövdesinde bütün `reg`/`let` bildirimleri ilk başka
+/// deyimden (`on`, atama) öncedir: ADR-0044 §2 bildirimleri kullanıcı
+/// gövdesinin önüne, `on` bloğunu ve atamaları arkasına koyar.
+/// `parse_generated`'ın `tail.is_empty()` korumasının `true` mutantı (A2,
+/// `exclude_re`) bu varsayıma dayanır: başka deyimden sonra gelen bir
+/// bildirim olmadıkça koruma hiçbir şeyi değiştirmez.
+#[test]
+fn generated_mmio_declarations_come_before_every_other_statement() {
+    use volt_ast::{ItemKind, StmtKind};
+    for (name, src) in mmio_designs() {
+        let parsed = volt_syntax::parser::parse(volt_span::FileId(0), &src);
+        assert!(!parsed.generated.is_empty(), "{name}");
+        for g in &parsed.generated {
+            let gen = volt_syntax::parser::parse(volt_span::FileId(1), &g.text);
+            assert!(
+                gen.diagnostics.is_empty(),
+                "{name}: {:?}",
+                gen.error_codes()
+            );
+            let module = gen
+                .ast
+                .items
+                .iter()
+                .find_map(|&i| match &gen.ast.items_arena[i].kind {
+                    ItemKind::Module(m) => Some(m),
+                    _ => None,
+                })
+                .expect("üretilen modül");
+            let mut seen_other = false;
+            for &si in &module.body {
+                let decl = matches!(gen.ast.stmts[si].kind, StmtKind::Reg(_) | StmtKind::Let(_));
+                assert!(
+                    !(decl && seen_other),
+                    "{name}: başka deyimden sonra bildirim"
+                );
+                seen_other |= !decl;
+            }
+            assert!(seen_other, "{name}: gövdede `on`/atama yok");
+        }
+    }
 }
 
 // ═══ Stall, bubble ve flush değerleri (ADR-0038; ADR-0109 §4 A2) ══════

@@ -783,9 +783,69 @@ PR #200'ün (ADR-0114, modül özeti) dosyaları; önceki karar metni değişmed
 
 PR #243'ün (uyarı kaskad bastırma penceresini açmaz, desugar geçitleri pencereyi kullanmaz) dosyaları; önceki karar metni değişmedi.
 
-**Kapsam.** `examine_globs`'a `crates/volt-syntax/src/parser/mod.rs` girdi: ayrıştırıcının tanı giriş noktaları. `push_error` kaskad bastırma penceresini (error-recovery.md §5) yalnız hata için kurar; `push_diag` uyarıları ve desugar geçitlerinin tanılarını pencerenin dışında ekler. Pencereyi bir uyarının açması ardından gelen hatayı yutuyor, kaynak çıkış 0 ile kabul ediliyordu. Dosya önce kapsam dışıydı, çünkü 1. aşama (§2) süreyle sınırlıydı ve sonraki ekler yalnız değiştirdikleri ayrıştırıcı dosyalarını aldı. `examine_globs` dosya düzeyindedir, fonksiyon seçmez; dosyanın 102 mutantı da girdi. `cargo mutants --list` 2845 → 2947. Tam koşu §3'e zaten sığmıyordu (#156); bu ek o sınırı değiştirmez, hedefli koşular etkilenmez.
+**Kapsam.** `examine_globs`'a `crates/volt-syntax/src/parser/mod.rs` girdi: ayrıştırıcının tanı giriş noktaları. `push_error` kaskad bastırma penceresini (error-recovery.md §5) yalnız hata için kurar; `push_diag` uyarıları ve desugar geçitlerinin tanılarını pencerenin dışında ekler. Pencereyi bir uyarının açması ardından gelen hatayı yutuyor, kaynak çıkış 0 ile kabul ediliyordu. Dosya önce kapsam dışıydı, çünkü 1. aşama (§2) süreyle sınırlıydı ve sonraki ekler yalnız değiştirdikleri ayrıştırıcı dosyalarını aldı. `examine_globs` dosya düzeyindedir, fonksiyon seçmez; dosyanın 102 mutantı da girdi. `cargo mutants --list` 2845 → 2947; aşağıdaki sınıflandırmanın 12 `exclude_re` girdisinden sonra 2935. Tam koşu §3'e zaten sığmıyordu (#156); bu ek o sınırı değiştirmez, hedefli koşular etkilenmez.
 
 **Koşular.**
 
 | Koşu | Commit | `re` | Liste | Parça | Sonuç |
 |---|---|---|---|---|---|
+| 43021294446 | 7b01f3f7 | `parser/(mmio\|desugar)\.rs` | 431 (`431 of 436 listed mutants match the regex`; düşen beşi alan silme mutantı) | 7 | 431 test edildi: 269 caught, 51 missed, 0 timeout, 111 unviable, 0 untested (özet işi `caught=269 missed=51 timeout=0 unviable=111 untested=0 mutants=431`). Yedi parçada `Tool ledger [mutants-N]: 173 test(s) asked for a tool; 175 lookup(s) found the tool (175 required), SKIP: 0`. Parçalar 3–5 saat sürdü. |
+| 43072419048 | 302f9600 | `parser/mod\.rs:[0-9]+:[0-9]+: .*::push_(error\|diag)( \|$)` | 6 (yerel `--list`) | 2 | (sürüyor) |
+
+İlk koşunun `re`'si iki dosyanın bütün mutantlarıdır, yalnız PR'ın değiştirdiği fonksiyonlarınki değil. PR'ın çağrı adlarını değiştirdiği fonksiyonların çoğunda (`push_error` → `push_diag`) cargo-mutants'ın değiştirebileceği bir ifade yok; PR'ın davranışını değiştirdiği tek yer `parse_generated`. Onun `severity == Error` karşılaştırmasının mutantı (`908:33`, `==` → `!=`) caught.
+
+**Sınıflandırma (§4).** 51 missed: 33 B (hepsine test yazıldı), 1 A1, 11 A2, 6 C. Her B mutantı atılabilir bir worktree'de elle uygulandı, test düştü, mutant geri alındı (`git diff` boş). A2'lerin her biri, varsayımını sınayan kalıcı bir testle `exclude_re`'ye girdi. Mutantla test geçer (eşdeğerlik). Varsayım elle bozulunca (aşağıda) test düşer. Araçlı testler yerelde Verilator 5.052 imajında, `VOLT_REQUIRE_TOOLS=verilator` ile koştu. Testler `crates/volt-driver/tests/desugar_blind_spot_tests.rs`'tedir (aşağıda adlarıyla).
+
+| Mutant | Sınıf | Test ya da issue |
+|---|---|---|
+| `mmio.rs:518:34` `path_ident` koruması → `true` | B | `an_access_value_with_a_path_prefix_is_e0009` (mutantta `ReadWrite::X` kabul) |
+| `mmio.rs:611:25` `volatile` koruması → `true` | B | `a_positional_reg_argument_other_than_volatile_is_e0009` |
+| `mmio.rs:648:45` `>` → `>=` | B | `a_register_at_the_last_32_bit_address_is_not_out_of_range` (aşağıda not) |
+| `mmio.rs:648:45` `>` → `==` | B | `an_offset_past_the_32_bit_address_space_is_e0015` (mutantta E2010, üretilen metinde) |
+| `mmio.rs:467:32` taban koruması → `true` | B | `a_base_wider_than_32_bits_is_e0009` |
+| `mmio.rs:846:55` `==` → `!=` (`unit_has_item`) | B | `a_type_alias_in_the_unit_does_not_hide_the_axi_bundles` (mutantta 42 E1001) |
+| `mmio.rs:190:9` `has_w1c` → `true` | B | `a_map_without_bus_writes_or_w1c_has_no_write_enable` (mutantta "unused binding: 'mmio_we'") |
+| `mmio.rs:190:9` `has_w1c` → `false` | B | `a_map_with_only_a_w1c_flag_has_a_write_enable` (mutantta E1001 `mmio_we`) |
+| `mmio.rs:1343:9` `block_assigns` → `true`, `1344:68` `==` → `!=`, `1350:13` `for` kolu silme, `1356:9` `if_assigns` → `true` | B | `a_w1c_clear_goes_into_the_on_block_that_sets_the_field` (mutantlarda E4001) |
+| `mmio.rs:1346:13` `match` kolu silme (`block_assigns`) | B | `a_w1c_clear_goes_into_an_on_block_that_sets_the_field_in_a_match` |
+| `mmio.rs:532:37` `uN` koruması → `true` (`field_ty`) | B (tanı metni) | `a_field_wider_than_32_bits_is_an_unsupported_type` |
+| `mmio.rs:535:13` `UIntN` kolu silme (`field_ty`) | B | `a_uint_n_register_field_is_accepted` |
+| `mmio.rs:745:31` ve `745:58` `\|\|` → `&&` (`collect_fields`) | B | `w1c_on_a_non_bool_field_is_e0009` |
+| `mmio.rs:128:35` `>` → `<`, `128:33` koruma → `true` (`FieldTy::zero`) | B | `hardware_bits_fields_reset_to_zero_at_every_width` (mutantta `bits<4>` sıfırı `u8`'den daraltılır, `volt check` tanısız kalmaz) |
+| `mmio.rs:338:9` `check_driver_names` → `()`, `250:5` `origin_of` → `None`, `381:9` `check_driver_stem` → `()` | B | `ui_fail_138_to_141_mmio_driver_name_collisions_are_e1014` (mutantlarda E1014 kaybolur; 141'de yerine #220'nin 42 E1001'i) |
+| `mmio.rs:439:33` `+=` → `*=` (sentetik dosya sayacı) | B | `each_mmio_module_of_a_unit_has_its_own_generated_source` (mutantta iki üretilen kaynak aynı `FileId`'yi paylaşır, GpioRegs'in uyarısı `<mmio:TimerRegs>:7:3`'te `out prot : u3`'ü gösterir) |
+| `desugar.rs:592:32` `-` → `/`, `+` | B | `a_relative_stage_reference_past_the_last_stage_is_e5012` (mutantta `stage(+1)` son aşamada kabul) |
+| `desugar.rs:889:30` `!` silme (`order_lets`) | B (tanı metni) | `e5015_names_the_values_on_the_cycle` (mutantta ileti boş) |
+| `desugar.rs:731:50` `&&` → `\|\|` (`resolve_prefix`) | B | `a_stall_list_with_a_gap_is_e5013` |
+| `desugar.rs:462:9` `rw_block` → `()`, `516:9` `rw_if` → `()` | B | `a_stage_reference_inside_an_if_of_an_on_block_is_rewritten` (mutantlarda referans yazılmaz, yalnız W1001) |
+| `desugar.rs:1314:5` `collect_arm_idxs` → `()` | B | `a_stage_reference_inside_a_match_arm_of_an_on_block_is_rewritten` |
+| `desugar.rs:980:9` `collect_block_names` → `()` | B | `a_stall_guard_read_only_in_an_on_block_is_generated` (mutantta E1001 `stall_f`) |
+| `desugar.rs:1276:13` `UIntN`, `1277:13` `SIntN` kolu silme (`copy_ty`) | B | `a_uint_n_value_crosses_a_stage_boundary`, `a_sint_n_value_crosses_a_stage_boundary` (mutantlarda E2005) |
+| `mmio.rs:128:35` `>` → `>=` (`FieldTy::zero`) | A1, `exclude_re` | `Bits(8)` kolu öncedir; fark yalnız w = 8'de, oraya ulaşmaz |
+| `mmio.rs:128:35` `>` → `==`, `128:33` koruma → `false` | A2, `exclude_re` | `hardware_bits_fields_reset_to_zero_at_every_width` |
+| `mmio.rs:1503:8` `!` silme (`render_contracts`) | A2, `exclude_re` | `a_diagnostic_in_the_generated_mmio_source_shows_the_name_it_reports` |
+| `mmio.rs:194:39` `\|` → `^` (`read_mask`) | A2, `exclude_re` | `mmio_fields_have_disjoint_bit_ranges` |
+| `mmio.rs:945:56` `tail.is_empty()` → `true` (`parse_generated`) | A2, `exclude_re` | `generated_mmio_declarations_come_before_every_other_statement` |
+| `desugar.rs:899:20` `!` silme (`order_lets`) | A2, `exclude_re` | `e5015_names_the_values_on_the_cycle` |
+| `desugar.rs:1154:23` `==` → `!=` (`bubble_cond`), `1175:18` koruma → `false` (`if_else`) | A2, `exclude_re` | `pipeline_stall_bubble_and_flush_have_their_values` |
+| `desugar.rs:1073:39` `<` → `<=`, `1073:35` `+` → `*` (`build_on_block`), `1174:13` `0` kolu silme (`if_else`) | A2 (ulaşılamaz), `exclude_re` | aynı test; aşağıda |
+| `mmio.rs:839:9` `unit_has_item` → `false`; `843:17` `Struct`, `844:17` `Module`, `845:17` `Enum`, `846:17` `TypeAlias` kolu silme | C | #244 |
+| `desugar.rs:1275:13` `Bits` kolu silme (`copy_ty`) | C | #245 |
+
+A ve C'nin gerekçeleri:
+
+- **A2, `FieldTy::zero` (`==`, koruma → `false`).** Varsayım: üretilen metindeki iki sıfır biçimi de N > 8'de uyarısız genişlemedir ve N bitlik 0'dır. Mutantlarda `bits<16>` alanı `((false as u1) as u16) as bits<16>` biçimini alır. Test iki biçimi `Forms` modülünde elle yazar (16 ve 32 bit) ve `@mmio` modülünde 16, 8 ve 4 bitlik donanım alanları kullanır. `volt check` tanısız, Verilator'da sıfırlama değerleri 0, `Z.sv` ve `Forms.sv` `verilator --lint-only -Wall`'dan bulgusuz geçer. İki mutantla da test geçer (`2 passed`, lint bulgusuz). `N < 8` biçimi `true as u1` yapılınca test `case.volt:64`'te (`q4 == 0`) düşer.
+- **A2, `render_contracts` `!`.** Mutant kontrat bölümündeki bir yorum satırını atar, `<mmio:G>`'nin sonraki her satırı bir yukarı kayar (55 → 54). Varsayım: sürücü ve LSP (`analysis.rs`) ayrıştırılan üretilen metni (`ParseResult.generated`) kaydeder; metin diske yazılmaz (ADR-0044 §2) ve `--emit-mmio` gibi bir dökümü yoktur. Bu yüzden tanı, konumu kaymış olsa da aynı metinden doğru adı gösterir. Test üretilen kodda tanılar tetikler: E1001'ler hem yorumdan önce hem sonra (`cover:` ve `let` satırları), W1001'ler port satırında. Her tanının altı çizili parçasının iletideki ad olduğunu (W1001'de satırın o portun bildirimi olduğunu) sınar. Mutantla geçer. Kaydedilen metin bir satır kaydırılınca düşer. Testin E1001 tetikleyicisi bugün #244'tür; #244 düzelince test bilerek düşer ve yeni tetikleyici ister (issue'da not).
+- **A2, `read_mask` `|` → `^`.** Varsayım: bir register'ın alanları ayrık bit aralıklarında, 0. bitten sırayla yerleşir (ADR-0044 §2). Ayrık maskelerde OR ile XOR aynıdır. Test depodaki dört `@mmio` tasarımının register haritalarında aralıkların ayrık olduğunu sınar. Yerleşim sayacı `lo += width / 2` yapılınca düşer.
+- **A2, `parse_generated` `tail.is_empty()` → `true`.** Varsayım: üretilen metin bütün `reg`/`let` bildirimlerini ilk başka deyimden önce yazar (ADR-0044 §2). Koruma o zaman bir bildirimi hiçbir zaman `on`'dan ya da atamadan sonra görmez. Test dört tasarımın üretilen modül gövdesinde bu sırayı sınar. `render` mantıktan sonra bir `let` yazınca düşer.
+- **A2, `order_lets:899:20` `!`.** E5015'ten sonra mutant çevrimdeki `let`'leri değil, yer tutucuları gövdeye koyar; `a` ve `b` düşer. Varsayım: ayrıştırma hatası derlemeyi ad çözümlemesinden önce durdurur. Test aynı dosyadaki tanımsız `z = nope`'un E1001 almadığını, tek tanının E5015 olduğunu sınar. `order_lets`'te aynı değişiklik 883 ve 889'da yakalandığı için girdi `899:20`'yi sabitler.
+- **A2, `bubble_cond` `!=` ve `if_else` koruma → `false`.** İkisi de SV'yi değiştirir. `bubble_cond`'da eşit kümede `stall_<b>` yerine aynı koşulların OR'u yazılır. Eşit olmayan kümede `stall_<b>` yazılır; bu bir üst kümedir ve fark yalnız sonraki aşama tutarken çıkar, o zaman da tutma dalı kazanır. `if_else`'te `else if` yerine `else begin if … end end` yazılır. Varsayım: `build_on_block` bubble'ı ancak bir sonraki aşamanın tutmasından sonra sınar. Test iki pipeline'ı simüle eder. P'de iki farklı önekli stall, bubble ve flush var; Q'da tek stall. Değerler ADR-0038'in önceliğinden (flush > hold > bubble > normal) elle hesaplandı. Test ayrıca `P.sv` ve `Q.sv`'yi `-Wall` ile lint eder. Dört mutantla (bu ikisi, `1073:39` ve `1174`) `2 passed`, lint bulgusuz. Bubble 0 yerine 1 yazınca (`zero_expr`) test `case.volt:40` ve `79`'da düşer.
+- **A2 (ulaşılamaz), `build_on_block` `1073:39` ve `1073:35`.** `stall_name` yalnız 0..N-1 aşama indislerini tutar (`desugar_pipeline` onu `0..nstages`'ten kurar). `b + 1 == N`'de mutantın aradığı N. aşama yoktur. `1073:35` sabitlendi, çünkü bir satır aşağıdaki aynı değişiklik yakalanıyor.
+- **A2 (ulaşılamaz), `if_else` `0` kolu.** Her çağıran boş olmayan bir `else` verir: register'sız sınır `build_on_block`'ta atlanır. Boş `else begin end` zaten etkisizdir. Desugar külliyatında (`tests/`, `examples/`; 31 `@mmio`/pipeline dosyası) üç ulaşılamaz mutantın tanıları ve SV'si mutantsız derleyicininkiyle bayt bayt aynı.
+- **C, #244.** Birimde bir AXI bundle adı (`struct port`, takma ad, enum ya da modül olarak) tanımlıysa üretici o bundle'ı atlar. Ama üretilen modül birimdeki tanımı görmez ve üretilen kodda 8 E1001 alır. ADR-0044 §2 "birimde tanımlı değillerse üretilir" diyor. Mutantlarda tek bir E1003 çıkar. Beş mutant karar verilene kadar missed kalır.
+- **C, #245.** `bits<K>` değeri bir aşama sınırını geçince E2003 alır ("expected 'bits<8>', found 'integer literal'"). ADR-0038 `bits<K>`'yi sınırı geçebilen skaler tipler arasında sayar. Neden: `zero_expr` bubble değeri olarak `0` literali üretir. Mutantta tanı E2005'e döner.
+
+**Not, `648:45` `>=`.** ADR-0044 bugün `base`'in hizalanmasını istemiyor. `base = 0xFFFF_FFFF`, `offset = 0` son 32 bitlik adrestir. #220 hizasız tabanı reddetmeyi öneriyor. Bu yüzden test yalnız E0015'in olmadığını sınar. #220 hizasız tabanı reddedince bu mutant ulaşılamaz olur ve A2'ye geçer (#220'de not).
+
+**Koşunun dışında bulunanlar.** `tests/ui/fail/138`–`141`'i (E1014) hiçbir test koşmuyordu; şimdi `ui_fail_138_to_141_mmio_driver_name_collisions_are_e1014` koşuyor. Düzleştirilmiş bir bundle alanının W1001'i doğru satırı ama keyfi bir sütunu gösteriyor (`fresh_name_span`): #246 (iyileştirme).
+
