@@ -906,6 +906,41 @@ mod tests {
         assert_eq!(summary_of(src, "M"), deps(&[("o", &["h"])]));
     }
 
+    /// `instance_output`'un kesimi (`expanding`, `cuts`) geçerli bir
+    /// programda tetiklenmez: bir örneğin bağlaması ancak kendisinden önce
+    /// bildirilmiş örneklerin çıkışlarını okuyabilir, sonraki örneği ya da
+    /// kendi çıkışını okumak çözümlemede E1002'dir ve özet yalnız temiz
+    /// çözümlemeden sonra hesaplanır (`pipeline.rs`). Örnekler üzerinden
+    /// döngü bir `wire`'dan geçer; tel bir `Path` okumasıdır, açılım
+    /// özyinelemesine girmez (`a_combinational_loop_through_instances_terminates`).
+    /// `.cargo/mutants.toml`'daki A2 kaydının dayanağı.
+    #[test]
+    fn an_instance_binding_cannot_read_a_later_or_its_own_instance() {
+        let pass = "module Pass {\n    in a : bool\n    in b : bool\n    out y : bool\n    out z : bool\n    \
+                    y = a\n    z = b\n}\n";
+        for (body, n) in [
+            (
+                "let p = Pass { a: q.y, b: h }\n    let q = Pass { a: p.y, b: h }",
+                1,
+            ),
+            ("let p = Pass { a: p.z, b: p.y }", 2),
+        ] {
+            let src = format!(
+                "{pass}module M {{\n    in h : bool\n    out o : bool\n    {body}\n    o = p.y\n}}\n"
+            );
+            let parsed = parse(FileId(0), &src);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+            let res = resolve_file(&parsed.ast);
+            let codes: Vec<&str> = res
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == volt_diagnostics::Severity::Error)
+                .map(|d| d.code.as_str())
+                .collect();
+            assert_eq!(codes, vec!["E1002"; n], "{body}");
+        }
+    }
+
     /// K4: saatsiz extern'in bağımlılıkları varsayımdır; bir Volt
     /// modülünün içinden geçince de varsayım olarak kalır, gerçek bir kapı
     /// aynı çifti kurarsa artık varsayım değildir.

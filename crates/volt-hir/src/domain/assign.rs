@@ -570,6 +570,59 @@ mod tests {
         assert_eq!(r.dom.diagnostics[0].spans[0].label, "@Slow");
     }
 
+    /// K6 (domain-inference.md): sabit kaynak (`Timeless`) hedefi hiçbir
+    /// alana bağlamaz. Kısıtsız tel sonraki sürücüsünün alanını alır: koşul
+    /// @Fast olduğundan `s` @Fast'tir ve `y = s` E3001'dir. Tel sabite
+    /// bağlansaydı ihlal sessizce kaçardı.
+    #[test]
+    fn a_constant_driver_leaves_a_wire_unconstrained() {
+        let r = inferred(&two_clock(
+            "    in a : bool @Fast\n    out y : bool @Slow\n    wire s : bool\n    \
+             comb {\n        s = false\n        if a {\n            s = true\n        }\n    }\n    \
+             y = s",
+        ));
+        assert_eq!(r.codes(), ["E3001"]);
+        let d = &r.dom.diagnostics[0];
+        assert_eq!(
+            (d.spans[0].label.as_str(), d.spans[1].label.as_str()),
+            ("@Slow", "@Fast")
+        );
+    }
+
+    /// K6: kaynağı `Error` olan atama (sürücüsünün join'i zaten E3001)
+    /// hedefi `Error`'a bağlamaz. `s` kısıtsız kalır, `y = s` onu @Slow'a
+    /// bağlar ve `s`'yi @Fast'te de okumak ayrı bir ihlaldir.
+    #[test]
+    fn a_driver_whose_join_failed_leaves_a_wire_unconstrained() {
+        let r = inferred(&two_clock(
+            "    in a : bool @Fast\n    in b : bool @Slow\n    out y : bool @Slow\n    \
+             out z : bool @Fast\n    wire s : bool\n    s = a && b\n    y = s\n    z = s",
+        ));
+        assert_eq!(r.codes(), ["E3001", "E3001"]);
+        let d = &r.dom.diagnostics[1];
+        assert_eq!(
+            (d.spans[0].label.as_str(), d.spans[1].label.as_str()),
+            ("@Fast", "@Slow")
+        );
+    }
+
+    /// K5 (ADR-0083 Karar 8): koşula bağlı atamada sabit kaynağın alanını
+    /// koşul taşır; tanının kaynak etiketi koşuldadır. Sabit olmayan
+    /// kaynakta etiket kaynağın kendisindedir.
+    #[test]
+    fn the_source_label_of_a_conditional_assignment_is_where_its_domain_comes_from() {
+        for (stmt, want) in [("y = true", "f"), ("y = g", "g")] {
+            let src = two_clock(&format!(
+                "    in f : bool @Fast\n    in g : bool @Fast\n    out y : bool @Slow\n    \
+                 comb {{\n        y = false\n        if f {{\n            {stmt}\n        }}\n    }}"
+            ));
+            let r = inferred(&src);
+            assert_eq!(r.codes(), ["E3001"], "{stmt}");
+            let s = r.dom.diagnostics[0].spans[1].span;
+            assert_eq!(&src[s.start as usize..s.end as usize], want, "{stmt}");
+        }
+    }
+
     #[test]
     fn foreign_index_on_the_left_side_is_e3001() {
         let r = inferred(&two_clock(

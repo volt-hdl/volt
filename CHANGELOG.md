@@ -107,7 +107,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   Yosys ile kombinasyonel yol analizine karşı denetlenir (araçlı işte).
   Modül özeti dosyaları mutasyon testinin kapsamında (ADR-0109); hedefli
   koşunun kaçırdığı dokuz mutantın sekizi testle yakalanır, biri
-  erişilemez koddadır ve gerekçesiyle dışlanır.
+  erişilemez koddadır ve gerekçesiyle dışlanır. Beş dosyanın tamamını
+  deneyen koşuda (228 mutant) kaçan 24 mutantın 21'i yeni testlerle
+  yakalanır: yerleşik primitiflerin E2025, E2008 ve E2003 iletileri ve
+  yardımları iki dilde (`builtin_param_diag_tests`); sabit ya da hatalı
+  sürücünün kısıtsız teli bir alana bağlamaması (K6); koşullu atamada
+  kaynak etiketinin yeri; E3016'nın çocuğun saat bağlamasında, E3014
+  iletisinin sembolik alanı adlandırması; bağlanmamış saatte port
+  alanları; aynı alanda iki anotasyonlu girişte birleşme önerisi. Üçü
+  erişilemez koddadır ve gerekçesiyle dışlanır (ADR-0109 eki).
 - PR incelemesinin bulguları (ADR-0114): tohumlanmış hata derlemine üç
   tür ve iki güvenli ikiz (saatsiz çocukta hedef indeksi, anotasyonlu
   çıkışın sonradan yazılan sürücüsü, `valid`'e giden yolda hedef

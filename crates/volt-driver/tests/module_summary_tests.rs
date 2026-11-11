@@ -847,7 +847,8 @@ fn the_origin_note_follows_slices_part_selects_and_matches() {
 /// sabittir (ona bağlanan değer K8 adım 2'de denetlenir), senkronize
 /// edilen öteki giriştir; hedef alanın dışında birden çok giriş kalıyorsa
 /// ya da iki anotasyonlu giriş farklı alandaysa tek bir `sync()` tanıyı
-/// gidermez: öneri yoktur, yardım genel biçimdedir.
+/// gidermez: öneri yoktur, yardım genel biçimdedir. Aynı alanda iki
+/// anotasyonlu giriş hedef alanı değiştirmez.
 #[test]
 fn the_merge_fix_synchronizes_one_unannotated_input_or_none() {
     let top = |child: &str, binds: &str| {
@@ -861,6 +862,14 @@ fn the_merge_fix_synchronizes_one_unannotated_input_or_none() {
             "merge-annotated-second",
             "module C {\n    in  a : bool\n    in  b : bool @Slow\n    out y : bool\n    y = a && b\n}",
             "a: f, b: s1",
+            Some("synchronize 'a' into @Slow before the instance: add 'let f_sync = sync(f, sclk)' above it and bind 'a: f_sync'"),
+        ),
+        (
+            // İki anotasyonlu giriş aynı alanda: hedef alan odur, dışarıda
+            // tek anotasyonsuz giriş kalır.
+            "merge-two-annotated-same",
+            "module C {\n    in  a : bool\n    in  b : bool @Slow\n    in  c : bool @Slow\n    out y : bool\n    y = a && b && c\n}",
+            "a: f, b: s1, c: s2",
             Some("synchronize 'a' into @Slow before the instance: add 'let f_sync = sync(f, sclk)' above it and bind 'a: f_sync'"),
         ),
         (

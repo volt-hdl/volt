@@ -725,6 +725,60 @@ mod tests {
         assert!(r.codes().is_empty(), "{:?}", r.codes());
     }
 
+    /// Hedefte olmayan bir porta bağlama çözümlemede E1009'dur (Volt modülü
+    /// ve yerleşik primitif) ve derleme çözümleme hatasından sonra alan
+    /// çıkarımına girmez (`pipeline.rs`): `propagate_binding` bugün yalnız
+    /// kapısız `analyze` (testler) üzerinden koşar. `.cargo/mutants.toml`'daki
+    /// A2 kaydının dayanağı.
+    #[test]
+    fn a_binding_to_a_missing_port_is_e1009_in_name_resolution() {
+        for inst in [
+            "Inner { clk: fast_clk, d: a, nope: a }",
+            "SyncFifo<u8, 4> { clk: fast_clk, wr_data: a, wr_en: true, rd_en: true, nope: a }",
+        ] {
+            let src = format!(
+                "{INNER}{}",
+                two_clock(&format!("    in a : u8 @Fast\n    let i = {inst}"))
+            );
+            let parsed = volt_syntax::parse(volt_syntax::FileId(0), &src);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+            let res = crate::resolve::resolve_file(&parsed.ast);
+            let codes: Vec<&str> = res.diagnostics.iter().map(|d| d.code.as_str()).collect();
+            assert!(codes.contains(&"E1009"), "{inst}: {codes:?}");
+        }
+    }
+
+    /// K8 (domain-inference.md): bağlanmamış sembolik alan `Error`'dur,
+    /// denetlenemez, yanlış pozitif de üretmez. `@Core`'un saati
+    /// bağlanmadığında `e.q`'nun @Slow ile join'i tanı vermez (bağlanmamış
+    /// saat portu sonraki aşamada E4011'dir).
+    #[test]
+    fn an_unbound_symbolic_domain_is_not_checked() {
+        let r = inferred(&format!(
+            "{EXT}{}",
+            two_clock(
+                "    in a : u8 @Fast\n    in b : u8 @Slow\n    out y : u8 @Fast\n    \
+                 let e = Ext { d: a }\n    y = e.q | b"
+            )
+        ));
+        assert!(r.codes().is_empty(), "{:?}", r.codes());
+    }
+
+    /// K8 adım 2: saati bağlanmamış, sembolik alanı olmayan çocuğun veri
+    /// portları bir alan taşımaz (`Timeless`); ifadenin öbür işleneni yine
+    /// denetlenir: @Slow değer @Fast çıkışta E3001'dir.
+    #[test]
+    fn an_unbound_child_clock_leaves_the_other_operand_checked() {
+        let r = inferred(&format!(
+            "{INNER}{}",
+            two_clock(
+                "    in a : u8 @Fast\n    in b : u8 @Slow\n    out y : u8 @Fast\n    \
+                 let i = Inner { d: a }\n    y = i.q | b"
+            )
+        ));
+        assert_eq!(r.codes(), ["E3001"]);
+    }
+
     #[test]
     fn binding_from_another_domain_is_e3001() {
         let r = inferred(&format!(
@@ -759,6 +813,36 @@ mod tests {
                 && d.message.contains("@Slow")
         );
         assert_eq!(d.spans.len(), 2);
+    }
+
+    /// E3014 iletisi anahtarın türünü söyler (ADR-0047): extern'in
+    /// sembolik alanı ya da iki saat portunun taşıdığı açık alan (kural
+    /// sıradan modüller için de geçerlidir, domain-inference.md K8).
+    #[test]
+    fn the_e3014_message_says_whether_the_domain_is_symbolic() {
+        volt_diagnostics::set_lang(volt_diagnostics::Lang::En);
+        let child = "module C {\n    in c1 : clock @Fast\n    in c2 : clock @Fast\n    \
+                     in d : u8 @Fast\n    out q : u8 @Fast\n    q = d\n}\n";
+        for (src, want) in [
+            (
+                format!(
+                    "{EXT}{}",
+                    two_clock("    in a : u8 @Fast\n    let e = Ext { wr_clk: fast_clk, rd_clk: slow_clk, d: a }")
+                ),
+                "symbolic domain '@Core' is bound to two different clocks: @Fast and @Slow",
+            ),
+            (
+                format!(
+                    "{child}{}",
+                    two_clock("    in a : u8 @Fast\n    let c = C { c1: fast_clk, c2: slow_clk, d: a }")
+                ),
+                "clock domain '@Fast' is bound to two different clocks: @Fast and @Slow",
+            ),
+        ] {
+            let r = inferred(&src);
+            assert_eq!(r.codes(), ["E3014"]);
+            assert_eq!(r.dom.diagnostics[0].message, want);
+        }
     }
 
     #[test]

@@ -340,6 +340,29 @@ mod tests {
         assert!(text.contains("Child"), "{text}");
     }
 
+    /// E3016 saat bağlamasının kendisinde: veri girişi sabit olsa da
+    /// (Timeless, kenar gerektirmez) kenarsız saat çocuğun saat portuna
+    /// bağlanınca tanı bağlamayı gösterir.
+    #[test]
+    fn the_e3016_of_a_child_clock_is_at_its_clock_binding() {
+        let src = format!(
+            "{ASYNC}module Child {{\n    in clk : clock\n    in d : u8\n    out q : u8\n    \
+             reg r : u8 = 0\n    on clk {{ r <= d }}\n    q = r\n}}\n\
+             module M {{\n    in clk : clock @Async\n    out q : u8\n    \
+             let c = Child {{ clk: clk, d: 0 }}\n    q = c.q\n}}\n"
+        );
+        let r = inferred(&src);
+        assert_eq!(r.count("E3016"), 1, "{:?}", r.codes());
+        let d = r
+            .dom
+            .diagnostics
+            .iter()
+            .find(|d| d.code.as_str() == "E3016")
+            .expect("E3016");
+        let p = d.spans.iter().find(|s| s.primary).expect("birincil").span;
+        assert_eq!(&src[p.start as usize..p.end as usize], "clk: clk");
+    }
+
     #[test]
     fn child_clock_port_in_an_edgeless_domain_accepts_an_edgeless_clock() {
         // Çocuk portu da kenarsız alanda: çocuk o saatle flop zamanlayamaz

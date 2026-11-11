@@ -738,3 +738,35 @@ PR #164'ün değiştirdiği fonksiyonların mutantları; önceki karar metni de�
 - **C (3): #159.** `eval_const_scoped`'un eksi ve ikili kollarındaki derinlik sayacı. Mutantlar 64'ten derin ifadeyi kabul eder; şartnamede sınır yok. #136–#138 koşusunun aynı mutantlarıyla aynı sınıf.
 - **Bulgu, #167:** `unroll.rs:465` için girdi aranırken görüldü. Kurtarılmış bir alt ifade içeren sınır (`0..2 + {`) E0001'in ardından E2021 kaskadı alıyor. Tüm sınır kurtarılmışsa (`0.. {`) almıyor. Açık hata, yanlış sonuç değil.
 - **Not:** `RootFilter::sees` tanım dosyasına bakar, öğeye değil. Bir dosya `use other::K as J` ile getirirse ve `other`'da private bir `J` de varsa, `Scopes::module` o `J`'yi de kök çerçeveye koyar. Yanlış sonuç yok: `J` zaten takma adla kök çerçevededir ve değeri `root_name` ile `K`'ye çözülür. `scope.rs:112:22`'nin öldürücü girdisi bu yüzden private `J`'yi üçüncü bir dosyaya koyar.
+
+## Kapsam genişlemesi ve koşu (#189, #193, 2026-11-11)
+
+PR #200'ün (ADR-0114, modül özeti) dosyaları; önceki karar metni değişmedi.
+
+**Kapsam.** `examine_globs`'a beş dosya girdi: özet ve kombinasyonel graf (`crates/volt-hir/src/summary.rs`, YENİ), onu okuyan E4007 denetimi (`crates/volt-hir/src/handshake.rs`), saatsiz hedefin çıkış alanı ve örnek sitesindeki E3001 (`crates/volt-hir/src/domain/instance.rs`, `crates/volt-hir/src/domain/assign.rs`) ve yerleşik primitif tablosu (`crates/volt-ast/src/builtin.rs`). İlk hedefli koşu (42670004438, 6379b29) yalnız değişen satırları denedi: 114 mutant, 92 caught, 9 missed, 13 unviable; sekiz B'nin testi yazıldı, `Walker::block_reads → ()` A2 olarak `exclude_re`'ye girdi (sınıflandırma PR #200'ün açıklamasında). Bu ek beş dosyanın tamamını dener; eski kodun kör noktaları da bu yüzden listede.
+
+**Koşu.** https://github.com/volt-hdl/volt/actions/runs/42888144192 (52b9f402, `re` = `(volt-hir/src/(summary|handshake|domain/instance|domain/assign)|volt-ast/src/builtin)\.rs:`; `228 of 233 listed mutants match the regex`, düşürülen beşi alan silme mutantı; dört parça: 3 sa 1 dk, 3 sa 2 dk, 4 sa 36 dk, 3 sa 50 dk, dördü de `completed`; her parçada `Tool ledger [mutants-N]: 173 test(s) asked for a tool; 175 lookup(s) found the tool (175 required), SKIP: 0`). 228 mutant: 178 caught, 24 missed, 0 timeout, 26 unviable. 24 missed'in 2'si PR #200'ün satırlarında (`instance.rs:471`, `summary.rs:590`), 22'si eski kodda.
+
+**Sınıflandırma (§4).** Her B mutantı atılabilir bir worktree'de elle uygulandı, test düştü, dosya geri yazıldı ve `git diff` her adımda mutanttan önceki hâliyle aynıydı. Beklenen değerler: parametre adları ve aralıklar ADR-0029'dan ("Sabit generic kuralları"), imza kalıpları ADR-0027/0029/0049'dan; alan kararları `domain-inference.md` K5, K6, K8'den.
+
+| Mutant | Sınıf | Öldüren test |
+|---|---|---|
+| `builtin.rs:353` `const_param_name` → `""`, `"xyzzy"`; `354`, `355`, `356` kol silme (Counter, ShiftRegister, arbiterler) | B | `builtin_param_diag_tests::an_invalid_size_names_the_parameter_and_its_rule_in_both_languages`, `::a_non_literal_size_or_a_wrong_arity_shows_the_signature_in_both_languages` (mutantta `Counter DEPTH is out of range`) |
+| `builtin.rs:384` `const_rule_hint_en`, `394` `const_rule_hint_tr` → `""`, `"xyzzy"` | B | `builtin_param_diag_tests::an_invalid_size_names_the_parameter_and_its_rule_in_both_languages` (iki dilde E2025 yardımı) |
+| `builtin.rs:404` `generic_shape` → `""`, `"xyzzy"` | B | `builtin_param_diag_tests::a_non_literal_size_or_a_wrong_arity_shows_the_signature_in_both_languages` (E2008 ve E2003 yardımı) |
+| `assign.rs:100:42` `==` → `!=` (`check_assign`) | B | `domain::assign::tests::the_source_label_of_a_conditional_assignment_is_where_its_domain_comes_from` (mutantta kaynak etiketi koşul `f` yerine `true`) |
+| `assign.rs:404:13` `(_, Timeless) \| (Timeless, _)` kol silme (`check_compat`) | B | `domain::assign::tests::a_constant_driver_leaves_a_wire_unconstrained` (mutantta tel sabite bağlanır, E3001 kaybolur: yanlış sonuç) |
+| `assign.rs:405:13` `(Error, _) \| (_, Error)` kol silme | B | `domain::assign::tests::a_driver_whose_join_failed_leaves_a_wire_unconstrained` (mutantta ikinci E3001 kaybolur) |
+| `instance.rs:94:64` `==` → `!=`, `97:16` `!` silme (`check_child_clock_edges`) | B | `domain::edgeless::tests::the_e3016_of_a_child_clock_is_at_its_clock_binding` (veri girişi sabitken mutantta E3016 yok) |
+| `instance.rs:209:46` `==` → `!=` (`err_clock_conflict`) | B | `domain::instance::tests::the_e3014_message_says_whether_the_domain_is_symbolic` |
+| `instance.rs:292` koruma → `false`, `292:44` `==` → `!=` (`expected_port_domain`) | B | `domain::instance::tests::an_unbound_symbolic_domain_is_not_checked` (mutantta bağlanmamış sembolik alanda yanlış E3001) |
+| `instance.rs:292` koruma → `true`, `292:44` `==` → `!=` | B | `domain::instance::tests::an_unbound_child_clock_leaves_the_other_operand_checked` (mutantta @Slow işlenenin E3001'i kaybolur) |
+| `instance.rs:471:32` koruma → `true` (`merge_fix`) | B | `module_summary_tests::the_merge_fix_synchronizes_one_unannotated_input_or_none`, yeni `merge-two-annotated-same` durumu (aynı alanda iki anotasyonlu giriş; mutantta öneri yok) |
+| `instance.rs:642:9` `propagate_binding` → `()` | A2 | aşağıda |
+| `summary.rs:590:43` `+` → `-`, `*` (`instance_output`, kesim sayacı) | A2 | aşağıda |
+
+Özet: 24 missed. 21'i B (testi yazıldı), 3'ü A2, A1 ve C yok.
+
+- **A2 (2), `summary.rs:590:43`:** kesim sayacı (`cuts`) yalnız açık bir (örnek, çıkış) açılımına yeniden girilince artar. Ulaşılamazlık (§4 eki (a)): özet temiz isim çözümlemesinden sonra hesaplanır (`pipeline.rs`); bir örneğin bağlaması ancak önce bildirilmiş örneklerin çıkışlarını okuyabilir, sonraki örneği ya da kendi çıkışını okumak E1002'dir (`summary::tests::an_instance_binding_cannot_read_a_later_or_its_own_instance`). Örnekler üzerinden döngü bir `wire`'dan geçer; tel düz bir okumadır, açılım özyinelemesine girmez. `-` mutantıyla `a_combinational_loop_through_instances_terminates` taşma paniği vermeden geçer; iki mutantla da özet birim testleri ve `module_summary_tests` geçer. Aynı fonksiyonda üç satır aşağıdaki açılım sayacının aynı mutantları yakalandığından girdi `590:43`'ü sabitler. Önce yazılan bir döngü testi (doğrudan `let p = Pass { a: q.y }`, `let q = Pass { a: p.y }`) özette `o1` için eksik sonuç verdi; girdi geçersizdi (E1002), test bu kanıta çevrildi.
+- **A2 (1), `instance.rs` `propagate_binding → ()`:** hedefte olmayan bir porta bağlama çözümlemede E1009'dur (Volt modülü ve yerleşik primitif) ve derleme çözümleme hatasından sonra alan çıkarımına girmez (`pipeline.rs`); fonksiyon bugün yalnız kapısız `volt_hir::analyze` üzerinden koşar, onu da yalnız testler çağırır. `domain::instance::tests::a_binding_to_a_missing_port_is_e1009_in_name_resolution` mutantla geçer.
+- **Not:** `assign.rs:404` ve `405`'in testleri şartnamenin K6 sözde kodunu izler (`(_, Timeless) => {}`, `(Error, _) | (_, Error) => {}`): kısıtsız bir alan değişkeni sabite ya da hataya bağlanmaz. 404'ün mutantı sessiz yanlış sonuçtur (bir CDC ihlali kaybolur); bugünkü kod doğru, yalnız test eksikti.
