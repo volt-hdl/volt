@@ -496,7 +496,7 @@ impl<'a> ModuleTiming<'a> {
                 acc
             }
             ExprKind::StructLit { fields, .. } => {
-                let vals: Vec<Idx<Expr>> = fields.iter().filter_map(|f| f.value).collect();
+                let vals: Vec<Idx<Expr>> = fields.iter().map(|f| f.value).collect();
                 let mut acc = (Delay::Any, span);
                 for v in vals {
                     let d = self.delay_of(v, emit);

@@ -56,11 +56,7 @@ fn stmt_consumes(
             let prim = BuiltinPrim::from_name(&seg.text);
             let child = module_named(ast, &seg.text);
             inst.bindings.iter().any(|b| {
-                let value = match b.value {
-                    Some(e) => path_single(ast, e),
-                    None => Some(b.port_name.text.as_str()),
-                };
-                if value != Some(clk) {
+                if path_single(ast, b.value) != Some(clk) {
                     return false;
                 }
                 match (prim, child) {

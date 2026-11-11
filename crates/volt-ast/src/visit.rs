@@ -36,7 +36,7 @@ pub fn expr_children(kind: &ExprKind) -> Vec<Idx<Expr>> {
             }
             v
         }
-        ExprKind::StructLit { fields, .. } => fields.iter().filter_map(|f| f.value).collect(),
+        ExprKind::StructLit { fields, .. } => fields.iter().map(|f| f.value).collect(),
         ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => items.clone(),
         ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => vec![*value, *count],
         ExprKind::Concat(items) => items.iter().map(|&(e, _)| e).collect(),
@@ -139,7 +139,7 @@ pub fn map_children(kind: &ExprKind, mut f: impl FnMut(Idx<Expr>) -> Idx<Expr>) 
                 .map(|fi| crate::FieldInit {
                     span: fi.span,
                     name: fi.name.clone(),
-                    value: fi.value.map(&mut f),
+                    value: f(fi.value),
                 })
                 .collect(),
         },

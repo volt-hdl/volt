@@ -9,6 +9,19 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Kısaltılmış alan ve port yazımı (`S { x }`,
+  `Inst { x }`) artık uzun biçimiyle (`S { x: x }`, `Inst { x: x }`)
+  aynı denetimlerden geçer (#204; sessiz yanlış düzeltmesi). 0.1.1'de
+  değeri yazılmamış alan tip, saat alanı, güven, el sıkışma ve zamanlama
+  denetimlerinin hepsinde atlanıyordu: `o = S { a }` (16 bitlik `a`, 8
+  bitlik alan) hatasız derleniyor, `let w = Flag { fast_flag }` ile
+  `slow_flag = w.fast_flag` senkronizörsüz bir alan geçişi üretiyordu.
+  Kısaltmayla yazılmış ve bu denetimleri atlayan tasarımlar artık
+  reddedilir: E2001/E2002/E2003 (tip ve genişlik), E3001 (saat alanı),
+  E3009 (güven), E4007 (el sıkışma), E5010 (zamanlama). Çözüm hatanın
+  söylediği düzeltmedir (`sync()`, `declassify()`, açık dönüşüm ya da
+  `valid`'i register'da üretmek); kısayolun kendisi değişmez. Temiz
+  tasarımların ürettiği SystemVerilog değişmez.
 - **Davranış değişikliği.** Saatsiz bir modül ya da saatsiz bir `extern`
   üzerinden başka bir saat alanına geçen kombinasyonel yol artık E3001
   alır (#189, ADR-0114; sessiz yanlış düzeltmesi). Saatsiz modülün

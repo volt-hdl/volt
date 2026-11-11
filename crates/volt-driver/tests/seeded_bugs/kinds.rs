@@ -220,6 +220,13 @@ pub fn kinds() -> Vec<Kind> {
             sites: ready_on_valid,
         },
         Kind {
+            name: "near.field-shorthand",
+            spec: "grammar-full.ebnf FieldInit / PortBind (`x` is `x: x`, #204): the same design, so no new code",
+            expect: Some(&[]),
+            near_miss: true,
+            sites: field_shorthand,
+        },
+        Kind {
             name: "near.extern-domain-rename",
             spec: "domain-inference.md K8a (a symbolic domain is a parameter: its name does not matter)",
             expect: Some(&[]),
@@ -1061,4 +1068,61 @@ fn on_block_split(src: &Source) -> Sites {
         }
     }
     number(out)
+}
+
+// ── field-init shorthand (#204) ──────────────────────────────────────
+
+/// Every `x: x` of a struct literal, an instance binding or a struct
+/// pattern written as the shorthand `x`. A field or binding starts after
+/// `{`, `,` or at the start of a line, and its value ends at `,`, `}` or
+/// the end of the line.
+fn field_shorthand(src: &Source) -> Sites {
+    let mut out = Vec::new();
+    for (i, raw) in src.lines.iter().enumerate() {
+        let code = code_part(raw);
+        let mut j = 0;
+        while j < code.len() {
+            let c = code[j..].chars().next().unwrap_or(' ');
+            let starts = is_ident_char(c)
+                && !c.is_ascii_digit()
+                && !code[..j].chars().next_back().is_some_and(is_ident_char);
+            if !starts {
+                j += c.len_utf8();
+                continue;
+            }
+            let end = j + code[j..]
+                .find(|ch: char| !is_ident_char(ch))
+                .unwrap_or(code.len() - j);
+            let name = &code[j..end];
+            let before = code[..j].trim_end();
+            let opens = before.is_empty() || before.ends_with('{') || before.ends_with(',');
+            if let Some(value_end) = opens.then(|| same_name_value(code, end, name)).flatten() {
+                let new = splice(raw, j, value_end, name);
+                out.push((format!("{name}: {name}"), src.with_line(i, &new)));
+            }
+            j = end;
+        }
+    }
+    number(out)
+}
+
+/// `name` is followed by `: name` and then `,`, `}` or the end of the
+/// line: the end of the value.
+fn same_name_value(code: &str, after_name: usize, name: &str) -> Option<usize> {
+    let rest = &code[after_name..];
+    let colon = rest.len() - rest.trim_start().len();
+    let rest = rest.trim_start().strip_prefix(':')?;
+    if rest.starts_with(':') {
+        return None; // `a::b`
+    }
+    let ws = rest.len() - rest.trim_start().len();
+    let value = rest.trim_start().strip_prefix(name)?;
+    if value.chars().next().is_some_and(is_ident_char) {
+        return None;
+    }
+    let tail = value.trim_start();
+    if !(tail.is_empty() || tail.starts_with(',') || tail.starts_with('}')) {
+        return None;
+    }
+    Some(after_name + colon + 1 + ws + name.len())
 }

@@ -208,7 +208,12 @@ exclude_re = [
     # among them; no overflow panic with `-`) and module_summary_tests pass.
     # Pinned: the same changes on the expansion counter, three lines below,
     # are caught. Review when a binding may read a later declaration.
-    "volt-hir/src/summary\\.rs:590:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
+    # Reviewed in #204 (targeted run 42962808806): the pin moved from 590:43
+    # to 575:43 (lines removed above it, same statement). The assumption
+    # still holds: a field-init shorthand binding is now `x: x`, a one-segment
+    # path to a local, and reading an instance output is always a field
+    # access (`p.y`), so the shorthand never reaches instance_output.
+    "volt-hir/src/summary\\.rs:575:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
     # A2 (unreachable), assumes a binding to a port the target lacks is E1009
     # in name resolution (Volt module and built-in primitive) and the
     # compiler stops before domain inference after a resolve error

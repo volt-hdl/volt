@@ -432,7 +432,7 @@ impl<'a> Inferencer<'a> {
             ),
         );
         if let (Some(f), Some(anchor)) = (fix, self.cur_stmt) {
-            // suggestion: e3001_clockless_instance, e3001_clockless_instance_annotated_input
+            // suggestion: e3001_clockless_instance, e3001_clockless_instance_annotated_input, e3001_clockless_instance_shorthand
             let s = Suggestion::line_above(anchor, f.line, Applicability::MaybeIncorrect)
                 .and_replace(self.ast.exprs[f.value].span, f.synced);
             diag = diag.with_suggestion(s);
@@ -497,7 +497,7 @@ impl<'a> Inferencer<'a> {
             dom: target,
             line,
             synced,
-            value: b.value?,
+            value: b.value,
         })
     }
 
@@ -603,7 +603,8 @@ impl<'a> Inferencer<'a> {
                 tr: "'{target}.{out}', araya register girmeden '{input}' girişine bağlı; '{target}' saatsizdir, yani @{dy} değeri @{dx} bildirilen çıkışa senkronizörsüz ulaşır"
             ),
         );
-        if let (Some((line, synced)), Some(anchor), Some(value)) = (fix, self.cur_stmt, b.value) {
+        if let (Some((line, synced)), Some(anchor)) = (fix, self.cur_stmt) {
+            let value = b.value;
             // suggestion: e3001_clockless_annotated_output
             let s = Suggestion::line_above(anchor, line, Applicability::MaybeIncorrect)
                 .and_replace(self.ast.exprs[value].span, synced);
@@ -616,14 +617,13 @@ impl<'a> Inferencer<'a> {
     /// yalnız tek bitlik, adı yazılabilen değer ve `dst`'nin bu modülde bir
     /// saat portu varken (`sync()` kuralları, K9).
     fn binding_sync_fix(&self, b: &PortBinding, dst: DomainId) -> Option<(String, String)> {
-        let e = b.value?;
-        let ExprKind::Path(path) = &self.ast.exprs[e].kind else {
+        let ExprKind::Path(path) = &self.ast.exprs[b.value].kind else {
             return None;
         };
         let [name] = path.segments.as_slice() else {
             return None;
         };
-        if !self.is_one_bit(e) {
+        if !self.is_one_bit(b.value) {
             return None;
         }
         let dst = self.resolve_dom(dst);
@@ -639,30 +639,18 @@ impl<'a> Inferencer<'a> {
 
     /// Hedef portu bulunamayan bağlama: ifadesi yine de yayılıma girer.
     pub(super) fn propagate_binding(&mut self, b: &PortBinding) {
-        if let Some(e) = b.value {
-            self.expr_domain(e);
-        }
+        self.expr_domain(b.value);
     }
 
     /// Bağlanan değer portun beklenen alanıyla uyumlu mu (K6 üzerinden).
     pub(super) fn check_binding(&mut self, expected: DomainId, b: &PortBinding) {
         let actual = self.binding_domain(b);
-        let value_span = match b.value {
-            Some(e) => self.ast.exprs[e].span,
-            None => b.span,
-        };
+        let value_span = self.ast.exprs[b.value].span;
         self.check_compat(expected, actual, b.span, value_span);
     }
 
     pub(super) fn binding_domain(&mut self, b: &PortBinding) -> DomainId {
-        match b.value {
-            Some(e) => self.expr_domain(e),
-            // `clk:` kısayolu — yerel isim port adıyla aynı.
-            None => self
-                .use_def(b.port_name.span)
-                .map(|def| self.def_domain(def))
-                .unwrap_or(DomainId::Timeless),
-        }
+        self.expr_domain(b.value)
     }
 }
 

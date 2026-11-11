@@ -504,16 +504,16 @@ impl Parser<'_> {
                 let name = self.parse_name();
                 let value = if self.eat(Colon) {
                     if self.at_expr_start() {
-                        Some(self.parse_expr())
+                        self.parse_expr()
                     } else {
                         self.error_expected(
                             &lstr!(en: "field value"; tr: "alan değeri"),
                             &lstr!(en: "write it as field: expression"; tr: "alan: ifade biçiminde yazın"),
                         );
-                        Some(self.alloc_error_expr(self.current_span()))
+                        self.alloc_error_expr(self.current_span())
                     }
                 } else {
-                    None // `Foo { x }` kısayolu
+                    self.shorthand_value(&name) // `Foo { x }` ≡ `Foo { x: x }`
                 };
                 fields.push(FieldInit {
                     span: self.span_from(fstart),

@@ -152,7 +152,7 @@ impl Resolver<'_> {
             ),
         );
         self.diagnostics
-            // suggestion: e1009_instance_port
+            // suggestion: e1009_instance_port, e1009_instance_port_shorthand
             .push(with_rename_fix(diag, port_name.span, suggestion));
     }
 

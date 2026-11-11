@@ -30,7 +30,9 @@ mod wire_assign;
 use std::collections::HashSet;
 
 use volt_ast::mmio::RegMap;
-use volt_ast::{Expr, ExprKind, Idx, Pattern, PatternKind, SourceFile, TypeRef, TypeRefKind};
+use volt_ast::{
+    Expr, ExprKind, Idx, Name, Path, Pattern, PatternKind, SourceFile, TypeRef, TypeRefKind,
+};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 use volt_span::{FileId, Span};
 
@@ -422,6 +424,22 @@ impl<'s> Parser<'s> {
     }
 
     // ─── AST yardımcıları ───
+
+    /// Alan ve port kısayolunun açılımı (#204): `x` ≡ `x: x`. Değer,
+    /// adın aralığında tek parçalı bir yoldur; ad çözümü, tip, alan,
+    /// güven, el sıkışma ve zamanlama denetimleri onu uzun biçimle aynı
+    /// yoldan görür.
+    pub(crate) fn shorthand_value(&mut self, name: &Name) -> Idx<Expr> {
+        self.ast.shorthands.push(name.clone());
+        let span = name.span;
+        self.ast.exprs.alloc(Expr {
+            span,
+            kind: ExprKind::Path(Path {
+                span,
+                segments: vec![name.clone()],
+            }),
+        })
+    }
 
     pub(crate) fn alloc_error_expr(&mut self, span: Span) -> Idx<Expr> {
         self.ast.exprs.alloc(Expr {

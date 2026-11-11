@@ -20,8 +20,8 @@ use volt_ast::builtin::{BuiltinPrim, PortKind};
 use volt_ast::struct_layout;
 use volt_ast::visit::walk_expr;
 use volt_ast::{
-    Block, BlockStmt, ElseBranch, Expr, ExprKind, GenericArg, Idx, IfStmt, ModuleDecl, Path,
-    PortDir, SourceFile, StmtKind, TypeRef, TypeRefKind,
+    Block, BlockStmt, ElseBranch, Expr, ExprKind, GenericArg, Idx, IfStmt, ModuleDecl, PortDir,
+    SourceFile, StmtKind, TypeRef, TypeRefKind,
 };
 
 /// Modülün struct öğeli primitif örneklerini paketler/açar. Dönüş: en
@@ -79,8 +79,8 @@ pub(super) fn pack_struct_prims(ast: &mut SourceFile, m: &ModuleDecl) -> bool {
     true
 }
 
-/// `wr_data: e` → `wr_data: e as uint<W>`; `wr_data` kısayolu (değersiz
-/// bağlama) aynı adlı sinyalin yolu olur.
+/// `wr_data: e` → `wr_data: e as uint<W>` (`wr_data` kısayolu
+/// ayrıştırıcıda `wr_data: wr_data`'ya açılmıştır).
 fn pack_inputs(ast: &mut SourceFile, stmt: Idx<volt_ast::Stmt>, prim: BuiltinPrim, width: u32) {
     let StmtKind::Instance(inst) = &ast.stmts[stmt].kind else {
         return;
@@ -93,16 +93,8 @@ fn pack_inputs(ast: &mut SourceFile, stmt: Idx<volt_ast::Stmt>, prim: BuiltinPri
         if !is_data_in {
             continue;
         }
-        let span = b.value.map_or(b.port_name.span, |v| ast.exprs[v].span);
-        let value = b.value.unwrap_or_else(|| {
-            ast.exprs.alloc(Expr {
-                span,
-                kind: ExprKind::Path(Path {
-                    span,
-                    segments: vec![b.port_name.clone()],
-                }),
-            })
-        });
+        let value = b.value;
+        let span = ast.exprs[value].span;
         let w = ast.exprs.alloc(Expr {
             span,
             kind: ExprKind::IntLit {
@@ -115,10 +107,10 @@ fn pack_inputs(ast: &mut SourceFile, stmt: Idx<volt_ast::Stmt>, prim: BuiltinPri
             span,
             kind: TypeRefKind::UIntN(w),
         });
-        b.value = Some(ast.exprs.alloc(Expr {
+        b.value = ast.exprs.alloc(Expr {
             span,
             kind: ExprKind::Cast { expr: value, ty },
-        }));
+        });
     }
     if let StmtKind::Instance(inst) = &mut ast.stmts[stmt].kind {
         inst.bindings = bindings;
@@ -151,7 +143,7 @@ fn module_roots(ast: &SourceFile, m: &ModuleDecl) -> Vec<Idx<Expr>> {
         match &ast.stmts[stmt].kind {
             StmtKind::Reg(r) => out.push(r.init),
             StmtKind::Let(l) => out.push(l.value),
-            StmtKind::Instance(i) => out.extend(i.bindings.iter().filter_map(|b| b.value)),
+            StmtKind::Instance(i) => out.extend(i.bindings.iter().map(|b| b.value)),
             StmtKind::On(on) => block_roots(ast, on.body, &mut out),
             StmtKind::Comb(b) => block_roots(ast, *b, &mut out),
             StmtKind::Assign(a) => out.push(a.rhs),

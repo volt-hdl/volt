@@ -112,7 +112,7 @@ pub(super) fn children(kind: &ExprKind) -> Vec<Idx<Expr>> {
             }
             v
         }
-        ExprKind::StructLit { fields, .. } => fields.iter().filter_map(|f| f.value).collect(),
+        ExprKind::StructLit { fields, .. } => fields.iter().map(|f| f.value).collect(),
         ExprKind::ArrayLit(volt_ast::ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
             items.clone()
         }
@@ -213,9 +213,7 @@ pub(super) fn walk_stmt_exprs(
         StmtKind::Let(l) => walk_expr(ast, l.value, f),
         StmtKind::Instance(i) => {
             for b in &i.bindings {
-                if let Some(v) = b.value {
-                    walk_expr(ast, v, f);
-                }
+                walk_expr(ast, b.value, f);
             }
         }
         StmtKind::On(on) => walk_block(ast, on.body, f),
@@ -381,11 +379,7 @@ impl Lowerer {
             }
             ExprKind::StructLit { fields, .. } => {
                 let f = fields.iter().find(|f| f.name.text == sub[0])?;
-                let v = match f.value {
-                    Some(v) => v,
-                    None => self.path_expr(f.name.text.clone(), f.name.span),
-                };
-                self.project(v, &sub[1..])
+                self.project(f.value, &sub[1..])
             }
             ExprKind::Cast { expr: raw, ty } => {
                 let s = self.struct_of_type(ty)?;

@@ -423,7 +423,7 @@ impl<'a> Checker<'a> {
                 tag
             }
             ExprKind::StructLit { fields, .. } => {
-                let exprs: Vec<Idx<Expr>> = fields.iter().filter_map(|f| f.value).collect();
+                let exprs: Vec<Idx<Expr>> = fields.iter().map(|f| f.value).collect();
                 self.join_list(&exprs)
             }
             ExprKind::ArrayLit(volt_ast::ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
@@ -788,10 +788,7 @@ impl<'a> Checker<'a> {
                     }
                 };
                 if let Some(sink) = self.binding_sink(b) {
-                    let sink_span = match b.value {
-                        Some(e) => self.ast.exprs[e].span,
-                        None => b.port_name.span,
-                    };
+                    let sink_span = self.ast.exprs[b.value].span;
                     self.flow_into(sink, sink_span, src);
                 }
             }
@@ -799,25 +796,16 @@ impl<'a> Checker<'a> {
     }
 
     fn binding_tag(&mut self, b: &volt_ast::PortBinding) -> Option<Tag> {
-        match b.value {
-            Some(e) => self.expr_tag(e),
-            None => self
-                .use_def(b.port_name.span)
-                .and_then(|def| self.sig_tag(def, b.port_name.span)),
-        }
+        self.expr_tag(b.value)
     }
 
     /// Çıkış bağlamasının sürdüğü yerel sinyal (yalnız çıplak isim).
     fn binding_sink(&self, b: &volt_ast::PortBinding) -> Option<DefId> {
-        match b.value {
-            Some(e) => {
-                if matches!(self.ast.exprs[e].kind, ExprKind::Path(_)) {
-                    self.res.resolutions.get(&e).copied()
-                } else {
-                    None
-                }
-            }
-            None => self.use_def(b.port_name.span),
+        let e = b.value;
+        if matches!(self.ast.exprs[e].kind, ExprKind::Path(_)) {
+            self.res.resolutions.get(&e).copied()
+        } else {
+            None
         }
     }
 

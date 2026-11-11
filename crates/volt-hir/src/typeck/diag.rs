@@ -213,7 +213,7 @@ impl TypeChecker<'_, '_> {
                 NoteKind::Reason,
                 lstr!(en: "narrowing drops the upper bits; in hardware that truncation must be visible"; tr: "daraltma üst bitleri düşürür; donanımda bu kesme görünür olmalı"),
             )
-            // suggestion: e2001_narrowing, e2001_narrowing_name
+            // suggestion: e2001_narrowing, e2001_narrowing_name, e2001_shorthand_field
             .with_suggestion(self.suffix_fix(span, &format!("[{hi}:0] as {prefix}{b}"))),
         );
     }

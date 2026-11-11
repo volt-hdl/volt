@@ -737,22 +737,11 @@ impl Lowerer {
         let mut out = Vec::with_capacity(inst.bindings.len());
         for b in &inst.bindings {
             let Some(s) = ports.get(&b.port_name.text) else {
-                if let Some(v) = b.value {
-                    self.rewrite_expr(v);
-                }
+                self.rewrite_expr(b.value);
                 out.push(b.clone());
                 continue;
             };
-            let value = match b.value {
-                Some(v) => v,
-                None => self.ast.exprs.alloc(Expr {
-                    span: b.port_name.span,
-                    kind: ExprKind::Path(volt_ast::Path {
-                        span: b.port_name.span,
-                        segments: vec![b.port_name.clone()],
-                    }),
-                }),
-            };
+            let value = b.value;
             let leaves = self.layout(s).map(|l| l.leaves.clone()).unwrap_or_default();
             for leaf in &leaves {
                 let Some(v) = self.project(value, &leaf.path) else {
@@ -767,7 +756,7 @@ impl Lowerer {
                         text: Self::leaf_name(&b.port_name.text, &leaf.path),
                         span: b.port_name.span,
                     },
-                    value: Some(v),
+                    value: v,
                 });
             }
         }

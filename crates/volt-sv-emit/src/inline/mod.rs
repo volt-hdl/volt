@@ -261,9 +261,7 @@ fn lower_stmt(ex: &mut Expander<'_>, s: Idx<Stmt>) {
         StmtKind::Reg(r) => ex.rewrite(r.init, &Ctx::subst()),
         StmtKind::Instance(inst) => {
             for b in &inst.bindings {
-                if let Some(v) = b.value {
-                    ex.rewrite(v, &Ctx::module());
-                }
+                ex.rewrite(b.value, &Ctx::module());
             }
         }
         StmtKind::On(on) => rewrite_block(ex, on.body, Ctx::module()),

@@ -360,7 +360,7 @@ InstanceDecl    = "let" Ident "=" Path
 PortBindList    = PortBind { "," PortBind } [ "," ] ;
 
 PortBind        = Ident ":" Expr
-                | Ident ;                    (* kısayol: isim eşleşmesi *)
+                | Ident ;                    (* kısayol: 'x' = 'x: x'; değer, x adının o yerdeki çözümlemesidir (Path(x)) (#204) *)
 
 ForStmt         = "for" Ident "in" Expr ".." Expr Block ;     (* [F3] *)
 (* Yalnızca derleme zamanı: generate döngüsü *)
@@ -508,6 +508,7 @@ MatchArmExpr    = Pattern [ "if" Expr ] "=>" Expr [ "," ] ;
 
 StructLit       = Path "{" [ FieldInit { "," FieldInit } [ "," ] ] "}" ;
 FieldInit       = Ident ":" Expr | Ident ;
+(* Kısayol: 'x' alanı (ve PortBind'de 'x' bağlaması) tam olarak 'x: x' demektir — değer, x adının o yerdeki çözümlemesidir (Path(x)) ve her denetim iki biçime aynı uygulanır (#204). *)
 
 ArrayLit        = "[" [ Expr { "," Expr } [ "," ] ] "]"
                 | "[" Expr ";" Expr "]" ;      (* [değer; adet] *)

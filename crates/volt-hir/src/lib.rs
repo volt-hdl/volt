@@ -22,6 +22,7 @@ pub mod manifest_lint;
 pub mod manifest_search;
 pub mod pipeline;
 pub mod resolve;
+mod shorthand;
 pub mod sim;
 mod sim_const;
 mod sim_expr;
@@ -185,7 +186,8 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
 
 /// Tanı toplayıcısının tek çıkış kapısı: önce özdeş tanılar katlanır
 /// (ADR-0068 — `Span.ctx` dışında aynı olan kopyalar bir kez kalır),
-/// sonra açılım bağlamı not olarak yazılır.
+/// kısayol alanlarına düşen öneri düzenlemeleri uzun biçime genişler
+/// (#204, `shorthand.rs`), sonra açılım bağlamı not olarak yazılır.
 ///
 /// * Katlanmamış, açılmış `for` yinelemesine düşen tanı (ADR-0056):
 ///   "'for' döngüsünün i = 2 yinelemesinde" notu ve döngü deyimine
@@ -201,6 +203,9 @@ pub fn annotate_generate(
 ) -> Vec<volt_diagnostics::Diagnostic> {
     let mut diagnostics = diagnostics;
     volt_diagnostics::fold_duplicates(&mut diagnostics, 0);
+    // Kısayol (`S { x }`) üzerindeki öneri düzenlemeleri uzun biçime
+    // genişler (#204).
+    shorthand::expand_shorthand_edits(ast, &mut diagnostics);
     if ast.generate.iterations.is_empty() && diagnostics.iter().all(|d| d.folded_ctxs.is_empty()) {
         return diagnostics;
     }

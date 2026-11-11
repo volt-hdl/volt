@@ -31,8 +31,6 @@ pub(super) struct FnInfo<'a> {
     pub(super) lets: Vec<&'a LetDecl>,
     /// Tek segmentli yol ifadesi → bağlama.
     pub(super) bindings: HashMap<Idx<Expr>, Binding>,
-    /// `P { a }` kısa alanı: (struct literali, alan sırası) → bağlama.
-    pub(super) shorthand: HashMap<(Idx<Expr>, usize), Binding>,
     /// Parametre bir seçim/alan tabanı olarak kullanılıyor (`p[3:0]`,
     /// `p.a`): yerine SV'de seçilemeyen bir ifade yazılamaz.
     pub(super) param_select_base: Vec<bool>,
@@ -60,7 +58,6 @@ impl<'a> FnInfo<'a> {
             decl,
             item_span,
             bindings: HashMap::new(),
-            shorthand: HashMap::new(),
             param_select_base: vec![false; decl.params.len()],
             let_select_base: vec![false; lets.len()],
             lets: Vec::new(),
@@ -92,14 +89,6 @@ impl<'a> FnInfo<'a> {
                         .copied()
                         .unwrap_or(Binding::Global);
                     self.bindings.insert(e, b);
-                }
-                ExprKind::StructLit { fields, .. } => {
-                    for (i, f) in fields.iter().enumerate() {
-                        if f.value.is_none() {
-                            let b = scope.get(&f.name.text).copied().unwrap_or(Binding::Global);
-                            self.shorthand.insert((e, i), b);
-                        }
-                    }
                 }
                 ExprKind::Index { base, .. }
                 | ExprKind::Range { base, .. }
@@ -133,6 +122,7 @@ impl<'a> FnInfo<'a> {
                 | ExprKind::Match { .. }
                 | ExprKind::ArrayLit(_)
                 | ExprKind::TupleLit(_)
+                | ExprKind::StructLit { .. }
                 | ExprKind::Concat(_)
                 | ExprKind::Todo { .. }
                 | ExprKind::Error => {}
@@ -166,11 +156,6 @@ impl<'a> FnInfo<'a> {
             let mut stack = vec![root];
             while let Some(e) = stack.pop() {
                 mark(self.bindings.get(&e), &mut work);
-                if let ExprKind::StructLit { fields, .. } = &ast.exprs[e].kind {
-                    for i in 0..fields.len() {
-                        mark(self.shorthand.get(&(e, i)), &mut work);
-                    }
-                }
                 stack.extend(expr_children(&ast.exprs[e].kind));
             }
         }
