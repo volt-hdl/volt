@@ -790,7 +790,7 @@ PR #243'ün (uyarı kaskad bastırma penceresini açmaz, desugar geçitleri penc
 | Koşu | Commit | `re` | Liste | Parça | Sonuç |
 |---|---|---|---|---|---|
 | 43021294446 | 7b01f3f7 | `parser/(mmio\|desugar)\.rs` | 431 (`431 of 436 listed mutants match the regex`; düşen beşi alan silme mutantı) | 7 | 431 test edildi: 269 caught, 51 missed, 0 timeout, 111 unviable, 0 untested (özet işi `caught=269 missed=51 timeout=0 unviable=111 untested=0 mutants=431`). Yedi parçada `Tool ledger [mutants-N]: 173 test(s) asked for a tool; 175 lookup(s) found the tool (175 required), SKIP: 0`. Parçalar 3–5 saat sürdü. |
-| 43072419048 | 302f9600 | `parser/mod\.rs:[0-9]+:[0-9]+: .*::push_(error\|diag)( \|$)` | 6 (yerel `--list`) | 2 | (sürüyor) |
+| 43072419048 | 302f9600 | `parser/mod\.rs:[0-9]+:[0-9]+: .*::push_(error\|diag)( \|$)` | 6 (`6 of 11 listed mutants match the regex`; düşen beşi alan silme mutantı) | 2 | 6 test edildi: 6 caught, 0 missed, 0 timeout, 0 unviable (özet işi `caught=6 missed=0 timeout=0 unviable=0 untested=0 mutants=6`). `push_error` → `()`, `365:26` `!=` → `==`, `375:46` `<` → `==`, `>`, `<=` (error-recovery.md §5'in `< suppress_window` sınırı) ve `push_diag` → `()`. İki parçada `Tool ledger [mutants-N]: 175 test(s) asked for a tool; 177 lookup(s) found the tool (177 required), SKIP: 0`; 16 ve 27 dk. |
 
 İlk koşunun `re`'si iki dosyanın bütün mutantlarıdır, yalnız PR'ın değiştirdiği fonksiyonlarınki değil. PR'ın çağrı adlarını değiştirdiği fonksiyonların çoğunda (`push_error` → `push_diag`) cargo-mutants'ın değiştirebileceği bir ifade yok; PR'ın davranışını değiştirdiği tek yer `parse_generated`. Onun `severity == Error` karşılaştırmasının mutantı (`908:33`, `==` → `!=`) caught.
 
