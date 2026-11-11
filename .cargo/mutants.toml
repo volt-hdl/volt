@@ -227,6 +227,49 @@ exclude_re = [
     # volt_hir::analyze, which the tests alone call.
     # domain::instance::tests::a_binding_to_a_missing_port_is_e1009_in_name_resolution.
     "volt-hir/src/domain/instance\\.rs:\\d+:\\d+: replace Inferencer<'a>::propagate_binding with \\(\\)$",
+    # A1. `FieldTy::Bits(8)` is the arm before `Bits(w) if w > 8`, so the
+    # `>=` mutant differs only at w == 8, which never reaches its guard
+    # (#206 targeted run 43021294446).
+    "parser/mmio\\.rs:\\d+:\\d+: replace > with >= in FieldTy::zero$",
+    # A2, assumes the generated Volt text casts a widening zero without a
+    # warning: with `==` a `bits<N>` field with N > 8 gets the `N < 8` form
+    # `((false as u1) as uN) as bits<N>`, still N zero bits. Reachable; the
+    # mutated compiler's SV for a 16-, 8- and 4-bit hardware field passes
+    # `verilator --lint-only -Wall` without a warning and the simulated reset
+    # value is 0 (desugar_blind_spot_tests::
+    # hardware_bits_fields_reset_to_zero_at_every_width; #206 targeted run).
+    # Review when the cast rules or the zero forms change.
+    "parser/mmio\\.rs:\\d+:\\d+: replace > with == in FieldTy::zero$",
+    # A2, the same assumption and the same test: with the guard `false` every
+    # N > 8 field takes the `N < 8` form, as with `==` above.
+    "parser/mmio\\.rs:\\d+:\\d+: replace match guard w > 8 with false in FieldTy::zero$",
+    # A2, assumes a parse error stops the build before name resolution: after
+    # E5015 the mutant drops the cyclic lets instead of the placeholders, which
+    # only resolution would show. desugar_blind_spot_tests::
+    # e5015_names_the_values_on_the_cycle checks that E5015 is the only
+    # diagnostic, with an undefined name in the same file. Pinned: the same
+    # change at 883 and 889 in order_lets is caught (#206 targeted run).
+    "parser/desugar\\.rs:899:20: delete ! in Parser<'_>::order_lets$",
+    # A2 (unreachable), assumes stall_name holds stage indices 0..N-1 only
+    # (desugar_pipeline builds it from 0..nstages): at b + 1 == N the `<=`
+    # mutant looks up stage N, which is never there.
+    "parser/desugar\\.rs:\\d+:\\d+: replace < with <= in Parser<'_>::build_on_block$",
+    # A2 (unreachable), assumes every if_else caller passes a non-empty else
+    # (a boundary without registers is skipped in build_on_block); an empty
+    # `else begin end` would be a no-op anyway.
+    "parser/desugar\\.rs:\\d+:\\d+: delete match arm 0 in Parser<'_>::if_else$",
+    # A2, two SV forms of the same register update, assuming build_on_block
+    # tests the bubble only after the next stage's hold:
+    # - bubble_cond `!=`: the OR of the conditions instead of `stall_<b>`
+    #   when they are equal; `stall_<b>` (a superset) when they differ, which
+    #   differs only while a later stage holds, and then the hold wins.
+    # - if_else guard `false`: `else begin if ... end end` for `else if`.
+    # Reachable; with each mutant the stall, bubble and flush values are the
+    # hand-computed ones and P.sv, Q.sv pass `verilator --lint-only -Wall`
+    # (desugar_blind_spot_tests::pipeline_stall_bubble_and_flush_have_their_values;
+    # #206 targeted run).
+    "parser/desugar\\.rs:\\d+:\\d+: replace == with != in Parser<'_>::bubble_cond$",
+    "parser/desugar\\.rs:\\d+:\\d+: replace match guard matches!\\(else_stmts\\[0\\], BlockStmt::If\\(_\\)\\) with false in Parser<'_>::if_else$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
