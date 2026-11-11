@@ -24,6 +24,8 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Testler paralel koşar: her test kendi `tag`'ini kullanır (iki test aynı
+/// dizini paylaşınca biri ötekinin dizinini siliyordu, CI 43087288935).
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("volt-mangle-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -248,7 +250,7 @@ fn ui_pass_150_each_instance_computes_its_own_body() {
         root().join("tests/ui/pass/150_generic_distinct_mangled_names.volt"),
     )
     .expect("oku");
-    let Some((ok, text)) = volt_test("pass150", &format!("{design}{PASS_150_TEST}")) else {
+    let Some((ok, text)) = volt_test("pass150-sim", &format!("{design}{PASS_150_TEST}")) else {
         return;
     };
     assert!(ok, "{text}");
