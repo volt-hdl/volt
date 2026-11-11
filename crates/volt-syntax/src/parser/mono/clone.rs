@@ -281,24 +281,6 @@ impl<'a> Cloner<'a> {
         );
     }
 
-    /// Kısaltılmış bağlama (`P { x }` ≡ `P { x: x }`): değer `x` adının
-    /// kullanımıdır; ikame ediliyorsa açık değere döner.
-    fn shorthand_value(&mut self, n: &Name) -> Option<Idx<Expr>> {
-        let span = self.tag(n.span);
-        let kind = match self.use_of(&n.text) {
-            Use::Literal(v) => self.subst_expr_kind(v, span),
-            Use::Rename(new) => {
-                self.ast.charge_text(new.len());
-                ExprKind::Path(Path {
-                    span,
-                    segments: vec![Name { text: new, span }],
-                })
-            }
-            Use::Keep => return None,
-        };
-        Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
-    }
-
     // ═══ İkame ════════════════════════════════════════════════════
 
     /// İkame değerini literal (negatifse `-lit`) olarak yazar.
@@ -743,7 +725,7 @@ impl<'a> Cloner<'a> {
             }
             ExprKind::StructLit { path, fields } => {
                 let path = path.clone();
-                let fields: Vec<(volt_span::Span, Name, Option<Idx<Expr>>)> = fields
+                let fields: Vec<(volt_span::Span, Name, Idx<Expr>)> = fields
                     .iter()
                     .map(|f| (f.span, f.name.clone(), f.value))
                     .collect();
@@ -754,10 +736,7 @@ impl<'a> Cloner<'a> {
                         .into_iter()
                         .map(|(span, name, value)| FieldInit {
                             span: self.tag(span),
-                            value: match value {
-                                Some(v) => Some(self.clone_expr(v)),
-                                None => self.shorthand_value(&name),
-                            },
+                            value: self.clone_expr(value),
                             name: self.tag_name(&name),
                         })
                         .collect(),
@@ -1006,10 +985,7 @@ impl<'a> Cloner<'a> {
             .into_iter()
             .map(|b| PortBinding {
                 span: self.tag(b.span),
-                value: match b.value {
-                    Some(v) => Some(self.clone_expr(v)),
-                    None => self.shorthand_value(&b.port_name),
-                },
+                value: self.clone_expr(b.value),
                 port_name: self.tag_name(&b.port_name),
             })
             .collect();

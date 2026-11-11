@@ -162,7 +162,7 @@ fn child_exprs(kind: &ExprKind) -> Vec<Idx<Expr>> {
             }
             children
         }
-        ExprKind::StructLit { fields, .. } => fields.iter().filter_map(|f| f.value).collect(),
+        ExprKind::StructLit { fields, .. } => fields.iter().map(|f| f.value).collect(),
         ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => items.to_vec(),
         ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => vec![*value, *count],
         ExprKind::Path(_)

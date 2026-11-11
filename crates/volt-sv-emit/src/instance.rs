@@ -98,10 +98,7 @@ impl<'a> Emitter<'a> {
                     .bindings
                     .iter()
                     .find(|b| b.port_name.text == p.name.text)
-                    .and_then(|b| match b.value {
-                        Some(e) => crate::path_single(ast, e).map(str::to_owned),
-                        None => Some(p.name.text.clone()),
-                    });
+                    .and_then(|b| crate::path_single(ast, b.value).map(str::to_owned));
                 if let Some(wire) = bound {
                     let entry = self.bus_wires.entry(wire).or_insert(p.direction);
                     if p.direction == PortDir::OpenDrain {
@@ -164,7 +161,7 @@ impl<'a> Emitter<'a> {
             self.future(span, &what);
             return None;
         };
-        let bindings: HashMap<&str, Option<Idx<Expr>>> = inst
+        let bindings: HashMap<&str, Idx<Expr>> = inst
             .bindings
             .iter()
             .map(|b| (b.port_name.text.as_str(), b.value))
@@ -252,7 +249,7 @@ impl<'a> Emitter<'a> {
         &mut self,
         (name, shown): (&str, &str),
         target: &'a ExternDecl,
-        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        bindings: &HashMap<&str, Idx<Expr>>,
         span: Span,
     ) -> Vec<(String, String)> {
         let mut conns = Vec::new();
@@ -291,13 +288,12 @@ impl<'a> Emitter<'a> {
         &mut self,
         inst: &str,
         port: &Port,
-        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        bindings: &HashMap<&str, Idx<Expr>>,
         sig: Sig,
         span: Span,
     ) -> String {
         match bindings.get(port.name.text.as_str()) {
-            Some(Some(e)) => self.emit_assigned(*e, Some(sig)),
-            Some(None) => port.name.text.clone(),
+            Some(e) => self.emit_assigned(*e, Some(sig)),
             None => {
                 let label = self.port_label(port);
                 self.error(
@@ -324,12 +320,11 @@ impl<'a> Emitter<'a> {
         &mut self,
         inst: &str,
         port: &Port,
-        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        bindings: &HashMap<&str, Idx<Expr>>,
         span: Span,
     ) -> String {
         let simple = match bindings.get(port.name.text.as_str()) {
-            Some(Some(e)) => crate::path_single(self.ast, *e).map(str::to_owned),
-            Some(None) => Some(port.name.text.clone()),
+            Some(e) => crate::path_single(self.ast, *e).map(str::to_owned),
             None => None,
         };
         match simple {
@@ -360,7 +355,7 @@ impl<'a> Emitter<'a> {
         inst: &str,
         shown: &str,
         port: &Port,
-        bindings: &HashMap<&str, Option<Idx<Expr>>>,
+        bindings: &HashMap<&str, Idx<Expr>>,
         span: Span,
     ) -> String {
         if bindings.contains_key(port.name.text.as_str()) {
@@ -410,7 +405,7 @@ fn parent_synced_reset(
     target: &ModuleDecl,
     target_clocks: &[ClockPort],
     cfg: &crate::ResetCfg,
-    bindings: &HashMap<&str, Option<Idx<Expr>>>,
+    bindings: &HashMap<&str, Idx<Expr>>,
     parent_clocks: &[ClockPort],
     ast: &volt_ast::SourceFile,
 ) -> Option<String> {
@@ -430,10 +425,7 @@ fn parent_synced_reset(
         sampling
     };
     chosen.into_iter().find_map(|c| {
-        let parent_name = match bindings.get(c.name.as_str())? {
-            Some(e) => crate::path_single(ast, *e)?,
-            None => c.name.as_str(),
-        };
+        let parent_name = crate::path_single(ast, *bindings.get(c.name.as_str())?)?;
         let parent = parent_clocks.iter().find(|p| p.name == parent_name)?;
         let reset = &parent.info.reset;
         (reset.polarity == cfg.polarity)

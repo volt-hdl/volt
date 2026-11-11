@@ -1161,7 +1161,7 @@ impl Parser<'_> {
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
-                exprs.extend(inst.bindings.iter().filter_map(|b| b.value));
+                exprs.extend(inst.bindings.iter().map(|b| b.value));
             }
             StmtKind::Wire(_) | StmtKind::Error => {}
         }

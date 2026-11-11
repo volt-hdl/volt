@@ -88,7 +88,7 @@ fn loop_variable_is_substituted_as_literal_in_bindings_and_lhs() {
         .iter()
         .find(|b| b.port_name.text == "a")
         .unwrap();
-    let ExprKind::Index { index, .. } = &r.ast.exprs[a.value.unwrap()].kind else {
+    let ExprKind::Index { index, .. } = &r.ast.exprs[a.value].kind else {
         panic!("indeks bekleniyor")
     };
     assert!(matches!(

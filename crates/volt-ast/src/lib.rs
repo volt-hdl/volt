@@ -72,6 +72,12 @@ pub struct SourceFile {
     /// adımları kök öğe aramalarını bununla süzer
     /// ([`visibility::RootFilter`], #139). `None`: tek dosya, süzgeç yok.
     pub file_scopes: Option<visibility::FileScopes>,
+    /// Kısaltılmış alan ve port yazımının adları (`S { x }`, `Inst { x }`;
+    /// #204). Ayrıştırıcı kısayolu `x: x`'e açar; değerin aralığı adın
+    /// aralığıdır. Öneri düzenlemeleri bu aralığa düşerse tanı kapısı
+    /// (`volt_hir::annotate_generate`) onları uzun biçime genişletir:
+    /// `S { a }` üzerindeki `[7:0] as u8` eki `S { a: a[7:0] as u8 }` olur.
+    pub shorthands: Vec<Name>,
 }
 
 /// Modül seviyesi `for` açılımının izi (ADR-0056). Parser her
@@ -1018,8 +1024,10 @@ pub struct InstanceDecl {
 pub struct PortBinding {
     pub span: Span,
     pub port_name: Name,
-    /// `clk: clk` kısayolunda None → port_name kullanılır.
-    pub value: Option<Idx<Expr>>,
+    /// Bağlanan değer. `clk` kısayolunu ayrıştırıcı `clk: clk`'ye açar
+    /// (değer, port adının aralığında `Path(clk)`): sonraki geçişler
+    /// değersiz bağlama görmez (#204).
+    pub value: Idx<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -1293,8 +1301,10 @@ pub enum ArrayLitKind {
 pub struct FieldInit {
     pub span: Span,
     pub name: Name,
-    /// `Foo { x }` kısayolunda None.
-    pub value: Option<Idx<Expr>>,
+    /// Alanın değeri. `Foo { x }` kısayolunu ayrıştırıcı `Foo { x: x }`'e
+    /// açar (değer, alan adının aralığında `Path(x)`): sonraki geçişler
+    /// değersiz alan görmez (#204).
+    pub value: Idx<Expr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

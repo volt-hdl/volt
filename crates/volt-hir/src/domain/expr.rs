@@ -52,7 +52,7 @@ impl Inferencer<'_> {
             } => self.if_domain(*cond, *then_expr, *else_expr),
             ExprKind::Match { scrutinee, arms } => self.match_domain(*scrutinee, arms),
             ExprKind::StructLit { fields, .. } => {
-                let exprs: Vec<Idx<Expr>> = fields.iter().filter_map(|f| f.value).collect();
+                let exprs: Vec<Idx<Expr>> = fields.iter().map(|f| f.value).collect();
                 self.join_list(&exprs, expr.span)
             }
             ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {

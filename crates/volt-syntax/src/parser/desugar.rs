@@ -440,7 +440,7 @@ impl Parser<'_> {
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
-                exprs.extend(inst.bindings.iter().filter_map(|b| b.value));
+                exprs.extend(inst.bindings.iter().map(|b| b.value));
             }
             StmtKind::Wire(_) | StmtKind::Error => {}
         }
@@ -957,7 +957,7 @@ impl Parser<'_> {
             }
             StmtKind::Expr(e) => exprs.push(*e),
             StmtKind::Instance(inst) => {
-                exprs.extend(inst.bindings.iter().filter_map(|b| b.value));
+                exprs.extend(inst.bindings.iter().map(|b| b.value));
             }
             StmtKind::Wire(_) | StmtKind::Error => {}
         }
@@ -1355,7 +1355,7 @@ pub(super) fn expr_children(kind: &ExprKind) -> (Vec<Idx<Expr>>, Vec<Idx<Block>>
             es.push(*scrutinee);
             collect_arm_idxs(arms, &mut es, &mut bs);
         }
-        ExprKind::StructLit { fields, .. } => es.extend(fields.iter().filter_map(|f| f.value)),
+        ExprKind::StructLit { fields, .. } => es.extend(fields.iter().map(|f| f.value)),
         ExprKind::ArrayLit(volt_ast::ArrayLitKind::List(items)) => es.extend(items.iter().copied()),
         ExprKind::ArrayLit(volt_ast::ArrayLitKind::Repeat { value, count }) => {
             es.extend([*value, *count])

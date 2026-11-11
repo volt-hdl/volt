@@ -432,7 +432,7 @@ impl TypeChecker<'_, '_> {
                     self.check_struct_lit_fields(s, fields, span);
                 }
                 for init in fields {
-                    let Some(value) = init.value else { continue };
+                    let value = init.value;
                     if let Some(f) = s.fields.iter().find(|f| f.name.text == init.name.text) {
                         let ty = self.resolve_type_ref(f.ty);
                         self.check(value, ty);

@@ -92,13 +92,7 @@ impl Resolver<'_> {
                 }
                 InstanceTarget::Unknown => {}
             }
-            match b.value {
-                Some(e) => self.resolve_expr(e, scope),
-                // `clk:` kısayolu — yerel isim port adıyla aynı.
-                None => {
-                    let _ = self.resolve_simple(&b.port_name.clone(), scope, true);
-                }
-            }
+            self.resolve_expr(b.value, scope);
         }
         let inst_def = self.declare_local(&inst.name.clone(), DefKind::Instance, scope);
         match target {

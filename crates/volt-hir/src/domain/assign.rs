@@ -327,7 +327,7 @@ impl Inferencer<'_> {
                     }
                 }
                 ExprKind::StructLit { fields, .. } => {
-                    stack.extend(fields.iter().filter_map(|f| f.value));
+                    stack.extend(fields.iter().map(|f| f.value));
                 }
                 ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {
                     stack.extend(items.iter().copied());

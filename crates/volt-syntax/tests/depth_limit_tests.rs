@@ -94,9 +94,7 @@ fn children<'a>(ast: &'a SourceFile, n: Node<'a>) -> Vec<Node<'a>> {
             ExprKind::Match { scrutinee, arms } => std::iter::once(e(*scrutinee))
                 .chain(arms.iter().map(Node::Arm))
                 .collect(),
-            ExprKind::StructLit { fields, .. } => {
-                fields.iter().filter_map(|f| f.value).map(e).collect()
-            }
+            ExprKind::StructLit { fields, .. } => fields.iter().map(|f| e(f.value)).collect(),
             ExprKind::ArrayLit(ArrayLitKind::List(xs)) | ExprKind::TupleLit(xs) => {
                 xs.iter().map(|x| e(*x)).collect()
             }
@@ -199,12 +197,7 @@ fn children<'a>(ast: &'a SourceFile, n: Node<'a>) -> Vec<Node<'a>> {
                     .collect()
             }
             StmtKind::Wire(w) => vec![Node::Type(w.ty)],
-            StmtKind::Instance(inst) => inst
-                .bindings
-                .iter()
-                .filter_map(|b| b.value)
-                .map(e)
-                .collect(),
+            StmtKind::Instance(inst) => inst.bindings.iter().map(|b| b.value).map(e).collect(),
             StmtKind::On(on) => vec![Node::Block(on.body)],
             StmtKind::Comb(b) => vec![Node::Block(*b)],
             StmtKind::Assign(a) => a

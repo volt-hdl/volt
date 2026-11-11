@@ -38,9 +38,9 @@ pub(crate) struct BuiltinInst {
     src_clock: ClockPort,
     /// Okuma/hedef alanının saat portu (tek saatlilerde src ile aynı).
     dst_clock: ClockPort,
-    /// Giriş portu adı → bağlama ifadesi (None: `ad` kısayolu —
-    /// port adıyla aynı isimli yerel sinyal).
-    inputs: HashMap<&'static str, Option<Idx<Expr>>>,
+    /// Giriş portu adı → bağlama ifadesi (`ad` kısayolu ayrıştırıcıda
+    /// `ad: ad`'ye açılmıştır).
+    inputs: HashMap<&'static str, Idx<Expr>>,
 }
 
 impl BuiltinInst {
@@ -184,7 +184,7 @@ impl<'a> Emitter<'a> {
         // ile aynı doğrulama tarzı); girişler ifade olarak saklanır.
         let mut src_clock = None;
         let mut dst_clock = None;
-        let mut inputs: HashMap<&'static str, Option<Idx<Expr>>> = HashMap::new();
+        let mut inputs: HashMap<&'static str, Idx<Expr>> = HashMap::new();
         for b in &inst.bindings {
             let Some(port) = prim.port(&b.port_name.text) else {
                 continue; // bilinmeyen port E1009'u HIR'da aldı
@@ -193,10 +193,7 @@ impl<'a> Emitter<'a> {
                 continue; // çıkışa bağlama E1009'u HIR'da aldı
             }
             if port.kind == PortKind::Clock {
-                let name = match b.value {
-                    Some(e) => crate::path_single(ast, e).map(str::to_owned),
-                    None => Some(b.port_name.text.clone()),
-                };
+                let name = crate::path_single(ast, b.value).map(str::to_owned);
                 let found = name
                     .as_deref()
                     .and_then(|n| clocks.iter().find(|c| c.name == n).cloned());
@@ -309,12 +306,11 @@ impl<'a> Emitter<'a> {
         Some(out)
     }
 
-    /// Giriş bağlaması ifadesi; kısayolda port adı yerel sinyaldir.
+    /// Giriş bağlaması ifadesi.
     /// Bileşik ifadeler her zaman parantezlenir.
     fn builtin_input(&mut self, info: &BuiltinInst, port: &'static str, ctx: Sig) -> String {
         match info.inputs.get(port) {
-            Some(Some(e)) => format!("({})", self.emit_expr(*e, Some(ctx))),
-            Some(None) => format!("({port})"),
+            Some(e) => format!("({})", self.emit_expr(*e, Some(ctx))),
             None => "(1'b0)".to_string(), // erişilmez: ön geçiş eksikliği reddetti
         }
     }
