@@ -178,7 +178,7 @@ fn every_written_contract_reaches_the_sva_or_the_source_is_rejected() {
         (
             "w0020_valid",
             "@bogus\nmodule B {\n    in  clk : clock\n    in  a : u8\n    out r : u8\n    \
-             reg cnt : u8 = 0\n    invariant: cnt < 200\n    ensures: cnt != 9\n    \
+             reg cnt : u8 = 0\n    invariant: cnt < 200\n    ensures: r == a\n    \
              r = a\n    assert: cnt != 250\n    on clk { cnt <= cnt + 1 }\n}\n"
                 .to_string(),
         ),

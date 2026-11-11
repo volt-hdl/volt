@@ -341,7 +341,7 @@ impl Parser<'_> {
                     .map(|a| format!("@{a}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                self.push_error(Diagnostic::warning(
+                self.push_diag(Diagnostic::warning(
                     ErrorCode::W0020,
                     lstr!(en: "unknown attribute: '@{}'", name.text; tr: "bilinmeyen nitelik: '@{}'", name.text),
                     LabeledSpan::primary(
@@ -1622,7 +1622,7 @@ impl Parser<'_> {
                     }
                     "trust_level" => DomainKey::TrustLevel,
                     _ => {
-                        self.push_error(Diagnostic::warning(
+                        self.push_diag(Diagnostic::warning(
                             ErrorCode::W0020,
                             lstr!(en: "unknown domain key: '{}'", name.text; tr: "bilinmeyen domain anahtarı: '{}'", name.text),
                             LabeledSpan::primary(

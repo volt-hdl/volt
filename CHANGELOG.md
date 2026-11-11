@@ -9,6 +9,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir uyarı artık ardından gelen hatayı yutmaz
+  (#206; sessiz yanlış düzeltmesi). 0.1.1'de ayrıştırıcının kaskad
+  bastırma penceresini uyarılar da (W0010, W0020) açıyordu: uyarıdan bir
+  iki token sonraki hata raporlanmıyor, hatalı kaynak çıkış 0 ile kabul
+  ediliyordu. `r = a & b | c )` satırındaki fazladan `)` E0001 almıyor ve
+  sonraki `invariant` üretilen `.sva`'ya girmiyordu; W0010'lu bir satırın
+  ardından iki noktası eksik yazılan `invariant cnt < 200` sessizce
+  düşüyordu. Dosyanın son deyimindeki bir uyarı `@mmio` desugar'ının
+  bütün hatalarını yutuyor, geçersiz register'lar RTL'den ve sürücülerden
+  kayboluyordu; pipeline'ın son deyimindeki bir uyarı geçersiz bir
+  `stall`'ın E5013'ünü yutuyor, stall mantığı hiç üretilmiyordu. Bu
+  kaynaklar artık hatanın kendi koduyla reddedilir (E0001, E0015, E5013
+  ...). Aynı `@mmio` modülündeki ya da aynı pipeline'daki birden çok
+  desugar hatası artık hepsi raporlanır; önce ilki görünüyor, gerisi
+  yutuluyordu. Hatasız kaynakların ürettiği SystemVerilog değişmez.
 - **Davranış değişikliği.** Kısaltılmış alan ve port yazımı (`S { x }`,
   `Inst { x }`) artık uzun biçimiyle (`S { x: x }`, `Inst { x: x }`)
   aynı denetimlerden geçer (#204; sessiz yanlış düzeltmesi). 0.1.1'de

@@ -320,9 +320,9 @@ impl Parser<'_> {
                 lstr!(en: "field (driver method and parameter name)"; tr: "alan (sürücü metot ve parametre adı)")
             }
         };
-        // Desugar ayrıştırma değil: kaskad bastırma penceresi (push_error)
-        // ardışık adları yutardı; her ad kendi tanısını alır.
-        self.diagnostics.push(err(
+        // Desugar geçidi kaskad penceresini kullanmaz (push_diag, #206):
+        // her ad kendi tanısını alır.
+        self.push_diag(err(
             ErrorCode::E1013,
             name.span,
             lstr!(en: "'{n}' is a {lang} keyword; the generated register-map driver would not compile"; tr: "'{n}' bir {lang} anahtar sözcüğü; üretilen register haritası sürücüsü derlenmez"),
@@ -365,8 +365,8 @@ impl Parser<'_> {
                     lstr!(en: "also generates '{ident}'"; tr: "'{ident}' tanımlayıcısını bu da üretiyor"),
                 );
             }
-            // Kaskad penceresi ardışık tanıları yutmasın (check_sw_name gibi).
-            self.diagnostics.push(d);
+            // Desugar geçidi: pencere yok (push_diag, #206).
+            self.push_diag(d);
         }
     }
 
@@ -385,7 +385,7 @@ impl Parser<'_> {
         let span = m.name.span;
         if let Some((_, other)) = stems.iter().find(|(s, _)| *s == stem) {
             let other = other.clone();
-            self.diagnostics.push(err(
+            self.push_diag(err(
                 ErrorCode::E1014,
                 span,
                 lstr!(en: "@mmio modules '{other}' and '{module}' both write the driver files build/sw/{stem}.*"; tr: "@mmio modülleri '{other}' ve '{module}' aynı sürücü dosyalarını yazıyor: build/sw/{stem}.*"),
@@ -414,7 +414,7 @@ impl Parser<'_> {
                 .position(|a| a.name.text == "mmio");
             let Some(attr_idx) = mmio else {
                 for r in &regs {
-                    self.push_error(err(
+                    self.push_diag(err(
                         ErrorCode::E0015,
                         r.span,
                         lstr!(en: "'@reg' register '{}' declared in a module without '@mmio'", r.name.text; tr: "'@reg' register'ı '{}' '@mmio' olmayan bir modülde bildirildi", r.name.text),
@@ -467,7 +467,7 @@ impl Parser<'_> {
                     Some(v) if v <= u64::from(u32::MAX) => base = v,
                     _ => {
                         ok = false;
-                        self.push_error(err(
+                        self.push_diag(err(
                             ErrorCode::E0009,
                             vspan,
                             lstr!(en: "'base' must be a 32-bit integer literal"; tr: "'base' 32 bitlik bir tam sayı literali olmalı"),
@@ -481,7 +481,7 @@ impl Parser<'_> {
                     if bus.as_deref() != Some(BUS_AXI4LITE) {
                         ok = false;
                         let shown = bus.unwrap_or_else(|| "?".to_string());
-                        self.push_error(err(
+                        self.push_diag(err(
                             ErrorCode::E0009,
                             vspan,
                             lstr!(en: "unsupported bus '{shown}'"; tr: "desteklenmeyen bus '{shown}'"),
@@ -493,7 +493,7 @@ impl Parser<'_> {
                 other => {
                     ok = false;
                     let shown = other.unwrap_or("<positional>");
-                    self.push_error(err(
+                    self.push_diag(err(
                         ErrorCode::E0009,
                         vspan,
                         lstr!(en: "unknown '@mmio' argument '{shown}'"; tr: "bilinmeyen '@mmio' argümanı '{shown}'"),
@@ -548,7 +548,7 @@ impl Parser<'_> {
                 continue;
             };
             if let Some(prev) = names.get(&info.name) {
-                self.push_error(
+                self.push_diag(
                     err(
                         ErrorCode::E0015,
                         r.name.span,
@@ -582,7 +582,7 @@ impl Parser<'_> {
                     Some(v) => offset = Some(v),
                     None => {
                         ok = false;
-                        self.push_error(err(
+                        self.push_diag(err(
                             ErrorCode::E0009,
                             vspan,
                             lstr!(en: "'offset' must be an integer literal"; tr: "'offset' bir tam sayı literali olmalı"),
@@ -599,7 +599,7 @@ impl Parser<'_> {
                         ok = false;
                         let shown = other.unwrap_or("?").to_string();
                         let known = ACCESS_NAMES.join(", ");
-                        self.push_error(err(
+                        self.push_diag(err(
                             ErrorCode::E0009,
                             vspan,
                             lstr!(en: "unknown access '{shown}'"; tr: "bilinmeyen erişim '{shown}'"),
@@ -612,7 +612,7 @@ impl Parser<'_> {
                 other => {
                     ok = false;
                     let shown = other.unwrap_or("<positional>").to_string();
-                    self.push_error(err(
+                    self.push_diag(err(
                         ErrorCode::E0009,
                         vspan,
                         lstr!(en: "unknown '@reg' argument '{shown}'"; tr: "bilinmeyen '@reg' argümanı '{shown}'"),
@@ -623,7 +623,7 @@ impl Parser<'_> {
             }
         }
         let Some(offset) = offset else {
-            self.push_error(err(
+            self.push_diag(err(
                 ErrorCode::E0009,
                 attr_span,
                 lstr!(en: "'@reg' on '{}' has no 'offset'", r.name.text; tr: "'{}' üzerindeki '@reg' 'offset' içermiyor", r.name.text),
@@ -636,7 +636,7 @@ impl Parser<'_> {
             return None;
         }
         if volatile && access != Access::ReadOnly {
-            self.push_error(err(
+            self.push_diag(err(
                 ErrorCode::E0009,
                 attr_span,
                 lstr!(en: "volatile register '{}' must be ReadOnly", r.name.text; tr: "volatile register '{}' ReadOnly olmalı", r.name.text),
@@ -646,7 +646,7 @@ impl Parser<'_> {
             return None;
         }
         if offset % 4 != 0 || base + offset > u64::from(u32::MAX) {
-            self.push_error(err(
+            self.push_diag(err(
                 ErrorCode::E0015,
                 attr_span,
                 lstr!(en: "offset {offset:#x} of register '{}' is not a 4-byte aligned 32-bit address", r.name.text; tr: "'{}' register'ının offset'i {offset:#x} 4 bayta hizalı 32 bitlik bir adres değil", r.name.text),
@@ -687,7 +687,7 @@ impl Parser<'_> {
             if let Some(e) = volt_ast::enum_layout::enum_of_type(&self.ast, f.ty) {
                 ok = false;
                 let name = e.name.text.clone();
-                self.push_error(err(
+                self.push_diag(err(
                     ErrorCode::E0003,
                     self.ast.types[f.ty].span,
                     lstr!(en: "not supported yet: enum-typed register map field ('{name}')"; tr: "henüz desteklenmiyor: enum tipli register haritası alanı ('{name}')"),
@@ -698,7 +698,7 @@ impl Parser<'_> {
             }
             let Some(ty) = self.field_ty(f.ty) else {
                 ok = false;
-                self.push_error(err(
+                self.push_diag(err(
                     ErrorCode::E0015,
                     self.ast.types[f.ty].span,
                     lstr!(en: "register field type must be bool, bits<N> or uN (N <= 32)"; tr: "register alanı tipi bool, bits<N> veya uN olmalı (N <= 32)"),
@@ -716,7 +716,7 @@ impl Parser<'_> {
                     "w1c" => w1c = true,
                     other => {
                         ok = false;
-                        self.push_error(err(
+                        self.push_diag(err(
                             ErrorCode::E0009,
                             a.span,
                             lstr!(en: "'@{other}' is not a register field attribute"; tr: "'@{other}' bir register alanı niteliği değil"),
@@ -733,7 +733,7 @@ impl Parser<'_> {
             if let Some(n) = &name {
                 if !seen.insert(n.clone()) {
                     ok = false;
-                    self.push_error(err(
+                    self.push_diag(err(
                         ErrorCode::E0015,
                         f.span,
                         lstr!(en: "field '{n}' is declared twice in register '{}'", r.name.text; tr: "'{n}' alanı '{}' register'ında iki kez bildirildi", r.name.text),
@@ -744,7 +744,7 @@ impl Parser<'_> {
             }
             if (self_clearing || w1c) && (name.is_none() || ty != FieldTy::Bool) {
                 ok = false;
-                self.push_error(err(
+                self.push_diag(err(
                     ErrorCode::E0009,
                     f.span,
                     lstr!(en: "@self_clearing / @w1c apply only to named bool fields"; tr: "@self_clearing / @w1c yalnız adlandırılmış bool alanlara uygulanır"),
@@ -754,7 +754,7 @@ impl Parser<'_> {
             }
             if w1c && owner != Owner::Hardware {
                 ok = false;
-                self.push_error(err(
+                self.push_diag(err(
                     ErrorCode::E0009,
                     f.span,
                     lstr!(en: "@w1c field in a non-volatile register"; tr: "volatile olmayan register'da @w1c alanı"),
@@ -764,7 +764,7 @@ impl Parser<'_> {
             }
             if self_clearing && owner != Owner::Bus {
                 ok = false;
-                self.push_error(err(
+                self.push_diag(err(
                     ErrorCode::E0009,
                     f.span,
                     lstr!(en: "@self_clearing field in a register the bus cannot write"; tr: "bus'ın yazamadığı register'da @self_clearing alanı"),
@@ -785,7 +785,7 @@ impl Parser<'_> {
         }
         if lo > WORD_BITS {
             ok = false;
-            self.push_error(err(
+            self.push_diag(err(
                 ErrorCode::E0015,
                 r.span,
                 lstr!(en: "fields of register '{}' total {lo} bits, more than the 32-bit word", r.name.text; tr: "'{}' register'ının alanları toplam {lo} bit, 32 bitlik sözcükten fazla", r.name.text),
@@ -795,7 +795,7 @@ impl Parser<'_> {
         }
         if ok && fields.iter().all(|f| f.name.is_none()) {
             ok = false;
-            self.push_error(err(
+            self.push_diag(err(
                 ErrorCode::E0015,
                 r.span,
                 lstr!(en: "register '{}' has no named field", r.name.text; tr: "'{}' register'ının adlandırılmış alanı yok", r.name.text),
@@ -810,7 +810,7 @@ impl Parser<'_> {
     fn check_overlap(&mut self, infos: &[RegInfo]) {
         for (i, a) in infos.iter().enumerate() {
             if let Some(b) = infos[..i].iter().find(|b| b.addr == a.addr) {
-                self.push_error(
+                self.push_diag(
                     err(
                         ErrorCode::E0015,
                         a.span,
@@ -900,7 +900,12 @@ impl Parser<'_> {
         sub.parse_items_only();
         let result = sub.finish();
         self.ast = result.ast;
-        let failed = !result.diagnostics.is_empty();
+        // Yalnız hata başarısızlıktır (#206): bir uyarı üretilen modülü
+        // düşürseydi register mantığı RTL'den sessizce kaybolurdu.
+        let failed = result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == volt_diagnostics::Severity::Error);
         self.diagnostics.extend(result.diagnostics);
         self.generated.push(GeneratedSource {
             file,
@@ -1024,7 +1029,7 @@ impl Parser<'_> {
             if r.owner == Owner::Hardware || r.field(&field_name).is_none() {
                 continue;
             }
-            self.push_error(
+            self.push_diag(
                 err(
                     ErrorCode::E4006,
                     span,
@@ -1693,4 +1698,41 @@ fn render_logic(s: &mut String, regs: &[RegInfo], clk: &str) {
     let _ = writeln!(s, "    r_valid  = {PREFIX}rvalid");
     let _ = writeln!(s, "    r_resp   = if {PREFIX}rerr {{ 2 }} else {{ 0 }}");
     let _ = writeln!(s, "    r_data   = {PREFIX}rdata");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use volt_span::FileId;
+
+    /// #206: bir uyarı başarısızlık değildir. Üretilen metnin ayrıştırılması
+    /// yalnız uyarı verirse üretilen modül düşmemeli; düşerse register
+    /// mantığı RTL'den kaybolur ve kullanıcı yalnız bir uyarı görür.
+    #[test]
+    fn a_warning_in_the_generated_text_keeps_the_generated_module() {
+        let mut p = Parser::new(FileId(0), "");
+        let text = "module G {\n in a : u8\n in b : u8\n in c : u8\n out o : u8\n \
+                    o = a & b | c\n}\n"
+            .to_string();
+        let generated = p.parse_generated(FileId(1), "G", text, Span::new(FileId(0), 0, 0));
+        let codes: Vec<_> = p.diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert_eq!(codes, ["W0010"]);
+        let generated = generated.expect("uyarı üretilen modülü düşürmemeli");
+        assert_eq!(generated.ports.len(), 4);
+        assert_eq!(generated.tail.len(), 1, "o = a & b | c gövdede kalmalı");
+    }
+
+    /// Hata ise modül düşer (yarım üretilmiş mantık RTL'e girmez); hata
+    /// tanılardadır, kaynak reddedilir.
+    #[test]
+    fn an_error_in_the_generated_text_drops_the_generated_module() {
+        let mut p = Parser::new(FileId(0), "");
+        let text = "module G {\n in a : u8\n out o : u8\n o = a )\n}\n".to_string();
+        let generated = p.parse_generated(FileId(1), "G", text, Span::new(FileId(0), 0, 0));
+        assert!(p
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == volt_diagnostics::Severity::Error));
+        assert!(generated.is_none());
+    }
 }
