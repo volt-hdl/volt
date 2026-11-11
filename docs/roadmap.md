@@ -10,7 +10,8 @@ in the book's
 - **No dates.** Volt has a single maintainer; an item is done when it is
   done.
 - **The order can change.** Sections are ordered by intent (after v0.1,
-  before 1.0, research), and items within a section roughly by priority.
+  before 1.0, research) and one long-term goal that items from several
+  sections serve, and items within a section roughly by priority.
   Feedback from users moves items.
 - **Every item links to its design decision** (ADR) when one exists. The
   ADRs are written in Turkish; their index is
@@ -365,6 +366,71 @@ share code between projects.
   `Volt.toml` has no dependency section.
 - **ADR:** [ADR-0017](adr/ADR-0017-modul-sistemi-ve-paket-semantigi.md),
   [ADR-0042](adr/ADR-0042-coklu-dosya-derleme.md)
+
+## Learning hardware design with Volt
+
+A long-term goal: someone new to hardware design can learn it with Volt,
+and can then read and write SystemVerilog. The compiler already points at
+mistakes that beginners make without noticing (clock-domain crossings,
+width overflow, reset problems) and explains them with `volt explain`, in
+English and Turkish. The generated SystemVerilog is readable, so a learner
+sees what their design becomes.
+
+A teaching tool has to be trustworthy before anything else. A beginner
+believes "0 errors"; a silent wrong result teaches something false. The
+fixes tracked in [#233](https://github.com/volt-hdl/volt/issues/233) come
+before the items below.
+
+### Explanations that work
+
+- **What:** every example and every solution in `volt explain` compiles
+  and does what the text says, in both languages, checked by a test.
+- **Why:** a learner who follows the official explanation and gets an
+  error stops trusting the tool.
+- **Status:** Not started. Some solutions do not compile today.
+- **Issue:** [#225](https://github.com/volt-hdl/volt/issues/225)
+
+### Volt and SystemVerilog side by side
+
+- **What:** the book and the playground show the generated SystemVerilog
+  next to each Volt example, with the matching lines linked.
+- **Why:** Volt is a way into the languages used in industry, not a way
+  around them.
+- **Status:** Partial. `volt build` writes readable SystemVerilog; there
+  is no side-by-side view and no line mapping (see
+  [Source mapping in generated SystemVerilog](#source-mapping-in-generated-systemverilog)).
+
+### From a design to a board with open tools
+
+- **What:** a documented path from a Volt design to a bitstream for an
+  inexpensive board that open-source tools (Yosys, nextpnr) support, with
+  pin constraints and a blinking-LED starter project.
+- **Why:** seeing a design run on real hardware is what keeps a beginner
+  going.
+- **Status:** Not started. `volt build` writes timing constraints; there
+  are no pin constraints. [FPGA project files](#fpga-project-files) covers
+  Vivado and Quartus.
+
+### Course material
+
+- **What:** a sequence of lessons with exercises, each exercise with a
+  test that the learner runs with `volt test`, usable by a teacher in a
+  course.
+- **Why:** learners usually hear about a tool from teachers and courses.
+- **Status:** Not started. The book's Tutorial is the starting point (see
+  [The rest of the book](#the-rest-of-the-book)).
+
+### Items elsewhere on this page that serve this goal
+
+- [Browser playground](#browser-playground): try Volt without installing
+  anything ([#99](https://github.com/volt-hdl/volt/issues/99)).
+- [The rest of the book](#the-rest-of-the-book) and
+  [A Turkish edition of the book](#a-turkish-edition-of-the-book).
+- [Source mapping in generated SystemVerilog](#source-mapping-in-generated-systemverilog).
+- [FPGA project files](#fpga-project-files).
+- [CDC crossing report](#cdc-crossing-report) and
+  [FSM state diagrams](#fsm-state-diagrams): pictures of what a design
+  does.
 
 ## Exploring
 
