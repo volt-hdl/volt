@@ -399,8 +399,8 @@ pub struct InstanceDecl {
 pub struct PortBinding {
     pub span: Span,
     pub port_name: Name,
-    /// `clk: clk` kısayolunda None → port_name kullanılır
-    pub value: Option<Idx<Expr>>,
+    /// `clk` kısayolu ayrıştırıcıda `clk: clk`'ye açılır (#204); değeri olmayan bağlama kurulamaz
+    pub value: Idx<Expr>,
 }
 
 pub struct OnBlock {
@@ -588,8 +588,8 @@ pub enum ArrayLitKind {
 pub struct FieldInit {
     pub span: Span,
     pub name: Name,
-    /// `Foo { x }` kısayolunda None
-    pub value: Option<Idx<Expr>>,
+    /// `Foo { x }` kısayolu ayrıştırıcıda `x: x`'e açılır (#204); değeri olmayan alan kurulamaz
+    pub value: Idx<Expr>,
 }
 ```
 
