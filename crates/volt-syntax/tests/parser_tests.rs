@@ -1913,6 +1913,38 @@ fn struct_lit_shorthand_field_desugars_to_a_path() {
     ));
 }
 
+/// İlerleme garantisi (error-recovery.md §1, ADR-0013) generic örneğin
+/// bağlama listesinde: ad olmayan bir token (`5`) E0001 alır ve atlanır,
+/// ardından gelen `clk` bağlaması yine okunur. Kaçan mutant
+/// `stmt.rs:422:16` `!` silme (#204 hedefli mutasyon koşusu 42962808806):
+/// token tüketilmeyince döngü sonlanmıyordu; ayrıştırma bu yüzden bir iş
+/// parçacığında, süre sınırıyla beklenir.
+#[test]
+fn a_non_name_token_in_generic_instance_bindings_is_skipped() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = p("module M { let u = Counter<8> { 5 clk: clk } }");
+        let module = result.ast.module(0).unwrap();
+        let ports: Vec<String> = match &result.ast.stmts[module.body[0]].kind {
+            StmtKind::Instance(inst) => inst
+                .bindings
+                .iter()
+                .map(|b| b.port_name.text.to_string())
+                .collect(),
+            other => panic!("örnek bekleniyor: {other:?}"),
+        };
+        let _ = tx.send((result.error_codes(), ports));
+    });
+    let (codes, ports) = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("5 s içinde ayrışmalı (ilerleme garantisi)");
+    assert_eq!(codes, ["E0001"]);
+    assert_eq!(ports, ["clk"]);
+}
+
 /// Değer, `span` aralığında tek parçalı `name` yolu.
 fn assert_single_path(ast: &SourceFile, e: Idx<Expr>, name: &str, span: volt_span::Span) {
     let ExprKind::Path(path) = &ast.exprs[e].kind else {
