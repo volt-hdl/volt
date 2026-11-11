@@ -383,8 +383,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           sabit çıkış, köprülenen saatsiz çıkış, anotasyonlu extern,
     //           register'lı çocuk, FIFO boşaltma); 148 saatsiz modülün
     //           anotasyonlu çıkışı (K8). 147 karar B ile ui/fail/255 oldu;
-    //           149 takma adlı saatli extern (saat türünden anlaşılır).
-    assert_eq!(checked, 134);
+    //           149 takma adlı saatli extern (saat türünden anlaşılır);
+    // #205: 150 iki generic modül iki ayrı modül adına iner.
+    assert_eq!(checked, 135);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

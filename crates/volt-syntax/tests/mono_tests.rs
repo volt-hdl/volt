@@ -434,6 +434,18 @@ fn issue_205_two_templates_building_one_name_is_e1003() {
     // Help hangi modüllerin adının değişebileceğini söyler.
     let help = d.help.as_deref().unwrap_or_default();
     assert!(help.contains("'M'") && help.contains("'M_1'"), "{help}");
+    // Kaskad bastırma: çakışan örneğin generic argümanları temizlenir, yolu
+    // kendi şablonunda kalır (diğer mono hatalarıyla aynı).
+    let q = module(&r.ast, "Top")
+        .body
+        .iter()
+        .find_map(|&s| match &r.ast.stmts[s].kind {
+            StmtKind::Instance(i) if i.name.text == "q" => Some(i),
+            _ => None,
+        })
+        .expect("q");
+    assert!(q.generic_args.is_empty());
+    assert_eq!(q.module_path.segments[0].text, "M_1");
 }
 
 /// Çakışma iç içe açılımda (ikinci tur) doğsa da bulunur: `W<8>`'in
@@ -456,6 +468,19 @@ module Top {
     let r = p(src);
     assert_eq!(r.error_codes(), ["E1003"]);
     assert_own_bodies(src, &[("q", "M_1")]);
+    // Adı ilk kuran `q` (birinci tur) kaynakta SONRA gelir; ileti açılış
+    // sırasına değil kaynak sırasına bakar: W'nin gövdesindeki `M<1, N>`
+    // önce adlandırılır, birincil etiket `q`'da.
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message
+            .contains("'M_1_8' is the generated module name of both M<1, 8> and M_1<8>"),
+        "{}",
+        d.message
+    );
+    let primary = d.spans.iter().find(|l| l.primary).expect("birincil");
+    let q_site = u32::try_from(src.find("M_1<8> {").expect("q")).expect("küçük");
+    assert_eq!(primary.span.start, q_site);
 }
 
 /// Aynı şablonun farklı argüman listeleri ayrı adlara iner: argüman sayısı
