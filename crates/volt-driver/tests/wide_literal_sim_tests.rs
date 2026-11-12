@@ -431,7 +431,8 @@ module ConstWrap {
 /// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da), `275` (E2022, const'ta
 /// i128 dışı literal) ve `276` (W2010, sığmayan literalin dönüşümü,
 /// ADR-0115), `277`–`284` (#213, sığmayan negatif literal: issue'nun her
-/// satırı) ve `285` (#262, parametre tipine sığmayan generic argüman): her
+/// satırı), `285` ve `286` (#262, parametre tipine sığmayan generic argüman;
+/// 286'da genişlik önceki parametre): her
 /// biri tam kendi kodunu, beklenen satırda ve tek tanı olarak verir.
 /// Araç gerektirmez.
 #[test]
@@ -460,6 +461,11 @@ fn issue_207_ui_fail_fixtures_report_their_code() {
         ("284_negative_literal_pattern_out_of_range.volt", "E2010", 8),
         // #262: generic argüman parametrenin tipine sığmalı.
         ("285_generic_argument_out_of_range.volt", "E2010", 10),
+        (
+            "286_generic_argument_out_of_range_parameter_width.volt",
+            "E2010",
+            10,
+        ),
     ] {
         let src = std::fs::read_to_string(root.join(name)).expect("fikstür");
         assert!(src.starts_with(&format!("//~ {code}")), "{name}");
@@ -624,4 +630,36 @@ test "-(a * b) stays above -2^127" {
 }
 "#;
     sim("neg129", src, 1);
+}
+
+/// ADR-0115: parantezli negatif literalin dönüşümü (`(-K) as T`) çıplak
+/// literal gibi hedef genişliğinde yazılır; sığmayan W2010 ile alt bitlere
+/// kesilir. Değerler elle (8 bitlik örüntü): -128 → 0x80, -129 → 0x7F,
+/// -1 → 0xFF. Önceden üretici E2005 veriyordu ("cannot determine the
+/// width of the literal '-128'"), sığan `(-128) as i8` için de. Test dili
+/// işaretsizdir: işaretli çıkış `as u8` ile okunur.
+#[test]
+fn issue_207_negated_literal_casts_have_their_value() {
+    let src = r#"module NegCast {
+    out a : u8
+    out b : u8
+    out c : u8
+    out d : bits<8>
+    let m128 : i8 = (-128) as i8
+    let m129 : i8 = (-129) as i8
+    a = m128 as u8
+    b = m129 as u8
+    c = (-1) as u8
+    d = (-1) as bits<8>
+}
+test "negated literal casts" {
+    let dut = NegCast { };
+    step(1);
+    assert_eq(dut.a, 0x80);
+    assert_eq(dut.b, 0x7F);
+    assert_eq(dut.c, 0xFF);
+    assert_eq(dut.d, 0xFF);
+}
+"#;
+    sim("negcast", src, 1);
 }

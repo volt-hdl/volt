@@ -1066,3 +1066,45 @@ module Top {{
         );
     }
 }
+
+/// #262: genişliği önceki bir const parametre olan `uint<W>`/`sint<W>`
+/// parametresi de denetlenir; W'nin değeri o örneklemenin argümanıdır.
+/// Önceden genişlik literal değilse denetim yoktu: `G<4, 16>`
+/// (`const K: uint<W>`) kabul ediliyor, `K as bits<8>` 16 yazıyordu.
+#[test]
+fn issue_262_parameter_width_from_an_earlier_parameter_is_checked() {
+    let src = |ty: &str, w: &str, k: &str| {
+        format!(
+            "module G<const W: u32, const K: {ty}> {{
+    out o : bits<8>
+    o = K as bits<8>
+}}
+module Top {{
+    out o : bits<8>
+    let g = G<{w}, {k}> {{ }}
+    o = g.o
+}}
+"
+        )
+    };
+    for (ty, w, k) in [
+        ("uint<W>", "4", "16"),
+        ("sint<W>", "4", "8"),
+        ("uint<W>", "1", "2"),
+    ] {
+        let r = p(&src(ty, w, k));
+        assert_eq!(r.error_codes(), ["E2010"], "{ty} W={w} K={k}");
+    }
+    for (ty, w, k) in [
+        ("uint<W>", "4", "15"),
+        ("sint<W>", "4", "7"),
+        ("uint<W>", "8", "255"),
+    ] {
+        let r = p(&src(ty, w, k));
+        assert!(
+            r.diagnostics.is_empty(),
+            "{ty} W={w} K={k}: {:?}",
+            r.error_codes()
+        );
+    }
+}
