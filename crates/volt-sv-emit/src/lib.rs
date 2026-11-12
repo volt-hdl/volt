@@ -70,7 +70,7 @@ pub use waves::{
     GTKW_MARKER,
 };
 
-pub const VOLT_VERSION: &str = "0.1.1";
+pub const VOLT_VERSION: &str = "0.1.2";
 
 /// Sürüm ve ikilinin derlendiği commit'in kısaltması, `0.1.0 (a1b2c3d)`;
 /// commit bilinmiyorsa yalnız sürüm (ADR-0104, `build.rs`). `volt
