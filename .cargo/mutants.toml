@@ -303,6 +303,14 @@ exclude_re = [
     # #206 targeted run).
     "parser/desugar\\.rs:\\d+:\\d+: replace == with != in Parser<'_>::bubble_cond$",
     "parser/desugar\\.rs:\\d+:\\d+: replace match guard matches!\\(else_stmts\\[0\\], BlockStmt::If\\(_\\)\\) with false in Parser<'_>::if_else$",
+    # A2, assumes ConstEvaluator::const_eval gives ConstValue::Int for a path
+    # only when it names a `const` (DefKind::Const): an enum variant gives
+    # ConstValue::EnumVariant and every other kind (port, wire, register,
+    # let, loop or generic parameter) ConstValue::Error, so try_const_eval
+    # is None there as the guard's `false` arm is. Reachable (every port
+    # operand of a W2016 check); arith_cut_precision_tests and
+    # arith_cut_property_tests pass with the mutant (#266 targeted run).
+    "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

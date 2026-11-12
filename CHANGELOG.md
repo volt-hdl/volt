@@ -180,7 +180,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   çıkan programlarda farkın gerçekten bulunduğunu denetler (atama,
   karşılaştırma, dönüşüm, bölme; bağlam başına 4000 program, her birinde
   48 rastgele girdi; girişleri toplam 12 bit ya da daha az olan
-  programlarda bütün girdiler). Yeni
+  programlarda bütün girdiler). `arith_cut_precision_tests` susturma
+  kurallarının sınırlarını sınar (döngü değişkeninin aralığı, işaretli ve
+  işaretsiz sınır, boş döngü, kesen düğüm, bölme ve aynı genişliğe `as`);
+  hedefli mutasyon koşusunun 23 B mutantını yakalar. Yeni
   `tests/ui/fail/274` ve `tests/ui/pass/153`.
 
 - Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,

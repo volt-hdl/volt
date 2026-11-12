@@ -9,6 +9,8 @@
 > (`arith_demand`, `arith_chain`, `read_low_bits`), `crates/volt-diagnostics`
 > (`W2016`: kod, kısa açıklama ve `volt explain` metni, en/tr),
 > `crates/volt-hir/tests/arith_cut_property_tests.rs` (YENİ),
+> `crates/volt-hir/tests/arith_cut_precision_tests.rs` (YENİ),
+> `.cargo/mutants.toml` (`arith_cut.rs` mutasyon kapsamında; bir A2 kaydı),
 > `crates/volt-driver/tests/arith_cut_warning_tests.rs` (YENİ),
 > `tests/ui/fail/274_arith_operand_cut.volt` (YENİ),
 > `tests/ui/pass/153_arith_operand_explicit_width.volt` (YENİ),
@@ -199,9 +201,40 @@ ui/fail 274 dışında).
   genişletilir.
 - Tipsiz `let`'in değeri tam okunur sayılır; `let s = u * v + w` sonra
   `o8 = s` biçimi uyarı alır.
+- Aynı genişliğe `as` (`(a * b - a) as i33`) ve tipli hedefteki bölme
+  ya da kalan (`o : u9 = (a * b + c) / d`, u8) işlenenin tamamını okur
+  sayılır ve uyarı alır; bugünkü kuralla bu kesme okunan değeri
+  değiştirmez (dönüşüm ve bölme zaten o genişlikte okur). İşlenenini kesen
+  düğüm ebeveynine aralık vermez: `w * i + (x * i + y)` (u4, i yalnız 0)
+  uyarı alır, değeri 0..15 olduğu hâlde. Üçü de tutucudur, sessiz yanlış
+  değil; `arith_cut_precision_tests` bugünkü kararı sabitler, gevşetme
+  #266'nın işidir.
 - Satır içi açılan fn gövdesi tip denetiminden bir kez geçer: uyarı fn
   tanımındaki işlenende bir kez çıkar.
 - Fark testi W2016'yı karşılaştırmaz: modelin okunan genişlik zinciri
   yok. #266'nın v0.2.0 kararıyla model ve uyarı o ADR'ye göre yazılır.
 - #266 kapanınca bu ADR'nin yerini o karar alır: uyarı kalkar ya da yeni
   kuralın kestiği yerlere göre değişir.
+
+## Mutasyon testi
+
+Hedefli koşu 43269045494 (df6f6b14, üç parça, her araç zorunlu;
+`Tool ledger [mutants-0/1/2]: ... SKIP: 0`): `arith_cut.rs` ile
+`passes_arith_demand`, `check_arith`, `arith_of`,
+`warn_cut_division_operands` ve `synth_cast`'te 111 mutant; 84 caught, 24
+missed, 3 unviable, 0 timeout. Sınıflandırma (ADR-0109 §4):
+
+- **B (23), `arith_cut_precision_tests` yazıldı.** Her mutant atılabilir
+  bir worktree'de elle uygulandı, en az bir test düştü, kaynak geri
+  alındı. Döngü değişkeninin sınırı (`derived_bounds`, 5), tip aralığı
+  (`type_bounds`, 11: işaretli ve işaretsiz sınır, 126 bit), kesen düğüm
+  (`cuts_an_operand`, 3), bit işleminin aralığı (`is_arith`, 1), bölmeye
+  okunan genişlik geçmez (`check_arith`, 2), yalnız daraltan `as`
+  (`synth_cast`, 1). Çoğu kuralı daha tutucu yapar (fazladan uyarı) ve
+  sağlamlığı sınayan özellik testi onları görmez; boş döngü ve `is_arith`
+  mutantları uyarıyı yanlış yerde susturur.
+- **A2 (1), `exclude_re`:** `is_const_path` → `true`. `const_eval` bir
+  yolda yalnız `const` için tam sayı verir (enum varyantı
+  `EnumVariant`, başka her ad hata); `try_const_eval` öteki adlarda zaten
+  `None`'dır. Testler mutantla geçer.
+- **A1, C:** yok.
