@@ -28,6 +28,10 @@ fn hex(v: i128) -> Expr {
     Expr::Lit(v, LitFmt::Hex)
 }
 
+fn wide(v: u128, f: LitFmt) -> Expr {
+    Expr::WideLit(v, f)
+}
+
 fn bin(op: BinOp, a: Expr, b: Expr) -> Expr {
     Expr::bin(op, a, b)
 }
@@ -45,8 +49,9 @@ fn index(a: Expr, i: Expr) -> Expr {
 }
 
 /// Spesifikasyondan elle hesaplanmış bir değer: port başına giriş
-/// (işaretli tipte işaretli değer) ve ifadenin doğal tipindeki beklenen
-/// değer (`bool` için 0/1).
+/// (işaretli tipte işaretli değer; 128 bitlik işaretsiz portta 128 bitlik
+/// örüntünün i128 okuması, 2^127 = `i128::MIN`) ve ifadenin doğal
+/// tipindeki beklenen değer (`bool` için 0/1).
 #[derive(Clone, Debug)]
 pub struct Pin {
     pub inputs: Vec<i128>,
@@ -516,6 +521,59 @@ pub fn all() -> Vec<Regression> {
         // 0 (ve Verilator WIDTHEXPAND).
         .pin(&[255, 255, 255], 510)
         .pin(&[128, 128, 128], 256),
+        // ── 2^127 ve üstündeki literaller (#207) ──
+        // Elle değerler: literal 128 bite sığar (`IntLit { value: u128 }`,
+        // ast-nodes.md). Soneksiz literalin dönüşümünü §3.6 saymaz (A14,
+        // #122); düşünülen her okuma (dar hedefe `as`'in daraltması gibi
+        // kesmek ya da sığmayanı E2010 saymak) sığan literalde literalin
+        // kendi değerini verir, değer okumadan bağımsızdır. Pin girdileri
+        // `i128`: 2^127 = i128::MIN'in, 2^128 - 1 = -1'in 128 bitlik
+        // örüntüsüdür (koşucu porta maskeleyerek yazar). #207'de üretici üç
+        // literali de 2^127 - 1 (`128'h7FFF…FFFF`) yazıyordu.
+        r(
+            "#207",
+            "2^127 as bits<128> compared with a 128-bit input",
+            vec![Bits(128)],
+            bin(
+                BinOp::Eq,
+                p(0),
+                cast(wide(1u128 << 127, LitFmt::Dec), Bits(128)),
+            ),
+        )
+        // p0 = 2^127: eşit (1); p0 = 2^127 - 1: eşit değil (0). #207'de tersi.
+        .pin(&[i128::MIN], 1)
+        .pin(&[i128::MAX], 0),
+        r(
+            "#207",
+            "2^127 + 1 as bits<128> in an inequality",
+            vec![Bits(128)],
+            bin(
+                BinOp::Ne,
+                p(0),
+                cast(wide((1u128 << 127) + 1, LitFmt::Hex), Bits(128)),
+            ),
+        )
+        // p0 = 2^127 + 1: eşit, `!=` 0; p0 = 2^127 - 1: 1.
+        .pin(&[i128::MIN + 1], 0)
+        .pin(&[i128::MAX], 1),
+        r(
+            "#207",
+            "2^128 - 1 as bits<128> as a mask, upper half",
+            vec![Bits(128)],
+            range(
+                bin(
+                    BinOp::And,
+                    p(0),
+                    cast(wide(u128::MAX, LitFmt::Hex), Bits(128)),
+                ),
+                127,
+                64,
+            ),
+        )
+        // p0 = 2^128 - 1: maske bütün bitleri geçirir, üst yarı 2^64 - 1;
+        // p0 = 2^127: üst yarı 2^63. #207'de maske 2^127 - 1: 2^63 - 1 ve 0.
+        .pin(&[-1], 0xFFFF_FFFF_FFFF_FFFF)
+        .pin(&[i128::MIN], 0x8000_0000_0000_0000),
     ]
 }
 
@@ -550,6 +608,10 @@ mod tests {
                         let w = t.width();
                         let (lo, hi) = if t.signed() {
                             (-(1i128 << (w - 1)), (1i128 << (w - 1)) - 1)
+                        } else if w >= 128 {
+                            // 128 bitlik işaretsiz değer i128'e sığmaz: girdi
+                            // örüntünün i128 okumasıdır (#207).
+                            (i128::MIN, i128::MAX)
                         } else {
                             (0, (1i128 << w) - 1)
                         };

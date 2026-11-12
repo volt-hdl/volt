@@ -25,7 +25,9 @@ fn prec(e: &Expr) -> u8 {
         Expr::Un(..) => PREC_UNARY,
         Expr::Lit(v, _) if *v < 0 => PREC_UNARY,
         Expr::Index(..) | Expr::Range(..) | Expr::Part(..) | Expr::Cast(..) => PREC_POSTFIX,
-        Expr::Port(_) | Expr::Name(..) | Expr::Lit(..) | Expr::Concat(_) => PREC_ATOM,
+        Expr::Port(_) | Expr::Name(..) | Expr::Lit(..) | Expr::WideLit(..) | Expr::Concat(_) => {
+            PREC_ATOM
+        }
     }
 }
 
@@ -48,11 +50,20 @@ fn lit_text(v: i128, fmt: LitFmt) -> String {
     }
 }
 
+fn wide_lit_text(v: u128, fmt: LitFmt) -> String {
+    match fmt {
+        LitFmt::Dec => format!("{v}"),
+        LitFmt::Hex => format!("0x{v:X}"),
+        LitFmt::Bin => format!("0b{v:b}"),
+    }
+}
+
 pub fn print(e: &Expr, style: Style) -> String {
     let inner = match e {
         Expr::Port(k) => port_name(*k),
         Expr::Name(n, _) => n.clone(),
         Expr::Lit(v, f) => lit_text(*v, *f),
+        Expr::WideLit(v, f) => wide_lit_text(*v, *f),
         Expr::Bin(op, a, b) => {
             let p = op.prec();
             let l = wrap(

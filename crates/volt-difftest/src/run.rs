@@ -1330,7 +1330,8 @@ impl<'a> Runner<'a> {
                 for ch in n.children() {
                     cands.push(cur.replaced(&p, ch.clone()));
                 }
-                if !p.is_empty() && !matches!(n, Expr::Port(_) | Expr::Lit(..)) {
+                if !p.is_empty() && !matches!(n, Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..))
+                {
                     let nat = (Model { ports: &ports })
                         .synth(n)
                         .ok()
