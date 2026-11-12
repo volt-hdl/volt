@@ -66,6 +66,10 @@ examine_globs = [
     "crates/volt-hir/src/ty.rs",
     "crates/volt-hir/src/typeck/width.rs",
     "crates/volt-hir/src/typeck/binop.rs",
+    # W2016: an arithmetic operand cut before the operation; the context's
+    # read width, the value-range proof and the take-over by W2015 and a
+    # narrowing `as` (#266, ADR-0116).
+    "crates/volt-hir/src/typeck/arith_cut.rs",
     # E2031: comparison of different natural widths (ADR-0106).
     "crates/volt-hir/src/typeck/compare_width.rs",
     # W2010: narrowing `as`; E2009.
