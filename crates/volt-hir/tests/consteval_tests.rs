@@ -422,3 +422,12 @@ fn issue_207_one_below_i128_min_is_an_overflow() {
     assert_eq!(value, ConstValue::Error);
     assert_eq!(codes, ["E2022"]);
 }
+
+#[test]
+fn issue_207_bitnot_of_two_pow_127_is_an_overflow() {
+    // -2^127'nin istisnası yalnız tekli `-`'dedir: `~2^127`'nin işleneni
+    // i128'e sığmaz.
+    let (value, codes) = eval_with_codes("~0x8000_0000_0000_0000_0000_0000_0000_0000");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}
