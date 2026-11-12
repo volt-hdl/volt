@@ -35,6 +35,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `-5 =>` (`i3`) `i == 3` olarak derleniyordu. -2^127 i128'in en küçük
   değeridir, i64'e sığmaz: E2010. Sığan negatif literallerin çıktısı
   değişmez.
+- **Davranış değişikliği.** 127 bit ve üstü bağlamda da literal
+  ifadesi beklenen tipe sığmalıdır, sığmazsa E2010 (#272; sessiz yanlış
+  düzeltmesi). 0.1.1'de bu genişliklerde aralık denetimi yoktu:
+  `a * b == -1` (a, b : u64, u128 bağlam) hatasız derleniyor, `-128'd1`
+  yani 2^128 - 1 ile karşılaştırıyordu.
 - **Davranış değişikliği.** Const generic argüman parametrenin tipine
   sığmalıdır, sığmazsa E2010 (#262; sessiz yanlış düzeltmesi). 0.1.1'de
   `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım

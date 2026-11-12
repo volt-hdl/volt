@@ -250,7 +250,7 @@ impl TypeChecker<'_, '_> {
         self.for_each_assignment(&vars, |env| {
             let value = self.eval_literal(expr, env);
             if let Ok(v) = value {
-                if (min..=max).contains(&v) {
+                if v >= min && (v < 0 || v.unsigned_abs() <= max) {
                     return true;
                 }
                 found = Some(Finding::OutOfRange(v, env.to_vec()));
@@ -355,16 +355,30 @@ impl TypeChecker<'_, '_> {
     /// Beklenen tipin değer aralığı: `uN`, `iN`, esnek aralığın üst ucu
     /// (`check_int_lit` gibi), Trit `-1..=1`. Başka tiplerin uyumsuzluğunu
     /// atanabilirlik denetimi bildirir.
-    fn literal_range(&self, expected: TypeId) -> Option<(i128, i128)> {
+    ///
+    /// Alt sınır `i128`, üst sınır `u128`: 127 bit ve üstü genişlikte de
+    /// aralık vardır (#272). Literal ifadesinin değeri `i128`'dir; `u128`
+    /// bağlamda üst sınır pratikte bağlamaz ama negatif değer sığmaz,
+    /// işaretli 128 bit ve üstüne her `i128` sığar.
+    fn literal_range(&self, expected: TypeId) -> Option<(i128, u128)> {
         let ty = self.types.ty(expected);
         if let Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } = *ty {
-            return (width < 127).then(|| (0, (1i128 << width) - 1));
+            let max = if width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            return Some((0, max));
         }
         if let Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } = *ty {
-            return (1..=127).contains(&width).then(|| {
-                let half = 1i128 << (width - 1);
-                (-half, half - 1)
-            });
+            if width == 0 {
+                return None;
+            }
+            if width >= 128 {
+                return Some((i128::MIN, i128::MAX.unsigned_abs()));
+            }
+            let half = 1i128 << (width - 1);
+            return Some((-half, (half - 1).unsigned_abs()));
         }
         matches!(ty, Ty::Trit).then_some((-1, 1))
     }
@@ -375,7 +389,7 @@ impl TypeChecker<'_, '_> {
         value: i128,
         expected: TypeId,
         min: i128,
-        max: i128,
+        max: u128,
         span: Span,
     ) -> Diagnostic {
         let shown = self.show(expected);
