@@ -603,7 +603,9 @@ impl Parser<'_> {
                     return;
                 }
             },
-            StageRefTarget::Relative(k) => {
+            StageRefTarget::Relative(neg, mag) => {
+                let (neg, mag) = (*neg, *mag);
+                let off = format!("{}{mag}", if neg { '-' } else { '+' });
                 let Some(cur) = sr.stage else {
                     self.push_diag(pipeline_err(
                         ErrorCode::E5012,
@@ -613,16 +615,30 @@ impl Parser<'_> {
                     ));
                     return;
                 };
-                let t = cur as i64 + k;
-                if t < 0 || t > last as i64 {
+                // Hedef aşama `cur ± mag`, taşmadan (#263): 0..=last içinde
+                // değilse, uzaklık ne kadar büyük olursa olsun E5012.
+                let cur128 = cur as u128;
+                let target = if neg {
+                    cur128.checked_sub(mag)
+                } else {
+                    cur128.checked_add(mag).filter(|t| *t <= last as u128)
+                };
+                let Some(t) = target else {
+                    let lands = if neg {
+                        format!("-{}", mag - cur128)
+                    } else {
+                        cur128
+                            .checked_add(mag)
+                            .map_or_else(|| "beyond 2^128".to_string(), |t| t.to_string())
+                    };
                     self.push_diag(pipeline_err(
                         ErrorCode::E5012,
                         sr.span,
-                        lstr!(en: "stage({k:+}) from stage {cur} lands on {t}, outside 0..={last}"; tr: "aşama {cur} içinden stage({k:+}) {t}'ye düşer, 0..={last} dışı"),
+                        lstr!(en: "stage({off}) from stage {cur} lands on {lands}, outside 0..={last}"; tr: "aşama {cur} içinden stage({off}) {lands}'e düşer, 0..={last} dışı"),
                         lstr!(en: "the pipeline has {} stages; adjust the offset", ctx.nstages; tr: "pipeline {} aşamalı; uzaklığı düzeltin", ctx.nstages),
                     ));
                     return;
-                }
+                };
                 t as usize
             }
         };

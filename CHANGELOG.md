@@ -40,6 +40,12 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım
   80 bitlik değer görüyordu. Denetim `uN`, `iN` ve genişliği literal olan
   `uint<N>`/`sint<N>` parametrelerindedir.
+- Pipeline aşama uzaklığı (`stage(+K)`) her tam sayı literali gibi
+  okunur: `stage(-0x1)` artık `stage(-1)`'dir (#263). 0.1.1'de yalnız
+  ondalık `i64` okunuyor, gerisi `i64::MAX` oluyordu: `stage(-0x1)` E5012
+  alıyor, `stage(+0x1)` ve i64'ten büyük uzaklık derleyiciyi
+  çökertiyordu (hata ayıklama derlemesi). Hiçbir aşamaya düşmeyen uzaklık
+  E5012'dir.
 - **Davranış değişikliği.** Hedefine sığmayan soneksiz literalin `as`
   dönüşümü artık W2010 uyarısı verir (#207, ADR-0115). `0x1FF as bits<8>`
   ve `300 as u8` 0.1.1'de de hedefin alt bitlerine kesiliyordu (`8'hFF`,
