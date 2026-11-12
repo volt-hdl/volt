@@ -120,6 +120,10 @@ exclude_re = [
     # A1. `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
     # agree wherever this line runs.
     "typeck/compare_width\\.rs:\\d+:\\d+: replace > with >= in TypeChecker<'_, '_>::check_comparison_widths$",
+    # A1. `v >= min && (v < 0 || v.unsigned_abs() <= max)`: `<=` differs
+    # only at v == 0, where `0 <= max` holds for every max (a u128) and
+    # `0 >= min` is the same in both forms (#272, targeted run 43227504453).
+    "typeck/literal_fold\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::check_literal_expr$",
     # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
     # returning c instead of d returns the same value.
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",

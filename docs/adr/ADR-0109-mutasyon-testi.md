@@ -938,3 +938,28 @@ kaynak geri alındı.
   `(2 - 1) as u8` almaz; iletide değer `-1`, `300`.
 
 `mono/mod.rs` ve `desugar.rs`'in mutantlarının hepsi yakalandı.
+
+## Hedefli koşu 3 (#272, #262, ADR-0115, 2026-11-12)
+
+Koşu 2'den sonra gelen değişiklikler: `literal_fold.rs` `literal_range`
+ve `check_literal_expr`'in aralık karşılaştırması (#272), `mono/mod.rs`
+`RangeSpec`/`ParamRange`/`check_args` (#262, genişliği önceki parametre
+olan `uint<W>`), `expr.rs` `emit_cast`'in `(-K) as T` dalı (ADR-0115).
+
+Koşu 43227504453 (55422d16, `shards` = 4, `all 54 mutants in the list
+match`): 54 mutant, 51 caught, 1 missed, 0 timeout, 2 unviable. Dört
+parçada `Tool ledger [mutants-N]: 189 test(s) asked for a tool; 191
+lookup(s) found the tool (191 required), SKIP: 0`.
+
+| Mutant (55422d16 satırı) | Sınıf | Gerekçe |
+|---|---|---|
+| `literal_fold.rs:253:35` `<` → `<=` (`check_literal_expr`) | A1, `exclude_re` | aşağıda |
+
+- **A1, `v < 0` → `v <= 0`.** Koşul `v >= min && (v < 0 ||
+  v.unsigned_abs() <= max)`. İki biçim yalnız v == 0'da ayrılabilir;
+  orada sağ yan `0 <= max` her `max` (`u128`) için doğrudur, sol yan
+  `0 >= min` iki biçimde aynıdır. Fonksiyonun kendi içinde, çağırandan
+  bağımsız eşdeğer.
+
+Özet: 1 missed, A1 (`exclude_re`), B ve C yok. `mono/mod.rs` ve
+`emit_cast`'in mutantlarının hepsi yakalandı.
