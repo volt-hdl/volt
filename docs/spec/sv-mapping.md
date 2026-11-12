@@ -367,6 +367,24 @@ assign busy = u_busy;
   değiştirmez (ADR-0090); modüllerden biri yeniden adlandırılır. Kural
   örneklerin yazılış sırasından ve birimdeki dosya sırasından bağımsızdır
   (#205)
+- Generic modülün her örneği her generic parametreye bir argüman verir;
+  generic parametrelerin varsayılan değeri yoktur (gramerde `GenericParam`
+  `= değer` almaz). Generic argümansız örnek (`M_1<const C: u32>` için
+  `M_1 { ... }`) ADR-0041'in argüman sayısı kuralıyla E2003'tür ve hiçbir
+  modül adına bağlanmaz: başka bir örneğin kurduğu ad şablonun adıyla aynı
+  olsa da (`M<1>` → `M_1`) (#249)
+- Her modül adını taşıyan dosyalara yazılır (`rtl/<Modül>.sv`,
+  `constraints/<Modül>.sdc`, `constraints/<Modül>.xdc`); SVA dosyası ve
+  denetleyici modülü adın küçük harflisini kullanır (`formal/<modül>.sva`,
+  `<modül>_sva`). Bu yüzden birimde kalan iki modülün adı (generic olmayan
+  modül, hiç örneklenmeyen generic modül ya da generic örneğin ürettiği
+  ad) yalnız harf büyüklüğüyle ayrılırsa (`Foo` ve `foo`; `M<8>` → `M_8`
+  ve `m_8`) E1003: dosya adlarında harf büyüklüğünü ayırmayan sistemlerde
+  (Windows, macOS) iki modülün RTL ve kısıt dosyaları, her sistemde SVA
+  dosyaları tek dosya olurdu. Örneklenen generic modülün kendi adı birimde
+  kalmaz, dosya yazmaz ve sayılmaz (`bar<1>` → `bar_1` ile `Bar` ayrıdır).
+  Volt adı değiştirmez (ADR-0090); kural örneklerin ve dosyaların sırasından
+  bağımsızdır, tanı kaynakta sonra gelen addadır (#250)
 
 ---
 
