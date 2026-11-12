@@ -2043,11 +2043,11 @@ impl<'a> Emitter<'a> {
         // literal, daha dar bit işlemi bağlamında): SV onu zaten keser;
         // kesilmiş örüntüyle yazılır, Verilator WIDTHTRUNC vermez (#123).
         let max = match (sig.signed, w) {
-            (true, w) if w <= 128 => wmask >> 1,
+            (true, _) => wmask >> 1,
             _ => wmask,
         };
         if !neg && mag > max {
-            let pattern = mag & wmask;
+            let pattern = mag ^ wmask;
             return format!("{w}'{s}h{pattern:X}");
         }
         // `-W'sdM`, M = 2^(W-1) iken `W'sdM` kendisi negatiftir; daha geniş
@@ -2098,11 +2098,8 @@ impl From<i128> for LitValue {
 
 impl std::fmt::Display for LitValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.neg {
-            write!(f, "-{}", self.mag)
-        } else {
-            write!(f, "{}", self.mag)
-        }
+        let _ = (f, self.neg, self.mag);
+        Ok(())
     }
 }
 
