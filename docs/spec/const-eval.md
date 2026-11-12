@@ -50,6 +50,14 @@ pub enum ConstValue {
 **`i128` seçimi:** Ara hesaplarda taşmayı yakalayabilmek için
 en geniş tip. Hedef tipe sığdırma ayrı kontrol edilir.
 
+**Literal ve `i128` aralığı:** Tam sayı literali 128 bitlik
+işaretsizdir (grammar-full.ebnf, `IntLiteral`; en çok 2¹²⁸ − 1). 2¹²⁷ ve
+üstü `i128`'e sığmaz: sabit ifadesindeki böyle bir literal taşmadır
+(E2022, §4), sarılmaz ve doyurulmaz. `-K`, K = 2¹²⁷, `i128`'in en küçük
+değeridir (−2¹²⁷) ve taşma değildir. Sabit ifadesi dışındaki literal
+(ör. `0x8000_0000_0000_0000_0000_0000_0000_0001 as bits<128>`) bu aralığa
+bağlı değildir, değeriyle yazılır (sv-mapping.md §10).
+
 ---
 
 ## 2. Değerlendirilebilir İfadeler
@@ -60,6 +68,12 @@ DEĞERLENDİRİLEBİLİR:
   ✓ Bool literaller              true, false
   ✓ const bildirimleri           const W : u32 = 8
   ✓ Generic const parametreler   <const N: u32>
+                                 (argüman parametrenin tipine sığmalı,
+                                 sığmazsa E2010: `const K: u64` için
+                                 `G<0x1_0000_0000_0000_0000>`; uN, iN ve
+                                 uint<W>/sint<W>, W literal ya da önceki
+                                 bir const parametre: `<const W: u32,
+                                 const K: uint<W>>` için `G<4, 16>`)
   ✓ Aritmetik                    +, -, *, /, %
   ✓ Bit işlemleri                &, |, ^, ~, <<, >>
   ✓ Karşılaştırma                ==, !=, <, >, <=, >=
@@ -105,7 +119,10 @@ fn const_eval_uncached(&mut self, expr: Idx<Expr>)
 {
     let e = &self.ast.exprs[expr];
     match &e.kind {
-        ExprKind::IntLit { value, .. } => Ok(ConstValue::Int(*value as i128)),
+        // Literal u128; i128 dışı taşmadır (§1), `as i128` ile sarılmaz.
+        ExprKind::IntLit { value, .. } => i128::try_from(*value)
+            .map(ConstValue::Int)
+            .map_err(|_| EvalError::LiteralOverflow { span: e.span, value: *value }), // E2022
         ExprKind::BoolLit(b) => Ok(ConstValue::Bool(*b)),
 
         ExprKind::Path(path) => {
@@ -129,6 +146,13 @@ fn const_eval_uncached(&mut self, expr: Idx<Expr>)
         }
 
         ExprKind::Unary { op, operand } => {
+            // −2¹²⁷ = i128::MIN aralıktadır; işleneni 2¹²⁷ değildir (§1).
+            if *op == UnOp::Neg
+                && matches!(self.ast.exprs[*operand].kind,
+                    ExprKind::IntLit { value, .. } if value == 1u128 << 127)
+            {
+                return Ok(ConstValue::Int(i128::MIN));
+            }
             let v = self.const_eval(*operand)?;
             self.eval_unop(*op, v, e.span)
         }
