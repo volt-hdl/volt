@@ -1769,9 +1769,23 @@ impl<'a> Emitter<'a> {
             Some(r) if !tree_dep && r.width != target.width => rough,
             _ => nat,
         };
-        // Soneksiz literal (`0 as bits<8>`): hedef genişliğinde
-        // boyutlandırılmış literal — ara genişlik yoktur (ADR-0051).
-        if src.is_none() && matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) {
+        // Soneksiz literal (`0 as bits<8>`) ve parantezli negatifi
+        // (`(-1) as u8`, ADR-0115): hedef genişliğinde boyutlandırılmış
+        // literal — ara genişlik yoktur (ADR-0051); sığmayan değer hedefin
+        // alt bitleridir (`fmt_int`'in örüntü kuralları).
+        let literal = |e: Idx<Expr>| {
+            matches!(
+                self.ast.exprs[e].kind,
+                ExprKind::IntLit { suffix: None, .. }
+            )
+        };
+        let negated_literal = matches!(
+            self.ast.exprs[operand].kind,
+            ExprKind::Unary { op: UnOp::Neg, operand: o } if literal(o)
+        );
+        if src.is_none()
+            && (matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) || negated_literal)
+        {
             return self.emit_prec(operand, Some(target), PREC_ATOM, false);
         }
         let inner = self.emit_prec(operand, src, PREC_ATOM, false);

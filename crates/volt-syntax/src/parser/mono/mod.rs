@@ -67,12 +67,69 @@ pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
 struct ModuleInfo {
     item: Idx<Item>,
     params: Vec<(String, bool)>,
-    ranges: Vec<Option<ParamRange>>,
+    ranges: Vec<Option<RangeSpec>>,
 }
 
 /// Const generic parametrenin tipinden okunan aralık: `uN`, `iN` ve
-/// genişliği literal olan `uint<N>`/`sint<N>` (#262). Başka tip
-/// (`bool`, genişliği ad olan `uint<W>`) denetlenmez.
+/// `uint<N>`/`sint<N>` (#262); N literal ya da önceki bir const
+/// parametrenin adıdır (`<const W: u32, const K: uint<W>>`, W'nin değeri
+/// o örneklemenin argümanı). Başka tip (`bool`, başka genişlik ifadesi)
+/// denetlenmez.
+#[derive(Clone)]
+struct RangeSpec {
+    signed: bool,
+    width: WidthSpec,
+}
+
+#[derive(Clone)]
+enum WidthSpec {
+    Lit(u32),
+    Param(String),
+}
+
+impl RangeSpec {
+    fn of(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Self> {
+        let width_of = |e: Idx<volt_ast::Expr>| match &ast.exprs[e].kind {
+            ExprKind::IntLit { value, .. } => u32::try_from(*value).ok().map(WidthSpec::Lit),
+            ExprKind::Path(p) => match p.segments.as_slice() {
+                [only] => Some(WidthSpec::Param(only.text.clone())),
+                _ => None,
+            },
+            _ => None,
+        };
+        let kind = &ast.types[ty].kind;
+        let (signed, width) = if let TypeRefKind::UInt(w) = *kind {
+            (false, WidthSpec::Lit(u32::from(w)))
+        } else if let TypeRefKind::SInt(w) = *kind {
+            (true, WidthSpec::Lit(u32::from(w)))
+        } else if let TypeRefKind::UIntN(e) = *kind {
+            (false, width_of(e)?)
+        } else if let TypeRefKind::SIntN(e) = *kind {
+            (true, width_of(e)?)
+        } else {
+            return None;
+        };
+        Some(Self { signed, width })
+    }
+
+    /// Önceki argümanlarla (ad, değer) çözülmüş aralık; genişlik bilinmiyorsa
+    /// `None`.
+    fn resolve(&self, earlier: &[(&str, u128)]) -> Option<ParamRange> {
+        let width = match &self.width {
+            WidthSpec::Lit(w) => *w,
+            WidthSpec::Param(name) => {
+                let &(_, v) = earlier.iter().find(|(n, _)| n == name)?;
+                u32::try_from(v).ok()?
+            }
+        };
+        Some(ParamRange {
+            signed: self.signed,
+            width,
+        })
+    }
+}
+
+/// Çözülmüş aralık: işaret ve genişlik.
 #[derive(Clone, Copy)]
 struct ParamRange {
     signed: bool,
@@ -80,29 +137,6 @@ struct ParamRange {
 }
 
 impl ParamRange {
-    fn of(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Self> {
-        let lit_width = |e: Idx<volt_ast::Expr>| {
-            if let ExprKind::IntLit { value, .. } = ast.exprs[e].kind {
-                u32::try_from(value).ok()
-            } else {
-                None
-            }
-        };
-        let kind = &ast.types[ty].kind;
-        let (signed, width) = if let TypeRefKind::UInt(w) = *kind {
-            (false, u32::from(w))
-        } else if let TypeRefKind::SInt(w) = *kind {
-            (true, u32::from(w))
-        } else if let TypeRefKind::UIntN(e) = *kind {
-            (false, lit_width(e)?)
-        } else if let TypeRefKind::SIntN(e) = *kind {
-            (true, lit_width(e)?)
-        } else {
-            return None;
-        };
-        Some(Self { signed, width })
-    }
-
     /// Argüman (negatif olmayan literal) aralığa sığıyor mu; en büyük değer.
     fn max(self) -> u128 {
         let bits = if self.signed {
@@ -135,7 +169,7 @@ fn collect_modules(ast: &SourceFile) -> HashMap<String, ModuleInfo> {
                 .iter()
                 .map(|g| match &g.kind {
                     GenericParamKind::Type { .. } => None,
-                    GenericParamKind::Const { ty, .. } => ParamRange::of(ast, *ty),
+                    GenericParamKind::Const { ty, .. } => RangeSpec::of(ast, *ty),
                 })
                 .collect();
             map.insert(
@@ -369,7 +403,7 @@ impl Mono<'_> {
         &mut self,
         req: &Request,
         params: &[(String, bool)],
-        ranges: &[Option<ParamRange>],
+        ranges: &[Option<RangeSpec>],
     ) -> Option<Vec<u128>> {
         if params.is_empty() {
             self.err_not_generic(req);
@@ -383,8 +417,15 @@ impl Mono<'_> {
         for ((arg, (pname, is_const)), range) in req.args.iter().zip(params).zip(ranges) {
             match (arg, is_const) {
                 (ArgInfo::Lit(v), true) => {
-                    // #262: argüman parametrenin tipine sığmalı.
-                    if let Some(range) = range.filter(|r| *v > r.max()) {
+                    // #262: argüman parametrenin tipine sığmalı; genişlik
+                    // önceki bir parametreyse onun argümanı.
+                    let earlier: Vec<(&str, u128)> = params
+                        .iter()
+                        .map(|(n, _)| n.as_str())
+                        .zip(values.iter().copied())
+                        .collect();
+                    let resolved = range.as_ref().and_then(|r| r.resolve(&earlier));
+                    if let Some(range) = resolved.filter(|r| *v > r.max()) {
                         self.err_arg_out_of_range(req, pname, *v, range);
                         return None;
                     }
