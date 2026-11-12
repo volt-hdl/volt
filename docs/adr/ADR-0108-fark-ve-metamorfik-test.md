@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0036 — §2'nin "genişlik değişen cast'ler aynen kalır" satırı: genişlik değiştiren `as` sonucunun SV işareti artık hedefin işaretidir (`$signed`/`$unsigned` sınırı, #115)
-> İlgili: ADR-0106 (§6'nın yalıtma ilkesi değeri genişliğe bağlı bütün alt ifadelere genişler, #117), ADR-0041 (check kipinde itme yalnız en üstteki işlemi hedef genişlikte yapar; işlenenler doğal değerleriyle genişler), ADR-0107 (fark testi araç sorgusunu `tools` modülünden yapar, araçlı işte SKIP olmadan koşar), ADR-0109 (mutasyon testinde fark testi her mutant için koşar; parçalı, elle tetiklenen yapı büyük koşudan), ADR-0112 (koşucu W2015'i modelin kesilen bölme işlenenleriyle karşılaştırır), ADR-0113 (tohumlanmış hata testi: aynı ilke, derleyiciden bağımsız beklenen değer, güvenlik denetimlerine uygulanır)
+> İlgili: ADR-0106 (§6'nın yalıtma ilkesi değeri genişliğe bağlı bütün alt ifadelere genişler, #117), ADR-0041 (check kipinde itme yalnız en üstteki işlemi hedef genişlikte yapar; işlenenler doğal değerleriyle genişler), ADR-0107 (fark testi araç sorgusunu `tools` modülünden yapar, araçlı işte SKIP olmadan koşar), ADR-0109 (mutasyon testinde fark testi her mutant için koşar; parçalı, elle tetiklenen yapı büyük koşudan), ADR-0112 (koşucu W2015'i modelin kesilen bölme işlenenleriyle karşılaştırır), ADR-0113 (tohumlanmış hata testi: aynı ilke, derleyiciden bağımsız beklenen değer, güvenlik denetimlerine uygulanır), ADR-0116 (modelin A1 okuması derleyicininkiyle aynı: `a * b - a` (i32) ikisinde de 33 bitte; fark testi #266'yı bu yüzden görmedi)
 > Tarih: 2026-11-04
 > Etkilenen: `crates/volt-difftest/` (YENİ: model, üreteç, yazıcı, koşucu,
 > regresyon kümesi), `crates/volt-driver/tests/difftest_tests.rs` (YENİ),

@@ -1231,6 +1231,16 @@ q = a * b / c           // ⚠ W2015: 'a * b' cut to 8 bits",
             "out q : u16
 q = (a * b) as u16 / (c as u16)   // ✓ divides at 16 bits",
         ),
+        W2016 => Explanation::new(
+            "Arithmetic operand is cut before the operation",
+            "An operand of '+', '-' or '*' is an arithmetic value wider than the width the operation is done at, so its upper bits are dropped before the operation and the result can be wrong.",
+            "A product keeps its full width ('a * b' of two i32 values is up to 64 bits wide), but the operation around it is done at the width both operands share plus its own carry: 'a * b - a' is computed at 33 bits, and the product is cut to 33 bits first. With a = b = 2^20 the result is -2^20 instead of 2^40 - 2^20. The warning is given only where the cut bits can reach the value you read: a result that is assigned to a declared width keeps only that many bits anyway and gets no warning. This rule changes in v0.2.0 (issue #266); until then Volt warns. Put the intermediate result in a 'let' with an explicit width: the operation is then done at that width, nothing is cut, and the value no longer depends on the rule. When the operand is wider than 64 bits (the product of two i64 or u64 values), no integer type is wide enough yet and there is no way around the cut until v0.2.0; issue #266 tracks it.",
+            "in a : i32
+in b : i32
+p = a * b - a == -1048576   // ⚠ W2016: 'a * b' cut to 33 bits",
+            "let d : i64 = a * b - a    // ✓ computed at 64 bits
+p = d == -1048576",
+        ),
         W2020 => Explanation::new(
             "Constant condition",
             "This condition always evaluates to the same value, so the branch never changes.",

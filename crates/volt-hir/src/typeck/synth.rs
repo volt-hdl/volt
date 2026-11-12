@@ -3,7 +3,9 @@
 //! İkili operatörler `binop`, seçimler `select`, tip dönüşümü `cast`
 //! modülündedir.
 
-use volt_ast::{ArrayLitKind, Expr, ExprKind, FieldInit, Idx, IntSuffix, ItemKind, MatchArm, UnOp};
+use volt_ast::{
+    ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, ItemKind, MatchArm, UnOp,
+};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
@@ -15,9 +17,40 @@ use crate::ty::{StructId, Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
     pub(super) fn synth(&mut self, expr: Idx<Expr>) -> TypeId {
+        // W2016 (ADR-0116): değerinin alt k biti yalnız işlenenlerinin alt k
+        // bitine bağlı olan işlem (`+ - *`, bit işlemleri, `-x`, `~x`)
+        // bağlamın okuduğu genişliği işlenenlerine geçirir; başka her
+        // biçim (karşılaştırma, bölme, kaydırma, seçim, çağrı...) işlenenin
+        // tam değerini okur.
+        let outer = (self.arith_demand, self.arith_chain);
+        if self.passes_arith_demand(expr) {
+            // Zincir bu düğümle başlar ya da sürer.
+            self.arith_chain = Some(outer.1.unwrap_or(expr));
+        } else {
+            // İşlenenler kendi zincirlerini başlatır.
+            self.arith_demand = None;
+            self.arith_chain = None;
+        }
         let ty = self.synth_uncached(expr);
+        (self.arith_demand, self.arith_chain) = outer;
         self.expr_types.insert(expr, ty);
         ty
+    }
+
+    /// Bağlamın okuduğu genişlik (`arith_demand`) bu ifadenin işlenenlerine
+    /// geçer mi: sonucun alt k biti işlenenlerin alt k bitinden hesaplanıyor.
+    fn passes_arith_demand(&self, expr: Idx<Expr>) -> bool {
+        let kind = &self.ast.exprs[expr].kind;
+        if let ExprKind::Binary { op, .. } = kind {
+            return matches!(
+                op,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
+            );
+        }
+        if let ExprKind::Unary { op, .. } = kind {
+            return matches!(op, UnOp::Neg | UnOp::BitNot);
+        }
+        false
     }
 
     pub(super) fn synth_uncached(&mut self, expr: Idx<Expr>) -> TypeId {

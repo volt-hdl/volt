@@ -62,12 +62,13 @@ The full rules are in `docs/adr/README.md` ("Durum sözlüğü ve başlık
 bloğu"); `just consistency` (checks 9-12) enforces them.
 
 - **Header block.** The `>` lines after the title. It has exactly one
-  `> Statü:` line whose value is one of the six words of the status
+  `> Statü:` line whose value is one of the seven words of the status
   vocabulary, optionally followed by ` — ` and a free-text note:
   `Uygulandı` (in force and in the code), `Kabul edildi` (in force, part
   of its plan not in the code yet), `Rezerve` (a name, keyword or code
   reserved, no mechanism), `Kısmen yerini aldı: ADR-X` (part replaced by
-  ADR-X), `Yerini aldı: ADR-X` (wholly replaced), `Reddedildi`.
+  ADR-X), `Yerini aldı: ADR-X` (wholly replaced), `Reddedildi`,
+  `Önerildi` (written, waiting for the maintainer's approval).
 - **The header lines are the one part of an existing ADR you may edit**:
   its status and link lines. The decision text stays as written.
 - **Links go both ways.**

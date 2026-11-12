@@ -430,7 +430,7 @@ impl TypeChecker<'_, '_> {
     }
 
     /// İfade, sınırları sabit bir blok içi döngünün değişkeniyse `[start, end)`.
-    fn loop_var_bounds(&self, e: Idx<Expr>) -> Option<(u32, u32)> {
+    pub(super) fn loop_var_bounds(&self, e: Idx<Expr>) -> Option<(u32, u32)> {
         let ExprKind::Path(path) = &self.ast.exprs[e].kind else {
             return None;
         };

@@ -386,8 +386,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           149 takma adlı saatli extern (saat türünden anlaşılır);
     // #205: 150 iki generic modül iki ayrı modül adına iner;
     // #249: 151 generic örnek argümanlı, generic olmayan modül argümansız;
-    // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları.
-    assert_eq!(checked, 137);
+    // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları;
+    // #266: 153 ara sonucu açık genişlikte (W2016 yok).
+    assert_eq!(checked, 138);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

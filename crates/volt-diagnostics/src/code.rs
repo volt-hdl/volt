@@ -133,6 +133,8 @@ error_codes! {
     W1006,
     // Bölmenin işleneni bölmeden önce kesiliyor; geçici (ADR-0112, #150)
     W2015,
+    // Aritmetik işlenen işlemden önce kesiliyor; geçici (ADR-0116, #266)
+    W2016,
 }
 
 impl ErrorCode {
