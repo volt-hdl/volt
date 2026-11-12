@@ -578,4 +578,29 @@ mod tests {
             e.message
         );
     }
+
+    /// #207: -2^127 i128'in en küçük değeridir, taşma değildir; i64'e
+    /// sığmayan değer E2010'dur. `2^127` literalinin kendisi i128'e
+    /// sığmaz, onun bileşik ifadesi E2022'dir (değerlendiricinin aralığı).
+    /// Düzeltmeden önce ilk ifade de E2022 veriyordu.
+    #[test]
+    fn issue_207_minus_two_pow_127_is_in_range_and_two_pow_127_is_not() {
+        let d = diagnostics(&module(
+            "    out y : i64
+    y = -170141183460469231731687303715884105728 + 1",
+        ));
+        let got: Vec<&str> = d.iter().map(|d| d.code.as_str()).collect();
+        assert_eq!(got, ["E2010"], "{got:?}");
+        assert!(
+            d[0].message
+                .contains("-170141183460469231731687303715884105727"),
+            "{}",
+            d[0].message
+        );
+        let c = codes(&module(
+            "    out y : i64
+    y = 170141183460469231731687303715884105728 - 1",
+        ));
+        assert_eq!(c, ["E2022"], "{c:?}");
+    }
 }
