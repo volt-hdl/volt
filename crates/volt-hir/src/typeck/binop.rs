@@ -97,6 +97,8 @@ impl TypeChecker<'_, '_> {
         }
         if matches!(op, BinOp::Div | BinOp::Rem) {
             self.warn_cut_division_operands(op, lhs, rhs, lt, rt);
+        } else {
+            self.warn_cut_arith_operands(op, lhs, rhs, lt, rt);
         }
         self.arith_result(op, lt, rt, span)
     }
@@ -126,6 +128,10 @@ impl TypeChecker<'_, '_> {
             if natural <= hi {
                 continue;
             }
+            // Bölme işlenenin yalnız alt `hi` bitini okur: içindeki en az
+            // `hi` bitte yapılan kesme (W2016) görünmez, W2015 yerini
+            // gösterir.
+            self.read_low_bits(e, hi);
             let span = self.ast.exprs[e].span;
             self.warning(
                 ErrorCode::W2015,

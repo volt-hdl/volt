@@ -97,6 +97,9 @@ pub(super) fn sign_prefix(signed: bool) -> &'static str {
     }
 }
 
+/// En geniş `uN`/`iN` (ADR-0031: 1..=64; daha genişi E0003).
+pub(super) const MAX_INT_WIDTH: u32 = 64;
+
 /// Genişlemiş sonuç genişliği MAX_WIDTH ve u16 gösterim sınırıyla kırpılır.
 pub(super) fn clamp_width(w: u32) -> u16 {
     w.min(MAX_WIDTH).min(u32::from(u16::MAX)) as u16

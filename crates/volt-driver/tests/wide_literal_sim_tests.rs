@@ -3,7 +3,7 @@
 //!
 //! Şartname: ast-nodes.md'de `IntLit { value: u128, .. }`: literalin
 //! değeri 128 bitlik işaretsiz sayıdır, 2^128 - 1'e kadar her değer
-//! geçerlidir (daha genişi E0005, `tests/ui/fail/274`). `x as bits<N>`
+//! geçerlidir (daha genişi E0005, `tests/ui/fail/288`). `x as bits<N>`
 //! (type-inference.md §3.6, "Literal açık dönüşümle her sayısal tipe
 //! gider") N bite sığan literalin değerini taşır. Düzeltmeden önce üretici
 //! değeri `i128`'e çevirirken sığmayanı `i128::MAX`'e doyuruyordu: 2^127,
@@ -428,7 +428,7 @@ module ConstWrap {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da), `275` (E2022, const'ta
+/// `tests/ui/fail/288` (E0005, 2^128 `bits<256>`'da), `275` (E2022, const'ta
 /// i128 dışı literal) ve `276` (W2010, sığmayan literalin dönüşümü,
 /// ADR-0115), `277`–`284` (#213, sığmayan negatif literal: issue'nun her
 /// satırı), `285` ve `286` (#262, parametre tipine sığmayan generic argüman;
@@ -439,7 +439,7 @@ module ConstWrap {
 fn issue_207_ui_fail_fixtures_report_their_code() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/ui/fail");
     for (name, code, line) in [
-        ("274_literal_wider_than_128_bits.volt", "E0005", 7),
+        ("288_literal_wider_than_128_bits.volt", "E0005", 7),
         ("275_const_literal_beyond_i128.volt", "E2022", 5),
         ("276_literal_cast_cuts_w2010.volt", "W2010", 7),
         // #213: negatif literal hedefinin aralığına sığmalı.

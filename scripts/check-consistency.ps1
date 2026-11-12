@@ -169,7 +169,7 @@ if ($Update) {
 # Sözlük ve biçim docs/adr/README.md "Durum sözlüğü"nde. Başlık bloğu:
 # başlıktan sonraki ilk ardışık '>' satırları. İhlaller .sh ile aynı sırada.
 $adrDir = Join-Path $root 'docs\adr'
-$statusValueRe = '^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|(Kısmen yerini aldı|Yerini aldı): ADR-\d{4}(, ADR-\d{4})*)$'
+$statusValueRe = '^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|Önerildi|(Kısmen yerini aldı|Yerini aldı): ADR-\d{4}(, ADR-\d{4})*)$'
 function Get-AdrRefs([string]$s) { [regex]::Matches($s, 'ADR-(\d{4})') | ForEach-Object { $_.Groups[1].Value } }
 function Get-StatusValue([string]$s) { $i = $s.IndexOf(' — '); if ($i -ge 0) { $s.Substring(0, $i) } else { $s } }
 

@@ -179,8 +179,31 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   yoktu; artık E4007.
 - Depodaki tasarımların, kitabın ve tohumlanmış hata derleminin temiz
   tasarımlarının hiçbiri yeni tanı almıyor (ölçüm PR açıklamasında).
+- **Davranış değişikliği.** Yeni uyarı W2016 (#266'nın geçici uyarısı;
+  ADR-0116): `+`, `-` ya da `*`'nın işleneni, doğal genişliği işlemin
+  yapıldığı genişlikten (esnek aralıkların kesişiminin üst ucu + 1, `*`
+  için iki katı; type-inference.md §3.3, ADR-0025) geniş bir aritmetik
+  değerse ve kesme okunan değeri değiştirebiliyorsa, ör. `p = a * b - a
+  == -1048576` (a, b : i32) içinde `a * b`: "this operand of '-' is cut
+  to 33 bits before the operation (its natural width is 64); the rule
+  changes in v0.2.0 (#266)". Bugün bu ifade 33 bitte hesaplanır ve a = b
+  = 2^20 için yanlış sonuç verir. Uyarı reddetmez; kural ve üretilen SV
+  değişmez; bu işlemlerin değeri v0.2.0'da değişir. Yardım satırı ara
+  sonucu genişliği açık bir `let`'e almayı gösterir (`let d : i64 = a *
+  b - a`); i64/u64 çarpımında henüz yeterince geniş tip yoktur ve yardım
+  bunu söyler. Uyarı almayanlar: bildirilmiş genişliğe atanan sonuç
+  (biriktirici deseni `acc <= acc + a * b`), değeri işlem genişliğine
+  sığan sonuç (modül düzeyi `for`'un dizinleri), W2015'li bölmenin ya da
+  daraltan `as`'ın okuduğu sonuç (bu yerlerde W2015 ya da W2010 tek
+  uyarıdır). Depodaki 785 `.volt` dosyası ve 30 kitap bloğunun hiçbiri
+  W2016 almıyor. Uyarıları hata sayan derlemeler (CI betikleri) düşebilir.
 
 ### Belgeler
+
+- Kitabın "Limitations" sayfası: `+`, `-` ve `*`'nın işleneni işlem
+  genişliğine kesilir; kural v0.2.0'da değişir, o zamana kadar W2016
+  (#266, ADR-0116). ADR durum sözlüğüne `Önerildi` eklendi (bakımcının
+  onayını bekleyen karar; `docs/adr/README.md`, tutarlılık kontrolü 9).
 
 - Kitabın "Limitations" sayfası (ADR-0114): `Handshake<T>` denetimi alt
   modüllerin içinden geçer, saatli `extern`'ün içine bakmaz (#196);
@@ -194,6 +217,25 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   güç alanını uygulanmış gibi anlatan yerlerde durum notu aldı.
 
 ### Tests
+
+- W2016 (ADR-0116, #266): `arith_cut_warning_tests` #266'nın i32 örneğini
+  (uyarı), `let d : i64` ikizini (uyarı yok), i64 örneğini (kaçınma yolu
+  olmadığını söyleyen yardım), bölme ve dönüşüm ikizlerini (W2015 ya da
+  W2010 ile aynı yerde çift uyarı yok), atanan ve itilen sonuçları ve
+  depodaki her `.volt` dosyasını (W2016 yok) denetler; Verilator davranış
+  testi uyarılı biçimin bugünkü kuralın değerini (a = b = 2^20 için
+  -2^20), `let`'li biçimin gerçek değeri (2^40 - 2^20) verdiğini gösterir.
+  `arith_cut_property_tests` susturma kuralının sağlamlığını rastgele
+  sınar: derleyiciden bağımsız bir model, uyarının çıkmadığı her programda
+  kesilmiş ve kesilmemiş işlenenle hesabın aynı sonucu verdiğini, uyarı
+  çıkan programlarda farkın gerçekten bulunduğunu denetler (atama,
+  karşılaştırma, dönüşüm, bölme; bağlam başına 4000 program, her birinde
+  48 rastgele girdi; girişleri toplam 12 bit ya da daha az olan
+  programlarda bütün girdiler). `arith_cut_precision_tests` susturma
+  kurallarının sınırlarını sınar (döngü değişkeninin aralığı, işaretli ve
+  işaretsiz sınır, boş döngü, kesen düğüm, bölme ve aynı genişliğe `as`);
+  hedefli mutasyon koşusunun 23 B mutantını yakalar. Yeni
+  `tests/ui/fail/274` ve `tests/ui/pass/153`.
 
 - Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,
   kitabın ve fikstürlerin temiz derlenen her tasarımına tek noktalı

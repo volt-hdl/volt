@@ -27,6 +27,7 @@
 //! Sürücü analizi (§11) `crate::drivers`'tadır; `stmt` atamaları oraya
 //! kaydeder, `run`/`check_module` denetimleri tetikler.
 
+mod arith_cut;
 mod binop;
 mod cast;
 mod check;
@@ -95,6 +96,9 @@ pub fn typecheck<'a>(
         in_fn: false,
         out_ports: Default::default(),
         in_const_item: false,
+        arith_demand: None,
+        arith_chain: None,
+        arith_cuts: Vec::new(),
     };
     checker.run();
     TypeckResult {
@@ -137,6 +141,18 @@ struct TypeChecker<'a, 'ev> {
     /// (E2022, E2023) const-eval bildirir; literal aritmetiği yalnız
     /// sığmayı (E2010) denetler (#144, `literal_fold`).
     in_const_item: bool,
+    /// W2016 (ADR-0116, #266): sentezlenen ifadenin değeri yalnız alt `k`
+    /// bitiyle okunuyor (`Some(k)`: modüler bağlam, ör. `k` bitlik hedefe
+    /// atanan aritmetik zincir) ya da tam değeriyle (`None`). Kesilen
+    /// işlenen ancak işlem genişliği `k`'dan darsa değeri değiştirir.
+    arith_demand: Option<u16>,
+    /// W2016: sentezlenen ifadenin içinde bulunduğu `arith_demand`
+    /// zincirinin kökü (değeri bit bit işlenenlerine bağlı düğümlerin en
+    /// dıştakisi).
+    arith_chain: Option<Idx<Expr>>,
+    /// Verilen W2016'lar: zincirin kökünün yalnız alt bitlerini okuyan bir
+    /// ebeveyn (W2015'li bölme, daraltan `as`) onları geri alabilir.
+    arith_cuts: Vec<arith_cut::ArithCut>,
 }
 
 impl TypeChecker<'_, '_> {
@@ -179,6 +195,7 @@ impl TypeChecker<'_, '_> {
             &mut diags,
         );
         self.diagnostics.extend(diags);
+        self.drop_harmless_arith_cuts();
     }
 
     // ═══ Tanım tipleri (§3.2) ═════════════════════════════════════

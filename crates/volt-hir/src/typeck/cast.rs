@@ -12,6 +12,15 @@ impl TypeChecker<'_, '_> {
     pub(super) fn synth_cast(&mut self, inner: Idx<Expr>, ty: Idx<TypeRef>, span: Span) -> TypeId {
         let src = self.synth(inner);
         let dst = self.resolve_type_ref(ty);
+        // W2016 (ADR-0116): daraltan dönüşüm işlenenin yalnız alt `k`
+        // bitini okur; içindeki en az `k` bitte yapılan kesme görünmez.
+        if let (Some((_, _, natural)), Some(k)) =
+            (self.types.int_range(src), self.types.width_of(dst))
+        {
+            if k < natural {
+                self.read_low_bits(inner, k);
+            }
+        }
         self.check_cast_legal(src, dst, span);
         if matches!(self.types.ty(src), Ty::IntLit) {
             self.warn_literal_cut(inner, dst, span);

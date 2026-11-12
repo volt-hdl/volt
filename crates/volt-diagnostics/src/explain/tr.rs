@@ -1231,6 +1231,16 @@ q = a * b / c           // ⚠ W2015: 'a * b' 8 bite kesiliyor",
             "out q : u16
 q = (a * b) as u16 / (c as u16)   // ✓ 16 bitte böler",
         ),
+        W2016 => Explanation::new(
+            "Aritmetik işlenen işlemden önce kesiliyor",
+            "'+', '-' ya da '*' işleminin bir işleneni, işlemin yapıldığı genişlikten geniş bir aritmetik değer; üst bitleri işlemden önce atılıyor ve sonuç yanlış çıkabiliyor.",
+            "Çarpım tam genişliğini korur (iki i32'nin 'a * b'si 64 bite kadar genişler), ama çevresindeki işlem iki işlenenin ortak genişliğinde ve kendi taşma bitiyle yapılır: 'a * b - a' 33 bitte hesaplanır ve çarpım önce 33 bite kesilir. a = b = 2^20 için sonuç 2^40 - 2^20 yerine -2^20 olur. Uyarı yalnız kesilen bitlerin okuduğunuz değere ulaşabildiği yerde verilir: bildirilmiş bir genişliğe atanan sonuç zaten o kadar bit tutar ve uyarı almaz. Bu kural v0.2.0'da değişecek (issue #266); o zamana kadar Volt uyarır. Ara sonucu genişliği açık yazılmış bir 'let'e alın: işlem o genişlikte yapılır, hiçbir şey kesilmez ve değer kurala bağlı olmaz. İşlenen 64 bitten genişse (iki i64 ya da u64'ün çarpımı) henüz yeterince geniş bir tam sayı tipi yok ve v0.2.0'a kadar kesmeden kaçınmanın yolu yok; issue #266 bunu izliyor.",
+            "in a : i32
+in b : i32
+p = a * b - a == -1048576   // ⚠ W2016: 'a * b' 33 bite kesiliyor",
+            "let d : i64 = a * b - a    // ✓ 64 bitte hesaplanır
+p = d == -1048576",
+        ),
         W2020 => Explanation::new(
             "Sabit koşul",
             "Bu koşul her zaman aynı değeri veriyor; dal hiç değişmiyor.",

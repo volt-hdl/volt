@@ -131,6 +131,20 @@ cut. Write the width you mean on both operands, as in
 not depend on the rule. Tracked in
 [issue #150](https://github.com/volt-hdl/volt/issues/150).
 
+**The width of a sum, difference or product with a wider arithmetic
+operand will change.** `+`, `-` and `*` are done at the width both
+operands share, plus their own carry: `a * b - a` (all `i32`) is computed
+at 33 bits, and the product, up to 64 bits wide, is cut to 33 bits before
+the subtraction. With `a = b = 2^20` the result is `-2^20` instead of
+`2^40 - 2^20`. The rule changes in v0.2.0. Until then Volt warns
+(`W2016`) wherever the cut can change the value you read; a result
+assigned to a declared width keeps that many bits anyway and gets no
+warning. Put the intermediate result in a `let` with an explicit width,
+as in `let d : i64 = a * b - a`: the warning goes away and the value does
+not depend on the rule. A product of two `i64` or `u64` values has no
+wider integer type yet, so before v0.2.0 there is no way around the cut.
+Tracked in [issue #266](https://github.com/volt-hdl/volt/issues/266).
+
 **Combinational loops are not detected.** `volt check` and `volt build`
 accept wires that feed each other (`a = b + x` and `b = a`), a `comb`
 block that reads the signal it assigns, and a loop through an output port
