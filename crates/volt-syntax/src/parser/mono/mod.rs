@@ -280,14 +280,9 @@ impl Mono<'_> {
                     self.clear_generic_args(req.stmt);
                     return None;
                 }
-                // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
-                // doyurulur.
-                let values = key
-                    .1
-                    .iter()
-                    .map(|&v| i128::try_from(v).unwrap_or(i128::MAX))
-                    .collect();
-                let item = self.clone_template(template, values, mangled.clone());
+                // Argüman literaldir, değeriyle ikame edilir (2^128 - 1'e
+                // kadar; doyurma yok, #207).
+                let item = self.clone_template(template, key.1.clone(), mangled.clone());
                 let owner = NameOwner {
                     template,
                     item,
@@ -335,7 +330,7 @@ impl Mono<'_> {
     fn clone_template(
         &mut self,
         template: Idx<Item>,
-        values: Vec<i128>,
+        values: Vec<u128>,
         mangled: String,
     ) -> Idx<Item> {
         let (span, doc, visibility) = {
@@ -353,7 +348,7 @@ impl Mono<'_> {
             // Kapsam zinciri: modül kapsamının ilk bildirimleri const generic
             // parametreler (name-resolution.md §5); gövdede onlara bağlanan
             // yol literal olur, iç kapsamda yeniden bildirilen ad olmaz (#130).
-            let params: Vec<(Name, i128)> = template_decl
+            let params: Vec<(Name, u128)> = template_decl
                 .generics
                 .iter()
                 .filter_map(|g| match &g.kind {

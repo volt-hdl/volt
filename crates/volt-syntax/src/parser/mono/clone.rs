@@ -49,7 +49,9 @@ impl BlockRole {
 
 /// Bir yolun ikamesi.
 enum Use {
-    Literal(i128),
+    /// Literal: (negatif mi, büyüklük). Generic argüman 2^128 - 1'e kadar
+    /// çıkar, `i128`'e sığmayabilir (#207).
+    Literal(bool, u128),
     Rename(String),
     Keep,
 }
@@ -98,7 +100,7 @@ impl<'a> Cloner<'a> {
 
     /// Monomorfizasyon (ADR-0041): modül kapsamının ilk bildirimleri const
     /// generic parametrelerdir (name-resolution.md §5).
-    pub(super) fn with_generics(mut self, params: &[(Name, i128)]) -> Self {
+    pub(super) fn with_generics(mut self, params: &[(Name, u128)]) -> Self {
         self.scopes.push();
         for (name, value) in params {
             let span = self.tag(name.span);
@@ -226,7 +228,8 @@ impl<'a> Cloner<'a> {
     /// Tek parçalı bir kullanımın ikamesi (kapsam zincirinde çözülür).
     fn use_of(&self, name: &str) -> Use {
         match self.scopes.resolve(name).map(|e| &e.binding) {
-            Some(Binding::Generic(v) | Binding::LoopVar(v)) => Use::Literal(*v),
+            Some(Binding::Generic(v)) => Use::Literal(false, *v),
+            Some(Binding::LoopVar(v)) => Use::Literal(*v < 0, v.unsigned_abs()),
             Some(Binding::Renamed(new)) => Use::Rename(new.clone()),
             Some(Binding::Inner { .. } | Binding::Outer) | None => Use::Keep,
         }
@@ -284,15 +287,15 @@ impl<'a> Cloner<'a> {
     // ═══ İkame ════════════════════════════════════════════════════
 
     /// İkame değerini literal (negatifse `-lit`) olarak yazar.
-    fn subst_expr_kind(&mut self, v: i128, span: Span) -> ExprKind {
-        if v >= 0 {
+    fn subst_expr_kind(&mut self, neg: bool, mag: u128, span: Span) -> ExprKind {
+        if !neg {
             return ExprKind::IntLit {
-                value: v as u128,
+                value: mag,
                 suffix: None,
                 base: NumBase::Dec,
             };
         }
-        let operand = self.int_lit(v.unsigned_abs(), span);
+        let operand = self.int_lit(mag, span);
         ExprKind::Unary {
             op: volt_ast::UnOp::Neg,
             operand,
@@ -518,10 +521,10 @@ impl<'a> Cloner<'a> {
         if !args.is_empty() || path.segments.len() != 1 {
             return None;
         }
-        let Use::Literal(value) = self.use_of(&path.segments[0].text) else {
+        let Use::Literal(neg, mag) = self.use_of(&path.segments[0].text) else {
             return None;
         };
-        let kind = self.subst_expr_kind(value, span);
+        let kind = self.subst_expr_kind(neg, mag, span);
         Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
     }
 
@@ -595,7 +598,7 @@ impl<'a> Cloner<'a> {
                     // parametre / döngü değişkeni → literal, yineleme
                     // gövdesinin `let`'i → sonekli ad (`pe.out` → `pe_0.out`).
                     match self.use_of(&p.segments[0].text) {
-                        Use::Literal(v) => return self.subst_expr_kind(v, p.span),
+                        Use::Literal(neg, mag) => return self.subst_expr_kind(neg, mag, p.span),
                         Use::Rename(new) => {
                             self.ast.charge_text(new.len());
                             p.segments[0].text = new;

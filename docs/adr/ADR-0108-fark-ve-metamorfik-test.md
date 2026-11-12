@@ -661,3 +661,38 @@ Düzeltme dalı:
 
 (`Tool ledger` satırı dört parçada da `SKIP: 0`.) 255, 255, 255'te model
 510, ikame kipinin SV'si 254 (`(510 | 255) + 255` 9 bitte).
+
+## Ek: 128 bite kadar `bits<N>` ve geniş literaller (#207, 2026-11-12)
+
+#207'yi (2^127 ve üstündeki literaller `128'h7FFF…FFFF` yazılıyordu:
+üretici değeri `i128`'e çevirirken `i128::MAX`'e doyuruyordu) fark testi
+yakalayamazdı: üreteç `bits<N>`'i en çok 70 bit (`MAX_BITS`), literali
+`i128` (`Expr::Lit`) üretiyordu ve soneksiz literalin dönüşümünü hiç
+üretmiyordu (yukarıdaki "Spesifikasyon belirsizlikleri" tablosunun son
+satırı). Bu ek geniş literali kapsama alır. Önceki karar metni (§1–§6)
+değişmedi.
+
+- **Üreteç.** Yeni kök biçimi (ağırlık 6 / 106): genişliği çoğu zaman 128,
+  bazen 65–127 olan `bits<w>` ifadesi; kendisi, iki geniş değerin `==` /
+  `!=`'i ya da 64 bite kadar bir dilimi (`x[h:l]`). Yapraklar `bits<w>`
+  girişi ya da `K as bits<w>` (`Expr::WideLit(u128)`, K < 2^w); K çoğu
+  zaman sınır değeridir (2^127, 2^127 + 1, 2^128 - 1, 2^(w-1), 2^w - 1,
+  2^w - 2), bazen rastgele; taban ondalık, onaltılık ya da ikili. İç
+  düğümler `& | ^` ve `~`. Seçim tabanı 70 bitle sınırlı kaldı.
+- **Model.** Değerler zaten `u128` örüntüsüydü; 128 bitlik genişlik
+  modelin sınırıdır. `K as bits<N>` K N bite sığıyorsa Bits(N) tipli,
+  değeri K'dır. Sığmayan literalin dönüşümü üretilmez, model
+  "unspecified" der.
+- **Varsayım A14** (`tag::LIT_TO_BITS`): §3.6 literal kaynağı saymaz;
+  model sığan literalin değerini korur. Düşünülen her okuma (dar hedefe
+  `as` daraltması gibi kesmek ya da sığmayanı reddetmek) sığan literalde
+  aynı değeri verir; okumalar yalnız sığmayan literalde ayrılır (#122).
+
+| Kimlik | Belirsizlik | Modelin okuması | Derleyici |
+|---|---|---|---|
+| A14 | §3.6 soneksiz literalin dönüşümünü (`K as bits<N>`) saymaz | N bite sığan K'nın değeri K | Aynı (#207 sonrası); sığmayan K'yı alt N bitine keser, uyarı yok |
+
+- **Regresyon.** #207'nin üç örneği (`regress.rs`) elle hesaplanmış
+  değerlerle: 2^127 ile `==`, 2^127 + 1 ile `!=`, 2^128 - 1 maskesinin
+  üst yarısı. 128 bitlik işaretsiz portun elle girdisi örüntünün `i128`
+  okumasıdır (2^127 = `i128::MIN`, 2^128 - 1 = -1).

@@ -9,6 +9,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** 2^127 ve üstündeki tam sayı literalleri artık
+  değerleriyle yazılır (#207; sessiz yanlış düzeltmesi). 0.1.1'de
+  üretici literali `i128`'e çevirirken sığmayanı `i128::MAX`'e
+  doyuruyordu: `0x8000_…_0001 as bits<128>` gibi 2^127 ile 2^128 - 1
+  arasındaki her literal (reset değeri, maske, karşılaştırma; `bits<256>`
+  bağlamında da) `128'h7FFF…FFFF` olarak yazılıyordu. Değişen çıktı
+  yalnız bu yanlış derlenen literallerdir; 2^127'nin altındaki
+  literallerin yazımı aynı kalır. Aynı doyurma generic argümanda da vardı
+  (`M<2^127 + 1>` gövdede 2^127 - 1 oluyordu), kalktı. Sabit
+  değerlendirici de literali artık sarmaz: `const` ifadesinde i128'e
+  sığmayan literal (2^127 ve üstü) E2022'dir; önceden -1'e ya da
+  i128'in en küçük değerine sarılıyor, derleme zamanı başka bir değer
+  görüyordu (`(2^128 - 1) / (2^64 + 1)` 0 çıkıyordu). -2^127 ise i128'in
+  aralığındadır, artık E2022 vermez. 128 bitten geniş literal önceden de
+  E0005'ti, öyle kalır.
 - **Davranış değişikliği.** Generic bir modülün generic argümansız
   örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
   parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon
