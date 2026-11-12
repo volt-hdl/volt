@@ -2458,7 +2458,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 135, "ui/pass 135 dosya içermeli");
+    assert_eq!(total, 137, "ui/pass 137 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2512,10 +2512,12 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ADR-0114 141-146'yı (modül özetinin yakın ıskaları), 148'i
     // (saatsiz modülün anotasyonlu çıkışı, K8) ve 149'u (takma adlı
     // saatli extern); 147 karar B ile ui/fail/255 oldu. #205 150'yi
-    // ekledi (iki generic modül iki ayrı modül adına iner).
+    // ekledi (iki generic modül iki ayrı modül adına iner); #249 151'i
+    // (generic örnek argümanlı, generic olmayan modül argümansız), #250
+    // 152'yi (harf büyüklüğünden fazlasıyla ayrılan modül adları).
     assert_eq!(
-        clean, 135,
-        "135/135 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 137,
+        "137/137 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 
@@ -2576,6 +2578,21 @@ fn ui_fail_files_produce_expected_codes() {
         ("82_generic_struct_port.volt", "E0003"),
         // ADR-0080: ağaç derinliği sınırı
         ("142_nesting_too_deep.volt", "E0018"),
+        // #249: generic örnek argümansız (ADR-0041 sayı kuralı, mono).
+        ("267_generic_instance_without_arguments.volt", "E2003"),
+        (
+            "268_generic_instance_without_arguments_bound_elsewhere.volt",
+            "E2003",
+        ),
+        (
+            "269_generic_instance_without_arguments_reversed.volt",
+            "E2003",
+        ),
+        // #250: yalnız harf büyüklüğüyle ayrılan modül adları (mono).
+        ("270_module_names_differ_in_case.volt", "E1003"),
+        ("271_module_names_differ_in_case_reversed.volt", "E1003"),
+        ("272_generic_name_differs_in_case.volt", "E1003"),
+        ("273_generic_name_differs_in_case_reversed.volt", "E1003"),
     ];
     for (file, expected) in cases {
         let path = format!(

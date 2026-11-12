@@ -9,6 +9,31 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Generic bir modülün generic argümansız
+  örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
+  parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon
+  `M_1<const C: u32>`) 0.1.1'de kabul ediliyor, `volt build` 0 ile çıkıyor
+  ve hiç üretilmeyen `M_1` modülünü örnekleyen bir `Top.sv` yazıyordu; tek
+  tanı yanıltıcı bir W1006'ydı ("`M_1` hiç örneklenmiyor"). Başka bir
+  açılım aynı adı kurmuşsa (`M<1>` → `M_1`) örnek sessizce o açılımın
+  gövdesine bağlanıyor, `x ^ C` yerine `x + 1` hesaplıyordu. Tanı
+  parametreleri adlarıyla söyler; çözüm argümanları yazmaktır
+  (`M_1<8> { x: x }`). Generic olmayan modüllerin argümansız örnekleri
+  değişmez.
+- **Davranış değişikliği.** Bir birimin iki modül adı yalnız harf
+  büyüklüğüyle ayrılırsa artık E1003 verilir (#250; sessiz yanlış
+  düzeltmesi). Her modül adını taşıyan dosyalara yazılır; SVA dosyası ve
+  denetleyicisi adın küçük harflisini kullanır. 0.1.1'de `module Foo` ile
+  `module foo` (ya da `M<8>`'in kurduğu `M_8` ile `module m_8`) her
+  işletim sisteminde tek `formal/foo.sva` yazıyor, bir modülün kontratları
+  `--emit sva` çıktısından sessizce düşüyordu; Windows ve macOS'ta
+  `rtl/Foo.sv`, `constraints/Foo.sdc` ve `constraints/Foo.xdc` de tek
+  dosyaydı ve bir modülün SystemVerilog'u kayboluyordu. Kural kullanıcı
+  modüllerini, hiç örneklenmeyen generic modülleri ve generic örneklerin
+  ürettiği adları kapsar; örneklenen generic modülün kendi adı dosya
+  yazmadığı için sayılmaz. Çözüm modüllerden birini yeniden
+  adlandırmaktır (Volt üretilen adı kendiliğinden değiştirmez). Adları
+  harf büyüklüğünden fazlasıyla ayrılan tasarımların çıktısı değişmez.
 - **Davranış değişikliği.** İki farklı generic modül aynı SystemVerilog
   modül adını kurarsa artık E1003 verilir (#205; sessiz yanlış
   düzeltmesi). Generic örnek `<modül>_<argüman değerleri>` adını alır;

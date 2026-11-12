@@ -58,6 +58,7 @@ pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
     };
     mono.run();
     mono.rebuild_items();
+    mono.check_case_collisions();
     mono.diagnostics
 }
 
@@ -98,6 +99,8 @@ struct Request {
 #[derive(Clone)]
 struct NameOwner {
     template: Idx<Item>,
+    /// Kurulan monomorf öğesi.
+    item: Idx<Item>,
     /// Kaynaktaki yazılışı: `M<1, 8>`.
     written: String,
     /// Örneklemedeki modül adının konumu.
@@ -107,6 +110,17 @@ struct NameOwner {
 enum ArgInfo {
     Lit(u128),
     Other(Span),
+}
+
+/// Birimde kalan bir modül adı (#250, harf büyüklüğü denetimi).
+#[derive(Clone)]
+struct ModuleEntry {
+    item: Idx<Item>,
+    name: String,
+    /// Bildirimin adı ya da (monomorfta) adı kuran örnekleme.
+    site: Span,
+    /// Monomorfta: örneklemenin yazılışı (`M<8>`) ve şablonu.
+    generated: Option<(String, Idx<Item>)>,
 }
 
 struct Mono<'a> {
@@ -182,6 +196,11 @@ impl Mono<'_> {
         matches!(&self.ast.items_arena[item].kind, ItemKind::Module(m) if !m.generics.is_empty())
     }
 
+    /// Birimde bu adlı bir generic modül (şablon) var mı?
+    fn is_generic_name(&self, name: &str) -> bool {
+        self.modules.get(name).is_some_and(|m| !m.params.is_empty())
+    }
+
     fn collect_requests(&self, item: Idx<Item>) -> Vec<Request> {
         let ItemKind::Module(m) = &self.ast.items_arena[item].kind else {
             return Vec::new();
@@ -196,12 +215,19 @@ impl Mono<'_> {
     }
 
     fn request_of(&self, stmt: Idx<Stmt>, inst: &InstanceDecl) -> Option<Request> {
-        if inst.generic_args.is_empty() || inst.module_path.segments.len() != 1 {
+        if inst.module_path.segments.len() != 1 {
             return None;
         }
         let head = &inst.module_path.segments[0];
         if BuiltinPrim::from_name(&head.text).is_some() {
             return None; // stdlib primitifi — typeck denetler
+        }
+        // Argümansız örnek ancak generic modülü hedefliyorsa istektir:
+        // generic parametrelerin varsayılan değeri yok (gramerde
+        // `GenericParam` `= değer` almaz), sayı kuralı E2003 verir (#249).
+        // Yoksa örnek, monomorfun adını taşıyan modüle sessizce bağlanırdı.
+        if inst.generic_args.is_empty() && !self.is_generic_name(&head.text) {
+            return None;
         }
         let args = inst.generic_args.iter().map(|a| self.arg_info(a)).collect();
         Some(Request {
@@ -264,6 +290,7 @@ impl Mono<'_> {
                 let item = self.clone_template(template, values, mangled.clone());
                 let owner = NameOwner {
                     template,
+                    item,
                     written: written(&req.target, &key.1),
                     site: req.target_span,
                 };
@@ -284,7 +311,7 @@ impl Mono<'_> {
             return None;
         }
         if req.args.len() != params.len() {
-            self.err_arity(req, params.len());
+            self.err_arity(req, params);
             return None;
         }
         let mut values = Vec::with_capacity(params.len());
@@ -374,6 +401,81 @@ impl Mono<'_> {
         }
     }
 
+    /// #250: birimde kalan modül adları (kullanıcı modülleri, hiç
+    /// örneklenmeyen generic modüller ve monomorflar) yalnız harf
+    /// büyüklüğüyle ayrılamaz. Her modül adını taşıyan dosyalara yazılır
+    /// (`rtl/<Modül>.sv`, `constraints/<Modül>.sdc`): büyük/küçük harf
+    /// duyarsız dosya sisteminde (Windows, macOS) `Foo.sv` ile `foo.sv` tek
+    /// dosyadır; SVA dosyası ve denetleyicisi adın küçük harflisini kullanır
+    /// (`formal/foo.sva`, `foo_sva`), orada her sistemde tek dosyadır. Volt
+    /// adı değiştirmez (ADR-0090): E1003. Birebir aynı ad çözümleyicinin
+    /// E1003'üdür (aynı kapsamda çift tanım); burada atlanır. Sıra kaynak
+    /// sırasıdır: tanı her sonraki adda, kümenin ilk adına karşı.
+    fn check_case_collisions(&mut self) {
+        let mut entries: Vec<ModuleEntry> = self
+            .ast
+            .items
+            .iter()
+            .filter_map(|&item| match &self.ast.items_arena[item].kind {
+                ItemKind::Module(m) => Some(self.module_entry(item, &m.name)),
+                _ => None,
+            })
+            .collect();
+        entries.sort_by_key(|e| span_order(e.site));
+        let mut first: HashMap<String, usize> = HashMap::new();
+        for i in 0..entries.len() {
+            let folded = entries[i].name.to_lowercase();
+            match first.get(&folded) {
+                Some(&j) if entries[j].name != entries[i].name => {
+                    let (a, b) = (entries[j].clone(), entries[i].clone());
+                    if !self.reported_as_driver_collision(&a, &b) {
+                        self.err_case_collision(&a, &b);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    first.insert(folded, i);
+                }
+            }
+        }
+    }
+
+    /// Öğe listesindeki modülün adı ve kökeni: monomorf ise onu kuran
+    /// örnekleme, değilse bildirimin adı.
+    fn module_entry(&self, item: Idx<Item>, name: &Name) -> ModuleEntry {
+        match self.names.get(&name.text) {
+            Some(owner) if owner.item == item => ModuleEntry {
+                item,
+                name: name.text.clone(),
+                site: owner.site,
+                generated: Some((owner.written.clone(), owner.template)),
+            },
+            _ => ModuleEntry {
+                item,
+                name: name.text.clone(),
+                site: name.span,
+                generated: None,
+            },
+        }
+    }
+
+    /// İki bildirilen `@mmio` modülünün sürücü dosya kökü aynıysa
+    /// (`GpioRegs`/`GPIORegs` → `gpio_regs`) `@mmio` açılımı çifti E1014
+    /// ile zaten raporladı (ADR-0079 §2): aynı kök nedene ikinci tanı yok.
+    /// Kökleri ayrılan çift (`AbC` → `ab_c`, `abc`) E1014 almaz, E1003 alır.
+    fn reported_as_driver_collision(&self, a: &ModuleEntry, b: &ModuleEntry) -> bool {
+        let is_mmio = |e: &ModuleEntry| {
+            e.generated.is_none()
+                && self.ast.items_arena[e.item]
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.name.text == "mmio")
+        };
+        is_mmio(a)
+            && is_mmio(b)
+            && volt_ast::mmio_names::file_stem(&a.name) == volt_ast::mmio_names::file_stem(&b.name)
+    }
+
     /// Kullanılan şablonlar yerine monomorfları (şablon konumunda).
     fn rebuild_items(&mut self) {
         let old = std::mem::take(&mut self.ast.items);
@@ -435,6 +537,64 @@ impl Mono<'_> {
         );
     }
 
+    /// #250: `a` (kaynakta önce) ve `b` yalnız harf büyüklüğüyle ayrılıyor —
+    /// E1003, birincil etiket `b`'de. Monomorfun etiketi örnek sitesinde,
+    /// şablonun adı da etiketlenir; help yeniden adlandırılabilecek iki
+    /// modülü (monomorfta generic modülü) söyler.
+    fn err_case_collision(&mut self, a: &ModuleEntry, b: &ModuleEntry) {
+        let (an, bn) = (a.name.as_str(), b.name.as_str());
+        let lower = bn.to_lowercase();
+        let (ra, rb) = (self.rename_target(a), self.rename_target(b));
+        let mut d = Diagnostic::error(
+            ErrorCode::E1003,
+            lstr!(en: "module names '{an}' and '{bn}' differ only in letter case";
+                  tr: "'{an}' ve '{bn}' modül adları yalnız harf büyüklüğünde ayrılıyor"),
+            LabeledSpan::primary(b.site, self.entry_label(b)),
+            lstr!(en: "rename {ra} or {rb} — Volt does not rename SystemVerilog module names";
+                  tr: "{ra} ya da {rb} yeniden adlandırın — Volt SystemVerilog modül adlarını değiştirmez"),
+        )
+        .with_secondary(a.site, self.entry_label(a));
+        for e in [a, b] {
+            if let Some((_, template)) = &e.generated {
+                let (t, t_span) = self.module_name(*template);
+                d = d.with_secondary(
+                    t_span,
+                    lstr!(en: "generic module '{t}'"; tr: "generic modül '{t}'"),
+                );
+            }
+        }
+        self.diagnostics.push(d.with_note(
+            NoteKind::Reason,
+            lstr!(en: "each module is written to files named after it: 'rtl/{an}.sv' and 'rtl/{bn}.sv' are one file where file names ignore letter case (Windows, macOS), and the contracts of both would go to 'formal/{lower}.sva' on every system";
+                  tr: "her modül adını taşıyan dosyalara yazılır: 'rtl/{an}.sv' ile 'rtl/{bn}.sv' dosya adlarında harf büyüklüğünü ayırmayan sistemlerde (Windows, macOS) tek dosyadır; ikisinin kontratları da her sistemde 'formal/{lower}.sva' dosyasına giderdi"),
+        ));
+    }
+
+    /// Ad etiketi: bildirilen modül ya da adı kuran örnekleme.
+    fn entry_label(&self, e: &ModuleEntry) -> String {
+        let name = &e.name;
+        match &e.generated {
+            Some((written, _)) => {
+                lstr!(en: "{written} becomes '{name}'"; tr: "{written} '{name}' adını alıyor")
+            }
+            None => lstr!(en: "module '{name}'"; tr: "modül '{name}'"),
+        }
+    }
+
+    /// Yeniden adlandırılabilecek modül: monomorfta generic modül.
+    fn rename_target(&self, e: &ModuleEntry) -> String {
+        match &e.generated {
+            Some((_, template)) => {
+                let t = self.module_name(*template).0;
+                lstr!(en: "generic module '{t}'"; tr: "'{t}' generic modülünü")
+            }
+            None => {
+                let name = &e.name;
+                lstr!(en: "module '{name}'"; tr: "'{name}' modülünü")
+            }
+        }
+    }
+
     /// Şablon öğesinin adı ve ad konumu.
     fn module_name(&self, item: Idx<Item>) -> (String, Span) {
         match &self.ast.items_arena[item].kind {
@@ -460,19 +620,46 @@ impl Mono<'_> {
         );
     }
 
-    fn err_arity(&mut self, req: &Request, want: usize) {
-        let (name, got) = (&req.target, req.args.len());
+    fn err_arity(&mut self, req: &Request, params: &[(String, bool)]) {
+        let (name, got, want) = (&req.target, req.args.len(), params.len());
+        let message = lstr!(en: "'{name}' expects {want} generic argument(s), got {got}";
+                            tr: "'{name}' {want} generic argüman bekler, {got} verildi");
+        if got > 0 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    ErrorCode::E2003,
+                    message,
+                    LabeledSpan::primary(
+                        req.target_span,
+                        lstr!(en: "wrong generic argument count"; tr: "yanlış generic argüman sayısı"),
+                    ),
+                    lstr!(en: "give exactly {want} argument(s), one per <const ...> parameter";
+                          tr: "her <const ...> parametresi için bir tane, tam {want} argüman verin"),
+                )
+                .with_note(NoteKind::Note, adr_note()),
+            );
+            return;
+        }
+        // #249: argümansız örnek — parametreleri adlarıyla ve bir yazılışla.
+        let names: Vec<String> = params.iter().map(|(p, _)| format!("'{p}'")).collect();
+        let names = names.join(", ");
+        let example = vec!["8"; want].join(", ");
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2003,
-                lstr!(en: "'{name}' expects {want} generic argument(s), got {got}";
-                      tr: "'{name}' {want} generic argüman bekler, {got} verildi"),
+                message,
                 LabeledSpan::primary(
                     req.target_span,
-                    lstr!(en: "wrong generic argument count"; tr: "yanlış generic argüman sayısı"),
+                    lstr!(en: "generic module instantiated without generic arguments";
+                          tr: "generic modül generic argümansız örneklenmiş"),
                 ),
-                lstr!(en: "give exactly {want} argument(s), one per <const ...> parameter";
-                      tr: "her <const ...> parametresi için bir tane, tam {want} argüman verin"),
+                lstr!(en: "give a value for each generic parameter ({names}), e.g. {name}<{example}> {{ ... }}";
+                      tr: "her generic parametre ({names}) için bir değer verin, ör. {name}<{example}> {{ ... }}"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "generic parameters have no default values; each argument tuple builds its own module";
+                      tr: "generic parametrelerin varsayılan değeri yoktur; her argüman demeti kendi modülünü kurar"),
             )
             .with_note(NoteKind::Note, adr_note()),
         );

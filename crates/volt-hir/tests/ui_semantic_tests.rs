@@ -384,8 +384,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     //           register'lı çocuk, FIFO boşaltma); 148 saatsiz modülün
     //           anotasyonlu çıkışı (K8). 147 karar B ile ui/fail/255 oldu;
     //           149 takma adlı saatli extern (saat türünden anlaşılır);
-    // #205: 150 iki generic modül iki ayrı modül adına iner.
-    assert_eq!(checked, 135);
+    // #205: 150 iki generic modül iki ayrı modül adına iner;
+    // #249: 151 generic örnek argümanlı, generic olmayan modül argümansız;
+    // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları.
+    assert_eq!(checked, 137);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -753,6 +755,32 @@ fn ui_multifile_genericmangle_is_e1003_in_either_file_order() {
     }
 }
 
+/// #249: generic örnek argümansız (iki şablon iki dosyada): E2003, dosya
+/// sırası ne olursa olsun; argümansız örnek başka açılıma bağlanmaz.
+#[test]
+fn ui_multifile_genericnoargs_is_e2003_in_either_file_order() {
+    for order in [
+        ["liba.volt", "libb.volt", "main.volt"],
+        ["libb.volt", "liba.volt", "main.volt"],
+        ["main.volt", "libb.volt", "liba.volt"],
+    ] {
+        let names: Vec<String> = order.iter().map(|n| n.to_string()).collect();
+        let codes = analyze_multifile_files("genericnoargs", &names);
+        assert_eq!(codes, ["E2003"], "{order:?}");
+    }
+}
+
+/// #250: `Foo` (lib.volt) ve `foo` (main.volt) yalnız harf büyüklüğüyle
+/// ayrılır: E1003, dosya sırası ne olursa olsun.
+#[test]
+fn ui_multifile_modulecase_is_e1003_in_either_file_order() {
+    for order in [["lib.volt", "main.volt"], ["main.volt", "lib.volt"]] {
+        let names: Vec<String> = order.iter().map(|n| n.to_string()).collect();
+        let codes = analyze_multifile_files("modulecase", &names);
+        assert_eq!(codes, ["E1003"], "{order:?}");
+    }
+}
+
 #[test]
 fn ui_multifile_entry_files_declare_expected_outcome() {
     let base = format!("{}/../../tests/ui/multifile", env!("CARGO_MANIFEST_DIR"));
@@ -764,6 +792,8 @@ fn ui_multifile_entry_files_declare_expected_outcome() {
         ("privconst", "main.volt"),
         ("aliasconst", "main.volt"),
         ("genericmangle", "main.volt"),
+        ("genericnoargs", "main.volt"),
+        ("modulecase", "main.volt"),
     ] {
         let first = std::fs::read_to_string(format!("{base}/{dir}/{entry}"))
             .expect("giriş dosyası")
