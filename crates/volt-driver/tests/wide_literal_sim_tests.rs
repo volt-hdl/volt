@@ -550,3 +550,39 @@ test "low bits of the cut literal" {
 "#;
     sim("cut", src, 1);
 }
+
+/// 128 bitten geniş işaretli bağlamda -2^127: `-(a * b)` (a, b : i64) i129
+/// tipindedir (§3.3: i64 · i64 → i128, `-` bir bit ekler), literal ona
+/// sığar. |a · b| <= 2^126 olduğundan `-(a * b) > -2^127` her girdide
+/// doğru, `-(a * b) < -2^127 + 1` her girdide yanlıştır (elle). En küçük
+/// negatif değer örüntüsü (#116) yalnız W <= 128'de gerekir; 129 bitte
+/// örüntü kuralı uygulansaydı literal +2^127 yazılırdı.
+#[test]
+fn issue_207_minus_two_pow_127_in_a_129_bit_signed_context() {
+    let src = r#"module Neg129 {
+    in  a  : i64
+    in  b  : i64
+    out gt : bool
+    out lt : bool
+    gt = -(a * b) > -170141183460469231731687303715884105728
+    lt = -(a * b) < -170141183460469231731687303715884105727
+}
+test "-(a * b) stays above -2^127" {
+    let dut = Neg129 { };
+    dut.a = 0x8000_0000_0000_0000;
+    dut.b = 0x8000_0000_0000_0000;
+    step(1);
+    assert_eq(dut.gt, true);
+    assert_eq(dut.lt, false);
+    dut.b = 0x7FFF_FFFF_FFFF_FFFF;
+    step(1);
+    assert_eq(dut.gt, true);
+    assert_eq(dut.lt, false);
+    dut.a = 0;
+    step(1);
+    assert_eq(dut.gt, true);
+    assert_eq(dut.lt, false);
+}
+"#;
+    sim("neg129", src, 1);
+}
