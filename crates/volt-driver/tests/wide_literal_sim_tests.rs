@@ -427,3 +427,40 @@ module ConstWrap {
     assert!(!dir.join("build/rtl").exists(), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da) ve `275` (E2022, const'ta
+/// i128 dışı literal): her biri tam kendi kodunu, beklenen satırda ve tek
+/// hata olarak verir. Araç gerektirmez.
+#[test]
+fn issue_207_ui_fail_fixtures_report_their_code() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/ui/fail");
+    for (name, code, line) in [
+        ("274_literal_wider_than_128_bits.volt", "E0005", 7),
+        ("275_const_literal_beyond_i128.volt", "E2022", 5),
+    ] {
+        let src = std::fs::read_to_string(root.join(name)).expect("fikstür");
+        assert!(src.starts_with(&format!("//~ {code}")), "{name}");
+        let dir = temp_dir(&name[..3]);
+        std::fs::write(dir.join("case.volt"), &src).expect("yaz");
+        let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+            .env("VOLT_LANG", "en")
+            .env("NO_COLOR", "1")
+            .current_dir(&dir)
+            .args(["build", "case.volt", "--target-dir", "build"])
+            .output()
+            .expect("volt build");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!out.status.success(), "{name}: {text}");
+        assert_eq!(text.matches("error[").count(), 1, "{name}: {text}");
+        assert!(text.contains(&format!("error[{code}]")), "{name}: {text}");
+        assert!(
+            text.contains(&format!("case.volt:{line}:")),
+            "{name}: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
