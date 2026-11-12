@@ -696,3 +696,21 @@ değişmedi.
   değerlerle: 2^127 ile `==`, 2^127 + 1 ile `!=`, 2^128 - 1 maskesinin
   üst yarısı. 128 bitlik işaretsiz portun elle girdisi örüntünün `i128`
   okumasıdır (2^127 = `i128::MIN`, 2^128 - 1 = -1).
+
+**Kanıt.** Düzeltmesiz derleyicide (kanıt koşusu 43158993126, "Verilator
+lint" işi) üç regresyon örneği de düştü ve rastgele geniş ifadeler fark
+verdi:
+
+```
+difftest: seed=20261104 target=2000 generated=2250 accepted=2129 rejected-as-predicted=110 unsupported=11 unspecified=0 values-compared=228254 diffs=267
+difftest: regressions=38 failed=3 hand-computed=55 compared=55
+  [2x] regression #207: 2^127 + 1 as bits<128> in an inequality — a (bits<128> != K as bits<128>)
+      o36a = p56 != 0x80000000000000000000000000000001 as bits<128>
+      inputs: p56=0x80000000000000000000000000000001
+      hand-computed: 0x0, Verilator: 0x1 (bool)
+      model: 0xffffffffffffffffffffffffffffffff, Verilator: 0x7fffffffffffffffffffffffffffffff (bits<128>)
+```
+
+Düzeltme dalında (43160942836): `diffs=0`, `regressions=38 failed=0
+hand-computed=55 compared=55`, `assumptions used by compared variants:
+… A14=644 …`, `Tool ledger [integration]: … SKIP: 0`.

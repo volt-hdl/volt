@@ -849,3 +849,52 @@ A ve C'nin gerekçeleri:
 
 **Koşunun dışında bulunanlar.** `tests/ui/fail/138`–`141`'i (E1014) hiçbir test koşmuyordu; şimdi `ui_fail_138_to_141_mmio_driver_name_collisions_are_e1014` koşuyor. Düzleştirilmiş bir bundle alanının W1001'i doğru satırı ama keyfi bir sütunu gösteriyor (`fresh_name_span`): #246 (iyileştirme).
 
+
+## Hedefli koşu (#207, 2026-11-12)
+
+#207'nin düzeltmesinin dokunduğu kapsamdaki fonksiyonlar: `expr.rs`'te
+`fmt_int` ve `LitValue`, `mono/clone.rs`'te `subst_expr_kind`, `use_of`,
+`bare_param_type`, `with_generics`, `literal_fold.rs`'te `eval_literal`.
+`mono/mod.rs`'teki değişiklik değiştirilebilir işleç bırakmayan tek bir
+çağrıdır, listeye alınmadı. `consteval.rs` kapsamda değil; beş mutantı
+elle, atılabilir bir worktree'de uygulandı (işleç koşulu `UnOp::Neg` →
+`true` / `false`, `== 2^127` → `>=` / `!=`, `try_from` → `as i128`), her
+biri `consteval_tests`'te en az bir testi düşürdü, kaynak her seferinde
+geri alındı.
+
+Koşu 43159290182 (`re` = `expr\.rs.*(fmt_int|LitValue)|mono/clone\.rs.*(subst_expr_kind|use_of|bare_param_type|with_generics)|literal_fold\.rs.*eval_literal`,
+`shards` = 3; kapsam işi alan silme mutantlarından beşini düşürdü,
+`all 53 mutants in the list match`): 53 mutant, 39 caught, 4 missed,
+0 timeout, 10 unviable. Üç parçada `Tool ledger [mutants-N]: 186 test(s)
+asked for a tool; 188 lookup(s) found the tool (188 required), SKIP: 0`.
+
+| Mutant | Sınıf | Öldüren test |
+|---|---|---|
+| `expr.rs:2050:31` `&` → `^` (`fmt_int`, kesilmiş örüntü) | B | `wide_literal_sim_tests::issue_207_literal_wider_than_its_context_keeps_its_low_bits` |
+| `expr.rs:2050:31` `&` → `\|` | B | aynı test |
+| `expr.rs:2046:26` koruma `w <= 128` → `true` (`fmt_int`) | B | `wide_literal_sim_tests::issue_207_minus_two_pow_127_in_a_129_bit_signed_context` |
+| `expr.rs:2101:9` `LitValue`'nun `Display`'i → `Ok(Default::default())` | B | `wide_literal_sim_tests::issue_207_width_diagnostic_shows_the_literal_value` |
+
+Özet: 4 missed, dördü B (testi bu işte yazıldı), A ve C yok. Her mutant
+elle, atılabilir bir worktree'de uygulandı: test Verilator'la (Docker,
+5.052) düştü, mutantsız geçti, kaynak geri alındı.
+
+- **B, kesilmiş örüntü (`&` → `^`, `|`).** Bağlamdan geniş pozitif
+  literal (#123): `((a + b) | 3) & c`, a, b, c : u1, u1 bağlamında
+  `1'h1` yazılır. `^` ile `1'h2`, `|` ile `| 2`'nin `1'h0`'ı `1'h3` olur.
+  Değer iki okumada da (işlem doğal genişlikte ya da u1'de) aynıdır,
+  elle hesaplandı. Testten önce bu dalı yalnız SV metnine bakan
+  `width_isolation_tests::a_literal_wider_than_its_bitwise_context_is_written_truncated`
+  sınıyordu.
+- **B, koruma `w <= 128`.** `-(a * b)` (a, b : i64) i129'dur; 129 bitte
+  -2^127 en küçük negatif değer değildir. Koruma kalkınca örüntü kuralı
+  -2^127'yi `129'sh8000…` (+2^127) yazar ve `-(a * b) > -2^127` yanlış
+  çıkar.
+- **B, `Display`.** E2005'in iletisi (`cannot determine the width of the
+  literal '…'`) literalin değerini yazar; mutant değeri siler. İleti
+  kullanıcıya görünür (§4).
+
+**Kaldırılan `exclude_re` girdileri.** `fmt_int`'in eski
+`value >= 0 && w < 128` ve `value < 0 && … && w < 128` koşullarına satırla
+sabitlenmiş iki A1 girdisi (`expr.rs:2040:28`, `2047:32`) koşullar
+kalktığı için hiçbir mutantı eşlemiyordu; silindi.
