@@ -26,8 +26,10 @@ verification.
 
 These are bugs, not design limits: each one has an issue and is planned
 for a fix. Until then, the workaround after each one avoids it. The
-division bug ([#150](https://github.com/volt-hdl/volt/issues/150)) is
-under [Language](#language) below.
+division bug ([#150](https://github.com/volt-hdl/volt/issues/150)) and
+the cut operand of `+`, `-` and `*`
+([#266](https://github.com/volt-hdl/volt/issues/266)) are under
+[Language](#language) below.
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -68,6 +70,89 @@ a type** (`in x : uint<N>`) is rejected with `E2021` ("this is a generic
 parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
+
+**A `match` is computed at a narrower width than the type checker
+uses.** With `u8` operands, `let m = match sel { 0 => a + b, _ => a - b }`
+is an 8-bit signal in the generated SystemVerilog, so 200 + 100 gives 44;
+`match a + b` with an arm `44 =>` also takes the value 300; and a
+contract with `prev(a + b)` or a signed `prev()` compares at the wrong
+width. Write the choice as `if`/`else`, or put the subject in a `let`
+with an explicit width (`let s : u9 = a + b`, then `match s`). Tracked in
+[issue #215](https://github.com/volt-hdl/volt/issues/215).
+
+**In a statement `match`, an arm after the wildcard wins.** In a `comb`
+block, `match s { 0 => { … } _ => { y = 7 } 1 => { y = 9 } }` gives 9 for
+`s = 1`, while the same `match` written as an expression gives 7. Write
+the wildcard arm last. Tracked in
+[issue #216](https://github.com/volt-hdl/volt/issues/216).
+
+**A `const` that does not fit its type is accepted.** With
+`const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a
+`bits<B>` port is 256 bits wide) and the hardware sees 0. Make sure every
+constant computed from other constants fits its declared type. Tracked
+in [issue #214](https://github.com/volt-hdl/volt/issues/214).
+
+**The clock outputs of an `extern` module have no clock domain.** With a
+PLL or a clock buffer declared as an `extern module` with
+`out c0 : clock`, nothing clocked by `c0` is checked: a crossing between
+the input clock and an output clock gets no `E3001`. Synchronize every
+value between these clocks yourself with `sync()` or an `AsyncFifo`.
+Tracked in [issue #208](https://github.com/volt-hdl/volt/issues/208).
+
+**A register's reset value can be a signal, and it is not checked.**
+`reg r : u8 = a` loads `a` at reset without the clock-domain check
+(`E3001`) and the trust check (`E3009`). Use a constant reset value and
+load the signal in the `on` block. Tracked in
+[issue #209](https://github.com/volt-hdl/volt/issues/209).
+
+**A clock port declared through a type alias is not a clock everywhere.**
+With `type Clk = clock`, an asynchronous reset shared by two clock
+domains gets no `E3003`, the SDC file has no `create_clock` for the
+clock, and a test block can drive it. Write `clock` for clock ports.
+Tracked in [issue #234](https://github.com/volt-hdl/volt/issues/234).
+
+**`E5010` is missed in a `comb` block.** In an `@strict_timing` module,
+choosing between values of different delays inside a `comb` block
+(`comb { if x[0] { w = a } else { w = b } }`) compiles, while the same
+choice written as `let w = if x[0] { a } else { b }` gets `E5010`. Write
+such a choice as a `let`. Tracked in
+[issue #217](https://github.com/volt-hdl/volt/issues/217).
+
+**A timing constraint can apply to a second register.** `@multicycle`,
+`@false_path` and `@timing(max_delay)` on a register `slow` are written
+to the SDC file as `get_cells {slow_reg*}`, which also matches a
+register named `slow_reg`. Do not name a register `<name>_reg…` next to
+a constrained register `<name>`. Tracked in
+[issue #219](https://github.com/volt-hdl/volt/issues/219).
+
+**A secret passes through an unclassified input port of a submodule.**
+With `module Mid { in x : u8  out o : u8 @Pub  o = x }`, binding a
+`@Sec` value to `x` carries it to a public output without `E3009`.
+Annotate the input ports of submodules with their trust domain. Tracked
+in [issue #210](https://github.com/volt-hdl/volt/issues/210).
+
+**The trust annotation of a `wire` or a `let` is not read.** In a module
+without a clock, `wire w : u8 @Pub` driven by a `@Sec` value gets no
+`E3009`; in a module whose clock is `@Pub`, `wire w : u8 @Sec` gets a
+false `E3009`. Annotate the ports instead. Tracked in
+[issue #211](https://github.com/volt-hdl/volt/issues/211).
+
+**An `@mmio` module next to a declared AXI bundle name does not
+compile.** When the file declares `AxiWriteAddr` or another of the five
+AXI bundle names itself, the generated module reports `E1001` for names
+such as `aw_valid` that you did not write. Do not declare these names
+next to an `@mmio` module. Tracked in
+[issue #244](https://github.com/volt-hdl/volt/issues/244).
+
+**A `bits<K>` value cannot cross a pipeline stage.** It is rejected with
+`E2003` on a literal that the compiler generates. Carry the value as
+`uK` across the stage and cast it back to `bits<K>` where it is used.
+Tracked in [issue #245](https://github.com/volt-hdl/volt/issues/245).
+
+**`frequency = 100mhz` gets errors that do not say what is wrong.** The
+domain key gets `W0020` "unknown domain key: 'mhz'" followed by `E0001`.
+Write `100.mhz`. Tracked in
+[issue #223](https://github.com/volt-hdl/volt/issues/223).
 
 ## Language
 

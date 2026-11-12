@@ -5,7 +5,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.2] - 2026-11-13
 
 ### Behavior changes
 
@@ -106,8 +106,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   düşüyordu. Dosyanın son deyimindeki bir uyarı `@mmio` desugar'ının
   bütün hatalarını yutuyor, geçersiz register'lar RTL'den ve sürücülerden
   kayboluyordu; pipeline'ın son deyimindeki bir uyarı geçersiz bir
-  `stall`'ın E5013'ünü yutuyor, stall mantığı hiç üretilmiyordu. Bu
-  kaynaklar artık hatanın kendi koduyla reddedilir (E0001, E0015, E5013
+  `stall`'ın E5013'ünü yutuyor, stall mantığı hiç üretilmiyordu. Alan
+  tanımındaki `frequency = 100mhz` (doğru yazımı `100.mhz`) W0020
+  "unknown domain key: 'mhz'" ile kabul ediliyor, frekans 100 Hz
+  okunuyor ve SDC'ye `create_clock -period 10000000.000` yazılıyordu
+  (#223); artık W0020'nin ardından E0001 alır. Bu kaynaklar artık hatanın kendi koduyla reddedilir (E0001, E0015, E5013
   ...). Aynı `@mmio` modülündeki ya da aynı pipeline'daki birden çok
   desugar hatası artık hepsi raporlanır; önce ilki görünüyor, gerisi
   yutuluyordu. Hatasız kaynakların ürettiği SystemVerilog değişmez.
@@ -133,14 +136,14 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   alandan gelen girişleri aynı çıkışta birleştirirse E3001 örneğin
   olduğu yerde verilir, çıkış okunmasa da. Öneri çıkışı önce adlandırır:
   `let p_y_raw = p.y` + `sync(p_y_raw, <saat>)`.
-- **Davranış değişikliği.** Saatsiz `extern` için şartname değişti:
+- **Davranış değişikliği.** Saatsiz `extern` için şartname değişti (#189):
   domain-inference.md K8a bu durumu izinliyordu (saatsiz extern portları
   `Timeless`); güvenlik nedeniyle artık gövdesi görünmeyen saatsiz
   extern'in anotasyonsuz her çıkışı her girişine bağlı sayılır
   (en kötü durum, ADR-0114 K4). Bağımsız yolları farklı alanlarda olan
   bir extern'in portlarına `@Alan` anotasyonu yazılır.
 - **Davranış değişikliği.** Saatsiz bir `extern`'in bağımsız yolları
-  farklı alanlardan beslenirse artık E3001 verilir: 0.1.1'de saatsiz
+  farklı alanlardan beslenirse artık E3001 verilir (#189): 0.1.1'de saatsiz
   extern'in portları `Timeless` sayıldığı için `Bank { a1: fast_in, a2:
   slow_in }` hatasız derleniyordu; şimdi anotasyonsuz her çıkış iki
   girişe de bağlı sayılır ve iki alan aynı çıkışta birleşir (ADR-0114
@@ -150,7 +153,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   anotasyonlu girişe bağlanan değer denetlenir.
 - **Davranış değişikliği.** Saatsiz bir Volt modülünün `@Alan` anotasyonlu
   çıkışına bağlı olduğu girişten başka bir alanın değeri ulaşırsa artık
-  örneğin olduğu yerde E3001 verilir (ADR-0114 K8; sessiz yanlış
+  örneğin olduğu yerde E3001 verilir (#189, ADR-0114 K8; sessiz yanlış
   düzeltmesi): `out y : bool @Fast` ile `y = a` yazılan saatsiz `P`'nin
   `P { a: slow_flag }` örneği 0.1.1'de hatasız derlenip `@Slow` değeri
   senkronizörsüz `@Fast` tarafa taşıyordu. Denetim deyim sırasına bağlı

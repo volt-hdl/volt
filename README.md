@@ -2,7 +2,7 @@
 
 An HDL where clock domain crossing bugs won't compile.
 
-> **Status:** early-stage project (started 2026-09). Version 0.1.1 is the
+> **Status:** early-stage project (started 2026-09). Version 0.1.2 is the
 > latest release; it makes no stability promise. Not used in production.
 > No silicon. See [Limitations](#limitations).
 
