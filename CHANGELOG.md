@@ -178,7 +178,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   sınar: derleyiciden bağımsız bir model, uyarının çıkmadığı her programda
   kesilmiş ve kesilmemiş işlenenle hesabın aynı sonucu verdiğini, uyarı
   çıkan programlarda farkın gerçekten bulunduğunu denetler (atama,
-  karşılaştırma, dönüşüm, bölme; bağlam başına 4000 program). Yeni
+  karşılaştırma, dönüşüm, bölme; bağlam başına 4000 program, her birinde
+  48 rastgele girdi; girişleri toplam 12 bit ya da daha az olan
+  programlarda bütün girdiler). Yeni
   `tests/ui/fail/274` ve `tests/ui/pass/153`.
 
 - Tohumlanmış hata testi (ADR-0113, #190): `seeded_bug_tests` örneklerin,

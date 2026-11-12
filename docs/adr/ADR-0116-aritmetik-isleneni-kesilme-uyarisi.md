@@ -1,6 +1,6 @@
 # ADR-0116: Aritmetik İşlenen İşlemden Önce Kesiliyor — Geçici Uyarı W2016 (#266)
 
-> Statü: Önerildi — bakımcının onayını bekliyor; geçici: #266'nın v0.2.0 kararıyla kalkar ya da yeni kurala göre değişir
+> Statü: Uygulandı — geçici: #266'nın v0.2.0 kararıyla kalkar ya da yeni kurala göre değişir
 > İlgili: ADR-0025 (`+ - *` esnek aralıkların kesişiminde; kesişimden geniş işlenen işlem genişliğine kesilir), ADR-0041 (check kipinin itmesi: bildirilmiş genişliğe atanan sonuç), ADR-0108 (fark testinin modeli aynı okumayı paylaşır, bu yüzden görmedi; A1), ADR-0112 (W2015: bölmenin işleneni; iki uyarı aynı yerde çıkmaz)
 > Tarih: 2026-11-12
 > Etkilenen: `crates/volt-hir/src/typeck/arith_cut.rs` (YENİ:
@@ -141,17 +141,25 @@ kesilmediği hesapla (B: her `+ - *`, `max(C, N_l, N_r)` bitte) aynıdır.
 (tipler ADR-0025'ten, elle) rastgele programlar üretir (işaretli ve
 işaretsiz, 1..10 bit üç port, derinlik 1..3, `+ - *`, küçük literaller)
 ve dört bağlamda (atama, karşılaştırma, dönüşüm, bölme) A ile B'yi 48
-girdide karşılaştırır. Özellik: derleyici W2016 vermediyse A = B. Ek
+rastgele girdide karşılaştırır; girişleri (bölmede bölenle birlikte)
+toplam 12 bit ya da daha az olan programlarda ayrıca bütün girdileri
+(en çok 4096) dener. Özellik: derleyici W2016 vermediyse A = B. Ek
 koşullar: model kesme gördüğü hâlde derleyicinin sustuğu programlar her
-bağlamda üretilir, uyarı çıkan programların en az birinde A ≠ B bulunur.
-Bağlam başına 4000 program (tohumlar sabit):
+bağlamda üretilir ve bunların bir kısmı tam taranır, uyarı çıkan
+programların en az birinde A ≠ B bulunur. Bağlam başına 4000 program
+(tohumlar sabit; tam tarama rastgele girdilerden sonra koşar, tohumun
+akışını değiştirmez):
 
-| Bağlam | Uyarılı | Susturulan kesme | Uyarılı ve A ≠ B |
-|---|---|---|---|
-| atama | 41 | 275 | 35 |
-| karşılaştırma | 357 | 108 | 262 |
-| dönüşüm | 145 | 327 | 88 |
-| bölme | 145 | 304 | 24 |
+| Bağlam | Uyarılı | Susturulan kesme | Uyarılı ve A ≠ B | Tam taranan | Tam taranan susturulan | Denenen girdi |
+|---|---|---|---|---|---|---|
+| atama | 41 | 275 | 35 | 866 | 44 | 1588272 |
+| karşılaştırma | 357 | 108 | 263 | 814 | 19 | 1496152 |
+| dönüşüm | 145 | 327 | 88 | 806 | 42 | 1550480 |
+| bölme | 145 | 304 | 24 | 290 | 21 | 675552 |
+
+Tam tarama karşılaştırmada bir uyarılı programda daha A ≠ B girdisi
+buldu (262 → 263); susturulan programların hiçbirinde, hiçbir girdide
+A ≠ B yok. Dört test birlikte yaklaşık 2 saniye sürer.
 
 Testin ayırt ettiği, iki bozuk kuralla atılabilir bir worktree'de
 denendi: "yalnız işlenen sığıyor" koşulu iki testi düşürdü (ör. atamada

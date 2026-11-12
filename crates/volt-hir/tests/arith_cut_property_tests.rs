@@ -20,6 +20,10 @@
 //! verir (susturma sağlam). Ayrıca: model kesme gördüğü hâlde derleyicinin
 //! sustuğu durumlar iki bağlamda da gerçekten üretilir (susturma kuralları
 //! sınanıyor) ve uyarı çıkan programların en az birinde A ile B ayrışır.
+//!
+//! Girdiler: her programda `INPUTS` rastgele girdi (uçlar sık); girişleri
+//! (bölenle birlikte) toplam `EXHAUSTIVE_BITS` bit ya da daha az olan
+//! programlarda ayrıca bütün girdiler denenir.
 
 use volt_hir::analyze;
 use volt_syntax::{parse, FileId};
@@ -301,10 +305,38 @@ struct Tally {
     suppressed: usize,
     /// Uyarılı ve A ile B'nin ayrıştığı bir girdi bulunan program.
     warned_and_differs: usize,
+    /// Bütün girdileri denenen program (girişleri en çok
+    /// `EXHAUSTIVE_BITS` bit).
+    exhaustive: usize,
+    /// Bunların içinde susturulan (model kesme görüyor, derleyici
+    /// susuyor) program.
+    exhaustive_suppressed: usize,
+    /// Bütün programlarda denenen girdi sayısı (rastgele + tam tarama).
+    inputs: usize,
 }
 
 const PROGRAMS: usize = 4000;
 const INPUTS: usize = 48;
+/// Girişleri toplam bu kadar bit ya da daha az olan programda bütün
+/// girdiler denenir (en çok 4096).
+const EXHAUSTIVE_BITS: u32 = 12;
+
+/// Girdi uzayının `idx`'inci noktası: her giriş kendi genişliğinde,
+/// işaretliyse ikiye tümleyenle.
+fn decode(signed: bool, widths: &[u32], mut idx: u64) -> Vec<i128> {
+    widths
+        .iter()
+        .map(|&w| {
+            let raw = i128::from(idx & ((1u64 << w) - 1));
+            idx >>= w;
+            if signed && raw >= 1i128 << (w - 1) {
+                raw - (1i128 << w)
+            } else {
+                raw
+            }
+        })
+        .collect()
+}
 
 /// Bağlam: ifadenin sonucu nereye gidiyor.
 #[derive(Clone, Copy, PartialEq)]
@@ -453,6 +485,18 @@ fn run(seed: u64, ctx: Ctx) -> Tally {
         t.warned += usize::from(warned);
         t.suppressed += usize::from(cut && !warned);
         let mut differs = false;
+        let mut check = |inp: &[i128]| {
+            let a = observe(&prog, &node, &root, inp, false);
+            let b = observe(&prog, &node, &root, inp, true);
+            if a != b {
+                assert!(
+                    warned,
+                    "W2016 susturuldu ama kesme değeri değiştiriyor:\n{src}girdi {inp:?}: bugünkü kural {a}, kesilmeyen işlenen {b}"
+                );
+                differs = true;
+            }
+        };
+        // Rastgele girdiler önce: tohumun akışı tam taramadan bağımsız.
         for _ in 0..INPUTS {
             let mut inp = prog.input(&mut rng);
             if let Root::Div { w } = root {
@@ -462,15 +506,21 @@ fn run(seed: u64, ctx: Ctx) -> Tally {
                 };
                 inp.extend(d.input(&mut rng));
             }
-            let a = observe(&prog, &node, &root, &inp, false);
-            let b = observe(&prog, &node, &root, &inp, true);
-            if a != b {
-                assert!(
-                    warned,
-                    "W2016 susturuldu ama kesme değeri değiştiriyor:\n{src}girdi {inp:?}: bugünkü kural {a}, kesilmeyen işlenen {b}"
-                );
-                differs = true;
+            check(&inp);
+        }
+        t.inputs += INPUTS;
+        let mut widths = prog.widths.clone();
+        if let Root::Div { w } = root {
+            widths.push(w);
+        }
+        let bits: u32 = widths.iter().sum();
+        if bits <= EXHAUSTIVE_BITS {
+            for idx in 0..1u64 << bits {
+                check(&decode(signed, &widths, idx));
             }
+            t.exhaustive += 1;
+            t.exhaustive_suppressed += usize::from(cut && !warned);
+            t.inputs += 1usize << bits;
         }
         t.warned_and_differs += usize::from(warned && differs);
     }
@@ -480,6 +530,10 @@ fn run(seed: u64, ctx: Ctx) -> Tally {
 fn assert_tally(name: &str, t: &Tally) {
     eprintln!("arith_cut_property_tests [{name}]: {t:?}");
     assert!(t.suppressed > 0, "{name}: susturma hiç sınanmadı: {t:?}");
+    assert!(
+        t.exhaustive_suppressed > 0,
+        "{name}: susturulan hiçbir program tam taranmadı: {t:?}"
+    );
     assert!(
         t.warned_and_differs > 0,
         "{name}: uyarılı ve ayrışan program yok: {t:?}"
