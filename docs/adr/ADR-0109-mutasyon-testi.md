@@ -898,3 +898,43 @@ elle, atılabilir bir worktree'de uygulandı: test Verilator'la (Docker,
 `value >= 0 && w < 128` ve `value < 0 && … && w < 128` koşullarına satırla
 sabitlenmiş iki A1 girdisi (`expr.rs:2040:28`, `2047:32`) koşullar
 kalktığı için hiçbir mutantı eşlemiyordu; silindi.
+
+## Hedefli koşu 2 (#207, #213, #262, #263, ADR-0115, 2026-11-12)
+
+PR #265'in sonraki değişikliklerinin dokunduğu kapsamdaki fonksiyonlar:
+`typeck/cast.rs` `warn_literal_cut` (ADR-0115), `typeck/literal_fold.rs`
+`literal_sign_mag` ve `check_literal_expr` (#213), `mono/mod.rs`
+`ParamRange`, `check_args`, `err_arg_out_of_range` (#262),
+`desugar.rs` `resolve_stage_ref` (#263). `pipeline.rs` kapsamda değil;
+değişikliği değiştirilebilir işleç bırakmayan bir metin çözümüdür.
+
+Koşu 43196528987 (455e49fc, `shards` = 4; kapsam işi alan silme
+mutantlarından beşini düşürdü, `all 67 mutants in the list match`): 67
+mutant, 55 caught, 11 missed, 0 timeout, 1 unviable. Dört parçada
+`Tool ledger [mutants-N]: 188 test(s) asked for a tool; 190 lookup(s)
+found the tool (190 required), SKIP: 0`.
+
+| Mutant (455e49fc satırı) | Sınıf | Öldüren test |
+|---|---|---|
+| `cast.rs:39:28` `>` → `>=`, `==`; `39:26` koruma `w > 128` → `false` | B | `typeck::cast::tests::issue_207_literal_cut_message_names_the_value_and_the_cut` |
+| `cast.rs:53:29` `>=` → `<` (maske) | B | aynı test |
+| `cast.rs:56:30` `-` → `/`, `+` (maske) | B | aynı test |
+| `cast.rs:58:62` `&` → `^`, `\|` (kesilmiş değer) | B | aynı test |
+| `literal_fold.rs:134:17` `<` → `>`, `==`, `<=` (`literal_sign_mag`, işaret) | B | aynı test |
+
+Özet: 11 missed, hepsi B (testi bu işte yazıldı), A ve C yok. Her mutant
+atılabilir bir worktree'de elle uygulandı: test düştü, mutantsız geçti,
+kaynak geri alındı.
+
+- **Koruma `w > 128` (`>=`, `==`, `false`).** `sint<128>` hedefinde sınır
+  2^127'dir: `0x8000…0000 as sint<128>` W2010 alır, `0x7FFF…FFFF` ve
+  `(-0x8000…0000)` almaz. `sint<200>`'e her literal sığar; koruma
+  kalkınca `1u128 << (w - 1)` taşar (hata ayıklama derlemesinde çökme).
+- **Maske ve kesilmiş değer.** İleti kesilmiş değeri söyler (§4: tanı
+  metni çıktıdır): `0x1FF as bits<8>` → `0xFF`, `0x3_0000_0000_0000_0000
+  as u64` → `0x0`, `(-1) as bits<128>` → 128 bitlik bir örüntüsü.
+- **İşaret (`literal_sign_mag`).** Bileşik literal ifadesinin işareti
+  değerinden gelir: `(1 - 2) as u8` (-1) W2010 alır, `(1 - 1) as u8` ve
+  `(2 - 1) as u8` almaz; iletide değer `-1`, `300`.
+
+`mono/mod.rs` ve `desugar.rs`'in mutantlarının hepsi yakalandı.

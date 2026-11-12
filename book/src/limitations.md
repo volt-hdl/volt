@@ -93,6 +93,34 @@ decisions.
 
 **SystemVerilog is the sole output language.** There is no VHDL output.
 
+**Integer literals stop at 2^128 - 1.** A literal holds a value up to
+2^128 - 1 in any base. A larger one, such as
+`0x1_0000_0000_0000_0000_0000_0000_0000_0000`, is `E0005` ("value does
+not fit in 128 bits"), also when the target is `bits<256>`. Nothing is cut
+silently: a literal up to 2^128 - 1 cast to `bits<256>` keeps its value
+and the upper bits are zero. To build a wider constant, write it in
+128-bit parts and join them with a struct cast. `hi`, declared before
+`lo`, holds the upper 128 bits:
+
+```volt
+struct Key256 {
+    hi : bits<128>,
+    lo : bits<128>,
+}
+
+module Key {
+    out key : bits<256>
+    let k : Key256 = Key256 {
+        hi: 0x0123_4567_89AB_CDEF_0011_2233_4455_6677 as bits<128>,
+        lo: 0x8899_AABB_CCDD_EEFF_FEDC_BA98_7654_3210 as bits<128>,
+    }
+    key = k as bits<256>
+}
+```
+
+`key[255:192]` is `0x0123_4567_89AB_CDEF` and `key[63:0]` is
+`0xFEDC_BA98_7654_3210`.
+
 **The width of a division with a wider arithmetic operand will change.**
 `/` and `%` do not widen: `a * b / c` (all `u8`) divides at 8 bits, and
 the product, up to 16 bits wide, is cut to 8 bits before the division.

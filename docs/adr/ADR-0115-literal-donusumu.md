@@ -3,7 +3,7 @@
 > Statü: Uygulandı
 > İlgili: ADR-0108 (fark testinin A14 varsayımı: sığan literalin `bits<N>`'e dönüşümü değerini taşır; bu ADR o okumayı karar yapar), ADR-0099 (W2010'un yardım satırı sığan değeri söyler; tanı metninde ADR numarası yok), ADR-0100 (sessiz kesmeyi görünür kılan uyarı son hanede)
 > Tarih: 2026-11-12
-> Etkilenen: volt-hir (`typeck/cast.rs` `warn_literal_cut`,
+> Etkilenen: volt-sv-emit (`expr.rs` `emit_cast`: `(-K) as T`), volt-hir (`typeck/cast.rs` `warn_literal_cut`,
 > `typeck/literal_fold.rs` `literal_sign_mag`), volt-diagnostics (W2010
 > açıklaması en/tr), `tests/ui/fail/276`, `crates/volt-driver/tests/wide_literal_sim_tests.rs`,
 > `CHANGELOG.md`
@@ -36,8 +36,12 @@ verir.
    literal aritmetiği (`(200 + 100) as u8`, değeri i128'de). Döngü
    değişkenli literal ifadesi ve i128'i aşan bileşik ifade (E2022) bu
    denetime girmez.
-4. Üretilen SV değişmez: kesilmiş değer önceden de yazılıyordu (#123'ün
-   örüntü kuralı). Değişen yalnız uyarıdır.
+4. Çıplak literalin üretilen SV'si değişmez: kesilmiş değer önceden de
+   yazılıyordu (#123'ün örüntü kuralı). Parantezli negatif literal
+   (`(-128) as i8`) önceden üreticide E2005 alıyordu ("cannot determine the
+   width of the literal"), sığan değerde de; artık çıplak literal gibi
+   hedef genişliğinde yazılır (`8'sh80`, `(-129) as i8` → `8'sh7F`,
+   `(-1) as u8` → 255).
 
 ## Reddedilenler
 

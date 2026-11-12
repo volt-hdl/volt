@@ -38,19 +38,23 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - **Davranış değişikliği.** Const generic argüman parametrenin tipine
   sığmalıdır, sığmazsa E2010 (#262; sessiz yanlış düzeltmesi). 0.1.1'de
   `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım
-  80 bitlik değer görüyordu. Denetim `uN`, `iN` ve genişliği literal olan
-  `uint<N>`/`sint<N>` parametrelerindedir.
-- Pipeline aşama uzaklığı (`stage(+K)`) her tam sayı literali gibi
-  okunur: `stage(-0x1)` artık `stage(-1)`'dir (#263). 0.1.1'de yalnız
-  ondalık `i64` okunuyor, gerisi `i64::MAX` oluyordu: `stage(-0x1)` E5012
-  alıyor, `stage(+0x1)` ve i64'ten büyük uzaklık derleyiciyi
-  çökertiyordu (hata ayıklama derlemesi). Hiçbir aşamaya düşmeyen uzaklık
-  E5012'dir.
+  80 bitlik değer görüyordu. Denetim `uN`, `iN` ve `uint<W>`/`sint<W>`
+  parametrelerindedir; W literal ya da önceki bir const parametredir
+  (`<const W: u32, const K: uint<W>>` için `G<4, 16>` E2010).
+- **Davranış değişikliği.** Pipeline aşama uzaklığı (`stage(+K)`) her
+  tam sayı literali gibi okunur: `stage(-0x1)` artık `stage(-1)`'dir
+  (#263). 0.1.1'de yalnız ondalık `i64` okunuyor, gerisi `i64::MAX`
+  oluyordu: `stage(-0x1)` E5012 alıyor, `stage(+0x1)` ve i64'ten büyük
+  uzaklık derleyiciyi çökertiyordu (hata ayıklama derlemesi). Hiçbir
+  aşamaya düşmeyen uzaklık E5012'dir.
 - **Davranış değişikliği.** Hedefine sığmayan soneksiz literalin `as`
   dönüşümü artık W2010 uyarısı verir (#207, ADR-0115). `0x1FF as bits<8>`
   ve `300 as u8` 0.1.1'de de hedefin alt bitlerine kesiliyordu (`8'hFF`,
   `8'h2C`), ama uyarısız. Üretilen SV değişmez; sığan literal (ör.
-  `0x8000_…_0001 as bits<128>`) uyarı almaz.
+  `0x8000_…_0001 as bits<128>`) uyarı almaz. Parantezli negatif literalin
+  dönüşümü (`(-128) as i8`, `(-1) as u8`) 0.1.1'de E2005 alıyordu; artık
+  derlenir ve hedefin bit örüntüsünü taşır (−128 → `8'sh80`, `(-1) as u8`
+  → 255 ve W2010). Parantezsiz `-1 as u8`, `-(1 as u8)`'dir (E2002).
 - **Davranış değişikliği.** Generic bir modülün generic argümansız
   örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
   parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon

@@ -177,7 +177,7 @@ impl TypeChecker<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil::{codes, def_ty};
+    use super::super::testutil::{codes, def_ty, diagnostics};
 
     fn module(body: &str) -> String {
         format!(
@@ -236,5 +236,58 @@ mod tests {
             let c = codes(&module(&format!("    let _c = {fits}")));
             assert!(c.is_empty(), "{fits}: {c:?}");
         }
+    }
+
+    /// ADR-0115'in iletisi: literal ve kesilmiş değer (hedefin alt bitleri,
+    /// ikiye tümleyen). Bileşik literal ifadesinin işareti değerinden gelir:
+    /// `(1 - 2) as u8` -1'dir, sığmaz; `(2 - 1) as u8` sığar. 128 bitlik
+    /// işaretli hedefte sınır 2^127'dir. Hedefli mutasyon koşusu
+    /// 43196528987'nin kaçanları (maske, işaret, `w > 128`); 128 bitten
+    /// geniş işaretli hedefe her literal sığar, 128 bitlik işaretsiz hedefte
+    /// negatif literal kesilir.
+    #[test]
+    fn issue_207_literal_cut_message_names_the_value_and_the_cut() {
+        for (expr, value, cut) in [
+            ("0x1FF as bits<8>", "511", "0xFF"),
+            ("(200 + 100) as u8", "300", "0x2C"),
+            ("(1 - 2) as u8", "-1", "0xFF"),
+            ("(-129) as i8", "-129", "0x7F"),
+            (
+                "0x3_0000_0000_0000_0000 as u64",
+                "55340232221128654848",
+                "0x0",
+            ),
+            (
+                "(-1) as bits<128>",
+                "-1",
+                "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+            ),
+        ] {
+            let d = diagnostics(&module(&format!("    let _c = {expr}")));
+            let w: Vec<_> = d.iter().filter(|d| d.code.as_str() == "W2010").collect();
+            assert_eq!(w.len(), 1, "{expr}: {d:?}");
+            let want = format!("the literal {value} does not fit");
+            assert!(w[0].message.contains(&want), "{expr}: {}", w[0].message);
+            assert!(
+                w[0].message.contains(&format!("({cut})")),
+                "{expr}: {}",
+                w[0].message
+            );
+        }
+        for fits in [
+            "(2 - 1) as u8",
+            "(1 - 1) as u8",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as sint<200>",
+            "(-0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF) as sint<200>",
+            "0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as sint<128>",
+            "(-0x8000_0000_0000_0000_0000_0000_0000_0000) as sint<128>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {fits}")));
+            assert!(c.is_empty(), "{fits}: {c:?}");
+        }
+        let c = codes(&module(
+            "    let _c = 0x8000_0000_0000_0000_0000_0000_0000_0000 as sint<128>",
+        ));
+        assert_eq!(c, ["W2010"], "{c:?}");
     }
 }
