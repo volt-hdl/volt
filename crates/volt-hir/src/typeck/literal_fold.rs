@@ -645,4 +645,52 @@ mod tests {
         ));
         assert_eq!(c, ["E2022"], "{c:?}");
     }
+
+    /// #213: `-<literal>` beklenen tipin aralığına sığmalı (E2010), çıplak
+    /// literal gibi. Önceden ne katlanmış denetime ne `check_int_lit`'e
+    /// giriyordu: `-129 : i8` `8'sh7F` (+127) yazılıyordu.
+    #[test]
+    fn issue_213_negative_literal_must_fit_the_expected_type() {
+        for (decl, body) in [
+            ("    out b : i8", "    b = -129"),
+            (
+                "    in  i : i8
+    out c : bool",
+                "    c = i < -500",
+            ),
+            (
+                "    in  i : i8
+    out f : i9",
+                "    f = i + -300",
+            ),
+            ("    out a : u8", "    a = -1"),
+            ("    out a : i64", "    a = -0x8000_0000_0000_0001"),
+            (
+                "    out a : i64",
+                "    a = -0x8000_0000_0000_0000_0000_0000_0000_0000",
+            ),
+        ] {
+            let c = codes(&module(&format!(
+                "{decl}
+{body}"
+            )));
+            assert_eq!(c, ["E2010"], "{body}: {c:?}");
+        }
+        for (decl, body) in [
+            ("    out b : i8", "    b = -128"),
+            (
+                "    in  i : i8
+    out c : bool",
+                "    c = i < -128",
+            ),
+            ("    out a : i64", "    a = -0x8000_0000_0000_0000"),
+            ("    out a : i8", "    a = -0"),
+        ] {
+            let c = codes(&module(&format!(
+                "{decl}
+{body}"
+            )));
+            assert!(c.is_empty(), "{body}: {c:?}");
+        }
+    }
 }

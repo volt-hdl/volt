@@ -611,7 +611,7 @@ impl Gen<'_> {
         let s = self.rng.chance(40);
         match self
             .rng
-            .weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10, 8, 5])
+            .weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10, 8, 5, 6])
         {
             0 => {
                 let op = self
@@ -678,6 +678,17 @@ impl Gen<'_> {
                     .pick(&[BinOp::Add, BinOp::Sub, BinOp::And, BinOp::Eq, BinOp::Lt]);
                 let y = self.lit_tree(v, 1);
                 Expr::bin(op, x, y)
+            }
+            // #213: işaretli işlenenin yanında çıplak negatif literal,
+            // karşı yanın aralığının bir altı (E2010); aritmetik, bit
+            // işlemi ve karşılaştırma.
+            11 => {
+                let x = self.int_exact(true, w, d);
+                let v = -(1i128 << (w - 1)) - 1;
+                let op = self
+                    .rng
+                    .pick(&[BinOp::Add, BinOp::Sub, BinOp::And, BinOp::Eq, BinOp::Lt]);
+                Expr::bin(op, x, Expr::Lit(v, LitFmt::Dec))
             }
             // #144: literal aritmetiğinde sıfıra bölme ya da sıfıra göre
             // kalan (E2023); bölen literal aritmetiğinin değeri 0.

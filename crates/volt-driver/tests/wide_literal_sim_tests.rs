@@ -430,8 +430,10 @@ module ConstWrap {
 
 /// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da), `275` (E2022, const'ta
 /// i128 dışı literal) ve `276` (W2010, sığmayan literalin dönüşümü,
-/// ADR-0115): her biri tam kendi kodunu, beklenen satırda ve tek tanı
-/// olarak verir. Araç gerektirmez.
+/// ADR-0115), `277`–`284` (#213, sığmayan negatif literal: issue'nun her
+/// satırı) ve `285` (#262, parametre tipine sığmayan generic argüman): her
+/// biri tam kendi kodunu, beklenen satırda ve tek tanı olarak verir.
+/// Araç gerektirmez.
 #[test]
 fn issue_207_ui_fail_fixtures_report_their_code() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/ui/fail");
@@ -439,6 +441,25 @@ fn issue_207_ui_fail_fixtures_report_their_code() {
         ("274_literal_wider_than_128_bits.volt", "E0005", 7),
         ("275_const_literal_beyond_i128.volt", "E2022", 5),
         ("276_literal_cast_cuts_w2010.volt", "W2010", 7),
+        // #213: negatif literal hedefinin aralığına sığmalı.
+        ("277_negative_literal_out_of_range_let.volt", "E2010", 5),
+        (
+            "278_negative_literal_out_of_range_comparison.volt",
+            "E2010",
+            7,
+        ),
+        ("279_negative_literal_out_of_range_reset.volt", "E2010", 6),
+        (
+            "280_negative_literal_out_of_range_register_write.volt",
+            "E2010",
+            7,
+        ),
+        ("281_negative_literal_out_of_range_const.volt", "E2010", 3),
+        ("282_negative_literal_out_of_range_operand.volt", "E2010", 7),
+        ("283_negative_literal_unsigned_target.volt", "E2010", 5),
+        ("284_negative_literal_pattern_out_of_range.volt", "E2010", 8),
+        // #262: generic argüman parametrenin tipine sığmalı.
+        ("285_generic_argument_out_of_range.volt", "E2010", 10),
     ] {
         let src = std::fs::read_to_string(root.join(name)).expect("fikstür");
         assert!(src.starts_with(&format!("//~ {code}")), "{name}");
