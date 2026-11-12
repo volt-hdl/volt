@@ -98,6 +98,42 @@ impl TypeChecker<'_, '_> {
         Some((def, start, end))
     }
 
+    /// Soneksiz literal ifadesinin değeri, işaret ve büyüklük olarak (#207):
+    /// çıplak literal (2^128 - 1'e kadar), `-literal` ve döngü değişkeni
+    /// taşımayan literal aritmetiği (i128'de). Başka biçim, döngü
+    /// değişkeni ya da taşma `None`.
+    pub(super) fn literal_sign_mag(&self, expr: Idx<Expr>) -> Option<(bool, u128)> {
+        let lit = |e: Idx<Expr>| {
+            if let ExprKind::IntLit {
+                value,
+                suffix: None,
+                ..
+            } = self.ast.exprs[e].kind
+            {
+                Some(value)
+            } else {
+                None
+            }
+        };
+        if let Some(v) = lit(expr) {
+            return Some((false, v));
+        }
+        if let ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } = self.ast.exprs[expr].kind
+        {
+            if let Some(v) = lit(operand) {
+                return Some((v != 0, v));
+            }
+        }
+        if !self.literal_vars(expr)?.is_empty() {
+            return None;
+        }
+        let v = self.eval_literal(expr, &[]).ok()?;
+        Some((v < 0, v.unsigned_abs()))
+    }
+
     /// Literal ifadesinin değeri; döngü değişkenleri `env`'den.
     fn eval_literal(&self, expr: Idx<Expr>, env: &[(DefId, i128)]) -> Result<i128, Fault> {
         let e = &self.ast.exprs[expr];

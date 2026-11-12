@@ -1190,7 +1190,7 @@ Declare the frequency in the domain so that every module sharing it is constrain
         W2010 => Explanation::new(
             "Narrowing conversion",
             "This 'as' cast drops high bits — information is lost.",
-            "The cast is explicit, so this is only a warning, but the discarded bits are gone: u16 → u8 keeps only the low byte. If the value can genuinely exceed the target range, mask or saturate deliberately so the behaviour is documented.",
+            "The cast is explicit, so this is only a warning, but the discarded bits are gone: u16 → u8 keeps only the low byte. If the value can genuinely exceed the target range, mask or saturate deliberately so the behaviour is documented. An untyped literal that does not fit the target ('0x1FF as bits<8>', '300 as u8') is cut the same way and warns too; write the value that fits.",
             "in  big : u16\nsmall = big as u8       // ⚠ W2010: top 8 bits dropped",
             "small = (big & 0xFF) as u8   // ✓ truncation is explicit",
         ),

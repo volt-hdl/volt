@@ -27,6 +27,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (`-(a * b) > -2^127`, a, b : i64, i129 bağlam) 0.1.1'in hata ayıklama
   derlemesinde derleyiciyi çökertiyordu (`attempt to shift left with
   overflow`); artık doğru yazılır.
+- **Davranış değişikliği.** Hedefine sığmayan soneksiz literalin `as`
+  dönüşümü artık W2010 uyarısı verir (#207, ADR-0115). `0x1FF as bits<8>`
+  ve `300 as u8` 0.1.1'de de hedefin alt bitlerine kesiliyordu (`8'hFF`,
+  `8'h2C`), ama uyarısız. Üretilen SV değişmez; sığan literal (ör.
+  `0x8000_…_0001 as bits<128>`) uyarı almaz.
 - **Davranış değişikliği.** Generic bir modülün generic argümansız
   örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
   parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon
