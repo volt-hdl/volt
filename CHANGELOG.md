@@ -27,6 +27,19 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (`-(a * b) > -2^127`, a, b : i64, i129 bağlam) 0.1.1'in hata ayıklama
   derlemesinde derleyiciyi çökertiyordu (`attempt to shift left with
   overflow`); artık doğru yazılır.
+- **Davranış değişikliği.** Beklenen tipine sığmayan negatif literal
+  artık E2010 verir (#213; sessiz yanlış düzeltmesi). `-<literal>` çıplak
+  literal gibi denetlenir: 0.1.1'de `b : i8 = -129` `8'sh7F` (+127),
+  `i < -500` (`i : i8`) `i < 12`, `reg r : i8 = -200` +56, `const K : i4 =
+  -9` +7, `i + -300` `i - 44`, `a : u8 = -1` 255 olarak, `match`'te
+  `-5 =>` (`i3`) `i == 3` olarak derleniyordu. -2^127 i128'in en küçük
+  değeridir, i64'e sığmaz: E2010. Sığan negatif literallerin çıktısı
+  değişmez.
+- **Davranış değişikliği.** Const generic argüman parametrenin tipine
+  sığmalıdır, sığmazsa E2010 (#262; sessiz yanlış düzeltmesi). 0.1.1'de
+  `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım
+  80 bitlik değer görüyordu. Denetim `uN`, `iN` ve genişliği literal olan
+  `uint<N>`/`sint<N>` parametrelerindedir.
 - **Davranış değişikliği.** Hedefine sığmayan soneksiz literalin `as`
   dönüşümü artık W2010 uyarısı verir (#207, ADR-0115). `0x1FF as bits<8>`
   ve `300 as u8` 0.1.1'de de hedefin alt bitlerine kesiliyordu (`8'hFF`,

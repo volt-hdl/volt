@@ -204,17 +204,18 @@ impl TypeChecker<'_, '_> {
 
     /// Check kipi (§4): `expr` literal ifadesiyse (en az bir aritmetik
     /// işlem ya da döngü değişkeni taşıyan) değeri `expected`'a sığmalı;
-    /// sığmazsa E2010, `i128` taşması E2022. Çıplak literal ve `-literal`
+    /// sığmazsa E2010, `i128` taşması E2022. Çıplak literal
     /// `check_int_lit`'in yoludur; sıfıra bölmeyi sentez yolu bildirir
     /// (`check_literal_divisor`), üst düzey `const`'ın taşmasını const-eval.
     pub(super) fn check_literal_expr(&mut self, expr: Idx<Expr>, expected: TypeId) {
         let kind = &self.ast.exprs[expr].kind;
         let compound = match kind {
             ExprKind::Binary { op, .. } => is_arith(*op),
-            ExprKind::Unary {
-                op: UnOp::Neg,
-                operand,
-            } => !matches!(self.ast.exprs[*operand].kind, ExprKind::IntLit { .. }),
+            // `-<literal>` de literal ifadesidir: değeri hedefe sığmalı
+            // (#213; çıplak literalin yolu `check_int_lit` negatif değeri
+            // göremez). Sonekli literalin olumsuzu literal ifadesi değildir
+            // (`literal_vars` onu dışarıda bırakır).
+            ExprKind::Unary { op: UnOp::Neg, .. } => true,
             ExprKind::Path(_) => true,
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
