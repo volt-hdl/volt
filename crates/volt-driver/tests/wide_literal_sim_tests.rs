@@ -466,6 +466,8 @@ fn issue_207_ui_fail_fixtures_report_their_code() {
             "E2010",
             10,
         ),
+        // #272: 127 bit ve üstü bağlamda negatif literal.
+        ("287_negative_literal_in_a_128_bit_context.volt", "E2010", 8),
     ] {
         let src = std::fs::read_to_string(root.join(name)).expect("fikstür");
         assert!(src.starts_with(&format!("//~ {code}")), "{name}");

@@ -694,4 +694,41 @@ mod tests {
             assert!(c.is_empty(), "{body}: {c:?}");
         }
     }
+
+    /// #272: 127 bit ve üstü bağlamda da literal ifadesi aralığa sığmalı.
+    /// Önceden `literal_range` bu genişliklerde `None` dönüyordu:
+    /// `a * b == -1` (a, b : u64, u128 bağlam) hatasız derleniyor,
+    /// `-128'd1` (2^128 - 1) ile karşılaştırıyordu. İşaretli 128 bit ve
+    /// üstüne her i128 değeri sığar.
+    #[test]
+    fn issue_272_literals_in_contexts_of_127_bits_and_more_are_checked() {
+        let ports = "    in  a : u64
+    in  b : u64
+    in  c : i64
+    in  d : i64
+    out o : bool";
+        for body in [
+            "    o = a * b == -1",
+            "    o = a * b < -5",
+            "    o = a * b == -(2 - 1)",
+        ] {
+            let c = codes(&module(&format!(
+                "{ports}
+{body}"
+            )));
+            assert_eq!(c, ["E2010"], "{body}: {c:?}");
+        }
+        for body in [
+            "    o = a * b == 0",
+            "    o = a * b == 0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF",
+            "    o = c * d == -170141183460469231731687303715884105728",
+            "    o = -(c * d) == -0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF",
+        ] {
+            let c = codes(&module(&format!(
+                "{ports}
+{body}"
+            )));
+            assert!(c.is_empty(), "{body}: {c:?}");
+        }
+    }
 }
