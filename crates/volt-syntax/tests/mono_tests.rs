@@ -204,6 +204,37 @@ fn wrong_arity_is_e2003() {
     assert_eq!(module_names(&r.ast), vec!["Acc_2_8", "Top"]);
 }
 
+/// Argüman verilmiş ama sayısı yanlış: tanı sayının yanlış olduğunu
+/// söyler, argümanın hiç verilmediğini (#249'un metni) değil. Tanı metni
+/// kullanıcıya görünen çıktıdır (ADR-0109 §4).
+#[test]
+fn wrong_arity_with_arguments_says_the_count_is_wrong() {
+    let src = GENERIC_FIR.replace("Acc<4, 16>", "Acc<4>");
+    let r = p(&src);
+    assert_eq!(r.error_codes(), vec!["E2003"]);
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message
+            .contains("'Acc' expects 2 generic argument(s), got 1"),
+        "{}",
+        d.message
+    );
+    let primary = d.spans.iter().find(|l| l.primary).expect("birincil");
+    assert_eq!(primary.label, "wrong generic argument count");
+    let help = d.help.as_deref().unwrap_or_default();
+    assert_eq!(
+        help,
+        "give exactly 2 argument(s), one per <const ...> parameter"
+    );
+    assert!(
+        d.notes
+            .iter()
+            .all(|n| !n.text.contains("no default values")),
+        "{:?}",
+        d.notes
+    );
+}
+
 #[test]
 fn non_literal_argument_is_e2008() {
     let src = GENERIC_FIR.replace("Acc<4, 16>", "Acc<TAPS, 16>");
@@ -773,6 +804,44 @@ module Top { in x : u8  out a : u8  out b : u8
     assert_eq!(primary_start(&r), at(src, "m<8> {"));
 }
 
+/// Etiketler iki adı söyler: bildirilen modülde `module '<ad>'`, generic
+/// örnekte örneğin yazılışı ve kurduğu ad. Etiket metni kullanıcıya
+/// görünen çıktıdır (ADR-0109 §4: yalnız tanı metnini değiştiren mutant
+/// eşdeğer değildir).
+#[test]
+fn issue_250_labels_name_the_declared_module_and_the_instance() {
+    let label = |r: &ParseResult, start: u32| -> String {
+        r.diagnostics[0]
+            .spans
+            .iter()
+            .find(|l| l.span.start == start)
+            .unwrap_or_else(|| panic!("{start} konumunda etiket yok"))
+            .label
+            .clone()
+    };
+    let plain = "module Foo { in x : u8  out y : u8  y = x }
+module foo { in x : u8  out y : u8  y = x }";
+    let r = p(plain);
+    assert_eq!(r.error_codes(), ["E1003"]);
+    assert_eq!(label(&r, at(plain, "foo {")), "module 'foo'");
+    assert_eq!(label(&r, at(plain, "Foo {")), "module 'Foo'");
+
+    let generated = "module M<const A: u32> { in x : u8  out y : u8  y = x + A }
+module m_8 { in x : u8  out y : u8  y = x }
+module Top { in x : u8  out a : u8  out b : u8
+    let p = M<8> { x: x }
+    let q = m_8 { x: x }
+    a = p.y  b = q.y }";
+    let r = p(generated);
+    assert_eq!(r.error_codes(), ["E1003"]);
+    assert_eq!(label(&r, at(generated, "M<8> {")), "M<8> becomes 'M_8'");
+    assert_eq!(label(&r, at(generated, "m_8 {")), "module 'm_8'");
+    assert_eq!(
+        label(&r, template_start(generated, "M")),
+        "generic module 'M'"
+    );
+}
+
 /// Hiç örneklenmeyen generic modül birimde kalır; adı da sayılır
 /// (sv-mapping.md §9'daki tam ad kuralıyla aynı küme).
 #[test]
@@ -814,6 +883,45 @@ fn issue_250_identical_names_are_left_to_the_resolver() {
 module Foo { in x : u8  out y : u8  y = x }";
     let r = p(src);
     assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+}
+
+/// Bildirilen `M_8` ile `M<8>`'in kurduğu `M_8` aynı ad (çözümleyiciye
+/// kalır); `m_8` ise ikisinden de yalnız harf büyüklüğüyle ayrılır.
+/// Bildirilen `M_8` bir örneklemenin ürünü değildir: tanı onu kendi
+/// bildiriminde gösterir, `M<8>` örneğinde değil. Kaynakta ilk ad
+/// bildirilen `M_8`'dir; tanı sonraki ad `m_8`'de.
+#[test]
+fn issue_250_declared_module_with_a_generated_name_keeps_its_declaration_site() {
+    let src = "module M<const A: u32> { in x : u8  out y : u8  y = x + A }
+module M_8 { in x : u8  out y : u8  y = x }
+module m_8 { in x : u8  out y : u8  y = x }
+module Top { in x : u8  out a : u8  out b : u8  out c : u8
+    let p = M<8> { x: x }
+    let q = M_8 { x: x }
+    let r = m_8 { x: x }
+    a = p.y  b = q.y  c = r.y }";
+    let r = p(src);
+    assert_eq!(r.error_codes(), ["E1003"]);
+    let d = &r.diagnostics[0];
+    assert!(
+        d.message
+            .contains("module names 'M_8' and 'm_8' differ only in letter case"),
+        "{}",
+        d.message
+    );
+    assert_eq!(primary_start(&r), at(src, "m_8 {"));
+    let labels: Vec<(u32, &str)> = d
+        .spans
+        .iter()
+        .map(|l| (l.span.start, l.label.as_str()))
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            (at(src, "m_8 {"), "module 'm_8'"),
+            (at(src, "M_8 {"), "module 'M_8'"),
+        ]
+    );
 }
 
 /// İki `@mmio` modülü: `first` ve `second` adlarıyla.
