@@ -123,13 +123,6 @@ exclude_re = [
     # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
     # returning c instead of d returns the same value.
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",
-    # A1. `value >= 0 && w < 128 && value > max`: at w == 128, max is
-    # 2^127 - 1 (signed) or u128::MAX, and a non-negative i128 never exceeds
-    # either.
-    "volt-sv-emit/src/expr\\.rs:2040:28: replace < with <= in Emitter<'a>::fmt_int$",
-    # A1. `value < 0 && ... && mag >= 2^(w-1)`: at value == 0, mag is 0,
-    # below 2^(w-1) for every width w >= 1.
-    "volt-sv-emit/src/expr\\.rs:2047:32: replace < with <= in Emitter<'a>::fmt_int$",
     # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace > with >= in Emitter<'_>::comparison_ctx$",
     # A1. demand(): at c.width == width both arms return the same number.

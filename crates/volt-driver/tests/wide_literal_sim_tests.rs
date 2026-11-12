@@ -464,3 +464,89 @@ fn issue_207_ui_fail_fixtures_report_their_code() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// E2005'in iletisi literalin değerini yazar: 2^127 + 1 ve -2^127 de
+/// değerleriyle (iki literalin karşılaştırmasının genişliği belirsizdir).
+/// Düzeltmeden önce değer doyuruluyordu: `-2^127` için ileti
+/// `'-170141183460469231731687303715884105727'` diyordu. Araç gerektirmez.
+#[test]
+fn issue_207_width_diagnostic_shows_the_literal_value() {
+    let src = "module M {
+    out o : bool
+    out p : bool
+    o = 0x8000_0000_0000_0000_0000_0000_0000_0001 == 5
+    p = -170141183460469231731687303715884105728 == -5
+}
+";
+    let dir = temp_dir("e2005");
+    std::fs::write(dir.join("case.volt"), src).expect("yaz");
+    let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_LANG", "en")
+        .env("NO_COLOR", "1")
+        .current_dir(&dir)
+        .args(["build", "case.volt", "--target-dir", "build"])
+        .output()
+        .expect("volt build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.status.success(), "{text}");
+    for value in [
+        "'170141183460469231731687303715884105729'",
+        "'5'",
+        "'-170141183460469231731687303715884105728'",
+        "'-5'",
+    ] {
+        assert!(
+            text.contains(&format!(
+                "error[E2005]: cannot determine the width of the literal {value}"
+            )),
+            "{value}: {text}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Bağlamdan geniş pozitif literal kesilmiş örüntüsüyle yazılır (#123;
+/// `fmt_int`'in #207'de yeniden yazılan dalı). `(a + b)` esnektir (u1 +
+/// u1, doğal genişlik 2), literal ona sığar (A9) ama işlem u1 bağlamında
+/// yazılır. Değer iki okumada da (doğal genişlikte ya da u1'de) aynıdır,
+/// elle: `((a + b) | 3) & c` = c (3'ün alt biti 1), `((a + b) | 2) & c`
+/// = (a ^ b) & c (2'nin alt biti 0, a + b'nin alt biti a ^ b).
+#[test]
+fn issue_207_literal_wider_than_its_context_keeps_its_low_bits() {
+    let src = r#"module Cut {
+    in  a  : u1
+    in  b  : u1
+    in  c  : u1
+    out o3 : u1
+    out o2 : u1
+    o3 = ((a + b) | 3) & c
+    o2 = ((a + b) | 2) & c
+}
+test "low bits of the cut literal" {
+    let dut = Cut { };
+    dut.a = 0;
+    dut.b = 0;
+    dut.c = 1;
+    step(1);
+    assert_eq(dut.o3, 1);
+    assert_eq(dut.o2, 0);
+    dut.a = 1;
+    step(1);
+    assert_eq(dut.o3, 1);
+    assert_eq(dut.o2, 1);
+    dut.b = 1;
+    step(1);
+    assert_eq(dut.o3, 1);
+    assert_eq(dut.o2, 0);
+    dut.c = 0;
+    step(1);
+    assert_eq(dut.o3, 0);
+    assert_eq(dut.o2, 0);
+}
+"#;
+    sim("cut", src, 1);
+}
