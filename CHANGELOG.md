@@ -9,6 +9,57 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** 2^127 ve üstündeki tam sayı literalleri artık
+  değerleriyle yazılır (#207; sessiz yanlış düzeltmesi). 0.1.1'de
+  üretici literali `i128`'e çevirirken sığmayanı `i128::MAX`'e
+  doyuruyordu: `0x8000_…_0001 as bits<128>` gibi 2^127 ile 2^128 - 1
+  arasındaki her literal (reset değeri, maske, karşılaştırma; `bits<256>`
+  bağlamında da) `128'h7FFF…FFFF` olarak yazılıyordu. Değişen çıktı
+  yalnız bu yanlış derlenen literallerdir; 2^127'nin altındaki
+  literallerin yazımı aynı kalır. Aynı doyurma generic argümanda da vardı
+  (`M<2^127 + 1>` gövdede 2^127 - 1 oluyordu), kalktı. Sabit
+  değerlendirici de literali artık sarmaz: `const` ifadesinde i128'e
+  sığmayan literal (2^127 ve üstü) E2022'dir; önceden -1'e ya da
+  i128'in en küçük değerine sarılıyor, derleme zamanı başka bir değer
+  görüyordu (`(2^128 - 1) / (2^64 + 1)` 0 çıkıyordu). -2^127 ise i128'in
+  aralığındadır, artık E2022 vermez. 128 bitten geniş literal önceden de
+  E0005'ti, öyle kalır. 128 bitten geniş işaretli bağlamdaki literal
+  (`-(a * b) > -2^127`, a, b : i64, i129 bağlam) 0.1.1'in hata ayıklama
+  derlemesinde derleyiciyi çökertiyordu (`attempt to shift left with
+  overflow`); artık doğru yazılır.
+- **Davranış değişikliği.** Beklenen tipine sığmayan negatif literal
+  artık E2010 verir (#213; sessiz yanlış düzeltmesi). `-<literal>` çıplak
+  literal gibi denetlenir: 0.1.1'de `b : i8 = -129` `8'sh7F` (+127),
+  `i < -500` (`i : i8`) `i < 12`, `reg r : i8 = -200` +56, `const K : i4 =
+  -9` +7, `i + -300` `i - 44`, `a : u8 = -1` 255 olarak, `match`'te
+  `-5 =>` (`i3`) `i == 3` olarak derleniyordu. -2^127 i128'in en küçük
+  değeridir, i64'e sığmaz: E2010. Sığan negatif literallerin çıktısı
+  değişmez.
+- **Davranış değişikliği.** 127 bit ve üstü bağlamda da literal
+  ifadesi beklenen tipe sığmalıdır, sığmazsa E2010 (#272; sessiz yanlış
+  düzeltmesi). 0.1.1'de bu genişliklerde aralık denetimi yoktu:
+  `a * b == -1` (a, b : u64, u128 bağlam) hatasız derleniyor, `-128'd1`
+  yani 2^128 - 1 ile karşılaştırıyordu.
+- **Davranış değişikliği.** Const generic argüman parametrenin tipine
+  sığmalıdır, sığmazsa E2010 (#262; sessiz yanlış düzeltmesi). 0.1.1'de
+  `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım
+  80 bitlik değer görüyordu. Denetim `uN`, `iN` ve `uint<W>`/`sint<W>`
+  parametrelerindedir; W literal ya da önceki bir const parametredir
+  (`<const W: u32, const K: uint<W>>` için `G<4, 16>` E2010).
+- **Davranış değişikliği.** Pipeline aşama uzaklığı (`stage(+K)`) her
+  tam sayı literali gibi okunur: `stage(-0x1)` artık `stage(-1)`'dir
+  (#263). 0.1.1'de yalnız ondalık `i64` okunuyor, gerisi `i64::MAX`
+  oluyordu: `stage(-0x1)` E5012 alıyor, `stage(+0x1)` ve i64'ten büyük
+  uzaklık derleyiciyi çökertiyordu (hata ayıklama derlemesi). Hiçbir
+  aşamaya düşmeyen uzaklık E5012'dir.
+- **Davranış değişikliği.** Hedefine sığmayan soneksiz literalin `as`
+  dönüşümü artık W2010 uyarısı verir (#207, ADR-0115). `0x1FF as bits<8>`
+  ve `300 as u8` 0.1.1'de de hedefin alt bitlerine kesiliyordu (`8'hFF`,
+  `8'h2C`), ama uyarısız. Üretilen SV değişmez; sığan literal (ör.
+  `0x8000_…_0001 as bits<128>`) uyarı almaz. Parantezli negatif literalin
+  dönüşümü (`(-128) as i8`, `(-1) as u8`) 0.1.1'de E2005 alıyordu; artık
+  derlenir ve hedefin bit örüntüsünü taşır (−128 → `8'sh80`, `(-1) as u8`
+  → 255 ve W2010). Parantezsiz `-1 as u8`, `-(1 as u8)`'dir (E2002).
 - **Davranış değişikliği.** Generic bir modülün generic argümansız
   örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
   parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon

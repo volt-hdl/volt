@@ -98,6 +98,42 @@ impl TypeChecker<'_, '_> {
         Some((def, start, end))
     }
 
+    /// Soneksiz literal ifadesinin değeri, işaret ve büyüklük olarak (#207):
+    /// çıplak literal (2^128 - 1'e kadar), `-literal` ve döngü değişkeni
+    /// taşımayan literal aritmetiği (i128'de). Başka biçim, döngü
+    /// değişkeni ya da taşma `None`.
+    pub(super) fn literal_sign_mag(&self, expr: Idx<Expr>) -> Option<(bool, u128)> {
+        let lit = |e: Idx<Expr>| {
+            if let ExprKind::IntLit {
+                value,
+                suffix: None,
+                ..
+            } = self.ast.exprs[e].kind
+            {
+                Some(value)
+            } else {
+                None
+            }
+        };
+        if let Some(v) = lit(expr) {
+            return Some((false, v));
+        }
+        if let ExprKind::Unary {
+            op: UnOp::Neg,
+            operand,
+        } = self.ast.exprs[expr].kind
+        {
+            if let Some(v) = lit(operand) {
+                return Some((v != 0, v));
+            }
+        }
+        if !self.literal_vars(expr)?.is_empty() {
+            return None;
+        }
+        let v = self.eval_literal(expr, &[]).ok()?;
+        Some((v < 0, v.unsigned_abs()))
+    }
+
     /// Literal ifadesinin değeri; döngü değişkenleri `env`'den.
     fn eval_literal(&self, expr: Idx<Expr>, env: &[(DefId, i128)]) -> Result<i128, Fault> {
         let e = &self.ast.exprs[expr];
@@ -105,6 +141,12 @@ impl TypeChecker<'_, '_> {
             return i128::try_from(*value).map_err(|_| Fault::Overflow(e.span));
         }
         if let ExprKind::Unary { operand, .. } = &e.kind {
+            // -2^127 = i128::MIN aralıktadır; işleneni 2^127 değildir (#207).
+            if matches!(self.ast.exprs[*operand].kind,
+                ExprKind::IntLit { value, .. } if value == 1u128 << 127)
+            {
+                return Ok(i128::MIN);
+            }
             return self
                 .eval_literal(*operand, env)?
                 .checked_neg()
@@ -162,17 +204,18 @@ impl TypeChecker<'_, '_> {
 
     /// Check kipi (§4): `expr` literal ifadesiyse (en az bir aritmetik
     /// işlem ya da döngü değişkeni taşıyan) değeri `expected`'a sığmalı;
-    /// sığmazsa E2010, `i128` taşması E2022. Çıplak literal ve `-literal`
+    /// sığmazsa E2010, `i128` taşması E2022. Çıplak literal
     /// `check_int_lit`'in yoludur; sıfıra bölmeyi sentez yolu bildirir
     /// (`check_literal_divisor`), üst düzey `const`'ın taşmasını const-eval.
     pub(super) fn check_literal_expr(&mut self, expr: Idx<Expr>, expected: TypeId) {
         let kind = &self.ast.exprs[expr].kind;
         let compound = match kind {
             ExprKind::Binary { op, .. } => is_arith(*op),
-            ExprKind::Unary {
-                op: UnOp::Neg,
-                operand,
-            } => !matches!(self.ast.exprs[*operand].kind, ExprKind::IntLit { .. }),
+            // `-<literal>` de literal ifadesidir: değeri hedefe sığmalı
+            // (#213; çıplak literalin yolu `check_int_lit` negatif değeri
+            // göremez). Sonekli literalin olumsuzu literal ifadesi değildir
+            // (`literal_vars` onu dışarıda bırakır).
+            ExprKind::Unary { op: UnOp::Neg, .. } => true,
             ExprKind::Path(_) => true,
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
@@ -207,7 +250,7 @@ impl TypeChecker<'_, '_> {
         self.for_each_assignment(&vars, |env| {
             let value = self.eval_literal(expr, env);
             if let Ok(v) = value {
-                if (min..=max).contains(&v) {
+                if v >= min && (v < 0 || v.unsigned_abs() <= max) {
                     return true;
                 }
                 found = Some(Finding::OutOfRange(v, env.to_vec()));
@@ -312,16 +355,30 @@ impl TypeChecker<'_, '_> {
     /// Beklenen tipin değer aralığı: `uN`, `iN`, esnek aralığın üst ucu
     /// (`check_int_lit` gibi), Trit `-1..=1`. Başka tiplerin uyumsuzluğunu
     /// atanabilirlik denetimi bildirir.
-    fn literal_range(&self, expected: TypeId) -> Option<(i128, i128)> {
+    ///
+    /// Alt sınır `i128`, üst sınır `u128`: 127 bit ve üstü genişlikte de
+    /// aralık vardır (#272). Literal ifadesinin değeri `i128`'dir; `u128`
+    /// bağlamda üst sınır pratikte bağlamaz ama negatif değer sığmaz,
+    /// işaretli 128 bit ve üstüne her `i128` sığar.
+    fn literal_range(&self, expected: TypeId) -> Option<(i128, u128)> {
         let ty = self.types.ty(expected);
         if let Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } = *ty {
-            return (width < 127).then(|| (0, (1i128 << width) - 1));
+            let max = if width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << width) - 1
+            };
+            return Some((0, max));
         }
         if let Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } = *ty {
-            return (1..=127).contains(&width).then(|| {
-                let half = 1i128 << (width - 1);
-                (-half, half - 1)
-            });
+            if width == 0 {
+                return None;
+            }
+            if width >= 128 {
+                return Some((i128::MIN, i128::MAX.unsigned_abs()));
+            }
+            let half = 1i128 << (width - 1);
+            return Some((-half, (half - 1).unsigned_abs()));
         }
         matches!(ty, Ty::Trit).then_some((-1, 1))
     }
@@ -332,7 +389,7 @@ impl TypeChecker<'_, '_> {
         value: i128,
         expected: TypeId,
         min: i128,
-        max: i128,
+        max: u128,
         span: Span,
     ) -> Diagnostic {
         let shown = self.show(expected);
@@ -577,5 +634,115 @@ mod tests {
             "{}",
             e.message
         );
+    }
+
+    /// #207: -2^127 i128'in en küçük değeridir, taşma değildir; i64'e
+    /// sığmayan değer E2010'dur. `2^127` literalinin kendisi i128'e
+    /// sığmaz, onun bileşik ifadesi E2022'dir (değerlendiricinin aralığı).
+    /// Düzeltmeden önce ilk ifade de E2022 veriyordu.
+    #[test]
+    fn issue_207_minus_two_pow_127_is_in_range_and_two_pow_127_is_not() {
+        let d = diagnostics(&module(
+            "    out y : i64
+    y = -170141183460469231731687303715884105728 + 1",
+        ));
+        let got: Vec<&str> = d.iter().map(|d| d.code.as_str()).collect();
+        assert_eq!(got, ["E2010"], "{got:?}");
+        assert!(
+            d[0].message
+                .contains("-170141183460469231731687303715884105727"),
+            "{}",
+            d[0].message
+        );
+        let c = codes(&module(
+            "    out y : i64
+    y = 170141183460469231731687303715884105728 - 1",
+        ));
+        assert_eq!(c, ["E2022"], "{c:?}");
+    }
+
+    /// #213: `-<literal>` beklenen tipin aralığına sığmalı (E2010), çıplak
+    /// literal gibi. Önceden ne katlanmış denetime ne `check_int_lit`'e
+    /// giriyordu: `-129 : i8` `8'sh7F` (+127) yazılıyordu.
+    #[test]
+    fn issue_213_negative_literal_must_fit_the_expected_type() {
+        for (decl, body) in [
+            ("    out b : i8", "    b = -129"),
+            (
+                "    in  i : i8
+    out c : bool",
+                "    c = i < -500",
+            ),
+            (
+                "    in  i : i8
+    out f : i9",
+                "    f = i + -300",
+            ),
+            ("    out a : u8", "    a = -1"),
+            ("    out a : i64", "    a = -0x8000_0000_0000_0001"),
+            (
+                "    out a : i64",
+                "    a = -0x8000_0000_0000_0000_0000_0000_0000_0000",
+            ),
+        ] {
+            let c = codes(&module(&format!(
+                "{decl}
+{body}"
+            )));
+            assert_eq!(c, ["E2010"], "{body}: {c:?}");
+        }
+        for (decl, body) in [
+            ("    out b : i8", "    b = -128"),
+            (
+                "    in  i : i8
+    out c : bool",
+                "    c = i < -128",
+            ),
+            ("    out a : i64", "    a = -0x8000_0000_0000_0000"),
+            ("    out a : i8", "    a = -0"),
+        ] {
+            let c = codes(&module(&format!(
+                "{decl}
+{body}"
+            )));
+            assert!(c.is_empty(), "{body}: {c:?}");
+        }
+    }
+
+    /// #272: 127 bit ve üstü bağlamda da literal ifadesi aralığa sığmalı.
+    /// Önceden `literal_range` bu genişliklerde `None` dönüyordu:
+    /// `a * b == -1` (a, b : u64, u128 bağlam) hatasız derleniyor,
+    /// `-128'd1` (2^128 - 1) ile karşılaştırıyordu. İşaretli 128 bit ve
+    /// üstüne her i128 değeri sığar.
+    #[test]
+    fn issue_272_literals_in_contexts_of_127_bits_and_more_are_checked() {
+        let ports = "    in  a : u64
+    in  b : u64
+    in  c : i64
+    in  d : i64
+    out o : bool";
+        for body in [
+            "    o = a * b == -1",
+            "    o = a * b < -5",
+            "    o = a * b == -(2 - 1)",
+        ] {
+            let c = codes(&module(&format!(
+                "{ports}
+{body}"
+            )));
+            assert_eq!(c, ["E2010"], "{body}: {c:?}");
+        }
+        for body in [
+            "    o = a * b == 0",
+            "    o = a * b == 0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF",
+            "    o = c * d == -170141183460469231731687303715884105728",
+            "    o = -(c * d) == -0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF",
+        ] {
+            let c = codes(&module(&format!(
+                "{ports}
+{body}"
+            )));
+            assert!(c.is_empty(), "{body}: {c:?}");
+        }
     }
 }

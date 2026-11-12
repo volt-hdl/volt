@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
     ExprKind, GenericArg, GenericParamKind, Idx, InstanceDecl, Item, ItemKind, Name, SourceFile,
-    Stmt, StmtKind,
+    Stmt, StmtKind, TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -62,10 +62,94 @@ pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
     mono.diagnostics
 }
 
-/// Şablon modülün generic parametreleri: (ad, const mu?).
+/// Şablon modülün generic parametreleri: (ad, const mu?) ve const
+/// parametrenin tip aralığı (#262).
 struct ModuleInfo {
     item: Idx<Item>,
     params: Vec<(String, bool)>,
+    ranges: Vec<Option<RangeSpec>>,
+}
+
+/// Const generic parametrenin tipinden okunan aralık: `uN`, `iN` ve
+/// `uint<N>`/`sint<N>` (#262); N literal ya da önceki bir const
+/// parametrenin adıdır (`<const W: u32, const K: uint<W>>`, W'nin değeri
+/// o örneklemenin argümanı). Başka tip (`bool`, başka genişlik ifadesi)
+/// denetlenmez.
+#[derive(Clone)]
+struct RangeSpec {
+    signed: bool,
+    width: WidthSpec,
+}
+
+#[derive(Clone)]
+enum WidthSpec {
+    Lit(u32),
+    Param(String),
+}
+
+impl RangeSpec {
+    fn of(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Self> {
+        let width_of = |e: Idx<volt_ast::Expr>| match &ast.exprs[e].kind {
+            ExprKind::IntLit { value, .. } => u32::try_from(*value).ok().map(WidthSpec::Lit),
+            ExprKind::Path(p) => match p.segments.as_slice() {
+                [only] => Some(WidthSpec::Param(only.text.clone())),
+                _ => None,
+            },
+            _ => None,
+        };
+        let kind = &ast.types[ty].kind;
+        let (signed, width) = if let TypeRefKind::UInt(w) = *kind {
+            (false, WidthSpec::Lit(u32::from(w)))
+        } else if let TypeRefKind::SInt(w) = *kind {
+            (true, WidthSpec::Lit(u32::from(w)))
+        } else if let TypeRefKind::UIntN(e) = *kind {
+            (false, width_of(e)?)
+        } else if let TypeRefKind::SIntN(e) = *kind {
+            (true, width_of(e)?)
+        } else {
+            return None;
+        };
+        Some(Self { signed, width })
+    }
+
+    /// Önceki argümanlarla (ad, değer) çözülmüş aralık; genişlik bilinmiyorsa
+    /// `None`.
+    fn resolve(&self, earlier: &[(&str, u128)]) -> Option<ParamRange> {
+        let width = match &self.width {
+            WidthSpec::Lit(w) => *w,
+            WidthSpec::Param(name) => {
+                let &(_, v) = earlier.iter().find(|(n, _)| n == name)?;
+                u32::try_from(v).ok()?
+            }
+        };
+        Some(ParamRange {
+            signed: self.signed,
+            width,
+        })
+    }
+}
+
+/// Çözülmüş aralık: işaret ve genişlik.
+#[derive(Clone, Copy)]
+struct ParamRange {
+    signed: bool,
+    width: u32,
+}
+
+impl ParamRange {
+    /// Argüman (negatif olmayan literal) aralığa sığıyor mu; en büyük değer.
+    fn max(self) -> u128 {
+        let bits = if self.signed {
+            self.width.saturating_sub(1)
+        } else {
+            self.width
+        };
+        if bits >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << bits) - 1
+        }
+    }
 }
 
 fn collect_modules(ast: &SourceFile) -> HashMap<String, ModuleInfo> {
@@ -80,7 +164,22 @@ fn collect_modules(ast: &SourceFile) -> HashMap<String, ModuleInfo> {
                     GenericParamKind::Const { name, .. } => (name.text.clone(), true),
                 })
                 .collect();
-            map.insert(m.name.text.clone(), ModuleInfo { item, params });
+            let ranges = m
+                .generics
+                .iter()
+                .map(|g| match &g.kind {
+                    GenericParamKind::Type { .. } => None,
+                    GenericParamKind::Const { ty, .. } => RangeSpec::of(ast, *ty),
+                })
+                .collect();
+            map.insert(
+                m.name.text.clone(),
+                ModuleInfo {
+                    item,
+                    params,
+                    ranges,
+                },
+            );
         }
     }
     map
@@ -253,8 +352,8 @@ impl Mono<'_> {
         let Some(info) = self.modules.get(&req.target) else {
             return None; // bilinmeyen modül — E1001 çözümleyicide
         };
-        let (template, params) = (info.item, info.params.clone());
-        let Some(values) = self.check_args(req, &params) else {
+        let (template, params, ranges) = (info.item, info.params.clone(), info.ranges.clone());
+        let Some(values) = self.check_args(req, &params, &ranges) else {
             self.clear_generic_args(req.stmt); // kaskad bastırma
             return None;
         };
@@ -280,14 +379,9 @@ impl Mono<'_> {
                     self.clear_generic_args(req.stmt);
                     return None;
                 }
-                // Literal u128; i128'e sığmayan (2^127+) argüman anlamsız,
-                // doyurulur.
-                let values = key
-                    .1
-                    .iter()
-                    .map(|&v| i128::try_from(v).unwrap_or(i128::MAX))
-                    .collect();
-                let item = self.clone_template(template, values, mangled.clone());
+                // Argüman literaldir, değeriyle ikame edilir (2^128 - 1'e
+                // kadar; doyurma yok, #207).
+                let item = self.clone_template(template, key.1.clone(), mangled.clone());
                 let owner = NameOwner {
                     template,
                     item,
@@ -305,7 +399,12 @@ impl Mono<'_> {
     }
 
     /// Sayı/kind denetimi; başarıda argüman değerleri.
-    fn check_args(&mut self, req: &Request, params: &[(String, bool)]) -> Option<Vec<u128>> {
+    fn check_args(
+        &mut self,
+        req: &Request,
+        params: &[(String, bool)],
+        ranges: &[Option<RangeSpec>],
+    ) -> Option<Vec<u128>> {
         if params.is_empty() {
             self.err_not_generic(req);
             return None;
@@ -315,9 +414,23 @@ impl Mono<'_> {
             return None;
         }
         let mut values = Vec::with_capacity(params.len());
-        for (arg, (pname, is_const)) in req.args.iter().zip(params) {
+        for ((arg, (pname, is_const)), range) in req.args.iter().zip(params).zip(ranges) {
             match (arg, is_const) {
-                (ArgInfo::Lit(v), true) => values.push(*v),
+                (ArgInfo::Lit(v), true) => {
+                    // #262: argüman parametrenin tipine sığmalı; genişlik
+                    // önceki bir parametreyse onun argümanı.
+                    let earlier: Vec<(&str, u128)> = params
+                        .iter()
+                        .map(|(n, _)| n.as_str())
+                        .zip(values.iter().copied())
+                        .collect();
+                    let resolved = range.as_ref().and_then(|r| r.resolve(&earlier));
+                    if let Some(range) = resolved.filter(|r| *v > r.max()) {
+                        self.err_arg_out_of_range(req, pname, *v, range);
+                        return None;
+                    }
+                    values.push(*v);
+                }
                 (ArgInfo::Other(span), true) => {
                     self.err_not_literal(req, pname, *span);
                     return None;
@@ -335,7 +448,7 @@ impl Mono<'_> {
     fn clone_template(
         &mut self,
         template: Idx<Item>,
-        values: Vec<i128>,
+        values: Vec<u128>,
         mangled: String,
     ) -> Idx<Item> {
         let (span, doc, visibility) = {
@@ -353,7 +466,7 @@ impl Mono<'_> {
             // Kapsam zinciri: modül kapsamının ilk bildirimleri const generic
             // parametreler (name-resolution.md §5); gövdede onlara bağlanan
             // yol literal olur, iç kapsamda yeniden bildirilen ad olmaz (#130).
-            let params: Vec<(Name, i128)> = template_decl
+            let params: Vec<(Name, u128)> = template_decl
                 .generics
                 .iter()
                 .filter_map(|g| match &g.kind {
@@ -683,6 +796,36 @@ impl Mono<'_> {
                 NoteKind::Reason,
                 lstr!(en: "the monomorphised module name is built from the literal values";
                       tr: "monomorf modül adı literal değerlerden kurulur"),
+            ),
+        );
+    }
+
+    /// E2010 (#262): generic argüman parametrenin tipine sığmıyor.
+    fn err_arg_out_of_range(&mut self, req: &Request, param: &str, value: u128, range: ParamRange) {
+        let name = &req.target;
+        let ty = if range.signed {
+            format!("i{}", range.width)
+        } else {
+            format!("u{}", range.width)
+        };
+        let max = range.max();
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2010,
+                lstr!(en: "generic argument {value} does not fit in the parameter {param} : {ty} of {name} (maximum {max})";
+                      tr: "{value} generic argümanı {name} modülünün {param} : {ty} parametresine sığmıyor (en çok {max})"),
+                LabeledSpan::primary(
+                    req.target_span,
+                    lstr!(en: "{param} = {value} is outside the parameter's type";
+                          tr: "{param} = {value} parametrenin tipinin dışında"),
+                ),
+                lstr!(en: "use a value up to {max}, or declare {param} with a wider type";
+                      tr: "en çok {max} olan bir değer kullanın ya da {param}'yi daha geniş bir tiple bildirin"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "the argument becomes a literal of the parameter's type inside the module; a value that does not fit would be cut";
+                      tr: "argüman modülün içinde parametrenin tipinde bir literal olur; sığmayan değer kesilirdi"),
             ),
         );
     }

@@ -399,6 +399,10 @@ ExprKind::Cast { expr, ty } => {
     let src = self.synth(*expr);
     let dst = self.resolve_type(*ty);
     self.check_cast_legal(src, dst, span);
+    // Soneksiz literal kaynak (tip IntLit): değeri ifadeden okunur.
+    if self.is_int_lit(src) {
+        self.check_literal_cast(*expr, dst, span);
+    }
     dst
 }
 
@@ -417,6 +421,9 @@ fn check_cast_legal(&mut self, src: TypeId, dst: TypeId, span: Span) {
         }
         // İşaret değişimi — açık cast ile OK
         (UInt { .. }, SInt { .. }) | (SInt { .. }, UInt { .. }) => true,
+        // Soneksiz literal her sayısal tipe ve bits<N>'e dönüşür; değerin
+        // sığması ifade düzeyinde, check_literal_cast'te.
+        (IntLit, UInt { .. } | SInt { .. } | Bits { .. }) => true,
         // bits<N> ↔ sayısal, aynı genişlikte
         (Bits { width: a }, UInt { width: b }) if a == b => true,
         (UInt { width: a }, Bits { width: b }) if a == b => true,
@@ -509,9 +516,66 @@ ExprKind::Match { scrutinee, arms } => {
 
 ---
 
+Soneksiz literal kaynaklı dönüşümün değeri (ADR-0115). Kaynak çıplak
+literal K, parantezli negatifi `(-K)` ya da döngü değişkeni taşımayan
+literal aritmetiğidir (değeri i128'de). Parantezsiz `-K as T`,
+`-(K as T)`'dir: dönüşüm K'ya uygulanır, `-` sonra gelir (`-1 as u8`
+işaretsiz değerin olumsuzlanmasıdır, E2002).
+
+```rust
+fn check_literal_cast(&mut self, lit: Idx<Expr>, dst: TypeId, span: Span) {
+    // İşaret ve büyüklük: K → (false, K), (-K) → (true, K), K ≤ 2¹²⁸ − 1;
+    // literal aritmetiği i128 değerinden (v < 0, |v|).
+    let Some((neg, mag)) = self.literal_sign_mag(lit) else { return };
+    let fits = match self.ty(dst) {
+        UInt { width: n } | Bits { width: n } => literal_fits(neg, mag, false, n),
+        SInt { width: n } => literal_fits(neg, mag, true, n),
+        _ => true,
+    };
+    if !fits {
+        // Değer hedefin alt n bitidir (ikiye tümleyen); kesme görünür.
+        self.warn(W2010, span, "literal hedefe sığmıyor, alt bitleri kalır");
+    }
+}
+```
+
+Sığan literal değerini taşır, uyarı yoktur. Örnekler: `0x1FF as bits<8>`
+= 0xFF ve W2010; `(-1) as u8` = 0xFF ve W2010; `(-128) as i8` = −128,
+uyarısız; `(-129) as i8` = 0x7F ve W2010. Sığma `literal_fits` ile (§4)
+128 bit ve üstü hedefte de taşmadan denetlenir: `(-1) as bits<128>` =
+2¹²⁸ − 1 ve W2010, `0x8000_0000_0000_0000_0000_0000_0000_0000 as
+sint<128>` (2¹²⁷) W2010, 128 bitten geniş işaretli hedefe her literal
+sığar.
+
 ## 4. Kontrol Modu ve Literal Çözümleme
 
 `check` modunun asıl işi: soneksiz literalleri bağlamdan çözmek.
+
+Literalin beklenen tipe sığması işaret ve büyüklükle, taşmadan
+denetlenir. Literal en çok 2¹²⁸ − 1'dir; tip 128 bit ve üstü olabilir
+(`a * b`, a, b : u64, u128'dir; `-(c * d)`, c, d : i64, i129'dur). Sınır
+`1 << n` ile n ≥ 128'de hesaplanmaz, aralık bu genişliklerde de
+denetlenir:
+
+```rust
+/// (neg, mag) = ±mag, mag ≤ 2¹²⁸ − 1. n bitlik işaretli/işaretsiz tipe
+/// sığar mı? Kaydırma miktarı en çok 127'dir.
+fn literal_fits(neg: bool, mag: u128, signed: bool, n: u32) -> bool {
+    match (signed, neg) {
+        (false, true) => mag == 0,                     // negatif uN/bits<N>'e sığmaz
+        (false, false) => n >= 128 || mag >> n == 0,   // u128 ve üstüne her literal sığar
+        (true, _) if n > 128 => true,                  // 2¹²⁸ − 1 < 2ⁿ⁻¹
+        (true, false) => mag < (1u128 << (n - 1)),     // n ≤ 128
+        (true, true) => mag <= (1u128 << (n - 1)),
+    }
+}
+```
+
+Böylece u128 bağlamında negatif literal E2010'dur: `a * b == -1` (a, b :
+u64) hata verir; literal `-128'd1`, yani 2¹²⁸ − 1 olarak yazılıp
+sessizce karşılaştırılmaz. i128 bağlamında −2¹²⁷ sığar, 2¹²⁷ sığmaz;
+i129 ve daha genişine her literal sığar. Literal aritmetiğinin (i128'de
+katlanan) değeri aynı yardımcıyla, (v < 0, |v|) olarak denetlenir.
 
 ```rust
 fn check(&mut self, expr: Idx<Expr>, expected: TypeId) -> Result<()> {
@@ -523,15 +587,16 @@ fn check(&mut self, expr: Idx<Expr>, expected: TypeId) -> Result<()> {
         ExprKind::IntLit { value, suffix: None, .. } => {
             match self.ty(expected) {
                 Ty::UInt { width } => {
-                    if *value >= (1u128 << width) {
+                    // Taşmasız: `1u128 << width` 128'de taşardı.
+                    if !literal_fits(false, *value, false, width) {
                         return self.err_literal_overflow(*value, width, expr);
                     }
                     self.record_ty(expr, expected);
                     Ok(())
                 }
                 Ty::SInt { width } => {
-                    let max = 1i128 << (width - 1);
-                    if (*value as i128) >= max {
+                    // Taşmasız ve sarmasız: `*value as i128` 2¹²⁷'yi sarardı.
+                    if !literal_fits(false, *value, true, width) {
                         return self.err_literal_overflow(*value, width, expr);
                     }
                     self.record_ty(expr, expected);
@@ -550,6 +615,23 @@ fn check(&mut self, expr: Idx<Expr>, expected: TypeId) -> Result<()> {
                     "true veya false yazın"),
                 _ => self.err_type_mismatch(expected, expr),
             }
+        }
+
+        // `-K` (K soneksiz literal) de literaldir: değeri −K beklenen
+        // tipin aralığına sığmalı, sığmazsa E2010 (`-129 : i8`,
+        // `a : u8 = -1`). Desen literali (`-5 =>`) aynı kuraldan geçer.
+        // −2¹²⁷ (K = 2¹²⁷) i128'in en küçük değeridir, taşma değildir.
+        ExprKind::Unary { op: UnOp::Neg, operand }
+            if matches!(self.kind(*operand), ExprKind::IntLit { suffix: None, .. }) =>
+        {
+            let (neg, mag) = self.literal_sign_mag(expr)?;   // −K → (true, K)
+            let (signed, n) = self.int_kind(expected)?;      // uN → (false, N), iN → (true, N)
+            // 128 bit ve üstünde de taşmadan: u128 bağlamında −K E2010.
+            if !literal_fits(neg, mag, signed, n) {
+                return self.err_literal_overflow(expr, expected);
+            }
+            self.record_ty(expr, expected);
+            Ok(())
         }
 
         // İkili operatör: her iki tarafa da beklenen tipi it

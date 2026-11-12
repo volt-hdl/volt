@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0036 — §2'nin "genişlik değişen cast'ler aynen kalır" satırı: genişlik değiştiren `as` sonucunun SV işareti artık hedefin işaretidir (`$signed`/`$unsigned` sınırı, #115)
-> İlgili: ADR-0106 (§6'nın yalıtma ilkesi değeri genişliğe bağlı bütün alt ifadelere genişler, #117), ADR-0041 (check kipinde itme yalnız en üstteki işlemi hedef genişlikte yapar; işlenenler doğal değerleriyle genişler), ADR-0107 (fark testi araç sorgusunu `tools` modülünden yapar, araçlı işte SKIP olmadan koşar), ADR-0109 (mutasyon testinde fark testi her mutant için koşar; parçalı, elle tetiklenen yapı büyük koşudan), ADR-0112 (koşucu W2015'i modelin kesilen bölme işlenenleriyle karşılaştırır), ADR-0113 (tohumlanmış hata testi: aynı ilke, derleyiciden bağımsız beklenen değer, güvenlik denetimlerine uygulanır), ADR-0116 (modelin A1 okuması derleyicininkiyle aynı: `a * b - a` (i32) ikisinde de 33 bitte; fark testi #266'yı bu yüzden görmedi)
+> İlgili: ADR-0106 (§6'nın yalıtma ilkesi değeri genişliğe bağlı bütün alt ifadelere genişler, #117), ADR-0041 (check kipinde itme yalnız en üstteki işlemi hedef genişlikte yapar; işlenenler doğal değerleriyle genişler), ADR-0107 (fark testi araç sorgusunu `tools` modülünden yapar, araçlı işte SKIP olmadan koşar), ADR-0109 (mutasyon testinde fark testi her mutant için koşar; parçalı, elle tetiklenen yapı büyük koşudan), ADR-0112 (koşucu W2015'i modelin kesilen bölme işlenenleriyle karşılaştırır), ADR-0113 (tohumlanmış hata testi: aynı ilke, derleyiciden bağımsız beklenen değer, güvenlik denetimlerine uygulanır), ADR-0115 (A14'ün okuması, sığan literalin dönüşümü, karar oldu; sığmayan literal W2010), ADR-0116 (modelin A1 okuması derleyicininkiyle aynı: `a * b - a` (i32) ikisinde de 33 bitte; fark testi #266'yı bu yüzden görmedi)
 > Tarih: 2026-11-04
 > Etkilenen: `crates/volt-difftest/` (YENİ: model, üreteç, yazıcı, koşucu,
 > regresyon kümesi), `crates/volt-driver/tests/difftest_tests.rs` (YENİ),
@@ -661,3 +661,56 @@ Düzeltme dalı:
 
 (`Tool ledger` satırı dört parçada da `SKIP: 0`.) 255, 255, 255'te model
 510, ikame kipinin SV'si 254 (`(510 | 255) + 255` 9 bitte).
+
+## Ek: 128 bite kadar `bits<N>` ve geniş literaller (#207, 2026-11-12)
+
+#207'yi (2^127 ve üstündeki literaller `128'h7FFF…FFFF` yazılıyordu:
+üretici değeri `i128`'e çevirirken `i128::MAX`'e doyuruyordu) fark testi
+yakalayamazdı: üreteç `bits<N>`'i en çok 70 bit (`MAX_BITS`), literali
+`i128` (`Expr::Lit`) üretiyordu ve soneksiz literalin dönüşümünü hiç
+üretmiyordu (yukarıdaki "Spesifikasyon belirsizlikleri" tablosunun son
+satırı). Bu ek geniş literali kapsama alır. Önceki karar metni (§1–§6)
+değişmedi.
+
+- **Üreteç.** Yeni kök biçimi (ağırlık 6 / 106): genişliği çoğu zaman 128,
+  bazen 65–127 olan `bits<w>` ifadesi; kendisi, iki geniş değerin `==` /
+  `!=`'i ya da 64 bite kadar bir dilimi (`x[h:l]`). Yapraklar `bits<w>`
+  girişi ya da `K as bits<w>` (`Expr::WideLit(u128)`, K < 2^w); K çoğu
+  zaman sınır değeridir (2^127, 2^127 + 1, 2^128 - 1, 2^(w-1), 2^w - 1,
+  2^w - 2), bazen rastgele; taban ondalık, onaltılık ya da ikili. İç
+  düğümler `& | ^` ve `~`. Seçim tabanı 70 bitle sınırlı kaldı.
+- **Model.** Değerler zaten `u128` örüntüsüydü; 128 bitlik genişlik
+  modelin sınırıdır. `K as bits<N>` K N bite sığıyorsa Bits(N) tipli,
+  değeri K'dır. Sığmayan literalin dönüşümü üretilmez, model
+  "unspecified" der.
+- **Varsayım A14** (`tag::LIT_TO_BITS`): §3.6 literal kaynağı saymaz;
+  model sığan literalin değerini korur. Düşünülen her okuma (dar hedefe
+  `as` daraltması gibi kesmek ya da sığmayanı reddetmek) sığan literalde
+  aynı değeri verir; okumalar yalnız sığmayan literalde ayrılır (#122).
+
+| Kimlik | Belirsizlik | Modelin okuması | Derleyici |
+|---|---|---|---|
+| A14 | §3.6 soneksiz literalin dönüşümünü (`K as bits<N>`) saymaz | N bite sığan K'nın değeri K | Aynı (#207 sonrası); sığmayan K'yı alt N bitine keser, uyarı yok |
+
+- **Regresyon.** #207'nin üç örneği (`regress.rs`) elle hesaplanmış
+  değerlerle: 2^127 ile `==`, 2^127 + 1 ile `!=`, 2^128 - 1 maskesinin
+  üst yarısı. 128 bitlik işaretsiz portun elle girdisi örüntünün `i128`
+  okumasıdır (2^127 = `i128::MIN`, 2^128 - 1 = -1).
+
+**Kanıt.** Düzeltmesiz derleyicide (kanıt koşusu 43158993126, "Verilator
+lint" işi) üç regresyon örneği de düştü ve rastgele geniş ifadeler fark
+verdi:
+
+```
+difftest: seed=20261104 target=2000 generated=2250 accepted=2129 rejected-as-predicted=110 unsupported=11 unspecified=0 values-compared=228254 diffs=267
+difftest: regressions=38 failed=3 hand-computed=55 compared=55
+  [2x] regression #207: 2^127 + 1 as bits<128> in an inequality — a (bits<128> != K as bits<128>)
+      o36a = p56 != 0x80000000000000000000000000000001 as bits<128>
+      inputs: p56=0x80000000000000000000000000000001
+      hand-computed: 0x0, Verilator: 0x1 (bool)
+      model: 0xffffffffffffffffffffffffffffffff, Verilator: 0x7fffffffffffffffffffffffffffffff (bits<128>)
+```
+
+Düzeltme dalında (43160942836): `diffs=0`, `regressions=38 failed=0
+hand-computed=55 compared=55`, `assumptions used by compared variants:
+… A14=644 …`, `Tool ledger [integration]: … SKIP: 0`.

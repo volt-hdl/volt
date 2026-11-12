@@ -964,3 +964,147 @@ fn issue_250_mmio_pair_with_two_driver_stems_is_e1003() {
     assert_eq!(r.error_codes(), ["E1003"]);
     assert_eq!(primary_start(&r), at(&src, "abc {"));
 }
+
+/// #207: generic argüman literal olarak, değeriyle ikame edilir; 2^127 ve
+/// üstü `i128::MAX`'e doyurulmaz. Düzeltmeden önce 2^127 + 1 klonda
+/// 2^127 - 1 oluyordu. Parametre `uint<128>`: argüman ona sığar (#262'nin
+/// denetimi geçer); 128 bitlik tamsayının desteği ayrıdır (sonraki
+/// aşamada E0003), burada yalnız ayrıştırıcının ikamesi.
+#[test]
+fn issue_207_wide_generic_argument_is_substituted_with_its_value() {
+    let src = r#"
+module G<const K: uint<128>> {
+    out o : bits<128>
+    o = K as bits<128>
+}
+module Top {
+    out a : bits<128>
+    out b : bits<128>
+    let g = G<0x8000_0000_0000_0000_0000_0000_0000_0001> { }
+    let h = G<0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF> { }
+    a = g.o
+    b = h.o
+}
+"#;
+    let r = p(src);
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let substituted = |name: &str| {
+        let m = module(&r.ast, name);
+        let assign = m
+            .body
+            .iter()
+            .find_map(|&s| match &r.ast.stmts[s].kind {
+                StmtKind::Assign(a) => Some(a),
+                _ => None,
+            })
+            .expect("atama");
+        let ExprKind::Cast { expr, .. } = &r.ast.exprs[assign.rhs].kind else {
+            panic!("K as bits<128> bekleniyor")
+        };
+        int_value(&r.ast, *expr)
+    };
+    let names = module_names(&r.ast);
+    let g = names
+        .iter()
+        .find(|n| n.contains("170141183460469231731687303715884105729"));
+    let h = names
+        .iter()
+        .find(|n| n.contains("340282366920938463463374607431768211455"));
+    let (Some(g), Some(h)) = (g, h) else {
+        panic!("klon adları argümanın değerini taşımalı: {names:?}")
+    };
+    assert_eq!(substituted(g), Some((1u128 << 127) + 1));
+    assert_eq!(substituted(h), Some(u128::MAX));
+}
+
+/// #262: generic argüman parametrenin tipine sığmalı (E2010): `uN` için
+/// 0..2^N, `iN` için 0..2^(N-1) (argüman negatif olamaz, E2008),
+/// `uint<N>`/`sint<N>` N literalken aynı. Önceden denetlenmiyordu:
+/// `G<2^80 - 1>` (`const K: u64`) kabul ediliyor, donanım 80 bitlik değer
+/// görüyordu.
+#[test]
+fn issue_262_generic_argument_must_fit_the_parameter_type() {
+    let src = |ty: &str, arg: &str| {
+        format!(
+            "module G<const K: {ty}> {{
+    out o : bool
+    o = true
+}}
+module Top {{
+    out o : bool
+    let g = G<{arg}> {{ }}
+    o = g.o
+}}
+"
+        )
+    };
+    for (ty, arg) in [
+        ("u64", "0xFFFF_FFFF_FFFF_FFFF_FFFF"),
+        ("u8", "256"),
+        ("i8", "128"),
+        ("u1", "2"),
+        ("uint<4>", "16"),
+        ("sint<4>", "8"),
+    ] {
+        let r = p(&src(ty, arg));
+        assert_eq!(r.error_codes(), ["E2010"], "{ty} = {arg}");
+    }
+    for (ty, arg) in [
+        ("u64", "0xFFFF_FFFF_FFFF_FFFF"),
+        ("u8", "255"),
+        ("i8", "127"),
+        ("u1", "1"),
+        ("uint<4>", "15"),
+        ("sint<4>", "7"),
+        ("u32", "0"),
+    ] {
+        let r = p(&src(ty, arg));
+        assert!(
+            r.diagnostics.is_empty(),
+            "{ty} = {arg}: {:?}",
+            r.error_codes()
+        );
+    }
+}
+
+/// #262: genişliği önceki bir const parametre olan `uint<W>`/`sint<W>`
+/// parametresi de denetlenir; W'nin değeri o örneklemenin argümanıdır.
+/// Önceden genişlik literal değilse denetim yoktu: `G<4, 16>`
+/// (`const K: uint<W>`) kabul ediliyor, `K as bits<8>` 16 yazıyordu.
+#[test]
+fn issue_262_parameter_width_from_an_earlier_parameter_is_checked() {
+    let src = |ty: &str, w: &str, k: &str| {
+        format!(
+            "module G<const W: u32, const K: {ty}> {{
+    out o : bits<8>
+    o = K as bits<8>
+}}
+module Top {{
+    out o : bits<8>
+    let g = G<{w}, {k}> {{ }}
+    o = g.o
+}}
+"
+        )
+    };
+    for (ty, w, k) in [
+        ("uint<W>", "4", "16"),
+        ("sint<W>", "4", "8"),
+        ("uint<W>", "1", "2"),
+    ] {
+        let r = p(&src(ty, w, k));
+        assert_eq!(r.error_codes(), ["E2010"], "{ty} W={w} K={k}");
+    }
+    for (ty, w, k) in [
+        ("uint<W>", "4", "15"),
+        ("sint<W>", "4", "7"),
+        ("uint<W>", "8", "255"),
+    ] {
+        let r = p(&src(ty, w, k));
+        assert!(
+            r.diagnostics.is_empty(),
+            "{ty} W={w} K={k}: {:?}",
+            r.error_codes()
+        );
+    }
+}

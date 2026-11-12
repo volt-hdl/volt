@@ -1190,7 +1190,7 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         W2010 => Explanation::new(
             "Daraltıcı dönüşüm",
             "Bu 'as' dönüşümü üst bitleri düşürüyor — bilgi kaybı var.",
-            "Dönüşüm açık olduğundan bu yalnız bir uyarıdır; ama düşen bitler gider: u16 → u8 yalnız alt baytı tutar. Değer hedef aralığı gerçekten aşabiliyorsa, davranış belgelensin diye bilinçli olarak maskeleyin veya doyurun (saturate).",
+            "Dönüşüm açık olduğundan bu yalnız bir uyarıdır; ama düşen bitler gider: u16 → u8 yalnız alt baytı tutar. Değer hedef aralığı gerçekten aşabiliyorsa, davranış belgelensin diye bilinçli olarak maskeleyin veya doyurun (saturate). Hedefe sığmayan soneksiz literal ('0x1FF as bits<8>', '300 as u8') da aynı biçimde kesilir ve uyarı verir; sığan değeri yazın.",
             "in  big : u16\nsmall = big as u8       // ⚠ W2010: üst 8 bit düştü",
             "small = (big & 0xFF) as u8   // ✓ kesme açıkça yazıldı",
         ),

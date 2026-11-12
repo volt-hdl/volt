@@ -534,6 +534,14 @@ HexLiteral      = "0x" HexDigit { HexDigit | "_" } [ IntSuffix ] ;
 BinLiteral      = "0b" BinDigit { BinDigit | "_" } [ IntSuffix ] ;
 OctLiteral      = "0o" OctDigit { OctDigit | "_" } [ IntSuffix ] ;
 
+(* Tam sayı literalinin değeri 128 bitlik işaretsiz sayıdır
+   (ast-nodes.md: IntLit { value: u128 }): 0 ile 2¹²⁸ − 1 arası. Taban ve
+   "_" ayırıcıları değeri değiştirmez. 2¹²⁸ ve üstü E0005'tir; değer
+   kesilmez, doyurulmaz. Bağlam bu sınırı genişletmez: bits<N>, N > 128
+   iken de literal en çok 2¹²⁸ − 1'dir, üst bitleri sıfırdır. Negatif
+   değer tekli "-" ile yazılır (-K, K literal). StageRef'teki uzaklık da
+   IntLiteral'dır: her taban geçerlidir (stage(+0x1) = stage(+1)). *)
+
 IntSuffix       = "u8" | "u16" | "u32" | "u64"
                 | "i8" | "i16" | "i32" | "i64" ;
 

@@ -849,3 +849,117 @@ A ve C'nin gerekçeleri:
 
 **Koşunun dışında bulunanlar.** `tests/ui/fail/138`–`141`'i (E1014) hiçbir test koşmuyordu; şimdi `ui_fail_138_to_141_mmio_driver_name_collisions_are_e1014` koşuyor. Düzleştirilmiş bir bundle alanının W1001'i doğru satırı ama keyfi bir sütunu gösteriyor (`fresh_name_span`): #246 (iyileştirme).
 
+
+## Hedefli koşu (#207, 2026-11-12)
+
+#207'nin düzeltmesinin dokunduğu kapsamdaki fonksiyonlar: `expr.rs`'te
+`fmt_int` ve `LitValue`, `mono/clone.rs`'te `subst_expr_kind`, `use_of`,
+`bare_param_type`, `with_generics`, `literal_fold.rs`'te `eval_literal`.
+`mono/mod.rs`'teki değişiklik değiştirilebilir işleç bırakmayan tek bir
+çağrıdır, listeye alınmadı. `consteval.rs` kapsamda değil; beş mutantı
+elle, atılabilir bir worktree'de uygulandı (işleç koşulu `UnOp::Neg` →
+`true` / `false`, `== 2^127` → `>=` / `!=`, `try_from` → `as i128`), her
+biri `consteval_tests`'te en az bir testi düşürdü, kaynak her seferinde
+geri alındı.
+
+Koşu 43159290182 (`re` = `expr\.rs.*(fmt_int|LitValue)|mono/clone\.rs.*(subst_expr_kind|use_of|bare_param_type|with_generics)|literal_fold\.rs.*eval_literal`,
+`shards` = 3; kapsam işi alan silme mutantlarından beşini düşürdü,
+`all 53 mutants in the list match`): 53 mutant, 39 caught, 4 missed,
+0 timeout, 10 unviable. Üç parçada `Tool ledger [mutants-N]: 186 test(s)
+asked for a tool; 188 lookup(s) found the tool (188 required), SKIP: 0`.
+
+| Mutant | Sınıf | Öldüren test |
+|---|---|---|
+| `expr.rs:2050:31` `&` → `^` (`fmt_int`, kesilmiş örüntü) | B | `wide_literal_sim_tests::issue_207_literal_wider_than_its_context_keeps_its_low_bits` |
+| `expr.rs:2050:31` `&` → `\|` | B | aynı test |
+| `expr.rs:2046:26` koruma `w <= 128` → `true` (`fmt_int`) | B | `wide_literal_sim_tests::issue_207_minus_two_pow_127_in_a_129_bit_signed_context` |
+| `expr.rs:2101:9` `LitValue`'nun `Display`'i → `Ok(Default::default())` | B | `wide_literal_sim_tests::issue_207_width_diagnostic_shows_the_literal_value` |
+
+Özet: 4 missed, dördü B (testi bu işte yazıldı), A ve C yok. Her mutant
+elle, atılabilir bir worktree'de uygulandı: test Verilator'la (Docker,
+5.052) düştü, mutantsız geçti, kaynak geri alındı.
+
+- **B, kesilmiş örüntü (`&` → `^`, `|`).** Bağlamdan geniş pozitif
+  literal (#123): `((a + b) | 3) & c`, a, b, c : u1, u1 bağlamında
+  `1'h1` yazılır. `^` ile `1'h2`, `|` ile `| 2`'nin `1'h0`'ı `1'h3` olur.
+  Değer iki okumada da (işlem doğal genişlikte ya da u1'de) aynıdır,
+  elle hesaplandı. Testten önce bu dalı yalnız SV metnine bakan
+  `width_isolation_tests::a_literal_wider_than_its_bitwise_context_is_written_truncated`
+  sınıyordu.
+- **B, koruma `w <= 128`.** `-(a * b)` (a, b : i64) i129'dur; 129 bitte
+  -2^127 en küçük negatif değer değildir. Koruma kalkınca örüntü kuralı
+  -2^127'yi `129'sh8000…` (+2^127) yazar ve `-(a * b) > -2^127` yanlış
+  çıkar.
+- **B, `Display`.** E2005'in iletisi (`cannot determine the width of the
+  literal '…'`) literalin değerini yazar; mutant değeri siler. İleti
+  kullanıcıya görünür (§4).
+
+**Kaldırılan `exclude_re` girdileri.** `fmt_int`'in eski
+`value >= 0 && w < 128` ve `value < 0 && … && w < 128` koşullarına satırla
+sabitlenmiş iki A1 girdisi (`expr.rs:2040:28`, `2047:32`) koşullar
+kalktığı için hiçbir mutantı eşlemiyordu; silindi.
+
+## Hedefli koşu 2 (#207, #213, #262, #263, ADR-0115, 2026-11-12)
+
+PR #265'in sonraki değişikliklerinin dokunduğu kapsamdaki fonksiyonlar:
+`typeck/cast.rs` `warn_literal_cut` (ADR-0115), `typeck/literal_fold.rs`
+`literal_sign_mag` ve `check_literal_expr` (#213), `mono/mod.rs`
+`ParamRange`, `check_args`, `err_arg_out_of_range` (#262),
+`desugar.rs` `resolve_stage_ref` (#263). `pipeline.rs` kapsamda değil;
+değişikliği değiştirilebilir işleç bırakmayan bir metin çözümüdür.
+
+Koşu 43196528987 (455e49fc, `shards` = 4; kapsam işi alan silme
+mutantlarından beşini düşürdü, `all 67 mutants in the list match`): 67
+mutant, 55 caught, 11 missed, 0 timeout, 1 unviable. Dört parçada
+`Tool ledger [mutants-N]: 188 test(s) asked for a tool; 190 lookup(s)
+found the tool (190 required), SKIP: 0`.
+
+| Mutant (455e49fc satırı) | Sınıf | Öldüren test |
+|---|---|---|
+| `cast.rs:39:28` `>` → `>=`, `==`; `39:26` koruma `w > 128` → `false` | B | `typeck::cast::tests::issue_207_literal_cut_message_names_the_value_and_the_cut` |
+| `cast.rs:53:29` `>=` → `<` (maske) | B | aynı test |
+| `cast.rs:56:30` `-` → `/`, `+` (maske) | B | aynı test |
+| `cast.rs:58:62` `&` → `^`, `\|` (kesilmiş değer) | B | aynı test |
+| `literal_fold.rs:134:17` `<` → `>`, `==`, `<=` (`literal_sign_mag`, işaret) | B | aynı test |
+
+Özet: 11 missed, hepsi B (testi bu işte yazıldı), A ve C yok. Her mutant
+atılabilir bir worktree'de elle uygulandı: test düştü, mutantsız geçti,
+kaynak geri alındı.
+
+- **Koruma `w > 128` (`>=`, `==`, `false`).** `sint<128>` hedefinde sınır
+  2^127'dir: `0x8000…0000 as sint<128>` W2010 alır, `0x7FFF…FFFF` ve
+  `(-0x8000…0000)` almaz. `sint<200>`'e her literal sığar; koruma
+  kalkınca `1u128 << (w - 1)` taşar (hata ayıklama derlemesinde çökme).
+- **Maske ve kesilmiş değer.** İleti kesilmiş değeri söyler (§4: tanı
+  metni çıktıdır): `0x1FF as bits<8>` → `0xFF`, `0x3_0000_0000_0000_0000
+  as u64` → `0x0`, `(-1) as bits<128>` → 128 bitlik bir örüntüsü.
+- **İşaret (`literal_sign_mag`).** Bileşik literal ifadesinin işareti
+  değerinden gelir: `(1 - 2) as u8` (-1) W2010 alır, `(1 - 1) as u8` ve
+  `(2 - 1) as u8` almaz; iletide değer `-1`, `300`.
+
+`mono/mod.rs` ve `desugar.rs`'in mutantlarının hepsi yakalandı.
+
+## Hedefli koşu 3 (#272, #262, ADR-0115, 2026-11-12)
+
+Koşu 2'den sonra gelen değişiklikler: `literal_fold.rs` `literal_range`
+ve `check_literal_expr`'in aralık karşılaştırması (#272), `mono/mod.rs`
+`RangeSpec`/`ParamRange`/`check_args` (#262, genişliği önceki parametre
+olan `uint<W>`), `expr.rs` `emit_cast`'in `(-K) as T` dalı (ADR-0115).
+
+Koşu 43227504453 (55422d16, `shards` = 4, `all 54 mutants in the list
+match`): 54 mutant, 51 caught, 1 missed, 0 timeout, 2 unviable. Dört
+parçada `Tool ledger [mutants-N]: 189 test(s) asked for a tool; 191
+lookup(s) found the tool (191 required), SKIP: 0`.
+
+| Mutant (55422d16 satırı) | Sınıf | Gerekçe |
+|---|---|---|
+| `literal_fold.rs:253:35` `<` → `<=` (`check_literal_expr`) | A1, `exclude_re` | aşağıda |
+
+- **A1, `v < 0` → `v <= 0`.** Koşul `v >= min && (v < 0 ||
+  v.unsigned_abs() <= max)`. İki biçim yalnız v == 0'da ayrılabilir;
+  orada sağ yan `0 <= max` her `max` (`u128`) için doğrudur, sol yan
+  `0 >= min` iki biçimde aynıdır. Fonksiyonun kendi içinde, çağırandan
+  bağımsız eşdeğer.
+
+Özet: 1 missed, A1 (`exclude_re`), B ve C yok. `mono/mod.rs` ve
+`emit_cast`'in mutantlarının hepsi yakalandı.

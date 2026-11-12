@@ -31,7 +31,9 @@ pub(crate) struct StageRefData {
 #[derive(Debug)]
 pub(crate) enum StageRefTarget {
     Named(Name),
-    Relative(i64),
+    /// `stage(±K)`: (negatif mi, K). K her tam sayı literali gibi okunur
+    /// (taban, `_`), 2^128 - 1'e kadar; doyurulmaz (#263).
+    Relative(bool, u128),
 }
 
 pub(crate) type StageRefMap = HashMap<Idx<Expr>, StageRefData>;
@@ -291,10 +293,25 @@ impl Parser<'_> {
                 let negative = self.at(Minus);
                 self.bump_any();
                 if self.at(IntLit) {
-                    let text = self.current_text().replace('_', "");
+                    // Uzaklık literaldir: her literal gibi okunur (#263).
+                    let span = self.current_span();
+                    let text = self.current_text().to_string();
                     self.bump_any();
-                    let k = text.parse::<i64>().unwrap_or(i64::MAX);
-                    Some(StageRefTarget::Relative(if negative { -k } else { k }))
+                    match super::expr::parse_int_text(&text).0 {
+                        Some(k) => Some(StageRefTarget::Relative(negative, k)),
+                        None => {
+                            self.push_error(Diagnostic::error(
+                                ErrorCode::E0005,
+                                lstr!(en: "invalid numeric literal: '{text}'"; tr: "geçersiz sayısal literal: '{text}'"),
+                                LabeledSpan::primary(
+                                    span,
+                                    lstr!(en: "value does not fit in 128 bits"; tr: "değer 128 bite sığmıyor"),
+                                ),
+                                lstr!(en: "use a smaller constant"; tr: "daha küçük bir sabit kullanın"),
+                            ));
+                            None
+                        }
+                    }
                 } else {
                     self.error_expected(
                         &lstr!(en: "stage offset after the sign"; tr: "işaret sonrası aşama uzaklığı"),

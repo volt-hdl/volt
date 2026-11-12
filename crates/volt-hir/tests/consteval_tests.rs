@@ -343,3 +343,91 @@ fn bool_arithmetic_type_mismatch() {
     let codes = codes("const X : u32 = true + false;");
     assert!(codes.contains(&"E2003"), "{codes:?}");
 }
+
+// ═══ i128 aralığının sınırları (#207) ═════════════════════════════
+//
+// const-eval.md §1: değerlendiricinin tam sayısı `i128`'dir, §4: aralık
+// dışı değer taşmadır (E2022), sarma değil. Literal ise 128 bitlik
+// işaretsiz sayıdır (`IntLit { value: u128 }`, ast-nodes.md): 2^127 ve
+// üstü `i128`'e sığmaz. Düzeltmeden önce değerlendirici literali
+// `value as i128` ile sarıyordu (2^127 → i128::MIN, 2^128 - 1 → -1) ve
+// -2^127'yi (i128::MIN, aralıkta) E2022 sayıyordu.
+
+/// Değerlendiricinin değeri ve kendi tanı kodları (tip denetimi koşmaz).
+fn eval_with_codes(expr: &str) -> (ConstValue, Vec<String>) {
+    let src = format!("const SONUC : u32 = {expr};");
+    let parsed = parse(FileId(0), &src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let res = volt_hir::resolve_file(&parsed.ast);
+    let mut ev = ConstEvaluator::new(&parsed.ast, &res);
+    let (def, _) = res.def_by_name("SONUC").expect("sabit tanımlı olmalı");
+    let value = ev.eval_const_def(def);
+    let codes = ev
+        .diagnostics
+        .iter()
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    (value, codes)
+}
+
+#[test]
+fn issue_207_i128_max_literal_keeps_its_value() {
+    assert_eq!(
+        eval_expr("170141183460469231731687303715884105727"),
+        ConstValue::Int(i128::MAX)
+    );
+}
+
+#[test]
+fn issue_207_minus_two_pow_127_is_i128_min() {
+    assert_eq!(
+        eval_expr("-170141183460469231731687303715884105728"),
+        ConstValue::Int(i128::MIN)
+    );
+    assert_eq!(
+        eval_expr("-0x8000_0000_0000_0000_0000_0000_0000_0000 + 1"),
+        ConstValue::Int(i128::MIN + 1)
+    );
+}
+
+#[test]
+fn issue_207_two_pow_127_literal_is_an_overflow_not_i128_min() {
+    let (value, codes) = eval_with_codes("170141183460469231731687303715884105728");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}
+
+#[test]
+fn issue_207_two_pow_128_minus_one_is_an_overflow_not_minus_one() {
+    // Sarılmış okuma: -1 / (2^64 + 1) = 0. Matematikte 2^64 - 1.
+    let (value, codes) =
+        eval_with_codes("0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF / 0x1_0000_0000_0000_0001");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}
+
+#[test]
+fn issue_207_negated_literal_beyond_two_pow_127_is_an_overflow() {
+    // -(2^127 + 1) i128'in altında; sarılmış okuma -(i128::MIN + 1).
+    let (value, codes) = eval_with_codes("-0x8000_0000_0000_0000_0000_0000_0000_0001");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}
+
+#[test]
+fn issue_207_one_below_i128_min_is_an_overflow() {
+    // Denetim: i128::MIN - 1 çıkarmanın taşmasıdır (düzeltmeden önce de
+    // E2022, ama -2^127'nin kendisi yüzünden).
+    let (value, codes) = eval_with_codes("-170141183460469231731687303715884105728 - 1");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}
+
+#[test]
+fn issue_207_bitnot_of_two_pow_127_is_an_overflow() {
+    // -2^127'nin istisnası yalnız tekli `-`'dedir: `~2^127`'nin işleneni
+    // i128'e sığmaz.
+    let (value, codes) = eval_with_codes("~0x8000_0000_0000_0000_0000_0000_0000_0000");
+    assert_eq!(value, ConstValue::Error);
+    assert_eq!(codes, ["E2022"]);
+}

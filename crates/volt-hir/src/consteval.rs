@@ -299,7 +299,15 @@ impl<'a> ConstEvaluator<'a> {
         let e = &self.ast.exprs[expr];
         let span = e.span;
         match &e.kind {
-            ExprKind::IntLit { value, .. } => ConstValue::Int(*value as i128),
+            // Literal 128 bitlik işaretsiz sayıdır; aralık i128'dir (§1):
+            // 2^127 ve üstü taşmadır (§4), sarılmaz (#207).
+            ExprKind::IntLit { value, .. } => match i128::try_from(*value) {
+                Ok(v) => ConstValue::Int(v),
+                Err(_) => {
+                    let value = *value;
+                    self.literal_overflow(value, span)
+                }
+            },
             ExprKind::BoolLit(b) => ConstValue::Bool(*b),
 
             ExprKind::Path(_) => {
@@ -343,6 +351,14 @@ impl<'a> ConstEvaluator<'a> {
 
             ExprKind::Unary { op, operand } => {
                 let (op, operand) = (*op, *operand);
+                // -2^127 = i128::MIN aralıktadır, işleneni 2^127 değildir
+                // (#207).
+                if matches!(op, UnOp::Neg)
+                    && matches!(self.ast.exprs[operand].kind,
+                        ExprKind::IntLit { value, .. } if value == 1u128 << 127)
+                {
+                    return ConstValue::Int(i128::MIN);
+                }
                 let v = self.const_eval(operand);
                 self.eval_unop(op, v, span)
             }
@@ -741,6 +757,35 @@ impl<'a> ConstEvaluator<'a> {
                 Error
             }
         }
+    }
+
+    /// E2022: literal derleme zamanı aralığının (i128) dışında (#207).
+    fn literal_overflow(&mut self, value: u128, span: Span) -> ConstValue {
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2022,
+                lstr!(en: "compile-time overflow"; tr: "derleme zamanı taşması"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(
+                        en: "the literal {value} does not fit in i128, the compile-time integer";
+                        tr: "{value} literali derleme zamanı tam sayısı i128'e sığmıyor"
+                    ),
+                ),
+                lstr!(
+                    en: "use a literal below 2^127 in a constant expression";
+                    tr: "sabit ifadesinde 2^127'den küçük bir literal kullanın"
+                ),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(
+                    en: "compile-time overflow is an error, it does not wrap";
+                    tr: "derleme zamanı taşma hatadır, sarmaz"
+                ),
+            ),
+        );
+        ConstValue::Error
     }
 
     fn eval_unop(&mut self, op: UnOp, v: ConstValue, span: Span) -> ConstValue {

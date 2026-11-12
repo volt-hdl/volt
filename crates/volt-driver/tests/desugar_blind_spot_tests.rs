@@ -696,6 +696,53 @@ fn ui_fail_138_to_141_mmio_driver_name_collisions_are_e1014() {
 
 // ═══ Pipeline aşama referansları (ADR-0038) ════════════════════════════
 
+/// #263: aşama uzaklığı her tam sayı literali gibi okunur (onaltılık, ikili,
+/// sekizli, `_`); hiçbir aşamaya düşmeyen uzaklık, ne kadar büyük olursa
+/// olsun, E5012'dir. Önceden metin ondalık `i64` olarak okunuyor, okunamayan
+/// (onaltılık ya da i64'ten büyük) uzaklık `i64::MAX` oluyordu: `-0x1` E5012
+/// alıyor, `+0x1` ve `+99999999999999999999` `cur + k` toplamını taşırıp
+/// derleyiciyi çökertiyordu (hata ayıklama derlemesi).
+#[test]
+fn issue_263_stage_offsets_are_read_like_integer_literals() {
+    let src = |off: &str| {
+        format!(
+            "pipeline(2) P {{
+    in  clk : clock
+    in  x : u32
+    out y : u32
+    stage F {{ let a : u32 = x }}
+    stage D {{
+        let b : u32 = a + 1
+        let c : u32 = stage({off}).a + b // ref
+    }}
+    y = stage(D).c
+}}
+"
+        )
+    };
+    for off in ["-1", "-0x1", "-0b1", "-0o1", "-0_1"] {
+        let got = check("stage-ok", &src(off));
+        assert!(errors(&got).is_empty(), "{off}: {got:?}");
+    }
+    for off in [
+        "+1",
+        "+0x1",
+        "-2",
+        "+99999999999999999999",
+        "-99999999999999999999",
+        "+0x8000_0000_0000_0000_0000_0000_0000_0000",
+        "-0x8000_0000_0000_0000_0000_0000_0000_0000",
+    ] {
+        let s = src(off);
+        let got = check("stage-far", &s);
+        assert_eq!(
+            errors(&got),
+            vec![("E5012".to_string(), line_with(&s, "// ref"))],
+            "{off}: {got:?}"
+        );
+    }
+}
+
 /// `stage(+k)` aşama `i`'den `i + k`'ya düşer; `0..=N-1` dışı E5012. İki
 /// aşamalı pipeline'ın son aşamasında (1) `stage(+1)` 2'ye düşer: E5012,
 /// referansın satırında. Kör nokta: son aşama `N - 1` yerine `N / 1`

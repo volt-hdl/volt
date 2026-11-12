@@ -195,6 +195,10 @@ pub enum Expr {
     Name(String, Box<Expr>),
     /// Soneksiz tam sayı literali.
     Lit(i128, LitFmt),
+    /// Soneksiz, negatif olmayan geniş literal (2^128 - 1'e kadar, #207):
+    /// yalnız `bits<N>`'e dönüşümün işleneni olarak üretilir
+    /// (`WideLit as bits<N>`, değer N bite sığar; A14).
+    WideLit(u128, LitFmt),
     Bin(BinOp, Box<Expr>, Box<Expr>),
     Un(UnOp, Box<Expr>),
     /// `x[i]`
@@ -224,7 +228,7 @@ impl Expr {
 
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Port(_) | Expr::Lit(..) | Expr::Name(..) => vec![],
+            Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..) | Expr::Name(..) => vec![],
             Expr::Bin(_, a, b) | Expr::Index(a, b) | Expr::Part(a, b, ..) => vec![a, b],
             Expr::Un(_, a) | Expr::Range(a, ..) | Expr::Cast(a, _) => vec![a],
             Expr::Concat(xs) => xs.iter().collect(),
@@ -233,7 +237,7 @@ impl Expr {
 
     fn children_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Expr::Port(_) | Expr::Lit(..) | Expr::Name(..) => vec![],
+            Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..) | Expr::Name(..) => vec![],
             Expr::Bin(_, a, b) | Expr::Index(a, b) | Expr::Part(a, b, ..) => vec![a, b],
             Expr::Un(_, a) | Expr::Range(a, ..) | Expr::Cast(a, _) => vec![a],
             Expr::Concat(xs) => xs.iter_mut().collect(),

@@ -44,8 +44,9 @@ use volt_span::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Binding {
     /// Const generic parametre (ADR-0041): yolu literal olur. Desende
-    /// değer desenidir (§5.1).
-    Generic(i128),
+    /// değer desenidir (§5.1). Değer argüman literalidir, 2^128 - 1'e
+    /// kadar (#207).
+    Generic(u128),
     /// Açılan modül düzeyi `for`'un değişkeni (ADR-0056): yolu literal
     /// olur. Desende E1015 (§5.1, döngü değişkeni sabit değildir).
     LoopVar(i128),

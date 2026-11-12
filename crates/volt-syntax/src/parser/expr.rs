@@ -1020,7 +1020,7 @@ impl Parser<'_> {
 
 /// Literal metnini (taban, sonek, değer) üçlüsüne çözer.
 /// Lexer biçimi doğruladı; None yalnızca taşmada döner.
-fn parse_int_text(text: &str) -> (Option<u128>, Option<IntSuffix>, NumBase) {
+pub(super) fn parse_int_text(text: &str) -> (Option<u128>, Option<IntSuffix>, NumBase) {
     const SUFFIXES: [(&str, IntSuffix); 8] = [
         ("u16", IntSuffix::U16),
         ("u32", IntSuffix::U32),

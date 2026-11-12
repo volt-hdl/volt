@@ -1030,8 +1030,7 @@ impl<'a> Emitter<'a> {
                 base,
             } => {
                 let sig = widen_sig(suffix.map(suffix_sig), ctx);
-                let value = i128::try_from(*value).unwrap_or(i128::MAX);
-                let text = self.fmt_int(value, *base, sig, span);
+                let text = self.fmt_int(LitValue::pos(*value), *base, sig, span);
                 let prec = lit_prec(&text);
                 (text, prec)
             }
@@ -1088,8 +1087,7 @@ impl<'a> Emitter<'a> {
                 let ExprKind::IntLit { value, base, .. } = ast.exprs[*operand].kind else {
                     unreachable!()
                 };
-                let value = i128::try_from(value).unwrap_or(i128::MAX);
-                let text = self.fmt_int(-value, base, ctx, span);
+                let text = self.fmt_int(LitValue::neg(value), base, ctx, span);
                 // Tekli `-` önceliği (eski `-8'sd3` yazımıyla aynı parantezler).
                 let prec = if text.starts_with('-') {
                     PREC_UNARY
@@ -1771,9 +1769,23 @@ impl<'a> Emitter<'a> {
             Some(r) if !tree_dep && r.width != target.width => rough,
             _ => nat,
         };
-        // Soneksiz literal (`0 as bits<8>`): hedef genişliğinde
-        // boyutlandırılmış literal — ara genişlik yoktur (ADR-0051).
-        if src.is_none() && matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) {
+        // Soneksiz literal (`0 as bits<8>`) ve parantezli negatifi
+        // (`(-1) as u8`, ADR-0115): hedef genişliğinde boyutlandırılmış
+        // literal — ara genişlik yoktur (ADR-0051); sığmayan değer hedefin
+        // alt bitleridir (`fmt_int`'in örüntü kuralları).
+        let literal = |e: Idx<Expr>| {
+            matches!(
+                self.ast.exprs[e].kind,
+                ExprKind::IntLit { suffix: None, .. }
+            )
+        };
+        let negated_literal = matches!(
+            self.ast.exprs[operand].kind,
+            ExprKind::Unary { op: UnOp::Neg, operand: o } if literal(o)
+        );
+        if src.is_none()
+            && (matches!(self.ast.exprs[operand].kind, ExprKind::IntLit { .. }) || negated_literal)
+        {
             return self.emit_prec(operand, Some(target), PREC_ATOM, false);
         }
         let inner = self.emit_prec(operand, src, PREC_ATOM, false);
@@ -2004,13 +2016,16 @@ impl<'a> Emitter<'a> {
     }
 
     /// Sayısal literal boyutlandırma (§10). Negatif değer `-16'sd2`.
+    /// Değer işaret ve büyüklüktür (#207): 2^128 - 1'e kadar her literal
+    /// kendi değeriyle yazılır, doyurulmaz.
     pub(crate) fn fmt_int(
         &mut self,
-        value: i128,
+        value: impl Into<LitValue>,
         base: NumBase,
         sig: Option<Sig>,
         span: volt_span::Span,
     ) -> String {
+        let value = value.into();
         let Some(sig) = sig else {
             self.error(
                 ErrorCode::E2005,
@@ -2027,37 +2042,80 @@ impl<'a> Emitter<'a> {
             return value.to_string();
         };
         let w = sig.width;
-        let neg = if value < 0 { "-" } else { "" };
-        let mag = value.unsigned_abs();
+        let LitValue { neg, mag } = value;
+        let minus = if neg { "-" } else { "" };
         // İşaretli bağlamda her taban işaretli yazılır: işaretsiz bir
         // işlenen SV'de bütün işlemi işaretsiz yapar (#116).
         let s = if sig.signed { "s" } else { "" };
-        // Bağlamdan geniş pozitif literal (esnek işlenenin yanındaki
-        // literal, daha dar bit işlemi bağlamında): SV onu zaten keser;
-        // kesilmiş örüntüyle yazılır, Verilator WIDTHTRUNC vermez (#123).
-        let max = if sig.signed {
-            (1u128 << (w - 1)) - 1
-        } else if w >= 128 {
+        // W bitlik örüntünün maskesi; büyüklük en çok 128 bittir.
+        let wmask = if w >= 128 {
             u128::MAX
         } else {
             (1u128 << w) - 1
         };
-        if value >= 0 && w < 128 && value as u128 > max {
-            let pattern = (value as u128) & ((1u128 << w) - 1);
+        // Bağlamdan geniş pozitif literal (esnek işlenenin yanındaki
+        // literal, daha dar bit işlemi bağlamında): SV onu zaten keser;
+        // kesilmiş örüntüyle yazılır, Verilator WIDTHTRUNC vermez (#123).
+        let max = match (sig.signed, w) {
+            (true, w) if w <= 128 => wmask >> 1,
+            _ => wmask,
+        };
+        if !neg && mag > max {
+            let pattern = mag & wmask;
             return format!("{w}'{s}h{pattern:X}");
         }
         // `-W'sdM`, M = 2^(W-1) iken `W'sdM` kendisi negatiftir; daha geniş
         // bağlamda genişleyip olumsuzlanınca pozitif olurdu (#116): en
-        // küçük negatif değer örüntüsüyle yazılır (`8'sh80`).
-        if sig.signed && value < 0 && w < 128 && mag >= 1u128 << (w - 1) {
-            let pattern = (value as u128) & ((1u128 << w) - 1);
+        // küçük negatif değer örüntüsüyle yazılır (`8'sh80`). Örüntü
+        // -M'nin W bitlik ikiye tümleyenidir.
+        if sig.signed && neg && mag > max {
+            let pattern = mag.wrapping_neg() & wmask;
             return format!("{w}'sh{pattern:X}");
         }
         match base {
-            NumBase::Hex => format!("{neg}{w}'{s}h{mag:X}"),
-            NumBase::Bin => format!("{neg}{w}'{s}b{mag:b}"),
-            NumBase::Oct => format!("{neg}{w}'{s}o{mag:o}"),
-            NumBase::Dec => format!("{neg}{w}'{s}d{mag}"),
+            NumBase::Hex => format!("{minus}{w}'{s}h{mag:X}"),
+            NumBase::Bin => format!("{minus}{w}'{s}b{mag:b}"),
+            NumBase::Oct => format!("{minus}{w}'{s}o{mag:o}"),
+            NumBase::Dec => format!("{minus}{w}'{s}d{mag}"),
+        }
+    }
+}
+
+/// Literal değeri, işaret ve büyüklük olarak (#207). `IntLit`'in değeri
+/// 2^128 - 1'e kadar `u128`'dir (ast-nodes.md), `-K` onun negatifidir:
+/// ikisi de `i128`'e sığmayabilir. Ne doyurulur ne sarılır.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LitValue {
+    neg: bool,
+    mag: u128,
+}
+
+impl LitValue {
+    pub(crate) fn pos(mag: u128) -> Self {
+        Self { neg: false, mag }
+    }
+
+    /// `-mag`; `-0` sıfırdır.
+    pub(crate) fn neg(mag: u128) -> Self {
+        Self { neg: mag != 0, mag }
+    }
+}
+
+impl From<i128> for LitValue {
+    fn from(v: i128) -> Self {
+        Self {
+            neg: v < 0,
+            mag: v.unsigned_abs(),
+        }
+    }
+}
+
+impl std::fmt::Display for LitValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.neg {
+            write!(f, "-{}", self.mag)
+        } else {
+            write!(f, "{}", self.mag)
         }
     }
 }

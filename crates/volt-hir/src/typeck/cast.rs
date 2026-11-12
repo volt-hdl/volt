@@ -22,7 +22,62 @@ impl TypeChecker<'_, '_> {
             }
         }
         self.check_cast_legal(src, dst, span);
+        if matches!(self.types.ty(src), Ty::IntLit) {
+            self.warn_literal_cut(inner, dst, span);
+        }
         dst
+    }
+
+    /// ADR-0115 (#207): soneksiz literal dönüşümün hedefine sığmıyorsa
+    /// hedefin alt bitleri kalır; kesme tipli daraltma gibi W2010 ile
+    /// bildirilir, sessiz değildir. Sığma: `uN`/`bits<N>` için
+    /// 0 ≤ K < 2^N, `iN` için -2^(N-1) ≤ K < 2^(N-1).
+    fn warn_literal_cut(&mut self, inner: Idx<Expr>, dst: TypeId, span: Span) {
+        let (width, signed) = if let Ty::UInt { width } | Ty::Bits { width } = *self.types.ty(dst) {
+            (u32::from(width), false)
+        } else if let Ty::SInt { width } = *self.types.ty(dst) {
+            (u32::from(width), true)
+        } else {
+            return;
+        };
+        let Some((neg, mag)) = self.literal_sign_mag(inner) else {
+            return;
+        };
+        let fits = match (signed, width) {
+            (_, 0) => false,
+            (true, w) if w > 128 => true,
+            (true, w) => {
+                let half = 1u128 << (w - 1);
+                if neg {
+                    mag <= half
+                } else {
+                    mag < half
+                }
+            }
+            (false, w) => !neg && (w >= 128 || mag >> w == 0),
+        };
+        if fits {
+            return;
+        }
+        let mask = if width >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << width) - 1
+        };
+        let cut = if neg { mag.wrapping_neg() } else { mag } & mask;
+        let value = if neg {
+            format!("-{mag}")
+        } else {
+            mag.to_string()
+        };
+        let shown = self.show(dst);
+        self.warning(
+            ErrorCode::W2010,
+            span,
+            lstr!(en: "the literal {value} does not fit in {shown}; the cast keeps its low {width} bits (0x{cut:X})"; tr: "{value} literali {shown} tipine sığmıyor; dönüşüm alt {width} bitini tutar (0x{cut:X})"),
+            lstr!(en: "upper bits are cut"; tr: "üst bitler kesilir"),
+            lstr!(en: "write the value that fits (0x{cut:X}) if the cut is intended, or use a wider target"; tr: "kesme bilinçliyse sığan değeri (0x{cut:X}) yazın ya da daha geniş bir hedef kullanın"),
+        );
     }
 
     fn check_cast_legal(&mut self, src: TypeId, dst: TypeId, span: Span) {
@@ -131,7 +186,7 @@ impl TypeChecker<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testutil::{codes, def_ty};
+    use super::super::testutil::{codes, def_ty, diagnostics};
 
     fn module(body: &str) -> String {
         format!(
@@ -158,5 +213,90 @@ mod tests {
     fn trit_widens_to_signed_but_numeric_to_trit_is_forbidden() {
         assert!(codes(&module("    let _i = t as i2")).is_empty());
         assert!(codes(&module("    let _t = a as Trit")).contains(&"E2009"));
+    }
+    /// #207, ADR-0115: soneksiz literal hedefine sığmıyorsa dönüşüm onu
+    /// keser ve W2010 verir (tipli daraltma gibi, §3.6); sığan literal
+    /// sessizdir. Sığma: `uN`/`bits<N>` için 0 ≤ K < 2^N, `iN` için
+    /// -2^(N-1) ≤ K < 2^(N-1).
+    #[test]
+    fn issue_207_a_literal_that_does_not_fit_its_cast_target_warns() {
+        for cut in [
+            "0x1FF as bits<8>",
+            "300 as u8",
+            "(-1) as u8",
+            "(-129) as i8",
+            "128 as i8",
+            "(200 + 100) as u8",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as bits<64>",
+            "0x8000_0000_0000_0000_0000_0000_0000_0000 as bits<127>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {cut}")));
+            assert_eq!(c, ["W2010"], "{cut}: {c:?}");
+        }
+        for fits in [
+            "0xFF as bits<8>",
+            "255 as u8",
+            "(-128) as i8",
+            "127 as i8",
+            "0 as bits<1>",
+            "0x8000_0000_0000_0000_0000_0000_0000_0000 as bits<128>",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as bits<256>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {fits}")));
+            assert!(c.is_empty(), "{fits}: {c:?}");
+        }
+    }
+
+    /// ADR-0115'in iletisi: literal ve kesilmiş değer (hedefin alt bitleri,
+    /// ikiye tümleyen). Bileşik literal ifadesinin işareti değerinden gelir:
+    /// `(1 - 2) as u8` -1'dir, sığmaz; `(2 - 1) as u8` sığar. 128 bitlik
+    /// işaretli hedefte sınır 2^127'dir. Hedefli mutasyon koşusu
+    /// 43196528987'nin kaçanları (maske, işaret, `w > 128`); 128 bitten
+    /// geniş işaretli hedefe her literal sığar, 128 bitlik işaretsiz hedefte
+    /// negatif literal kesilir.
+    #[test]
+    fn issue_207_literal_cut_message_names_the_value_and_the_cut() {
+        for (expr, value, cut) in [
+            ("0x1FF as bits<8>", "511", "0xFF"),
+            ("(200 + 100) as u8", "300", "0x2C"),
+            ("(1 - 2) as u8", "-1", "0xFF"),
+            ("(-129) as i8", "-129", "0x7F"),
+            (
+                "0x3_0000_0000_0000_0000 as u64",
+                "55340232221128654848",
+                "0x0",
+            ),
+            (
+                "(-1) as bits<128>",
+                "-1",
+                "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+            ),
+        ] {
+            let d = diagnostics(&module(&format!("    let _c = {expr}")));
+            let w: Vec<_> = d.iter().filter(|d| d.code.as_str() == "W2010").collect();
+            assert_eq!(w.len(), 1, "{expr}: {d:?}");
+            let want = format!("the literal {value} does not fit");
+            assert!(w[0].message.contains(&want), "{expr}: {}", w[0].message);
+            assert!(
+                w[0].message.contains(&format!("({cut})")),
+                "{expr}: {}",
+                w[0].message
+            );
+        }
+        for fits in [
+            "(2 - 1) as u8",
+            "(1 - 1) as u8",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as sint<200>",
+            "(-0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF) as sint<200>",
+            "0x7FFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as sint<128>",
+            "(-0x8000_0000_0000_0000_0000_0000_0000_0000) as sint<128>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {fits}")));
+            assert!(c.is_empty(), "{fits}: {c:?}");
+        }
+        let c = codes(&module(
+            "    let _c = 0x8000_0000_0000_0000_0000_0000_0000_0000 as sint<128>",
+        ));
+        assert_eq!(c, ["W2010"], "{c:?}");
     }
 }
