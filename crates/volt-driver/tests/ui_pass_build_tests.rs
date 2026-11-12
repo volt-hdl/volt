@@ -105,8 +105,8 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // @no_protocol_check ile de E4007). #205: 150 iki generic modülün iki
     // ayrı modül adı. #249: 151 generic örnek argümanlı, generic olmayan
     // modül argümansız. #250: 152 harf büyüklüğünden fazlasıyla ayrılan
-    // modül adları.
-    assert_eq!((built, check_only), (137, 0));
+    // modül adları. #266: 153 ara sonucu açık genişlikte (W2016 yok).
+    assert_eq!((built, check_only), (138, 0));
 }
 
 #[test]
