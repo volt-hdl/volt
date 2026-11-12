@@ -138,6 +138,10 @@ pub mod tag {
     /// genişlikten (kesişimin üst ucu, §3.3) geniş; işlenen bölmeden önce
     /// kesilir. Derleyicinin W2015'i aynı ifadelerde çıkmalı.
     pub const DIV_CUT: u32 = 1 << 13;
+    /// A14: soneksiz literalin `bits<N>`'e dönüşümü, literal N bite
+    /// sığıyorsa literalin değerini taşır (§3.6 literalin dönüşümünü
+    /// saymaz; derleyici kabul eder, #207). Sığmayan literal üretilmez.
+    pub const LIT_TO_BITS: u32 = 1 << 14;
 }
 
 /// `(etiket, kimlik, açıklama)` — rapor ve ADR için.
@@ -207,6 +211,11 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
         "A13",
         "signed / truncates toward zero and % takes the sign of the dividend at run time",
     ),
+    (
+        tag::LIT_TO_BITS,
+        "A14",
+        "an untyped literal cast to bits<N> keeps its value when it fits in N bits",
+    ),
 ];
 
 pub fn tag_ids(tags: u32) -> String {
@@ -254,6 +263,9 @@ impl Model<'_> {
             Expr::Port(k) => Ok(Typed::new(Ty::of_port(self.ports[*k]), 0)),
             Expr::Name(_, b) => self.synth(b),
             Expr::Lit(v, _) => Ok(Typed::new(Ty::Lit(*v), 0)),
+            // Geniş literal yalnız `bits<N>` dönüşümünün işleneni olarak
+            // tiplidir (`Cast` kolu, A14).
+            Expr::WideLit(..) => Err(Reject::Unspecified("untyped literal expression")),
             Expr::Un(op, x) => {
                 let t = self.synth(x)?;
                 let (ty, tags) = self.unary(*op, t.ty)?;
@@ -316,6 +328,17 @@ impl Model<'_> {
                     Ty::Bool => return Err(Reject::Invalid("?")),
                 }
                 Ok(Typed::new(Ty::Bits(*pw), tb.tags | ts.tags))
+            }
+            Expr::Cast(x, t) if matches!(&**x, Expr::WideLit(..)) => {
+                let Expr::WideLit(v, _) = &**x else {
+                    unreachable!()
+                };
+                match t {
+                    PortTy::Bits(w) if *v <= mask(*w) => {
+                        Ok(Typed::new(Ty::Bits(*w), tag::LIT_TO_BITS))
+                    }
+                    _ => Err(Reject::Unspecified("cast of an untyped literal")),
+                }
             }
             Expr::Cast(x, t) => {
                 let tx = self.synth(x)?;
@@ -669,6 +692,7 @@ impl Model<'_> {
             Expr::Port(k) => Some(inp[*k] & mask(self.ports[*k].width())),
             Expr::Name(_, b) => self.eval(b, inp),
             Expr::Lit(v, _) => Some(*v as u128),
+            Expr::WideLit(v, _) => Some(*v),
             Expr::Un(op, x) => {
                 let t = self.synth(x).ok()?.ty;
                 let v = self.eval(x, inp)?;
@@ -714,6 +738,11 @@ impl Model<'_> {
                     st + 1 - pw128
                 };
                 Some((v >> lo) & mask(*pw))
+            }
+            // A14: sığan geniş literal değerini taşır (sentez sığmayanı
+            // reddeder).
+            Expr::Cast(x, PortTy::Bits(w)) if matches!(&**x, Expr::WideLit(..)) => {
+                self.eval(x, inp).map(|v| v & mask(*w))
             }
             Expr::Cast(x, t) => {
                 let src = self.synth(x).ok()?.ty;

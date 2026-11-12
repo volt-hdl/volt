@@ -516,7 +516,7 @@ impl Gen<'_> {
     /// Geçerli olması amaçlanan üst düzey ifade: iç içelik 1–5.
     pub fn expr(&mut self) -> Expr {
         let d = self.rng.range(1, 5);
-        match self.rng.weighted(&[55, 15, 30]) {
+        match self.rng.weighted(&[55, 15, 30, 6]) {
             0 => {
                 let s = self.rng.chance(40);
                 let w = self.width();
@@ -526,8 +526,82 @@ impl Gen<'_> {
                 let w = self.rng.range(1, MAX_BITS);
                 self.bits(w, d)
             }
-            _ => self.boolean(d),
+            2 => self.boolean(d),
+            _ => self.wide_root(d),
         }
+    }
+
+    /// 128 bite kadar geniş değer (#207): ifadenin kendisi, iki geniş
+    /// değerin `==`/`!=`'i ya da 64 bite kadar bir dilimi. Genişlik çoğu
+    /// zaman 2^127'yi taşıyan 128, bazen 65–127.
+    fn wide_root(&mut self, d: u32) -> Expr {
+        let w = if self.rng.chance(60) {
+            128
+        } else {
+            self.rng.range(MAX_INT + 1, 127)
+        };
+        let x = self.wide(w, d);
+        match self.rng.weighted(&[40, 35, 25]) {
+            0 => x,
+            1 => {
+                let sd = self.sub_depth(d);
+                let y = self.wide(w, sd);
+                let op = self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
+                Expr::bin(op, x, y)
+            }
+            _ => {
+                let h = self.rng.range(0, w - 1);
+                let l = self.rng.range(h.saturating_sub(MAX_INT - 1), h);
+                Expr::Range(Box::new(x), h, l)
+            }
+        }
+    }
+
+    /// `bits<w>` (64 < w <= 128): giriş portu, geniş literalin dönüşümü
+    /// ve bit işlemleri. Seçim yok: `bits_select`'in tabanı `MAX_BITS`'le
+    /// sınırlıdır.
+    pub fn wide(&mut self, w: u32, d: u32) -> Expr {
+        if d == 0 {
+            return if self.rng.chance(45) {
+                self.leaf(PortTy::Bits(w))
+            } else {
+                self.wide_lit(w)
+            };
+        }
+        match self.rng.weighted(&[45, 10, 45]) {
+            0 => {
+                let op = self.rng.pick(&[BinOp::And, BinOp::Or, BinOp::Xor]);
+                let x = self.wide(w, d - 1);
+                let sd = self.sub_depth(d);
+                let y = self.wide(w, sd);
+                Expr::bin(op, x, y)
+            }
+            1 => Expr::un(UnOp::BitNot, self.wide(w, d - 1)),
+            _ => self.wide(w, 0),
+        }
+    }
+
+    /// `K as bits<w>`, K < 2^w (A14): çoğu zaman sınır değeri (2^127,
+    /// 2^127 + 1, 2^128 - 1, 2^(w-1), 2^w - 1), bazen rastgele.
+    fn wide_lit(&mut self, w: u32) -> Expr {
+        let top = mask(w);
+        let edges = [
+            1u128 << 127,
+            (1u128 << 127) + 1,
+            u128::MAX,
+            1u128 << (w - 1),
+            top,
+            top - 1,
+        ];
+        let v = match self.rng.weighted(&[70, 30]) {
+            0 => {
+                let fitting: Vec<u128> = edges.into_iter().filter(|&v| v <= top).collect();
+                fitting[self.rng.below(fitting.len() as u64) as usize]
+            }
+            _ => self.rng.bits(w),
+        };
+        let fmt = self.rng.pick(&[LitFmt::Dec, LitFmt::Hex, LitFmt::Bin]);
+        Expr::cast(Expr::WideLit(v, fmt), PortTy::Bits(w))
     }
 
     /// Spesifikasyona göre hatalı olması amaçlanan ifade.
@@ -661,6 +735,33 @@ mod tests {
         }
         assert!(valid > 450, "{valid}/500 geçerli");
         assert!(deep > 100, "{deep}/500 derin");
+    }
+
+    /// #207: geniş kök (128 bite kadar) modelce geçerlidir ve köklerin
+    /// çoğu 2^127 ya da üstünde bir literal taşır; i128'e sığmayan değer
+    /// üreticinin doyurduğu yoldur.
+    #[test]
+    fn wide_roots_are_valid_and_carry_literals_from_two_pow_127() {
+        fn has_big(e: &Expr) -> bool {
+            matches!(e, Expr::WideLit(v, _) if *v >= 1u128 << 127)
+                || e.children().into_iter().any(has_big)
+        }
+        let mut rng = Rng::new(207);
+        let mut pool = Pool::default();
+        let mut big = 0;
+        for _ in 0..200 {
+            let e = Gen {
+                rng: &mut rng,
+                pool: &mut pool,
+            }
+            .wide_root(3);
+            let t = (Model { ports: &pool.ports }).synth(&e);
+            assert!(t.is_ok(), "{e:?}: {t:?}");
+            if has_big(&e) {
+                big += 1;
+            }
+        }
+        assert!(big > 80, "{big}/200 kökte 2^127 ya da üstü");
     }
 
     /// #144: literal aritmetiği ağacının değeri istenen aralıkta; ağaçların

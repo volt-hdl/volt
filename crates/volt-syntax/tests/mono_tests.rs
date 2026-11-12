@@ -964,3 +964,54 @@ fn issue_250_mmio_pair_with_two_driver_stems_is_e1003() {
     assert_eq!(r.error_codes(), ["E1003"]);
     assert_eq!(primary_start(&r), at(&src, "abc {"));
 }
+
+/// #207: generic argüman literal olarak, değeriyle ikame edilir; 2^127 ve
+/// üstü `i128::MAX`'e doyurulmaz. Düzeltmeden önce 2^127 + 1 klonda
+/// 2^127 - 1 oluyordu. (Argümanın parametre tipine sığması ayrı bir
+/// denetimdir, #262; burada yalnız ikamenin değeri.)
+#[test]
+fn issue_207_wide_generic_argument_is_substituted_with_its_value() {
+    let src = r#"
+module G<const K: u64> {
+    out o : bits<128>
+    o = K as bits<128>
+}
+module Top {
+    out a : bits<128>
+    out b : bits<128>
+    let g = G<0x8000_0000_0000_0000_0000_0000_0000_0001> { }
+    let h = G<0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF> { }
+    a = g.o
+    b = h.o
+}
+"#;
+    let r = p(src);
+    assert!(r.diagnostics.is_empty(), "{:?}", r.error_codes());
+    let substituted = |name: &str| {
+        let m = module(&r.ast, name);
+        let assign = m
+            .body
+            .iter()
+            .find_map(|&s| match &r.ast.stmts[s].kind {
+                StmtKind::Assign(a) => Some(a),
+                _ => None,
+            })
+            .expect("atama");
+        let ExprKind::Cast { expr, .. } = &r.ast.exprs[assign.rhs].kind else {
+            panic!("K as bits<128> bekleniyor")
+        };
+        int_value(&r.ast, *expr)
+    };
+    let names = module_names(&r.ast);
+    let g = names
+        .iter()
+        .find(|n| n.contains("170141183460469231731687303715884105729"));
+    let h = names
+        .iter()
+        .find(|n| n.contains("340282366920938463463374607431768211455"));
+    let (Some(g), Some(h)) = (g, h) else {
+        panic!("klon adları argümanın değerini taşımalı: {names:?}")
+    };
+    assert_eq!(substituted(g), Some((1u128 << 127) + 1));
+    assert_eq!(substituted(h), Some(u128::MAX));
+}

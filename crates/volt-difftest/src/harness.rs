@@ -181,8 +181,10 @@ impl Case {
             .filter(|p| !p.is_empty())
             .filter(|p| {
                 let n = case.expr.at(p);
-                !matches!(n, Expr::Port(_) | Expr::Lit(..) | Expr::Name(..))
-                    && model.synth(n).is_ok_and(|t| t.ty.natural().is_some())
+                !matches!(
+                    n,
+                    Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..) | Expr::Name(..)
+                ) && model.synth(n).is_ok_and(|t| t.ty.natural().is_some())
             })
             .collect();
         if !inner.is_empty() {
@@ -963,7 +965,7 @@ fn shape_into(e: &Expr, ports: &[PortTy], s: &mut String) {
     match e {
         Expr::Port(k) => s.push_str(&ports[*k].volt()),
         Expr::Name(_, b) => shape_into(b, ports, s),
-        Expr::Lit(..) => s.push('K'),
+        Expr::Lit(..) | Expr::WideLit(..) => s.push('K'),
         Expr::Bin(op, a, b) => {
             s.push('(');
             shape_into(a, ports, s);

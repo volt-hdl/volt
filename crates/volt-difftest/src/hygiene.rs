@@ -289,7 +289,7 @@ fn lift(e: &mut Expr, id: usize, consts: &mut Vec<(String, i128)>) {
                 lift(x, id, consts);
             }
         }
-        Expr::Port(_) | Expr::Lit(..) => {}
+        Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..) => {}
     }
 }
 
@@ -328,7 +328,7 @@ fn rename_in(e: &mut Expr, from: &str, to: &str) {
                 rename_in(x, from, to);
             }
         }
-        Expr::Port(_) | Expr::Lit(..) => {}
+        Expr::Port(_) | Expr::Lit(..) | Expr::WideLit(..) => {}
     }
 }
 
