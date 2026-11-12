@@ -23,7 +23,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   i128'in en küçük değerine sarılıyor, derleme zamanı başka bir değer
   görüyordu (`(2^128 - 1) / (2^64 + 1)` 0 çıkıyordu). -2^127 ise i128'in
   aralığındadır, artık E2022 vermez. 128 bitten geniş literal önceden de
-  E0005'ti, öyle kalır.
+  E0005'ti, öyle kalır. 128 bitten geniş işaretli bağlamdaki literal
+  (`-(a * b) > -2^127`, a, b : i64, i129 bağlam) 0.1.1'in hata ayıklama
+  derlemesinde derleyiciyi çökertiyordu (`attempt to shift left with
+  overflow`); artık doğru yazılır.
 - **Davranış değişikliği.** Generic bir modülün generic argümansız
   örneği artık E2003 verir (#249; sessiz yanlış düzeltmesi). Generic
   parametrelerin varsayılan değeri yoktur; `let q = M_1 { x: x }` (şablon
