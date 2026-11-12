@@ -181,7 +181,7 @@ END {
         if (!(n in file)) continue
         if (statuses[n] != 1) { print "ADR-" n " başlık bloğunda tam olarak bir Statü satırı yok (kontrol 9)"; continue }
         v = value(status[n])
-        if (v !~ /^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|(Kısmen yerini aldı|Yerini aldı): ADR-[0-9][0-9][0-9][0-9](, ADR-[0-9][0-9][0-9][0-9])*)$/ \
+        if (v !~ /^(Uygulandı|Kabul edildi|Rezerve|Reddedildi|Önerildi|(Kısmen yerini aldı|Yerini aldı): ADR-[0-9][0-9][0-9][0-9](, ADR-[0-9][0-9][0-9][0-9])*)$/ \
             || status[n] ~ / — $/)
             print "ADR-" n " Statü değeri durum sözlüğünde değil: \047" status[n] "\047 (kontrol 9)"
         if (v ~ /^(Kısmen yerini aldı|Yerini aldı): /) {

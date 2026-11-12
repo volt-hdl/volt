@@ -146,6 +146,22 @@ impl TypeChecker<'_, '_> {
         expected: TypeId,
         span: Span,
     ) {
+        // W2016 (ADR-0116): `+ - *`'nın sonucu somut uN/iN hedefe girer;
+        // hedef sonucun yalnız alt `width` bitini tutar (atanabilirlik
+        // `width`'i aralığın içinde ister). İşlenen zincirinin kesmesi ancak
+        // işlem genişliği bundan darsa değeri değiştirir. Bölme ve kalan
+        // işlenenin tam değerini okur.
+        let outer = (self.arith_demand, self.arith_chain);
+        self.arith_chain = None;
+        self.arith_demand = match self.types.int_range(expected) {
+            Some((_, _, width))
+                if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul)
+                    && matches!(self.types.ty(expected), Ty::UInt { .. } | Ty::SInt { .. }) =>
+            {
+                Some(width)
+            }
+            _ => None,
+        };
         let lt = self.synth(lhs);
         let rt = self.synth(rhs);
         let actual = if self.widen_operands(lhs, rhs, lt, rt, expected) {
@@ -156,6 +172,7 @@ impl TypeChecker<'_, '_> {
         } else {
             self.arith_of(op, lhs, rhs, lt, rt, span)
         };
+        (self.arith_demand, self.arith_chain) = outer;
         self.expr_types.insert(expr, actual);
         if actual != expected {
             self.expect_assignable(actual, expected, span);

@@ -38,7 +38,7 @@ numaralara atıf yapan dosya, commit ya da CHANGELOG girdisi yoktur.
 ## Durum sözlüğü ve başlık bloğu
 
 Her ADR'nin başlık bloğunda (başlıktan sonraki `>` satırları) tam olarak
-bir **Statü** satırı bulunur. Değer şu altı sözcükten biridir; ardından
+bir **Statü** satırı bulunur. Değer şu yedi sözcükten biridir; ardından
 isteğe bağlı olarak ` — ` ve serbest açıklama gelir.
 
 | Durum | Anlamı |
@@ -49,6 +49,7 @@ isteğe bağlı olarak ` — ` ve serbest açıklama gelir.
 | Kısmen yerini aldı: ADR-X | Kararın bir bölümünü sonraki ADR-X değiştirdi; açıklama hangi bölüm olduğunu söyler, kalanı yürürlükte. |
 | Yerini aldı: ADR-X | Kararın tamamı ADR-X ile değişti; metin yalnız tarih kaydıdır. |
 | Reddedildi | Önerilip kabul edilmeyen karar (bugün bu durumda ADR yok). |
+| Önerildi | Bakımcının onayını bekleyen karar: yazıldı, uygulaması bir PR'da olabilir; bakımcı onaylayınca statü `Uygulandı` ya da `Kabul edildi`, onaylamazsa `Reddedildi` olur. |
 
 Bağlantı satırları, her biri tek satır:
 
@@ -113,6 +114,7 @@ denetler.
 | [0025](ADR-0025-esnek-genislik-ve-w2013.md) | Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013 | Aritmetik sonuç genişliği esnek bir aralıktır; gereksiz genişleme W2013 ile uyarılır. | Kısmen yerini aldı: ADR-0106 |
 | [0106](ADR-0106-farkli-genislikte-karsilastirma.md) | Farklı Genişlikte Aritmetik Karşılaştırma Hatadır (E2031); Bileşik Değerden Seçim Boyut Dönüşümüne İner | Doğal genişlikleri farklı iki değişkenin karşılaştırması E2031'dir (sabit sığıyorsa istisna); öneri her yerde `as`: sarma `(ifade)[N-1:0] as uN`, taşmayı tutma `(dar as uM)`. Kabul edilen karşılaştırma doğal genişlikte; `(a + 1)[3:0]` ve `(a + b)[i +: 4]` geçerli SV'ye (`4'(...)`) iner. | Uygulandı |
 | [0112](ADR-0112-bolme-isleneni-kesilme-uyarisi.md) | Bölmenin İşleneni Bölmeden Önce Kesiliyor — Geçici Uyarı W2015 (#150) | `/` ya da `%`'nin işleneni bölmenin yapıldığı genişlikten (esnek aralıkların kesişimi) genişse W2015: kesiliyor, kural v0.2.0'da değişecek, genişliği açık yazın. Reddetmez, SV değişmez; fark testi uyarının ifadelerini modelinkilerle karşılaştırır. | Uygulandı |
+| [0116](ADR-0116-aritmetik-isleneni-kesilme-uyarisi.md) | Aritmetik İşlenen İşlemden Önce Kesiliyor — Geçici Uyarı W2016 (#266) | `+`, `-` ya da `*`'nın işleneni işlemin yapıldığı genişlikten (kesişimin üst ucu + 1, `*` için iki katı) genişse ve kesme okunan değeri değiştirebiliyorsa uyarı; bildirilmiş genişliğe atanan, değeri işlem genişliğine sığan ve W2015'li bölmenin ya da daraltan `as`'ın okuduğu sonuç uyarı almaz. Kural değişmez, SV değişmez; v0.2.0'da işlenen doğal genişliğinde kalır (#266). | Önerildi |
 | [0031](ADR-0031-keyfi-bit-genisligi.md) | Keyfi Bit Genişlikli Tamsayı Tipleri (u1..u64 / i1..i64) | `u1..u64` / `i1..i64` keyfi genişlikli tamsayı tipleri desteklenir. | Uygulandı |
 | [0035](ADR-0035-degisken-indeksleme.md) | Değişken Dizi İndeksi ve Indexed Part-Select | Değişken dizi indeksi ve `+:` / `-:` indexed part-select desteklenir. | Uygulandı |
 | [0036](ADR-0036-isaretli-kaydirma-ve-cast.md) | İşaretli Kaydırma (`>>>`) ve `$signed`/`$unsigned` Üretimi | `>>>` işaretli kaydırma ve işaret dönüşümleri SV'de `$signed` / `$unsigned` ile üretilir. | Kısmen yerini aldı: ADR-0108 |

@@ -1,7 +1,7 @@
 # ADR-0112: Bölmenin İşleneni Bölmeden Önce Kesiliyor — Geçici Uyarı W2015 (#150)
 
 > Statü: Uygulandı — geçici: #150'nin kararıyla (v0.2.0) kalkar ya da yeni kurala göre değişir
-> İlgili: ADR-0025 (`/` ve `%` esnek aralıkların kesişiminde; kesişimden geniş işlenen kesilir), ADR-0108 (fark testi: uyarının ifadeleri modelin kesilen işlenenleriyle aynı)
+> İlgili: ADR-0025 (`/` ve `%` esnek aralıkların kesişiminde; kesişimden geniş işlenen kesilir), ADR-0108 (fark testi: uyarının ifadeleri modelin kesilen işlenenleriyle aynı), ADR-0116 (`+ - *` için aynı biçimde geçici uyarı W2016; W2015'li bölmenin okuduğu zincirde W2016 geri alınır)
 > Tarih: 2026-11-08
 > Etkilenen: `crates/volt-hir/src/typeck/binop.rs`
 > (`warn_cut_division_operands`), `crates/volt-diagnostics` (`W2015`: kod,
