@@ -150,4 +150,36 @@ mod tests {
         assert!(codes(&module("    let _i = t as i2")).is_empty());
         assert!(codes(&module("    let _t = a as Trit")).contains(&"E2009"));
     }
+    /// #207, ADR-0115: soneksiz literal hedefine sığmıyorsa dönüşüm onu
+    /// keser ve W2010 verir (tipli daraltma gibi, §3.6); sığan literal
+    /// sessizdir. Sığma: `uN`/`bits<N>` için 0 ≤ K < 2^N, `iN` için
+    /// -2^(N-1) ≤ K < 2^(N-1).
+    #[test]
+    fn issue_207_a_literal_that_does_not_fit_its_cast_target_warns() {
+        for cut in [
+            "0x1FF as bits<8>",
+            "300 as u8",
+            "(-1) as u8",
+            "(-129) as i8",
+            "128 as i8",
+            "(200 + 100) as u8",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as bits<64>",
+            "0x8000_0000_0000_0000_0000_0000_0000_0000 as bits<127>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {cut}")));
+            assert_eq!(c, ["W2010"], "{cut}: {c:?}");
+        }
+        for fits in [
+            "0xFF as bits<8>",
+            "255 as u8",
+            "(-128) as i8",
+            "127 as i8",
+            "0 as bits<1>",
+            "0x8000_0000_0000_0000_0000_0000_0000_0000 as bits<128>",
+            "0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF as bits<256>",
+        ] {
+            let c = codes(&module(&format!("    let _c = {fits}")));
+            assert!(c.is_empty(), "{fits}: {c:?}");
+        }
+    }
 }

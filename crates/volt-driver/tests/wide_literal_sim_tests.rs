@@ -428,15 +428,17 @@ module ConstWrap {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da) ve `275` (E2022, const'ta
-/// i128 dışı literal): her biri tam kendi kodunu, beklenen satırda ve tek
-/// hata olarak verir. Araç gerektirmez.
+/// `tests/ui/fail/274` (E0005, 2^128 `bits<256>`'da), `275` (E2022, const'ta
+/// i128 dışı literal) ve `276` (W2010, sığmayan literalin dönüşümü,
+/// ADR-0115): her biri tam kendi kodunu, beklenen satırda ve tek tanı
+/// olarak verir. Araç gerektirmez.
 #[test]
 fn issue_207_ui_fail_fixtures_report_their_code() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/ui/fail");
     for (name, code, line) in [
         ("274_literal_wider_than_128_bits.volt", "E0005", 7),
         ("275_const_literal_beyond_i128.volt", "E2022", 5),
+        ("276_literal_cast_cuts_w2010.volt", "W2010", 7),
     ] {
         let src = std::fs::read_to_string(root.join(name)).expect("fikstür");
         assert!(src.starts_with(&format!("//~ {code}")), "{name}");
@@ -454,9 +456,25 @@ fn issue_207_ui_fail_fixtures_report_their_code() {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        assert!(!out.status.success(), "{name}: {text}");
-        assert_eq!(text.matches("error[").count(), 1, "{name}: {text}");
-        assert!(text.contains(&format!("error[{code}]")), "{name}: {text}");
+        // Uyarı fikstürü derlenir, tek tanısı uyarıdır; hata fikstürü
+        // tek hatayla durur.
+        let (kind, ok) = if code.starts_with('W') {
+            ("warning", true)
+        } else {
+            ("error", false)
+        };
+        assert_eq!(out.status.success(), ok, "{name}: {text}");
+        assert_eq!(
+            text.matches("error[").count(),
+            usize::from(!ok),
+            "{name}: {text}"
+        );
+        assert_eq!(
+            text.matches(&format!("{kind}[")).count(),
+            1,
+            "{name}: {text}"
+        );
+        assert!(text.contains(&format!("{kind}[{code}]")), "{name}: {text}");
         assert!(
             text.contains(&format!("case.volt:{line}:")),
             "{name}: {text}"
