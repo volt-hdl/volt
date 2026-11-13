@@ -162,7 +162,7 @@ domain key gets `W0020` "unknown domain key: 'mhz'" followed by `E0001`.
 Write `100.mhz`. Tracked in
 [issue #223](https://github.com/volt-hdl/volt/issues/223).
 
-**An incomplete assignment in a `comb` block infers a latch.**
+<a id="comb-latch"></a>**An incomplete assignment in a `comb` block infers a latch.**
 `comb { if c { y = 1 } else { if d { y = 2 } } }` compiles, and the
 generated `always_comb` keeps the old `y` when `c` and `d` are both false
 (Verilator reports `LATCH`). A `wire` that is read and never driven
@@ -189,8 +189,11 @@ the SDC file for any two registers, also for a real one-cycle path, and
 the timing tool then leaves that path untimed. `volt explain E6003` and
 `E6004` say that Volt proves these attributes; it does not, and the two
 codes are never reported. Treat both attributes as your own claim. On a
-struct port, `@false_path in cfg : Cfg` writes no constraint at all;
-declare such inputs as plain ports. Tracked in
+port whose type is a `struct` or a `struct port`, neither attribute
+constrains anything: `@false_path in cfg : Cfg` writes
+`get_ports cfg`, which matches none of the generated ports (`cfg_a`,
+`cfg_b`), or no line at all for a `struct port`. Declare such inputs as
+plain ports. Tracked in
 [issue #226](https://github.com/volt-hdl/volt/issues/226),
 [issue #231](https://github.com/volt-hdl/volt/issues/231) and
 [issue #229](https://github.com/volt-hdl/volt/issues/229).
