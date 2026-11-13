@@ -2,7 +2,7 @@
   "name": "volt-hdl",
   "displayName": "Volt HDL",
   "description": "Volt HDL language support: syntax highlighting, diagnostics, quick fixes, inlay hints, hover, completion (via volt lsp)",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "volthdl",
   "license": "(MIT OR Apache-2.0)",
   "repository": {

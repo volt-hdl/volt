@@ -5,41 +5,47 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.2] - 2026-11-13
 
 ### Behavior changes
 
-- **Davranış değişikliği.** 2^127 ve üstündeki tam sayı literalleri artık
+- **Davranış değişikliği.** 2¹²⁷ ve üstündeki tam sayı literalleri artık
   değerleriyle yazılır (#207; sessiz yanlış düzeltmesi). 0.1.1'de
   üretici literali `i128`'e çevirirken sığmayanı `i128::MAX`'e
-  doyuruyordu: `0x8000_…_0001 as bits<128>` gibi 2^127 ile 2^128 - 1
+  doyuruyordu: `0x8000_…_0001 as bits<128>` gibi 2¹²⁷ ile 2¹²⁸ - 1
   arasındaki her literal (reset değeri, maske, karşılaştırma; `bits<256>`
   bağlamında da) `128'h7FFF…FFFF` olarak yazılıyordu. Değişen çıktı
-  yalnız bu yanlış derlenen literallerdir; 2^127'nin altındaki
+  yalnız bu yanlış derlenen literallerdir; 2¹²⁷'nin altındaki
   literallerin yazımı aynı kalır. Aynı doyurma generic argümanda da vardı
-  (`M<2^127 + 1>` gövdede 2^127 - 1 oluyordu), kalktı. Sabit
+  (`const K: uint<128>` parametreli `G`'nin
+  `G<0x8000_0000_0000_0000_0000_0000_0000_0001>` örneği, yani 2¹²⁷ + 1,
+  gövdede 2¹²⁷ - 1 oluyordu), kalktı. Sabit
   değerlendirici de literali artık sarmaz: `const` ifadesinde i128'e
-  sığmayan literal (2^127 ve üstü) E2022'dir; önceden -1'e ya da
+  sığmayan literal (2¹²⁷ ve üstü) E2022'dir; önceden -1'e ya da
   i128'in en küçük değerine sarılıyor, derleme zamanı başka bir değer
-  görüyordu (`(2^128 - 1) / (2^64 + 1)` 0 çıkıyordu). -2^127 ise i128'in
-  aralığındadır, artık E2022 vermez. 128 bitten geniş literal önceden de
-  E0005'ti, öyle kalır. 128 bitten geniş işaretli bağlamdaki literal
-  (`-(a * b) > -2^127`, a, b : i64, i129 bağlam) 0.1.1'in hata ayıklama
-  derlemesinde derleyiciyi çökertiyordu (`attempt to shift left with
-  overflow`); artık doğru yazılır.
+  görüyordu: `const K : u64 = 0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF /
+  0x1_0000_0000_0000_0001` (2¹²⁸ - 1 bölü 2⁶⁴ + 1) derleme zamanında 0
+  çıkıyor, `volt build` nedenini söylemeyen bir E0003 ile duruyordu.
+  -2¹²⁷ ise i128'in aralığındadır, artık E2022 vermez; onu kullanan
+  sabit SV'ye yazıldığı yerde E0003 almaya devam eder. 128 bitten geniş
+  literal önceden de E0005'ti, öyle kalır. 128 bitten geniş işaretli bağlamdaki literal
+  (`-(a * b) > -0x8000_0000_0000_0000_0000_0000_0000_0000`, yani -2¹²⁷;
+  a, b : i64, i129 bağlam) 0.1.1'de -(2¹²⁷ - 1) olarak yazılıyor, hata
+  ayıklama derlemesinde derleyiciyi çökertiyordu (`attempt to shift left
+  with overflow`); artık doğru yazılır.
 - **Davranış değişikliği.** Beklenen tipine sığmayan negatif literal
   artık E2010 verir (#213; sessiz yanlış düzeltmesi). `-<literal>` çıplak
   literal gibi denetlenir: 0.1.1'de `b : i8 = -129` `8'sh7F` (+127),
   `i < -500` (`i : i8`) `i < 12`, `reg r : i8 = -200` +56, `const K : i4 =
   -9` +7, `i + -300` `i - 44`, `a : u8 = -1` 255 olarak, `match`'te
-  `-5 =>` (`i3`) `i == 3` olarak derleniyordu. -2^127 i128'in en küçük
+  `-5 =>` (`i3`) `i == 3` olarak derleniyordu. -2¹²⁷ i128'in en küçük
   değeridir, i64'e sığmaz: E2010. Sığan negatif literallerin çıktısı
   değişmez.
 - **Davranış değişikliği.** 127 bit ve üstü bağlamda da literal
   ifadesi beklenen tipe sığmalıdır, sığmazsa E2010 (#272; sessiz yanlış
   düzeltmesi). 0.1.1'de bu genişliklerde aralık denetimi yoktu:
   `a * b == -1` (a, b : u64, u128 bağlam) hatasız derleniyor, `-128'd1`
-  yani 2^128 - 1 ile karşılaştırıyordu.
+  yani 2¹²⁸ - 1 ile karşılaştırıyordu.
 - **Davranış değişikliği.** Const generic argüman parametrenin tipine
   sığmalıdır, sığmazsa E2010 (#262; sessiz yanlış düzeltmesi). 0.1.1'de
   `G<0xFFFF_FFFF_FFFF_FFFF_FFFF>` (`const K: u64`) kabul ediliyor, donanım
@@ -106,8 +112,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   düşüyordu. Dosyanın son deyimindeki bir uyarı `@mmio` desugar'ının
   bütün hatalarını yutuyor, geçersiz register'lar RTL'den ve sürücülerden
   kayboluyordu; pipeline'ın son deyimindeki bir uyarı geçersiz bir
-  `stall`'ın E5013'ünü yutuyor, stall mantığı hiç üretilmiyordu. Bu
-  kaynaklar artık hatanın kendi koduyla reddedilir (E0001, E0015, E5013
+  `stall`'ın E5013'ünü yutuyor, stall mantığı hiç üretilmiyordu. Alan
+  tanımındaki `frequency = 100mhz` (doğru yazımı `100.mhz`) W0020
+  "unknown domain key: 'mhz'" ile kabul ediliyor, frekans 100 Hz
+  okunuyor ve SDC'ye `create_clock -period 10000000.000` yazılıyordu
+  (#223); artık W0020'nin ardından E0001 alır. Bu kaynaklar artık hatanın kendi koduyla reddedilir (E0001, E0015, E5013
   ...). Aynı `@mmio` modülündeki ya da aynı pipeline'daki birden çok
   desugar hatası artık hepsi raporlanır; önce ilki görünüyor, gerisi
   yutuluyordu. Hatasız kaynakların ürettiği SystemVerilog değişmez.
@@ -133,14 +142,14 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   alandan gelen girişleri aynı çıkışta birleştirirse E3001 örneğin
   olduğu yerde verilir, çıkış okunmasa da. Öneri çıkışı önce adlandırır:
   `let p_y_raw = p.y` + `sync(p_y_raw, <saat>)`.
-- **Davranış değişikliği.** Saatsiz `extern` için şartname değişti:
+- **Davranış değişikliği.** Saatsiz `extern` için şartname değişti (#189):
   domain-inference.md K8a bu durumu izinliyordu (saatsiz extern portları
   `Timeless`); güvenlik nedeniyle artık gövdesi görünmeyen saatsiz
   extern'in anotasyonsuz her çıkışı her girişine bağlı sayılır
   (en kötü durum, ADR-0114 K4). Bağımsız yolları farklı alanlarda olan
   bir extern'in portlarına `@Alan` anotasyonu yazılır.
 - **Davranış değişikliği.** Saatsiz bir `extern`'in bağımsız yolları
-  farklı alanlardan beslenirse artık E3001 verilir: 0.1.1'de saatsiz
+  farklı alanlardan beslenirse artık E3001 verilir (#189): 0.1.1'de saatsiz
   extern'in portları `Timeless` sayıldığı için `Bank { a1: fast_in, a2:
   slow_in }` hatasız derleniyordu; şimdi anotasyonsuz her çıkış iki
   girişe de bağlı sayılır ve iki alan aynı çıkışta birleşir (ADR-0114
@@ -150,7 +159,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   anotasyonlu girişe bağlanan değer denetlenir.
 - **Davranış değişikliği.** Saatsiz bir Volt modülünün `@Alan` anotasyonlu
   çıkışına bağlı olduğu girişten başka bir alanın değeri ulaşırsa artık
-  örneğin olduğu yerde E3001 verilir (ADR-0114 K8; sessiz yanlış
+  örneğin olduğu yerde E3001 verilir (#189, ADR-0114 K8; sessiz yanlış
   düzeltmesi): `out y : bool @Fast` ile `y = a` yazılan saatsiz `P`'nin
   `P { a: slow_flag }` örneği 0.1.1'de hatasız derlenip `@Slow` değeri
   senkronizörsüz `@Fast` tarafa taşıyordu. Denetim deyim sırasına bağlı
@@ -187,7 +196,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   == -1048576` (a, b : i32) içinde `a * b`: "this operand of '-' is cut
   to 33 bits before the operation (its natural width is 64); the rule
   changes in v0.2.0 (#266)". Bugün bu ifade 33 bitte hesaplanır ve a = b
-  = 2^20 için yanlış sonuç verir. Uyarı reddetmez; kural ve üretilen SV
+  = 2²⁰ için yanlış sonuç verir. Uyarı reddetmez; kural ve üretilen SV
   değişmez; bu işlemlerin değeri v0.2.0'da değişir. Yardım satırı ara
   sonucu genişliği açık bir `let`'e almayı gösterir (`let d : i64 = a *
   b - a`); i64/u64 çarpımında henüz yeterince geniş tip yoktur ve yardım
@@ -223,8 +232,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   olmadığını söyleyen yardım), bölme ve dönüşüm ikizlerini (W2015 ya da
   W2010 ile aynı yerde çift uyarı yok), atanan ve itilen sonuçları ve
   depodaki her `.volt` dosyasını (W2016 yok) denetler; Verilator davranış
-  testi uyarılı biçimin bugünkü kuralın değerini (a = b = 2^20 için
-  -2^20), `let`'li biçimin gerçek değeri (2^40 - 2^20) verdiğini gösterir.
+  testi uyarılı biçimin bugünkü kuralın değerini (a = b = 2²⁰ için
+  -2²⁰), `let`'li biçimin gerçek değeri (2⁴⁰ - 2²⁰) verdiğini gösterir.
   `arith_cut_property_tests` susturma kuralının sağlamlığını rastgele
   sınar: derleyiciden bağımsız bir model, uyarının çıkmadığı her programda
   kesilmiş ve kesilmemiş işlenenle hesabın aynı sonucu verdiğini, uyarı

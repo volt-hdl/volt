@@ -124,9 +124,15 @@ value while `rst` is high.
 A `reg` with its `on` block becomes one `always_ff` with the reset branch
 generated from the initial value; there is no separate reset code to keep
 in sync. `<=` is allowed inside an `on` block and nowhere else, and `=`
-outside it: writing `o = r` inside `on clk` is error `E0006`. There is no
-`always_comb` and no `always @*`, so there are no inferred latches. Unlike
+outside it: writing `o = r` inside `on clk` is error `E0006`. Unlike
 Verilog's `reg` keyword, a Volt `reg` is always a flip-flop.
+
+Volt does not yet check that combinational logic assigns every output on
+every path: an incomplete assignment in a `comb` block compiles, and the
+`always_comb` it becomes infers a latch (see
+[Known limitations](../limitations.md#comb-latch)). This counter infers
+no latch, because `count` is assigned on every path, by the `assign`
+above.
 
 </div>
 

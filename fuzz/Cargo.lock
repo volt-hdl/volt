@@ -266,14 +266,14 @@ checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "volt-ast"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-span",
 ]
 
 [[package]]
 name = "volt-diagnostics"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "codespan-reporting",
  "serde",
@@ -283,11 +283,11 @@ dependencies = [
 
 [[package]]
 name = "volt-span"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "volt-syntax"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "logos",
  "volt-ast",

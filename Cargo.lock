@@ -1245,14 +1245,14 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "volt-ast"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-span",
 ]
 
 [[package]]
 name = "volt-diagnostics"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "codespan-reporting",
  "serde",
@@ -1262,11 +1262,11 @@ dependencies = [
 
 [[package]]
 name = "volt-difftest"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "volt-driver"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anstyle-query",
  "clap",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "volt-hir"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-ast",
  "volt-diagnostics",
@@ -1298,14 +1298,14 @@ dependencies = [
 
 [[package]]
 name = "volt-lower"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-hir",
 ]
 
 [[package]]
 name = "volt-lsp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "tokio",
  "tower-lsp",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "volt-sdc-emit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-ast",
  "volt-hir",
@@ -1329,11 +1329,11 @@ dependencies = [
 
 [[package]]
 name = "volt-span"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "volt-sv-emit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "volt-ast",
  "volt-diagnostics",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "volt-sw-emit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde_json",
  "volt-ast",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "volt-syntax"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion",
  "logos",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "volt-tools"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "walkdir"

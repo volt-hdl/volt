@@ -26,8 +26,18 @@ verification.
 
 These are bugs, not design limits: each one has an issue and is planned
 for a fix. Until then, the workaround after each one avoids it. The
-division bug ([#150](https://github.com/volt-hdl/volt/issues/150)) is
-under [Language](#language) below.
+division bug ([#150](https://github.com/volt-hdl/volt/issues/150)) and
+the cut operand of `+`, `-` and `*`
+([#266](https://github.com/volt-hdl/volt/issues/266)) are under
+[Language](#language) below.
+
+**`volt build` follows links out of the project.** When `build/`, or a
+file in it, is a symbolic link, `volt build` writes through the link. A
+cloned repository can carry such a link, so building it can overwrite a
+file anywhere you can write; on Windows a directory junction in place of
+`build/` does the same. Do not build a repository you do not trust;
+before building one, check that `build/` and the files in it are not
+links. Tracked in [issue #221](https://github.com/volt-hdl/volt/issues/221).
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -69,6 +79,198 @@ parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
 
+**A `match` is computed at a narrower width than the type checker
+uses.** With `u8` operands, `let m = match sel { 0 => a + b, _ => a - b }`
+is an 8-bit signal in the generated SystemVerilog, so 200 + 100 gives 44;
+`match a + b` with an arm `44 =>` also takes the value 300; and a
+contract with `prev(a + b)` or a signed `prev()` compares at the wrong
+width. Write the choice as `if`/`else`, or put the subject in a `let`
+with an explicit width (`let s : u9 = a + b`, then `match s`). Tracked in
+[issue #215](https://github.com/volt-hdl/volt/issues/215).
+
+**In a statement `match`, an arm after the wildcard wins.** In a `comb`
+block, `match s { 0 => { … } _ => { y = 7 } 1 => { y = 9 } }` gives 9 for
+`s = 1`, while the same `match` written as an expression gives 7. Write
+the wildcard arm last. Tracked in
+[issue #216](https://github.com/volt-hdl/volt/issues/216).
+
+**A `const` that does not fit its type is accepted.** With
+`const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a
+`bits<B>` port is 256 bits wide) and the hardware sees 0. Make sure every
+constant computed from other constants fits its declared type. Tracked
+in [issue #214](https://github.com/volt-hdl/volt/issues/214).
+
+**The clock outputs of an `extern` module have no clock domain.** With a
+PLL or a clock buffer declared as an `extern module` with
+`out c0 : clock`, nothing clocked by `c0` is checked: a crossing between
+the input clock and an output clock gets no `E3001`. Synchronize every
+value between these clocks yourself with `sync()` or an `AsyncFifo`.
+Tracked in [issue #208](https://github.com/volt-hdl/volt/issues/208).
+
+**A register's reset value can be a signal, and it is not checked.**
+`reg r : u8 = a` loads `a` at reset without the clock-domain check
+(`E3001`) and the trust check (`E3009`). Use a constant reset value and
+load the signal in the `on` block. Tracked in
+[issue #209](https://github.com/volt-hdl/volt/issues/209).
+
+**A clock port declared through a type alias is not a clock everywhere.**
+With `type Clk = clock`, an asynchronous reset shared by two clock
+domains gets no `E3003`, the SDC file has no `create_clock` for the
+clock, and a test block can drive it. Write `clock` for clock ports.
+Tracked in [issue #234](https://github.com/volt-hdl/volt/issues/234).
+
+**`E5010` is missed in a `comb` block.** In an `@strict_timing` module,
+choosing between values of different delays inside a `comb` block
+(`comb { if x[0] { w = a } else { w = b } }`) compiles, while the same
+choice written as `let w = if x[0] { a } else { b }` gets `E5010`. Write
+such a choice as a `let`. Tracked in
+[issue #217](https://github.com/volt-hdl/volt/issues/217).
+
+**A timing constraint can apply to a second register.** `@multicycle`,
+`@false_path` and `@timing(max_delay)` on a register `slow` are written
+to the SDC file as `get_cells {slow_reg*}`, which also matches a
+register named `slow_reg`. Do not name a register `<name>_reg…` next to
+a constrained register `<name>`. Tracked in
+[issue #219](https://github.com/volt-hdl/volt/issues/219).
+
+**A secret passes through an unclassified input port of a submodule.**
+With `module Mid { in x : u8  out o : u8 @Pub  o = x }`, binding a
+`@Sec` value to `x` carries it to a public output without `E3009`.
+Annotate the input ports of submodules with their trust domain. Tracked
+in [issue #210](https://github.com/volt-hdl/volt/issues/210).
+
+**The trust annotation of a `wire` or a `let` is not read.** In a module
+without a clock, `wire w : u8 @Pub` driven by a `@Sec` value gets no
+`E3009`; in a module whose clock is `@Pub`, `wire w : u8 @Sec` gets a
+false `E3009`. Annotate the ports instead. Tracked in
+[issue #211](https://github.com/volt-hdl/volt/issues/211).
+
+**An `@mmio` module next to a declared AXI bundle name does not
+compile.** When the file declares `AxiWriteAddr` or another of the five
+AXI bundle names itself, the generated module reports `E1001` for names
+such as `aw_valid` that you did not write. Do not declare these names
+next to an `@mmio` module. Tracked in
+[issue #244](https://github.com/volt-hdl/volt/issues/244).
+
+**A `bits<K>` value cannot cross a pipeline stage.** It is rejected with
+`E2003` on a literal that the compiler generates. Carry the value as
+`uK` across the stage and cast it back to `bits<K>` where it is used.
+Tracked in [issue #245](https://github.com/volt-hdl/volt/issues/245).
+
+**`frequency = 100mhz` gets errors that do not say what is wrong.** The
+domain key gets `W0020` "unknown domain key: 'mhz'" followed by `E0001`.
+Write `100.mhz`. Tracked in
+[issue #223](https://github.com/volt-hdl/volt/issues/223).
+
+<a id="comb-latch"></a>**An incomplete assignment in a `comb` block infers a latch.**
+`comb { if c { y = 1 } else { if d { y = 2 } } }` compiles, and the
+generated `always_comb` keeps the old `y` when `c` and `d` are both false
+(Verilator reports `LATCH`). A `wire` that is read and never driven
+compiles too (Verilator reports `UNDRIVEN`). Assign every output of a
+`comb` block on every path, for example with a default assignment at the
+top of the block (`y = 0`), and drive every `wire`. Tracked in
+[issue #230](https://github.com/volt-hdl/volt/issues/230).
+
+**A port bound twice in one instance takes the last binding.**
+`Child { x: 1, x: a }` compiles without a diagnostic and connects `x` to
+`a`. Bind each port once. Tracked in
+[issue #229](https://github.com/volt-hdl/volt/issues/229).
+
+**The fix that `E5010` suggests does not change the hardware.** The help
+suggests `delay<1>(a)` to align a value of one cycle with a value of two;
+`let sum = delay<1>(a) + b` then compiles, but `delay<1>` adds no
+register, and the two values are still of different ages. Add the
+register yourself: a `reg a2 : Delayed<u32, 2>` loaded with `a2 <= a`,
+and `let sum = a2 + b`. Tracked in
+[issue #232](https://github.com/volt-hdl/volt/issues/232).
+
+**`@false_path` and `@multicycle` are not checked.** They are written to
+the SDC file for any two registers, also for a real one-cycle path, and
+the timing tool then leaves that path untimed. `volt explain E6003` and
+`E6004` say that Volt proves these attributes; it does not, and the two
+codes are never reported. Treat both attributes as your own claim. On a
+port whose type is a `struct` or a `struct port`, neither attribute
+constrains anything: `@false_path in cfg : Cfg` writes
+`get_ports cfg`, which matches none of the generated ports (`cfg_a`,
+`cfg_b`), or no line at all for a `struct port`. Declare such inputs as
+plain ports. Tracked in
+[issue #226](https://github.com/volt-hdl/volt/issues/226),
+[issue #231](https://github.com/volt-hdl/volt/issues/231) and
+[issue #229](https://github.com/volt-hdl/volt/issues/229).
+
+**Reading an input port of an instance writes an undeclared name.** With
+`let s = Sub { x: a }`, `p = s.x` compiles and is written as
+`assign p = s_x;`, which Verilator rejects. Read the value you bound
+(`p = a`). Tracked in
+[issue #218](https://github.com/volt-hdl/volt/issues/218).
+
+**An array literal assigned to an array `wire` fails in Verilator.**
+`xs = [x0, x1]` with `wire xs : [u8; 2]` is written as
+`assign xs = '{x0, x1};`. Assign the elements one by one:
+`comb { xs[0] = x0  xs[1] = x1 }`. Tracked in
+[issue #135](https://github.com/volt-hdl/volt/issues/135).
+
+**A constant index of a wider type than the address stops `volt test`.**
+With `const K : u4 = 2`, `a[K]` on a `u8` is written as `a[4'd2]`, and
+Verilator stops with `WIDTHTRUNC`. Give the constant the width of the
+address (`const K : u3 = 2` for an 8-bit value). Tracked in
+[issue #134](https://github.com/volt-hdl/volt/issues/134).
+
+**Two `@mmio` modules in one design do not compile, and some `@mmio`
+arguments are not checked.** The second `@mmio` module gets `E1001` for
+the AXI bundle names, also in another file. A base address that is not a
+multiple of 4 is accepted, a repeated argument takes the last value, and
+a `///` comment is copied into the generated C header as it is, so a `*/`
+in it ends the C comment. Use one `@mmio` module per design, a base
+address that is a multiple of 4, each argument once, and no `*/` in the
+comments of an `@mmio` module. Tracked in
+[issue #220](https://github.com/volt-hdl/volt/issues/220).
+
+**A struct port whose field has a private struct type of its own file is
+rejected** with `E1001` where the port is used. Make the field's struct
+`pub` and import it too. Tracked in
+[issue #163](https://github.com/volt-hdl/volt/issues/163).
+
+**`declassify()` in a module-level `for` or a generic module gets a
+false `E3009`.** Write the assignments without the `for`, one per
+element, and keep `declassify()` out of generic modules. Tracked in
+[issue #212](https://github.com/volt-hdl/volt/issues/212).
+
+**A submodule output that depends on public inputs alone is taken as
+secret** when another input of the same instance is secret, and gets a
+false `E3009`. Put the public part in a submodule of its own, whose
+inputs are all public. Tracked in
+[issue #195](https://github.com/volt-hdl/volt/issues/195).
+
+**A source file that begins with a byte order mark is rejected**
+(`E0001: unexpected character: "\u{feff}"`). Some Windows editors write
+this mark when they save as "UTF-8 with BOM"; save the file as UTF-8
+without it. Tracked in
+[issue #229](https://github.com/volt-hdl/volt/issues/229).
+
+**A malformed `Volt.toml` is ignored.** When `Volt.toml` is not valid
+TOML, `volt build` compiles and exits with 0, without a diagnostic. If a
+setting seems to have no effect, check the syntax of the file. Tracked
+in [issue #222](https://github.com/volt-hdl/volt/issues/222).
+
+**Some explanations in `volt explain` are wrong.** The solution of
+`E3012` and `E3011` (`r <= sync(fast_data, slow_clk)` in an `on` block)
+gets `E0003`: write `let s = sync(x, clk)` at module level, as the
+compiler's own help says. `W0010` says that `==` binds before `&`; Volt
+reads `a & b == c` as `(a & b) == c`. `E3004`, `E3005`, `E6001`,
+`E6003`, `E6004`, `E7001`, `E7002`, `E9001`, `E9002`, `W2011`, `W2020`
+and `W2021` are explained as checks, but the compiler never reports
+them. Where an explanation and the compiler disagree, follow the
+compiler. Tracked in
+[issue #225](https://github.com/volt-hdl/volt/issues/225) and
+[issue #226](https://github.com/volt-hdl/volt/issues/226).
+
+**The project that `volt new` creates names its module `Counter`**, a
+name of the standard library, so instantiating it from another module
+gets `E1016`. Rename the module (and `top` in `Volt.toml`) before you
+use it in a larger design. Tracked in
+[issue #101](https://github.com/volt-hdl/volt/issues/101).
+
 ## Language
 
 **Some constructs pass the type checker but have no SystemVerilog mapping
@@ -93,11 +295,11 @@ decisions.
 
 **SystemVerilog is the sole output language.** There is no VHDL output.
 
-**Integer literals stop at 2^128 - 1.** A literal holds a value up to
-2^128 - 1 in any base. A larger one, such as
+**Integer literals stop at 2¹²⁸ - 1.** A literal holds a value up to
+2¹²⁸ - 1 in any base. A larger one, such as
 `0x1_0000_0000_0000_0000_0000_0000_0000_0000`, is `E0005` ("value does
 not fit in 128 bits"), also when the target is `bits<256>`. Nothing is cut
-silently: a literal up to 2^128 - 1 cast to `bits<256>` keeps its value
+silently: a literal up to 2¹²⁸ - 1 cast to `bits<256>` keeps its value
 and the upper bits are zero. To build a wider constant, write it in
 128-bit parts and join them with a struct cast. `hi`, declared before
 `lo`, holds the upper 128 bits:
@@ -135,8 +337,8 @@ not depend on the rule. Tracked in
 operand will change.** `+`, `-` and `*` are done at the width both
 operands share, plus their own carry: `a * b - a` (all `i32`) is computed
 at 33 bits, and the product, up to 64 bits wide, is cut to 33 bits before
-the subtraction. With `a = b = 2^20` the result is `-2^20` instead of
-`2^40 - 2^20`. The rule changes in v0.2.0. Until then Volt warns
+the subtraction. With a = b = 2²⁰ the result is -2²⁰ instead of
+2⁴⁰ - 2²⁰. The rule changes in v0.2.0. Until then Volt warns
 (`W2016`) wherever the cut can change the value you read; a result
 assigned to a declared width keeps that many bits anyway and gets no
 warning. Put the intermediate result in a `let` with an explicit width,
@@ -268,9 +470,14 @@ The crossing itself is checked by the compiler (`E3001`). An example is
 in [Two clocks and CDC](tutorial/two-clocks.md#test-it).
 
 **Test values are at most 64 bits wide.** The test language cannot write
-to a port wider than 64 bits (`E2003`) or compare a wider value.
+to a port wider than 64 bits or compare a wider value. A module with an
+input wider than 64 bits cannot be tested directly: `volt test` stops
+with a C++ error from the Verilator build (`VlWide`), also when the test
+does not use that input
+([issue #224](https://github.com/volt-hdl/volt/issues/224)).
 Workaround: test the design through a small wrapper module whose ports
-are 64 bits or narrower. `volt run` does drive and print wide ports.
+are 64 bits or narrower, for example `Wide { key: lo as uint<128> as bits<128> }`
+with `in lo : u64`. `volt run` does drive and print wide ports.
 Roadmap:
 [Port values wider than 64 bits in tests](https://github.com/volt-hdl/volt/blob/main/docs/roadmap.md#port-values-wider-than-64-bits-in-tests).
 

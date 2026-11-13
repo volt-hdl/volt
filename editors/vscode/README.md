@@ -24,8 +24,8 @@ görünümü → `...` → *Install from VSIX...*).
 ```sh
 cd editors/vscode
 npm ci
-npx vsce package         # derler (vscode:prepublish) ve volt-hdl-0.1.1.vsix üretir
-code --install-extension volt-hdl-0.1.1.vsix
+npx vsce package         # derler (vscode:prepublish) ve volt-hdl-0.1.2.vsix üretir
+code --install-extension volt-hdl-0.1.2.vsix
 ```
 
 Geliştirme için alternatif: VS Code'da `editors/vscode` klasörünü açıp
