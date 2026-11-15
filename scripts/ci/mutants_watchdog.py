@@ -192,7 +192,8 @@ def self_test():
         assert len(lines) == 1, lines
         fields = lines[0].split("\t")
         assert fields[4] == "crates/a/src/x.rs:3:5: replace == with != in f", fields
-        assert int(fields[3]) > 300 and "-c" in fields[5], fields
+        # The tree is over 300 MiB; the log rounds MiB down.
+        assert int(fields[3]) >= 300 and "-c" in fields[5], fields
         # 2. Under the limit nothing is killed.
         log.unlink()
         small = "x = bytearray(30 * 1024 * 1024); import time; time.sleep(0.5)"
