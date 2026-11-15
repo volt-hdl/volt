@@ -15,7 +15,7 @@ SIGKILL: the test that ran it fails, cargo-mutants records the mutant as
 caught and goes on with the next one, so the shard completes. Each kill is
 one line in the log (tab-separated: time, pid, MiB of the process, MiB of
 the tree, the mutant, the command line); the mutant is the newest log of
-cargo-mutants (`mutants.out/log/*.log`, whose first line is `*** <name>`).
+cargo-mutants (`mutants.out/log/*.log`, which opens with `*** <name>`).
 The summary (mutants_summary.py) reports those mutants as their own class,
 "memory limit", caught by ADR-0109 section 4 as a timeout is.
 
@@ -72,14 +72,19 @@ def descendants(root, procs):
 
 
 def current_mutant(mutants_out):
-    """The mutant cargo-mutants is testing: the first line of its newest log."""
+    """The mutant cargo-mutants is testing: the `*** <name>` line of its newest log."""
     if mutants_out is None:
         return "(no mutant: outside cargo mutants)"
     try:
         logs = sorted(Path(mutants_out, "log").glob("*.log"), key=lambda p: p.stat().st_mtime)
         if logs:
-            first = logs[-1].read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
-            return first[4:] if first.startswith("*** ") else first
+            # The `*** <name>` line opens the log; 27.1.0 writes an empty
+            # line before it.
+            head = logs[-1].read_text(encoding="utf-8", errors="replace")[:4096].split("\n")
+            for line in head:
+                if line.startswith("*** "):
+                    return line[4:].strip()
+            return f"(no mutant name in {logs[-1].name})"
     except OSError:
         pass
     return "(no mutant yet: baseline)"
@@ -174,7 +179,9 @@ def self_test():
     with tempfile.TemporaryDirectory() as d:
         out = Path(d, "mutants.out")
         (out / "log").mkdir(parents=True)
-        (out / "log" / "a.log").write_text("*** crates/a/src/x.rs:3:5: replace == with != in f\n\nmore\n", encoding="utf-8")
+        # cargo-mutants 27.1.0 starts a mutant's log with an empty line
+        # (run 43731283723: the kill line had no mutant).
+        (out / "log" / "a.log").write_text("\n*** crates/a/src/x.rs:3:5: replace == with != in f\n\nmore\n", encoding="utf-8")
         log = Path(d, "kills.tsv")
 
         def watch(cmd, limit):
