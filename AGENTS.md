@@ -144,6 +144,22 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   A missed mutant goes into `KNOWN_MISSES` with its `silent-wrong` issue;
   a fix that makes a listed mutant caught removes its entry in the same
   PR.
+- **Mutation gate (ADR-0109 and its appendix "PR kapısı").** Every pull
+  request runs `mutants.yml` on the mutants of the Rust lines it changes;
+  there is no targeted run to start by hand for them. Each missed mutant
+  that no `exclude_re` entry covers is classified as ADR-0109 section 4
+  says and settled in the same pull request: B (a blind spot) gets a test
+  that kills it; A1 or A2 (an equivalent mutant) gets an `exclude_re`
+  entry in `.cargo/mutants.toml` with its reason and its proof (for A2 a
+  permanent test of the assumption); C (suspect: the mutant suggests that
+  today's behavior contradicts the spec) gets an issue with "silent-wrong?"
+  in its title and is not fixed in that pull request. Every `exclude_re`
+  entry names the mutants it was written for in `# expect:` lines; when
+  code moves, update their line:col (the "Mutation exclusions" job shows
+  the new one). Every source file of a crate's `src/` is in mutation scope
+  unless `exclude_globs` lists it with its reason (`just consistency`,
+  check 19). Runs by hand (`-f re=`, `-f gate_base=`) are for work outside
+  a pull request.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

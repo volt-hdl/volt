@@ -1,97 +1,52 @@
 # cargo-mutants configuration (ADR-0109). cargo-mutants 27.1.0 reads this
 # file from the workspace root; the workflow is .github/workflows/mutants.yml
-# (workflow_dispatch, sharded). Never run the full set locally: list
-# it (`cargo mutants --list`) or try one small file with `-j 1`.
+# (on every pull request: the mutants on the changed lines; by hand:
+# workflow_dispatch, sharded). Never run the full set locally: list it
+# (`cargo mutants --list`) or try one small file with `-j 1`.
 
-# Scope, phase 1: the files below are mutated, no other file or crate is
-# in scope in this phase (ADR-0109 section 2 lists what comes next).
-examine_globs = [
-    # 1. SystemVerilog emission of expressions: precedence, signed casts and
-    #    literals, isolation of width-dependent sub-expressions (ADR-0106 §6,
-    #    ADR-0108), self-determined positions, select forms.
-    "crates/volt-sv-emit/src/expr.rs",
-    # Name resolution of the emitter: the scope chain every lookup goes
-    # through (moved out of expr.rs, #128).
-    "crates/volt-sv-emit/src/scope.rs",
-    # Wire width of an untyped `let` (natural width, ADR-0025).
-    "crates/volt-sv-emit/src/let_width.rs",
-    # Emitter files that resolve names through Emitter::resolve (#128):
-    # constant arrays, enum-typed values and patterns, trit selection.
-    "crates/volt-sv-emit/src/const_array.rs",
-    "crates/volt-sv-emit/src/enums.rs",
-    "crates/volt-sv-emit/src/trit.rs",
-    # Uninstantiated generic module: skipped by the emitter, W1006 in the
-    # main file (#143, ADR-0111).
-    "crates/volt-sv-emit/src/template.rs",
-    # The parser's substitution of generic parameters and module-level
-    # `for` variables: the scope chain and the cloner that consults it
-    # (#130, ADR-0081 appendix).
-    "crates/volt-syntax/src/parser/mono/scope.rs",
-    "crates/volt-syntax/src/parser/mono/clone.rs",
-    "crates/volt-syntax/src/parser/mono/pattern.rs",
-    # The monomorphization table and the module name a generic instance
-    # gets (#205): keyed by (template, argument values); two different
-    # templates that build one name are E1003 (ADR-0090).
-    "crates/volt-syntax/src/parser/mono/mod.rs",
-    # The parser's other name-matching steps, wired to the same scope chain
-    # (#136, #137, #138; ADR-0081 appendix): bundle flattening, bidirectional
-    # ports (parse-time `p.drive(v)` in stmt.rs, the post pass in bidir.rs),
-    # the @mmio handle, pipeline stage values, inferred counter and FSM
-    # contracts, and the module chain and constant evaluation they share.
-    "crates/volt-syntax/src/parser/bundle.rs",
-    "crates/volt-syntax/src/parser/bidir.rs",
-    "crates/volt-syntax/src/parser/stmt.rs",
-    "crates/volt-syntax/src/parser/mmio.rs",
-    "crates/volt-syntax/src/parser/desugar.rs",
-    "crates/volt-syntax/src/parser/mono/unroll.rs",
-    # The parser's diagnostic entry points (#206): push_error keeps the
-    # cascade-suppression window (error-recovery.md §5) for errors only;
-    # push_diag adds warnings and the desugar passes' diagnostics outside
-    # it. A warning that opened the window swallowed the next error, and
-    # the source was accepted with exit 0.
-    "crates/volt-syntax/src/parser/mod.rs",
-    "crates/volt-syntax/src/parser/auto_contract/mod.rs",
-    "crates/volt-syntax/src/parser/auto_contract/scan.rs",
-    "crates/volt-syntax/src/parser/auto_contract/counter.rs",
-    "crates/volt-syntax/src/parser/auto_contract/fsm.rs",
-    # Visibility across files (#139, ADR-0042 appendix): the rule the
-    # resolver and the parser's unit-end steps share, the import check
-    # that builds the file scopes, the resolver's root lookup, and the
-    # Handshake payload lookup.
-    "crates/volt-ast/src/visibility.rs",
-    "crates/volt-syntax/src/unit.rs",
-    "crates/volt-hir/src/resolve/imports.rs",
-    "crates/volt-syntax/src/parser/handshake.rs",
-    # 2. Width and type inference.
-    "crates/volt-hir/src/ty.rs",
-    "crates/volt-hir/src/typeck/width.rs",
-    "crates/volt-hir/src/typeck/binop.rs",
-    # W2016: an arithmetic operand cut before the operation; the context's
-    # read width, the value-range proof and the take-over by W2015 and a
-    # narrowing `as` (#266, ADR-0116).
-    "crates/volt-hir/src/typeck/arith_cut.rs",
-    # E2031: comparison of different natural widths (ADR-0106).
-    "crates/volt-hir/src/typeck/compare_width.rs",
-    # W2010: narrowing `as`; E2009.
-    "crates/volt-hir/src/typeck/cast.rs",
-    "crates/volt-hir/src/typeck/check.rs",
-    "crates/volt-hir/src/typeck/synth.rs",
-    # `let` statements, natural-width `let`.
-    "crates/volt-hir/src/typeck/stmt.rs",
-    "crates/volt-hir/src/typeck/select.rs",
-    # Literal arithmetic folded with its exact value: E2010, E2022, E2023
-    # (#144; the emitter's side is fold_literal_arith in expr.rs).
-    "crates/volt-hir/src/typeck/literal_fold.rs",
-    # 3. Module summary at instance sites (#189, #193, ADR-0114): the
-    #    shared combinational graph and the summaries, the E4007 check that
-    #    reads them, the clock domain of a clockless target's outputs with
-    #    the instance-site E3001 and the two-edit sync() fix, and the
-    #    built-in table.
-    "crates/volt-hir/src/summary.rs",
-    "crates/volt-hir/src/handshake.rs",
-    "crates/volt-hir/src/domain/instance.rs",
-    "crates/volt-hir/src/domain/assign.rs",
-    "crates/volt-ast/src/builtin.rs",
+# Scope (ADR-0109 appendix "PR kapısı ve varsayılan kapsam", #253): every
+# crate's src/ is mutated. A file stays out only by name, in exclude_globs
+# below, with its own reason in the comment right above it. The consistency
+# check (scripts/check-consistency.{sh,ps1}, check 19) fails when a .rs
+# file in the src/ of a workspace member (root Cargo.toml) is neither
+# matched by examine_globs nor listed in exclude_globs, and when an
+# exclude_globs entry is a pattern instead of
+# a path, names no file, or has no reason above it. cargo-mutants mutates
+# the files reachable from each crate root through `mod`: a module under
+# #[cfg(test)] has no mutant.
+examine_globs = ["crates/*/src/**/*.rs"]
+
+exclude_globs = [
+    # volt-difftest (ADR-0108) is a test tool, a dev-dependency of
+    # volt-driver: it is not built into volt, and the compiler's mutants are
+    # what it catches. Its own code is checked against Verilator by the
+    # differential test itself; mutating it measures the test, not the
+    # compiler. The reason of each file:
+    # The expression tree of the generator, independent of the compiler's AST.
+    "crates/volt-difftest/src/ast.rs",
+    # The random expression generator: a mutant changes which expressions
+    # are tried, not a result anything checks.
+    "crates/volt-difftest/src/gen.rs",
+    # The Volt module, the SV testbench and the input vectors of a batch.
+    "crates/volt-difftest/src/harness.rs",
+    # The name-hygiene relation (#128): the Volt text of a moved expression.
+    "crates/volt-difftest/src/hygiene.rs",
+    # The crate root: module list and the run's entry points.
+    "crates/volt-difftest/src/lib.rs",
+    # The reference model, written from the specification; Verilator checks
+    # it on every run (a model mutant shows as a difference), so its mutants
+    # measure the differential test.
+    "crates/volt-difftest/src/model.rs",
+    # The Volt text of an expression (minimal and full parentheses).
+    "crates/volt-difftest/src/print.rs",
+    # The regression corpus: data, one minimized example per issue.
+    "crates/volt-difftest/src/regress.rs",
+    # The seeded generator (SplitMix64): a mutant changes the expressions drawn.
+    "crates/volt-difftest/src/rng.rs",
+    # The runner: generate, volt check, volt build, Verilator, compare.
+    "crates/volt-difftest/src/run.rs",
+    # Bit-pattern helpers of the model.
+    "crates/volt-difftest/src/value.rs",
 ]
 
 # Equivalent mutants (group A of ADR-0109 section 4): a mutation that
@@ -104,76 +59,103 @@ examine_globs = [
 #     comment names that assumption. When the function or caller an A2
 #     entry rests on changes, the entry is reviewed again.
 # An entry names the file, the change and the function; it pins line:col
-# only where the same change occurs twice in that function. A pinned entry
-# that stops matching after an edit lets its mutant back in (it shows up as
-# missed again): it never hides a different mutant without that showing.
+# only where the same change occurs twice in that function.
+# Every entry names the mutants it was written for, one `# expect:` line
+# each, exactly as `cargo mutants --list` prints them (#239). The mutation
+# workflow checks that each entry matches exactly those mutants in the list
+# before the exclusions (scripts/ci/mutants_exclusions.py): an entry that
+# matches nothing, misses an expected mutant or matches another one fails
+# it. When the code moves, update the line:col of the expect: lines (and
+# of a pinned entry) to the statement the entry was written for; the error
+# shows the mutants with the same file, change and function.
 # Source: run 41905442445 (952 mutants, 157 missed).
 exclude_re = [
     # A1. `Some(s) if vstage == s` is the arm before `vstage < s`, so at
     # vstage == s the `<=` mutant never reaches its arm (#137 targeted run).
+    # expect: crates/volt-syntax/src/parser/desugar.rs:549:43: replace < with <= in Parser<'_>::rw_expr
     "parser/desugar\\.rs:\\d+:\\d+: replace < with <= in Parser<'_>::rw_expr$",
     # A2, assumes a module-level `=` to a register is always E0019
     # (register_assign.rs, ADR-0098): without this arm the register gets a
     # counter contract, but the build stops at E0019 and the diagnostics are
     # the same (parser_rewrite_scope_diag_tests::
     # a_counter_assigned_at_module_level_is_only_e0019; #138 targeted run).
+    # expect: crates/volt-syntax/src/parser/auto_contract/scan.rs:198:13: delete match arm StmtKind::Assign(a) in scan_module
     "parser/auto_contract/scan\\.rs:\\d+:\\d+: delete match arm StmtKind::Assign\\(a\\) in scan_module$",
     # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
     # the first disjunct.
+    # expect: crates/volt-hir/src/typeck/check.rs:354:33: replace < with <= in TypeChecker<'_, '_>::expect_assignable
     "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",
     # A1. `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
     # agree wherever this line runs.
+    # expect: crates/volt-hir/src/typeck/compare_width.rs:83:47: replace > with >= in TypeChecker<'_, '_>::check_comparison_widths
     "typeck/compare_width\\.rs:\\d+:\\d+: replace > with >= in TypeChecker<'_, '_>::check_comparison_widths$",
     # A1. `v >= min && (v < 0 || v.unsigned_abs() <= max)`: `<=` differs
     # only at v == 0, where `0 <= max` holds for every max (a u128) and
     # `0 >= min` is the same in both forms (#272, targeted run 43227504453).
+    # expect: crates/volt-hir/src/typeck/literal_fold.rs:253:35: replace < with <= in TypeChecker<'_, '_>::check_literal_expr
     "typeck/literal_fold\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::check_literal_expr$",
     # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
     # returning c instead of d returns the same value.
+    # expect: crates/volt-sv-emit/src/expr.rs:60:63: replace > with >= in widen_sig
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",
     # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
+    # expect: crates/volt-sv-emit/src/let_width.rs:168:64: replace > with >= in Emitter<'_>::comparison_ctx
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace > with >= in Emitter<'_>::comparison_ctx$",
     # A1. demand(): at c.width == width both arms return the same number.
+    # expect: crates/volt-sv-emit/src/let_width.rs:317:28: replace < with <= in demand
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace < with <= in demand$",
     # A2, assumes the emitter writes `'(` only after a decimal width (every
     # `{}'(` format in expr.rs): `>=` adds text that starts with a bare `'(`.
+    # expect: crates/volt-sv-emit/src/expr.rs:115:12: replace > with >= in starts_with_size_cast
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in starts_with_size_cast$",
     # A2, assumes is_right_operand is true only from the binary-operator
     # callers, which pass sv_prec 1..=10: then my_prec == parent_prec >= 1
     # and `>= 0` changes nothing.
-    "volt-sv-emit/src/expr\\.rs:1352:93: replace > with >= in Emitter<'a>::emit_prec$",
+    # The pins of this entry and the next two moved in #253 (#239): they
+    # had matched nothing since 3135ceef (lines added above), and since
+    # 63e4ffe7 1605:48 matched another mutant, `sig.width < 127` -> `<=`.
+    # expect: crates/volt-sv-emit/src/expr.rs:1355:93: replace > with >= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1355:93: replace > with >= in Emitter<'a>::emit_prec$",
     # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
     # highest) and a right operand's parent has 1..=10: an atom never needs
     # parentheses.
-    "volt-sv-emit/src/expr\\.rs:1353:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1356:35: replace < with <= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1356:35: replace < with <= in Emitter<'a>::emit_prec$",
     # A2, assumes a select width fits a u16 (type check, base_width: u16), so
     # need <= 16: the arm runs when the start is 127+ bits wide or when
     # down >= 2^width (then need > width); sig.width == need is impossible.
-    "volt-sv-emit/src/expr\\.rs:1605:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1608:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:1608:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a
     # context at least as wide as the wire decides the same.
+    # expect: crates/volt-sv-emit/src/let_width.rs:317:20: replace match guard c.width < width with true in demand
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace match guard c\\.width < width with true in demand$",
     # Source: targeted run 42034192061 (#130; parser/mono, 276 mutants).
     # A1. fold_binary: `BinOp::Div if r != 0 => l.checked_div(r)` (and Rem):
     # with the guard `true`, r == 0 gives checked_div/checked_rem -> None,
     # the same as the `_ => None` arm the guard falls through to.
+    # expect: crates/volt-syntax/src/parser/mono/clone.rs:325:27: replace match guard r != 0 with true in Cloner<'a>::fold_binary
+    # expect: crates/volt-syntax/src/parser/mono/clone.rs:326:27: replace match guard r != 0 with true in Cloner<'a>::fold_binary
     "parser/mono/clone\\.rs:\\d+:\\d+: replace match guard r != 0 with true in Cloner<'a>::fold_binary$",
     # A2, assumes the parser never builds ExprKind::Concat: only the SV
     # emitter's struct lowering does (ADR-0077 Karar 5; volt-ast doc).
+    # expect: crates/volt-syntax/src/parser/mono/clone.rs:765:13: delete match arm ExprKind::Concat(parts) in Cloner<'a>::clone_aggregate_expr
     "parser/mono/clone\\.rs:\\d+:\\d+: delete match arm ExprKind::Concat\\(parts\\) in Cloner<'a>::clone_aggregate_expr$",
     # A2, assumes enums with data-carrying variants stay unsupported (E0003):
     # a struct-pattern shorthand (`Msg::Data { x }`) never reaches the SV, and
     # without the binding the arm body's diagnostics are the same
     # (parser_scope_diag_tests::enum_patterns_in_a_clone_keep_their_arguments_and_bindings).
     # Review when payload enums are implemented.
+    # expect: crates/volt-syntax/src/parser/mono/clone.rs:276:9: replace Cloner<'a>::declare_pattern_binding with ()
     "parser/mono/clone\\.rs:\\d+:\\d+: replace Cloner<'a>::declare_pattern_binding with \\(\\)$",
     # A2 (unreachable), assumes the type checker rejects a variant pattern of
     # another enum before emission (E2003 "pattern of type 'Kind' cannot
     # match a value of enum 'Mode'", typeck/matching.rs;
     # parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission):
     # in pattern_variants `d` is always the scrutinee's enum.
+    # expect: crates/volt-sv-emit/src/enums.rs:328:33: replace match guard d.name.text == decl.name.text with true in Emitter<'a>::pattern_variants
     "volt-sv-emit/src/enums\\.rs:\\d+:\\d+: replace match guard d\\.name\\.text == decl\\.name\\.text with true in Emitter<'a>::pattern_variants$",
     # A2 (reachable, same SV), assumes `t` has passed is_trit (a Trit atom,
     # negation, Trit * Trit or `if`: SV precedence 12, 11, 10 or 0) and
@@ -182,7 +164,9 @@ exclude_re = [
     # With either mutant the SV of parser_scope_sim_tests::
     # trit_products_of_every_precedence_class_have_their_value is byte
     # identical, the simulation passes and verilator -Wall is clean.
+    # expect: crates/volt-sv-emit/src/trit.rs:127:62: replace + with * in Emitter<'_>::try_emit_trit_mul
     "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with \\* in Emitter<'_>::try_emit_trit_mul$",
+    # expect: crates/volt-sv-emit/src/trit.rs:127:62: replace + with - in Emitter<'_>::try_emit_trit_mul
     "volt-sv-emit/src/trit\\.rs:\\d+:\\d+: replace \\+ with - in Emitter<'_>::try_emit_trit_mul$",
     # A2 (unreachable), assumes every Path has at least one segment: the
     # grammar starts a path with an identifier (parse_path) and every
@@ -193,6 +177,7 @@ exclude_re = [
     # and leave no segmentless path in the AST: auto_contract_tests::
     # inputs_that_try_an_empty_path_are_e0001_and_leave_no_empty_path
     # (#139 targeted run).
+    # expect: crates/volt-syntax/src/parser/auto_contract/mod.rs:119:34: replace match guard p.segments.len() == 1 with true in value_of
     "parser/auto_contract/mod\\.rs:\\d+:\\d+: replace match guard p\\.segments\\.len\\(\\) == 1 with true in value_of$",
     # Source: targeted run 42670004438 (#189, #193, ADR-0114; 114 mutants,
     # 9 missed: 8 are caught by the tests added with this entry).
@@ -205,6 +190,7 @@ exclude_re = [
     # a_match_expression_never_has_a_block_arm; module_summary_tests::
     # a_value_through_a_block_of_a_clockless_child_carries_its_domain passes
     # with the mutant. Review when match expressions get block arms.
+    # expect: crates/volt-hir/src/summary.rs:718:9: replace Walker<'_>::block_reads with ()
     "volt-hir/src/summary\\.rs:\\d+:\\d+: replace Walker<'_>::block_reads with \\(\\)$",
     # Source: run 42888144192 (the five files of the module summary in full,
     # 228 mutants; ADR-0109 appendix "#189, #193").
@@ -224,6 +210,8 @@ exclude_re = [
     # still holds: a field-init shorthand binding is now `x: x`, a one-segment
     # path to a local, and reading an instance output is always a field
     # access (`p.y`), so the shorthand never reaches instance_output.
+    # expect: crates/volt-hir/src/summary.rs:575:43: replace + with - in Walker<'_>::instance_output
+    # expect: crates/volt-hir/src/summary.rs:575:43: replace + with * in Walker<'_>::instance_output
     "volt-hir/src/summary\\.rs:575:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
     # A2 (unreachable), assumes a binding to a port the target lacks is E1009
     # in name resolution (Volt module and built-in primitive) and the
@@ -231,10 +219,12 @@ exclude_re = [
     # (pipeline.rs): propagate_binding then runs only through the ungated
     # volt_hir::analyze, which the tests alone call.
     # domain::instance::tests::a_binding_to_a_missing_port_is_e1009_in_name_resolution.
+    # expect: crates/volt-hir/src/domain/instance.rs:642:9: replace Inferencer<'a>::propagate_binding with ()
     "volt-hir/src/domain/instance\\.rs:\\d+:\\d+: replace Inferencer<'a>::propagate_binding with \\(\\)$",
     # A1. `FieldTy::Bits(8)` is the arm before `Bits(w) if w > 8`, so the
     # `>=` mutant differs only at w == 8, which never reaches its guard
     # (#206 targeted run 43021294446).
+    # expect: crates/volt-syntax/src/parser/mmio.rs:128:35: replace > with >= in FieldTy::zero
     "parser/mmio\\.rs:\\d+:\\d+: replace > with >= in FieldTy::zero$",
     # A2, assumes the generated Volt text casts a widening zero without a
     # warning: with `==` a `bits<N>` field with N > 8 gets the `N < 8` form
@@ -244,9 +234,11 @@ exclude_re = [
     # value is 0 (desugar_blind_spot_tests::
     # hardware_bits_fields_reset_to_zero_at_every_width; #206 targeted run).
     # Review when the cast rules or the zero forms change.
+    # expect: crates/volt-syntax/src/parser/mmio.rs:128:35: replace > with == in FieldTy::zero
     "parser/mmio\\.rs:\\d+:\\d+: replace > with == in FieldTy::zero$",
     # A2, the same assumption and the same test: with the guard `false` every
     # N > 8 field takes the `N < 8` form, as with `==` above.
+    # expect: crates/volt-syntax/src/parser/mmio.rs:128:33: replace match guard w > 8 with false in FieldTy::zero
     "parser/mmio\\.rs:\\d+:\\d+: replace match guard w > 8 with false in FieldTy::zero$",
     # A2, assumes the driver and the LSP register the generated @mmio text
     # that was parsed (ParseResult.generated) and that the text is never
@@ -257,36 +249,46 @@ exclude_re = [
     # a_diagnostic_in_the_generated_mmio_source_shows_the_name_it_reports;
     # a registered text one line off fails it). Review when the generated
     # text is dumped to disk (an `--emit-mmio`) or registered separately.
+    # expect: crates/volt-syntax/src/parser/mmio.rs:1503:8: delete ! in render_contracts
     "parser/mmio\\.rs:\\d+:\\d+: delete ! in render_contracts$",
     # A2, assumes a parse error stops the build before name resolution: after
     # E5015 the mutant drops the cyclic lets instead of the placeholders, which
     # only resolution would show. desugar_blind_spot_tests::
     # e5015_names_the_values_on_the_cycle checks that E5015 is the only
     # diagnostic, with an undefined name in the same file. Pinned: the same
-    # change at 883 and 889 in order_lets is caught (#206 targeted run).
-    "parser/desugar\\.rs:899:20: delete ! in Parser<'_>::order_lets$",
+    # change at 899 and 905 in order_lets is caught (#206 targeted run;
+    # lines of 63e4ffe7). Pin moved from 899:20 in #253 (#239): it had
+    # matched nothing since 63e4ffe7, which added 16 lines above it.
+    # expect: crates/volt-syntax/src/parser/desugar.rs:915:20: delete ! in Parser<'_>::order_lets
+    "parser/desugar\\.rs:915:20: delete ! in Parser<'_>::order_lets$",
     # A2 (unreachable), assumes stall_name holds stage indices 0..N-1 only
     # (desugar_pipeline builds it from 0..nstages): at b + 1 == N the `<=`
     # mutant looks up stage N, which is never there.
+    # expect: crates/volt-syntax/src/parser/desugar.rs:1089:39: replace < with <= in Parser<'_>::build_on_block
     "parser/desugar\\.rs:\\d+:\\d+: replace < with <= in Parser<'_>::build_on_block$",
     # A2 (unreachable), the same assumption: `b * 1 < N` lets b = N - 1
     # through, and stall_name has no stage N. Pinned: the same change in
-    # `stall_name.get(&(b + 1))` one line below is caught.
-    "parser/desugar\\.rs:1073:35: replace \\+ with \\* in Parser<'_>::build_on_block$",
+    # `stall_name.get(&(b + 1))` one line below is caught. Pin moved from
+    # 1073:35 in #253 (#239), as 899:20 above.
+    # expect: crates/volt-syntax/src/parser/desugar.rs:1089:35: replace + with * in Parser<'_>::build_on_block
+    "parser/desugar\\.rs:1089:35: replace \\+ with \\* in Parser<'_>::build_on_block$",
     # A2, assumes the fields of a register take disjoint bit ranges (laid out
     # in order from bit 0, ADR-0044 section 2): OR and XOR of disjoint masks
     # are equal. desugar_blind_spot_tests::mmio_fields_have_disjoint_bit_ranges
     # (fails with an overlapping layout).
+    # expect: crates/volt-syntax/src/parser/mmio.rs:194:39: replace | with ^ in RegInfo::read_mask
     "parser/mmio\\.rs:\\d+:\\d+: replace \\| with \\^ in RegInfo::read_mask$",
     # A2, assumes the generated text declares every reg and let before its
     # first other statement (ADR-0044 section 2): the guard then never sees a
     # declaration after an `on` or an assignment. desugar_blind_spot_tests::
     # generated_mmio_declarations_come_before_every_other_statement (fails
     # when render puts a let after the logic).
+    # expect: crates/volt-syntax/src/parser/mmio.rs:945:56: replace match guard tail.is_empty() with true in Parser<'_>::parse_generated
     "parser/mmio\\.rs:\\d+:\\d+: replace match guard tail\\.is_empty\\(\\) with true in Parser<'_>::parse_generated$",
     # A2 (unreachable), assumes every if_else caller passes a non-empty else
     # (a boundary without registers is skipped in build_on_block); an empty
     # `else begin end` would be a no-op anyway.
+    # expect: crates/volt-syntax/src/parser/desugar.rs:1190:13: delete match arm 0 in Parser<'_>::if_else
     "parser/desugar\\.rs:\\d+:\\d+: delete match arm 0 in Parser<'_>::if_else$",
     # A2, two SV forms of the same register update, assuming build_on_block
     # tests the bubble only after the next stage's hold:
@@ -298,7 +300,9 @@ exclude_re = [
     # hand-computed ones and P.sv, Q.sv pass `verilator --lint-only -Wall`
     # (desugar_blind_spot_tests::pipeline_stall_bubble_and_flush_have_their_values;
     # #206 targeted run).
+    # expect: crates/volt-syntax/src/parser/desugar.rs:1170:23: replace == with != in Parser<'_>::bubble_cond
     "parser/desugar\\.rs:\\d+:\\d+: replace == with != in Parser<'_>::bubble_cond$",
+    # expect: crates/volt-syntax/src/parser/desugar.rs:1191:18: replace match guard matches!(else_stmts[0], BlockStmt::If(_)) with false in Parser<'_>::if_else
     "parser/desugar\\.rs:\\d+:\\d+: replace match guard matches!\\(else_stmts\\[0\\], BlockStmt::If\\(_\\)\\) with false in Parser<'_>::if_else$",
     # A2, assumes ConstEvaluator::const_eval gives ConstValue::Int for a path
     # only when it names a `const` (DefKind::Const): an enum variant gives
@@ -307,6 +311,7 @@ exclude_re = [
     # is None there as the guard's `false` arm is. Reachable (every port
     # operand of a W2016 check); arith_cut_precision_tests and
     # arith_cut_property_tests pass with the mutant (#266 targeted run).
+    # expect: crates/volt-hir/src/typeck/arith_cut.rs:232:9: replace TypeChecker<'_, '_>::is_const_path -> bool with true
     "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
 ]
 
