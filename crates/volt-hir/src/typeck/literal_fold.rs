@@ -316,7 +316,7 @@ impl TypeChecker<'_, '_> {
         let Some(env) = zero_at else {
             return;
         };
-        let message = if op == BinOp::Rem {
+        let message = if BinOp::Rem == op {
             lstr!(en: "remainder by zero"; tr: "sıfıra göre kalan")
         } else {
             lstr!(en: "division by zero"; tr: "sıfıra bölme")
