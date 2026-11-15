@@ -41,6 +41,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   runner'ı ve bütün parçayı düşürmez.
 - **Tek parçalı özet (#179).** Tek parçalı koşunun özeti artık parçayı
   bulur (`download-artifact` tek yapıtı alt dizinsiz çıkarır).
+- **Ölçüm.** Kapı son üç PR'ın farkıyla koşuldu: 48, 111 ve 159 mutant;
+  3, 6 ve 8 parça; 81, 102 ve 186 dakika. #276'nın farkında kaçan bir
+  mutant (Türkçe açıklama tablosu) bulundu; onu yakalayan test eklendi.
 
 ## [0.1.2] - 2026-11-13
 
