@@ -44,6 +44,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - **Ölçüm.** Kapı son üç PR'ın farkıyla koşuldu: 48, 111 ve 159 mutant;
   3, 6 ve 8 parça; 81, 102 ve 186 dakika. #276'nın farkında kaçan bir
   mutant (Türkçe açıklama tablosu) bulundu; onu yakalayan test eklendi.
+  Kapı bir hafta bilgilendirici kalır; süre gerçek PR'ların süreleriyle
+  yeniden ele alınacak.
+- **Bellek sınırı kapıyı düşürmez.** Bekçinin süreç öldürdüğü mutant,
+  cargo-mutants onu missed ya da unviable yazsa da "memory limit"
+  (yakalandı) sayılır; timeout gibi özette listelenir.
 
 ## [0.1.2] - 2026-11-13
 

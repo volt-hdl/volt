@@ -98,10 +98,15 @@ def shard_result(root: Path, lists: Path, k: int, shards: int = 0) -> dict:
     res = {"shard": k, "present": d is not None, "expected": read_lines(lists / f"shard-{k}.txt")}
     for kind in OUTCOMES:
         res[kind] = read_lines(d / "mutants.out" / f"{kind}.txt") if d else []
+    # A mutant during which the watchdog killed a process is "memory limit"
+    # whatever cargo-mutants made of it: caught or timeout (the test died),
+    # missed (the killed process was not the test's verdict) or unviable
+    # (the build died). Like a timeout it counts as caught and never fails
+    # the gate; the summary lists it.
     killed = set(memory_kills(d)) if d else set()
-    res["memory"] = [n for n in res["caught"] + res["timeout"] if n in killed]
-    res["caught"] = [n for n in res["caught"] if n not in killed]
-    res["timeout"] = [n for n in res["timeout"] if n not in killed]
+    res["memory"] = [n for kind in OUTCOMES for n in res[kind] if n in killed]
+    for kind in OUTCOMES:
+        res[kind] = [n for n in res[kind] if n not in killed]
     seen = {n for kind in KINDS for n in res[kind]}
     res["untested"] = [n for n in res["expected"] if n not in seen]
     return res
@@ -379,6 +384,33 @@ def self_test() -> int:
         (gated / "mutants-out-0" / "mutants.out" / "missed.txt").write_text(e + "\n", encoding="utf-8")
         (gated / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(b + "\n", encoding="utf-8")
         assert summarize(gated, lists, 1, None, None, config=cfg) == 0, "covered missed mutants pass the gate"
+        # The gate and the limits: a mutant over the memory limit, whatever
+        # outcome cargo-mutants gave it (caught; missed when the killed
+        # process was not the test's verdict; unviable when it was the
+        # build), and a timed-out mutant pass the gate as caught and are
+        # listed in the summary (ADR-0109 section 4).
+        f, g = "crates/c.rs:4:2: replace * with + in m", "crates/c.rs:8:2: replace m -> u8 with 1"
+        limits = Path(tmp) / "limits"
+        s = limits / "mutants-out-0" / "mutants.out"
+        s.mkdir(parents=True)
+        (s / "caught.txt").write_text(a + "\n", encoding="utf-8")
+        (s / "missed.txt").write_text(c + "\n", encoding="utf-8")
+        (s / "unviable.txt").write_text(f + "\n", encoding="utf-8")
+        (s / "timeout.txt").write_text(d + "\n" + g + "\n", encoding="utf-8")
+        (limits / "mutants-out-0" / "memory-kills.tsv").write_text(
+            "".join(f"2026-11-15T00:00:00Z\t42\t9000\t12500\t{n}\t/target/debug/deps/t-0\n" for n in (a, c, f, d)),
+            encoding="utf-8",
+        )
+        listed(0, [a, c, d, f, g])
+        r = shard_result(limits, lists, 0, 1)
+        assert sorted(r["memory"]) == sorted([a, c, d, f]) and r["timeout"] == [g], r
+        assert not r["missed"] and not r["caught"] and not r["unviable"] and complete(r), r
+        md_file = Path(tmp) / "limits.md"
+        assert summarize(limits, lists, 1, None, md_file, config=cfg) == 0, "memory limit and timeout pass the gate"
+        text = md_file.read_text(encoding="utf-8")
+        assert "### Pull-request gate: passed" in text, text
+        assert "### Memory limit (a test process killed by the watchdog; caught, as a timeout is) (4)" in text, text
+        assert "### Timeout (1)" in text and "- `crates/c.rs:8`: replace m -> u8 with 1" in text, text
         # No mutant to test: the gate passes and says why.
         md_file = Path(tmp) / "summary.md"
         assert summarize(Path(tmp) / "none", lists, 0, None, md_file, config=cfg, note="No Rust source in scope changed.") == 0

@@ -35,7 +35,8 @@ exclude_globs = [
     "crates/volt-difftest/src/lib.rs",
     # The reference model, written from the specification; Verilator checks
     # it on every run (a model mutant shows as a difference), so its mutants
-    # measure the differential test.
+    # measure the differential test. Whether to mutate it, as a measure of
+    # the differential test itself, is decided in #255.
     "crates/volt-difftest/src/model.rs",
     # The Volt text of an expression (minimal and full parentheses).
     "crates/volt-difftest/src/print.rs",
