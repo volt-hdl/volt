@@ -253,6 +253,27 @@ fn en_and_tr_cover_the_same_code_set() {
 }
 
 #[test]
+fn each_description_names_one_code() {
+    // `volt explain --list` kodları açıklamalarıyla sıralar: aynı dilde iki
+    // kodun açıklaması aynıysa okur onları ayıramaz. Mutasyon kapısı
+    // ölçümünde (#253) `tr::description`'ı tek bir sabit metne çeviren
+    // mutant boş olmama denetiminden kaçtı; bu test onu yakalar.
+    for lang in [Lang::En, Lang::Tr] {
+        let mut seen = std::collections::HashMap::new();
+        for &code in ErrorCode::ALL {
+            let text = messages::message(lang, code);
+            if let Some(other) = seen.insert(text, code) {
+                panic!(
+                    "{lang:?}: {} ve {} aynı açıklamayı taşıyor: {text:?}",
+                    other.as_str(),
+                    code.as_str()
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn template_keys_follow_glossary() {
     let en = messages::keys(Lang::En);
     assert_eq!(en.reason, "reason:");
