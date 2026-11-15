@@ -1270,3 +1270,55 @@ seçenekler:
    ölçülmeden sahte missed üretir, önerilmez.
 5. **Kapıyı yalnız hazır PR'da koşmak** (`ready_for_review`, taslak PR'da
    değil): taslaklarda runner harcamaz, kapı sonucunu geciktirir.
+
+## Hedefli koşu (#282, 2026-11-16)
+
+§3'ün kaymayan hariç tutmalarına geçişte (#279) `expr.rs:1605:48`'deki
+`<` hiçbir kayda girmeden kaldı: `part_select_from_value`'nun azalan,
+değişken başlangıçlı seçiminde `Some(sig) if sig.width < 127 && down <
+(1i128 << sig.width)` korumasının ilk karşılaştırması. Konumun bütün
+mutantları (`cargo mutants --list`, b53a0dc5): `<` → `==`, `<` → `>`,
+`<` → `<=`.
+
+Koşu 43765673359 (b53a0dc5, `re` = `expr\.rs:1605:48: replace < with
+(==|>|<=) in Emitter<'a>::part_select_from_value$`, `shards` = 1):
+`3 of 85 listed mutants match the regex`, `all 3 mutants in the list
+match`, `Found 3 mutants to test`, `3 mutants tested in 40m: 1 missed,
+2 caught`, `Tool ledger [mutants-0]: 190 test(s) asked for a tool; 192
+lookup(s) found the tool (192 required), SKIP: 0`; özet `caught=2
+missed=1 timeout=0 unviable=0 memory=0 untested=0 mutants=3`. Bekçi
+süreç öldürmedi.
+
+| Mutant (b53a0dc5 satırı) | Sonuç | Sınıf |
+|---|---|---|
+| `expr.rs:1605:48` `<` → `==` | caught | — |
+| `expr.rs:1605:48` `<` → `>` | caught | — |
+| `expr.rs:1605:48` `<` → `<=` | missed | A1, `exclude_re` |
+
+- **A1, `sig.width < 127` → `<=`.** İki biçim yalnız `sig.width ==
+  127`'de ayrılabilir. Orada mutantlı korumanın ikinci operandı `down <
+  (1i128 << 127)`'dir; 127 bitlik kaydırma `i128`'de taşmaz, sonucu
+  `i128::MIN`'dir ve hiçbir `i128` ondan küçük değildir: koşul yanlıştır,
+  özgün `127 < 127` gibi. `down`'ın aralığından ve çağırandan bağımsız;
+  üretilen SV hiçbir girdide değişmez (§4 ekinin (b)'si gerekmez). Kayıt
+  1605:48'e sabitlidir: fonksiyonda üç `<` → `<=` mutantı var (bu,
+  1605:62 ve 1608:48).
+- **Tarama.** Atılabilir worktree'de üç mutant ayrı ayrı uygulandı, `volt
+  check` ve `volt build`'in çıktısı (üretilen dosyalar, tanılar, çıkış
+  kodu) mutantsız ikiliyle karşılaştırıldı: 193 modül, 11 580 azalan
+  seçim. uN/iN 64 bitte biter (E0003), iki operand aynı genişlikte olmalı
+  (E2001); başlangıcın doğal genişliği 64'ün üstüne bileşik ifadeyle
+  çıkar (`s * t`, `s * t + 1`, `-(s * t)`, `s * t + (-1)`; s ve t uN ya da
+  iN, N on dört değer, 1'den 64'e): 1'den 129'a, 126, 127 ve 128 işaretli ve işaretsiz
+  dahil. `<=`: 0 fark. `==`: 175 modülde farklı SV (genişlik < 127'de
+  ilk kol seçilmez). `>`: genişlik ≥ 128'de `1i128 << 128`
+  kaydırma taşması, `volt check` ve `volt build` çöker (çıkış 101).
+- **Test.** `part_select_wide_start_tests`: başlangıcın doğal genişliği
+  126, 127, 128, 129 (işaretsiz) ve 127, 128 (işaretli) olan azalan
+  seçimler `volt check` ve `volt build`'de tanısız; `volt test`
+  Verilator'da elle hesaplanan bitleri okur (yerelde Docker'da Verilator
+  5.052 ile, iki test bloğu geçti). Mutant worktree'de uygulanınca: `>`
+  ile tanı testi düştü (`expr.rs:1605:64`'te panik), `<=` ile iki test
+  geçti (eşdeğer).
+
+Özet: 1 missed, A1 (`exclude_re`); B ve C yok.
