@@ -235,6 +235,8 @@ jobs:
             cargo mutants --list "${filter[@]}" --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
           done
           total=$(wc -l < mutants-list/all.txt)
+          # || :, case (c): with no shard (the gate has nothing to test) there
+          # is no shard file and cat fails; the count is checked just below.
           sharded=$( (cat mutants-list/shard-*.txt 2>/dev/null || :) | wc -l)
           echo "::notice title=Mutants in scope::$total in $MUTANTS_SHARDS shards"
           if [ "$total" -ne "$sharded" ]; then
