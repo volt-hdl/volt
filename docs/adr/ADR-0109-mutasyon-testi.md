@@ -1186,17 +1186,22 @@ mutantını dener: `319:37` `==` → `!=` (E2023'ün iletisi) ve
 
 İki PR'ın normal CI'ı (`ci.yml`) yeşil.
 
-**Main'in koduyla.** Bu ekin dalının Rust kaynağı main'inkiyle aynıdır
-(`git diff origin/main...HEAD -- 'crates/*/src/**'` boş). #281'de kaçan
-mutant main'de `319:29`'dadır (kanıt dalındaki biçim değişikliği sütunu
-kaydırmıştı). Hedefli koşu 43754250315 (6075d287, `shards` = 1): `Found 1
-mutant to test`, `1 mutant tested in 14m: 1 caught`, `cargo mutants
-finished, exit code 0`, `Tool ledger [mutants-0]: 190 test(s) asked for a
-tool; 192 lookup(s) found the tool (192 required), SKIP: 0`; özet
-`caught=1 missed=0 … mutants=1`, yeşil. (`re`'nin ikinci kolu
-`check_literal_divisor with ()` için yazılmıştı ama ` in` ile bittiğinden
-eşleşmedi: fonksiyon değiştirme mutantının adı ` in` taşımaz. O mutant
-#280'de yakalandı.)
+**Main'in kaynağıyla.** Main'in kendi yapılandırmasında `literal_fold.rs`
+kapsamda değildi (§2'nin dosya listesi), main'in iş akışı bu mutantları
+bulmaz. Kanıt dalı `evidence/253-main-green`: `origin/main` (56e9d97a) +
+yalnız bu ekin `mutants.yml`'i, `scripts/ci/mutants_*.py`'si ve
+`.cargo/mutants.toml`'u; `crates/` main'le aynı (`git diff origin/main --
+crates/` boş). #281'de kaçan mutant main'de `319:29`'dadır (kanıt
+dalındaki biçim değişikliği sütunu kaydırmıştı); öteki `301:9`
+(`check_literal_divisor with ()`). Hedefli koşu 43759306329 (addd9508,
+`shards` = 1), yeşil: `2 mutants match the regex`, `Found 2 mutants to
+test`, `2 mutants tested in 20m: 2 caught`, `cargo mutants finished, exit
+code 0`, `Tool ledger [mutants-0]: 190 test(s) asked for a tool; 192
+lookup(s) found the tool (192 required), SKIP: 0`; özet `caught=2
+missed=0 timeout=0 unviable=0 memory=0 untested=0 mutants=2`. Dal kanıt
+yazılınca silindi. (Bu ekin dalında daha önceki 43754250315 yalnız
+`319:29`'u denedi: `re`'nin ikinci kolu ` in` ile bittiği için
+eşleşmemişti, fonksiyon değiştirme mutantının adı ` in` taşımaz.)
 
 Kapsamdaki Rust'a dokunmayan PR
 #279'un kendi kapısı (43730662899): `No Rust file changed since
