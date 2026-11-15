@@ -11,7 +11,7 @@ the list that cargo-mutants makes from both filters.
 
   mutants_target.py diff  --re RE --list re-list.txt --out target.diff
   mutants_target.py check --re RE --list final-list.txt
-  mutants_target.py shards --mutants M [--minutes-per-mutant T]
+  mutants_target.py shards --mutants M [--seconds-per-mutant T]
   mutants_target.py --self-test
 
 `diff`: reads the --re list, keeps the names that the regex matches
@@ -19,7 +19,8 @@ the list that cargo-mutants makes from both filters.
 many it dropped. `check`: exits 1 when a mutant in the list does not match
 the regex or the list is empty; this is the proof that the run tries only
 the requested mutants. `shards`: the shard count of ADR-0109 section 3 for
-M mutants.
+M mutants; the pull-request gate passes its own measured t (ADR-0109
+appendix "PR kapısı").
 """
 
 import argparse
@@ -90,6 +91,10 @@ def self_test():
     assert shard_count(64) == 1
     assert shard_count(65) == 2
     assert shard_count(10**6) == MAX_SHARDS
+    # The gate's t = 600 s: 22 mutants a shard (22 * 10 + 15 = 235 minutes).
+    assert shard_count(22, 600) == 1
+    assert shard_count(23, 600) == 2
+    assert shard_count(165, 600) == 8
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
@@ -116,6 +121,7 @@ def main():
     c.add_argument("--list", required=True)
     s = sub.add_parser("shards")
     s.add_argument("--mutants", type=int, required=True)
+    s.add_argument("--seconds-per-mutant", type=int, default=SECONDS_PER_MUTANT)
     args = ap.parse_args()
 
     if args.cmd == "diff":
@@ -142,7 +148,7 @@ def main():
             return 1
         print(f"all {len(names)} mutants in the list match {args.re!r}")
         return 0
-    print(shard_count(args.mutants))
+    print(shard_count(args.mutants, args.seconds_per_mutant))
     return 0
 
 

@@ -43,6 +43,11 @@
 #  18. release.yml ve book.yml yalnız tam vX.Y.Z etiketiyle mi tetikleniyor?
 #      Süzgeç örnek etiket adlarıyla sınanır: ön sürüm, sonekli, önekli ve
 #      eksik/fazla haneli etiketler sürüm işini başlatmaz (ADR-0100).
+#  19. Çalışma alanının her üyesinin src/ dizinindeki her .rs dosyası
+#      mutasyon kapsamında mı (.cargo/mutants.toml examine_globs), değilse
+#      exclude_globs'ta tam yoluyla ve üstünde kendi gerekçesiyle mi
+#      listede? Listedeki her girdi var olan bir kaynak dosya mı (ADR-0109
+#      eki, #253)?
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -390,6 +395,81 @@ foreach ($t in 'v0.1.0', 'v1.2.3', 'v10.20.30') {
 }
 foreach ($t in 'v0.1.0-rc1', 'v0.1.0-f1', 'v0.2.0-f2', 'v1.0.0-beta.1', 'release-v0.1.0', 'xv0.1.0', 'v0.1', 'v0.1.0.1', 'v0x1y0', 'V0.1.0', 'v0.1.0+build') {
     if ($t -cmatch $tagRe) { Add-Violation "etiket süzgeci sürüm olmayan $t'yi eşliyor (kontrol 18)" }
+}
+
+# ── 19: mutasyon kapsamı (ADR-0109 eki, #253) ─────────────────────────
+# .cargo/mutants.toml: çalışma alanının her üyesinin (kök Cargo.toml,
+# members) src/ dizinindeki her .rs dosyası ya examine_globs'un bir
+# kalıbıyla eşleşir ya da exclude_globs'ta tam yoluyla listelenir.
+# exclude_globs'un her girdisi kalıp değil yoldur, var olan bir kaynak
+# dosyayı adlandırır ve hemen üstünde kendi gerekçe yorumu vardır. Kalıp
+# anlamı cargo-mutants'ınki (globset): '**/' sıfır ya da daha çok dizin,
+# '*' ve '?' '/' dışında. Bir satıra bir dizi elemanı yazılır.
+function ConvertTo-GlobRegex([string]$g) {
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $g.Length; $i++) {
+        $c = $g[$i]
+        if ($c -eq '*') {
+            if ($i + 1 -lt $g.Length -and $g[$i + 1] -eq '*') {
+                if ($i + 2 -lt $g.Length -and $g[$i + 2] -eq '/') { [void]$sb.Append('(.*/)?'); $i += 2 }
+                else { [void]$sb.Append('.*'); $i += 1 }
+            } else { [void]$sb.Append('[^/]*') }
+        } elseif ($c -eq '?') { [void]$sb.Append('[^/]') }
+        elseif ('.+^$()|{}[]\'.Contains([string]$c)) { [void]$sb.Append('\' + $c) }
+        else { [void]$sb.Append($c) }
+    }
+    '^' + $sb.ToString() + '$'
+}
+$mtLines = Get-Content (Join-Path $root '.cargo\mutants.toml') -Encoding UTF8
+$examineRe = @(); $excl = @()
+$block = ''; $prevComment = $false
+for ($n = 0; $n -lt $mtLines.Count; $n++) {
+    $line = $mtLines[$n]
+    if ($block -eq '' -and $line -match '^examine_globs\s*=') { $block = 'examine' }
+    elseif ($block -eq '' -and $line -match '^exclude_globs\s*=') { $block = 'exclude'; $prevComment = $false }
+    if ($block -eq '') { continue }
+    if ($line -match '^\s*#') { $prevComment = $true; continue }
+    if ($line -match '^\s*$') { continue }
+    foreach ($m in [regex]::Matches($line, '"([^"]*)"')) {
+        $s = $m.Groups[1].Value
+        if ($block -eq 'examine') { $examineRe += (ConvertTo-GlobRegex $s) }
+        else { $excl += [pscustomobject]@{ Path = $s; Reason = $prevComment; Line = $n + 1 }; $prevComment = $false }
+    }
+    if ($line -match '\]\s*(#.*)?$') { $block = '' }
+}
+$members = @()
+$inMembers = $false
+foreach ($line in (Get-Content (Join-Path $root 'Cargo.toml') -Encoding UTF8)) {
+    if ($line -match '^members\s*=') { $inMembers = $true }
+    if ($inMembers) {
+        foreach ($m in [regex]::Matches($line, '"([^"]*)"')) { $members += $m.Groups[1].Value }
+        if ($line -match '\]') { $inMembers = $false }
+    }
+}
+if ($members.Count -eq 0) { Add-Violation "kök Cargo.toml'da çalışma alanı üyesi okunamadı (kontrol 19)" }
+$srcFiles = @(foreach ($m in $members) {
+    $src = Join-Path $root "$m\src"
+    if (Test-Path $src) {
+        Get-ChildItem $src -Recurse -File -Filter *.rs |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') }
+    }
+}) | Sort-Object
+$srcSet = @{}
+foreach ($f in $srcFiles) { $srcSet[$f] = $true }
+if ($examineRe.Count -eq 0) { Add-Violation ".cargo/mutants.toml: examine_globs boş ya da okunamadı (kontrol 19)" }
+$listed = @{}
+foreach ($x in $excl) {
+    if ($x.Path -match '[*?\[{]') { Add-Violation ".cargo/mutants.toml: exclude_globs girdisi kalıp, yol değil: $($x.Path) (satır $($x.Line)) (kontrol 19)" }
+    elseif (-not $srcSet.ContainsKey($x.Path)) { Add-Violation ".cargo/mutants.toml: exclude_globs girdisi bir üyenin src/ dizininde bir .rs dosyası değil: $($x.Path) (satır $($x.Line)) (kontrol 19)" }
+    if (-not $x.Reason) { Add-Violation ".cargo/mutants.toml: exclude_globs girdisinin üstünde gerekçe yorumu yok: $($x.Path) (satır $($x.Line)) (kontrol 19)" }
+    $listed[$x.Path] = $true
+}
+foreach ($f in $srcFiles) {
+    $hit = $false
+    foreach ($re in $examineRe) { if ($f -cmatch $re) { $hit = $true; break } }
+    if (-not $hit -and -not $listed.ContainsKey($f)) {
+        Add-Violation ".cargo/mutants.toml: kaynak dosya mutasyon kapsamında değil ve exclude_globs listesinde yok: $f (kontrol 19)"
+    }
 }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

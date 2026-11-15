@@ -5,6 +5,51 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
+  etkiler; derleyicinin girdisi ve çıktısı aynıdır.
+
+### Geliştirici notu — Her PR'da değişen satırların mutasyon testi (#253 1. aşama, ADR-0109 eki, 2026-11-15)
+
+- **PR kapısı.** `mutants.yml` artık her pull request'te koşar: PR'ın
+  değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`),
+  ölçülen mutant süresine göre parçalara bölünmüş. `exclude_re`'nin
+  kapsamadığı her missed mutant özet işini kırmızı yapar; özet onları ve
+  ADR-0109'un sınıflandırma kurallarını (B: test; A1/A2: kanıtlı hariç
+  tutma; C: issue) listeler. Kapsamdaki Rust kaynağına dokunmayan PR'da
+  iş hiçbir şey denemeden yeşil biter ve bunu söyler. Aynı PR'a gelen
+  yeni push eski koşuyu iptal eder. Kontrol zorunlu değildir. Elle:
+  `gh workflow run mutants.yml --ref <dal> -f gate_base=<revizyon>`.
+- **Varsayılan kapsam.** `.cargo/mutants.toml`'da her crate'in `src/`'i
+  kapsamdadır (3169 mutanttan 11 617'ye); dosya yalnız `exclude_globs`'ta
+  adıyla ve kendi gerekçesiyle dışarıda kalır (bugün volt-difftest'in on
+  bir dosyası). Tutarlılık denetiminin 19. kontrolü (`.sh` ve `.ps1`)
+  kapsam kararı olmayan kaynak dosyada düşer.
+- **Kaymayan hariç tutmalar (#239).** Her `exclude_re` kaydı yazıldığı
+  mutantları `# expect:` satırlarında adlandırır; yeni "Mutation
+  exclusions match their mutants" işi her kaydın tam bu mutantlarla
+  eşleştiğini `cargo mutants --list` ile denetler. Dönüştürmede beş kayan
+  kayıt bulundu ve taşındı; biri (`expr.rs:1605:48`) 63e4ffe7'den beri
+  sınıflandırılmamış bir mutantı gizliyordu.
+- **Bellek sınırı (#160).** Bir parçanın derleme ve testleri bir bekçinin
+  (`scripts/ci/mutants_watchdog.py`) altında koşar: süreç ağacı 12 GiB'ı
+  aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye
+  raporlanır ve parça devam eder; sınırsız bellek büyüten bir mutant artık
+  runner'ı ve bütün parçayı düşürmez.
+- **Tek parçalı özet (#179).** Tek parçalı koşunun özeti artık parçayı
+  bulur (`download-artifact` tek yapıtı alt dizinsiz çıkarır).
+- **Ölçüm.** Kapı son üç PR'ın farkıyla koşuldu: 48, 111 ve 159 mutant;
+  3, 6 ve 8 parça; 81, 102 ve 186 dakika. #276'nın farkında kaçan bir
+  mutant (Türkçe açıklama tablosu) bulundu; onu yakalayan test eklendi.
+  Kapı bir hafta bilgilendirici kalır; süre gerçek PR'ların süreleriyle
+  yeniden ele alınacak.
+- **Bellek sınırı kapıyı düşürmez.** Bekçinin süreç öldürdüğü mutant,
+  cargo-mutants onu missed ya da unviable yazsa da "memory limit"
+  (yakalandı) sayılır; timeout gibi özette listelenir.
+
 ## [0.1.2] - 2026-11-13
 
 ### Behavior changes

@@ -963,3 +963,310 @@ lookup(s) found the tool (191 required), SKIP: 0`.
 
 Özet: 1 missed, A1 (`exclude_re`), B ve C yok. `mono/mod.rs` ve
 `emit_cast`'in mutantlarının hepsi yakalandı.
+
+## PR kapısı, varsayılan kapsam, kaymayan hariç tutmalar, bellek sınırı (#253 1. aşama, #160, #179, #239, 2026-11-15)
+
+Önceki karar metni değişmedi. Bu ek §3'ün "PR'da koşmaz" kuralını ve
+"İleride: `cargo mutants --in-diff`" bölümünü uygular: iş akışı artık her
+PR'da değişen satırların mutantlarını dener. §2'nin dosya dosya kapsamı
+yerine her crate'in `src/`'i kapsamdadır. Elle koşular (tam ve hedefli)
+§3'teki gibi ölçümdür; missed mutant onları düşürmez.
+
+### 1. PR kapısı
+
+- **Tetik.** `mutants.yml` her `pull_request`'te koşar. `concurrency` PR
+  başınadır (`mutants-pr-<numara>`, `cancel-in-progress`): aynı PR'a gelen
+  yeni push eski koşuyu iptal eder. Elle koşular kendi grubundadır, hiçbir
+  koşu onları iptal etmez. Kapı elle de koşar:
+  `gh workflow run mutants.yml --ref <dal> -f gate_base=<revizyon>`.
+- **Fark.** Birleştirme commit'inin ilk ebeveynine göre (`HEAD^1`, PR'ın
+  tabanının o anki ucu) yalnız `*.rs` dosyalarının farkı
+  (`git diff --no-renames`). `cargo mutants --in-diff` değişen satırlara
+  dokunan mutantları seçer. Bir fonksiyon değeri mutantı
+  (`replace f with ()`) gövdesinin tamamını kapsar; gövdede değişen bir
+  satır onu da seçer.
+- **Test edilecek mutant yoksa** kapsam işi parça kurmaz (parça işi
+  atlanır), özet işi nedenini yazar ve yeşil biter. Üç neden ayrı yazılır:
+  hiçbir Rust dosyası değişmedi; değişen Rust dosyaları kapsamda değil
+  (adlarıyla); kapsamdaki dosyalar değişti ama değişen satırlarda mutant
+  yok.
+- **Parça sayısı** §3'ün hesabıdır (parça ≤ 240 dk, S = 15 dk, en çok 20
+  parça), ama ölçülmüş bir t ile: **t = 600 sn**. Son üç hedefli koşunun
+  `outcomes.json`'unda (derleme + test süresi) en yavaş parçanın mutant
+  başına ortalaması 568 sn'dir (43196528987, 2. parça; ötekiler 186–531
+  sn); §3'teki gibi yukarı yuvarlandı. t = 600 sn'de bir parça en çok 22
+  mutant alır (22 · 10 dk + 15 dk = 235 dk). Elle koşuların t'si (210 sn)
+  #156'nın kararına kadar değişmedi.
+- **Karar.** Özet işi her parçanın sonucunu birleştirir ve şu durumlarda
+  düşer:
+  - `exclude_re`'nin hiçbir kaydının kapsamadığı her missed mutant;
+  - tamamlanmayan bir parça (§3).
+
+  `exclude_re`'yi özet de uygular (Python `re.search`, cargo-mutants gibi),
+  çünkü cargo-mutants 27.1.0 alan silme mutantlarına uygulamaz ("Hedefli
+  koşu"); böylece bir alan silme mutantı da A olarak hariç tutulabilir.
+  Timeout ve bellek sınırı (aşağıda 4) yakalanmış sayılır (§4). Özet
+  missed mutantları dosya:satır ile ve sınıflandırma kurallarıyla listeler:
+  B'ye test, A1/A2'ye kanıtlı `exclude_re` kaydı (A2'de varsayımın kalıcı
+  testi; her kayıtta `# expect:` satırları), C'ye "silent-wrong?" issue'su.
+- **C mutantı bugün kapıyı kırmızı tutar.** §4'e göre C bu işte
+  düzeltilmez; kapı onu kapsayan bir kayıt bilmez. Bakımcının kararı
+  (2026-11-15, #283, v0.1.3): bir C mutantı `exclude_re`'de issue
+  numarasıyla bir kayıt olarak durur; issue açıkken kapı o mutantı geçer,
+  issue kapanınca hariç tutma denetimi o kaydı düşürür. Bu, kapı zorunlu
+  kontrol yapılmadan önce yapılacak; bu ekte uygulanmadı.
+- **Araçlar.** Her parça araçlı işin araçlarıyla ve
+  `VOLT_REQUIRE_TOOLS=all` ile koşar ve `Tool ledger [mutants-<k>]: …
+  SKIP: 0` satırını `--require-zero-skips --min-ran 60` ile yazar (§3,
+  ADR-0107). Parça kurulmazsa test de koşmaz, defter satırı yoktur.
+- **Zorunlu değil.** Kapı ilk dönem bilgilendiricidir; depo kurallarında
+  zorunlu kontrol yapılmadı, onu bakımcı ayarlar.
+
+### 2. Varsayılan kapsam
+
+`examine_globs = ["crates/*/src/**/*.rs"]`. Bir dosya yalnız
+`exclude_globs`'ta tam yoluyla (kalıp değil) ve hemen üstünde kendi
+gerekçe yorumuyla dışarıda kalır. Bugünkü liste volt-difftest'in on bir
+dosyasıdır: ADR-0108'in test aracıdır, volt-driver'ın dev-dependency'sidir
+ve `volt`'a girmez; kendi kodunu her koşuda Verilator denetler, onu
+değiştirmek derleyiciyi değil fark testini ölçer. Her dosyanın gerekçesi
+`.cargo/mutants.toml`'dadır. `model.rs` de kapsam dışında kalır; fark
+testinin kendi ölçümü olarak kapsama alınması #255'te ele alınacak.
+
+`cargo mutants --list-files` volt-difftest'le 271 dosya verir. Çalışma
+alanındaki 273 `src/` dosyasından ikisi `#[cfg(test)]` modülüdür
+(`volt-hir/src/domain/rdc/tests.rs`, `domain/testutil.rs`); cargo-mutants
+onları görmez. `build.rs`, `benches/`, `examples/` ve `fuzz/` crate
+kaynağı değildir, kapsamda değildir.
+
+| Kapsam | Mutant (hariç tutmadan önce) | `exclude_re`'den sonra |
+|---|---:|---:|
+| Önceki (`examine_globs` dosya listesi) | — | 3169 |
+| Varsayılan (volt-difftest hariç) | 11 655 | 11 617 |
+
+Crate başına (hariç tutmadan önce): volt-hir 2880, volt-syntax 2776,
+volt-sv-emit 2681, volt-driver 1218, volt-lsp 575, volt-ast 531,
+volt-sw-emit 469, volt-diagnostics 211, volt-tools 141, volt-sdc-emit 97,
+volt-span 76 (volt-difftest'in 1630'u dışarıda).
+
+**Tutarlılık kontrolü 19** (`scripts/check-consistency.sh` ve `.ps1`, aynı
+kural): kök `Cargo.toml`'un her üyesinin `src/`'indeki her `.rs` dosyası
+ya `examine_globs`'un bir kalıbıyla (cargo-mutants'ın anlamı: `**/` sıfır
+ya da daha çok dizin, `*` ve `?` `/` dışında) eşleşir ya da
+`exclude_globs`'ta listelenir; `exclude_globs`'un her girdisi var olan bir
+kaynak dosyanın yoludur ve üstünde gerekçesi vardır. Değilse kontrol
+düşer. Yerelde iki betikle sınandı: kalıp, olmayan dosya ve gerekçesiz
+girdi üç ihlal; `examine_globs` yalnız volt-span'e daraltılınca 261 ihlal
+(273 − 1 − 11), iki betikte aynı.
+
+**Tam koşu.** Kapsam §3'e zaten sığmıyordu (#156); 11 617 mutantla hiçbir
+parça sayısında sığmaz. Tam kapsamın dönüşümlü haftalık dilimlere
+bölünmesi #253'ün 2. aşamasıdır (#156).
+
+### 3. Kaymayan hariç tutmalar (#239)
+
+Her `exclude_re` kaydı, gerekçesi ile kaydın arasında, yazıldığı her
+mutantı bir `# expect: <ad>` satırıyla adlandırır (`cargo mutants --list`
+biçimi, satır:sütunla). "Mutation exclusions match their mutants" işi
+(`scripts/ci/mutants_exclusions.py check`) yapılandırmanın `exclude_re`'si
+boşaltılmış bir kopyasıyla `cargo mutants --list` alır (`--no-config`
+`examine_globs`'u da düşürürdü) ve her kaydı ona uygular. İş şu
+durumlarda düşer:
+
+- kaydın `# expect:` satırı yok;
+- kayıt hiçbir mutantla eşleşmiyor;
+- beklenen bir mutant eşleşmiyor (ileti aynı dosya, değişiklik ve
+  fonksiyondaki bugünkü adları gösterir);
+- beklenmeyen bir mutant eşleşiyor (sessiz gizleme).
+
+Beklenen adlar satır:sütun taşır, çünkü denetlenen "tam bu mutantlar"dır:
+sabitsiz bir kaydın beklenen adları da her kaymada güncellenir; ileti
+yeni adı verdiği için güncelleme tek düzenlemedir. §4'ün regex kuralı
+(satır:sütunu yalnız aynı değişiklik aynı fonksiyonda birden çok kez
+geçiyorsa sabitler) değişmedi. Sınır: adlar aynı adı taşıyan iki mutantı
+ayıramaz; sınıflandırılan deyim kayar ve aynı fonksiyondaki aynı
+değişiklik tam onun satır:sütununa gelirse denetim geçer.
+
+**Dönüştürme.** 36 kaydın hepsi bu biçime çevrildi (38 beklenen mutant).
+Beş kayıt kaymıştı. Her birinde kaynak satırı okunarak kaydın yazıldığı
+deyim bulundu ve kayıt oraya taşındı:
+
+| Kayıt | Durum | Yeni |
+|---|---|---|
+| `expr.rs:1352:93` `>` → `>=` (`emit_prec`) | 3135ceef'ten (2026-11-08) beri hiçbir mutantla eşleşmiyordu | `1355:93` |
+| `expr.rs:1353:35` `<` → `<=` (`emit_prec`) | aynı | `1356:35` |
+| `expr.rs:1605:48` `<` → `<=` (`part_select_from_value`, `sig.width < need`) | 3135ceef'ten beri eşleşmiyordu; 63e4ffe7'den (#265) beri **başka bir mutantı gizliyordu**: `1605:48` `sig.width < 127` → `<=` | `1608:48` |
+| `desugar.rs:899:20` `!` silme (`order_lets`) | 63e4ffe7'den beri eşleşmiyordu (üstüne 16 satır eklendi) | `915:20` |
+| `desugar.rs:1073:35` `+` → `*` (`build_on_block`) | aynı | `1089:35` |
+
+Taşımadan sonra `1605:48` `sig.width < 127` → `<=` hiçbir kayda girmiyor.
+Sınıflandırılmadı; açık bulgu olarak #282'de.
+
+### 4. Bellek ve süre sınırı (#160)
+
+cargo-mutants 27.1.0 bir mutantın süresini sınırlar (`--timeout`: temel
+koşunun iki katı, en az 300 sn; `--build-timeout 1200`), belleğini
+sınırlamaz. #157'nin koşularında `stmt.rs:598:32` (`parse_block`, `&&` →
+`||`) ayrıştırıcıyı dosya sonunda döngüye soktu, bellek saniyede ~250 MB
+büyüdü ve runner kapandı: parçanın kalan mutantları, özeti ve defter
+satırı kayboldu.
+
+Karar: her parçanın temel koşusu ve `cargo mutants` adımı
+`scripts/ci/mutants_watchdog.py`'nin altında koşar. Bekçi komutun süreç
+ağacını 0,2 sn'de bir okur (`/proc`); ağacın yerleşik belleği
+`MUTANTS_MEMORY_LIMIT_MIB`'i (12 288 MiB; runner 16 GiB) aşınca ağacın en
+büyük sürecini (komutun kendisi hariç) SIGKILL ile öldürür. O süreci koşan
+test düşer, cargo-mutants mutantı yakalanmış yazar ve sonraki mutanta
+geçer; parça tamamlanır. Her öldürme `memory-kills.tsv`'de bir satırdır:
+zaman, pid, sürecin ve ağacın MiB'ı, mutant (cargo-mutants'ın en yeni
+günlüğünün ilk satırı, `*** <ad>`) ve komut satırı. Dosya parçanın
+yapıtına girer; özet bu mutantları ayrı bir sınıf olarak, **memory
+limit** diye yazar ve §4'teki timeout gibi yakalanmış sayar:
+cargo-mutants'ın verdiği sonuç ne olursa olsun (caught ve timeout: test
+öldü; missed: öldürülen süreç testin hükmü değildi; unviable: derleme
+öldü). Kapı timeout'ta olduğu gibi bellek sınırında da kırmızı olmaz, özet
+mutantı listeler; `mutants_summary.py --self-test`'in kapı durumu
+(dördü bellek sınırında, biri timeout) bunu denetler: düzeltmeden önce
+missed ve unviable kalan öldürülmüş mutantlarla düştü, sonra geçti. Temel
+koşuda bir öldürme (`baseline-memory-kills.tsv`) temel koşuyu düşürür:
+meşru bir test sınırı aşıyorsa bu bir mutantın "yakalanması" diye
+görünmez.
+
+Seçilmeyen: süreç başına `ulimit` (RLIMIT_AS Rust ve Verilator'ın sanal
+bellek ayırmalarını bozar; RLIMIT_DATA süreç başınadır, paralel dört
+test toplamda runner'ı yine aşabilir); cgroup (`memory.max`) runner'da
+root ve cgroup taşıma ister, öldürülen mutantı adlandırmaz.
+
+**Kanıt.** Aynı tek mutant (`re` = `stmt\.rs:598:32: replace && with \|\|
+in Parser<'_>::parse_block$`, `shards` = 1):
+
+- **Önce, main'in iş akışıyla** (43728173913, 56e9d97a): parçanın temel
+  koşusu geçti (15:13–15:23 UTC), `cargo mutants` adımı bitmedi; iş
+  16:08'de `The hosted runner lost communication with the server` ile
+  düştü. "Upload mutants.out" ve defter adımı hiç koşmadı, yapıt yok;
+  özet `shard 0: NOT COMPLETED: no artifact, 1 not tested`.
+- **Sonra, bu ekin iş akışıyla** (43734127184, 610663c7): `Found 1
+  mutant to test`, `killed pid 157840 at 12338 MiB (limit 12288 MiB):
+  crates/volt-syntax/src/parser/stmt.rs:598:32: replace && with || in
+  Parser<'_>::parse_block`, `cargo mutants finished, exit code 0`,
+  `Tool ledger [mutants-0]: 190 test(s) asked for a tool; 192 lookup(s)
+  found the tool (192 required), SKIP: 0`; parça 9 dk 36 sn'de
+  `completed`. Özet: `caught=0 missed=0 timeout=0 unviable=0 memory=1
+  untested=0 mutants=1`.
+
+Ara koşu 43731283723 (68adc24d) bekçinin çalıştığını ama adı
+bulamadığını gösterdi: cargo-mutants 27.1.0 mutant günlüğünü boş bir
+satırla başlatır, bekçi yalnız ilk satıra bakıyordu; öldürme satırının
+mutant alanı boş kaldı ve özet mutantı "caught" saydı. Bekçi artık
+`*** <ad>` satırını arar; self-test bu biçimle düzeltmeden önce düştü,
+sonra geçti.
+
+### 5. Tek parçalı özet (#179)
+
+`download-artifact` `mutants-out-*` deseni tek yapıtla eşleşince onu alt
+dizin açmadan `shards/`'a çıkarır. Özet betiği tek parçalı koşuda
+`shards/mutants.out`'u da okur; iki ve daha çok parçada her yapıt kendi
+`mutants-out-<k>/` dizinindedir. `mutants_summary.py --self-test`'in iki
+yeni durumu (tek ve iki parça) düzeltmeden önce tek parçada `#179: a
+one-shard run is completed` ile düştü, sonra geçti. CI'da tek parçalı
+koşu 43734127184'ün özet işi parçayı `completed` buldu.
+
+### 6. Kapının kanıtı
+
+İki kanıt PR'ı (taslak, merge edilmedi; dallar kanıt yazılınca silindi),
+ikisi de bu ekin dalı + `typeck/literal_fold.rs:319`'da anlamı aynı bir
+değişiklik (`op == BinOp::Rem` → `BinOp::Rem == op`). Kapı bu satırın iki
+mutantını dener: `319:37` `==` → `!=` (E2023'ün iletisi) ve
+`check_literal_divisor` → `()`.
+
+| PR | Testler | Kapı koşusu | Parça | Özet |
+|---|---|---|---|---|
+| #280 | sağlam | 43731069853, yeşil | `Found 2 mutants to test`, `2 mutants tested in 21m: 2 caught`, `SKIP: 0` | `Pull-request gate: passed, every mutant on the changed lines is caught or excluded`; `caught=2 missed=0 … gate_open=0` |
+| #281 | `the_zero_divisor_message_names_the_operator` bilerek zayıflatıldı (iletiyi karşılaştırmıyor) | 43731073743, kırmızı | `MISSED crates/volt-hir/src/typeck/literal_fold.rs:319:37: replace == with != …`, `2 mutants tested in 17m: 1 missed, 1 caught`, `SKIP: 0` | `Pull-request gate: FAILED, 1 missed mutant(s) not covered by exclude_re`, mutant ve sınıflandırma kuralları; `##[error]missed, not covered by exclude_re: …`; `gate_open=1` |
+
+İki PR'ın normal CI'ı (`ci.yml`) yeşil.
+
+**Main'in kaynağıyla.** Main'in kendi yapılandırmasında `literal_fold.rs`
+kapsamda değildi (§2'nin dosya listesi), main'in iş akışı bu mutantları
+bulmaz. Kanıt dalı `evidence/253-main-green`: `origin/main` (56e9d97a) +
+yalnız bu ekin `mutants.yml`'i, `scripts/ci/mutants_*.py`'si ve
+`.cargo/mutants.toml`'u; `crates/` main'le aynı (`git diff origin/main --
+crates/` boş). #281'de kaçan mutant main'de `319:29`'dadır (kanıt
+dalındaki biçim değişikliği sütunu kaydırmıştı); öteki `301:9`
+(`check_literal_divisor with ()`). Hedefli koşu 43759306329 (addd9508,
+`shards` = 1), yeşil: `2 mutants match the regex`, `Found 2 mutants to
+test`, `2 mutants tested in 20m: 2 caught`, `cargo mutants finished, exit
+code 0`, `Tool ledger [mutants-0]: 190 test(s) asked for a tool; 192
+lookup(s) found the tool (192 required), SKIP: 0`; özet `caught=2
+missed=0 timeout=0 unviable=0 memory=0 untested=0 mutants=2`. Dal kanıt
+yazılınca silindi. (Bu ekin dalında daha önceki 43754250315 yalnız
+`319:29`'u denedi: `re`'nin ikinci kolu ` in` ile bittiği için
+eşleşmemişti, fonksiyon değiştirme mutantının adı ` in` taşımaz.)
+
+Kapsamdaki Rust'a dokunmayan PR
+#279'un kendi kapısı (43730662899): `No Rust file changed since
+56e9d97a.`, `Pull-request gate: **passed** (nothing to test).`
+
+### 7. Ölçüm: son üç PR'ın farkı
+
+Kapı, birleşmiş üç PR'ın farkıyla elle koşuldu (`-f gate_base=<squash
+commit>^`). Her dal o PR'ın squash commit'i + bu ekin iş akışı ve
+betikleriydi (`evidence/253-measure-*`, ölçüm yazılınca silindi). Sayılar
+iş günlüklerinden ve iş zamanlarından (GitHub API, `startedAt` /
+`completedAt`).
+
+| PR | Koşu | Değişen `.rs` (kapsamda) | Mutant | Parça | Parça başına mutant | Temel koşu (dk) | `cargo mutants` adımı (dk) | En uzun parça işi (dk) | Koşu, baştan sona (dk) | Sonuç |
+|---|---|---:|---:|---:|---|---|---|---:|---:|---|
+| #260 (96787af0) | 43730788333 | 9 (3) | 48 | 3 | 16 | 9–14 | 47–65 | 80 | 81 | 39 caught, 9 unviable; kapı geçti |
+| #276 (705f4308) | 43730785007 | 20 (13) | 111 | 6 | 18–19 | 9–11 | 54–85 | 97 | 102 | 104 caught, 6 unviable, **1 missed**; kapı düştü |
+| #265 (63e4ffe7) | 43734154994 | 24 (12) | 159 | 8 | 19–20 | 10–16 | 77–159 | 175 | 186 | 127 caught, 32 unviable; kapı geçti |
+
+Her parçanın günlüğü `Found <n> mutants to test`, `<n> mutants tested in
+…`, `cargo mutants finished, exit code 0` (#276'nın 5. parçasında `2`) ve
+`Tool ledger [mutants-<k>]: … SKIP: 0` yazdı (#260: 179 test / 181
+arama, #276: 180 / 182, #265: 190 / 192). Bekçi hiçbir koşuda süreç
+öldürmedi (`watchdog: 0 process(es) killed`); hiçbir mutant timeout
+olmadı; 17 parçanın hepsi `completed`.
+
+- **Mutant başına süre** (`cargo mutants` adımı / parçanın mutantı):
+  #260 3,0–4,1 dk, #276 2,8–4,5 dk, #265 3,9–7,9 dk. Hepsi t = 600 sn'nin
+  altında; en uzun parça işi (#265'in 0. parçası, 175 dk) 240 dk
+  hedefinin içinde.
+- **Kuyruk.** Üç ölçüm ve iki kanıt PR'ı aynı anda koştu; GitHub'ın 20
+  eşzamanlı iş sınırı dolunca işler bekledi: #265'in 0. parçası koşu
+  başladıktan 11 dk sonra başladı, aynı saatlerde açılan PR'ların `ci.yml`
+  işleri de sıraya girdi. #265'in ilk koşusu (43730781621) kanıt PR'larına
+  yer açmak için parçalar başlamadan iptal edildi ve 16:12'de yeniden
+  koşuldu; tablodaki odur.
+- **#276'nın missed mutantı** (`MISSED
+  crates/volt-diagnostics/src/messages/tr.rs:11:5: replace description ->
+  &'static str with "xyzzy" in 47s build + 516s test`) B'dir:
+  `en_and_tr_cover_the_same_code_set` yalnız açıklamanın boş olmadığını
+  denetliyordu. Kapı #276'da var olsaydı o PR kırmızı olurdu. Bu ekin
+  PR'ı onu öldüren testi ekledi (`each_description_names_one_code`, iki
+  dilde her kodun açıklaması ötekilerden farklı); test mutant elle
+  uygulanınca düştü, kaynak geri alınınca geçti.
+
+**Süre.** Kapı bir PR'ı 81–186 dk bekletti. **Karar (bakımcı,
+2026-11-15): seçenek 1.** Kapı bir hafta bilgilendirici kalır; süre
+gerçek PR'ların süreleriyle yeniden ele alınacak. Değerlendirilen
+seçenekler:
+
+1. **Bugünkü ayar** (parça ≤ 240 dk, t = 600 sn). Ölçülen en uzun parça
+   175 dk; t gerçekte 2,8–7,9 dk olduğundan parçalar hedefin epey
+   altında kalıyor. Seçilen budur.
+2. **Daha kısa parça hedefi** (ör. 90 dk). #265 için ~15 parça olurdu,
+   süre ~100 dk'ya inerdi; ama her parça 10–16 dk temel koşu ve ~1 dk
+   kurulum ekler, ve 20 eşzamanlı iş sınırının çoğunu tek PR doldurur:
+   öteki PR'ların `ci.yml`'i bekler.
+3. **Temel koşunun testlerini parça başına değil bir kez koşmak**
+   (derleme parçada kalır; cargo-mutants'ın kendi temel koşusu zaten
+   `--baseline skip`): parça başına temel koşunun test kısmı kadar kazanır,
+   ama korumayı kaldırır: bir parçanın runner'ında düşen bir test (eksik
+   araç, bellek) her mutantı "caught" gösterir, ve mutant başına timeout
+   başka bir runner'ın ölçümünden gelir.
+4. **Mutant başına daha dar test kümesi** (yalnız mutantın crate'i):
+   mutantların çoğunu `volt-driver`'ın bütünleşik testleri yakalıyor;
+   ölçülmeden sahte missed üretir, önerilmez.
+5. **Kapıyı yalnız hazır PR'da koşmak** (`ready_for_review`, taslak PR'da
+   değil): taslaklarda runner harcamaz, kapı sonucunu geciktirir.

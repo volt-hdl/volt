@@ -2,24 +2,44 @@ name: Mutation test
 
 # ADR-0109: mutation testing with cargo-mutants. It measures the tests, not
 # the compiler: each mutant is one small change in a file in scope
-# (.cargo/mutants.toml), and a mutant that the whole test suite lets through
-# is "missed". On demand (workflow_dispatch): never on a pull request or a
-# push, never a required check. MUTANTS_SHARDS shards (cargo mutants --shard
-# k/N), each with the tools of the CI tool job and VOLT_REQUIRE_TOOLS=all, so
-# that no tool test skips (ADR-0107). Every shard uploads its mutants.out,
-# even when it is stopped; the last job merges them into the job summary and
-# names every shard that did not complete.
+# (.cargo/mutants.toml: every crate's src/ but the files listed there), and
+# a mutant that the whole test suite lets through is "missed". MUTANTS_SHARDS
+# shards (cargo mutants --shard k/N), each with the tools of the CI tool job
+# and VOLT_REQUIRE_TOOLS=all, so that no tool test skips (ADR-0107). Every
+# shard uploads its mutants.out, even when it is stopped; the last job merges
+# them into the job summary and names every shard that did not complete.
+#
+# Two kinds of run, one shard job (ADR-0109 appendix "PR kapısı"):
+#
+# - The pull-request gate, on every pull request: the mutants on the lines
+#   the pull request changes (cargo mutants --in-diff, the diff of the merge
+#   commit against its first parent). The summary fails on every missed
+#   mutant that no exclude_re entry covers and lists the classification
+#   rules. A pull request that changes no Rust source in scope has nothing to
+#   test: the run passes and its summary says so. A new push cancels the run
+#   of the previous one. Not a required check (the maintainer decides).
+#   By hand on a branch: `-f gate_base=<revision>` (the lines changed since).
+# - A full or targeted run, by hand (workflow_dispatch): a measurement; a
+#   missed mutant does not fail it.
 #
 #   gh workflow run mutants.yml --ref <branch>
 #   gh workflow run mutants.yml --ref <branch> -f re='scope\.rs' [-f shards=2]
+#   gh workflow run mutants.yml --ref <branch> -f gate_base=<revision>
 #
 # Targeted run (ADR-0109, "Hedefli koşu"): `re` keeps the mutants whose
 # names (as `cargo mutants --list` prints them) the regex matches. cargo-mutants
 # 27.1.0 lets field-deletion mutants through --re, so the list is narrowed a
 # second time by line (--in-diff, scripts/ci/mutants_target.py) and the
 # first job fails unless every mutant in the final list matches `re`.
+#
+# Memory (#160): every build and test of a shard runs under
+# scripts/ci/mutants_watchdog.py, which kills the largest process of the
+# tree when the tree holds more than MUTANTS_MEMORY_LIMIT_MIB; the mutant is
+# reported as "memory limit" (caught) and the shard goes on. The time of a
+# mutant stays limited by cargo-mutants (--timeout, --build-timeout).
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       re:
@@ -30,9 +50,19 @@ on:
         description: "Number of shards, 1-20 (empty: ADR-0109 section 3 from the number of mutants)"
         required: false
         default: ""
+      gate_base:
+        description: "The pull-request gate by hand: the mutants on the lines changed since this revision (empty: a full or targeted run)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
+
+# A new push to a pull request cancels the gate run of the push before. A run
+# by hand is a group of its own and is never cancelled by another run.
+concurrency:
+  group: mutants-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,6 +70,16 @@ env:
   CARGO_NEXTEST_VERSION: 0.9.151
   # Inputs reach the shell through the environment, never inline.
   MUTANTS_RE: ${{ inputs.re }}
+  MUTANTS_GATE_BASE: ${{ inputs.gate_base }}
+  # #160: the resident memory of a shard's process tree (cargo mutants and
+  # everything under it, or the baseline). The runner has 16 GiB; above this
+  # the watchdog kills the largest process instead of the kernel killing the
+  # runner.
+  MUTANTS_MEMORY_LIMIT_MIB: "12288"
+  # ADR-0109 appendix "PR kapısı": t of the gate's shard plan (section 3's
+  # rule with a measured t): the slowest shard's mean of the targeted runs
+  # 43196528987, 43227504453 and 43269045494 was 568 s a mutant.
+  MUTANTS_GATE_SECONDS_PER_MUTANT: "600"
   OSS_CAD_SUITE_DATE: 2026-09-21
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
   # No debug info: smaller target, faster links; a mutant is rebuilt ~75
@@ -55,8 +95,13 @@ jobs:
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
       matrix: ${{ steps.shards.outputs.matrix }}
+      mode: ${{ steps.list.outputs.mode }}
     steps:
+      # The whole history: the gate diffs against the merge commit's first
+      # parent or against gate_base.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo-mutants and cargo-nextest
         id: tools-cache
@@ -69,13 +114,20 @@ jobs:
         run: |
           cargo install --locked --root ~/mutants-tools cargo-mutants --version "$CARGO_MUTANTS_VERSION"
           cargo install --locked --root ~/mutants-tools cargo-nextest --version "$CARGO_NEXTEST_VERSION"
-      - name: Script self-test
-        run: python3 scripts/ci/mutants_target.py --self-test
-      # Targeted run: the --re list, narrowed by line to the names the regex
-      # matches (target.diff), and the proof that the final list holds only
-      # those. Every later `cargo mutants` call takes the same filter
-      # (mutants-filter.txt).
-      - name: Mutants of the run (.cargo/mutants.toml, input re)
+      - name: Script self-tests
+        run: |
+          python3 scripts/ci/mutants_target.py --self-test
+          python3 scripts/ci/mutants_summary.py --self-test
+          python3 scripts/ci/mutants_watchdog.py --self-test
+      # The filter of the run (mutants-list/filter.txt), which every later
+      # `cargo mutants` call takes:
+      # - gate: --in-diff of the Rust files changed since the base;
+      # - targeted run: the --re list, narrowed by line to the names the
+      #   regex matches (target.diff), and the proof that the final list
+      #   holds only those;
+      # - full run: no filter.
+      - name: Mutants of the run (.cargo/mutants.toml, the gate's diff or input re)
+        id: list
         env:
           CARGO_TERM_COLOR: never
         run: |
@@ -84,6 +136,49 @@ jobs:
           cargo nextest --version
           mkdir -p mutants-list
           : > mutants-list/filter.txt
+          mode=run
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            mode=gate
+            base=$(git rev-parse HEAD^1)
+          elif [ -n "$MUTANTS_GATE_BASE" ]; then
+            mode=gate
+            base=$(git rev-parse --verify "$MUTANTS_GATE_BASE^{commit}")
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          if [ "$mode" = gate ]; then
+            if [ -n "$MUTANTS_RE" ]; then
+              echo "::error title=Mutation gate::re and gate_base exclude each other"
+              exit 1
+            fi
+            # Rust files alone: cargo-mutants parses the diff, renames as a
+            # delete and an add.
+            git diff --no-ext-diff --no-color --no-renames "$base" HEAD -- '*.rs' > mutants-list/pr.diff
+            git diff --name-only --no-renames --diff-filter=d "$base" HEAD -- '*.rs' | sort > mutants-list/changed.txt
+            cargo mutants --list-files | sort > mutants-list/files.txt
+            comm -12 mutants-list/changed.txt mutants-list/files.txt > mutants-list/changed-in-scope.txt
+            changed=$(wc -l < mutants-list/changed.txt)
+            in_scope=$(wc -l < mutants-list/changed-in-scope.txt)
+            echo "Gate: the Rust lines changed since $base ($(git log -1 --format=%h "$base")): $changed file(s), $in_scope in scope"
+            if [ "$in_scope" -eq 0 ]; then
+              : > mutants-list/all.txt
+              if [ "$changed" -eq 0 ]; then
+                echo "No Rust file changed since $(git log -1 --format=%h "$base")." > mutants-list/note.txt
+              else
+                echo "$changed Rust file(s) changed since $(git log -1 --format=%h "$base"), none in the mutation scope: $(paste -sd' ' mutants-list/changed.txt)" > mutants-list/note.txt
+              fi
+            else
+              printf '%s\n' --in-diff mutants-list/pr.diff > mutants-list/filter.txt
+              mapfile -t filter < mutants-list/filter.txt
+              cargo mutants --list "${filter[@]}" > mutants-list/all.txt
+              if [ ! -s mutants-list/all.txt ]; then
+                echo "$in_scope Rust file(s) in scope changed since $(git log -1 --format=%h "$base"), but the changed lines hold no mutant: $(paste -sd' ' mutants-list/changed-in-scope.txt)" > mutants-list/note.txt
+              else
+                echo "Gate: the mutants on the Rust lines changed since $(git log -1 --format=%h "$base") ($in_scope file(s) in scope)." > mutants-list/note.txt
+              fi
+            fi
+            cat mutants-list/note.txt
+            exit 0
+          fi
           if [ -n "$MUTANTS_RE" ]; then
             cargo mutants --list --re "$MUTANTS_RE" > mutants-list/re.txt
             python3 scripts/ci/mutants_target.py diff --re "$MUTANTS_RE" --list mutants-list/re.txt --out mutants-list/target.diff
@@ -96,31 +191,43 @@ jobs:
             echo "::notice title=Targeted mutation run::$(wc -l < mutants-list/all.txt) mutants match the regex $MUTANTS_RE"
           fi
       # ADR-0109 section 3, from the number of mutants of this run, unless
-      # the input gives it.
+      # the input gives it; the gate with its measured t. No mutant: no shard.
       - name: Number of shards
         id: shards
         env:
           SHARDS_INPUT: ${{ inputs.shards }}
+          MODE: ${{ steps.list.outputs.mode }}
         run: |
           total=$(wc -l < mutants-list/all.txt)
-          if [ -n "$SHARDS_INPUT" ]; then
+          if [ "$total" -eq 0 ]; then
+            if [ "$MODE" != gate ]; then
+              echo "::error title=Mutation test::no mutant in the run"
+              exit 1
+            fi
+            n=0
+          elif [ -n "$SHARDS_INPUT" ]; then
             n="$SHARDS_INPUT"
             if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt 20 ]; then
               echo "::error title=Mutation test::shards must be 1-20, got '$n'"
               exit 1
             fi
+          elif [ "$MODE" = gate ]; then
+            n=$(python3 scripts/ci/mutants_target.py shards --mutants "$total" --seconds-per-mutant "$MUTANTS_GATE_SECONDS_PER_MUTANT")
           else
             n=$(python3 scripts/ci/mutants_target.py shards --mutants "$total")
           fi
           if [ "$n" -gt "$total" ]; then n="$total"; fi
           echo "shards=$n" >> "$GITHUB_OUTPUT"
-          echo "matrix=$(python3 -c "import json,sys; print(json.dumps(list(range(int(sys.argv[1])))))" "$n")" >> "$GITHUB_OUTPUT"
+          # No shard: the shard job is skipped by its `if`; its matrix still
+          # gets one value, since an empty matrix is an error of its own.
+          echo "matrix=$(python3 -c "import json,sys; n=int(sys.argv[1]); print(json.dumps(list(range(n)) or [0]))" "$n")" >> "$GITHUB_OUTPUT"
           echo "MUTANTS_SHARDS=$n" >> "$GITHUB_ENV"
       # The mutants of every shard, as the summary job expects them: a shard
       # that never uploads its outcomes still shows its untested mutants.
       - name: Mutants of the run, per shard
         env:
           CARGO_TERM_COLOR: never
+          MODE: ${{ steps.list.outputs.mode }}
         run: |
           export PATH="$HOME/mutants-tools/bin:$PATH"
           mapfile -t filter < mutants-list/filter.txt
@@ -128,28 +235,36 @@ jobs:
             cargo mutants --list "${filter[@]}" --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
           done
           total=$(wc -l < mutants-list/all.txt)
-          sharded=$(cat mutants-list/shard-*.txt | wc -l)
+          # || :, case (c): with no shard (the gate has nothing to test) there
+          # is no shard file and cat fails; the count is checked just below.
+          sharded=$( (cat mutants-list/shard-*.txt 2>/dev/null || :) | wc -l)
           echo "::notice title=Mutants in scope::$total in $MUTANTS_SHARDS shards"
           if [ "$total" -ne "$sharded" ]; then
             echo "::error title=Mutants in scope::the shard lists hold $sharded mutants, the full list $total"
             exit 1
           fi
           {
-            if [ -n "$MUTANTS_RE" ]; then
+            if [ "$MODE" = gate ]; then
+              echo "### Pull-request gate: $total mutants on the changed lines, $MUTANTS_SHARDS shards"
+              echo
+              cat mutants-list/note.txt
+            elif [ -n "$MUTANTS_RE" ]; then
               echo "### Targeted run: $total mutants match \`$MUTANTS_RE\`, $MUTANTS_SHARDS shards"
             else
               echo "### Mutants in scope: $total, $MUTANTS_SHARDS shards"
             fi
             echo
-            echo '| Mutants | File |'
-            echo '|---:|---|'
-            cut -d: -f1 mutants-list/all.txt | sort | uniq -c | sort -rn | awk '{ print "| " $1 " | `" $2 "` |" }'
-            echo
-            echo '| Shard | Mutants |'
-            echo '|---:|---:|'
-            for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
-              echo "| $k | $(wc -l < "mutants-list/shard-$k.txt") |"
-            done
+            if [ "$total" -gt 0 ]; then
+              echo '| Mutants | File |'
+              echo '|---:|---|'
+              cut -d: -f1 mutants-list/all.txt | sort | uniq -c | sort -rn | awk '{ print "| " $1 " | `" $2 "` |" }'
+              echo
+              echo '| Shard | Mutants |'
+              echo '|---:|---:|'
+              for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
+                echo "| $k | $(wc -l < "mutants-list/shard-$k.txt") |"
+              done
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the mutant lists
         uses: actions/upload-artifact@v7
@@ -158,9 +273,36 @@ jobs:
           path: mutants-list/
           if-no-files-found: error
 
+  # #239: every exclude_re entry of .cargo/mutants.toml matches exactly the
+  # mutants its `# expect:` lines name, in the list before the exclusions.
+  exclusions:
+    name: Mutation exclusions match their mutants
+    needs: tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Restore cargo-mutants and cargo-nextest
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/mutants-tools
+          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
+          fail-on-cache-miss: true
+      - name: Script self-test
+        run: python3 scripts/ci/mutants_exclusions.py --self-test
+      - name: Every exclude_re entry matches exactly its expected mutants
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          python3 scripts/ci/mutants_exclusions.py check --markdown "$GITHUB_STEP_SUMMARY"
+
   mutants:
     name: Mutation test, shard ${{ matrix.shard }}/${{ strategy.job-total }}
     needs: tools
+    # The gate with no mutant to test has no shard.
+    if: ${{ needs.tools.outputs.shards != '0' }}
     runs-on: ubuntu-latest
     # Below GitHub's 6-hour job limit. cargo mutants itself stops at 300
     # minutes (below), so the outcomes so far are uploaded and the job ends
@@ -187,7 +329,7 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v7
-      # The filter of the run (empty for a full run) and its target.diff.
+      # The filter of the run (empty for a full run) and its diff.
       - uses: actions/download-artifact@v8
         with:
           name: mutants-list
@@ -247,10 +389,12 @@ jobs:
           fi
           echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < mutants-shard.txt) mutants"
       # The baseline: the unmutated tree runs every workspace test, with
-      # every tool required, exactly as each mutant will. cargo-mutants'
-      # own baseline tests the mutated packages alone (ADR-0109 §1), so it
-      # is skipped below and the test timeout comes from this measurement:
-      # twice the baseline, at least 300 seconds.
+      # every tool required, exactly as each mutant will, under the same
+      # memory watchdog (a test that needs more fails here, not as a
+      # "caught" mutant). cargo-mutants' own baseline tests the mutated
+      # packages alone (ADR-0109 §1), so it is skipped below and the test
+      # timeout comes from this measurement: twice the baseline, at least
+      # 300 seconds.
       # Incremental builds on (rust-cache turns them off): the mutated crate is
       # rebuilt for every mutant. Same value in both steps, or the mutants
       # would rebuild everything once.
@@ -259,9 +403,11 @@ jobs:
         env:
           CARGO_INCREMENTAL: "1"
         run: |
-          cargo nextest run --workspace --no-run
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv -- \
+            cargo nextest run --workspace --no-run
           start=$(date +%s)
-          cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv -- \
+            cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
           secs=$(( $(date +%s) - start ))
           limit=$(( secs * 2 ))
           if [ "$limit" -lt 300 ]; then limit=300; fi
@@ -273,6 +419,8 @@ jobs:
       # 3 some timed out: the run is complete either way. 124: the
       # 300-minute stop (timeout) interrupted it. cargo-mutants writes each
       # outcome as it comes, so an interrupted shard keeps what it reached.
+      # The watchdog (#160) passes cargo mutants' exit code through; each
+      # process it kills is a line of memory-kills.tsv with its mutant.
       - name: cargo mutants --shard ${{ matrix.shard }}/${{ strategy.job-total }} (every tool required)
         env:
           CARGO_INCREMENTAL: "1"
@@ -281,10 +429,15 @@ jobs:
           # set +e, case (a): the exit code is captured below and checked by the case statement.
           set +e
           timeout --signal=INT --kill-after=5m 300m \
+            python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" \
+              --log memory-kills.tsv --mutants-out mutants.out -- \
             cargo mutants --in-place "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \
               --baseline skip --timeout ${{ steps.baseline.outputs.timeout }} --build-timeout 1200
           code=$?
           set -e
+          if [ -s memory-kills.tsv ]; then
+            echo "::warning title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < memory-kills.tsv) process(es) killed at the memory limit; their mutants are reported as memory limit (caught)"
+          fi
           case "$code" in
             0|2|3) echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::cargo mutants finished, exit code $code" ;;
             124) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: stopped after 300 minutes; the outcomes so far are in the artifact"; exit 1 ;;
@@ -300,6 +453,8 @@ jobs:
           path: |
             mutants.out/
             mutants-shard.txt
+            memory-kills.tsv
+            baseline-memory-kills.tsv
           if-no-files-found: warn
       # ADR-0107: the baseline and every mutant ran their tool tests.
       - name: Tool ledger - SKIP count
@@ -309,18 +464,23 @@ jobs:
   summary:
     name: Mutation test summary
     needs: [tools, mutants]
-    # Also after a failed or stopped shard: the summary names it.
+    # Also after a failed or stopped shard (the summary names it) and when
+    # the gate has no shard (the summary says why).
     if: ${{ !cancelled() && needs.tools.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
+      MUTANTS_MODE: ${{ needs.tools.outputs.mode }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: mutants-list
           path: lists
+      # With one shard the one artifact lands in shards/ itself (#179); the
+      # script reads both layouts.
       - uses: actions/download-artifact@v8
+        if: ${{ needs.tools.outputs.shards != '0' }}
         with:
           pattern: mutants-out-*
           path: shards
@@ -328,9 +488,14 @@ jobs:
         run: python3 scripts/ci/mutants_summary.py --self-test
       # A shard with no artifact, or with fewer outcomes than mutants, is
       # marked NOT COMPLETED at the top of the summary with its untested
-      # mutants, and fails this step.
+      # mutants, and fails this step. The gate also fails on every missed
+      # mutant that no exclude_re entry covers.
       - name: Merge the shards into the job summary
-        run: python3 scripts/ci/mutants_summary.py shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY"
+        run: |
+          args=(shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY")
+          if [ "$MUTANTS_MODE" = gate ]; then args+=(--gate --config .cargo/mutants.toml); fi
+          if [ -s lists/note.txt ]; then args+=(--note "$(cat lists/note.txt)"); fi
+          python3 scripts/ci/mutants_summary.py "${args[@]}"
       - name: Upload the merged lists
         if: always()
         uses: actions/upload-artifact@v7

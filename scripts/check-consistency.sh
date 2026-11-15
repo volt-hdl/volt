@@ -20,6 +20,9 @@
 #      ve /dev/'i değil kökü (kurulu sürümün kitabı) gösterir
 #  18. release.yml ve book.yml yalnız tam vX.Y.Z etiketiyle tetiklenir
 #      (ADR-0100); süzgeç örnek etiket adlarıyla sınanır
+#  19. her çalışma alanı üyesinin src/'indeki her .rs ya mutasyon kapsamında
+#      (.cargo/mutants.toml examine_globs) ya exclude_globs'ta gerekçeli tam
+#      yoluyla listede (ADR-0109 eki, #253)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -361,6 +364,75 @@ done
 for t in v0.1.0-rc1 v0.1.0-f1 v0.2.0-f2 v1.0.0-beta.1 release-v0.1.0 xv0.1.0 v0.1 v0.1.0.1 v0x1y0 V0.1.0 v0.1.0+build; do
     echo "$t" | grep -qE "$tag_re" && violation "etiket süzgeci sürüm olmayan $t'yi eşliyor (kontrol 18)"
 done
+
+# ── 19: mutasyon kapsamı (ADR-0109 eki, #253) ─────────────────────────
+# .cargo/mutants.toml: çalışma alanının her üyesinin (kök Cargo.toml,
+# members) src/ dizinindeki her .rs dosyası ya examine_globs'un bir
+# kalıbıyla eşleşir ya da exclude_globs'ta tam yoluyla listelenir.
+# exclude_globs'un her girdisi kalıp değil yoldur, var olan bir kaynak
+# dosyayı adlandırır ve hemen üstünde kendi gerekçe yorumu vardır. Kalıp
+# anlamı cargo-mutants'ınki (globset): '**/' sıfır ya da daha çok dizin,
+# '*' ve '?' '/' dışında. Bir satıra bir dizi elemanı yazılır.
+MT_TOML="$ROOT/.cargo/mutants.toml"
+mt_members=$(awk '/^members[ \t]*=/ { m = 1 } m { s = $0; while (match(s, /"[^"]*"/)) { print substr(s, RSTART + 1, RLENGTH - 2); s = substr(s, RSTART + RLENGTH) } } m && /\]/ { m = 0 }' "$ROOT/Cargo.toml")
+[ -n "$mt_members" ] || violation "kök Cargo.toml'da çalışma alanı üyesi okunamadı (kontrol 19)"
+mt_out=$( (cd "$ROOT" && for m in $mt_members; do [ -d "$m/src" ] && find "$m/src" -type f -name '*.rs'; done | LC_ALL=C sort) | awk '
+function glob2re(g,   i, c, out, n) {
+    out = ""; n = length(g)
+    for (i = 1; i <= n; i++) {
+        c = substr(g, i, 1)
+        if (c == "*") {
+            if (substr(g, i + 1, 1) == "*") {
+                if (substr(g, i + 2, 1) == "/") { out = out "(.*/)?"; i += 2 }
+                else { out = out ".*"; i += 1 }
+            } else out = out "[^/]*"
+        } else if (c == "?") out = out "[^/]"
+        else if (index(".+^$()|{}[]\\", c)) out = out "\\" c
+        else out = out c
+    }
+    return "^" out "$"
+}
+function strings(line,   s, rest) {
+    rest = line
+    while (match(rest, /"[^"]*"/)) {
+        s = substr(rest, RSTART + 1, RLENGTH - 2)
+        if (block == "examine") { ne++; ere[ne] = glob2re(s) }
+        else { nx++; xpath[nx] = s; xreason[nx] = prev_comment; xline[nx] = FNR; prev_comment = 0 }
+        rest = substr(rest, RSTART + RLENGTH)
+    }
+}
+FNR == NR {
+    if (block == "" && $0 ~ /^examine_globs[ \t]*=/) { block = "examine" }
+    else if (block == "" && $0 ~ /^exclude_globs[ \t]*=/) { block = "exclude"; prev_comment = 0 }
+    if (block != "") {
+        if ($0 ~ /^[ \t]*#/) { prev_comment = 1; next }
+        if ($0 ~ /^[ \t]*$/) { next }
+        strings($0)
+        if ($0 ~ /\][ \t]*(#.*)?$/) { block = "" }
+    }
+    next
+}
+{ files[$0] = 1; order[++nf] = $0 }
+END {
+    if (ne == 0) print "examine_globs boş ya da okunamadı"
+    for (i = 1; i <= nx; i++) {
+        p = xpath[i]
+        if (p ~ /[*?\[{]/) print "exclude_globs girdisi kalıp, yol değil: " p " (satır " xline[i] ")"
+        else if (!(p in files)) print "exclude_globs girdisi bir üyenin src/ dizininde bir .rs dosyası değil: " p " (satır " xline[i] ")"
+        if (!xreason[i]) print "exclude_globs girdisinin üstünde gerekçe yorumu yok: " p " (satır " xline[i] ")"
+        listed[p] = 1
+    }
+    for (k = 1; k <= nf; k++) {
+        f = order[k]; hit = 0
+        for (j = 1; j <= ne; j++) if (f ~ ere[j]) { hit = 1; break }
+        if (!hit && !(f in listed)) print "kaynak dosya mutasyon kapsamında değil ve exclude_globs listesinde yok: " f
+    }
+}' "$MT_TOML" -)
+if [ -n "$mt_out" ]; then
+    while IFS= read -r line; do
+        violation ".cargo/mutants.toml: $line (kontrol 19)"
+    done <<< "$mt_out"
+fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if [ "$VIOLATIONS" -gt 0 ]; then
