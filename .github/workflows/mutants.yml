@@ -18,6 +18,9 @@ name: Mutation test
 #   rules. A pull request that changes no Rust source in scope has nothing to
 #   test: the run passes and its summary says so. A new push cancels the run
 #   of the previous one. Not a required check (the maintainer decides).
+#   The gate runs on opened, synchronize and reopened, never on `edited`:
+#   the check of the exclude_re entries (#239, #283) is a workflow of its
+#   own, mutants-exclusions.yml, which also runs on `edited`.
 #   By hand on a branch: `-f gate_base=<revision>` (the lines changed since).
 # - A full or targeted run, by hand (workflow_dispatch): a measurement; a
 #   missed mutant does not fail it.
@@ -42,7 +45,10 @@ name: Mutation test
 # mutant stays limited by cargo-mutants (--timeout, --build-timeout).
 
 on:
+  # Not `edited` (mutants-exclusions.yml): editing the description of a pull
+  # request does not start the gate again.
   pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       re:
@@ -287,46 +293,6 @@ jobs:
           name: mutants-list
           path: mutants-list/
           if-no-files-found: error
-
-  # #239: every exclude_re entry of .cargo/mutants.toml matches exactly the
-  # mutants its `# expect:` lines name, in the list before the exclusions.
-  # #283: a C entry (`# C. <reason>`) names its issue (`# issue: #N`); the
-  # job fails when that issue is closed or does not exist, and, on a pull
-  # request, when the pull request closes it (Closes #N) while the entry
-  # still stands. It reads the issues with the workflow's token: without a
-  # token or a network it fails, never passes. On a pull request it always
-  # asks which issues the pull request closes, so the token is used on
-  # every run. A description edited after the last push is read at the next
-  # push (the workflow does not run on `edited`).
-  exclusions:
-    name: Mutation exclusions match their mutants
-    needs: tools
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      issues: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Restore cargo-mutants and cargo-nextest
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/mutants-tools
-          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
-          fail-on-cache-miss: true
-      - name: Script self-test
-        run: python3 scripts/ci/mutants_exclusions.py --self-test
-      - name: Every exclude_re entry matches exactly its expected mutants; every C entry's issue is open
-        env:
-          CARGO_TERM_COLOR: never
-          GITHUB_TOKEN: ${{ github.token }}
-          # Empty on a run by hand: no pull request, (b) does not apply.
-          MUTANTS_PR: ${{ github.event.pull_request.number }}
-        run: |
-          export PATH="$HOME/mutants-tools/bin:$PATH"
-          python3 scripts/ci/mutants_exclusions.py check --markdown "$GITHUB_STEP_SUMMARY" --pr "$MUTANTS_PR"
 
   mutants:
     name: Mutation test, shard ${{ matrix.shard }}/${{ strategy.job-total }}

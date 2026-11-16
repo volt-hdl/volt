@@ -1,0 +1,81 @@
+name: Mutation exclusions
+
+# ADR-0109 appendices "PR kapısı" (section 3, #239) and "Kapı zorunlu
+# yapılmadan önce" (#283): every exclude_re entry of .cargo/mutants.toml
+# matches exactly the mutants its `# expect:` lines name, in the list before
+# the exclusions; a C entry (`# C. <reason>`) names its issue (`# issue: #N`),
+# and the check fails when that issue is closed or does not exist, and, on a
+# pull request, when the pull request closes it (Closes #N) while the entry
+# still stands. It reads the issues with the workflow's token: without a
+# token or a network it fails, never passes. On a pull request it always
+# asks which issues the pull request closes, so the token is used on every
+# run.
+#
+# A workflow of its own, apart from mutants.yml: it also runs when a pull
+# request's description is edited (`edited`), so a `Closes #N` added without
+# a push is read at once. The mutation gate (mutants.yml) does not run on
+# `edited`, and this workflow's concurrency group is its own: an edit
+# neither starts the gate again nor cancels its run. On main it runs after
+# every push: an issue closed by a merge fails it there until the entry is
+# removed.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push or edit of a pull request cancels this workflow's run of the
+# one before; never a run of mutants.yml (another group). A push to main or
+# a run by hand is a group of its own.
+concurrency:
+  group: mutants-exclusions-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: never
+  # The versions of mutants.yml; the same cache key, so either workflow
+  # reuses the build of the other.
+  CARGO_MUTANTS_VERSION: 27.1.0
+  CARGO_NEXTEST_VERSION: 0.9.151
+
+jobs:
+  exclusions:
+    name: Mutation exclusions match their mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo-mutants and cargo-nextest
+        id: tools-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/mutants-tools
+          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Build cargo-mutants and cargo-nextest (pinned versions)
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --root ~/mutants-tools cargo-mutants --version "$CARGO_MUTANTS_VERSION"
+          cargo install --locked --root ~/mutants-tools cargo-nextest --version "$CARGO_NEXTEST_VERSION"
+      - name: Script self-test
+        run: python3 scripts/ci/mutants_exclusions.py --self-test
+      - name: Every exclude_re entry matches exactly its expected mutants; every C entry's issue is open
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Empty on a push to main or a run by hand: no pull request, so
+          # the rule "the pull request closes the issue" does not apply.
+          MUTANTS_PR: ${{ github.event.pull_request.number }}
+          MUTANTS_EVENT: ${{ github.event_name }}/${{ github.event.action }}
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          echo "event: $MUTANTS_EVENT"
+          python3 scripts/ci/mutants_exclusions.py check --markdown "$GITHUB_STEP_SUMMARY" --pr "$MUTANTS_PR"

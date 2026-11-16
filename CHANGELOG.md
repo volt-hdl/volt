@@ -59,7 +59,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   their mutants" işi issue kapalıysa ya da yoksa düşer; PR'da, PR o
   issue'yu kapatıyorsa (`Closes #N`) ve kayıt duruyorsa da düşer:
   hatayı düzelten PR kaydı da kaldırır. İş issue'ları iş akışının
-  jetonuyla okur; jeton ya da ağ yoksa geçmez, düşer. Kapı özeti C
+  jetonuyla okur; jeton ya da ağ yoksa geçmez, düşer. Denetim kendi
+  iş akışındadır (`mutants-exclusions.yml`): PR açıklaması
+  düzenlenince de koşar, mutant kapısını yeniden başlatmaz ve
+  koşusunu iptal etmez; main'e her push'ta da koşar. Kapı özeti C
   kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler.
 - **Temel koşunun belleği.** Her parçanın temel koşusunun derleme ve
   testlerinin en yüksek belleği özetin parça tablosundadır; bekçinin

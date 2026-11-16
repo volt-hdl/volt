@@ -1374,10 +1374,15 @@ geçerli değildir.
   özeti değişen satırlardaki mutantlardan bir C kaydının dışarıda
   tuttuklarını issue numarasıyla listeler ("Excluded as C, waiting for
   their issue"). Sınıflandırma kurallarının C maddesi kaydı tarif eder.
-- **Sınır.** İş akışı `edited` olayında koşmaz: son push'tan sonra
-  açıklamaya eklenen `Closes #N` bir sonraki push'ta okunur. PR
-  birleşince issue kapanır ve (a) kaydı sonraki her PR'da düşürür.
-  Issue başlığında "silent-wrong?" geçtiği denetlenmez.
+- **Ne zaman koşar.** Denetim kendi iş akışındadır
+  (`mutants-exclusions.yml`, 4. bölüm): PR açıldığında, her push'ta,
+  yeniden açıldığında, açıklaması düzenlendiğinde (`edited`) ve main'e
+  her push'ta. Açıklamaya push'suz eklenen `Closes #N` hemen okunur.
+  PR birleşince issue kapanır; kayıt kalmışsa (a) main'i ve sonraki her
+  PR'ı düşürür.
+- **Bilerek denetlenmiyor:** issue başlığında "silent-wrong?" geçmesi.
+  C her zaman silent-wrong değildir; şüphe, issue'da açık bir hataya ya
+  da bir karar sorusuna dönüşebilir.
 
 **Self-test** (`mutants_exclusions.py --self-test`): açık issue geçer;
 kapalı, var olmayan issue ve PR numarası düşer; PR issue'yu kapatıyorsa
