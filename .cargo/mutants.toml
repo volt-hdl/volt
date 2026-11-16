@@ -331,6 +331,11 @@ exclude_re = [
     # arith_cut_property_tests pass with the mutant (#266 targeted run).
     # expect: crates/volt-hir/src/typeck/arith_cut.rs:232:9: replace TypeChecker<'_, '_>::is_const_path -> bool with true
     "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
+    # C. Evidence for #283, not a real classification: a C entry that names
+    # an open issue (#283). The exclusion check must pass.
+    # issue: #283
+    # expect: crates/volt-sv-emit/src/expr.rs:2107:20: replace < with <= in <impl From<i128> for LitValue>::from
+    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace < with <= in <impl From<i128> for LitValue>::from$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
