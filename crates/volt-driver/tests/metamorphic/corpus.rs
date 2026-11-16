@@ -79,7 +79,10 @@ fn unit(repo: &Path, dir: &Path, entry_name: &str) -> Option<Design> {
     while let Some(d) = stack.pop() {
         for p in sorted_dir(&d) {
             if p.is_dir() {
-                stack.push(p);
+                // Generated output is not part of a design.
+                if !(p.ends_with("build") || p.ends_with("target")) {
+                    stack.push(p);
+                }
             } else if p.extension().is_some_and(|e| {
                 matches!(
                     e.to_str(),
@@ -147,8 +150,29 @@ fn multifile(repo: &Path, out: &mut Vec<Design>) {
 /// `examples/<name>/`: every `.volt` file that is not a test file is a
 /// design; its unit is the whole example directory.
 fn examples(repo: &Path, out: &mut Vec<Design>) {
-    for ex in sorted_dir(&repo.join("examples")) {
-        if !ex.is_dir() {
+    // The files directly in `examples/` (with its `Volt.toml`): one unit.
+    let root = repo.join("examples");
+    let top: Vec<(PathBuf, String)> = sorted_dir(&root)
+        .into_iter()
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .is_some_and(|e| matches!(e.to_str(), Some("volt" | "sv" | "v" | "toml")))
+        })
+        .map(|p| (PathBuf::from(p.file_name().unwrap()), read(&p)))
+        .collect();
+    for (i, (name, _)) in top.iter().enumerate() {
+        let n = name.to_string_lossy();
+        if n.ends_with(".volt") && !n.ends_with("_test.volt") {
+            out.push(Design {
+                id: format!("examples/{n}"),
+                files: top.clone(),
+                entry: i,
+            });
+        }
+    }
+    for ex in sorted_dir(&root) {
+        if !ex.is_dir() || ex.ends_with("build") || ex.ends_with("target") {
             continue;
         }
         let mut entries = Vec::new();
