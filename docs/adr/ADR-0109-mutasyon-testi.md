@@ -1478,3 +1478,47 @@ defined` ile düştü, sonra geçti.
   [mutants-0]: 191 test(s) asked for a tool; 193 lookup(s) found the
   tool (193 required), SKIP: 0`; özet `caught=2 missed=0 timeout=0
   unviable=0 memory=0 untested=0 mutants=2`.
+
+### 4. Hariç tutma denetiminin kendi iş akışı (`edited`)
+
+Denetim `mutants.yml`'deyken iş akışı `edited` olayında koşmuyordu.
+Push'tan sonra açıklamaya eklenen `Closes #N`, ancak bir sonraki
+push'ta okunuyordu. Kanıt PR'ı #285'te kapatma bağlantısı
+04:32:08Z'de açıklamadan düzenlemeyle kaldırıldı; yeni bir koşu
+açılmadı (`mutants.yml`'in dalda üç koşusu var, üç push'un:
+43804210399, 43804366782, 43804536770). `mutants.yml`'e
+`edited` eklemek ise her açıklama düzenlemesinde kapıyı baştan başlatır,
+aynı `concurrency` grubundaki koşusunu da iptal ederdi.
+
+- "Mutation exclusions match their mutants" işi kendi iş akışındadır:
+  `.github/workflows/mutants-exclusions.yml` ("Mutation exclusions").
+  `pull_request`'in `opened`, `synchronize`, `reopened` ve `edited`
+  olaylarında, main'e her push'ta ve elle koşar. `concurrency` grubu
+  kendisinindir (`mutants-exclusions-pr-<N>`): aynı PR'ın yeni bir
+  push'u ya da düzenlemesi yalnız bu iş akışının önceki koşusunu iptal
+  eder.
+- `mutants.yml` olaylarını açıkça yazar: `opened`, `synchronize`,
+  `reopened`. Açıklama düzenlemesi kapıyı başlatmaz, koşusunu iptal
+  etmez.
+- main'e push'ta PR yoktur, (b) uygulanmaz. (a) uygulanır: birleşen
+  bir PR'ın kapattığı issue'nun kaydı kalmışsa denetim main'de düşer.
+- İki iş akışı cargo-mutants ve cargo-nextest için aynı önbellek
+  anahtarını kullanır.
+
+**Kanıt** (taslak PR #288, merge edilmedi; `evidence/283-edited` dalı
+kanıt yazılınca silindi): bu ekin dalı (0c7337ee) + `# issue: #283`
+(açık) taşıyan, gerçek bir sınıflandırma olmayan C kaydı (c77bda9e).
+Tek push; sonraki iki adım yalnız açıklamayı düzenledi.
+
+| Adım | Koşu | Olay | Sonuç | Günlük |
+|---|---|---|---|---|
+| PR açıldı | "Mutation exclusions" 43822913077 | `pull_request/opened` | yeşil | `C entry at line 338: issue #283 is open`; `pull request #288 closes: no issue`; `38 exclude_re entries (1 C: #283), 40 expected mutants, 11655 mutants in scope before the exclusions: every entry matches exactly its expected mutants, every C entry's issue is open` |
+| PR açıldı | "Mutation test" 43822912958 | `pull_request` | yeşil | `No Rust file changed since 8e45369b.`; `Pull-request gate: **passed** (nothing to test).` |
+| Açıklamaya `Closes #283` eklendi (07:19:22Z) | "Mutation exclusions" 43823006640 | `pull_request/edited` | kırmızı | `pull request #288 closes: #283`; `##[error]exclude_re entry at line 338 (…): pull request #288 closes issue #283 and the entry still stands: remove it in this pull request (the fix should kill the mutant), or classify the mutant again`; `38 exclude_re entries (1 C: #283), … 1 error(s)` |
+| `Closes #283` açıklamadan kaldırıldı | "Mutation exclusions" 43823170304 | `pull_request/edited` | yeşil | `pull request #288 closes: no issue`; `… every C entry's issue is open` |
+
+Düzenleme anında kapının koşusu (43822912958) sürüyordu: özet işi
+07:19:19Z'de başladı, kapı satırını 07:19:23Z'de yazdı, koşu 07:19:26Z'de
+başarıyla bitti. İptal edilmedi. Dalda "Mutation test"in tek koşusu var
+(`gh run list --workflow mutants.yml --branch evidence/283-edited`: 1
+koşu, olay `pull_request`); iki düzenleme kapıyı yeniden başlatmadı.
