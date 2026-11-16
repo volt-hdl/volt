@@ -1322,3 +1322,203 @@ süreç öldürmedi.
   geçti (eşdeğer).
 
 Özet: 1 missed, A1 (`exclude_re`); B ve C yok.
+
+## Kapı zorunlu yapılmadan önce: C kayıtları, temel koşunun belleği, hedefli koşuda beklenen sayı (#253, #283, 2026-11-16)
+
+Önceki karar metni ve önceki ekler değişmedi. Bu ek "PR kapısı" ekinin
+"C mutantı bugün kapıyı kırmızı tutar" maddesindeki bakımcı kararını
+(#283) uygular ve #253'teki "Kapı zorunlu yapılmadan önce" yorumunun
+öteki iki maddesini ekler. O maddenin "bu ekte uygulanmadı" durumu artık
+geçerli değildir.
+
+### 1. C kayıtları (#283)
+
+§4'ün C kuralı genişler. C mutantı o işte düzeltilmez ve başlığında
+"silent-wrong?" geçen bir issue alır (değişmedi); ayrıca
+`.cargo/mutants.toml`'un `exclude_re`'sinde kendi kaydıyla durur:
+
+```
+    # C. <mutantın bugünkü davranışın şartnameye aykırı olduğunu neden düşündürdüğü>
+    # issue: #NNN
+    # expect: <cargo mutants --list adı>
+    "<regex>",
+```
+
+- **Biçim.** Gerekçe `C.` (ya da `C,`, `C (…)`) sınıf etiketiyle açılır,
+  A kayıtlarının `A1.` ve `A2,` etiketleri gibi. Tek bir `# issue: #N`
+  satırı issue'yu adlandırır; `# expect:` satırları "PR kapısı" ekinin
+  3. bölümündeki gibidir (kayıt tam bu mutantlarla eşleşir).
+- **Hariç tutma denetimi** ("Mutation exclusions match their mutants",
+  `scripts/ci/mutants_exclusions.py check`) şu durumlarda da düşer:
+  - C kaydının `# issue:` satırı yok ya da birden çok; değer `#N`
+    biçiminde değil;
+  - bir A kaydında `# issue:` satırı var (yalnız C kaydı bir issue
+    bekler);
+  - (a) issue kapalı, yok ya da bir PR;
+  - (b) PR'da: PR o issue'yu kapatıyor (açıklamadaki `Closes #N` gibi
+    anahtar sözcükler ya da elle bağlantı; GitHub'ın
+    `closingIssuesReferences`'ı) ve kayıt hâlâ duruyor. Hatayı düzelten
+    PR kaydı da kaldırır; kapı mutantı yeniden dener: düzeltme onu
+    öldürmüş olmalı, öldürmediyse mutant yeniden sınıflandırılır.
+- **Okuma.** Issue durumu REST ile (`/repos/<depo>/issues/<N>`), PR'ın
+  kapattığı issue'lar GraphQL ile, iş akışının jetonuyla (`GITHUB_TOKEN`)
+  okunur; işin izinleri `contents: read`, `issues: read`,
+  `pull-requests: read`. Jeton yoksa, ağ yoksa ya da cevap okunamazsa
+  denetim düşer ve nedenini yazar (`GITHUB_TOKEN is not set`, ağ
+  hatası); okumadan geçmez. Ağ hatası ve 5xx cevabında iki kez daha
+  dener. PR'da kapatılan issue'lar C kaydı olmasa da her koşuda sorulur
+  (`pull request #N closes: …` satırı): jeton ve izinler her PR'da
+  sınanır.
+- **Özet.** Kapsam işi kapının listesini hariç tutmasız olarak da alır
+  (`mutants_exclusions.py list`, `mutants-list/unexcluded.txt`); kapı
+  özeti değişen satırlardaki mutantlardan bir C kaydının dışarıda
+  tuttuklarını issue numarasıyla listeler ("Excluded as C, waiting for
+  their issue"). Sınıflandırma kurallarının C maddesi kaydı tarif eder.
+- **Ne zaman koşar.** Denetim kendi iş akışındadır
+  (`mutants-exclusions.yml`, 4. bölüm): PR açıldığında, her push'ta,
+  yeniden açıldığında, açıklaması düzenlendiğinde (`edited`) ve main'e
+  her push'ta. Açıklamaya push'suz eklenen `Closes #N` hemen okunur.
+  PR birleşince issue kapanır; kayıt kalmışsa (a) main'i ve sonraki her
+  PR'ı düşürür.
+- **Bilerek denetlenmiyor:** issue başlığında "silent-wrong?" geçmesi.
+  C her zaman silent-wrong değildir; şüphe, issue'da açık bir hataya ya
+  da bir karar sorusuna dönüşebilir.
+
+**Self-test** (`mutants_exclusions.py --self-test`): açık issue geçer;
+kapalı, var olmayan issue ve PR numarası düşer; PR issue'yu kapatıyorsa
+düşer, başka issue'yu kapatıyorsa geçer; jetonsuz istemci ve ağ hatası
+düşer; C kaydı ve PR yoksa GitHub'a sorulmaz; issue satırı olmayan, iki
+issue satırlı, `#`'siz ve A kaydındaki issue satırı düşer. Uygulamadan
+önce `KeyError: 'c'` ile düştü, sonra geçti. Özetin self-test'i
+(C listesi) önce `NameError: name 'c_waiting' is not defined` ile düştü.
+
+**Kanıt** (taslak PR #285, merge edilmedi; `evidence/283-c-entry` dalı
+kanıt yazılınca silindi): bu ekin dalı (c5ea0c94) + `exclude_re`'de
+gerçek bir sınıflandırma olmayan bir C kaydı (`expr.rs:2107:20` `<` →
+`<=`, `LitValue::from`). Üç push, "Mutation exclusions match their
+mutants" işi:
+
+| Push | Kayıt | Koşu | Sonuç | Günlük |
+|---|---|---|---|---|
+| 82c0c001 | `# issue: #282` (kapalı) | 43804210399 | kırmızı | `pull request #285 closes: no issue`; `##[error]exclude_re entry at line 338 (…): issue #282 is closed: remove the entry, …`; `38 exclude_re entries (1 C: #282), … 1 error(s)` |
+| 4417ca89 | `# issue: #283` (açık) | 43804366782 | yeşil | `C entry at line 338: issue #283 is open`; `pull request #285 closes: no issue`; `38 exclude_re entries (1 C: #283), 40 expected mutants, 11655 mutants in scope before the exclusions: every entry matches exactly its expected mutants, every C entry's issue is open` |
+| 138365cd | `# issue: #283`, PR açıklamasında `Closes #283` | 43804536770 | kırmızı | `pull request #285 closes: #283`; `##[error]exclude_re entry at line 339 (…): pull request #285 closes issue #283 and the entry still stands: remove it in this pull request …` |
+
+Üçüncü push'tan sonra `Closes #283` açıklamadan kaldırıldı ve PR
+kapatıldı.
+
+### 2. Temel koşunun belleği
+
+"PR kapısı" ekinin 4. bölümüne göre bellek sınırını aşan mutant yakalanmış
+sayılır. Temel koşu sınıra yakınsa küçük bir bellek artışı bir mutantı
+"memory limit" diye yakalanmış gösterir ve gerçek bir kör noktayı
+gizleyebilir.
+
+- Bekçi `--peak FILE` ile süreç ağacının gördüğü en yüksek yerleşik
+  belleği (MiB) komut bitince, çıkış kodu ne olursa olsun yazar; ölçü
+  sınırınkiyle aynıdır (ağacın RSS toplamı, 0,2 sn'de bir).
+- Her parçanın temel koşusu derleme (`cargo nextest run --no-run`) ve
+  testler için ayrı yazar (`baseline-build-peak.txt`,
+  `baseline-test-peak.txt`); dosyalar parçanın yapıtına girer.
+- Özetin parça tablosunda "Baseline peak, MiB (build / tests)" sütunu
+  vardır. Değer bekçinin sınırının yarısını aşarsa
+  (`MUTANTS_MEMORY_LIMIT_MIB` = 12 288 MiB, yarısı 6 144 MiB) özet
+  `::warning title=Mutation baseline memory::` ve özette "Baseline
+  memory" satırı yazar; tamamlanan bir parçanın kaydedilmemiş tepesi de
+  uyarıdır. Uyarıdır, koşuyu düşürmez.
+- Sınır: RSS toplamı paylaşılan sayfaları birden çok sayar (sınır da
+  öyle uygulanır, karşılaştırma tutarlıdır); 0,2 sn'lik örnekleme çok
+  kısa bir tepeyi kaçırabilir.
+
+**Self-test:** bekçinin self-test'i (Linux, `/proc`) önce
+`unrecognized arguments: --peak` ile düştü; özetinki önce `KeyError:
+'peak'` ile düştü. Sonra ikisi de geçti: tepe öldürmedeki ağaç
+belleğinden küçük değil, 30 MiB'lık komutta 30–300 MiB, çıkış kodu 7'de
+de yazılıyor; 6 144 MiB uyarısız, 6 145 ve 7 000 MiB uyarılı,
+kaydedilmemiş tepe uyarılı, uyarı koşuyu düşürmüyor.
+
+**Ölçüm** (aşağıdaki 3. bölümün yeşil hedefli koşusu 43803864010, tek
+parça): `watchdog: peak resident memory of the tree 1656 MiB (limit
+12288 MiB)` (derleme), `… 1720 MiB …` (testler); özet `| 0 | 2 | 2 | 2
+| 0 | 0 | 0 | 0 | completed | 1656 / 1720 |`, `Watchdog limit 12288 MiB;
+a warning above half of it (6144 MiB).`, uyarı yok. Temel koşu sınırın
+%14'ünde; bugün bellek sınırının bir kör noktayı gizleme payı geniş.
+
+### 3. Hedefli koşuda beklenen sayı
+
+43754250315'te `re` iki mutant için yazılmıştı ama birini sessizce
+kaçırdı: ikinci kol ` in` ile bitiyordu, fonksiyon değiştirme mutantının
+adı ` in` taşımaz. `mutants_target.py check` yalnız listedeki her
+mutantın regex'le eşleştiğini denetlediği için koşu yeşil bitti.
+
+- `mutants.yml`'in elle tetiklenen koşusu `expect` girdisini alır:
+  regex'in yazıldığı mutant sayısı. `re` verildiğinde zorunludur; `re`
+  olmadan verilirse ilk iş düşer.
+- `mutants_target.py check --expect N`: son liste tam N mutant tutmazsa
+  (bulunan adlarla) ya da N pozitif bir tam sayı değilse düşer.
+
+**Self-test** 43754250315'in regex'iyle: iki addan biri eşleşir, `expect`
+= 2 düşer, düzeltilmiş regex'le geçer; boş, `0`, `-1`, `two`, `2.0`
+reddedilir. Uygulamadan önce `NameError: name 'check_list' is not
+defined` ile düştü, sonra geçti.
+
+**Kanıt** (aynı regex, c5ea0c94, `shards` = 1):
+
+- **Önce:** 43754250315, yeşil, iki mutanttan biri denendi.
+- **Sonra, aynı regex, `expect` = 2:** 43803852396, kırmızı, ilk işte:
+  `1 of 83 listed mutants match the regex`, `##[error]expected 2
+  mutant(s), the list holds 1:
+  crates/volt-hir/src/typeck/literal_fold.rs:319:29: replace == with !=
+  in TypeChecker<'_, '_>::check_literal_divisor`. Parça kurulmadı.
+- **Düzeltilmiş regex** (`literal_fold\.rs:(319:29: replace == with !=
+  in .*|301:9: replace TypeChecker<'_, '_>::check_literal_divisor with
+  \(\))$`), `expect` = 2: 43803864010: `2 of 84 listed mutants match the
+  regex`, `all 2 mutants in the list match …, as expected (2)`, `Found
+  2 mutants to test`, `2 mutants tested in 13m: 2 caught`, `Tool ledger
+  [mutants-0]: 191 test(s) asked for a tool; 193 lookup(s) found the
+  tool (193 required), SKIP: 0`; özet `caught=2 missed=0 timeout=0
+  unviable=0 memory=0 untested=0 mutants=2`.
+
+### 4. Hariç tutma denetiminin kendi iş akışı (`edited`)
+
+Denetim `mutants.yml`'deyken iş akışı `edited` olayında koşmuyordu.
+Push'tan sonra açıklamaya eklenen `Closes #N`, ancak bir sonraki
+push'ta okunuyordu. Kanıt PR'ı #285'te kapatma bağlantısı
+04:32:08Z'de açıklamadan düzenlemeyle kaldırıldı; yeni bir koşu
+açılmadı (`mutants.yml`'in dalda üç koşusu var, üç push'un:
+43804210399, 43804366782, 43804536770). `mutants.yml`'e
+`edited` eklemek ise her açıklama düzenlemesinde kapıyı baştan başlatır,
+aynı `concurrency` grubundaki koşusunu da iptal ederdi.
+
+- "Mutation exclusions match their mutants" işi kendi iş akışındadır:
+  `.github/workflows/mutants-exclusions.yml` ("Mutation exclusions").
+  `pull_request`'in `opened`, `synchronize`, `reopened` ve `edited`
+  olaylarında, main'e her push'ta ve elle koşar. `concurrency` grubu
+  kendisinindir (`mutants-exclusions-pr-<N>`): aynı PR'ın yeni bir
+  push'u ya da düzenlemesi yalnız bu iş akışının önceki koşusunu iptal
+  eder.
+- `mutants.yml` olaylarını açıkça yazar: `opened`, `synchronize`,
+  `reopened`. Açıklama düzenlemesi kapıyı başlatmaz, koşusunu iptal
+  etmez.
+- main'e push'ta PR yoktur, (b) uygulanmaz. (a) uygulanır: birleşen
+  bir PR'ın kapattığı issue'nun kaydı kalmışsa denetim main'de düşer.
+- İki iş akışı cargo-mutants ve cargo-nextest için aynı önbellek
+  anahtarını kullanır.
+
+**Kanıt** (taslak PR #288, merge edilmedi; `evidence/283-edited` dalı
+kanıt yazılınca silindi): bu ekin dalı (0c7337ee) + `# issue: #283`
+(açık) taşıyan, gerçek bir sınıflandırma olmayan C kaydı (c77bda9e).
+Tek push; sonraki iki adım yalnız açıklamayı düzenledi.
+
+| Adım | Koşu | Olay | Sonuç | Günlük |
+|---|---|---|---|---|
+| PR açıldı | "Mutation exclusions" 43822913077 | `pull_request/opened` | yeşil | `C entry at line 338: issue #283 is open`; `pull request #288 closes: no issue`; `38 exclude_re entries (1 C: #283), 40 expected mutants, 11655 mutants in scope before the exclusions: every entry matches exactly its expected mutants, every C entry's issue is open` |
+| PR açıldı | "Mutation test" 43822912958 | `pull_request` | yeşil | `No Rust file changed since 8e45369b.`; `Pull-request gate: **passed** (nothing to test).` |
+| Açıklamaya `Closes #283` eklendi (07:19:22Z) | "Mutation exclusions" 43823006640 | `pull_request/edited` | kırmızı | `pull request #288 closes: #283`; `##[error]exclude_re entry at line 338 (…): pull request #288 closes issue #283 and the entry still stands: remove it in this pull request (the fix should kill the mutant), or classify the mutant again`; `38 exclude_re entries (1 C: #283), … 1 error(s)` |
+| `Closes #283` açıklamadan kaldırıldı | "Mutation exclusions" 43823170304 | `pull_request/edited` | yeşil | `pull request #288 closes: no issue`; `… every C entry's issue is open` |
+
+Düzenleme anında kapının koşusu (43822912958) sürüyordu: özet işi
+07:19:19Z'de başladı, kapı satırını 07:19:23Z'de yazdı, koşu 07:19:26Z'de
+başarıyla bitti. İptal edilmedi. Dalda "Mutation test"in tek koşusu var
+(`gh run list --workflow mutants.yml --branch evidence/283-edited`: 1
+koşu, olay `pull_request`); iki düzenleme kapıyı yeniden başlatmadı.

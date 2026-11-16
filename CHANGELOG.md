@@ -50,6 +50,30 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   cargo-mutants onu missed ya da unviable yazsa da "memory limit"
   (yakalandı) sayılır; timeout gibi özette listelenir.
 
+### Geliştirici notu — Kapı zorunlu yapılmadan önce: C kayıtları, temel koşunun belleği, hedefli koşuda beklenen sayı (#253, #283, ADR-0109 eki, 2026-11-16)
+
+- **C kayıtları (#283).** Şüpheli (C) bir mutant artık kapıyı kırmızı
+  tutmaz: "silent-wrong?" issue'su açılır ve mutant `exclude_re`'de
+  kendi kaydıyla bekler. Kaydın gerekçesi `C.` ile açılır, tek bir
+  `# issue: #N` satırı issue'yu adlandırır. "Mutation exclusions match
+  their mutants" işi issue kapalıysa ya da yoksa düşer; PR'da, PR o
+  issue'yu kapatıyorsa (`Closes #N`) ve kayıt duruyorsa da düşer:
+  hatayı düzelten PR kaydı da kaldırır. İş issue'ları iş akışının
+  jetonuyla okur; jeton ya da ağ yoksa geçmez, düşer. Denetim kendi
+  iş akışındadır (`mutants-exclusions.yml`): PR açıklaması
+  düzenlenince de koşar, mutant kapısını yeniden başlatmaz ve
+  koşusunu iptal etmez; main'e her push'ta da koşar. Kapı özeti C
+  kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler.
+- **Temel koşunun belleği.** Her parçanın temel koşusunun derleme ve
+  testlerinin en yüksek belleği özetin parça tablosundadır; bekçinin
+  sınırının (12 GiB) yarısını aşan uyarı verir. Sınırı aşan mutant
+  yakalanmış sayıldığından, sınıra yakın bir temel koşu bir kör noktayı
+  gizleyebilir.
+- **Hedefli koşuda beklenen sayı.** `mutants.yml`'in hedefli koşusu
+  `-f expect=<n>` girdisini alır (`-f re=` ile zorunlu); son liste başka
+  sayıda mutant tutuyorsa ilk iş düşer. 43754250315'te regex iki
+  mutanttan birini sessizce kaçırmış, koşu yeşil bitmişti.
+
 ## [0.1.2] - 2026-11-13
 
 ### Behavior changes

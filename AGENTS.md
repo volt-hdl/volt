@@ -153,13 +153,21 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   entry in `.cargo/mutants.toml` with its reason and its proof (for A2 a
   permanent test of the assumption); C (suspect: the mutant suggests that
   today's behavior contradicts the spec) gets an issue with "silent-wrong?"
-  in its title and is not fixed in that pull request. Every `exclude_re`
+  in its title and is not fixed in that pull request; it waits for that
+  issue in an `exclude_re` entry whose reason opens with `C.` and that
+  names the issue on one `# issue: #N` line (#283). The "Mutation
+  exclusions" job fails when that issue is closed, and when a pull request
+  closes it (`Closes #N`) while the entry still stands: the pull request
+  that fixes the bug removes the entry. Every `exclude_re`
   entry names the mutants it was written for in `# expect:` lines; when
   code moves, update their line:col (the "Mutation exclusions" job shows
   the new one). Every source file of a crate's `src/` is in mutation scope
   unless `exclude_globs` lists it with its reason (`just consistency`,
   check 19). Runs by hand (`-f re=`, `-f gate_base=`) are for work outside
-  a pull request.
+  a pull request. A targeted run (`-f re=`) always gives `-f expect=<n>`,
+  the number of mutants the regex was written for: the run fails when its
+  list holds another number, so a regex that misses one of its mutants
+  cannot pass.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

@@ -10,15 +10,18 @@ whose hunks touch exactly the lines of the mutants that match the regex
 the list that cargo-mutants makes from both filters.
 
   mutants_target.py diff  --re RE --list re-list.txt --out target.diff
-  mutants_target.py check --re RE --list final-list.txt
+  mutants_target.py check --re RE --list final-list.txt --expect N
   mutants_target.py shards --mutants M [--seconds-per-mutant T]
   mutants_target.py --self-test
 
 `diff`: reads the --re list, keeps the names that the regex matches
 (Python `re.search`, as cargo-mutants matches), writes the diff, prints how
 many it dropped. `check`: exits 1 when a mutant in the list does not match
-the regex or the list is empty; this is the proof that the run tries only
-the requested mutants. `shards`: the shard count of ADR-0109 section 3 for
+the regex, the list is empty, or it does not hold exactly N mutants (the
+number the regex was written for, input `expect` of the workflow); this is
+the proof that the run tries exactly the requested mutants. Without N, a
+regex that silently misses one of its mutants passes (#253: run
+43754250315 tried one of the two mutants its regex was written for). `shards`: the shard count of ADR-0109 section 3 for
 M mutants; the pull-request gate passes its own measured t (ADR-0109
 appendix "PR kapısı").
 """
@@ -69,6 +72,21 @@ def make_diff(names, root="."):
     return "".join(parts)
 
 
+def check_list(names, regex, expect):
+    """The errors of the final list of a targeted run: empty when it holds
+    exactly the `expect` mutants the regex was written for, all matching it."""
+    if not re.fullmatch(r"[1-9][0-9]*", expect):
+        return [f"expect must be the number of mutants the regex was written for (1 or more), got {expect!r}"]
+    rx = re.compile(regex)
+    errors = [f"not requested: {n}" for n in names if not rx.search(n)]
+    if not names:
+        errors.append("the final list is empty")
+    if len(names) != int(expect):
+        found = f": {', '.join(names)}" if names else ""
+        errors.append(f"expected {expect} mutant(s), the list holds {len(names)}{found}")
+    return errors
+
+
 def shard_count(mutants, seconds=SECONDS_PER_MUTANT):
     for n in range(1, MAX_SHARDS + 1):
         if math.ceil(mutants / n) * seconds / 60 + SETUP_MINUTES <= SHARD_MINUTES:
@@ -95,6 +113,31 @@ def self_test():
     assert shard_count(22, 600) == 1
     assert shard_count(23, 600) == 2
     assert shard_count(165, 600) == 8
+    # The expected count (#253): run 43754250315's regex was written for two
+    # mutants, but its second arm ends in ` in`, which a function-replacement
+    # name does not hold; the run tried one mutant and went green.
+    re_43754250315 = (
+        r"literal_fold\.rs:(319:29: replace == with !=|301:9: replace TypeChecker<'_, '_>::check_literal_divisor"
+        r" with \(\)) in"
+    )
+    lf = [
+        "crates/volt-hir/src/typeck/literal_fold.rs:319:29: replace == with != in TypeChecker<'_, '_>::check_literal_divisor",
+        "crates/volt-hir/src/typeck/literal_fold.rs:301:9: replace TypeChecker<'_, '_>::check_literal_divisor with ()",
+    ]
+    found = wanted(lf, re_43754250315)
+    assert found == lf[:1], found
+    errs = check_list(found, re_43754250315, "2")
+    assert errs == [f"expected 2 mutant(s), the list holds 1: {lf[0]}"], errs
+    assert check_list(found, re_43754250315, "1") == []
+    fixed = r"literal_fold\.rs:(319:29: replace == with != in .*|301:9: replace TypeChecker<'_, '_>::check_literal_divisor with \(\))$"
+    assert check_list(wanted(lf, fixed), fixed, "2") == []
+    # The count is required and is a positive number.
+    for bad in ("", " ", "0", "-1", "two", "2.0"):
+        errs = check_list(found, re_43754250315, bad)
+        assert errs == [f"expect must be the number of mutants the regex was written for (1 or more), got {bad!r}"], errs
+    # A mutant that the regex does not match, and an empty list, still fail.
+    assert check_list(lf, re_43754250315, "2") == [f"not requested: {lf[1]}"]
+    assert check_list([], re_43754250315, "1") == ["the final list is empty", "expected 1 mutant(s), the list holds 0"]
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
@@ -119,6 +162,7 @@ def main():
     c = sub.add_parser("check")
     c.add_argument("--re", required=True)
     c.add_argument("--list", required=True)
+    c.add_argument("--expect", required=True, help="the number of mutants the regex was written for")
     s = sub.add_parser("shards")
     s.add_argument("--mutants", type=int, required=True)
     s.add_argument("--seconds-per-mutant", type=int, default=SECONDS_PER_MUTANT)
@@ -138,15 +182,12 @@ def main():
         return 0
     if args.cmd == "check":
         names = read_list(args.list)
-        rx = re.compile(args.re)
-        extra = [n for n in names if not rx.search(n)]
-        for n in extra:
-            print(f"::error title=Targeted mutation run::not requested: {n}")
-        if not names:
-            print("::error title=Targeted mutation run::the final list is empty")
-        if extra or not names:
+        errors = check_list(names, args.re, args.expect)
+        for e in errors:
+            print(f"::error title=Targeted mutation run::{e}")
+        if errors:
             return 1
-        print(f"all {len(names)} mutants in the list match {args.re!r}")
+        print(f"all {len(names)} mutants in the list match {args.re!r}, as expected ({args.expect})")
         return 0
     print(shard_count(args.mutants, args.seconds_per_mutant))
     return 0
