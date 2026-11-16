@@ -408,3 +408,13 @@ düşer (`tests/real_bugs/211`).
   donanım karşılaştırması); hedef 15 dakikanın altında kalıyor. "Known
   failures" 43934640011: "32 known failure(s), issues #211, #215, #216,
   #234: every issue is open and no pull request closes one".
+- **CI (#297, f8018ca5, çapalar ve sayaç):** 43946682096 koşusu, "Verilator
+  lint": `metamorphic_tests` `45 passed; 0 failed` (446,5 s); `hardware:
+  148 comparisons, 260 Verilator builds and runs, 1762.9 s in them
+  (summed over the workers)`, `failures: 26; 446.5 s` (hepsi bilinen);
+  `real_bugs` "4 failures, 4 known; 227.0 s"; `SKIP: 0`; "Tool coverage"
+  197/197. "Known failures" 43946681806: "34 known failure(s), issues
+  #211, #215, #216, #234, #298: every issue is open and no pull request
+  closes one". Bir Verilator derleme ve koşusu bir işçinin 6,8 s'si;
+  benzetim duvar süresinin neredeyse hepsi. PR katmanında yeniden yazım
+  başına karşılaştırma sınırı önerisi #254'te (bu ekte uygulama yok).
