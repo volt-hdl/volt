@@ -1432,6 +1432,13 @@ belleğinden küçük değil, 30 MiB'lık komutta 30–300 MiB, çıkış kodu 7
 de yazılıyor; 6 144 MiB uyarısız, 6 145 ve 7 000 MiB uyarılı,
 kaydedilmemiş tepe uyarılı, uyarı koşuyu düşürmüyor.
 
+**Ölçüm** (aşağıdaki 3. bölümün yeşil hedefli koşusu 43803864010, tek
+parça): `watchdog: peak resident memory of the tree 1656 MiB (limit
+12288 MiB)` (derleme), `… 1720 MiB …` (testler); özet `| 0 | 2 | 2 | 2
+| 0 | 0 | 0 | 0 | completed | 1656 / 1720 |`, `Watchdog limit 12288 MiB;
+a warning above half of it (6144 MiB).`, uyarı yok. Temel koşu sınırın
+%14'ünde; bugün bellek sınırının bir kör noktayı gizleme payı geniş.
+
 ### 3. Hedefli koşuda beklenen sayı
 
 43754250315'te `re` iki mutant için yazılmıştı ama birini sessizce
@@ -1461,4 +1468,8 @@ defined` ile düştü, sonra geçti.
 - **Düzeltilmiş regex** (`literal_fold\.rs:(319:29: replace == with !=
   in .*|301:9: replace TypeChecker<'_, '_>::check_literal_divisor with
   \(\))$`), `expect` = 2: 43803864010: `2 of 84 listed mutants match the
-  regex`, `all 2 mutants in the list match …, as expected (2)`.
+  regex`, `all 2 mutants in the list match …, as expected (2)`, `Found
+  2 mutants to test`, `2 mutants tested in 13m: 2 caught`, `Tool ledger
+  [mutants-0]: 191 test(s) asked for a tool; 193 lookup(s) found the
+  tool (193 required), SKIP: 0`; özet `caught=2 missed=0 timeout=0
+  unviable=0 memory=0 untested=0 mutants=2`.
