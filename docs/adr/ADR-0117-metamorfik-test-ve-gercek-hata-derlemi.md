@@ -237,3 +237,184 @@ taşımalıdır.
   (AGENTS.md, "Emitter tests test behavior").
 - **Bilinen başarısızlıkları `#[ignore]` ya da tasarım dışlamasıyla
   susturmak.** Testi atlamak yasaktır; liste katıdır ve issue'ya bağlıdır.
+
+## Ek: kalan yeniden yazımlar (#254 1. aşama PR 2, 2026-11-16)
+
+Bu ek kararı değiştirmez; §2'nin kurallarıyla eklenen yeniden yazımları,
+dayanaklarını, buldukları issue'ları ve eklenmeyen yeniden yazımın
+gerekçesini kaydeder.
+
+### 1. Yeni yeniden yazımlar
+
+| Yeniden yazım | Dayanak | Bulduğu issue |
+|---|---|---|
+| `if-to-match`, `match-to-if`: `if c { a } else { b }` ↔ `match c { true => a, _ => b }` (ya da `false =>` ile, iki sırada); yalnız ifade biçimi, bütün bir işlenen olarak (`=`, `<=`, `(`, `,`, `:` sonrasında, satır sonu ya da `)`, `,`, `;`, `}` öncesinde); `else if` zinciri `_` kolu olur | type-inference.md §3.9 (ADR-0083): "Match ifadesi çok kollu `if` ifadesidir (§3.7) — genişlik davranışı ayrışmaz"; grammar-full.ebnf `MatchExpr`: literal desen ve `_`, ilk eşleşen kol; domain-inference.md K5: koşul ve sınanan sonucun join'ine aynı biçimde girer | #215: `tests/real_bugs/215_…`'te iki yönde `hardware` (match biçimi 8, `if` biçimi 9 bit) |
+| `wire-to-let`, `let-to-wire`: modül düzeyinde `wire w : T @D` + hemen ardından tek sürücüsü `w = e` ↔ `let w : T @D = e` | ADR-0088'in tablosu ve domain-inference.md K1: `wire` ve modül `let`'indeki açıklama sinyalin alanını sabitler, sürücüye ya da değere karşı aynı denetlenir (E3001); K11 (ADR-0052): sinyalin güven seviyesi açıklanan alanınkidir; type-inference.md §3.9: tipli `let` ve atama hedefi aynı check bağlamıdır; sv-mapping.md §5.2, §16.3: ikisi de sürekli atamayla sürülen bir ağdır | #211: `tests/real_bugs/211_…`'te `let-to-wire` `safety` (let biçiminde E3009 yok, tel biçiminde var) |
+| `clock-to-alias`, `alias-to-clock`: port, `wire`, `reg`, `let` bildirimindeki `: clock` ↔ dosyanın ilk öğesinden önce bildirilen `type C = clock;` ile `: C` | ADR-0070 §6: genel olmayan takma ad hedef tipine çözülür; `type C = clock` port, reg, wire ve let'te "tipin kendisi gibi çalışır" | #234: PR derleminde 20 tasarım (aşağıda §3) |
+
+Sınırları (her biri birim testleriyle):
+
+- `if-to-match`/`match-to-if` deyim biçimine (`if c { y = a } else { y =
+  b }`) dokunmaz: §3.9 ifadeden söz eder. Bir işlecin işleneni olan
+  `if`/`match`, muhafızlı ya da üç kollu match ve sayısal sınanan
+  yeniden yazılmaz. Yeniden yazım tipleri görmez: koşul `bool` değilse iki
+  biçim de hatalıdır ve kodları ayrışabilir; PR derleminde böyle tasarım
+  yok.
+- `wire-to-let` yalnız bildirimin bir sonraki deyimi tek sürücüsüyse
+  uygular (`let` yalnız bildiriminden sonra görünür, name-resolution.md
+  §5); parça sürücüsü, ikinci sürücü ve `comb`'dan sürülen tel yeniden
+  yazılmaz (`let` ↔ `wire` + `comb` #291'i bekliyor). Blok `let`'i ve
+  tipsiz ya da açıklamasız bildirim yeniden yazılmaz.
+- Konum haritası §2 ve §3'teki gibidir: ad, açıklamalı tip ve değer
+  kopyadır ve özgünlerine çapalanır (`let`'in adı telin bildirimindeki
+  ada); yalnız anahtar sözcük ve noktalama yeniden yazımın kendi
+  metnidir. Bugün telin E3001'i atamada, `let`'inki açıklamada
+  gösteriliyor; `location` ilişkisi `tests/ui/fail/185` ve `186`'da bu
+  yüzden düşer. K1 E3001'in hangi simgede gösterileceğini söylemez; karar
+  #298'de, iki kayıt onunla listede. (PR'ın ilk hâli çapaları kaldırıp
+  deyimi karşılaştırıyordu; bu §2'nin konum haritasına aykırı, `extra_codes`
+  dışındaki bir istisna olurdu ve geri alındı.)
+- `clock-to-alias` genel argümana, struct alanına ve `fn` parametresine
+  dokunmaz (ADR-0070 dört bildirimi sayar); `domain` gövdesindeki
+  `clock = posedge` bir tip değildir. Yer sayısı her tasarımda eklenen
+  takma ad bildirimini de sayar. `alias-to-clock` yalnız her kullanımı
+  bir bildirim tipi olan, `pub` olmayan `type X = clock` için uygular ve
+  takma adı siler.
+
+### 2. Eklenmeyen yeniden yazım: alt modülün satır içi alınması ↔ örneklenmesi (#210)
+
+Şartnamede iki yazımı aynı tasarım sayan bir cümle yok; üç yerde
+şartname onları bilerek ayırıyor:
+
+- **Güven seviyesi.** K11: "sınıflandırılmamış çıkış, örneğin
+  sınıflandırılmış girişlerinin en yükseğini (tutucu özet)"; K8b: "Güven
+  seviyesi (K11) özeti kullanmaz". Satır içi alınmış çıkış yalnız
+  okuduğunu taşır; örnek bütün sınıflandırılmış girişlerin en yükseğini.
+  Yeniden yazım şartnamenin istediği bir farkı bulgu sayardı.
+- **Saatsiz çocuğun tanı yeri.** K8b madde 2 (ADR-0114): iki alanı
+  birleştiren saatsiz modülün E3001'i örnek sitesindedir, "çıkış
+  okunmasa da", ve "modülün içinde tanı yoktur". Satır içinde birleşim
+  sıradan bir ifadedir; `location` ilişkisi kuralla düşerdi.
+- **Sınır.** ADR-0119 İ2.1: portlar sınırda beyandır. Satır içi alma
+  sınırı kaldırır; portu açıklamalı bir `let`'e ya da `wire`'a çevirmek
+  şartnamenin yapmadığı bir seçimdir.
+
+Metin düzeyindeki engeller (bir kural olsa da): çocuğun her adına
+ebeveynde hiçbir şeyle (örnek çıkışlarının üretilen SV adları dahil,
+ADR-0090) çakışmayan önekli bir ad, modül içi sıralı çözümleme için
+doğru yer, tek örneği satır içi alınan çocuğun silinmesi (yoksa üretilen
+SV'nin yeni bir kökü olur ve `hardware` ilişkisi farklı port listelerini
+karşılaştırır), adla bağlanan saat ve reset'in yerine koyulması. Karar
+#296'da (A: listelenmiş istisnalarla aynı tasarım; B: yalnız aynı
+donanım; C: aynı tasarım değil). #210'un kendisi bu karara bağlı değildir:
+K11'in "sınıflandırılmamış sinyal kendisine yazılan en yüksek seviyeyi
+alır" cümlesi eksik E3009'u her seçenekte hata yapar.
+
+### 3. Bulunanlar
+
+Başarısızlıkların hepsi açık issue'larla `known_failures.json`'da
+(gecelik derlemin dört kaydıyla 31 yeni kayıt: #234 24, #215 3, #211 2,
+#298 2). Sessiz yanlış olan yeni bir başarısızlık çıkmadı; `wire`/`let`
+konum farkı açık bir hatanın yeridir, karar issue'su #298.
+
+- **#234** (`clock-to-alias`, PR derleminde 20 tasarım): sıfırlama alanı
+  denetimleri (`rdc/facts.rs`) takma adla yazılmış saati görmüyor:
+  `tests/ui/fail/62`, `63`, `65`'te E3003, `tests/ui/pass/19` ve
+  `tests/ui/fail/67`'de W3009, `tests/real_bugs/204`, `tests/ui/fail/68`,
+  `70`, `194`, `197`, `tests/ui/pass/107`, `131`'de W3010,
+  `tests/ui/fail/219`'da W3011 kayboluyor (`safety`); `tests/ui/fail/64`
+  E3003 ve W3009 yerine E1003 veriyor. `tests/ui/pass/73`'te SDC geçişinin
+  sahte E0017'si (`codes`). Issue'da adı geçmeyen iki yer daha, ikisi de
+  açık hata (sahte alarm): `@mmio` açılımı kendi saat portunu ekliyor
+  (`tests/ui/pass/57`, `58`, `72`: E1003 "'clk' is already defined"),
+  pipeline denetimi saat portu bulamıyor (`tests/ui/pass/138`,
+  `tests/real_bugs/137`: E5011). Gecelik derlemde aynı kökten
+  `examples/fir_filter.volt` (E5011), `examples/soc/gpio.volt` (E1003),
+  `examples/vga/vga_timing.volt` (E0017) ve kitabın
+  `cookbook/reset-sync.md` blinker'ı (W3009). Donanım ilişkisi fark
+  bulmadı. Yeni yerler #234'e yorum olarak yazıldı.
+- **#215** (`if-to-match`, `match-to-if`): `tests/real_bugs/215_…`
+  (yeni, §1'in açık issue kuralıyla): `let m = match c { true => a + b, _
+  => a - b }` 8 bit üretiliyor; `test` bloğu a = 200, b = 100 için
+  şartnameden 300 bekler, 44 alır (`test`); iki yeniden yazımın
+  `hardware` ilişkisi ilk farkta düşer.
+- **#211** (`let-to-wire`): `tests/real_bugs/211_…` (yeni): `let w : u8
+  @Pub = key` (key gizli) E3009 almıyor (`expect`); tel biçimi alıyor
+  (`safety`). Tel ve `let` üzerindeki açıklama ADR-0088'e göre aynı
+  denetlenir. #211'in öteki yönü (saatsiz modülde `wire w : u8 @Pub`
+  E3009 almıyor; saatli modülde `wire w : u8 @Sec` sahte E3009 alıyor)
+  telin açıklamasının okunmamasıdır. Sahte alarmı `wire-to-let` bulur,
+  ama derlemde böyle bir tasarım yok; saatsiz modülde iki biçim de sessiz
+  kaldığı için o yönü hiçbir yeniden yazım göstermez, #211'in kendi
+  fikstürleri gösterir.
+
+### 4. Kanıt
+
+Uygulama sayıları (tasarım / yer / donanımı karşılaştırılan /
+karşılaştırılamayan), Verilator ile, yerelde Docker'da
+(`volt-difftest-dev`, Verilator 5.052, `VOLT_REQUIRE_TOOLS=verilator`):
+
+| Yeniden yazım | PR katmanı (449 tasarım, tohum `pr`) | Gecelik (490 tasarım, tohum `2026-11-16`) |
+|---|---|---|
+| `if-to-match` | 14 / 16 / 12 / 0 | 24 / 83 / 16 / 1 |
+| `match-to-if` | 3 / 3 / 1 / 0 | 3 / 3 / 1 / 0 |
+| `wire-to-let` | 3 / 3 / 1 / 0 | 3 / 3 / 1 / 0 |
+| `let-to-wire` | 3 / 3 / 1 / 0 | 3 / 3 / 1 / 0 |
+| `clock-to-alias` | 247 / 605 / 94 / 7 | 283 / 692 / 115 / 8 |
+| `alias-to-clock` | 2 / 5 / 1 / 1 | 2 / 5 / 1 / 1 |
+
+Donanımın karşılaştırılmadığı tasarımlar hatasız olup benzetilemeyenlerdir
+(hatalı özgün tasarımın donanımı karşılaştırılmaz, §3): `inout` portlu
+olanlar (`Listener`, `OpenDrainPad`, `Pad`, `Sampler`; gecede
+`I2cMaster`) ve extern gövdesi olmayanlar (Verilator `MODMISSING`:
+`Bank`, `ExtAsyncFifo`, `VendorFifo`). Donanım sütunu küçük kalan
+yeniden yazımlarda öteki tasarımlar ya özgünde hatalıdır
+(`wire-to-let`: `tests/ui/fail/185`, `187`; `let-to-wire`:
+`tests/ui/fail/186`) ya da kodları ayrıştığı için donanıma gelmeden
+düşer (`tests/real_bugs/211`).
+
+- **Rapor artık Verilator çağrılarını sayar:** `hardware: N
+  comparisons, M Verilator builds and runs, X s in them (summed over the
+  workers)`; `metamorphic` testi karşılaştırma sayısı Verilator çağrı
+  sayısını aşarsa düşer (karşılaştırma benzetimsiz sayılamaz).
+- **Gecelik katman, tarihli tohumla (`2026-11-16`), yeni bir konteynerde
+  üç kez.** Her koşuda 490 tasarım, 178 karşılaştırma, 313 Verilator
+  derleme ve koşusu (178 yeniden yazılmış, 135 özgün), 30 başarısızlık,
+  hepsi bilinen, koşu yeşil:
+
+  | ccache | Süre | Verilator'da (işçiler toplamı) | ccache isabeti |
+  |---|---|---|---|
+  | kapalı (`CCACHE_DISABLE=1`) | 402,6 s | 1569,1 s | — |
+  | açık, boş önbellek | 59,5 s | 217,2 s | 1086 / 1232 |
+  | açık, dolu önbellek | 26,9 s | 87,5 s | 1232 / 1232 |
+
+  `volt-difftest-dev` imajında ccache 4.9.1 var ve Verilator'ın
+  `verilated.mk`'si onu kullanır (`OBJCACHE ?= ccache`); tasarımlar
+  arasında Verilator'ın çalışma zamanı kütüphanesi aynıdır, boş önbellekte
+  bile derlemelerin çoğu isabettir. İlk raporlanan 31,6 s aynı konteynerde
+  hemen önce koşan PR katmanının doldurduğu önbellekle ölçülmüştü. CI'ın
+  araçlı işinde ccache yok; oradaki süreler kapalı satıra yakındır.
+  #215 ve #216'nın `hardware` kayıtları bu tohumla da düştü (başka
+  uyaranla: `A 0 02c 12c`, `A 3 09`).
+- **PR katmanı, yerelde (önbellek dolu):** `metamorphic` 51,8 s,
+  `real_bugs` 24,7 s; `metamorphic_tests`: `45 passed; 0 failed`.
+- **CI (#297, 213c2812):** 43934640812 koşusu, "Verilator lint":
+  `metamorphic_tests` `45 passed; 0 failed` (518,3 s); `metamorphic`
+  tablosu yereldekiyle aynı, `failures: 24; 518.3 s`, hepsi bilinen;
+  `real_bugs` "24 reproductions, 10 with test blocks (10 run in
+  Verilator); 4 failures, 4 known; 272.0 s"; `Tool ledger [integration]:
+  … SKIP: 0`; "Tool coverage": 197 çiftin 197'si araç zorunluyken koştu.
+  PR katmanı 154,9 s'den 518,3 s'ye çıktı (en çok `clock-to-alias`'ın 94
+  donanım karşılaştırması); hedef 15 dakikanın altında kalıyor. "Known
+  failures" 43934640011: "32 known failure(s), issues #211, #215, #216,
+  #234: every issue is open and no pull request closes one".
+- **CI (#297, f8018ca5, çapalar ve sayaç):** 43946682096 koşusu, "Verilator
+  lint": `metamorphic_tests` `45 passed; 0 failed` (446,5 s); `hardware:
+  148 comparisons, 260 Verilator builds and runs, 1762.9 s in them
+  (summed over the workers)`, `failures: 26; 446.5 s` (hepsi bilinen);
+  `real_bugs` "4 failures, 4 known; 227.0 s"; `SKIP: 0`; "Tool coverage"
+  197/197. "Known failures" 43946681806: "34 known failure(s), issues
+  #211, #215, #216, #234, #298: every issue is open and no pull request
+  closes one". Bir Verilator derleme ve koşusu bir işçinin 6,8 s'si;
+  benzetim duvar süresinin neredeyse hepsi. PR katmanında yeniden yazım
+  başına karşılaştırma sınırı önerisi #254'te (bu ekte uygulama yok).

@@ -270,11 +270,22 @@ fn render(tier: &str, o: &metamorphic::Outcome, secs: f64, sim: bool) -> String 
         }
     }
     s.push_str(&format!(
+        "  hardware: {} comparisons, {} Verilator builds and runs, {:.1} s in them (summed over the workers)\n",
+        compared(o),
+        o.sim_runs,
+        o.sim_secs
+    ));
+    s.push_str(&format!(
         "  failures: {}; {:.1} s\n",
         o.failures.len(),
         secs
     ));
     s
+}
+
+/// Hardware comparisons of all rewrites.
+fn compared(o: &metamorphic::Outcome) -> usize {
+    o.per_rewrite.values().map(|c| c.hw_compared).sum()
 }
 
 #[test]
@@ -352,6 +363,12 @@ Known hardware failures that did not show with seed {seed} ({}; not judged: only
     metamorphic::write_summary("VOLT_METAMORPHIC_SUMMARY", &report);
     assert!(
         unlisted.is_empty() && stale.is_empty() && unused.is_empty(),
+        "{report}"
+    );
+    // Every comparison simulated the rewritten design (and its original
+    // once): a comparison without a Verilator run compared nothing.
+    assert!(
+        o.sim_runs >= compared(&o) && (compared(&o) == 0 || sim.is_some()),
         "{report}"
     );
 }

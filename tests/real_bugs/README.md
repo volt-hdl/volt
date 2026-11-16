@@ -36,5 +36,5 @@ and keeps the file.
 
 ## Runner
 
-`crates/volt-driver/tests/real_bug_tests.rs`, through the `volt` binary
-(`volt check --format json`, `volt test`).
+`crates/volt-driver/tests/metamorphic_tests.rs` (the `real_bugs` test),
+through the `volt` binary (`volt check --format json`, `volt test`).
