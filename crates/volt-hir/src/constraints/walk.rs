@@ -1026,7 +1026,10 @@ impl<'a> Collector<'a> {
         let name = format!("{}{}", ctx.prefix, inst.name.text);
         let bound_clock = |port: &str| -> Option<String> {
             let b = inst.bindings.iter().find(|b| b.port_name.text == port)?;
-            let local = single(self.ast, b.value)?;
+            let local = match b.value {
+                None => b.port_name.text.as_str(),
+                Some(e) => single(self.ast, e)?,
+            };
             ctx.map_clock(local)
         };
         let from_clock = bound_clock(src_port);
@@ -1094,7 +1097,10 @@ impl<'a> Collector<'a> {
             else {
                 continue;
             };
-            let local = single(self.ast, b.value);
+            let local = match b.value {
+                None => Some(b.port_name.text.as_str()),
+                Some(e) => single(self.ast, e),
+            };
             if let Some(mapped) = local
                 .filter(|l| scope.is_clock_port(l))
                 .and_then(|l| ctx.map_clock(l))

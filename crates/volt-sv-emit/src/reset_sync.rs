@@ -101,7 +101,11 @@ pub(crate) fn reset_free_clock(ast: &SourceFile, module: &ModuleDecl, clk: &str)
                     _ => None,
                 };
                 for b in &inst.bindings {
-                    if crate::path_single(ast, b.value) != Some(clk) {
+                    let value = match b.value {
+                        Some(e) => crate::path_single(ast, e),
+                        None => Some(b.port_name.text.as_str()),
+                    };
+                    if value != Some(clk) {
                         continue;
                     }
                     match prim {

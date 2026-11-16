@@ -501,10 +501,18 @@ impl<'a> ConstEvaluator<'a> {
                 };
                 let fields: Vec<_> = fields
                     .iter()
-                    .map(|f| (f.name.text.clone(), f.value))
+                    .map(|f| (f.name.text.clone(), f.value, f.span))
                     .collect();
                 let mut vals = Vec::with_capacity(fields.len());
-                for (name, value) in fields {
+                for (name, value, fspan) in fields {
+                    // `P { a }` kısayolu yerel bir değeri adlandırır — sabit değil.
+                    let Some(value) = value else {
+                        self.error_not_constant(
+                            fspan,
+                            &lstr!(en: "the local value '{name}'"; tr: "'{name}' yerel değeri"),
+                        );
+                        return ConstValue::Error;
+                    };
                     let v = self.const_eval(value);
                     if matches!(v, ConstValue::Error) {
                         return ConstValue::Error;

@@ -323,10 +323,18 @@ pub struct CombGraph {
     pub expansions: usize,
 }
 
+/// Örnek sitesinde bağlanan değer.
+#[derive(Clone, Copy)]
+enum Bound {
+    Expr(Idx<Expr>),
+    /// `clk` kısayolu: yerel ad port adıyla aynı.
+    Def(DefId, Span),
+}
+
 impl CombGraph {
     pub fn build(ast: &SourceFile, res: &ResolveResult, m: &ModuleDecl, sums: &Summaries) -> Self {
         let mut g = CombGraph::default();
-        let mut bindings: HashMap<DefId, HashMap<String, Idx<Expr>>> = HashMap::new();
+        let mut bindings: HashMap<DefId, HashMap<String, Bound>> = HashMap::new();
         for &si in &m.body {
             let StmtKind::Instance(inst) = &ast.stmts[si].kind else {
                 continue;
@@ -336,7 +344,14 @@ impl CombGraph {
             };
             let mut map = HashMap::new();
             for b in &inst.bindings {
-                map.insert(b.port_name.text.clone(), b.value);
+                let v = match b.value {
+                    Some(e) => Bound::Expr(e),
+                    None => match res.use_spans.get(&b.port_name.span) {
+                        Some(&d) => Bound::Def(d, b.port_name.span),
+                        None => continue,
+                    },
+                };
+                map.insert(b.port_name.text.clone(), v);
             }
             bindings.insert(idef, map);
         }
@@ -449,7 +464,7 @@ struct Walker<'a> {
     ast: &'a SourceFile,
     res: &'a ResolveResult,
     sums: &'a Summaries,
-    bindings: &'a HashMap<DefId, HashMap<String, Idx<Expr>>>,
+    bindings: &'a HashMap<DefId, HashMap<String, Bound>>,
     graph: &'a mut CombGraph,
     /// Açılmakta olan (örnek, çıkış) çiftleri: örnekler üzerinden kurulan
     /// kombinasyonel döngü açılımı sonsuz kılmaz.
@@ -588,8 +603,10 @@ impl Walker<'_> {
                 assumed: deps.assumed.contains(input),
             };
             let mut inner = Vec::new();
-            if let Some(&e) = map.get(input) {
-                self.reads(e, &mut inner);
+            match map.get(input) {
+                Some(Bound::Expr(e)) => self.reads(*e, &mut inner),
+                Some(Bound::Def(d, s)) => inner.push((*d, *s, None)),
+                None => {}
             }
             // Dıştaki adım okumanın deyimine en yakın olandır; içteki bir
             // adımın varsayımı dıştakine geçer. İç adım düştüğünden aynı
@@ -691,7 +708,9 @@ impl Walker<'_> {
             }
             ExprKind::StructLit { fields, .. } => {
                 for f in fields {
-                    self.reads(f.value, out);
+                    if let Some(v) = f.value {
+                        self.reads(v, out);
+                    }
                 }
             }
             ExprKind::ArrayLit(ArrayLitKind::List(items)) | ExprKind::TupleLit(items) => {

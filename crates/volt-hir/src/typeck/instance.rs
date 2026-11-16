@@ -31,7 +31,7 @@ impl TypeChecker<'_, '_> {
             if let Some(t) = target {
                 self.record_shared_line(inst, t, b);
             }
-            let value = b.value;
+            let Some(value) = b.value else { continue };
             match target.and_then(|t| self.port_type_of(t, &b.port_name.text)) {
                 Some(port_ty) => self.check(value, port_ty),
                 None => {
@@ -67,7 +67,10 @@ impl TypeChecker<'_, '_> {
         if !matches!(port.direction, PortDir::InOut | PortDir::OpenDrain) {
             return;
         }
-        let line_span = ast.exprs[b.value].span;
+        let line_span = match b.value {
+            Some(v) => ast.exprs[v].span,
+            None => b.port_name.span,
+        };
         let Some(&def) = self.res.use_spans.get(&line_span) else {
             return;
         };
@@ -101,7 +104,7 @@ impl TypeChecker<'_, '_> {
         // Giriş bağlamaları port tablosundaki beklenen tiple denetlenir;
         // bilinmeyen/çıkış portu E1009'u isim çözümlemede aldı.
         for b in &inst.bindings {
-            let value = b.value;
+            let Some(value) = b.value else { continue };
             match prim.port(&b.port_name.text) {
                 Some(port) => {
                     let expected = self.builtin_port_type(port.kind, data, dim);

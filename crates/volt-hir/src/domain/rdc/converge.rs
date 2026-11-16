@@ -155,10 +155,12 @@ impl<'a> Rdc<'a> {
             .and_then(|t| self.facts.by_def.get(t).copied())
     }
 
-    /// Bağlamanın değeri olan yerel tanım (`port: ad`; `port` kısayolu
-    /// ayrıştırıcıda `port: port`'a açılmıştır).
+    /// Bağlamanın değeri olan yerel tanım: `port: ad` ya da `port` kısayolu.
     fn bound_def(&self, b: &PortBinding) -> Option<DefId> {
-        self.res.resolutions.get(&b.value).copied()
+        match b.value {
+            Some(e) => self.res.resolutions.get(&e).copied(),
+            None => self.res.use_spans.get(&b.port_name.span).copied(),
+        }
     }
 
     /// E3003 (yakınsama biçimi, R6).

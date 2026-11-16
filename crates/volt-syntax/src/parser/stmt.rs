@@ -397,16 +397,16 @@ impl Parser<'_> {
                 let port_name = self.parse_name();
                 let value = if self.eat(Colon) {
                     if self.at_expr_start() {
-                        self.parse_expr()
+                        Some(self.parse_expr())
                     } else {
                         self.error_expected(
                             &lstr!(en: "port value"; tr: "port değeri"),
                             &lstr!(en: "write it as port: expression"; tr: "port: ifade biçiminde yazın"),
                         );
-                        self.alloc_error_expr(self.current_span())
+                        Some(self.alloc_error_expr(self.current_span()))
                     }
                 } else {
-                    self.shorthand_value(&port_name) // `clk` ≡ `clk: clk`
+                    None // `clk` kısayolu — yerel isim port adıyla aynı
                 };
                 bindings.push(PortBinding {
                     span: self.span_from(bstart),

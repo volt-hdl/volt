@@ -206,7 +206,13 @@ impl Resolver<'_> {
         self.resolutions.insert(expr_idx, def);
         self.check_struct_fields(def, fields);
         for f in fields.iter() {
-            self.resolve_expr(f.value, scope);
+            match f.value {
+                Some(e) => self.resolve_expr(e, scope),
+                // `Foo { x }` kısayolu — yerel isim alan adıyla aynı.
+                None => {
+                    let _ = self.resolve_simple(&f.name.clone(), scope, true);
+                }
+            }
         }
     }
 
@@ -240,7 +246,7 @@ impl Resolver<'_> {
                               tr: "mevcut alanlar: {}", known.join(", ")),
                     ),
                 );
-                // suggestion: e1008_literal_field, e1008_shorthand_field
+                // suggestion: e1008_literal_field
                 diags.push(with_rename_fix(diag, f.name.span, suggestion));
             }
         }

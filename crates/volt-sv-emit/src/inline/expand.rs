@@ -504,12 +504,33 @@ impl<'a> Expander<'a> {
             }
             ExprKind::StructLit { path, fields } => {
                 let mut out_fields = Vec::with_capacity(fields.len());
-                for f in fields {
-                    let value = self.inst(info, f.value, env, mode);
+                for (i, f) in fields.iter().enumerate() {
+                    let value = match f.value {
+                        Some(v) => self.inst(info, v, env, mode),
+                        // Kısa alan (`P { a }`) açılımda yol olur: çağıranın
+                        // aynı adlı sinyaline bağlanmasın.
+                        None => match info.shorthand.get(&(fe, i)) {
+                            Some(Binding::Param(pi)) => match env.params[*pi] {
+                                Some(t) => self.clone_tree(t),
+                                None => self.error_node(f.span),
+                            },
+                            Some(Binding::Let(j)) => match env.lets[*j] {
+                                Some(t) => self.clone_tree(t),
+                                None => self.error_node(f.span),
+                            },
+                            _ => self.alloc(Expr {
+                                span: f.name.span,
+                                kind: ExprKind::Path(volt_ast::Path {
+                                    span: f.name.span,
+                                    segments: vec![f.name.clone()],
+                                }),
+                            }),
+                        },
+                    };
                     out_fields.push(FieldInit {
                         span: f.span,
                         name: f.name.clone(),
-                        value,
+                        value: Some(value),
                     });
                 }
                 self.alloc(Expr {

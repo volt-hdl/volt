@@ -221,7 +221,10 @@ impl Emitter<'_> {
             if port.kind != PortKind::Clock || port.dir != PortDir::In {
                 continue;
             }
-            let name = path_single(ast, b.value);
+            let name = match b.value {
+                Some(e) => path_single(ast, e),
+                None => Some(b.port_name.text.as_str()),
+            };
             if let Some(clock) = name.and_then(|n| clocks.iter().find(|c| c.name == n)) {
                 self.audit_edge(clock, b.span, prim.name().to_string());
             }
