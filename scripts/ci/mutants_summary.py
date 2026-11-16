@@ -15,7 +15,11 @@ This script counts them, lists the missed mutants by file (file:line,
 change), writes the merged lists and a Markdown summary, and fails when a
 shard is not completed: no artifact, or fewer outcomes than the mutants it
 was given. A shard that is not completed is named at the top of the
-summary with the mutants it did not test, never left out. A mutant whose
+summary with the mutants it did not test, never left out. Each shard also
+brings the peak memory of its baseline (the watchdog's `--peak` files,
+`baseline-build-peak.txt` and `baseline-test-peak.txt`, #253): the shard
+table shows it, and a peak above half of the watchdog's limit
+(`--memory-limit-mib`) is a warning. A mutant whose
 test process the watchdog killed at the memory limit is its own class,
 "memory limit": caught, as a timeout is (ADR-0109 section 4).
 
@@ -26,7 +30,7 @@ covers; the summary lists them with the classification rules. `--shards 0`
 is a gate run with no mutant to test (the reason is `--note`): it passes.
 
     mutants_summary.py SHARDS_DIR --lists LISTS_DIR --shards N [--out DIR] [--markdown FILE]
-                       [--gate --config .cargo/mutants.toml] [--note TEXT]
+                       [--gate --config .cargo/mutants.toml] [--note TEXT] [--memory-limit-mib N]
     mutants_summary.py --self-test
 """
 
@@ -40,11 +44,15 @@ import tomllib
 from collections import defaultdict
 from pathlib import Path
 
+import mutants_exclusions  # scripts/ci, next to this script
+
 OUTCOMES = ("caught", "missed", "timeout", "unviable")
 # `memory` is not a cargo-mutants outcome: the watchdog's kills, taken out
 # of `caught` (or `timeout`).
 KINDS = OUTCOMES + ("memory",)
 NAME = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): (?P<change>.+)$")
+# The two watchdog runs of a shard's baseline (#253): file part -> wording.
+PEAK_PARTS = {"build": "baseline build", "test": "baseline tests"}
 # `cargo mutants --list` colors its output when CARGO_TERM_COLOR=always.
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -58,8 +66,10 @@ RULES = [
     " its reason, its proof (unreachable, or the same lint and simulated value; for A2 a permanent test of"
     " the assumption) and an `# expect:` line per mutant it is written for.",
     "- **C, suspect**: the mutant suggests that today's behavior contradicts the specification. Open an issue"
-    " with \"silent-wrong?\" in its title; the compiler is not fixed in this pull request, and the mutant"
-    " stays missed here until that issue is decided.",
+    " with \"silent-wrong?\" in its title; the compiler is not fixed in this pull request. Add an `exclude_re`"
+    " entry whose reason opens with `C.`, with an `# issue: #N` line naming that issue and its `# expect:`"
+    " lines (#283): the gate passes the mutant while the issue is open; the exclusion check fails when the"
+    " issue closes, or when a pull request closes it and the entry still stands.",
 ]
 
 
@@ -93,6 +103,44 @@ def memory_kills(d: Path) -> list[str]:
     return names
 
 
+def baseline_peak(d: Path, part: str) -> int | None:
+    """The watchdog's peak (MiB) of the baseline's build or tests; None if not recorded."""
+    path = d / f"baseline-{part}-peak.txt"
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def memory_warnings(results: list[dict], limit_mib: int) -> list[str]:
+    """#253: a shard whose baseline peaked above half of the watchdog's limit.
+
+    A mutant over the limit counts as caught (memory limit, #160); a baseline
+    near the limit leaves a mutant little room, so a small increase of
+    memory makes it "caught" and can hide a blind spot.
+    """
+    out = []
+    for r in results:
+        if not r["present"]:
+            continue
+        for part in PEAK_PARTS:
+            mib = r["peak"][part]
+            what = PEAK_PARTS[part]
+            if mib is None:
+                out.append(f"shard {r['shard']}: the {what}'s peak was not recorded")
+            elif mib * 2 > limit_mib:
+                out.append(
+                    f"shard {r['shard']}: the {what} peaked at {mib} MiB, above half of the watchdog's limit"
+                    f" ({limit_mib} MiB); a mutant that adds a little memory is reported as memory limit (caught)"
+                    " and can hide a blind spot"
+                )
+    return out
+
+
+def peak_cell(res: dict) -> str:
+    return " / ".join("not recorded" if res["peak"][p] is None else str(res["peak"][p]) for p in PEAK_PARTS)
+
+
 def shard_result(root: Path, lists: Path, k: int, shards: int = 0) -> dict:
     d = shard_dir(root, k, shards)
     res = {"shard": k, "present": d is not None, "expected": read_lines(lists / f"shard-{k}.txt")}
@@ -109,6 +157,7 @@ def shard_result(root: Path, lists: Path, k: int, shards: int = 0) -> dict:
         res[kind] = [n for n in res[kind] if n not in killed]
     seen = {n for kind in KINDS for n in res[kind]}
     res["untested"] = [n for n in res["expected"] if n not in seen]
+    res["peak"] = {part: baseline_peak(d, part) if d else None for part in PEAK_PARTS}
     return res
 
 
@@ -147,6 +196,18 @@ def exclusions(config: Path) -> list[str]:
         return list(tomllib.load(f).get("exclude_re", []))
 
 
+def c_waiting(config: Path, names: list[str]) -> list[tuple[str, int]]:
+    """#283: (mutant, issue) for each of `names` that a C entry excludes."""
+    out = []
+    for e in mutants_exclusions.parse(config.read_text(encoding="utf-8")):
+        n = mutants_exclusions.issue_number(e)
+        if n is None:
+            continue
+        rx = re.compile(e["regex"])
+        out += [(name, n) for name in names if rx.search(name)]
+    return sorted(out)
+
+
 def gate_split(missed: list[str], patterns: list[str]) -> tuple[list[str], list[str]]:
     """(missed mutants no entry covers, missed mutants an entry covers).
 
@@ -168,7 +229,20 @@ def file_list(out: list[str], names: list[str]) -> None:
         out.append("")
 
 
-def markdown(results: list[dict], gate: dict | None = None, note: str | None = None) -> str:
+def c_list(out: list[str], gate: dict) -> None:
+    """#283: the mutants on the changed lines that a C entry excludes, with its issue."""
+    if gate.get("c"):
+        out += [
+            f"Excluded as C, waiting for their issue ({len(gate['c'])}): the gate tries them again when the issue"
+            " closes and the entry is removed",
+            "",
+        ]
+        out += [f"- {name}: #{n}" for name, n in gate["c"]] + [""]
+
+
+def markdown(
+    results: list[dict], gate: dict | None = None, note: str | None = None, memory_limit: int | None = None
+) -> str:
     tot = {k: sum(len(r[k]) for r in results) for k in KINDS}
     listed = sum(len(r["expected"]) for r in results)
     done = sum(tested(r) for r in results)
@@ -179,6 +253,7 @@ def markdown(results: list[dict], gate: dict | None = None, note: str | None = N
         out += [f"**No mutant to test.** {note or ''}".rstrip(), ""]
         if gate is not None:
             out += ["Pull-request gate: **passed** (nothing to test).", ""]
+            c_list(out, gate)
         return "\n".join(out)
     if note:
         out += [note, ""]
@@ -204,21 +279,26 @@ def markdown(results: list[dict], gate: dict | None = None, note: str | None = N
         if gate["covered"]:
             out += [f"Missed and covered by `exclude_re` (cargo-mutants does not filter field deletions): {len(gate['covered'])}", ""]
             out += [f"- {n}" for n in gate["covered"]] + [""]
+        c_list(out, gate)
     out += [
         "| Mutants | Tested | Not tested | Caught | Missed | Timeout | Memory limit | Unviable |",
         "|---:|---:|---:|---:|---:|---:|---:|---:|",
         f"| {listed} | {done} | {untested} | {tot['caught']} | {tot['missed']} | {tot['timeout']} "
         f"| {tot['memory']} | {tot['unviable']} |",
         "",
-        "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Baseline peak, MiB (build / tests) |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for r in results:
         out.append(
             f"| {r['shard']} | {len(r['expected'])} | {tested(r)} | {len(r['caught'])} | {len(r['missed'])} "
-            f"| {len(r['timeout'])} | {len(r['memory'])} | {len(r['unviable'])} | {status(r)} |"
+            f"| {len(r['timeout'])} | {len(r['memory'])} | {len(r['unviable'])} | {status(r)} | {peak_cell(r)} |"
         )
     out.append("")
+    if memory_limit is not None:
+        out += [f"Watchdog limit {memory_limit} MiB; a warning above half of it ({memory_limit // 2} MiB).", ""]
+        out += [f"> **Baseline memory.** {w}" for w in memory_warnings(results, memory_limit)]
+        out.append("")
     for kind, title in (
         ("missed", "Missed"),
         ("timeout", "Timeout"),
@@ -247,14 +327,16 @@ def summarize(
     md_path: Path | None,
     config: Path | None = None,
     note: str | None = None,
+    memory_limit: int | None = None,
 ) -> int:
     results = [shard_result(root, lists, k, shards) for k in range(shards)]
     gate = None
     if config is not None:
         missed = sorted(n for r in results for n in r["missed"])
         open_, covered = gate_split(missed, exclusions(config))
-        gate = {"open": open_, "covered": covered}
-    md = markdown(results, gate, note)
+        unexcluded = read_lines(lists / "unexcluded.txt")
+        gate = {"open": open_, "covered": covered, "c": c_waiting(config, unexcluded)}
+    md = markdown(results, gate, note, memory_limit)
     print(md)
     if md_path:
         with md_path.open("a", encoding="utf-8") as f:
@@ -266,6 +348,9 @@ def summarize(
             (out_dir / f"{kind}.txt").write_text("".join(n + "\n" for n in names), encoding="utf-8")
         (out_dir / "summary.md").write_text(md + "\n", encoding="utf-8")
     code = 0
+    if memory_limit is not None:
+        for w in memory_warnings(results, memory_limit):
+            print(f"::warning title=Mutation baseline memory::{w}")
     for r in results:
         if not complete(r):
             print(f"::error title=Mutation test::shard {r['shard']}: {status(r).replace('**', '')}")
@@ -411,6 +496,74 @@ def self_test() -> int:
         assert "### Pull-request gate: passed" in text, text
         assert "### Memory limit (a test process killed by the watchdog; caught, as a timeout is) (4)" in text, text
         assert "### Timeout (1)" in text and "- `crates/c.rs:8`: replace m -> u8 with 1" in text, text
+        # #283: the mutants on the changed lines that a C entry excludes are
+        # listed with their issue (lists/unexcluded.txt: the gate's list
+        # before the exclusions); A entries are not listed.
+        ccfg = Path(tmp) / "c.toml"
+        ccfg.write_text(
+            "exclude_re = [\n"
+            "    # A1. reason\n"
+            f"    # expect: {b}\n"
+            '    "a\\\\.rs:3:9: replace \\\\+ with - in g$",\n'
+            "    # C. the spec says h is never 0 (silent-wrong?)\n"
+            "    # issue: #301\n"
+            f"    # expect: {d}\n"
+            '    "b\\\\.rs:9:1: replace h -> u32 with 0$",\n'
+            "]\n",
+            encoding="utf-8",
+        )
+        assert c_waiting(ccfg, [a, b, d]) == [(d, 301)], c_waiting(ccfg, [a, b, d])
+        assert c_waiting(ccfg, [a, b]) == []
+        cdir = Path(tmp) / "cgate"
+        (cdir / "mutants-out-0" / "mutants.out").mkdir(parents=True)
+        (cdir / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
+        clists = Path(tmp) / "clists"
+        clists.mkdir()
+        (clists / "shard-0.txt").write_text(a + "\n", encoding="utf-8")
+        (clists / "unexcluded.txt").write_text(f"{a}\n{b}\n{d}\n", encoding="utf-8")
+        md_file = Path(tmp) / "c.md"
+        assert summarize(cdir, clists, 1, None, md_file, config=ccfg) == 0
+        text = md_file.read_text(encoding="utf-8")
+        assert "Excluded as C, waiting for their issue (1): the gate tries them again when the issue closes" in text, text
+        assert f"- {d}: #301" in text and f"- {b}" not in text, text
+        # #253: the peak memory of each shard's baseline (the watchdog's
+        # --peak files), and a warning above half of the watchdog's limit.
+        peaks = Path(tmp) / "peaks"
+        for k, build, test in ((0, "3000", "6144"), (1, "7000", "5000"), (2, None, "6145")):
+            s = peaks / f"mutants-out-{k}"
+            (s / "mutants.out").mkdir(parents=True)
+            (s / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
+            if build is not None:
+                (s / "baseline-build-peak.txt").write_text(build + "\n", encoding="utf-8")
+            (s / "baseline-test-peak.txt").write_text(test + "\n", encoding="utf-8")
+        for k in range(3):
+            listed(k, [a])
+        res = [shard_result(peaks, lists, k, 3) for k in range(3)]
+        assert [r["peak"] for r in res] == [
+            {"build": 3000, "test": 6144},
+            {"build": 7000, "test": 5000},
+            {"build": None, "test": 6145},
+        ], res
+        warns = memory_warnings(res, 12288)
+        assert warns == [
+            "shard 1: the baseline build peaked at 7000 MiB, above half of the watchdog's limit (12288 MiB);"
+            " a mutant that adds a little memory is reported as memory limit (caught) and can hide a blind spot",
+            "shard 2: the baseline build's peak was not recorded",
+            "shard 2: the baseline tests peaked at 6145 MiB, above half of the watchdog's limit (12288 MiB);"
+            " a mutant that adds a little memory is reported as memory limit (caught) and can hide a blind spot",
+        ], warns
+        md = markdown(res, memory_limit=12288)
+        assert "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Baseline peak, MiB (build / tests) |" in md, md
+        assert "| 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | completed | 3000 / 6144 |" in md, md
+        assert "| 2 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | completed | not recorded / 6145 |" in md, md
+        assert "Watchdog limit 12288 MiB; a warning above half of it (6144 MiB)." in md, md
+        assert "> **Baseline memory.** shard 1: the baseline build peaked at 7000 MiB" in md, md
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert summarize(peaks, lists, 3, None, None, memory_limit=12288) == 0, "a baseline peak warns, never fails"
+        assert out.getvalue().count("::warning title=Mutation baseline memory::") == 3, out.getvalue()
+        # A baseline under half of the limit: no warning.
+        assert memory_warnings(res[:1], 12288) == []
         # No mutant to test: the gate passes and says why.
         md_file = Path(tmp) / "summary.md"
         assert summarize(Path(tmp) / "none", lists, 0, None, md_file, config=cfg, note="No Rust source in scope changed.") == 0
@@ -430,6 +583,7 @@ def main() -> int:
     ap.add_argument("--gate", action="store_true", help="fail on a missed mutant that no exclude_re entry covers")
     ap.add_argument("--config", type=Path, default=Path(".cargo/mutants.toml"))
     ap.add_argument("--note", help="a line for the top of the summary (why there is no mutant to test)")
+    ap.add_argument("--memory-limit-mib", type=int, help="the watchdog's limit: warn on a baseline peak above half of it")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
@@ -437,7 +591,14 @@ def main() -> int:
     if args.dir is None or args.lists is None or args.shards is None:
         ap.error("DIR, --lists and --shards are required")
     return summarize(
-        args.dir, args.lists, args.shards, args.out, args.markdown, args.config if args.gate else None, args.note
+        args.dir,
+        args.lists,
+        args.shards,
+        args.out,
+        args.markdown,
+        args.config if args.gate else None,
+        args.note,
+        args.memory_limit_mib,
     )
 
 

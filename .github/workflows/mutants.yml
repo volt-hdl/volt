@@ -23,14 +23,17 @@ name: Mutation test
 #   missed mutant does not fail it.
 #
 #   gh workflow run mutants.yml --ref <branch>
-#   gh workflow run mutants.yml --ref <branch> -f re='scope\.rs' [-f shards=2]
+#   gh workflow run mutants.yml --ref <branch> -f re='scope\.rs' -f expect=<n> [-f shards=2]
 #   gh workflow run mutants.yml --ref <branch> -f gate_base=<revision>
 #
 # Targeted run (ADR-0109, "Hedefli koşu"): `re` keeps the mutants whose
 # names (as `cargo mutants --list` prints them) the regex matches. cargo-mutants
 # 27.1.0 lets field-deletion mutants through --re, so the list is narrowed a
 # second time by line (--in-diff, scripts/ci/mutants_target.py) and the
-# first job fails unless every mutant in the final list matches `re`.
+# first job fails unless every mutant in the final list matches `re` and
+# the list holds exactly `expect` mutants, the number the regex was written
+# for (#253: run 43754250315's regex missed one of its two mutants and the
+# run went green). `re` needs `expect`.
 #
 # Memory (#160): every build and test of a shard runs under
 # scripts/ci/mutants_watchdog.py, which kills the largest process of the
@@ -44,6 +47,10 @@ on:
     inputs:
       re:
         description: "Regex over mutant names: try only the matching mutants (empty: every mutant in scope)"
+        required: false
+        default: ""
+      expect:
+        description: "With re (required): the number of mutants the regex was written for; the run fails when the list holds another number"
         required: false
         default: ""
       shards:
@@ -70,6 +77,7 @@ env:
   CARGO_NEXTEST_VERSION: 0.9.151
   # Inputs reach the shell through the environment, never inline.
   MUTANTS_RE: ${{ inputs.re }}
+  MUTANTS_EXPECT: ${{ inputs.expect }}
   MUTANTS_GATE_BASE: ${{ inputs.gate_base }}
   # #160: the resident memory of a shard's process tree (cargo mutants and
   # everything under it, or the baseline). The runner has 16 GiB; above this
@@ -145,6 +153,10 @@ jobs:
             base=$(git rev-parse --verify "$MUTANTS_GATE_BASE^{commit}")
           fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          if [ -n "$MUTANTS_EXPECT" ] && [ -z "$MUTANTS_RE" ]; then
+            echo "::error title=Mutation test::expect goes with re (the number of mutants the regex was written for)"
+            exit 1
+          fi
           if [ "$mode" = gate ]; then
             if [ -n "$MUTANTS_RE" ]; then
               echo "::error title=Mutation gate::re and gate_base exclude each other"
@@ -170,6 +182,9 @@ jobs:
               printf '%s\n' --in-diff mutants-list/pr.diff > mutants-list/filter.txt
               mapfile -t filter < mutants-list/filter.txt
               cargo mutants --list "${filter[@]}" > mutants-list/all.txt
+              # #283: the same list before the exclusions; the summary names
+              # the mutants a C entry excludes, with their issue.
+              python3 scripts/ci/mutants_exclusions.py list --out mutants-list/unexcluded.txt -- "${filter[@]}"
               if [ ! -s mutants-list/all.txt ]; then
                 echo "$in_scope Rust file(s) in scope changed since $(git log -1 --format=%h "$base"), but the changed lines hold no mutant: $(paste -sd' ' mutants-list/changed-in-scope.txt)" > mutants-list/note.txt
               else
@@ -187,7 +202,7 @@ jobs:
           mapfile -t filter < mutants-list/filter.txt
           cargo mutants --list "${filter[@]}" > mutants-list/all.txt
           if [ -n "$MUTANTS_RE" ]; then
-            python3 scripts/ci/mutants_target.py check --re "$MUTANTS_RE" --list mutants-list/all.txt
+            python3 scripts/ci/mutants_target.py check --re "$MUTANTS_RE" --list mutants-list/all.txt --expect "$MUTANTS_EXPECT"
             echo "::notice title=Targeted mutation run::$(wc -l < mutants-list/all.txt) mutants match the regex $MUTANTS_RE"
           fi
       # ADR-0109 section 3, from the number of mutants of this run, unless
@@ -275,11 +290,23 @@ jobs:
 
   # #239: every exclude_re entry of .cargo/mutants.toml matches exactly the
   # mutants its `# expect:` lines name, in the list before the exclusions.
+  # #283: a C entry (`# C. <reason>`) names its issue (`# issue: #N`); the
+  # job fails when that issue is closed or does not exist, and, on a pull
+  # request, when the pull request closes it (Closes #N) while the entry
+  # still stands. It reads the issues with the workflow's token: without a
+  # token or a network it fails, never passes. On a pull request it always
+  # asks which issues the pull request closes, so the token is used on
+  # every run. A description edited after the last push is read at the next
+  # push (the workflow does not run on `edited`).
   exclusions:
     name: Mutation exclusions match their mutants
     needs: tools
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -291,12 +318,15 @@ jobs:
           fail-on-cache-miss: true
       - name: Script self-test
         run: python3 scripts/ci/mutants_exclusions.py --self-test
-      - name: Every exclude_re entry matches exactly its expected mutants
+      - name: Every exclude_re entry matches exactly its expected mutants; every C entry's issue is open
         env:
           CARGO_TERM_COLOR: never
+          GITHUB_TOKEN: ${{ github.token }}
+          # Empty on a run by hand: no pull request, (b) does not apply.
+          MUTANTS_PR: ${{ github.event.pull_request.number }}
         run: |
           export PATH="$HOME/mutants-tools/bin:$PATH"
-          python3 scripts/ci/mutants_exclusions.py check --markdown "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci/mutants_exclusions.py check --markdown "$GITHUB_STEP_SUMMARY" --pr "$MUTANTS_PR"
 
   mutants:
     name: Mutation test, shard ${{ matrix.shard }}/${{ strategy.job-total }}
@@ -394,7 +424,10 @@ jobs:
       # "caught" mutant). cargo-mutants' own baseline tests the mutated
       # packages alone (ADR-0109 §1), so it is skipped below and the test
       # timeout comes from this measurement: twice the baseline, at least
-      # 300 seconds.
+      # 300 seconds. The watchdog records the peak memory of the build and
+      # of the tests (--peak); the summary shows both per shard and warns
+      # above half of the limit (#253): a mutant over the limit counts as
+      # caught, so a baseline near it can hide a blind spot.
       # Incremental builds on (rust-cache turns them off): the mutated crate is
       # rebuilt for every mutant. Same value in both steps, or the mutants
       # would rebuild everything once.
@@ -403,10 +436,12 @@ jobs:
         env:
           CARGO_INCREMENTAL: "1"
         run: |
-          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv -- \
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
+              --peak baseline-build-peak.txt -- \
             cargo nextest run --workspace --no-run
           start=$(date +%s)
-          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv -- \
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
+              --peak baseline-test-peak.txt -- \
             cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
           secs=$(( $(date +%s) - start ))
           limit=$(( secs * 2 ))
@@ -455,6 +490,8 @@ jobs:
             mutants-shard.txt
             memory-kills.tsv
             baseline-memory-kills.tsv
+            baseline-build-peak.txt
+            baseline-test-peak.txt
           if-no-files-found: warn
       # ADR-0107: the baseline and every mutant ran their tool tests.
       - name: Tool ledger - SKIP count
@@ -489,10 +526,12 @@ jobs:
       # A shard with no artifact, or with fewer outcomes than mutants, is
       # marked NOT COMPLETED at the top of the summary with its untested
       # mutants, and fails this step. The gate also fails on every missed
-      # mutant that no exclude_re entry covers.
+      # mutant that no exclude_re entry covers. A baseline peak above half of
+      # the watchdog's limit is a warning, never a failure (#253).
       - name: Merge the shards into the job summary
         run: |
-          args=(shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY")
+          args=(shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY"
+            --memory-limit-mib "$MUTANTS_MEMORY_LIMIT_MIB")
           if [ "$MUTANTS_MODE" = gate ]; then args+=(--gate --config .cargo/mutants.toml); fi
           if [ -s lists/note.txt ]; then args+=(--note "$(cat lists/note.txt)"); fi
           python3 scripts/ci/mutants_summary.py "${args[@]}"

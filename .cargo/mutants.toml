@@ -59,6 +59,15 @@ exclude_globs = [
 # A2: equivalent given today's callers or the text the emitter writes; the
 #     comment names that assumption. When the function or caller an A2
 #     entry rests on changes, the entry is reviewed again.
+# C (#283): a suspect mutant, one that suggests today's behavior
+#     contradicts the specification, is not fixed in the pull request that
+#     finds it (ADR-0109 section 4): it gets a "silent-wrong?" issue and an
+#     entry whose reason opens with `C.` and that names the issue on one
+#     `# issue: #N` line, next to its `# expect:` lines. The gate passes the
+#     mutant while the issue is open. The exclusion check fails when the
+#     issue is closed or does not exist, and when a pull request closes it
+#     (`Closes #N`) while the entry still stands: the fix removes the entry,
+#     and the gate tries the mutant again.
 # An entry names the file, the change and the function; it pins line:col
 # only where the same change occurs twice in that function.
 # Every entry names the mutants it was written for, one `# expect:` line

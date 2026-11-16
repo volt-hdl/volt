@@ -20,8 +20,15 @@ The summary (mutants_summary.py) reports those mutants as their own class,
 "memory limit", caught by ADR-0109 section 4 as a timeout is.
 
     mutants_watchdog.py run --limit-mib N --log FILE [--mutants-out DIR]
-                            [--interval SECONDS] -- COMMAND [ARGS...]
+                            [--interval SECONDS] [--peak FILE] -- COMMAND [ARGS...]
     mutants_watchdog.py --self-test
+
+`--peak FILE` writes the largest resident memory of the tree that the
+watchdog saw, in MiB (one number), when the command ends, whatever its exit
+code: the same measure as the limit. The mutation workflow records it for
+the baseline of each shard (#253): a baseline close to the limit leaves a
+mutant little room before it is reported as "memory limit" (caught), which
+can hide a blind spot.
 
 The exit code is the command's (128 + n when a signal n ended it). SIGINT
 and SIGTERM sent to this script (GNU timeout signals the process group)
@@ -100,7 +107,7 @@ def cmdline(pid):
     return " ".join(text.split())[:300]
 
 
-def run(cmd, limit_mib, log, mutants_out=None, interval=0.2):
+def run(cmd, limit_mib, log, mutants_out=None, interval=0.2, peak_file=None):
     child = subprocess.Popen(cmd)
 
     def forward(signum, _frame):
@@ -111,10 +118,12 @@ def run(cmd, limit_mib, log, mutants_out=None, interval=0.2):
     signal.signal(signal.SIGTERM, forward)
     limit = limit_mib * MIB
     kills = 0
+    peak = 0
     while child.poll() is None:
         procs = processes()
         tree = [p for p in descendants(child.pid, procs) if p in procs]
         total = sum(procs[p][1] for p in tree) + procs.get(child.pid, (0, 0))[1]
+        peak = max(peak, total)
         if total > limit and tree:
             victim = max(tree, key=lambda p: procs[p][1])
             line = "\t".join(
@@ -144,6 +153,9 @@ def run(cmd, limit_mib, log, mutants_out=None, interval=0.2):
         time.sleep(interval)
     code = wait(child)
     print(f"watchdog: {kills} process(es) killed at the memory limit of {limit_mib} MiB", flush=True)
+    if peak_file is not None:
+        Path(peak_file).write_text(f"{peak // MIB}\n", encoding="utf-8")
+        print(f"watchdog: peak resident memory of the tree {peak // MIB} MiB (limit {limit_mib} MiB)", flush=True)
     return code
 
 
@@ -184,11 +196,16 @@ def self_test():
         (out / "log" / "a.log").write_text("\n*** crates/a/src/x.rs:3:5: replace == with != in f\n\nmore\n", encoding="utf-8")
         log = Path(d, "kills.tsv")
 
+        peak = Path(d, "peak.txt")
+
         def watch(cmd, limit):
             return subprocess.run(
                 [sys.executable, str(me), "run", "--limit-mib", str(limit), "--log", str(log),
-                 "--mutants-out", str(out), "--interval", "0.05", "--", *cmd]
+                 "--mutants-out", str(out), "--interval", "0.05", "--peak", str(peak), "--", *cmd]
             ).returncode
+
+        def peak_mib():
+            return int(peak.read_text(encoding="utf-8").strip())
 
         # 1. A process that grows past the limit is killed; its parent goes on.
         start = time.monotonic()
@@ -201,13 +218,21 @@ def self_test():
         assert fields[4] == "crates/a/src/x.rs:3:5: replace == with != in f", fields
         # The tree is over 300 MiB; the log rounds MiB down.
         assert int(fields[3]) >= 300 and "-c" in fields[5], fields
-        # 2. Under the limit nothing is killed.
+        # The peak is the tree's largest resident memory seen, in MiB (#253:
+        # the baseline's peak goes into the summary): at least the kill's.
+        assert peak_mib() >= int(fields[3]), (peak_mib(), fields)
+        # 2. Under the limit nothing is killed; the peak holds the command's
+        # own 30 MiB (the command is part of the tree it measures).
         log.unlink()
         small = "x = bytearray(30 * 1024 * 1024); import time; time.sleep(0.5)"
         assert watch([sys.executable, "-c", small], 300) == 0
         assert not log.exists() or log.read_text(encoding="utf-8") == "", "a process under the limit was killed"
-        # 3. The exit code of the command passes through.
+        assert 30 <= peak_mib() < 300, peak_mib()
+        # 3. The exit code of the command passes through; the peak is written
+        # whatever the exit code.
+        peak.unlink()
         assert watch([sys.executable, "-c", "import sys; sys.exit(7)"], 300) == 7
+        assert peak_mib() >= 0
         # 4. SIGINT to the watchdog reaches the command, which ends with it.
         p = subprocess.Popen(
             [sys.executable, str(me), "run", "--limit-mib", "300", "--log", str(log), "--interval", "0.05",
@@ -235,12 +260,13 @@ def main():
     r.add_argument("--log", type=Path, required=True)
     r.add_argument("--mutants-out", type=Path)
     r.add_argument("--interval", type=float, default=0.2)
+    r.add_argument("--peak", type=Path, help="write the tree's peak resident memory (MiB) here when the command ends")
     r.add_argument("command", nargs=argparse.REMAINDER)
     args = ap.parse_args()
     cmd = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not cmd:
         ap.error("no command after --")
-    return run(cmd, args.limit_mib, args.log, args.mutants_out, args.interval)
+    return run(cmd, args.limit_mib, args.log, args.mutants_out, args.interval, args.peak)
 
 
 if __name__ == "__main__":
