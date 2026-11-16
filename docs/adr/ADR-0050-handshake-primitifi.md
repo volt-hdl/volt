@@ -1,7 +1,7 @@
 # ADR-0050: `Handshake<T>` — Yerleşik Tek Saatli El Sıkışma Bundle'ı
 
 > Statü: Kısmen yerini aldı: ADR-0114 — §4'teki örnek çıkışı opaklığı ve Sınırlar'daki E4007 maddesi: E4007 alt modül, saatsiz extern ve yerleşik primitif özetinden geçer, saatli extern opak kalır; `@no_protocol_check` E4007'yi etkilemez
-> İlgili: ADR-0118 (önerilen kaçış kuralları: `@no_protocol_check` kaçış raporuna girer)
+> İlgili: ADR-0118 (kaçış kuralları: `@no_protocol_check` kaçış raporuna girer)
 > Tarih: 2026-09-14
 > Etkilenen: volt-syntax (parser/handshake.rs YENİ, parser/bundle.rs
 > sanal alan + otomatik kontrat, item.rs `@no_protocol_check`),

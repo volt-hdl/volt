@@ -1,6 +1,6 @@
 # ADR-0119: Niyet ve Çıkarım İlkesi — Sınırda Beyan, İçeride Çıkarım, Belirsizlikte Hata, Anlamda En Az Sürpriz
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0002 (alan anotasyona bağlanır; tek saatli modülde çıkarılır, çok saatli modülde sınırda beyan zorunludur: domain-inference.md K3), ADR-0014 (hiçbir kontrat zorunlu değil: aynı ilkenin kontratlar için hâli), ADR-0099 (öneriler gidiş-dönüş testiyle sınanır), ADR-0100 (son hanede yeni tanı kodu yok; bu ADR bunu geçiş uyarısıyla genişletir, İ3), ADR-0112 ve ADR-0116 (W2015, W2016: geriye dönük olarak geçiş uyarısı), ADR-0114 (saatsiz modül özeti: İ2.1'in bilinen istisnası), ADR-0117 (metamorfik test: aynı niyetin iki yazımı aynı donanımı verir), ADR-0118 (K2: derleyici hiçbir şeyi kendiliğinden beyan saymaz)
 > Issue: #266 (işlem genişliği, v0.2.0), #291 (modül düzeyi atama ile `comb` eşdeğerliği), #293 (kaçışların beyan biçimi)
 > Tarih: 2026-11-16
