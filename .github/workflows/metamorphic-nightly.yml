@@ -13,6 +13,12 @@ on:
   schedule:
     - cron: "41 2 * * *"
   workflow_dispatch:
+    inputs:
+      ccache:
+        description: "ccache for the Verilator builds (off: the same run without it)"
+        type: choice
+        options: ["on", "off"]
+        default: "on"
 
 permissions:
   contents: read
@@ -42,6 +48,14 @@ jobs:
       # any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
+      # The C++ of every Verilator build through ccache, the cache kept
+      # between nights (.github/actions/ccache).
+      - name: ccache for the Verilator builds
+        uses: ./.github/actions/ccache
+        with:
+          phase: start
+          job: metamorphic-nightly
+          enabled: ${{ inputs.ccache || 'on' }}
       # ADR-0117 section 5: the night's stimulus seed is the UTC date (the
       # test derives each design's stimulus from it and the design's id).
       # It is printed here, in the report and in the issue of a red night;
@@ -69,6 +83,13 @@ jobs:
             cat "$f"
             echo
           done
+      - name: ccache statistics, cache save
+        if: always()
+        uses: ./.github/actions/ccache
+        with:
+          phase: end
+          job: metamorphic-nightly
+          job-status: ${{ job.status }}
       - name: Tool ledger - SKIP count
         if: always()
         run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job metamorphic-nightly --require-zero-skips --min-ran 1

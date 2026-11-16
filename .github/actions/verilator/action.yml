@@ -62,9 +62,11 @@ runs:
         done
         docker cp "$cid:/usr/local/share/verilator" "$HOME/verilator/share/verilator"
         docker rm "$cid" > /dev/null
-        # The image was configured with ccache, which the runner does not
-        # have: verilated.mk prefixes every compile with `ccache`. Drop that
-        # prefix; it is a compiler cache and changes no generated code.
+        # The image was configured with ccache: verilated.mk prefixes every
+        # compile with `ccache`. Blank the default so that OBJCACHE comes
+        # from the environment: .github/actions/ccache sets OBJCACHE=ccache
+        # once ccache is installed, a job without it compiles directly.
+        # ccache is a compiler cache and changes no generated code.
         mk="$HOME/verilator/share/verilator/include/verilated.mk"
         sed -i 's/^OBJCACHE ?= ccache$/OBJCACHE ?=/' "$mk"
         if ! grep -qx 'OBJCACHE ?=' "$mk"; then

@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A run by hand, for one purpose: the same commit with ccache off, to
+  # rule ccache out or to measure without it (.github/actions/ccache).
+  workflow_dispatch:
+    inputs:
+      ccache:
+        description: "ccache for the Verilator builds of the tool job"
+        type: choice
+        options: ["on", "off"]
+        default: "on"
 
 env:
   CARGO_TERM_COLOR: always
@@ -100,6 +109,15 @@ jobs:
       # (#145); the action fails the job on any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
+      # Every Verilator build of this job compiles its C++ through ccache,
+      # with a cache kept between runs; the end of the job prints the hits
+      # and misses and fails when no build went through ccache.
+      - name: ccache for the Verilator builds
+        uses: ./.github/actions/ccache
+        with:
+          phase: start
+          job: integration
+          enabled: ${{ inputs.ccache || 'on' }}
       - name: Compile counter.volt
         run: cargo run --bin volt -- build tests/fixtures/counter.volt
       # ADR-0024: the output file name derives from the module name
@@ -153,6 +171,13 @@ jobs:
             echo "::error title=Metamorphic test::Verilator was skipped in the tool job"
             exit 1
           fi
+      - name: ccache statistics, cache save
+        if: always()
+        uses: ./.github/actions/ccache
+        with:
+          phase: end
+          job: integration
+          job-status: ${{ job.status }}
       # ADR-0107: how many tests skipped for a missing tool, and which.
       - name: Tool ledger - SKIP count
         if: always()

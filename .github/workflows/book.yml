@@ -97,6 +97,12 @@ jobs:
       # (#145); the action fails the job on any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
+      # The C++ of every Verilator build through ccache (.github/actions/ccache).
+      - name: ccache for the Verilator builds
+        uses: ./.github/actions/ccache
+        with:
+          phase: start
+          job: book-examples
       - name: Build volt
         run: cargo build -p volt-driver --bin volt
       # The checker's own tests: a block with a compile error, a wrong
@@ -113,6 +119,13 @@ jobs:
         env:
           VOLT_TOOL_BACKEND: local
         run: python3 book/tools/check_book.py --volt target/debug/volt --run-tests
+      - name: ccache statistics, cache save
+        if: always()
+        uses: ./.github/actions/ccache
+        with:
+          phase: end
+          job: book-examples
+          job-status: ${{ job.status }}
 
   build:
     name: Build the book

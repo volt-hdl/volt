@@ -46,6 +46,12 @@ jobs:
       # (#145); the action fails the job on any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
+      # The C++ of every Verilator build through ccache (.github/actions/ccache).
+      - name: ccache for the Verilator builds
+        uses: ./.github/actions/ccache
+        with:
+          phase: start
+          job: difftest
       - name: Seed and count of this shard
         id: shard
         env:
@@ -68,6 +74,13 @@ jobs:
       - name: Differential test summary
         if: always()
         run: python3 scripts/ci/difftest_summary.py "$VOLT_DIFFTEST_SUMMARY" --job "shard ${{ matrix.shard }}"
+      - name: ccache statistics, cache save
+        if: always()
+        uses: ./.github/actions/ccache
+        with:
+          phase: end
+          job: difftest
+          job-status: ${{ job.status }}
       - name: Tool ledger - SKIP count
         if: always()
         run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "difftest-${{ matrix.shard }}" --require-zero-skips --min-ran 1
