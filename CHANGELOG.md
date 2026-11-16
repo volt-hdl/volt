@@ -31,7 +31,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   aynı çıkışlar beklenir; SV metni karşılaştırılmaz. PR katmanı
   (`tests/real_bugs/`, `tests/ui/`) `cargo test` içinde koşar, bütün
   derlem (örnekler, kitap) gecelik `metamorphic-nightly.yml`'dedir;
-  kırmızı gece bir issue açar ya da günceller.
+  kırmızı gece bir issue açar ya da günceller. Uyaranın tohumu PR'da
+  sabittir, gece koşunun tarihidir; günlüğe ve issue'ya yazılır,
+  `VOLT_METAMORPHIC_SEED` aynı koşuyu yerelde yeniden üretir.
 - **Bilinen başarısızlıklar.** Açık bir issue'nun yeniden ürettiği
   başarısızlık `crates/volt-driver/tests/metamorphic/known_failures.json`'da
   issue numarasıyla durur (bugün #216: deyim match'inde jokerden sonraki

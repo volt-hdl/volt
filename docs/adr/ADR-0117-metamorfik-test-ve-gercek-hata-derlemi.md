@@ -41,6 +41,14 @@ düzelten PR. Yanlış değer üreten hatanın dosyası şartnameden elle
 hesaplanmış değerlerle `test` blokları taşır; koşucu onları `volt test`
 ile Verilator'da koşturur.
 
+**Kapsam.** Derlem Volt'un hatalarıdır: derleyicinin, standart
+kütüphanenin ya da ürettiği çıktının yanlış sonucu. Volt dışındaki bir
+aracın hatası (örneğin #148: Verilator 5.052'nin DFG eniyileyicisi doğru
+SV'yi yanlış derliyor) derleme girmez; bir Volt tasarımı onu
+göstermez, düzeltmesi de Volt'un çıktısını değiştirmez. Böyle hataların
+kalıcı testleri araçla ilgili yerdedir (#148 için
+`crates/volt-driver/tests/verilator_canary_tests.rs`).
+
 Açık bir sessiz hata issue'sunun yeniden üretimi de, bir denetim onu
 göstermek için gerektiğinde, düzeltmeden önce eklenebilir; başarısızlığı
 bilinen başarısızlık listesindedir (§4). Silent-wrong düzelten her PR
@@ -103,10 +111,10 @@ denetim kullanıcının çalıştırdığı komutla sınanır). Beklenen ilişki
   değişiminden ve her saat kenarından sonra aynıdır. Testbench üretilen
   SV'nin kök modüllerini (başka modülün örneklemediği) örnekler, böylece
   çocuktaki değişiklik ebeveynden görünür. Her adımda veri girişleri
-  rastgeledir (dörtte biri 0, hepsi bir ya da 1), saatlerin rastgele bir
-  alt kümesi yükselir, reset girişleri seyrek değişir (kutbu ne olursa
-  olsun tasarım uzun süre reset içinde ve dışında kalır). Uyaran tasarımın
-  kimliğinden türeyen sabit tohumla üretilir. Verilator `volt test`'in
+  rastgeledir; değerlerin dörtte biri uç değerdir: 0, 1 ya da bütün
+  bitleri 1. Saatlerin rastgele bir alt kümesi yükselir, reset girişleri
+  seyrek değişir (kutbu ne olursa olsun tasarım uzun süre reset içinde ve
+  dışında kalır). Uyaranın tohumu §5'tedir. Verilator `volt test`'in
   bayraklarıyla (`VERILATOR_BUILD_FLAGS`, `-fno-dfg`) çağrılır; arama
   `tools::require` iledir, araçlı işte atlanamaz (ADR-0107).
 
@@ -142,19 +150,31 @@ numarası, gerekçe. Liste katıdır:
   koşar; araçsız işte yalnız `volt check` ilişkileri. Rapor
   `VOLT_METAMORPHIC_SUMMARY` ve `VOLT_REAL_BUGS_SUMMARY` dosyalarına da
   yazılır ve günlüğe basılır (süre dahil). Hedef 15 dakikanın altı.
+  Uyaranın tohumu sabittir: `pr`; her tasarımın uyaranı bu tohumdan ve
+  tasarımın kimliğinden türer, aynı PR iki kez aynı uyaranla koşar.
 - **Gecelik** (`metamorphic-nightly.yml`, her gece ve elle): bütün derlem
   (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, gerçek hata
-  derlemi; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu. Gecelik
-  kırmızıysa iş akışı başlığı sabit bir issue açar ya da açık olanına
-  raporu yorum olarak ekler; yeşil gece bir şey yazmaz.
+  derlemi; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu. Tohum
+  koşunun UTC tarihidir (`2026-11-16`); her tasarımın uyaranı bu tohumdan
+  ve tasarımın kimliğinden türer, böylece her gece başka uyaranlar
+  denenir. Tohum günlüğe, rapora ve açılan issue'ya yazılır;
+  `VOLT_METAMORPHIC_SEED=<tohum>` (her katmanda tohumun yerine geçer) aynı
+  koşuyu yerelde yeniden üretir. Gecelik kırmızıysa iş akışı başlığı sabit
+  bir issue açar ya da açık olanına raporu ve tohumu yorum olarak ekler;
+  yeşil gece bir şey yazmaz.
 - Haftalık katman (yeniden yazımların ikili bileşimi) 2. aşamadadır (#254).
 
 ### 6. Kapsam
 
 Rapor her yeniden yazımın derlemde kaç tasarımda ve kaç yerde
 uygulandığını, kaç tasarımda donanımın karşılaştırıldığını ve
-karşılaştırılamayanları nedenleriyle yazar. Derlemde hiç uygulanmayan
-yeniden yazım koşuyu kırmızı yapar: hiçbir şeyi sınamıyordur.
+karşılaştırılamayanları nedenleriyle yazar. Kendi katmanının derleminde
+hiç uygulanmayan yeniden yazım o katmanın koşusunu kırmızı yapar: o
+katmanda hiçbir şeyi sınamıyordur. Kural her katmanda o katmanın
+derlemine uygulanır: yalnız `examples/`'ta yeri olan bir yeniden yazım
+gecelik katmanı geçer, PR katmanını düşürür; PR katmanının derlemi
+(`tests/real_bugs/`, `tests/ui/`) her yeniden yazım için en az bir yer
+taşımalıdır.
 
 ## Kanıt
 
@@ -185,10 +205,13 @@ yeniden yazım koşuyu kırmızı yapar: hiçbir şeyi sınamıyordur.
 
 - Yeniden yazımlar metin düzeyindedir ve muhafazakârdır: tanımadıkları
   biçime dokunmazlar. Örneğin kolu birden çok deyim ya da birden çok satır
-  olan deyim match'i, kolu boş olan (`_ => {}`) match ve modül düzeyindeki
-  `y = match …` yeniden yazılmaz. Modül düzeyindeki atamanın `comb`
-  bloğuyla eşdeğerliği `let ↔ wire + comb` yeniden yazımının (#217)
-  konusudur.
+  olan deyim match'i ve kolu boş olan (`_ => {}`) match yeniden yazılmaz.
+- Modül düzeyindeki `y = match …` ile `comb { match … }` arasında yeniden
+  yazım yoktur: şartnamede dayanağı yok. sv-mapping.md §19.1 iki konumu
+  da kök sayar ama iki yazımın her denetimde aynı tasarım olduğunu
+  söylemez; karar #291'dedir. #217'nin `let ↔ wire + comb` yeniden yazımı
+  (#254) aynı soruya bağlıdır ve şartnamede dayanağı yoktur: o da #291'in
+  kararını bekler.
 - Rastgele uyaranla benzetim eşdeğerliği kanıtlamaz; nadir bir girişte
   ayrılan iki tasarımı kaçırabilir. Eşdeğerlik denetimi (Yosys eqy) 2.
   aşamadadır (#254).
