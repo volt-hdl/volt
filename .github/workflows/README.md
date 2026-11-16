@@ -73,14 +73,19 @@ bu derlemeleri ccache'ten geçirir:
   Eylem iki kez çağrılır: `phase: start` Verilator eyleminin hemen
   ardından, `phase: end` (`if: always()`) Verilator derlemeleri bittikten
   sonra.
-- **start:** ccache yoksa apt ile kurar (üç deneme); yine yoksa işi
-  `::error` ile düşürür: iş sessizce yavaş sürmez. `OBJCACHE=ccache`,
+- **start:** ccache'in sabitlenmiş sürümünü (4.14.2, statik ikili; sürüm
+  ve sha256 eylemin "ccache - pinned release" adımında) GitHub sürüm
+  sayfasından indirir, özetini denetler ve `~/ccache-bin`'de önbelleğe
+  alır. apt ile kurulum iş başına 14-42 s sürüyordu (`apt-get update` ve
+  dpkg veritabanı). İndirme ya da özet tutmazsa, ya da ikili beklenen
+  sürümü vermezse iş `::error` ile düşer: iş sessizce yavaş sürmez.
+  `OBJCACHE=~/ccache-bin/ccache` (mutlak yol),
   `CCACHE_DIR=~/.cache/volt-ccache` ve `CCACHE_MAXSIZE=1G` iş ortamına
   yazılır; günlük ccache sürümünü, `verilated.mk`'nin `OBJCACHE` ve `CXX`
   satırlarını, derleyiciyi ve önbellek anahtarını gösterir. Ardından
   önceki koşunun önbelleğini geri yükler ve istatistikleri sıfırlar.
 - **Anahtar:** `ccache-v1-<ImageOS>-<ImageVersion>-<CXX><sürüm>-<CXX --version
-  ilk satırının özeti>-verilator<sürüm>-<iş>-<run_id>-<deneme>`. Derleyici
+  ilk satırının özeti>-verilator<sürüm>-ccache<sürüm>-<iş>-<run_id>-<deneme>`. Derleyici
   `verilated.mk`'nin `CXX` satırından okunur. Geri yükleme önce aynı işin,
   yoksa aynı imaj, derleyici ve Verilator'lı herhangi bir işin en yeni
   önbelleğini alır. Koşucu imajı, derleyici ya da Verilator değişince

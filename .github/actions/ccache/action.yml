@@ -3,8 +3,8 @@ description: >-
   Compiles the C++ of every Verilator build of the job through ccache and
   keeps the cache between runs. Verilator's verilated.mk compiles each file
   as `$(OBJCACHE) $(CXX) ...`; .github/actions/verilator blanks the image's
-  `OBJCACHE ?= ccache`, and this action sets OBJCACHE=ccache in the job's
-  environment once ccache is installed. Call it twice: `phase: start` right
+  `OBJCACHE ?= ccache`, and this action sets OBJCACHE to a pinned ccache
+  in the job's environment. Call it twice: `phase: start` right
   after .github/actions/verilator, and `phase: end` with `if: always()`
   after the steps that build with Verilator. The end phase prints the hits
   and misses (scripts/ci/ccache_report.py), fails when a successful job
@@ -32,10 +32,12 @@ inputs:
 runs:
   using: composite
   steps:
-    # Installs ccache, finds the compiler verilated.mk calls and builds the
-    # cache key: the OS image, the compiler's version and Verilator's.
-    - name: ccache - install and configure
-      id: start
+    # ccache is a pinned release (static binary), checked against its
+    # sha256 and cached like Verilator: installing it with apt cost 14 to
+    # 42 s per job (apt-get update and the dpkg database), as much as the
+    # cache saves in a job with few Verilator builds.
+    - name: ccache - pinned release
+      id: pin
       if: inputs.phase == 'start'
       shell: bash
       env:
@@ -56,22 +58,65 @@ runs:
             exit 1
             ;;
         esac
-        if ! command -v ccache > /dev/null; then
-          for i in 1 2 3; do
-            # The `if` keeps set -e from ending the loop; `command -v` below
-            # checks the result.
-            if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ccache; then
-              break
-            fi
-            echo "::warning title=ccache [$JOB_NAME]::apt-get could not install ccache (attempt $i of 3)"
-            if [ "$i" -lt 3 ]; then sleep 20; fi
-          done
-        fi
-        if ! command -v ccache > /dev/null; then
-          echo "::error title=ccache [$JOB_NAME]::ccache is not installed: the Verilator builds of this job would compile without a cache, several times slower. Re-run the job; a run without ccache on purpose takes the workflow_dispatch input ccache=off"
+        # https://github.com/ccache/ccache/releases/tag/v4.14.2; the digest
+        # is the one GitHub lists for the asset.
+        {
+          echo "enabled=true"
+          echo "version=4.14.2"
+          echo "asset=ccache-4.14.2-linux-x86_64-musl-static"
+          echo "sha256=b20ff6415151226ac5a10dfd6839700c694bd67d1871c8fddb266d366ff25bfb"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: ccache - cache the binary
+      id: bin
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/ccache-bin
+        key: ccache-bin-${{ steps.pin.outputs.asset }}-${{ steps.pin.outputs.sha256 }}
+
+    - name: ccache - download ${{ steps.pin.outputs.version }}, with retries
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true' && steps.bin.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.pin.outputs.version }}
+        ASSET: ${{ steps.pin.outputs.asset }}
+        SHA256: ${{ steps.pin.outputs.sha256 }}
+      run: |
+        set -euo pipefail
+        url="https://github.com/ccache/ccache/releases/download/v$VERSION/$ASSET.tar.xz"
+        if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$RUNNER_TEMP/ccache.tar.xz" "$url"; then
+          echo "::error title=ccache::could not download $url: the Verilator builds would compile without a cache. Re-run the job"
           exit 1
         fi
-        echo "ccache: $(command -v ccache), $(ccache --version | head -n 1)"
+        if ! echo "$SHA256  $RUNNER_TEMP/ccache.tar.xz" | sha256sum -c -; then
+          echo "::error title=ccache::$url does not have the pinned sha256 $SHA256"
+          exit 1
+        fi
+        tar -xJf "$RUNNER_TEMP/ccache.tar.xz" -C "$RUNNER_TEMP"
+        mkdir -p "$HOME/ccache-bin"
+        cp "$RUNNER_TEMP/$ASSET/ccache" "$HOME/ccache-bin/ccache"
+        rm -rf "$RUNNER_TEMP/ccache.tar.xz" "$RUNNER_TEMP/$ASSET"
+
+    # Checks ccache, finds the compiler verilated.mk calls and builds the
+    # cache key: the OS image, the compiler's version and Verilator's.
+    - name: ccache - check and configure
+      id: start
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true'
+      shell: bash
+      env:
+        JOB_NAME: ${{ inputs.job }}
+        VERSION: ${{ steps.pin.outputs.version }}
+      run: |
+        set -euo pipefail
+        ccache="$HOME/ccache-bin/ccache"
+        # The `if` keeps set -e from stopping before the error message.
+        if ! found=$("$ccache" --version 2> /dev/null | head -n 1) || [ "$found" != "ccache version $VERSION" ]; then
+          echo "::error title=ccache [$JOB_NAME]::ccache $VERSION is not installed at $ccache (got: '${found:-nothing}'): the Verilator builds of this job would compile without a cache, several times slower. Re-run the job; a run without ccache on purpose takes the workflow_dispatch input ccache=off"
+          exit 1
+        fi
+        echo "$HOME/ccache-bin" >> "$GITHUB_PATH"
+        echo "ccache: $ccache, $found"
 
         if [ -z "${VERILATOR_ROOT:-}" ] || [ ! -f "$VERILATOR_ROOT/include/verilated.mk" ]; then
           echo "::error title=ccache [$JOB_NAME]::no verilated.mk under VERILATOR_ROOT='${VERILATOR_ROOT:-}': run .github/actions/verilator first"
@@ -101,12 +146,11 @@ runs:
           echo "::error title=ccache [$JOB_NAME]::ImageOS or ImageVersion is not set (not a GitHub-hosted runner?): the cache key needs the OS image"
           exit 1
         fi
-        prefix="ccache-v1-$image-$cxx$cxx_version-$cxx_hash-verilator$verilator_version"
+        prefix="ccache-v1-$image-$cxx$cxx_version-$cxx_hash-verilator$verilator_version-ccache$VERSION"
         echo "compiler: $cxx ($cxx_line)"
         echo "Verilator: $verilator_version; OS image: $image"
         dir="$HOME/.cache/volt-ccache"
         {
-          echo "enabled=true"
           echo "dir=$dir"
           echo "key=$prefix-$JOB_NAME-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           echo "job-prefix=$prefix-$JOB_NAME-"
@@ -114,7 +158,8 @@ runs:
         } >> "$GITHUB_OUTPUT"
         {
           echo "VOLT_CI_CCACHE=on"
-          echo "OBJCACHE=ccache"
+          # The absolute path: make runs whatever OBJCACHE names.
+          echo "OBJCACHE=$ccache"
           echo "CCACHE_DIR=$dir"
           # A bound: the end phase drops every entry this run did not use.
           echo "CCACHE_MAXSIZE=1G"
@@ -126,7 +171,7 @@ runs:
     # is damaged.
     - name: ccache - restore the cache of an earlier run
       id: restore
-      if: inputs.phase == 'start' && steps.start.outputs.enabled == 'true'
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true'
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/volt-ccache
@@ -136,7 +181,7 @@ runs:
           ${{ steps.start.outputs.prefix }}
 
     - name: ccache - zero the statistics
-      if: inputs.phase == 'start' && steps.start.outputs.enabled == 'true'
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true'
       shell: bash
       env:
         JOB_NAME: ${{ inputs.job }}
@@ -159,9 +204,9 @@ runs:
           echo "VOLT_CI_CCACHE_OWN_RESTORED=$own"
           echo "VOLT_CI_CCACHE_START=$(date +%s)"
         } >> "$GITHUB_ENV"
-        ccache --zero-stats
-        ccache --show-stats
-        echo "From here every Verilator build of this job compiles through ccache (OBJCACHE=ccache, CCACHE_DIR=$CCACHE_DIR)"
+        "$OBJCACHE" --zero-stats
+        "$OBJCACHE" --show-stats
+        echo "From here every Verilator build of this job compiles through ccache (OBJCACHE=$OBJCACHE, CCACHE_DIR=$CCACHE_DIR)"
 
     # Hits and misses of this job, then only the entries this run used are
     # kept: a hit renews an entry's time, so the cache stays the working
@@ -199,15 +244,15 @@ runs:
         esac
         python3 scripts/ci/ccache_report.py --self-test
         stats="$RUNNER_TEMP/ccache-stats.tsv"
-        ccache --print-stats > "$stats"
-        ccache --show-stats --verbose
+        "$OBJCACHE" --print-stats > "$stats"
+        "$OBJCACHE" --show-stats --verbose
         python3 scripts/ci/ccache_report.py "$stats" --job "$JOB_NAME"
         # Older than the start of the tests: restored and not used since.
         age=$(( $(date +%s) - VOLT_CI_CCACHE_START ))
         if [ "$age" -lt 1 ]; then age=1; fi
-        ccache --evict-older-than "${age}s"
+        "$OBJCACHE" --evict-older-than "${age}s"
         echo "After dropping the entries this run did not use:"
-        ccache --show-stats
+        "$OBJCACHE" --show-stats
         # A pull request saves only a cold start of its own job; main, the
         # nightly run and a dispatched run always save. A failed job saves
         # nothing (its cache may hold only part of the working set).

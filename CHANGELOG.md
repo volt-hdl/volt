@@ -16,8 +16,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 - **Verilator derlemeleri ccache'ten geçer.** Yeni eylem
   `.github/actions/ccache` "Verilator lint", gecelik metamorfik test,
-  kitabın örnekleri ve fark testinin büyük koşusu işlerinde ccache'i kurar
-  ve `OBJCACHE=ccache` yapar (`verilated.mk` her derlemeyi
+  kitabın örnekleri ve fark testinin büyük koşusu işlerinde ccache'in
+  sabitlenmiş sürümünü (4.14.2, sha256 denetimli) kurar ve `OBJCACHE`'i
+  ona yöneltir (`verilated.mk` her derlemeyi
   `$(OBJCACHE) $(CXX)` ile çağırır). İşin sonunda günlük, `::notice` ve iş
   özeti isabet ve ıska sayılarını yazar (`scripts/ci/ccache_report.py`);
   ccache kurulamazsa ya da başarılı bir işte hiç derleme görmezse iş düşer.
