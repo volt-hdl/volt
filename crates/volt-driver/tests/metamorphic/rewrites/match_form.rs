@@ -66,8 +66,9 @@ fn lvalue_end(src: &str, toks: &[Tok], k: usize) -> Option<usize> {
     }
 }
 
-/// `match <subject> {`: the index of the `{` that opens the body.
-fn body_open(src: &str, toks: &[Tok], match_tok: usize) -> Option<usize> {
+/// `match <subject> {` (or `if <cond> {`): the index of the `{` that opens
+/// the body.
+pub fn body_open(src: &str, toks: &[Tok], match_tok: usize) -> Option<usize> {
     let mut depth = 0i32;
     for (k, t) in toks.iter().enumerate().skip(match_tok + 1) {
         match lex::text(src, t) {
@@ -84,7 +85,7 @@ fn body_open(src: &str, toks: &[Tok], match_tok: usize) -> Option<usize> {
 /// The byte ranges of a statement arm: (pattern, target, op, value).
 type StmtArm = ((usize, usize), (usize, usize), String, (usize, usize));
 
-fn span(toks: &[Tok], from: usize, to: usize) -> (usize, usize) {
+pub fn span(toks: &[Tok], from: usize, to: usize) -> (usize, usize) {
     (toks[from].start, toks[to - 1].end)
 }
 
@@ -183,6 +184,54 @@ pub fn stmt_to_expr(src: &str) -> Vec<Edit> {
     edits
 }
 
+/// The byte ranges of an expression arm: (pattern, value).
+pub type ExprArm = ((usize, usize), (usize, usize));
+
+/// The arms of an expression match whose body is `open..=close`: the byte
+/// ranges of each (pattern, value). `None` when an arm is not a plain
+/// `pattern => value`, separated by a comma or a new line.
+pub fn expr_arms(src: &str, toks: &[Tok], open: usize, close: usize) -> Option<Vec<ExprArm>> {
+    let t = |k: usize| lex::text(src, &toks[k]);
+    let top = lex::top_level(src, toks, open + 1, close);
+    let arrows: Vec<usize> = top.iter().copied().filter(|&x| t(x) == "=>").collect();
+    if arrows.is_empty() {
+        return None;
+    }
+    let mut arms = Vec::new();
+    let mut a = open + 1;
+    for (i, &arrow) in arrows.iter().enumerate() {
+        if arrow <= a {
+            return None;
+        }
+        let limit = arrows.get(i + 1).copied().unwrap_or(close);
+        let comma = top
+            .iter()
+            .copied()
+            .find(|&x| x > arrow && x < limit && t(x) == ",");
+        let (end, next) = match (comma, arrows.get(i + 1)) {
+            (Some(c), _) => (c, c + 1),
+            (None, None) => (close, close),
+            (None, Some(&next_arrow)) => {
+                // No comma: the next pattern starts its own line.
+                let mut s = next_arrow;
+                while s > arrow && !toks[s].line_start {
+                    s -= 1;
+                }
+                if s <= arrow + 1 {
+                    return None;
+                }
+                (s, s)
+            }
+        };
+        if end <= arrow + 1 || t(arrow + 1) == "{" {
+            return None;
+        }
+        arms.push((span(toks, a, arrow), span(toks, arrow + 1, end)));
+        a = next;
+    }
+    (a == close).then_some(arms)
+}
+
 /// `t op match s { p => e, ... }` → `match s { p => { t op e } ... }`.
 pub fn expr_to_stmt(src: &str) -> Vec<Edit> {
     let toks = lex::lex(src);
@@ -211,46 +260,7 @@ pub fn expr_to_stmt(src: &str) -> Vec<Edit> {
                     return None;
                 }
             }
-            let top = lex::top_level(src, &toks, open + 1, close);
-            let arrows: Vec<usize> = top.iter().copied().filter(|&x| t(x) == "=>").collect();
-            if arrows.is_empty() {
-                return None;
-            }
-            let mut arms = Vec::new();
-            let mut a = open + 1;
-            for (i, &arrow) in arrows.iter().enumerate() {
-                if arrow <= a {
-                    return None;
-                }
-                let limit = arrows.get(i + 1).copied().unwrap_or(close);
-                let comma = top
-                    .iter()
-                    .copied()
-                    .find(|&x| x > arrow && x < limit && t(x) == ",");
-                let (end, next) = match (comma, arrows.get(i + 1)) {
-                    (Some(c), _) => (c, c + 1),
-                    (None, None) => (close, close),
-                    (None, Some(&next_arrow)) => {
-                        // No comma: the next pattern starts its own line.
-                        let mut s = next_arrow;
-                        while s > arrow && !toks[s].line_start {
-                            s -= 1;
-                        }
-                        if s <= arrow + 1 {
-                            return None;
-                        }
-                        (s, s)
-                    }
-                };
-                if end <= arrow + 1 || t(arrow + 1) == "{" {
-                    return None;
-                }
-                arms.push((span(&toks, a, arrow), span(&toks, arrow + 1, end)));
-                a = next;
-            }
-            if a != close {
-                return None;
-            }
+            let arms = expr_arms(src, &toks, open, close)?;
             Some((lv_end, m, open, close, arms))
         })();
         let Some((lv_end, m, open, close, arms)) = site else {

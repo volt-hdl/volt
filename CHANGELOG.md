@@ -12,6 +12,27 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Metamorfik testin kalan yeniden yazımları (#254 1. aşama PR 2, ADR-0117 eki, 2026-11-16)
+
+- **Altı yeni yeniden yazım**, her biri şartname dayanağıyla
+  (`crates/volt-driver/tests/metamorphic/rewrites/`):
+  `if-to-match`/`match-to-if` (bool üzerinde `if`/`else` ↔ iki kollu
+  ifade match'i, type-inference.md §3.9; #215), `wire-to-let`/`let-to-wire`
+  (alan ve güven açıklaması `wire` ↔ `let` üzerinde, ADR-0088 ve K1, K11;
+  #211), `clock-to-alias`/`alias-to-clock` (`clock` ↔ `type C = clock`,
+  ADR-0070 §6; #234). Her biri PR katmanının derleminde en az iki
+  tasarımda uygulanıyor.
+- **Bulunanlar.** Üç açık issue yeniden üretildi ve bilinen başarısızlık
+  listesine numarasıyla girdi: #234 (PR derleminde 20, gecelikte 4 tasarım
+  daha: sıfırlama alanı denetimleri E3003, W3009, W3010, W3011'i kaybediyor;
+  SDC'de sahte E0017; issue'da adı geçmeyen iki yer daha: `@mmio`
+  açılımında sahte E1003, pipeline denetiminde sahte E5011), #215 ve #211
+  (yeni gerçek hata yeniden üretimleri `tests/real_bugs/215_…`,
+  `211_…`).
+- **Eklenmeyen.** Alt modülün satır içi alınması ↔ örneklenmesi (#210):
+  şartname iki yazımı güven seviyesinde (K11'in tutucu örnek özeti) ve
+  saatsiz modülün tanı yerinde (K8b) bilerek ayırıyor; karar #296'da.
+
 ### Geliştirici notu — Metamorfik test ve gerçek hata derlemi (#254 1. aşama, ADR-0117, 2026-11-16)
 
 - **Gerçek hata derlemi.** `tests/real_bugs/`: v0.1.0'dan beri kapanan
