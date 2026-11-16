@@ -378,3 +378,13 @@ düşer (`tests/real_bugs/211`).
   tohum `2026-11-16`: 28 başarısızlık, hepsi bilinen, 31,6 s; koşu yeşil.
   #215 ve #216'nın `hardware` kayıtları bu tohumla da düştü (başka uyaranla:
   `A 0 02c 12c`, `A 3 09`).
+- **CI (#297, 213c2812):** 43934640812 koşusu, "Verilator lint":
+  `metamorphic_tests` `45 passed; 0 failed` (518,3 s); `metamorphic`
+  tablosu yereldekiyle aynı, `failures: 24; 518.3 s`, hepsi bilinen;
+  `real_bugs` "24 reproductions, 10 with test blocks (10 run in
+  Verilator); 4 failures, 4 known; 272.0 s"; `Tool ledger [integration]:
+  … SKIP: 0`; "Tool coverage": 197 çiftin 197'si araç zorunluyken koştu.
+  PR katmanı 154,9 s'den 518,3 s'ye çıktı (en çok `clock-to-alias`'ın 94
+  donanım karşılaştırması); hedef 15 dakikanın altında kalıyor. "Known
+  failures" 43934640011: "32 known failure(s), issues #211, #215, #216,
+  #234: every issue is open and no pull request closes one".
