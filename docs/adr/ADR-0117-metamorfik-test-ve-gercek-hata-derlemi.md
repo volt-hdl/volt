@@ -1,6 +1,6 @@
 # ADR-0117: Metamorfik Test ve Gerçek Hata Derlemi — Aynı Tasarımın İki Yazımı Aynı Tanıyı ve Aynı Donanımı Verir
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0108 (fark testi ifade düzeyinde dokuz biçimi karşılaştırır; bu test tasarım düzeyinde yazımları), ADR-0109 (bilinen başarısızlık kaydının issue denetimi C kayıtlarınınkiyle aynı mekanizmadır, #283), ADR-0113 (beklenen sonuç derleyiciden değil şartnameden gelir; güvenlik kodu envanteri aynıdır)
 > Tarih: 2026-11-16
 > Etkilenen: `crates/volt-driver/tests/metamorphic_tests.rs` (YENİ),
