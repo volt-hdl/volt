@@ -70,6 +70,10 @@ const RUST_CALL_SITES: &[(&str, &str)] = &[
         "crates/volt-driver/tests/verilator_canary_tests.rs",
         ".args(volt_tools::VERILATOR_BUILD_FLAGS)",
     ),
+    (
+        "crates/volt-driver/tests/metamorphic/sim.rs",
+        ".args(volt_tools::VERILATOR_BUILD_FLAGS)",
+    ),
 ];
 
 #[test]

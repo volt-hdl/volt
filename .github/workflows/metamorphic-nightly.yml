@@ -1,0 +1,116 @@
+name: Metamorphic test (nightly)
+
+# ADR-0117 section 5 (#254): every rewrite on the whole corpus — tests/ui,
+# examples/, the book's ```volt blocks and tests/real_bugs/ — with Verilator
+# required (VOLT_METAMORPHIC_TIER=nightly). The PR tier (tests/real_bugs/
+# and tests/ui/) runs in ci.yml's tool job on every pull request.
+#
+# A red night opens an issue with a fixed title, or adds the report as a
+# comment to the open one: a red run is never only a red mark in the
+# Actions tab. A green night writes nothing.
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metamorphic-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
+  VOLT_METAMORPHIC_SUMMARY: /tmp/volt-metamorphic.txt
+  VOLT_REAL_BUGS_SUMMARY: /tmp/volt-real-bugs.txt
+
+jobs:
+  nightly:
+    name: Metamorphic test, whole corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Verilator is the pinned release (#145); the action fails the job on
+      # any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
+      # ADR-0117 section 5: the night's stimulus seed is the UTC date (the
+      # test derives each design's stimulus from it and the design's id).
+      # It is printed here, in the report and in the issue of a red night;
+      # VOLT_METAMORPHIC_SEED=<seed> repeats the run anywhere.
+      - name: Seed of this night
+        id: seed
+        run: |
+          seed=$(date -u +%Y-%m-%d)
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Metamorphic nightly seed::VOLT_METAMORPHIC_SEED=$seed"
+      - name: Metamorphic test and real-bug corpus (Verilator required)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
+          VOLT_METAMORPHIC_TIER: nightly
+          VOLT_METAMORPHIC_SEED: ${{ steps.seed.outputs.seed }}
+        run: cargo test -p volt-driver --test metamorphic_tests -- --nocapture
+      - name: Reports
+        if: always()
+        run: |
+          for f in "$VOLT_REAL_BUGS_SUMMARY" "$VOLT_METAMORPHIC_SUMMARY"; do
+            if [ ! -s "$f" ]; then
+              echo "::error title=Metamorphic test::$f is missing: the test did not run"
+              exit 1
+            fi
+            cat "$f"
+            echo
+          done
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job metamorphic-nightly --require-zero-skips --min-ran 1
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: metamorphic-nightly-reports
+          path: |
+            /tmp/volt-metamorphic.txt
+            /tmp/volt-real-bugs.txt
+          if-no-files-found: ignore
+
+  # A red night: open the issue, or comment on the open one.
+  report:
+    name: Open or update the issue of a red night
+    needs: nightly
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      # The step below is scripts/ci/nightly_issue.py; its self-test (a
+      # fake gh) runs on every pull request in known-failures.yml and here.
+      - name: Script self-test
+        run: python3 scripts/ci/nightly_issue.py --self-test
+      - name: Download the reports
+        uses: actions/download-artifact@v7
+        with:
+          name: metamorphic-nightly-reports
+          path: reports
+        # A missing artifact (the test never ran) still opens the issue: the
+        # next step says the reports are missing.
+        continue-on-error: true
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SEED: ${{ needs.nightly.outputs.seed }}
+        run: |
+          python3 scripts/ci/nightly_issue.py report --run-url "$RUN_URL" --seed "$SEED" --report reports/volt-real-bugs.txt --report reports/volt-metamorphic.txt
