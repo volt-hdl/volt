@@ -1,0 +1,26 @@
+{
+  "about": "Known failures of the real-bug test and the metamorphic test (ADR-0117 §4). Each entry is a failure that an open issue reproduces. The test fails on a failure that is not listed and on an entry that no longer fails; scripts/ci/known_failures.py fails when the issue is closed or when the pull request closes it while the entry stands. Fields: check (real-bug or a rewrite id), design (corpus id), relation (expect, test, codes, safety, location, hardware), issue (number), reason.",
+  "known_failures": [
+    {
+      "check": "real-bug",
+      "design": "tests/real_bugs/216_match_arm_after_wildcard.volt",
+      "relation": "expect",
+      "issue": 216,
+      "reason": "no W2014 for the arm after the wildcard of a statement match"
+    },
+    {
+      "check": "real-bug",
+      "design": "tests/real_bugs/216_match_arm_after_wildcard.volt",
+      "relation": "test",
+      "issue": 216,
+      "reason": "the arm after the wildcard is emitted after default and wins: y = 9 for s = 1, the spec gives 7"
+    },
+    {
+      "check": "match-stmt-to-expr",
+      "design": "tests/real_bugs/216_match_arm_after_wildcard.volt",
+      "relation": "hardware",
+      "issue": 216,
+      "reason": "the statement form gives 9 for s = 1, the expression form 7 (the first matching arm)"
+    }
+  ]
+}

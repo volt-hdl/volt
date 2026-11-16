@@ -1,0 +1,119 @@
+name: Metamorphic test (nightly)
+
+# ADR-0117 section 5 (#254): every rewrite on the whole corpus — tests/ui,
+# examples/, the book's ```volt blocks and tests/real_bugs/ — with Verilator
+# required (VOLT_METAMORPHIC_TIER=nightly). The PR tier (tests/real_bugs/
+# and tests/ui/) runs in ci.yml's tool job on every pull request.
+#
+# A red night opens an issue with a fixed title, or adds the report as a
+# comment to the open one: a red run is never only a red mark in the
+# Actions tab. A green night writes nothing.
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metamorphic-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
+  VOLT_METAMORPHIC_SUMMARY: /tmp/volt-metamorphic.txt
+  VOLT_REAL_BUGS_SUMMARY: /tmp/volt-real-bugs.txt
+
+jobs:
+  nightly:
+    name: Metamorphic test, whole corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Verilator is the pinned release (#145); the action fails the job on
+      # any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
+      - name: Metamorphic test and real-bug corpus (Verilator required)
+        env:
+          VOLT_REQUIRE_TOOLS: verilator
+          VOLT_METAMORPHIC_TIER: nightly
+        run: cargo test -p volt-driver --test metamorphic_tests -- --nocapture
+      - name: Reports
+        if: always()
+        run: |
+          for f in "$VOLT_REAL_BUGS_SUMMARY" "$VOLT_METAMORPHIC_SUMMARY"; do
+            if [ ! -s "$f" ]; then
+              echo "::error title=Metamorphic test::$f is missing: the test did not run"
+              exit 1
+            fi
+            cat "$f"
+            echo
+          done
+      - name: Tool ledger - SKIP count
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job metamorphic-nightly --require-zero-skips --min-ran 1
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: metamorphic-nightly-reports
+          path: |
+            /tmp/volt-metamorphic.txt
+            /tmp/volt-real-bugs.txt
+          if-no-files-found: ignore
+
+  # A red night: open the issue, or comment on the open one.
+  report:
+    name: Open or update the issue of a red night
+    needs: nightly
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Download the reports
+        uses: actions/download-artifact@v7
+        with:
+          name: metamorphic-nightly-reports
+          path: reports
+        # A missing artifact (the test never ran) still opens the issue: the
+        # next step says the reports are missing.
+        continue-on-error: true
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly metamorphic test is red (ADR-0117)"
+          {
+            printf 'The nightly metamorphic test failed: %s\n\n' "$RUN_URL"
+            printf 'Every failure is either a new silent-wrong result (open an issue with the minimized design and add it to the known-failures list, or fix it) or a known failure whose issue was fixed (remove the entry).\n\n'
+            for f in reports/volt-real-bugs.txt reports/volt-metamorphic.txt; do
+              if [ -s "$f" ]; then
+                printf '```text\n'
+                head -c 30000 "$f"
+                printf '\n```\n\n'
+              else
+                printf '%s: missing (the test did not run to its end)\n\n' "$f"
+              fi
+            done
+          } > body.md
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file body.md
+            echo "::notice title=Metamorphic nightly::commented on #$number"
+          else
+            url=$(gh issue create --title "$title" --body-file body.md)
+            echo "::notice title=Metamorphic nightly::opened $url"
+          fi

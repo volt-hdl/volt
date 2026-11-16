@@ -1,0 +1,57 @@
+name: Known failures
+
+# ADR-0117 section 4 (#254): every entry of
+# crates/volt-driver/tests/metamorphic/known_failures.json waits for an open
+# issue. The check fails when an entry's issue is closed, does not exist or
+# is a pull request, and, on a pull request, when the pull request closes
+# the issue (Closes #N) while the entry still stands: the pull request that
+# fixes the bug removes the entry. The rules and the GitHub client are those
+# of the mutation exclusions' C entries (mutants-exclusions.yml, #283).
+#
+# It reads the issues with the workflow's token: without a token or a
+# network it fails, never passes. It also runs when a pull request's
+# description is edited (`edited`), so a `Closes #N` added without a push is
+# read at once; on main after every push, so an issue closed by a merge
+# fails it there until the entry is removed; and every night, because an
+# issue can be closed by hand without any push.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: known-failures-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  known-failures:
+    name: Every known failure waits for an open issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Script self-test
+        run: python3 scripts/ci/known_failures.py --self-test
+      - name: Every entry's issue is open; the pull request closes none of them
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Empty on a push to main, the nightly run or a run by hand: no
+          # pull request, so the rule "the pull request closes the issue"
+          # does not apply.
+          KNOWN_FAILURES_PR: ${{ github.event.pull_request.number }}
+          KNOWN_FAILURES_EVENT: ${{ github.event_name }}/${{ github.event.action }}
+        run: |
+          echo "event: $KNOWN_FAILURES_EVENT"
+          python3 scripts/ci/known_failures.py check --markdown "$GITHUB_STEP_SUMMARY" --pr "$KNOWN_FAILURES_PR"

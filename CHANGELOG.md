@@ -12,6 +12,34 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Metamorfik test ve gerçek hata derlemi (#254 1. aşama, ADR-0117, 2026-11-16)
+
+- **Gerçek hata derlemi.** `tests/real_bugs/`: v0.1.0'dan beri kapanan
+  her sessiz yanlış issue'sunun en küçük yeniden üretimi (21 issue; #148
+  Verilator'ın kendi hatasıdır, Volt tasarımıyla gösterilemez, kanaryası
+  `verilator_canary_tests`'tedir). İlk satırlar beklenen kodlardır
+  (`//~ E3001` ya da `//~ PASS`); yanlış değer hatalarının dosyaları
+  şartnameden elle hesaplanmış değerlerle `test` blokları taşır ve
+  Verilator'da koşar. Silent-wrong düzelten PR yeniden üretimini ekler ve
+  bilinen başarısızlık kaydını siler (`AGENTS.md`).
+- **Metamorfik test.** `crates/volt-driver/tests/metamorphic_tests.rs`:
+  şartnamenin aynı tasarım dediği iki yazım arasında yeniden yazımlar
+  (bu aşamada alan başlatma kısaltması ↔ uzun biçim, #204; deyim match'i
+  ↔ ifade match'i, #216). `volt check` ve `volt build` üzerinden aynı tanı
+  kodları, hatalarda yeniden yazıma göre aynı birincil konum, aynı
+  güvenlik kararları ve hatasız tasarımda Verilator'da rastgele uyaranla
+  aynı çıkışlar beklenir; SV metni karşılaştırılmaz. PR katmanı
+  (`tests/real_bugs/`, `tests/ui/`) `cargo test` içinde koşar, bütün
+  derlem (örnekler, kitap) gecelik `metamorphic-nightly.yml`'dedir;
+  kırmızı gece bir issue açar ya da günceller.
+- **Bilinen başarısızlıklar.** Açık bir issue'nun yeniden ürettiği
+  başarısızlık `crates/volt-driver/tests/metamorphic/known_failures.json`'da
+  issue numarasıyla durur (bugün #216: deyim match'inde jokerden sonraki
+  kol kazanıyor). Listede olmayan başarısızlık da artık düşmeyen kayıt da
+  testi düşürür; yeni "Known failures" iş akışı kaydın issue'su
+  kapandığında ya da PR onu kapattığı hâlde kayıt durduğunda düşer
+  (#283'ün mekanizması).
+
 ### Geliştirici notu — Her PR'da değişen satırların mutasyon testi (#253 1. aşama, ADR-0109 eki, 2026-11-15)
 
 - **PR kapısı.** `mutants.yml` artık her pull request'te koşar: PR'ın

@@ -144,6 +144,19 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   A missed mutant goes into `KNOWN_MISSES` with its `silent-wrong` issue;
   a fix that makes a listed mutant caught removes its entry in the same
   PR.
+- **Real-bug corpus and metamorphic test (ADR-0117).** A pull request
+  that fixes a silent-wrong issue adds the issue's smallest reproduction
+  to `tests/real_bugs/` (one file per issue, the number in its name, the
+  expected codes in its `//~` lines; `tests/real_bugs/README.md`) and
+  removes the issue's entries from the known-failures list
+  (`crates/volt-driver/tests/metamorphic/known_failures.json`); the
+  "Known failures" workflow fails while an entry names a closed issue or
+  one the pull request closes. A failure of the metamorphic test that an
+  open issue reproduces is listed there with that issue; a new failure
+  gets a new `silent-wrong` issue first. Every rewrite of the metamorphic
+  test cites the spec sentence or ADR that makes its two forms
+  equivalent; where the spec is silent there is no rewrite, and the gap
+  is reported as a finding.
 - **Mutation gate (ADR-0109 and its appendix "PR kapısı").** Every pull
   request runs `mutants.yml` on the mutants of the Rust lines it changes;
   there is no targeted run to start by hand for them. Each missed mutant

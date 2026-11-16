@@ -15,6 +15,11 @@ env:
   # ADR-0108: the differential test appends its report here (seed, count,
   # accepted expressions, differences); the tool job prints it.
   VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest.txt
+  # ADR-0117: the metamorphic test and the real-bug test write their
+  # reports here (rewrites, sites, hardware compared, known failures,
+  # duration); the tool job prints them.
+  VOLT_METAMORPHIC_SUMMARY: /tmp/volt-metamorphic.txt
+  VOLT_REAL_BUGS_SUMMARY: /tmp/volt-real-bugs.txt
 
 jobs:
   test:
@@ -130,6 +135,24 @@ jobs:
         run: |
           python3 scripts/ci/difftest_summary.py --self-test
           python3 scripts/ci/difftest_summary.py "$VOLT_DIFFTEST_SUMMARY" --job integration
+      # ADR-0117: the metamorphic test (PR tier) and the real-bug corpus,
+      # with Verilator; fails when a report is missing (the test did not
+      # run) or says Verilator was skipped.
+      - name: Metamorphic test and real-bug corpus summary (ADR-0117)
+        if: always()
+        run: |
+          for f in "$VOLT_REAL_BUGS_SUMMARY" "$VOLT_METAMORPHIC_SUMMARY"; do
+            if [ ! -s "$f" ]; then
+              echo "::error title=Metamorphic test::$f is missing: the test did not run"
+              exit 1
+            fi
+            cat "$f"
+            echo
+          done
+          if grep -q "SKIP" "$VOLT_REAL_BUGS_SUMMARY" "$VOLT_METAMORPHIC_SUMMARY"; then
+            echo "::error title=Metamorphic test::Verilator was skipped in the tool job"
+            exit 1
+          fi
       # ADR-0107: how many tests skipped for a missing tool, and which.
       - name: Tool ledger - SKIP count
         if: always()
