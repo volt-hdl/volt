@@ -221,7 +221,8 @@ fn real_bugs() {
     }
     let _ = std::fs::remove_dir_all(&base);
     failures.sort();
-    let (unlisted, stale) = known::compare(&entries, &failures, &evaluated, &["real-bug"]);
+    // The real-bug relations (`expect`, `test`) do not depend on a stimulus.
+    let (unlisted, stale, _) = known::compare(&entries, &failures, &evaluated, &["real-bug"], true);
     report.push_str(&format!(
         "\n{} reproductions, {} with test blocks ({} run in Verilator{}); {} failures, {} known; {:.1} s\n",
         designs.len(),
@@ -293,7 +294,13 @@ fn metamorphic() {
     let o = metamorphic::run_all(&designs, rewrites::ALL, sim.as_ref(), &base, &seed);
     let _ = std::fs::remove_dir_all(&base);
     let checks: Vec<&str> = rewrites::ALL.iter().map(|r| r.id).collect();
-    let (unlisted, stale) = known::compare(&entries, &o.failures, &o.evaluated, &checks);
+    let (unlisted, stale, unjudged) = known::compare(
+        &entries,
+        &o.failures,
+        &o.evaluated,
+        &checks,
+        corpus::stimulus_is_fixed(&seed),
+    );
     let mut report = render(
         tier.name(),
         &o,
@@ -311,6 +318,23 @@ fn metamorphic() {
             report.push_str(&format!(
                 "  known (#{}, {}): {k}: {why}\n",
                 e.issue, e.reason
+            ));
+        }
+    }
+    // ADR-0117 §4: with a dated seed a listed hardware failure that did not
+    // show is a note, not a red run.
+    if !unjudged.is_empty() {
+        report.push_str(&format!(
+            "
+Known hardware failures that did not show with seed {seed} ({}; not judged: only the fixed seed `{}` judges a hardware entry):
+",
+            unjudged.len(),
+            corpus::FIXED_SEED
+        ));
+        for n in &unjudged {
+            report.push_str(&format!(
+                "  {n}
+"
             ));
         }
     }

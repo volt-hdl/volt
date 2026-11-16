@@ -31,14 +31,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   aynı çıkışlar beklenir; SV metni karşılaştırılmaz. PR katmanı
   (`tests/real_bugs/`, `tests/ui/`) `cargo test` içinde koşar, bütün
   derlem (örnekler, kitap) gecelik `metamorphic-nightly.yml`'dedir;
-  kırmızı gece bir issue açar ya da günceller. Uyaranın tohumu PR'da
+  kırmızı gece bir issue açar ya da günceller (`scripts/ci/nightly_issue.py`,
+  sahte `gh` ile self-test'i her PR'da koşar). Uyaranın tohumu PR'da
   sabittir, gece koşunun tarihidir; günlüğe ve issue'ya yazılır,
   `VOLT_METAMORPHIC_SEED` aynı koşuyu yerelde yeniden üretir.
 - **Bilinen başarısızlıklar.** Açık bir issue'nun yeniden ürettiği
   başarısızlık `crates/volt-driver/tests/metamorphic/known_failures.json`'da
   issue numarasıyla durur (bugün #216: deyim match'inde jokerden sonraki
   kol kazanıyor). Listede olmayan başarısızlık da artık düşmeyen kayıt da
-  testi düşürür; yeni "Known failures" iş akışı kaydın issue'su
+  testi düşürür; yalnız `hardware` kaydı "artık düşmüyor" diye sabit
+  tohumla (PR katmanı ya da `VOLT_METAMORPHIC_SEED=pr`) yargılanır,
+  tarihli gece tohumunda raporda not olarak kalır. Yeni "Known failures" iş akışı kaydın issue'su
   kapandığında ya da PR onu kapattığı hâlde kayıt durduğunda düşer
   (#283'ün mekanizması).
 

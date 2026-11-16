@@ -7,7 +7,8 @@
 > `crates/volt-driver/tests/metamorphic/` (YENİ: `lex.rs`, `edit.rs`,
 > `rewrites/`, `corpus.rs`, `check.rs`, `sim.rs`, `known.rs`,
 > `known_failures.json`), `tests/real_bugs/` (YENİ),
-> `scripts/ci/known_failures.py` (YENİ), `.github/workflows/ci.yml`,
+> `scripts/ci/known_failures.py` (YENİ), `scripts/ci/nightly_issue.py`
+> (YENİ), `.github/workflows/ci.yml`,
 > `.github/workflows/known-failures.yml` (YENİ),
 > `.github/workflows/metamorphic-nightly.yml` (YENİ), `AGENTS.md`,
 > `CHANGELOG.md`
@@ -135,6 +136,13 @@ numarası, gerekçe. Liste katıdır:
 - denetimi o tasarımda o ilişki için koşup başarısız olmayan kayıt da
   kırmızıdır ("artık düşmüyor: kaydı silin"); koşulmadıysa (araçsız iş,
   başka katman) değerlendirilmez;
+- `hardware` ilişkisinde "artık düşmüyor" yalnız sabit tohumla
+  değerlendirilir: PR katmanı ya da `VOLT_METAMORPHIC_SEED=pr` (§5).
+  Rastgele uyaran hatayı gösteren girişe her tohumda denk gelmez; tarihli
+  tohumla düşmeyen bir `hardware` kaydı raporda not olarak yazılır ve
+  koşuyu kırmızı yapmaz, yoksa gecelik koşu boş yere kırmızı olur ve boş
+  bir issue açar. Öteki ilişkiler (`expect`, `test`, `codes`, `safety`,
+  `location`) uyarana bağlı değildir; onlarda kural her tohumla aynıdır;
 - `scripts/ci/known_failures.py` (iş akışı "Known failures") her kaydın
   issue'sunu GitHub'dan okur: issue kapalıysa, yoksa ya da bir PR'sa, ve
   PR'da, PR issue'yu kapatıyorsa (`Closes #N`) ve kayıt duruyorsa düşer.
@@ -160,8 +168,9 @@ numarası, gerekçe. Liste katıdır:
   denenir. Tohum günlüğe, rapora ve açılan issue'ya yazılır;
   `VOLT_METAMORPHIC_SEED=<tohum>` (her katmanda tohumun yerine geçer) aynı
   koşuyu yerelde yeniden üretir. Gecelik kırmızıysa iş akışı başlığı sabit
-  bir issue açar ya da açık olanına raporu ve tohumu yorum olarak ekler;
-  yeşil gece bir şey yazmaz.
+  bir issue açar ya da açık olanına raporu ve tohumu yorum olarak ekler
+  (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da
+  koşar); yeşil gece bir şey yazmaz.
 - Haftalık katman (yeniden yazımların ikili bileşimi) 2. aşamadadır (#254).
 
 ### 6. Kapsam
@@ -187,18 +196,19 @@ taşımalıdır.
   `safety` (kısaltmada E3001, E3009, E4007, E5010 yok, uzun biçimde var),
   `256` ve `257`'de `codes` (E2001). `real-bug … 204_… [expect]`:
   "expected E3001 W3010, volt check gave W3010". Araç defteri `SKIP: 0`.
-- **#216 bilinen başarısızlık.** #289'un 43834597865 koşusu, "Verilator
-  lint": `match-stmt-to-expr tests/real_bugs/216_… [hardware]: first
-  difference (outputs M.y): original A 0 09, rewritten A 0 07`; deyim
-  biçimi s = 1 için 9, ifade biçimi 7 verir. Gerçek hata derleminde
-  aynı dosyanın `expect` (W2014 yok) ve `test` (`assert_eq failed`)
-  başarısızlıkları. Üçü de #216 ile listede; koşu yeşil.
+- **#216 bilinen başarısızlık.** #289'un 43854655621 koşusu, "Verilator
+  lint", tohum `pr`: `match-stmt-to-expr tests/real_bugs/216_…
+  [hardware]: first difference (outputs M.y): original A 1 09, rewritten
+  A 1 07`; deyim biçimi s = 1 için 9, ifade biçimi 7 verir. Gerçek hata
+  derleminde aynı dosyanın `expect` (W2014 yok) ve `test` (`assert_eq
+  failed`) başarısızlıkları. Üçü de #216 ile listede; koşu yeşil.
 - **Süre.** PR katmanı (447 tasarım, 22 yeniden üretim, Verilator ile)
-  aynı koşuda 230,9 s'de bitti (`metamorphic_tests`: `24 passed`); hedef
-  15 dakikanın altı. Donanımı karşılaştırılan yer sayıları: 2 + 28 + 6 + 2.
-  Altı tasarım karşılaştırılamadı, nedenleri raporda: üçünde `inout`
-  port var, üçü extern gövdesiz.
-- **Known failures.** 43834598283 koşusu: "issue #216 is open (3 known
+  aynı koşuda 154,9 s'de bitti (`metamorphic_tests`: `29 passed; 0
+  failed`); hedef 15 dakikanın altı. Donanımı karşılaştırılan yer
+  sayıları: 2 + 28 + 6 + 2. Altı tasarım karşılaştırılamadı, nedenleri
+  raporda: üçünde `inout` port var, üçü extern gövdesiz. İlk ölçüm
+  (43834597865, test sayısı henüz 24'tü) 230,9 s'ydi.
+- **Known failures.** 43854655569 koşusu: "issue #216 is open (3 known
   failure(s))", "pull request #289 closes: no issue".
 
 ## Sınırlar

@@ -31,13 +31,23 @@ impl Tier {
 /// nightly report and its issue print it, so the same run can be repeated.
 pub const SEED_ENV: &str = "VOLT_METAMORPHIC_SEED";
 
+/// The seed of the PR tier. Only a run with this seed judges a known
+/// hardware failure that did not show (ADR-0117 §4).
+pub const FIXED_SEED: &str = "pr";
+
+/// Whether a run's stimulus is the fixed one: the PR tier, or any tier
+/// with `VOLT_METAMORPHIC_SEED=pr`.
+pub fn stimulus_is_fixed(seed: &str) -> bool {
+    seed == FIXED_SEED
+}
+
 /// The seed of a run: `VOLT_METAMORPHIC_SEED` when set; otherwise fixed in
 /// the PR tier (`pr`) and the UTC date of the run (`2026-11-16`) in the
 /// nightly tier, so that every night tries other stimuli.
 pub fn run_seed(tier: Tier, env: Option<&str>, today: &str) -> String {
     match (env.map(str::trim).filter(|s| !s.is_empty()), tier) {
         (Some(s), _) => s.to_string(),
-        (None, Tier::Pr) => "pr".to_string(),
+        (None, Tier::Pr) => FIXED_SEED.to_string(),
         (None, Tier::Nightly) => today.to_string(),
     }
 }
@@ -364,6 +374,29 @@ mod tests {
             "2026-11-16:tests/ui/pass/a.volt"
         );
         assert_eq!(today_utc().len(), 10);
+    }
+
+    /// ADR-0117 §4: the PR tier's seed, and `VOLT_METAMORPHIC_SEED=pr` in
+    /// the nightly tier, judge known hardware failures; a dated seed does
+    /// not.
+    #[test]
+    fn only_the_fixed_seed_judges_hardware_entries() {
+        assert!(stimulus_is_fixed(&run_seed(Tier::Pr, None, "2026-11-16")));
+        assert!(stimulus_is_fixed(&run_seed(
+            Tier::Nightly,
+            Some("pr"),
+            "2026-11-16"
+        )));
+        assert!(!stimulus_is_fixed(&run_seed(
+            Tier::Nightly,
+            None,
+            "2026-11-16"
+        )));
+        assert!(!stimulus_is_fixed(&run_seed(
+            Tier::Pr,
+            Some("2026-11-02"),
+            "2026-11-16"
+        )));
     }
 
     /// The nightly stimulus depends on the date and the design, and the
