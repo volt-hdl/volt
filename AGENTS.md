@@ -245,6 +245,13 @@ no failures, that tool-dependent tests ran rather than skipped, and that
 every step you expected actually ran. Quote the run ID and the lines you
 checked in the report.
 
+**Waiting for CI.** Wait with `gh pr checks <PR> --watch` or with the
+full SHA (`git rev-parse HEAD`), never a short SHA. Every wait command
+has a time limit of at most 60 minutes; when it runs out, stop and report
+what did not arrive. A command that selects by a filter or a pattern (a
+run list, a regex, a glob) does not go on silently when its result is
+empty or not what was expected: it fails, or says so plainly.
+
 **A test that needs a tool counts as passed only when the log of the job
 it ran in shows that it did not skip.** `ok` in `cargo test` output is not
 evidence: a test that skips prints `ok` too (ADR-0107).

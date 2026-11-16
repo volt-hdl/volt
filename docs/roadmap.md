@@ -10,7 +10,7 @@ in the book's
 - **No dates.** Volt has a single maintainer; an item is done when it is
   done.
 - **The order can change.** Sections are ordered by intent (after v0.1,
-  before 1.0, research) and one long-term goal that items from several
+  before 1.0, research) and two long-term goals that items from several
   sections serve, and items within a section roughly by priority.
   Feedback from users moves items.
 - **Every item links to its design decision** (ADR) when one exists. The
@@ -431,6 +431,62 @@ before the items below.
 - [CDC crossing report](#cdc-crossing-report) and
   [FSM state diagrams](#fsm-state-diagrams): pictures of what a design
   does.
+- [Intent awareness](#intent-awareness): diagnostics that name the
+  circuit a learner wrote by hand and show what the code means as written
+  next to the likely intent.
+
+## Intent awareness
+
+A long-term goal: the compiler recognizes what a designer most likely
+means and says so when the code says something else. It never acts on a
+guess. It does not change what the code means; it points at the
+difference and shows the spelling that matches the likely intent, and the
+designer makes the change. Intent that the designer states in the
+language (`sync()`, `declassify`, a `Handshake` port, the polarity in a
+reset's type) is checked, not guessed; the items below cover intent the
+designer did not state.
+
+### Recognizing hand-written patterns
+
+- **What:** recognize common circuits written by hand and name them in
+  the diagnostic, with the built-in form as the suggestion. When E3001
+  fires on a chain of registers that looks like a synchronizer, the
+  message says so and suggests `sync()` or `sync3()`. A hand-written
+  Gray-code counter and a `valid`/`ready` pair of plain ports get a note
+  that points at the library counterpart and the `Handshake` port.
+- **Why:** the built-in form is checked by Volt and gets its timing
+  constraints written; the hand-written one is not. A learner also learns
+  the name of what they built.
+- **Status:** Not started. The compiler already recognizes state
+  registers and counters for the automatic contracts.
+- **ADR:** [ADR-0066](adr/ADR-0066-otomatik-fsm-sayac-kontratlari.md),
+  [ADR-0027](adr/ADR-0027-stdlib-mimarisi.md),
+  [ADR-0050](adr/ADR-0050-handshake-primitifi.md)
+
+### Names that disagree with their use
+
+- **What:** a warning when a name and its use point in different
+  directions: a reset named `rst_n` whose type says active-high, a port
+  named `clk` or `*_clk` whose type is not a clock, a signal named
+  `*_sync` that is not the output of a synchronizer.
+- **Why:** such a mismatch is often a real mistake that the type checks
+  cannot see, because both readings are legal.
+- **Status:** Not started. Names are not facts, so these are warnings and
+  never errors, and a project can turn them off.
+
+### "Did you mean" explanations
+
+- **What:** when a diagnostic has a likely intent, the message shows both
+  readings side by side: what the code means as written, and the spelling
+  for the likely intent. For a truncation warning such as W2016, that is
+  the width the operation has as written and the cast that keeps the full
+  result.
+- **Why:** a beginner learns more from the two readings next to each
+  other than from the rule alone.
+- **Status:** Partial. Diagnostics carry suggestions, and a round-trip
+  test applies each one and compiles the result; a suggestion shows one
+  fix, not the reading of the code as written.
+- **ADR:** [ADR-0099](adr/ADR-0099-oneri-ileti-aciklama-kalitesi.md)
 
 ## Exploring
 

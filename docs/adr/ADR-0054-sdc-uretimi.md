@@ -2,6 +2,7 @@
 
 > Statü: Kısmen yerini aldı: ADR-0065 — §2 `set_clock_groups -asynchronous` ve §6 `-datapath_only` kararları; eski davranış `--sdc-style=clock-groups`
 > Önceki karar: ADR-0048 — Bölüm 2 (SDC üretim planı)
+> İlgili: ADR-0118 (önerilen kaçış kuralları: `@false_path` ve `@multicycle` raporda; E6003/E6004 kanıtı v0.2.0'da)
 > Tarih: 2026-09-16
 > Etkilenen: volt-hir (`constraints/` YENİ: mod.rs, parse.rs, walk.rs;
 > `attrs.rs` listesi ve W0021 notu; `lib.rs` `analyze`), volt-sdc-emit

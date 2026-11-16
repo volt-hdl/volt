@@ -1,7 +1,7 @@
 # ADR-0116: Aritmetik İşlenen İşlemden Önce Kesiliyor — Geçici Uyarı W2016 (#266)
 
 > Statü: Uygulandı — geçici: #266'nın v0.2.0 kararıyla kalkar ya da yeni kurala göre değişir
-> İlgili: ADR-0025 (`+ - *` esnek aralıkların kesişiminde; kesişimden geniş işlenen işlem genişliğine kesilir), ADR-0041 (check kipinin itmesi: bildirilmiş genişliğe atanan sonuç), ADR-0108 (fark testinin modeli aynı okumayı paylaşır, bu yüzden görmedi; A1), ADR-0112 (W2015: bölmenin işleneni; iki uyarı aynı yerde çıkmaz)
+> İlgili: ADR-0025 (`+ - *` esnek aralıkların kesişiminde; kesişimden geniş işlenen işlem genişliğine kesilir), ADR-0041 (check kipinin itmesi: bildirilmiş genişliğe atanan sonuç), ADR-0108 (fark testinin modeli aynı okumayı paylaşır, bu yüzden görmedi; A1), ADR-0112 (W2015: bölmenin işleneni; iki uyarı aynı yerde çıkmaz), ADR-0119 (önerilen niyet ilkesi: W2016, anlam değişmeden önce verilen uyarının örneği)
 > Tarih: 2026-11-12
 > Etkilenen: `crates/volt-hir/src/typeck/arith_cut.rs` (YENİ:
 > `warn_cut_arith_operands`, değer aralığı, geri alma),
