@@ -158,8 +158,28 @@ yeniden yazım koşuyu kırmızı yapar: hiçbir şeyi sınamıyordur.
 
 ## Kanıt
 
-(Evidence dalı ve CI koşuları PR açıklamasında; bu bölüm onlarla
-doldurulur.)
+- **#204 geri alınınca kırmızı.** `evidence/254-revert-204` dalı (#290,
+  birleştirilmedi) #204'ün düzeltmesini (2a1b390b, `crates/*/src`) bu
+  kararın üstünde geri aldı. Normal CI'ın 43835075278 koşusu, "Verilator
+  lint" işi: `metamorphic` ve `real_bugs` düştü (`test result: FAILED. 22
+  passed; 2 failed`). Listede olmayan başarısızlıklar: `shorthand-to-long`
+  yedi tasarımda: `tests/real_bugs/204_…` ile `tests/ui/fail/258`–`261`'de
+  `safety` (kısaltmada E3001, E3009, E4007, E5010 yok, uzun biçimde var),
+  `256` ve `257`'de `codes` (E2001). `real-bug … 204_… [expect]`:
+  "expected E3001 W3010, volt check gave W3010". Araç defteri `SKIP: 0`.
+- **#216 bilinen başarısızlık.** #289'un 43834597865 koşusu, "Verilator
+  lint": `match-stmt-to-expr tests/real_bugs/216_… [hardware]: first
+  difference (outputs M.y): original A 0 09, rewritten A 0 07`; deyim
+  biçimi s = 1 için 9, ifade biçimi 7 verir. Gerçek hata derleminde
+  aynı dosyanın `expect` (W2014 yok) ve `test` (`assert_eq failed`)
+  başarısızlıkları. Üçü de #216 ile listede; koşu yeşil.
+- **Süre.** PR katmanı (447 tasarım, 22 yeniden üretim, Verilator ile)
+  aynı koşuda 230,9 s'de bitti (`metamorphic_tests`: `24 passed`); hedef
+  15 dakikanın altı. Donanımı karşılaştırılan yer sayıları: 2 + 28 + 6 + 2.
+  Altı tasarım karşılaştırılamadı, nedenleri raporda: üçünde `inout`
+  port var, üçü extern gövdesiz.
+- **Known failures.** 43834598283 koşusu: "issue #216 is open (3 known
+  failure(s))", "pull request #289 closes: no issue".
 
 ## Sınırlar
 
