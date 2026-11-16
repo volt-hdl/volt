@@ -115,7 +115,8 @@ bu derlemeleri ccache'ten geçirir:
   `mutants.yml`'nin parçaları henüz kullanmaz: mutant başına test süresi
   sınırı aynı parçada ölçülen temel koşudan gelir ve önbelleği dolu bir
   temel koşu sınırı, üretilen SV'yi değiştiren bir mutantın soğuk
-  derleme süresinin altına çekebilir (missed bir mutant timeout olur).
+  derleme süresinin altına çekebilir (missed bir mutant timeout olur);
+  seçenekler ve gereken ölçüm #300'de.
 
 ## Coverage
 
