@@ -219,7 +219,15 @@ fn simulate(
 }
 
 /// The metamorphic relations on one design for every rewrite.
-pub fn run_design(d: &Design, rewrites: &[Rewrite], sim: Option<&Sim>, base: &Path) -> Outcome {
+/// `seed` is the run's seed (`corpus::run_seed`); the stimulus of a design
+/// comes from it and the design's id.
+pub fn run_design(
+    d: &Design,
+    rewrites: &[Rewrite],
+    sim: Option<&Sim>,
+    base: &Path,
+    seed: &str,
+) -> Outcome {
     let mut out = Outcome {
         designs: 1,
         ..Default::default()
@@ -282,7 +290,7 @@ pub fn run_design(d: &Design, rewrites: &[Rewrite], sim: Option<&Sim>, base: &Pa
             *count.hw_skipped.entry("no Verilator".into()).or_default() += 1;
             continue;
         };
-        let seed = d.id.clone();
+        let seed = corpus::design_seed(seed, &d.id);
         let o = orig_sim
             .get_or_insert_with(|| simulate(sim, &orig_work, base, "orig", &volt_all, &seed));
         let (o_lines, names, o_sig) = match o {
@@ -339,6 +347,7 @@ pub fn run_all(
     rewrites: &[Rewrite],
     sim: Option<&Sim>,
     base: &Path,
+    seed: &str,
 ) -> Outcome {
     let workers = std::thread::available_parallelism()
         .map_or(2, |n| n.get())
@@ -352,7 +361,7 @@ pub fn run_all(
                 let i = next.fetch_add(1, Ordering::SeqCst);
                 let Some(d) = designs.get(i) else { break };
                 let dir = base.join(format!("w{w}"));
-                let o = run_design(d, rewrites, sim, &dir);
+                let o = run_design(d, rewrites, sim, &dir, seed);
                 let _ = std::fs::remove_dir_all(&dir);
                 total.lock().unwrap().merge(o);
             });
@@ -363,9 +372,57 @@ pub fn run_all(
     o
 }
 
+/// ADR-0117 §6: the rewrites that found no site in the corpus of this run
+/// (each tier judges its own corpus).
+pub fn unused_rewrites<'a>(o: &Outcome, rewrites: &'a [Rewrite]) -> Vec<&'a str> {
+    rewrites
+        .iter()
+        .filter(|r| o.per_rewrite.get(r.id).is_none_or(|c| c.sites == 0))
+        .map(|r| r.id)
+        .collect()
+}
+
 /// Writes the report to the file named by `var` when it is set.
 pub fn write_summary(var: &str, text: &str) {
     if let Some(p) = std::env::var_os(var).filter(|p| !p.is_empty()) {
         std::fs::write(&p, text).unwrap_or_else(|e| panic!("{var}: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-0117 §6: the rule judges the outcome of one run, so each tier is
+    /// judged on its own corpus: a rewrite with sites only in `examples/`
+    /// passes the nightly tier and fails the PR tier.
+    #[test]
+    fn a_rewrite_without_a_site_in_this_run_is_reported() {
+        let mut pr = Outcome::default();
+        let mut night = Outcome::default();
+        for r in rewrites::ALL {
+            night.per_rewrite.insert(
+                r.id.to_string(),
+                RewriteCount {
+                    designs: 1,
+                    sites: 1,
+                    ..Default::default()
+                },
+            );
+        }
+        for r in &rewrites::ALL[1..] {
+            pr.per_rewrite
+                .insert(r.id.to_string(), night.per_rewrite[r.id].clone());
+        }
+        assert!(unused_rewrites(&night, rewrites::ALL).is_empty());
+        assert_eq!(unused_rewrites(&pr, rewrites::ALL), [rewrites::ALL[0].id]);
+        // A rewrite that was tried on designs but found no site counts too.
+        pr.per_rewrite
+            .insert(rewrites::ALL[0].id.to_string(), RewriteCount::default());
+        assert_eq!(unused_rewrites(&pr, rewrites::ALL), [rewrites::ALL[0].id]);
+        assert_eq!(
+            unused_rewrites(&Outcome::default(), rewrites::ALL).len(),
+            rewrites::ALL.len()
+        );
     }
 }

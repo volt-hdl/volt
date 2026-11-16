@@ -32,6 +32,8 @@ jobs:
     name: Metamorphic test, whole corpus
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -40,10 +42,21 @@ jobs:
       # any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
+      # ADR-0117 section 5: the night's stimulus seed is the UTC date (the
+      # test derives each design's stimulus from it and the design's id).
+      # It is printed here, in the report and in the issue of a red night;
+      # VOLT_METAMORPHIC_SEED=<seed> repeats the run anywhere.
+      - name: Seed of this night
+        id: seed
+        run: |
+          seed=$(date -u +%Y-%m-%d)
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Metamorphic nightly seed::VOLT_METAMORPHIC_SEED=$seed"
       - name: Metamorphic test and real-bug corpus (Verilator required)
         env:
           VOLT_REQUIRE_TOOLS: verilator
           VOLT_METAMORPHIC_TIER: nightly
+          VOLT_METAMORPHIC_SEED: ${{ steps.seed.outputs.seed }}
         run: cargo test -p volt-driver --test metamorphic_tests -- --nocapture
       - name: Reports
         if: always()
@@ -93,10 +106,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SEED: ${{ needs.nightly.outputs.seed }}
         run: |
           title="Nightly metamorphic test is red (ADR-0117)"
           {
             printf 'The nightly metamorphic test failed: %s\n\n' "$RUN_URL"
+            printf 'Seed: `%s`. Repeat this run:\n\n```text\nVOLT_METAMORPHIC_TIER=nightly VOLT_METAMORPHIC_SEED=%s VOLT_REQUIRE_TOOLS=verilator cargo test -p volt-driver --test metamorphic_tests\n```\n\n' "${SEED:-unknown}" "${SEED:-unknown}"
             printf 'Every failure is either a new silent-wrong result (open an issue with the minimized design and add it to the known-failures list, or fix it) or a known failure whose issue was fixed (remove the entry).\n\n'
             for f in reports/volt-real-bugs.txt reports/volt-metamorphic.txt; do
               if [ -s "$f" ]; then

@@ -176,10 +176,10 @@ impl Rng {
         self.0 ^= self.0 >> 27;
         self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
-    /// `width` random bits as a bit vector (LSB first); a quarter of the
-    /// values are 0, all ones or 1.
-    fn bits(&mut self, width: usize) -> Vec<bool> {
-        let pick = self.next() % 8;
+    /// `width` random bits as a bit vector (LSB first). A quarter of the
+    /// values are extreme values: 0, 1 or all bits 1 (ADR-0117 §3).
+    pub fn bits(&mut self, width: usize) -> Vec<bool> {
+        let pick = self.next() % 12;
         (0..width)
             .map(|i| match pick {
                 0 => false,
@@ -473,5 +473,28 @@ mod tests {
         assert!(a.tb.contains("{r0__a, ce} = vec[i];"), "{}", a.tb);
         assert!(a.tb.contains("r0__clk = ce[0];"), "{}", a.tb);
         assert_ne!(bench(&roots, &["clk".into()], &[], "other").stim, a.stim);
+    }
+}
+
+#[cfg(test)]
+mod stimulus_tests {
+    use super::*;
+
+    /// ADR-0117 §3: a quarter of the values are 0, 1 or all bits 1.
+    #[test]
+    fn a_quarter_of_the_values_are_extreme() {
+        let mut rng = Rng::new("quarter");
+        let n = 12_000;
+        let mut extreme = 0;
+        for _ in 0..n {
+            let v = rng.bits(16);
+            let ones = v.iter().filter(|b| **b).count();
+            if ones == 0 || ones == 16 || (ones == 1 && v[0]) {
+                extreme += 1;
+            }
+        }
+        // 1/4 by construction, plus 3/65536 by chance among the random ones.
+        let share = f64::from(extreme) / f64::from(n);
+        assert!((0.23..0.27).contains(&share), "{share}");
     }
 }

@@ -27,6 +27,50 @@ impl Tier {
     }
 }
 
+/// The environment variable that sets the run's seed (ADR-0117 §5): the
+/// nightly report and its issue print it, so the same run can be repeated.
+pub const SEED_ENV: &str = "VOLT_METAMORPHIC_SEED";
+
+/// The seed of a run: `VOLT_METAMORPHIC_SEED` when set; otherwise fixed in
+/// the PR tier (`pr`) and the UTC date of the run (`2026-11-16`) in the
+/// nightly tier, so that every night tries other stimuli.
+pub fn run_seed(tier: Tier, env: Option<&str>, today: &str) -> String {
+    match (env.map(str::trim).filter(|s| !s.is_empty()), tier) {
+        (Some(s), _) => s.to_string(),
+        (None, Tier::Pr) => "pr".to_string(),
+        (None, Tier::Nightly) => today.to_string(),
+    }
+}
+
+/// The stimulus seed of one design: the run's seed and the design's id.
+pub fn design_seed(run: &str, design: &str) -> String {
+    format!("{run}:{design}")
+}
+
+/// Today's date in UTC, `YYYY-MM-DD`.
+pub fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock before 1970")
+        .as_secs();
+    civil_date(secs / 86_400)
+}
+
+/// The date `days` after 1970-01-01 (proleptic Gregorian; H. Hinnant's
+/// `civil_from_days`).
+pub fn civil_date(days: u64) -> String {
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// One design: its files, copied alone into a working directory, and the
 /// entry file that `volt check`/`volt build` read and the rewrites change.
 #[derive(Debug, Clone)]
@@ -283,4 +327,67 @@ pub fn load(repo: &Path, tier: Tier) -> Vec<Design> {
         book(repo, &mut out);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metamorphic::sim;
+
+    #[test]
+    fn civil_dates() {
+        assert_eq!(civil_date(0), "1970-01-01");
+        assert_eq!(civil_date(11_016), "2000-02-29");
+        assert_eq!(civil_date(19_723), "2024-01-01");
+        assert_eq!(civil_date(20_773), "2026-11-16");
+    }
+
+    #[test]
+    fn seed_is_fixed_in_pr_and_dated_at_night() {
+        // PR tier: fixed, whatever the date.
+        assert_eq!(run_seed(Tier::Pr, None, "2026-11-16"), "pr");
+        assert_eq!(run_seed(Tier::Pr, None, "2026-11-17"), "pr");
+        // Nightly tier: the date of the run.
+        assert_eq!(run_seed(Tier::Nightly, None, "2026-11-16"), "2026-11-16");
+        // VOLT_METAMORPHIC_SEED repeats a run in either tier; empty is unset.
+        assert_eq!(
+            run_seed(Tier::Nightly, Some("2026-11-02"), "2026-11-16"),
+            "2026-11-02"
+        );
+        assert_eq!(run_seed(Tier::Pr, Some(" x "), "2026-11-16"), "x");
+        assert_eq!(
+            run_seed(Tier::Nightly, Some(""), "2026-11-16"),
+            "2026-11-16"
+        );
+        assert_eq!(
+            design_seed("2026-11-16", "tests/ui/pass/a.volt"),
+            "2026-11-16:tests/ui/pass/a.volt"
+        );
+        assert_eq!(today_utc().len(), 10);
+    }
+
+    /// The nightly stimulus depends on the date and the design, and the
+    /// seed printed in the report gives the same stimulus again.
+    #[test]
+    fn the_printed_seed_reproduces_the_stimulus() {
+        let mods = sim::modules(
+            "module M (\n    input  logic        clk,\n    input  logic [15:0] a,\n    output logic [7:0]  y\n);\nendmodule\n",
+        )
+        .unwrap();
+        let roots = sim::roots(&mods);
+        let clocks = ["clk".to_string()];
+        let stim = |run: &str, design: &str| {
+            sim::bench(&roots, &clocks, &[], &design_seed(run, design)).stim
+        };
+        let night = run_seed(Tier::Nightly, None, "2026-11-16");
+        let again = run_seed(Tier::Nightly, Some(&night), "2026-12-01");
+        assert_eq!(stim(&night, "d.volt"), stim(&again, "d.volt"));
+        assert_ne!(stim(&night, "d.volt"), stim("2026-11-17", "d.volt"));
+        assert_ne!(stim(&night, "d.volt"), stim(&night, "e.volt"));
+        let pr = run_seed(Tier::Pr, None, "2026-11-16");
+        assert_eq!(
+            stim(&pr, "d.volt"),
+            stim(&run_seed(Tier::Pr, None, "2027-01-01"), "d.volt")
+        );
+    }
 }

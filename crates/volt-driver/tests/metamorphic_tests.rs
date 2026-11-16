@@ -284,8 +284,13 @@ fn metamorphic() {
     let entries = known::load(&repo);
     let designs = corpus::load(&repo, tier);
     let sim = sim();
+    let seed = corpus::run_seed(
+        tier,
+        std::env::var(corpus::SEED_ENV).ok().as_deref(),
+        &corpus::today_utc(),
+    );
     let base = metamorphic::temp_base("relations");
-    let o = metamorphic::run_all(&designs, rewrites::ALL, sim.as_ref(), &base);
+    let o = metamorphic::run_all(&designs, rewrites::ALL, sim.as_ref(), &base, &seed);
     let _ = std::fs::remove_dir_all(&base);
     let checks: Vec<&str> = rewrites::ALL.iter().map(|r| r.id).collect();
     let (unlisted, stale) = known::compare(&entries, &o.failures, &o.evaluated, &checks);
@@ -295,6 +300,12 @@ fn metamorphic() {
         started.elapsed().as_secs_f64(),
         sim.is_some(),
     );
+    report.push_str(&format!(
+        "  seed: {seed} (reproduce: {}={} {}={seed} cargo test -p volt-driver --test metamorphic_tests -- metamorphic --exact)\n",
+        "VOLT_METAMORPHIC_TIER",
+        tier.name(),
+        corpus::SEED_ENV
+    ));
     for (k, why) in &o.failures {
         if let Some(e) = entries.iter().find(|e| &e.key == k) {
             report.push_str(&format!(
@@ -303,12 +314,9 @@ fn metamorphic() {
             ));
         }
     }
-    // ADR-0117 §6: a rewrite that finds no site in the corpus tests nothing.
-    let unused: Vec<&str> = rewrites::ALL
-        .iter()
-        .filter(|r| o.per_rewrite.get(r.id).is_none_or(|c| c.sites == 0))
-        .map(|r| r.id)
-        .collect();
+    // ADR-0117 §6: a rewrite that finds no site in this tier's corpus tests
+    // nothing.
+    let unused = metamorphic::unused_rewrites(&o, rewrites::ALL);
     if !unused.is_empty() {
         report.push_str(&format!(
             "\nRewrites with no site in the corpus: {}\n",
@@ -342,6 +350,7 @@ fn rewrite_examples_keep_their_meaning() {
                 std::slice::from_ref(r),
                 sim.as_ref(),
                 &base.join(r.id),
+                "example",
             );
             failures.extend(o.failures);
             let c = o.per_rewrite.get(r.id).cloned().unwrap_or_default();
