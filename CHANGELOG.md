@@ -28,7 +28,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   SDC'de sahte E0017; issue'da adı geçmeyen iki yer daha: `@mmio`
   açılımında sahte E1003, pipeline denetiminde sahte E5011), #215 ve #211
   (yeni gerçek hata yeniden üretimleri `tests/real_bugs/215_…`,
-  `211_…`).
+  `211_…`). `wire`/`let` açıklamasının E3001'i iki biçimde farklı simgede
+  gösteriliyor (`location`); karar #298'de.
+- **Rapor** her katmanda karşılaştırma ve Verilator çağrı sayısını ve
+  Verilator'da geçen süreyi yazar; karşılaştırma sayısı çağrı sayısını
+  aşarsa test düşer.
 - **Eklenmeyen.** Alt modülün satır içi alınması ↔ örneklenmesi (#210):
   şartname iki yazımı güven seviyesinde (K11'in tutucu örnek özeti) ve
   saatsiz modülün tanı yerinde (K8b) bilerek ayırıyor; karar #296'da.

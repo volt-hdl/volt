@@ -71,6 +71,10 @@ pub struct Outcome {
     pub per_rewrite: BTreeMap<String, RewriteCount>,
     pub designs: usize,
     pub originals_with_errors: usize,
+    /// Verilator builds and runs of a testbench, and their time summed
+    /// over the workers (seconds).
+    pub sim_runs: usize,
+    pub sim_secs: f64,
 }
 
 #[derive(Default, Clone)]
@@ -96,6 +100,8 @@ impl Outcome {
         }
         self.designs += o.designs;
         self.originals_with_errors += o.originals_with_errors;
+        self.sim_runs += o.sim_runs;
+        self.sim_secs += o.sim_secs;
     }
 }
 
@@ -171,6 +177,7 @@ fn location_mismatch(orig: &[Diag], var: &[Diag], rw: &edit::Rewritten) -> Optio
 type Simulated = (Vec<String>, Vec<String>, String);
 
 fn simulate(
+    stats: &mut (usize, f64),
     sim: &Sim,
     work: &Work,
     base: &Path,
@@ -209,13 +216,16 @@ fn simulate(
     let bench = sim::bench(&roots, &clocks, &resets, seed);
     let mut files = svs.clone();
     files.extend(work.own_sv());
+    let started = std::time::Instant::now();
+    stats.0 += 1;
     let lines = sim::run(
         &sim.verilator,
         &base.join(format!("{tag}-sim")),
         &bench,
         &files,
-    )?;
-    Ok((lines, sim::output_names(&roots), sig))
+    );
+    stats.1 += started.elapsed().as_secs_f64();
+    Ok((lines?, sim::output_names(&roots), sig))
 }
 
 /// The metamorphic relations on one design for every rewrite.
@@ -248,6 +258,7 @@ pub fn run_design(
         .join("\n");
     // The original's simulation, computed once, when a rewrite needs it.
     let mut orig_sim: Option<Result<Simulated, String>> = None;
+    let mut stats = (0usize, 0f64);
     for r in rewrites {
         let edits = (r.sites)(&text);
         if edits.is_empty() {
@@ -291,8 +302,9 @@ pub fn run_design(
             continue;
         };
         let seed = corpus::design_seed(seed, &d.id);
-        let o = orig_sim
-            .get_or_insert_with(|| simulate(sim, &orig_work, base, "orig", &volt_all, &seed));
+        let o = orig_sim.get_or_insert_with(|| {
+            simulate(&mut stats, sim, &orig_work, base, "orig", &volt_all, &seed)
+        });
         let (o_lines, names, o_sig) = match o {
             Ok(v) => v.clone(),
             Err(e) => {
@@ -311,7 +323,7 @@ pub fn run_design(
             }
         };
         out.evaluated.insert(key(r.id, &d.id, "hardware"));
-        let v = simulate(sim, &var_work, base, r.id, &volt_all, &seed);
+        let v = simulate(&mut stats, sim, &var_work, base, r.id, &volt_all, &seed);
         let count = out.per_rewrite.get_mut(r.id).unwrap();
         count.hw_compared += 1;
         let finding = match v {
@@ -338,6 +350,7 @@ pub fn run_design(
             out.failures.push((key(r.id, &d.id, "hardware"), f));
         }
     }
+    (out.sim_runs, out.sim_secs) = stats;
     out
 }
 

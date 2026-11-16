@@ -224,6 +224,20 @@
       "relation": "codes",
       "issue": 234,
       "reason": "false E0017 on @timing: the constraint pass (constraints/walk.rs) does not see a clock port written through an alias"
+    },
+    {
+      "check": "wire-to-let",
+      "design": "tests/ui/fail/185_domain_annot_wire_foreign.volt",
+      "relation": "location",
+      "issue": 298,
+      "reason": "the wire's E3001 is at its assignment, the let's at its annotation"
+    },
+    {
+      "check": "let-to-wire",
+      "design": "tests/ui/fail/186_domain_annot_let_foreign.volt",
+      "relation": "location",
+      "issue": 298,
+      "reason": "the let's E3001 is at its annotation, the wire's at its assignment"
     }
   ]
 }

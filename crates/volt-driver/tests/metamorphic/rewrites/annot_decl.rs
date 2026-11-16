@@ -25,13 +25,10 @@
 //! name-resolution.md §5). A wire driven from `comb` is not rewritten:
 //! whether `let` and `wire` + `comb` are one design is #291.
 //!
-//! The location map: each rewrite is one edit whose text is its own (no
-//! anchors), so a diagnostic anywhere in the new statement maps back to
-//! the whole statement or statement pair it replaces. The spec says that
-//! the annotation is checked against the driver or the value (K1), not
-//! which token carries the E3001: today the wire's points at its
-//! assignment, the `let`'s at its annotation. The relation compares the
-//! statement.
+//! The location map (ADR-0117 §2, §3): the name, the type with its
+//! annotation and the value are copies, anchored to the original's (the
+//! name of the `let` to the wire's declaration); only the keywords and the
+//! punctuation are the rewrite's own text.
 
 use crate::metamorphic::edit::{Builder, Edit};
 use crate::metamorphic::lex::{self, Kind, Tok};
@@ -141,12 +138,12 @@ pub fn wire_to_let(src: &str) -> Vec<Edit> {
             continue;
         };
         let mut b = Builder::new(src);
-        b.lit(&format!(
-            "let {} : {} = {}",
-            t(a),
-            &src[toks[k + 3].start..toks[decl_end - 1].end],
-            &src[toks[a + 2].start..toks[end - 1].end]
-        ));
+        b.lit("let ")
+            .copy(toks[k + 1].start, toks[k + 1].end)
+            .lit(" : ")
+            .copy(toks[k + 3].start, toks[decl_end - 1].end)
+            .lit(" = ")
+            .copy(toks[a + 2].start, toks[end - 1].end);
         edits.push(b.finish(toks[k].start, toks[end - 1].end));
     }
     edits
@@ -175,11 +172,16 @@ pub fn let_to_wire(src: &str) -> Vec<Edit> {
             continue;
         };
         let ind = lex::indent_of(src, toks[k].start);
-        let name = t(k + 1);
-        let value = &src[toks[decl_end + 1].start..toks[end - 1].end];
-        let ty = &src[toks[k + 3].start..toks[decl_end - 1].end];
+        let name = (toks[k + 1].start, toks[k + 1].end);
         let mut b = Builder::new(src);
-        b.lit(&format!("wire {name} : {ty}\n{ind}{name} = {value}"));
+        b.lit("wire ")
+            .copy(name.0, name.1)
+            .lit(" : ")
+            .copy(toks[k + 3].start, toks[decl_end - 1].end)
+            .lit(&format!("\n{ind}"))
+            .copy(name.0, name.1)
+            .lit(" = ")
+            .copy(toks[decl_end + 1].start, toks[end - 1].end);
         edits.push(b.finish(toks[k].start, toks[end - 1].end));
     }
     edits
@@ -197,11 +199,19 @@ mod tests {
     fn wire_becomes_let() {
         let r = apply(WIRE, wire_to_let(WIRE));
         assert_eq!(r.text, LET);
-        // The let maps back to the declaration and its assignment.
+        // The annotation and the value are anchored to the original's;
+        // the keyword maps back to the declaration and its assignment.
         let sec = r.text.find("@Sec =").unwrap();
-        let from = WIRE.find("wire").unwrap();
+        let old = WIRE.find("@Sec\n    w =").unwrap();
+        assert_eq!(r.to_orig(sec), (old, old));
+        let key = r.text.find("key ^").unwrap();
+        let old = WIRE.find("key ^").unwrap();
+        assert_eq!(r.to_orig(key), (old, old));
         let to = WIRE.find(" ^ 1").unwrap() + 4;
-        assert_eq!(r.to_orig(sec), (from, to));
+        assert_eq!(
+            r.to_orig(r.text.find("let w").unwrap()),
+            (WIRE.find("wire").unwrap(), to)
+        );
     }
 
     #[test]

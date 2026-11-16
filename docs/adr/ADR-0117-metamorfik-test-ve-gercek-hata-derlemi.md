@@ -265,12 +265,15 @@ Sınırları (her biri birim testleriyle):
   §5); parça sürücüsü, ikinci sürücü ve `comb`'dan sürülen tel yeniden
   yazılmaz (`let` ↔ `wire` + `comb` #291'i bekliyor). Blok `let`'i ve
   tipsiz ya da açıklamasız bildirim yeniden yazılmaz.
-- Bu iki yeniden yazımın düzenlemesi tek parçadır ve çapası yoktur:
-  yeni deyimdeki her tanı yerine geçtiği deyime (ya da bildirim ve atama
-  çiftine) eşlenir. K1 açıklamanın sürücüye ya da değere karşı
-  denetlendiğini söyler, E3001'in hangi simgede gösterileceğini söylemez;
-  bugün telinki atamada, `let`'inki açıklamada. `location` ilişkisi bu
-  yüzden deyimi karşılaştırır.
+- Konum haritası §2 ve §3'teki gibidir: ad, açıklamalı tip ve değer
+  kopyadır ve özgünlerine çapalanır (`let`'in adı telin bildirimindeki
+  ada); yalnız anahtar sözcük ve noktalama yeniden yazımın kendi
+  metnidir. Bugün telin E3001'i atamada, `let`'inki açıklamada
+  gösteriliyor; `location` ilişkisi `tests/ui/fail/185` ve `186`'da bu
+  yüzden düşer. K1 E3001'in hangi simgede gösterileceğini söylemez; karar
+  #298'de, iki kayıt onunla listede. (PR'ın ilk hâli çapaları kaldırıp
+  deyimi karşılaştırıyordu; bu §2'nin konum haritasına aykırı, `extra_codes`
+  dışındaki bir istisna olurdu ve geri alındı.)
 - `clock-to-alias` genel argümana, struct alanına ve `fn` parametresine
   dokunmaz (ADR-0070 dört bildirimi sayar); `domain` gövdesindeki
   `clock = posedge` bir tip değildir. Yer sayısı her tasarımda eklenen
@@ -309,9 +312,10 @@ alır" cümlesi eksik E3009'u her seçenekte hata yapar.
 
 ### 3. Bulunanlar
 
-Üç issue da açık; başarısızlıkları issue numarasıyla
-`known_failures.json`'da (gecelik derlemin dört kaydıyla 29 yeni kayıt).
-Listede olmayan yeni bir başarısızlık çıkmadı.
+Başarısızlıkların hepsi açık issue'larla `known_failures.json`'da
+(gecelik derlemin dört kaydıyla 31 yeni kayıt: #234 24, #215 3, #211 2,
+#298 2). Sessiz yanlış olan yeni bir başarısızlık çıkmadı; `wire`/`let`
+konum farkı açık bir hatanın yeridir, karar issue'su #298.
 
 - **#234** (`clock-to-alias`, PR derleminde 20 tasarım): sıfırlama alanı
   denetimleri (`rdc/facts.rs`) takma adla yazılmış saati görmüyor:
@@ -369,15 +373,31 @@ yeniden yazımlarda öteki tasarımlar ya özgünde hatalıdır
 `tests/ui/fail/186`) ya da kodları ayrıştığı için donanıma gelmeden
 düşer (`tests/real_bugs/211`).
 
-- **PR katmanı:** `metamorphic` 51,8 s'de, 24 başarısızlığın hepsi
-  bilinen; `real_bugs` 24 yeniden üretim, 10'unun `test` bloğu
-  Verilator'da koştu, 4 başarısızlık, 4'ü bilinen (24,7 s);
-  `metamorphic_tests`: `45 passed; 0 failed` (86,3 s). Hedef 15
-  dakikanın altı.
-- **Gecelik katman, bir kez, tarihli tohumla:** `VOLT_METAMORPHIC_TIER=nightly`,
-  tohum `2026-11-16`: 28 başarısızlık, hepsi bilinen, 31,6 s; koşu yeşil.
-  #215 ve #216'nın `hardware` kayıtları bu tohumla da düştü (başka uyaranla:
-  `A 0 02c 12c`, `A 3 09`).
+- **Rapor artık Verilator çağrılarını sayar:** `hardware: N
+  comparisons, M Verilator builds and runs, X s in them (summed over the
+  workers)`; `metamorphic` testi karşılaştırma sayısı Verilator çağrı
+  sayısını aşarsa düşer (karşılaştırma benzetimsiz sayılamaz).
+- **Gecelik katman, tarihli tohumla (`2026-11-16`), yeni bir konteynerde
+  üç kez.** Her koşuda 490 tasarım, 178 karşılaştırma, 313 Verilator
+  derleme ve koşusu (178 yeniden yazılmış, 135 özgün), 30 başarısızlık,
+  hepsi bilinen, koşu yeşil:
+
+  | ccache | Süre | Verilator'da (işçiler toplamı) | ccache isabeti |
+  |---|---|---|---|
+  | kapalı (`CCACHE_DISABLE=1`) | 402,6 s | 1569,1 s | — |
+  | açık, boş önbellek | 59,5 s | 217,2 s | 1086 / 1232 |
+  | açık, dolu önbellek | 26,9 s | 87,5 s | 1232 / 1232 |
+
+  `volt-difftest-dev` imajında ccache 4.9.1 var ve Verilator'ın
+  `verilated.mk`'si onu kullanır (`OBJCACHE ?= ccache`); tasarımlar
+  arasında Verilator'ın çalışma zamanı kütüphanesi aynıdır, boş önbellekte
+  bile derlemelerin çoğu isabettir. İlk raporlanan 31,6 s aynı konteynerde
+  hemen önce koşan PR katmanının doldurduğu önbellekle ölçülmüştü. CI'ın
+  araçlı işinde ccache yok; oradaki süreler kapalı satıra yakındır.
+  #215 ve #216'nın `hardware` kayıtları bu tohumla da düştü (başka
+  uyaranla: `A 0 02c 12c`, `A 3 09`).
+- **PR katmanı, yerelde (önbellek dolu):** `metamorphic` 51,8 s,
+  `real_bugs` 24,7 s; `metamorphic_tests`: `45 passed; 0 failed`.
 - **CI (#297, 213c2812):** 43934640812 koşusu, "Verilator lint":
   `metamorphic_tests` `45 passed; 0 failed` (518,3 s); `metamorphic`
   tablosu yereldekiyle aynı, `failures: 24; 518.3 s`, hepsi bilinen;
