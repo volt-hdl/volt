@@ -261,34 +261,39 @@ fn decode(hex: &str) -> Vec<(&'static str, u64, u64)> {
 }
 
 /// `design`'ı `file` adıyla derler ve koşturur; standart çıktıyı döndürür.
-/// Verilator seçenekleri `flags`: kanaryalarda Volt'unkiler
-/// (`VERILATOR_BUILD_FLAGS`, #148), DFG ölçümünde boş.
-fn run(dir: &Path, verilator: &Path, file: &str, design: &str, flags: &[&str]) -> String {
+/// Verilator seçenekleri Volt'unkiler (`VERILATOR_BUILD_FLAGS`, #148);
+/// `dfg_on` (Verilator #9060 ölçümü) yalnız `-fno-dfg`'yi çıkarır.
+fn run(dir: &Path, verilator: &Path, file: &str, design: &str, dfg_on: bool) -> String {
     std::fs::write(dir.join(file), design).expect(file);
-    let build = Command::new(verilator)
-        .current_dir(dir)
-        .args([
-            "--binary",
-            "--timing",
-            "--assert",
-            "-Wall",
-            "-Wno-fatal",
-            "-Wno-DECLFILENAME",
-            "--top-module",
-            "tb",
-            "-Mdir",
-            "obj",
-            "-o",
-            "vtb",
-            "-j",
-            "2",
-            "-CFLAGS",
-            "-O0",
-        ])
-        .args(flags)
-        .arg(file)
-        .output()
-        .expect("verilator çalıştırılamadı");
+    let mut build = Command::new(verilator);
+    build.current_dir(dir).args([
+        "--binary",
+        "--timing",
+        "--assert",
+        "-Wall",
+        "-Wno-fatal",
+        "-Wno-DECLFILENAME",
+        "--top-module",
+        "tb",
+        "-Mdir",
+        "obj",
+        "-o",
+        "vtb",
+        "-j",
+        "2",
+        "-CFLAGS",
+        "-O0",
+    ]);
+    if dfg_on {
+        build.args(
+            volt_tools::VERILATOR_BUILD_FLAGS
+                .iter()
+                .filter(|f| **f != "-fno-dfg"),
+        );
+    } else {
+        build.args(volt_tools::VERILATOR_BUILD_FLAGS);
+    }
+    let build = build.arg(file).output().expect("verilator çalıştırılamadı");
     assert!(
         build.status.success(),
         "Verilator kanarya tasarımını ({file}) derleyemedi:
@@ -312,13 +317,7 @@ fn check(issue: u32, design: &str) {
     };
     let tag = format!("issue{issue}");
     let dir = temp_dir(&tag);
-    let out = run(
-        &dir,
-        &verilator,
-        &format!("{tag}.sv"),
-        design,
-        volt_tools::VERILATOR_BUILD_FLAGS,
-    );
+    let out = run(&dir, &verilator, &format!("{tag}.sv"), design, false);
     let line = out
         .lines()
         .find(|l| l.starts_with("R 0 17 "))
@@ -411,13 +410,7 @@ fn the_issue_302_signed_overshift_canary() {
     };
     let version = verilator_version(&verilator);
     let dir = temp_dir("issue302");
-    let out = run(
-        &dir,
-        &verilator,
-        "issue302.sv",
-        ISSUE_302,
-        volt_tools::VERILATOR_BUILD_FLAGS,
-    );
+    let out = run(&dir, &verilator, "issue302.sv", ISSUE_302, false);
     let line = out
         .lines()
         .find(|l| l.starts_with("R302 "))
@@ -464,13 +457,7 @@ fn the_issue_9256_port_tied_shift_canary() {
     };
     let version = verilator_version(&verilator);
     let dir = temp_dir("issue9256");
-    let out = run(
-        &dir,
-        &verilator,
-        "issue9256.sv",
-        ISSUE_9256,
-        volt_tools::VERILATOR_BUILD_FLAGS,
-    );
+    let out = run(&dir, &verilator, "issue9256.sv", ISSUE_9256, false);
     let line = out
         .lines()
         .find(|l| l.starts_with("R9256 "))
@@ -517,7 +504,7 @@ fn the_issue_9060_designs_with_dfg_on_are_measured() {
     for (issue, design) in [(145, ISSUE_145), (148, ISSUE_148)] {
         let tag = format!("dfg{issue}");
         let dir = temp_dir(&tag);
-        let out = run(&dir, &verilator, &format!("{tag}.sv"), design, &[]);
+        let out = run(&dir, &verilator, &format!("{tag}.sv"), design, true);
         let line = out
             .lines()
             .find(|l| l.starts_with("R 0 17 "))
