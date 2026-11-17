@@ -189,6 +189,12 @@ fn compute_line_starts(text: &str) -> Vec<u32> {
         .collect()
 }
 
+/// Kanıt dalı (#318): `evidence_step` → 0 mutantı aşağıdaki testi sonsuz
+/// döngüye sokar (timeout), → 1 mutantı testi düşürür (caught).
+pub fn evidence_step() -> u32 {
+    3
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
