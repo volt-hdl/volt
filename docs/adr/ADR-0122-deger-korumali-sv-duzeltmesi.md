@@ -1,6 +1,6 @@
 # ADR-0122: Değer Korumalı SV Düzeltmesi Son Hanede Çıkabilir — Geçerli Tasarımda Duran Volt Komutu İçin ADR-0100 İstisnası (#303)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0100 (§1'in son hane kuralını genişletir: sessiz yanlış istisnasının yanına ikinci bir istisna), ADR-0119 (İlke denetimi; İ3'ün geçiş uyarısı da ADR-0100'ü aynı biçimde genişletir)
 > Issue: #303 (istisnanın ilk örneği; kanıtı PR #315)
 > Tarih: 2026-11-17
