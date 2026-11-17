@@ -364,7 +364,7 @@ volt doctor
 volt 0.1.2 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
-✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)
+✓ test, run — via Docker (verilator/verilator:v5.054: Verilator 5.054, g++ 13.3)
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
 - timing (optional) — OpenSTA not found; checks generated .sdc files
 - driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
@@ -387,7 +387,7 @@ formal one. The Tour needs just the simulation image.
 
 If `verilator` and `sby` are on your `PATH`, Volt uses them and never
 starts a container. The images are pinned by digest
-(`verilator/verilator:v5.052`, `hdlc/formal:all`), so a result does not
+(`verilator/verilator:v5.054`, `hdlc/formal:all`), so a result does not
 change when an image tag moves. `VOLT_TOOL_BACKEND=local` turns the
 Docker bridge off; `VOLT_TOOL_BACKEND=docker` forces it. On Linux the
 files the container writes belong to you, not to root.

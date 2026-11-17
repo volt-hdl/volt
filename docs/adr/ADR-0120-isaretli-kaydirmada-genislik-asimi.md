@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0025 — W2013 bölümündeki "sonuç her zaman 0'dır" cümlesi, işaretli `>>` için: sonuç işaret bitiyle dolar (işaretsiz `>>` ve `<<` için cümle yürürlükte)
-> İlgili: ADR-0036 (§1: işaretli `>>` aritmetiktir, `>>>`; bu ADR genişlik kadar ve fazla kaydırmanın değerini yazar), ADR-0100 (sessiz yanlış istisnası: düzeltme son hanede, v0.1.3), ADR-0107 (hakem sürümü: sabitlenen Verilator 5.052'nin hatası kanaryada belgelenir), ADR-0108 (modelin A12 okuması bu ADR'yle kural olur), ADR-0119 (İlke denetimi)
+> İlgili: ADR-0036 (§1: işaretli `>>` aritmetiktir, `>>>`; bu ADR genişlik kadar ve fazla kaydırmanın değerini yazar), ADR-0100 (sessiz yanlış istisnası: düzeltme son hanede, v0.1.3), ADR-0107 (hakem sürümü: sabitlenen Verilator 5.052'nin hatası kanaryada belgelenir), ADR-0108 (modelin A12 okuması bu ADR'yle kural olur), ADR-0119 (İlke denetimi), ADR-0121 (Sınırlar'ın "Volt'ta sabit olmayan, Verilator'da sabitleşen miktar" maddesini kapatır: hakem 5.054, #309; kalan dar hata Verilator #9256)
 > Issue: #302
 > Tarih: 2026-11-17
 > Etkilenen: `crates/volt-sv-emit/src/expr.rs` (`emit_binary`; YENİ: `clamped_signed_shift`,

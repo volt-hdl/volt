@@ -24,6 +24,24 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   işaret bitiyle dolduğunu (0 ya da -1) söyler; kod aynı. Son hanede
   (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm notunun
   "Behavior changes" bölümüne girer.
+- **Davranış değişikliği.** Önerilen ve sabitlenen Verilator 5.054'tür
+  (#309; sessiz yanlış düzeltmesi, ADR-0121, Önerildi). Verilator yerelde
+  kurulu değilken `volt test` ve `volt run` artık
+  `verilator/verilator:v5.054` imajını (özetle sabit) koşturur: ilk koşu
+  yeni imajı bir kez indirir (~250 MB) ve bildirim satırı `(verilator/verilator:v5.054)`
+  der; `volt doctor` "Verilator 5.054, g++ 13.3" yazar. CI ve fark testi
+  de aynı sürümle sınar. Neden: 5.050–5.052, miktarı bir örneğin sabite
+  bağladığı port olan işaretli `>>`'de (`G { a: a, k: 64 }`, `y = a >> k`)
+  negatif değere 0 veriyordu; Volt bu miktarı sabit göremediğinden
+  ADR-0120'nin `>>> (w-1)` biçimi orada devreye giremiyordu. 5.054 -1
+  verir, sentez, Yosys ve `volt verify` ile aynı. Derleyicinin ürettiği SV
+  değişmez; `-fno-dfg` kalır (Verilator #9060 5.054'te de açık). Bilinen
+  sınır: 64 bitten geniş, genişliği 32'nin katından bir fazla (65, 97,
+  129), bir ifadeyle hesaplanan işaretli değer sabite bağlı bir port
+  miktarıyla kaydırılınca 5.054 de negatif değerde `…0001` verir
+  (Verilator #9256; kitabın "Known limitations" sayfası). Yerelinde
+  5.050–5.052 olan kullanıcı 5.054'e geçmeli ya da
+  `VOLT_TOOL_BACKEND=docker` kullanmalı. Son hanede çıkar.
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 

@@ -154,6 +154,11 @@ exclude_re = [
     # sweep has K = w for every width class), difftest_tests, metamorphic_tests
     # and verilator_canary_tests pass, and the SV of the i63, i65 and
     # amount-form examples is clean under `verilator --lint-only -Wall`.
+    # Re-checked on 5.054, the referee since #309 (ADR-0121), in a throwaway
+    # worktree: the same four binaries pass (signed_overshift_sim_tests 9
+    # with the #309 test, metamorphic_tests 45, verilator_canary_tests 7,
+    # difftest_tests 1) and the SV (`a >>> 63`, `65'(e) + 65'(f) >>> 65`)
+    # is lint-clean: K = w stays below cppw in the residual class too.
     # Re-check when the referee changes (ISSUE_302_MEASURED in the canary).
     # expect: crates/volt-sv-emit/src/expr.rs:1456:40: replace - with / in Emitter<'a>::clamped_signed_shift
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace - with / in Emitter<'a>::clamped_signed_shift$",

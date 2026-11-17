@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 /// Volt'un Verilator'ı derleme ve simülasyon için çağırdığı her yerde
 /// eklenen seçenekler — tek tanım (#148; ADR-0107, "Ek: DFG kapalı").
 ///
-/// `-fno-dfg`: Verilator 5.052'nin (Docker arka ucunun ve CI'ın sabitlenmiş
-/// sürümü) ve 5.053 devel'in DFG eniyileyicisi doğru SV'yi yanlış derler:
+/// `-fno-dfg`: Verilator 5.052'nin, 5.053 devel'in ve 5.054'ün (Docker arka
+/// ucunun ve CI'ın sabitlenmiş sürümü) DFG eniyileyicisi doğru SV'yi bozar:
 /// karşılaştırmaları geniş bir birleştirmeye `(a >= b) << 31` diye gömer ve
 /// C++'ın işaretli kaydırması işaret bitini komşu alanlara yayar (#145,
 /// #148). Kullananlar: `volt test`, `volt run` ve `volt test --waves`

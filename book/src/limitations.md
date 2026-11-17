@@ -454,12 +454,40 @@ command will run.
 
 **Verilator runs with its DFG optimizer turned off.** `volt test` and
 `volt run` pass `-fno-dfg` to every Verilator build, locally and in
-Docker. With that optimizer on, Verilator 5.052 prints wrong values for
-some correct SystemVerilog
-([#148](https://github.com/volt-hdl/volt/issues/148)). On the example
-designs the option changed the time of `volt test` by less than the
-difference between two runs. If you run Verilator on the generated
-SystemVerilog yourself, add `-fno-dfg` too.
+Docker. With that optimizer on, Verilator 5.052 and 5.054 print wrong
+values for some correct SystemVerilog
+([#148](https://github.com/volt-hdl/volt/issues/148), reported upstream as
+[verilator#9060](https://github.com/verilator/verilator/issues/9060)). On
+the example designs the option changed the time of `volt test` by less
+than the difference between two runs. If you run Verilator on the
+generated SystemVerilog yourself, add `-fno-dfg` too.
+
+**Use Verilator 5.054 for `volt test`.** The project tests every
+simulation result with Verilator 5.054, and the Docker image of `volt
+test` holds that release. Verilator 5.050, 5.051 and 5.052 give 0 instead
+of -1 for a negative signed value shifted right by an amount that is a
+constant for Verilator and at least the width of a C++ word (32 or 64
+bits, or the width rounded up to 32 bits). Volt writes a constant amount
+in a form those releases compute correctly, but it cannot do that when
+the amount is a port that a module instance ties to a constant, as
+`G { a: a, k: 64 }` with `y = a >> k` in `G`
+([#309](https://github.com/volt-hdl/volt/issues/309)). If `volt doctor`
+shows a local Verilator 5.050 to 5.052, update it, or set
+`VOLT_TOOL_BACKEND=docker`.
+
+**A signed shift of a wide sum can simulate wrong in Verilator 5.054.**
+Four conditions together: the value is signed and wider than 64 bits,
+its width is one more than a multiple of 32 (65, 97, 129 bits), it is
+computed by an expression such as `(e + f)` rather than read from a port
+or signal, and it is shifted right by a port that a module instance ties
+to a constant at least the width rounded up to 32 bits (96 for 65 bits).
+For a negative value Verilator 5.054 then gives `...0001` instead of all
+ones; synthesis, Yosys and `volt verify` give all ones. Reported upstream
+as [verilator#9256](https://github.com/verilator/verilator/issues/9256),
+tracked in [issue #311](https://github.com/volt-hdl/volt/issues/311).
+Workaround: make the amount a `const` or a generic parameter of the
+module that shifts (`G<130> { ... }` with `y = (e + f) >> N`): Volt then
+writes the shift in a form that Verilator computes correctly.
 
 **Every clock runs at the same rate in simulation.** `volt test` and
 `volt run` give each clock port of the design one rising edge per cycle,

@@ -566,3 +566,131 @@ test "a positive value" {
         2,
     );
 }
+
+/// #309: miktar Volt'ta çalışma anı değeridir (port), örnek onu sabite
+/// bağlar. Volt W2013 vermez ve `a >>> k` yazar (IEEE 1800-2017
+/// §11.4.10'a göre doğru); Verilator modülleri açıp sabiti yayınca miktar
+/// onun için sabit olur. 5.050–5.052'de bu, #302'nin hatasıdır (negatif
+/// değere 0); hakem 5.054'te düzeldi (ADR-0121). Beklenen
+/// değerler kuraldan (ADR-0120 §1): K ≥ w için negatif değerde bütün bitler
+/// 1, negatif olmayanda 0.
+///
+/// Sınıflar (#302'deki tarama, cppw `cppw()`'deki gibi): `G63` i63, k = 64
+/// (#309'un örneği; cppw 64) ve k = 2^32 - 1; `G31` i31, k = 32 (cppw 32);
+/// `G8` i8, k = 40; `G66` i66 bileşik (`c * d`, i33 girişler, cppw 96),
+/// k = 132; `G67` i67 bileşik (`c * d + c * d`), k = 134. 64 bitten geniş,
+/// w mod 32 = 1 bileşik değer burada yok: 5.054'te kalan dar hata
+/// (Verilator #9256) o sınıfta sürer, kanaryada belgelenir.
+///
+/// Girişler: i63'te -1 = 0x7FFF_FFFF_FFFF_FFFF; i31'de en küçük değer
+/// 0x4000_0000; i8'de -1 = 0xFF; c = -1 (i33'te 0x1_FFFF_FFFF), d = 1:
+/// çarpım -1, toplam (-1) + (-1) = -2, ikisi de negatif. Pozitif tarafta
+/// i63'te 0x3FFF_FFFF_FFFF_FFFF, i31'de 0x3FFF_FFFF, i8'de 0x7F, c = 2,
+/// d = 3: 0. 64 bitten geniş sonuç [w-1:w-64] ve [63:0] dilimleriyle okunur.
+#[test]
+fn issue_309_an_amount_tied_to_a_constant_through_a_port_fills_with_the_sign() {
+    sim(
+        "port309",
+        r#"module G63 {
+    in  a : i63
+    in  k : u32
+    out y : i63
+    y = a >> k
+}
+module G31 {
+    in  a : i31
+    in  k : u32
+    out y : i31
+    y = a >> k
+}
+module G8 {
+    in  a : i8
+    in  k : u32
+    out y : i8
+    y = a >> k
+}
+module G66 {
+    in  c  : i33
+    in  d  : i33
+    in  k  : u32
+    out hi : bits<64>
+    out lo : bits<64>
+    hi = ((c * d) >> k)[65:2]
+    lo = ((c * d) >> k)[63:0]
+}
+module G67 {
+    in  c  : i33
+    in  d  : i33
+    in  k  : u32
+    out hi : bits<64>
+    out lo : bits<64>
+    hi = ((c * d + c * d) >> k)[66:3]
+    lo = ((c * d + c * d) >> k)[63:0]
+}
+module P {
+    in  a63  : i63
+    in  a31  : i31
+    in  a8   : i8
+    in  c    : i33
+    in  d    : i33
+    out y64  : i63
+    out ymax : i63
+    out y31  : i31
+    out y8   : i8
+    out h66  : bits<64>
+    out l66  : bits<64>
+    out h67  : bits<64>
+    out l67  : bits<64>
+    let g64  = G63 { a: a63, k: 64 }
+    let gmax = G63 { a: a63, k: 0xFFFF_FFFF }
+    let g31  = G31 { a: a31, k: 32 }
+    let g8   = G8 { a: a8, k: 40 }
+    let g66  = G66 { c: c, d: d, k: 132 }
+    let g67  = G67 { c: c, d: d, k: 134 }
+    y64  = g64.y
+    ymax = gmax.y
+    y31  = g31.y
+    y8   = g8.y
+    h66  = g66.hi
+    l66  = g66.lo
+    h67  = g67.hi
+    l67  = g67.lo
+}
+test "negative values give all ones" {
+    let dut = P { };
+    dut.a63 = 0x7FFF_FFFF_FFFF_FFFF;
+    dut.a31 = 0x4000_0000;
+    dut.a8 = 0xFF;
+    dut.c = 0x1_FFFF_FFFF;
+    dut.d = 1;
+    step(1);
+    assert_eq(dut.y64, 0x7FFF_FFFF_FFFF_FFFF);
+    assert_eq(dut.ymax, 0x7FFF_FFFF_FFFF_FFFF);
+    assert_eq(dut.y31, 0x7FFF_FFFF);
+    assert_eq(dut.y8, 0xFF);
+    assert_eq(dut.h66, 0xFFFF_FFFF_FFFF_FFFF);
+    assert_eq(dut.l66, 0xFFFF_FFFF_FFFF_FFFF);
+    assert_eq(dut.h67, 0xFFFF_FFFF_FFFF_FFFF);
+    assert_eq(dut.l67, 0xFFFF_FFFF_FFFF_FFFF);
+}
+test "non-negative values give 0" {
+    let dut = P { };
+    dut.a63 = 0x3FFF_FFFF_FFFF_FFFF;
+    dut.a31 = 0x3FFF_FFFF;
+    dut.a8 = 0x7F;
+    dut.c = 2;
+    dut.d = 3;
+    step(1);
+    assert_eq(dut.y64, 0);
+    assert_eq(dut.ymax, 0);
+    assert_eq(dut.y31, 0);
+    assert_eq(dut.y8, 0);
+    assert_eq(dut.h66, 0);
+    assert_eq(dut.l66, 0);
+    assert_eq(dut.h67, 0);
+    assert_eq(dut.l67, 0);
+}
+"#,
+        2,
+    );
+}

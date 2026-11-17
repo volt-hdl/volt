@@ -342,7 +342,7 @@ volt test debounce_test.volt
 ```text,output
    Compiling debounce_test.volt
 running 3 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test a_steady_press_is_seen_once ... ok
 test a_short_bounce_is_ignored ... ok
 test a_release_needs_a_steady_low_too ... ok
@@ -446,7 +446,7 @@ volt test debounce_test.volt
 ```text,output
    Compiling debounce_test.volt
 running 4 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test a_steady_press_is_seen_once ... ok
 test a_short_bounce_is_ignored ... ok
 test a_release_needs_a_steady_low_too ... ok

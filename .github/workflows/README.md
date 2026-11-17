@@ -21,7 +21,7 @@
   başka derleyici ve araç sürümleriyle sınanır; ccache anahtarı da imajı
   içerdiğinden önbellek boş başlar.
 - **Neden 24.04** (PR #301, iki imajda CI karşılaştırması):
-  - Sabit hakemin imajı (`verilator/verilator:v5.052`, Docker arka ucu)
+  - Sabit hakemin imajı (`verilator/verilator:v5.054`, Docker arka ucu)
     Ubuntu 24.04 ve g++ 13.3'tür. CI Verilator'ı o imajdan kopyalar,
     ürettiği C++'ı koşucunun g++'ı derler (ADR-0107, "Sınırlar": "ikisi de
     Ubuntu 24.04"). 24.04 koşucusunda CI, Docker arka ucunun kullanıcıya
@@ -111,29 +111,38 @@
   `book/src`'ye eşler, explain'de `/dev/` bağlantısını ve `/dev/` altındaki
   kurulum betiği adresini (kontrol 13) reddeder.
 
-## Verilator: sabit hakem (ADR-0107, "Hakem sürümü"; #145)
+## Verilator: sabit hakem (ADR-0107, "Hakem sürümü"; #145; 5.054: ADR-0121, #309)
 
 - Simülasyon yapan her iş (`ci.yml` "Verilator lint", `book.yml` "Book code
   examples", `difftest.yml`, `mutants.yml`'nin parçaları) Verilator'ı
   `.github/actions/verilator` eyleminden alır. Sürüm tek bir yerde
   tanımlıdır: `scripts/ci/verilator.env` (sürüm, imaj, özet).
 - Eylem Verilator'ı Docker arka ucunun özetle sabitlenmiş imajından
-  (`verilator/verilator:v5.052`) kopyalar, `~/verilator` altında önbelleğe
+  (`verilator/verilator:v5.054`) kopyalar, `~/verilator` altında önbelleğe
   alır (anahtar: sürüm + özet), OSS CAD Suite'in kendi Verilator'ını
   (geliştirme derlemesi) siler ve `verilator --version` beklenen sürümü
   vermezse ya da PATH'te birden çok `verilator` varsa işi düşürür.
 - Yosys, sby ve çözücüler OSS CAD Suite'ten gelmeye devam eder.
 - `crates/volt-tools/tests/verilator_pin_tests.rs` CI'ın sürümüyle Docker
-  arka ucunun imajını (`SIMULATION_IMAGE`) karşılaştırır.
+  arka ucunun imajını (`SIMULATION_IMAGE`) karşılaştırır; kitap, README'ler,
+  `volt explain` ve testler imajı adıyla anıyorsa sabitlenen sürümü
+  anmalıdır (ADR'ler, CHANGELOG ve sürüm notları tarih kaydıdır,
+  taranmaz).
 - Sürüm güncellemesi ayrı bir PR'dır: `verilator.env` ve `docker.rs`
   birlikte değişir, kanarya testi
   (`crates/volt-driver/tests/verilator_canary_tests.rs`) yeni sürümle
-  geçer, fark testinin büyük koşusu yeni hakemle yeniden koşar.
+  geçer ve her ölçüm tablosuna (`ISSUE_302_MEASURED`, `ISSUE_9256_MEASURED`,
+  `DFG_ON_MEASURED`) yeni sürümün ölçülmüş satırı eklenir; fark testinin
+  büyük koşusu, metamorfik gecelik koşu ve kitap yeni hakemle yeniden
+  koşar. Kitaptaki `volt test` ve `volt doctor` çıktıları gerçek bir
+  koşudan yeniden alınır.
 - `verilated.mk`'nin `OBJCACHE ?= ccache` satırı kopyada `OBJCACHE ?=`
   olur: değişken ortamdan gelir. ccache'i kuran iş onu `ccache` yapar
   (aşağıda "ccache"); kurmayan iş doğrudan derler.
-- Sınır: 5.052'nin de aynı sınıftan bir DFG yanlış derlemesi var (#148);
-  kanarya yalnız #145'in tetikleyicisini kapsar.
+- Sınır: 5.052'nin ve 5.054'ün de aynı sınıftan bir DFG yanlış derlemesi
+  var (#148, Verilator #9060; `-fno-dfg` kalır); kanarya yalnız #145'in
+  tetikleyicisini kapsar. 5.054'te işaretli `>>>`'nın dar bir hatası kalır
+  (Verilator #9256, ADR-0121 §4).
 
 ## ccache: Verilator derlemelerinin C++'ı
 

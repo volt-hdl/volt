@@ -144,7 +144,7 @@ same name. Ports, registers and `let` signals keep their Volt names,
 `///` doc comments become `//` comments, registers are `always_ff` blocks
 with explicit widths, and a generated synchronizer carries a comment
 naming the crossing. The files need no Volt package, include or runtime:
-Verilator 5.052, given the generated `PressCounter.sv` of the book example
+Verilator 5.054, given the generated `PressCounter.sv` of the book example
 below and the SystemVerilog module it uses, reports nothing with
 `--lint-only -Wall`, and a hand-written SystemVerilog testbench drives it
 by its port names. The file header names the `.volt` source. Two kinds of
@@ -501,7 +501,7 @@ set `volt.serverPath` to the full path of the binary.
 **External tools:** `volt build`, `check`, `explain`, `new` and `lsp` need
 nothing else. `volt test` and `volt run` need Verilator, `volt verify`
 needs SymbiYosys; when they are missing and Docker is running, Volt runs
-them in a digest-pinned image by itself (`verilator/verilator:v5.052`,
+them in a digest-pinned image by itself (`verilator/verilator:v5.054`,
 `hdlc/formal:all`; ~250 MB and ~404 MB, downloaded once).
 `VOLT_TOOL_BACKEND=local` turns this off, `=docker` forces it. `volt
 doctor` shows which way each command will run.

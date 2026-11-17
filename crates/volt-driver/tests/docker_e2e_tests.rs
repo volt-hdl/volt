@@ -133,7 +133,7 @@ fn new_test_verify_and_run_through_docker() {
     assert_eq!(test.status.code(), Some(0), "{err}");
     assert!(
         err.contains(
-            "note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)"
+            "note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)"
         ),
         "{err}"
     );
