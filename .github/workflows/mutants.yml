@@ -118,7 +118,7 @@ jobs:
   cache-warm:
     name: Rust cache of the shards (main)
     if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -145,7 +145,7 @@ jobs:
     # A push to main only warms the cache (cache-warm); the shards and the
     # summary need this job, so they do not run either.
     if: ${{ github.event_name != 'push' }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
@@ -340,7 +340,7 @@ jobs:
     needs: tools
     # The gate with no mutant to test has no shard.
     if: ${{ needs.tools.outputs.shards != '0' }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     # Below GitHub's 6-hour job limit. cargo mutants itself stops at 300
     # minutes (below), so the outcomes so far are uploaded and the job ends
     # before this limit; "Upload mutants.out" runs with always() even if the
@@ -514,7 +514,7 @@ jobs:
     # Also after a failed or stopped shard (the summary names it) and when
     # the gate has no shard (the summary says why).
     if: ${{ !cancelled() && needs.tools.result == 'success' }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     env:
       MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
       MUTANTS_MODE: ${{ needs.tools.outputs.mode }}

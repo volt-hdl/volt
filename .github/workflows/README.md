@@ -14,12 +14,29 @@
 
 ## Koşucu imajı
 
-- Her Linux işi sabit bir Ubuntu sürümünde koşar: `runs-on: ubuntu-26.04`
-  (matrislerde `os: ubuntu-26.04`). Hareketli etiket `ubuntu-latest`
+- Her Linux işi sabit bir Ubuntu sürümünde koşar: `runs-on: ubuntu-24.04`
+  (matrislerde `os: ubuntu-24.04`). Hareketli etiket `ubuntu-latest`
   yazılmaz: GitHub o etiketi kendi takvimiyle yeni sürüme geçirir
   (2026-11-13 ile 2026-11-15 arasında 24.04'ten 26.04'e) ve aynı commit
   başka derleyici ve araç sürümleriyle sınanır; ccache anahtarı da imajı
   içerdiğinden önbellek boş başlar.
+- **Neden 24.04** (PR #301, iki imajda CI karşılaştırması):
+  - Sabit hakemin imajı (`verilator/verilator:v5.052`, Docker arka ucu)
+    Ubuntu 24.04 ve g++ 13.3'tür. CI Verilator'ı o imajdan kopyalar,
+    ürettiği C++'ı koşucunun g++'ı derler (ADR-0107, "Sınırlar": "ikisi de
+    Ubuntu 24.04"). 24.04 koşucusunda CI, Docker arka ucunun kullanıcıya
+    verdiği derleyiciyle (g++ 13.3, glibc 2.39) simüle eder; 26.04'te g++
+    15.2 ve glibc 2.43 ile, yani hakemden farklı bir araç zinciriyle.
+  - 26.04'te `install.yml`'in "Install test (Linux)" işi düşer: `/usr/bin`
+    ve `/bin` taranırken sarkan bir sembolik bağ (`grub-ntldr-img`)
+    `[ -e ]` testinden geçmez, ikinci `ln -s` "Already exists" verir
+    (koşu 43994126886). Bu iş 26.04'te ilk kez o PR'da koşmuştu.
+  - Öbür sonuçlar (testler, fark testi, metamorfik test, kitap) iki
+    imajda aynıydı; ayrıntı ve koşu numaraları PR #301'de.
+- 26.04'e geçiş, hakem imajı da 26.04 tabanına geçtiğinde (Verilator
+  güncellemesi, ADR-0107 kural 4) ya da 24.04 GitHub'da kullanımdan
+  kalkmadan önce, ayrı bir PR'da yapılır; o PR `install.yml`'deki
+  sembolik bağ adımını düzeltir.
 - Tutarlılık denetimi (kontrol 20) `.github` altındaki YAML'larda hareketli
   etiketi (yorumda da) ve `runs-on` / matris `os` satırlarında birden çok
   Ubuntu sürümünü reddeder.
@@ -46,7 +63,7 @@
   önbelleğini okur. GitHub'da bir PR'ın kaydettiği önbelleği başka bir PR
   okuyamaz: PR kopyaları yalnız aynı PR'ın sonraki push'larına yarar,
   10 GB'lık önbellek alanını doldurur ve main'in girdilerini çıkarır.
-- `ImageOS` (ör. `ubuntu26`) anahtarın ortam özetine girer: imaj değişince
+- `ImageOS` (ör. `ubuntu24`) anahtarın ortam özetine girer: imaj değişince
   başka bir imajda derlenmiş build script ve proc-macro ikilileri (daha
   yeni glibc'ye bağlı olabilir) geri yüklenmez, önbellek boş başlar.
 - **Mutasyon kapısı** main'de koşmaz. Bu yüzden `mutants.yml` main'e her

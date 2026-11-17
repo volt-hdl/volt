@@ -14,9 +14,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Geliştirici notu — sabit koşucu imajı ve Rust önbelleği politikası (2026-11-17)
 
-- **Sabit koşucu imajı.** Bütün Linux işleri `ubuntu-26.04` etiketinde
+- **Sabit koşucu imajı.** Bütün Linux işleri `ubuntu-24.04` etiketinde
   koşar; `ubuntu-latest` (2026-11-13/15 arasında habersiz 24.04'ten
-  26.04'e geçti) iş akışlarında yazılmaz. Tutarlılık denetiminin kontrol
+  26.04'e geçti) iş akışlarında yazılmaz. 24.04, sabit Verilator hakeminin
+  imajıyla aynı sistem ve derleyicidir (g++ 13.3); 26.04'te kurulum testi
+  düşüyordu. Tutarlılık denetiminin kontrol
   20'si `.github` YAML'larında `ubuntu-latest`'i ve birden çok Ubuntu
   sürümünü reddeder. Başka imaja geçiş ayrı bir PR'dır
   (`.github/workflows/README.md`, "Koşucu imajı").
