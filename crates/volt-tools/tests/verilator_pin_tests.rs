@@ -78,3 +78,76 @@ fn ci_verilator_pin_and_the_docker_backend_image_are_the_same_release() {
         SIMULATION_IMAGE.contents
     );
 }
+
+/// Kullanıcıya gösterilen ve bugünü anlatan metinler (kitap, README'ler,
+/// `volt explain`, testler) Docker arka ucunun imajını adıyla anıyorsa
+/// sabitlenen sürümü anar. Tarih kaydı olan belgeler (ADR'ler, CHANGELOG,
+/// sürüm notları, `docs/research/`) taranmaz: o günün sürümünü anlatırlar.
+#[test]
+fn every_mention_of_the_simulation_image_names_the_pinned_release() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    for file in [
+        "README.md",
+        "examples/README.md",
+        ".github/workflows/README.md",
+    ] {
+        files.push(root.join(file));
+    }
+    collect(&root.join("book/src"), "md", &mut files);
+    collect(&root.join("crates"), "rs", &mut files);
+    assert!(
+        files.len() > 100,
+        "taranan dosya sayısı beklenenden az: {}",
+        files.len()
+    );
+    const TAG: &str = "verilator/verilator:v";
+    let mut stale = Vec::new();
+    let mut seen = 0;
+    for file in &files {
+        let text = std::fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("{} okunamadı: {e}", file.display()));
+        for (n, line) in text.lines().enumerate() {
+            let mut rest = line;
+            while let Some(at) = rest.find(TAG) {
+                rest = &rest[at + TAG.len()..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+                    .unwrap_or(rest.len());
+                if end == 0 {
+                    // `format!("verilator/verilator:v{version}")`: sürüm yok.
+                    continue;
+                }
+                let tag = format!("{TAG}{}", rest[..end].trim_end_matches('.'));
+                seen += 1;
+                if tag != SIMULATION_IMAGE.name {
+                    stale.push(format!("{}:{}: {tag}", file.display(), n + 1));
+                }
+            }
+        }
+    }
+    assert!(seen > 0, "hiçbir dosyada {TAG} geçmiyor: tarama bozuk");
+    assert!(
+        stale.is_empty(),
+        "these mention a Verilator image other than the pinned one ({}):\n{}",
+        SIMULATION_IMAGE.name,
+        stale.join("\n")
+    );
+}
+
+/// `dir` altındaki `ext` uzantılı dosyalar, `target/` dışında.
+fn collect(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBuf>) {
+    let entries =
+        std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{} okunamadı: {e}", dir.display()));
+    for entry in entries {
+        let path = entry.expect("dizin girdisi").path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|n| n == "target") {
+                continue;
+            }
+            collect(&path, ext, out);
+        } else if path.extension().is_some_and(|e| e == ext) {
+            out.push(path);
+        }
+    }
+}
