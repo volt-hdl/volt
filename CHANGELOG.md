@@ -42,6 +42,26 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (Verilator #9256; kitabın "Known limitations" sayfası). Yerelinde
   5.050–5.052 olan kullanıcı 5.054'e geçmeli ya da
   `VOLT_TOOL_BACKEND=docker` kullanmalı. Son hanede çıkar.
+- **Davranış değişikliği.** Aynı genişlikte ve aynı işaretli `as`
+  dönüşümlerinden oluşan bir zincirin bileşik işleneni, daha geniş bir
+  bağlamda (daha geniş hedef, tipli `let`, daha geniş aritmetik ya da
+  karşılaştırma, işaretli genişletme) artık sınırla yazılır (#303):
+  `y = ((a | K1) & K2) as bits<43> as u43` (`y : u49`) 0.1.2'de
+  `49'(((a | …) & …))` idi, şimdi `49'($unsigned(((a | …) & …)))`;
+  `(s ^ (0x35 & t)) as i8 as i11` `11'((…))` yerine `11'($signed((…)))`.
+  Tek bir aynı genişlik dönüşümü (`e as u8`) zaten bu biçimde yazılıyordu.
+  Eski biçimde SV işlenenleri hedef genişlikte hesaplıyordu; Verilator
+  WIDTHEXPAND veriyordu ve uyarı varsayılan olarak ölümcül olduğundan
+  geçerli Volt kodunda `volt test` ve `volt run` duruyordu. Değer
+  değişmez: #303 taramasında (2466 tasarım, önce uyarı veren 180'i Yosys
+  ile de) Icarus ve Yosys iki biçimde de şartnamenin değerini verdi.
+  SV'si değişen yalnız şu biçimdir: bileşik bir ifade, aynı genişlikte ve
+  aynı işaretli bir dönüşümden sonra ikinci bir dönüşümle (yine aynı
+  genişlikte ve işaretli, ya da işaretli genişletme) zincirlenmiş ve daha
+  geniş bir bağlamda; zincirin en içteki işleneni ad, seçim ya da literal
+  ise SV aynı kalır. ADR-0100 §1'e göre üretilen SV'nin
+  değişmesi orta hanedir; sessiz yanlış istisnası uygulanmaz (değer
+  aynıdır): hangi sürümle çıkacağı bakımcının kararıdır.
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
