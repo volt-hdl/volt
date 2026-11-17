@@ -162,6 +162,42 @@ exclude_re = [
     # Re-check when the referee changes (ISSUE_302_MEASURED in the canary).
     # expect: crates/volt-sv-emit/src/expr.rs:1474:40: replace - with / in Emitter<'a>::clamped_signed_shift
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace - with / in Emitter<'a>::clamped_signed_shift$",
+    # A2 (#303). Assumption: widen_if_narrow, through is_bare_cast, wraps the
+    # bare text of a same-width cast chain in `$signed`/`$unsigned` before it
+    # enters a wider context. `>` -> `>=` makes bare_chain also wrap a
+    # same-width signed chain in emit_cast: `$signed` of a signed value at its
+    # own width changes nothing, and a wider context gets the identical
+    # `W'($signed(...))` that widen_if_narrow writes without the mutant.
+    # Applied by hand in a throwaway worktree, Verilator 5.054: the #303 scan
+    # (2466 designs) has no WIDTH warning and no Icarus value difference, the
+    # SV differs in 6 designs (same-width signed targets: `$signed((s & t))`),
+    # and cast_chain_sim_tests, difftest_tests, metamorphic_tests and the -Wall
+    # output net pass. Test of the assumption: with is_bare_cast looking
+    # through one cast only, cast_chain_sim_tests fails (WIDTHEXPAND), the
+    # signed same-width chains included. Pinned: emit_cast has several `>`.
+    # expect: crates/volt-sv-emit/src/expr.rs:1889:26: replace > with >= in Emitter<'a>::emit_cast
+    "volt-sv-emit/src/expr\\.rs:1889:26: replace > with >= in Emitter<'a>::emit_cast$",
+    # A2 (#303). Assumption: widen_if_narrow, through is_bare_cast, wraps the
+    # bare text of a same-width cast chain in `$signed`/`$unsigned` before it
+    # enters a wider context. `==` -> `!=` drops emit_cast's own wrapper
+    # around a same-width, same-sign cast of a width-dependent operand (`~`,
+    # shift, unsigned `-`) and adds one under a narrowing cast. Without the
+    # wrapper the text stays bare in a same-width target, a concatenation
+    # element or a `$signed`/`$unsigned` argument, where SV computes it at its
+    # own width anyway; every wider context gets the identical
+    # `W'($unsigned(...))` from widen_if_narrow (`(~a) as u8 + w`, w : u16:
+    # `16'($unsigned((~a))) + w` with and without the mutant). The added
+    # wrapper under `N'(...)` narrowing changes nothing: the size cast
+    # computes its operand at least at the operand's width. Applied by hand in
+    # a throwaway worktree, Verilator 5.054: the #303 scan has no WIDTH
+    # warning and no Icarus value difference, the SV differs in 378 designs,
+    # all of these positions; the four tool test binaries pass. Test of the
+    # assumption: with is_bare_cast looking through one cast only, the
+    # mutant makes width_dependent_operands_under_same_width_chains_keep_their_width
+    # fail on its values (`(~a) as u8 as u8` in u14 computed at 14 bits).
+    # Pinned: emit_cast has several `==`.
+    # expect: crates/volt-sv-emit/src/expr.rs:1893:38: replace == with != in Emitter<'a>::emit_cast
+    "volt-sv-emit/src/expr\\.rs:1893:38: replace == with != in Emitter<'a>::emit_cast$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a

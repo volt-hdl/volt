@@ -249,6 +249,72 @@ test "all ones" {
     );
 }
 
+/// Değeri genişliğe bağlı işlenen (`~`, `<<`; ADR-0106 §6) aynı genişlik
+/// zinciri altında, daha geniş bağlamda: değer zincirin genişliğinde
+/// hesaplanır, sonra genişletilir. Bu, ADR-0109'un iki A2 hariç
+/// tutmasının (`emit_cast`, #303) dayandığı varsayımın kalıcı testidir:
+/// aynı genişlikteki dönüşümün çıplak metnini daha geniş bağlama taşıyan
+/// her yol onu yalıtır. Yalıtılmazsa SV işlenenleri hedef genişlikte
+/// hesaplar ve değer değişir (sessiz yanlış).
+/// type-inference.md §3.3/§3.4: `~` ve `<<` sol işlenenin tipinde kalır,
+/// taşan bitler düşer. a = 0x13: ~a = 0xEC (14 bitte hesaplansa 0x3FEC);
+/// a << 4 = 0x130'un alt 8 biti 0x30 (14 bitte 0x130); w = 0x100: y4 =
+/// 0x130. a = 0xFF: ~a = 0; a << 4 = 0xF0 (14 bitte 0xFF0); y4 = 0x1F0.
+/// s = 0x40 (64): s << 1 = 128'in i8 örüntüsü 0x80 = -128; i12'ye işaretle
+/// genişler: 0xF80 (12 bitte hesaplansa 0x080). s = 0x20: 0x40.
+#[test]
+fn width_dependent_operands_under_same_width_chains_keep_their_width() {
+    sim(
+        "widthdep",
+        r#"module M {
+    in  a  : u8
+    in  s  : i8
+    in  w  : u14
+    out y1 : u14
+    out y2 : u14
+    out y3 : u14
+    out y4 : u14
+    out z1 : i12
+    out z2 : i12
+    y1 = (~a) as u8 as u8
+    y2 = (a << 4) as bits<8> as u8
+    let x : u14 = (~a) as bits<8> as u8 as u8
+    y3 = x
+    y4 = (a << 4) as u8 as u8 + w
+    z1 = (s << 1) as i8 as i12
+    z2 = (s << 1) as i8 as i8
+}
+test "bits above the chain width stay zero" {
+    let dut = M { };
+    dut.a = 0x13;
+    dut.w = 0x100;
+    dut.s = 0x40;
+    step(1);
+    assert_eq(dut.y1, 0xEC);
+    assert_eq(dut.y2, 0x30);
+    assert_eq(dut.y3, 0xEC);
+    assert_eq(dut.y4, 0x130);
+    assert_eq(dut.z1, 0xF80);
+    assert_eq(dut.z2, 0xF80);
+}
+test "all ones" {
+    let dut = M { };
+    dut.a = 0xFF;
+    dut.w = 0x100;
+    dut.s = 0x20;
+    step(1);
+    assert_eq(dut.y1, 0);
+    assert_eq(dut.y2, 0xF0);
+    assert_eq(dut.y3, 0);
+    assert_eq(dut.y4, 0x1F0);
+    assert_eq(dut.z1, 0x40);
+    assert_eq(dut.z2, 0x40);
+}
+"#,
+        2,
+    );
+}
+
 /// Taramanın işaretli sınıfları, `e = s ^ 0x35 & t` (i8) üzerinde: aynı
 /// genişlik dönüşümünden sonra genişletme (z1 `as i8 as i11`, z2 `as i8 as
 /// i11 as i11` daha geniş hedefe), üç aynı genişlik dönüşümü (z5) ve daha
