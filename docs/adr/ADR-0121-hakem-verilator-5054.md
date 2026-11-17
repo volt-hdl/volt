@@ -3,7 +3,7 @@
 > Statü: Uygulandı
 > Önceki karar: ADR-0094 — §2.2'deki `test, run` imaj satırı (`verilator/verilator:v5.052@sha256:a5b73e2f…7352120`, Verilator 5.052) ve aynı bölümün "CI farkı" cümlesindeki 5.052
 > İlgili: ADR-0107 (hakem sürümü: güncelleme kural 4'e göre ayrı PR, kanaryadan geçer; bu ADR iki kanarya ölçümü ekler), ADR-0120 (Sınırlar: "Volt'ta sabit olmayan, Verilator'da sabitleşen miktar", #309, bu ADR'yle kapanır; 5.054'te kalan dar hata bilinen sınır olur), ADR-0100 (sessiz yanlış istisnası: son hanede)
-> Issue: #309
+> Issue: #309; #311 (5.054'te kalan dar hata, Verilator #9256); #313 (`volt doctor`'da bilinen hatalı sürüm, v0.2.0)
 > Tarih: 2026-11-17
 > Etkilenen: `scripts/ci/verilator.env`, `crates/volt-tools/src/docker.rs`
 > (`SIMULATION_IMAGE`), `crates/volt-tools/src/lib.rs` (belge),
@@ -11,7 +11,7 @@
 > (`simulation-setup` metni, en/tr), `crates/volt-tools/tests/verilator_pin_tests.rs`,
 > `crates/volt-driver/tests/{verilator_canary_tests,signed_overshift_sim_tests,docker_backend_tests,docker_e2e_tests}.rs`,
 > `crates/volt-driver/tests/verilator_canary/issue9256.sv` (YENİ),
-> `tests/real_bugs/309_port_tied_signed_shift.volt` (YENİ), `.cargo/mutants.toml`
+> `.cargo/mutants.toml`
 > (A2 kaydının gerekçesi), kitap (`limitations.md`, `volt test` ve `volt doctor`
 > çıktıları), `README.md`, `examples/README.md`,
 > `.github/workflows/README.md`, `CHANGELOG.md`
@@ -218,13 +218,21 @@ volt block(s) checked, 8 test file(s) run, 7 verify run(s), 0 failure(s)`.
 | CI "Verilator lint" | run 44066170905: 206 özet, 4135 geçti, 0 düştü; `SKIP: 0` (205 arama); difftest `diffs=0` | 206 özet, 4139 geçti (+4: #309 testi, iki yeni kanarya testi, imaj anma denetimi), 0 düştü; `SKIP: 0` (208) |
 | Kitap | run 44066169719: 31 blok, 8 test dosyası, 7 verify, 0 hata | aynı |
 | Fark testi büyük koşusu (tohum 20261105–20261108, parça başına 12500) | run 44075236280: 50.100 kabul, 5.384.798 değer karşılaştırması; parça 0/1/3 `diffs=1/3/1`, parça 2 `diffs=0` | run 44075586023: birebir aynı sayılar ve aynı beş bulgu |
-| Metamorfik gecelik (tohum 2026-11-17) | run 44070588184: 491 tasarım, 178 donanım karşılaştırması; gerçek hata derlemi 25 örnek, 4 bilinen başarısızlık | run 44075592058: 492 tasarım, 179 karşılaştırma; 26 örnek (#309 dahil), 4 bilinen başarısızlık; `SKIP: 0` |
+| Metamorfik gecelik (tohum 2026-11-17) | run 44070588184: 491 tasarım, 178 donanım karşılaştırması; gerçek hata derlemi 25 örnek, 4 bilinen başarısızlık | run 44091137979 (9e4f18c0): 491 tasarım, 178 karşılaştırma; 25 örnek, 4 bilinen başarısızlık; `SKIP: 0`; her yeniden yazım satırı aynı |
 
 Fark testinin beş bulgusu iki sürümde de #303'tür (`as bits<N> as uN`
 biçiminin `w` varyantında Verilator WIDTHEXPAND, `volt test` durur):
 hakem değişikliği #303'ü ne düzeltir ne kötüleştirir; #303 açık kalır.
-Metamorfik koşudaki tek fark yeni `309_port_tied_signed_shift.volt`
-dosyasıdır.
+Metamorfik koşu iki sürümde birebir aynıdır.
+
+`tests/real_bugs/309_port_tied_signed_shift.volt` kanıt koşusunda vardı
+(yukarıda, run 44074669626) ve sonra kaldırıldı: ADR-0117 §1'e göre
+derlem Volt'un hatalarıdır; düzeltmesi Volt'un çıktısını değiştirmeyen,
+Volt dışındaki bir aracın hatası (#148 gibi) derleme girmez. #309'un
+düzeltmesi yalnız hakemi değiştirir. Kalıcı testleri
+`signed_overshift_sim_tests` (`issue_309_…`) ve kanaryalardır. Dosyalı
+ilk koşu (run 44075592058) 492 tasarım, 179 karşılaştırma ve 26 örnek
+saymıştı; tek farkı o dosyaydı.
 
 ## İlke denetimi
 
