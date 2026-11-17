@@ -348,7 +348,7 @@ volt test counter_test.volt
 ```text,output
    Compiling counter_test.volt
 running 3 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test counts_by_step_while_enabled ... ok
 test holds_while_disabled ... ok
 test wraps_around_after_255 ... ok

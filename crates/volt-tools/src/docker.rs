@@ -35,10 +35,10 @@ impl Image {
 
 /// `volt test` / `volt run`: Verilator + g++ + make (Ubuntu 24.04).
 pub const SIMULATION_IMAGE: Image = Image {
-    name: "verilator/verilator:v5.052",
-    digest: "sha256:a5b73e2fce0b2c483396f3800940f33b6faa802331a061c21694dd27b7352120",
+    name: "verilator/verilator:v5.054",
+    digest: "sha256:da7845c38c2ab84133661a1b1e2d717d028fe0bc629cc06c77bb80571e610448",
     download_mb: 250,
-    contents: "Verilator 5.052, g++ 13.3",
+    contents: "Verilator 5.054, g++ 13.3",
 };
 
 /// `volt verify`: Yosys + sby + boolector/yices/z3 (bitwuzla YOK).

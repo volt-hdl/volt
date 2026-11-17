@@ -75,12 +75,12 @@ docker run --rm -v "$PWD/build/rtl:/work" -w /work     verilator/verilator:lates
 with its sibling `<name>.volt` (or whatever the test file pulls in
 through `use`, as `i2c/i2c_test.volt` does) and needs Verilator (`VOLT_VERILATOR` or
 `PATH`). Without a local install a running Docker is enough: Volt runs
-Verilator in the digest-pinned `verilator/verilator:v5.052` image by itself
+Verilator in the digest-pinned `verilator/verilator:v5.054` image by itself
 and says so in one line (ADR-0094, `volt explain simulation-setup`):
 
 ```
 volt test examples/soc/top_test.volt
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 ```
 
 ## Waveforms with enum names

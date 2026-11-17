@@ -181,7 +181,7 @@ volt test press_counter_test.volt
 ```text,output
    Compiling press_counter_test.volt
 running 2 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test a_held_button_counts_once ... ok
 test two_presses_count_twice ... ok
 
@@ -259,7 +259,7 @@ PressCounter u_counter (
 
 The generated file is plain SystemVerilog with no Volt package or
 include. We placed `PressCounter` like this in a hand-written testbench and
-compiled it with Verilator 5.052 from `build/rtl/PressCounter.sv` and
+compiled it with Verilator 5.054 from `build/rtl/PressCounter.sv` and
 `rtl/RisePulse.sv` alone: `verilator --lint-only -Wall` reported nothing,
 and the testbench counted two presses. If you stop using Volt, the
 generated files are what you keep; the header says they were generated,

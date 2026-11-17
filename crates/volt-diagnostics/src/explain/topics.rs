@@ -218,7 +218,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "DOCKER",
                     "If Verilator is not installed but Docker is running, 'volt run' and \
                      'volt test' run it in a container by themselves and say so in one line:\n\n\
-                     \x20 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)\n\n\
+                     \x20 note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)\n\n\
                      The image is pinned by digest and holds Verilator with g++ and make; it is \
                      downloaded once, on first use, and Volt prints its size before and the \
                      time after ('volt doctor' lists the versions). Volt still compiles and writes the testbench on the host; only \
@@ -284,7 +284,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                     "DOCKER",
                     "Verilator kurulu değil ama Docker çalışıyorsa 'volt run' ve 'volt test' \
                      onu kendiliğinden konteynerde çalıştırır ve bunu tek satırla söyler:\n\n\
-                     \x20 not: Verilator yerelde bulunamadı; Docker'da çalıştırılıyor (verilator/verilator:v5.052)\n\n\
+                     \x20 not: Verilator yerelde bulunamadı; Docker'da çalıştırılıyor (verilator/verilator:v5.054)\n\n\
                      İmaj özetiyle sabitlidir ve g++ ile make'li Verilator içerir; yalnız ilk \
                      kullanımda bir kez indirilir, Volt boyutu önce, süreyi sonra basar \
                      (sürümleri 'volt doctor' listeler). Volt yine ana makinede derler ve testbench'i yazar; konteynerde \

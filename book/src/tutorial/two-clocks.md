@@ -460,7 +460,7 @@ volt test sample_bridge_test.volt
 ```text,output
    Compiling sample_bridge_test.volt
 running 2 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test samples_cross_in_order ... ok
 test a_full_FIFO_drops_samples ... ok
 

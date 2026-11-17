@@ -50,9 +50,9 @@ volt test
 ```text,output
    Compiling counter_test.volt
 running 3 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
-note: downloading verilator/verilator:v5.052 (~250 MB, first use only; this can take several minutes)
-note: downloaded verilator/verilator:v5.052 in 57.3s
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
+note: downloading verilator/verilator:v5.054 (~250 MB, first use only; this can take several minutes)
+note: downloaded verilator/verilator:v5.054 in 2.7s
 test counts_while_enabled ... ok
 test holds_while_disabled ... ok
 test wraps_to_zero_after_MAX ... ok
@@ -244,7 +244,7 @@ volt test
    Compiling counter_test.volt
    Compiling light_test.volt
 running 5 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test counts_while_enabled ... ok
 test holds_while_disabled ... ok
 test wraps_to_zero_after_MAX ... ok
@@ -357,7 +357,7 @@ volt test
    Compiling counter_test.volt
    Compiling light_test.volt
 running 5 tests
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 test counts_while_enabled ... ok
 test holds_while_disabled ... ok
 test wraps_to_zero_after_MAX ... ok

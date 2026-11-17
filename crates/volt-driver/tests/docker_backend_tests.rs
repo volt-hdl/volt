@@ -12,7 +12,7 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 
-const SIM_IMAGE: &str = "verilator/verilator:v5.052";
+const SIM_IMAGE: &str = "verilator/verilator:v5.054";
 const FORMAL_IMAGE: &str = "hdlc/formal:all";
 
 fn volt() -> Command {
@@ -599,7 +599,7 @@ fn doctor_says_which_commands_run_via_docker() {
     let (text, json) = doctor_json(&env, None);
     assert!(
         text.contains(&format!(
-            "✓ test, run — via Docker ({SIM_IMAGE}: Verilator 5.052"
+            "✓ test, run — via Docker ({SIM_IMAGE}: Verilator 5.054"
         )),
         "{text}"
     );

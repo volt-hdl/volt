@@ -321,7 +321,7 @@ Your own user folder appears where this output says `C:\Users\you`.
 volt 0.1.2 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
-✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)
+✓ test, run — via Docker (verilator/verilator:v5.054: Verilator 5.054, g++ 13.3)
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
 - timing (optional) — OpenSTA not found; checks generated .sdc files
 - driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust

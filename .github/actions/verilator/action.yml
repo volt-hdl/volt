@@ -39,7 +39,7 @@ runs:
         path: ~/verilator
         # The last part names the layout of ~/verilator (bump it when the
         # copy step below changes).
-        key: verilator-linux-x64-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.digest }}-copy2
+        key: verilator-linux-x64-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.digest }}-copy3
 
     # The image is Ubuntu 24.04, like the runner; verilator_bin links only
     # libc and libm. The generated C++ is built by the runner's g++ and make.
@@ -57,7 +57,9 @@ runs:
         done
         cid=$(docker create --platform linux/amd64 "$REF")
         mkdir -p "$HOME/verilator/bin" "$HOME/verilator/share"
-        for f in verilator verilator_bin verilator_coverage verilator_gantt verilator_profcfunc; do
+        # 5.054 adds verilator_coverage_bin, which the verilator_coverage
+        # script runs.
+        for f in verilator verilator_bin verilator_coverage verilator_coverage_bin verilator_gantt verilator_profcfunc; do
           docker cp "$cid:/usr/local/bin/$f" "$HOME/verilator/bin/$f"
         done
         docker cp "$cid:/usr/local/share/verilator" "$HOME/verilator/share/verilator"
@@ -104,7 +106,7 @@ runs:
         fi
         actual=$(verilator --version)
         echo "verilator --version: $actual"
-        # A release prints "Verilator 5.052 2026-09-05 rev v5.052"; a
+        # A release prints "Verilator 5.054 2026-11-01 rev v5.054"; a
         # development build prints "Verilator 5.053 devel rev v5.052-159-g...".
         if ! printf '%s\n' "$actual" | grep -Eq "^Verilator ${EXPECTED//./\\.} [0-9]{4}-[0-9]{2}-[0-9]{2} rev v${EXPECTED//./\\.}\$"; then
           echo "::error title=Verilator version check::expected Verilator $EXPECTED (scripts/ci/verilator.env), got: $actual"
