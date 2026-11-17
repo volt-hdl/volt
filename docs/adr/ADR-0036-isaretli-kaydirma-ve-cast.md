@@ -1,6 +1,7 @@
 # ADR-0036: İşaretli Kaydırma (`>>>`) ve `$signed`/`$unsigned` Üretimi
 
 > Statü: Kısmen yerini aldı: ADR-0108 — §2'nin genişlik değişen dönüşüm biçimleri: sonucun SV işareti hedefin işaretidir (`$signed({{N{a[msb]}}, a})`, #115)
+> İlgili: ADR-0120 (işaretli `>>` genişlik kadar ya da fazla kaydırınca işaret bitiyle dolar; sabit miktar SV'de `>>> (w-1)`, #302)
 > Tarih: 2026-09-10
 > Etkilenen: sv-mapping.md §6 (operatör tablosu), volt-sv-emit
 > (emit_cast, Binary/Shr emisyonu, width_of kaydırma kuralı)

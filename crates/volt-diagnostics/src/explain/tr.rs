@@ -1210,10 +1210,10 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         ),
         W2013 => Explanation::new(
             "Kaydırma miktarı genişliği aşıyor",
-            "Değerin genişliği kadar veya daha fazla kaydırmak her zaman 0 üretir.",
-            "İfade geçerli ama sonucu sabittir: her bit dışarı kayar. Bu neredeyse her zaman yanlış bir genişlik varsayımı ya da yanlış sabitten hesaplanmış bir kaydırma miktarıdır.",
-            "in  a : u8\ny = a << 8              // ⚠ W2013: sonuç her zaman 0",
-            "y = a << 3              // ✓ (kaydırma < 8)",
+            "Değerin genişliği kadar veya daha fazla kaydırmak her biti dışarı kaydırır: sonuç 0'dır, işaretli değerin '>>'sinde ise her bit işaret bitidir.",
+            "İfade geçerli ama sonucu artık kaydırılan bitlere bağlı değil. '<<' ile işaretsiz değerin ya da bits<N>'nin '>>'si her zaman 0 verir. İşaretli değerin (iN) '>>'si aritmetik kaydırmadır: boşalan bitler işaret bitiyle dolar; sonuç negatif olmayan değerde 0, negatif değerde -1'dir, '>> (N - 1)' ile aynı. İki durumda da bu neredeyse her zaman yanlış bir genişlik varsayımı ya da yanlış sabitten hesaplanmış bir kaydırma miktarıdır; iN değerin işaretini okumak için '>> (N - 1)' yazın.",
+            "in  a : u8\nin  b : i8\ny = a << 8              // ⚠ W2013: sonuç her zaman 0\nz = b >> 8              // ⚠ W2013: 0 ya da -1 (b'nin işareti)",
+            "y = a << 3              // ✓ (kaydırma < 8)\nz = b >> 7              // ✓ b'nin işareti, açıkça",
         ),
         W2014 => Explanation::new(
             "Erişilemez match kolu",

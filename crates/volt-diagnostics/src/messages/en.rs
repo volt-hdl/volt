@@ -177,7 +177,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2010 => "Narrowing conversion (information loss)",
         W2011 => "Unused type parameter",
         W2012 => "Type not specified, default used",
-        W2013 => "Shift amount exceeds the width (result is always 0)",
+        W2013 => "Shift amount exceeds the width",
         W2015 => "Division operand is cut before the division",
         W2016 => "Arithmetic operand is cut before the operation",
         W2014 => "Unreachable match arm (variant already covered)",

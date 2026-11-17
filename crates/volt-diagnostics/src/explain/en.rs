@@ -1210,10 +1210,10 @@ Declare the frequency in the domain so that every module sharing it is constrain
         ),
         W2013 => Explanation::new(
             "Shift amount exceeds the width",
-            "Shifting by at least the value's width always produces 0.",
-            "The expression is legal but constant: every bit is shifted out. This almost always means a wrong width assumption or a shift amount computed from the wrong constant.",
-            "in  a : u8\ny = a << 8              // ⚠ W2013: result is always 0",
-            "y = a << 3              // ✓ (shift < 8)",
+            "Shifting by at least the value's width shifts every bit out: the result is 0, or, for '>>' on a signed value, every bit is the sign bit.",
+            "The expression is legal but its result no longer depends on the shifted bits. '<<', and '>>' on an unsigned value or bits<N>, always give 0. '>>' on a signed value (iN) is an arithmetic shift: the vacated bits fill with the sign bit, so the result is 0 for a non-negative value and -1 for a negative one, the same as '>> (N - 1)'. Either way this almost always means a wrong width assumption or a shift amount computed from the wrong constant; to read the sign of an iN value, write '>> (N - 1)'.",
+            "in  a : u8\nin  b : i8\ny = a << 8              // ⚠ W2013: result is always 0\nz = b >> 8              // ⚠ W2013: 0 or -1 (the sign of b)",
+            "y = a << 3              // ✓ (shift < 8)\nz = b >> 7              // ✓ the sign of b, stated",
         ),
         W2014 => Explanation::new(
             "Unreachable match arm",
