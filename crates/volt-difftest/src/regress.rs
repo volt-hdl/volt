@@ -10,9 +10,12 @@
 //! Verilator'un çıktısıyla modelden bağımsız karşılaştırır. Model ile
 //! derleyici aynı yanlışı yapsa bile elle hesaplanan değer onu yakalar;
 //! `pins_agree_with_the_model` modelin de aynı değeri verdiğini sınar.
-//! Elle hesap yalnız spesifikasyonun değeri belirlediği örneklerdedir:
-//! değeri bir varsayım etiketine (A1–A12, ADR-0108) bağlı örnek (işaretsiz
-//! çıkarmanın sarması, esnek toplamın kaydırması) elle sabitlenmez.
+//! Elle hesap yalnız spesifikasyonun ya da bir ADR'nin değeri belirlediği
+//! örneklerdedir: değeri bir varsayım etiketine (A1–A14, ADR-0108) bağlı
+//! örnek (işaretsiz çıkarmanın sarması, esnek toplamın kaydırması) elle
+//! sabitlenmez. A12'nin okuması (işaretli `>>` genişlik kadar ya da fazla
+//! kaydırınca işaretle dolar) ADR-0120'de kural olarak yazıldı; #302'nin
+//! elle hesabı o kurala dayanır.
 
 use crate::ast::{BinOp, Expr, LitFmt, PortTy, UnOp};
 
@@ -574,6 +577,27 @@ pub fn all() -> Vec<Regression> {
         // p0 = 2^127: üst yarı 2^63. #207'de maske 2^127 - 1: 2^63 - 1 ve 0.
         .pin(&[-1], 0xFFFF_FFFF_FFFF_FFFF)
         .pin(&[i128::MIN], 0x8000_0000_0000_0000),
+        // ── İşaretli `>>`, genişlik kadar ya da fazla sabit miktar ──
+        // Verilator 5.050–5.052, sabit K ≥ C++ kelime genişliği (63 bit
+        // için 64) ve genişlik kelimenin katı değilken negatif değeri 0'a
+        // kaydırıyordu; üretici `a >>> 64` yazıyordu. Düzeltmeyle
+        // `a >>> 62` (ADR-0120).
+        r(
+            "#302",
+            "signed i63 shifted right by 64",
+            vec![SInt(63)],
+            bin(BinOp::Shr, p(0), lit(64)),
+        )
+        // `p0 >> 64`, p0 : i63. ADR-0036 §1: işaretli `>>` aritmetiktir
+        // (`>>>`); ADR-0120: K ≥ w'de bütün bitler boşalır ve işaret
+        // bitiyle dolar (IEEE 1800-2017 §11.4.10; const-eval.md'nin i128
+        // `>>`'i aynı değeri verir). Sonuç i63 (type-inference §3.3, sol
+        // operandın tipi). -1 ve en küçük değer -2^62 negatif: 63 bitin
+        // hepsi 1, yani -1. 2^62 - 1 negatif değil: 0. #302'de Verilator
+        // 5.052 negatif değerlere 0 veriyordu.
+        .pin(&[-1], -1)
+        .pin(&[-(1 << 62)], -1)
+        .pin(&[(1 << 62) - 1], 0),
     ]
 }
 
