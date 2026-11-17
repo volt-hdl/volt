@@ -124,26 +124,26 @@ exclude_re = [
     # The pins of this entry and the next two moved in #253 (#239): they
     # had matched nothing since 3135ceef (lines added above), and since
     # 63e4ffe7 1605:48 matched another mutant, `sig.width < 127` -> `<=`.
-    # expect: crates/volt-sv-emit/src/expr.rs:1355:93: replace > with >= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1355:93: replace > with >= in Emitter<'a>::emit_prec$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1373:93: replace > with >= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1373:93: replace > with >= in Emitter<'a>::emit_prec$",
     # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
     # highest) and a right operand's parent has 1..=10: an atom never needs
     # parentheses.
-    # expect: crates/volt-sv-emit/src/expr.rs:1356:35: replace < with <= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1356:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1374:35: replace < with <= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1374:35: replace < with <= in Emitter<'a>::emit_prec$",
     # A2, assumes a select width fits a u16 (type check, base_width: u16), so
     # need <= 16: the arm runs when the start is 127+ bits wide or when
     # down >= 2^width (then need > width); sig.width == need is impossible.
-    # expect: crates/volt-sv-emit/src/expr.rs:1649:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1649:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1667:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:1667:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A1 (#282). `sig.width < 127` -> `<=` changes the guard only at
     # sig.width == 127. There its second operand is `down < (1i128 << 127)`,
     # and 1i128 << 127 is i128::MIN (a shift by less than 128 bits does not
     # overflow): no i128 is below it, so the guard is false, as `127 < 127`
     # makes it. True for every `down`, whatever calls the function. Pinned:
     # the function has three `<` -> `<=` mutants (1646:62 and 1649:48).
-    # expect: crates/volt-sv-emit/src/expr.rs:1646:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1646:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1664:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:1664:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A2 (#302, ADR-0120), assumes the referee Verilator simulates a signed
     # `a >>> w` correctly. `w - 1` -> `w / 1` writes the amount w instead of
     # w - 1; by IEEE 1800-2017 §11.4.10 both fill every bit with the sign.
@@ -160,7 +160,7 @@ exclude_re = [
     # difftest_tests 1) and the SV (`a >>> 63`, `65'(e) + 65'(f) >>> 65`)
     # is lint-clean: K = w stays below cppw in the residual class too.
     # Re-check when the referee changes (ISSUE_302_MEASURED in the canary).
-    # expect: crates/volt-sv-emit/src/expr.rs:1456:40: replace - with / in Emitter<'a>::clamped_signed_shift
+    # expect: crates/volt-sv-emit/src/expr.rs:1474:40: replace - with / in Emitter<'a>::clamped_signed_shift
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace - with / in Emitter<'a>::clamped_signed_shift$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
