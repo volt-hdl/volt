@@ -75,7 +75,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `docs/spec/`, `docs/design/`, `docs/research/`, `docs/release-notes/`,
   `docs/roadmap.md`, `CHANGELOG.md`) ve `.cargo/mutants.toml` çıkarılmış
   birleştirme ağacı; ortam (`exclude_re`'siz yapılandırma, iş akışı,
-  Verilator sabiti, araç sürümleri, rustc, koşucu imajı). Aynı PR'ın
+  Verilator sabiti, araç sürümleri, rustc, koşucu imajının haftalık sürümü ve ölçülen araç zinciri: g++, glibc, binutils, make, python3, git). Aynı PR'ın
   anahtarı aynı en yeni koşusu tamamlanmış, `success` bitmiş, missed,
   timeout ve bellek sınırı 0, her parçası `SKIP: 0` ve damgası anahtarla
   aynıysa parça koşmaz; özet `reused: run <id> (SHA <sha>), key <özet>`
