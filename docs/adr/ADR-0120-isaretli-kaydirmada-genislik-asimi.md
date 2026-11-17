@@ -1,6 +1,6 @@
 # ADR-0120: İşaretli `>>` Genişlik Kadar ya da Daha Fazla Kaydırınca İşaret Bitiyle Dolar; Sabit Miktar SV'de `>>> (w-1)` Yazılır (#302)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0025 — W2013 bölümündeki "sonuç her zaman 0'dır" cümlesi, işaretli `>>` için: sonuç işaret bitiyle dolar (işaretsiz `>>` ve `<<` için cümle yürürlükte)
 > İlgili: ADR-0036 (§1: işaretli `>>` aritmetiktir, `>>>`; bu ADR genişlik kadar ve fazla kaydırmanın değerini yazar), ADR-0100 (sessiz yanlış istisnası: düzeltme son hanede, v0.1.3), ADR-0107 (hakem sürümü: sabitlenen Verilator 5.052'nin hatası kanaryada belgelenir), ADR-0108 (modelin A12 okuması bu ADR'yle kural olur), ADR-0119 (İlke denetimi)
 > Issue: #302
@@ -146,8 +146,10 @@ artık 0 değil -1'dir; W2013'ün metni değişir.
 - **5.054'te kalan dar hata** Verilator master'ında da vardır (2d6aba6,
   2026-11-16, `-fno-dfg` ve DFG açık); upstream'e bildirilmedi, taslak
   bakımcıdadır.
-- **Şartname** (const-eval.md, type-inference.md §3.3, sv-mapping.md §6)
-  bu ADR'yle değişmedi; gereken cümleleri bakımcı uygular.
+- **Şartname** kuralı 6f19a248 ile taşır: type-inference.md §3.3
+  (kaydırma kuralı: genişlik kadar ya da fazla kaydırmanın değeri),
+  const-eval.md (`Shr` kolu) ve sv-mapping.md §6 (sabit K ≥ N için
+  `>>> (N-1)`). Cümleleri bakımcı yazdı.
 
 ## Reddedilenler
 
