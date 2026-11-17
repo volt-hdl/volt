@@ -244,7 +244,7 @@ assign y = a ? 8'd1 : (b ? 8'd2 : 8'd3);
 | `<` `>` `<=` `>=` | `<` `>` `<=` `>=` | |
 | `<<` | `<<` | sol kaydırma (işaretten bağımsız) |
 | `>>` (işaretsiz sol operand) | `>>` | mantıksal kaydırma |
-| `>>` (işaretli sol operand) | `>>>` | aritmetik kaydırma, işaret korunur (ADR-0036) |
+| `>>` (işaretli sol operand) | `>>>` | aritmetik kaydırma, işaret korunur (ADR-0036); sabit miktar K ≥ N ise `a >>> (N-1)` yazılır: değer aynıdır (her bit işaret biti), biçim Verilator 5.050–5.052'nin sabit büyük kaydırma hatasından kaçınır (ADR-0120) |
 | `a as u16` | `{{8{1'b0}}, a}` | zero-extend |
 | `a as i16` | `{{8{a[7]}}, a}` | sign-extend |
 | `a as i32` (a: u32, aynı genişlik) | `$signed(a)` | işaret yeniden yorumlama (ADR-0036); öz-belirlenimli sınır |
