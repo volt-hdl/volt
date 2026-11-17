@@ -127,7 +127,10 @@ pub mod tag {
     /// A11: `~b` (`b : bool`) `bool` verir (§3.4 `BitNot => ot`).
     pub const BOOL_BITNOT: u32 = 1 << 10;
     /// A12: işaretli `>>` genişlik kadar ya da fazla kaydırınca işaretle
-    /// dolar (W2013 "sonuç hep 0" der).
+    /// dolar. Okuma ADR-0120'de kural olarak yazıldı (#302): ADR-0036 §1,
+    /// const-eval.md'nin i128 `>>`'i ve IEEE `>>>` aynı değeri verir; W2013
+    /// eskiden "sonuç hep 0" diyordu. Etiket raporda kalır: değeri bu
+    /// kurala bağlı ifadeler ayrı sayılır.
     pub const SHR_OVERSHIFT: u32 = 1 << 11;
     /// A13: çalışma zamanında işaretli `/` sıfıra doğru keser, `%`
     /// bölünenin işaretini alır (const-eval.md §4'ün `checked_div` /
@@ -204,7 +207,7 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
     (
         tag::SHR_OVERSHIFT,
         "A12",
-        "signed >> by the width or more fills with the sign bit",
+        "signed >> by the width or more fills with the sign bit (rule: ADR-0120)",
     ),
     (
         tag::SIGNED_DIV,

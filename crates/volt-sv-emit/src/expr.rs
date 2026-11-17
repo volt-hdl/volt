@@ -1410,7 +1410,9 @@ impl<'a> Emitter<'a> {
             let text = self.paren_comparison_under_bitwise(op, lhs, text);
             self.fit_bitwise_operand(op, lhs, text, operand_ctx)
         };
-        let r = if matches!(op, BinOp::Shl | BinOp::Shr) {
+        let r = if let Some(k) = self.clamped_signed_shift(op, lhs, rhs) {
+            k.to_string()
+        } else if matches!(op, BinOp::Shl | BinOp::Shr) {
             let inner = self.emit_plain(rhs);
             // kaydırma miktarı atom değilse parantezle
             if matches!(&self.ast.exprs[rhs].kind, ExprKind::Binary { .. }) {
@@ -1435,6 +1437,45 @@ impl<'a> Emitter<'a> {
             op.symbol()
         };
         format!("{l} {sym} {r}")
+    }
+
+    /// İşaretli `>>`'nin genişlik kadar ya da fazla sabit miktarı (ADR-0120,
+    /// #302): sol operand SV'de doğal genişliğinde (w) hesaplanır; sabit
+    /// K ≥ w ise miktar `w - 1` yazılır. IEEE 1800-2017 §11.4.10'a göre
+    /// değer aynıdır (bütün bitler işaret biti); Verilator 5.050–5.052 ise
+    /// sabit K ≥ C++ kelime genişliğinde negatif değere 0 verir, 5.054
+    /// 64 bitten geniş bileşik değerde `…0001` (w mod 32 = 1). `w - 1` her
+    /// sürümde kelime genişliğinden küçüktür. İşaretsiz `>>`, `<<`, K < w
+    /// ve çalışma anı miktarı için `None`: miktar yazıldığı gibi kalır.
+    fn clamped_signed_shift(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>) -> Option<u32> {
+        if op != BinOp::Shr || !self.width_of(lhs).is_some_and(|s| s.signed) {
+            return None;
+        }
+        let w = self.natural_sig(lhs)?.width;
+        let k = self.shift_amount(rhs)?;
+        (k >= i128::from(w)).then(|| w - 1)
+    }
+
+    /// Kaydırma miktarının derleme zamanı değeri: sabit değerlendirmenin
+    /// gördüğü her şey ve işaretsiz bir tipe `as` dönüşümü (`64 as u8`;
+    /// tip denetimi W2013'ü dönüşümün değeriyle verir). Dönüşüm hedefin
+    /// genişliğine keser (type-inference.md §3.6, ADR-0115; `300 as u8` =
+    /// 44). İşaretli hedef `None`: işaretli miktarın anlamı tanımsız.
+    fn shift_amount(&mut self, rhs: Idx<Expr>) -> Option<i128> {
+        if let Some(k) = self.eval_const(rhs) {
+            return Some(k);
+        }
+        let ExprKind::Cast { expr, ty } = self.ast.exprs[rhs].kind else {
+            return None;
+        };
+        let k = self.shift_amount(expr)?;
+        let span = self.ast.exprs[rhs].span;
+        let target = self.sig_of_typeref(ty, span)?;
+        if target.signed {
+            return None;
+        }
+        // uN en fazla 64 bittir; `min` yalnız i128 kaydırmasını taşmadan korur.
+        Some(k.rem_euclid(1i128 << target.width.min(126)))
     }
 
     /// Bileşik bir değerin bit ya da aralık seçimi (`(a + 1)[3:0]`,

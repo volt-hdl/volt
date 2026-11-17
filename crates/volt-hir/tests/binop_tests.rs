@@ -577,6 +577,39 @@ fn shift_amount_from_const_w2013() {
     assert!(result.error_codes().contains(&"W2013"));
 }
 
+/// W2013'ün etiketi (ADR-0120 §3): işaretli `>>` genişlik kadar ya da fazla
+/// kaydırınca işaret bitiyle dolar (0 ya da -1, #302); işaretsiz `>>` ve
+/// `<<` her işlenende 0 verir. Dil varsayılanı İngilizce.
+fn w2013_label(src: &str) -> String {
+    let result = check(src);
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| d.code.as_str() == "W2013")
+        .unwrap_or_else(|| panic!("W2013 yok: {:?}", result.error_codes()));
+    diag.spans[0].label.clone()
+}
+
+#[test]
+fn w2013_on_a_signed_right_shift_says_the_sign_bit_fills_the_result() {
+    let label = w2013_label("module M {\n    in  a : i63\n    out y : i63\n\n    y = a >> 64\n}\n");
+    assert!(label.contains("sign bit"), "{label}");
+    assert!(label.contains("-1"), "{label}");
+    assert!(!label.contains("always 0"), "{label}");
+}
+
+#[test]
+fn w2013_on_an_unsigned_right_shift_or_a_left_shift_says_the_result_is_0() {
+    for src in [
+        "module M {\n    in  a : u8\n    out y : u8\n\n    y = a >> 8\n}\n",
+        "module M {\n    in  a : i8\n    out y : i8\n\n    y = a << 8\n}\n",
+    ] {
+        let label = w2013_label(src);
+        assert!(label.contains("always 0"), "{src}: {label}");
+        assert!(!label.contains("sign bit"), "{src}: {label}");
+    }
+}
+
 // ═══ Karşılaştırma ════════════════════════════════════════════════
 
 #[test]

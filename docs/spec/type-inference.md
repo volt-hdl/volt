@@ -277,6 +277,11 @@ BinOp::Shl | BinOp::Shr => {
 }
 ```
 
+**Genişlik kadar ya da daha fazla kaydırma (ADR-0120).** Kaydırma miktarı
+sol operandın genişliğine (N) eşit ya da büyükse: işaretli `>>` her biti
+işaret biti yapar (sonuç 0 ya da -1); işaretsiz `>>` ve `<<` 0 verir.
+Miktar sabitse W2013 uyarısı bu sonucu söyler.
+
 #### Karşılaştırma: Her Zaman Bool
 
 ```rust

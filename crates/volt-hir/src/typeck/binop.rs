@@ -29,7 +29,7 @@ impl TypeChecker<'_, '_> {
         match op {
             Add | Sub | Mul | Div | Rem => self.synth_arith(op, lhs, rhs, span),
             BitAnd | BitOr | BitXor => self.synth_bitwise(lhs, rhs, span),
-            Shl | Shr => self.synth_shift(lhs, rhs, span),
+            Shl | Shr => self.synth_shift(op, lhs, rhs, span),
             Eq | Ne => self.synth_comparison(op, lhs, rhs, span),
             Lt | Gt | Le | Ge => self.synth_ordering(op, lhs, rhs, span),
             // a -> b ≡ !a || b: iki operand da Bool, sonuç Bool (ADR-0034).
@@ -293,8 +293,9 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Kaydırma (§3.3): sonuç sol operandın tipi, genişlemez. Sabit
-    /// miktar sol genişliğe eşit ya da büyükse W2013.
-    fn synth_shift(&mut self, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
+    /// miktar sol genişliğe eşit ya da büyükse W2013; etiketi değeri söyler
+    /// (ADR-0120): işaretli `>>` işaret bitiyle dolar, gerisi 0.
+    fn synth_shift(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>, span: Span) -> TypeId {
         let lt = self.synth(lhs);
         let rt = self.synth(rhs);
         if self.types.is_error(lt) {
@@ -326,11 +327,18 @@ impl TypeChecker<'_, '_> {
         }
         if let (Some(width), Some(amount)) = (self.types.width_of(lt), self.try_const_eval(rhs)) {
             if amount >= i128::from(width) {
+                let sign_fill =
+                    op == BinOp::Shr && self.types.int_range(lt).is_some_and(|(signed, ..)| signed);
+                let label = if sign_fill {
+                    lstr!(en: "every bit becomes the sign bit: the result is 0 for a non-negative value, -1 for a negative one"; tr: "her bit işaret biti olur: sonuç negatif olmayan değerde 0, negatif değerde -1")
+                } else {
+                    lstr!(en: "all bits are shifted out, the result is always 0"; tr: "tüm bitler dışarı kayar, sonuç hep 0")
+                };
                 self.warning(
                     ErrorCode::W2013,
                     span,
                     lstr!(en: "shift amount {amount} exceeds the width of {width} bits"; tr: "kaydırma miktarı {amount}, {width} bit genişliği aşıyor"),
-                    lstr!(en: "all bits are shifted out, the result is always 0"; tr: "tüm bitler dışarı kayar, sonuç hep 0"),
+                    label,
                     lstr!(en: "keep the amount in the range 0..{width}"; tr: "miktarı 0..{width} aralığında tutun"),
                 );
             }

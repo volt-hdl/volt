@@ -14,7 +14,16 @@
 //! - `verilator_canary/issue148.sv` (#148): aynı tasarım, `o150a`'yı okuyan
 //!   sözleşme yok; DFG açıkken 5.052 de 5.053 devel de `4'hf` basar.
 //!
-//! İkisi de `-fno-dfg` ile doğrudur. Volt bu bayrağı Verilator'ın her
+//! Üçüncü tasarım DFG'den bağımsız bir hatayı belgeler:
+//!
+//! - `verilator_canary/issue302.sv` (#302): işaretli `>>>`, genişlik kadar
+//!   ya da fazla sabit miktarla. Sabitlenen 5.052 `a >>> 64`'e (i63) ve
+//!   `(e + f) >>> 130`'a (i65) negatif değerde 0 basar; 5.054 yalnız
+//!   ikincisinde yanlıştır (`…0001`). Volt'un ürettiği `>>> (w-1)` biçimi
+//!   (ADR-0120) ikisinde de doğrudur; test bunu her sürümde, eski
+//!   biçimlerin ölçülen yanlışını ölçülen sürümlerde sınar.
+//!
+//! İlk ikisi `-fno-dfg` ile doğrudur. Volt bu bayrağı Verilator'ın her
 //! derlemesine verir (`volt_tools::VERILATOR_BUILD_FLAGS`); kanarya o
 //! listeyle derler. Verilator güncellenirse (ayrı bir PR,
 //! `scripts/ci/verilator.env`) bu test aynı sınıftan bir yanlışın geri
@@ -37,6 +46,25 @@ use std::process::Command;
 
 const ISSUE_145: &str = include_str!("verilator_canary/issue145.sv");
 const ISSUE_148: &str = include_str!("verilator_canary/issue148.sv");
+const ISSUE_302: &str = include_str!("verilator_canary/issue302.sv");
+
+/// #302 tasarımının elle hesaplanmış değerleri (IEEE 1800-2017 §11.4.10,
+/// ADR-0120): girişler a = -1, e = -1, f = 0; işaretli değerin genişlik
+/// kadar ya da fazla aritmetik kaydırması işaret bitiyle dolar. 63 birli
+/// değer `%h` ile 16 hane, 65 birli değer 17 hane.
+const ISSUE_302_Y: &str = "7fffffffffffffff";
+const ISSUE_302_S: &str = "1ffffffffffffffff";
+
+/// #302'nin eski biçimlerini (`a >>> 64`, `(e + f) >>> 130`) ölçülen
+/// sürümlerin bastığı değerler, Volt'un seçenekleriyle (`-fno-dfg`):
+/// (sürüm, y64, s130). 5.052: ikisi de 0 (sabit K ≥ C++ kelime
+/// genişliğinde işaret biti cppw-1'den alınır). 5.054: y64 doğru, s130
+/// `…0001` (w mod 32 = 1 olan, 64 bitten geniş bileşik değerde kalan dar
+/// hata). Ölçüm: #302'deki teşhis ve bu PR (ADR-0120).
+const ISSUE_302_MEASURED: &[(&str, &str, &str)] = &[
+    ("5.052", "0000000000000000", "00000000000000000"),
+    ("5.054", ISSUE_302_Y, "00000000000000001"),
+];
 
 /// Gösterilen birleştirmenin alanları, en anlamlı bitten başlayarak:
 /// (ad, genişlik, beklenen değer). Tek vektör: bütün girişler 0
@@ -286,5 +314,84 @@ fn the_canary_expectation_rejects_the_value_verilator_5_053_devel_prints() {
         bad,
         ["o151k", "o151e", "o151d", "o151b", "o151a"],
         "{devel}"
+    );
+}
+
+/// `verilator --version` çıktısındaki sürüm (`Verilator 5.052 2026-09-05
+/// rev v5.052` → `5.052`).
+fn verilator_version(verilator: &Path) -> String {
+    let out = Command::new(verilator)
+        .arg("--version")
+        .output()
+        .expect("verilator --version");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.split_whitespace()
+        .nth(1)
+        .unwrap_or_else(|| panic!("sürüm okunamadı: {text:?}"))
+        .to_string()
+}
+
+/// #302: Volt'un bugünkü biçimleri (`a >>> 62`, `(e + f) >>> 64`, ADR-0120)
+/// her Verilator'da doğru olmalı; eski biçimlerin (`a >>> 64`,
+/// `(e + f) >>> 130`) ölçülen sürümdeki yanlışı belgelenir: sabitlenen
+/// sürüm (5.052) ikisine de 0 basar. Ölçülen sürümün davranışı değişirse
+/// test düşer: hata ve ADR-0120'nin gerekçesi yeniden ölçülmeli.
+#[test]
+fn the_issue_302_signed_overshift_canary() {
+    let Some(verilator) = tools::require(tools::Tool::Verilator) else {
+        return;
+    };
+    let version = verilator_version(&verilator);
+    let dir = temp_dir("issue302");
+    let out = run(&dir, &verilator, "issue302.sv", ISSUE_302);
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("R302 "))
+        .unwrap_or_else(|| panic!("simülasyon `R302` satırını basmadı:\n{out}"));
+    let f: Vec<&str> = line.split_whitespace().skip(1).collect();
+    assert_eq!(f.len(), 4, "{line}");
+    assert_eq!(
+        (f[1], f[3]),
+        (ISSUE_302_Y, ISSUE_302_S),
+        "Verilator {version}, with Volt's options {:?}, gets `a >>> (w-1)` wrong: \
+         the form Volt emits for a signed `>>` by a constant at or past the \
+         width (#302). It must not be the reference of the tests.\nline: {line}",
+        volt_tools::VERILATOR_BUILD_FLAGS
+    );
+    match ISSUE_302_MEASURED.iter().find(|(v, ..)| *v == version) {
+        Some(&(_, y64, s130)) => assert_eq!(
+            (f[0], f[2]),
+            (y64, s130),
+            "Verilator {version} no longer prints the measured values for \
+             `a >>> 64` and `(e + f) >>> 130` (#302): measure the bug again \
+             and update ISSUE_302_MEASURED and the reasoning of ADR-0120.\n\
+             line: {line}"
+        ),
+        None => eprintln!(
+            "canary #302: Verilator {version} has no measured row; the old \
+             forms print y64 = {}, s130 = {} (correct: {ISSUE_302_Y}, {ISSUE_302_S})",
+            f[0], f[2]
+        ),
+    }
+    eprintln!("canary #302 (Verilator {version}): {line}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Sabitlenen sürümün (`scripts/ci/verilator.env`) #302 ölçümü var:
+/// Verilator'ı güncelleyen PR hatayı yeni sürümde ölçer ve satırı ekler.
+#[test]
+fn the_pinned_verilator_release_has_a_measured_issue_302_row() {
+    let env = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci/verilator.env"),
+    )
+    .expect("scripts/ci/verilator.env");
+    let pinned = env
+        .lines()
+        .find_map(|l| l.strip_prefix("VERILATOR_VERSION="))
+        .expect("VERILATOR_VERSION satırı")
+        .trim();
+    assert!(
+        ISSUE_302_MEASURED.iter().any(|(v, ..)| *v == pinned),
+        "the pinned Verilator {pinned} has no #302 row in ISSUE_302_MEASURED"
     );
 }

@@ -253,6 +253,11 @@ fn eval_binop(&mut self, op: BinOp, l: ConstValue, r: ConstValue,
                     if !(0..128).contains(&b) {
                         return Err(EvalError::ShiftOverflow { span, amount: b });
                     }
+                    // ADR-0120: işaretli değer genişliğinden (N) fazla
+                    // kaydırılınca her bit işaret biti olur (0 ya da -1),
+                    // işaretsiz değer 0 olur. i128'deki aritmetik >> bunu
+                    // verir: işaretli değer işaretle, işaretsiz değer
+                    // sıfırla genişletilmiş tutulur.
                     a.checked_shr(b as u32)
                 }
 

@@ -9,7 +9,22 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
-- Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
+- **Davranış değişikliği.** İşaretli `>>`'nin genişlik kadar ya da daha
+  büyük sabit miktarı SystemVerilog'da `>>> (w-1)` yazılır (#302; sessiz
+  yanlış düzeltmesi, ADR-0120). 0.1.2'de `a >> 64` (`a : i63`) `a >>> 64`
+  olarak yazılıyordu; IEEE'ye göre iki yazımın değeri aynıdır (bütün bitler
+  işaret biti), ama Verilator 5.050–5.052 sabit miktar C++ kelime
+  genişliğine eşit ya da büyükken negatif değere 0 veriyordu: `volt test`
+  ve `volt run` 0, sentez, Yosys ve `volt verify` -1 veriyordu. Artık
+  Verilator da negatif değerde -1 verir. Değişen çıktı yalnız W2013 alan
+  işaretli `>>` ifadeleridir (sabit miktar `const`, literal, generic,
+  satır içine açılan fonksiyon argümanı ya da işaretsiz tipe `as` olabilir);
+  işaretsiz `>>`, `<<`, genişlikten küçük ve çalışma anı miktarları aynı
+  kalır. W2013'ün metni de değişti: işaretli `>>`'de "sonuç hep 0" yerine
+  işaret bitiyle dolduğunu (0 ya da -1) söyler; kod aynı. Son hanede
+  (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm notunun
+  "Behavior changes" bölümüne girer.
+- Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
 ### Geliştirici notu — sabit koşucu imajı ve Rust önbelleği politikası (2026-11-17)
