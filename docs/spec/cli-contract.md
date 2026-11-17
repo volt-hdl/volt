@@ -869,23 +869,23 @@ Yerel araç bulunduğunda hiçbir şey değişmez: çıktı bayt bayt aynıdır.
 
 | Komut | İmaj (özetiyle sabit) | İçerik | İndirme |
 |---|---|---|---|
-| test, run | `verilator/verilator:v5.052` | Verilator 5.052, g++ 13.3, make | ~250 MB |
+| test, run | `verilator/verilator:v5.054` | Verilator 5.054, g++ 13.3, make | ~250 MB |
 | verify | `hdlc/formal:all` | Yosys 0.66, SBY 0.69, boolector, yices, z3 (bitwuzla yok) | ~404 MB |
 
 **Tek satırlık bilgi (stderr, sessiz geçiş yok):**
 
 ```
-note: Verilator not found locally; running it in Docker (verilator/verilator:v5.052)
+note: Verilator not found locally; running it in Docker (verilator/verilator:v5.054)
 note: SymbiYosys not found locally; running it in Docker (hdlc/formal:all)
-note: VOLT_TOOL_BACKEND=docker; running Verilator in Docker (verilator/verilator:v5.052)
+note: VOLT_TOOL_BACKEND=docker; running Verilator in Docker (verilator/verilator:v5.054)
 ```
 
 Komut başına bir kez basılır (`volt test`'in bütün grupları için bir).
 İmaj yerelde yoksa önce boyut, sonra süre:
 
 ```
-note: downloading verilator/verilator:v5.052 (~250 MB, first use only; this can take several minutes)
-note: downloaded verilator/verilator:v5.052 in 8m 37s
+note: downloading verilator/verilator:v5.054 (~250 MB, first use only; this can take several minutes)
+note: downloaded verilator/verilator:v5.054 in 8m 37s
 ```
 
 **Seçim** — `VOLT_TOOL_BACKEND`:
@@ -1018,7 +1018,7 @@ Docker üzerinden TAMDIR (`✓`, `--strict` 0) ve satır hangi imajla
 alt satırdadır. `VOLT_TOOL_BACKEND=local` bu yolu kapatır:
 
 ```
-✓ test, run — via Docker (verilator/verilator:v5.052: Verilator 5.052, g++ 13.3)
+✓ test, run — via Docker (verilator/verilator:v5.054: Verilator 5.054, g++ 13.3)
     image not downloaded yet: ~250 MB on first use
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
     (bitwuzla is not in this image; --engine boolector|yices|z3, ADR-0082)
