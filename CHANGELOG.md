@@ -12,6 +12,33 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — CI'da Verilator derlemeleri için ccache (2026-11-16)
+
+- **Verilator derlemeleri ccache'ten geçer.** Yeni eylem
+  `.github/actions/ccache` "Verilator lint", gecelik metamorfik test,
+  kitabın örnekleri ve fark testinin büyük koşusu işlerinde ccache'in
+  sabitlenmiş sürümünü (4.14.2, sha256 denetimli) kurar ve `OBJCACHE`'i
+  ona yöneltir (`verilated.mk` her derlemeyi
+  `$(OBJCACHE) $(CXX)` ile çağırır). İşin sonunda günlük, `::notice` ve iş
+  özeti isabet ve ıska sayılarını yazar (`scripts/ci/ccache_report.py`);
+  ccache kurulamazsa ya da başarılı bir işte hiç derleme görmezse iş düşer.
+- **Koşular arası önbellek** `actions/cache` ile; anahtar koşucu imajını
+  (`ImageOS`, `ImageVersion`), `verilated.mk`'nin derleyicisinin sürümünü
+  ve Verilator ile ccache sürümlerini içerir. Önbellek yoksa ya da bozuksa derlemeler
+  ıska olur, sonuç değişmez. Her koşunun sonunda kullanılmayan girdiler
+  silinir; PR yalnız soğuk başlangıcını kaydeder.
+- **ccache kapalı koşu:** `ci.yml` ve `metamorphic-nightly.yml` elle
+  `-f ccache=off` ile koşar; ayrıntılar `.github/workflows/README.md`,
+  "ccache".
+- **Kullanmayanlar:** Docker arka ucu işi (her derleme yeni bir konteynerde)
+  ve `mutants.yml` (mutant başına süre sınırı temel koşudan ölçülür);
+  gerekçe README'de.
+- **Ölçüm** (aynı commit, "Verilator lint" işi; metamorfik PR katmanı):
+  ccache kapalı 20 dk 50 s / 456,0 s, önbellek boş 7 dk 14 s / 65,8 s,
+  önbellek dolu 5 dk 35 s / 45,9 s. Gecelik iş ccache kapalı 10 dk 57 s,
+  önbellek boş 2 dk 30 s. Test sonuçları ve metamorfik rapor her durumda
+  aynı. #254'teki PR katmanı sınırı (N = 15) bu sürelerle gerekmiyor.
+
 ### Geliştirici notu — Metamorfik testin kalan yeniden yazımları (#254 1. aşama PR 2, ADR-0117 eki, 2026-11-16)
 
 - **Altı yeni yeniden yazım**, her biri şartname dayanağıyla

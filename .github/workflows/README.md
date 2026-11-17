@@ -2,13 +2,13 @@
 
 | Dosya | Tetik | İçerik |
 |---|---|---|
-| `ci.yml` | push (main), PR | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
+| `ci.yml` | push (main), PR, elle (`workflow_dispatch`; tek girdisi `ccache`, aşağıda "ccache") | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
 | `fuzz-nightly.yml` | her gün 03:00 UTC, elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
 | `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
 | `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile; her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin parça tablosundadır, sınırın yarısını aşarsa uyarı (#253); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
 | `known-failures.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), her gün 03:17 UTC, elle | **bilinen başarısızlıklar** (ADR-0117 §4, #254): `crates/volt-driver/tests/metamorphic/known_failures.json`'daki her kaydın issue'su açık olmalı; issue kapalıysa, yoksa ya da PR'sa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa düşer (`scripts/ci/known_failures.py`; GitHub istemcisi ve kurallar `mutants-exclusions.yml`'in C kayıtlarınınkidir, #283). `github.token` ile okur (`issues: read`, `pull-requests: read`); token ya da ağ yoksa düşer. Gece de koşar: issue elle kapatılabilir. Gecelik metamorfik testin issue adımının self-test'i de burada koşar (`scripts/ci/nightly_issue.py --self-test`) |
-| `metamorphic-nightly.yml` | her gün 02:41 UTC, elle | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu koşunun UTC tarihidir ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
+| `metamorphic-nightly.yml` | her gün 02:41 UTC, elle (`ccache` girdisi) | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu koşunun UTC tarihidir ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
 | `mutants-exclusions.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), elle | **hariç tutma denetimi** (ADR-0109 eki "PR kapısı" §3, #239; eki "Kapı zorunlu yapılmadan önce", #283): "Mutation exclusions match their mutants" işi her `exclude_re` kaydının `# expect:` satırlarındaki mutantlarla tam eşleştiğini `cargo mutants --list` ile denetler; C kaydı (`# C.` etiketi, tek `# issue: #N` satırı) issue'su kapalıysa ya da yoksa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa iş düşer; issue'ları `github.token` ile okur (`issues: read`, `pull-requests: read`), token ya da ağ yoksa düşer. `mutants.yml`'den ayrıdır: PR açıklaması düzenlenince (`edited`) yalnız bu iş akışı koşar, kendi `concurrency` grubu vardır; düzenleme mutant kapısını yeniden başlatmaz, koşusunu iptal etmez. main'de her push'ta koşar: birleşen bir PR'ın kapattığı issue'nun kaydı kalmışsa main'de düşer |
 | `install.yml` | PR/push (yalnız `scripts/install/`, `scripts/release/`, `install.yml`, `release.yml` değişince), pazartesi 05:17 UTC, elle | kurulum betikleri (ADR-0096): shellcheck + PSScriptAnalyzer; üç platformda derle → `scripts/release/package.sh` → `VOLT_ARCHIVE` ile kur, yeni kabukta `volt --version`, yeniden kur, kaldır (dosya ve PATH izi kalmaz), bozuk `SHA256SUMS`; sahte GitHub'a (`test/fake-github.py`) karşı ağ senaryoları (sürüm yok, varlık 404, kopan indirme, API hız sınırı → yönlendirme, geçici hata → yeniden deneme, yanıt yok); Windows'ta PowerShell 7 ve 5.1 ayrı adım. Haftalık/elle: gerçek tek satırlık komutlar; sürüm yokken "henüz sürüm yok" iletisini, sürüm varsa kurulumu sınar |
 
@@ -55,10 +55,68 @@
   birlikte değişir, kanarya testi
   (`crates/volt-driver/tests/verilator_canary_tests.rs`) yeni sürümle
   geçer, fark testinin büyük koşusu yeni hakemle yeniden koşar.
-- `verilated.mk`'nin `OBJCACHE ?= ccache` satırı kopyada boşaltılır:
-  imaj ccache ile yapılandırılmış, koşucuda ccache yok.
+- `verilated.mk`'nin `OBJCACHE ?= ccache` satırı kopyada `OBJCACHE ?=`
+  olur: değişken ortamdan gelir. ccache'i kuran iş onu `ccache` yapar
+  (aşağıda "ccache"); kurmayan iş doğrudan derler.
 - Sınır: 5.052'nin de aynı sınıftan bir DFG yanlış derlemesi var (#148);
   kanarya yalnız #145'in tetikleyicisini kapsar.
+
+## ccache: Verilator derlemelerinin C++'ı
+
+Verilator her derlemede ürettiği C++'ı ve kendi çalışma zamanı
+kitaplığını (`verilated.cpp` ve diğerleri) `verilated.mk` ile derler; her
+derleme satırı `$(OBJCACHE) $(CXX) ...`'tır. `.github/actions/ccache`
+bu derlemeleri ccache'ten geçirir:
+
+- **Kullanan işler:** `ci.yml` "Verilator lint", `metamorphic-nightly.yml`,
+  `book.yml` "Book code examples", `difftest.yml`'nin parçaları.
+  Eylem iki kez çağrılır: `phase: start` Verilator eyleminin hemen
+  ardından, `phase: end` (`if: always()`) Verilator derlemeleri bittikten
+  sonra.
+- **start:** ccache'in sabitlenmiş sürümünü (4.14.2, statik ikili; sürüm
+  ve sha256 eylemin "ccache - pinned release" adımında) GitHub sürüm
+  sayfasından indirir, özetini denetler ve `~/ccache-bin`'de önbelleğe
+  alır. apt ile kurulum iş başına 14-42 s sürüyordu (`apt-get update` ve
+  dpkg veritabanı). İndirme ya da özet tutmazsa, ya da ikili beklenen
+  sürümü vermezse iş `::error` ile düşer: iş sessizce yavaş sürmez.
+  `OBJCACHE=~/ccache-bin/ccache` (mutlak yol),
+  `CCACHE_DIR=~/.cache/volt-ccache` ve `CCACHE_MAXSIZE=1G` iş ortamına
+  yazılır; günlük ccache sürümünü, `verilated.mk`'nin `OBJCACHE` ve `CXX`
+  satırlarını, derleyiciyi ve önbellek anahtarını gösterir. Ardından
+  önceki koşunun önbelleğini geri yükler ve istatistikleri sıfırlar.
+- **Anahtar:** `ccache-v1-<ImageOS>-<ImageVersion>-<CXX><sürüm>-<CXX --version
+  ilk satırının özeti>-verilator<sürüm>-ccache<sürüm>-<iş>-<run_id>-<deneme>`. Derleyici
+  `verilated.mk`'nin `CXX` satırından okunur. Geri yükleme önce aynı işin,
+  yoksa aynı imaj, derleyici ve Verilator'lı herhangi bir işin en yeni
+  önbelleğini alır. Koşucu imajı, derleyici ya da Verilator değişince
+  önbellek boş başlar.
+- **end:** `ccache --print-stats`'i `scripts/ci/ccache_report.py` okur;
+  günlükte, bir `::notice`'ta ve iş özetinde `ccache [<iş>]: H hits (direct
+  D, preprocessed P), M misses, hit rate R %; other non-zero counters: …;
+  cache S MiB in F files` satırı çıkar. Bu koşunun kullanmadığı girdiler
+  silinir (`ccache --evict-older-than`; isabet girdinin zamanını yeniler),
+  önbellek işin çalışma kümesi kadar kalır. Başarılı işte ccache hiç
+  derleme görmediyse adım düşer.
+- **Kaydetme:** main'de, gecede ve elle koşuda her başarılı iş kaydeder;
+  PR'da yalnız kendi işinin önbelleği geri yüklenmemişse (soğuk başlangıç)
+  kaydeder, böylece PR koşuları önbellek kotasını doldurmaz. Düşen iş
+  kaydetmez.
+- **Önbellek yoksa ya da bozuksa** iş doğru çalışır: geri yükleme
+  ıskalarsa ya da indirilemezse derlemeler ıskadır; ccache okuduğu her
+  girdiyi denetler, bozuk girdiyi yeniden derler. ccache üretilen kodu
+  değiştirmez.
+- **ccache kapalı koşu:** `gh workflow run ci.yml --ref <dal> -f ccache=off`
+  (ya da `metamorphic-nightly.yml`): aynı commit ccache'siz koşar, günlük
+  bunu `::warning` ile yazar. ccache'ten şüphelenildiğinde ya da ölçüm için.
+- **Kullanmayan işler:** "Docker backend" işi Verilator'ı her derlemede
+  yeni bir konteynerde koşar (Docker köprüsü, ADR-0094); imajın kendi
+  ccache'i konteynerle birlikte silinir ve iş üç derleme yapar. Önbelleği
+  koşucuya bağlamak `volt`'un Docker köprüsünü değiştirmek olurdu.
+  `mutants.yml`'nin parçaları henüz kullanmaz: mutant başına test süresi
+  sınırı aynı parçada ölçülen temel koşudan gelir ve önbelleği dolu bir
+  temel koşu sınırı, üretilen SV'yi değiştiren bir mutantın soğuk
+  derleme süresinin altına çekebilir (missed bir mutant timeout olur);
+  seçenekler ve gereken ölçüm #300'de.
 
 ## Coverage
 
