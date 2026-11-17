@@ -109,7 +109,13 @@ bir koşusunu arar (`find`).
      (`verilator.env`) ve eylemi; etkisiz yol listesi; iş akışının araç ve
      sınır değişkenleri (cargo-mutants, nextest, OSS CAD Suite tarihi,
      bellek sınırı, t); `rustc -vV`, `cargo mutants --version`, `cargo
-     nextest --version`; koşucu imajı (`ImageOS`, `ImageVersion`).
+     nextest --version`; koşucu imajı (`ImageOS` ve haftalık sürümü, yani
+     `ImageVersion`'ın tarih kısmı) ve koşucunun ölçülen araç zinciri (g++,
+     glibc, binutils, make, python3, git). `ImageVersion`'ın geri kalanı
+     bir derleme numarasıdır ve aynı koşunun işleri arasında değişir
+     (koşu 44186837945: kapsam işi 20261111.370.1, parçası 20261111.127.1);
+     anahtara girseydi yeniden kullanım hiç tutmazdı (ilk kanıt push'u
+     44194628766 bu yüzden baştan koştu).
 - **Etkisiz yollar** dar tutulur: `docs/adr/`, `docs/spec/`,
   `docs/design/`, `docs/research/`, `docs/release-notes/`,
   `docs/roadmap.md`, `CHANGELOG.md`. `README.md` etkisiz değildir
@@ -128,8 +134,8 @@ bir koşusunu arar (`find`).
   parçanın araç defteri `--require-zero-skips --min-ran 60`'tan geçer
   (`Tool ledger [mutants-k]: … SKIP: 0` satırı bu koşunun günlüğünde
   yeniden yazılır); her parçanın damgası (`stamp.json`, temel koşu
-  geçtikten sonra yazılır) anahtardaki rustc, cargo-mutants, nextest ve
-  imajı adlandırır ve etkisiz yolların yokluğunu gösterir; bu koşunun
+  geçtikten sonra yazılır) anahtardaki rustc, cargo-mutants, nextest,
+  araç zincirini ve imajın haftalık sürümünü adlandırır ve etkisiz yolların yokluğunu gösterir; bu koşunun
   listesindeki (bugünkü `exclude_re`'den sonra) her mutant o koşuda
   denenmiş ve caught ya da unviable'dır. Biri tutmazsa kapı baştan koşar,
   günlük nedenini yazar (`not reused, the gate runs in full: …`).

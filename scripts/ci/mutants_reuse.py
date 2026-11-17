@@ -22,7 +22,9 @@ two keys are compared field by field and the log says what differs:
    outcomes); the workflow's blob, the Verilator pin (verilator.env) and
    action, the inert list; the workflow's tool and limit variables;
    `rustc -vV`, `cargo mutants --version`, `cargo nextest --version`; the
-   runner image (ImageOS, ImageVersion).
+   runner image (ImageOS and the weekly release, the date part of
+   ImageVersion) and the runner's toolchain (g++, glibc, binutils, make,
+   python3, git: the first line of each `--version`).
 
 An earlier run is used only when all of this holds; otherwise the gate
 runs in full and the log says why:
@@ -97,8 +99,24 @@ ENV_VARS = (
     "MUTANTS_MEMORY_LIMIT_MIB",
     "MUTANTS_GATE_SECONDS_PER_MUTANT",
 )
-RUNNER_VARS = ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")
+# The runner image: its OS and its weekly release (the date part of
+# ImageVersion). The rest of ImageVersion is a build number that differs
+# between jobs of one run (run 44186837945: the first job on 20261111.370.1,
+# its shard on 20261111.127.1); what of the image can change an outcome is
+# measured instead (SYSTEM).
+RUNNER_VARS = ("ImageOS", "RUNNER_OS", "RUNNER_ARCH")
 TOOLS = ("rustc", "cargo_mutants", "cargo_nextest")
+# The runner's own toolchain: g++ builds every Verilator model, glibc and
+# binutils link it, make drives it, python3 runs the CI scripts, git the
+# version text of build.rs. First line of each `--version`.
+SYSTEM = {
+    "gxx": ["g++", "--version"],
+    "glibc": ["ldd", "--version"],
+    "binutils": ["ld", "--version"],
+    "make": ["make", "--version"],
+    "python3": ["python3", "--version"],
+    "git": ["git", "--version"],
+}
 # The shard's own `Tool ledger` step: tool_ledger.py report --require-zero-skips --min-ran 60.
 MIN_RAN = 60
 # How many earlier runs of the pull request are looked at, newest first.
@@ -208,7 +226,8 @@ def compute_key(repo: Path, names: list[str], env: dict, tools: dict, rev: str =
             "inert": entries,
             "env": {v: env.get(v, "") for v in ENV_VARS},
             "tools": {t: tools.get(t, "") for t in TOOLS},
-            "runner": {v: env.get(v, "") for v in RUNNER_VARS},
+            "system": {s: tools.get(s, "") for s in SYSTEM},
+            "runner": runner(env),
         },
     }
     hashes = {k: digest(v) for k, v in parts.items()}
@@ -258,12 +277,22 @@ def key_diff(old: dict, new: dict) -> list[str]:
     return out
 
 
+def runner(env: dict) -> dict:
+    out = {v: env.get(v, "") for v in RUNNER_VARS}
+    out["image_release"] = env.get("ImageVersion", "").split(".")[0]
+    return out
+
+
 def tool_versions(run) -> dict:
-    return {
+    """rustc, cargo-mutants, cargo-nextest and the runner's toolchain (SYSTEM)."""
+    out = {
         "rustc": run(["rustc", "-vV"]),
         "cargo_mutants": run(["cargo", "mutants", "--version"]),
         "cargo_nextest": run(["cargo", "nextest", "--version"]),
     }
+    for name, args in SYSTEM.items():
+        out[name] = (run(args).splitlines() or [""])[0]
+    return out
 
 
 def run_text(args: list[str]) -> str:
@@ -299,7 +328,9 @@ def stamp(repo: Path, env: dict, run, baseline_seconds: int, timeout: int) -> di
     st = tool_versions(run)
     st["verilator"] = run(["verilator", "--version"])
     st["yosys"] = run(["yosys", "-V"])
-    st.update({v: env.get(v, "") for v in RUNNER_VARS})
+    st.update(runner(env))
+    # The whole build number, for the log; not compared (RUNNER_VARS).
+    st["ImageVersion"] = env.get("ImageVersion", "")
     st["inert"] = entries
     st["inert_present"] = [e for e in entries if (repo / e.rstrip("/")).exists()]
     st["baseline_seconds"] = baseline_seconds
@@ -384,7 +415,7 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
     if n == 0:
         return ["it has no shard list"], log, {}
     env = key["parts"]["environment"]
-    want = {**env["tools"], **env["runner"]}
+    want = {**env["tools"], **env.get("system", {}), **env["runner"]}
     results, tools_seen = [], {}
     for k in range(n):
         r = mutants_summary.shard_result(shards, lists, k, n)
@@ -587,7 +618,10 @@ def self_test() -> int:
         "RUNNER_OS": "Linux",
         "RUNNER_ARCH": "X64",
     }
-    tools = {"rustc": "rustc 1.91.0", "cargo_mutants": "cargo-mutants 27.1.0", "cargo_nextest": "cargo-nextest 0.9.151"}
+    tools = {"rustc": "rustc 1.91.0", "cargo_mutants": "cargo-mutants 27.1.0", "cargo_nextest": "cargo-nextest 0.9.151",
+             "gxx": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0", "glibc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.6) 2.39",
+             "binutils": "GNU ld (GNU Binutils for Ubuntu) 2.42", "make": "GNU Make 4.3", "python3": "Python 3.12.3",
+             "git": "git version 2.51.0"}
     names = ["crates/a/src/lib.rs:1:20: replace f -> u8 with 0", "crates/a/src/lib.rs:1:20: replace f -> u8 with 1"]
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -633,6 +667,11 @@ def self_test() -> int:
         ):
             k = key_after(changes)
             assert k["key"] == base["key"] and key_diff(base, k) == [], (what, key_diff(base, k))
+        # Another build of the same weekly runner image (run 44186837945: the
+        # first job on 20261111.370.1, its shard on 20261111.127.1).
+        for build in ("20261111.370.1", "20261111.127.1"):
+            k = key_after({}, env=dict(env, ImageVersion=build))
+            assert k["key"] == base["key"], (build, key_diff(base, k))
         # (b), (d) these change it, and the difference names the part.
         for what, changes, part, word in (
             ("a Rust test", {"crates/a/tests/t.rs": "#[test] fn t() {}\n"}, "tree", "crates/a/tests/t.rs"),
@@ -663,7 +702,10 @@ def self_test() -> int:
         assert any(l.startswith("tree:") and "crates/b/src/lib.rs" in l for l in key_diff(base, k)), key_diff(base, k)
         # The environment outside the tree.
         for field, over in (
-            ("ImageVersion", {"env": dict(env, ImageVersion="20261118.1.0")}),
+            ("image_release", {"env": dict(env, ImageVersion="20261118.1.0")}),
+            ("ImageOS", {"env": dict(env, ImageOS="ubuntu26")}),
+            ("gxx", {"tools": dict(tools, gxx="g++ (Ubuntu 15.2.0-4ubuntu4) 15.2.0")}),
+            ("glibc", {"tools": dict(tools, glibc="ldd (Ubuntu GLIBC 2.43-2ubuntu1) 2.43")}),
             ("MUTANTS_MEMORY_LIMIT_MIB", {"env": dict(env, MUTANTS_MEMORY_LIMIT_MIB="8192")}),
             ("CARGO_MUTANTS_VERSION", {"env": dict(env, CARGO_MUTANTS_VERSION="27.2.0")}),
             ("rustc", {"tools": dict(tools, rustc="rustc 1.92.0")}),
@@ -732,6 +774,7 @@ def self_test() -> int:
             arts = {"mutants-list": lists}
             for k, s in enumerate(shards if not reused else ()):
                 st = {**tools, **{v: env[v] for v in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
+                      "image_release": env["ImageVersion"].split(".")[0],
                       "verilator": "Verilator 5.054", "yosys": "Yosys 0.57", "inert": entries, "inert_present": [],
                       "baseline_seconds": 600, "timeout": 1200}
                 st.update(stamp_over or {})
@@ -787,6 +830,9 @@ def self_test() -> int:
         assert res["decision"] == "reuse" and res["run"] == 101, (res, log)
         assert f"reused: run 101 (SHA {101:040d}), key {cur['key']}" in log, log
         assert "Tool ledger [mutants-0]: 61 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 0" in log, log
+        # A shard on another build of the same weekly image, with the same toolchain.
+        res, log, _ = decide(run(101, stamp_over={"ImageVersion": "20261111.127.1"}))
+        assert res["decision"] == "reuse", (res, log)
         # (a) once more, with the exclusions re-applied: one mutant excluded since.
         res, log, _ = decide(run(101), current=names[:1])
         assert res["decision"] == "reuse" and res["excluded_now"] == [names[1]], (res, log)
@@ -802,7 +848,9 @@ def self_test() -> int:
             ("no tool ledger", run(102, drop=["tool-ledger.tsv"])),
             ("no stamp", run(102, drop=["stamp.json"])),
             ("rustc", run(102, stamp_over={"rustc": "rustc 1.90.0"})),
-            ("ImageVersion", run(102, stamp_over={"ImageVersion": "20261104.1.1"})),
+            ("image_release", run(102, stamp_over={"ImageVersion": "20261104.1.1", "image_release": "20261104"})),
+            ("gxx", run(102, stamp_over={"gxx": "g++ 15.2.0"})),
+            ("glibc", run(102, stamp_over={"glibc": "ldd 2.43"})),
             ("inert", run(102, stamp_over={"inert_present": ["docs/adr/"]})),
             ("digest", run(102, tamper=True)),
             ("concluded failure", run(102, conclusion="failure")),
@@ -879,7 +927,7 @@ def main() -> int:
         st = stamp(repo, dict(os.environ), run_text, args.baseline_seconds, args.timeout)
         args.out.write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
         print(f"stamp: {st['rustc'].splitlines()[0]}; {st['cargo_mutants']}; {st['cargo_nextest'].splitlines()[0]};"
-              f" {st['verilator']}; {st['yosys']}; {st['ImageOS']} {st['ImageVersion']};"
+              f" {st['verilator']}; {st['yosys']}; {st['gxx']}; {st['glibc']}; {st['ImageOS']} {st['ImageVersion']};"
               f" inert paths present: {st['inert_present'] or 'none'}")
         if st["inert_present"]:
             print(f"::error title=Mutation gate::inert path(s) present while the shard tested: {st['inert_present']}")
