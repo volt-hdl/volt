@@ -61,7 +61,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   geniş bir bağlamda; zincirin en içteki işleneni ad, seçim ya da literal
   ise SV aynı kalır. ADR-0100 §1'e göre üretilen SV'nin
   değişmesi orta hanedir; sessiz yanlış istisnası uygulanmaz (değer
-  aynıdır): hangi sürümle çıkacağı bakımcının kararıdır.
+  aynıdır): hangi sürümle çıkacağı bakımcının kararıdır. ADR-0122
+  (Önerildi) bu durum için bir son hane istisnası önerir (değer korumalı
+  SV düzeltmesi); onaylanırsa düzeltme son hanede çıkar.
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
