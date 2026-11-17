@@ -2458,7 +2458,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 138, "ui/pass 138 dosya içermeli");
+    assert_eq!(total, 139, "ui/pass 139 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2515,10 +2515,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // ekledi (iki generic modül iki ayrı modül adına iner); #249 151'i
     // (generic örnek argümanlı, generic olmayan modül argümansız), #250
     // 152'yi (harf büyüklüğünden fazlasıyla ayrılan modül adları), #266
-    // 153'ü (ara sonucu açık genişlikte, W2016 yok).
+    // 153'ü (ara sonucu açık genişlikte, W2016 yok), #303 154'ü (aynı
+    // genişlik `as` zinciri daha geniş bağlamda).
     assert_eq!(
-        clean, 138,
-        "138/138 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 139,
+        "139/139 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

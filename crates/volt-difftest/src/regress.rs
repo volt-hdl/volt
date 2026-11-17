@@ -598,6 +598,107 @@ pub fn all() -> Vec<Regression> {
         .pin(&[-1], -1)
         .pin(&[-(1 << 62)], -1)
         .pin(&[(1 << 62) - 1], 0),
+        // ── Aynı genişlik ve işaretli `as` zinciri, daha geniş bağlamda ──
+        // Büyük koşunun (run 44075586023) en küçük beş örneği ve #303
+        // taramasının işaretli sınıfı. Değer genişlikten bağımsızdır;
+        // bulgu w biçiminde (işaretlide a biçiminde de) Verilator'un
+        // WIDTHEXPAND'idir, varsayılan olarak ölümcül: üretici zincirin
+        // bileşik işlenenini `W'(…)` içinde sınırsız basıyordu ve SV onu
+        // hedef genişlikte hesaplıyordu.
+        r(
+            "#303",
+            "masked u43 through as bits<43> as u43",
+            vec![UInt(43)],
+            cast(
+                cast(
+                    bin(
+                        BinOp::And,
+                        bin(BinOp::Or, p(0), hex(0x361_2E6A_3554)),
+                        hex(0x4CB_BBD4_0467),
+                    ),
+                    Bits(43),
+                ),
+                UInt(43),
+            ),
+        )
+        // `((p0 | K1) & K2) as bits<43> as u43`, p0 : u43. type-inference
+        // §3.6: iki dönüşüm aynı 43 biti yeniden yorumlar; §3.3 bit
+        // işlemleri genişlemez. p0'ın 43 biti 1: p0 | K1 hepsi 1, & K2 =
+        // K2. p0 = 0: K1 & K2, onaltılık basamak basamak (3&4, 6&C, 1&B,
+        // 2&B, E&B, 6&D, A&4, 3&0, 5&4, 5&6, 4&7) = 0x412A400444. p0 =
+        // 2^42: p0 | K1 = 0x7612E6A3554, & K2'nin en üst basamağı 7&4 = 4.
+        .pin(&[0x7FF_FFFF_FFFF], 0x4CB_BBD4_0467)
+        .pin(&[0], 0x41_2A40_0444)
+        .pin(&[1 << 42], 0x441_2A40_0444),
+        r(
+            "#303",
+            "u1 or-and through as bits<1> as u1",
+            vec![UInt(1), UInt(1), UInt(1)],
+            cast(
+                cast(
+                    bin(BinOp::Or, p(0), bin(BinOp::And, p(1), p(2))),
+                    Bits(1),
+                ),
+                UInt(1),
+            ),
+        )
+        // p0 | (p1 & p2), 1 bit: 0 | (1 & 0) = 0; 0 | (1 & 1) = 1.
+        .pin(&[0, 1, 0], 0)
+        .pin(&[0, 1, 1], 1),
+        r(
+            "#303",
+            "u7 or-and through as bits<7> as u7",
+            vec![UInt(7), UInt(7)],
+            cast(
+                cast(
+                    bin(BinOp::And, bin(BinOp::Or, p(1), lit(65)), p(0)),
+                    Bits(7),
+                ),
+                UInt(7),
+            ),
+        ),
+        r(
+            "#303",
+            "u53 quotient masked through as bits<53> as u53",
+            vec![UInt(53)],
+            cast(
+                cast(
+                    bin(BinOp::And, bin(BinOp::Div, p(0), p(0)), lit(3)),
+                    Bits(53),
+                ),
+                UInt(53),
+            ),
+        ),
+        r(
+            "#303",
+            "u18 xor-and through as bits<18> as u18",
+            vec![UInt(18)],
+            cast(
+                cast(
+                    bin(BinOp::Xor, p(0), bin(BinOp::And, lit(27184), p(0))),
+                    Bits(18),
+                ),
+                UInt(18),
+            ),
+        ),
+        r(
+            "#303",
+            "i8 xor-and through as i8, widened to i11",
+            vec![SInt(8), SInt(8)],
+            cast(
+                cast(
+                    bin(BinOp::Xor, p(0), bin(BinOp::And, hex(0x35), p(1))),
+                    SInt(8),
+                ),
+                SInt(11),
+            ),
+        )
+        // `(p0 ^ 0x35 & p1) as i8 as i11`, p0, p1 : i8. §3.3: `&` `^`'den
+        // sıkı bağlar, i8'de kalır; `as i8` aynı değer, `as i11` işaretle
+        // genişletir (sv-mapping §6). p0 = -128, p1 = 127: 0x35 & 0x7F =
+        // 0x35, 0x80 ^ 0x35 = 0xB5 = -75. p0 = 53, p1 = 0: 53.
+        .pin(&[-128, 127], -75)
+        .pin(&[53, 0], 53),
     ]
 }
 
