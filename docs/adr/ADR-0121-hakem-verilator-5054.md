@@ -1,6 +1,6 @@
 # ADR-0121: Hakem Verilator 5.054 — Docker Arka Ucunun İmajı ve CI'ın Verilator'ı 5.054'e Geçer (#309)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0094 — §2.2'deki `test, run` imaj satırı (`verilator/verilator:v5.052@sha256:a5b73e2f…7352120`, Verilator 5.052) ve aynı bölümün "CI farkı" cümlesindeki 5.052
 > İlgili: ADR-0107 (hakem sürümü: güncelleme kural 4'e göre ayrı PR, kanaryadan geçer; bu ADR iki kanarya ölçümü ekler), ADR-0120 (Sınırlar: "Volt'ta sabit olmayan, Verilator'da sabitleşen miktar", #309, bu ADR'yle kapanır; 5.054'te kalan dar hata bilinen sınır olur), ADR-0100 (sessiz yanlış istisnası: son hanede)
 > Issue: #309
@@ -114,12 +114,11 @@ satırı "Verilator 5.054" der. Derleyicinin ürettiği SV değişmez.
 ### 6. Şartname
 
 `docs/spec/cli-contract.md` §8b (imaj tablosu, bildirim satırları) ve §9a
-(`volt doctor` örneği) imajı `verilator/verilator:v5.052` ve "Verilator
-5.052" diye anar. Bu ADR'nin kabulüyle bakımcı o satırları 5.054'e
-taşır: §8b'nin tablosunda `verilator/verilator:v5.054`, "Verilator 5.054,
-g++ 13.3, make"; üç bildirim satırında ve §9a'nın örneğinde imaj adı ve
-sürüm. Boyut (~250 MB) ve indirme süresi örneği (8m 37s, ölçülmüş bir
-koşu) değişmez.
+(`volt doctor` örneği) imajı 5.054 diye anar: bakımcının a5429208
+commit'i, altı satır. §8b'nin tablosunda `verilator/verilator:v5.054`,
+"Verilator 5.054, g++ 13.3, make"; üç bildirim satırında ve §9a'nın
+örneğinde imaj adı ve sürüm. Boyut (~250 MB) ve indirme süresi örneği
+(8m 37s, ölçülmüş bir koşu) değişmedi.
 
 ## Ölçüm
 
