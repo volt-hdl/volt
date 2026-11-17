@@ -35,7 +35,7 @@ jobs:
   release-tag:
     name: Rebuild the site for the new release tag
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
     steps:
@@ -50,7 +50,7 @@ jobs:
   release-notes:
     name: Release notes
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Checker self-test
@@ -69,11 +69,14 @@ jobs:
   examples:
     name: Book code examples
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          env-vars: ImageOS
       - name: Cache OSS CAD Suite
         id: oss-cad-cache
         uses: actions/cache@v6
@@ -130,7 +133,7 @@ jobs:
   build:
     name: Build the book
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -203,7 +206,7 @@ jobs:
     name: Publish to GitHub Pages
     needs: [examples, build]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write

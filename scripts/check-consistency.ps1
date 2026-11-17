@@ -48,6 +48,12 @@
 #      exclude_globs'ta tam yoluyla ve üstünde kendi gerekçesiyle mi
 #      listede? Listedeki her girdi var olan bir kaynak dosya mı (ADR-0109
 #      eki, #253)?
+#  20. .github altındaki YAML dosyalarında 'ubuntu-latest' geçiyor mu?
+#      runs-on ve matris os satırlarındaki Ubuntu etiketleri tek bir sabit
+#      sürümü mü adlandırıyor? (.github/workflows/README.md, "Koşucu imajı")
+#  21. Her Swatinem/rust-cache adımı yalnız main'de mi kaydediyor
+#      (save-if: ${{ github.ref == 'refs/heads/main' }}) ve env-vars'ında
+#      ImageOS var mı? (.github/workflows/README.md, "Rust önbelleği")
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -471,6 +477,63 @@ foreach ($f in $srcFiles) {
         Add-Violation ".cargo/mutants.toml: kaynak dosya mutasyon kapsamında değil ve exclude_globs listesinde yok: $f (kontrol 19)"
     }
 }
+
+# ── 20: sabit koşucu imajı (.github/workflows/README.md, "Koşucu imajı") ─
+# .github altındaki hiçbir YAML dosyası 'ubuntu-latest' yazmaz (yorumda
+# da): o etiket GitHub'ın takvimiyle başka bir Ubuntu sürümüne geçer ve
+# aynı commit başka derleyici ve araç sürümleriyle sınanır. runs-on ve
+# matris os satırlarındaki bütün Ubuntu etiketleri tek bir sürümü
+# adlandırır; başka sürüme geçiş ayrı bir PR'dır.
+$ghYml = @(Get-ChildItem (Join-Path $root '.github') -Recurse -File |
+    Where-Object { $_.Extension -in '.yml', '.yaml' } | Sort-Object FullName)
+if ($ghYml.Count -eq 0) { Add-Violation ".github altında YAML dosyası bulunamadı (kontrol 20)" }
+$ubuntuVersions = @{}
+foreach ($f in $ghYml) {
+    $rel = $f.FullName.Substring($root.Length + 1).Replace('\', '/')
+    $n = 0
+    foreach ($line in [System.IO.File]::ReadAllLines($f.FullName)) {
+        $n++
+        if ($line.Contains('ubuntu-latest')) {
+            Add-Violation "${rel}:$n 'ubuntu-latest' yazıyor; sabit bir sürüm yazın (kontrol 20)"
+        }
+        if ($line -cmatch '^\s*(-\s*)?(runs-on|os):') {
+            foreach ($m in [regex]::Matches($line, 'ubuntu-[0-9]+\.[0-9]+')) { $ubuntuVersions[$m.Value] = $true }
+        }
+    }
+}
+if ($ubuntuVersions.Count -ne 1) {
+    $list = ($ubuntuVersions.Keys | Sort-Object) -join ' '
+    Add-Violation "runs-on ve matris os satırlarındaki Ubuntu etiketleri tek bir sürüm değil: '$list' (kontrol 20)"
+}
+
+# ── 21: Rust önbelleği yalnız main'de kaydedilir (README, "Rust önbelleği") ─
+# Her Swatinem/rust-cache adımı save-if: ${{ github.ref == 'refs/heads/main' }}
+# ve env-vars'ında ImageOS taşır: PR'ın kaydettiği önbelleği başka PR
+# okuyamaz, kopyalar önbellek alanını doldurur; koşucu imajı değişince
+# derlenmiş bağımlılıklar başka bir imaja geri yüklenmez.
+$saveIfMain = 'save-if: ${{ github.ref == ''refs/heads/main'' }}'
+$rcSteps = 0
+foreach ($f in $ghYml) {
+    $rel = $f.FullName.Substring($root.Length + 1).Replace('\', '/')
+    $lines = [System.IO.File]::ReadAllLines($f.FullName)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -cnotmatch '^\s*(-\s+)?uses:\s*Swatinem/rust-cache@') { continue }
+        $rcSteps++
+        $col = $lines[$i].IndexOf('uses:')
+        $saveIf = $false; $imageOs = $false
+        for ($j = $i + 1; $j -lt $lines.Count; $j++) {
+            $l = $lines[$j]
+            if ($l.Trim() -eq '') { continue }
+            if (($l.Length - $l.TrimStart().Length) -lt $col) { break }
+            $t = $l.Trim()
+            if ($t -ceq $saveIfMain) { $saveIf = $true }
+            if ($t -cmatch '^env-vars:' -and $t -cmatch '(^|[\s:])ImageOS(\s|$)') { $imageOs = $true }
+        }
+        if (-not $saveIf) { Add-Violation "rust-cache adımı ${rel}:$($i + 1): $saveIfMain yok (kontrol 21)" }
+        if (-not $imageOs) { Add-Violation "rust-cache adımı ${rel}:$($i + 1): env-vars ImageOS içermiyor (kontrol 21)" }
+    }
+}
+if ($rcSteps -eq 0) { Add-Violation "hiçbir iş akışında Swatinem/rust-cache adımı bulunamadı (kontrol 21)" }
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {

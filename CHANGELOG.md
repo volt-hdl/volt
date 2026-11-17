@@ -12,6 +12,22 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — sabit koşucu imajı ve Rust önbelleği politikası (2026-11-17)
+
+- **Sabit koşucu imajı.** Bütün Linux işleri `ubuntu-24.04` etiketinde
+  koşar; `ubuntu-latest` (2026-11-13/15 arasında habersiz 24.04'ten
+  26.04'e geçti) iş akışlarında yazılmaz. 24.04, sabit Verilator hakeminin
+  imajıyla aynı sistem ve derleyicidir (g++ 13.3); 26.04'te kurulum testi
+  düşüyordu. Tutarlılık denetiminin kontrol
+  20'si `.github` YAML'larında `ubuntu-latest`'i ve birden çok Ubuntu
+  sürümünü reddeder. Başka imaja geçiş ayrı bir PR'dır
+  (`.github/workflows/README.md`, "Koşucu imajı").
+- **Rust önbelleklerini yalnız main kaydeder** (`save-if`); PR'lar main'inkini
+  okur. Anahtar `ImageOS`'u içerir (`env-vars`). Kontrol 21 her
+  `Swatinem/rust-cache` adımında ikisini de arar. Mutasyon kapısının
+  parçaları için `mutants.yml` main'e her push'ta `cache-warm` işini koşar.
+  Araç önbellekleri, fuzz corpus'u ve ccache değişmedi.
+
 ### Geliştirici notu — CI'da Verilator derlemeleri için ccache (2026-11-16)
 
 - **Verilator derlemeleri ccache'ten geçer.** Yeni eylem
