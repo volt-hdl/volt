@@ -3088,3 +3088,5 @@ maddelerin hepsi buraya taşındı (ADR-0100 §3). İngilizce özetleri
 - `u9`/`u17` gibi ara genişlikler tip sözdiziminde yok (bits<N>
   kullanılmalı); `tests/ui/pass` altındaki bazı F1+ fixture'ları bu
   nedenle F0'da tanıyla reddediliyor.
+
+<!-- Kanıt dalı (#318): yalnız belge değişen push. -->
