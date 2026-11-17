@@ -139,9 +139,13 @@ artık 0 değil -1'dir; W2013'ün metni değişir.
 - **Volt'ta sabit olmayan, Verilator'da sabitleşen miktar.** Bir portun
   ya da fonksiyon parametresinin sabite bağlandığı örnekte Volt miktarı
   çalışma anı sayar ve `a >>> k` yazar; Verilator modülleri açıp sabiti
-  yayarsa aynı hata oluşabilir. Volt bunu genel olarak göremez. Hakemi
-  5.054'e taşımak bu sınıfı da kapatır (5.054'te kalan dar hata hariç).
-- **5.054'te kalan dar hata** upstream'e bildirilmedi; taslak bakımcıdadır.
+  yayarsa aynı hata oluşur: `G { a: a, k: 64 }` ile örneklenen
+  `y = a >> k`, 5.052'de negatif değere 0 verir (#309). Volt bunu genel
+  olarak göremez. Hakemi 5.054'e taşımak bu sınıfı da kapatır (5.054'te
+  kalan dar hata hariç).
+- **5.054'te kalan dar hata** Verilator master'ında da vardır (2d6aba6,
+  2026-11-16, `-fno-dfg` ve DFG açık); upstream'e bildirilmedi, taslak
+  bakımcıdadır.
 - **Şartname** (const-eval.md, type-inference.md §3.3, sv-mapping.md §6)
   bu ADR'yle değişmedi; gereken cümleleri bakımcı uygular.
 
