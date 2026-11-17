@@ -1567,7 +1567,10 @@ farklı olduğunu yazar (`tree: 1 path(s) differ: book/src/…`):
    `OSS_CAD_SUITE_DATE`, `MUTANTS_MEMORY_LIMIT_MIB`,
    `MUTANTS_GATE_SECONDS_PER_MUTANT`); `rustc -vV`, `cargo mutants
    --version`, `cargo nextest --version`; koşucu imajı (`ImageOS`,
-   `ImageVersion`, `RUNNER_OS`, `RUNNER_ARCH`). Ortamın ağaçta da duran
+   `RUNNER_OS`, `RUNNER_ARCH` ve imajın haftalık sürümü, yani
+   `ImageVersion`'ın tarih kısmı); koşucunun ölçülen araç zinciri (g++,
+   glibc, binutils, make, python3, git; her birinin `--version`'ının ilk
+   satırı). Ortamın ağaçta da duran
    alanları (iş akışı, Verilator) ayrıca yazılır: günlük farkı adıyla
    gösterir.
 
@@ -1649,7 +1652,8 @@ günlüğe bir satır yazar.
     60`'tan geçiyor; `Tool ledger [mutants-k]: … SKIP: 0` satırı bu
     koşunun günlüğüne yeniden yazılır;
   - her parçanın damgası (temel koşu geçtikten sonra yazılır) anahtardaki
-    rustc, cargo-mutants, nextest, `ImageOS` ve `ImageVersion` ile aynı;
+    rustc, cargo-mutants, nextest, araç zinciri, `ImageOS` ve imajın
+    haftalık sürümüyle aynı;
     parçalar aynı Verilator ve Yosys'i koşmuş; etkisiz yollar yokmuş;
   - bu koşunun listesindeki her mutant o koşuda caught ya da unviable.
 
@@ -1726,10 +1730,20 @@ yalnız missed = 0 olan koşuları kabul eder; böyle bir push baştan koşar.
   (`version_text_tests`), değerine bağlı değildir. Koşucunun yükü
   timeout'u etkiler; bu yüzden timeout'lu koşu yeniden kullanılmaz. Fark
   testinin tohumu iş akışında sabittir.
-- **İmaj sürümü.** `ImageVersion` aynı koşunun işleri arasında bile
-  farklı olabilir (README, "Koşucu imajı"). Damgası anahtardakinden farklı
-  bir parça koşuyu yeniden kullanılamaz kılar ve kapı baştan koşar. Bu
-  güvenlidir, ama haftalık imaj geçişlerinde yeniden kullanım seyrekleşir.
+- **İmaj sürümü.** Tam `ImageVersion` anahtarda değildir. İlk uygulama
+  onu da koyuyordu; ilk kanıt koşusu 44186837945'te kapsam işi
+  `20261111.370.1`, parçası `20261111.127.1` imajında koştu ve aynı PR'ın
+  yalnız belge değişen sonraki push'u (44194628766, kapsam işi
+  `20261111.127.1`) `environment: runner.ImageVersion: 20261111.370.1 ->
+  20261111.127.1` farkıyla baştan koştu; parça damgası da kapsam işininkini
+  tutmayacaktı. Son kısım bir derleme numarasıdır, işler arasında rastgele
+  gelir (`ubuntu24/20261111.370` runner-images deposunda bir etiket,
+  `.127` değil). Anahtar imajın haftalık sürümünü (tarih kısmı) ve
+  sonucu etkileyebilecek araç zincirini ölçerek tutar: Verilator
+  modellerini derleyen g++, bağlayan glibc ve binutils, make, betikleri
+  koşan python3 ve `build.rs`'in git'i. Aynı haftalık sürümün iki
+  derlemesi bu ölçülenler dışında bir şeyle ayrılıyorsa anahtar onu
+  görmez; tam `ImageVersion` damgada günlük için durur.
 - **main ilerleyince** birleştirme ağacı etkisiz olmayan bir yolda
   değişirse kapı baştan koşar (#318'de kapsam dışı: mutant başına yeniden
   kullanım ayrı bir fikirdir). main yalnız etkisiz yollarda ilerlediyse
@@ -1749,8 +1763,15 @@ yalnız missed = 0 olan koşuları kabul eder; böyle bir push baştan koşar.
   Rust kaynağı, kitap sayfası, `tests/` girdisi, `verilator.env`,
   Verilator eylemi, README, etkisiz bir yolun yanındaki yol
   (`docs/adrx.md`), iş akışı, `timeout_multiplier`, etkisiz liste, değişen
-  mutant listesi, ağaca eklenen kaynak (ilerleyen taban), `ImageVersion`,
-  bellek sınırı, cargo-mutants sürümü, rustc.
+  mutant listesi, ağaca eklenen kaynak (ilerleyen taban), imajın haftalık
+  sürümü, `ImageOS`, g++, glibc, bellek sınırı, cargo-mutants sürümü,
+  rustc. Aynı haftalık sürümün başka bir derlemesi (`20261111.370.1`,
+  `20261111.127.1`) anahtarı korur; damgası böyle bir derlemede olan parça
+  yeniden kullanılır, haftalık sürümü, g++'ı ya da glibc'si farklı olan
+  kullanılmaz. Bu durumlar ilk kanıt koşusundan sonra eklendi; düzeltmeden
+  önce `AssertionError: ('20261111.370.1', ['environment:
+  runner.ImageVersion: 20261111.82.6 -> 20261111.370.1'])` ile düştü,
+  sonra geçti.
 - `mask` yalnız etkisiz yolları siler; damga onları görür. Zip özeti
   tutmazsa, özet yoksa ya da bir üye dizin dışına yazıyorsa zip açılmaz.
 - Sahte bir GitHub'la: temiz koşu yeniden kullanılır, `Tool ledger …
