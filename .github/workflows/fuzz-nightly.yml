@@ -21,7 +21,7 @@ env:
 jobs:
   fuzz:
     name: Fuzz parse_never_panics (nightly)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       FUZZ_SECONDS: ${{ inputs.seconds || '1800' }}
@@ -34,6 +34,8 @@ jobs:
           workspaces: |
             .
             fuzz
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          env-vars: ImageOS
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Restore corpus

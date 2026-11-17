@@ -23,6 +23,10 @@
 #  19. her çalışma alanı üyesinin src/'indeki her .rs ya mutasyon kapsamında
 #      (.cargo/mutants.toml examine_globs) ya exclude_globs'ta gerekçeli tam
 #      yoluyla listede (ADR-0109 eki, #253)
+#  20. .github YAML'larında 'ubuntu-latest' yok; runs-on ve matris os
+#      satırlarındaki Ubuntu etiketleri tek bir sabit sürüm
+#  21. her Swatinem/rust-cache adımı yalnız main'de kaydeder ve ImageOS'u
+#      anahtara katar
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -432,6 +436,66 @@ if [ -n "$mt_out" ]; then
     while IFS= read -r line; do
         violation ".cargo/mutants.toml: $line (kontrol 19)"
     done <<< "$mt_out"
+fi
+
+# ── 20: sabit koşucu imajı (.github/workflows/README.md, "Koşucu imajı") ─
+# .github altındaki hiçbir YAML dosyası 'ubuntu-latest' yazmaz (yorumda
+# da): o etiket GitHub'ın takvimiyle başka bir Ubuntu sürümüne geçer ve
+# aynı commit başka derleyici ve araç sürümleriyle sınanır. runs-on ve
+# matris os satırlarındaki bütün Ubuntu etiketleri tek bir sürümü
+# adlandırır; başka sürüme geçiş ayrı bir PR'dır.
+GH_YML=$(find "$ROOT/.github" -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
+[ -n "$GH_YML" ] || violation ".github altında YAML dosyası bulunamadı (kontrol 20)"
+gh_latest=$(for f in $GH_YML; do grep -n 'ubuntu-latest' "$f" | sed "s#^#${f#"$ROOT/"}:#"; done)
+if [ -n "$gh_latest" ]; then
+    while IFS= read -r line; do
+        violation "${line%%:*}:$(printf '%s' "$line" | cut -d: -f2) 'ubuntu-latest' yazıyor; sabit bir sürüm yazın (kontrol 20)"
+    done <<< "$gh_latest"
+fi
+# || true, durum (c): eşleşmeyen grep normaldir; sonuç aşağıda sayılır.
+gh_ubuntu=$(for f in $GH_YML; do grep -E '^[[:space:]]*(-[[:space:]]*)?(runs-on|os):' "$f" || true; done \
+    | grep -oE 'ubuntu-[0-9]+\.[0-9]+' | LC_ALL=C sort -u)
+gh_ubuntu_n=$(printf '%s' "$gh_ubuntu" | grep -c . || true)
+if [ "$gh_ubuntu_n" -ne 1 ]; then
+    violation "runs-on ve matris os satırlarındaki Ubuntu etiketleri tek bir sürüm değil: '$(echo $gh_ubuntu)' (kontrol 20)"
+fi
+
+# ── 21: Rust önbelleği yalnız main'de kaydedilir (README, "Rust önbelleği") ─
+# Her Swatinem/rust-cache adımı save-if: ${{ github.ref == 'refs/heads/main' }}
+# ve env-vars'ında ImageOS taşır: PR'ın kaydettiği önbelleği başka PR
+# okuyamaz, kopyalar önbellek alanını doldurur; koşucu imajı değişince
+# derlenmiş bağımlılıklar başka bir imaja geri yüklenmez.
+rc_out=$(for f in $GH_YML; do awk -v rel="${f#"$ROOT/"}" '
+function finish() {
+    if (!open) return
+    if (!saveif) print rel ":" start ": save-if: ${{ github.ref == '\''refs/heads/main'\'' }} yok"
+    if (!imageos) print rel ":" start ": env-vars ImageOS içermiyor"
+    open = 0
+}
+{
+    if (open && $0 !~ /^[[:space:]]*$/) {
+        match($0, /^[[:space:]]*/)
+        if (RLENGTH < col) finish()
+    }
+    if (open) {
+        line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line)
+        if (line == "save-if: ${{ github.ref == '\''refs/heads/main'\'' }}") saveif = 1
+        if (line ~ /^env-vars:/ && line ~ /(^|[[:space:]:])ImageOS([[:space:]]|$)/) imageos = 1
+    }
+    if ($0 ~ /^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*Swatinem\/rust-cache@/) {
+        finish()
+        col = index($0, "uses:") - 1
+        open = 1; saveif = 0; imageos = 0; start = FNR
+        print "STEP"
+    }
+}
+END { finish() }' "$f"; done)
+rc_steps=$(printf '%s\n' "$rc_out" | grep -c '^STEP$' || true)
+[ "$rc_steps" -gt 0 ] || violation "hiçbir iş akışında Swatinem/rust-cache adımı bulunamadı (kontrol 21)"
+if printf '%s\n' "$rc_out" | grep -qv '^STEP$\|^$'; then
+    while IFS= read -r line; do
+        violation "rust-cache adımı $line (kontrol 21)"
+    done < <(printf '%s\n' "$rc_out" | grep -v '^STEP$\|^$')
 fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

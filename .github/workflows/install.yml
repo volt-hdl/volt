@@ -42,7 +42,7 @@ jobs:
   shellcheck:
     name: shellcheck
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       # --shell=sh: the scripts must stay POSIX sh (no bash features).
@@ -85,7 +85,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             archive: tar.gz
             # bash: ~/.bashrc; sh (dash): ~/.profile
@@ -108,6 +108,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: install-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          env-vars: ImageOS
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -185,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-26.04, macos-latest]
     steps:
       - name: Newest published release
         id: rel
