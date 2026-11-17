@@ -387,8 +387,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #205: 150 iki generic modül iki ayrı modül adına iner;
     // #249: 151 generic örnek argümanlı, generic olmayan modül argümansız;
     // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları;
-    // #266: 153 ara sonucu açık genişlikte (W2016 yok).
-    assert_eq!(checked, 138);
+    // #266: 153 ara sonucu açık genişlikte (W2016 yok);
+    // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda.
+    assert_eq!(checked, 139);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

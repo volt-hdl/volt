@@ -718,22 +718,9 @@ impl<'a> Emitter<'a> {
         // Aynı genişlikte, aynı işaretli dönüşüm bileşik işlenenini çıplak
         // basar (`p & q | r`): boyut dönüşümü bağlamı içeri iterdi,
         // Verilator içteki örtük genişlemeye WIDTHEXPAND verir (#123).
+        // Böyle dönüşümlerden oluşan zincir de (`e as bits<8> as u8`, #303).
         let bare_cast = match kind {
-            ExprKind::Cast { expr, .. } => {
-                !matches!(
-                    self.ast.exprs[*expr].kind,
-                    ExprKind::Path(_)
-                        | ExprKind::Field { .. }
-                        | ExprKind::Index { .. }
-                        | ExprKind::Range { .. }
-                        | ExprKind::PartSelect { .. }
-                        | ExprKind::Concat(_)
-                        | ExprKind::IntLit { .. }
-                        | ExprKind::Cast { .. }
-                ) && !text.starts_with('$')
-                    && !text.starts_with('{')
-                    && !starts_with_size_cast(&text)
-            }
+            ExprKind::Cast { .. } => self.is_bare_cast(idx, &text),
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
@@ -804,6 +791,37 @@ impl<'a> Emitter<'a> {
             }
             _ => text,
         }
+    }
+
+    /// `text` (`idx` dönüşümünün çıktısı) sınırsız bir bileşik ifade mi?
+    /// Aynı genişlikte ve aynı işaretli dönüşüm işlenenini olduğu gibi
+    /// basar; böyle dönüşümlerden oluşan zincir (`e as bits<8> as u8`,
+    /// `e as i8 as i8`) de en içteki işlenenin metnidir (#303). En içteki
+    /// işlenen kendi genişliğini taşıyorsa (ad, alan, seçim, birleştirme,
+    /// literal) metin sınırlıdır; zincirde iş yapan bir dönüşüm metni bir
+    /// sınırla başlatır: `$signed(`/`$unsigned(` (işaret), `{`
+    /// (birleştirme), `N'(` (boyut dönüşümü). Daha geniş bağlamda çıplak
+    /// metin SV'de bağlam genişliğinde hesaplanırdı: çağıran onu
+    /// `$signed`/`$unsigned` ile yalıtır.
+    fn is_bare_cast(&self, idx: Idx<Expr>, text: &str) -> bool {
+        let mut root = idx;
+        while let ExprKind::Cast { expr, .. } = self.ast.exprs[root].kind {
+            root = expr;
+        }
+        root != idx
+            && !matches!(
+                self.ast.exprs[root].kind,
+                ExprKind::Path(_)
+                    | ExprKind::Field { .. }
+                    | ExprKind::Index { .. }
+                    | ExprKind::Range { .. }
+                    | ExprKind::PartSelect { .. }
+                    | ExprKind::Concat(_)
+                    | ExprKind::IntLit { .. }
+            )
+            && !text.starts_with('$')
+            && !text.starts_with('{')
+            && !starts_with_size_cast(text)
     }
 
     /// Bit düzeyi operand bağlamdan farklı genişlikteyse (tipsiz `let`in
@@ -1862,9 +1880,17 @@ impl<'a> Emitter<'a> {
         // öz-belirlenimli sınırla yalıtılır. Daraltmada ve işaret
         // değişiminde gerekmez (boyut dönüşümü işleneni doğal genişliğinde
         // görür; `$signed`/`$unsigned` zaten sınırdır).
-        let isolate = tree_dep
-            && (target.width > src.width
-                || (target.width == src.width && target.signed == src.signed));
+        // İşlenen aynı genişlik dönüşümlerinden oluşan bir zincirse metni
+        // çıplak bileşik ifadedir (#303): işaretli kaynağı genişleten boyut
+        // dönüşümü (`11'(…)`) onu hedef genişlikte hesaplardı. İşaretsiz
+        // kaynak birleştirmeyle genişler; birleştirmenin öğesi zaten
+        // öz-belirlenimlidir.
+        let bare_chain =
+            target.width > src.width && src.signed && self.is_bare_cast(operand, &inner);
+        let isolate = bare_chain
+            || (tree_dep
+                && (target.width > src.width
+                    || (target.width == src.width && target.signed == src.signed)));
         let inner = if isolate {
             let sign = if src.signed { "$signed" } else { "$unsigned" };
             format!("{sign}({inner})")
