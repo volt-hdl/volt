@@ -6,7 +6,7 @@
 | `fuzz-nightly.yml` | her gün 03:00 UTC, elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
 | `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
-| `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile; her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin parça tablosundadır, sınırın yarısını aşarsa uyarı (#253); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
+| `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Aynı PR'ın daha önce temiz geçmiş bir kapı koşusunun anahtarı aynıysa parça koşmaz, karar o koşunun sonuçlarından verilir ve özet "reused: run …" der (aşağıda "Mutasyon kapısının önceki sonucu", #318). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile; her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin parça tablosundadır, sınırın yarısını aşarsa uyarı (#253); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
 | `known-failures.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), her gün 03:17 UTC, elle | **bilinen başarısızlıklar** (ADR-0117 §4, #254): `crates/volt-driver/tests/metamorphic/known_failures.json`'daki her kaydın issue'su açık olmalı; issue kapalıysa, yoksa ya da PR'sa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa düşer (`scripts/ci/known_failures.py`; GitHub istemcisi ve kurallar `mutants-exclusions.yml`'in C kayıtlarınınkidir, #283). `github.token` ile okur (`issues: read`, `pull-requests: read`); token ya da ağ yoksa düşer. Gece de koşar: issue elle kapatılabilir. Gecelik metamorfik testin issue adımının self-test'i de burada koşar (`scripts/ci/nightly_issue.py --self-test`) |
 | `metamorphic-nightly.yml` | her gün 02:41 UTC, elle (`ccache` girdisi) | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu koşunun UTC tarihidir ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
 | `mutants-exclusions.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), elle | **hariç tutma denetimi** (ADR-0109 eki "PR kapısı" §3, #239; eki "Kapı zorunlu yapılmadan önce", #283): "Mutation exclusions match their mutants" işi her `exclude_re` kaydının `# expect:` satırlarındaki mutantlarla tam eşleştiğini `cargo mutants --list` ile denetler; C kaydı (`# C.` etiketi, tek `# issue: #N` satırı) issue'su kapalıysa ya da yoksa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa iş düşer; issue'ları `github.token` ile okur (`issues: read`, `pull-requests: read`), token ya da ağ yoksa düşer. `mutants.yml`'den ayrıdır: PR açıklaması düzenlenince (`edited`) yalnız bu iş akışı koşar, kendi `concurrency` grubu vardır; düzenleme mutant kapısını yeniden başlatmaz, koşusunu iptal etmez. main'de her push'ta koşar: birleşen bir PR'ın kapattığı issue'nun kaydı kalmışsa main'de düşer |
@@ -85,6 +85,78 @@
   ccache'in kendi kuralı aşağıda.
 - `difftest.yml` yalnız elle koşar; bir dalda koştuğunda main'in
   `difftest` önbelleği varsa onu okur, yoksa boş başlar.
+
+## Mutasyon kapısının önceki sonucu (#318; ADR-0109 eki "Kapının önceki sonucu")
+
+Kapı her push'ta değişen Rust satırlarının mutantlarını baştan dener. Yalnız
+belge değişen bir push aynı mutantları aynı kodla ve aynı testlerle
+yeniden dener (#308'in ikinci push'u: 101 dk). Kapı artık parçalardan önce
+bir **yeniden kullanım anahtarı** hesaplar (`scripts/ci/mutants_reuse.py
+key`, `mutants-list/key.json`) ve aynı PR'ın anahtarı aynı, temiz geçmiş
+bir koşusunu arar (`find`).
+
+- **Anahtar, üç parça** (her biri `key.json`'da tam durur; iki anahtar
+  özetle değil alan alan karşılaştırılır, günlük neyin farklı olduğunu
+  yazar):
+  1. **mutantlar:** kapının hariç tutmalardan önceki listesi
+     (`unexcluded.txt`) ve mutasyona uğrayan her dosyanın blob'u;
+  2. **ağaç:** birleştirme commit'inin ağacı (yol, kip, blob), etkisiz
+     yollar (`scripts/ci/mutants_inert.txt`, her biri gerekçesiyle) ve
+     `.cargo/mutants.toml` çıkarılmış;
+  3. **ortam:** `.cargo/mutants.toml` ayrıştırılmış, `exclude_re`'siz
+     (`exclude_re` yalnız listeyi süzer; bugünkü kayıtlar önceki sonuçlara
+     yeniden uygulanır); iş akışının blob'u; Verilator sabiti
+     (`verilator.env`) ve eylemi; etkisiz yol listesi; iş akışının araç ve
+     sınır değişkenleri (cargo-mutants, nextest, OSS CAD Suite tarihi,
+     bellek sınırı, t); `rustc -vV`, `cargo mutants --version`, `cargo
+     nextest --version`; koşucu imajı (`ImageOS`, `ImageVersion`).
+- **Etkisiz yollar** dar tutulur: `docs/adr/`, `docs/spec/`,
+  `docs/design/`, `docs/research/`, `docs/release-notes/`,
+  `docs/roadmap.md`, `CHANGELOG.md`. `README.md` etkisiz değildir
+  (`verilator_pin_tests` okur); `.test-baseline` ve `.github/badges.json`
+  da listede yok (yalnız testlerle değişirler, testler anahtarı zaten
+  değiştirir). Her parça temel koşudan önce bu yolları siler (`mask`):
+  kaydettiği sonuçlar onlarsız hesaplanır, onları okuyan bir test her
+  kapı koşusunun temel koşusunu düşürür. Tutarlılık kontrolü 22 listeyi
+  ve `crates/` altında onları okuyan kodu denetler.
+- **Kullanılan önceki koşu:** aynı PR numarası, aynı baş dalı ve aynı baş
+  deposu (fork değil), olay `pull_request` (elle koşu değil), iş akışı
+  `mutants.yml`; tamamlanmış. İptal edilmiş, anahtarsız ya da kendisi
+  yeniden kullanmış koşular atlanır; anahtarı aynı en yeni koşu karar
+  verir ve `success` bitmiş olmalıdır. Her parçası tamamlanmış: her
+  mutantın sonucu var, missed = 0, timeout = 0, bellek sınırı = 0; her
+  parçanın araç defteri `--require-zero-skips --min-ran 60`'tan geçer
+  (`Tool ledger [mutants-k]: … SKIP: 0` satırı bu koşunun günlüğünde
+  yeniden yazılır); her parçanın damgası (`stamp.json`, temel koşu
+  geçtikten sonra yazılır) anahtardaki rustc, cargo-mutants, nextest ve
+  imajı adlandırır ve etkisiz yolların yokluğunu gösterir; bu koşunun
+  listesindeki (bugünkü `exclude_re`'den sonra) her mutant o koşuda
+  denenmiş ve caught ya da unviable'dır. Biri tutmazsa kapı baştan koşar,
+  günlük nedenini yazar (`not reused, the gate runs in full: …`).
+- **Kaynak ve güven:** önceki sonuç `actions/cache`'ten değil, o koşunun
+  artifact'larından gelir (`mutants-list`, `mutants-out-<k>`), API
+  üzerinden (`gh api`, `github.token`, iş izni `actions: read`); her
+  zip'in sha256'sı GitHub'ın yüklemede kaydettiği özetle karşılaştırılır,
+  sonra açılır. Artifact'ı yalnız kendi koşusu yükleyebilir. Anahtar iş
+  akışını ve `scripts/`'i içerdiği için önceki sonucu bugünkü kodun
+  aynısı üretmiştir: elle değiştirilmiş bir iş akışının yüklediği bir
+  sonuç başka bir anahtar taşır. İmza yok: PR'ın kendi koşusu bir sırrı
+  da okuyabilirdi, imza bir şey katmazdı.
+- **Günlük ve özet:** kapsam işi `Reuse key …`, her önceki koşu için bir
+  satır ve `reused: run <id> (SHA <tam sha>), key <özet>` yazar
+  (`::notice title=Mutation gate::`); parça işi atlanır; özet işi kararı
+  önceki koşunun sonuçlarından yeniden denetleyerek verir, başlığı
+  `Pull-request gate: passed (reused)`'dır ve o koşunun tablolarını,
+  bugünkü `exclude_re`'nin dışarıda bıraktığı mutantları gösterir.
+- **Hiç yeniden kullanılmayanlar:** timeout ve bellek sınırı (yüke ve
+  koşucuya bağlı), tamamlanmamış ya da iptal edilmiş koşu, SKIP'li ya da
+  araçları farklı koşu, missed içeren koşu, başka bir PR'ın ya da fork'un
+  koşusu, `workflow_dispatch` koşusu.
+- **Sınırlar:** main ilerleyip birleştirme ağacı etkisiz olmayan bir yolda
+  değişince kapı baştan koşar. Ağaç dışında kalan girdiler: `build.rs`'in
+  sürüm metnine yazdığı commit kısaltması (testler onu git'in kendi
+  çıktısıyla karşılaştırır, değerine bağlı değildir) ve koşucunun yükü
+  (timeout'lar bu yüzden yeniden kullanılmaz).
 
 ## Kitap ve Pages düzeni (ADR-0100)
 

@@ -27,6 +27,9 @@
 #      satırlarındaki Ubuntu etiketleri tek bir sabit sürüm
 #  21. her Swatinem/rust-cache adımı yalnız main'de kaydeder ve ImageOS'u
 #      anahtara katar
+#  22. mutasyon kapısının etkisiz yolları (scripts/ci/mutants_inert.txt)
+#      gerekçeli ve depoda; crates/ altında hiçbir kod onları okumaz,
+#      kökü ya da docs/'u taramaz (#318)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 set -u
@@ -496,6 +499,60 @@ if printf '%s\n' "$rc_out" | grep -qv '^STEP$\|^$'; then
     while IFS= read -r line; do
         violation "rust-cache adımı $line (kontrol 21)"
     done < <(printf '%s\n' "$rc_out" | grep -v '^STEP$\|^$')
+fi
+
+# ── 22: mutasyon kapısının etkisiz yolları (#318, ADR-0109 eki "Kapının önceki sonucu") ─
+# scripts/ci/mutants_inert.txt'teki her yol depoda vardır ve hemen üstünde
+# gerekçe yorumu taşır. crates/ altındaki hiçbir Rust dosyasının yorum
+# olmayan bir satırı bir etkisiz yolu adlandırmaz, depo kökünün ya da
+# kökteki `docs` dizininin altını taramaz. Parçalar bu yolları temel
+# koşudan önce siler (dinamik kanıt); bu denetim onları okuyan bir testi
+# PR'da, kapıdan önce yakalar.
+INERT="$ROOT/scripts/ci/mutants_inert.txt"
+if [ ! -f "$INERT" ]; then
+    violation "scripts/ci/mutants_inert.txt yok (kontrol 22)"
+else
+    inert_paths=()
+    prev_comment=0
+    n=0
+    while IFS= read -r raw || [ -n "$raw" ]; do
+        n=$((n + 1))
+        line="${raw%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        if [ -z "$line" ]; then prev_comment=0; continue; fi
+        case "$line" in
+            \#*) prev_comment=1; continue ;;
+        esac
+        [ "$prev_comment" -eq 1 ] || violation "scripts/ci/mutants_inert.txt:$n: '$line' üstünde gerekçe yorumu yok (kontrol 22)"
+        [ -e "$ROOT/${line%/}" ] || violation "scripts/ci/mutants_inert.txt:$n: '$line' depoda yok (kontrol 22)"
+        inert_paths+=("$line")
+        prev_comment=0
+    done < "$INERT"
+    [ "${#inert_paths[@]}" -gt 0 ] || violation "scripts/ci/mutants_inert.txt hiçbir yol listelemiyor (kontrol 22)"
+    mapfile -t inert_rs < <(find "$ROOT/crates" -type f -name '*.rs' -not -path '*/target/*' | LC_ALL=C sort)
+    [ "${#inert_rs[@]}" -gt 0 ] || violation "crates/ altında Rust dosyası bulunamadı (kontrol 22)"
+    inert_hits() {
+        # || true, durum (c): eşleşmeyen grep normaldir; sonuç çağıranda sayılır.
+        grep -nE -- "$1" "${inert_rs[@]}" /dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true
+    }
+    for p in "${inert_paths[@]}"; do
+        needle=$(printf '%s' "${p%/}" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        while IFS= read -r hit; do
+            [ -n "$hit" ] && violation "${hit#"$ROOT/"}: etkisiz yol '$p'yi adlandırıyor; ya okumayı kaldırın ya yolu mutants_inert.txt'ten çıkarın (kontrol 22)"
+        done <<< "$(inert_hits "$needle")"
+    done
+    # Taramalar yalnız depoyu okuyan kodda aranır: testler (crates/*/tests)
+    # ve build.rs. src/ kullanıcının projesini tarar (discover.rs).
+    mapfile -t inert_rs < <(printf '%s\n' "${inert_rs[@]}" | grep -E '/crates/[^/]+/(tests/|build\.rs$)')
+    walk_re='"(\.\./)*docs/?"|(read_dir|collect|files|walk[A-Za-z_]*)\(&?(root|repo_root|workspace_root)(\(\))?[[:space:]]*[,)]|read_dir\(&?repo\("\.?/?"\)'
+    while IFS= read -r hit; do
+        [ -z "$hit" ] && continue
+        case "$hit" in
+            *'"docs'* | *'"../docs'*) printf '%s' "$hit" | grep -qE 'root|repo\(|CARGO_MANIFEST_DIR' || continue ;;
+        esac
+        violation "${hit#"$ROOT/"}: depo kökünü ya da docs/'u tarıyor, etkisiz yolları okuyabilir (kontrol 22)"
+    done <<< "$(inert_hits "$walk_re")"
 fi
 
 # ── Sonuç ─────────────────────────────────────────────────────────────

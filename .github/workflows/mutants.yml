@@ -22,6 +22,21 @@ name: Mutation test
 #   the check of the exclude_re entries (#239, #283) is a workflow of its
 #   own, mutants-exclusions.yml, which also runs on `edited`.
 #   By hand on a branch: `-f gate_base=<revision>` (the lines changed since).
+#   Reuse (#318, ADR-0109 appendix "Kapının önceki sonucu"): before any
+#   shard starts, the first job computes a reuse key (the mutants before the
+#   exclusions, the merge commit's tree without the inert paths of
+#   scripts/ci/mutants_inert.txt, the environment: .cargo/mutants.toml
+#   without exclude_re, this workflow, the Verilator pin, the tool versions,
+#   rustc, the runner image). When an earlier gate run of the same pull
+#   request (not a fork, not a hand run) has the same key and every shard of
+#   it completed with no missed, timeout or memory-limit mutant and SKIP: 0,
+#   no shard runs: the summary gives the verdict from that run's outcomes,
+#   with today's exclude_re re-applied, and names it ("reused: run <id> (SHA
+#   <sha>), key <hash>"). Anything else runs the gate in full. The earlier
+#   result comes from that run's artifacts through the API, checked against
+#   the digests GitHub recorded, never from actions/cache. Every shard
+#   deletes the inert paths before its baseline, so its outcomes never
+#   depend on them.
 # - A full or targeted run, by hand (workflow_dispatch): a measurement; a
 #   missed mutant does not fail it.
 #
@@ -147,10 +162,18 @@ jobs:
     if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # actions: read: the earlier gate runs of this pull request and their
+    # artifacts (#318).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
       matrix: ${{ steps.shards.outputs.matrix }}
       mode: ${{ steps.list.outputs.mode }}
+      reuse_run: ${{ steps.reuse.outputs.run }}
+      reuse_sha: ${{ steps.reuse.outputs.sha }}
+      reuse_key: ${{ steps.reuse.outputs.key }}
     steps:
       # The whole history: the gate diffs against the merge commit's first
       # parent or against gate_base.
@@ -174,6 +197,7 @@ jobs:
           python3 scripts/ci/mutants_target.py --self-test
           python3 scripts/ci/mutants_summary.py --self-test
           python3 scripts/ci/mutants_watchdog.py --self-test
+          python3 scripts/ci/mutants_reuse.py --self-test
       # The filter of the run (mutants-list/filter.txt), which every later
       # `cargo mutants` call takes:
       # - gate: --in-diff of the Rust files changed since the base;
@@ -252,13 +276,46 @@ jobs:
             python3 scripts/ci/mutants_target.py check --re "$MUTANTS_RE" --list mutants-list/all.txt --expect "$MUTANTS_EXPECT"
             echo "::notice title=Targeted mutation run::$(wc -l < mutants-list/all.txt) mutants match the regex $MUTANTS_RE"
           fi
+      # #318 (ADR-0109 appendix "Kapının önceki sonucu"): the reuse key of
+      # this gate run (mutants-list/key.json, uploaded with the lists, so a
+      # later run can compare with it) and an earlier gate run of this pull
+      # request with the same key and a clean, complete result
+      # (scripts/ci/mutants_reuse.py says what is checked). When one is
+      # found, no shard runs: steps.reuse.outputs.run names it and
+      # mutants-list/reuse/ holds its lists and outcomes for the summary.
+      # Anything else, an error of the API too, runs the gate in full, and
+      # the log says why.
+      - name: Reuse key, and an earlier passed run of this pull request with the same key
+        id: reuse
+        if: ${{ steps.list.outputs.mode == 'gate' }}
+        env:
+          CARGO_TERM_COLOR: never
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          if [ ! -s mutants-list/all.txt ]; then
+            echo "No mutant to test: no reuse key."
+            exit 0
+          fi
+          python3 scripts/ci/mutants_reuse.py key --lists mutants-list
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "A gate run by hand (gate_base): reuse is for pull_request runs only; the gate runs in full."
+            exit 0
+          fi
+          python3 scripts/ci/mutants_reuse.py find --lists mutants-list --pr "$PR_NUMBER" \
+            --head-repo "$HEAD_REPO" --head-ref "$HEAD_REF" --github-output "$GITHUB_OUTPUT"
       # ADR-0109 section 3, from the number of mutants of this run, unless
-      # the input gives it; the gate with its measured t. No mutant: no shard.
+      # the input gives it; the gate with its measured t. No mutant, or a
+      # reused earlier run (#318): no shard.
       - name: Number of shards
         id: shards
         env:
           SHARDS_INPUT: ${{ inputs.shards }}
           MODE: ${{ steps.list.outputs.mode }}
+          REUSE_RUN: ${{ steps.reuse.outputs.run }}
         run: |
           total=$(wc -l < mutants-list/all.txt)
           if [ "$total" -eq 0 ]; then
@@ -266,6 +323,8 @@ jobs:
               echo "::error title=Mutation test::no mutant in the run"
               exit 1
             fi
+            n=0
+          elif [ -n "$REUSE_RUN" ]; then
             n=0
           elif [ -n "$SHARDS_INPUT" ]; then
             n="$SHARDS_INPUT"
@@ -290,6 +349,9 @@ jobs:
         env:
           CARGO_TERM_COLOR: never
           MODE: ${{ steps.list.outputs.mode }}
+          REUSE_RUN: ${{ steps.reuse.outputs.run }}
+          REUSE_SHA: ${{ steps.reuse.outputs.sha }}
+          REUSE_KEY: ${{ steps.reuse.outputs.key }}
         run: |
           export PATH="$HOME/mutants-tools/bin:$PATH"
           mapfile -t filter < mutants-list/filter.txt
@@ -297,16 +359,26 @@ jobs:
             cargo mutants --list "${filter[@]}" --shard "$k/$MUTANTS_SHARDS" > "mutants-list/shard-$k.txt"
           done
           total=$(wc -l < mutants-list/all.txt)
-          # || :, case (c): with no shard (the gate has nothing to test) there
-          # is no shard file and cat fails; the count is checked just below.
+          # || :, case (c): with no shard (the gate has nothing to test, or
+          # reuses an earlier run) there is no shard file and cat fails; the
+          # count is checked just below.
           sharded=$( (cat mutants-list/shard-*.txt 2>/dev/null || :) | wc -l)
           echo "::notice title=Mutants in scope::$total in $MUTANTS_SHARDS shards"
-          if [ "$total" -ne "$sharded" ]; then
+          if [ -n "$REUSE_RUN" ]; then
+            if [ "$sharded" -ne 0 ]; then
+              echo "::error title=Mutants in scope::reused run $REUSE_RUN, but the shard lists hold $sharded mutants"
+              exit 1
+            fi
+          elif [ "$total" -ne "$sharded" ]; then
             echo "::error title=Mutants in scope::the shard lists hold $sharded mutants, the full list $total"
             exit 1
           fi
           {
-            if [ "$MODE" = gate ]; then
+            if [ -n "$REUSE_RUN" ]; then
+              echo "### Pull-request gate: $total mutants on the changed lines, reused: run $REUSE_RUN (SHA $REUSE_SHA), key $REUSE_KEY"
+              echo
+              cat mutants-list/note.txt
+            elif [ "$MODE" = gate ]; then
               echo "### Pull-request gate: $total mutants on the changed lines, $MUTANTS_SHARDS shards"
               echo
               cat mutants-list/note.txt
@@ -321,6 +393,8 @@ jobs:
               echo '|---:|---|'
               cut -d: -f1 mutants-list/all.txt | sort | uniq -c | sort -rn | awk '{ print "| " $1 " | `" $2 "` |" }'
               echo
+            fi
+            if [ "$MUTANTS_SHARDS" -gt 0 ]; then
               echo '| Shard | Mutants |'
               echo '|---:|---:|'
               for k in $(seq 0 $(( MUTANTS_SHARDS - 1 ))); do
@@ -428,6 +502,12 @@ jobs:
             exit 1
           fi
           echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < mutants-shard.txt) mutants"
+      # #318: the inert paths (scripts/ci/mutants_inert.txt) leave the
+      # checkout before the baseline. Every outcome of this shard is then
+      # computed without them, which is what lets the reuse key leave them
+      # out; a test that reads one fails this baseline, in every gate run.
+      - name: Remove the inert paths (reuse key, #318)
+        run: python3 scripts/ci/mutants_reuse.py mask
       # The baseline: the unmutated tree runs every workspace test, with
       # every tool required, exactly as each mutant will, under the same
       # memory watchdog (a test that needs more fails here, not as a
@@ -458,6 +538,11 @@ jobs:
           if [ "$limit" -lt 300 ]; then limit=300; fi
           echo "timeout=$limit" >> "$GITHUB_OUTPUT"
           echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS baseline::${secs} s; test timeout per mutant ${limit} s"
+          # #318: the stamp a later run checks before it reuses this one:
+          # rustc, cargo-mutants, cargo-nextest, Verilator and Yosys, the
+          # runner image, and that the inert paths were absent. Written once
+          # the baseline passed.
+          python3 scripts/ci/mutants_reuse.py stamp --out stamp.json --baseline-seconds "$secs" --timeout "$limit"
       # --in-place reuses the target directory the baseline built instead of
       # copying the tree; the source file is restored after each mutant.
       # Exit codes of cargo mutants: 0 every mutant caught, 2 some missed,
@@ -488,6 +573,16 @@ jobs:
             124) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: stopped after 300 minutes; the outcomes so far are in the artifact"; exit 1 ;;
             *) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: cargo mutants exit code $code"; exit 1 ;;
           esac
+      # #318: the shard's tool ledger goes into its artifact; a later run
+      # that reuses this one checks it again (SKIP: 0, --min-ran 60).
+      - name: Keep the tool ledger in the artifact (#318)
+        if: always()
+        run: |
+          if [ -f "$VOLT_TOOL_LEDGER" ]; then
+            cp "$VOLT_TOOL_LEDGER" tool-ledger.tsv
+          else
+            echo "No tool ledger: no test asked for a tool in this shard."
+          fi
       # always(): also when a step failed, the job was cancelled or reached
       # its time limit, so the outcomes reached so far are kept.
       - name: Upload mutants.out
@@ -502,6 +597,8 @@ jobs:
             baseline-memory-kills.tsv
             baseline-build-peak.txt
             baseline-test-peak.txt
+            stamp.json
+            tool-ledger.tsv
           if-no-files-found: warn
       # ADR-0107: the baseline and every mutant ran their tool tests.
       - name: Tool ledger - SKIP count
@@ -518,6 +615,7 @@ jobs:
     env:
       MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
       MUTANTS_MODE: ${{ needs.tools.outputs.mode }}
+      REUSE_RUN: ${{ needs.tools.outputs.reuse_run }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -537,9 +635,16 @@ jobs:
       # marked NOT COMPLETED at the top of the summary with its untested
       # mutants, and fails this step. The gate also fails on every missed
       # mutant that no exclude_re entry covers. A baseline peak above half of
-      # the watchdog's limit is a warning, never a failure (#253).
+      # the watchdog's limit is a warning, never a failure (#253). A reused
+      # earlier run (#318): the verdict from its outcomes, checked again
+      # here, with today's exclude_re; the summary names the run.
       - name: Merge the shards into the job summary
         run: |
+          if [ -n "$REUSE_RUN" ]; then
+            python3 scripts/ci/mutants_summary.py --reused lists/reuse --lists lists --gate --config .cargo/mutants.toml \
+              --out merged --markdown "$GITHUB_STEP_SUMMARY" --memory-limit-mib "$MUTANTS_MEMORY_LIMIT_MIB"
+            exit 0
+          fi
           args=(shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY"
             --memory-limit-mib "$MUTANTS_MEMORY_LIMIT_MIB")
           if [ "$MUTANTS_MODE" = gate ]; then args+=(--gate --config .cargo/mutants.toml); fi

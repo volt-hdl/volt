@@ -1,0 +1,46 @@
+# Inert paths of the mutation gate's reuse key (#318, ADR-0109 appendix
+# "Kapının önceki sonucu"). One path per line: a directory ends with `/`.
+# Each one has its reason in the comment lines right above it.
+#
+# An inert path is one no build and no test of the workspace reads. The
+# gate's reuse key (scripts/ci/mutants_reuse.py) leaves these paths out of
+# the merge commit's tree, so a push that changes only them reuses an
+# earlier passed run of the same pull request. Two things keep the list
+# honest:
+#
+# - every shard deletes these paths before its baseline (`mutants_reuse.py
+#   mask`), so the outcomes it records were computed without them: they
+#   cannot depend on their content, and a test that needs one fails the
+#   baseline of every gate run;
+# - consistency check 22 (`just consistency`) fails when a non-comment line
+#   of a Rust file under crates/ names one of these paths, or walks
+#   `docs` or the repository root.
+#
+# Keep the list narrow: a path in doubt stays out. Not inert, on purpose:
+# README.md (verilator_pin_tests reads it), .test-baseline and
+# .github/badges.json (verilator_flags_tests walks .github; both change
+# only with the tests, which change the key anyway), docs/stdlib.md (the
+# seeded-bug specials cite it), docs/README.md, book/, tests/, examples/,
+# templates/, scripts/, .github/.
+
+# The ADRs: decision records. No test or build script opens them; the
+# consistency check (scripts/check-consistency.*) reads them, and it is
+# not a test of the workspace and does not run in the gate.
+docs/adr/
+# The language specification: Rust files cite it in comments only; the
+# consistency check reads the diagnostic codes from it, outside the gate.
+docs/spec/
+# Design documents (the UX constitution and others): read by people only.
+docs/design/
+# Background material: read by people only.
+docs/research/
+# Release notes: read by release.yml, book.yml's release-notes job,
+# scripts/release/notes.py and book/tools/check_book.py; none of them is
+# a test of the workspace (tool_backend_harness_tests reads the text of
+# check_book.py, never the notes).
+docs/release-notes/
+# The roadmap: read by people and by the consistency check's link check.
+docs/roadmap.md
+# The changelog: verilator_pin_tests leaves it out on purpose (a history
+# record); no other test reads it.
+CHANGELOG.md

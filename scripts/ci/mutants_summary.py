@@ -37,6 +37,7 @@ is a gate run with no mutant to test (the reason is `--note`): it passes.
 import argparse
 import contextlib
 import io
+import json
 import re
 import sys
 import tempfile
@@ -371,6 +372,87 @@ def summarize(
     return code
 
 
+def summarize_reused(
+    reuse: Path,
+    lists: Path,
+    config: Path | None,
+    md_path: Path | None,
+    out_dir: Path | None,
+    memory_limit: int | None = None,
+) -> int:
+    """#318: the gate's verdict from an earlier run of the same pull request.
+
+    `reuse` is what mutants_reuse.py find wrote: reuse.json (the earlier
+    run, its SHA, the key), the earlier lists and its shards' outcomes. The
+    checks of find are made again here, so the verdict never rests on the
+    tools job alone: every shard completed, no missed, timeout or
+    memory-limit mutant, and every mutant of this run's list (after
+    today's exclude_re) was tested then.
+    """
+    info = json.loads((reuse / "reuse.json").read_text(encoding="utf-8"))
+    rlists, rshards = reuse / "lists", reuse / "shards"
+    n = len(list(rlists.glob("shard-*.txt")))
+    results = [shard_result(rshards, rlists, k, n) for k in range(n)]
+    current = read_lines(lists / "all.txt")
+    tested = {x for r in results for kind in ("caught", "unviable") for x in r[kind]}
+    errors = [f"shard {r['shard']}: {status(r).replace('**', '')}" for r in results if not complete(r)]
+    if n == 0:
+        errors.append("the reused run has no shard")
+    for kind in ("missed", "timeout", "memory"):
+        names = sorted(x for r in results for x in r[kind])
+        if names:
+            errors.append(f"{len(names)} {kind} in the reused run: {', '.join(names)}")
+    errors += [f"not tested in the reused run: {x}" for x in sorted(set(current) - tested)]
+    excluded_now = sorted(tested - set(current))
+    gate = {"open": [], "covered": [], "c": []}
+    if config is not None:
+        gate["c"] = c_waiting(config, read_lines(lists / "unexcluded.txt"))
+    line = f"reused: run {info['run']} (SHA {info['sha']}), key {info['key']}"
+    head = ["## Mutation test (ADR-0109)", "", f"**{line}**", ""]
+    if errors:
+        head += ["### Pull-request gate: FAILED, the reused run is not clean", ""] + [f"- {e}" for e in errors] + [""]
+    else:
+        head += [
+            "### Pull-request gate: passed (reused)",
+            "",
+            f"No shard ran in this run. The mutants on the changed lines (before the exclusions), the merge commit's"
+            f" tree without the inert paths and the environment are those of run [{info['run']}]({info.get('url', '')})"
+            f" (SHA `{info['sha']}`): every shard of it completed with no missed, timeout or memory-limit mutant and"
+            " `SKIP: 0` (ADR-0109 appendix \"Kapının önceki sonucu\", #318). Its outcomes are the verdict, with"
+            f" today's `exclude_re` re-applied: {len(current)} mutant(s) on the changed lines, every one caught or"
+            " unviable then.",
+            "",
+        ]
+    if excluded_now:
+        head += [f"Excluded by today's `exclude_re`, tested then ({len(excluded_now)}):", ""]
+        head += [f"- {x}" for x in excluded_now] + [""]
+    c_list(head, gate)
+    body = markdown(results, None, None, memory_limit).split("\n")[2:]
+    md = "\n".join(head + [f"The tables of run {info['run']}:", ""] + body)
+    print(md)
+    if md_path:
+        with md_path.open("a", encoding="utf-8") as f:
+            f.write(md + "\n")
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for kind in KINDS + ("untested",):
+            names = sorted(x for r in results for x in r[kind])
+            (out_dir / f"{kind}.txt").write_text("".join(x + "\n" for x in names), encoding="utf-8")
+        (out_dir / "summary.md").write_text(md + "\n", encoding="utf-8")
+        (out_dir / "reused.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    for e in errors:
+        print(f"::error title=Mutation gate::{e}")
+    print(f"::notice title=Mutation gate::{line}")
+    tot = {k: sum(len(r[k]) for r in results) for k in KINDS}
+    print(
+        "::notice title=Mutation test::"
+        + " ".join(f"{k}={tot[k]}" for k in KINDS)
+        + f" untested={sum(len(r['untested']) for r in results)} mutants={len(current)}"
+        + f" gate_open=0 reused_run={info['run']} excluded_now={len(excluded_now)}"
+    )
+    return 1 if errors else 0
+
+
 def self_test() -> int:
     a = "crates/a.rs:10:5: replace f -> bool with true"
     b = "crates/a.rs:3:9: replace + with - in g"
@@ -569,6 +651,41 @@ def self_test() -> int:
         assert summarize(Path(tmp) / "none", lists, 0, None, md_file, config=cfg, note="No Rust source in scope changed.") == 0
         text = md_file.read_text(encoding="utf-8")
         assert "**No mutant to test.** No Rust source in scope changed." in text and "gate: **passed** (nothing to test)" in text, text
+
+        # #318: a gate run that reused an earlier run's outcomes (mutants_reuse.py find).
+        reuse = Path(tmp) / "reuse"
+        cur = Path(tmp) / "cur"
+        cur.mkdir()
+        for k, names in enumerate(([a, b], [c])):
+            (reuse / "lists").mkdir(parents=True, exist_ok=True)
+            (reuse / "lists" / f"shard-{k}.txt").write_text("".join(n + "\n" for n in names), encoding="utf-8")
+            s = reuse / "shards" / f"mutants-out-{k}" / "mutants.out"
+            s.mkdir(parents=True)
+            (s / "caught.txt").write_text("".join(n + "\n" for n in names if n != c), encoding="utf-8")
+            (s / "unviable.txt").write_text(c + "\n" if c in names else "", encoding="utf-8")
+        sha = "ab" * 20
+        (reuse / "reuse.json").write_text(json.dumps({"run": 4242, "sha": sha, "key": "k" * 64, "url": "u"}), encoding="utf-8")
+        (cur / "all.txt").write_text(f"{a}\n{c}\n", encoding="utf-8")
+        md_file = Path(tmp) / "reused.md"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert summarize_reused(reuse, cur, cfg, md_file, Path(tmp) / "merged") == 0, out.getvalue()
+        text = md_file.read_text(encoding="utf-8")
+        assert f"reused: run 4242 (SHA {sha}), key {'k' * 64}" in text, text
+        assert "### Pull-request gate: passed (reused)" in text and "No shard ran in this run" in text, text
+        assert f"Excluded by today's `exclude_re`, tested then (1)" in text and f"- {b}" in text, text
+        assert "| 3 | 3 | 0 | 2 | 0 | 0 | 0 | 1 |" in text, text
+        assert f"::notice title=Mutation gate::reused: run 4242 (SHA {sha}), key {'k' * 64}" in out.getvalue(), out.getvalue()
+        assert (Path(tmp) / "merged" / "caught.txt").read_text(encoding="utf-8") == f"{a}\n{b}\n"
+        # Defensive: a reused run that is not clean, or that did not test a mutant of this run, fails.
+        (cur / "all.txt").write_text(f"{a}\n{d}\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize_reused(reuse, cur, cfg, None, None) == 1, "a mutant not tested then"
+        (cur / "all.txt").write_text(f"{a}\n", encoding="utf-8")
+        (reuse / "shards" / "mutants-out-0" / "mutants.out" / "timeout.txt").write_text(b + "\n", encoding="utf-8")
+        (reuse / "shards" / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize_reused(reuse, cur, cfg, None, None) == 1, "a timeout is never reused"
     print("mutants_summary self-test: ok")
     return 0
 
@@ -584,10 +701,17 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=Path(".cargo/mutants.toml"))
     ap.add_argument("--note", help="a line for the top of the summary (why there is no mutant to test)")
     ap.add_argument("--memory-limit-mib", type=int, help="the watchdog's limit: warn on a baseline peak above half of it")
+    ap.add_argument("--reused", type=Path, help="#318: the gate's verdict from an earlier run (mutants_reuse.py find)")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
+    if args.reused is not None:
+        if args.lists is None:
+            ap.error("--reused needs --lists")
+        return summarize_reused(
+            args.reused, args.lists, args.config if args.gate else None, args.markdown, args.out, args.memory_limit_mib
+        )
     if args.dir is None or args.lists is None or args.shards is None:
         ap.error("DIR, --lists and --shards are required")
     return summarize(
