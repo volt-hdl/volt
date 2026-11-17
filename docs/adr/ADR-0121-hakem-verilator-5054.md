@@ -193,7 +193,39 @@ install.md) eski ölçümdür.
 
 ### CI
 
-(PR'da doldurulur.)
+Önce düşen: kanıt PR'ı #310 (bu PR'ın iki test commit'i, hakem 5.052),
+run 44074669626, "Verilator lint": `Verilator version check: OK (Verilator
+5.052 2026-09-05 rev v5.052)`, `error: 2 targets failed`:
+`metamorphic_tests` (`real_bugs`: `309_port_tied_signed_shift.volt`,
+`test result: FAILED. 1 passed; 1 failed`) ve `signed_overshift_sim_tests`
+(`issue_309_…`: `left: 0`, `right: 9223372036854775807`). Öteki işler
+yeşil.
+
+Bu PR (3d1674d9), run 44075582208, bütün işler yeşil; mutasyon kapısı (run 44075582548) 4 mutant: 3 yakalandı, 1 derlenemez, 0 kaçan. "Verilator lint":
+`Verilator version check: OK (Verilator 5.054 2026-11-01 rev v5.054)`; 206
+test özetinde 4139 geçti, 0 düştü; `issue_309_…`, `real_bugs` ve yedi
+kanarya testi geçti; fark testi (tohum 20261104, 2000) `diffs=0`,
+`regressions=39 failed=0 hand-computed=58`; `Tool ledger [integration]:
+206 test(s) asked for a tool; 208 lookup(s) found the tool (208
+required), SKIP: 0`; "Tool coverage" `209 ran with the tool required, 0
+did not`. "Docker backend": `running it in Docker
+(verilator/verilator:v5.054)`, `SKIP: 0`. Kitap (run 44075582571): `31
+volt block(s) checked, 8 test file(s) run, 7 verify run(s), 0 failure(s)`.
+
+5.052 ile karşılaştırma (aynı girdiler):
+
+| Koşu | 5.052 (main 88f536ba) | 5.054 (bu dal) |
+|---|---|---|
+| CI "Verilator lint" | run 44066170905: 206 özet, 4135 geçti, 0 düştü; `SKIP: 0` (205 arama); difftest `diffs=0` | 206 özet, 4139 geçti (+4: #309 testi, iki yeni kanarya testi, imaj anma denetimi), 0 düştü; `SKIP: 0` (208) |
+| Kitap | run 44066169719: 31 blok, 8 test dosyası, 7 verify, 0 hata | aynı |
+| Fark testi büyük koşusu (tohum 20261105–20261108, parça başına 12500) | run 44075236280: 50.100 kabul, 5.384.798 değer karşılaştırması; parça 0/1/3 `diffs=1/3/1`, parça 2 `diffs=0` | run 44075586023: birebir aynı sayılar ve aynı beş bulgu |
+| Metamorfik gecelik (tohum 2026-11-17) | run 44070588184: 491 tasarım, 178 donanım karşılaştırması; gerçek hata derlemi 25 örnek, 4 bilinen başarısızlık | run 44075592058: 492 tasarım, 179 karşılaştırma; 26 örnek (#309 dahil), 4 bilinen başarısızlık; `SKIP: 0` |
+
+Fark testinin beş bulgusu iki sürümde de #303'tür (`as bits<N> as uN`
+biçiminin `w` varyantında Verilator WIDTHEXPAND, `volt test` durur):
+hakem değişikliği #303'ü ne düzeltir ne kötüleştirir; #303 açık kalır.
+Metamorfik koşudaki tek fark yeni `309_port_tied_signed_shift.volt`
+dosyasıdır.
 
 ## İlke denetimi
 
