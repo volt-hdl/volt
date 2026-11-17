@@ -144,6 +144,19 @@ exclude_re = [
     # the function has three `<` -> `<=` mutants (1646:62 and 1649:48).
     # expect: crates/volt-sv-emit/src/expr.rs:1646:48: replace < with <= in Emitter<'a>::part_select_from_value
     "volt-sv-emit/src/expr\\.rs:1646:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # A2 (#302, ADR-0120), assumes the referee Verilator simulates a signed
+    # `a >>> w` correctly. `w - 1` -> `w / 1` writes the amount w instead of
+    # w - 1; by IEEE 1800-2017 §11.4.10 both fill every bit with the sign.
+    # The 5.050-5.052 bug needs a constant K >= cppw (32, 64, 32*ceil(w/32))
+    # with w not a multiple of cppw, and the 5.054 residual needs K >= cppw
+    # too: K = w reaches cppw only when w is a multiple of it. With the
+    # mutant, on Verilator 5.052: signed_overshift_sim_tests (8 tests; the
+    # sweep has K = w for every width class), difftest_tests, metamorphic_tests
+    # and verilator_canary_tests pass, and the SV of the i63, i65 and
+    # amount-form examples is clean under `verilator --lint-only -Wall`.
+    # Re-check when the referee changes (ISSUE_302_MEASURED in the canary).
+    # expect: crates/volt-sv-emit/src/expr.rs:1456:40: replace - with / in Emitter<'a>::clamped_signed_shift
+    "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace - with / in Emitter<'a>::clamped_signed_shift$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a
