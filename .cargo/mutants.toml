@@ -383,10 +383,12 @@ exclude_re = [
     # C. The measured height of an inner match is its arm count + 1 (a leaf
     # body counts `depth + 1`), so E0018 comes at exactly 256 arms; the spec
     # (sv-mapping.md §19.1) says the height is the arm count and E0018 comes
-    # above 256. Both mutants drop that level and agree with the spec.
+    # above 256. The leaf's `depth - 1` and `depth * 1` (run 44385574475
+    # found the second) both drop that level and agree with the spec.
     # issue: #336
     # expect: crates/volt-sv-emit/src/match_expr.rs:215:25: replace + with - in Emitter<'a>::ternary_height
-    "volt-sv-emit/src/match_expr\\.rs:215:25: replace \\+ with - in Emitter<'a>::ternary_height$",
+    # expect: crates/volt-sv-emit/src/match_expr.rs:215:25: replace + with * in Emitter<'a>::ternary_height
+    "volt-sv-emit/src/match_expr\\.rs:215:25: replace \\+ with [-*] in Emitter<'a>::ternary_height$",
     # C. Same as above (#336): the arms of the root match measured at depth 0
     # instead of 1 give the arm count.
     # issue: #336
