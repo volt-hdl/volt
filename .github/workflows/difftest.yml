@@ -9,27 +9,31 @@ name: Differential test (large run)
 # scripts/ci/verilator.env, the same as the tool job's (#145); this
 # workflow needs no other tool.
 #
-# The nightly run (#255) takes its first seed from the UTC date, YYYYMMDD00
-# (2026-11-18 -> 2026111800, shard k -> 2026111800 + k): every night tries
-# other expressions, and two nights never share a shard's seed. A red
-# night opens an issue with a fixed title, or adds the report as a comment
-# to the open one (scripts/ci/nightly_issue.py --kind difftest); a green
-# night writes nothing.
+# The nightly run (#255, ADR-0123) takes its first seed from the night's
+# UTC date, YYYYMMDD00 (shard k: YYYYMMDD00 + k). The night's date is the
+# UTC date 12 hours before the run starts (scripts/ci/nightly_seed.py): a
+# night that starts late, past midnight, keeps its date, and two nights
+# never share a shard's seed. A red night opens an issue with a fixed
+# title, or adds the report as a comment to the open one
+# (scripts/ci/nightly_issue.py --kind difftest); a green night writes
+# nothing.
 #
-# 01:23 UTC, 78 minutes before metamorphic-nightly.yml (02:41) and 97
-# before fuzz-nightly.yml (03:00), which use the same runner pool. GitHub
+# 17:03 UTC, 78 minutes before metamorphic-nightly.yml (18:21) and 97
+# before fuzz-nightly.yml (18:40), which use the same runner pool. GitHub
 # starts scheduled runs late (6.5 to 8.6 hours in November 2026), but on
-# the same day by about the same delay (02:41, 03:00 and 03:17 started at
-# 11:04, 11:17 and 11:51 on 2026-11-17), so the gap holds; a night's run
-# takes about 7 minutes (four shards in parallel, run 44112926993).
+# the same day by about the same delay, so the gaps hold: on time the
+# nights run in the Turkish evening, 8 hours late in the Turkish night,
+# apart from the pull requests' daytime CI. A night's run takes about 7
+# minutes (four shards in parallel, run 44237991576). ADR-0123: the real
+# delays are measured again on 2026-11-25.
 
 on:
   schedule:
-    - cron: "23 1 * * *"
+    - cron: "3 17 * * *"
   workflow_dispatch:
     inputs:
       seed:
-        description: "First seed (shard k uses seed + k); empty: the UTC date as YYYYMMDD00, as the nightly run"
+        description: "First seed (shard k uses seed + k); empty: the night's UTC date (start - 12 h) as YYYYMMDD00, as the nightly run"
         default: ""
         required: false
       count:
@@ -54,8 +58,8 @@ env:
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
 
 jobs:
-  # One seed for every shard, taken once: a shard that starts after
-  # midnight UTC still runs the night's seed.
+  # One seed for every shard, taken once: shards start at different times
+  # and must all run the same night's seed.
   seed:
     name: Seed of this run
     runs-on: ubuntu-24.04
@@ -64,6 +68,9 @@ jobs:
       seed: ${{ steps.seed.outputs.seed }}
       count: ${{ steps.seed.outputs.count }}
     steps:
+      - uses: actions/checkout@v7
+      - name: Night's date self-test (scripts/ci/nightly_seed.py)
+        run: python3 scripts/ci/nightly_seed.py --self-test
       - name: Seed and count
         id: seed
         env:
@@ -74,8 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$SEED" ]; then
-            seed="$(date -u +%Y%m%d)00"
-            from="the UTC date"
+            seed=$(python3 scripts/ci/nightly_seed.py --kind difftest)
+            from="the night's UTC date (start $(date -u +%Y-%m-%dT%H:%M:%SZ) minus 12 h)"
           else
             seed="$SEED"
             from="the seed input"

@@ -3,43 +3,49 @@
 | Dosya | Tetik | İçerik |
 |---|---|---|
 | `ci.yml` | push (main), PR, elle (`workflow_dispatch`; tek girdisi `ccache`, aşağıda "ccache") | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
-| `fuzz-nightly.yml` | her gün 03:00 UTC, elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
+| `fuzz-nightly.yml` | her gün 18:40 UTC (ADR-0123), elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
 | `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
 | `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Aynı PR'ın daha önce temiz geçmiş bir kapı koşusunun anahtarı aynıysa parça koşmaz, karar o koşunun sonuçlarından verilir ve özet "reused: run …" der (aşağıda "Mutasyon kapısının önceki sonucu", #318). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile; her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin parça tablosundadır, sınırın yarısını aşarsa uyarı (#253); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
 | `known-failures.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), her gün 03:17 UTC, elle | **bilinen başarısızlıklar** (ADR-0117 §4, #254): `crates/volt-driver/tests/metamorphic/known_failures.json`'daki her kaydın issue'su açık olmalı; issue kapalıysa, yoksa ya da PR'sa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa düşer (`scripts/ci/known_failures.py`; GitHub istemcisi ve kurallar `mutants-exclusions.yml`'in C kayıtlarınınkidir, #283). `github.token` ile okur (`issues: read`, `pull-requests: read`); token ya da ağ yoksa düşer. Gece de koşar: issue elle kapatılabilir. Gecelik metamorfik testin issue adımının self-test'i de burada koşar (`scripts/ci/nightly_issue.py --self-test`) |
-| `metamorphic-nightly.yml` | her gün 02:41 UTC, elle (`ccache` girdisi) | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu koşunun UTC tarihidir ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
-| `difftest.yml` | her gün 01:23 UTC (#255), elle (`seed`, `count`, `div_operands`, `issue` girdileri) | **fark testinin büyük koşusu** (ADR-0108): dört parça, ardışık tohumlar (parça k: tohum + k), parça başına 12.500 kabul edilmiş ifade, Verilator zorunlu (sabit hakem), her parçada defterde sıfır SKIP ve `diffs=0` ("Differential test summary"). Gecenin ilk tohumu UTC tarihidir, `YYYYMMDD00` (2026-11-18 → 2026111800): her gece başka ifadeler denenir, iki gece hiçbir parçanın tohumunu paylaşmaz. Tohumu ayrı bir "Seed of this run" işi bir kez alır (gece yarısından sonra başlayan parça da aynı tohumu koşar); günlüğe bir `::notice`, iş özetine her parçanın komutu yazılır: `VOLT_DIFFTEST_SEED=<tohum + k> VOLT_DIFFTEST_COUNT=12500 VOLT_REQUIRE_TOOLS=verilator cargo test --release -p volt-driver --test difftest_tests` k. parçayı sabit Verilator'la yeniden üretir. Elle koşuda `seed` boşsa gecenin tohumu, doluysa o. Kırmızı gece sabit başlıklı issue'yu ("Nightly differential test is red (ADR-0108)") açar ya da açık olanına tohumla, komutlarla ve parçaların raporlarıyla yorum ekler (`scripts/ci/nightly_issue.py --kind difftest`; self-test'i her PR'da `known-failures.yml`'de koşar); yeşil gece bir şey yazmaz. Kırmızı elle koşu issue'ya yalnız `-f issue=on` ile yazar. ccache yalnız iş içindedir (aşağıda "ccache"). Saat ve süre: aşağıda "Gecelik saatler" |
+| `metamorphic-nightly.yml` | her gün 18:21 UTC (ADR-0123), elle (`ccache` girdisi) | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu gecenin UTC tarihidir: koşunun başladığı andan 12 saat önceki UTC tarihi (`scripts/ci/nightly_seed.py`, ADR-0123) ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
+| `difftest.yml` | her gün 17:03 UTC (#255, ADR-0123), elle (`seed`, `count`, `div_operands`, `issue` girdileri) | **fark testinin büyük koşusu** (ADR-0108): dört parça, ardışık tohumlar (parça k: tohum + k), parça başına 12.500 kabul edilmiş ifade, Verilator zorunlu (sabit hakem), her parçada defterde sıfır SKIP ve `diffs=0` ("Differential test summary"). Gecenin ilk tohumu gecenin UTC tarihidir, `YYYYMMDD00`: koşunun başladığı andan 12 saat önceki UTC tarihi (`scripts/ci/nightly_seed.py`, ADR-0123; gecikip gece yarısını geçen gece tarihini korur, iki gece hiçbir parçanın tohumunu paylaşmaz). Tohumu ayrı bir "Seed of this run" işi bir kez alır (bütün parçalar aynı tohumu koşar); günlüğe bir `::notice`, iş özetine her parçanın komutu yazılır: `VOLT_DIFFTEST_SEED=<tohum + k> VOLT_DIFFTEST_COUNT=12500 VOLT_REQUIRE_TOOLS=verilator cargo test --release -p volt-driver --test difftest_tests` k. parçayı sabit Verilator'la yeniden üretir. Elle koşuda `seed` boşsa aynı formül (son başlayan gecenin tohumu), doluysa o. Kırmızı gece sabit başlıklı issue'yu ("Nightly differential test is red (ADR-0108)") açar ya da açık olanına tohumla, komutlarla ve parçaların raporlarıyla yorum ekler (`scripts/ci/nightly_issue.py --kind difftest`; self-test'i her PR'da `known-failures.yml`'de koşar); yeşil gece bir şey yazmaz. Kırmızı elle koşu issue'ya yalnız `-f issue=on` ile yazar. ccache yalnız iş içindedir (aşağıda "ccache"). Saat ve süre: aşağıda "Gecelik saatler" |
 | `mutants-exclusions.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), elle | **hariç tutma denetimi** (ADR-0109 eki "PR kapısı" §3, #239; eki "Kapı zorunlu yapılmadan önce", #283): "Mutation exclusions match their mutants" işi her `exclude_re` kaydının `# expect:` satırlarındaki mutantlarla tam eşleştiğini `cargo mutants --list` ile denetler; C kaydı (`# C.` etiketi, tek `# issue: #N` satırı) issue'su kapalıysa ya da yoksa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa iş düşer; issue'ları `github.token` ile okur (`issues: read`, `pull-requests: read`), token ya da ağ yoksa düşer. `mutants.yml`'den ayrıdır: PR açıklaması düzenlenince (`edited`) yalnız bu iş akışı koşar, kendi `concurrency` grubu vardır; düzenleme mutant kapısını yeniden başlatmaz, koşusunu iptal etmez. main'de her push'ta koşar: birleşen bir PR'ın kapattığı issue'nun kaydı kalmışsa main'de düşer |
 | `install.yml` | PR/push (yalnız `scripts/install/`, `scripts/release/`, `install.yml`, `release.yml` değişince), pazartesi 05:17 UTC, elle | kurulum betikleri (ADR-0096): shellcheck + PSScriptAnalyzer; üç platformda derle → `scripts/release/package.sh` → `VOLT_ARCHIVE` ile kur, yeni kabukta `volt --version`, yeniden kur, kaldır (dosya ve PATH izi kalmaz), bozuk `SHA256SUMS`; sahte GitHub'a (`test/fake-github.py`) karşı ağ senaryoları (sürüm yok, varlık 404, kopan indirme, API hız sınırı → yönlendirme, geçici hata → yeniden deneme, yanıt yok); Windows'ta PowerShell 7 ve 5.1 ayrı adım. Haftalık/elle: gerçek tek satırlık komutlar; sürüm yokken "henüz sürüm yok" iletisini, sürüm varsa kurulumu sınar |
 
-## Gecelik saatler (#255)
+## Gecelik saatler (#255, ADR-0123)
 
 Zamanlanmış iş akışları aynı koşucu havuzunu (eşzamanlı 20 iş) PR'ların
-CI'ı ve mutasyon kapısıyla paylaşır. Saatler ağır gecelerin üst üste
-binmemesi için seçilir:
+CI'ı ve mutasyon kapısıyla paylaşır. GitHub zamanlanmış koşuları geç
+başlatır: Kasım 2026'da 6 sa 35 dk ile 8 sa 38 dk arası (fuzz 03:00 →
+09:35-11:17; install 05:17 → 13:30-13:55). Eski saatlerle (01:23, 02:41,
+03:00) gece işleri Türkiye saatiyle öğlen, PR'ların CI'ıyla aynı
+saatlerde koşuyordu. Üç gece işi bu yüzden UTC 17:00 civarındadır;
+aralarındaki sıra ve boşluklar korunur, :00 ve :30 kullanılmaz:
 
-| İş akışı | cron (UTC) | Eşzamanlı iş | Ölçülen süre |
-|---|---|---|---|
-| `difftest.yml` | her gün 01:23 | 1 (tohum, 2 s), sonra 4 parça; kırmızı gecede +1 (issue) | duvar saati 7 dk 10 s; parçalar 325-423 s, toplam 1427 iş-saniyesi (≈ 24 iş-dakikası; dakikaya yuvarlanınca 27) (koşu 44237991576) |
-| `metamorphic-nightly.yml` | her gün 02:41 | 1; kırmızı gecede +1 | ~2 dk (koşu 44070588184) |
-| `fuzz-nightly.yml` | her gün 03:00 | 1 | ~31 dk |
-| `known-failures.yml` | her gün 03:17 | 1 | ~10 s |
-| `install.yml` | pazartesi 05:17 | 3 platform | |
+| İş akışı | cron (UTC) | Gecikmesiz, TR | 8 saat gecikmeyle, TR | Eşzamanlı iş | Ölçülen süre |
+|---|---|---|---|---|---|
+| `difftest.yml` | her gün 17:03 | 20:03 | 04:03 | 1 (tohum, 2 s), sonra 4 parça; kırmızı gecede +1 | duvar saati 7 dk 10 s; parçalar 325-423 s, toplam ≈ 24 iş-dakikası (koşu 44237991576) |
+| `metamorphic-nightly.yml` | her gün 18:21 | 21:21 | 05:21 | 1; kırmızı gecede +1 | ~2 dk (koşu 44070588184) |
+| `fuzz-nightly.yml` | her gün 18:40 | 21:40 | 05:40 | 1 | ~31 dk |
+| `known-failures.yml` | her gün 03:17 | | | 1 | ~10 s |
+| `install.yml` | pazartesi 05:17 | | | 3 platform | |
 
-- GitHub zamanlanmış koşuları geç başlatır: Kasım 2026'da 6 sa 35 dk ile
-  8 sa 38 dk arası (fuzz 03:00 → 09:35-11:17; install 05:17 →
-  13:30-13:55). Aynı gün gecikme birbirine yakındır: 2026-11-17'de
-  02:41, 03:00 ve 03:17 → 11:04, 11:17 ve 11:51. Saatler arasındaki fark
-  bu yüzden korunur; `difftest.yml`'nin metamorfik geceden 78, fuzz
-  gecesinden 97 dakikalık önü yedi dakikalık koşuyu ve günün içindeki
-  ±17 dakikalık oynamayı karşılar.
-- Gecikme yüzünden "gece" koşuları Türkiye saatiyle öğlene denk gelir:
-  PR'ların CI'ıyla aynı saatlerde. Büyük koşunun en çok dört eşzamanlı
-  işi havuzun beşte biridir; mutasyon kapısının parçaları (2-8 iş) ile
-  aynı anda koştuğunda bile sınırın altında kalır.
-- Gecelik bir iş akışının tohumu koşunun başladığı UTC tarihidir; 01:23
-  ile ölçülen en büyük gecikme (8,6 saat) aynı günde kalır.
+- Aynı gün kurulan işler yaklaşık aynı gecikmeyi alır (2026-11-17'de
+  02:41, 03:00 ve 03:17 → 11:04, 11:17 ve 11:51); 78 ve 19 dakikalık
+  boşluklar bu yüzden korunur.
+- **Gecenin tarihi.** Fark testinin ve metamorfik gecenin tohumu
+  koşunun başladığı andan 12 saat önceki UTC tarihidir
+  (`scripts/ci/nightly_seed.py`). 17:03'e kurulan gece ertesi gün 12:00
+  UTC'ye kadar (18 sa 57 dk), 18:21'e kurulan 17 sa 39 dk gecikse de
+  kurulduğu günün tarihini alır; bir gece gecikip ertesi gece gecikmese de
+  iki gece aynı tohumu koşmaz. Self-test (`--self-test`, her PR'da
+  `known-failures.yml`'de ve her gece koşunun başında) gecikmesiz, 8 saat
+  gecikmeli ve gece yarısını geçen durumları, iş akışlarının cron
+  satırlarına karşı 0-16 saatlik bütün gecikmeleri sınar. Bir cron'u
+  değiştiren PR bu pencereyi bozarsa self-test düşer.
+- Gecikmeler yeni saatlerle 2026-11-25'te ölçülüp saat yeniden
+  değerlendirilecek (ADR-0123 §8).
 
 ## Koşucu imajı
 

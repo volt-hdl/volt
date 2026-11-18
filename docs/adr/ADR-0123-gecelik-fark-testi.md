@@ -80,10 +80,13 @@ ertesi günün tohumunu koşar, ertesi gece aynı tohumu yeniden koşabilir.
 
 - **12 saat geri.** 17:03'e kurulan bir gece ölçülen en büyük gecikmeyle
   (8,6 saat) ertesi gün 01:39'da başlar; 12 saat geri gidince tarih
-  kurulduğu gündür. Kural, gecikme yaklaşık -5 ile +19 saat arasında
-  kaldıkça her geceye tek bir tarih verir: bir gece gecikip ertesi gece
-  gecikmese de iki gece aynı tohumu koşmaz. Self-test bunu gecikmesiz,
-  8 saat gecikmeli ve gece yarısını geçen durumlarda gösterir.
+  kurulduğu gündür. Kural, koşu ertesi gün 12:00 UTC'den önce başladıkça
+  (17:03'e kurulan gece için 18 sa 57 dk, 18:21'e kurulan için 17 sa 39 dk
+  gecikmeye kadar; ölçülen en büyük gecikmenin iki katı kadar) her geceye
+  tek bir tarih verir: bir gece gecikip ertesi gece gecikmese de iki gece
+  aynı tohumu koşmaz. Self-test bunu gecikmesiz, 8 saat gecikmeli ve gece
+  yarısını geçen durumlarda, iş akışlarının cron satırlarına karşı 0-16
+  saatlik bütün gecikmelerde gösterir.
 - **Tohum biçimi.** Fark testinin tohumu bir sayıdır (`u64`); tarih sayı
   olarak yazılır. `YYYYMMDD + k` olsaydı ertesi gecenin 0-2. parçaları
   bugünün 1-3. parçalarının tohumlarını yeniden koşardı. Sondaki iki hane
