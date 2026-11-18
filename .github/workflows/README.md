@@ -13,6 +13,34 @@
 | `mutants-exclusions.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), elle | **hariç tutma denetimi** (ADR-0109 eki "PR kapısı" §3, #239; eki "Kapı zorunlu yapılmadan önce", #283): "Mutation exclusions match their mutants" işi her `exclude_re` kaydının `# expect:` satırlarındaki mutantlarla tam eşleştiğini `cargo mutants --list` ile denetler; C kaydı (`# C.` etiketi, tek `# issue: #N` satırı) issue'su kapalıysa ya da yoksa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa iş düşer; issue'ları `github.token` ile okur (`issues: read`, `pull-requests: read`), token ya da ağ yoksa düşer. `mutants.yml`'den ayrıdır: PR açıklaması düzenlenince (`edited`) yalnız bu iş akışı koşar, kendi `concurrency` grubu vardır; düzenleme mutant kapısını yeniden başlatmaz, koşusunu iptal etmez. main'de her push'ta koşar: birleşen bir PR'ın kapattığı issue'nun kaydı kalmışsa main'de düşer |
 | `install.yml` | PR/push (yalnız `scripts/install/`, `scripts/release/`, `install.yml`, `release.yml` değişince), pazartesi 05:17 UTC, elle | kurulum betikleri (ADR-0096): shellcheck + PSScriptAnalyzer; üç platformda derle → `scripts/release/package.sh` → `VOLT_ARCHIVE` ile kur, yeni kabukta `volt --version`, yeniden kur, kaldır (dosya ve PATH izi kalmaz), bozuk `SHA256SUMS`; sahte GitHub'a (`test/fake-github.py`) karşı ağ senaryoları (sürüm yok, varlık 404, kopan indirme, API hız sınırı → yönlendirme, geçici hata → yeniden deneme, yanıt yok); Windows'ta PowerShell 7 ve 5.1 ayrı adım. Haftalık/elle: gerçek tek satırlık komutlar; sürüm yokken "henüz sürüm yok" iletisini, sürüm varsa kurulumu sınar |
 
+## Gecelik saatler (#255)
+
+Zamanlanmış iş akışları aynı koşucu havuzunu (eşzamanlı 20 iş) PR'ların
+CI'ı ve mutasyon kapısıyla paylaşır. Saatler ağır gecelerin üst üste
+binmemesi için seçilir:
+
+| İş akışı | cron (UTC) | Eşzamanlı iş | Ölçülen süre |
+|---|---|---|---|
+| `difftest.yml` | her gün 01:23 | 1 (tohum, 2 s), sonra 4 parça; kırmızı gecede +1 (issue) | duvar saati 7 dk 10 s; parçalar 325-423 s, toplam 1427 iş-saniyesi (≈ 24 iş-dakikası; dakikaya yuvarlanınca 27) (koşu 44237991576) |
+| `metamorphic-nightly.yml` | her gün 02:41 | 1; kırmızı gecede +1 | ~2 dk (koşu 44070588184) |
+| `fuzz-nightly.yml` | her gün 03:00 | 1 | ~31 dk |
+| `known-failures.yml` | her gün 03:17 | 1 | ~10 s |
+| `install.yml` | pazartesi 05:17 | 3 platform | |
+
+- GitHub zamanlanmış koşuları geç başlatır: Kasım 2026'da 6 sa 35 dk ile
+  8 sa 38 dk arası (fuzz 03:00 → 09:35-11:17; install 05:17 →
+  13:30-13:55). Aynı gün gecikme birbirine yakındır: 2026-11-17'de
+  02:41, 03:00 ve 03:17 → 11:04, 11:17 ve 11:51. Saatler arasındaki fark
+  bu yüzden korunur; `difftest.yml`'nin metamorfik geceden 78, fuzz
+  gecesinden 97 dakikalık önü yedi dakikalık koşuyu ve günün içindeki
+  ±17 dakikalık oynamayı karşılar.
+- Gecikme yüzünden "gece" koşuları Türkiye saatiyle öğlene denk gelir:
+  PR'ların CI'ıyla aynı saatlerde. Büyük koşunun en çok dört eşzamanlı
+  işi havuzun beşte biridir; mutasyon kapısının parçaları (2-8 iş) ile
+  aynı anda koştuğunda bile sınırın altında kalır.
+- Gecelik bir iş akışının tohumu koşunun başladığı UTC tarihidir; 01:23
+  ile ölçülen en büyük gecikme (8,6 saat) aynı günde kalır.
+
 ## Koşucu imajı
 
 - Her Linux işi sabit bir Ubuntu sürümünde koşar: `runs-on: ubuntu-24.04`

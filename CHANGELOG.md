@@ -90,6 +90,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   koşuları Kasım 2026'da 6,5-8,6 saat geç başlattı, ama aynı gün
   yaklaşık aynı gecikmeyle; aralık korunur
   (`.github/workflows/README.md`, "Gecelik saatler").
+- **Ölçüm** (elle koşu 44237991576, gecenin tohumu 2026111800): duvar
+  saati 7 dk 10 s; dört parça 325-423 s (test adımı 297-400 s), toplam
+  ≈ 24 iş-dakikası; en çok dört eşzamanlı iş. Dört parçada `diffs=0`,
+  `SKIP: 0`.
 - **ccache yalnız iş içinde** (`.github/actions/ccache`, yeni `persist:
   off` girdisi). Rastgele tasarımlar koşudan koşuya tekrar etmez: koşu
   44112926993'te soğuk parça 159, önbelleği geri yüklenen parçalar 162
