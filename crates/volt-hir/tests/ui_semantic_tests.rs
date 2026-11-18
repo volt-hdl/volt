@@ -133,6 +133,32 @@ fn ui_pass_155_match_dead_arm_is_not_a_second_driver() {
     assert_eq!(codes, ["W2014"]);
 }
 
+/// #331: önceki kolun kapsadığı kolda atanan çıkış sürülmez
+/// (sv-mapping.md §19.1, type-inference.md §11.3); kol W2014'ü de alır.
+#[test]
+fn ui_fail_290_match_covered_arm_undriven_output_e4002() {
+    assert_ui_fail("fail/290_match_covered_arm_undriven_output.volt");
+    let mut codes = analyze_file("fail/290_match_covered_arm_undriven_output.volt").error_codes();
+    codes.sort_unstable();
+    assert_eq!(codes, ["E4002", "W2014"]);
+}
+
+/// #331: kapsanan koldaki atama ikinci sürücü değildir: E4001 yok, yalnız
+/// iki kapsanan kolun (sayı ve enum) W2014'ü.
+#[test]
+fn ui_pass_156_match_covered_arm_is_not_a_second_driver() {
+    let codes = analyze_file("pass/156_match_covered_arm_not_a_driver.volt").error_codes();
+    assert_eq!(codes, ["W2014", "W2014"]);
+}
+
+/// #332: yalnız ölü kolda (jokerden sonra, kapsanan) olan alanlar arası
+/// atama donanımda yoktur: E3001 yok, yalnız iki ölü kolun W2014'ü.
+#[test]
+fn ui_pass_157_match_dead_arm_crossing_is_not_e3001() {
+    let codes = analyze_file("pass/157_match_dead_arm_crossing.volt").error_codes();
+    assert_eq!(codes, ["W2014", "W2014"]);
+}
+
 #[test]
 fn ui_fail_206_edgeless_sync_destination_e3016() {
     // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
@@ -407,8 +433,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları;
     // #266: 153 ara sonucu açık genişlikte (W2016 yok);
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda;
-    // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil.
-    assert_eq!(checked, 140);
+    // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil;
+    // #331: 156 kapsanan koldaki atama ikinci sürücü değil;
+    // #332: 157 ölü koldaki alanlar arası atama E3001 değil.
+    assert_eq!(checked, 142);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

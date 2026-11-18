@@ -192,6 +192,44 @@ fn fsm_arm_after_the_wildcard_is_not_a_transition() {
     assert!(texts(&res, 0, AutoRule::FsmState).is_empty());
 }
 
+/// #331: önceki kolun kapsadığı kol da yazılmaz ve hiç seçilmez
+/// (sv-mapping.md §19.1): kontrat onun yazmasını geçiş saymaz. Donanım:
+/// 0 -> 1 (go), 1 -> 0; ikinci `0 => { s <= 2 }` hiç seçilmez, 2 hiç
+/// yazılmaz. Yazılan değerler (1, 0) ve reset değeri (0) adı geçen
+/// literaller olduğundan `_` kolu erişilemez ve geçiş cover'ı almaz
+/// (ADR-0074 yan bulgu 2). Düzeltmeden önce ölü kolun yazması 2'yi
+/// "yazılan değer" sayıyor, `prev(s) == 0 && s == 2` ve hiç tutmayan
+/// joker cover'ını üretiyordu. Enum biçiminde aynı: ikinci `S::A` kolu
+/// ölüdür, `S::C` hiç yazılmaz.
+#[test]
+fn fsm_covered_arm_is_not_a_transition() {
+    let res = p(
+        "module F { in clk : clock\n in go : bool\n reg s : u2 = 0\n on clk { match s {
+        0 => { if go { s <= 1 } }
+        1 => { s <= 0 }
+        0 => { s <= 2 }
+        _ => { s <= 0 } } } }",
+    );
+    assert_eq!(
+        texts(&res, 0, AutoRule::FsmTransition),
+        ["prev(s) == 0 && s == 1", "prev(s) == 1 && s == 0"]
+    );
+    assert!(texts(&res, 0, AutoRule::FsmState).is_empty());
+    let res = p(
+        "enum S { A, B, C }\nmodule F { in clk : clock\n in go : bool\n reg s : S = S::A\n on clk { match s {
+        S::A => { if go { s <= S::B } }
+        S::B => { s <= S::A }
+        S::A => { s <= S::C }
+        S::C => { s <= S::A } } } }",
+    );
+    let t = texts(&res, 1, AutoRule::FsmTransition);
+    assert!(t.iter().all(|c| !c.ends_with("s == S::C")), "{t:?}");
+    assert!(
+        t.contains(&"prev(s) == S::A && s == S::B".to_string()),
+        "{t:?}"
+    );
+}
+
 #[test]
 fn register_with_an_unrecognised_write_gets_nothing() {
     // Sonekli yazma (`r[0] <=`) register'ı aday dışı bırakır — tanınan
