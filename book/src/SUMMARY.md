@@ -37,3 +37,5 @@
 [Where to go next](where-next.md)
 [Known limitations](limitations.md)
 [Install Volt](tour/install.md)
+
+<!-- Kanıt dalı (#318): kitap sayfası değişti. -->
