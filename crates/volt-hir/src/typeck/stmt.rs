@@ -259,6 +259,10 @@ impl TypeChecker<'_, '_> {
         let (target, lhs_ty, bits) = self.lvalue_type(lhs);
         self.check(rhs, lhs_ty);
         let Some(def) = target else { return };
+        // Donanımda olmayan atama sürücü değildir (§11.1, #328).
+        if self.in_dead_arm {
+            return;
+        }
         if !matches!(
             self.res.def_kind(def),
             DefKind::Port { .. } | DefKind::Register | DefKind::Wire | DefKind::LocalBinding

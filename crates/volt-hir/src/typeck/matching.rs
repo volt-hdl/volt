@@ -35,9 +35,16 @@ impl TypeChecker<'_, '_> {
     pub(super) fn check_match_stmt(&mut self, m: &MatchStmt) {
         let scrut_ty = self.synth(m.scrutinee);
         self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
-        for arm in &m.arms {
+        // İlk joker koldan sonraki kol tasarıma yazılmaz (sv-mapping.md
+        // §19.1): kol tip denetimi görür, atamaları sürücü sayılmaz (#328).
+        // Ölü kolun içindeki her şey de ölüdür (iç içe `match`).
+        let outer = self.in_dead_arm;
+        let dead = volt_ast::match_cover::arms_after_catch_all(self.ast, &m.arms);
+        for (arm, dead) in m.arms.iter().zip(dead) {
+            self.in_dead_arm = outer || dead;
             self.check_arm(arm);
         }
+        self.in_dead_arm = outer;
     }
 
     /// Desen tipleri, kapsayıcılık ve erişilemez kollar — deyim ve ifade
@@ -814,6 +821,198 @@ mod tests {
                 && !d.message.contains("S::B")),
             "{d:?}"
         );
+    }
+
+    /// `comb` içinde `match s` (u2) ve ardından `tail`: #328'in modülü.
+    fn dead_arm(arms: &str, tail: &str) -> String {
+        format!(
+            "enum E {{ A, B, C }}\nmodule M {{\n    in  s : u2\n    in  e : E\n    out a : u8\n    out c : u8\n    out d : u8\n    comb {{\n        match s {{\n{arms}\n        }}\n        d = 0\n    }}\n{tail}}}\n"
+        )
+    }
+
+    fn sorted(src: &str) -> Vec<&'static str> {
+        let mut c = codes(src);
+        c.sort_unstable();
+        c
+    }
+
+    /// #328: ilk joker koldan sonraki kol tasarıma yazılmaz (sv-mapping.md
+    /// §19.1), yani oradaki atama donanımda yoktur ve sürücü değildir.
+    /// Yalnız orada atanan çıkış sürülmez: E4002 (type-inference.md
+    /// §11.3). Kol W2014'ü almaya devam eder.
+    #[test]
+    fn output_assigned_only_after_the_wildcard_is_undriven_e4002() {
+        let src = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7 }
+            1 => { a = 9; c = 3 }",
+            "",
+        );
+        assert_eq!(sorted(&src), ["E4002", "W2014"]);
+        let d = diagnostics(&src);
+        let undriven = d
+            .iter()
+            .find(|d| d.code.as_str() == "E4002")
+            .expect("E4002");
+        assert!(undriven.message.contains("'c'"), "{}", undriven.message);
+    }
+
+    /// #328: ölü koldaki atama başka bir sürücüyle E4001 çakışması
+    /// yaratmaz (§11.1: sürücü, donanımda olan atamadır).
+    #[test]
+    fn assignment_after_the_wildcard_is_not_a_second_driver() {
+        let src = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7 }
+            1 => { a = 9; c = 3 }",
+            "    c = 5\n",
+        );
+        assert_eq!(sorted(&src), ["W2014"]);
+    }
+
+    /// Ölü kol her biçimde ölü: enum sınanan, muhafızlı kol, `2 | _`
+    /// jokerinden sonrası, ölü kolun içindeki iç içe `if`/`match`.
+    #[test]
+    fn every_arm_after_a_catch_all_drives_nothing() {
+        for (form, arms) in [
+            (
+                "enum",
+                "            _ => {
+                match e {
+                    E::A => { a = 1 }
+                    _ => { a = 7 }
+                    E::B => { a = 9; c = 3 }
+                }
+            }",
+            ),
+            (
+                "guarded",
+                "            _ => { a = 7 }
+            1 if s == 1 => { c = 3 }",
+            ),
+            (
+                "or-wildcard",
+                "            2 | _ => { a = 7 }
+            1 => { c = 3 }",
+            ),
+            (
+                "nested",
+                "            _ => { a = 7 }
+            1 => {
+                if s == 1 { c = 3 } else { c = 4 }
+                match e {
+                    E::A => { c = 1 }
+                    _ => { c = 2 }
+                }
+            }",
+            ),
+        ] {
+            let src = dead_arm(arms, "");
+            let c = sorted(&src);
+            assert!(
+                c.contains(&"W2014") && c.contains(&"E4002"),
+                "{form}: {c:?}"
+            );
+            let d = diagnostics(&src);
+            let undriven: Vec<_> = d.iter().filter(|d| d.code.as_str() == "E4002").collect();
+            assert_eq!(undriven.len(), 1, "{form}: {d:?}");
+            assert!(undriven[0].message.contains("'c'"), "{form}: {d:?}");
+        }
+    }
+
+    /// Ölü kol dışındaki atamalar etkilenmez: joker kolun kendisi, jokerden
+    /// önceki kollar, jokersiz enum `match`'inin bütün kolları, `match`'ten
+    /// sonraki atama sürücüdür; canlı koldaki atama başka sürücüyle E4001
+    /// verir.
+    #[test]
+    fn assignments_in_live_arms_still_drive() {
+        let wildcard_arm = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7; c = 3 }
+            1 => { a = 9 }",
+            "",
+        );
+        assert_eq!(sorted(&wildcard_arm), ["W2014"]);
+        let before_wildcard = dead_arm(
+            "            0 => { a = 1; c = 3 }
+            _ => { a = 7 }
+            1 => { a = 9 }",
+            "",
+        );
+        assert_eq!(sorted(&before_wildcard), ["W2014"]);
+        let no_wildcard = dead_arm(
+            "            _ => {
+                match e {
+                    E::A => { a = 1 }
+                    E::B => { a = 2 }
+                    E::C => { a = 3; c = 3 }
+                }
+            }",
+            "",
+        );
+        assert!(sorted(&no_wildcard).is_empty(), "{:?}", codes(&no_wildcard));
+        let after_match = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7 }
+            1 => { a = 9 }",
+            "    c = 5\n",
+        );
+        assert_eq!(sorted(&after_match), ["W2014"]);
+        let live_conflict = dead_arm(
+            "            0 => { a = 1; c = 3 }
+            _ => { a = 7 }",
+            "    c = 5\n",
+        );
+        assert_eq!(sorted(&live_conflict), ["E4001"]);
+    }
+
+    /// Kısmi atama da aynı kural: ölü koldaki bitler sürülmez, yalnız
+    /// canlı yarısı sürülen çıkışın kalan bitleri E4012 alır (ADR-0077
+    /// Karar 6).
+    #[test]
+    fn partial_assignment_after_the_wildcard_leaves_its_bits_undriven() {
+        let src = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7; c[3:0] = 1 as bits<4> }
+            1 => { a = 9; c[7:4] = 3 as bits<4> }",
+            "",
+        );
+        assert_eq!(sorted(&src), ["E4012", "W2014"]);
+        let d = diagnostics(&src);
+        let gap = d
+            .iter()
+            .find(|d| d.code.as_str() == "E4012")
+            .expect("E4012");
+        assert!(gap.message.contains("4..=7"), "{}", gap.message);
+    }
+
+    /// Ölü kolun içindeki iç içe `match`'in canlı kolu da ölüdür; canlı
+    /// kolun içindeki `match`'in canlı kolu sürücüdür.
+    #[test]
+    fn nested_match_inherits_the_outer_arm() {
+        let dead_outer = dead_arm(
+            "            _ => { a = 7 }
+            1 => {
+                match e {
+                    E::A => { c = 1 }
+                    _ => { c = 2 }
+                }
+            }",
+            "",
+        );
+        assert_eq!(sorted(&dead_outer), ["E4002", "W2014"]);
+        let live_outer = dead_arm(
+            "            1 => {
+                match e {
+                    E::A => { c = 1 }
+                    _ => { c = 2 }
+                    E::B => { a = 3 }
+                }
+            }
+            _ => { a = 7; c = 0 }",
+            "",
+        );
+        assert_eq!(sorted(&live_outer), ["W2014"]);
     }
 
     #[test]

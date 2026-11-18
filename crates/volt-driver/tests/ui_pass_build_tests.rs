@@ -106,8 +106,9 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // ayrı modül adı. #249: 151 generic örnek argümanlı, generic olmayan
     // modül argümansız. #250: 152 harf büyüklüğünden fazlasıyla ayrılan
     // modül adları. #266: 153 ara sonucu açık genişlikte (W2016 yok).
-    // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda.
-    assert_eq!((built, check_only), (139, 0));
+    // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda. #328: 155
+    // jokerden sonraki koldaki atama ikinci sürücü değil.
+    assert_eq!((built, check_only), (140, 0));
 }
 
 #[test]

@@ -905,6 +905,14 @@ impl DriverTable {
 }
 ```
 
+**Tasarıma yazılmayan kol sürücü değildir.** Sürücü, tasarımda yer alan
+atamadır. Bir match'te ilk muhafızsız joker koldan sonraki kol ve önceki
+kolların kapsadığı kol tasarıma yazılmaz (sv-mapping.md §19.1, W2014);
+böyle bir kolun içindeki atama (iç içe `match` ve `if` dahil) sürücü
+değildir: sinyali §11.3 (E4002) ve E4012 için sürmez, §11.2'de başka bir
+sürücüyle çakışmaz (E4001). Kolun içi tip denetiminden geçmeye devam
+eder.
+
 ### 11.2 E4001 — Çift Sürücü
 
 ```rust
