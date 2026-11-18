@@ -298,7 +298,7 @@ impl TypeChecker<'_, '_> {
         rhs: Idx<Expr>,
         span: Span,
     ) {
-        if !matches!(op, BinOp::Div | BinOp::Rem) || self.in_const_item {
+        if self.in_const_item || !matches!(op, BinOp::Div | BinOp::Rem) {
             return;
         }
         // Bölünen de literal ifadesi olmalı: `x / 0` çalışma zamanı bölmesidir.
