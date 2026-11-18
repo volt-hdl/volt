@@ -267,3 +267,5 @@ denetler.
 | [0118](ADR-0118-kacis-yollari.md) | Kaçış Yolları — Dar, Bilinçli, Gerekçeli, Görünür ve Denetlenebilir | Derleyicinin kanıtlayamadığını kullanıcının beyan ettiği her yer (kaçış) yedi kurala uyar: dar, bilinçli, gerekçeli, iz bırakan, `volt check` raporunda toplanan, Volt.toml `[escapes]` politikasıyla sınırlanabilen, kanıtlanabilen kısmı denetlenen. Hepsi v0.2.0'da (ADR-0100: son hanede yeni kod ve seçenek yok): çok alanlı extern ve saatsiz extern'in anotasyonlu çıkışı açık, gerekçeli kaçış işareti ister (yoksa otomatik düzeltmeli hata, varsa iz uyarısı), kaçış raporu, `[escapes]` politikası (tanınmayan değer yapılandırma hatası), E6003/E6004 kanıtı (#231, #292, #293). | Kabul edildi |
 
 Kanıt dalı (#318): yalnız belge değişen push.
+
+Kanıt dalı (#318): ikinci yalnız belge push.
