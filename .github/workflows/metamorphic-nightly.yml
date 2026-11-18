@@ -8,10 +8,15 @@ name: Metamorphic test (nightly)
 # A red night opens an issue with a fixed title, or adds the report as a
 # comment to the open one: a red run is never only a red mark in the
 # Actions tab. A green night writes nothing.
+#
+# 18:21 UTC (ADR-0123): 78 minutes after difftest.yml (17:03) and 19 before
+# fuzz-nightly.yml (18:40). GitHub starts scheduled runs 6.5 to 8.6 hours
+# late; on time the night runs in the Turkish evening, 8 hours late in
+# the Turkish night, apart from the pull requests' daytime CI.
 
 on:
   schedule:
-    - cron: "41 2 * * *"
+    - cron: "21 18 * * *"
   workflow_dispatch:
     inputs:
       ccache:
@@ -59,16 +64,29 @@ jobs:
           phase: start
           job: metamorphic-nightly
           enabled: ${{ inputs.ccache || 'on' }}
-      # ADR-0117 section 5: the night's stimulus seed is the UTC date (the
-      # test derives each design's stimulus from it and the design's id).
-      # It is printed here, in the report and in the issue of a red night;
-      # VOLT_METAMORPHIC_SEED=<seed> repeats the run anywhere.
+      # The night's stimulus seed is the night's UTC date (ADR-0117 section
+      # 5, ADR-0123): the UTC date 12 hours before the run starts, so a
+      # night that starts late, past midnight, keeps its date and two
+      # nights never share a seed (scripts/ci/nightly_seed.py). The test
+      # derives each design's stimulus from it and the design's id. It is
+      # printed here, in the job summary, in the report and in the issue
+      # of a red night; VOLT_METAMORPHIC_SEED=<seed> repeats the run anywhere.
+      - name: Night's date self-test (scripts/ci/nightly_seed.py)
+        run: python3 scripts/ci/nightly_seed.py --self-test
       - name: Seed of this night
         id: seed
         run: |
-          seed=$(date -u +%Y-%m-%d)
+          set -euo pipefail
+          seed=$(python3 scripts/ci/nightly_seed.py --kind metamorphic)
           echo "seed=$seed" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Metamorphic nightly seed::VOLT_METAMORPHIC_SEED=$seed"
+          echo "::notice title=Metamorphic nightly seed::VOLT_METAMORPHIC_SEED=$seed; the night's UTC date (start $(date -u +%Y-%m-%dT%H:%M:%SZ) minus 12 h)"
+          {
+            echo "### Metamorphic nightly: seed $seed"
+            echo
+            echo '```text'
+            echo "VOLT_METAMORPHIC_TIER=nightly VOLT_METAMORPHIC_SEED=$seed VOLT_REQUIRE_TOOLS=verilator cargo test -p volt-driver --test metamorphic_tests"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Metamorphic test and real-bug corpus (Verilator required)
         env:
           VOLT_REQUIRE_TOOLS: verilator
@@ -137,4 +155,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SEED: ${{ needs.nightly.outputs.seed }}
         run: |
-          python3 scripts/ci/nightly_issue.py report --run-url "$RUN_URL" --seed "$SEED" --report reports/volt-real-bugs.txt --report reports/volt-metamorphic.txt
+          python3 scripts/ci/nightly_issue.py report --kind metamorphic --run-url "$RUN_URL" --seed "$SEED" --report reports/volt-real-bugs.txt --report reports/volt-metamorphic.txt

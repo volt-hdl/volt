@@ -67,6 +67,48 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, 2026-11-18)
+
+- **Gecelik tetik.** `difftest.yml` her gece main'de koşar; elle tetik
+  kalır. k. parçanın tohumu `YYYYMMDD00 + k`'dir. Tohumu ayrı bir "Seed of
+  this run" işi bir kez alır; günlüğe `::notice`, iş özetine her parçanın
+  komutu yazılır. `VOLT_DIFFTEST_SEED=<tohum + k>
+  VOLT_DIFFTEST_COUNT=12500` bir parçayı sabit Verilator'la yeniden
+  üretir. Elle koşuda `seed` girdisi boşsa gecenin tohumu kullanılır
+  (önceki varsayılan 20261105'ti; aynı koşu için `-f seed=20261105`).
+- **Gecenin tarihi.** Fark testinin ve metamorfik gecenin tohumu koşunun
+  başladığı andan 12 saat önceki UTC tarihinden türer
+  (`scripts/ci/nightly_seed.py`, self-test'i her PR'da): gecikme koşuyu
+  gece yarısının ötesine itse de her gecenin tek bir tohumu olur, iki
+  gece aynı tohumu koşmaz. Metamorfik gecenin tohumu önceden koşunun UTC
+  tarihiydi (ADR-0117 §5; ADR-0123 onun yerini alır).
+- **Kırmızı gece** "Nightly differential test is red (ADR-0108)" başlıklı
+  issue'yu açar ya da açık olanına tohumla, komutlarla ve dört parçanın
+  raporuyla yorum ekler; yeşil gece bir şey yazmaz. Kırmızı elle koşu
+  yalnız `-f issue=on` ile yazar. `scripts/ci/nightly_issue.py` artık iki
+  türü taşır (`--kind metamorphic|difftest`, metamorfik gece de türünü
+  verir); sahte `gh` ile self-test'i sekiz durumu sınar ve her PR'da
+  `known-failures.yml`'de koşar.
+- **Saatler.** Fark testi 17:03, metamorfik gece 18:21 (önceden 02:41),
+  fuzz gecesi 18:40 UTC (önceden 03:00); sıra ve boşluklar (78 ve 19
+  dakika) korundu. GitHub zamanlanmış koşuları Kasım 2026'da 6,5-8,6 saat
+  geç başlattı; eski saatlerle gece işleri Türkiye saatiyle öğlen, PR'ların
+  CI'ıyla aynı saatlerde koşuyordu. Yenileriyle gecikme yoksa Türkiye
+  akşamı, 8 saat gecikirse Türkiye gecesi koşarlar. Gerçek gecikmeler
+  2026-11-25'te ölçülüp saat yeniden değerlendirilecek
+  (`.github/workflows/README.md`, "Gecelik saatler").
+- **Ölçüm** (elle koşu 44237991576, gecenin tohumu 2026111800): duvar
+  saati 7 dk 10 s; dört parça 325-423 s (test adımı 297-400 s), toplam
+  ≈ 24 iş-dakikası; en çok dört eşzamanlı iş. Dört parçada `diffs=0`,
+  `SKIP: 0`.
+- **ccache yalnız iş içinde** (`.github/actions/ccache`, yeni `persist:
+  off` girdisi). Rastgele tasarımlar koşudan koşuya tekrar etmez: koşu
+  44112926993'te soğuk parça 159, önbelleği geri yüklenen parçalar 162
+  isabet aldı, her parça ~1 GB kaydetti. Gecelik koşuda bu her gece
+  ~4 GB, deponun 10 GB'lık önbellek kotasında main'in önbelleklerini
+  silerdi.
+- Derleyicinin girdisi ve çıktısı değişmedi.
+
 ### Geliştirici notu — Mutasyon kapısı anahtarı aynı, temiz geçmiş koşuyu yeniden kullanır (#318, ADR-0109 eki "Kapının önceki sonucu", 2026-11-18)
 
 - **Yeniden kullanım.** Kapı parçalardan önce bir anahtar hesaplar
