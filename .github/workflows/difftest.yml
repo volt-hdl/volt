@@ -2,19 +2,36 @@ name: Differential test (large run)
 
 # ADR-0108: the large run of the differential and metamorphic test. Every
 # pull request runs a small fixed-seed run in the CI workflow's tool job
-# ("Verilator lint"); this workflow runs a large one on demand, split over
-# shards with consecutive seeds (seed, seed + 1, ...). Each shard prints its
-# seed, its count and its tool ledger; a shard fails on any difference.
-# The reference is the Verilator release pinned in scripts/ci/verilator.env,
-# the same as the tool job's (#145); this workflow needs no other tool.
+# ("Verilator lint"); this workflow runs a large one every night and on
+# demand, split over shards with consecutive seeds (seed, seed + 1, ...).
+# Each shard prints its seed, its count and its tool ledger; a shard fails
+# on any difference. The reference is the Verilator release pinned in
+# scripts/ci/verilator.env, the same as the tool job's (#145); this
+# workflow needs no other tool.
+#
+# The nightly run (#255) takes its first seed from the UTC date, YYYYMMDD00
+# (2026-11-18 -> 2026111800, shard k -> 2026111800 + k): every night tries
+# other expressions, and two nights never share a shard's seed. A red
+# night opens an issue with a fixed title, or adds the report as a comment
+# to the open one (scripts/ci/nightly_issue.py --kind difftest); a green
+# night writes nothing.
+#
+# 01:23 UTC, 78 minutes before metamorphic-nightly.yml (02:41) and 97
+# before fuzz-nightly.yml (03:00), which use the same runner pool. GitHub
+# starts scheduled runs late (6.5 to 8.6 hours in November 2026), but on
+# the same day by about the same delay (02:41, 03:00 and 03:17 started at
+# 11:04, 11:17 and 11:51 on 2026-11-17), so the gap holds; a night's run
+# takes about 7 minutes (four shards in parallel, run 44112926993).
 
 on:
+  schedule:
+    - cron: "23 1 * * *"
   workflow_dispatch:
     inputs:
       seed:
-        description: "First seed (shard k uses seed + k)"
-        default: "20261105"
-        required: true
+        description: "First seed (shard k uses seed + k); empty: the UTC date as YYYYMMDD00, as the nightly run"
+        default: ""
+        required: false
       count:
         description: "Accepted expressions per shard"
         default: "12500"
@@ -23,21 +40,85 @@ on:
         description: "1: composite operands of / and % (VOLT_DIFFTEST_DIV_OPERANDS, #150; ADR-0112)"
         default: "0"
         required: false
+      issue:
+        description: "on: a red run opens or updates the nightly issue, as a scheduled night does"
+        type: choice
+        options: ["off", "on"]
+        default: "off"
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
-  VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest.txt
 
 jobs:
+  # One seed for every shard, taken once: a shard that starts after
+  # midnight UTC still runs the night's seed.
+  seed:
+    name: Seed of this run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+      count: ${{ steps.seed.outputs.count }}
+    steps:
+      - name: Seed and count
+        id: seed
+        env:
+          # Inputs reach the shell through the environment, never inline.
+          SEED: ${{ inputs.seed }}
+          COUNT: ${{ inputs.count || '12500' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SEED" ]; then
+            seed="$(date -u +%Y%m%d)00"
+            from="the UTC date"
+          else
+            seed="$SEED"
+            from="the seed input"
+          fi
+          for v in "seed=$seed" "count=$COUNT"; do
+            case "${v#*=}" in
+              ''|*[!0-9]*)
+                echo "::error title=Differential test::${v%%=*} must be a number, got '${v#*=}'"
+                exit 1
+                ;;
+            esac
+          done
+          # Decimal even with leading zeros (bash reads 0123 as octal).
+          seed=$((10#$seed))
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Differential test seed::VOLT_DIFFTEST_SEED=$seed (shard k: $seed + k), VOLT_DIFFTEST_COUNT=$COUNT; from $from ($EVENT)"
+          {
+            echo "### Differential test: seed $seed, $COUNT accepted expressions per shard"
+            echo
+            echo "First seed from $from ($EVENT). Repeat a shard with the pinned Verilator (\`scripts/ci/verilator.env\`):"
+            echo
+            echo '```text'
+            for k in 0 1 2 3; do
+              echo "# shard $k"
+              echo "VOLT_DIFFTEST_SEED=$((seed + k)) VOLT_DIFFTEST_COUNT=$COUNT VOLT_REQUIRE_TOOLS=verilator cargo test --release -p volt-driver --test difftest_tests"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   difftest:
     name: Differential test, shard ${{ matrix.shard }}
+    needs: seed
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
+        # The seed job's summary, the report job's --shards and
+        # nightly_issue.py's commands assume these four shards.
         shard: [0, 1, 2, 3]
+    env:
+      VOLT_DIFFTEST_SUMMARY: /tmp/volt-difftest-shard-${{ matrix.shard }}.txt
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -49,18 +130,22 @@ jobs:
       # (#145); the action fails the job on any other `verilator --version`.
       - name: Pinned Verilator (scripts/ci/verilator.env)
         uses: ./.github/actions/verilator
-      # The C++ of every Verilator build through ccache (.github/actions/ccache);
-      # one cache per shard, since each shard has its own seed and saves.
+      # The C++ of every Verilator build through ccache (.github/actions/ccache),
+      # inside the job only (persist: off): the random designs never repeat
+      # from one run to the next, the hits are Verilator's runtime library
+      # compiled again for each batch. A cold shard had 159 hits, a restored
+      # one 162, and each shard saved about 1 GB (run 44112926993, #255).
       - name: ccache for the Verilator builds
         uses: ./.github/actions/ccache
         with:
           phase: start
           job: difftest-${{ matrix.shard }}
+          persist: "off"
       - name: Seed and count of this shard
         id: shard
         env:
-          SEED: ${{ inputs.seed || '20261105' }}
-          COUNT: ${{ inputs.count || '12500' }}
+          SEED: ${{ needs.seed.outputs.seed }}
+          COUNT: ${{ needs.seed.outputs.count }}
           SHARD: ${{ matrix.shard }}
         run: |
           seed=$((SEED + SHARD))
@@ -78,13 +163,61 @@ jobs:
       - name: Differential test summary
         if: always()
         run: python3 scripts/ci/difftest_summary.py "$VOLT_DIFFTEST_SUMMARY" --job "shard ${{ matrix.shard }}"
-      - name: ccache statistics, cache save
+      - name: ccache statistics
         if: always()
         uses: ./.github/actions/ccache
         with:
           phase: end
           job: difftest-${{ matrix.shard }}
           job-status: ${{ job.status }}
+          persist: "off"
       - name: Tool ledger - SKIP count
         if: always()
         run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "difftest-${{ matrix.shard }}" --require-zero-skips --min-ran 1
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: difftest-report-${{ matrix.shard }}
+          path: /tmp/volt-difftest-shard-${{ matrix.shard }}.txt
+          if-no-files-found: ignore
+
+  # A red night (or a dispatched run with issue=on): open the issue, or
+  # comment on the open one. A red dispatched run without it writes
+  # nothing: its author is watching the run.
+  report:
+    name: Open or update the issue of a red night
+    needs: [seed, difftest]
+    if: failure() && (github.event_name == 'schedule' || inputs.issue == 'on')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      # The step below is scripts/ci/nightly_issue.py; its self-test (a
+      # fake gh) runs on every pull request in known-failures.yml and here.
+      - name: Script self-test
+        run: python3 scripts/ci/nightly_issue.py --self-test
+      - name: Download the reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: difftest-report-*
+          merge-multiple: true
+          path: reports
+        # A missing artifact (a shard never ran) still opens the issue: the
+        # next step names the missing report.
+        continue-on-error: true
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SEED: ${{ needs.seed.outputs.seed }}
+          COUNT: ${{ needs.seed.outputs.count }}
+        run: |
+          python3 scripts/ci/nightly_issue.py report --kind difftest --run-url "$RUN_URL" \
+            --seed "$SEED" --count "$COUNT" --shards 4 \
+            --report reports/volt-difftest-shard-0.txt --report reports/volt-difftest-shard-1.txt \
+            --report reports/volt-difftest-shard-2.txt --report reports/volt-difftest-shard-3.txt

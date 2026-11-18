@@ -28,6 +28,14 @@ inputs:
     description: "end phase: job.status of the calling job"
     required: false
     default: ""
+  persist:
+    description: >-
+      Both phases: "on" keeps the cache between runs (restore, then save);
+      "off" keeps it only inside the job: nothing is restored, nothing is
+      saved. For a job whose builds never repeat from one run to the next
+      (the differential test's random designs, #255)
+    required: false
+    default: "on"
 
 runs:
   using: composite
@@ -42,9 +50,17 @@ runs:
       shell: bash
       env:
         ENABLED: ${{ inputs.enabled }}
+        PERSIST: ${{ inputs.persist }}
         JOB_NAME: ${{ inputs.job }}
       run: |
         set -euo pipefail
+        case "$PERSIST" in
+          on|off) ;;
+          *)
+            echo "::error title=ccache [$JOB_NAME]::input persist must be 'on' or 'off', got '$PERSIST'"
+            exit 1
+            ;;
+        esac
         case "$ENABLED" in
           on) ;;
           off)
@@ -168,10 +184,10 @@ runs:
     # The most recent cache of this job, else of any job with the same
     # image, compiler and Verilator. A miss or a failed download is a cold
     # start; ccache checks every entry it reads and compiles again when one
-    # is damaged.
+    # is damaged. Not with persist: off.
     - name: ccache - restore the cache of an earlier run
       id: restore
-      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true'
+      if: inputs.phase == 'start' && steps.pin.outputs.enabled == 'true' && inputs.persist != 'off'
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/volt-ccache
@@ -188,9 +204,12 @@ runs:
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
         KEY: ${{ steps.start.outputs.key }}
         JOB_PREFIX: ${{ steps.start.outputs.job-prefix }}
+        PERSIST: ${{ inputs.persist }}
       run: |
         set -euo pipefail
-        if [ -n "$MATCHED" ]; then
+        if [ "$PERSIST" = off ]; then
+          echo "ccache [$JOB_NAME]: persist=off: the cache lives only in this job (nothing restored, nothing saved)"
+        elif [ -n "$MATCHED" ]; then
           echo "ccache [$JOB_NAME]: restored $MATCHED"
         else
           echo "::notice title=ccache [$JOB_NAME]::no cache restored: a cold start, every first compile is a miss"
@@ -221,6 +240,7 @@ runs:
         JOB_NAME: ${{ inputs.job }}
         JOB_STATUS: ${{ inputs.job-status }}
         EVENT: ${{ github.event_name }}
+        PERSIST: ${{ inputs.persist }}
       run: |
         set -euo pipefail
         case "${VOLT_CI_CCACHE:-}" in
@@ -256,11 +276,12 @@ runs:
         # A pull request saves only a cold start of its own job; main, the
         # nightly run and a dispatched run always save. A failed job saves
         # nothing (its cache may hold only part of the working set).
+        # persist: off never saves.
         save=false
-        if [ "$JOB_STATUS" = success ] && { [ "$EVENT" != pull_request ] || [ "$VOLT_CI_CCACHE_OWN_RESTORED" = false ]; }; then
+        if [ "$PERSIST" != off ] && [ "$JOB_STATUS" = success ] && { [ "$EVENT" != pull_request ] || [ "$VOLT_CI_CCACHE_OWN_RESTORED" = false ]; }; then
           save=true
         fi
-        echo "ccache [$JOB_NAME]: save the cache as $VOLT_CI_CCACHE_KEY: $save (job $JOB_STATUS, event $EVENT, own cache restored: $VOLT_CI_CCACHE_OWN_RESTORED)"
+        echo "ccache [$JOB_NAME]: save the cache as $VOLT_CI_CCACHE_KEY: $save (job $JOB_STATUS, event $EVENT, persist $PERSIST, own cache restored: $VOLT_CI_CCACHE_OWN_RESTORED)"
         echo "save=$save" >> "$GITHUB_OUTPUT"
         # A failed job may have stopped before its Verilator builds.
         if [ "$JOB_STATUS" = success ]; then

@@ -67,6 +67,37 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Fark testinin büyük koşusu her gece (#255, ADR-0108, 2026-11-18)
+
+- **Gecelik tetik.** `difftest.yml` her gün 01:23 UTC'de main'de koşar;
+  elle tetik kalır. Gecenin ilk tohumu UTC tarihidir, `YYYYMMDD00`
+  (2026-11-18 → 2026111800; parça k: tohum + k): her gece başka ifadeler
+  denenir, iki gece hiçbir parçanın tohumunu paylaşmaz. Tohumu ayrı bir
+  "Seed of this run" işi bir kez alır; günlüğe `::notice`, iş özetine her
+  parçanın komutu yazılır. `VOLT_DIFFTEST_SEED=<tohum + k>
+  VOLT_DIFFTEST_COUNT=12500` bir parçayı sabit Verilator'la yeniden
+  üretir. Elle koşuda `seed` girdisi boşsa gecenin tohumu kullanılır
+  (önceki varsayılan 20261105'ti; aynı koşu için `-f seed=20261105`).
+- **Kırmızı gece** "Nightly differential test is red (ADR-0108)" başlıklı
+  issue'yu açar ya da açık olanına tohumla, komutlarla ve dört parçanın
+  raporuyla yorum ekler; yeşil gece bir şey yazmaz. Kırmızı elle koşu
+  yalnız `-f issue=on` ile yazar. `scripts/ci/nightly_issue.py` artık iki
+  türü taşır (`--kind metamorphic|difftest`, metamorfik gece de türünü
+  verir); sahte `gh` ile self-test'i sekiz durumu sınar ve her PR'da
+  `known-failures.yml`'de koşar.
+- **Saat.** Metamorfik geceden (02:41) 78, fuzz gecesinden (03:00) 97
+  dakika önce; aynı koşucu havuzunu kullanırlar. GitHub zamanlanmış
+  koşuları Kasım 2026'da 6,5-8,6 saat geç başlattı, ama aynı gün
+  yaklaşık aynı gecikmeyle; aralık korunur
+  (`.github/workflows/README.md`, "Gecelik saatler").
+- **ccache yalnız iş içinde** (`.github/actions/ccache`, yeni `persist:
+  off` girdisi). Rastgele tasarımlar koşudan koşuya tekrar etmez: koşu
+  44112926993'te soğuk parça 159, önbelleği geri yüklenen parçalar 162
+  isabet aldı, her parça ~1 GB kaydetti. Gecelik koşuda bu her gece
+  ~4 GB, deponun 10 GB'lık önbellek kotasında main'in önbelleklerini
+  silerdi.
+- Derleyicinin girdisi ve çıktısı değişmedi.
+
 ### Geliştirici notu — Mutasyon kapısı anahtarı aynı, temiz geçmiş koşuyu yeniden kullanır (#318, ADR-0109 eki "Kapının önceki sonucu", 2026-11-18)
 
 - **Yeniden kullanım.** Kapı parçalardan önce bir anahtar hesaplar

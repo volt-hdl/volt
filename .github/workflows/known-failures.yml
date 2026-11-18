@@ -44,10 +44,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Script self-test
         run: python3 scripts/ci/known_failures.py --self-test
-      # The issue step of metamorphic-nightly.yml runs only on a red night
-      # on main; its script is tested here, on every pull request, against
-      # a fake gh (open, comment, missing report, gh failure).
-      - name: Nightly issue step self-test (metamorphic-nightly.yml)
+      # The issue steps of metamorphic-nightly.yml and difftest.yml run only
+      # on a red night on main; their script is tested here, on every pull
+      # request, against a fake gh (open, comment, missing report, gh
+      # failure, each kind's title and repeat commands).
+      - name: Nightly issue step self-test (metamorphic-nightly.yml, difftest.yml)
         run: python3 scripts/ci/nightly_issue.py --self-test
       - name: Every entry's issue is open; the pull request closes none of them
         env:

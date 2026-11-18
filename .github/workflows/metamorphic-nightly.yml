@@ -137,4 +137,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SEED: ${{ needs.nightly.outputs.seed }}
         run: |
-          python3 scripts/ci/nightly_issue.py report --run-url "$RUN_URL" --seed "$SEED" --report reports/volt-real-bugs.txt --report reports/volt-metamorphic.txt
+          python3 scripts/ci/nightly_issue.py report --kind metamorphic --run-url "$RUN_URL" --seed "$SEED" --report reports/volt-real-bugs.txt --report reports/volt-metamorphic.txt
