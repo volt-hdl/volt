@@ -227,7 +227,7 @@ exclude_re = [
     # match a value of enum 'Mode'", typeck/matching.rs;
     # parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission):
     # in pattern_variants `d` is always the scrutinee's enum.
-    # expect: crates/volt-sv-emit/src/enums.rs:328:33: replace match guard d.name.text == decl.name.text with true in Emitter<'a>::pattern_variants
+    # expect: crates/volt-sv-emit/src/enums.rs:331:33: replace match guard d.name.text == decl.name.text with true in Emitter<'a>::pattern_variants
     "volt-sv-emit/src/enums\\.rs:\\d+:\\d+: replace match guard d\\.name\\.text == decl\\.name\\.text with true in Emitter<'a>::pattern_variants$",
     # A2 (reachable, same SV), assumes `t` has passed is_trit (a Trit atom,
     # negation, Trit * Trit or `if`: SV precedence 12, 11, 10 or 0) and

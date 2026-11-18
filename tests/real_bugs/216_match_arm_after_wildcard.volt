@@ -1,11 +1,11 @@
 //~ W2014
-// #216 (open): in a statement match, an arm after the wildcard is emitted
-// after `default` and wins, because SystemVerilog takes `default` only when
-// no other item matches. The first matching arm wins (ADR-0032, ADR-0083:
-// the statement and the expression form follow the same rules); arms after
-// the first wildcard are not emitted and get W2014 (sv-mapping.md §19.1).
-// The expression form `y = match s { 0 => 1, _ => 7, 1 => 9 }` gives 7 for
-// s = 1, this statement form gives 9. Known failure until #216 is fixed.
+// #216: in a statement match, an arm after the wildcard was emitted after
+// `default` and won, because SystemVerilog takes `default` only when no
+// other item matches. The first matching arm wins (ADR-0032, ADR-0083: the
+// statement and the expression form follow the same rules); arms after the
+// first wildcard are not emitted and get W2014 (sv-mapping.md §19.1). The
+// expression form `y = match s { 0 => 1, _ => 7, 1 => 9 }` gave 7 for
+// s = 1, this statement form 9, and no form gave W2014. Fixed by #PR.
 module M {
     in  s : u2
     out y : u8

@@ -2166,7 +2166,10 @@ impl<'a> Emitter<'a> {
         // match'inde son adlı kol `default` olur (geçersiz kodlar dahil).
         let plan = scrut_enum.map(|d| self.enum_match_plan(&m.arms, d));
         // Sayısal sınananda aynı kural (ADR-0075): değerleri önceki
-        // kollarda geçen kol yazılmaz (HIR W2014).
+        // kollarda geçen kol yazılmaz (HIR W2014). İki sınananda da ilk
+        // joker koldan sonraki kol yazılmaz (sv-mapping.md §19.1, #216):
+        // SV `default`'u yalnız başka etiket eşleşmezse seçer, sonraki kol
+        // yazılsa jokerin önüne geçerdi.
         let value_skip = match plan {
             Some(_) => Vec::new(),
             None => volt_ast::match_cover::unreachable_value_arms(self.ast, &m.arms, &mut |e| {
@@ -2175,7 +2178,9 @@ impl<'a> Emitter<'a> {
         };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {
-            if plan.as_ref().is_some_and(|p| p.skip[i]) || value_skip.get(i) == Some(&true) {
+            if plan.as_ref().is_some_and(|p| p.skip[i])
+                || value_skip.get(i).is_some_and(Option::is_some)
+            {
                 continue;
             }
             if let Some(p) = plan.as_ref().filter(|p| p.default_arm == Some(i)) {

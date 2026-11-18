@@ -180,7 +180,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2013 => "Kaydırma miktarı genişliği aşıyor",
         W2015 => "Bölmenin işleneni bölmeden önce kesiliyor",
         W2016 => "Aritmetik işlenen işlemden önce kesiliyor",
-        W2014 => "Erişilemez match kolu (varyant zaten kapsandı)",
+        W2014 => "Erişilemez match kolu (önceki bir kol zaten kapsıyor)",
         W2020 => "Sabit koşul — dal her zaman aynı sonuç veriyor",
         W2021 => "Kullanılmayan const bildirimi",
         W3001 => "Register hiç yazılmıyor",

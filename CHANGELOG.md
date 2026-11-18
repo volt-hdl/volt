@@ -9,6 +9,31 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir `match` deyiminde (`on`/`comb` içinde,
+  sayısal, `bool` ya da enum sınanan) ilk joker koldan (`_` ya da `A | _`)
+  sonraki kollar artık SystemVerilog'a yazılmaz ve W2014 alır (#216;
+  sessiz yanlış düzeltmesi, sv-mapping.md §19.1). 0.1.2'de bu kollar
+  `default:`'tan sonra `case`'e yazılıyordu; SystemVerilog `default`'u
+  yalnız başka hiçbir etiket eşleşmediğinde seçtiğinden kendi değerleri
+  için jokerin önüne geçiyorlardı: `comb { match s { 0 => { y = 1 } _ =>
+  { y = 7 } 1 => { y = 9 } } }` s = 1 için 9 veriyordu. Şartnameye göre
+  ilk eşleşen kol kazanır: artık 7, aynı kolları taşıyan match ifadesi
+  (`y = match s { 0 => 1, _ => 7, 1 => 9 }`) ve `const` match'i gibi.
+  SV'si ve değeri değişen yalnız jokerden sonra kolu olan match
+  deyimleridir; match ifadesinin ve `const`'un SV'si aynı kalır (onlar
+  zaten ilk eşleşen kolu veriyordu). W2014 artık jokerden sonraki her
+  kolda, üç biçimde de çıkar (önce hiçbirinde çıkmıyordu); metni "an
+  earlier '_' arm already matches every value". Jokerden sonraki muhafızlı
+  kol (`1 if c => …`) deyim biçiminde E0003 ("'match' arm guards") yerine
+  W2014 alır, ifade biçiminde olduğu gibi: kol yazılmadığından muhafız
+  SV'ye inmez. Yalnız jokerden sonraki bir kolda atanan sinyal artık hiç
+  sürülmez (kol hiç seçilmez). Otomatik FSM kontratları (ADR-0066) da
+  jokerden sonraki kolu görmez: o koldaki geçişin cover'ı artık üretilmez
+  ve joker kolun geçiş cover'ının kaynağı yalnız önceki kollarda adı
+  geçmeyen durumlardır (0.1.2'de jokerden sonraki kolların değerleri de
+  kaynaktan çıkarılıyordu); düzeltilmiş donanımda ulaşılamayacak cover
+  üretilmez. `volt explain W2014` metni de jokeri anlatır. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası;
+  sürüm notunun "Behavior changes" bölümüne girer.
 - **Davranış değişikliği.** İşaretli `>>`'nin genişlik kadar ya da daha
   büyük sabit miktarı SystemVerilog'da `>>> (w-1)` yazılır (#302; sessiz
   yanlış düzeltmesi, ADR-0120). 0.1.2'de `a >> 64` (`a : i63`) `a >>> 64`

@@ -257,7 +257,8 @@ impl<'a> Emitter<'a> {
 
 /// Enum `match`'inin `case` planı (ADR-0074 Karar 4).
 pub(crate) struct EnumMatchPlan {
-    /// Kol atlanır: bütün varyantları önceki kollarca kapsanmış (W2014).
+    /// Kol atlanır (W2014): ilk joker koldan sonra ya da bütün varyantları
+    /// önceki kollarca kapsanmış.
     pub(crate) skip: Vec<bool>,
     /// Kapsayıcı, `_`'sız match'te `default:` olan son adlı kol.
     pub(crate) default_arm: Option<usize>,
@@ -271,13 +272,15 @@ pub(crate) struct EnumMatchPlan {
 impl<'a> Emitter<'a> {
     /// Kolların kapsadığı varyantlar: erişilemez kollar ve kapsayıcı
     /// match'in `default` kolu. Muhafızlı kollar kapsamaya sayılmaz
-    /// (E0003); joker ya da bağlama deseni sonrasında plan yapılmaz.
+    /// (E0003); jokerden sonraki kollar atlanır.
     pub(crate) fn enum_match_plan(
         &self,
         arms: &[volt_ast::MatchArm],
         decl: &EnumDecl,
     ) -> EnumMatchPlan {
-        let mut skip = vec![false; arms.len()];
+        // İlk joker koldan sonraki kollar yazılmaz (sv-mapping.md §19.1,
+        // #216); kural `volt_ast::match_cover`'da, HIR W2014'ü oradan verir.
+        let mut skip = volt_ast::match_cover::arms_after_catch_all(self.ast, arms);
         let mut covered: Vec<usize> = Vec::new();
         let mut wildcard = false;
         let mut last_named = None;
