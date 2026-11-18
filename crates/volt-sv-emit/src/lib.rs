@@ -2008,7 +2008,13 @@ impl<'a> Emitter<'a> {
     fn reset_assignments(&mut self, module: &'a ModuleDecl, on: &'a OnBlock) -> Vec<String> {
         let ast = self.ast;
         let mut written = Vec::new();
-        collect_written(ast, &ast.blocks[on.body], &mut written);
+        // Tasarıma yazılmayan koldaki yazma reset almaz: o kol yazılmaz.
+        collect_written(
+            ast,
+            &|m| self.dead_arms(m.scrutinee, &m.arms),
+            &ast.blocks[on.body],
+            &mut written,
+        );
         // ADR-0077: yazılan struct yaprağının kardeşleri de reset alır.
         for w in written.clone() {
             if let Some(sibs) = self.struct_notes.siblings_of(&self.module_name, &w) {
@@ -2165,22 +2171,18 @@ impl<'a> Emitter<'a> {
         // ADR-0074 Karar 4: erişilemez kol atlanır; kapsayıcı `_`'sız enum
         // match'inde son adlı kol `default` olur (geçersiz kodlar dahil).
         let plan = scrut_enum.map(|d| self.enum_match_plan(&m.arms, d));
-        // Sayısal sınananda aynı kural (ADR-0075): değerleri önceki
-        // kollarda geçen kol yazılmaz (HIR W2014). İki sınananda da ilk
-        // joker koldan sonraki kol yazılmaz (sv-mapping.md §19.1, #216):
-        // SV `default`'u yalnız başka etiket eşleşmezse seçer, sonraki kol
-        // yazılsa jokerin önüne geçerdi.
-        let value_skip = match plan {
-            Some(_) => Vec::new(),
-            None => volt_ast::match_cover::unreachable_value_arms(self.ast, &m.arms, &mut |e| {
-                self.eval_const(e)
-            }),
+        // Tasarıma yazılmayan kol (HIR W2014, sv-mapping.md §19.1): ilk
+        // joker koldan sonraki kol (#216; SV `default`'u yalnız başka etiket
+        // eşleşmezse seçer, sonraki kol yazılsa jokerin önüne geçerdi) ve
+        // değerleri önceki kollarda geçen kol (ADR-0075). Kural
+        // `match_cover`'da, iki sınananda da `arm_cover`'dan.
+        let skip = match &plan {
+            Some(p) => p.skip.clone(),
+            None => self.dead_arms(m.scrutinee, &m.arms),
         };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {
-            if plan.as_ref().is_some_and(|p| p.skip[i])
-                || value_skip.get(i).is_some_and(Option::is_some)
-            {
+            if skip[i] {
                 continue;
             }
             if let Some(p) = plan.as_ref().filter(|p| p.default_arm == Some(i)) {
@@ -2629,7 +2631,12 @@ impl<'a> Emitter<'a> {
     }
 }
 
-fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
+fn collect_written(
+    ast: &SourceFile,
+    dead: &dyn Fn(&MatchStmt) -> Vec<bool>,
+    block: &Block,
+    out: &mut Vec<String>,
+) {
     for stmt in &block.stmts {
         match stmt {
             BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
@@ -2637,11 +2644,12 @@ fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
                     out.push(lhs.base.text.clone());
                 }
             }
-            BlockStmt::If(if_stmt) => collect_written_if(ast, if_stmt, out),
+            BlockStmt::If(if_stmt) => collect_written_if(ast, dead, if_stmt, out),
             BlockStmt::Match(m) => {
-                for arm in &m.arms {
+                let dead_arms = dead(m);
+                for (arm, _) in m.arms.iter().zip(dead_arms).filter(|(_, d)| !d) {
                     match &arm.body {
-                        MatchArmBody::Block(b) => collect_written(ast, &ast.blocks[*b], out),
+                        MatchArmBody::Block(b) => collect_written(ast, dead, &ast.blocks[*b], out),
                         // Deyim konumunda ifade gövdeli kol atama yapamaz
                         // (emit E0003 verir).
                         MatchArmBody::Expr(_) => {}
@@ -2649,17 +2657,22 @@ fn collect_written(ast: &SourceFile, block: &Block, out: &mut Vec<String>) {
                 }
             }
             // Blok içi `for` açılır; gövdesinde yazılan reg de reset alır.
-            BlockStmt::For(f) => collect_written(ast, &ast.blocks[f.body], out),
+            BlockStmt::For(f) => collect_written(ast, dead, &ast.blocks[f.body], out),
             BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }
 
-fn collect_written_if(ast: &SourceFile, if_stmt: &IfStmt, out: &mut Vec<String>) {
-    collect_written(ast, &ast.blocks[if_stmt.then_block], out);
+fn collect_written_if(
+    ast: &SourceFile,
+    dead: &dyn Fn(&MatchStmt) -> Vec<bool>,
+    if_stmt: &IfStmt,
+    out: &mut Vec<String>,
+) {
+    collect_written(ast, dead, &ast.blocks[if_stmt.then_block], out);
     match &if_stmt.else_branch {
-        Some(ElseBranch::Block(b)) => collect_written(ast, &ast.blocks[*b], out),
-        Some(ElseBranch::If(elif)) => collect_written_if(ast, elif, out),
+        Some(ElseBranch::Block(b)) => collect_written(ast, dead, &ast.blocks[*b], out),
+        Some(ElseBranch::If(elif)) => collect_written_if(ast, dead, elif, out),
         None => {}
     }
 }

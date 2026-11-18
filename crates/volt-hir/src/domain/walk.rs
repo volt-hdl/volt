@@ -110,7 +110,9 @@ impl Inferencer<'_> {
                     self.fix_src = Some(mt.scrutinee);
                     let pc = self.branch_pc(dom, s_span, ctx, pc);
                     self.fix_src = None;
-                    for arm in &mt.arms {
+                    // Tasarıma yazılmayan kol donanımda yoktur (#332).
+                    let tyck = self.tyck;
+                    for arm in tyck.dead_arms.live(&mt.arms) {
                         let pc = match arm.guard {
                             Some(g) => {
                                 let gd = self.expr_domain(g);

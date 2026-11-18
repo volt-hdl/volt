@@ -263,7 +263,8 @@ impl<'a> Inferencer<'a> {
                 }
                 BlockStmt::If(if_stmt) => self.collect_writes_if(if_stmt, out),
                 BlockStmt::Match(mt) => {
-                    for arm in &mt.arms {
+                    // Tasarıma yazılmayan koldaki yazma yazıcı değildir.
+                    for arm in self.tyck.dead_arms.live(&mt.arms) {
                         if let MatchArmBody::Block(b) = &arm.body {
                             self.collect_writes(*b, out);
                         }

@@ -1100,7 +1100,9 @@ impl Parser<'_> {
                 }
                 BlockStmt::If(ifs) => self.collect_lvalues_if(ifs, chain, out),
                 BlockStmt::Match(m) => {
-                    for arm in &m.arms {
+                    // Tasarıma yazılmayan koldaki yazma ikinci yazıcı değildir
+                    // (E4006, #331).
+                    for arm in super::dead_arm::live_arms(&self.ast, &m.arms) {
                         if let MatchArmBody::Block(b) = &arm.body {
                             self.collect_lvalues_block(*b, chain, out);
                         }
@@ -1343,10 +1345,13 @@ impl Parser<'_> {
         self.ast.blocks[bi].stmts.iter().any(|bs| match bs {
             BlockStmt::NonBlockAssign { lhs, .. } => lhs.base.text == name,
             BlockStmt::If(ifs) => self.if_assigns(ifs, name),
-            BlockStmt::Match(m) => m.arms.iter().any(|arm| match &arm.body {
-                MatchArmBody::Block(b) => self.block_assigns(*b, name),
-                MatchArmBody::Expr(_) => false,
-            }),
+            // Tasarıma yazılmayan kol yazmaz (#331).
+            BlockStmt::Match(m) => super::dead_arm::live_arms(&self.ast, &m.arms)
+                .into_iter()
+                .any(|arm| match &arm.body {
+                    MatchArmBody::Block(b) => self.block_assigns(*b, name),
+                    MatchArmBody::Expr(_) => false,
+                }),
             BlockStmt::For(f) => self.block_assigns(f.body, name),
             _ => false,
         })

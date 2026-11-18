@@ -109,7 +109,7 @@ pub fn run_semantic_stages(
     out.extend(rdc);
 
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
-    let timing = crate::analyze_timing(ast, resolve);
+    let timing = crate::analyze_timing(ast, resolve, &typeck.dead_arms);
     out.extend(timing.diagnostics);
     // ── Handshake protokolü (ADR-0050) ──
     out.extend(crate::check_handshakes(ast, resolve, &summaries));
@@ -138,7 +138,7 @@ pub fn run_semantic_stages(
 
     // ── Zamanlama kısıtları (ADR-0054): E0017 her zaman; W0022 yalnız
     // `--emit=sdc,xdc`'de ──
-    let constraints = crate::collect_constraints(ast);
+    let constraints = crate::collect_constraints(ast, &typeck.dead_arms);
     out.extend(constraints.diagnostics.iter().cloned());
 
     stages.typeck = Some(typeck);

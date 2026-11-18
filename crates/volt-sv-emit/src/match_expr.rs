@@ -189,24 +189,39 @@ impl<'a> Emitter<'a> {
         true
     }
 
-    /// Üretilecek SV ifadesinin yüksekliği: iç match kol sayısı kadar
-    /// derin bir zincirdir.
+    /// Üretilecek SV ifadesinin yüksekliği: iç match yazılan kol sayısı
+    /// kadar derin bir zincirdir (tasarıma yazılmayan kol zincirde yoktur,
+    /// sv-mapping.md §19.1).
     fn ternary_height(&self, e: Idx<Expr>, depth: usize) -> usize {
         if depth > MAX_DEPTH as usize {
             return depth;
         }
         let kind = &self.ast.exprs[e].kind;
+        if let ExprKind::Match { scrutinee, arms } = kind {
+            let live = self.live_match_arms(*scrutinee, arms);
+            let below = std::iter::once(*scrutinee)
+                .chain(live.iter().flat_map(|a| arm_exprs(a)))
+                .map(|c| self.ternary_height(c, depth + 1))
+                .max()
+                .unwrap_or(depth);
+            return below + live.len().saturating_sub(1);
+        }
         let children = volt_ast::visit::expr_children(kind);
         let below = children
             .iter()
             .map(|&c| self.ternary_height(c, depth + 1))
             .max()
             .unwrap_or(depth);
-        if let ExprKind::Match { arms, .. } = kind {
-            below + arms.len().saturating_sub(1)
-        } else {
-            below.max(depth + 1)
-        }
+        below.max(depth + 1)
+    }
+
+    /// Tasarıma yazılan kollar, sırasıyla.
+    fn live_match_arms<'m>(&self, scrutinee: Idx<Expr>, arms: &'m [MatchArm]) -> Vec<&'m MatchArm> {
+        arms.iter()
+            .zip(self.dead_arms(scrutinee, arms))
+            .filter(|(_, d)| !d)
+            .map(|(a, _)| a)
+            .collect()
     }
 
     /// Üretilecek SV ifadesinin düğüm sayısı: sınanan her desen
@@ -225,7 +240,7 @@ impl<'a> Emitter<'a> {
         };
         let s = self.ternary_cost(*scrutinee, depth + 1);
         let mut total: usize = 1;
-        for arm in arms {
+        for arm in self.live_match_arms(*scrutinee, arms) {
             let lits = self.pattern_literals(arm.pattern);
             total = total.saturating_add(s.saturating_mul(lits.max(1)));
             for c in arm.guard.into_iter().chain(match arm.body {
@@ -264,19 +279,15 @@ impl<'a> Emitter<'a> {
         let scrut_enum: Option<&'a EnumDecl> = self.enum_of_expr(scrutinee);
         let scrut = self.emit_prec(scrutinee, scrut_sig, PREC_EQ, false);
         let enum_plan = scrut_enum.map(|d| self.enum_match_plan(arms, d));
-        let value_skip = match enum_plan {
-            Some(_) => Vec::new(),
-            None => volt_ast::match_cover::unreachable_value_arms(self.ast, arms, &mut |e| {
-                self.eval_const(e)
-            }),
+        let skip = match &enum_plan {
+            Some(p) => p.skip.clone(),
+            None => self.dead_arms(scrutinee, arms),
         };
         let mut out = Vec::with_capacity(arms.len());
         let mut default_comment = None;
         let mut ok = true;
         for (i, arm) in arms.iter().enumerate() {
-            if enum_plan.as_ref().is_some_and(|p| p.skip[i])
-                || value_skip.get(i).is_some_and(Option::is_some)
-            {
+            if skip[i] {
                 continue;
             }
             let MatchArmBody::Expr(body) = arm.body else {
@@ -577,4 +588,12 @@ impl<'a> Emitter<'a> {
                 .any(|v| format!("{}_{}", e.name.text, v.name.text) == name)
         })
     }
+}
+
+/// Kolun muhafızı ve ifade gövdesi.
+fn arm_exprs(arm: &MatchArm) -> impl Iterator<Item = Idx<Expr>> {
+    arm.guard.into_iter().chain(match arm.body {
+        MatchArmBody::Expr(b) => Some(b),
+        MatchArmBody::Block(_) => None,
+    })
 }

@@ -22,7 +22,9 @@ fn parse_clean(src: &str) -> volt_ast::SourceFile {
 }
 
 fn collect(src: &str) -> ConstraintResult {
-    collect_constraints(&parse_clean(src))
+    let ast = parse_clean(src);
+    let dead = analyze(&ast).typeck.dead_arms;
+    collect_constraints(&ast, &dead)
 }
 
 fn codes(diags: &[Diagnostic]) -> Vec<&str> {

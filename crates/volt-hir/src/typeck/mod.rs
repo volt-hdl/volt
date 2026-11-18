@@ -68,7 +68,37 @@ pub struct TypeckResult {
     pub def_types: HashMap<DefId, TypeId>,
     /// İfade → tip (sonraki aşamalar ve araçlar için).
     pub expr_types: HashMap<Idx<Expr>, TypeId>,
+    /// Tasarıma yazılmayan `match` kolları (deyim ve ifade), kol deseniyle
+    /// (`MatchArm::pattern`): ilk muhafızsız joker koldan sonrakiler ve
+    /// önceki kolların kapsadıkları (sv-mapping.md §19.1, W2014; kural
+    /// `volt_ast::match_cover::dead_arms`). Donanımı inceleyen analizler
+    /// (saat alanı, güven, sıfırlama alanı, el sıkışma, zamanlama) bu
+    /// kolların içine girmez (#328, #331, #332).
+    pub dead_arms: DeadArms,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Tasarıma yazılmayan `match` kollarının desenleri ([`TypeckResult::dead_arms`]).
+#[derive(Debug, Default, Clone)]
+pub struct DeadArms(std::collections::HashSet<Idx<volt_ast::Pattern>>);
+
+impl DeadArms {
+    pub(crate) fn insert(&mut self, pattern: Idx<volt_ast::Pattern>) {
+        self.0.insert(pattern);
+    }
+
+    /// Kol tasarıma yazılmıyor mu.
+    pub fn contains(&self, arm: &volt_ast::MatchArm) -> bool {
+        self.0.contains(&arm.pattern)
+    }
+
+    /// Tasarıma yazılan kollar, sırasıyla.
+    pub fn live<'m>(
+        &'m self,
+        arms: &'m [volt_ast::MatchArm],
+    ) -> impl Iterator<Item = &'m volt_ast::MatchArm> + 'm {
+        arms.iter().filter(move |a| !self.contains(a))
+    }
 }
 
 /// Dosyadaki modülleri ve const öğelerini tip denetiminden geçirir.
@@ -90,6 +120,7 @@ pub fn typecheck<'a>(
         drivers: DriverTable::default(),
         current_group: None,
         in_dead_arm: false,
+        dead_arms: DeadArms::default(),
         next_group: 0,
         loop_bounds: HashMap::new(),
         coverage: HashMap::new(),
@@ -106,6 +137,7 @@ pub fn typecheck<'a>(
         types: checker.types,
         def_types: checker.def_types,
         expr_types: checker.expr_types,
+        dead_arms: checker.dead_arms,
         diagnostics: checker.diagnostics,
     }
 }
@@ -126,9 +158,11 @@ struct TypeChecker<'a, 'ev> {
     drivers: DriverTable,
     /// İçinde bulunulan on/comb bloğunun sürücü grubu.
     current_group: Option<u32>,
-    /// Ölü bir `match` kolunun içinde mi (ilk joker koldan sonra,
-    /// sv-mapping.md §19.1): atama sürücü kaydı bırakmaz (#328).
+    /// Tasarıma yazılmayan bir `match` kolunun içinde mi (sv-mapping.md
+    /// §19.1): atama sürücü kaydı bırakmaz (#328, #331).
     in_dead_arm: bool,
+    /// Bulunan tasarıma yazılmayan kollar ([`TypeckResult::dead_arms`]).
+    dead_arms: DeadArms,
     next_group: u32,
     /// Sınırları sabit blok içi döngü değişkenleri → `[start, end)`
     /// (sürücü analizinin eleman aralığı, ADR-0073).

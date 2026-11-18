@@ -319,7 +319,7 @@ impl Inferencer<'_> {
                 ExprKind::PartSelect { base, start, .. } => stack.extend([*base, *start]),
                 ExprKind::Match { scrutinee, arms } => {
                     stack.push(*scrutinee);
-                    for arm in arms {
+                    for arm in self.tyck.dead_arms.live(arms) {
                         stack.extend(arm.guard);
                         if let MatchArmBody::Expr(ae) = arm.body {
                             stack.push(ae);

@@ -366,12 +366,14 @@ impl Walker<'_> {
             _ => None,
         };
         let match_id = self.scan.matches.len();
-        // İlk joker koldan sonraki kollar yazılmaz ve hiç seçilmez
-        // (sv-mapping.md §19.1, #216): kontrat donanımı anlatır, onları
-        // görmez. Kural `volt_ast::match_cover`'da; joker kolun kaynağı da
-        // böylece yalnız önceki kollarda adı geçmeyen değerlerdir.
-        let after = volt_ast::match_cover::arms_after_catch_all(self.ast, &ms.arms);
-        let live = &ms.arms[..after.iter().filter(|a| !**a).count()];
+        // Tasarıma yazılmayan kollar (ilk joker koldan sonrakiler ve önceki
+        // kolların kapsadıkları) hiç seçilmez (sv-mapping.md §19.1, #216,
+        // #331): kontrat donanımı anlatır, onları görmez. Kural
+        // `volt_ast::match_cover`'da; joker kolun kaynağı da böylece yalnız
+        // önceki kollarda adı geçmeyen değerlerdir. Kol sırası (`ArmCtx::arm`)
+        // canlı kolların sırasıdır.
+        let live: Vec<&volt_ast::MatchArm> =
+            crate::parser::dead_arm::live(self.ast, self.consts, &ms.arms).collect();
         if let Some(name) = &scrutinee {
             let arms = live
                 .iter()

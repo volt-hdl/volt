@@ -63,6 +63,9 @@ pub struct Summary {
 #[derive(Debug, Default)]
 pub struct Summaries {
     by_def: HashMap<DefId, Summary>,
+    /// Tasarıma yazılmayan `match` kolları (tip denetiminden): grafik
+    /// onların okumalarını ve atamalarını kenar saymaz (#331, #332).
+    dead_arms: crate::typeck::DeadArms,
 }
 
 /// Örnek sitesinde bir çıkışın arkası: hedefin adı ve bağlı girişler.
@@ -80,7 +83,10 @@ pub struct OutputDeps {
 impl Summaries {
     /// Birimdeki her modülün ve extern'in özeti, çocuktan başlayarak.
     pub fn compute(ast: &SourceFile, res: &ResolveResult, tyck: &TypeckResult) -> Self {
-        let mut s = Summaries::default();
+        let mut s = Summaries {
+            dead_arms: tyck.dead_arms.clone(),
+            ..Summaries::default()
+        };
         let clk = Clocks { res, tyck };
         let mut busy = HashSet::new();
         for &item in &ast.items {
@@ -344,6 +350,7 @@ impl CombGraph {
             ast,
             res,
             sums,
+            dead: &sums.dead_arms,
             bindings: &bindings,
             graph: &mut g,
             expanding: RefCell::new(HashSet::new()),
@@ -449,6 +456,8 @@ struct Walker<'a> {
     ast: &'a SourceFile,
     res: &'a ResolveResult,
     sums: &'a Summaries,
+    /// Tasarıma yazılmayan `match` kolları: kenar vermez.
+    dead: &'a crate::typeck::DeadArms,
     bindings: &'a HashMap<DefId, HashMap<String, Idx<Expr>>>,
     graph: &'a mut CombGraph,
     /// Açılmakta olan (örnek, çıkış) çiftleri: örnekler üzerinden kurulan
@@ -524,7 +533,7 @@ impl Walker<'_> {
                 BlockStmt::Match(m) => {
                     let mark = conds.len();
                     self.reads(m.scrutinee, conds);
-                    for arm in &m.arms {
+                    for arm in self.dead.live(&m.arms) {
                         let inner = conds.len();
                         if let Some(g) = arm.guard {
                             self.reads(g, conds);
@@ -679,7 +688,7 @@ impl Walker<'_> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 self.reads(*scrutinee, out);
-                for arm in arms {
+                for arm in self.dead.live(arms) {
                     if let Some(g) = arm.guard {
                         self.reads(g, out);
                     }
@@ -742,7 +751,7 @@ impl Walker<'_> {
                 }
                 BlockStmt::Match(m) => {
                     self.reads(m.scrutinee, out);
-                    for arm in &m.arms {
+                    for arm in self.dead.live(&m.arms) {
                         if let Some(g) = arm.guard {
                             self.reads(g, out);
                         }
