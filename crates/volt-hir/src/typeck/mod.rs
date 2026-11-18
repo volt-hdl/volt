@@ -89,6 +89,7 @@ pub fn typecheck<'a>(
         diagnostics: Vec::new(),
         drivers: DriverTable::default(),
         current_group: None,
+        in_dead_arm: false,
         next_group: 0,
         loop_bounds: HashMap::new(),
         coverage: HashMap::new(),
@@ -125,6 +126,9 @@ struct TypeChecker<'a, 'ev> {
     drivers: DriverTable,
     /// İçinde bulunulan on/comb bloğunun sürücü grubu.
     current_group: Option<u32>,
+    /// Ölü bir `match` kolunun içinde mi (ilk joker koldan sonra,
+    /// sv-mapping.md §19.1): atama sürücü kaydı bırakmaz (#328).
+    in_dead_arm: bool,
     next_group: u32,
     /// Sınırları sabit blok içi döngü değişkenleri → `[start, end)`
     /// (sürücü analizinin eleman aralığı, ADR-0073).

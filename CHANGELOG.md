@@ -34,6 +34,24 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   kaynaktan çıkarılıyordu); düzeltilmiş donanımda ulaşılamayacak cover
   üretilmez. `volt explain W2014` metni de jokeri anlatır. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası;
   sürüm notunun "Behavior changes" bölümüne girer.
+- **Davranış değişikliği.** Bir `match` deyiminde ilk joker koldan sonraki
+  koldaki atama artık sürücü sayılmaz (#328; sessiz yanlış düzeltmesi,
+  sv-mapping.md §19.1, type-inference.md §11): o kol tasarıma yazılmadığı
+  için atama donanımda yoktur. Önce derlenen kod artık reddedilebilir:
+  yalnız böyle bir kolda atanan çıkış portu E4002 ("output port 'c' is
+  not driven") alır. `comb { match s { 0 => { a = 1 } _ => { a = 7 } 1 =>
+  { a = 9; c = 3 } } }` 0.1.2'de hatasız derleniyordu (kol `default:`'tan
+  sonra yazılıp `c`'yi bir mandal yapıyordu, #216), #216'nın
+  düzeltmesinden sonra yalnız W2014 alıyor ve SV'de `c` sürücüsüz (Z)
+  kalıyordu; artık W2014 ve E4002 alır. Tersine, önce reddedilen kod artık
+  derlenebilir: böyle bir koldaki atama, aynı sinyalin başka bir
+  sürücüsüyle E4001 çakışması yaratmaz (`c = 5` ile birlikte E4001
+  veriyordu, artık yalnız W2014). Kısmi atama da aynı kuralı izler: çıkışın
+  bir bölümü yalnız böyle bir kolda atanıyorsa o bitler E4012 alır
+  (`c[3:0]` canlı kolda, `c[7:4]` ölü kolda: "bits 4..=7 of 'c' are never
+  driven"). Ölü kol W2014'ü almaya devam eder; SV çıktısı değişmez.
+  Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm
+  notunun "Behavior changes" bölümüne girer.
 - **Davranış değişikliği.** İşaretli `>>`'nin genişlik kadar ya da daha
   büyük sabit miktarı SystemVerilog'da `>>> (w-1)` yazılır (#302; sessiz
   yanlış düzeltmesi, ADR-0120). 0.1.2'de `a >> 64` (`a : i63`) `a >>> 64`

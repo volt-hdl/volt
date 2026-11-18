@@ -35,9 +35,16 @@ impl TypeChecker<'_, '_> {
     pub(super) fn check_match_stmt(&mut self, m: &MatchStmt) {
         let scrut_ty = self.synth(m.scrutinee);
         self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
-        for arm in &m.arms {
+        // İlk joker koldan sonraki kol tasarıma yazılmaz (sv-mapping.md
+        // §19.1): kol tip denetimi görür, atamaları sürücü sayılmaz (#328).
+        // Ölü kolun içindeki her şey de ölüdür (iç içe `match`).
+        let outer = self.in_dead_arm;
+        let dead = volt_ast::match_cover::arms_after_catch_all(self.ast, &m.arms);
+        for (arm, dead) in m.arms.iter().zip(dead) {
+            self.in_dead_arm = outer || dead;
             self.check_arm(arm);
         }
+        self.in_dead_arm = outer;
     }
 
     /// Desen tipleri, kapsayıcılık ve erişilemez kollar — deyim ve ifade
@@ -957,6 +964,26 @@ mod tests {
             "    c = 5\n",
         );
         assert_eq!(sorted(&live_conflict), ["E4001"]);
+    }
+
+    /// Kısmi atama da aynı kural: ölü koldaki bitler sürülmez, yalnız
+    /// canlı yarısı sürülen çıkışın kalan bitleri E4012 alır (ADR-0077
+    /// Karar 6).
+    #[test]
+    fn partial_assignment_after_the_wildcard_leaves_its_bits_undriven() {
+        let src = dead_arm(
+            "            0 => { a = 1 }
+            _ => { a = 7; c[3:0] = 1 as bits<4> }
+            1 => { a = 9; c[7:4] = 3 as bits<4> }",
+            "",
+        );
+        assert_eq!(sorted(&src), ["E4012", "W2014"]);
+        let d = diagnostics(&src);
+        let gap = d
+            .iter()
+            .find(|d| d.code.as_str() == "E4012")
+            .expect("E4012");
+        assert!(gap.message.contains("4..=7"), "{}", gap.message);
     }
 
     /// Ölü kolun içindeki iç içe `match`'in canlı kolu da ölüdür; canlı
