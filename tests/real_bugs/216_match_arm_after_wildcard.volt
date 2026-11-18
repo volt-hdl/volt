@@ -5,7 +5,7 @@
 // statement and the expression form follow the same rules); arms after the
 // first wildcard are not emitted and get W2014 (sv-mapping.md §19.1). The
 // expression form `y = match s { 0 => 1, _ => 7, 1 => 9 }` gave 7 for
-// s = 1, this statement form 9, and no form gave W2014. Fixed by #PR.
+// s = 1, this statement form 9, and no form gave W2014. Fixed by #326.
 module M {
     in  s : u2
     out y : u8
