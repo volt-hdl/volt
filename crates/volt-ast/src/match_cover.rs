@@ -1,13 +1,17 @@
-//! Sayısal `match`'te erişilemez kol kuralı (ADR-0075).
+//! `match`'te erişilemez kol kuralı (ADR-0075, sv-mapping.md §19.1).
 //!
-//! Muhafızsız bir kolun bütün literal değerleri önceki muhafızsız kollarda
-//! geçtiyse kol hiç seçilmez: volt-hir W2014 verir, sv-emit kolu `case`'e
-//! yazmaz (enum'daki yinelenen varyantla aynı kural, ADR-0074 Karar 4).
-//! Kural tek yerde: iki katman aynı kolu erişilemez sayar. Sabit adı
-//! (`LIMIT`, ADR-0085) değerini katmanın kendi sabit değerlendiricisi
-//! (`const_value`) verir; değerlendirilemeyen ad kolu değerlendirme dışı
-//! bırakır. Joker deseninden sonraki kollar ve literal olmayan
-//! alternatifli kollar (yol, tuple) değerlendirilmez.
+//! İki neden: (1) ilk muhafızsız joker koldan (`_` ya da onu içeren `|`)
+//! sonraki her kol hiç seçilmez — ilk eşleşen kol kazanır, joker her değeri
+//! yakalar (#216); (2) muhafızsız bir kolun bütün literal değerleri önceki
+//! muhafızsız kollarda geçtiyse kol hiç seçilmez (enum'daki yinelenen
+//! varyantla aynı kural, ADR-0074 Karar 4). volt-hir W2014 verir, sv-emit
+//! kolu yazmaz — deyim `case`'inde de ifadenin `case`/üçlü zincirinde de.
+//! Kural tek yerde: iki katman ve iki biçim aynı kolu erişilemez sayar.
+//! Sabit adı (`LIMIT`, ADR-0085) değerini katmanın kendi sabit
+//! değerlendiricisi (`const_value`) verir; değerlendirilemeyen ad kolu (2)
+//! dışında bırakır. Literal olmayan alternatifli kollar (yol, tuple) (2)'de
+//! değerlendirilmez; enum'un varyant kuralı katmanların kendisindedir,
+//! jokerden sonrası (1) buradan gelir.
 
 use crate::{Expr, ExprKind, Idx, MatchArm, Pattern, PatternKind, SourceFile, UnOp};
 
@@ -19,7 +23,28 @@ pub enum LitKey {
     Bool(bool),
 }
 
-/// Kol başına "erişilemez" bayrağı (sayısal ya da bool sınanan için);
+/// Kolun neden hiç seçilmediği.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unreachable {
+    /// Önceki muhafızsız bir joker kol her değeri yakaladı.
+    AfterCatchAll,
+    /// Bütün değerleri önceki muhafızsız kollarda geçti.
+    Covered,
+}
+
+/// Kol başına "ilk muhafızsız joker koldan sonra mı": sınananın tipinden
+/// bağımsız (sayı, bool, enum). Muhafızlı kol da sayılır — jokerden sonra
+/// hiçbir kol seçilmez; muhafızlı joker her değeri yakalamaz.
+pub fn arms_after_catch_all(ast: &SourceFile, arms: &[MatchArm]) -> Vec<bool> {
+    let first = arms
+        .iter()
+        .position(|arm| arm.guard.is_none() && catches_all(ast, arm.pattern));
+    (0..arms.len())
+        .map(|i| first.is_some_and(|f| i > f))
+        .collect()
+}
+
+/// Kol başına erişilemezlik nedeni (sayısal ya da bool sınanan için);
 /// deyim ve ifade `match`'i aynı kural (ADR-0083 Karar 1).
 ///
 /// `const_value`: tek parçalı ad deseninin (`LIMIT`) sabit değeri; `None`
@@ -28,20 +53,25 @@ pub fn unreachable_value_arms(
     ast: &SourceFile,
     arms: &[MatchArm],
     const_value: &mut dyn FnMut(Idx<Expr>) -> Option<i128>,
-) -> Vec<bool> {
+) -> Vec<Option<Unreachable>> {
+    let after = arms_after_catch_all(ast, arms);
     let mut seen: Vec<LitKey> = Vec::new();
-    let mut wildcard = false;
-    let mut out = vec![false; arms.len()];
+    let mut out = vec![None; arms.len()];
     for (i, arm) in arms.iter().enumerate() {
-        if arm.guard.is_some() || wildcard {
+        if after[i] {
+            out[i] = Some(Unreachable::AfterCatchAll);
+            continue;
+        }
+        if arm.guard.is_some() {
             continue;
         }
         let mut keys = Vec::new();
         if !literal_keys(ast, arm.pattern, const_value, &mut keys) {
-            wildcard |= catches_all(ast, arm.pattern);
             continue;
         }
-        out[i] = !keys.is_empty() && keys.iter().all(|k| seen.contains(k));
+        if !keys.is_empty() && keys.iter().all(|k| seen.contains(k)) {
+            out[i] = Some(Unreachable::Covered);
+        }
         for k in keys {
             if !seen.contains(&k) {
                 seen.push(k);
@@ -50,7 +80,6 @@ pub fn unreachable_value_arms(
     }
     out
 }
-
 /// Desenin literal değerleri; desen yalnız literallerden (ve onların `|`
 /// alternatiflerinden) oluşmuyorsa `false`.
 fn literal_keys(

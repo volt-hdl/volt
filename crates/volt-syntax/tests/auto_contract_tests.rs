@@ -172,6 +172,26 @@ fn fsm_wildcard_writing_a_wildcard_value_is_not_a_transition() {
     assert_eq!(texts(&res, 0, AutoRule::FsmState), ["s == 3"]);
 }
 
+/// #216: ilk joker koldan sonraki kol yazılmaz ve hiç seçilmez
+/// (sv-mapping.md §19.1; kural `volt_ast::match_cover`): kontrat onun
+/// yazmasını geçiş saymaz, jokerin kaynağı da yalnız önceki kollarda adı
+/// geçmeyen değerlerdir. Donanım: 0 -> 1 (go); `_` 1, 2 ve 3'ü yakalar ve 0
+/// yazar; `1 => { s <= 2 }` hiç seçilmez, 2 hiç yazılmaz.
+#[test]
+fn fsm_arm_after_the_wildcard_is_not_a_transition() {
+    let res = p(
+        "module F { in clk : clock\n in go : bool\n reg s : u2 = 0\n on clk { match s {
+        0 => { if go { s <= 1 } }
+        _ => { s <= 0 }
+        1 => { s <= 2 } } } }",
+    );
+    assert_eq!(
+        texts(&res, 0, AutoRule::FsmTransition),
+        ["prev(s) == 0 && s == 1", "prev(s) != 0 && s == 0"]
+    );
+    assert!(texts(&res, 0, AutoRule::FsmState).is_empty());
+}
+
 #[test]
 fn register_with_an_unrecognised_write_gets_nothing() {
     // Sonekli yazma (`r[0] <=`) register'ı aday dışı bırakır — tanınan

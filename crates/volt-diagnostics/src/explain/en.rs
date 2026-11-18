@@ -1217,8 +1217,8 @@ Declare the frequency in the domain so that every module sharing it is constrain
         ),
         W2014 => Explanation::new(
             "Unreachable match arm",
-            "An earlier arm of this enum 'match' already covers the same variant, so this arm never runs.",
-            "In a 'case' the first matching label wins; a second arm for the same variant is dead hardware and usually a copy-paste slip (the arm meant another variant). The compiler drops the arm from the generated SystemVerilog. Merge the two bodies or name the variant this arm was meant for.",
+            "An earlier arm of this 'match' already covers this arm, so this arm never runs: an earlier arm names the same variant or value, or an earlier '_' arm matches every value.",
+            "The first matching arm wins, in a match statement and in a match expression alike. A second arm for the same variant or value is dead hardware and usually a copy-paste slip (the arm meant another variant). An arm after '_' can never be reached either, because '_' matches first. The compiler drops the arm from the generated SystemVerilog. Merge the two bodies, name the variant or value this arm was meant for, or move the arm before '_'.",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: unreachable\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
         ),

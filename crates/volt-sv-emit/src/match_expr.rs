@@ -253,7 +253,8 @@ impl<'a> Emitter<'a> {
 
     /// Deyim `match`'iyle aynı kurallar: erişilemez kol atlanır (ADR-0075),
     /// kapsayıcı `_`'sız enum match'inde son adlı kol `default` olur
-    /// (ADR-0074 Karar 4); ilk joker koldan sonrası erişilemez.
+    /// (ADR-0074 Karar 4); ilk joker koldan sonrası erişilemez — kural
+    /// `volt_ast::match_cover`'da, deyim biçimi de oradan okur (#216).
     fn plan_match_expr(
         &mut self,
         scrutinee: Idx<Expr>,
@@ -273,7 +274,9 @@ impl<'a> Emitter<'a> {
         let mut default_comment = None;
         let mut ok = true;
         for (i, arm) in arms.iter().enumerate() {
-            if enum_plan.as_ref().is_some_and(|p| p.skip[i]) || value_skip.get(i) == Some(&true) {
+            if enum_plan.as_ref().is_some_and(|p| p.skip[i])
+                || value_skip.get(i).is_some_and(Option::is_some)
+            {
                 continue;
             }
             let MatchArmBody::Expr(body) = arm.body else {
@@ -305,10 +308,9 @@ impl<'a> Emitter<'a> {
                     labels: Some(labels),
                     body,
                 }),
-                Some(None) => {
-                    out.push(ExprArm { labels: None, body });
-                    break;
-                }
+                // Jokerden sonraki kollar `skip`/`value_skip`'te
+                // (`match_cover`), deyim biçimiyle aynı kural.
+                Some(None) => out.push(ExprArm { labels: None, body }),
                 None => ok = false,
             }
         }

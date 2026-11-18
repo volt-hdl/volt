@@ -180,7 +180,7 @@ pub fn description(code: ErrorCode) -> &'static str {
         W2013 => "Shift amount exceeds the width",
         W2015 => "Division operand is cut before the division",
         W2016 => "Arithmetic operand is cut before the operation",
-        W2014 => "Unreachable match arm (variant already covered)",
+        W2014 => "Unreachable match arm (an earlier arm already covers it)",
         W2020 => "Constant condition — the branch always takes the same path",
         W2021 => "Unused const declaration",
         W3001 => "Register is never written",

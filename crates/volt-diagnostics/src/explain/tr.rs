@@ -1217,8 +1217,8 @@ Frekansı alanda bildirin ki alanı paylaşan her modül aynı biçimde kısıtl
         ),
         W2014 => Explanation::new(
             "Erişilemez match kolu",
-            "Bu enum 'match'inin önceki bir kolu aynı varyantı zaten kapsıyor; bu kol hiç çalışmaz.",
-            "'case' yapısında ilk eşleşen etiket kazanır; aynı varyant için ikinci kol ölü donanımdır ve genellikle kopyala-yapıştır kaymasıdır (kol başka bir varyant için yazılmıştı). Derleyici kolu üretilen SystemVerilog'dan çıkarır. İki gövdeyi birleştirin ya da kolun kastettiği varyantı yazın.",
+            "Bu 'match'in önceki bir kolu bu kolu zaten kapsıyor; bu kol hiç çalışmaz: önceki bir kol aynı varyantı ya da değeri adlandırıyor, ya da önceki bir '_' kolu her değeri yakalıyor.",
+            "İlk eşleşen kol kazanır, match deyiminde de match ifadesinde de. Aynı varyant ya da değer için ikinci kol ölü donanımdır ve genellikle kopyala-yapıştır kaymasıdır (kol başka bir varyant için yazılmıştı). '_' kolundan sonraki kola da hiç ulaşılmaz, çünkü '_' önce eşleşir. Derleyici kolu üretilen SystemVerilog'dan çıkarır. İki gövdeyi birleştirin, kolun kastettiği varyantı ya da değeri yazın ya da kolu '_''nin önüne taşıyın.",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Idle => { a <= 2 }   // ⚠ W2014: erişilemez\n    _ => { }\n}",
             "match s {\n    State::Idle => { a <= 1 }\n    State::Run  => { a <= 2 }   // ✓\n    _ => { }\n}",
         ),

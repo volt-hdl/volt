@@ -5,12 +5,17 @@
 //! eksik varyant `_`'sız E0014'tür (mesaj eksikleri listeler), aynı
 //! varyantı ikinci kez adlandıran kol erişilemezdir (W2014).
 //!
+//! İki sınananda da ilk muhafızsız joker koldan sonraki her kol
+//! erişilemezdir (W2014, sv-mapping.md §19.1, #216): ilk eşleşen kol
+//! kazanır. Kural `volt_ast::match_cover`'da; sv-emit aynı kolları yazmaz.
+//!
 //! Sayısal sınananda kural değişmez (ADR-0032): E0014 parser'da tipsiz
 //! verilir; önceki kolların literal değerlerini yineleyen kol enum'daki
 //! gibi erişilemezdir (W2014, ADR-0075). Parser, muhafızsız kollarından
 //! biri yol deseni olan `_`'sız `match`'lerde E0014'ü buraya erteler; sınanan enum değilse (yol deseni
 //! + sayısal sınanan) desen E2003 alır ve parser'ın E0014'ü aynen verilir.
 
+use volt_ast::match_cover::Unreachable;
 use volt_ast::{MatchArm, MatchStmt, Pattern, PatternKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -192,8 +197,9 @@ impl TypeChecker<'_, '_> {
         );
     }
 
-    /// W2014: bütün literalleri önceki kollarda geçen sayısal kol (kural
-    /// `volt_ast::match_cover`, sv-emit aynı kolu `case`'e yazmaz).
+    /// W2014: jokerden sonraki kol ya da bütün literalleri önceki kollarda
+    /// geçen sayısal kol (kural `volt_ast::match_cover`, sv-emit aynı kolu
+    /// yazmaz).
     fn warn_unreachable_value_arms(&mut self, arms: &[MatchArm]) {
         let ev = &mut *self.ev;
         let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, arms, &mut |e| {
@@ -206,16 +212,35 @@ impl TypeChecker<'_, '_> {
                 None
             }
         });
-        for (arm, _) in arms.iter().zip(unreachable).filter(|(_, u)| *u) {
-            let span = self.ast.patterns[arm.pattern].span;
-            self.warning(
-                ErrorCode::W2014,
-                span,
-                lstr!(en: "unreachable arm: an earlier arm already covers this value"; tr: "erişilemez kol: bu değeri önceki bir kol zaten kapsıyor"),
-                lstr!(en: "never taken"; tr: "hiç seçilmez"),
-                lstr!(en: "merge the arm into the earlier one or write the value it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği değeri yazın"),
-            );
+        for (arm, why) in arms.iter().zip(unreachable) {
+            match why {
+                Some(Unreachable::AfterCatchAll) => self.warn_after_catch_all(arm),
+                Some(Unreachable::Covered) => {
+                    let span = self.ast.patterns[arm.pattern].span;
+                    self.warning(
+                        ErrorCode::W2014,
+                        span,
+                        lstr!(en: "unreachable arm: an earlier arm already covers this value"; tr: "erişilemez kol: bu değeri önceki bir kol zaten kapsıyor"),
+                        lstr!(en: "never taken"; tr: "hiç seçilmez"),
+                        lstr!(en: "merge the arm into the earlier one or write the value it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği değeri yazın"),
+                    );
+                }
+                None => {}
+            }
         }
+    }
+
+    /// W2014: önceki bir `_` kolu her değeri yakaladı; ilk eşleşen kol
+    /// kazandığından bu kol hiç seçilmez ve yazılmaz (sv-mapping.md §19.1).
+    fn warn_after_catch_all(&mut self, arm: &MatchArm) {
+        let span = self.ast.patterns[arm.pattern].span;
+        self.warning(
+            ErrorCode::W2014,
+            span,
+            lstr!(en: "unreachable arm: an earlier '_' arm already matches every value"; tr: "erişilemez kol: önceki bir '_' kolu her değeri zaten yakalıyor"),
+            lstr!(en: "never taken"; tr: "hiç seçilmez"),
+            lstr!(en: "move the arm before the '_' arm, or remove it"; tr: "kolu '_' kolunun önüne taşıyın ya da kaldırın"),
+        );
     }
 
     /// Enum sınanan: desen tipi, kapsayıcılık, erişilemez kol.
@@ -224,8 +249,13 @@ impl TypeChecker<'_, '_> {
         let enum_name = self.enum_name(e);
         let mut covered: Vec<DefId> = Vec::new();
         let mut has_wildcard = false;
-        for arm in arms {
+        let after = volt_ast::match_cover::arms_after_catch_all(self.ast, arms);
+        for (arm, after) in arms.iter().zip(after) {
             let cover = self.enum_arm_cover(arm.pattern, e, &enum_name);
+            if after {
+                self.warn_after_catch_all(arm);
+                continue;
+            }
             if arm.guard.is_some() {
                 continue; // muhafızlı kol kapsamaya sayılmaz (E0003, ADR-0032)
             }
@@ -639,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn guarded_arms_and_arms_after_wildcard_are_not_judged() {
+    fn guarded_arms_are_not_judged_and_arms_after_the_wildcard_are_w2014() {
         // Muhafızlı kol kapsamaya sayılmaz (enum kuralıyla aynı).
         let guard = num(
             "u2",
@@ -648,12 +678,84 @@ mod tests {
             _ => { r <= 0 }",
         );
         assert!(!codes(&guard).contains(&"W2014"), "{:?}", codes(&guard));
+        // sv-mapping.md §19.1 (ADR-0083): ilk joker koldan sonraki kollar
+        // yazılmaz (W2014) — `_` her değeri yakaladı, `1` hiç seçilmez
+        // (#216).
         let after = num(
             "u2",
             "            _ => { r <= 0 }
             1 => { r <= 1 }",
         );
-        assert!(!codes(&after).contains(&"W2014"), "{:?}", codes(&after));
+        assert_eq!(codes(&after), ["W2014"]);
+    }
+
+    /// #216: ilk muhafızsız joker koldan sonraki her kol erişilemezdir —
+    /// deyim ve ifade biçiminde, sayısal ve enum sınananda, `const`'ta
+    /// (sv-mapping.md §19.1, grammar-full.ebnf `MatchExpr`: ifade match'i
+    /// deyimle aynı kuralları izler). Tanı o kolun deseninde.
+    #[test]
+    fn every_arm_after_the_first_wildcard_is_w2014_in_every_form() {
+        let numeric_stmt = num(
+            "u2",
+            "            0 => { r <= 1 }
+            _ => { r <= 7 }
+            1 => { r <= 9 }",
+        );
+        let enum_stmt = fsm(
+            "            State::Idle => { s <= State::Run }\n            _ => { s <= State::Idle }\n            State::Run => { s <= State::Done }",
+        );
+        let numeric_expr = value_match("", "0 => 1, _ => 7, 1 => 9");
+        let enum_expr = "enum S { A, B, C }\nmodule M {\n    in  s : S\n    out z : u8\n    z = match s { S::A => 1, _ => 7, S::B => 9 }\n}\n".to_string();
+        let constant = "const K : u8 = match 1 { 0 => 1, _ => 7, 1 => 9 }\nmodule M {\n    out k : u8\n    k = K\n}\n".to_string();
+        for (form, src, arm) in [
+            ("numeric statement", &numeric_stmt, "1 => { r <= 9 }"),
+            (
+                "enum statement",
+                &enum_stmt,
+                "State::Run => { s <= State::Done }",
+            ),
+            ("numeric expression", &numeric_expr, "1 => 9"),
+            ("enum expression", &enum_expr, "S::B => 9"),
+            ("const", &constant, "1 => 9"),
+        ] {
+            let d = diagnostics(src);
+            assert_eq!(d.len(), 1, "{form}: {d:?}");
+            assert_eq!(d[0].code.as_str(), "W2014", "{form}: {d:?}");
+            assert!(d[0].message.contains("'_'"), "{form}: {}", d[0].message);
+            let at = src.find(arm).unwrap_or_else(|| panic!("{form}: {arm}"));
+            let span = d[0].primary_span().expect("birincil konum").span;
+            assert_eq!(span.start, at as u32, "{form}: {d:?}");
+        }
+    }
+
+    /// Bütün kollar: muhafızlı kol da, `_` içeren alternatiften (`2 | _`)
+    /// sonra da; muhafızlı joker her değeri yakalamaz (#216).
+    #[test]
+    fn which_arms_follow_a_catch_all() {
+        let guarded_after = num(
+            "u2",
+            "            _ => { r <= 0 }
+            1 if x == 1 => { r <= 1 }
+            2 => { r <= 2 }",
+        );
+        assert_eq!(codes(&guarded_after), ["W2014", "W2014"]);
+        let or_wildcard = num(
+            "u2",
+            "            2 | _ => { r <= 0 }
+            1 => { r <= 1 }",
+        );
+        assert_eq!(codes(&or_wildcard), ["W2014"]);
+        let guarded_wildcard = num(
+            "u2",
+            "            _ if x == 1 => { r <= 0 }
+            1 => { r <= 1 }
+            _ => { r <= 2 }",
+        );
+        assert!(
+            codes(&guarded_wildcard).is_empty(),
+            "{:?}",
+            codes(&guarded_wildcard)
+        );
     }
 
     #[test]
