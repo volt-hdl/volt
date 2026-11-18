@@ -115,6 +115,24 @@ fn ui_fail_04_undriven_output_e4002() {
     );
 }
 
+/// #328: jokerden sonraki kolda atanan çıkış sürülmez (sv-mapping.md
+/// §19.1, type-inference.md §11.3); kol W2014'ü de alır.
+#[test]
+fn ui_fail_289_match_dead_arm_undriven_output_e4002() {
+    assert_ui_fail("fail/289_match_dead_arm_undriven_output.volt");
+    let mut codes = analyze_file("fail/289_match_dead_arm_undriven_output.volt").error_codes();
+    codes.sort_unstable();
+    assert_eq!(codes, ["E4002", "W2014"]);
+}
+
+/// #328: jokerden sonraki koldaki atama ikinci sürücü değildir: E4001
+/// yok, yalnız ölü kolun W2014'ü.
+#[test]
+fn ui_pass_155_match_dead_arm_is_not_a_second_driver() {
+    let codes = analyze_file("pass/155_match_dead_arm_not_a_driver.volt").error_codes();
+    assert_eq!(codes, ["W2014"]);
+}
+
 #[test]
 fn ui_fail_206_edgeless_sync_destination_e3016() {
     // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
@@ -388,8 +406,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #249: 151 generic örnek argümanlı, generic olmayan modül argümansız;
     // #250: 152 harf büyüklüğünden fazlasıyla ayrılan modül adları;
     // #266: 153 ara sonucu açık genişlikte (W2016 yok);
-    // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda.
-    assert_eq!(checked, 139);
+    // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda;
+    // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil.
+    assert_eq!(checked, 140);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
