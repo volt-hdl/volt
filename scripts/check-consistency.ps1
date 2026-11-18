@@ -54,6 +54,10 @@
 #  21. Her Swatinem/rust-cache adımı yalnız main'de mi kaydediyor
 #      (save-if: ${{ github.ref == 'refs/heads/main' }}) ve env-vars'ında
 #      ImageOS var mı? (.github/workflows/README.md, "Rust önbelleği")
+#  22. Mutasyon kapısının etkisiz yolları (scripts/ci/mutants_inert.txt)
+#      gerekçeli ve depoda mı? crates/ altında yorum olmayan bir satır
+#      onları adlandırıyor mu; bir test ya da build.rs depo kökünü veya
+#      docs/'u tarıyor mu? (ADR-0109 eki "Kapının önceki sonucu", #318)
 #
 # Çıkış kodu: ihlal varsa 1, temizse 0.
 param([switch]$Update)
@@ -534,6 +538,58 @@ foreach ($f in $ghYml) {
     }
 }
 if ($rcSteps -eq 0) { Add-Violation "hiçbir iş akışında Swatinem/rust-cache adımı bulunamadı (kontrol 21)" }
+
+# ── 22: mutasyon kapısının etkisiz yolları (#318, ADR-0109 eki "Kapının önceki sonucu") ─
+# scripts/ci/mutants_inert.txt'teki her yol depoda vardır ve hemen üstünde
+# gerekçe yorumu taşır. crates/ altındaki hiçbir Rust dosyasının yorum
+# olmayan bir satırı bir etkisiz yolu adlandırmaz, depo kökünün ya da
+# kökteki `docs` dizininin altını taramaz. Parçalar bu yolları temel
+# koşudan önce siler (dinamik kanıt); bu denetim onları okuyan bir testi
+# PR'da, kapıdan önce yakalar.
+$inertFile = Join-Path $root 'scripts/ci/mutants_inert.txt'
+if (-not (Test-Path $inertFile)) {
+    Add-Violation "scripts/ci/mutants_inert.txt yok (kontrol 22)"
+} else {
+    $inertPaths = @()
+    $prevComment = $false
+    $n = 0
+    foreach ($raw in [System.IO.File]::ReadAllLines($inertFile)) {
+        $n++
+        $line = $raw.Trim()
+        if ($line -eq '') { $prevComment = $false; continue }
+        if ($line.StartsWith('#')) { $prevComment = $true; continue }
+        if (-not $prevComment) { Add-Violation "scripts/ci/mutants_inert.txt:${n}: '$line' üstünde gerekçe yorumu yok (kontrol 22)" }
+        if (-not (Test-Path (Join-Path $root $line.TrimEnd('/')))) { Add-Violation "scripts/ci/mutants_inert.txt:${n}: '$line' depoda yok (kontrol 22)" }
+        $inertPaths += $line
+        $prevComment = $false
+    }
+    if ($inertPaths.Count -eq 0) { Add-Violation "scripts/ci/mutants_inert.txt hiçbir yol listelemiyor (kontrol 22)" }
+    $inertRs = @(Get-ChildItem (Join-Path $root 'crates') -Recurse -File -Filter '*.rs' |
+        Where-Object { $_.FullName -notmatch '[\\/]target[\\/]' } | Sort-Object FullName)
+    if ($inertRs.Count -eq 0) { Add-Violation "crates/ altında Rust dosyası bulunamadı (kontrol 22)" }
+    # Taramalar yalnız depoyu okuyan kodda aranır: testler (crates/*/tests)
+    # ve build.rs. src/ kullanıcının projesini tarar (discover.rs).
+    $walkRe = '"(\.\./)*docs/?"|(read_dir|collect|files|walk[A-Za-z_]*)\(&?(root|repo_root|workspace_root)(\(\))?\s*[,)]|read_dir\(&?repo\("\.?/?"\)'
+    foreach ($f in $inertRs) {
+        $rel = $f.FullName.Substring($root.Length + 1).Replace('\', '/')
+        $readsRepo = $rel -cmatch '^crates/[^/]+/(tests/|build\.rs$)'
+        $ln = 0
+        foreach ($line in [System.IO.File]::ReadAllLines($f.FullName)) {
+            $ln++
+            if ($line -match '^\s*//') { continue }
+            foreach ($p in $inertPaths) {
+                if ($line.Contains($p.TrimEnd('/'))) {
+                    Add-Violation "${rel}:${ln}:${line}: etkisiz yol '$p'yi adlandırıyor; ya okumayı kaldırın ya yolu mutants_inert.txt'ten çıkarın (kontrol 22)"
+                }
+            }
+            if ($readsRepo -and $line -cmatch $walkRe) {
+                if ($line -cmatch '"(\.\./)*docs' -and $line -cnotmatch 'root|repo\(|CARGO_MANIFEST_DIR' -and
+                    $line -cnotmatch '(read_dir|collect|files|walk[A-Za-z_]*)\(&?(root|repo_root|workspace_root)(\(\))?\s*[,)]|read_dir\(&?repo\("\.?/?"\)') { continue }
+                Add-Violation "${rel}:${ln}:${line}: depo kökünü ya da docs/'u tarıyor, etkisiz yolları okuyabilir (kontrol 22)"
+            }
+        }
+    }
+}
 
 # ── Sonuç ─────────────────────────────────────────────────────────────
 if ($script:violations.Count -gt 0) {

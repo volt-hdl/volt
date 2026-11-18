@@ -35,3 +35,7 @@ verilator_args.txt
 # cargo-mutants output (ADR-0109); runs go to CI, a local try leaves this
 mutants.out/
 mutants.out.old/
+
+# Python bytecode of the CI scripts (scripts/ci/*.py), written when they
+# run locally, for example with --self-test
+__pycache__/

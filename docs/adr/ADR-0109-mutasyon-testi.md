@@ -1522,3 +1522,335 @@ Düzenleme anında kapının koşusu (43822912958) sürüyordu: özet işi
 başarıyla bitti. İptal edilmedi. Dalda "Mutation test"in tek koşusu var
 (`gh run list --workflow mutants.yml --branch evidence/283-edited`: 1
 koşu, olay `pull_request`); iki düzenleme kapıyı yeniden başlatmadı.
+
+## Kapının önceki sonucu: anahtarı aynı, temiz geçmiş koşunun yeniden kullanılması (#318, #253, 2026-11-18)
+
+Önceki karar metni ve önceki ekler değişmedi. Bu ek "PR kapısı" ekinin
+1. bölümünü genişletir: kapı her push'ta baştan koşmaz; aynı PR'ın, sonucu
+etkileyen her girdisi aynı olan ve temiz geçmiş bir koşusu varsa kararı
+onun sonuçlarından verir.
+
+**Sorun.** Kapı her push'ta birleştirme commit'ini ilk ebeveyniyle
+karşılaştırır ve değişen Rust satırlarının mutantlarını yeniden dener.
+Rust'a dokunmayan bir push aynı mutantları aynı kodla ve aynı testlerle
+yeniden dener:
+
+| PR | Push | Son kapıdan beri değişen | Kapı koşusu | Süre |
+|---|---|---|---|---|
+| #308 | 1b3eaaef | (Rust düzeltmesi) | 44021714663, yeşil | 79 dk |
+| #308 | 8605822d | `docs/spec/*` (3 dosya), ADR-0120, ADR dizini; Rust yok, aynı taban | 44045867127, yeşil | 101 dk |
+
+Kapı zorunlu kontrol olunca böyle her push birleşmeyi bir-üç saat bekletir.
+
+### 1. Anahtar
+
+Kapsam işi, parçalar başlamadan önce `scripts/ci/mutants_reuse.py key` ile
+bir anahtar hesaplar (`mutants-list/key.json`, listelerle birlikte
+yüklenir). Anahtar üç parçanın özetidir. Her parça `key.json`'da tam
+durur; iki anahtar özetle değil alan alan karşılaştırılır ve günlük neyin
+farklı olduğunu yazar (`tree: 1 path(s) differ: book/src/…`):
+
+1. **Mutantlar:** kapının hariç tutmalardan önceki listesi
+   (`unexcluded.txt`: `--in-diff` süzgeci ve `exclude_globs` ile,
+   `exclude_re` boşaltılmış), sıralı; mutasyona uğrayan her dosyanın
+   blob özeti.
+2. **Ağaç:** birleştirme commit'inin ağacı (`git ls-tree -r`: yol, kip,
+   blob), etkisiz yollar (2. bölüm) ve `.cargo/mutants.toml` çıkarılmış.
+   Her `.rs` dosyası (testler dahil), `Cargo.lock`, `tests/`, `book/`,
+   `scripts/`, `examples/`, `templates/`, `.github/` ağaçta kalır.
+3. **Ortam:** `.cargo/mutants.toml` ayrıştırılmış, `exclude_re`'siz
+   (`exclude_re` yalnız listeyi süzer; `timeout_multiplier`, test
+   argümanları ve kalıplar sonucu değiştirir); iş akışının blob'u;
+   Verilator sabiti (`scripts/ci/verilator.env`) ve
+   `.github/actions/verilator`'ün ağacı; etkisiz yol listesi; iş akışının
+   değişkenleri (`CARGO_MUTANTS_VERSION`, `CARGO_NEXTEST_VERSION`,
+   `OSS_CAD_SUITE_DATE`, `MUTANTS_MEMORY_LIMIT_MIB`,
+   `MUTANTS_GATE_SECONDS_PER_MUTANT`); `rustc -vV`, `cargo mutants
+   --version`, `cargo nextest --version`; koşucu imajı (`ImageOS`,
+   `RUNNER_OS`, `RUNNER_ARCH` ve imajın haftalık sürümü, yani
+   `ImageVersion`'ın tarih kısmı); koşucunun ölçülen araç zinciri (g++,
+   glibc, binutils, make, python3, git; her birinin `--version`'ının ilk
+   satırı). Ortamın ağaçta da duran
+   alanları (iş akışı, Verilator) ayrıca yazılır: günlük farkı adıyla
+   gösterir.
+
+Bugünkü `exclude_re` önceki sonuçlara yeniden uygulanır: bu koşunun
+hariç tutmalardan sonraki listesindeki her mutant o koşuda denenmiş ve
+caught ya da unviable olmalıdır. Bir kayıt kaldırıldıysa (o koşuda
+denenmemiş bir mutant listeye girdi) kapı baştan koşar. Bir kayıt
+eklendiyse, eklenen kaydın dışarıda bıraktığı mutantlar özette "Excluded
+by today's `exclude_re`, tested then" diye listelenir.
+
+### 2. Etkisiz yollar
+
+Etkisiz yol hiçbir derlemenin ve hiçbir çalışma alanı testinin okumadığı
+yoldur. Liste `scripts/ci/mutants_inert.txt`'tedir, her yol üstünde kendi
+gerekçesiyle. Dar tutulur; şüpheli yol listeye girmez:
+
+| Yol | Gerekçe |
+|---|---|
+| `docs/adr/` | Karar kayıtları. Rust dosyaları yalnız yorumda anar; tutarlılık denetimi okur, o bir çalışma alanı testi değildir ve kapıda koşmaz |
+| `docs/spec/` | Şartname. Rust dosyaları yalnız yorumda anar; tanı kodlarını tutarlılık denetimi okur |
+| `docs/design/` | Tasarım belgeleri; yalnız insanlar okur |
+| `docs/research/` | Arka plan; yalnız insanlar okur |
+| `docs/release-notes/` | `release.yml`, `book.yml`'in `release-notes` işi, `scripts/release/notes.py` ve `book/tools/check_book.py` okur; hiçbiri çalışma alanı testi değildir (`tool_backend_harness_tests` `check_book.py`'nin metnini okur, notları değil) |
+| `docs/roadmap.md` | Yol haritası; insanlar ve tutarlılık denetiminin bağlantı kontrolü okur |
+| `CHANGELOG.md` | Tarih kaydı; `verilator_pin_tests` onu bilerek taramaz, başka test okumaz |
+
+Bilerek listede olmayanlar: `README.md` (`verilator_pin_tests` okur),
+`.test-baseline` ve `.github/badges.json` (`verilator_flags_tests`
+`.github`'ı tarar; ikisi yalnız testlerle değişir, testler anahtarı zaten
+değiştirir), `docs/stdlib.md` (tohumlanmış hata özellerinin gerekçeleri
+anar), `docs/README.md`, `book/`, `tests/`, `examples/`, `templates/`,
+`scripts/`, `.github/`.
+
+Listenin iki güvencesi:
+
+- **Yapı gereği (dinamik).** Her parça temel koşudan önce etkisiz yolları
+  çalışma kopyasından siler (`mutants_reuse.py mask`, "Remove the inert
+  paths" adımı). Parçanın kaydettiği her sonuç bu yollar yokken
+  hesaplanır, içeriklerine bağlı olamaz. Onları okuyan bir test her kapı
+  koşusunun temel koşusunu, araçlar zorunluyken düşürür. Parçanın damgası
+  (`stamp.json`) yolların temel koşudan sonra da yok olduğunu yazar;
+  damgası bunu göstermeyen bir koşu yeniden kullanılmaz. #318'in önerdiği
+  ayrı denetim (yolları bir kopyada silip test sayılarını normal koşuyla
+  karşılaştırmak) bununla gereksizleşti: her parça zaten yolsuz koşar.
+- **Statik, erken uyarı.** Tutarlılık kontrolü 22 (`just consistency`, iki
+  betikte aynı kural): listedeki her yol depoda var ve üstünde gerekçe
+  yorumu taşıyor; `crates/` altında yorum olmayan hiçbir satır bir etkisiz
+  yolu adlandırmıyor; hiçbir test ya da `build.rs` depo kökünü
+  (`read_dir(&root)`, `collect(&root, …)`, `read_dir(repo(""))`) veya
+  kökteki `docs`'u taramıyor. Sezgiseldir; kanıt yukarıdaki silmedir.
+  Atılabilir bir worktree'de iki betik de aynı dört ihlali buldu
+  (gerekçesiz ve olmayan yol, `CHANGELOG.md`'yi okuyan ve kökü tarayan
+  test satırı); temiz depoda geçer.
+
+### 3. Hangi önceki koşu
+
+`mutants_reuse.py find`, PR'ın baş dalındaki `mutants.yml` koşularını
+(`pull_request` olayı) en yeniden eskiye okur (en çok 50) ve her biri için
+günlüğe bir satır yazar.
+
+- **Kapsam.** Aynı PR numarası (koşunun `pull_requests`'inde), aynı baş
+  dalı, aynı baş deposu, aynı depo; olay `pull_request`, iş akışı
+  `.github/workflows/mutants.yml`. Bu koşunun PR'ı bir fork'tan geliyorsa
+  ya da kapı elle koşuyorsa (`workflow_dispatch`, `gate_base`) yeniden
+  kullanım kapalıdır. Sonuçlar PR'lar arasında hiç taşınmaz.
+- **Atlananlar** (bir sonraki eskiye bakılır): tamamlanmamış, iptal
+  edilmiş, anahtarı olmayan (#318'den önceki ya da test edecek mutantı
+  olmayan) ve kendisi yeniden kullanmış koşular; anahtarı farklı olanlar
+  (günlük farkı yazar).
+- **Anahtarı aynı en yeni koşu karar verir.** O koşu yeniden
+  kullanılamazsa daha eski bir koşuya geçilmez: aynı girdiler iki farklı
+  sonuç vermiştir. Yeniden kullanılabilmesi için:
+  - `success` bitmiş;
+  - `key.json`'u bu koşununkine alan alan eşit;
+  - her parçası tamamlanmış (listelenen her mutantın sonucu var);
+  - missed = 0, timeout = 0, bellek sınırı = 0;
+  - her parçanın araç defteri (`tool-ledger.tsv`, artık parçanın
+    yapıtında) `tool_ledger.py report --require-zero-skips --min-ran
+    60`'tan geçiyor; `Tool ledger [mutants-k]: … SKIP: 0` satırı bu
+    koşunun günlüğüne yeniden yazılır;
+  - her parçanın damgası (temel koşu geçtikten sonra yazılır) anahtardaki
+    rustc, cargo-mutants, nextest, araç zinciri, `ImageOS` ve imajın
+    haftalık sürümüyle aynı;
+    parçalar aynı Verilator ve Yosys'i koşmuş; etkisiz yollar yokmuş;
+  - bu koşunun listesindeki her mutant o koşuda caught ya da unviable.
+
+Missed = 0 kuralı #318'in önerisinden dardır. Öneri, yalnız hariç
+tutmaları değişen bir push'ta önceki missed'i bugünkü `exclude_re` ile
+"excluded"a çevirmeyi de öngörüyordu. Bakımcının görev tanımı (2026-11-18)
+yalnız missed = 0 olan koşuları kabul eder; böyle bir push baştan koşar.
+
+### 4. Kaynak ve güven
+
+- **Artifact, `actions/cache` değil.** Önceki sonuç o koşunun
+  artifact'larından gelir (`mutants-list`: anahtar ve listeler;
+  `mutants-out-<k>`: sonuçlar, bellek öldürmeleri, damga, araç defteri;
+  mutant günlükleri indirilmez). Kapsam işi onları API'den okur (`gh api`,
+  `github.token`; işin izinleri `contents: read`, `actions: read`). Her
+  zip'in sha256'sı GitHub'ın yüklemede kaydettiği `digest` ile
+  karşılaştırılır. Tutmazsa ya da özet yoksa içi okunmaz ve kapı baştan
+  koşar; dizin dışına yazan zip üyesi reddedilir.
+- **Neden güvenli.** Bir koşunun artifact'ını yalnız o koşunun işleri
+  yükleyebilir ve sonradan değiştirilemez. Anahtar iş akışının blob'unu ve
+  `scripts/`'i (ağaç) içerir: yeniden kullanılan sonucu bugünkü iş akışı
+  ve betiklerin aynısı üretmiştir. Bir push iş akışını değiştirip sahte
+  bir "hepsi caught" sonucu yükletse o koşunun anahtarı farklı olur;
+  dürüst iş akışına dönen push onu kullanamaz. `actions/cache` ise PR'ın
+  kendi kapsamında her koşunun yazabildiği, anahtar adından başka
+  denetimi olmayan bir depodur: önceki sonuç oraya yazılmaz, oradan
+  okunmaz.
+- **İmza yok.** Aynı depodaki bir PR'ın koşusu depo sırlarını
+  okuyabilir. Sonucu imzalayan anahtar o koşunun elinde olurdu; imza,
+  artifact'ın kaynağı hakkında API'nin söylediğinden fazlasını söylemezdi.
+- **Kalan güven.** Yeniden kullanılan koşu, baştan koşulsa da aynı
+  önbelleklerden (`mutants-tools-*`, OSS CAD Suite, Verilator) geri
+  yüklenirdi. Yeniden kullanım önceki koşunun hak ettiğinden fazla güven
+  vermez.
+
+### 5. Günlük ve özet
+
+- Kapsam işi ("Reuse key, and an earlier passed run of this pull request
+  with the same key") şunları yazar: `Reuse key <özet> (mutants …, tree …,
+  environment …)`; her önceki koşu için bir satır (`earlier run <id> (SHA
+  <tam sha>): …`); ardından ya `reused: run <id> (SHA <tam sha>), key
+  <özet>` (`::notice title=Mutation gate::`) ya da `not reused, the gate
+  runs in full: <neden>`.
+- Yeniden kullanımda parça kurulmaz (`shards = 0`, parça işi atlanır);
+  kapsam işi o koşunun listelerini ve sonuçlarını `mutants-list/reuse/`'a
+  koyar. Özet işi (`mutants_summary.py --reused`) koşulları yeniden
+  denetler: tamamlanmış; missed, timeout ve bellek sınırı 0; bu koşunun
+  her mutantı o koşuda caught ya da unviable. Başlığı `Pull-request gate:
+  passed (reused)`'dır, ilk satırı `reused: run <id> (SHA <sha>), key
+  <özet>`; ardından o koşunun tabloları ve bugünkü `exclude_re`'nin
+  dışarıda bıraktıkları gelir. AGENTS.md'nin "CI'ı günlükten doğrula"
+  kuralı sürer: günlük testi yapan koşuyu adlandırır, onun günlüğü okunur.
+
+### 6. Hiç yeniden kullanılmayanlar
+
+- Timeout ve bellek sınırı öldürmeleri: koşucuya ve yüke bağlıdır; bir
+  tanesi bile koşunun bütününü yeniden kullanılamaz kılar.
+- Tamamlanmamış ya da iptal edilmiş koşu; erken duran bir parça (300
+  dakika, runner kaybı).
+- SKIP'li ya da `--min-ran 60`'ın altında defteri olan parça; araçları ya
+  da imajı anahtardan farklı parça. OSS CAD Suite'in önbellek ıskası
+  ayrıca sayılmaz: tarih iş akışında sabittir, aynı tarih aynı arşivi
+  indirir; parçaların Yosys sürümü damgada aynı olmalıdır.
+- Başka bir anahtarla elde edilmiş "missed": missed bir mutant ancak
+  koşulduğu testler kadar geçerlidir.
+- PR'ın `actions/cache`'ine yazılmış hiçbir şey. Rust önbellekleri main'de
+  kalır (#301).
+
+### 7. Sınırlar
+
+- **Ağaç dışındaki girdiler.** `volt-sv-emit/build.rs` birleştirme
+  commit'inin kısaltmasını `VOLT_VERSION_TEXT`'e yazar; commit her push'ta
+  değişir. Testler metni git'in kendi çıktısıyla karşılaştırır
+  (`version_text_tests`), değerine bağlı değildir. Koşucunun yükü
+  timeout'u etkiler; bu yüzden timeout'lu koşu yeniden kullanılmaz. Fark
+  testinin tohumu iş akışında sabittir.
+- **İmaj sürümü.** Tam `ImageVersion` anahtarda değildir. İlk uygulama
+  onu da koyuyordu; ilk kanıt koşusu 44186837945'te kapsam işi
+  `20261111.370.1`, parçası `20261111.127.1` imajında koştu ve aynı PR'ın
+  yalnız belge değişen sonraki push'u (44194628766, kapsam işi
+  `20261111.127.1`) `environment: runner.ImageVersion: 20261111.370.1 ->
+  20261111.127.1` farkıyla baştan koştu; parça damgası da kapsam işininkini
+  tutmayacaktı. Son kısım bir derleme numarasıdır, işler arasında rastgele
+  gelir (`ubuntu24/20261111.370` runner-images deposunda bir etiket,
+  `.127` değil). Anahtar imajın haftalık sürümünü (tarih kısmı) ve
+  sonucu etkileyebilecek araç zincirini ölçerek tutar: Verilator
+  modellerini derleyen g++, bağlayan glibc ve binutils, make, betikleri
+  koşan python3 ve `build.rs`'in git'i. Aynı haftalık sürümün iki
+  derlemesi bu ölçülenler dışında bir şeyle ayrılıyorsa anahtar onu
+  görmez; tam `ImageVersion` damgada günlük için durur.
+- **main ilerleyince** birleştirme ağacı etkisiz olmayan bir yolda
+  değişirse kapı baştan koşar (#318'de kapsam dışı: mutant başına yeniden
+  kullanım ayrı bir fikirdir). main yalnız etkisiz yollarda ilerlediyse
+  anahtar aynı kalır.
+- **Elle koşular** (`gate_base`, `re`) yeniden kullanmaz, yeniden
+  kullanılmaz.
+
+### 8. Self-test
+
+`mutants_reuse.py --self-test` (kapsam işinin "Script self-tests" adımı):
+
+- Etkisiz liste: gerekçesiz, mutlak, `..`'lı ve iki kez yazılan yol
+  reddedilir.
+- Geçici bir git deposunda anahtarı **korur**: ADR değişikliği, yeni ADR,
+  CHANGELOG, yalnız `exclude_re`, yapılandırmanın yorumu.
+- Anahtarı **değiştirir** ve farkı doğru parçada adlandırır: Rust testi,
+  Rust kaynağı, kitap sayfası, `tests/` girdisi, `verilator.env`,
+  Verilator eylemi, README, etkisiz bir yolun yanındaki yol
+  (`docs/adrx.md`), iş akışı, `timeout_multiplier`, etkisiz liste, değişen
+  mutant listesi, ağaca eklenen kaynak (ilerleyen taban), imajın haftalık
+  sürümü, `ImageOS`, g++, glibc, bellek sınırı, cargo-mutants sürümü,
+  rustc. Aynı haftalık sürümün başka bir derlemesi (`20261111.370.1`,
+  `20261111.127.1`) anahtarı korur; damgası böyle bir derlemede olan parça
+  yeniden kullanılır, haftalık sürümü, g++'ı ya da glibc'si farklı olan
+  kullanılmaz. Bu durumlar ilk kanıt koşusundan sonra eklendi; düzeltmeden
+  önce `AssertionError: ('20261111.370.1', ['environment:
+  runner.ImageVersion: 20261111.82.6 -> 20261111.370.1'])` ile düştü,
+  sonra geçti.
+- `mask` yalnız etkisiz yolları siler; damga onları görür. Zip özeti
+  tutmazsa, özet yoksa ya da bir üye dizin dışına yazıyorsa zip açılmaz.
+- Sahte bir GitHub'la: temiz koşu yeniden kullanılır, `Tool ledger …
+  SKIP: 0` ve `reused: run …` satırları yazılır; bugünkü `exclude_re`'nin
+  dışarıda bıraktığı mutant listelenir. Anahtarı aynı ama missed (kırmızı
+  ya da yeşil biten), timeout, bellek sınırı, eksik sonuç, SKIP, 59 araç
+  araması, defteri ya da damgası olmayan, rustc'si ya da imajı farklı,
+  etkisiz yolları silinmemiş, özeti tutmayan ve `failure` biten koşu
+  yeniden kullanılmaz; o koşuda denenmemiş bir mutant kapıyı baştan
+  koşturur. Anahtarı farklı koşu atlanır, daha eski eşit anahtarlı koşu
+  kullanılır; özeti eşit ama parçaları farklı (sahte) anahtar kullanılmaz.
+  Başka PR, PR'sız koşu, fork, `workflow_dispatch`, sürmekte olan, iptal
+  edilmiş, anahtarsız ve yeniden kullanmış koşu atlanır; fork PR'ında ve
+  elle kapıda hiçbir şey indirilmez.
+
+Uygulamadan önce `NameError: name 'parse_inert' is not defined` ile
+düştü, sonra geçti. Betiğin kopyalarında elle uygulanan yedi bozulmanın
+(missed/timeout sayımı, damga karşılaştırması, denenmemiş mutant, ağaçta
+kalan yapılandırma, özet denetimi, anahtar farkı, kapsam denetimi) her
+birini self-test yakaladı.
+
+`mutants_summary.py --self-test`'in yeni durumu (yeniden kullanılan özet:
+başlık, `reused:` satırı, bugünkü `exclude_re`'nin dışarıda bıraktığı
+mutant, toplam tablosu; o koşuda denenmemiş mutant ve timeout'lu koşu
+düşer) uygulamadan önce `NameError: name 'json' is not defined` ile düştü,
+sonra geçti.
+
+### 9. Kanıt (gerçek CI)
+
+Üç taslak kanıt PR'ı (merge edilmedi; dallar kanıt yazılınca silindi):
+#320 (`evidence/318-reuse`: bu ekin dalı + `literal_fold.rs:319`'da
+anlamı aynı bir değişiklik, `op == BinOp::Rem` → `BinOp::Rem == op`),
+#321 (`evidence/318-missed`: aynısı + iletiyi bilerek denetlemeyen
+`the_zero_divisor_message_names_the_operator`), #322
+(`evidence/318-timeout`: bu ekin dalı + `volt_span::evidence_step` ve onu
+döngüde çağıran bir test; `→ 0` mutantı testi sonsuz döngüye sokar).
+Günlük satırları `gh run view <koşu> --log`'tan kopyalandı.
+
+**İlk deneme ve düzeltme.** İlk tam koşu 44186837945 (07bbf1ad) yeşildi
+(`2 mutants tested in 24m: 2 caught`, `Tool ledger [mutants-0]: 211
+test(s) asked for a tool; 213 lookup(s) found the tool (213 required),
+SKIP: 0`). Yalnız belge değişen push 44194628766 (3eee4e07) yeniden
+kullanmadı: `earlier run 44186837945 (SHA 07bbf1ad…): the key differs;
+environment: runner.ImageVersion: 20261111.370.1 -> 20261111.127.1`.
+Anahtar bu yüzden imajın haftalık sürümüne ve ölçülen araç zincirine
+geçti (7. bölüm, "İmaj sürümü"); kanıt dalları düzeltmeyle birleştirilip
+baştan koşuldu.
+
+| Senaryo | PR, push | Koşu | Günlük | Sonuç |
+|---|---|---|---|---|
+| tam koşu | #320, 3f14bf85 | 44196820191, yeşil, 45,2 dk | `not reused, the gate runs in full: no earlier run of pull request #320 with key 76052fdf…`; `masked: docs/adr/ (118 file(s))` … `masked: CHANGELOG.md (1 file(s))`; `2 mutants tested in 24m: 2 caught`; `cargo mutants finished, exit code 0`; `Tool ledger [mutants-0]: 211 test(s) asked for a tool; 213 lookup(s) found the tool (213 required), SKIP: 0` | temel koşu etkisiz yollar silinmişken geçti |
+| (a) yalnız belge (`docs/adr/README.md`, `CHANGELOG.md`) | #320, 91eed0af | 44205381885, yeşil, **0,8 dk** | `earlier run 44196820191 (SHA 3f14bf85d960be4c60894f6bc38be1e6a2c844f7): Tool ledger [mutants-0]: 211 test(s) asked for a tool; 213 lookup(s) found the tool (213 required), SKIP: 0`; `… same key; 2 mutant(s) in 1 shard(s): caught=2 unviable=0 missed=0 timeout=0 memory=0; every shard completed, SKIP: 0, the same tools and runner image`; `reused: run 44196820191 (SHA 3f14bf85d960be4c60894f6bc38be1e6a2c844f7), key 76052fdff8f6809f1a3ad8528ce9d780b0fdee09d93132f103d80a50c0d47a8c`; özet `### Pull-request gate: passed (reused)`, `caught=2 missed=0 timeout=0 unviable=0 memory=0 untested=0 mutants=2 gate_open=0 reused_run=44196820191 excluded_now=0` | **yeniden kullanıldı**, parça işi atlandı. Kapsam işi `20261111.370.1`'de, yeniden kullanılan parça `20261111.127.1`'de koştu |
+| (b) kitap sayfası (`book/src/SUMMARY.md`) | #320, 1438da05 | 44205627301 | `earlier run 44205381885 …: the key differs; tree: 1 path(s) differ: book/src/SUMMARY.md`; `earlier run 44196820191 …: the key differs; tree: 1 path(s) differ: book/src/SUMMARY.md`; `not reused, the gate runs in full` | baştan, parça başladı |
+| (b) Verilator sabiti (`scripts/ci/verilator.env`) | #320, d3ee251a | 44205893295 | `tree: 2 path(s) differ: book/src/SUMMARY.md, scripts/ci/verilator.env; environment: verilator_env differs`; `not reused, the gate runs in full` | baştan |
+| (d) iş akışı (ortam parçası) | #320, 7fa60527 | 44206152256 | `tree: 3 path(s) differ: .github/workflows/mutants.yml, …; environment: verilator_env differs; environment: workflow differs`; `not reused, the gate runs in full` | baştan |
+| (b) Rust testi (`crates/volt-hir/tests/typeck_tests.rs`) | #320, 1dce2eed | 44206465118, yeşil | `tree: 4 path(s) differ: …, crates/volt-hir/tests/typeck_tests.rs, …`; `not reused, the gate runs in full`; `2 mutants tested in 23m: 2 caught` | baştan, tamamlandı |
+| (d) mutant listesi (`literal_fold.rs:301`'de ikinci eşdeğer değişiklik) | #320, 3b0ff2bc | 44213757634 | `Reuse key 8b28535c…: mutants 857a8c77f2f7 (4 before the exclusions)`; `earlier run 44206465118 (SHA 1dce2eed…): the key differs; mutants: 2 new, 0 gone: crates/volt-hir/src/typeck/literal_fold.rs:301:31: replace \|\| with && in …, …301:34: delete ! in …; mutants: the mutated file(s) differ: crates/volt-hir/src/typeck/literal_fold.rs; tree: 1 path(s) differ: crates/volt-hir/src/typeck/literal_fold.rs`; `not reused, the gate runs in full` | baştan |
+| tam koşu, missed | #321, 2e45ba35 | 44196828790, kırmızı | `MISSED crates/volt-hir/src/typeck/literal_fold.rs:319:37: replace == with != in TypeChecker<'_, '_>::check_literal_divisor`; `2 mutants tested in 32m: 1 missed, 1 caught`; `exit code 2`; `SKIP: 0` | kapı düştü |
+| (c) missed'li koşudan sonra yalnız belge | #321, fde0f4d7 | 44206805064 | `not reused, the gate runs in full: earlier run 44196828790 (SHA 2e45ba35c4e894ac2480da0b8982ea3afe0410a1) has the same key but is not reusable: concluded failure; 1 missed: crates/volt-hir/src/typeck/literal_fold.rs:319:37: replace == with != in …; 1 mutant(s) of this run were not tested then: …` | baştan, parça başladı |
+| tam koşu, timeout | #322, c985c06f | 44196835214, **yeşil** | `TIMEOUT crates/volt-span/src/lib.rs:195:5: replace evidence_step -> u32 with 0 in 75s build + 3324s test`; `2 mutants tested in 85m: 1 caught, 1 timeouts`; `exit code 3`; `SKIP: 0` | kapı geçti (timeout yakalanmış sayılır) |
+| (c) timeout'lu koşudan sonra yalnız belge | #322, 5787397b | 44213503586 | `not reused, the gate runs in full: earlier run 44196835214 (SHA c985c06fdbf8678d297ac89da1ad4b7b5442662f) has the same key but is not reusable: 1 timeout: crates/volt-span/src/lib.rs:195:5: replace evidence_step -> u32 with 0; …` | baştan, parça başladı |
+
+Anahtarı aynı en yeni koşu kurallı geçti; iptal edilen koşular günlükte
+`cancelled: says nothing about the outcomes, passed over` diye atlandı.
+Baştan koşan push'ların parçaları başladıktan sonra, sonuçları bir şey
+kanıtlamayacağı için çoğu iptal edildi (44205627301, 44205893295 ve
+44206152256 sonraki push'la, 44206805064, 44213503586 ve 44213757634
+elle); 44206465118 tamamlandı. #319'un kendi kapısı (44186603212):
+`No Rust file changed since 0411103a.`, `mutants_reuse self-test: ok`.
+
+### 10. Ölçüm
+
+| Senaryo | Koşu | Baştan sona |
+|---|---|---|
+| Önce: #308'in yalnız belge değişen ikinci push'u (8605822d), 2 parça | 44045867127 | 100,9 dk (08:20:17–10:01:13 UTC) |
+| Önce, bu kanıtta: aynı içerikli push'un tam koşusu, 1 parça | 44196820191 | 45,2 dk (kapsam işi 0,9 dk, parça 43,3 dk) |
+| Sonra: yalnız belge değişen push, yeniden kullanım | 44205381885 | **0,8 dk** (kapsam işi 37 sn, özet 8 sn, parça yok) |
+
+Süreler GitHub API'sinin `run_started_at` ve `updated_at` alanlarından ve
+iş zamanlarından. Kapsam işi her koşuda aynı işi yapar (araç önbelleği,
+`cargo mutants --list`); yeniden kullanım ona `find`'in birkaç saniyesini
+ekler (44205381885'te `Reuse key` 00:09:20, `reused:` 00:09:24).
