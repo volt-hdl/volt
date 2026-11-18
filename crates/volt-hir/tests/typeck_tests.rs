@@ -769,3 +769,5 @@ fn cast_roundtrip_through_signed_is_clean() {
     );
     assert!(c.is_empty(), "{c:?}");
 }
+
+// Kanıt dalı (#318): bir Rust testi değişti.
