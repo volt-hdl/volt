@@ -1,8 +1,7 @@
 # ADR-0123: Fark Testinin Büyük Koşusu Her Gece; Gecelik İşler Akşam Saatinde, Tohum Gecenin Tarihinden (#255)
 
-> Statü: Önerildi
-> Önceki karar: ADR-0117 — §5'in gecelik tohumu: koşunun UTC tarihi yerine, koşunun başladığı andan 12 saat önceki UTC tarihi
-> İlgili: ADR-0108 (§5'i genişletir: büyük koşu yalnız elle değil, her gece de koşar)
+> Statü: Uygulandı
+> İlgili: ADR-0108 (§5'i genişletir: büyük koşu yalnız elle değil, her gece de koşar), ADR-0117 (§5'in gecelik tohumunu değiştirir: koşunun UTC tarihi yerine, koşunun başladığı andan 12 saat önceki UTC tarihi)
 > Issue: #255
 > Tarih: 2026-11-18
 > Etkilenen: `.github/workflows/difftest.yml`, `.github/workflows/metamorphic-nightly.yml`, `.github/workflows/fuzz-nightly.yml`, `.github/workflows/known-failures.yml`, `.github/actions/ccache/action.yml` (`persist` girdisi), `scripts/ci/nightly_issue.py` (`--kind`), `scripts/ci/nightly_seed.py` (YENİ), `.github/workflows/README.md`, `CHANGELOG.md`

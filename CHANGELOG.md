@@ -67,7 +67,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
-### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, Önerildi, 2026-11-18)
+### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, 2026-11-18)
 
 - **Gecelik tetik.** `difftest.yml` her gece main'de koşar; elle tetik
   kalır. k. parçanın tohumu `YYYYMMDD00 + k`'dir. Tohumu ayrı bir "Seed of
