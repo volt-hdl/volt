@@ -1798,3 +1798,59 @@ başlık, `reused:` satırı, bugünkü `exclude_re`'nin dışarıda bıraktığ
 mutant, toplam tablosu; o koşuda denenmemiş mutant ve timeout'lu koşu
 düşer) uygulamadan önce `NameError: name 'json' is not defined` ile düştü,
 sonra geçti.
+
+### 9. Kanıt (gerçek CI)
+
+Üç taslak kanıt PR'ı (merge edilmedi; dallar kanıt yazılınca silindi):
+#320 (`evidence/318-reuse`: bu ekin dalı + `literal_fold.rs:319`'da
+anlamı aynı bir değişiklik, `op == BinOp::Rem` → `BinOp::Rem == op`),
+#321 (`evidence/318-missed`: aynısı + iletiyi bilerek denetlemeyen
+`the_zero_divisor_message_names_the_operator`), #322
+(`evidence/318-timeout`: bu ekin dalı + `volt_span::evidence_step` ve onu
+döngüde çağıran bir test; `→ 0` mutantı testi sonsuz döngüye sokar).
+Günlük satırları `gh run view <koşu> --log`'tan kopyalandı.
+
+**İlk deneme ve düzeltme.** İlk tam koşu 44186837945 (07bbf1ad) yeşildi
+(`2 mutants tested in 24m: 2 caught`, `Tool ledger [mutants-0]: 211
+test(s) asked for a tool; 213 lookup(s) found the tool (213 required),
+SKIP: 0`). Yalnız belge değişen push 44194628766 (3eee4e07) yeniden
+kullanmadı: `earlier run 44186837945 (SHA 07bbf1ad…): the key differs;
+environment: runner.ImageVersion: 20261111.370.1 -> 20261111.127.1`.
+Anahtar bu yüzden imajın haftalık sürümüne ve ölçülen araç zincirine
+geçti (7. bölüm, "İmaj sürümü"); kanıt dalları düzeltmeyle birleştirilip
+baştan koşuldu.
+
+| Senaryo | PR, push | Koşu | Günlük | Sonuç |
+|---|---|---|---|---|
+| tam koşu | #320, 3f14bf85 | 44196820191, yeşil, 45,2 dk | `not reused, the gate runs in full: no earlier run of pull request #320 with key 76052fdf…`; `masked: docs/adr/ (118 file(s))` … `masked: CHANGELOG.md (1 file(s))`; `2 mutants tested in 24m: 2 caught`; `cargo mutants finished, exit code 0`; `Tool ledger [mutants-0]: 211 test(s) asked for a tool; 213 lookup(s) found the tool (213 required), SKIP: 0` | temel koşu etkisiz yollar silinmişken geçti |
+| (a) yalnız belge (`docs/adr/README.md`, `CHANGELOG.md`) | #320, 91eed0af | 44205381885, yeşil, **0,8 dk** | `earlier run 44196820191 (SHA 3f14bf85d960be4c60894f6bc38be1e6a2c844f7): Tool ledger [mutants-0]: 211 test(s) asked for a tool; 213 lookup(s) found the tool (213 required), SKIP: 0`; `… same key; 2 mutant(s) in 1 shard(s): caught=2 unviable=0 missed=0 timeout=0 memory=0; every shard completed, SKIP: 0, the same tools and runner image`; `reused: run 44196820191 (SHA 3f14bf85d960be4c60894f6bc38be1e6a2c844f7), key 76052fdff8f6809f1a3ad8528ce9d780b0fdee09d93132f103d80a50c0d47a8c`; özet `### Pull-request gate: passed (reused)`, `caught=2 missed=0 timeout=0 unviable=0 memory=0 untested=0 mutants=2 gate_open=0 reused_run=44196820191 excluded_now=0` | **yeniden kullanıldı**, parça işi atlandı. Kapsam işi `20261111.370.1`'de, yeniden kullanılan parça `20261111.127.1`'de koştu |
+| (b) kitap sayfası (`book/src/SUMMARY.md`) | #320, 1438da05 | 44205627301 | `earlier run 44205381885 …: the key differs; tree: 1 path(s) differ: book/src/SUMMARY.md`; `earlier run 44196820191 …: the key differs; tree: 1 path(s) differ: book/src/SUMMARY.md`; `not reused, the gate runs in full` | baştan, parça başladı |
+| (b) Verilator sabiti (`scripts/ci/verilator.env`) | #320, d3ee251a | 44205893295 | `tree: 2 path(s) differ: book/src/SUMMARY.md, scripts/ci/verilator.env; environment: verilator_env differs`; `not reused, the gate runs in full` | baştan |
+| (d) iş akışı (ortam parçası) | #320, 7fa60527 | 44206152256 | `tree: 3 path(s) differ: .github/workflows/mutants.yml, …; environment: verilator_env differs; environment: workflow differs`; `not reused, the gate runs in full` | baştan |
+| (b) Rust testi (`crates/volt-hir/tests/typeck_tests.rs`) | #320, 1dce2eed | 44206465118, yeşil | `tree: 4 path(s) differ: …, crates/volt-hir/tests/typeck_tests.rs, …`; `not reused, the gate runs in full`; `2 mutants tested in 23m: 2 caught` | baştan, tamamlandı |
+| (d) mutant listesi (`literal_fold.rs:301`'de ikinci eşdeğer değişiklik) | #320, 3b0ff2bc | 44213757634 | `Reuse key 8b28535c…: mutants 857a8c77f2f7 (4 before the exclusions)`; `earlier run 44206465118 (SHA 1dce2eed…): the key differs; mutants: 2 new, 0 gone: crates/volt-hir/src/typeck/literal_fold.rs:301:31: replace \|\| with && in …, …301:34: delete ! in …; mutants: the mutated file(s) differ: crates/volt-hir/src/typeck/literal_fold.rs; tree: 1 path(s) differ: crates/volt-hir/src/typeck/literal_fold.rs`; `not reused, the gate runs in full` | baştan |
+| tam koşu, missed | #321, 2e45ba35 | 44196828790, kırmızı | `MISSED crates/volt-hir/src/typeck/literal_fold.rs:319:37: replace == with != in TypeChecker<'_, '_>::check_literal_divisor`; `2 mutants tested in 32m: 1 missed, 1 caught`; `exit code 2`; `SKIP: 0` | kapı düştü |
+| (c) missed'li koşudan sonra yalnız belge | #321, fde0f4d7 | 44206805064 | `not reused, the gate runs in full: earlier run 44196828790 (SHA 2e45ba35c4e894ac2480da0b8982ea3afe0410a1) has the same key but is not reusable: concluded failure; 1 missed: crates/volt-hir/src/typeck/literal_fold.rs:319:37: replace == with != in …; 1 mutant(s) of this run were not tested then: …` | baştan, parça başladı |
+| tam koşu, timeout | #322, c985c06f | 44196835214, **yeşil** | `TIMEOUT crates/volt-span/src/lib.rs:195:5: replace evidence_step -> u32 with 0 in 75s build + 3324s test`; `2 mutants tested in 85m: 1 caught, 1 timeouts`; `exit code 3`; `SKIP: 0` | kapı geçti (timeout yakalanmış sayılır) |
+| (c) timeout'lu koşudan sonra yalnız belge | #322, 5787397b | 44213503586 | `not reused, the gate runs in full: earlier run 44196835214 (SHA c985c06fdbf8678d297ac89da1ad4b7b5442662f) has the same key but is not reusable: 1 timeout: crates/volt-span/src/lib.rs:195:5: replace evidence_step -> u32 with 0; …` | baştan, parça başladı |
+
+Anahtarı aynı en yeni koşu kurallı geçti; iptal edilen koşular günlükte
+`cancelled: says nothing about the outcomes, passed over` diye atlandı.
+Baştan koşan push'ların parçaları başladıktan sonra, sonuçları bir şey
+kanıtlamayacağı için çoğu iptal edildi (44205627301, 44205893295 ve
+44206152256 sonraki push'la, 44206805064, 44213503586 ve 44213757634
+elle); 44206465118 tamamlandı. #319'un kendi kapısı (44186603212):
+`No Rust file changed since 0411103a.`, `mutants_reuse self-test: ok`.
+
+### 10. Ölçüm
+
+| Senaryo | Koşu | Baştan sona |
+|---|---|---|
+| Önce: #308'in yalnız belge değişen ikinci push'u (8605822d), 2 parça | 44045867127 | 100,9 dk (08:20:17–10:01:13 UTC) |
+| Önce, bu kanıtta: aynı içerikli push'un tam koşusu, 1 parça | 44196820191 | 45,2 dk (kapsam işi 0,9 dk, parça 43,3 dk) |
+| Sonra: yalnız belge değişen push, yeniden kullanım | 44205381885 | **0,8 dk** (kapsam işi 37 sn, özet 8 sn, parça yok) |
+
+Süreler GitHub API'sinin `run_started_at` ve `updated_at` alanlarından ve
+iş zamanlarından. Kapsam işi her koşuda aynı işi yapar (araç önbelleği,
+`cargo mutants --list`); yeniden kullanım ona `find`'in birkaç saniyesini
+ekler (44205381885'te `Reuse key` 00:09:20, `reused:` 00:09:24).
