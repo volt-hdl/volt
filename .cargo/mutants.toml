@@ -222,13 +222,6 @@ exclude_re = [
     # Review when payload enums are implemented.
     # expect: crates/volt-syntax/src/parser/mono/clone.rs:276:9: replace Cloner<'a>::declare_pattern_binding with ()
     "parser/mono/clone\\.rs:\\d+:\\d+: replace Cloner<'a>::declare_pattern_binding with \\(\\)$",
-    # A2 (unreachable), assumes the type checker rejects a variant pattern of
-    # another enum before emission (E2003 "pattern of type 'Kind' cannot
-    # match a value of enum 'Mode'", typeck/matching.rs;
-    # parser_scope_diag_tests::a_variant_pattern_of_another_enum_is_rejected_before_emission):
-    # in pattern_variants `d` is always the scrutinee's enum.
-    # expect: crates/volt-sv-emit/src/enums.rs:331:33: replace match guard d.name.text == decl.name.text with true in Emitter<'a>::pattern_variants
-    "volt-sv-emit/src/enums\\.rs:\\d+:\\d+: replace match guard d\\.name\\.text == decl\\.name\\.text with true in Emitter<'a>::pattern_variants$",
     # A2 (reachable, same SV), assumes `t` has passed is_trit (a Trit atom,
     # negation, Trit * Trit or `if`: SV precedence 12, 11, 10 or 0) and
     # emit_prec parenthesizes only when my_prec < parent_prec (is_right is
@@ -262,7 +255,7 @@ exclude_re = [
     # a_match_expression_never_has_a_block_arm; module_summary_tests::
     # a_value_through_a_block_of_a_clockless_child_carries_its_domain passes
     # with the mutant. Review when match expressions get block arms.
-    # expect: crates/volt-hir/src/summary.rs:718:9: replace Walker<'_>::block_reads with ()
+    # expect: crates/volt-hir/src/summary.rs:727:9: replace Walker<'_>::block_reads with ()
     "volt-hir/src/summary\\.rs:\\d+:\\d+: replace Walker<'_>::block_reads with \\(\\)$",
     # Source: run 42888144192 (the five files of the module summary in full,
     # 228 mutants; ADR-0109 appendix "#189, #193").
@@ -278,13 +271,14 @@ exclude_re = [
     # Pinned: the same changes on the expansion counter, three lines below,
     # are caught. Review when a binding may read a later declaration.
     # Reviewed in #204 (targeted run 42962808806): the pin moved from 590:43
-    # to 575:43 (lines removed above it, same statement). The assumption
+    # to 575:43 (lines removed above it, same statement); #331/#332 moved it
+    # to 584:43 (a field added above it, same statement). The assumption
     # still holds: a field-init shorthand binding is now `x: x`, a one-segment
     # path to a local, and reading an instance output is always a field
     # access (`p.y`), so the shorthand never reaches instance_output.
-    # expect: crates/volt-hir/src/summary.rs:575:43: replace + with - in Walker<'_>::instance_output
-    # expect: crates/volt-hir/src/summary.rs:575:43: replace + with * in Walker<'_>::instance_output
-    "volt-hir/src/summary\\.rs:575:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
+    # expect: crates/volt-hir/src/summary.rs:584:43: replace + with - in Walker<'_>::instance_output
+    # expect: crates/volt-hir/src/summary.rs:584:43: replace + with * in Walker<'_>::instance_output
+    "volt-hir/src/summary\\.rs:584:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
     # A2 (unreachable), assumes a binding to a port the target lacks is E1009
     # in name resolution (Volt module and built-in primitive) and the
     # compiler stops before domain inference after a resolve error
@@ -321,7 +315,7 @@ exclude_re = [
     # a_diagnostic_in_the_generated_mmio_source_shows_the_name_it_reports;
     # a registered text one line off fails it). Review when the generated
     # text is dumped to disk (an `--emit-mmio`) or registered separately.
-    # expect: crates/volt-syntax/src/parser/mmio.rs:1503:8: delete ! in render_contracts
+    # expect: crates/volt-syntax/src/parser/mmio.rs:1508:8: delete ! in render_contracts
     "parser/mmio\\.rs:\\d+:\\d+: delete ! in render_contracts$",
     # A2, assumes a parse error stops the build before name resolution: after
     # E5015 the mutant drops the cyclic lets instead of the placeholders, which
@@ -385,6 +379,19 @@ exclude_re = [
     # arith_cut_property_tests pass with the mutant (#266 targeted run).
     # expect: crates/volt-hir/src/typeck/arith_cut.rs:232:9: replace TypeChecker<'_, '_>::is_const_path -> bool with true
     "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
+    # Source: PR gate run 44337994512 (#331, #332).
+    # C. The measured height of an inner match is its arm count + 1 (a leaf
+    # body counts `depth + 1`), so E0018 comes at exactly 256 arms; the spec
+    # (sv-mapping.md §19.1) says the height is the arm count and E0018 comes
+    # above 256. Both mutants drop that level and agree with the spec.
+    # issue: #336
+    # expect: crates/volt-sv-emit/src/match_expr.rs:215:25: replace + with - in Emitter<'a>::ternary_height
+    "volt-sv-emit/src/match_expr\\.rs:215:25: replace \\+ with - in Emitter<'a>::ternary_height$",
+    # C. Same as above (#336): the arms of the root match measured at depth 0
+    # instead of 1 give the arm count.
+    # issue: #336
+    # expect: crates/volt-sv-emit/src/match_expr.rs:204:55: replace + with * in Emitter<'a>::ternary_height
+    "volt-sv-emit/src/match_expr\\.rs:204:55: replace \\+ with \\* in Emitter<'a>::ternary_height$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

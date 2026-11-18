@@ -90,6 +90,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `on` bloğunda tasarıma yazılmayan koldaki yazma, o bloğun reset dalına
   artık reset ataması eklemez; önce register iki `always_ff`'te sürülüyor,
   Verilator `MULTIDRIVEN` ile duruyordu.
+- **Davranış değişikliği.** Değeri ad zinciri olmayan enum tipli `const`
+  (`const START : Mode = if c { Mode::Idle } else { Mode::Run }`, fonksiyon
+  çağrısı) `match` deseni olarak artık E0003 alır ("not supported yet: enum
+  constant 'START' as a pattern, whose variant the SystemVerilog emitter
+  cannot resolve"); sayısal sabitin "cannot fold" kuralıyla aynı biçim.
+  Önce derlenen kod reddedilir. Değeri doğrudan bir varyant
+  (`const START : Mode = Mode::Idle`) ya da böyle bir sabitin adı olan
+  zincir, uzunluğu ne olursa olsun, eskisi gibi derlenir. Nedeni: HIR böyle
+  bir sabitin varyantını bulur ve kapsadığı kolu tasarıma yazmaz, sürücü
+  saymaz; SV üretici bulamaz ve kolu yazardı. #331'in düzeltmesiyle bu,
+  kapsanan koldaki atamayı başka bir sürücüyle birlikte sessizce kabul
+  ettirip SV'de sinyali iki yerden sürüyordu (0.1.2'de aynı program E4001
+  alıyordu). Depoda ve kitapta böyle bir desen yok. Son hanede (v0.1.3)
+  çıkar, ADR-0100'ün sessiz yanlış istisnası.
 - **Davranış değişikliği.** İşaretli `>>`'nin genişlik kadar ya da daha
   büyük sabit miktarı SystemVerilog'da `>>> (w-1)` yazılır (#302; sessiz
   yanlış düzeltmesi, ADR-0120). 0.1.2'de `a >> 64` (`a : i63`) `a >>> 64`

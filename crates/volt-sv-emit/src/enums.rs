@@ -264,9 +264,6 @@ pub(crate) enum ArmKey {
     Variant(usize),
 }
 
-/// Sabit zincirinin izlenebileceği en büyük derinlik (`const A = B`).
-const MAX_CONST_CHAIN: u32 = 32;
-
 /// Enum `match`'inin `case` planı (ADR-0074 Karar 4).
 pub(crate) struct EnumMatchPlan {
     /// Kol atlanır (W2014): ilk joker koldan sonra ya da bütün varyantları
@@ -287,67 +284,92 @@ impl<'a> Emitter<'a> {
     /// W2014'ü ve sürücü analizini aynı kuraldan verir. Burada yalnız desen
     /// yaprağının emitter'daki anlamı: varyant yolu, enum tipli `const`
     /// adının varyantı (ADR-0085), sayı/bool literali ve sabit adı.
+    /// Yaprağın anlamı sınananın tipinden bağımsızdır: varyant yolu ve enum
+    /// tipli sabit adı varyanttır, öteki literal ve sabit adı değerdir.
+    /// Geçerli bir programda bu HIR'ın anlamıyla aynıdır (sayı üzerinde
+    /// varyant ya da enum üzerinde sayı deseni E2003 alır ve emit koşmaz);
+    /// modül bağlamı kurulmadan koşan denetimler (E0020) de aynı kolları
+    /// görür.
     pub(crate) fn arm_cover(
         &self,
         arms: &[volt_ast::MatchArm],
-        scrut_enum: bool,
     ) -> volt_ast::match_cover::ArmCover<ArmKey> {
         use volt_ast::match_cover::{dead_arms, value_leaf, Leaf};
         use volt_ast::PatternKind;
-        // HIR'daki anlam: enum sınananda varyant adlandırmayan yaprak hatalı
-        // desendir (E2003, `Opaque`); sayısal sınananda literal olmayan
-        // yaprak bilinmez (`Unknown`).
         dead_arms(self.ast, arms, &mut |p| match &self.ast.patterns[p].kind {
-            PatternKind::Path { path, args: None } if scrut_enum => {
-                match self.enum_variant_of_path(path) {
-                    Some((_, i)) => Leaf::Key(ArmKey::Variant(i)),
-                    None => Leaf::Opaque,
-                }
-            }
-            PatternKind::Literal(e) if scrut_enum => match self.const_variant(*e, 0) {
-                Some(i) => Leaf::Key(ArmKey::Variant(i)),
+            PatternKind::Path { path, args: None } => match self.enum_variant_of_path(path) {
+                Some((_, i)) => Leaf::Key(ArmKey::Variant(i)),
                 None => Leaf::Opaque,
             },
-            PatternKind::Literal(_) => match value_leaf(self.ast, p, &mut |e| self.eval_const(e)) {
-                Leaf::Key(k) => Leaf::Key(ArmKey::Value(k)),
-                Leaf::Unknown => Leaf::Unknown,
-                Leaf::Opaque => Leaf::Opaque,
-            },
-            PatternKind::Wildcard
-            | PatternKind::Or(_)
-            | PatternKind::Path { .. }
-            | PatternKind::Tuple(_)
-            | PatternKind::Error => {
-                if scrut_enum {
-                    Leaf::Opaque
-                } else {
-                    Leaf::Unknown
+            PatternKind::Literal(e) => {
+                if let Some(i) = self.const_variant(*e) {
+                    return Leaf::Key(ArmKey::Variant(i));
+                }
+                match value_leaf(self.ast, p, &mut |e| self.eval_const(e)) {
+                    Leaf::Key(k) => Leaf::Key(ArmKey::Value(k)),
+                    Leaf::Unknown => Leaf::Unknown,
+                    Leaf::Opaque => Leaf::Opaque,
                 }
             }
+            PatternKind::Wildcard
+            | PatternKind::Or(_)
+            | PatternKind::Path { args: Some(_), .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => Leaf::Unknown,
         })
     }
 
-    /// Kol başına "tasarıma yazılmıyor" ([`Self::arm_cover`]); sınananın
-    /// enum olup olmadığı kendi ifadesinden.
-    pub(crate) fn dead_arms(&self, scrutinee: Idx<Expr>, arms: &[volt_ast::MatchArm]) -> Vec<bool> {
-        let cover = self.arm_cover(arms, self.enum_of_expr(scrutinee).is_some());
+    /// Kol başına "tasarıma yazılmıyor" ([`Self::arm_cover`]).
+    pub(crate) fn dead_arms(&self, arms: &[volt_ast::MatchArm]) -> Vec<bool> {
+        let cover = self.arm_cover(arms);
         (0..arms.len()).map(|i| cover.is_dead(i)).collect()
     }
 
-    /// Enum tipli `const` adının varyant sırası: değeri bir varyant yolu ya
-    /// da başka bir sabit adı olan zincir.
-    fn const_variant(&self, e: Idx<Expr>, depth: u32) -> Option<usize> {
-        if depth > MAX_CONST_CHAIN {
-            return None;
-        }
-        let ExprKind::Path(p) = &self.ast.exprs[e].kind else {
-            return None;
+    /// Enum tipli `const` adının varyant sırası; zincir kuralı
+    /// `volt_ast::match_cover::const_variant`'ta (parser aynısını okur).
+    fn const_variant(&self, e: Idx<Expr>) -> Option<usize> {
+        volt_ast::match_cover::const_variant(
+            self.ast,
+            e,
+            &mut |p| self.const_path(p).map(|(_, _, value)| value),
+            &mut |path| self.enum_variant_of_path(path).map(|(_, i)| i),
+        )
+    }
+
+    /// Enum tipli `const` adı deseninin varyantı ad zincirinden çıkmıyorsa
+    /// (`if`, çağrı: değeri HIR'ın sabit değerlendiricisi bulur) E0003:
+    /// hangi kolları kapsadığı burada bilinemez, HIR o kolları tasarıma
+    /// yazmaz ve sürücü saymaz; yazılsalar SV aynı sinyali iki yerden
+    /// sürebilirdi. Sayısal sabitin "cannot fold" kuralıyla aynı biçim.
+    pub(crate) fn refuse_unresolved_enum_const(&mut self, e: Idx<Expr>) -> bool {
+        let Some((name, ty, _)) = self.const_path(e) else {
+            return false;
         };
-        if p.segments.len() >= 2 {
-            return self.enum_variant_of_path(p).map(|(_, i)| i);
+        let Some(decl) = self.enum_of_type(ty) else {
+            return false;
+        };
+        if self.const_variant(e).is_some() {
+            return false;
         }
-        let (_, _, value) = self.const_path(e)?;
-        self.const_variant(value, depth + 1)
+        let enum_name = &decl.name.text;
+        let first = decl
+            .variants
+            .first()
+            .map_or("<Variant>", |v| v.name.text.as_str());
+        let span = self.ast.exprs[e].span;
+        self.error(
+            ErrorCode::E0003,
+            lstr!(
+                en: "not supported yet: enum constant '{name}' as a pattern, whose variant the SystemVerilog emitter cannot resolve";
+                tr: "henüz desteklenmiyor: varyantını SystemVerilog üreticisinin çözemediği '{name}' enum sabiti desen olarak"
+            ),
+            span,
+            &lstr!(
+                en: "write the constant as a variant (const {name} : {enum_name} = {enum_name}::{first}) or as the name of a constant that is one (see volt explain E0003)";
+                tr: "sabiti bir varyant olarak (const {name} : {enum_name} = {enum_name}::{first}) ya da varyant olan bir sabitin adı olarak yazın (bkz. volt explain E0003)"
+            ),
+        );
+        true
     }
 
     /// Kolların kapsadığı varyantlar: tasarıma yazılmayan kollar ve
@@ -358,7 +380,7 @@ impl<'a> Emitter<'a> {
         arms: &[volt_ast::MatchArm],
         decl: &EnumDecl,
     ) -> EnumMatchPlan {
-        let cover = self.arm_cover(arms, true);
+        let cover = self.arm_cover(arms);
         let skip = (0..arms.len()).map(|i| cover.is_dead(i)).collect();
         let exhaustive = !cover.catch_all && cover.covered.len() == decl.variants.len();
         let last_named = cover

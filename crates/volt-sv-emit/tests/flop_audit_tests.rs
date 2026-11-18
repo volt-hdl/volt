@@ -165,3 +165,52 @@ fn on_block_triggered_by_a_non_clock_signal_is_refused() {
     let (sv, codes) = emit_unchecked(src, SvaMode::None);
     assert_eq!(codes, ["E3002"], "{sv}");
 }
+
+/// `match` kolu tasarıma yazılmazsa (sv-mapping.md §19.1, W2014) içindeki
+/// yazma reset dalına girmez, denetim de onu görmez. Denetim modülün
+/// bağlamı kurulmadan koşar: kolun ölü olduğu sınananın tipinden değil,
+/// desenlerden çıkar (HIR'la aynı kural, `match_cover::dead_arms`). Enum
+/// sınananda: önceki kolun adlandırdığı varyantı ikinci kez adlandıran
+/// kol ve enum tipli `const` adının (ADR-0085) kapsadığı kol ölüdür.
+fn enum_flop(arms: &str) -> String {
+    format!(
+        "enum E {{ A, B, C }}\nconst FIRST : E = E::A\nmodule M {{\n    in clk : clock\n    in e : E\n    in d : u8\n    out q : u8\n    reg r : u8 = 0\n    on clk {{\n        match e {{\n{arms}\n        }}\n    }}\n    q = r\n}}\n"
+    )
+}
+
+#[test]
+fn port_written_in_a_live_enum_arm_is_refused() {
+    let src = enum_flop(
+        "            E::A => { r <= d }\n            E::B => { q <= d }\n            E::C => { r <= 0 }",
+    );
+    let (sv, codes) = emit_unchecked(&src, SvaMode::None);
+    assert_eq!(codes, ["E0020"], "{sv}");
+}
+
+#[test]
+fn port_written_in_a_covered_enum_arm_is_not_audited() {
+    for (form, arms) in [
+        (
+            "variant",
+            "            E::A => { r <= d }\n            E::B => { r <= 1 }\n            E::A => { q <= d }\n            E::C => { r <= 0 }",
+        ),
+        (
+            "const",
+            "            FIRST => { r <= d }\n            E::A => { q <= d }\n            E::B => { r <= 1 }\n            E::C => { r <= 0 }",
+        ),
+    ] {
+        let (sv, codes) = emit_unchecked(&enum_flop(arms), SvaMode::None);
+        assert!(codes.is_empty(), "{form}: {codes:?}\n{sv}");
+        assert!(!sv.contains("q <="), "{form}: {sv}");
+    }
+}
+
+/// `if` dalındaki yazma da denetlenir (`written_targets_if`).
+#[test]
+fn port_written_in_an_if_branch_is_refused() {
+    let src =
+        "module M {\n    in clk : clock\n    in c : bool\n    in d : u8\n    out q : u8\n    \
+               reg r : u8 = 0\n    on clk {\n        if c { q <= d } else { r <= d }\n    }\n}\n";
+    let (sv, codes) = emit_unchecked(src, SvaMode::None);
+    assert_eq!(codes, ["E0020"], "{sv}");
+}

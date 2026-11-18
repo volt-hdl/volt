@@ -266,7 +266,7 @@ impl Emitter<'_> {
         let mut targets = Vec::new();
         written_targets(
             ast,
-            &|m| self.dead_arms(m.scrutinee, &m.arms),
+            &|m| self.dead_arms(&m.arms),
             &ast.blocks[body],
             &mut targets,
         );

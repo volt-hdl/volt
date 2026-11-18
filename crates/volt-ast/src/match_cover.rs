@@ -18,7 +18,7 @@
 //! nasıl yargılandığı — joker, muhafız, `|` alternatifleri, kapsanma —
 //! yalnız buradadır.
 
-use crate::{Expr, ExprKind, Idx, MatchArm, Pattern, PatternKind, SourceFile, UnOp};
+use crate::{Expr, ExprKind, Idx, MatchArm, Path, Pattern, PatternKind, SourceFile, UnOp};
 
 /// Desen literalinin değeri: `(negatif, büyüklük)` ya da bool. Yazım
 /// biçimi (`1`, `0x1`) değeri değiştirmez; `-0` sıfırdır.
@@ -193,6 +193,36 @@ pub fn value_leaf(
         | PatternKind::Path { .. }
         | PatternKind::Tuple(_)
         | PatternKind::Error => Leaf::Unknown,
+    }
+}
+
+/// Enum tipli `const` adı deseninin (ADR-0085) varyantı: değer bir varyant
+/// yoludur ya da başka bir sabit adı olan zincirdir (`const A : S = B`,
+/// `const B : S = S::X`). Zincirin her uzunluğunda aynı sonuç: sınır yok,
+/// ziyaret edilen ad ifadeleri döngüde durur (döngülü sabiti ad çözümleme
+/// zaten reddeder). Katman yalnız iki şeyi verir: `const_value` tek parçalı
+/// adın bağlandığı sabitin değer ifadesini, `variant` çok parçalı yolun
+/// varyantını. Başka biçim (`if`, çağrı) `None`'dır.
+pub fn const_variant<K>(
+    ast: &SourceFile,
+    expr: Idx<Expr>,
+    const_value: &mut dyn FnMut(Idx<Expr>) -> Option<Idx<Expr>>,
+    variant: &mut dyn FnMut(&Path) -> Option<K>,
+) -> Option<K> {
+    let mut seen: Vec<Idx<Expr>> = Vec::new();
+    let mut e = expr;
+    loop {
+        let ExprKind::Path(p) = &ast.exprs[e].kind else {
+            return None;
+        };
+        if p.segments.len() >= 2 {
+            return variant(p);
+        }
+        if seen.contains(&e) {
+            return None;
+        }
+        seen.push(e);
+        e = const_value(e)?;
     }
 }
 

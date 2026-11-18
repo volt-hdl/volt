@@ -10,9 +10,6 @@ use volt_ast::{ExprKind, Idx, MatchArm, Pattern, PatternKind, SourceFile};
 
 use super::mono::unroll::{eval_const, visible_const, Consts};
 
-/// Sabit zincirinin izlenebileceği en büyük derinlik (`const A = B`).
-const MAX_CONST_CHAIN: u32 = 32;
-
 /// Yaprağın değeri: sayı/bool ya da (enum adı, varyant sırası).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Key {
@@ -54,7 +51,7 @@ fn leaf(ast: &SourceFile, consts: &Consts, p: Idx<Pattern>) -> Leaf<Key> {
             }
         }
         PatternKind::Literal(e) => {
-            if let Some(v) = const_variant(ast, consts, *e, 0) {
+            if let Some(v) = const_variant(ast, consts, *e) {
                 return Leaf::Key(v);
             }
             match value_leaf(ast, p, &mut |e| eval_const(ast, consts, e, 0)) {
@@ -71,24 +68,19 @@ fn leaf(ast: &SourceFile, consts: &Consts, p: Idx<Pattern>) -> Leaf<Key> {
     }
 }
 
-/// Enum tipli `const` adının varyantı (ADR-0085): değeri bir varyant yolu
-/// ya da başka bir sabit adı olan zincir.
-fn const_variant(
-    ast: &SourceFile,
-    consts: &Consts,
-    e: Idx<volt_ast::Expr>,
-    depth: u32,
-) -> Option<Key> {
-    if depth > MAX_CONST_CHAIN {
-        return None;
-    }
-    let ExprKind::Path(p) = &ast.exprs[e].kind else {
-        return None;
-    };
-    if p.segments.len() >= 2 {
-        let (decl, i) = super::auto_contract::enum_variant(ast, p)?;
-        return Some(Key::Variant(decl.name.text.clone(), i));
-    }
-    let value = visible_const(ast, consts, e, &p.segments[0].text)?;
-    const_variant(ast, consts, value, depth + 1)
+/// Enum tipli `const` adının varyantı (ADR-0085); zincir kuralı
+/// `volt_ast::match_cover::const_variant`'ta (SV üretici aynısını okur).
+fn const_variant(ast: &SourceFile, consts: &Consts, e: Idx<volt_ast::Expr>) -> Option<Key> {
+    volt_ast::match_cover::const_variant(
+        ast,
+        e,
+        &mut |p| match &ast.exprs[p].kind {
+            ExprKind::Path(path) => visible_const(ast, consts, p, &path.segments[0].text),
+            _ => None,
+        },
+        &mut |path| {
+            super::auto_contract::enum_variant(ast, path)
+                .map(|(decl, i)| Key::Variant(decl.name.text.clone(), i))
+        },
+    )
 }

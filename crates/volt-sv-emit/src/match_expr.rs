@@ -198,7 +198,7 @@ impl<'a> Emitter<'a> {
         }
         let kind = &self.ast.exprs[e].kind;
         if let ExprKind::Match { scrutinee, arms } = kind {
-            let live = self.live_match_arms(*scrutinee, arms);
+            let live = self.live_match_arms(arms);
             let below = std::iter::once(*scrutinee)
                 .chain(live.iter().flat_map(|a| arm_exprs(a)))
                 .map(|c| self.ternary_height(c, depth + 1))
@@ -216,9 +216,9 @@ impl<'a> Emitter<'a> {
     }
 
     /// Tasarıma yazılan kollar, sırasıyla.
-    fn live_match_arms<'m>(&self, scrutinee: Idx<Expr>, arms: &'m [MatchArm]) -> Vec<&'m MatchArm> {
+    fn live_match_arms<'m>(&self, arms: &'m [MatchArm]) -> Vec<&'m MatchArm> {
         arms.iter()
-            .zip(self.dead_arms(scrutinee, arms))
+            .zip(self.dead_arms(arms))
             .filter(|(_, d)| !d)
             .map(|(a, _)| a)
             .collect()
@@ -240,7 +240,7 @@ impl<'a> Emitter<'a> {
         };
         let s = self.ternary_cost(*scrutinee, depth + 1);
         let mut total: usize = 1;
-        for arm in self.live_match_arms(*scrutinee, arms) {
+        for arm in self.live_match_arms(arms) {
             let lits = self.pattern_literals(arm.pattern);
             total = total.saturating_add(s.saturating_mul(lits.max(1)));
             for c in arm.guard.into_iter().chain(match arm.body {
@@ -281,7 +281,7 @@ impl<'a> Emitter<'a> {
         let enum_plan = scrut_enum.map(|d| self.enum_match_plan(arms, d));
         let skip = match &enum_plan {
             Some(p) => p.skip.clone(),
-            None => self.dead_arms(scrutinee, arms),
+            None => self.dead_arms(arms),
         };
         let mut out = Vec::with_capacity(arms.len());
         let mut default_comment = None;

@@ -2011,7 +2011,7 @@ impl<'a> Emitter<'a> {
         // Tasarıma yazılmayan koldaki yazma reset almaz: o kol yazılmaz.
         collect_written(
             ast,
-            &|m| self.dead_arms(m.scrutinee, &m.arms),
+            &|m| self.dead_arms(&m.arms),
             &ast.blocks[on.body],
             &mut written,
         );
@@ -2178,7 +2178,7 @@ impl<'a> Emitter<'a> {
         // `match_cover`'da, iki sınananda da `arm_cover`'dan.
         let skip = match &plan {
             Some(p) => p.skip.clone(),
-            None => self.dead_arms(m.scrutinee, &m.arms),
+            None => self.dead_arms(&m.arms),
         };
         lines.push(format!("{ind}case ({scrut})"));
         for (i, arm) in m.arms.iter().enumerate() {
@@ -2258,6 +2258,9 @@ impl<'a> Emitter<'a> {
             PatternKind::Wildcard => Some("default".to_string()),
             // Sabit adı (ADR-0085) katlanmış değeriyle, sınananın
             // genişliğinde basılır: `16'd7` değil `8'd7` (Verilator WIDTH).
+            // Enum tipli sabit adı deseni: varyantı ad zincirinden çıkmazsa
+            // kolun kapsadığı kollar bilinemez, HIR'la aynı kollar yazılmaz.
+            PatternKind::Literal(e) if self.refuse_unresolved_enum_const(*e) => None,
             PatternKind::Literal(e) => match (&ast.exprs[*e].kind, scrut_sig) {
                 (volt_ast::ExprKind::Path(_), Some(sig)) => match self.eval_const(*e) {
                     Some(v) => {
