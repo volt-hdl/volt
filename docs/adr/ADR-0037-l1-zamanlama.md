@@ -1,6 +1,6 @@
 # ADR-0037: L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing`
 
-> Statü: Uygulandı
+> Statü: Kısmen yerini aldı: ADR-0127 — §5'te help'in içeriği: `delay<K>(...)` hizalama olarak önerilmez, help aşama register'ını gösterir (ADR-0127 önerildi; onaylanmazsa bu satır `Uygulandı`ya döner); kalanı Uygulandı
 > İlgili: ADR-0091 (gecikme inlay ipucu).
 > Tarih: 2026-09-10
 > Etkilenen: type-inference.md §12 (yeni bölüm), volt-syntax (parser

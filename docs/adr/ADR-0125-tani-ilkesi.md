@@ -2,7 +2,7 @@
 
 > Statü: Kabul edildi — uygulaması aşamalı (#345–#351)
 > Önceki karar: ADR-0118 — §2 ve §3'teki eksik kaçış işareti önerisinin biçimi (iskelet, gerekçe boş)
-> İlgili: ADR-0099 (§2 gidiş-dönüş sözleşmesi ve öneri sınırları, §3 okura dönük metin: atıf `volt explain` satırıdır), ADR-0100 (son hane; bu ADR tanı metni değişikliklerinin yerini yazar), ADR-0118 (K2 önce düzeltme sonra kaçış; K3 gerekçe; §2 eksik işaretin önerisi), ADR-0119 (İ4: niyet tahmini yalnız söyler)
+> İlgili: ADR-0099 (§2 gidiş-dönüş sözleşmesi ve öneri sınırları, §3 okura dönük metin: atıf `volt explain` satırıdır), ADR-0100 (son hane; bu ADR tanı metni değişikliklerinin yerini yazar), ADR-0118 (K2 önce düzeltme sonra kaçış; K3 gerekçe; §2 eksik işaretin önerisi), ADR-0119 (İ4: niyet tahmini yalnız söyler), ADR-0127 (E5010'a uygulanışı: §2 (a) aşama register'ı kodu ve bedeliyle, §3 `delay<K>` en son ve iddia olarak, §4 help'teki kod ve explain sınanır)
 > Issue: #341 (üretilmeyen kodlar), aşamalar #345–#351 (§8); ADR-0124 (#343, henüz main'de değil): bu ilkenin ilk uygulaması
 > Tarih: 2026-11-19
 > Etkilenen: volt-diagnostics (`Diagnostic::validate`, explain metinleri), tanı üreten bütün crate'ler (metin), tests (explain örnek derleme testi, help kodu testi), `just consistency` (yeni kontroller), book (bilinen sınırlar)

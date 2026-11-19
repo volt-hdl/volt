@@ -109,7 +109,7 @@ pub fn run_semantic_stages(
     out.extend(rdc);
 
     // ── L1 zamanlama (ADR-0037): yalnız @strict_timing modülleri ──
-    let timing = crate::analyze_timing(ast, resolve, &typeck.dead_arms);
+    let timing = crate::analyze_timing(ast, resolve, &typeck);
     out.extend(timing.diagnostics);
     // ── Handshake protokolü (ADR-0050) ──
     out.extend(crate::check_handshakes(ast, resolve, &summaries));

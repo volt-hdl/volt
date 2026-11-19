@@ -435,8 +435,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda;
     // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil;
     // #331: 156 kapsanan koldaki atama ikinci sürücü değil;
-    // #332: 157 ölü koldaki alanlar arası atama E3001 değil.
-    assert_eq!(checked, 142);
+    // #332: 157 ölü koldaki alanlar arası atama E3001 değil;
+    // #232: 161 `delay<K>` bir iddiadır, register eklemez.
+    assert_eq!(checked, 143);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
@@ -681,6 +682,13 @@ fn ui_pass_81_test_const_ok_clean() {
 #[test]
 fn ui_pass_44_delayed_aligned_clean() {
     let result = analyze_file("pass/44_delayed_aligned.volt");
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
+#[test]
+fn ui_pass_161_delay_is_a_claim_clean() {
+    // `delay<1>(s1)` E5010'u giderir ama register eklemez (ADR-0127).
+    let result = analyze_file("pass/161_delay_is_a_claim.volt");
     assert!(!result.has_errors(), "{:?}", result.error_codes());
 }
 
