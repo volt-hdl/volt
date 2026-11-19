@@ -379,6 +379,20 @@ exclude_re = [
     # arith_cut_property_tests pass with the mutant (#266 targeted run).
     # expect: crates/volt-hir/src/typeck/arith_cut.rs:232:9: replace TypeChecker<'_, '_>::is_const_path -> bool with true
     "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
+    # A1. `if x > y` runs only in the arm after `if x == y` (the same
+    # Exact/Exact pattern), so x != y there and `>=` picks the same side
+    # (#232, gate run 44597750883).
+    # expect: crates/volt-hir/src/timing.rs:654:55: replace > with >= in ModuleTiming<'a>::combine_operands
+    "volt-hir/src/timing\\.rs:\\d+:\\d+: replace > with >= in ModuleTiming<'a>::combine_operands$",
+    # A2, assumes register_write_help is called only for a register whose
+    # source does not match its declaration (`n.saturating_add(1) != want`
+    # in check_all, its one caller): holds == want never reaches it, so
+    # `<=` takes the same branch wherever it runs. The assumption's test:
+    # a register written from a value one cycle younger than its
+    # declaration gets no E5010 (timing_tests::annotated_reg_chain_clean;
+    # #232, gate run 44597750883).
+    # expect: crates/volt-hir/src/timing.rs:734:18: replace < with <= in ModuleTiming<'a>::register_write_help
+    "volt-hir/src/timing\\.rs:\\d+:\\d+: replace < with <= in ModuleTiming<'a>::register_write_help$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

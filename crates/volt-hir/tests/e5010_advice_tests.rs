@@ -307,6 +307,35 @@ module M {
 }
 
 #[test]
+fn a_register_written_from_a_one_cycle_value_names_the_missing_cycles() {
+    // Kaynak `a` 1 çevrim, register 3 çevrim bildirilmiş: register 2 tutar;
+    // 3 tutması için kaynağı 2 çevrim yaşında olmalı. Eksik 2 - 1 = 1
+    // çevrim: bir aşama register'ı ve `delay<1>`, `delay<3>` değil (#232;
+    // kaynağı 0 çevrimlik testlerde 2 - 0 ile 2 + 0 aynıydı).
+    let src = "@strict_timing
+module M {
+    in  clk : clock
+    in  x   : u32
+    out y   : u32
+    reg a : Delayed<u32, 1> = 0
+    reg c : Delayed<u32, 3> = 0
+    on clk { a <= x  c <= a }
+    y = c
+}
+";
+    assert_eq!(
+        help(src),
+        "write the register from a value 2 cycles old: add a stage register so that \
+         the 1-cycle value is 2 cycles old too: `reg a_d2 : Delayed<u32, 2> = 0`, write \
+         `a_d2 <= a` in the `on clk` block, and use `a_d2` here (cost: 1 register of 32 \
+         bits); or, if it really holds a 2-cycle value, declare it as `Delayed<T, 2>`; \
+         `delay<1>(…)` is not such a register: it is a claim that adds no hardware and \
+         that Volt does not check, right only if the value really is 2 cycles old \
+         already (it does not change during that cycle)"
+    );
+}
+
+#[test]
 fn a_register_written_from_an_older_value_gets_the_declaration_or_an_earlier_stage() {
     let src = "@strict_timing
 module M {
