@@ -7,7 +7,10 @@
 //!
 //! İki sınananda da ilk muhafızsız joker koldan sonraki her kol
 //! erişilemezdir (W2014, sv-mapping.md §19.1, #216): ilk eşleşen kol
-//! kazanır. Kural `volt_ast::match_cover`'da; sv-emit aynı kolları yazmaz.
+//! kazanır. Kural `volt_ast::match_cover::dead_arms`'ta (tek yer); sv-emit
+//! aynı kolları yazmaz. Bulunan ölü kollar `TypeckResult::dead_arms`'a
+//! yazılır: sürücü analizi ve donanımı inceleyen öteki analizler onların
+//! içine girmez (#328, #331, #332).
 //!
 //! Sayısal sınananda kural değişmez (ADR-0032): E0014 parser'da tipsiz
 //! verilir; önceki kolların literal değerlerini yineleyen kol enum'daki
@@ -15,7 +18,7 @@
 //! biri yol deseni olan `_`'sız `match`'lerde E0014'ü buraya erteler; sınanan enum değilse (yol deseni
 //! + sayısal sınanan) desen E2003 alır ve parser'ın E0014'ü aynen verilir.
 
-use volt_ast::match_cover::Unreachable;
+use volt_ast::match_cover::{ArmCover, Leaf, Unreachable};
 use volt_ast::{MatchArm, MatchStmt, Pattern, PatternKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -24,22 +27,14 @@ use super::TypeChecker;
 use crate::resolve::{DefId, DefKind};
 use crate::ty::{EnumId, Ty, TypeId};
 
-/// Bir kol deseninin kapsadıkları.
-#[derive(Default)]
-struct ArmCover {
-    wildcard: bool,
-    variants: Vec<DefId>,
-}
-
 impl TypeChecker<'_, '_> {
     pub(super) fn check_match_stmt(&mut self, m: &MatchStmt) {
         let scrut_ty = self.synth(m.scrutinee);
-        self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
-        // İlk joker koldan sonraki kol tasarıma yazılmaz (sv-mapping.md
-        // §19.1): kol tip denetimi görür, atamaları sürücü sayılmaz (#328).
-        // Ölü kolun içindeki her şey de ölüdür (iç içe `match`).
+        let dead = self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
+        // Tasarıma yazılmayan kol (sv-mapping.md §19.1): kol tip denetimi
+        // görür, atamaları sürücü sayılmaz (#328, #331). Ölü kolun içindeki
+        // her şey de ölüdür (iç içe `match`).
         let outer = self.in_dead_arm;
-        let dead = volt_ast::match_cover::arms_after_catch_all(self.ast, &m.arms);
         for (arm, dead) in m.arms.iter().zip(dead) {
             self.in_dead_arm = outer || dead;
             self.check_arm(arm);
@@ -49,15 +44,16 @@ impl TypeChecker<'_, '_> {
 
     /// Desen tipleri, kapsayıcılık ve erişilemez kollar — deyim ve ifade
     /// `match`'inde aynı kural (ADR-0083 Karar 1, 3). `is_expr` yalnız
-    /// tanı metnini seçer.
+    /// tanı metnini seçer. Kol başına "tasarıma yazılmıyor" döner; ölü
+    /// kollar `dead_arms`'a da yazılır.
     pub(super) fn check_match_patterns(
         &mut self,
         span: Span,
         scrut_ty: TypeId,
         arms: &[MatchArm],
         is_expr: bool,
-    ) {
-        match *self.types.ty(scrut_ty) {
+    ) -> Vec<bool> {
+        let dead = match *self.types.ty(scrut_ty) {
             Ty::Enum(e) => self.check_enum_match(span, arms, e, is_expr),
             Ty::Bool
             | Ty::UInt { .. }
@@ -76,6 +72,47 @@ impl TypeChecker<'_, '_> {
             | Ty::UIntFlex { .. }
             | Ty::SIntFlex { .. }
             | Ty::Error => self.check_value_match(span, arms, scrut_ty, is_expr),
+        };
+        for (arm, &dead) in arms.iter().zip(&dead) {
+            if dead {
+                self.dead_arms.insert(arm.pattern);
+            }
+        }
+        dead
+    }
+
+    /// W2014: tasarıma yazılmayan her kol, nedeniyle; `enum_name` kapsanan
+    /// kolun metnini seçer (sayı ya da enum varyantı).
+    fn warn_dead_arms(
+        &mut self,
+        arms: &[MatchArm],
+        dead: &[Option<Unreachable>],
+        enum_name: Option<&str>,
+    ) {
+        for (arm, why) in arms.iter().zip(dead) {
+            match why {
+                Some(Unreachable::AfterCatchAll) => self.warn_after_catch_all(arm),
+                Some(Unreachable::Covered) => {
+                    let span = self.ast.patterns[arm.pattern].span;
+                    match enum_name {
+                        None => self.warning(
+                            ErrorCode::W2014,
+                            span,
+                            lstr!(en: "unreachable arm: an earlier arm already covers this value"; tr: "erişilemez kol: bu değeri önceki bir kol zaten kapsıyor"),
+                            lstr!(en: "never taken"; tr: "hiç seçilmez"),
+                            lstr!(en: "merge the arm into the earlier one or write the value it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği değeri yazın"),
+                        ),
+                        Some(enum_name) => self.warning(
+                            ErrorCode::W2014,
+                            span,
+                            lstr!(en: "unreachable arm: an earlier arm already covers this variant of '{enum_name}'"; tr: "erişilemez kol: '{enum_name}' enum'unun bu varyantını önceki bir kol zaten kapsıyor"),
+                            lstr!(en: "never taken"; tr: "hiç seçilmez"),
+                            lstr!(en: "merge the arm into the earlier one or name the variant it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği varyantı yazın"),
+                        ),
+                    }
+                }
+                None => {}
+            }
         }
     }
 
@@ -87,10 +124,11 @@ impl TypeChecker<'_, '_> {
         arms: &[MatchArm],
         scrut_ty: TypeId,
         is_expr: bool,
-    ) {
+    ) -> Vec<bool> {
         let mut deferred = false;
         let mut has_wildcard = false;
-        self.warn_unreachable_value_arms(arms);
+        let dead = self.value_dead_arms(arms);
+        self.warn_dead_arms(arms, &dead, None);
         for arm in arms {
             let mut paths = Vec::new();
             let wild = self.collect_paths(arm.pattern, &mut paths);
@@ -119,6 +157,7 @@ impl TypeChecker<'_, '_> {
             self.diagnostics
                 .push(numeric_missing_wildcard(span, is_expr));
         }
+        dead.iter().map(Option::is_some).collect()
     }
 
     /// Sayısal sınananda değer deseni `x == P` gibi tiplenir (ADR-0085):
@@ -204,12 +243,13 @@ impl TypeChecker<'_, '_> {
         );
     }
 
-    /// W2014: jokerden sonraki kol ya da bütün literalleri önceki kollarda
-    /// geçen sayısal kol (kural `volt_ast::match_cover`, sv-emit aynı kolu
-    /// yazmaz).
-    fn warn_unreachable_value_arms(&mut self, arms: &[MatchArm]) {
+    /// Sayısal sınananda tasarıma yazılmayan kollar (kural
+    /// `volt_ast::match_cover`, sv-emit aynı kolu yazmaz). Sabit adı
+    /// sessizce değerlendirilir: tanısı ad çözümlemede verildi.
+    fn value_dead_arms(&mut self, arms: &[MatchArm]) -> Vec<Option<Unreachable>> {
+        let ast = self.ast;
         let ev = &mut *self.ev;
-        let unreachable = volt_ast::match_cover::unreachable_value_arms(self.ast, arms, &mut |e| {
+        let mut const_value = |e| {
             let before = ev.diagnostics.len();
             let value = ev.const_eval(e);
             ev.diagnostics.truncate(before);
@@ -218,23 +258,11 @@ impl TypeChecker<'_, '_> {
             } else {
                 None
             }
-        });
-        for (arm, why) in arms.iter().zip(unreachable) {
-            match why {
-                Some(Unreachable::AfterCatchAll) => self.warn_after_catch_all(arm),
-                Some(Unreachable::Covered) => {
-                    let span = self.ast.patterns[arm.pattern].span;
-                    self.warning(
-                        ErrorCode::W2014,
-                        span,
-                        lstr!(en: "unreachable arm: an earlier arm already covers this value"; tr: "erişilemez kol: bu değeri önceki bir kol zaten kapsıyor"),
-                        lstr!(en: "never taken"; tr: "hiç seçilmez"),
-                        lstr!(en: "merge the arm into the earlier one or write the value it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği değeri yazın"),
-                    );
-                }
-                None => {}
-            }
-        }
+        };
+        volt_ast::match_cover::dead_arms(ast, arms, &mut |p| {
+            volt_ast::match_cover::value_leaf(ast, p, &mut const_value)
+        })
+        .dead
     }
 
     /// W2014: önceki bir `_` kolu her değeri yakaladı; ilk eşleşen kol
@@ -251,84 +279,58 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Enum sınanan: desen tipi, kapsayıcılık, erişilemez kol.
-    fn check_enum_match(&mut self, span: Span, arms: &[MatchArm], e: EnumId, is_expr: bool) {
+    fn check_enum_match(
+        &mut self,
+        span: Span,
+        arms: &[MatchArm],
+        e: EnumId,
+        is_expr: bool,
+    ) -> Vec<bool> {
         let variants = self.enum_variants(e);
         let enum_name = self.enum_name(e);
-        let mut covered: Vec<DefId> = Vec::new();
-        let mut has_wildcard = false;
-        let after = volt_ast::match_cover::arms_after_catch_all(self.ast, arms);
-        for (arm, after) in arms.iter().zip(after) {
-            let cover = self.enum_arm_cover(arm.pattern, e, &enum_name);
-            if after {
-                self.warn_after_catch_all(arm);
-                continue;
-            }
-            if arm.guard.is_some() {
-                continue; // muhafızlı kol kapsamaya sayılmaz (E0003, ADR-0032)
-            }
-            let fresh = cover.variants.iter().any(|v| !covered.contains(v));
-            if !cover.variants.is_empty() && !fresh && !cover.wildcard && !has_wildcard {
-                let span = self.ast.patterns[arm.pattern].span;
-                self.warning(
-                    ErrorCode::W2014,
-                    span,
-                    lstr!(en: "unreachable arm: an earlier arm already covers this variant of '{enum_name}'"; tr: "erişilemez kol: '{enum_name}' enum'unun bu varyantını önceki bir kol zaten kapsıyor"),
-                    lstr!(en: "never taken"; tr: "hiç seçilmez"),
-                    lstr!(en: "merge the arm into the earlier one or name the variant it was meant for"; tr: "kolu öncekiyle birleştirin ya da kastettiği varyantı yazın"),
-                );
-            }
-            has_wildcard |= cover.wildcard;
-            for v in cover.variants {
-                if !covered.contains(&v) {
-                    covered.push(v);
-                }
-            }
-        }
-        if has_wildcard {
-            return;
+        let ast = self.ast;
+        let cover: ArmCover<DefId> =
+            volt_ast::match_cover::dead_arms(ast, arms, &mut |p| self.enum_leaf(p, e, &enum_name));
+        self.warn_dead_arms(arms, &cover.dead, Some(&enum_name));
+        let dead = cover.dead.iter().map(Option::is_some).collect();
+        if cover.catch_all {
+            return dead;
         }
         let missing: Vec<String> = variants
             .iter()
-            .filter(|(_, d)| !covered.contains(d))
+            .filter(|(_, d)| !cover.covered.contains(d))
             .map(|(n, _)| format!("{enum_name}::{n}"))
             .collect();
-        if missing.is_empty() {
-            return;
+        if !missing.is_empty() {
+            self.diagnostics
+                .push(enum_not_exhaustive(span, &enum_name, &missing, is_expr));
         }
-        self.diagnostics
-            .push(enum_not_exhaustive(span, &enum_name, &missing, is_expr));
+        dead
     }
 
-    /// Enum sınananda bir desenin kapsadığı varyantlar; yanlış desenler
-    /// E2003 alır. Aynı enum tipinde `const` adı (ADR-0085) değerinin
-    /// varyantını kapsar; çıplak varyant adı (`Idle`) ad çözümlemede E1001
-    /// + `State::Idle` önerisi alır.
-    fn enum_arm_cover(
+    /// Enum sınananda bir desen yaprağının adlandırdığı varyant; yanlış
+    /// desenler E2003 alır ve kapsamada her değeri yakalar (kaskad yok).
+    /// Aynı enum tipinde `const` adı (ADR-0085) değerinin varyantını
+    /// adlandırır; çıplak varyant adı (`Idle`) ad çözümlemede E1001 +
+    /// `State::Idle` önerisi alır.
+    fn enum_leaf(
         &mut self,
         pat: volt_ast::Idx<Pattern>,
         e: EnumId,
         enum_name: &str,
-    ) -> ArmCover {
+    ) -> Leaf<DefId> {
         let ast = self.ast;
-        let mut cover = ArmCover::default();
         let span = ast.patterns[pat].span;
         match &ast.patterns[pat].kind {
-            PatternKind::Wildcard => cover.wildcard = true,
-            PatternKind::Error => cover.wildcard = true, // parse tanısı zaten var
-            PatternKind::Or(alts) => {
-                for &a in alts {
-                    let sub = self.enum_arm_cover(a, e, enum_name);
-                    cover.wildcard |= sub.wildcard;
-                    cover.variants.extend(sub.variants);
-                }
-            }
+            // Joker ve alternatif `match_cover`'da; parse tanısı zaten var.
+            PatternKind::Wildcard | PatternKind::Or(_) | PatternKind::Error => Leaf::Opaque,
             PatternKind::Path { .. } => match self.res.pattern_resolutions.get(&pat) {
                 Some(&def) => match self.res.def_kind(def) {
-                    DefKind::EnumVariant { parent } if parent.0 == e.0 => cover.variants.push(def),
+                    DefKind::EnumVariant { parent } if parent.0 == e.0 => Leaf::Key(def),
                     DefKind::EnumVariant { parent } => {
                         let found = self.enum_name(EnumId(parent.0));
                         self.err_pattern_type(span, &found, enum_name);
-                        cover.wildcard = true;
+                        Leaf::Opaque
                     }
                     // Çözülemeyen yol E1001/E1007'yi aldı; kaskad yok.
                     DefKind::Module
@@ -350,32 +352,31 @@ impl TypeChecker<'_, '_> {
                     | DefKind::DomainParam
                     | DefKind::Builtin(_)
                     | DefKind::Import
-                    | DefKind::Error => cover.wildcard = true,
+                    | DefKind::Error => Leaf::Opaque,
                 },
-                None => cover.wildcard = true,
+                None => Leaf::Opaque,
             },
             PatternKind::Literal(lit) => {
                 let t = self.synth(*lit);
                 let same_enum = matches!(*self.types.ty(t), Ty::Enum(pe) if pe == e);
                 if let Some(variant) = self.const_variant_of(*lit, t, e) {
-                    cover.variants.push(variant);
+                    Leaf::Key(variant)
                 } else if self.types.is_error(t) || same_enum {
                     // E1001/E1015 zaten var ya da değer sabit değil
                     // (E1015); kaskad yok.
-                    cover.wildcard = true;
+                    Leaf::Opaque
                 } else {
                     let found = self.show(t);
                     self.err_pattern_type(span, &found, enum_name);
-                    cover.wildcard = true;
+                    Leaf::Opaque
                 }
             }
             PatternKind::Tuple(_) => {
                 let found = lstr!(en: "tuple"; tr: "tuple");
                 self.err_pattern_type(span, &found, enum_name);
-                cover.wildcard = true;
+                Leaf::Opaque
             }
         }
-        cover
     }
 
     fn err_pattern_type(&mut self, span: Span, found: &str, enum_name: &str) {

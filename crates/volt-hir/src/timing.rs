@@ -28,6 +28,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{DefId, DefKind, ResolveResult};
+use crate::typeck::DeadArms;
 
 /// Bir tanımın boru hattı gecikmesi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,13 +60,14 @@ pub struct TimingResult {
 }
 
 /// `@strict_timing` modüllerini denetler; diğerlerine hiç dokunmaz.
-pub fn check_timing(ast: &SourceFile, res: &ResolveResult) -> Vec<Diagnostic> {
-    analyze_timing(ast, res).diagnostics
+pub fn check_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) -> Vec<Diagnostic> {
+    analyze_timing(ast, res, dead).diagnostics
 }
 
 /// `check_timing` ile aynı geçit; tanılara ek olarak kesin gecikmeleri
-/// de döndürür.
-pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult) -> TimingResult {
+/// de döndürür. `dead`: tasarıma yazılmayan `match` kolları (tip
+/// denetiminden); onların kaynakları donanımda yoktur (#331).
+pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) -> TimingResult {
     let mut diags = Vec::new();
     let mut delays = HashMap::new();
     for &item_idx in &ast.items {
@@ -77,6 +79,7 @@ pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult) -> TimingResult {
             let mut mt = ModuleTiming {
                 ast,
                 res,
+                dead,
                 diags: &mut diags,
                 declared: HashMap::new(),
                 delays: HashMap::new(),
@@ -100,6 +103,8 @@ pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult) -> TimingResult {
 struct ModuleTiming<'a> {
     ast: &'a SourceFile,
     res: &'a ResolveResult,
+    /// Tasarıma yazılmayan `match` kolları: kaynak ve gecikme taşımaz.
+    dead: &'a DeadArms,
     diags: &'a mut Vec<Diagnostic>,
     /// Açık `Delayed<T, N>` anotasyonları: tanım → (N, anotasyon span'i).
     declared: HashMap<DefId, (u32, Span)>,
@@ -253,7 +258,8 @@ impl<'a> ModuleTiming<'a> {
                 }
                 BlockStmt::If(ifstmt) => self.collect_if(ifstmt),
                 BlockStmt::Match(m) => {
-                    for arm in &m.arms {
+                    let dead = self.dead;
+                    for arm in dead.live(&m.arms) {
                         if let MatchArmBody::Block(b) = &arm.body {
                             self.collect_block(*b);
                         }
@@ -472,8 +478,9 @@ impl<'a> ModuleTiming<'a> {
                 self.combine(a, b, emit)
             }
             ExprKind::Match { arms, .. } => {
-                let bodies: Vec<Idx<Expr>> = arms
-                    .iter()
+                let bodies: Vec<Idx<Expr>> = self
+                    .dead
+                    .live(arms)
                     .filter_map(|arm| match &arm.body {
                         MatchArmBody::Expr(e) => Some(*e),
                         MatchArmBody::Block(_) => None,

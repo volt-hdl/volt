@@ -52,6 +52,58 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   driven"). Ölü kol W2014'ü almaya devam eder; SV çıktısı değişmez.
   Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm
   notunun "Behavior changes" bölümüne girer.
+- **Davranış değişikliği.** Önceki kolların kapsadığı `match` kolundaki
+  atama da artık sürücü sayılmaz (#331; sessiz yanlış düzeltmesi,
+  sv-mapping.md §19.1, type-inference.md §11.1): ilk eşleşen kol
+  kazandığından `0 => { a = 1 } 0 => { a = 9; c = 3 } _ => { a = 7 }`
+  içindeki ikinci `0` kolu hiç seçilmez, SV'ye yazılmaz ve W2014 alır;
+  enum'da aynı varyantı ikinci kez adlandıran kol da öyle. Önce derlenen
+  kod artık reddedilebilir: yalnız böyle bir kolda atanan çıkış E4002,
+  yalnız orada atanan bitleri E4012 alır (0.1.2'de ve #216'dan sonra
+  yalnız W2014 alıyor, SV'de `c` sürücüsüz kalıyordu). Tersine böyle bir
+  koldaki atama başka bir sürücüyle E4001 çakışması yaratmaz. Son hanede
+  (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası.
+- **Davranış değişikliği.** Tasarıma yazılmayan `match` kolu (ilk joker
+  koldan sonraki kol ve önceki kolların kapsadığı kol, deyim ve ifade
+  biçiminde) artık donanımı inceleyen hiçbir analize girmez (#332): saat
+  alanı (E3001, E3011, E3012), güven seviyesi (E3009), `@strict_timing`
+  zamanlaması (E5010), el sıkışma (E4007), saatsiz alt modül özeti (K8b),
+  `@mmio` alan sahipliği (E4006) ve `@w1c` temizleme yeri, SDC'deki `sync`
+  köprüsünün kaynak saati, otomatik FSM kontratları ve iç konumdaki match
+  zincirinin yükseklik/boyut sınırı (E0018, E2027). Önce reddedilen kod
+  artık derlenebilir: `comb { match s { _ => { slow = 1 } 1 => { slow =
+  fast } } }` E3001 veriyordu, artık yalnız W2014 alır. Kol tip
+  denetiminden geçmeye ve W2014 almaya devam eder. Otomatik FSM
+  kontratları kapsanan koldaki yazmayı geçiş saymaz: o geçişin cover'ı ve
+  ulaşılamayan joker kaynağının cover'ı artık üretilmez.
+- **Davranış değişikliği.** Üretilen SV iki durumda değişti; geçerli
+  girişlerde değer aynıdır, önce Verilator tasarımı derlemiyordu. (1) Enum tipli `const` adı
+  deseni (`START => …`, `const START : S = S::B`, ADR-0085) SV üreticide
+  de değerinin varyantını adlandırır: kapsadığı sonraki kol (`S::B => …`)
+  yazılmaz ve her varyantı adlandıran `_`'sız match'te son kol `default`
+  olur (ADR-0074 Karar 4); geçersiz kodlar da o kolu alır. 0.1.2'de desen
+  joker sayılıyordu: `case` iki `S_B` etiketi taşıyor, `default`'u yoktu;
+  Verilator `CASEOVERLAP`, `CASEINCOMPLETE` ve `LATCH` ile durup `volt
+  test` düşüyordu. Son kolu zaten `default` olan match ifadesinde
+  değişen, o satıra eklenen `// <Enum>_<Varyant> (and invalid codes)`
+  yorumudur. (2) Bir
+  `on` bloğunda tasarıma yazılmayan koldaki yazma, o bloğun reset dalına
+  artık reset ataması eklemez; önce register iki `always_ff`'te sürülüyor,
+  Verilator `MULTIDRIVEN` ile duruyordu.
+- **Davranış değişikliği.** Değeri ad zinciri olmayan enum tipli `const`
+  (`const START : Mode = if c { Mode::Idle } else { Mode::Run }`, fonksiyon
+  çağrısı) `match` deseni olarak artık E0003 alır ("not supported yet: enum
+  constant 'START' as a pattern, whose variant the SystemVerilog emitter
+  cannot resolve"); sayısal sabitin "cannot fold" kuralıyla aynı biçim.
+  Önce derlenen kod reddedilir. Değeri doğrudan bir varyant
+  (`const START : Mode = Mode::Idle`) ya da böyle bir sabitin adı olan
+  zincir, uzunluğu ne olursa olsun, eskisi gibi derlenir. Nedeni: HIR böyle
+  bir sabitin varyantını bulur ve kapsadığı kolu tasarıma yazmaz, sürücü
+  saymaz; SV üretici bulamaz ve kolu yazardı. #331'in düzeltmesiyle bu,
+  kapsanan koldaki atamayı başka bir sürücüyle birlikte sessizce kabul
+  ettirip SV'de sinyali iki yerden sürüyordu (0.1.2'de aynı program E4001
+  alıyordu). Depoda ve kitapta böyle bir desen yok. Son hanede (v0.1.3)
+  çıkar, ADR-0100'ün sessiz yanlış istisnası.
 - **Davranış değişikliği.** İşaretli `>>`'nin genişlik kadar ya da daha
   büyük sabit miktarı SystemVerilog'da `>>> (w-1)` yazılır (#302; sessiz
   yanlış düzeltmesi, ADR-0120). 0.1.2'de `a >> 64` (`a : i63`) `a >>> 64`

@@ -107,8 +107,10 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // modül argümansız. #250: 152 harf büyüklüğünden fazlasıyla ayrılan
     // modül adları. #266: 153 ara sonucu açık genişlikte (W2016 yok).
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda. #328: 155
-    // jokerden sonraki koldaki atama ikinci sürücü değil.
-    assert_eq!((built, check_only), (140, 0));
+    // jokerden sonraki koldaki atama ikinci sürücü değil. #331: 156
+    // kapsanan koldaki atama ikinci sürücü değil. #332: 157 ölü koldaki
+    // alanlar arası atama E3001 değil.
+    assert_eq!((built, check_only), (142, 0));
 }
 
 #[test]

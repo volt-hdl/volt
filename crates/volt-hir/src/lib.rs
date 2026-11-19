@@ -81,7 +81,7 @@ pub use testdata::{
 pub use timing::{analyze_timing, check_timing, TimingResult};
 pub use trust::check_trust;
 pub use ty::{EnumId, ModuleId, StructId, Ty, TypeArena, TypeId};
-pub use typeck::{typecheck, TypeckResult};
+pub use typeck::{typecheck, DeadArms, TypeckResult};
 pub use unit::{check_imports, FileScope, ImportResult, UnitInfo};
 
 use volt_ast::SourceFile;
@@ -151,7 +151,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let test_diags = sim::check_tests(&[ast], ast, !has_modules);
 
     // L1 zamanlama (ADR-0037): yalnız @strict_timing modüllerinde çalışır.
-    let timing_diags = timing::check_timing(ast, &resolve);
+    let timing_diags = timing::check_timing(ast, &resolve, &typeck.dead_arms);
 
     // Handshake protokolü (ADR-0050): üretici valid'i ready'ye
     // kombinasyonel bağlayamaz (E4007).
@@ -159,7 +159,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
 
     // Zamanlama kısıtları (ADR-0054): @timing / @false_path / @multicycle
     // biçim ve tutarlılık denetimi (E0017); W0022 yalnız --emit=sdc,xdc'de.
-    let constraint_diags = constraints::check_constraints(ast);
+    let constraint_diags = constraints::check_constraints(ast, &typeck.dead_arms);
 
     // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
     // tek dosya API'sinde varsayılan politika uyarıdır.

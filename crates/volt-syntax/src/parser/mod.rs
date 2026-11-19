@@ -8,6 +8,7 @@ mod attr_use;
 mod auto_contract;
 mod bidir;
 mod bundle;
+mod dead_arm;
 mod depth;
 mod desugar;
 mod expr;

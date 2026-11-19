@@ -274,11 +274,14 @@ fn missing_frequency(c: &ClockConstraint, module: &str) -> Diagnostic {
 
 /// Birimdeki her saatli modül için kısıt modeli kurar; E0017 tanıları
 /// `diagnostics`'te döner.
-pub fn collect_constraints(ast: &SourceFile) -> ConstraintResult {
-    walk::collect(ast)
+/// `dead`: tasarıma yazılmayan `match` kolları (tip denetiminden,
+/// `TypeckResult::dead_arms`); onlardaki yazma register'ın saatini
+/// belirlemez.
+pub fn collect_constraints(ast: &SourceFile, dead: &crate::DeadArms) -> ConstraintResult {
+    walk::collect(ast, dead)
 }
 
 /// Yalnız tanılar (sürücü `check`, LSP ve `analyze` için kısayol).
-pub fn check_constraints(ast: &SourceFile) -> Vec<Diagnostic> {
-    collect_constraints(ast).diagnostics
+pub fn check_constraints(ast: &SourceFile, dead: &crate::DeadArms) -> Vec<Diagnostic> {
+    collect_constraints(ast, dead).diagnostics
 }

@@ -145,9 +145,11 @@ impl Inferencer<'_> {
         let mut dom = self.expr_domain(scrutinee);
         let s_span = self.ast.exprs[scrutinee].span;
         // Muhafız da seçimdir: sonuç sınanan ⊔ muhafızlar ⊔ kollar
-        // (ADR-0083 Karar 8).
-        let arm_exprs: Vec<Idx<Expr>> = arms
-            .iter()
+        // (ADR-0083 Karar 8). Tasarıma yazılmayan kol katılmaz (#332).
+        let arm_exprs: Vec<Idx<Expr>> = self
+            .tyck
+            .dead_arms
+            .live(arms)
             .flat_map(|a| {
                 let body = match &a.body {
                     MatchArmBody::Expr(e) => Some(*e),

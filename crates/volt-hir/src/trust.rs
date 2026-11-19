@@ -404,9 +404,11 @@ impl<'a> Checker<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee = *scrutinee;
                 // Muhafız seçime katılır: sonuç onun bilgisini de taşır
-                // (ADR-0083 Karar 8).
-                let arm_exprs: Vec<Idx<Expr>> = arms
-                    .iter()
+                // (ADR-0083 Karar 8). Tasarıma yazılmayan kol katılmaz.
+                let arm_exprs: Vec<Idx<Expr>> = self
+                    .tyck
+                    .dead_arms
+                    .live(arms)
                     .flat_map(|a| {
                         let body = match &a.body {
                             MatchArmBody::Expr(e) => Some(*e),
@@ -534,7 +536,9 @@ impl<'a> Checker<'a> {
                 BlockStmt::Match(mt) => {
                     let s = self.expr_tag(mt.scrutinee);
                     let pc = join(pc, s);
-                    for arm in &mt.arms {
+                    // Tasarıma yazılmayan kol donanımda yoktur.
+                    let tyck = self.tyck;
+                    for arm in tyck.dead_arms.live(&mt.arms) {
                         // Muhafızın koşulu da kolun `pc`'sidir (örtük akış).
                         let pc = match arm.guard {
                             Some(g) => {

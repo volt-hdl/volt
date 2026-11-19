@@ -15,6 +15,8 @@ use volt_ast::{
 use volt_diagnostics::{lstr, Diagnostic, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
 
+use crate::typeck::DeadArms;
+
 use super::parse::{
     parse_false_path, parse_multicycle, parse_timing, unsupported, PathKind, TimingForm,
 };
@@ -57,6 +59,9 @@ struct DomainDecl {
 /// Bir modülün ad tabloları — çözümlemeden bağımsız, gövdeden toplanır.
 struct Scope<'a> {
     ast: &'a SourceFile,
+    /// Tasarıma yazılmayan `match` kolları (tip denetiminden): onlardaki
+    /// yazma ve okuma saat izlemesine girmez.
+    dead: &'a DeadArms,
     module: &'a ModuleDecl,
     /// port adı → (yön, saat mi, `@Domain`)
     ports: HashMap<&'a str, (PortDir, bool, Option<&'a str>)>,
@@ -69,9 +74,10 @@ struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
-    fn new(ast: &'a SourceFile, module: &'a ModuleDecl) -> Self {
+    fn new(ast: &'a SourceFile, dead: &'a DeadArms, module: &'a ModuleDecl) -> Self {
         let mut scope = Scope {
             ast,
+            dead,
             module,
             ports: HashMap::new(),
             regs: HashSet::new(),
@@ -105,7 +111,7 @@ impl<'a> Scope<'a> {
                 StmtKind::On(on) => {
                     if let volt_ast::OnTrigger::Clock(clk) = &on.trigger {
                         let mut targets = Vec::new();
-                        collect_nonblocking_targets(ast, on.body, &mut targets);
+                        collect_nonblocking_targets(ast, dead, on.body, &mut targets);
                         for t in targets {
                             scope.reg_clock.entry(t).or_insert(clk.text.as_str());
                         }
@@ -161,7 +167,7 @@ impl<'a> Scope<'a> {
         }
         let expr = *self.let_exprs.get(name)?;
         let mut names = Vec::new();
-        collect_path_names(self.ast, expr, &mut names);
+        collect_path_names(self.ast, self.dead, expr, &mut names);
         names
             .into_iter()
             .find_map(|n| self.driver_clock_depth(n, depth + 1))
@@ -170,25 +176,30 @@ impl<'a> Scope<'a> {
 
 /// İfadedeki tek segmentli yol adları (sığ: alt ifadeler dâhil, çağrı
 /// adları hariç).
-fn collect_path_names<'a>(ast: &'a SourceFile, e: Idx<volt_ast::Expr>, out: &mut Vec<&'a str>) {
+fn collect_path_names<'a>(
+    ast: &'a SourceFile,
+    dead: &DeadArms,
+    e: Idx<volt_ast::Expr>,
+    out: &mut Vec<&'a str>,
+) {
     match &ast.exprs[e].kind {
         ExprKind::Path(p) if p.segments.len() == 1 => out.push(p.segments[0].text.as_str()),
         ExprKind::Binary { lhs, rhs, .. } => {
-            collect_path_names(ast, *lhs, out);
-            collect_path_names(ast, *rhs, out);
+            collect_path_names(ast, dead, *lhs, out);
+            collect_path_names(ast, dead, *rhs, out);
         }
-        ExprKind::Unary { operand, .. } => collect_path_names(ast, *operand, out),
+        ExprKind::Unary { operand, .. } => collect_path_names(ast, dead, *operand, out),
         ExprKind::Index { base, index } => {
-            collect_path_names(ast, *base, out);
-            collect_path_names(ast, *index, out);
+            collect_path_names(ast, dead, *base, out);
+            collect_path_names(ast, dead, *index, out);
         }
         ExprKind::Range { base, .. }
         | ExprKind::PartSelect { base, .. }
-        | ExprKind::Field { base, .. } => collect_path_names(ast, *base, out),
-        ExprKind::Cast { expr, .. } => collect_path_names(ast, *expr, out),
+        | ExprKind::Field { base, .. } => collect_path_names(ast, dead, *base, out),
+        ExprKind::Cast { expr, .. } => collect_path_names(ast, dead, *expr, out),
         ExprKind::Call { args, .. } => {
             for a in args {
-                collect_path_names(ast, *a, out);
+                collect_path_names(ast, dead, *a, out);
             }
         }
         ExprKind::If {
@@ -196,14 +207,21 @@ fn collect_path_names<'a>(ast: &'a SourceFile, e: Idx<volt_ast::Expr>, out: &mut
             then_expr,
             else_expr,
         } => {
-            collect_path_names(ast, *cond, out);
-            collect_path_names(ast, *then_expr, out);
-            collect_path_names(ast, *else_expr, out);
+            collect_path_names(ast, dead, *cond, out);
+            collect_path_names(ast, dead, *then_expr, out);
+            collect_path_names(ast, dead, *else_expr, out);
         }
-        // Sınanan, muhafızlar ve kollar (ADR-0083).
-        ExprKind::Match { .. } => {
-            for c in volt_ast::visit::expr_children(&ast.exprs[e].kind) {
-                collect_path_names(ast, c, out);
+        // Sınanan, muhafızlar ve kollar (ADR-0083); tasarıma yazılmayan
+        // kol donanımda yoktur.
+        ExprKind::Match { scrutinee, arms } => {
+            collect_path_names(ast, dead, *scrutinee, out);
+            for arm in dead.live(arms) {
+                if let Some(g) = arm.guard {
+                    collect_path_names(ast, dead, g, out);
+                }
+                if let MatchArmBody::Expr(b) = arm.body {
+                    collect_path_names(ast, dead, b, out);
+                }
             }
         }
         // Yapraklar ve çok segmentli yollar (enum varyantı, sabit yolu).
@@ -222,45 +240,57 @@ fn collect_path_names<'a>(ast: &'a SourceFile, e: Idx<volt_ast::Expr>, out: &mut
 }
 
 /// `on` bloğu içindeki (`if`/`match` dâhil) `x <= ...` hedef adları.
-fn collect_nonblocking_targets<'a>(ast: &'a SourceFile, block: Idx<Block>, out: &mut Vec<&'a str>) {
+fn collect_nonblocking_targets<'a>(
+    ast: &'a SourceFile,
+    dead: &DeadArms,
+    block: Idx<Block>,
+    out: &mut Vec<&'a str>,
+) {
     for stmt in &ast.blocks[block].stmts {
         match stmt {
             BlockStmt::NonBlockAssign { lhs, .. } => out.push(lhs.base.text.as_str()),
-            BlockStmt::If(i) => collect_if_targets(ast, i, out),
+            BlockStmt::If(i) => collect_if_targets(ast, dead, i, out),
             BlockStmt::Match(m) => {
-                for arm in &m.arms {
+                for arm in dead.live(&m.arms) {
                     if let MatchArmBody::Block(b) = &arm.body {
-                        collect_nonblocking_targets(ast, *b, out);
+                        collect_nonblocking_targets(ast, dead, *b, out);
                     }
                 }
             }
-            BlockStmt::For(f) => collect_nonblocking_targets(ast, f.body, out),
+            BlockStmt::For(f) => collect_nonblocking_targets(ast, dead, f.body, out),
             // `=` ataması ve let register yazmaz.
             BlockStmt::BlockAssign { .. } | BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }
 
-fn collect_if_targets<'a>(ast: &'a SourceFile, i: &'a volt_ast::IfStmt, out: &mut Vec<&'a str>) {
-    collect_nonblocking_targets(ast, i.then_block, out);
+fn collect_if_targets<'a>(
+    ast: &'a SourceFile,
+    dead: &DeadArms,
+    i: &'a volt_ast::IfStmt,
+    out: &mut Vec<&'a str>,
+) {
+    collect_nonblocking_targets(ast, dead, i.then_block, out);
     match &i.else_branch {
-        Some(ElseBranch::Block(b)) => collect_nonblocking_targets(ast, *b, out),
-        Some(ElseBranch::If(e)) => collect_if_targets(ast, e, out),
+        Some(ElseBranch::Block(b)) => collect_nonblocking_targets(ast, dead, *b, out),
+        Some(ElseBranch::If(e)) => collect_if_targets(ast, dead, e, out),
         None => {}
     }
 }
 
 struct Collector<'a> {
     ast: &'a SourceFile,
+    dead: &'a DeadArms,
     domains: HashMap<&'a str, DomainDecl>,
     diags: Vec<Diagnostic>,
     /// Aynı konum için tek E0017 (alt modül birden çok üstten yürünür).
     reported: HashSet<(FileId, u32, u32)>,
 }
 
-pub(super) fn collect(ast: &SourceFile) -> ConstraintResult {
+pub(super) fn collect(ast: &SourceFile, dead: &DeadArms) -> ConstraintResult {
     let mut c = Collector {
         ast,
+        dead,
         domains: HashMap::new(),
         diags: Vec::new(),
         reported: HashSet::new(),
@@ -346,7 +376,7 @@ impl<'a> Collector<'a> {
         m: &'a ModuleDecl,
         attrs: &'a [Attribute],
     ) -> Option<ModuleConstraints> {
-        let scope = Scope::new(self.ast, m);
+        let scope = Scope::new(self.ast, self.dead, m);
         let mut clocks: Vec<ClockConstraint> = scope
             .clock_ports()
             .map(|p| {
@@ -1084,7 +1114,7 @@ impl<'a> Collector<'a> {
         let Some((sub, sub_attrs)) = self.module_named(target) else {
             return;
         };
-        let sub_scope = Scope::new(self.ast, sub);
+        let sub_scope = Scope::new(self.ast, self.dead, sub);
         let mut clock_map: HashMap<String, String> = HashMap::new();
         for p in sub_scope.clock_ports() {
             let Some(b) = inst

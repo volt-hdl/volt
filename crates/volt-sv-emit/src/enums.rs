@@ -255,6 +255,15 @@ impl<'a> Emitter<'a> {
     }
 }
 
+/// Desen yaprağının emitter'daki değeri: sayı/bool ya da enum varyantının
+/// sırası (desenin enum'u sınananınkiyle aynıdır; değilse HIR E2003 verdi
+/// ve emit koşmaz).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ArmKey {
+    Value(volt_ast::match_cover::LitKey),
+    Variant(usize),
+}
+
 /// Enum `match`'inin `case` planı (ADR-0074 Karar 4).
 pub(crate) struct EnumMatchPlan {
     /// Kol atlanır (W2014): ilk joker koldan sonra ya da bütün varyantları
@@ -270,45 +279,127 @@ pub(crate) struct EnumMatchPlan {
 }
 
 impl<'a> Emitter<'a> {
-    /// Kolların kapsadığı varyantlar: erişilemez kollar ve kapsayıcı
-    /// match'in `default` kolu. Muhafızlı kollar kapsamaya sayılmaz
-    /// (E0003); jokerden sonraki kollar atlanır.
+    /// Tasarıma yazılmayan kollar ve kolların kapsadıkları (sv-mapping.md
+    /// §19.1, W2014): kural `volt_ast::match_cover::dead_arms`'ta, HIR
+    /// W2014'ü ve sürücü analizini aynı kuraldan verir. Burada yalnız desen
+    /// yaprağının emitter'daki anlamı: varyant yolu, enum tipli `const`
+    /// adının varyantı (ADR-0085), sayı/bool literali ve sabit adı.
+    /// Yaprağın anlamı sınananın tipinden bağımsızdır: varyant yolu ve enum
+    /// tipli sabit adı varyanttır, öteki literal ve sabit adı değerdir.
+    /// Geçerli bir programda bu HIR'ın anlamıyla aynıdır (sayı üzerinde
+    /// varyant ya da enum üzerinde sayı deseni E2003 alır ve emit koşmaz);
+    /// modül bağlamı kurulmadan koşan denetimler (E0020) de aynı kolları
+    /// görür.
+    pub(crate) fn arm_cover(
+        &self,
+        arms: &[volt_ast::MatchArm],
+    ) -> volt_ast::match_cover::ArmCover<ArmKey> {
+        use volt_ast::match_cover::{dead_arms, value_leaf, Leaf};
+        use volt_ast::PatternKind;
+        dead_arms(self.ast, arms, &mut |p| match &self.ast.patterns[p].kind {
+            PatternKind::Path { path, args: None } => match self.enum_variant_of_path(path) {
+                Some((_, i)) => Leaf::Key(ArmKey::Variant(i)),
+                None => Leaf::Opaque,
+            },
+            PatternKind::Literal(e) => {
+                if let Some(i) = self.const_variant(*e) {
+                    return Leaf::Key(ArmKey::Variant(i));
+                }
+                match value_leaf(self.ast, p, &mut |e| self.eval_const(e)) {
+                    Leaf::Key(k) => Leaf::Key(ArmKey::Value(k)),
+                    Leaf::Unknown => Leaf::Unknown,
+                    Leaf::Opaque => Leaf::Opaque,
+                }
+            }
+            PatternKind::Wildcard
+            | PatternKind::Or(_)
+            | PatternKind::Path { args: Some(_), .. }
+            | PatternKind::Tuple(_)
+            | PatternKind::Error => Leaf::Unknown,
+        })
+    }
+
+    /// Kol başına "tasarıma yazılmıyor" ([`Self::arm_cover`]).
+    pub(crate) fn dead_arms(&self, arms: &[volt_ast::MatchArm]) -> Vec<bool> {
+        let cover = self.arm_cover(arms);
+        (0..arms.len()).map(|i| cover.is_dead(i)).collect()
+    }
+
+    /// Enum tipli `const` adının varyant sırası; zincir kuralı
+    /// `volt_ast::match_cover::const_variant`'ta (parser aynısını okur).
+    fn const_variant(&self, e: Idx<Expr>) -> Option<usize> {
+        volt_ast::match_cover::const_variant(
+            self.ast,
+            e,
+            &mut |p| self.const_path(p).map(|(_, _, value)| value),
+            &mut |path| self.enum_variant_of_path(path).map(|(_, i)| i),
+        )
+    }
+
+    /// Enum tipli `const` adı deseninin varyantı ad zincirinden çıkmıyorsa
+    /// (`if`, çağrı: değeri HIR'ın sabit değerlendiricisi bulur) E0003:
+    /// hangi kolları kapsadığı burada bilinemez, HIR o kolları tasarıma
+    /// yazmaz ve sürücü saymaz; yazılsalar SV aynı sinyali iki yerden
+    /// sürebilirdi. Sayısal sabitin "cannot fold" kuralıyla aynı biçim.
+    pub(crate) fn refuse_unresolved_enum_const(&mut self, e: Idx<Expr>) -> bool {
+        let Some((name, ty, _)) = self.const_path(e) else {
+            return false;
+        };
+        let Some(decl) = self.enum_of_type(ty) else {
+            return false;
+        };
+        if self.const_variant(e).is_some() {
+            return false;
+        }
+        let enum_name = &decl.name.text;
+        let first = decl
+            .variants
+            .first()
+            .map_or("<Variant>", |v| v.name.text.as_str());
+        let span = self.ast.exprs[e].span;
+        self.error(
+            ErrorCode::E0003,
+            lstr!(
+                en: "not supported yet: enum constant '{name}' as a pattern, whose variant the SystemVerilog emitter cannot resolve";
+                tr: "henüz desteklenmiyor: varyantını SystemVerilog üreticisinin çözemediği '{name}' enum sabiti desen olarak"
+            ),
+            span,
+            &lstr!(
+                en: "write the constant as a variant (const {name} : {enum_name} = {enum_name}::{first}) or as the name of a constant that is one (see volt explain E0003)";
+                tr: "sabiti bir varyant olarak (const {name} : {enum_name} = {enum_name}::{first}) ya da varyant olan bir sabitin adı olarak yazın (bkz. volt explain E0003)"
+            ),
+        );
+        true
+    }
+
+    /// Kolların kapsadığı varyantlar: tasarıma yazılmayan kollar ve
+    /// kapsayıcı match'in `default` kolu. Muhafızlı kollar kapsamaya
+    /// sayılmaz (E0003).
     pub(crate) fn enum_match_plan(
         &self,
         arms: &[volt_ast::MatchArm],
         decl: &EnumDecl,
     ) -> EnumMatchPlan {
-        // İlk joker koldan sonraki kollar yazılmaz (sv-mapping.md §19.1,
-        // #216); kural `volt_ast::match_cover`'da, HIR W2014'ü oradan verir.
-        let mut skip = volt_ast::match_cover::arms_after_catch_all(self.ast, arms);
-        let mut covered: Vec<usize> = Vec::new();
-        let mut wildcard = false;
-        let mut last_named = None;
-        for (i, arm) in arms.iter().enumerate() {
-            if arm.guard.is_some() {
-                continue;
-            }
-            let (set, wild) = self.pattern_variants(arm.pattern, decl);
-            if !wildcard && !wild && !set.is_empty() && set.iter().all(|v| covered.contains(v)) {
-                skip[i] = true;
-                continue;
-            }
-            wildcard |= wild;
-            if !wild {
-                last_named = Some((i, set.clone()));
-            }
-            for v in set {
-                if !covered.contains(&v) {
-                    covered.push(v);
-                }
-            }
-        }
-        let exhaustive = !wildcard && covered.len() == decl.variants.len();
+        let cover = self.arm_cover(arms);
+        let skip = (0..arms.len()).map(|i| cover.is_dead(i)).collect();
+        let exhaustive = !cover.catch_all && cover.covered.len() == decl.variants.len();
+        let last_named = cover
+            .keys
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, k)| k.as_ref().map(|k| (i, k)));
         let (default_arm, default_names) = match last_named {
             Some((i, set)) if exhaustive => {
                 let names: Vec<String> = set
                     .iter()
-                    .map(|&v| format!("{}_{}", decl.name.text, decl.variants[v].name.text))
+                    .filter_map(|k| match k {
+                        ArmKey::Variant(v) => Some(format!(
+                            "{}_{}",
+                            decl.name.text, decl.variants[*v].name.text
+                        )),
+                        ArmKey::Value(_) => None,
+                    })
                     .collect();
                 (Some(i), names.join(", "))
             }
@@ -320,32 +411,6 @@ impl<'a> Emitter<'a> {
             default_arm,
             default_names,
             has_invalid_codes,
-        }
-    }
-
-    /// Desenin adlandırdığı varyant sıraları ve joker olup olmadığı.
-    fn pattern_variants(&self, pat: Idx<volt_ast::Pattern>, decl: &EnumDecl) -> (Vec<usize>, bool) {
-        use volt_ast::PatternKind;
-        match &self.ast.patterns[pat].kind {
-            PatternKind::Path { path, args: None } => match self.enum_variant_of_path(path) {
-                Some((d, i)) if d.name.text == decl.name.text => (vec![i], false),
-                _ => (Vec::new(), true),
-            },
-            PatternKind::Or(alts) => {
-                let mut set = Vec::new();
-                let mut wild = false;
-                for &a in alts {
-                    let (s, w) = self.pattern_variants(a, decl);
-                    set.extend(s);
-                    wild |= w;
-                }
-                (set, wild)
-            }
-            PatternKind::Wildcard
-            | PatternKind::Literal(_)
-            | PatternKind::Path { .. }
-            | PatternKind::Tuple(_)
-            | PatternKind::Error => (Vec::new(), true),
         }
     }
 }

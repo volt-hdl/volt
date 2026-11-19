@@ -36,7 +36,7 @@ use volt_span::Span;
 use std::collections::HashMap;
 
 use volt_ast::builtin::{BuiltinPrim, PortKind};
-use volt_ast::{Block, ClockEdge, Idx};
+use volt_ast::{Block, ClockEdge, Idx, MatchStmt};
 
 use crate::{clock_ports_of, is_sync_call, path_single, ClockPort, DomainInfo, Emitter};
 
@@ -264,7 +264,12 @@ impl Emitter<'_> {
             })
             .collect();
         let mut targets = Vec::new();
-        written_targets(ast, &ast.blocks[body], &mut targets);
+        written_targets(
+            ast,
+            &|m| self.dead_arms(&m.arms),
+            &ast.blocks[body],
+            &mut targets,
+        );
         for (name, span) in targets {
             if regs.contains(&name.as_str()) {
                 continue;
@@ -333,7 +338,12 @@ impl Emitter<'_> {
 
 /// `on` gövdesinde `<=`/`=` hedefleri (taban ad ve konum), ilk görülme
 /// sırasıyla — `collect_written` (reset dalı) ile aynı küme.
-fn written_targets(ast: &SourceFile, block: &Block, out: &mut Vec<(String, Span)>) {
+fn written_targets(
+    ast: &SourceFile,
+    dead: &dyn Fn(&MatchStmt) -> Vec<bool>,
+    block: &Block,
+    out: &mut Vec<(String, Span)>,
+) {
     for stmt in &block.stmts {
         match stmt {
             BlockStmt::NonBlockAssign { lhs, .. } | BlockStmt::BlockAssign { lhs, .. } => {
@@ -341,27 +351,34 @@ fn written_targets(ast: &SourceFile, block: &Block, out: &mut Vec<(String, Span)
                     out.push((lhs.base.text.clone(), lhs.span));
                 }
             }
-            BlockStmt::If(if_stmt) => written_targets_if(ast, if_stmt, out),
+            BlockStmt::If(if_stmt) => written_targets_if(ast, dead, if_stmt, out),
             BlockStmt::Match(mt) => {
-                for arm in &mt.arms {
+                // Tasarıma yazılmayan kol yazılmaz: hedefi de yoktur.
+                let dead_arms = dead(mt);
+                for (arm, _) in mt.arms.iter().zip(dead_arms).filter(|(_, d)| !d) {
                     match &arm.body {
-                        MatchArmBody::Block(b) => written_targets(ast, &ast.blocks[*b], out),
+                        MatchArmBody::Block(b) => written_targets(ast, dead, &ast.blocks[*b], out),
                         // Deyim konumunda ifade gövdeli kol atama yapamaz.
                         MatchArmBody::Expr(_) => {}
                     }
                 }
             }
-            BlockStmt::For(f) => written_targets(ast, &ast.blocks[f.body], out),
+            BlockStmt::For(f) => written_targets(ast, dead, &ast.blocks[f.body], out),
             BlockStmt::Let(_) | BlockStmt::Error => {}
         }
     }
 }
 
-fn written_targets_if(ast: &SourceFile, if_stmt: &IfStmt, out: &mut Vec<(String, Span)>) {
-    written_targets(ast, &ast.blocks[if_stmt.then_block], out);
+fn written_targets_if(
+    ast: &SourceFile,
+    dead: &dyn Fn(&MatchStmt) -> Vec<bool>,
+    if_stmt: &IfStmt,
+    out: &mut Vec<(String, Span)>,
+) {
+    written_targets(ast, dead, &ast.blocks[if_stmt.then_block], out);
     match &if_stmt.else_branch {
-        Some(ElseBranch::Block(b)) => written_targets(ast, &ast.blocks[*b], out),
-        Some(ElseBranch::If(elif)) => written_targets_if(ast, elif, out),
+        Some(ElseBranch::Block(b)) => written_targets(ast, dead, &ast.blocks[*b], out),
+        Some(ElseBranch::If(elif)) => written_targets_if(ast, dead, elif, out),
         None => {}
     }
 }
