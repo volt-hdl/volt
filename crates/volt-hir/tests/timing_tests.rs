@@ -898,3 +898,56 @@ fn output_port_declaration_is_not_a_retiming_assertion() {
     let src = two_stage("    out y   : Delayed<u32, 2>", "    y = a + b");
     assert_eq!(e5010_count(&src), 1);
 }
+
+/// Bildirim uyuşmazlığının okura dönük metni: ileti, etiketler, help.
+fn declared_mismatch_text(src: &str) -> String {
+    let parsed = parse(FileId(0), src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let diags: Vec<_> = analyze(&parsed.ast)
+        .diagnostics
+        .into_iter()
+        .filter(|d| d.code.as_str() == "E5010")
+        .collect();
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    let d = &diags[0];
+    assert_eq!(d.message, "declared delay does not match the value");
+    let mut t = d.help.clone().unwrap_or_default();
+    for s in &d.spans {
+        t.push('\n');
+        t.push_str(&s.label);
+    }
+    t
+}
+
+#[test]
+fn the_declared_mismatch_text_names_both_counts_and_the_way_out() {
+    // N bir fazla: bir register aşaması daha; tekil "1 cycle".
+    let t = declared_mismatch_text(&two_stage("    out y   : Delayed<u32, 2>", "    y = a"));
+    assert!(t.contains("declared as 2 cycles here"), "{t}");
+    assert!(t.contains("this value is 1 cycle old"), "{t}");
+    assert!(
+        t.contains("write the count as 1; if the value must be 2 cycles old, pass it through one more register stage"),
+        "{t}"
+    );
+    // N dört fazla: dört register aşaması.
+    let t = declared_mismatch_text(&two_stage("    out y   : Delayed<u32, 5>", "    y = a"));
+    assert!(t.contains("pass it through 4 more register stages"), "{t}");
+    // N bir eksik: bir çevrim önceki aşama; tekil "1 cycle".
+    let t = declared_mismatch_text(&two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 1> = b\n    y = s",
+    ));
+    assert!(t.contains("declared as 1 cycle here"), "{t}");
+    assert!(t.contains("this value is 2 cycles old"), "{t}");
+    assert!(
+        t.contains("write the count as 2; if the value must be 1 cycle old, take it from the stage one cycle earlier"),
+        "{t}"
+    );
+    // N iki eksik: iki çevrim önceki aşama (c 3 çevrim).
+    let t = declared_mismatch_text(&two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= b }\n    let s : Delayed<u32, 1> = c\n    y = s",
+    ));
+    assert!(t.contains("take it from the stage 2 cycles earlier"), "{t}");
+    assert!(!t.contains("delay<"), "{t}");
+}
