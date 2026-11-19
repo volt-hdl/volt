@@ -401,4 +401,5 @@ tags are the maintainer's work.
 The ADRs in `docs/adr/` are written in Turkish, and so is their index. An
 English summary index is planned: see
 [English summary of the design decisions](docs/roadmap.md#english-summary-of-the-design-decisions)
-in the roadmap.
+in the roadmap. For people, the place to start is
+[CONTRIBUTING.md](CONTRIBUTING.md).
