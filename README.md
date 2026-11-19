@@ -535,6 +535,15 @@ verified in CI.
   each item
 - [docs/README.md](docs/README.md): full document index
 
+## Contributing
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) explains how a change gets from an
+  idea or an issue to a merged pull request, and what evidence it needs.
+- [GOVERNANCE.md](GOVERNANCE.md) describes how Volt is run: roles, areas
+  of the compiler, decisions, quality gates and releases.
+- [SECURITY.md](SECURITY.md) says how to report a security problem
+  privately and which versions get security fixes.
+
 ## License
 
 Licensed under either of the Apache License, Version 2.0
