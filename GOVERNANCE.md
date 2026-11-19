@@ -33,7 +33,7 @@ specification.
 | Language and specification | The rules of the language, ADRs, decision sessions | `docs/spec/`, `docs/adr/` |
 | Front end | Source positions, syntax tree, lexer, parser, desugaring, generic expansion, name resolution | `crates/volt-span/`, `crates/volt-ast/`, `crates/volt-syntax/`, `crates/volt-hir/src/resolve/` |
 | Analysis | Types and widths, clock domains (CDC), trust, timing, handshake, drivers, module summaries | `crates/volt-hir/` |
-| Back end | Lowering, SystemVerilog, constraints (SDC/XDC), drivers and register maps, simulation and formal glue | `crates/volt-lower/`, `crates/volt-sv-emit/`, `crates/volt-sdc-emit/`, `crates/volt-sw-emit/`, `crates/volt-tools/` |
+| Back end | Lowering (a placeholder crate today, #98), SystemVerilog, constraints (SDC/XDC), drivers and register maps, simulation and formal glue | `crates/volt-lower/`, `crates/volt-sv-emit/`, `crates/volt-sdc-emit/`, `crates/volt-sw-emit/`, `crates/volt-tools/` |
 | Diagnostics and learning | Diagnostic messages and `volt explain` texts in English and Turkish, the book, examples, the learning goal of the roadmap | `crates/volt-diagnostics/`, `book/`, `examples/` |
 | Command line and editors | The `volt` binary, the language server, editor support | `crates/volt-driver/`, `crates/volt-lsp/`, `editors/` |
 | Quality infrastructure | Mutation gate, differential test, metamorphic test, real-bug and seeded-bug corpora, fuzzing, CI | `crates/volt-difftest/`, `tests/`, `fuzz/`, `.github/`, `scripts/ci/`, `.cargo/mutants.toml` |

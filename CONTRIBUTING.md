@@ -88,7 +88,7 @@ So every change, however small, comes with evidence:
 
 | Document | What it is | Who changes it |
 |---|---|---|
-| `docs/spec/` | The language specification: what a design means. English; a Turkish translation is in `docs/spec/tr/` | The maintainer, through a reviewed change |
+| `docs/spec/` | The language specification: what a design means. English; a Turkish translation is in `docs/spec/tr/` | The maintainer, applying reviewed changes; contributors and agents do not edit it (AGENTS.md, "Areas you do not edit"). A new or changed rule starts as an ADR. |
 | `docs/adr/` | Decision records: why a rule is what it is | New ADRs through pull requests; decision text never changes once approved |
 | `AGENTS.md` | The rules for every change | The maintainer |
 | `CHANGELOG.md` | What changed for users, release by release | Every pull request with a user-visible change |
