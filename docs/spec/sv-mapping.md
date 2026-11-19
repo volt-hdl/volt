@@ -833,8 +833,16 @@ assign r3 = ((op == 2'd0) ? ((eop == AluOp_Add) ? a : b) : 8'd20) + 8'd1;
   da zincirin son `else`'idir (üçlü) — geçersiz kodlar ikisinde de son
   kolu alır (ADR-0074 Karar 4). İlk joker koldan sonraki kollar ve
   önceki kolların kapsadığı kol yazılmaz (W2014).
-- İç konumdaki zincirin yüksekliği kol sayısıdır: 256'yı aşarsa **E0018**
-  ("match'i bir `let`'e verin" — kök konum her boyutta `case`'tir).
+- İç konumdaki zincirin yüksekliği yazılan kol sayısıdır; yaprak kol
+  gövdesi (ad, literal) kat eklemez, gövdedeki işleçler zincirin
+  yüksekliğine eklenir. İç içe match'te (kol gövdesinde, muhafızda ya da
+  sınananda) yükseklik, en dıştaki iç match'ten başlayan yol üzerindeki
+  kol sayıları ile işleç katlarının toplamıdır: yaprak gövdeli 256 kollu
+  match 256'dır, gövdesi `a ^ k` olan 256 kollu match 257, 128 kollu bir
+  match'in kolundaki 128 kollu match 256. Yükseklik 256'yı aşarsa
+  **E0018** ("match'i bir `let`'e verin" — kök konum her boyutta
+  `case`'tir). Sınır, ADR-0080'deki derinlik korumasıdır: üretilen ifade
+  derleyiciyi ve SV araçlarını bilinen yığın derinliğinde tutar.
   Sınanan her desen literali için bir kez yazılır; toplam kopya
   `MAX_EXPANSION_NODES`'u aşarsa **E2027**. İki sınır `check`, `build` ve
   LSP'de aynı emit'ten gelir (ADR-0070).
