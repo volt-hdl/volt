@@ -119,6 +119,13 @@ pub fn kinds() -> Vec<Kind> {
             sites: reset_kind_flip,
         },
         Kind {
+            name: "rdc.reset-through-sync",
+            spec: "ADR-0124 (a reset through sync() is E2003, and a reset port bound to anything but a reset input port of the parent is E2003)",
+            expect: Some(&["E2003"]),
+            near_miss: false,
+            sites: reset_through_sync,
+        },
+        Kind {
             name: "domain.edge-removed",
             spec: "ADR-0098 (a flop clocked by a domain without a clock edge: E3016); applied where an `on` block of the domain's clock exists",
             expect: Some(&["E3016"]),
@@ -578,6 +585,81 @@ fn drop_raw_reset(src: &Source) -> Sites {
             .map(|(m, p)| (format!("{m}.{}", p.name), src.without_line(p.line)))
             .collect(),
     )
+}
+
+/// Every instance binding of a raw reset port, long (`rst: rst`) or
+/// shorthand (`rst`), rewritten through a synchronizer: a
+/// `let <r>_sync = sync(<r>, <clock>)` line above the instance and the
+/// binding reading it. The clock is the module's first clock port.
+fn reset_through_sync(src: &Source) -> Sites {
+    let mut out = Vec::new();
+    for m in src.modules().into_iter().filter(|m| !m.is_extern) {
+        let Some(clock) = m.clocks().first().map(|c| c.name.clone()) else {
+            continue;
+        };
+        for r in m.ports.iter().filter(|p| p.is_reset() && p.dir == "in") {
+            for i in m.start + 1..m.end {
+                let raw = &src.lines[i];
+                let code = code_part(raw);
+                let Some((start, end, shorthand)) = reset_value(code, &r.name) else {
+                    continue;
+                };
+                // The instance starts at the nearest `let ... {` line.
+                let Some(head) = (m.start + 1..=i).rev().find(|&j| {
+                    src.code(j).trim_start().starts_with("let ") && src.code(j).contains('{')
+                }) else {
+                    continue;
+                };
+                let synced = format!("{}_sync", r.name);
+                let value = if shorthand {
+                    format!("{}: {synced}", r.name)
+                } else {
+                    synced.clone()
+                };
+                let indent: String = src.lines[head]
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .collect();
+                let mut lines = src.lines.clone();
+                lines[i] = splice(raw, start, end, &value);
+                lines.insert(
+                    head,
+                    format!("{indent}let {synced} = sync({}, {clock})", r.name),
+                );
+                out.push((
+                    format!("{}: {} bound through sync(_, {clock})", m.name, r.name),
+                    Source::join(&lines, src.trailing_newline),
+                ));
+            }
+        }
+    }
+    number(out)
+}
+
+/// The byte range of `name` as a binding value in `code` (`port: name` or
+/// the shorthand `name`, followed by `,`, `}` or the end of the line),
+/// and whether it is the shorthand.
+fn reset_value(code: &str, name: &str) -> Option<(usize, usize, bool)> {
+    let mut from = 0;
+    while let Some(k) = code[from..].find(name).map(|k| k + from) {
+        let end = k + name.len();
+        from = end;
+        let before = code[..k].trim_end();
+        let after = code[end..].trim_start();
+        let bounded = !code[..k].chars().next_back().is_some_and(is_ident_char)
+            && !code[end..].chars().next().is_some_and(is_ident_char);
+        let closes = after.is_empty() || after.starts_with(',') || after.starts_with('}');
+        if !bounded || !closes {
+            continue;
+        }
+        if before.ends_with(':') && !before.ends_with("::") {
+            return Some((k, end, false));
+        }
+        if before.ends_with('{') || before.ends_with(',') {
+            return Some((k, end, true));
+        }
+    }
+    None
 }
 
 fn reset_spec_edit(src: &Source, f: fn(&str, &str) -> Option<(String, String)>) -> Sites {

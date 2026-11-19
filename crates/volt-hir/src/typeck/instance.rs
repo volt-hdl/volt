@@ -32,8 +32,13 @@ impl TypeChecker<'_, '_> {
                 self.record_shared_line(inst, t, b);
             }
             let value = b.value;
-            match target.and_then(|t| self.port_type_of(t, &b.port_name.text)) {
-                Some(port_ty) => self.check(value, port_ty),
+            match target.and_then(|t| self.port_type_of(t, &b.port_name.text).map(|p| (t, p))) {
+                Some((t, port_ty)) => {
+                    self.check(value, port_ty);
+                    if matches!(self.types.ty(port_ty), Ty::Reset { .. }) {
+                        self.check_reset_binding(inst, t, b);
+                    }
+                }
                 None => {
                     self.synth(value);
                 }

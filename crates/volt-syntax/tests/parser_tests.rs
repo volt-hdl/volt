@@ -2458,7 +2458,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 142, "ui/pass 142 dosya içermeli");
+    assert_eq!(total, 144, "ui/pass 144 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2519,10 +2519,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // genişlik `as` zinciri daha geniş bağlamda), #328 155'i (jokerden
     // sonraki koldaki atama ikinci sürücü değil), #331 156'yı (kapsanan
     // koldaki atama ikinci sürücü değil), #332 157'yi (ölü koldaki alanlar
-    // arası atama E3001 değil).
+    // arası atama E3001 değil), #340 (ADR-0124) 158'i (reset portu
+    // yazılmayan çocuk) ve 159'u (ham reset portunun kendisinin bağlanması).
     assert_eq!(
-        clean, 142,
-        "142/142 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 144,
+        "144/144 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

@@ -182,6 +182,20 @@ impl TypeChecker<'_, '_> {
                 first = Some(t);
             }
         }
+        // ADR-0124: sync()/sync3() bir reset taşıyamaz.
+        if let (
+            Some(DefKind::Builtin(b @ (BuiltinKind::Sync | BuiltinKind::Sync3))),
+            true,
+            Some(t),
+        ) = (kind, passes_type, first)
+        {
+            let name = if b == BuiltinKind::Sync3 {
+                "sync3"
+            } else {
+                "sync"
+            };
+            self.check_sync_source(name, args[0], t);
+        }
         match (passes_type, first) {
             (true, Some(t)) => t,
             _ => self.types.error(),

@@ -82,6 +82,24 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("rdc.drop-raw-reset | tests/fixtures/formal_obligations/three_level_satisfy.volt | Top.rst", Hand::Safe(&[]), SYNC_ROOT),
     ("rdc.drop-raw-reset | tests/fixtures/formal_obligations/three_level_violate.volt | Top.rst", Hand::Safe(&[]), SYNC_ROOT),
     ("rdc.drop-raw-reset | tests/fixtures/formal_obligations/violate.volt | Parent.rst", Hand::Safe(&[]), SYNC_ROOT),
+    ("rdc.drop-raw-reset | tests/ui/pass/158_reset_child_automatic_port.volt | AutomaticResetPort.rst", Hand::Safe(&[]), SYNC_ROOT),
+    (
+        "rdc.drop-raw-reset | tests/ui/pass/159_reset_raw_port_binding.volt | RawResetBinding.rst",
+        Hand::Expect(&["E1001"]),
+        "name-resolution.md: the shorthand binding `rst` names the removed port; an unresolved name is E1001",
+    ),
+    (
+        "rdc.drop-raw-reset | tests/ui/pass/159_reset_raw_port_binding.volt | Child.rst",
+        Hand::Expect(&["E1009"]),
+        "name-resolution.md: the instance binds `rst`, which the child no longer declares; an unknown port is E1009",
+    ),
+    // ── a raw reset bound to a child's raw reset port: a changed spec is
+    //    both the port-vs-domain mismatch and the type mismatch of the
+    //    binding (ADR-0065 §1 table, "Örneklemede ham port": E2003) ──
+    ("rdc.reset-polarity-flip | tests/ui/pass/159_reset_raw_port_binding.volt | Child.rst: active_high -> active_low", Hand::Expect(RAW_BOUND), RAW_BOUND_WHY),
+    ("rdc.reset-polarity-flip | tests/ui/pass/159_reset_raw_port_binding.volt | RawResetBinding.rst: active_high -> active_low", Hand::Expect(RAW_BOUND), RAW_BOUND_WHY),
+    ("rdc.reset-kind-flip | tests/ui/pass/159_reset_raw_port_binding.volt | Child.rst: sync -> async", Hand::Expect(RAW_BOUND), RAW_BOUND_WHY),
+    ("rdc.reset-kind-flip | tests/ui/pass/159_reset_raw_port_binding.volt | RawResetBinding.rst: sync -> async", Hand::Expect(RAW_BOUND), RAW_BOUND_WHY),
     // ── trust.port-downgrade: the output moves to the public domain ──
     ("trust.port-downgrade | examples/crypto/key_store.volt | KeyStore.key: @SecureCore -> @Debug", Hand::Expect(&["E3009"]), "K11: key = key_r, a secret register (K2/K4: written in the SecureCore clock's block)"),
     ("trust.port-downgrade | tests/ui/pass/71_declassify.volt | KeyPresence.key: @SecureCore -> @Debug", Hand::Expect(&["E3009"]), "K11: key = key_r, a secret register"),
@@ -137,6 +155,8 @@ const SYNC_ROOT: &str = "ADR-0065 §3: the root warning is for async domains onl
 const ON_READ: &str = "domain-inference.md K7: the value is read in an `on` block of the other domain (the K7 example says E3001, §5 names E3012)";
 const EXPLICIT: &str = "K4 explicit domain + K7 (write outside the register's domain: E3001/E3012); K4 (E3011) and ADR-0073 d03b (E4001) name the same case";
 const SYNC_ONLY: &str = "K9: the port is read only as a sync() source; with it in the destination domain the sync is redundant (W3002) and no crossing is left in the module";
+const RAW_BOUND: &[&str] = &["E3003", "E2003"];
+const RAW_BOUND_WHY: &str = "ADR-0065 §1: the raw port's spec differs from the domain it feeds (E3003) and from the reset it is bound to or bound from; the binding's value must have the port's reset type (the existing type-mismatch diagnostic, E2003)";
 const DW_EXPLICIT: &[&str] = &["E3011", "E4001", "E3001", "E3012"];
 const CDC_READ: &[&str] = seeded_bugs::kinds::CDC_READ;
 
@@ -150,7 +170,18 @@ const KNOWN_DIFFERENT: &[(&str, &str)] = &[];
 
 /// Near misses that raise an error or a safety code, with the issue
 /// and the new codes.
-const KNOWN_FALSE_ALARMS: &[(&str, u32, &str)] = &[];
+const KNOWN_FALSE_ALARMS: &[(&str, u32, &str)] = &[
+    (
+        "near.raw-reset-spec-dropped | tests/ui/pass/159_reset_raw_port_binding.volt | Child.rst: reset(sync, active_high) -> reset",
+        342,
+        "E2003",
+    ),
+    (
+        "near.raw-reset-spec-dropped | tests/ui/pass/159_reset_raw_port_binding.volt | RawResetBinding.rst: reset(sync, active_high) -> reset",
+        342,
+        "E2003",
+    ),
+];
 
 /// Designs left out of the corpus by name.
 const EXCLUDED_DESIGNS: &[(&str, &str)] = &[(
