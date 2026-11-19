@@ -739,3 +739,162 @@ fn analyze_timing_has_no_delays_outside_strict_modules() {
             .is_empty()
     );
 }
+
+// ═══ Bildirilen gecikme gerçek gecikmeyle karşılaştırılır (#354) ═══
+//
+// `let`, `wire` ve çıkış portundaki `Delayed<T, N>`, değerin gecikmesi
+// tam biliniyorsa N ile karşılaştırılır; uyuşmazlık E5010. Değer
+// aşamaları karıştırıyorsa (ileri besleme) bildirim bugünkü gibi
+// yeniden zamanlama iddiasıdır ve denetlenmez.
+
+/// İki aşamalı modül: `a` 1, `b` 2 çevrim. `{decl}` gövdeye eklenir.
+fn two_stage(ports: &str, decl: &str) -> String {
+    format!(
+        "@strict_timing
+module M {{
+    in  clk : clock
+    in  x   : u32
+{ports}
+    reg a : Delayed<u32, 1> = 0
+    reg b : Delayed<u32, 2> = 0
+    on clk {{
+        a <= x
+        b <= a
+    }}
+{decl}
+}}
+"
+    )
+}
+
+#[test]
+fn let_declared_with_a_wrong_count_is_e5010() {
+    // #354, tasarım 3: karışım yok, `b` tam 2 çevrim; bildirim 1 diyor.
+    // Bildirim yanlış olduğu için aşağıdaki `s + a` hizalı görünüyordu.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 1> = b\n    y = s + a",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn let_declared_with_the_right_count_passes() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 2> = b\n    y = s + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn let_declared_through_delay_k_counts_k() {
+    // delay<K> bugün yalnız sayıya K ekler (#232): 1 + 1 = 2.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 2> = delay<1>(a)\n    y = s + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn wire_declared_with_a_wrong_count_is_e5010() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    wire w : Delayed<u32, 1>\n    w = b\n    y = w + a",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn wire_declared_with_the_right_count_passes() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    wire w : Delayed<u32, 2>\n    w = b\n    y = w + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn output_port_declared_with_a_wrong_count_is_e5010() {
+    // #354: çıkış portunun bildirimi çıkarımla sessizce eziliyordu.
+    let src = two_stage("    out y   : Delayed<u32, 5>", "    y = a");
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn output_port_declared_with_the_right_count_passes() {
+    let src = two_stage("    out y   : Delayed<u32, 1>", "    y = a");
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn register_declaration_is_unchanged() {
+    // Register denetimi aynı kalır: kaynak + 1 bildirimle uyuşmalı.
+    let right = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 2> = 0\n    on clk { c <= a }\n    y = c + b",
+    );
+    assert_eq!(e5010_count(&right), 0);
+    let wrong = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= a }\n    y = c",
+    );
+    assert_eq!(e5010_count(&wrong), 1);
+}
+
+#[test]
+fn a_declaration_over_a_mix_stays_a_retiming_assertion() {
+    // Başlatıcı aşamaları karıştırıyor: gecikmesi tam bilinmez, bildirim
+    // denetlenmez (v0.2.0'da ADR-0118'e göre kaçış). N hiçbir şeye
+    // uymasa da (7) bugünkü gibi geçer.
+    for n in [1, 2, 7] {
+        let src = two_stage(
+            "    out y   : u32",
+            &format!("    let s : Delayed<u32, {n}> = a + b\n    y = s"),
+        );
+        assert_eq!(e5010_count(&src), 0, "N = {n}");
+    }
+    // İç içe karışım da karışımdır: (a + b) + b'nin gecikmesi 2 değildir.
+    let nested = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 7> = (a + b) + b\n    y = s",
+    );
+    assert_eq!(e5010_count(&nested), 0);
+    // Kaynakları farklı aşamalardan gelen wire da karışımdır.
+    let wire = two_stage(
+        "    in  sel : bool\n    out y   : u32",
+        "    wire w : Delayed<u32, 2>\n    comb {\n        if sel { w = a } else { w = b }\n    }\n    y = w",
+    );
+    assert_eq!(e5010_count(&wire), 0);
+}
+
+#[test]
+fn a_declaration_over_a_timeless_value_is_not_checked() {
+    // Literal zamanlama taşımaz: her bildirimle uyumludur.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 3> = 7\n    y = s",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn pipeline_stage_lets_are_not_checked_as_declarations() {
+    // stage(...) okuyan aşama-yerel let'ler desugar'da sabitlenir
+    // (ADR-0038 §3): kullanıcının yazdığı bir bildirim değildir.
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/ui/pass/46_pipeline_forwarding.volt"
+    ))
+    .expect("fixture");
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn output_port_declaration_is_not_a_retiming_assertion() {
+    // Çıkış portunun bildirimi sınırdaki sözdür, ileri besleme kapısı
+    // değildir: sürücüsündeki karışım bildirimden önce olduğu gibi E5010.
+    let src = two_stage("    out y   : Delayed<u32, 2>", "    y = a + b");
+    assert_eq!(e5010_count(&src), 1);
+}

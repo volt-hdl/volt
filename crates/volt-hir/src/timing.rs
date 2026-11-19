@@ -15,6 +15,11 @@
 //!     sonucun gecikmesini BİLDİRİR, başlatıcısının içindeki karışım
 //!     denetimi bastırılır (forwarding/bypass bu kapıdan yazılır).
 //!
+//! Bildirim denetimi (ADR-0126, #354): register, `let`, `wire` ve çıkış
+//! portundaki `Delayed<T, N>`, değerin gecikmesi tam biliniyorsa N ile
+//! karşılaştırılır (`check_declared`); uyuşmazlık E5010. Değer aşamaları
+//! karıştırıyorsa gecikmesi tam bilinmez ve bildirim yukarıdaki iddiadır.
+//!
 //! `@strict_timing` olmayan modüllerde bu geçit hiç çalışmaz — mevcut
 //! davranış bire bir korunur (geriye uyumluluk, ADR-0037 §3).
 
@@ -85,6 +90,8 @@ pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) ->
                 delays: HashMap::new(),
                 sources: HashMap::new(),
                 regs: HashSet::new(),
+                pinned: HashSet::new(),
+                mixed: false,
                 order: Vec::new(),
             };
             mt.run(m);
@@ -111,6 +118,13 @@ struct ModuleTiming<'a> {
     delays: HashMap<DefId, Delay>,
     sources: HashMap<DefId, Vec<Source>>,
     regs: HashSet<DefId>,
+    /// Pipeline desugar'ının aşamasına sabitlediği `let`'ler (ADR-0038
+    /// §3): `declared`'dadır ama kullanıcının yazdığı bir bildirim değil,
+    /// otomatik yeniden zamanlama iddiasıdır; bildirim denetimine girmez.
+    pinned: HashSet<DefId>,
+    /// Son `compute_def`/`delay_of` çağrısında farklı gecikmeli iki değer
+    /// birleşti mi: sonucun `Any`'si zamanlamasızlıktan değil karışımdan.
+    mixed: bool,
     order: Vec<DefId>,
 }
 
@@ -121,7 +135,11 @@ impl<'a> ModuleTiming<'a> {
                 continue;
             };
             self.order.push(def);
-            if let Some((n, _)) = self.declared_of(port.ty) {
+            if let Some((n, span)) = self.declared_of(port.ty) {
+                // Sınırdaki beyan: giriş portunda varsayım (sürücüsü
+                // modülün dışında), çıkış portunda sürücüsüyle denetlenen
+                // söz. Çıkarım onu ezmez (#354).
+                self.declared.insert(def, (n, span));
                 self.delays.insert(def, Delay::Exact(n));
                 continue;
             }
@@ -235,6 +253,7 @@ impl<'a> ModuleTiming<'a> {
         // yeniden zamanlama iddiası — karışım denetimi bastırılır.
         if let Some(&(n, aspan)) = self.ast.timing.pinned.get(&l.name.span) {
             self.declared.insert(def, (n, aspan));
+            self.pinned.insert(def);
             self.delays.insert(def, Delay::Exact(n));
             return;
         }
@@ -345,7 +364,10 @@ impl<'a> ModuleTiming<'a> {
                 (Delay::Exact(a), Delay::Exact(b)) if a == b => Delay::Exact(a),
                 // Uyumsuz kaynaklar: hata check_all'da verilir; çıkarım
                 // kaskadı bastırmak için serbest kalır.
-                _ => return Delay::Any,
+                _ => {
+                    self.mixed = true;
+                    return Delay::Any;
+                }
             };
         }
         if is_reg {
@@ -363,53 +385,92 @@ impl<'a> ModuleTiming<'a> {
     fn check_all(&mut self) {
         for i in 0..self.order.len() {
             let def = self.order[i];
-            let annotated = self.declared.get(&def).copied();
             let Some(srcs) = self.sources.get(&def).cloned() else {
                 continue;
             };
             let is_reg = self.regs.contains(&def);
-            if !is_reg {
-                // Açık anotasyonlu `let` bir yeniden zamanlama İDDİASIDIR:
-                // başlatıcısının içindeki karışım denetimi bastırılır.
-                if annotated.is_none() {
+            match self.declared.get(&def).copied() {
+                // Aşamasına sabitlenen let: otomatik yeniden zamanlama
+                // iddiası, başlatıcısı denetlenmez (ADR-0038 §3).
+                Some(_) if !is_reg && self.pinned.contains(&def) => {}
+                Some(decl) => self.check_declared(def, &srcs, decl, is_reg),
+                None => {
                     for s in &srcs {
+                        if is_reg && self.is_path_to(s.rhs, def) {
+                            continue; // tutma (hold) yazımı serbest
+                        }
                         self.delay_of(s.rhs, true);
                     }
                 }
-                continue;
             }
-            for s in &srcs {
-                if self.is_path_to(s.rhs, def) {
-                    continue; // tutma (hold) yazımı serbest
+        }
+    }
+
+    /// Bildirilen `Delayed<_, N>` ile değerin gerçek gecikmesi: kuralın
+    /// tek yeri (ADR-0126). Register her yazımıyla ayrı denetlenir
+    /// (kaynak + 1 = N). `let`, `wire` ve çıkış portunun gecikmesi çıkarımın
+    /// kendisinden (`compute_def`) gelir; tam biliniyorsa (`Exact`) N ile
+    /// karşılaştırılır. Değer aşamaları karıştırıyorsa ya da zamanlama
+    /// taşımıyorsa bildirim denetlenmez: karışımda yeniden zamanlama
+    /// iddiasıdır (ADR-0037) ve başlatıcısının içindeki karışım da
+    /// bastırılır.
+    fn check_declared(
+        &mut self,
+        def: DefId,
+        srcs: &[Source],
+        (want, aspan): (u32, Span),
+        is_reg: bool,
+    ) {
+        if !is_reg {
+            // Çıkış portunun bildirimi sınırdaki sözdür, yeniden zamanlama
+            // iddiası değil: sürücüsündeki karışım her zamanki gibi E5010.
+            if matches!(self.res.def_kind(def), DefKind::Port { .. }) {
+                for s in srcs {
+                    self.delay_of(s.rhs, true);
                 }
-                let (d, _) = self.delay_of(s.rhs, true);
-                let Some((want, aspan)) = annotated else {
-                    continue;
-                };
-                if let Delay::Exact(n) = d {
-                    if n.saturating_add(1) != want {
-                        let diff = n + 1;
-                        let art = volt_diagnostics::a_an(u64::from(diff));
-                        self.diags.push(
-                            Diagnostic::error(
-                                ErrorCode::E5010,
-                                lstr!(en: "timing misalignment in register write"; tr: "register yazımında zamanlama hizasızlığı"),
-                                LabeledSpan::primary(
-                                    s.span,
-                                    lstr!(en: "source is {n} cycles — register would hold {art} {diff}-cycle value"; tr: "kaynak {n} çevrim — register {diff} çevrimlik değer tutar"),
-                                ),
-                                lstr!(en: "align the source with delay<K>(...) or fix the declared cycle count"; tr: "kaynağı delay<K>(...) ile hizalayın ya da bildirilen çevrim sayısını düzeltin"),
-                            )
-                            .with_secondary(
-                                aspan,
-                                lstr!(en: "register declared as {want} cycles here"; tr: "register burada {want} çevrim olarak bildirildi"),
-                            )
-                            .with_note(
-                                NoteKind::Reason,
-                                lstr!(en: "a register adds one cycle: a Delayed<_, {want}> register must be written from a value {} cycles old", want.saturating_sub(1); tr: "register bir çevrim ekler: Delayed<_, {want}> register'ı {} çevrim yaşında bir değerden yazılmalı", want.saturating_sub(1)),
+            }
+            self.mixed = false;
+            let got = self.compute_def(def);
+            if self.mixed {
+                return;
+            }
+            let Delay::Exact(got) = got else {
+                return;
+            };
+            if got != want {
+                let at = srcs.first().map_or(aspan, |s| s.span);
+                self.diags.push(declared_mismatch(aspan, at, want, got));
+            }
+            return;
+        }
+        for s in srcs {
+            if self.is_path_to(s.rhs, def) {
+                continue; // tutma (hold) yazımı serbest
+            }
+            let (d, _) = self.delay_of(s.rhs, true);
+            if let Delay::Exact(n) = d {
+                if n.saturating_add(1) != want {
+                    let diff = n + 1;
+                    let art = volt_diagnostics::a_an(u64::from(diff));
+                    self.diags.push(
+                        Diagnostic::error(
+                            ErrorCode::E5010,
+                            lstr!(en: "timing misalignment in register write"; tr: "register yazımında zamanlama hizasızlığı"),
+                            LabeledSpan::primary(
+                                s.span,
+                                lstr!(en: "source is {n} cycles — register would hold {art} {diff}-cycle value"; tr: "kaynak {n} çevrim — register {diff} çevrimlik değer tutar"),
                             ),
-                        );
-                    }
+                            lstr!(en: "align the source with delay<K>(...) or fix the declared cycle count"; tr: "kaynağı delay<K>(...) ile hizalayın ya da bildirilen çevrim sayısını düzeltin"),
+                        )
+                        .with_secondary(
+                            aspan,
+                            lstr!(en: "register declared as {want} cycles here"; tr: "register burada {want} çevrim olarak bildirildi"),
+                        )
+                        .with_note(
+                            NoteKind::Reason,
+                            lstr!(en: "a register adds one cycle: a Delayed<_, {want}> register must be written from a value {} cycles old", want.saturating_sub(1); tr: "register bir çevrim ekler: Delayed<_, {want}> register'ı {} çevrim yaşında bir değerden yazılmalı", want.saturating_sub(1)),
+                        ),
+                    );
                 }
             }
         }
@@ -609,6 +670,7 @@ impl<'a> ModuleTiming<'a> {
             (_, Delay::Any) => (a.0, a.1),
             (Delay::Exact(x), Delay::Exact(y)) if x == y => (Delay::Exact(x), a.1),
             (Delay::Exact(x), Delay::Exact(y)) => {
+                self.mixed = true;
                 if emit {
                     let (old, young) = if x > y { (x, y) } else { (y, x) };
                     let diff = old - young;
@@ -638,4 +700,51 @@ impl<'a> ModuleTiming<'a> {
         matches!(&self.ast.exprs[e].kind, ExprKind::Path(_))
             && self.res.resolutions.get(&e) == Some(&def)
     }
+}
+
+/// `let`, `wire` ya da çıkış portunun bildirimi değerin gecikmesiyle
+/// uyuşmuyor (ADR-0126). Makine önerisi yok: sayıyı değiştirmek, bildirimin
+/// gizlediği karışımı okunduğu yerde geri getirebilir (gidiş-dönüş testi
+/// geçmez). `delay<K>` önerilmez: bugün register eklemez (#232).
+fn declared_mismatch(decl: Span, value: Span, want: u32, got: u32) -> Diagnostic {
+    let cycles = |n: u32| {
+        if n == 1 {
+            "1 cycle".to_string()
+        } else {
+            format!("{n} cycles")
+        }
+    };
+    let (dw, dg) = (cycles(want), cycles(got));
+    let help = if want > got {
+        let k = want - got;
+        if k == 1 {
+            lstr!(en: "write the count as {got}; if the value must be {dw} old, pass it through one more register stage (a register written in an 'on' block adds one cycle)"; tr: "sayıyı {got} yazın; değerin {want} çevrim yaşında olması gerekiyorsa onu bir register aşamasından daha geçirin (on bloğunda yazılan bir register bir çevrim ekler)")
+        } else {
+            lstr!(en: "write the count as {got}; if the value must be {dw} old, pass it through {k} more register stages (each register written in an 'on' block adds one cycle)"; tr: "sayıyı {got} yazın; değerin {want} çevrim yaşında olması gerekiyorsa onu {k} register aşamasından daha geçirin (on bloğunda yazılan her register bir çevrim ekler)")
+        }
+    } else {
+        let k = got - want;
+        if k == 1 {
+            lstr!(en: "write the count as {got}; if the value must be {dw} old, take it from the stage one cycle earlier"; tr: "sayıyı {got} yazın; değerin {want} çevrim yaşında olması gerekiyorsa onu bir çevrim önceki aşamadan alın")
+        } else {
+            lstr!(en: "write the count as {got}; if the value must be {dw} old, take it from the stage {k} cycles earlier"; tr: "sayıyı {got} yazın; değerin {want} çevrim yaşında olması gerekiyorsa onu {k} çevrim önceki aşamadan alın")
+        }
+    };
+    Diagnostic::error(
+        ErrorCode::E5010,
+        lstr!(en: "declared delay does not match the value"; tr: "bildirilen gecikme değerle uyuşmuyor"),
+        LabeledSpan::primary(
+            decl,
+            lstr!(en: "declared as {dw} here"; tr: "burada {want} çevrim olarak bildirildi"),
+        ),
+        help,
+    )
+    .with_secondary(
+        value,
+        lstr!(en: "this value is {dg} old"; tr: "bu değer {got} çevrim yaşında"),
+    )
+    .with_note(
+        NoteKind::Reason,
+        lstr!(en: "every reader takes the declared count as the value's age, so a wrong count hides values of different cycles being combined where the value is read"; tr: "değeri okuyan her yer bildirilen sayıyı onun yaşı sayar; yanlış bir sayı, okunduğu yerde farklı çevrimlerin değerlerinin birleşmesini gizler"),
+    )
 }

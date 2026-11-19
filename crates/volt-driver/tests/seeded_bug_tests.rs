@@ -90,6 +90,8 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("trust.port-downgrade | tests/ui/pass/70_trust_levels.volt | Upward.gate: @Secure -> @Debug", Hand::Safe(&[]), "K11: gate = !ctl and ctl is public: public → public, no hazard"),
     // ── other kinds without a fixed answer ──
     ("timing.drop-retiming | tests/ui/pass/44_delayed_aligned.volt | let asserted: Delayed annotation removed", Hand::Expect(&["E5010"]), "ADR-0037: the arms s2 (2) and s1 (1) are combined without the retiming assertion"),
+    ("timing.drop-retiming | tests/ui/pass/160_delayed_declared_counts.volt | let s: Delayed annotation removed", Hand::Safe(&[]), "type-inference.md §12: s = b is inferred as 2 cycles, the delay the annotation declared; nothing is mixed"),
+    ("timing.drop-retiming | tests/ui/pass/160_delayed_declared_counts.volt | let f: Delayed annotation removed", Hand::Expect(&["E5010"]), "ADR-0037: the arms a (1) and b (2) are combined without the retiming assertion"),
     ("cdc.extern-domain-merge | tests/ui/pass/62_extern_domains.volt | ExtAsyncFifo: @Dst -> @Src", Hand::Expect(&["E3014"]), "K8a: the instance binds wr_clk to sys_clk and rd_clk to pix_clk, now the same symbolic domain"),
     // ── the sync result is read inside an `on` block: K7 names both codes ──
     ("cdc.drop-sync | demo/crossing_fixed.volt | sync(pressed_r, slow_clk)", Hand::Expect(CDC_READ), ON_READ),
@@ -142,7 +144,19 @@ const CDC_READ: &[&str] = seeded_bugs::kinds::CDC_READ;
 
 /// Mutants the compiler accepts although the specification rejects
 /// them, with the issue that tracks each root cause.
-const KNOWN_MISSES: &[(&str, u32)] = &[];
+const KNOWN_MISSES: &[(&str, u32)] = &[
+    // A declaration over a mix of stages is the retiming assertion
+    // (ADR-0037): its N is not compared. Under ADR-0118 an unmarked escape
+    // (v0.2.0); ADR-0126 checks only values with an exact delay.
+    (
+        "timing.declared-delay-shift | tests/ui/pass/160_delayed_declared_counts.volt | let f: Delayed N 1 -> 2",
+        358,
+    ),
+    (
+        "timing.declared-delay-shift | tests/ui/pass/44_delayed_aligned.volt | let asserted: Delayed N 1 -> 2",
+        358,
+    ),
+];
 
 /// Mutants rejected, but with another code than the specification
 /// gives; the second field is the new codes, comma-separated.

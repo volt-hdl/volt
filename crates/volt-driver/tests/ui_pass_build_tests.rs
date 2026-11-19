@@ -109,8 +109,9 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda. #328: 155
     // jokerden sonraki koldaki atama ikinci sürücü değil. #331: 156
     // kapsanan koldaki atama ikinci sürücü değil. #332: 157 ölü koldaki
-    // alanlar arası atama E3001 değil.
-    assert_eq!((built, check_only), (142, 0));
+    // alanlar arası atama E3001 değil. #354 (ADR-0126): 160 gerçek
+    // gecikmesiyle uyuşan Delayed bildirimleri.
+    assert_eq!((built, check_only), (143, 0));
 }
 
 #[test]
