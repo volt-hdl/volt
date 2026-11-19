@@ -159,6 +159,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   aynıdır). Düzeltme ADR-0122'nin değer korumalı SV düzeltmesi
   istisnasıyla son hanede çıkar: her değer aynı kalır (Icarus ve Yosys),
   geçerli tasarımda duran `volt test` ve `volt run` artık durmaz.
+- **Davranış değişikliği.** İç konumdaki (işlenen, koşul, indeks, port
+  bağlaması, kontrat) 256 kollu bir `match` ifadesi artık E0018 almaz
+  (#336; yanlış ret düzeltmesi, sv-mapping.md §19.1): zincirin yüksekliği
+  kol sayısıdır, E0018 257 koldan başlar. 0.1.2'de yükseklik yaprak kol
+  gövdesine bir kat ekliyordu, `y = (match s { 0 => 254, …, 254 => 0, _
+  => 255 }) ^ a` (255 sabit kol ve `_`) E0018 veriyordu. Aynı kat her
+  ölçüden düştü, önce reddedilen başka kod da artık derlenir: kolunda ya
+  da sınananında başka bir match taşıyan match'te sınır, yol üzerindeki
+  kol sayılarının toplamı 256'yı aştığında gelir (128 kollu match'in
+  kolundaki 128 kollu match artık geçerli), gövdeleri işleç olan match'te
+  255 kol geçerlidir. Gövdedeki işleç zincire bir kat eklemeye devam eder:
+  gövdeleri `a ^ k` olan 256 kollu match E0018 almaya devam eder (256 kol
+  + `^` = 257). Kök konumdaki match (tüm sağ taraf) her boyutta `case`
+  olarak kalır; SV çıktısı değişmez. Son hanede (v0.1.3) çıkar.
 - **Davranış değişikliği.** `@strict_timing` modülünde bir `let`, `wire`
   ya da çıkış portundaki `Delayed<T, N>` bildirimi, değerin gecikmesi tam
   biliniyorsa N ile karşılaştırılır; uyuşmazlık bildirimde E5010

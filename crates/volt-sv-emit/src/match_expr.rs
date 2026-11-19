@@ -189,9 +189,10 @@ impl<'a> Emitter<'a> {
         true
     }
 
-    /// Üretilecek SV ifadesinin yüksekliği: iç match yazılan kol sayısı
-    /// kadar derin bir zincirdir (tasarıma yazılmayan kol zincirde yoktur,
-    /// sv-mapping.md §19.1).
+    /// Üretilecek zincirin yüksekliği (sv-mapping.md §19.1): iç match
+    /// yazılan kol sayısı kadar derindir (tasarıma yazılmayan kol zincirde
+    /// yoktur); yaprak kat eklemez, işleç bir kat ekler; iç içe match'te
+    /// yol üzerindeki kol sayıları ve işleç katları toplanır (#336).
     fn ternary_height(&self, e: Idx<Expr>, depth: usize) -> usize {
         if depth > MAX_DEPTH as usize {
             return depth;
@@ -206,13 +207,12 @@ impl<'a> Emitter<'a> {
                 .unwrap_or(depth);
             return below + live.len().saturating_sub(1);
         }
-        let children = volt_ast::visit::expr_children(kind);
-        let below = children
+        // Yaprak kat eklemez: yaprak kollu N kollu zincirin yüksekliği N'dir.
+        volt_ast::visit::expr_children(kind)
             .iter()
             .map(|&c| self.ternary_height(c, depth + 1))
             .max()
-            .unwrap_or(depth);
-        below.max(depth + 1)
+            .unwrap_or(depth)
     }
 
     /// Tasarıma yazılan kollar, sırasıyla.
