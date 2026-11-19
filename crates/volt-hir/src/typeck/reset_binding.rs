@@ -746,4 +746,121 @@ module Child {{
             assert!(!text.contains(".md"), "{text}");
         }
     }
+
+    #[test]
+    fn a_fix_is_offered_when_another_instance_leaves_the_port_unbound() {
+        // İkinci örnek çocuğun reset portunu bağlamıyor (otomatik reset'le
+        // aynı): port kaldırılınca hiçbir bağlama bozulmaz, öneri verilir.
+        // Yalnız başka portları (`clk`) bağlaması öneriyi engellemez.
+        let src = format!(
+            "{CHILD}{}",
+            top(
+                "    let rs = rst",
+                "let ch = Child { clk: clk, rst: rs }
+    let ch2 = Child { clk: clk }
+    let _u = ch2.v"
+            )
+        );
+        let diags = diagnostics(&src);
+        let d = diags
+            .iter()
+            .find(|d| d.code == ErrorCode::E2003)
+            .expect("E2003");
+        assert_eq!(d.suggestions.len(), 1, "{diags:?}");
+    }
+
+    /// Önerinin bütün düzenlemeleri uygulanmış kaynak (hepsi `Replace`).
+    fn applied(src: &str, s: &volt_diagnostics::Suggestion) -> String {
+        let mut edits: Vec<_> = s.edits.iter().collect();
+        edits.sort_by_key(|e| std::cmp::Reverse(e.span.start));
+        let mut out = src.to_string();
+        for e in edits {
+            assert_eq!(e.kind, volt_diagnostics::EditKind::Replace);
+            out.replace_range(e.span.start as usize..e.span.end as usize, &e.text);
+        }
+        out
+    }
+
+    #[test]
+    fn the_fix_removes_each_item_with_its_separator() {
+        // Bağlama önündeki ", " ile, port ve let kendi satırlarıyla silinir:
+        // geride boş ayırıcı ya da boş satır kalmaz.
+        let src = child("    let rs = sync(rst, clk)", "rs");
+        let diags = diagnostics(&src);
+        let fix = diags
+            .iter()
+            .flat_map(|d| &d.suggestions)
+            .next()
+            .expect("öneri");
+        let out = applied(&src, fix);
+        assert!(out.contains("let ch = Child { clk: clk }"), "{out}");
+        assert!(
+            out.contains("    in  clk : clock\n    out v   : u8\n"),
+            "{out}"
+        );
+        assert!(out.contains("    w = p\n    let ch = Child"), "{out}");
+        assert!(!out.contains("sync(rst"), "{out}");
+    }
+
+    #[test]
+    fn a_fix_is_offered_for_an_inline_value_whose_names_are_read_elsewhere() {
+        // Değer let değil, satır içi bir ifade; `c` başka yerde de okunur:
+        // ifadeyi silmek W1001 doğurmaz, öneri verilir.
+        let src = child("", "if c { rst } else { rst }");
+        let diags = diagnostics(&src);
+        let d = diags
+            .iter()
+            .find(|d| d.code == ErrorCode::E2003)
+            .expect("E2003");
+        assert_eq!(d.suggestions.len(), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn no_fix_when_the_value_is_a_reset_wire() {
+        // Let olmayan bir ad (tel): bağlamayı silmek telin tek okumasını
+        // kaldırır; öneri yok, yalnız metin.
+        let src = format!(
+            "{CHILD}module Top {{
+    in  clk : clock
+    in  rst : reset(sync, active_high)
+    out v   : u8
+    wire rw : reset(sync, active_high)
+    rw = rst
+    let ch = Child {{ clk: clk, rst: rw }}
+    v = ch.v
+}}
+"
+        );
+        let diags = diagnostics(&src);
+        let d = diags
+            .iter()
+            .find(|d| d.code == ErrorCode::E2003)
+            .expect("E2003");
+        assert!(d.suggestions.is_empty(), "{:?}", d.suggestions);
+    }
+
+    #[test]
+    fn the_message_names_the_builtin_that_was_called() {
+        for (call, want, other) in [
+            ("sync", "sync()", "sync3()"),
+            ("sync3", "sync3()", "sync()"),
+        ] {
+            let src = child(&format!("    let rs = {call}(rst, clk)"), "rs");
+            let messages: Vec<String> = diagnostics(&src)
+                .iter()
+                .filter(|d| d.code == ErrorCode::E2003)
+                .map(|d| d.message.clone())
+                .collect();
+            assert!(
+                messages
+                    .iter()
+                    .any(|m| m.starts_with(&format!("{want} cannot carry a reset"))),
+                "{messages:?}"
+            );
+            assert!(
+                !messages.iter().any(|m| m.starts_with(other)),
+                "{messages:?}"
+            );
+        }
+    }
 }
