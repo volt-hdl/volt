@@ -179,3 +179,56 @@ fn the_help_code_and_the_solution_align_the_values_in_verilator() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// `x` → `a` (1) → `b` (2) → `c` (3); `y` = `expr`.
+fn chain(expr: &str) -> String {
+    format!(
+        "@strict_timing
+module M {{
+    in  clk : clock
+    in  x   : u8
+    out y   : u8
+    reg a : Delayed<u8, 1> = 0
+    reg b : Delayed<u8, 2> = 0
+    reg c : Delayed<u8, 3> = 0
+    on clk {{ a <= x  b <= a  c <= b }}
+    y = {expr}
+}}
+"
+    )
+}
+
+#[test]
+fn the_turkish_help_gives_the_same_register_and_its_cost() {
+    // Türkçe metin İngilizceyle aynı kodu ve bedeli verir; bir ve iki
+    // register'lık bedel ayrı yazılır.
+    let one: Vec<_> = check("tr-one", "tr", &chain("a + b"))
+        .into_iter()
+        .filter(|(code, _)| code == "E5010")
+        .collect();
+    assert_eq!(one.len(), 1, "{one:?}");
+    let h = &one[0].1;
+    for part in [
+        "1 çevrimlik değer de 2 çevrim yaşında olsun diye 1 aşama register'ı ekleyin",
+        "`reg a_d2 : Delayed<u8, 2> = 0`",
+        "`on clk` bloğu içine `a_d2 <= a` yazın ve burada `a_d2` kullanın",
+        "(bedel: 1 register, 8 bit)",
+        "`delay<1>(…)` böyle bir register değildir",
+    ] {
+        assert!(h.contains(part), "eksik: {part:?}\n{h}");
+    }
+    let two: Vec<_> = check("tr-two", "tr", &chain("a + c"))
+        .into_iter()
+        .filter(|(code, _)| code == "E5010")
+        .collect();
+    assert_eq!(two.len(), 1, "{two:?}");
+    let h = &two[0].1;
+    for part in [
+        "2 aşama register'ı ekleyin",
+        "`a_d2 <= a  a_d3 <= a_d2`",
+        "(bedel: 2 register, her biri 8 bit)",
+        "(o 2 çevrim boyunca değişmiyorsa)",
+    ] {
+        assert!(h.contains(part), "eksik: {part:?}\n{h}");
+    }
+}

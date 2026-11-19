@@ -227,7 +227,13 @@ module M {
 }
 ";
     let h = help(src);
-    assert_contains(&h, &["declare each as `reg … : Delayed<T, N> = 0`"]);
+    assert_contains(
+        &h,
+        &[
+            "declare each as `reg … : Delayed<T, N> = 0`",
+            "(cost: 1 register of the value's width)",
+        ],
+    );
     assert!(!h.contains("a_d2"), "{h}");
 }
 
