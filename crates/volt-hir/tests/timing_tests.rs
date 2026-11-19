@@ -951,3 +951,43 @@ fn the_declared_mismatch_text_names_both_counts_and_the_way_out() {
     assert!(t.contains("take it from the stage 2 cycles earlier"), "{t}");
     assert!(!t.contains("delay<"), "{t}");
 }
+
+#[test]
+fn an_unannotated_register_write_that_mixes_stages_is_e5010() {
+    // Anotasyonsuz register'ın yazım kaynağı da karışım denetiminden geçer:
+    // a (1) + b (2), bildirim olmasa da E5010.
+    let src = two_stage(
+        "    out y   : u32",
+        "    reg t : u32 = 0\n    on clk { t <= a + b }\n    y = t",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn the_register_write_text_names_the_cycle_it_would_hold() {
+    // c 3 çevrim bildirilmiş, kaynağı a (1): register 2 çevrimlik değer tutar.
+    let src = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= a }\n    y = c",
+    );
+    let parsed = parse(FileId(0), &src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let labels: Vec<String> = analyze(&parsed.ast)
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E5010")
+        .flat_map(|d| d.spans.iter().map(|s| s.label.clone()))
+        .collect();
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.ends_with("register would hold a 2-cycle value")),
+        "{labels:?}"
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l == "register declared as 3 cycles here"),
+        "{labels:?}"
+    );
+}
