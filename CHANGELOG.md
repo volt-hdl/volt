@@ -199,6 +199,26 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128 Önerildi, 2026-11-20)
+
+- **Test sırası.** Kapının parçaları testleri nextest'in `mutants`
+  profiliyle koşar (`.config/nextest.toml`): PR'ın dokunduğu test
+  ikilileri önce, `volt-driver` dışındaki crate'ler sonra, yavaş
+  Verilator ikilileri en sonda. Yakalanan bir mutant ilk düşen testte
+  durduğundan daha erken durur; hangi testlerin koştuğu ve her mutantın
+  sonucu değişmez (referans karşılaştırması ADR-0128'de). Elle koşuda
+  geçici `-f nextest_order=default` eski sırayı koşturur.
+- **Karşılaştırma aracı.** `scripts/ci/mutants_compare.py A B` iki kapı
+  koşusunu mutant mutant karşılaştırır; liste ya da bir sonuç farklıysa 1
+  ile çıkar.
+- **Gereksiz yeniden derleme.** `volt-sv-emit/build.rs` yalnız var olan
+  git dosyalarını izler. CI'ın sığ checkout'unda `.git/packed-refs`
+  yoktu; cargo var olmayan yolu her çağrıda değişmiş sayıp build script'i
+  yeniden koşturuyor, `volt-sv-emit`, `volt-lsp` ve `volt-driver` her
+  `cargo` çağrısında yeniden derleniyordu (kapıda mutant başına medyan
+  13,7 sn). `volt --version` yeni commit'te güncellenmeye devam eder.
+- Derleyicinin girdisi ve çıktısı değişmedi.
+
 ### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, 2026-11-18)
 
 - **Gecelik tetik.** `difftest.yml` her gece main'de koşar; elle tetik

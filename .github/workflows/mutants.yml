@@ -56,6 +56,18 @@ name: Mutation test
 # for (#253: run 43754250315's regex missed one of its two mutants and the
 # run went green). `re` needs `expect`.
 #
+# Test order (ADR-0128, #366): the shards run nextest with the profile
+# `mutants` of .config/nextest.toml: the test binaries the pull request
+# touches first, every crate's tests but volt-driver's next, the slow
+# Verilator binaries of volt-driver last. A caught mutant stops at its
+# first failing test, so the order decides how soon; it never decides
+# whether a test runs. The input `nextest_order` (temporary, for the
+# reference comparisons of ADR-0128) runs the default order instead:
+#
+#   gh workflow run mutants.yml --ref <branch> -f gate_base=<revision> -f nextest_order=default
+#
+# Two runs are compared mutant by mutant with scripts/ci/mutants_compare.py.
+#
 # Memory (#160): every build and test of a shard runs under
 # scripts/ci/mutants_watchdog.py, which kills the largest process of the
 # tree when the tree holds more than MUTANTS_MEMORY_LIMIT_MIB; the mutant is
@@ -88,6 +100,14 @@ on:
         description: "The pull-request gate by hand: the mutants on the lines changed since this revision (empty: a full or targeted run)"
         required: false
         default: ""
+      # Temporary (ADR-0128, #366): the reference comparisons run the same
+      # commit in both orders. Removed once ADR-0128 is decided.
+      nextest_order:
+        description: "Test order (temporary, ADR-0128): priority = nextest profile mutants (the gate's order); default = nextest's default order (before ADR-0128)"
+        required: false
+        type: choice
+        options: [priority, default]
+        default: priority
 
 permissions:
   contents: read
@@ -106,6 +126,9 @@ env:
   MUTANTS_RE: ${{ inputs.re }}
   MUTANTS_EXPECT: ${{ inputs.expect }}
   MUTANTS_GATE_BASE: ${{ inputs.gate_base }}
+  # ADR-0128: priority on a pull request and by default; `default` only
+  # when a run by hand asks for it.
+  MUTANTS_NEXTEST_ORDER: ${{ inputs.nextest_order || 'priority' }}
   # #160: the resident memory of a shard's process tree (cargo mutants and
   # everything under it, or the baseline). The runner has 16 GiB; above this
   # the watchdog kills the largest process instead of the kernel killing the
@@ -198,6 +221,8 @@ jobs:
           python3 scripts/ci/mutants_summary.py --self-test
           python3 scripts/ci/mutants_watchdog.py --self-test
           python3 scripts/ci/mutants_reuse.py --self-test
+          python3 scripts/ci/mutants_nextest.py --self-test
+          python3 scripts/ci/mutants_compare.py --self-test
       # The filter of the run (mutants-list/filter.txt), which every later
       # `cargo mutants` call takes:
       # - gate: --in-diff of the Rust files changed since the base;
@@ -508,6 +533,32 @@ jobs:
       # out; a test that reads one fails this baseline, in every gate run.
       - name: Remove the inert paths (reuse key, #318)
         run: python3 scripts/ci/mutants_reuse.py mask
+      # ADR-0128 (#366): the order of the baseline and of every mutant's
+      # tests. `priority`: the profile `mutants` of .config/nextest.toml,
+      # with the test binaries of this run's changed files first
+      # (mutants-list/changed.txt; none for a full or targeted run), and a
+      # check that every binary the profile names exists. `default`:
+      # nextest's own order, as before ADR-0128. The baseline below runs in
+      # the same order as the mutants.
+      - name: Test order (nextest profile mutants, ADR-0128)
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          case "$MUTANTS_NEXTEST_ORDER" in
+            priority)
+              python3 scripts/ci/mutants_nextest.py pr --changed mutants-list/changed.txt
+              python3 scripts/ci/mutants_nextest.py check
+              echo "NEXTEST_PROFILE=mutants" >> "$GITHUB_ENV"
+              echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS test order::nextest profile mutants (pull request's binaries first, slow binaries last)"
+              ;;
+            default)
+              echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS test order::nextest's default order (nextest_order=default)"
+              ;;
+            *)
+              echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::nextest_order must be priority or default, got '$MUTANTS_NEXTEST_ORDER'"
+              exit 1
+              ;;
+          esac
       # The baseline: the unmutated tree runs every workspace test, with
       # every tool required, exactly as each mutant will, under the same
       # memory watchdog (a test that needs more fails here, not as a

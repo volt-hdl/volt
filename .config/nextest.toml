@@ -1,0 +1,62 @@
+# cargo-nextest configuration. Only the mutation gate uses it, through the
+# profile `mutants` (.github/workflows/mutants.yml sets
+# NEXTEST_PROFILE=mutants; ADR-0128, #366). A local `cargo nextest run` and
+# CI's other jobs (which run `cargo test`) keep the default profile.
+#
+# The profile changes the order in which tests start, never which tests
+# run: a caught mutant stops at its first failing test
+# (--max-fail=1:immediate, .cargo/mutants.toml), so a mutant is caught
+# sooner when the tests likely to catch it start first. Measured (#366):
+# under the default order the catching test, usually a fast test the pull
+# request added, sat at position 800-2400 of 4222, behind the Verilator
+# binaries of volt-driver, and a caught mutant ran its tests for 960 s
+# (median).
+#
+# priority: higher starts sooner; tests of equal priority keep nextest's
+# order. For each test the first override that matches decides its
+# priority, so the order of the blocks below matters.
+
+[profile.mutants]
+
+# 1. The test binaries the pull request touches: priority 100. The gate's
+#    shard writes them here (scripts/ci/mutants_nextest.py pr) from the
+#    files changed since the gate's base; nothing is written in the
+#    repository's copy. Keep this line where it is.
+# @pr-overrides
+
+# 2. Slow binaries, last: every volt-driver test binary whose tests took
+#    40 s or more in total (median of the 10 shard baselines of #366's
+#    runs; 22 binaries, ~90 % of the suite's test time). Every name must
+#    be a test binary of the workspace (mutants_nextest.py check).
+[[profile.mutants.overrides]]
+filter = """\
+    binary_id(=volt-driver::metamorphic_tests) \
+    | binary_id(=volt-driver::parser_rewrite_scope_sim_tests) \
+    | binary_id(=volt-driver::name_scope_sim_tests) \
+    | binary_id(=volt-driver::parser_scope_sim_tests) \
+    | binary_id(=volt-driver::sim_contract_tests) \
+    | binary_id(=volt-driver::difftest_tests) \
+    | binary_id(=volt-driver::literal_arith_sim_tests) \
+    | binary_id(=volt-driver::sim_bounds_tests) \
+    | binary_id(=volt-driver::test_discovery_tests) \
+    | binary_id(=volt-driver::parity_tests) \
+    | binary_id(=volt-driver::output_net_tests) \
+    | binary_id(=volt-driver::wide_literal_sim_tests) \
+    | binary_id(=volt-driver::signed_overshift_sim_tests) \
+    | binary_id(=volt-driver::cross_file_visibility_tests) \
+    | binary_id(=volt-driver::match_dead_arm_tests) \
+    | binary_id(=volt-driver::cast_chain_sim_tests) \
+    | binary_id(=volt-driver::template_tests) \
+    | binary_id(=volt-driver::prev_array_sim_tests) \
+    | binary_id(=volt-driver::arith_cut_warning_tests) \
+    | binary_id(=volt-driver::desugar_blind_spot_tests) \
+    | binary_id(=volt-driver::inline_flex_let_sim_tests) \
+    | binary_id(=volt-driver::build_stamp_tests)\
+    """
+priority = -100
+
+# 3. Every other crate's tests before volt-driver's: they are fast (unit
+#    tests of the compiler's crates) and catch most mutants of those crates.
+[[profile.mutants.overrides]]
+filter = "not package(=volt-driver)"
+priority = 50
