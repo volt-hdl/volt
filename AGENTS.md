@@ -181,6 +181,19 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   the number of mutants the regex was written for: the run fails when its
   list holds another number, so a regex that misses one of its mutants
   cannot pass.
+- **Mutation gate: speed never changes the result (ADR-0128).** The
+  gate's tests start in the order of the nextest profile `mutants`
+  (`.config/nextest.toml`): the test binaries the pull request touches
+  first, the slow Verilator binaries of volt-driver last; the order
+  decides when a test starts, never whether it runs. A volt-driver test
+  binary whose tests take 40 s or more in total belongs in that profile's
+  slow list; every name there must be a test binary of the workspace
+  (`scripts/ci/mutants_nextest.py check`). A pull request that changes how
+  the gate runs (`mutants.yml`, `.cargo/mutants.toml`,
+  `.config/nextest.toml`) compares a reference run with
+  `scripts/ci/mutants_compare.py` (ADR-0128, "Doğrulama yöntemi"): the
+  same mutants, each with the same outcome; a setting under which any
+  mutant's outcome changes is reverted.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.
