@@ -57,6 +57,7 @@ use volt_ast::{ClockEdge, Expr, Idx, ItemKind, ResetSpec, SourceFile, TrustLevel
 use volt_diagnostics::Diagnostic;
 use volt_span::Span;
 
+pub(crate) use rdc::is_raw_reset;
 pub use rdc::{check_rdc, without_raw_reset_unused};
 
 use crate::resolve::{DefId, ResolveResult};
