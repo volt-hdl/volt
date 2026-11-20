@@ -1,6 +1,6 @@
 # ADR-0128: Mutasyon Kapısının Süresi — Test Sırası, Koşu Başına Tek Temel Koşu, Sabit Zaman Aşımı Tabanı ve Parça Sayısı; Sonuçlar Birebir Aynı Kalır
 
-> Statü: Önerildi
+> Statü: Kabul edildi — uygulaması aşamalı: §1 ve §5 #367'de; §2–§3 PR 2; §4 PR 4
 > Önceki karar: ADR-0109 — §1'in temel koşusu (her parçada) ve zaman aşımı (parçanın temel koşusunun iki katı), §1'in nextest gerekçesi (varsayılan sıra), §3 ve "PR kapısı" eki §1'in parça hesabı (S = 15 dk, t = 600 sn), "PR kapısı" eki §4'ün zaman aşımı; kalan her kararı yürürlükte
 > İlgili: ADR-0104 (sürüm metni: `volt-sv-emit/build.rs` yeni commit'te yeniden koşmayı sürdürür), ADR-0107 (araç defteri nextest'in her sırasında aynı: SKIP: 0), ADR-0117 (metamorfik test kapının en yavaş ikilisidir)
 > Issue: #366 (ölçüm ve plan), #364 (yalnız kaçanları yeniden sınamak), #300 (parçalarda ccache), #305 (fuzz derleminin yeniden oynatılması)
@@ -75,7 +75,8 @@ koşmadığını değil: yakalanan mutant ilk düşen testte durur
   #359 26 → ~21 dk (en yavaş parça; temel koşu parçada kalırken).
 - **Geçici girdi.** `workflow_dispatch`'in `nextest_order` girdisi
   (`priority` | `default`) aynı commit'i iki sırayla koşturur; bu ADR'nin
-  referans karşılaştırmaları içindir, karar verilince kaldırılır.
+  referans karşılaştırmaları içindir; §2–§4'ün karşılaştırmaları bitince
+  kaldırılır.
 
 ### 2. Koşu başına tek temel koşu (a, sonraki PR)
 
@@ -145,8 +146,98 @@ o ayar geri alınır.
 
 ### PR 1 (h, c′): referans karşılaştırması
 
-Kanıt dalı `evidence/366-order-343`: `1268ffa2` (+ bu PR'ın değişikliği),
-`gate_base=62373205`, 4 parça. Sonuçlar koşular bitince bu bölüme yazılır.
+**Ağaç ve fark tabanı.** Kanıt dalı `evidence/366-order-343` (karşılaştırma
+kaydedildikten sonra silindi): `62373205` → h'nin commit'i `1e00aa85` →
+#343'ün commit'i (`1268ffa2`) → #367'nin iş akışı, betikleri ve belgeleri.
+`gate_base=1e00aa85`: fark tam olarak #343'ün Rust satırlarıdır, derleme h'yi
+içerir. #343'ün birleştirme ağacı (`ee5d6d93`) `1268ffa2`'ninkiyle aynıdır
+(`2f3d4c9e` `62373205`'i zaten içeriyordu). Kapsam işi iki koşuda da
+`68 in 4 shards` yazdı; mutant listesi kayıtlı referansınkiyle satır satır
+aynı, `key.json` mutant özeti `b4239bffc770…` üçünde de aynı. Ağaç özeti
+farklıdır (koşulan ağaç #367'nin değişikliğini taşır), mutant özeti değil.
+
+**Sonuç: yeni sıra ile kayıtlı referans.** `mutants_compare.py
+44615986697 44755128989`, çıkış kodu **0**:
+
+| | Kayıtlı referans 44615986697 (varsayılan sıra, h yok) | Yeni sıra 44755128989 (`priority`, h var) |
+|---|---|---|
+| Mutant | 68 | 68 |
+| Sonuçlar | caught 59, missed 0, timeout 0, unviable 9, bellek sınırı 0 | caught 59, missed 0, timeout 0, unviable 9, bellek sınırı 0 |
+| Mutant özeti | `b4239bffc770` | `b4239bffc770` |
+
+"No difference: the same 68 mutants, each with the same outcome."
+
+**Süreler.**
+
+| | Kayıtlı referans 44615986697 | Yeni sıra 44755128989 | Kontrol 44755122514 (`default`, h var) |
+|---|---:|---:|---:|
+| Koşunun duvar süresi | 320 dk | 31,4 dk | 330,1 dk (3/4 sınırda kesildi) |
+| En yavaş parça | 318,4 dk | 30,3 dk | 329,2 dk (3/4) |
+| Mutantların test süresi, toplam | 56 207 sn | 211 sn | 50 955 sn (67 mutant) |
+| Mutantların derleme süresi, toplam | 1528 sn | 747 sn | 1274 sn |
+| Parçaların mutant adımı (0/1/2/3) | 17216 / 15223 / 12626 / 12676 sn | 163 / 247 / 232 / 324 sn | 10883 / 13269 / 10968 / 18001 sn (3/4: 300 dk sınırı) |
+| Parçaların temel koşu adımı (0/1/2/3) | 1858 / 1293 / 1558 / 1141 sn | 1152 / 1171 / 1546 / 1147 sn | 1153 / 1174 / 1339 / 1718 sn |
+
+Yeni sırayla yakalanan bir mutantın test süresi parçada ortalama 1–5 sn.
+Koşunun süresini artık parçanın temel koşusu (19–26 dk) belirler; onun
+parçadan çıkması §2'dir. Derleme toplamının yarıya inmesi h'dir: her
+mutantın test aşaması `volt-sv-emit`, `volt-lsp` ve `volt-driver`'ı artık
+yeniden derlemez (#367'nin kapısında temel koşunun ikinci cargo çağrısı
+`Finished … in 0.09s`; önce 8,6 sn).
+
+**Kontrol koşusu.** Aynı dal, aynı gün, `nextest_order=default`
+(44755122514). 0/4, 1/4 ve 2/4 parçaları tamamlandı. 3/4 parçasının mutant
+adımı iş akışının 300 dakikalık sınırına takıldı ve son mutantı koşarken
+kesildi (`not completed: stopped after 300 minutes`).
+
+- `mutants_compare.py 44615986697 44755122514`, çıkış kodu **1**. Tek fark
+  sonucu olmayan mutanttır: `no outcome in B (shard not completed):
+  crates/volt-hir/src/typeck/synth.rs:192:29: replace == with != in
+  TypeChecker<'_, '_>::synth_call`. Kalan 67 mutantın sonucu birebir aynı:
+  caught 58, unviable 9; missed, timeout ve bellek sınırı 0. Sonucu farklı
+  çıkan mutant yok.
+- `mutants_compare.py 44755122514 44755128989` (kontrol ile yeni sıra):
+  çıkış kodu 1, tek fark aynı mutantın kontrolde sonucunun olmamasıdır.
+- Eksik mutant, aynı commit'te (`ca1d6a0d…`) ve aynı sırayla
+  (`nextest_order=default`) tek başına koşuldu: 44809805732,
+  `re='synth\.rs:192:29'`, `expect=1`, tek parça. Sonuç:
+  `1 mutant tested in 20m: 1 caught` (test 1146 sn; kayıtlı referansta
+  1109 sn, yeni sırada 3 sn).
+  Temel koşu 1088 sn, `SKIP: 0`.
+
+Kontrol koşusu ile hedefli koşu birlikte: 68 mutant, caught 59, unviable 9;
+her mutantın sonucu kayıtlı referansınkiyle ve yeni sıranınkiyle aynı.
+
+Kontrolün 3/4 parçası referansın aynı parçasından yavaştı: temel koşu
+1718 sn (referansta 1141 sn), mutantların test toplamı 16 716 sn ve son
+mutant eksik (referansta 12 350 sn). Bu parça eski koşucu imajında koştu
+(20261111.370.1); öteki üç parça 20261116.*'da. Varsayılan sırada parçanın
+süresi en uzun mutantların test süresine bağlıdır; 300 dakikalık sınır
+kayıtlı referansta da yalnız 13 dk payla geçilmişti (0/4 parçasının
+mutant adımı 17 216 sn, yaklaşık 287 dk).
+
+**Yöntemden sapmalar.** Yöntem (yukarıda) önce aynı gün A/A, sonra A/B
+der. Yapılan:
+
+- Kontrol (ayar kapalı) ve yeni (ayar açık) koşu aynı daldan, aynı anda
+  başlatıldı (A/B aynı gün). Ama sonuç eşitliğinin kararı, kontrol koşusu
+  bitmeden, yeni koşunun **kayıtlı referansla** (bir gün önceki koşu,
+  44615986697) karşılaştırılmasıyla verildi. Kontrol koşusu sonradan
+  aynı karşılaştırmayı ikinci kez yaptı (yukarıda).
+- Kayıtlı referans h'yi içermez; kontrol ve yeni koşu içerir. Yani
+  "ayar kapalı" koşu bugünkü kapının tıpkısı değildir: yalnız sırası
+  eskidir.
+- Koşucu imajı farklıdır: referans 20261111.370.1 ve 20261111.127.1,
+  yeni koşu 20261116.133.1 ve 20261116.376.1; kontrol 20261116.133.1,
+  20261116.376.1 ve (3/4) 20261111.370.1; hedefli koşu 20261116.376.1.
+  rustc 1.100.0, cargo-mutants 27.1.0, cargo-nextest 0.9.151 ve
+  Verilator 5.054 hepsinde aynıdır (`stamp.json`).
+- Ayrı bir A/A çifti (aynı ayarla iki koşu) koşulmadı. Kayıtlı referans ile
+  kontrol koşusu, ayarı kapalı iki koşu olarak A/A'nın yerini tutar.
+- Kontrol koşusu tek koşu olarak tamamlanmadı: 3/4 parçası 300 dakikalık
+  sınıra takıldı ve bir mutantın sonucu hedefli bir koşudan (44809805732,
+  aynı commit, aynı sıra, tek parça) geldi. O mutant kendi parçasının öteki
+  16 mutantıyla aynı süreçte değil, kendi temel koşusundan sonra koştu.
 
 ## Reddedilenler
 
