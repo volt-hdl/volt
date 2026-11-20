@@ -1,6 +1,6 @@
 # ADR-0126: Bildirilen Gecikme Denetlenir — `let`, `wire` ve Çıkış Portundaki `Delayed<T, N>` (#354)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0037 (§4 yeniden zamanlama iddiası: bu ADR iddiayı karışımla sınırlar; gecikmesi tam bilinen değerin bildirimi denetlenir), ADR-0100 (sessiz yanlış istisnası: önceden kabul edilen girdiyi reddeden düzeltme son hanede, v0.1.3), ADR-0118 (karışım üzerindeki bildirim işaretsiz bir kaçıştır, v0.2.0: #358), ADR-0119 (İlke denetimi; İ1 denetlenmeyen beyan, İ2.1 çıkış portu sınırdaki beyandır), ADR-0125 (tanı ilkesi: ne oldu, neden, ne yapılabilir; makine önerisi yok, `delay<K>` önerilmez)
 > Issue: #354 (ilgili: #232, #358)
 > Tarih: 2026-11-19
@@ -133,8 +133,8 @@ gecikmeyi tam biliyorsa N onunla aynı olmalıdır.
 5. **Metamorfik yeniden yazım (ADR-0117):** Kural iki yazımı eşdeğer
    saymaz. Tohumlanmış hata derlemine (ADR-0113) `timing.declared-delay-shift`
    türü eklenir: `let`, `wire` ya da çıkış portundaki `Delayed<T, N>`'in
-   N'ini bir artırır, beklenen kod E5010. Karışım üzerindeki iki bildirimin
-   mutantı (`tests/ui/pass/44`, `160`) `KNOWN_MISSES`'te #358 ile durur.
+   N'ini bir artırır, beklenen kod E5010. Karışım üzerindeki bildirimlerin
+   mutantları `KNOWN_MISSES`'te #358 ile durur.
 
 ## Spec
 
@@ -190,7 +190,7 @@ olduğu.
 
 | Seçenek | Neden |
 |---|---|
-| Bildirimi her durumda denetlemek, karışımı da E5010 yapmak | ADR-0037'nin ileri besleme kaçışını kaldırır; bugün derlenen bilinçli bypass tasarımları (`tests/ui/pass/44`) yol göstermeden reddedilir. ADR-0118'e göre kaçış işaretle ve gerekçeyle kalır; işaret v0.2.0'da gelir (yeni sözdizimi ve tanı davranışı, ADR-0100'e göre orta hane). |
+| Bildirimi her durumda denetlemek, karışımı da E5010 yapmak | ADR-0037'nin ileri besleme kaçışını kaldırır; bugün derlenen bilinçli ileri besleme tasarımları (aşamaları karıştıran değerin üstündeki bildirim, örneğin `tests/ui/pass/160`'taki `f`) yol göstermeden reddedilir. ADR-0118'e göre kaçış işaretle ve gerekçeyle kalır; işaret v0.2.0'da gelir (yeni sözdizimi ve tanı davranışı, ADR-0100'e göre orta hane). |
 | Ayrı bir denetim fonksiyonuyla `let`/`wire`/port gecikmesini yeniden hesaplamak | Aynı kural iki yerde hesaplanır; GOVERNANCE.md "One place per rule": sessiz yanlışların çoğu kopyaların ayrışmasından çıktı. Karar çıkarımın kendisini (`compute_def`) kullanır. |
 | Makine önerisiyle N'i değerin gecikmesine çevirmek | Gidiş-dönüş sözleşmesini (ADR-0099 §2) genel olarak sağlamaz: düzeltilen bildirim, gizlediği karışımı okunduğu yerde E5010 olarak geri getirir. Hangisinin yanlış olduğunu (sayı mı, değer mi) yalnız kullanıcı bilir (ADR-0119 İ4). |
 | Help'te `delay<K>(...)` önermek | Bugün register eklemez (#232): E5010'u susturur, donanım değişmez. |
