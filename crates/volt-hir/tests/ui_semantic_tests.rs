@@ -209,6 +209,22 @@ fn ui_fail_219_extern_raw_reset_w3011() {
 }
 
 #[test]
+fn ui_fail_291_296_reset_path_e2003() {
+    // ADR-0124 (#340): sync()/sync3() kaynağı reset (her iki kutup) ve
+    // reset portuna ham port dışında bir değer (tipsiz/tipli let, if).
+    for f in [
+        "fail/291_reset_through_sync.volt",
+        "fail/292_reset_through_sync_active_low.volt",
+        "fail/293_reset_through_sync3.volt",
+        "fail/294_reset_through_let.volt",
+        "fail/295_reset_through_typed_let.volt",
+        "fail/296_reset_through_if.volt",
+    ] {
+        assert_ui_fail(f);
+    }
+}
+
+#[test]
 fn ui_fail_220_223_compare_width_e2031() {
     // ADR-0106 (#106): farklı doğal genişlikte aritmetik karşılaştırma;
     // satır içi, tipsiz let, kontrat ve sığmayan sabit aynı kod.
@@ -435,8 +451,10 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda;
     // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil;
     // #331: 156 kapsanan koldaki atama ikinci sürücü değil;
-    // #332: 157 ölü koldaki alanlar arası atama E3001 değil.
-    assert_eq!(checked, 142);
+    // #332: 157 ölü koldaki alanlar arası atama E3001 değil;
+    // #340 (ADR-0124): 158 reset portu yazılmayan çocuk (otomatik port),
+    // 159 ham reset portunun kendisinin bağlanması.
+    assert_eq!(checked, 144);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -9,6 +9,29 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir reset artık `sync()` ya da `sync3()`'ten
+  geçirilemez ve bir örneğin reset portuna yalnız bu modülün reset giriş
+  portunun adı bağlanabilir (#340, ADR-0124; sessiz yanlış düzeltmesi).
+  0.1.2'de `let rst_s = sync(rst, clk)` ile `Child { clk: clk, rst: rst_s }`
+  hatasız derleniyordu, ama `sync()`'in flip-flop'larını bu modülün aynı
+  porttan türetilen reset'i temizlediğinden active_high bir reset örneğe
+  hiç ulaşmıyordu: extern hiç reset görmüyor, Volt alt modülünün
+  register'ları reset'ten geçmeden sayıyordu. Artık E2003 alan yazımlar:
+  `sync(rst, clk)` ve `sync3(rst, clk)` (iki kutupta da; active_low'da devre
+  tesadüfen bir reset veriyordu, yanındaki register'lardan 2 çevrim geç),
+  reset portuna tipsiz ya da tipli bir `let` üzerinden bağlama
+  (`let rs = rst`; bu yazım "aynı reset iki kez senkronlanıyor" E3003'ünü
+  ve extern'de W3011'i susturuyordu), `if`/`match` ile reset seçme
+  (`rst: if c { rst } else { rst }`; SV'de reset yolunda bir çoklayıcı).
+  Doğru yol: alt modüle reset portu yazmayın; Volt onun otomatik reset
+  portunu bu modülün o saat için senkronize ettiği reset'e bağlar (tanı bu
+  düzeltmeyi makinece uygulanabilir öneri olarak verir). Bir extern
+  senkronize kopyayı henüz alamaz (#93): reset giriş portunun kendisini
+  bağlayın (`rst: rst`; yanındaki register'lar senkronize kopyayı
+  kullanıyorsa W3011) ve bırakmayı SystemVerilog modülünün içinde
+  senkronlayın. Kabul edilmeye devam eden tasarımların SV'si değişmez.
+  Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm
+  notunun "Behavior changes" bölümüne girer.
 - **Davranış değişikliği.** Bir `match` deyiminde (`on`/`comb` içinde,
   sayısal, `bool` ya da enum sınanan) ilk joker koldan (`_` ya da `A | _`)
   sonraki kollar artık SystemVerilog'a yazılmaz ve W2014 alır (#216;
