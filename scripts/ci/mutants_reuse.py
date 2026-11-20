@@ -43,26 +43,36 @@ runs in full and the log says why:
 - every shard of it completed: every listed mutant has an outcome; no
   missed, no timeout, no memory-limit mutant (a timeout and a memory kill
   depend on the runner and its load, they are never reused);
-- every shard's tool ledger passes `--require-zero-skips --min-ran 60`
-  (its `Tool ledger [mutants-k]: ... SKIP: 0` line is printed again);
-- every shard's stamp (written after its baseline passed) names the same
-  rustc, cargo-mutants, cargo-nextest and runner image as the key, and
-  shows that the inert paths were absent while it tested;
+- it has the artifact of its baseline job (`mutants-baseline`, ADR-0128
+  §2: one baseline per run, beside the shards): its tool ledger passes
+  `--require-zero-skips --min-ran 60` and its stamp (written after the
+  baseline passed) names the same rustc, cargo-mutants, cargo-nextest and
+  runner image as the key and shows that the inert paths were absent;
+- every shard's tool ledger passes `--require-zero-skips` (its
+  `Tool ledger [mutants-k]: ... SKIP: 0` line is printed again; a shard
+  has no baseline, so how many tool tests its mutants reach depends on
+  where they are caught, and `--min-ran` is the baseline's);
+- every shard's stamp names the same rustc, cargo-mutants, cargo-nextest
+  and runner image as the key, and shows that the inert paths were absent
+  while it tested;
 - every mutant of this run's list (after today's exclude_re) was tested
   then and caught or unviable.
 
     mutants_reuse.py key --lists DIR [--out FILE]
     mutants_reuse.py find --lists DIR --pr N --head-repo OWNER/NAME --head-ref BRANCH [--github-output FILE]
     mutants_reuse.py mask
-    mutants_reuse.py stamp --out FILE --baseline-seconds S --timeout T
+    mutants_reuse.py stamp --out FILE --role baseline --baseline-seconds S --timeout T
+    mutants_reuse.py stamp --out FILE --role shard --timeout T
     mutants_reuse.py --self-test
 
 `key` writes DIR/key.json from DIR/unexcluded.txt and the checkout. `find`
 looks for the earlier run and, when it reuses one, writes DIR/reuse/
-(reuse.json, the earlier lists and the shards' outcomes) for the summary
-job; GitHub Actions outputs `run`, `sha` and `key`. `mask` deletes the
-inert paths from the checkout (each shard, before its baseline). `stamp`
-writes a shard's tool versions, runner image and inert paths.
+(reuse.json, the earlier lists, the shards' outcomes and the baseline's
+files) for the summary job; GitHub Actions outputs `run`, `sha` and `key`.
+`mask` deletes the inert paths from the checkout (the baseline job and each
+shard, before they test). `stamp` writes the tool versions, runner image
+and inert paths of the baseline job (with its seconds and the test timeout
+the rule gives, ADR-0128 §3) or of a shard (with the timeout it used).
 """
 
 import argparse
@@ -98,6 +108,7 @@ ENV_VARS = (
     "OSS_CAD_SUITE_DATE",
     "MUTANTS_MEMORY_LIMIT_MIB",
     "MUTANTS_GATE_SECONDS_PER_MUTANT",
+    "MUTANTS_TIMEOUT_FLOOR_SECONDS",
 )
 # The runner image: its OS and its weekly release (the date part of
 # ImageVersion). The rest of ImageVersion is a build number that differs
@@ -117,7 +128,8 @@ SYSTEM = {
     "python3": ["python3", "--version"],
     "git": ["git", "--version"],
 }
-# The shard's own `Tool ledger` step: tool_ledger.py report --require-zero-skips --min-ran 60.
+# The baseline job's own `Tool ledger` step: tool_ledger.py report
+# --require-zero-skips --min-ran 60; a shard's: --require-zero-skips.
 MIN_RAN = 60
 # How many earlier runs of the pull request are looked at, newest first.
 MAX_RUNS = 50
@@ -125,12 +137,18 @@ MAX_RUNS = 50
 SHARD_FILES = (
     "mutants-shard.txt",
     "memory-kills.tsv",
+    "stamp.json",
+    "tool-ledger.tsv",
+) + tuple(f"mutants.out/{k}.txt" for k in mutants_summary.OUTCOMES)
+# The baseline job's artifact (ADR-0128 §2) and what it brings.
+BASELINE_ARTIFACT = mutants_summary.BASELINE_ARTIFACT
+BASELINE_FILES = (
     "baseline-memory-kills.tsv",
     "baseline-build-peak.txt",
     "baseline-test-peak.txt",
     "stamp.json",
     "tool-ledger.tsv",
-) + tuple(f"mutants.out/{k}.txt" for k in mutants_summary.OUTCOMES)
+)
 
 
 class InertError(Exception):
@@ -323,9 +341,12 @@ def mask(repo: Path) -> int:
     return 0
 
 
-def stamp(repo: Path, env: dict, run, baseline_seconds: int, timeout: int) -> dict:
+def stamp(repo: Path, env: dict, run, timeout: int, baseline_seconds: int | None = None, role: str = "shard") -> dict:
+    """The stamp of the baseline job (`role` baseline: its seconds, and the
+    test timeout of ADR-0128 §3) or of a shard (the timeout it used)."""
     entries = parse_inert((repo / INERT_FILE).read_text(encoding="utf-8"))
     st = tool_versions(run)
+    st["role"] = role
     st["verilator"] = run(["verilator", "--version"])
     st["yosys"] = run(["yosys", "-V"])
     st.update(runner(env))
@@ -408,8 +429,47 @@ def read_names(path: Path) -> list[str]:
     return mutants_summary.read_lines(path)
 
 
-def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> tuple[list[str], list[str], dict]:
-    """(problems, log lines, facts) of an earlier run's shards."""
+def stamp_problems(where: str, st: dict, want: dict, inert: list[str]) -> list[str]:
+    """What of a stamp differs from the key, or shows an inert path present."""
+    problems = [f"{where}: {field} {short(str(st.get(field)))}, the key has {short(str(value))}"
+                for field, value in want.items() if st.get(field) != value]
+    if st.get("inert") != inert or st.get("inert_present"):
+        problems.append(f"{where}: the inert paths were not masked: {st.get('inert_present')}")
+    return problems
+
+
+def check_baseline(baseline: Path | None, want: dict, inert: list[str], tools_seen: dict) -> tuple[list[str], list[str]]:
+    """(problems, log lines) of an earlier run's baseline job (ADR-0128 §2)."""
+    if baseline is None or not baseline.is_dir():
+        return [f"no {BASELINE_ARTIFACT} artifact (the baseline job's ledger and stamp)"], []
+    problems, log = [], []
+    ledger = baseline / "tool-ledger.tsv"
+    if not ledger.is_file():
+        problems.append("the baseline: no tool ledger")
+    else:
+        try:
+            code, out = tool_ledger.report(tool_ledger.load(ledger), "mutants-baseline", True, MIN_RAN)
+        except SystemExit as err:
+            code, out = 1, [f"malformed tool ledger: {err}"]
+        log.append(out[0])
+        if code:
+            problems.append("the baseline: " + out[0] + "".join(f"; {l.strip()}" for l in out[1:] if "::error" in l))
+    st_path = baseline / "stamp.json"
+    if not st_path.is_file():
+        problems.append("the baseline: no stamp (tool versions, runner image, inert paths)")
+        return problems, log
+    st = json.loads(st_path.read_text(encoding="utf-8"))
+    if st.get("role") != "baseline":
+        problems.append(f"the baseline: its stamp is a {st.get('role')} stamp")
+    problems += stamp_problems("the baseline", st, want, inert)
+    for t in ("verilator", "yosys"):
+        tools_seen.setdefault(t, set()).add(st.get(t))
+    return problems, log
+
+
+def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str],
+                   baseline: Path | None = None) -> tuple[list[str], list[str], dict]:
+    """(problems, log lines, facts) of an earlier run's baseline and shards."""
     problems, log = [], []
     n = len(list(lists.glob("shard-*.txt")))
     if n == 0:
@@ -417,6 +477,9 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
     env = key["parts"]["environment"]
     want = {**env["tools"], **env.get("system", {}), **env["runner"]}
     results, tools_seen = [], {}
+    more, blog = check_baseline(baseline, want, env["inert"], tools_seen)
+    problems += more
+    log += blog
     for k in range(n):
         r = mutants_summary.shard_result(shards, lists, k, n)
         results.append(r)
@@ -429,7 +492,7 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
             problems.append(f"shard {k}: no tool ledger")
         else:
             try:
-                code, out = tool_ledger.report(tool_ledger.load(ledger), f"mutants-{k}", True, MIN_RAN)
+                code, out = tool_ledger.report(tool_ledger.load(ledger), f"mutants-{k}", True, 0)
             except SystemExit as err:
                 code, out = 1, [f"malformed tool ledger: {err}"]
             log.append(out[0])
@@ -440,11 +503,7 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
             problems.append(f"shard {k}: no stamp (tool versions, runner image, inert paths)")
             continue
         st = json.loads(st_path.read_text(encoding="utf-8"))
-        for field, value in want.items():
-            if st.get(field) != value:
-                problems.append(f"shard {k}: {field} {short(str(st.get(field)))}, the key has {short(str(value))}")
-        if st.get("inert") != env["inert"] or st.get("inert_present"):
-            problems.append(f"shard {k}: the inert paths were not masked: {st.get('inert_present')}")
+        problems += stamp_problems(f"shard {k}", st, want, env["inert"])
         for t in ("verilator", "yosys"):
             tools_seen.setdefault(t, set()).add(st.get(t))
     for t, seen in tools_seen.items():
@@ -533,11 +592,13 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
                 if name not in arts:
                     raise ReuseError(f"no {name} artifact")
                 gh.download(arts[name], tmp / "shards" / name, keep=lambda f: f in SHARD_FILES)
+            if BASELINE_ARTIFACT in arts:
+                gh.download(arts[BASELINE_ARTIFACT], tmp / "baseline", keep=lambda f: f in BASELINE_FILES)
         except ReuseError as err:
             problems.append(f"its shard outcomes could not be read: {err}")
             return {"decision": "rerun", "run": rid,
                     "reason": f"{head} has the same key but is not reusable: " + "; ".join(problems)}
-        more, log, facts = check_outcomes(tmp / "lists", tmp / "shards", key, current)
+        more, log, facts = check_outcomes(tmp / "lists", tmp / "shards", key, current, tmp / "baseline")
         problems += more
         for line in log:
             print(f"{head}: {line}")
@@ -550,13 +611,14 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
         out.mkdir(parents=True)
         shutil.move(str(tmp / "lists"), str(out / "lists"))
         shutil.move(str(tmp / "shards"), str(out / "shards"))
+        shutil.move(str(tmp / "baseline"), str(out / "baseline"))
         info = {"run": rid, "sha": sha, "key": key["key"], "created_at": r.get("created_at"),
                 "url": r.get("html_url", ""), **facts}
         (out / "reuse.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         c = facts["counts"]
         print(f"{head}: same key; {sum(c.values())} mutant(s) in {facts['shards']} shard(s): "
               f"caught={c['caught']} unviable={c['unviable']} missed=0 timeout=0 memory=0; "
-              f"every shard completed, SKIP: 0, the same tools and runner image")
+              f"the baseline passed (--min-ran {MIN_RAN}), every shard completed, SKIP: 0, the same tools and runner image")
         if facts["excluded_now"]:
             print(f"excluded by today's exclude_re, tested then: {listed(facts['excluded_now'], 20)}")
         print(f"reused: run {rid} (SHA {sha}), key {key['key']}")
@@ -721,9 +783,12 @@ def self_test() -> int:
         assert not (work / "docs/adr").exists() and not (work / "CHANGELOG.md").exists()
         assert (work / "docs/adrx.md").is_file() and (work / "README.md").is_file()
         assert "docs/adr/ (1 file(s))" in out.getvalue(), out.getvalue()
-        st = stamp(work, env, lambda args: {"rustc": tools["rustc"], "cargo": "x"}.get(args[0], f"{args[0]} 1"), 600, 1200)
+        st = stamp(work, env, lambda args: {"rustc": tools["rustc"], "cargo": "x"}.get(args[0], f"{args[0]} 1"), 3610, 1200, "baseline")
         assert st["inert_present"] == [] and st["inert"] == entries, st
-        assert stamp(repo, env, lambda args: "v", 1, 300)["inert_present"] == entries
+        assert st["role"] == "baseline" and st["baseline_seconds"] == 1200 and st["timeout"] == 3610, st
+        st = stamp(work, env, lambda args: "v", 3610)
+        assert st["role"] == "shard" and st["baseline_seconds"] is None and st["timeout"] == 3610, st
+        assert stamp(repo, env, lambda args: "v", 3610)["inert_present"] == entries
 
         # Artifacts: the digest of the zip is checked before anything is read.
         buf = io.BytesIO()
@@ -754,10 +819,13 @@ def self_test() -> int:
         cur = dict(base)
         scope = {"repo": "o/r", "pr": 7, "head_repo": "o/r", "head_ref": "feat/x", "run_id": 900, "event": "pull_request"}
         ledger_ok = "".join(f"RAN\tb\tt{i}\tverilator\t1\n" for i in range(61))
+        # A shard has no baseline: its mutants reach few tool tests (ADR-0128 §2).
+        ledger_few = "".join(f"RAN\tb\tt{i}\tverilator\t1\n" for i in range(3))
 
         def run(rid, *, key=cur, shards=((names[0],), (names[1],)), outcome="caught", conclusion="success",
                 status="completed", event="pull_request", pr=7, head_repo="o/r", branch="feat/x", reused=None,
-                stamp_over=None, ledger=ledger_ok, kills=None, drop=None, tamper=False, no_key=False):
+                stamp_over=None, ledger=ledger_few, kills=None, drop=None, tamper=False, no_key=False,
+                baseline_ledger=ledger_ok, baseline_over=None, baseline_drop=None, no_baseline=False):
             r = {
                 "id": rid, "event": event, "head_branch": branch, "head_sha": f"{rid:040d}",
                 "path": ".github/workflows/mutants.yml", "status": status, "conclusion": conclusion,
@@ -772,11 +840,19 @@ def self_test() -> int:
                 lists["reuse/reuse.json"] = json.dumps({"run": reused})
                 lists = {k: v for k, v in lists.items() if not k.startswith("shard-")}
             arts = {"mutants-list": lists}
-            for k, s in enumerate(shards if not reused else ()):
-                st = {**tools, **{v: env[v] for v in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
+            common = {**tools, **{v: env[v] for v in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
                       "image_release": env["ImageVersion"].split(".")[0],
-                      "verilator": "Verilator 5.054", "yosys": "Yosys 0.57", "inert": entries, "inert_present": [],
-                      "baseline_seconds": 600, "timeout": 1200}
+                      "verilator": "Verilator 5.054", "yosys": "Yosys 0.57", "inert": entries, "inert_present": []}
+            if not reused and not no_baseline:
+                bst = {**common, "role": "baseline", "baseline_seconds": 1200, "timeout": 3610}
+                bst.update(baseline_over or {})
+                bfiles = {"stamp.json": json.dumps(bst), "tool-ledger.tsv": baseline_ledger,
+                          "baseline-build-peak.txt": "900\n", "baseline-test-peak.txt": "3000\n"}
+                for d in baseline_drop or ():
+                    bfiles.pop(d, None)
+                arts["mutants-baseline"] = bfiles
+            for k, s in enumerate(shards if not reused else ()):
+                st = {**common, "role": "shard", "baseline_seconds": None, "timeout": 3610}
                 st.update(stamp_over or {})
                 files_ = {"mutants-shard.txt": "".join(n + "\n" for n in s), "stamp.json": json.dumps(st),
                           "tool-ledger.tsv": ledger}
@@ -824,12 +900,15 @@ def self_test() -> int:
                 if res["decision"] == "reuse":
                     assert (Path(w) / "reuse/reuse.json").is_file()
                     assert (Path(w) / "reuse/shards/mutants-out-0/stamp.json").is_file()
+                    assert (Path(w) / "reuse/baseline/stamp.json").is_file()
+                    assert (Path(w) / "reuse/baseline/baseline-test-peak.txt").is_file()
             return res, log.getvalue(), gh
 
         res, log, _ = decide(run(101))
         assert res["decision"] == "reuse" and res["run"] == 101, (res, log)
         assert f"reused: run 101 (SHA {101:040d}), key {cur['key']}" in log, log
-        assert "Tool ledger [mutants-0]: 61 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 0" in log, log
+        assert "Tool ledger [mutants-baseline]: 61 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 0" in log, log
+        assert "Tool ledger [mutants-0]: 3 test(s) asked for a tool; 3 lookup(s) found the tool (3 required), SKIP: 0" in log, log
         # A shard on another build of the same weekly image, with the same toolchain.
         res, log, _ = decide(run(101, stamp_over={"ImageVersion": "20261111.127.1"}))
         assert res["decision"] == "reuse", (res, log)
@@ -843,10 +922,20 @@ def self_test() -> int:
             ("timeout", run(102, outcome="timeout")),
             ("memory limit", run(102, kills=True)),
             ("not tested", run(102, drop=["mutants.out/caught.txt"])),
-            ("SKIP: 1", run(102, ledger=ledger_ok + "SKIP\tb\tt99\tsby\t0\n")),
-            ("only 59 tool lookup(s)", run(102, ledger=ledger_ok[: ledger_ok.index("t59") - 7])),
+            ("SKIP: 1", run(102, ledger=ledger_few + "SKIP\tb\tt99\tsby\t0\n")),
             ("no tool ledger", run(102, drop=["tool-ledger.tsv"])),
             ("no stamp", run(102, drop=["stamp.json"])),
+            # The baseline job (ADR-0128 §2): its artifact, ledger (--min-ran 60) and stamp.
+            ("no mutants-baseline artifact", run(102, no_baseline=True)),
+            ("the baseline: Tool ledger [mutants-baseline]: 62 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 1",
+             run(102, baseline_ledger=ledger_ok + "SKIP\tb\tt99\tsby\t0\n")),
+            ("only 59 tool lookup(s)", run(102, baseline_ledger=ledger_ok[: ledger_ok.index("t59") - 7])),
+            ("the baseline: no tool ledger", run(102, baseline_drop=["tool-ledger.tsv"])),
+            ("the baseline: no stamp", run(102, baseline_drop=["stamp.json"])),
+            ("a shard stamp", run(102, baseline_over={"role": "shard"})),
+            ("the baseline: rustc", run(102, baseline_over={"rustc": "rustc 1.90.0"})),
+            ("the baseline: the inert paths", run(102, baseline_over={"inert_present": ["docs/adr/"]})),
+            ("different verilator versions", run(102, baseline_over={"verilator": "Verilator 5.050"})),
             ("rustc", run(102, stamp_over={"rustc": "rustc 1.90.0"})),
             ("image_release", run(102, stamp_over={"ImageVersion": "20261104.1.1", "image_release": "20261104"})),
             ("gxx", run(102, stamp_over={"gxx": "g++ 15.2.0"})),
@@ -915,22 +1004,26 @@ def main() -> int:
     f.add_argument("--head-ref", required=True)
     f.add_argument("--github-output", type=Path)
     sub.add_parser("mask", help="delete the inert paths from the checkout")
-    s = sub.add_parser("stamp", help="a shard's tool versions, runner image and inert paths")
+    s = sub.add_parser("stamp", help="the baseline job's or a shard's tool versions, runner image and inert paths")
     s.add_argument("--out", type=Path, required=True)
-    s.add_argument("--baseline-seconds", type=int, required=True)
-    s.add_argument("--timeout", type=int, required=True)
+    s.add_argument("--role", choices=("baseline", "shard"), required=True)
+    s.add_argument("--baseline-seconds", type=int, help="the baseline's tests, seconds (role baseline)")
+    s.add_argument("--timeout", type=int, required=True, help="the test timeout per mutant, seconds")
     args = ap.parse_args()
     repo = Path.cwd()
     if args.cmd == "mask":
         return mask(repo)
     if args.cmd == "stamp":
-        st = stamp(repo, dict(os.environ), run_text, args.baseline_seconds, args.timeout)
+        if (args.role == "baseline") != (args.baseline_seconds is not None):
+            print("::error title=Mutation gate::--baseline-seconds goes with --role baseline, and only with it")
+            return 1
+        st = stamp(repo, dict(os.environ), run_text, args.timeout, args.baseline_seconds, args.role)
         args.out.write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
         print(f"stamp: {st['rustc'].splitlines()[0]}; {st['cargo_mutants']}; {st['cargo_nextest'].splitlines()[0]};"
               f" {st['verilator']}; {st['yosys']}; {st['gxx']}; {st['glibc']}; {st['ImageOS']} {st['ImageVersion']};"
               f" inert paths present: {st['inert_present'] or 'none'}")
         if st["inert_present"]:
-            print(f"::error title=Mutation gate::inert path(s) present while the shard tested: {st['inert_present']}")
+            print(f"::error title=Mutation gate::inert path(s) present while the {args.role} tested: {st['inert_present']}")
             return 1
         return 0
     if args.cmd == "key":

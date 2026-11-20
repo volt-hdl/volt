@@ -56,11 +56,11 @@ name: Mutation test
 # for (#253: run 43754250315's regex missed one of its two mutants and the
 # run went green). `re` needs `expect`.
 #
-# Test order (ADR-0128, #366): the shards run nextest with the profile
-# `mutants` of .config/nextest.toml: the test binaries the pull request
-# touches first, every crate's tests but volt-driver's next, the slow
-# Verilator binaries of volt-driver last. A caught mutant stops at its
-# first failing test, so the order decides how soon; it never decides
+# Test order (ADR-0128, #366): the baseline and the shards run nextest
+# with the profile `mutants` of .config/nextest.toml: the test binaries
+# the pull request touches first, every crate's tests but volt-driver's
+# next, the slow Verilator binaries of volt-driver last. A caught mutant
+# stops at its first failing test, so the order decides how soon; it never decides
 # whether a test runs. The input `nextest_order` (temporary, for the
 # reference comparisons of ADR-0128) runs the default order instead:
 #
@@ -68,8 +68,15 @@ name: Mutation test
 #
 # Two runs are compared mutant by mutant with scripts/ci/mutants_compare.py.
 #
-# Memory (#160): every build and test of a shard runs under
-# scripts/ci/mutants_watchdog.py, which kills the largest process of the
+# One baseline per run (ADR-0128 §2): the job `baseline` runs every
+# workspace test on the unmutated tree, with every tool required, beside
+# the shards; the summary fails the run, with no mutant verdict, unless it
+# passed. The test timeout per mutant is max(2 x the baseline, floor) (§3):
+# the shards use the floor (MUTANTS_TIMEOUT_FLOOR_SECONDS), the summary
+# checks it against the baseline.
+#
+# Memory (#160): every build and test of the baseline and of a shard runs
+# under scripts/ci/mutants_watchdog.py, which kills the largest process of the
 # tree when the tree holds more than MUTANTS_MEMORY_LIMIT_MIB; the mutant is
 # reported as "memory limit" (caught) and the shard goes on. The time of a
 # mutant stays limited by cargo-mutants (--timeout, --build-timeout).
@@ -138,6 +145,12 @@ env:
   # rule with a measured t): the slowest shard's mean of the targeted runs
   # 43196528987, 43227504453 and 43269045494 was 568 s a mutant.
   MUTANTS_GATE_SECONDS_PER_MUTANT: "600"
+  # ADR-0128 §3: the floor F of the test timeout per mutant; the rule is
+  # max(2 x the baseline, F). At least twice the longest passing whole
+  # suite measured in the gate's order, and never below the largest
+  # timeout before ADR-0128 (3610 s, twice the slowest baseline of #366):
+  # no mutant gets less time than it did.
+  MUTANTS_TIMEOUT_FLOOR_SECONDS: "3610"
   OSS_CAD_SUITE_DATE: 2026-09-21
   VOLT_TOOL_LEDGER: /tmp/volt-tool-ledger.tsv
   # No debug info: smaller target, faster links; a mutant is rebuilt ~75
@@ -150,9 +163,9 @@ jobs:
   # önbelleği"). Rust caches are saved on main only, and the gate never runs
   # on main: on every push to main this job restores the shards' cache
   # (shared-key mutants, the same workflow env, so the same key) and, when
-  # the key has changed (Cargo.lock, the toolchain, the image), builds what a
-  # shard's baseline builds and saves it. Every pull request's shards restore
-  # it. Nothing else of this workflow runs on a push.
+  # the key has changed (Cargo.lock, the toolchain, the image), builds what
+  # the baseline job and a shard build and saves it. Every pull request's
+  # baseline and shards restore it. Nothing else of this workflow runs on a push.
   cache-warm:
     name: Rust cache of the shards (main)
     if: ${{ github.event_name == 'push' }}
@@ -168,8 +181,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       # cargo nextest run --no-run is cargo test --no-run underneath: the
-      # same dependency builds. CARGO_INCREMENTAL as in the shard's baseline.
-      - name: Build every workspace test (what a shard's baseline builds)
+      # same dependency builds. CARGO_INCREMENTAL as in the baseline job.
+      - name: Build every workspace test (what the baseline job builds)
         if: steps.rust-cache.outputs.cache-hit != 'true'
         env:
           CARGO_INCREMENTAL: "1"
@@ -434,6 +447,166 @@ jobs:
           path: mutants-list/
           if-no-files-found: error
 
+  # ADR-0128 §2: the baseline, one job per run, beside the shards. The
+  # unmutated tree runs every workspace test with every tool required, in
+  # the shards' order, under the same memory watchdog, exactly as each
+  # mutant will: a test that fails or needs a missing tool fails here, so
+  # that it never makes a mutant "caught". The summary fails the run, and
+  # gives no mutant verdict, unless this job passed. It measures the
+  # baseline (the test timeout of §3, in its stamp), the peak memory of its
+  # build and tests (#253), writes the reuse stamp (#318) and checks the
+  # tool ledger with --min-ran 60 (a shard has no baseline, so how many tool
+  # tests its mutants reach depends on where they are caught).
+  baseline:
+    name: Mutation baseline (every workspace test, every tool required)
+    needs: tools
+    # No mutant to test, or a reused earlier run (#318): no baseline.
+    if: ${{ needs.tools.outputs.shards != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    # ADR-0107: a missing tool fails a test instead of skipping it. The
+    # differential test runs with the seed and count of the CI tool job.
+    env:
+      VOLT_REQUIRE_TOOLS: all
+      VOLT_DIFFTEST_SEED: "20261104"
+      VOLT_DIFFTEST_COUNT: "2000"
+    steps:
+      - uses: actions/checkout@v7
+      # The filter of the run (empty for a full run), its diff and the
+      # changed files (the test order).
+      - uses: actions/download-artifact@v8
+        with:
+          name: mutants-list
+          path: mutants-list
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mutants
+          # Restored from main (cache-warm), never saved: the gate does not
+          # run on main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          env-vars: ImageOS
+      - name: Restore cargo-mutants and cargo-nextest
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/mutants-tools
+          key: mutants-tools-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ env.CARGO_NEXTEST_VERSION }}
+          fail-on-cache-miss: true
+      - name: Put the tools on PATH
+        run: |
+          echo "$HOME/mutants-tools/bin" >> "$GITHUB_PATH"
+          # Called directly, a cargo subcommand binary takes its own name first.
+          "$HOME/mutants-tools/bin/cargo-mutants" mutants --version
+          "$HOME/mutants-tools/bin/cargo-nextest" nextest --version
+      # Same tools as the CI tool job ("Verilator lint"): Yosys, sby and the
+      # solvers from the pinned OSS CAD Suite, Verilator pinned on its own.
+      - name: Cache OSS CAD Suite
+        id: oss-cad-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/oss-cad-suite
+          key: oss-cad-suite-linux-x64-${{ env.OSS_CAD_SUITE_DATE }}
+      - name: Download OSS CAD Suite (yosys, sby + solvers), with retries
+        if: steps.oss-cad-cache.outputs.cache-hit != 'true'
+        run: |
+          stamp="${OSS_CAD_SUITE_DATE//-/}"
+          url="https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${OSS_CAD_SUITE_DATE}/oss-cad-suite-linux-x64-${stamp}.tgz"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 20 -o /tmp/oss-cad-suite.tgz "$url"
+          tar -xzf /tmp/oss-cad-suite.tgz -C "$HOME"
+          rm /tmp/oss-cad-suite.tgz
+      - name: Put OSS CAD Suite on PATH (Yosys, sby)
+        run: |
+          echo "$HOME/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          "$HOME/oss-cad-suite/bin/yosys" -V
+      # Verilator is the pinned release, not the Suite's development build
+      # (#145); the action fails the job on any other `verilator --version`.
+      - name: Pinned Verilator (scripts/ci/verilator.env)
+        uses: ./.github/actions/verilator
+      # #318: the inert paths (scripts/ci/mutants_inert.txt) leave the
+      # checkout before anything is tested. Every outcome of the run is then
+      # computed without them, which is what lets the reuse key leave them
+      # out; a test that reads one fails the baseline, in every gate run.
+      - name: Remove the inert paths (reuse key, #318)
+        run: python3 scripts/ci/mutants_reuse.py mask
+      # ADR-0128 (#366): the order of the tests. `priority`: the profile
+      # `mutants` of .config/nextest.toml, with the test binaries of this
+      # run's changed files first (mutants-list/changed.txt; none for a full
+      # or targeted run), and a check that every binary the profile names
+      # exists. `default`: nextest's own order, as before ADR-0128. The
+      # baseline job and every shard run the same order.
+      - name: Test order (nextest profile mutants, ADR-0128)
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          case "$MUTANTS_NEXTEST_ORDER" in
+            priority)
+              python3 scripts/ci/mutants_nextest.py pr --changed mutants-list/changed.txt
+              python3 scripts/ci/mutants_nextest.py check
+              echo "NEXTEST_PROFILE=mutants" >> "$GITHUB_ENV"
+              echo "::notice title=Mutation baseline test order::nextest profile mutants (pull request's binaries first, slow binaries last)"
+              ;;
+            default)
+              echo "::notice title=Mutation baseline test order::nextest's default order (nextest_order=default)"
+              ;;
+            *)
+              echo "::error title=Mutation baseline::nextest_order must be priority or default, got '$MUTANTS_NEXTEST_ORDER'"
+              exit 1
+              ;;
+          esac
+      # Twice the baseline, at least the floor (ADR-0128 §3): the rule's test
+      # timeout per mutant. The shards start with the floor, before this is
+      # measured; the summary checks each shard's timeout against it. The
+      # watchdog records the peak memory of the build and of the tests
+      # (--peak); the summary shows both and warns above half of the limit
+      # (#253): a mutant over the limit counts as caught, so a baseline near
+      # it can hide a blind spot. Incremental builds on, as in the shards
+      # (rust-cache turns them off).
+      - name: Baseline - every workspace test, every tool required
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
+              --peak baseline-build-peak.txt -- \
+            cargo nextest run --workspace --no-run
+          start=$(date +%s)
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
+              --peak baseline-test-peak.txt -- \
+            cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
+          secs=$(( $(date +%s) - start ))
+          limit=$(( secs * 2 ))
+          if [ "$limit" -lt "$MUTANTS_TIMEOUT_FLOOR_SECONDS" ]; then limit="$MUTANTS_TIMEOUT_FLOOR_SECONDS"; fi
+          echo "::notice title=Mutation baseline::${secs} s; test timeout per mutant by the rule ${limit} s (max(2 x ${secs}, ${MUTANTS_TIMEOUT_FLOOR_SECONDS}))"
+          # #318: the stamp a later run checks before it reuses this one:
+          # rustc, cargo-mutants, cargo-nextest, Verilator and Yosys, the
+          # runner image, and that the inert paths were absent. Written once
+          # the baseline passed.
+          python3 scripts/ci/mutants_reuse.py stamp --out stamp.json --role baseline --baseline-seconds "$secs" --timeout "$limit"
+      - name: Keep the tool ledger in the artifact (#318)
+        if: always()
+        run: |
+          if [ -f "$VOLT_TOOL_LEDGER" ]; then
+            cp "$VOLT_TOOL_LEDGER" tool-ledger.tsv
+          else
+            echo "No tool ledger: no test asked for a tool."
+          fi
+      # always(): the summary names a baseline that failed, with what it has.
+      - name: Upload the baseline's files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-baseline
+          path: |
+            baseline-memory-kills.tsv
+            baseline-build-peak.txt
+            baseline-test-peak.txt
+            stamp.json
+            tool-ledger.tsv
+          if-no-files-found: warn
+      # ADR-0107: every tool test ran with its tool; at least 60 of them.
+      - name: Tool ledger - SKIP count and --min-ran 60
+        if: always()
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job mutants-baseline --require-zero-skips --min-ran 60
+
   mutants:
     name: Mutation test, shard ${{ matrix.shard }}/${{ strategy.job-total }}
     needs: tools
@@ -445,9 +618,10 @@ jobs:
     # before this limit; "Upload mutants.out" runs with always() even if the
     # limit is reached. A shard is planned for under 4 hours (ADR-0109 §3).
     timeout-minutes: 330
-    # ADR-0107: a missing tool fails a test instead of skipping it; here it
-    # fails the baseline, so a mutant is never "caught" by a missing tool.
-    # The differential test runs with the seed and count of the CI tool job.
+    # ADR-0107: a missing tool fails a test instead of skipping it; the
+    # baseline job fails on one first, so a mutant is never "caught" by a
+    # missing tool. The differential test runs with the seed and count of
+    # the CI tool job.
     env:
       VOLT_REQUIRE_TOOLS: all
       VOLT_DIFFTEST_SEED: "20261104"
@@ -465,7 +639,8 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v7
-      # The filter of the run (empty for a full run) and its diff.
+      # The filter of the run (empty for a full run), its diff and the
+      # changed files (the test order).
       - uses: actions/download-artifact@v8
         with:
           name: mutants-list
@@ -528,18 +703,17 @@ jobs:
           fi
           echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::$(wc -l < mutants-shard.txt) mutants"
       # #318: the inert paths (scripts/ci/mutants_inert.txt) leave the
-      # checkout before the baseline. Every outcome of this shard is then
+      # checkout before anything is tested. Every outcome of the run is then
       # computed without them, which is what lets the reuse key leave them
-      # out; a test that reads one fails this baseline, in every gate run.
+      # out; a test that reads one fails the baseline, in every gate run.
       - name: Remove the inert paths (reuse key, #318)
         run: python3 scripts/ci/mutants_reuse.py mask
-      # ADR-0128 (#366): the order of the baseline and of every mutant's
-      # tests. `priority`: the profile `mutants` of .config/nextest.toml,
-      # with the test binaries of this run's changed files first
-      # (mutants-list/changed.txt; none for a full or targeted run), and a
-      # check that every binary the profile names exists. `default`:
-      # nextest's own order, as before ADR-0128. The baseline below runs in
-      # the same order as the mutants.
+      # ADR-0128 (#366): the order of the tests. `priority`: the profile
+      # `mutants` of .config/nextest.toml, with the test binaries of this
+      # run's changed files first (mutants-list/changed.txt; none for a full
+      # or targeted run), and a check that every binary the profile names
+      # exists. `default`: nextest's own order, as before ADR-0128. The
+      # baseline job and every shard run the same order.
       - name: Test order (nextest profile mutants, ADR-0128)
         env:
           CARGO_TERM_COLOR: never
@@ -559,42 +733,25 @@ jobs:
               exit 1
               ;;
           esac
-      # The baseline: the unmutated tree runs every workspace test, with
-      # every tool required, exactly as each mutant will, under the same
-      # memory watchdog (a test that needs more fails here, not as a
-      # "caught" mutant). cargo-mutants' own baseline tests the mutated
-      # packages alone (ADR-0109 §1), so it is skipped below and the test
-      # timeout comes from this measurement: twice the baseline, at least
-      # 300 seconds. The watchdog records the peak memory of the build and
-      # of the tests (--peak); the summary shows both per shard and warns
-      # above half of the limit (#253): a mutant over the limit counts as
-      # caught, so a baseline near it can hide a blind spot.
-      # Incremental builds on (rust-cache turns them off): the mutated crate is
-      # rebuilt for every mutant. Same value in both steps, or the mutants
-      # would rebuild everything once.
-      - name: Baseline - every workspace test, every tool required
-        id: baseline
+      # ADR-0128 §2: no baseline in a shard (the baseline job runs it,
+      # beside the shards). The tests are built once here, so that the first
+      # mutant builds what it changes and no more, as every later one does.
+      # The stamp (#318) names the shard's tools, runner image and inert
+      # paths, and the test timeout it uses: the floor of ADR-0128 §3, since
+      # the baseline is measured at the same time; the summary checks it
+      # against the rule's max(2 x baseline, floor). cargo-mutants' own
+      # baseline tests the mutated packages alone (ADR-0109 §1); it is
+      # skipped below. Incremental builds on (rust-cache turns them off):
+      # the mutated crate is rebuilt for every mutant. Same value here and
+      # in cargo mutants, or the first mutant would rebuild everything.
+      - name: Build every workspace test (the baseline job runs them)
         env:
           CARGO_INCREMENTAL: "1"
         run: |
-          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
-              --peak baseline-build-peak.txt -- \
+          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log build-memory-kills.tsv -- \
             cargo nextest run --workspace --no-run
-          start=$(date +%s)
-          python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" --log baseline-memory-kills.tsv \
-              --peak baseline-test-peak.txt -- \
-            cargo nextest run --workspace -E 'not test(new_test_verify_and_run_through_docker)'
-          secs=$(( $(date +%s) - start ))
-          limit=$(( secs * 2 ))
-          if [ "$limit" -lt 300 ]; then limit=300; fi
-          echo "timeout=$limit" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS baseline::${secs} s; test timeout per mutant ${limit} s"
-          # #318: the stamp a later run checks before it reuses this one:
-          # rustc, cargo-mutants, cargo-nextest, Verilator and Yosys, the
-          # runner image, and that the inert paths were absent. Written once
-          # the baseline passed.
-          python3 scripts/ci/mutants_reuse.py stamp --out stamp.json --baseline-seconds "$secs" --timeout "$limit"
-      # --in-place reuses the target directory the baseline built instead of
+          python3 scripts/ci/mutants_reuse.py stamp --out stamp.json --role shard --timeout "$MUTANTS_TIMEOUT_FLOOR_SECONDS"
+      # --in-place reuses the target directory built above instead of
       # copying the tree; the source file is restored after each mutant.
       # Exit codes of cargo mutants: 0 every mutant caught, 2 some missed,
       # 3 some timed out: the run is complete either way. 124: the
@@ -613,7 +770,7 @@ jobs:
             python3 scripts/ci/mutants_watchdog.py run --limit-mib "$MUTANTS_MEMORY_LIMIT_MIB" \
               --log memory-kills.tsv --mutants-out mutants.out -- \
             cargo mutants --in-place "${filter[@]}" --shard ${{ matrix.shard }}/$MUTANTS_SHARDS \
-              --baseline skip --timeout ${{ steps.baseline.outputs.timeout }} --build-timeout 1200
+              --baseline skip --timeout "$MUTANTS_TIMEOUT_FLOOR_SECONDS" --build-timeout 1200
           code=$?
           set -e
           if [ -s memory-kills.tsv ]; then
@@ -625,7 +782,7 @@ jobs:
             *) echo "::error title=Mutation shard ${{ matrix.shard }}/$MUTANTS_SHARDS::not completed: cargo mutants exit code $code"; exit 1 ;;
           esac
       # #318: the shard's tool ledger goes into its artifact; a later run
-      # that reuses this one checks it again (SKIP: 0, --min-ran 60).
+      # that reuses this one checks it again (SKIP: 0).
       - name: Keep the tool ledger in the artifact (#318)
         if: always()
         run: |
@@ -645,28 +802,28 @@ jobs:
             mutants.out/
             mutants-shard.txt
             memory-kills.tsv
-            baseline-memory-kills.tsv
-            baseline-build-peak.txt
-            baseline-test-peak.txt
+            build-memory-kills.tsv
             stamp.json
             tool-ledger.tsv
           if-no-files-found: warn
-      # ADR-0107: the baseline and every mutant ran their tool tests.
+      # ADR-0107: every mutant ran its tool tests with the tool. No
+      # --min-ran: that is the baseline job's (ADR-0128 §2).
       - name: Tool ledger - SKIP count
         if: always()
-        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "mutants-${{ matrix.shard }}" --require-zero-skips --min-ran 60
+        run: python3 scripts/ci/tool_ledger.py report "$VOLT_TOOL_LEDGER" --job "mutants-${{ matrix.shard }}" --require-zero-skips
 
   summary:
     name: Mutation test summary
-    needs: [tools, mutants]
-    # Also after a failed or stopped shard (the summary names it) and when
-    # the gate has no shard (the summary says why).
+    needs: [tools, baseline, mutants]
+    # Also after a failed or stopped shard or baseline (the summary names
+    # it) and when the gate has no shard (the summary says why).
     if: ${{ !cancelled() && needs.tools.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
       MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
       MUTANTS_MODE: ${{ needs.tools.outputs.mode }}
       REUSE_RUN: ${{ needs.tools.outputs.reuse_run }}
+      BASELINE_RESULT: ${{ needs.baseline.result }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -680,13 +837,24 @@ jobs:
         with:
           pattern: mutants-out-*
           path: shards
+      # ADR-0128 §2: the baseline job's files. A baseline that failed before
+      # its upload leaves none; the summary then says so and fails.
+      - uses: actions/download-artifact@v8
+        if: ${{ needs.tools.outputs.shards != '0' }}
+        continue-on-error: true
+        with:
+          name: mutants-baseline
+          path: baseline
       - name: Script self-test
         run: python3 scripts/ci/mutants_summary.py --self-test
       # A shard with no artifact, or with fewer outcomes than mutants, is
       # marked NOT COMPLETED at the top of the summary with its untested
       # mutants, and fails this step. The gate also fails on every missed
-      # mutant that no exclude_re entry covers. A baseline peak above half of
-      # the watchdog's limit is a warning, never a failure (#253). A reused
+      # mutant that no exclude_re entry covers. A baseline job that did not
+      # pass fails it with no mutant verdict (ADR-0128 §2); a shard whose
+      # --timeout was below the rule's max(2 x baseline, floor) fails on each
+      # of its timeout mutants (§3). A baseline peak above half of the
+      # watchdog's limit is a warning, never a failure (#253). A reused
       # earlier run (#318): the verdict from its outcomes, checked again
       # here, with today's exclude_re; the summary names the run.
       - name: Merge the shards into the job summary
@@ -699,6 +867,7 @@ jobs:
           args=(shards --lists lists --shards "$MUTANTS_SHARDS" --out merged --markdown "$GITHUB_STEP_SUMMARY"
             --memory-limit-mib "$MUTANTS_MEMORY_LIMIT_MIB")
           if [ "$MUTANTS_MODE" = gate ]; then args+=(--gate --config .cargo/mutants.toml); fi
+          if [ "$MUTANTS_SHARDS" != 0 ]; then args+=(--baseline baseline --baseline-result "$BASELINE_RESULT"); fi
           if [ -s lists/note.txt ]; then args+=(--note "$(cat lists/note.txt)"); fi
           python3 scripts/ci/mutants_summary.py "${args[@]}"
       - name: Upload the merged lists
