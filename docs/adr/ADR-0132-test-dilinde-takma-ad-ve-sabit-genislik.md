@@ -4,7 +4,7 @@
 > İlgili: ADR-0059 (§1 tablosunun "takma ad → bilinmiyor" ve "`uint<N>`: N düz literal ya da düz literal `const`" sınırı kapanır), ADR-0100 (sessiz yanlış istisnası: önceden geçen testi düşüren düzeltme son hanede, v0.1.3)
 > Issue: #376 (kapsam incelemesi #379; ortak olgu haritası #235)
 > Tarih: 2026-11-21
-> Etkilenen: `crates/volt-ast/src/alias.rs` (YENİ: `alias_chain_end`), `crates/volt-ast/src/const_eval.rs` (YENİ: `const_int`), `crates/volt-ast/src/enum_layout.rs`, `crates/volt-sv-emit/src/alias.rs`, `crates/volt-sv-emit/src/structs/{mod,value}.rs` (kopyalar kalktı, ortak fonksiyona devreder), `crates/volt-hir/src/sim_port.rs` (`scalar_width` takma adı izler; `const_value`/`const_u32` ortak değerlendiriciden; `literal_or_const` kalktı), `crates/volt-hir/src/sim_load.rs`, `tests/ui/fail/301`–`304`, `crates/volt-hir/tests/{ui_semantic_tests,test_port_width_tests}.rs`, `crates/volt-driver/tests/port_width_alias_tests.rs` (YENİ), `CHANGELOG.md`.
+> Etkilenen: `crates/volt-ast/src/alias.rs` (YENİ: `alias_chain_end`), `crates/volt-ast/src/const_eval.rs` (YENİ: `const_int`), `crates/volt-ast/src/enum_layout.rs`, `crates/volt-sv-emit/src/alias.rs`, `crates/volt-sv-emit/src/structs/{mod,value}.rs` (kopyalar kalktı, ortak fonksiyona devreder), `crates/volt-hir/src/sim_port.rs` (`scalar_width` takma adı izler; `const_value`/`const_u32` ortak değerlendiriciden; `literal_or_const` kalktı), `crates/volt-hir/src/sim_load.rs`, `tests/ui/fail/305`–`308`, `crates/volt-hir/tests/{ui_semantic_tests,test_port_width_tests}.rs`, `crates/volt-driver/tests/port_width_alias_tests.rs` (YENİ), `CHANGELOG.md`.
 > DOKUNULMADI: `docs/spec/` (E8512/E8510 yalnız ADR'lerde tanımlı), üretilen SV, SVA, SDC ve XDC (birleştirmeden önce ve sonra bayt bayt aynı; "Doğrulama").
 
 ## Sorun
@@ -53,7 +53,7 @@ Kök neden aynı olgunun birden çok yerde hesaplanması (GOVERNANCE.md,
 
 ## Doğrulama
 
-- Önce kırmızı, sonra yeşil: `tests/ui/fail/301`–`304` (takma adlı yazım,
+- Önce kırmızı, sonra yeşil: `tests/ui/fail/305`–`308` (takma adlı yazım,
   const genişlikli hiç eşleşmeyen karşılaştırma, `load` eleman genişliği ve
   uzunluğu) ve `port_width_alias_tests.rs` (gerçek Verilator: issue'nun
   örneği E8512; hesaplanmış 31 iki portta da `port_overflow` ile düşer,
