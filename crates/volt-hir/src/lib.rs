@@ -151,7 +151,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let test_diags = sim::check_tests(&[ast], ast, !has_modules);
 
     // L1 zamanlama (ADR-0037): yalnız @strict_timing modüllerinde çalışır.
-    let timing_diags = timing::check_timing(ast, &resolve, &typeck.dead_arms);
+    let timing_diags = timing::check_timing(ast, &resolve, &typeck);
 
     // Handshake protokolü (ADR-0050): üretici valid'i ready'ye
     // kombinasyonel bağlayamaz (E4007).

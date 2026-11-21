@@ -53,7 +53,7 @@ const K11_SAFE: &str = "ADR-0052 §4 (declassify is the legal downgrade; it adds
 
 // ── field-init shorthand (#204) ──────────────────────────────────────
 const KEY71: &str = "module KeyPresence {";
-const BOTH44: &str = "    let both  = delay<1>(s1) + s2";
+const BOTH44: &str = "    let both  = s1_d2 + s2";
 const TIMED44: &str = "@strict_timing\nmodule DelayedAligned {";
 const SH_K5: &str = "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + domain-inference.md K5 (a struct literal joins its fields) + K6: E3001";
 const SH_K5_CHILD: &str = "grammar-full.ebnf PortBind (`x` is `x: x`, #204) + domain-inference.md K5, K2, K8 (a clockless child keeps the join of its inputs): E3001";
@@ -628,7 +628,7 @@ pub const SPECIALS: &[Special] = &[
         site: "let both = mix(s1, s2)",
         edits: &[
             ("@strict_timing\nmodule DelayedAligned {", "fn mix(a: u32, b: u32) -> u32 {\n    a ^ b\n}\n\n@strict_timing\nmodule DelayedAligned {"),
-            ("    let both  = delay<1>(s1) + s2", "    let both  = mix(s1, s2)"),
+            (BOTH44, "    let both  = mix(s1, s2)"),
         ],
         codes: &["E5010"],
         near_miss: false,
@@ -637,14 +637,14 @@ pub const SPECIALS: &[Special] = &[
     Special {
         kind: "near.aligned-via-fn",
         design: UI44,
-        site: "let both = mix(delay<1>(s1), s2)",
+        site: "let both = mix(s1_d2, s2)",
         edits: &[
             ("@strict_timing\nmodule DelayedAligned {", "fn mix(a: u32, b: u32) -> u32 {\n    a ^ b\n}\n\n@strict_timing\nmodule DelayedAligned {"),
-            ("    let both  = delay<1>(s1) + s2", "    let both  = mix(delay<1>(s1), s2)"),
+            (BOTH44, "    let both  = mix(s1_d2, s2)"),
         ],
         codes: &[],
         near_miss: true,
-        spec: "ADR-0037 (delay<K> aligns the younger value; equal delays combine freely)",
+        spec: "ADR-0037 (a register adds one cycle: s1_d2 <= s1 is 2 cycles, like s2; equal delays combine freely)",
     },
     // ── reset domains ────────────────────────────────────────────────
     // The child takes the raw reset and synchronizes it itself; the
@@ -1227,13 +1227,13 @@ pub const SPECIALS: &[Special] = &[
     Special {
         kind: "near.shorthand-field-aligned",
         design: UI44,
-        site: "let al = delay<1>(s1); let st = Pair { al, s2 }; let both = st.al + st.s2",
+        site: "let al = s1_d2; let st = Pair { al, s2 }; let both = st.al + st.s2",
         edits: &[
             (TIMED44, "struct Pair {\n    al : u32,\n    s2 : u32,\n}\n\n@strict_timing\nmodule DelayedAligned {"),
-            (BOTH44, "    let al = delay<1>(s1)\n    let st = Pair { al, s2 }\n    let both  = st.al + st.s2"),
+            (BOTH44, "    let al = s1_d2\n    let st = Pair { al, s2 }\n    let both  = st.al + st.s2"),
         ],
         codes: &[],
         near_miss: true,
-        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0037 (delay<1> re-aligns s1 with s2: equal stages combine)",
+        spec: "grammar-full.ebnf FieldInit (`x` is `x: x`, #204) + ADR-0037 (the stage register s1_d2 is 2 cycles, like s2: equal stages combine)",
     },
 ];

@@ -176,13 +176,14 @@ top of the block (`y = 0`), and drive every `wire`. Tracked in
 `a`. Bind each port once. Tracked in
 [issue #229](https://github.com/volt-hdl/volt/issues/229).
 
-**The fix that `E5010` suggests does not change the hardware.** The help
-suggests `delay<1>(a)` to align a value of one cycle with a value of two;
-`let sum = delay<1>(a) + b` then compiles, but `delay<1>` adds no
-register, and the two values are still of different ages. Add the
-register yourself: a `reg a2 : Delayed<u32, 2>` loaded with `a2 <= a`,
-and `let sum = a2 + b`. Tracked in
-[issue #232](https://github.com/volt-hdl/volt/issues/232).
+**`delay<K>` adds no register.** `delay<K>(x)` tells the timing check
+that `x` is K cycles older than its inferred delay. It adds no hardware,
+and Volt does not check the claim: `let sum = delay<1>(a) + b` compiles,
+but `a` and `b` are still of different ages. To align two values, add a
+stage register, as the help of `E5010` shows: a
+`reg a_d2 : Delayed<u32, 2> = 0` loaded with `a_d2 <= a` in the `on`
+block, and `let sum = a_d2 + b`. Making `delay<K>` a marked escape is
+tracked in [issue #358](https://github.com/volt-hdl/volt/issues/358).
 
 **`@false_path` and `@multicycle` are not checked.** They are written to
 the SDC file for any two registers, also for a real one-cycle path, and

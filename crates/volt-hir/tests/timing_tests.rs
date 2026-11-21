@@ -686,7 +686,7 @@ fn delays_by_name(src: &str) -> std::collections::BTreeMap<String, u32> {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
     let analysis = volt_hir::analyze(&parsed.ast);
     let res = &analysis.resolve;
-    let timing = volt_hir::analyze_timing(&parsed.ast, res, &analysis.typeck.dead_arms);
+    let timing = volt_hir::analyze_timing(&parsed.ast, res, &analysis.typeck);
     timing
         .delays
         .iter()
@@ -734,10 +734,7 @@ fn analyze_timing_has_no_delays_outside_strict_modules() {
     // Tanılar check_timing ile aynı kaynaktan.
     let parsed = parse(FileId(0), &src);
     let analysis = volt_hir::analyze(&parsed.ast);
-    assert!(
-        volt_hir::check_timing(&parsed.ast, &analysis.resolve, &analysis.typeck.dead_arms)
-            .is_empty()
-    );
+    assert!(volt_hir::check_timing(&parsed.ast, &analysis.resolve, &analysis.typeck).is_empty());
 }
 
 // ═══ Bildirilen gecikme gerçek gecikmeyle karşılaştırılır (#354) ═══

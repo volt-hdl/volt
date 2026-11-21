@@ -135,9 +135,10 @@ denetler.
 | No | Başlık | Özet | Durum |
 |---|---|---|---|
 | [0007](ADR-0007-zamanlama-seviyeleri.md) | L0/L1/L2 Zamanlama Seviyeleri | Zamanlama güvenliği üç seviyelidir: L0 denetimsiz, L1 gecikme tipleri, L2 timeline tipleri. | Kabul edildi |
-| [0037](ADR-0037-l1-zamanlama.md) | L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing` | `Delayed<T, N>` ve `delay<K>` gecikmeyi tipte taşır; `@strict_timing` uyuşmazlığı E5010 yapar. | Uygulandı |
+| [0037](ADR-0037-l1-zamanlama.md) | L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing` | `Delayed<T, N>` ve `delay<K>` gecikmeyi tipte taşır; `@strict_timing` uyuşmazlığı E5010 yapar. | Kısmen yerini aldı: ADR-0127 |
 | [0038](ADR-0038-pipeline-sozdizimi.md) | Pipeline Sözdizimi — `pipeline`, `stage`, `stall`, `flush` | `pipeline` / `stage` / `stall` / `flush` aşamalı tasarımı L1 zamanlamasıyla ifade eder. | Uygulandı |
 | [0126](ADR-0126-bildirilen-gecikme-denetimi.md) | Bildirilen Gecikme Denetlenir — `let`, `wire` ve Çıkış Portundaki `Delayed<T, N>` (#354) | `let`, `wire` ve çıkış portundaki `Delayed<T, N>`, değerin gecikmesi tam biliniyorsa N ile karşılaştırılır, uyuşmazlık bildirimde E5010; kural register'ınkiyle aynı fonksiyonda. Çıkış portunun bildirimi çıkarımla ezilmez. Aşamaları karıştıran değerin üstündeki bildirim yeniden zamanlama iddiası olarak kalır (v0.2.0'da kaçış, #358). Sessiz yanlış düzeltmesi, v0.1.3. | Uygulandı |
+| [0127](ADR-0127-e5010-asama-registeri-tavsiyesi.md) | E5010'un Tavsiyesi Gerçek Aşama Register'ıdır — `delay<K>` Bir İddiadır, Hizalama Değildir (#232) | E5010'un help'i ve `volt explain E5010` genç değer için gerçek bir aşama register'ını kodu ve bedeliyle gösterir; `delay<K>` en son, donanım eklemeyen ve Volt'un denetlemediği bir iddia olarak anılır. Tanı metni değişir; tetikleyici ve SV aynı kalır (v0.1.3). | Uygulandı |
 
 ## Saat alanı, CDC ve RDC
 

@@ -230,8 +230,30 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   #358). Hiçbir tasarımın SV'si değişmez. `volt explain E5010` bir cümle
   kazanır. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış
   istisnası; sürüm notunun "Behavior changes" bölümüne girer.
-- Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
-  etkiler; derleyicinin girdisi ve çıktısı aynıdır.
+- Bu bölümdeki diğer değişikliklerden "Diagnostics" yalnız tanı metnini
+  değiştirir (ADR-0125 §7); geliştirici notları yalnız CI'ı ve geliştirme
+  sürecini etkiler. Derleyicinin kabul ettiği girdi ve ürettiği SV aynıdır.
+
+### Diagnostics
+
+- **E5010'un tavsiyesi: önce gerçek aşama register'ı, `delay<K>` en son
+  ve bir iddia olarak** (#232, ADR-0127; sessiz yanlış düzeltmesi).
+  0.1.2'de help "align the younger value with delay<K>(...)" diyordu ve
+  `volt explain E5010`'un ÇÖZÜM'ü `let sum = delay<1>(a) + b // ✓ both
+  sides are 2 cycles old` idi. `delay<K>` register eklemez (ADR-0037 §2):
+  öneri uygulanınca E5010 gidiyor, modül uyarısız derleniyor, ama devre
+  hâlâ farklı çevrimlerin değerlerini topluyordu (Verilator'da 60 yerine
+  70). Artık etiketler her değerin kaç çevrim yaşında olduğunu, neden
+  satırı farklı çevrimlerin değerlerinin birleştiğini söyler; help genç
+  değer için aşama register'ının kodunu ve bedelini verir (`reg a_d2 :
+  Delayed<u32, 2> = 0`, `on clk` içinde `a_d2 <= a`, burada `a_d2`;
+  "1 register of 32 bits") ve en son `delay<K>`'nın donanım eklemeyen,
+  Volt'un denetlemediği bir iddia olduğunu yazar. Register kuralının help'i
+  de aynı sırayı izler. Explain'in ÖRNEK ve ÇÖZÜM blokları tam modüldür
+  ve derlenir (ÖRNEK'te `in clk` eksikti, E1001). Tanının hangi girdide
+  çıktığı ve üretilen SV değişmez; E5010'un makine önerisi yoktur.
+  `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
+  `Delayed` örneği de odur.
 
 ### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
 
