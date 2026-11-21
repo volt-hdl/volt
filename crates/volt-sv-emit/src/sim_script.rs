@@ -93,6 +93,7 @@ fn any_step(steps: &[TbStep], pred: &dyn Fn(&TbStep) -> bool) -> bool {
                 // İç adım taşımayan adımlar.
                 TbStep::SetPort { .. }
                 | TbStep::SetPortChecked { .. }
+                | TbStep::CheckValue { .. }
                 | TbStep::Step(_)
                 | TbStep::Reset
                 | TbStep::Assert { .. }
@@ -127,7 +128,9 @@ pub(crate) fn uses_script_runtime(steps: &[TbStep]) -> bool {
 }
 
 pub(crate) fn uses_port_check(steps: &[TbStep]) -> bool {
-    any_step(steps, &|s| matches!(s, TbStep::SetPortChecked { .. }))
+    any_step(steps, &|s| {
+        matches!(s, TbStep::SetPortChecked { .. } | TbStep::CheckValue { .. })
+    })
 }
 
 pub(crate) fn uses_load(steps: &[TbStep]) -> bool {
@@ -327,7 +330,10 @@ impl ScriptEmitter {
                 self.fault_check_if(&[value]);
             }
             TbStep::SetPortChecked { port, value, check } => {
-                self.emit_checked_port(port, value, check);
+                self.emit_checked_port(port, value, check, true);
+            }
+            TbStep::CheckValue { name, value, check } => {
+                self.emit_checked_port(name, value, check, false);
             }
             TbStep::Step(n) => {
                 let body = self.cycle_body();
@@ -386,7 +392,10 @@ impl ScriptEmitter {
     /// Değer bir kez hesaplanır, denetlenir, sonra yazılır: sığmayan
     /// değer porta HİÇ ulaşmaz. İşaretli portta aralıktaki negatif sayı
     /// bit desenine indirgenir (kayıpsız — kırpma değil).
-    fn emit_checked_port(&mut self, port: &str, value: &TbValue, check: &TbPortCheck) {
+    /// `write`: değer denetimden sonra `dut.<port>`'a yazılır
+    /// (`SetPortChecked`); yazılmazsa (`CheckValue`) `port` yalnız rapordaki
+    /// addır ve genişlik bilinmelidir.
+    fn emit_checked_port(&mut self, port: &str, value: &TbValue, check: &TbPortCheck, write: bool) {
         self.line(&format!(
             "{{ const unsigned long long volt_pv = {};",
             cpp_value(value)
@@ -412,7 +421,11 @@ impl ScriptEmitter {
             &format!(" port={port}:{}", check.type_name),
         );
         self.line("}");
-        self.line(&format!("dut.{} = {stored}; }}", cpp_port(port)));
+        if write {
+            self.line(&format!("dut.{} = {stored}; }}", cpp_port(port)));
+        } else {
+            self.line("}");
+        }
     }
 
     /// Sınırlar döngüden ÖNCE bir kez hesaplanır: gövde sınırı okuyan

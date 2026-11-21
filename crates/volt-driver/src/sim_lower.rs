@@ -318,11 +318,7 @@ impl Lowering<'_> {
         steps.push(TbStep::SetPortChecked {
             port: port_name,
             value,
-            check: TbPortCheck {
-                bits: width.map(|w| w.bits),
-                signed: width.is_some_and(volt_hir::PortWidth::is_signed),
-                type_name: width.map_or_else(|| "?".to_string(), volt_hir::PortWidth::type_name),
-            },
+            check: port_check(width),
         });
         Some(())
     }
@@ -387,9 +383,15 @@ impl Lowering<'_> {
             _ => return None,
         };
         if matches!(kind, TbAssertKind::Eq | TbAssertKind::Ne) {
-            if let Some((left, right, labels)) = self.struct_compare(args) {
+            if let Some((left, right, labels, checks)) = self.struct_compare(args) {
                 self.value_asserts
                     .push((self.loc(span), ValueLabels::Struct(labels)));
+                // #375: literalin hesaplanmış alanları önce alanın
+                // genişliğine göre denetlenir (sabit alan E8512 aldı).
+                if !checks.is_empty() {
+                    steps.push(TbStep::Loc(self.loc(span)));
+                    steps.extend(checks);
+                }
                 steps.push(TbStep::Assert {
                     kind,
                     left,
@@ -424,14 +426,23 @@ impl Lowering<'_> {
     fn struct_compare(
         &self,
         args: &[TestExpr],
-    ) -> Option<(TbValue, TbValue, crate::sim_struct::StructLabels)> {
+    ) -> Option<(
+        TbValue,
+        TbValue,
+        crate::sim_struct::StructLabels,
+        Vec<TbStep>,
+    )> {
         let (layout, port, other) = volt_hir::struct_compare(self.ctx.sources, &self.duts, args)?;
         let left = crate::sim_struct::packed_port(&port.text, &layout);
-        let right = match &other.kind {
-            TestExprKind::PortRead { port: p2, .. } => {
-                crate::sim_struct::packed_port(&p2.text, &layout)
-            }
-            _ => crate::sim_struct::packed_literal(other, &layout, &|e| self.value(e))?,
+        let (right, checks) = match &other.kind {
+            TestExprKind::PortRead { port: p2, .. } => (
+                crate::sim_struct::packed_port(&p2.text, &layout),
+                Vec::new(),
+            ),
+            _ => (
+                crate::sim_struct::packed_literal(other, &layout, &|e| self.value(e))?,
+                self.literal_field_checks(other, &port.text, &layout)?,
+            ),
         };
         let src = self.ctx.sources.iter().find(|s| {
             s.items.iter().any(|&i| {
@@ -441,7 +452,39 @@ impl Lowering<'_> {
         let labels = crate::sim_struct::labels(src, &layout, &|e| {
             self.consts.enum_variants(e).map(<[_]>::to_vec)
         });
-        Some((left, right, labels))
+        Some((left, right, labels, checks))
+    }
+
+    /// Bütün-struct literalinin hesaplanmış alanları, karşılaştırmadan
+    /// önce, alanın port yolu yazılır gibi denetlenir (#375): sabit alan
+    /// derlemede E8512 aldı, sığdığı kanıtlı değer denetlenmez (port
+    /// yazımıyla aynı `fits_without_check`), kalanı `CheckValue`.
+    fn literal_field_checks(
+        &self,
+        lit: &TestExpr,
+        port: &str,
+        layout: &volt_ast::struct_layout::StructLayout,
+    ) -> Option<Vec<TbStep>> {
+        let mut checks = Vec::new();
+        for leaf in &layout.leaves {
+            let expr = crate::sim_struct::leaf_expr(lit, &leaf.path)?;
+            let constant = self.consts.eval(expr);
+            if constant.is_some() {
+                continue;
+            }
+            let path = format!("{port}.{}", leaf.dotted());
+            let width = self.port_width(&path);
+            let value = self.value(expr)?;
+            if self.fits_without_check(width, constant, &value) {
+                continue;
+            }
+            checks.push(TbStep::CheckValue {
+                name: volt_hir::sv_port_name(&path),
+                value,
+                check: port_check(width),
+            });
+        }
+        Some(checks)
     }
 
     /// Karşılaştırmanın enum'u: bir taraf `Enum::Varyant` ya da enum
@@ -535,6 +578,17 @@ pub(crate) fn lower_test(ctx: &LowerCtx<'_>, test: &TestDecl) -> Option<LoweredT
     })
 }
 
+/// Port genişliğinden çalışma zamanı denetimi (ADR-0059): port yazımında
+/// (`SetPortChecked`) ve bütün-struct literal alanında (`CheckValue`)
+/// aynı.
+fn port_check(width: Option<volt_hir::PortWidth>) -> TbPortCheck {
+    TbPortCheck {
+        bits: width.map(|w| w.bits),
+        signed: width.is_some_and(volt_hir::PortWidth::is_signed),
+        type_name: width.map_or_else(|| "?".to_string(), volt_hir::PortWidth::type_name),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,6 +635,79 @@ mod tests {
             files,
         };
         lower_test(&ctx, test)
+    }
+
+    const STRUCT_DUT: &str = "struct P {\n    a : u4\n    b : bool\n}\nmodule M {\n    in  clk : clock\n    in  x   : P\n    out q   : P\n    out q2  : P\n    out n   : u2\n    reg r : P = P { a: 0, b: false }\n    on clk { r <= x }\n    q = r\n    q2 = r\n    n = 1\n}\n\n";
+
+    #[test]
+    fn whole_struct_port_compared_with_a_struct_port_reads_both_packed() {
+        // İki struct portu: iki taraf da yaprak okumalarından paketlenir,
+        // alan denetimi üretilmez (literal yok).
+        let lowered = lower_with(
+            STRUCT_DUT,
+            "    let dut = M { };\n    assert_eq(dut.q, dut.q2);",
+            &FakeFiles(""),
+        )
+        .expect("indirgenmeli");
+        let steps = &lowered.tb.steps;
+        let Some(TbStep::Assert { left, right, .. }) =
+            steps.iter().find(|s| matches!(s, TbStep::Assert { .. }))
+        else {
+            panic!("karşılaştırma bekleniyor: {steps:?}");
+        };
+        let (left, right) = (format!("{left:?}"), format!("{right:?}"));
+        assert!(
+            left.contains("\"q_a\"") && left.contains("\"q_b\""),
+            "{left}"
+        );
+        assert!(
+            right.contains("\"q2_a\"") && right.contains("\"q2_b\""),
+            "{right}"
+        );
+        assert!(!steps.iter().any(|s| matches!(s, TbStep::CheckValue { .. })));
+    }
+
+    #[test]
+    fn whole_struct_literal_checks_computed_fields_before_comparing() {
+        // #375: hesaplanmış alan (döngü sayacı) karşılaştırmadan önce
+        // alanın genişliğine göre denetlenir; sabit alan (E8512 derlemede)
+        // ve sığdığı kanıtlı alan (u2 port okuması, u4 alana) denetlenmez.
+        let lowered = lower_with(
+            STRUCT_DUT,
+            "    let dut = M { };\n    for i in 0..20 {\n        assert_eq(dut.q, P { a: i, b: true });\n    }\n    assert_eq(dut.q, P { a: 3, b: true });\n    assert_eq(dut.q, P { a: dut.n, b: true });",
+            &FakeFiles(""),
+        )
+        .expect("indirgenmeli");
+        let steps = &lowered.tb.steps;
+        let Some(TbStep::For { body, .. }) = steps.iter().find(|s| matches!(s, TbStep::For { .. }))
+        else {
+            panic!("for bekleniyor: {steps:?}");
+        };
+        let check = body
+            .iter()
+            .position(|s| {
+                *s == TbStep::CheckValue {
+                    name: "q_a".into(),
+                    value: TbValue::Var("i".into()),
+                    check: TbPortCheck {
+                        bits: Some(4),
+                        signed: false,
+                        type_name: "u4".into(),
+                    },
+                }
+            })
+            .expect("hesaplanmış alanın denetimi");
+        let assert = body
+            .iter()
+            .position(|s| matches!(s, TbStep::Assert { .. }))
+            .expect("karşılaştırma");
+        assert!(check < assert, "denetim karşılaştırmadan önce: {body:?}");
+        assert!(matches!(body[check - 1], TbStep::Loc(_)), "{body:?}");
+        let outside = steps
+            .iter()
+            .filter(|s| matches!(s, TbStep::CheckValue { .. }))
+            .count();
+        assert_eq!(outside, 0, "sabit ve sığdığı kanıtlı alan: {steps:?}");
     }
 
     const ENUM_DUT: &str = "enum S { A, B, C }\nmodule E {\n    in  clk : clock\n    in  d   : S\n    out q   : S\n    out n   : u8\n    reg r : S = S::A\n    on clk { r <= d }\n    q = r\n    n = 3\n}\n\n";

@@ -160,7 +160,7 @@ pub(crate) fn packed_literal(
 }
 
 /// Literalde yaprağın ifadesi (iç içe literal izlenir).
-fn leaf_expr<'e>(lit: &'e TestExpr, path: &[String]) -> Option<&'e TestExpr> {
+pub(crate) fn leaf_expr<'e>(lit: &'e TestExpr, path: &[String]) -> Option<&'e TestExpr> {
     let Some((first, rest)) = path.split_first() else {
         return Some(lit);
     };
