@@ -102,6 +102,20 @@ impl<'a> Emitter<'a> {
     }
 }
 
+/// Ortak sabit değerlendiricide (`volt_ast::const_eval`) adlar bu
+/// noktanın kapsam zinciriyle çözülür: döngü değişkeni değerini, üst düzey
+/// const değer ifadesini verir; yerel ve modül adı sabit değildir.
+impl volt_ast::const_eval::Scope for Emitter<'_> {
+    fn bind(&self, path: Idx<Expr>) -> volt_ast::const_eval::Binding {
+        use volt_ast::const_eval::Binding;
+        match self.resolve(path) {
+            Res::Loop(v) => Binding::Value(v),
+            Res::Const { ty, value } => Binding::Const { ty, value },
+            Res::Local(_) | Res::Module | Res::Unbound => Binding::Other,
+        }
+    }
+}
+
 /// Açılmakta olan döngünün değişkeni.
 #[derive(Debug, Clone)]
 pub(crate) struct LoopVar {

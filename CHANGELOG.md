@@ -31,11 +31,24 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   depolama tipine göre denetlenip 4 bitlik porta ulaşıyor, Verilator girişi
   maskelemediğinden 4 bitlik çıkış 31 okuyor ve `assert_eq(dut.q, 31)`
   geçiyordu; `[uint<W>; N]` belleğe `load` eleman genişliği ve uzunluk
-  denetiminden kaçıyordu. Artık sabit değer E8512/E8510 alır, hesaplanmış
-  değer koşuda `port_overflow` ile testi düşürür. Takma ad çözümü ve
-  genişlik sabitleri SV üreticisiyle aynı tek yerden hesaplanır; üretilen
-  SV, SVA, SDC ve XDC değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün
-  sessiz yanlış istisnası.
+  denetiminden kaçıyordu. Uzun bir sabit zinciriyle (`const K0 : u32 =
+  K1`, …, 33 ile 64 sabit) verilen genişlik de SV'de 4 bit, test dilinde
+  bilinmiyordu: test dili 32 düzeyde duruyor, SV üreticisi 64'e iniyordu.
+  Artık sabit değer E8512/E8510 alır, hesaplanmış değer koşuda
+  `port_overflow` ile testi düşürür. Takma ad çözümü ve derleme zamanı
+  sabitleri SV üreticisinin port genişliğini hesaplayan tek değerlendiriciden
+  (aynı anlam, aynı sınır: 64 düzey) gelir; sınırı aşan sabitte genişlik
+  tahmin edilmez, SV üreticisi E2005 verir. Üretilen SV, SVA, SDC ve XDC
+  değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası.
+- **Davranış değişikliği.** Alan genişliği `if`, `match` ya da bit
+  işlemiyle yazılmış (`a : uint<if WIDE { 4 } else { 8 }>`, `b :
+  uint<6 & 3>`) ya da 33 ile 64 sabitlik bir zincirle verilmiş struct
+  artık SV'ye iner (#376, ADR-0132). 0.1.2'de tip
+  denetimi böyle bir struct'ı kabul ediyor, SV üreticisi ise struct
+  düzenini ayrı ve daha dar bir değerlendiriciyle hesaplıyor ve "not
+  supported yet: struct type 'P' as a signal type" (E0003) diyordu. Artık
+  struct düzeni port genişliğiyle aynı değerlendiricidendir. Kabul edilen
+  girdi genişler; önceden derlenen tasarımların SV'si değişmez.
 - **Davranış değişikliği.** `volt test` benzetimin beklenmedik bitişini
   artık testlerle uzlaştırır (#377, ADR-0130; sessiz yanlış düzeltmesi).
   0.1.2'de sürücü benzetimin çıkış kodunu okumuyor ve yalnız
@@ -283,6 +296,13 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Diagnostics
 
+- **E2005, 64 düzeyden derin bir genişlik ifadesinde sınırı söyler**
+  (#376, ADR-0132). 0.1.2'de help "N must be a constant expression (e.g.
+  bits<8>)" diyordu, oysa ifade sabitti (ör. 65 sabitlik bir zincir).
+  Artık help "N is nested more than 64 levels deep (each operation and
+  each constant name in a chain of constants is a level); write it with
+  fewer levels, …" der. Tanının hangi girdide çıktığı ve üretilen SV
+  değişmez; makine önerisi yoktur.
 - **E5010'un tavsiyesi: önce gerçek aşama register'ı, `delay<K>` en son
   ve bir iddia olarak** (#232, ADR-0127; sessiz yanlış düzeltmesi).
   0.1.2'de help "align the younger value with delay<K>(...)" diyordu ve

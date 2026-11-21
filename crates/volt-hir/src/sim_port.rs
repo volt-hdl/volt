@@ -109,8 +109,12 @@ pub(crate) enum ScalarWidth {
 
 pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
     let known = |bits, kind| ScalarWidth::Known(PortWidth { bits, kind });
-    let from_expr =
-        |expr, kind| const_u32(src, expr).map_or(ScalarWidth::Unknown, |bits| known(bits, kind));
+    // SV üreticisinin port genişliğiyle aynı fonksiyon (#376, ADR-0132).
+    let top = volt_ast::const_eval::TopLevel(src);
+    let from_expr = |expr, kind| match volt_ast::const_eval::width(src, &top, expr) {
+        Ok(bits) => known(bits, kind),
+        Err(_) => ScalarWidth::Unknown,
+    };
     match &src.types[ty].kind {
         TypeRefKind::Bool => known(1, ScalarKind::Bool),
         TypeRefKind::UInt(n) => known(u32::from(*n), ScalarKind::UInt),
@@ -173,8 +177,8 @@ fn port_type_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<PortWidth> {
     }
 }
 
-/// Tip ve düzen sabiti (genişlik, uzunluk, enum değeri):
-/// `volt_ast::const_eval` (SV üreticisiyle aynı tek değerlendirme, #376).
+/// Düzen sabiti (uzunluk, enum değeri): `volt_ast::const_eval` (SV
+/// üreticisiyle aynı tek değerlendirme, #376).
 pub(crate) fn const_value(src: &SourceFile, expr: Idx<Expr>) -> Option<i128> {
     volt_ast::const_eval::const_int(src, expr)
 }

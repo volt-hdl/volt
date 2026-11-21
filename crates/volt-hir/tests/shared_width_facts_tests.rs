@@ -1,11 +1,15 @@
-//! Takma ad zinciri ve tip/düzen sabiti tek yerde (`volt_ast::alias`,
-//! `volt_ast::const_eval`; #376, ADR-0132): SV üreticisi, enum/struct
-//! düzeni ve test dili aynı fonksiyonları çağırır. Bu testler ortak
-//! fonksiyonların anlamını sabitler — SV üreticisinin eski kopyasınınki.
+//! Takma ad zinciri ve derleme zamanı sabiti tek yerde (`volt_ast::alias`,
+//! `volt_ast::const_eval`; #376, ADR-0132): SV üreticisi (port genişliği
+//! dahil), enum/struct düzeni, testbench ve test dili aynı fonksiyonları
+//! çağırır. Bu testler ortak fonksiyonların anlamını sabitler — SV
+//! üreticisinin port genişliğini hesaplayan eski kopyasınınki.
 
 use volt_ast::alias::{alias_chain_end, MAX_ALIAS_DEPTH};
-use volt_ast::const_eval::{const_int, MAX_CONST_DEPTH};
-use volt_ast::{Idx, ItemKind, SourceFile, TypeRef, TypeRefKind};
+use volt_ast::const_eval::{
+    const_int, eval, width, Binding, Scope, TopLevel, Unknown, MAX_CONST_DEPTH, MAX_TABLE_LEN,
+};
+use volt_ast::{Expr, Idx, ItemKind, SourceFile, TypeRef, TypeRefKind};
+use volt_hir::test_port_width;
 
 fn parse_any(src: &str) -> SourceFile {
     volt_syntax::parser::parse(volt_span::FileId(0), src).ast
@@ -32,17 +36,31 @@ fn port_ty(ast: &SourceFile, name: &str) -> Idx<TypeRef> {
         .unwrap_or_else(|| panic!("port {name}"))
 }
 
-/// Üst düzey `const name`'in değeri.
-fn const_of(ast: &SourceFile, name: &str) -> Option<i128> {
-    let value = ast
-        .items
+/// Üst düzey `const name`'in değer ifadesi.
+fn const_expr(ast: &SourceFile, name: &str) -> Idx<Expr> {
+    ast.items
         .iter()
         .find_map(|&i| match &ast.items_arena[i].kind {
             ItemKind::Const(c) if c.name.text == name => Some(c.value),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("const {name}"));
-    const_int(ast, value)
+        .unwrap_or_else(|| panic!("const {name}"))
+}
+
+/// Üst düzey `const name`'in değeri.
+fn const_of(ast: &SourceFile, name: &str) -> Option<i128> {
+    const_int(ast, const_expr(ast, name))
+}
+
+/// `K0 = K1, ..., K{n-1} = 4`: n sabit; `K0`'ın değer ifadesinden en
+/// içteki literale n - 1 ad, literal `n` düzey derinde.
+fn chain(n: usize) -> String {
+    let mut src = String::new();
+    for i in 0..n - 1 {
+        src.push_str(&format!("const K{i} : u32 = K{}\n", i + 1));
+    }
+    src.push_str(&format!("const K{} : u32 = 4\n", n - 1));
+    src
 }
 
 const ALIASES: &str = "\
@@ -117,7 +135,12 @@ fn a_cycle_or_an_overlong_chain_stops_at_the_depth_limit() {
 }
 
 #[test]
-fn width_constants_fold_like_the_sv_generator() {
+fn constants_fold_like_the_sv_generators_port_width() {
+    // SV üreticisinin port genişliğini hesaplayan `Emitter::eval_const`'ın
+    // anlamı: aritmetik taşma ve sıfıra bölme `None`; bit işlemi yalnız
+    // negatif olmayan değerde; `<<` değer bitini kaybederse `None`, `>>`
+    // 127 ve üstünde 0; mantıksal değer 0/1; `if`, `match` ve sabit dizi
+    // indeksi katlanır.
     let ast = parse(
         "\
 const ADD : u32 = 2 + 2
@@ -130,8 +153,30 @@ const SHR : u32 = 32 >> 2
 const NEG : i32 = 0 - (-5)
 const REF : u32 = ADD + 1
 const DIV0 : u32 = 1 / 0
-const AND : u32 = 3 & 1
+const AND : u32 = 6 & 3
+const OR : u32 = 4 | 1
+const XOR : u32 = 6 ^ 3
+const NEGAND : i32 = (0 - 1) & 3
+const SHLLOST : u32 = 3 << 126
+const SHRFAR : u32 = 1 >> 200
 const BOOL : bool = true
+const CMP : bool = ADD >= 4
+const LOGIC : bool = (1 < 2) && !(3 == 3)
+const IMP : bool = false -> false
+const IF : u32 = if ADD > 3 { 8 } else { 2 }
+const MATCH : u32 = match REM { 0 => 5, 1 | 2 => 9, _ => 0 }
+const GUARD : u32 = match REM { 1 if true => 5, _ => 0 }
+const UNKEY : u32 = match REM + Q { 1 => 5, _ => 0 }
+const ARR : [u32; 3] = [4, 5, 6]
+const AT : u32 = ARR[1]
+const OUT : u32 = ARR[3]
+const REP : [u32; 2] = [7; 2]
+const ATREP : u32 = REP[1]
+const ALIASED : [u32; 3] = ARR
+const ATALIASED : u32 = ALIASED[2]
+const HUGE : [u32; 5000] = [1; 5000]
+const ATHUGE : u32 = HUGE[0]
+const NOTARR : u32 = ADD[0]
 ",
     );
     let expect = [
@@ -145,27 +190,153 @@ const BOOL : bool = true
         ("NEG", Some(5)),
         ("REF", Some(5)),
         ("DIV0", None),
-        ("AND", None),
-        ("BOOL", None),
+        ("AND", Some(2)),
+        ("OR", Some(5)),
+        ("XOR", Some(5)),
+        ("NEGAND", None),
+        ("SHLLOST", None),
+        ("SHRFAR", Some(0)),
+        ("BOOL", Some(1)),
+        ("CMP", Some(1)),
+        ("LOGIC", Some(0)),
+        ("IMP", Some(1)),
+        ("IF", Some(8)),
+        ("MATCH", Some(9)),
+        ("GUARD", None),
+        ("UNKEY", None),
+        ("AT", Some(5)),
+        ("OUT", None),
+        ("ATREP", Some(7)),
+        ("ATALIASED", Some(6)),
+        ("ATHUGE", None),
+        ("NOTARR", None),
     ];
     for (name, want) in expect {
         assert_eq!(const_of(&ast, name), want, "{name}");
     }
+    assert_eq!(MAX_TABLE_LEN, 4096);
 }
 
 #[test]
-fn constant_nesting_is_limited_to_the_sv_generators_depth() {
-    // `-(-( … 1 … ))`: her tekli eksi bir iç içelik. Sınır, SV
-    // üreticisinin eski kopyasındaki gibi 32.
+fn an_enum_constant_and_its_variants_are_match_keys() {
+    let ast = parse(
+        "\
+enum Mode { Slow, Fast }
+const M : Mode = Mode::Fast
+const SPEED : u32 = match M { Mode::Slow => 1, Mode::Fast => 8 }
+const DIRECT : u32 = match Mode::Slow { Mode::Slow => 3, _ => 4 }
+const FLAG : u32 = match true { false => 6, _ => 2 }
+",
+    );
+    assert_eq!(const_of(&ast, "SPEED"), Some(8));
+    assert_eq!(const_of(&ast, "DIRECT"), Some(3));
+    assert_eq!(const_of(&ast, "FLAG"), Some(2));
+}
+
+#[test]
+fn the_depth_limit_is_one_and_it_is_the_sv_generators_64() {
+    // SV üreticisinin port genişliği 64 düzeye kadar iniyordu; tek sınır
+    // bu (#376: test dili ve struct düzeni 32'de duruyordu, uzun zincirle
+    // verilen genişlik SV'de 4 bit, test dilinde bilinmiyordu).
+    assert_eq!(MAX_CONST_DEPTH, 64);
+}
+
+#[test]
+fn constant_nesting_is_limited_to_the_depth_limit() {
+    // `-(-( … 1 … ))`: her tekli eksi bir iç içelik.
     let nested = |n: u32| {
         let open = "-(".repeat(n as usize);
         let close = ")".repeat(n as usize);
         parse(&format!("const D : i32 = {open}1{close}\n"))
     };
     let at_limit = nested(MAX_CONST_DEPTH);
-    assert_eq!(const_of(&at_limit, "D"), Some(1), "32 eksi: çift, değer 1");
+    assert_eq!(
+        const_of(&at_limit, "D"),
+        Some(1),
+        "çift sayıda eksi: değer 1"
+    );
     let past = nested(MAX_CONST_DEPTH + 1);
     assert_eq!(const_of(&past, "D"), None);
+}
+
+#[test]
+fn the_reason_for_an_unknown_value_is_told_apart() {
+    let limit = MAX_CONST_DEPTH as usize;
+    let top = |ast: &SourceFile| eval(ast, &TopLevel(ast), const_expr(ast, "K0"));
+    // `K0`'ın değer ifadesi kökte; en içteki literal `n - 1` düzey derinde.
+    assert_eq!(top(&parse(&chain(limit + 1))), Ok(4));
+    assert_eq!(top(&parse(&chain(limit + 2))), Err(Unknown::TooDeep));
+    let other = parse("const S : u32 = 2\nconst X : u32 = S + Y\n");
+    assert_eq!(
+        eval(&other, &TopLevel(&other), const_expr(&other, "X")),
+        Err(Unknown::NotConstant)
+    );
+}
+
+#[test]
+fn a_width_is_a_positive_constant_that_fits_u32() {
+    let ast = parse(
+        "\
+const FOUR : u32 = 2 + 2
+const ZERO : u32 = 0
+const NEG : i32 = 0 - 3
+const BIG : u64 = 1 << 40
+const DEEP : u32 = -(-(-(-(4))))
+",
+    );
+    let w = |name| width(&ast, &TopLevel(&ast), const_expr(&ast, name));
+    assert_eq!(w("FOUR"), Ok(4));
+    assert_eq!(w("ZERO"), Err(Unknown::NotConstant));
+    assert_eq!(w("NEG"), Err(Unknown::NotConstant));
+    assert_eq!(w("BIG"), Err(Unknown::NotConstant));
+    assert_eq!(w("DEEP"), Ok(4));
+    let deep = parse(&chain(MAX_CONST_DEPTH as usize + 2));
+    assert_eq!(
+        width(&deep, &TopLevel(&deep), const_expr(&deep, "K0")),
+        Err(Unknown::TooDeep)
+    );
+}
+
+#[test]
+fn a_name_means_what_the_callers_scope_says() {
+    // SV üreticisi döngü değişkenini ve gölgelemeyi kendi kapsamıyla
+    // bildirir; üst düzey kapsam yalnız `const`'ları bilir.
+    struct LoopI;
+    impl Scope for LoopI {
+        fn bind(&self, _: Idx<Expr>) -> Binding {
+            Binding::Value(3)
+        }
+    }
+    struct Nothing;
+    impl Scope for Nothing {
+        fn bind(&self, _: Idx<Expr>) -> Binding {
+            Binding::Other
+        }
+    }
+    let ast = parse("const K : u32 = 10\nconst X : u32 = i + 1\nconst Y : u32 = K\n");
+    let x = const_expr(&ast, "X");
+    assert_eq!(eval(&ast, &LoopI, x), Ok(4));
+    assert_eq!(eval(&ast, &TopLevel(&ast), x), Err(Unknown::NotConstant));
+    let y = const_expr(&ast, "Y");
+    assert_eq!(eval(&ast, &TopLevel(&ast), y), Ok(10));
+    assert_eq!(eval(&ast, &Nothing, y), Err(Unknown::NotConstant));
+}
+
+#[test]
+fn a_port_width_given_by_a_long_const_chain_is_known_up_to_the_limit() {
+    // #376: 33 ve 64 sabitlik zincirde SV `[3:0]` üretiyordu, test dili
+    // genişliği bilmiyordu. 65'te SV üreticisi de durur (E2005).
+    let port = |n: usize| {
+        let src = format!(
+            "{}module M {{\n    in a : uint<K0>\n    out q : uint<K0>\n    q = a\n}}\n",
+            chain(n)
+        );
+        let ast = parse(&src);
+        test_port_width(&[&ast], "M", "a").map(|w| w.bits)
+    };
+    assert_eq!(port(33), Some(4));
+    assert_eq!(port(64), Some(4));
+    assert_eq!(port(65), None);
 }
 
 #[test]
