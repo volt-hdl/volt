@@ -11,6 +11,13 @@
 //!    adı değilse E2003 (ADR-0065 §1 tablosu, "Örneklemede ham port"):
 //!    `let`, `if`, `match` ya da `sync()` ile yapılan kopya ne
 //!    senkronizörden geçer ne de E3003/W3011'e görünür.
+//!
+//! Reset veri olarak da okunamaz (ADR-0065 R3). Beklenen tipi olan her
+//! konum (`if` koşulu, `!`, `&&`, fn argümanı, `as`) bunu tip kuralıyla
+//! zaten reddeder: reset ne `bool` ne sayıdır. Her tipi kabul eden iki
+//! konum, `match`'in sınananı ve karşılaştırma işleçlerinin operandı,
+//! reset'i tipinden ötürü reddetmiyordu (#356); ikisi de
+//! `reject_reset_as_data`'yı çağırır.
 
 use volt_ast::{Expr, ExprKind, Idx, InstanceDecl, ItemKind, ModuleDecl, PortBinding, StmtKind};
 use volt_diagnostics::{
@@ -23,9 +30,104 @@ use crate::domain::is_raw_reset;
 use crate::resolve::{DefId, DefKind};
 use crate::ty::{Ty, TypeId};
 
+/// Reset'in veri olarak okunduğu, her tipi kabul eden konum (#356).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResetRead {
+    /// `match`'in sınananı (deyim ve ifade).
+    MatchScrutinee,
+    /// `==`, `!=`, `<`, `>`, `<=`, `>=` operandı.
+    Comparison,
+}
+
 impl TypeChecker<'_, '_> {
     fn is_reset(&self, ty: TypeId) -> bool {
         matches!(self.types.ty(ty), Ty::Reset { .. })
+    }
+
+    /// Tip bir reset taşıyor mu: reset'in kendisi, ya da reset taşıyan bir
+    /// dizi, demet ya da `Delayed`.
+    fn holds_reset(&self, ty: TypeId) -> bool {
+        match self.types.ty(ty) {
+            Ty::Reset { .. } => true,
+            &Ty::Array { elem, .. } | &Ty::Delayed { inner: elem, .. } => self.holds_reset(elem),
+            Ty::Tuple(elems) => elems.iter().any(|&t| self.holds_reset(t)),
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => false,
+        }
+    }
+
+    /// İfadenin kaynakta görünen yol adı (`rst`, `a::b`); yol değilse yok.
+    fn path_text(&self, e: Idx<Expr>) -> Option<String> {
+        let ExprKind::Path(p) = &self.ast.exprs[e].kind else {
+            return None;
+        };
+        Some(
+            p.segments
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect::<Vec<_>>()
+                .join("::"),
+        )
+    }
+
+    /// Reset veri olarak okunamaz (ADR-0065 R3, #356): `e`, her tipi kabul
+    /// eden bir konumda (`use_`) okunan ve tipi `ty` olan değer. Değer bir
+    /// reset taşıyorsa E2003 verir ve true döner; çağıran o konumun
+    /// olağan denetimini atlar (aynı yer için ikinci tanı yok).
+    pub(super) fn reject_reset_as_data(
+        &mut self,
+        e: Idx<Expr>,
+        ty: TypeId,
+        use_: ResetRead,
+    ) -> bool {
+        if !self.holds_reset(ty) {
+            return false;
+        }
+        let what = match self.path_text(e) {
+            Some(name) if self.is_reset(ty) => {
+                lstr!(en: "'{name}' is a reset"; tr: "'{name}' bir reset")
+            }
+            _ => lstr!(en: "this value holds a reset"; tr: "bu değer bir reset taşıyor"),
+        };
+        let message = match use_ {
+            ResetRead::MatchScrutinee => {
+                lstr!(en: "a reset cannot be tested by match: {what}"; tr: "bir reset match ile sınanamaz: {what}")
+            }
+            ResetRead::Comparison => {
+                lstr!(en: "a reset cannot be compared: {what}"; tr: "bir reset karşılaştırılamaz: {what}")
+            }
+        };
+        let span = self.ast.exprs[e].span;
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2003,
+                message,
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "the reset is read as a value here"; tr: "reset burada bir değer olarak okunuyor"),
+                ),
+                lstr!(en: "if some logic must behave differently during reset, give that behavior to the reset value of its registers (the value after '=' in a reg declaration); if software must trigger a reset, add a separate bool input port and read that one instead";
+                      tr: "bir mantığın reset süresince farklı davranması gerekiyorsa bu davranışı register'larının reset değerine verin (reg bildiriminde '=' işaretinden sonraki değer); reset'i yazılım tetikleyecekse ayrı bir bool giriş portu ekleyin ve onu okuyun"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a reset is not a value: read as data, it becomes an ordinary signal that no synchronizer releases and no reset check can see";
+                      tr: "reset bir değer değildir: veri olarak okunursa sıradan bir sinyale dönüşür; onu hiçbir senkronizör bırakmaz ve reset denetimleri onu göremez"),
+            ),
+        );
+        true
     }
 
     /// Kural 1: `sync(src, clk)` / `sync3(src, clk)` kaynağı reset.
@@ -34,15 +136,7 @@ impl TypeChecker<'_, '_> {
             return;
         }
         let ast = self.ast;
-        let arg = if let ExprKind::Path(p) = &ast.exprs[src].kind {
-            p.segments
-                .iter()
-                .map(|s| s.text.as_str())
-                .collect::<Vec<_>>()
-                .join("::")
-        } else {
-            "reset".to_string()
-        };
+        let arg = self.path_text(src).unwrap_or_else(|| "reset".to_string());
         let span = ast.exprs[src].span;
         self.diagnostics.push(
             Diagnostic::error(

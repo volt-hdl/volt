@@ -449,7 +449,7 @@ impl TypeChecker<'_, '_> {
         span: Span,
     ) -> Vec<Idx<Expr>> {
         let scrut_ty = self.synth(scrutinee);
-        self.check_match_patterns(span, scrut_ty, arms, true);
+        self.check_match_patterns(span, scrutinee, scrut_ty, arms, true);
         let bool_ty = self.types.bool_ty();
         let mut bodies = Vec::with_capacity(arms.len());
         for arm in arms {
