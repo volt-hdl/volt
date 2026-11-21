@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > İlgili: ADR-0059 (§1 tablosunun "takma ad → bilinmiyor" ve "`uint<N>`: N düz literal ya da düz literal `const`" sınırı kapanır), ADR-0100 (sessiz yanlış istisnası: önceden geçen testi düşüren düzeltme son hanede, v0.1.3)
-> Issue: #376 (kapsam incelemesi #379; ortak olgu haritası #235; değerlendirme süresi #EXP)
+> Issue: #376 (kapsam incelemesi #379; ortak olgu haritası #235; değerlendirme süresi #390)
 > Tarih: 2026-11-21
 > Etkilenen: `crates/volt-ast/src/alias.rs` (YENİ: `alias_chain_end`), `crates/volt-ast/src/const_eval.rs` (YENİ: `eval`, `const_int`, `width`, `array_element(s)`, `Scope`), `crates/volt-ast/src/enum_layout.rs`, `crates/volt-sv-emit/src/alias.rs`, `crates/volt-sv-emit/src/expr.rs` (`Emitter::eval_const` ortak değerlendiriciye devreder, kopya kalktı), `crates/volt-sv-emit/src/{scope,const_array,lib,sim_width}.rs`, `crates/volt-sv-emit/src/structs/{mod,value}.rs` (kopya kalktı), `crates/volt-hir/src/sim_port.rs` (`scalar_width` takma adı izler, genişliği `const_eval::width` ile hesaplar; `literal_or_const` kalktı), `crates/volt-hir/src/sim_load.rs`, `crates/volt-lsp/src/hover.rs` (kopya kalktı), `tests/ui/fail/305`–`308`, `crates/volt-hir/tests/{ui_semantic_tests,test_port_width_tests,shared_width_facts_tests}.rs`, `crates/volt-driver/tests/{port_width_alias_tests,const_chain_width_tests}.rs` (YENİ), `CHANGELOG.md`.
 > DOKUNULMADI: `docs/spec/` (E8512/E8510 yalnız ADR'lerde tanımlı), üretilen SV, SVA, SDC ve XDC (birleştirmeden önce ve sonra bayt bayt aynı; "Doğrulama").
@@ -136,7 +136,7 @@ Kök neden aynı olgunun birden çok yerde hesaplanması (GOVERNANCE.md,
   İkisinin de ayrı işi var (tanı, açma); birleştirmeleri #235'te. 65
   düzeylik zinciri HIR kabul eder, SV üreticisi E2005 ile durur.
 - Değerlendirme önbelleksizdir: bir sabite iki kez başvuran zincirde
-  (`A1 = A0 + A0`, …) süre her halkada ikiye katlanır (#EXP, v0.1.4).
+  (`A1 = A0 + A0`, …) süre her halkada ikiye katlanır (#390, v0.1.4).
 - Generic: generic modül doğrudan DUT olamaz (E2021), generic takma ad
   sinyal tipi olamaz (E0003). Generic parametreden genişlik alan bir port
   test bloğuna yalnız generic olmayan bir sarmalayıcının somut portu olarak
