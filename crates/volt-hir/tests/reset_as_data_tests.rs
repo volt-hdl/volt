@@ -152,6 +152,28 @@ fn comparing_arrays_of_resets_is_e2003() {
 }
 
 #[test]
+fn a_named_array_of_resets_is_not_called_a_reset() {
+    // `a` bir ad ama reset değil, reset taşıyan bir dizi: ileti onu "a
+    // reset" diye adlandırmaz (mutasyon kapısı, #356: muhafız `is_reset`).
+    let src = "module M {
+    in  clk : clock
+    in  rst : reset(sync, active_high)
+    out y   : bool
+    let a = [rst, rst]
+    let t = a == a
+    y = sync(t, clk)
+}
+";
+    let d = reset_as_data(src);
+    assert_eq!(d.len(), 1, "{:?}", diags(src));
+    assert_eq!(
+        d[0].message, "a reset cannot be compared: this value holds a reset",
+        "{}",
+        d[0].message
+    );
+}
+
+#[test]
 fn a_reset_compared_with_a_value_gets_the_reset_diagnostic() {
     // Önceden "comparison operands must have the same type" idi; kod aynı
     // (E2003), metin reset'in neden okunamadığını söyler.
