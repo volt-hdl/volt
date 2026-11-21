@@ -50,29 +50,23 @@ fn git_commit() -> Option<String> {
     short_commit(&git(&root, &["rev-parse", "HEAD"])?)
 }
 
-/// HEAD ya da işaret ettiği dal ilerleyince build.rs yeniden koşar.
+/// HEAD ya da işaret ettiği dal ilerleyince build.rs yeniden koşar. Yalnız
+/// var olan dosyalar izlenir (`git_rerun_paths`, #366): CI'ın sığ
+/// checkout'unda `packed-refs` yoktur ve var olmayan bir yol build
+/// script'i her `cargo` çağrısında yeniden koşturuyordu.
 fn rerun_on_new_commit(root: &Path) {
     let Some(git_dir) = git(root, &["rev-parse", "--absolute-git-dir"]) else {
         return;
     };
-    let head = Path::new(&git_dir).join("HEAD");
-    println!("cargo:rerun-if-changed={}", head.display());
+    let git_dir = PathBuf::from(git_dir);
     let common = git(
         root,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )
-    .unwrap_or(git_dir);
-    if let Some(reference) = std::fs::read_to_string(&head)
-        .ok()
-        .and_then(|h| h.strip_prefix("ref: ").map(|r| r.trim().to_string()))
-    {
-        println!(
-            "cargo:rerun-if-changed={}",
-            Path::new(&common).join(reference).display()
-        );
+    .map(PathBuf::from)
+    .unwrap_or_else(|| git_dir.clone());
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok();
+    for path in git_rerun_paths(&git_dir, &common, head.as_deref(), &|p| p.exists()) {
+        println!("cargo:rerun-if-changed={}", path.display());
     }
-    println!(
-        "cargo:rerun-if-changed={}",
-        Path::new(&common).join("packed-refs").display()
-    );
 }

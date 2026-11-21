@@ -1,7 +1,7 @@
 # ADR-0103: Senkronize Reset'li Modülde Ham Reset'in Extern'e Gidişi — W3011
 
 > Statü: Uygulandı
-> İlgili: ADR-0065 (ham reset portu ve bırakma senkronizörü), ADR-0076 (extern `@source`).
+> İlgili: ADR-0065 (ham reset portu ve bırakma senkronizörü), ADR-0076 (extern `@source`), ADR-0124 (reset'i `sync()`'ten ya da `let`'ten geçirip extern'e vermek E2003; W3011 değişmez).
 > Tarih: 2026-10-06
 > Etkilenen: volt-hir (`domain/rdc/extern_reset.rs` — YENİ; `domain/rdc/mod.rs`,
 > `domain/rdc/facts.rs` `is_extern_instance` görünürlüğü), volt-diagnostics

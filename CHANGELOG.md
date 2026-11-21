@@ -9,6 +9,29 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir reset artık `sync()` ya da `sync3()`'ten
+  geçirilemez ve bir örneğin reset portuna yalnız bu modülün reset giriş
+  portunun adı bağlanabilir (#340, ADR-0124; sessiz yanlış düzeltmesi).
+  0.1.2'de `let rst_s = sync(rst, clk)` ile `Child { clk: clk, rst: rst_s }`
+  hatasız derleniyordu, ama `sync()`'in flip-flop'larını bu modülün aynı
+  porttan türetilen reset'i temizlediğinden active_high bir reset örneğe
+  hiç ulaşmıyordu: extern hiç reset görmüyor, Volt alt modülünün
+  register'ları reset'ten geçmeden sayıyordu. Artık E2003 alan yazımlar:
+  `sync(rst, clk)` ve `sync3(rst, clk)` (iki kutupta da; active_low'da devre
+  tesadüfen bir reset veriyordu, yanındaki register'lardan 2 çevrim geç),
+  reset portuna tipsiz ya da tipli bir `let` üzerinden bağlama
+  (`let rs = rst`; bu yazım "aynı reset iki kez senkronlanıyor" E3003'ünü
+  ve extern'de W3011'i susturuyordu), `if`/`match` ile reset seçme
+  (`rst: if c { rst } else { rst }`; SV'de reset yolunda bir çoklayıcı).
+  Doğru yol: alt modüle reset portu yazmayın; Volt onun otomatik reset
+  portunu bu modülün o saat için senkronize ettiği reset'e bağlar (tanı bu
+  düzeltmeyi makinece uygulanabilir öneri olarak verir). Bir extern
+  senkronize kopyayı henüz alamaz (#93): reset giriş portunun kendisini
+  bağlayın (`rst: rst`; yanındaki register'lar senkronize kopyayı
+  kullanıyorsa W3011) ve bırakmayı SystemVerilog modülünün içinde
+  senkronlayın. Kabul edilmeye devam eden tasarımların SV'si değişmez.
+  Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm
+  notunun "Behavior changes" bölümüne girer.
 - **Davranış değişikliği.** Bir `match` deyiminde (`on`/`comb` içinde,
   sayısal, `bool` ya da enum sınanan) ilk joker koldan (`_` ya da `A | _`)
   sonraki kollar artık SystemVerilog'a yazılmaz ve W2014 alır (#216;
@@ -173,6 +196,22 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   gövdeleri `a ^ k` olan 256 kollu match E0018 almaya devam eder (256 kol
   + `^` = 257). Kök konumdaki match (tüm sağ taraf) her boyutta `case`
   olarak kalır; SV çıktısı değişmez. Son hanede (v0.1.3) çıkar.
+- **Davranış değişikliği.** `@strict_timing` modülünde bir `let`, `wire`
+  ya da çıkış portundaki `Delayed<T, N>` bildirimi, değerin gecikmesi tam
+  biliniyorsa N ile karşılaştırılır; uyuşmazlık bildirimde E5010
+  ("declared delay does not match the value") (#354, ADR-0126; sessiz
+  yanlış düzeltmesi, type-inference.md §12). 0.1.2'de bu bildirim yalnız
+  register'da denetleniyordu: `let s : Delayed<u32, 1> = b` (`b` 2
+  çevrimlik register) derleniyor ve sonraki `s + a` hizalı görünüyordu;
+  simülasyonda iki ayrı çevrimin değerleri toplanıyordu. Çıkış portunun
+  bildirimi (`out y : Delayed<u32, 5>`) çıkarımla sessizce eziliyordu;
+  artık sürücüsüyle denetlenir. Önce derlenen kod artık reddedilebilir,
+  ama yalnız bildirimi kanıtlanabilir biçimde yanlış olan kod. Aşamaları
+  karıştıran bir değerin üstündeki bildirim (ileri besleme) bugünkü gibi
+  yeniden zamanlama iddiasıdır ve derlenir (v0.2.0'da işaretli kaçış,
+  #358). Hiçbir tasarımın SV'si değişmez. `volt explain E5010` bir cümle
+  kazanır. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış
+  istisnası; sürüm notunun "Behavior changes" bölümüne girer.
 - Bu bölümdeki diğer değişikliklerden "Diagnostics" yalnız tanı metnini
   değiştirir (ADR-0125 §7); geliştirici notları yalnız CI'ı ve geliştirme
   sürecini etkiler. Derleyicinin kabul ettiği girdi ve ürettiği SV aynıdır.
@@ -197,6 +236,60 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   çıktığı ve üretilen SV değişmez; E5010'un makine önerisi yoktur.
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
+
+### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
+
+- PR'ın son tam kapı koşusundan beri yalnız paketlerin `tests/`'indeki
+  dosyalar değiştiyse kapı bütün listeyi baştan denemez. Mutantlar ve
+  ortam da aynı olmalıdır. Kapı yalnız şunları yeniden sınar:
+  - o koşunun missed, timeout ve bellek sınırı mutantları;
+  - o koşunun sınamadığı mutantlar;
+  - yakalayan test ikilisi bu push'ta değişen caught mutantlar.
+- Kalanın sonucu taşınır; özet "retest: run …, k of N retested" der.
+  Başka her durumda kapı tam koşar.
+- Elle: `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+- Başka bir paketin testinin adıyla okuduğu ya da içeri aldığı bir test
+  dosyası değişirse okuyan ikili de değişmiş sayılır
+  (`crates/volt-tools/tests/verilator_flags_tests.rs` volt-driver'ın iki
+  test dosyasını okur). Test dışı kod (src/, build.rs) okuyorsa kapı tam
+  koşar.
+- Missed bir mutant için yazılan testi kaynak dosyanın
+  `#[cfg(test)] mod tests`'i yerine bir test dosyasına koyun: sonraki
+  push yalnız gerekeni yeniden sınar.
+
+### Geliştirici notu — Mutasyon kapısında koşu başına tek temel koşu ve sabit zaman aşımı tabanı (#366, ADR-0128 §2–§3, 2026-11-21)
+
+- **Tek temel koşu.** Temel koşu parçalardan çıktı: koşu başına bir iş
+  ("Mutation baseline"), parçalarla aynı anda. Bütün testleri araçlar
+  zorunlu ve bellek bekçisi altında koşar; bellek tepe uyarısı, yeniden
+  kullanım damgası ve defterin `--min-ran 60` denetimi oradadır. Parçalar
+  `--require-zero-skips`'i korur. Temel koşu geçmezse özet mutant kararı
+  vermeden düşer.
+- **Zaman aşımı tabanı.** Mutant başına test zaman aşımı
+  max(2 × temel koşu, 3610 sn). Parçalar 3610 sn ile başlar; temel koşu
+  daha yavaşsa özet bunu denetler.
+- Mutant listesi ve her mutantın sonucu değişmez; aynı gün koşulan A/A ve
+  A/B karşılaştırmaları ADR-0128'de.
+
+### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128 Önerildi, 2026-11-20)
+
+- **Test sırası.** Kapının parçaları testleri nextest'in `mutants`
+  profiliyle koşar (`.config/nextest.toml`): PR'ın dokunduğu test
+  ikilileri önce, `volt-driver` dışındaki crate'ler sonra, yavaş
+  Verilator ikilileri en sonda. Yakalanan bir mutant ilk düşen testte
+  durduğundan daha erken durur; hangi testlerin koştuğu ve her mutantın
+  sonucu değişmez (referans karşılaştırması ADR-0128'de). Elle koşuda
+  geçici `-f nextest_order=default` eski sırayı koşturur.
+- **Karşılaştırma aracı.** `scripts/ci/mutants_compare.py A B` iki kapı
+  koşusunu mutant mutant karşılaştırır; liste ya da bir sonuç farklıysa 1
+  ile çıkar.
+- **Gereksiz yeniden derleme.** `volt-sv-emit/build.rs` yalnız var olan
+  git dosyalarını izler. CI'ın sığ checkout'unda `.git/packed-refs`
+  yoktu; cargo var olmayan yolu her çağrıda değişmiş sayıp build script'i
+  yeniden koşturuyor, `volt-sv-emit`, `volt-lsp` ve `volt-driver` her
+  `cargo` çağrısında yeniden derleniyordu (kapıda mutant başına medyan
+  13,7 sn). `volt --version` yeni commit'te güncellenmeye devam eder.
+- Derleyicinin girdisi ve çıktısı değişmedi.
 
 ### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, 2026-11-18)
 

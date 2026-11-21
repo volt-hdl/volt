@@ -160,6 +160,22 @@ fn ui_pass_157_match_dead_arm_crossing_is_not_e3001() {
 }
 
 #[test]
+fn ui_fail_297_delayed_let_wrong_count_e5010() {
+    // #354 (ADR-0126): let'in bildirimi başlatıcısının gecikmesiyle uyuşmalı.
+    assert_ui_fail("fail/297_delayed_let_wrong_count.volt");
+}
+
+#[test]
+fn ui_fail_298_delayed_wire_wrong_count_e5010() {
+    assert_ui_fail("fail/298_delayed_wire_wrong_count.volt");
+}
+
+#[test]
+fn ui_fail_299_delayed_out_port_wrong_count_e5010() {
+    assert_ui_fail("fail/299_delayed_out_port_wrong_count.volt");
+}
+
+#[test]
 fn ui_fail_206_edgeless_sync_destination_e3016() {
     // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
     assert_ui_fail("fail/206_edgeless_sync_destination.volt");
@@ -206,6 +222,22 @@ fn ui_fail_219_extern_raw_reset_w3011() {
     // ADR-0103 (#93): ham reset extern'e giderken modülün register'ları
     // senkronize kopyayı kullanıyor.
     assert_ui_fail("fail/219_extern_raw_reset.volt");
+}
+
+#[test]
+fn ui_fail_291_296_reset_path_e2003() {
+    // ADR-0124 (#340): sync()/sync3() kaynağı reset (her iki kutup) ve
+    // reset portuna ham port dışında bir değer (tipsiz/tipli let, if).
+    for f in [
+        "fail/291_reset_through_sync.volt",
+        "fail/292_reset_through_sync_active_low.volt",
+        "fail/293_reset_through_sync3.volt",
+        "fail/294_reset_through_let.volt",
+        "fail/295_reset_through_typed_let.volt",
+        "fail/296_reset_through_if.volt",
+    ] {
+        assert_ui_fail(f);
+    }
 }
 
 #[test]
@@ -436,8 +468,12 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #328: 155 jokerden sonraki koldaki atama ikinci sürücü değil;
     // #331: 156 kapsanan koldaki atama ikinci sürücü değil;
     // #332: 157 ölü koldaki alanlar arası atama E3001 değil;
-    // #232: 161 `delay<K>` bir iddiadır, register eklemez.
-    assert_eq!(checked, 143);
+    // #340 (ADR-0124): 158 reset portu yazılmayan çocuk (otomatik port),
+    // 159 ham reset portunun kendisinin bağlanması.
+    // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
+    // #232 (ADR-0127): 161 `delay<K>` bir
+    // iddiadır, register eklemez.
+    assert_eq!(checked, 146);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

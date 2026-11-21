@@ -109,9 +109,12 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // #303: 154 aynı genişlik `as` zinciri daha geniş bağlamda. #328: 155
     // jokerden sonraki koldaki atama ikinci sürücü değil. #331: 156
     // kapsanan koldaki atama ikinci sürücü değil. #332: 157 ölü koldaki
-    // alanlar arası atama E3001 değil. #232: 161 `delay<K>` bir iddiadır,
-    // register eklemez.
-    assert_eq!((built, check_only), (143, 0));
+    // alanlar arası atama E3001 değil. #340 (ADR-0124): 158 reset portu
+    // yazılmayan çocuk, 159 ham reset portunun kendisinin bağlanması.
+    // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
+    // #232 (ADR-0127): 161 `delay<K>` bir
+    // iddiadır, register eklemez.
+    assert_eq!((built, check_only), (146, 0));
 }
 
 #[test]

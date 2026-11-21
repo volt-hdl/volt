@@ -41,6 +41,7 @@ mod instance;
 mod literal_fold;
 mod matching;
 mod output_register;
+mod reset_binding;
 mod select;
 mod stmt;
 mod structs;

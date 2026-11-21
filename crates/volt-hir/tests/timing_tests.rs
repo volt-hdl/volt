@@ -736,3 +736,255 @@ fn analyze_timing_has_no_delays_outside_strict_modules() {
     let analysis = volt_hir::analyze(&parsed.ast);
     assert!(volt_hir::check_timing(&parsed.ast, &analysis.resolve, &analysis.typeck).is_empty());
 }
+
+// ═══ Bildirilen gecikme gerçek gecikmeyle karşılaştırılır (#354) ═══
+//
+// `let`, `wire` ve çıkış portundaki `Delayed<T, N>`, değerin gecikmesi
+// tam biliniyorsa N ile karşılaştırılır; uyuşmazlık E5010. Değer
+// aşamaları karıştırıyorsa (ileri besleme) bildirim bugünkü gibi
+// yeniden zamanlama iddiasıdır ve denetlenmez.
+
+/// İki aşamalı modül: `a` 1, `b` 2 çevrim. `{decl}` gövdeye eklenir.
+fn two_stage(ports: &str, decl: &str) -> String {
+    format!(
+        "@strict_timing
+module M {{
+    in  clk : clock
+    in  x   : u32
+{ports}
+    reg a : Delayed<u32, 1> = 0
+    reg b : Delayed<u32, 2> = 0
+    on clk {{
+        a <= x
+        b <= a
+    }}
+{decl}
+}}
+"
+    )
+}
+
+#[test]
+fn let_declared_with_a_wrong_count_is_e5010() {
+    // #354, tasarım 3: karışım yok, `b` tam 2 çevrim; bildirim 1 diyor.
+    // Bildirim yanlış olduğu için aşağıdaki `s + a` hizalı görünüyordu.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 1> = b\n    y = s + a",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn let_declared_with_the_right_count_passes() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 2> = b\n    y = s + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn let_declared_through_delay_k_counts_k() {
+    // delay<K> bugün yalnız sayıya K ekler (#232): 1 + 1 = 2.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 2> = delay<1>(a)\n    y = s + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn wire_declared_with_a_wrong_count_is_e5010() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    wire w : Delayed<u32, 1>\n    w = b\n    y = w + a",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn wire_declared_with_the_right_count_passes() {
+    let src = two_stage(
+        "    out y   : u32",
+        "    wire w : Delayed<u32, 2>\n    w = b\n    y = w + b",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn output_port_declared_with_a_wrong_count_is_e5010() {
+    // #354: çıkış portunun bildirimi çıkarımla sessizce eziliyordu.
+    let src = two_stage("    out y   : Delayed<u32, 5>", "    y = a");
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn output_port_declared_with_the_right_count_passes() {
+    let src = two_stage("    out y   : Delayed<u32, 1>", "    y = a");
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn register_declaration_is_unchanged() {
+    // Register denetimi aynı kalır: kaynak + 1 bildirimle uyuşmalı.
+    let right = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 2> = 0\n    on clk { c <= a }\n    y = c + b",
+    );
+    assert_eq!(e5010_count(&right), 0);
+    let wrong = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= a }\n    y = c",
+    );
+    assert_eq!(e5010_count(&wrong), 1);
+}
+
+#[test]
+fn a_declaration_over_a_mix_stays_a_retiming_assertion() {
+    // Başlatıcı aşamaları karıştırıyor: gecikmesi tam bilinmez, bildirim
+    // denetlenmez (v0.2.0'da ADR-0118'e göre kaçış). N hiçbir şeye
+    // uymasa da (7) bugünkü gibi geçer.
+    for n in [1, 2, 7] {
+        let src = two_stage(
+            "    out y   : u32",
+            &format!("    let s : Delayed<u32, {n}> = a + b\n    y = s"),
+        );
+        assert_eq!(e5010_count(&src), 0, "N = {n}");
+    }
+    // İç içe karışım da karışımdır: (a + b) + b'nin gecikmesi 2 değildir.
+    let nested = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 7> = (a + b) + b\n    y = s",
+    );
+    assert_eq!(e5010_count(&nested), 0);
+    // Kaynakları farklı aşamalardan gelen wire da karışımdır.
+    let wire = two_stage(
+        "    in  sel : bool\n    out y   : u32",
+        "    wire w : Delayed<u32, 2>\n    comb {\n        if sel { w = a } else { w = b }\n    }\n    y = w",
+    );
+    assert_eq!(e5010_count(&wire), 0);
+}
+
+#[test]
+fn a_declaration_over_a_timeless_value_is_not_checked() {
+    // Literal zamanlama taşımaz: her bildirimle uyumludur.
+    let src = two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 3> = 7\n    y = s",
+    );
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn pipeline_stage_lets_are_not_checked_as_declarations() {
+    // stage(...) okuyan aşama-yerel let'ler desugar'da sabitlenir
+    // (ADR-0038 §3): kullanıcının yazdığı bir bildirim değildir.
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/ui/pass/46_pipeline_forwarding.volt"
+    ))
+    .expect("fixture");
+    assert_eq!(e5010_count(&src), 0);
+}
+
+#[test]
+fn output_port_declaration_is_not_a_retiming_assertion() {
+    // Çıkış portunun bildirimi sınırdaki sözdür, ileri besleme kapısı
+    // değildir: sürücüsündeki karışım bildirimden önce olduğu gibi E5010.
+    let src = two_stage("    out y   : Delayed<u32, 2>", "    y = a + b");
+    assert_eq!(e5010_count(&src), 1);
+}
+
+/// Bildirim uyuşmazlığının okura dönük metni: ileti, etiketler, help.
+fn declared_mismatch_text(src: &str) -> String {
+    let parsed = parse(FileId(0), src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let diags: Vec<_> = analyze(&parsed.ast)
+        .diagnostics
+        .into_iter()
+        .filter(|d| d.code.as_str() == "E5010")
+        .collect();
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    let d = &diags[0];
+    assert_eq!(d.message, "declared delay does not match the value");
+    let mut t = d.help.clone().unwrap_or_default();
+    for s in &d.spans {
+        t.push('\n');
+        t.push_str(&s.label);
+    }
+    t
+}
+
+#[test]
+fn the_declared_mismatch_text_names_both_counts_and_the_way_out() {
+    // N bir fazla: bir register aşaması daha; tekil "1 cycle".
+    let t = declared_mismatch_text(&two_stage("    out y   : Delayed<u32, 2>", "    y = a"));
+    assert!(t.contains("declared as 2 cycles here"), "{t}");
+    assert!(t.contains("this value is 1 cycle old"), "{t}");
+    assert!(
+        t.contains("write the count as 1; if the value must be 2 cycles old, pass it through one more register stage"),
+        "{t}"
+    );
+    // N dört fazla: dört register aşaması.
+    let t = declared_mismatch_text(&two_stage("    out y   : Delayed<u32, 5>", "    y = a"));
+    assert!(t.contains("pass it through 4 more register stages"), "{t}");
+    // N bir eksik: bir çevrim önceki aşama; tekil "1 cycle".
+    let t = declared_mismatch_text(&two_stage(
+        "    out y   : u32",
+        "    let s : Delayed<u32, 1> = b\n    y = s",
+    ));
+    assert!(t.contains("declared as 1 cycle here"), "{t}");
+    assert!(t.contains("this value is 2 cycles old"), "{t}");
+    assert!(
+        t.contains("write the count as 2; if the value must be 1 cycle old, take it from the stage one cycle earlier"),
+        "{t}"
+    );
+    // N iki eksik: iki çevrim önceki aşama (c 3 çevrim).
+    let t = declared_mismatch_text(&two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= b }\n    let s : Delayed<u32, 1> = c\n    y = s",
+    ));
+    assert!(t.contains("take it from the stage 2 cycles earlier"), "{t}");
+    assert!(!t.contains("delay<"), "{t}");
+}
+
+#[test]
+fn an_unannotated_register_write_that_mixes_stages_is_e5010() {
+    // Anotasyonsuz register'ın yazım kaynağı da karışım denetiminden geçer:
+    // a (1) + b (2), bildirim olmasa da E5010.
+    let src = two_stage(
+        "    out y   : u32",
+        "    reg t : u32 = 0\n    on clk { t <= a + b }\n    y = t",
+    );
+    assert_eq!(e5010_count(&src), 1);
+}
+
+#[test]
+fn the_register_write_text_names_the_cycle_it_would_hold() {
+    // c 3 çevrim bildirilmiş, kaynağı a (1): register 2 çevrimlik değer tutar.
+    let src = two_stage(
+        "    out y   : u32",
+        "    reg c : Delayed<u32, 3> = 0\n    on clk { c <= a }\n    y = c",
+    );
+    let parsed = parse(FileId(0), &src);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    let labels: Vec<String> = analyze(&parsed.ast)
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E5010")
+        .flat_map(|d| d.spans.iter().map(|s| s.label.clone()))
+        .collect();
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.ends_with("register would hold a 2-cycle value")),
+        "{labels:?}"
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l == "register declared as 3 cycles here"),
+        "{labels:?}"
+    );
+}

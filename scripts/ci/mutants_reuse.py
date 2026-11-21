@@ -43,26 +43,49 @@ runs in full and the log says why:
 - every shard of it completed: every listed mutant has an outcome; no
   missed, no timeout, no memory-limit mutant (a timeout and a memory kill
   depend on the runner and its load, they are never reused);
-- every shard's tool ledger passes `--require-zero-skips --min-ran 60`
-  (its `Tool ledger [mutants-k]: ... SKIP: 0` line is printed again);
-- every shard's stamp (written after its baseline passed) names the same
-  rustc, cargo-mutants, cargo-nextest and runner image as the key, and
-  shows that the inert paths were absent while it tested;
+- it has the artifact of its baseline job (`mutants-baseline`, ADR-0128
+  §2: one baseline per run, beside the shards): its tool ledger passes
+  `--require-zero-skips --min-ran 60` and its stamp (written after the
+  baseline passed) names the same rustc, cargo-mutants, cargo-nextest and
+  runner image as the key and shows that the inert paths were absent;
+- every shard's tool ledger passes `--require-zero-skips` (its
+  `Tool ledger [mutants-k]: ... SKIP: 0` line is printed again; a shard
+  has no baseline, so how many tool tests its mutants reach depends on
+  where they are caught, and `--min-ran` is the baseline's);
+- every shard's stamp names the same rustc, cargo-mutants, cargo-nextest
+  and runner image as the key, and shows that the inert paths were absent
+  while it tested;
 - every mutant of this run's list (after today's exclude_re) was tested
   then and caught or unviable.
 
     mutants_reuse.py key --lists DIR [--out FILE]
     mutants_reuse.py find --lists DIR --pr N --head-repo OWNER/NAME --head-ref BRANCH [--github-output FILE]
     mutants_reuse.py mask
-    mutants_reuse.py stamp --out FILE --baseline-seconds S --timeout T
+    mutants_reuse.py retest --lists DIR (--pr N --head-repo OWNER/NAME --head-ref BRANCH | --run ID) [--github-output FILE]
+    mutants_reuse.py retest-check --lists DIR
+    mutants_reuse.py stamp --out FILE --role baseline --baseline-seconds S --timeout T
+    mutants_reuse.py stamp --out FILE --role shard --timeout T
     mutants_reuse.py --self-test
 
 `key` writes DIR/key.json from DIR/unexcluded.txt and the checkout. `find`
 looks for the earlier run and, when it reuses one, writes DIR/reuse/
-(reuse.json, the earlier lists and the shards' outcomes) for the summary
-job; GitHub Actions outputs `run`, `sha` and `key`. `mask` deletes the
-inert paths from the checkout (each shard, before its baseline). `stamp`
-writes a shard's tool versions, runner image and inert paths.
+(reuse.json, the earlier lists, the shards' outcomes and the baseline's
+files) for the summary job; GitHub Actions outputs `run`, `sha` and `key`.
+`retest` (#364, ADR-0129), when nothing was reused: the pull request's
+last full gate run (or the run `--run` names, a hand gate run's
+`retest_from`) is the base when its mutants and environment are this run's
+and every path changed since is under a package's `tests/`; it writes
+DIR/retest/ (retest.json: why each mutant is tested again, the outcomes
+carried over; retest.re: the exact names) and outputs `run` and `sha`.
+Tested again: the base's missed, timeout and memory-limit mutants, those
+it did not test, and those caught by a test binary the push changed (read
+from the nextest failure line of the mutant's log; a log that names none
+is tested again). `retest-check` checks the narrowed list against the
+gate's (`gate-all.txt`) and fixes what is carried over.
+`mask` deletes the inert paths from the checkout (the baseline job and each
+shard, before they test). `stamp` writes the tool versions, runner image
+and inert paths of the baseline job (with its seconds and the test timeout
+the rule gives, ADR-0128 §3) or of a shard (with the timeout it used).
 """
 
 import argparse
@@ -71,6 +94,8 @@ import hashlib
 import io
 import json
 import os
+import posixpath
+import re
 import shutil
 import subprocess
 import sys
@@ -81,7 +106,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mutants_summary  # noqa: E402  scripts/ci, next to this script
+import mutants_nextest  # noqa: E402  scripts/ci, next to this script
+import mutants_summary  # noqa: E402
 import tool_ledger  # noqa: E402
 
 KEY_VERSION = 1
@@ -98,6 +124,7 @@ ENV_VARS = (
     "OSS_CAD_SUITE_DATE",
     "MUTANTS_MEMORY_LIMIT_MIB",
     "MUTANTS_GATE_SECONDS_PER_MUTANT",
+    "MUTANTS_TIMEOUT_FLOOR_SECONDS",
 )
 # The runner image: its OS and its weekly release (the date part of
 # ImageVersion). The rest of ImageVersion is a build number that differs
@@ -117,7 +144,8 @@ SYSTEM = {
     "python3": ["python3", "--version"],
     "git": ["git", "--version"],
 }
-# The shard's own `Tool ledger` step: tool_ledger.py report --require-zero-skips --min-ran 60.
+# The baseline job's own `Tool ledger` step: tool_ledger.py report
+# --require-zero-skips --min-ran 60; a shard's: --require-zero-skips.
 MIN_RAN = 60
 # How many earlier runs of the pull request are looked at, newest first.
 MAX_RUNS = 50
@@ -125,12 +153,18 @@ MAX_RUNS = 50
 SHARD_FILES = (
     "mutants-shard.txt",
     "memory-kills.tsv",
+    "stamp.json",
+    "tool-ledger.tsv",
+) + tuple(f"mutants.out/{k}.txt" for k in mutants_summary.OUTCOMES)
+# The baseline job's artifact (ADR-0128 §2) and what it brings.
+BASELINE_ARTIFACT = mutants_summary.BASELINE_ARTIFACT
+BASELINE_FILES = (
     "baseline-memory-kills.tsv",
     "baseline-build-peak.txt",
     "baseline-test-peak.txt",
     "stamp.json",
     "tool-ledger.tsv",
-) + tuple(f"mutants.out/{k}.txt" for k in mutants_summary.OUTCOMES)
+)
 
 
 class InertError(Exception):
@@ -323,9 +357,12 @@ def mask(repo: Path) -> int:
     return 0
 
 
-def stamp(repo: Path, env: dict, run, baseline_seconds: int, timeout: int) -> dict:
+def stamp(repo: Path, env: dict, run, timeout: int, baseline_seconds: int | None = None, role: str = "shard") -> dict:
+    """The stamp of the baseline job (`role` baseline: its seconds, and the
+    test timeout of ADR-0128 §3) or of a shard (the timeout it used)."""
     entries = parse_inert((repo / INERT_FILE).read_text(encoding="utf-8"))
     st = tool_versions(run)
+    st["role"] = role
     st["verilator"] = run(["verilator", "--version"])
     st["yosys"] = run(["yosys", "-V"])
     st.update(runner(env))
@@ -377,6 +414,9 @@ class GhCli:
         q = urllib.parse.urlencode({"event": "pull_request", "branch": branch, "per_page": 100})
         return json.loads(self._api(f"repos/{self.repo}/actions/workflows/{WORKFLOW_FILE}/runs?{q}"))["workflow_runs"]
 
+    def run(self, run_id) -> dict:
+        return json.loads(self._api(f"repos/{self.repo}/actions/runs/{run_id}"))
+
     def artifacts(self, run_id) -> list[dict]:
         return json.loads(self._api(f"repos/{self.repo}/actions/runs/{run_id}/artifacts?per_page=100"))["artifacts"]
 
@@ -408,8 +448,53 @@ def read_names(path: Path) -> list[str]:
     return mutants_summary.read_lines(path)
 
 
-def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> tuple[list[str], list[str], dict]:
-    """(problems, log lines, facts) of an earlier run's shards."""
+def stamp_problems(where: str, st: dict, want: dict, inert: list[str]) -> list[str]:
+    """What of a stamp differs from the key, or shows an inert path present."""
+    problems = [f"{where}: {field} {short(str(st.get(field)))}, the key has {short(str(value))}"
+                for field, value in want.items() if st.get(field) != value]
+    if st.get("inert") != inert or st.get("inert_present"):
+        problems.append(f"{where}: the inert paths were not masked: {st.get('inert_present')}")
+    return problems
+
+
+def check_baseline(baseline: Path | None, want: dict, inert: list[str], tools_seen: dict) -> tuple[list[str], list[str]]:
+    """(problems, log lines) of an earlier run's baseline job (ADR-0128 §2)."""
+    if baseline is None or not baseline.is_dir():
+        return [f"no {BASELINE_ARTIFACT} artifact (the baseline job's ledger and stamp)"], []
+    problems, log = [], []
+    ledger = baseline / "tool-ledger.tsv"
+    if not ledger.is_file():
+        problems.append("the baseline: no tool ledger")
+    else:
+        try:
+            code, out = tool_ledger.report(tool_ledger.load(ledger), "mutants-baseline", True, MIN_RAN)
+        except SystemExit as err:
+            code, out = 1, [f"malformed tool ledger: {err}"]
+        log.append(out[0])
+        if code:
+            problems.append("the baseline: " + out[0] + "".join(f"; {l.strip()}" for l in out[1:] if "::error" in l))
+    st_path = baseline / "stamp.json"
+    if not st_path.is_file():
+        problems.append("the baseline: no stamp (tool versions, runner image, inert paths)")
+        return problems, log
+    st = json.loads(st_path.read_text(encoding="utf-8"))
+    if st.get("role") != "baseline":
+        problems.append(f"the baseline: its stamp is a {st.get('role')} stamp")
+    problems += stamp_problems("the baseline", st, want, inert)
+    for t in ("verilator", "yosys"):
+        tools_seen.setdefault(t, set()).add(st.get(t))
+    return problems, log
+
+
+def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str],
+                   baseline: Path | None = None, clean: bool = True) -> tuple[list[str], list[str], dict]:
+    """(problems, log lines, facts) of an earlier run's baseline and shards.
+
+    `clean` (a reuse, #318): no missed, timeout or memory-limit mutant, and
+    every mutant of `current` caught or unviable then. A retest base
+    (#364) needs the rest only: complete, the baseline passed, SKIP: 0, the
+    key's tools and image.
+    """
     problems, log = [], []
     n = len(list(lists.glob("shard-*.txt")))
     if n == 0:
@@ -417,6 +502,9 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
     env = key["parts"]["environment"]
     want = {**env["tools"], **env.get("system", {}), **env["runner"]}
     results, tools_seen = [], {}
+    more, blog = check_baseline(baseline, want, env["inert"], tools_seen)
+    problems += more
+    log += blog
     for k in range(n):
         r = mutants_summary.shard_result(shards, lists, k, n)
         results.append(r)
@@ -429,7 +517,7 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
             problems.append(f"shard {k}: no tool ledger")
         else:
             try:
-                code, out = tool_ledger.report(tool_ledger.load(ledger), f"mutants-{k}", True, MIN_RAN)
+                code, out = tool_ledger.report(tool_ledger.load(ledger), f"mutants-{k}", True, 0)
             except SystemExit as err:
                 code, out = 1, [f"malformed tool ledger: {err}"]
             log.append(out[0])
@@ -440,11 +528,7 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
             problems.append(f"shard {k}: no stamp (tool versions, runner image, inert paths)")
             continue
         st = json.loads(st_path.read_text(encoding="utf-8"))
-        for field, value in want.items():
-            if st.get(field) != value:
-                problems.append(f"shard {k}: {field} {short(str(st.get(field)))}, the key has {short(str(value))}")
-        if st.get("inert") != env["inert"] or st.get("inert_present"):
-            problems.append(f"shard {k}: the inert paths were not masked: {st.get('inert_present')}")
+        problems += stamp_problems(f"shard {k}", st, want, env["inert"])
         for t in ("verilator", "yosys"):
             tools_seen.setdefault(t, set()).add(st.get(t))
     for t, seen in tools_seen.items():
@@ -452,11 +536,11 @@ def check_outcomes(lists: Path, shards: Path, key: dict, current: list[str]) -> 
             problems.append(f"the shards ran different {t} versions: {sorted(map(str, seen))}")
     tot = {kind: sorted(x for r in results for x in r[kind]) for kind in mutants_summary.KINDS}
     for kind, word in (("missed", "missed"), ("timeout", "timeout"), ("memory", "memory limit")):
-        if tot[kind]:
+        if tot[kind] and clean:
             problems.append(f"{len(tot[kind])} {word}: {listed(tot[kind], 3)}")
     tested = set(tot["caught"]) | set(tot["unviable"])
     new = sorted(set(current) - tested)
-    if new:
+    if new and clean:
         problems.append(f"{len(new)} mutant(s) of this run were not tested then: {listed(new, 3)}")
     facts = {
         "shards": n,
@@ -522,6 +606,10 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
             src = json.loads((tmp / "lists" / "reuse" / "reuse.json").read_text(encoding="utf-8")).get("run")
             print(f"{head}: same key, but it reused run {src} itself: passed over")
             continue
+        if (tmp / "lists" / "retest" / "retest.json").is_file():
+            src = json.loads((tmp / "lists" / "retest" / "retest.json").read_text(encoding="utf-8")).get("run")
+            print(f"{head}: same key, but it retested part of run {src} (#364): passed over")
+            continue
         # The newest earlier run with this key decides: a failed one is not
         # passed over for an older passed one (the same inputs gave two
         # results). Its outcomes are still read, so the log says why.
@@ -533,11 +621,13 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
                 if name not in arts:
                     raise ReuseError(f"no {name} artifact")
                 gh.download(arts[name], tmp / "shards" / name, keep=lambda f: f in SHARD_FILES)
+            if BASELINE_ARTIFACT in arts:
+                gh.download(arts[BASELINE_ARTIFACT], tmp / "baseline", keep=lambda f: f in BASELINE_FILES)
         except ReuseError as err:
             problems.append(f"its shard outcomes could not be read: {err}")
             return {"decision": "rerun", "run": rid,
                     "reason": f"{head} has the same key but is not reusable: " + "; ".join(problems)}
-        more, log, facts = check_outcomes(tmp / "lists", tmp / "shards", key, current)
+        more, log, facts = check_outcomes(tmp / "lists", tmp / "shards", key, current, tmp / "baseline")
         problems += more
         for line in log:
             print(f"{head}: {line}")
@@ -550,18 +640,415 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
         out.mkdir(parents=True)
         shutil.move(str(tmp / "lists"), str(out / "lists"))
         shutil.move(str(tmp / "shards"), str(out / "shards"))
+        shutil.move(str(tmp / "baseline"), str(out / "baseline"))
         info = {"run": rid, "sha": sha, "key": key["key"], "created_at": r.get("created_at"),
                 "url": r.get("html_url", ""), **facts}
         (out / "reuse.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         c = facts["counts"]
         print(f"{head}: same key; {sum(c.values())} mutant(s) in {facts['shards']} shard(s): "
               f"caught={c['caught']} unviable={c['unviable']} missed=0 timeout=0 memory=0; "
-              f"every shard completed, SKIP: 0, the same tools and runner image")
+              f"the baseline passed (--min-ran {MIN_RAN}), every shard completed, SKIP: 0, the same tools and runner image")
         if facts["excluded_now"]:
             print(f"excluded by today's exclude_re, tested then: {listed(facts['excluded_now'], 20)}")
         print(f"reused: run {rid} (SHA {sha}), key {key['key']}")
         return {"decision": "reuse", "run": rid, "sha": sha, "excluded_now": facts["excluded_now"]}
     return {"decision": "rerun", "reason": f"no earlier run of pull request #{scope['pr']} with key {key['key']}"}
+
+
+# ── Retest after a test-only push (#364, ADR-0129) ─────────────────────
+
+# A test file: anything under a workspace package's `tests/` directory
+# (`crates/<dir>/tests/...`). The repository's own `tests/` (the ui and
+# real-bug corpora, read by several crates) is not one: a change there runs
+# the gate in full.
+TEST_PATH = re.compile(r"^(crates/[^/]+)/tests/")
+TEST_DIR = re.compile(r"^crates/[^/]+/tests(/|$)")
+RAW_START = re.compile(r'r(#*)"')
+# A literal that can be a path: no whitespace, no format braces, no escapes.
+PATH_LIKE = re.compile(r"^[^\s{}\\]+$")
+CHAR_LIT = re.compile(r"'(\\.|[^\\'])'")
+# nextest's failure lines in a mutant's log: FAIL, SIGSEGV, TIMEOUT, ... with
+# the binary id and the test name. Lines after "Cancelling due to test
+# failure" are the tests nextest terminated, not the one that caught it.
+FAIL_LINE = re.compile(
+    r"^\s+(FAIL|SIG[A-Z]+|TIMEOUT|ABORT|LEAK-FAIL)\s+\[[^\]]*\]\s+(?:\(\s*\d+/\s*\d+\)\s+)?(\S+)\s+(\S+)"
+)
+CANCEL = "Cancelling due to test failure"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# What the base run's shard artifacts bring for a retest: the outcome lists,
+# outcomes.json (each mutant's log path) and the logs of the mutants.
+RETEST_KEEP = lambda f: f in SHARD_FILES or f == "mutants.out/outcomes.json" or f.startswith("mutants.out/log/")  # noqa: E731
+RETESTED_KINDS = ("missed", "timeout", "memory")
+
+
+def rust_escape(name: str) -> str:
+    """An exact-name regex for cargo-mutants' --re (Rust regex) and Python's re."""
+    return "".join("\\" + c if c in "\\.+*?()|[]{}^$#&-~" else c for c in name)
+
+
+def names_regex(names: list[str]) -> str:
+    return "^(" + "|".join(rust_escape(n) for n in sorted(names)) + ")$"
+
+
+def changed_paths(old: dict, new: dict) -> list[str]:
+    """Paths of the key's tree part that differ (added, deleted or changed)."""
+    to, tn = old["parts"]["tree"], new["parts"]["tree"]
+    return sorted(p for p in set(to) | set(tn) if to.get(p) != tn.get(p))
+
+
+def rust_literals(text: str) -> list[str]:
+    """The string literals of Rust code, comments skipped (line, nested block)."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        elif c == "r" and RAW_START.match(text, i) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            m = RAW_START.match(text, i)
+            close = '"' + m[1]
+            j = text.find(close, m.end())
+            j = n if j < 0 else j
+            out.append(text[m.end():j])
+            i = j + len(close)
+        elif c == '"':
+            j, buf = i + 1, []
+            while j < n and text[j] != '"':
+                step = 2 if text[j] == "\\" else 1
+                buf.append(text[j:j + step])
+                j += step
+            out.append("".join(buf))
+            i = j + 1
+        elif c == "'":
+            m = CHAR_LIT.match(text, i)
+            i = m.end() if m else i + 1
+        else:
+            i += 1
+    return out
+
+
+def tests_readers(files: dict[str, str], packages: dict[str, str]) -> list[tuple[str, str]]:
+    """(reader, target): Rust code under crates/ that names a path in a
+    package's tests/ directory other than its own file, by a string literal
+    (`#[path]`, `include!`, `include_str!`, a path read at run time).
+
+    A literal is resolved against the file's directory, its package's
+    directory (CARGO_MANIFEST_DIR) and the workspace root (where cargo runs
+    a test). A literal that is just another package's directory name (a
+    path joined piece by piece) counts as naming that package's whole
+    tests/ directory."""
+    out = []
+    for f, text in files.items():
+        parts = f.split("/")
+        if len(parts) < 3 or parts[0] != "crates":
+            continue
+        own = parts[1]
+        fdir, pdir = posixpath.dirname(f), f"crates/{own}"
+        for s in rust_literals(text):
+            if "/" in s:
+                if PATH_LIKE.match(s) is None or s.strip("/") in ("", ".", ".."):
+                    continue
+                for base in (fdir, pdir, ""):
+                    q = posixpath.normpath(posixpath.join(base, s.lstrip("/")))
+                    m = TEST_DIR.match(q)
+                    if m and q != f:
+                        out.append((f, q))
+            elif s in packages and s != own:
+                out.append((f, f"crates/{s}/tests"))
+    return sorted(set(out))
+
+
+def changed_binaries(paths: list[str], metadata: dict, files: dict[str, str] | None = None
+                     ) -> tuple[set[str], set[str], list[str]]:
+    """(exact binary ids, packages whose every binary counts as changed, paths that rule out a retest).
+
+    `crates/<dir>/tests/<name>.rs` that is an integration test target is that
+    binary; any other path under a package's `tests/` (a module, a data
+    file, a deleted target) counts for every test binary of the package.
+    Code that reads or includes the path by name (tests_readers) adds its
+    own binary: the reader's binary when it is a test target's root file,
+    every binary of its package when it is another file under that
+    package's tests/. Code outside a tests/ directory (src/, build.rs,
+    benches/, examples/) that names it rules the retest out: its outcome
+    can change any mutant.
+    """
+    tests, _ = mutants_nextest.workspace_binaries(metadata)
+    root = Path(metadata["workspace_root"])
+    packages = {}
+    for pkg in metadata["packages"]:
+        if pkg["id"] in metadata["workspace_members"]:
+            d = Path(pkg["manifest_path"]).parent.resolve().relative_to(root.resolve()).as_posix()
+            packages[d] = pkg["name"]
+    if files is None:
+        files = workspace_rust(root)
+    readers = tests_readers(files, {d.split("/", 1)[1] for d in packages if d.startswith("crates/")})
+    exact, whole, other = set(), set(), []
+    for p in paths:
+        m = TEST_PATH.match(p)
+        if not m or m[1] not in packages:
+            other.append(p)
+            continue
+        if p in tests:
+            exact.add(tests[p])
+        else:
+            whole.add(packages[m[1]])
+        for reader, target in readers:
+            if reader == p or not (p == target or p.startswith(target + "/")):
+                continue
+            rm = TEST_PATH.match(reader)
+            if reader in tests:
+                exact.add(tests[reader])
+            elif rm and rm[1] in packages:
+                whole.add(packages[rm[1]])
+            else:
+                other.append(f"{p} (named by {reader}, which is not a test file)")
+    return exact, whole, other
+
+
+def workspace_rust(root: Path) -> dict[str, str]:
+    """Every tracked Rust file under crates/, by its path from the root."""
+    names = git(root, "ls-files", "-z", "--", "crates").split("\0")
+    out = {}
+    for n in names:
+        if n.endswith(".rs") and (root / n).is_file():
+            out[n] = (root / n).read_text(encoding="utf-8", errors="replace")
+    return out
+
+
+def binary_changed(binary: str, exact: set[str], whole: set[str]) -> bool:
+    return binary in exact or any(binary == p or binary.startswith(p + "::") for p in whole)
+
+
+def catchers(shard: Path) -> dict[str, list[str]]:
+    """Mutant name -> the test binaries of its failure lines (before nextest
+    cancelled the rest), from cargo-mutants' outcomes.json and the logs."""
+    out: dict[str, list[str]] = {}
+    oj = shard / "mutants.out" / "outcomes.json"
+    if not oj.is_file():
+        return out
+    for o in json.loads(oj.read_text(encoding="utf-8")).get("outcomes", []):
+        sc = o.get("scenario")
+        if not isinstance(sc, dict) or "Mutant" not in sc:
+            continue
+        name = sc["Mutant"].get("name")
+        log = shard / "mutants.out" / (o.get("log_path") or "-")
+        bins: list[str] = []
+        if log.is_file():
+            for line in ANSI.sub("", log.read_text(encoding="utf-8", errors="replace")).splitlines():
+                if CANCEL in line:
+                    break
+                m = FAIL_LINE.match(line)
+                if m and m[2] not in bins:
+                    bins.append(m[2])
+        out[name] = bins
+    return out
+
+
+def plan_retest(lists: Path, shards: Path, current: list[str], exact: set[str], whole: set[str]) -> dict:
+    """Which mutants of `current` to test again, which outcomes to carry over.
+
+    Tested again: a mutant the base run reported missed, timeout or memory
+    limit; one it did not test (excluded then); one caught by a test binary
+    this push changed; one caught whose catching binary its log does not
+    name. Carried over: caught by an unchanged binary, unviable.
+    """
+    n = len(list(lists.glob("shard-*.txt")))
+    outcome: dict[str, str] = {}
+    caught_by: dict[str, list[str]] = {}
+    for k in range(n):
+        r = mutants_summary.shard_result(shards, lists, k, n)
+        for kind in mutants_summary.KINDS:
+            for x in r[kind]:
+                outcome[x] = kind
+        d = mutants_summary.shard_dir(shards, k, n)
+        if d is not None:
+            caught_by.update(catchers(d))
+    retest: dict[str, str] = {}
+    carried: dict[str, dict] = {}
+    for x in current:
+        kind = outcome.get(x)
+        if kind is None:
+            retest[x] = "not tested then"
+        elif kind in RETESTED_KINDS:
+            retest[x] = f"{mutants_summary_label(kind)} then"
+        elif kind == "unviable":
+            carried[x] = {"outcome": "unviable"}
+        else:
+            bins = caught_by.get(x, [])
+            hit = [b for b in bins if binary_changed(b, exact, whole)]
+            if not bins:
+                retest[x] = "caught then; its log names no failing test binary"
+            elif hit:
+                retest[x] = f"caught then by {', '.join(hit)}, changed since"
+            else:
+                carried[x] = {"outcome": "caught", "caught_by": bins}
+    return {"retest": retest, "carried": carried}
+
+
+def mutants_summary_label(kind: str) -> str:
+    return "memory limit" if kind == "memory" else kind
+
+
+def full_run(lists: Path) -> bool:
+    """A gate run that tested every mutant itself: not a reuse, not a retest."""
+    return not (lists / "reuse" / "reuse.json").is_file() and not (lists / "retest" / "retest.json").is_file()
+
+
+def retest_from(gh, base: dict, key: dict, current: list[str], work: Path, metadata: dict) -> dict:
+    """Check one base run and, when it qualifies, write work/retest/."""
+    rid, sha = base.get("id"), base.get("head_sha", "")
+    head = f"base run {rid} (SHA {sha})"
+    if base.get("status") != "completed":
+        return {"decision": "full", "reason": f"{head}: status {base.get('status')}, not completed"}
+    if base.get("conclusion") in ("cancelled", "skipped"):
+        return {"decision": "full", "reason": f"{head}: {base.get('conclusion')}"}
+    tmp = Path(tempfile.mkdtemp(prefix=f"mutants-base-{rid}-"))
+    try:
+        arts = {a["name"]: a for a in gh.artifacts(rid) if not a.get("expired")}
+        if "mutants-list" not in arts:
+            return {"decision": "full", "reason": f"{head}: no mutants-list artifact"}
+        gh.download(arts["mutants-list"], tmp / "lists")
+        kp = tmp / "lists" / "key.json"
+        if not kp.is_file():
+            return {"decision": "full", "reason": f"{head}: no reuse key"}
+        if not full_run(tmp / "lists"):
+            return {"decision": "full", "reason": f"{head}: it did not test every mutant itself (a reuse or a retest)"}
+        old = json.loads(kp.read_text(encoding="utf-8"))
+        for part in ("mutants", "environment"):
+            if old.get("hashes", {}).get(part) != key["hashes"][part] or old["parts"][part] != key["parts"][part]:
+                diff = [l for l in key_diff(old, key) if l.startswith(part + ":")] or [f"{part}: differs"]
+                return {"decision": "full", "reason": f"{head}: " + "; ".join(diff)}
+        paths = changed_paths(old, key)
+        exact, whole, other = changed_binaries(paths, metadata)
+        if other:
+            return {"decision": "full", "reason": f"{head}: {len(other)} changed path(s) are not test files: {listed(other, 5)}"}
+        n = len(list((tmp / "lists").glob("shard-*.txt")))
+        for k in range(n):
+            name = f"mutants-out-{k}"
+            if name not in arts:
+                return {"decision": "full", "reason": f"{head}: no {name} artifact"}
+            gh.download(arts[name], tmp / "shards" / name, keep=RETEST_KEEP)
+        if BASELINE_ARTIFACT in arts:
+            gh.download(arts[BASELINE_ARTIFACT], tmp / "baseline", keep=lambda f: f in BASELINE_FILES)
+    except ReuseError as err:
+        return {"decision": "full", "reason": f"{head}: its artifacts could not be read: {err}"}
+    problems, log, facts = check_outcomes(tmp / "lists", tmp / "shards", key, current, tmp / "baseline", clean=False)
+    for line in log:
+        print(f"{head}: {line}")
+    if problems:
+        return {"decision": "full", "reason": f"{head} is not complete: " + "; ".join(problems)}
+    plan = plan_retest(tmp / "lists", tmp / "shards", current, exact, whole)
+    out = work / "retest"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    info = {
+        "run": rid, "sha": sha, "key": key["key"], "base_key": old.get("key"), "url": base.get("html_url", ""),
+        "created_at": base.get("created_at"), "base_counts": facts.get("counts", {}),
+        "changed_paths": paths, "changed_binaries": sorted(exact), "changed_packages": sorted(whole),
+        **plan,
+    }
+    (out / "retest.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    (out / "names.txt").write_text("".join(x + "\n" for x in sorted(plan["retest"])), encoding="utf-8")
+    (out / "retest.re").write_text(names_regex(list(plan["retest"])) + "\n" if plan["retest"] else "", encoding="utf-8")
+    print(f"{head}: the mutants and the environment are the same; {len(paths)} changed path(s), all test files: {listed(paths, 10)}")
+    print(f"changed test binaries: {', '.join(sorted(exact)) or 'none'}; every binary of: {', '.join(sorted(whole)) or 'none'}")
+    for x, why in sorted(plan["retest"].items()):
+        print(f"retest: {x} ({why})")
+    print(f"retest: run {rid} (SHA {sha}): {len(plan['retest'])} of {len(current)} retested, {len(plan['carried'])} carried over")
+    return {"decision": "retest", "run": rid, "sha": sha, **plan}
+
+
+def find_retest(gh, scope: dict, key: dict, current: list[str], work: Path, metadata: dict, run_id=None) -> dict:
+    """The last full gate run of this pull request (or the run a hand gate run names) and a retest plan."""
+    if run_id is not None:
+        if scope["event"] == "pull_request":
+            return {"decision": "full", "reason": "retest_from is for a hand run only"}
+        try:
+            base = gh.run(run_id)
+        except ReuseError as err:
+            return {"decision": "full", "reason": f"run {run_id} could not be read: {err}"}
+        if base.get("path") != WORKFLOW or (base.get("repository") or {}).get("full_name") != scope["repo"]:
+            return {"decision": "full", "reason": f"run {run_id} is not a {WORKFLOW} run of {scope['repo']}"}
+        return retest_from(gh, base, key, current, work, metadata)
+    if scope["event"] != "pull_request":
+        return {"decision": "full", "reason": f"a {scope['event']} run retests only with retest_from"}
+    if scope["head_repo"] != scope["repo"]:
+        return {"decision": "full", "reason": f"no retest for a pull request from a fork ({scope['head_repo']})"}
+    try:
+        runs = sorted(gh.runs(scope["head_ref"]), key=lambda r: (r.get("created_at", ""), r.get("id", 0)), reverse=True)
+    except ReuseError as err:
+        return {"decision": "full", "reason": f"the earlier runs could not be read: {err}"}
+    looked = 0
+    for r in runs:
+        why = scope_problem(r, scope)
+        if why == "this run":
+            continue
+        if looked >= MAX_RUNS:
+            break
+        looked += 1
+        if why:
+            continue
+        if r.get("status") != "completed" or r.get("conclusion") in ("cancelled", "skipped"):
+            print(f"earlier run {r.get('id')}: {r.get('status')} {r.get('conclusion')}: passed over")
+            continue
+        try:
+            arts = {a["name"]: a for a in gh.artifacts(r["id"]) if not a.get("expired")}
+            if "mutants-list" not in arts:
+                print(f"earlier run {r.get('id')}: no mutants-list artifact: passed over")
+                continue
+            tmp = Path(tempfile.mkdtemp(prefix=f"mutants-scan-{r['id']}-"))
+            gh.download(arts["mutants-list"], tmp)
+        except ReuseError as err:
+            return {"decision": "full", "reason": f"earlier run {r.get('id')}: {err}"}
+        if not (tmp / "key.json").is_file():
+            print(f"earlier run {r.get('id')}: no reuse key (nothing to test, or before #318): passed over")
+            continue
+        if not full_run(tmp):
+            print(f"earlier run {r.get('id')}: a reuse or a retest, not a full run: passed over")
+            continue
+        # The newest full run decides; an older one is never looked at.
+        return retest_from(gh, r, key, current, work, metadata)
+    return {"decision": "full", "reason": f"no earlier full gate run of pull request #{scope['pr']}"}
+
+
+def retest_check(lists: Path) -> int:
+    """After the tools job made the retest list: R ⊆ all.txt ⊆ gate-all.txt.
+
+    A mutant the line filter adds beyond R (a field-deletion mutant on a
+    retested line, cargo-mutants 27.1.0 does not filter those with --re)
+    is tested again too; the rest of the gate's list is carried over."""
+    info_path = lists / "retest" / "retest.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    gate = read_names(lists / "gate-all.txt")
+    tested = read_names(lists / "all.txt")
+    want = set(info["retest"])
+    errors = [f"to retest, not in this run's list: {x}" for x in sorted(want - set(tested))]
+    errors += [f"in this run's list, not on the gate's: {x}" for x in sorted(set(tested) - set(gate))]
+    extra = sorted(set(tested) - want - (set(tested) - set(gate)))
+    for x in extra:
+        info["retest"][x] = "on a retested line (the line filter keeps it); tested again"
+        info["carried"].pop(x, None)
+    carried = {x: info["carried"].get(x) for x in gate if x not in set(tested)}
+    errors += [f"carried over with no outcome from run {info['run']}: {x}" for x, v in sorted(carried.items()) if not v]
+    for e in errors:
+        print(f"::error title=Mutation gate retest::{e}")
+    if errors:
+        return 1
+    info["carried"] = carried
+    info_path.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    print(f"retest: run {info['run']} (SHA {info['sha']}): {len(tested)} of {len(gate)} retested"
+          f" ({len(extra)} on a retested line), {len(carried)} carried over")
+    return 0
 
 
 def self_test() -> int:
@@ -721,9 +1208,12 @@ def self_test() -> int:
         assert not (work / "docs/adr").exists() and not (work / "CHANGELOG.md").exists()
         assert (work / "docs/adrx.md").is_file() and (work / "README.md").is_file()
         assert "docs/adr/ (1 file(s))" in out.getvalue(), out.getvalue()
-        st = stamp(work, env, lambda args: {"rustc": tools["rustc"], "cargo": "x"}.get(args[0], f"{args[0]} 1"), 600, 1200)
+        st = stamp(work, env, lambda args: {"rustc": tools["rustc"], "cargo": "x"}.get(args[0], f"{args[0]} 1"), 3610, 1200, "baseline")
         assert st["inert_present"] == [] and st["inert"] == entries, st
-        assert stamp(repo, env, lambda args: "v", 1, 300)["inert_present"] == entries
+        assert st["role"] == "baseline" and st["baseline_seconds"] == 1200 and st["timeout"] == 3610, st
+        st = stamp(work, env, lambda args: "v", 3610)
+        assert st["role"] == "shard" and st["baseline_seconds"] is None and st["timeout"] == 3610, st
+        assert stamp(repo, env, lambda args: "v", 3610)["inert_present"] == entries
 
         # Artifacts: the digest of the zip is checked before anything is read.
         buf = io.BytesIO()
@@ -754,10 +1244,13 @@ def self_test() -> int:
         cur = dict(base)
         scope = {"repo": "o/r", "pr": 7, "head_repo": "o/r", "head_ref": "feat/x", "run_id": 900, "event": "pull_request"}
         ledger_ok = "".join(f"RAN\tb\tt{i}\tverilator\t1\n" for i in range(61))
+        # A shard has no baseline: its mutants reach few tool tests (ADR-0128 §2).
+        ledger_few = "".join(f"RAN\tb\tt{i}\tverilator\t1\n" for i in range(3))
 
         def run(rid, *, key=cur, shards=((names[0],), (names[1],)), outcome="caught", conclusion="success",
                 status="completed", event="pull_request", pr=7, head_repo="o/r", branch="feat/x", reused=None,
-                stamp_over=None, ledger=ledger_ok, kills=None, drop=None, tamper=False, no_key=False):
+                stamp_over=None, ledger=ledger_few, kills=None, drop=None, tamper=False, no_key=False,
+                baseline_ledger=ledger_ok, baseline_over=None, baseline_drop=None, no_baseline=False):
             r = {
                 "id": rid, "event": event, "head_branch": branch, "head_sha": f"{rid:040d}",
                 "path": ".github/workflows/mutants.yml", "status": status, "conclusion": conclusion,
@@ -772,11 +1265,19 @@ def self_test() -> int:
                 lists["reuse/reuse.json"] = json.dumps({"run": reused})
                 lists = {k: v for k, v in lists.items() if not k.startswith("shard-")}
             arts = {"mutants-list": lists}
-            for k, s in enumerate(shards if not reused else ()):
-                st = {**tools, **{v: env[v] for v in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
+            common = {**tools, **{v: env[v] for v in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
                       "image_release": env["ImageVersion"].split(".")[0],
-                      "verilator": "Verilator 5.054", "yosys": "Yosys 0.57", "inert": entries, "inert_present": [],
-                      "baseline_seconds": 600, "timeout": 1200}
+                      "verilator": "Verilator 5.054", "yosys": "Yosys 0.57", "inert": entries, "inert_present": []}
+            if not reused and not no_baseline:
+                bst = {**common, "role": "baseline", "baseline_seconds": 1200, "timeout": 3610}
+                bst.update(baseline_over or {})
+                bfiles = {"stamp.json": json.dumps(bst), "tool-ledger.tsv": baseline_ledger,
+                          "baseline-build-peak.txt": "900\n", "baseline-test-peak.txt": "3000\n"}
+                for d in baseline_drop or ():
+                    bfiles.pop(d, None)
+                arts["mutants-baseline"] = bfiles
+            for k, s in enumerate(shards if not reused else ()):
+                st = {**common, "role": "shard", "baseline_seconds": None, "timeout": 3610}
                 st.update(stamp_over or {})
                 files_ = {"mutants-shard.txt": "".join(n + "\n" for n in s), "stamp.json": json.dumps(st),
                           "tool-ledger.tsv": ledger}
@@ -801,6 +1302,9 @@ def self_test() -> int:
             def runs(self, branch):
                 return [r for r in self.list if r["head_branch"] == branch]
 
+            def run(self, rid):
+                return next(r for r in self.list if r["id"] == int(rid))
+
             def artifacts(self, rid):
                 return [{"id": f"{rid}/{n}", "name": n, "expired": False} for n in self.arts[rid][0]]
 
@@ -824,12 +1328,15 @@ def self_test() -> int:
                 if res["decision"] == "reuse":
                     assert (Path(w) / "reuse/reuse.json").is_file()
                     assert (Path(w) / "reuse/shards/mutants-out-0/stamp.json").is_file()
+                    assert (Path(w) / "reuse/baseline/stamp.json").is_file()
+                    assert (Path(w) / "reuse/baseline/baseline-test-peak.txt").is_file()
             return res, log.getvalue(), gh
 
         res, log, _ = decide(run(101))
         assert res["decision"] == "reuse" and res["run"] == 101, (res, log)
         assert f"reused: run 101 (SHA {101:040d}), key {cur['key']}" in log, log
-        assert "Tool ledger [mutants-0]: 61 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 0" in log, log
+        assert "Tool ledger [mutants-baseline]: 61 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 0" in log, log
+        assert "Tool ledger [mutants-0]: 3 test(s) asked for a tool; 3 lookup(s) found the tool (3 required), SKIP: 0" in log, log
         # A shard on another build of the same weekly image, with the same toolchain.
         res, log, _ = decide(run(101, stamp_over={"ImageVersion": "20261111.127.1"}))
         assert res["decision"] == "reuse", (res, log)
@@ -843,10 +1350,20 @@ def self_test() -> int:
             ("timeout", run(102, outcome="timeout")),
             ("memory limit", run(102, kills=True)),
             ("not tested", run(102, drop=["mutants.out/caught.txt"])),
-            ("SKIP: 1", run(102, ledger=ledger_ok + "SKIP\tb\tt99\tsby\t0\n")),
-            ("only 59 tool lookup(s)", run(102, ledger=ledger_ok[: ledger_ok.index("t59") - 7])),
+            ("SKIP: 1", run(102, ledger=ledger_few + "SKIP\tb\tt99\tsby\t0\n")),
             ("no tool ledger", run(102, drop=["tool-ledger.tsv"])),
             ("no stamp", run(102, drop=["stamp.json"])),
+            # The baseline job (ADR-0128 §2): its artifact, ledger (--min-ran 60) and stamp.
+            ("no mutants-baseline artifact", run(102, no_baseline=True)),
+            ("the baseline: Tool ledger [mutants-baseline]: 62 test(s) asked for a tool; 61 lookup(s) found the tool (61 required), SKIP: 1",
+             run(102, baseline_ledger=ledger_ok + "SKIP\tb\tt99\tsby\t0\n")),
+            ("only 59 tool lookup(s)", run(102, baseline_ledger=ledger_ok[: ledger_ok.index("t59") - 7])),
+            ("the baseline: no tool ledger", run(102, baseline_drop=["tool-ledger.tsv"])),
+            ("the baseline: no stamp", run(102, baseline_drop=["stamp.json"])),
+            ("a shard stamp", run(102, baseline_over={"role": "shard"})),
+            ("the baseline: rustc", run(102, baseline_over={"rustc": "rustc 1.90.0"})),
+            ("the baseline: the inert paths", run(102, baseline_over={"inert_present": ["docs/adr/"]})),
+            ("different verilator versions", run(102, baseline_over={"verilator": "Verilator 5.050"})),
             ("rustc", run(102, stamp_over={"rustc": "rustc 1.90.0"})),
             ("image_release", run(102, stamp_over={"ImageVersion": "20261104.1.1", "image_release": "20261104"})),
             ("gxx", run(102, stamp_over={"gxx": "g++ 15.2.0"})),
@@ -896,6 +1413,190 @@ def self_test() -> int:
         for sc in (dict(scope, head_repo="fork/r"), dict(scope, event="workflow_dispatch")):
             res, log, gh = decide(run(101), scope_=sc)
             assert res["decision"] == "rerun" and gh.downloads == [], (res, log)
+
+        # #364 (ADR-0129): a retest after a test-only push.
+        meta = {
+            "workspace_root": str(repo),
+            "workspace_members": ["a 0.1"],
+            "packages": [{
+                "id": "a 0.1", "name": "a", "manifest_path": str(repo / "crates/a/Cargo.toml"),
+                "targets": [
+                    {"name": "a", "kind": ["lib"], "src_path": str(repo / "crates/a/src/lib.rs")},
+                    {"name": "t", "kind": ["test"], "src_path": str(repo / "crates/a/tests/t.rs")},
+                    {"name": "u", "kind": ["test"], "src_path": str(repo / "crates/a/tests/u.rs")},
+                ],
+            }],
+        }
+        assert changed_binaries(["crates/a/tests/u.rs"], meta) == ({"a::u"}, set(), [])
+        assert changed_binaries(["crates/a/tests/common/mod.rs", "crates/a/tests/data/x.volt"], meta) == (set(), {"a"}, [])
+        assert changed_binaries(["tests/ui/x.volt", "crates/a/src/lib.rs", "crates/zz/tests/t.rs"], meta)[2] == [
+            "tests/ui/x.volt", "crates/a/src/lib.rs", "crates/zz/tests/t.rs"]
+        assert binary_changed("a", set(), {"a"}) and binary_changed("a::t", set(), {"a"})
+        assert not binary_changed("ab::t", set(), {"a"}) and not binary_changed("a::t", {"a::u"}, set())
+        rx = names_regex([names[1], 'x.rs:1:1: replace f -> Option<(A, B)> with Some(("x".into(), B::new()))'])
+        assert re.fullmatch(rx, names[1]) and not re.fullmatch(rx, names[0]), rx
+        assert re.fullmatch(rx, 'x.rs:1:1: replace f -> Option<(A, B)> with Some(("x".into(), B::new()))'), rx
+        log_t = ("*** " + names[1] + "\n        PASS [   0.010s] (   1/9) a grammar::x\n"
+                 "        FAIL [   0.013s] (   2/9) a::t catches_it\n"
+                 "  Cancelling due to test failure: immediately terminating 1 tests still running\n"
+                 "     SIGKILL [   0.020s] (   3/9) a::u killed_later\n")
+
+        def with_logs(run_, logs):
+            """Add outcomes.json and the mutants' logs to each shard of a fake run."""
+            r_, arts_, tamper_ = run_
+            for k_ in range(2):
+                files_ = arts_.get(f"mutants-out-{k_}")
+                if files_ is None:
+                    continue
+                outs = [{"scenario": "Baseline"}]
+                for x in files_["mutants-shard.txt"].split("\n"):
+                    if not x:
+                        continue
+                    lp = f"log/{abs(hash(x))}.log"
+                    outs.append({"scenario": {"Mutant": {"name": x}}, "log_path": lp})
+                    files_[f"mutants.out/{lp}"] = logs.get(x, "*** " + x + "\n")
+                files_["mutants.out/outcomes.json"] = json.dumps({"outcomes": outs})
+            return r_, arts_, tamper_
+
+        # The base: run 201, names[0] missed, names[1] caught by a::t.
+        base201 = lambda **kw: with_logs(run(201, outcome="missed", conclusion="failure", **kw), {names[1]: log_t})  # noqa: E731
+        k_u = key_after({"crates/a/tests/u.rs": "#[test] fn more() {}\n"})
+        k_t = key_after({"crates/a/tests/t.rs": "#[test] fn weaker() {}\n"})
+        k_mod = key_after({"crates/a/tests/common/mod.rs": "pub fn h() {}\n"})
+
+        def plan(*runs_, key=k_u, scope_=scope, run_id=None, current=names):
+            gh = FakeGitHub(*runs_)
+            with tempfile.TemporaryDirectory() as w, contextlib.redirect_stdout(io.StringIO()) as log:
+                res = find_retest(gh, scope_, key, current, Path(w), meta, run_id)
+                info = json.loads((Path(w) / "retest/retest.json").read_text(encoding="utf-8")) \
+                    if res["decision"] == "retest" else None
+                rx_ = (Path(w) / "retest/retest.re").read_text(encoding="utf-8").strip() if info else None
+            return res, info, rx_, log.getvalue()
+
+        res, info, rx_, log = plan(base201())
+        assert res["decision"] == "retest" and res["run"] == 201, (res, log)
+        assert info["retest"] == {names[0]: "missed then"}, info
+        assert info["carried"] == {names[1]: {"outcome": "caught", "caught_by": ["a::t"]}}, info
+        assert info["changed_paths"] == ["crates/a/tests/u.rs"] and info["changed_binaries"] == ["a::u"], info
+        assert rx_ == names_regex([names[0]]), rx_
+        assert "retest: run 201 (SHA " in log and "1 of 2 retested, 1 carried over" in log, log
+        # The catching binary changed (a::u after nextest's "Cancelling" is not a catcher).
+        res, info, _, log = plan(base201(), key=k_t)
+        assert info["retest"][names[1]] == "caught then by a::t, changed since", info
+        # A module of tests/ counts for every binary of its package.
+        res, info, _, log = plan(base201(), key=k_mod)
+        assert set(info["retest"]) == set(names) and info["changed_packages"] == ["a"], info
+        # A caught mutant whose log names no failing binary is tested again.
+        res, info, _, log = plan(with_logs(run(201, outcome="missed"), {}))
+        assert info["retest"][names[1]] == "caught then; its log names no failing test binary", info
+        # A mutant excluded then, not today, is tested.
+        res, info, _, log = plan(with_logs(run(201, shards=((names[1],),)), {names[1]: log_t}))
+        assert info["retest"] == {names[0]: "not tested then"}, info
+        # Anything else runs in full and says why.
+        for what, key_ in (
+            ("not test files: README.md", key_after({"README.md": "x\n"})),
+            ("mutants:", key_after({"crates/a/src/lib.rs": "pub fn f() -> u8 { 2 }\n"})),
+            ("environment:", key_after({"crates/a/tests/u.rs": "x\n"}, env=dict(env, MUTANTS_MEMORY_LIMIT_MIB="8192"))),
+        ):
+            res, info, _, log = plan(base201(), key=key_)
+            assert res["decision"] == "full" and what in res["reason"], (what, res, log)
+        res, _, _, log = plan(base201(drop=["mutants.out/caught.txt"]))
+        assert res["decision"] == "full" and "is not complete" in res["reason"], (res, log)
+        res, _, _, log = plan(base201(no_baseline=True))
+        assert res["decision"] == "full" and "mutants-baseline" in res["reason"], (res, log)
+        # The newest full run decides: a reuse, a retest and a run still going are passed over.
+        newer = [run(301, reused=101), with_logs(run(302), {}), run(303, status="in_progress")]
+        newer[1][1]["mutants-list"]["retest/retest.json"] = json.dumps({"run": 9})
+        for r_, _, _ in newer:
+            r_["created_at"] = "2026-11-19T00:00:00Z"
+        res, info, _, log = plan(base201(), *newer)
+        assert res["decision"] == "retest" and res["run"] == 201, (res, log)
+        assert "a reuse or a retest, not a full run" in log and "in_progress" in log, log
+        # A newer full run that does not qualify is not passed over for an older one.
+        bad = run(304, key=k_mod, conclusion="failure")
+        bad[0]["created_at"] = "2026-11-19T00:00:00Z"
+        res, _, _, log = plan(base201(), bad, key=key_after({"crates/a/src/lib.rs": "pub fn f() -> u8 { 3 }\n"}))
+        assert res["decision"] == "full" and "base run 304" in res["reason"], (res, log)
+        # Never from another pull request, a fork; a hand run only with retest_from.
+        res, _, _, _ = plan(run(201, pr=8))
+        assert res["decision"] == "full" and "no earlier full gate run" in res["reason"], res
+        res, _, _, _ = plan(base201(), scope_=dict(scope, head_repo="fork/r"))
+        assert res["decision"] == "full" and "fork" in res["reason"], res
+        hand = dict(scope, event="workflow_dispatch")
+        res, _, _, _ = plan(base201(), scope_=hand)
+        assert res["decision"] == "full" and "retest_from" in res["reason"], res
+        res, info, _, _ = plan(base201(), scope_=hand, run_id=201)
+        assert res["decision"] == "retest" and info["retest"] == {names[0]: "missed then"}, res
+        res, _, _, _ = plan(base201(), run_id=201)
+        assert res["decision"] == "full" and "hand run only" in res["reason"], res
+        # A shared helper and code that reads another package's tests/ (#364 review).
+        meta2 = {
+            "workspace_root": str(repo),
+            "workspace_members": ["a 0.1", "b 0.1"],
+            "packages": meta["packages"] + [{
+                "id": "b 0.1", "name": "b", "manifest_path": str(repo / "crates/b/Cargo.toml"),
+                "targets": [
+                    {"name": "b", "kind": ["lib"], "src_path": str(repo / "crates/b/src/lib.rs")},
+                    {"name": "flags", "kind": ["test"], "src_path": str(repo / "crates/b/tests/flags.rs")},
+                    {"name": "other", "kind": ["test"], "src_path": str(repo / "crates/b/tests/other.rs")},
+                ],
+            }],
+        }
+        src = {
+            "crates/a/tests/t.rs": "mod common;\n#[test] fn catches_it() { common::check(); }\n",
+            "crates/a/tests/u.rs": "mod common;\n#[test] fn more() { common::check(); }\n",
+            "crates/a/tests/common/mod.rs": "pub fn check() { assert!(true); }\n",
+            # b's test reads a's test file and a's fixture by path from the root.
+            "crates/b/tests/flags.rs": 'const F: &[&str] = &["crates/a/tests/t.rs", "crates/a/src/lib.rs"];\n'
+                                       'const D: &str = include_str!("../../a/tests/data/x.txt");\n',
+            # A comment, an escape and a format string name nothing.
+            "crates/b/tests/other.rs": '// reads "crates/a/tests/u.rs"\n/* "../../a/tests/u.rs" */\n'
+                                       'const S: &str = "a\\nb/c"; const G: &str = "{}/x";\n',
+        }
+        # Weakening the shared helper of a's binaries: every binary of a, and
+        # nothing of b; the mutant a::u caught is tested again.
+        assert changed_binaries(["crates/a/tests/common/mod.rs"], meta2, src) == (set(), {"a"}, [])
+        res, info, _, log = plan(with_logs(run(201), {names[0]: log_t.replace("a::t catches_it", "b::other x"),
+                                                     names[1]: log_t.replace("a::t catches_it", "a::u more")}), key=k_mod)
+        assert info["retest"] == {names[1]: "caught then by a::u, changed since"}, info
+        assert info["carried"] == {names[0]: {"outcome": "caught", "caught_by": ["b::other"]}}, info
+        # A test file another package's test names: its binary too.
+        assert changed_binaries(["crates/a/tests/t.rs"], meta2, src) == ({"a::t", "b::flags"}, set(), [])
+        assert changed_binaries(["crates/a/tests/u.rs"], meta2, src) == ({"a::u"}, set(), []), "a comment reads nothing"
+        assert changed_binaries(["crates/a/tests/data/x.txt"], meta2, src) == ({"b::flags"}, {"a"}, [])
+        # Read by a non-root file under b's tests/: every binary of b.
+        src_mod = dict(src, **{"crates/b/tests/support/mod.rs": 'pub const P: &str = "crates/a/tests/t.rs";\n'})
+        assert changed_binaries(["crates/a/tests/t.rs"], meta2, src_mod) == ({"a::t", "b::flags"}, {"b"}, [])
+        # A path joined piece by piece: the bare directory name counts as all of a's tests/.
+        src_join = dict(src, **{"crates/b/tests/other.rs": 'fn p() { root().join("a").join("tests"); }\n'})
+        assert changed_binaries(["crates/a/tests/common/mod.rs"], meta2, src_join) == ({"b::other"}, {"a"}, [])
+        # Read by code outside a tests/ directory: no retest, the gate runs in full.
+        src_lib = dict(src, **{"crates/b/src/lib.rs": 'pub const T: &str = include_str!("../../a/tests/data/x.txt");\n'})
+        ex, wh, ot = changed_binaries(["crates/a/tests/data/x.txt"], meta2, src_lib)
+        assert ot == ["crates/a/tests/data/x.txt (named by crates/b/src/lib.rs, which is not a test file)"], ot
+        assert rust_literals('let a = "x//y"; // "c"\n/* "d" /* "e" */ */ let b = r#"q"z"#; let c = \'"\'; let d = "e\\"f";') == [
+            "x//y", 'q"z', 'e\\"f']
+        # retest-check: R in the final list, the list on the gate's, the rest carried over.
+        with tempfile.TemporaryDirectory() as w:
+            lp = Path(w)
+            (lp / "retest").mkdir()
+            (lp / "gate-all.txt").write_text("".join(x + "\n" for x in names), encoding="utf-8")
+            base_info = {"run": 201, "sha": "s", "retest": {names[0]: "missed then"},
+                         "carried": {names[1]: {"outcome": "caught", "caught_by": ["a::t"]}}}
+            for listed_, code_, want in (
+                ([names[0]], 0, {names[1]: {"outcome": "caught", "caught_by": ["a::t"]}}),
+                (names, 0, {}),
+                ([], 1, None),
+                ([names[0], "crates/a/src/lib.rs:9:9: other"], 1, None),
+            ):
+                (lp / "retest" / "retest.json").write_text(json.dumps(base_info), encoding="utf-8")
+                (lp / "all.txt").write_text("".join(x + "\n" for x in listed_), encoding="utf-8")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    assert retest_check(lp) == code_, (listed_, code_)
+                if want is not None:
+                    got = json.loads((lp / "retest" / "retest.json").read_text(encoding="utf-8"))
+                    assert got["carried"] == want, got
+                    assert set(got["retest"]) == set(listed_), got
     print("mutants_reuse self-test: ok")
     return 0
 
@@ -915,22 +1616,58 @@ def main() -> int:
     f.add_argument("--head-ref", required=True)
     f.add_argument("--github-output", type=Path)
     sub.add_parser("mask", help="delete the inert paths from the checkout")
-    s = sub.add_parser("stamp", help="a shard's tool versions, runner image and inert paths")
+    s = sub.add_parser("stamp", help="the baseline job's or a shard's tool versions, runner image and inert paths")
     s.add_argument("--out", type=Path, required=True)
-    s.add_argument("--baseline-seconds", type=int, required=True)
-    s.add_argument("--timeout", type=int, required=True)
+    s.add_argument("--role", choices=("baseline", "shard"), required=True)
+    s.add_argument("--baseline-seconds", type=int, help="the baseline's tests, seconds (role baseline)")
+    s.add_argument("--timeout", type=int, required=True, help="the test timeout per mutant, seconds")
+    rt = sub.add_parser("retest", help="#364: after a test-only push, the mutants to test again")
+    rt.add_argument("--lists", type=Path, required=True)
+    rt.add_argument("--pr", type=int, help="the pull request (a pull_request run)")
+    rt.add_argument("--head-repo", default="")
+    rt.add_argument("--head-ref", default="")
+    rt.add_argument("--run", type=int, help="a hand gate run: the base run (input retest_from)")
+    rt.add_argument("--github-output", type=Path)
+    rc = sub.add_parser("retest-check", help="#364: the retest list against the gate's, the carried outcomes")
+    rc.add_argument("--lists", type=Path, required=True)
     args = ap.parse_args()
     repo = Path.cwd()
     if args.cmd == "mask":
         return mask(repo)
+    if args.cmd == "retest-check":
+        return retest_check(args.lists)
+    if args.cmd == "retest":
+        key = json.loads((args.lists / "key.json").read_text(encoding="utf-8"))
+        scope = {
+            "repo": os.environ.get("GITHUB_REPOSITORY", ""),
+            "pr": args.pr,
+            "head_repo": args.head_repo,
+            "head_ref": args.head_ref,
+            "run_id": int(os.environ.get("GITHUB_RUN_ID", "0")),
+            "event": os.environ.get("GITHUB_EVENT_NAME", ""),
+        }
+        res = find_retest(GhCli(scope["repo"]), scope, key, read_names(args.lists / "all.txt"), args.lists,
+                          mutants_nextest.cargo_metadata(), args.run)
+        if res["decision"] != "retest":
+            print(f"::notice title=Mutation gate::no retest, the gate runs in full: {res['reason']}")
+            return 0
+        print(f"::notice title=Mutation gate::retest: run {res['run']} (SHA {res['sha']}):"
+              f" {len(res['retest'])} to test again, {len(res['carried'])} to carry over")
+        if args.github_output:
+            with args.github_output.open("a", encoding="utf-8") as fh:
+                fh.write(f"run={res['run']}\nsha={res['sha']}\n")
+        return 0
     if args.cmd == "stamp":
-        st = stamp(repo, dict(os.environ), run_text, args.baseline_seconds, args.timeout)
+        if (args.role == "baseline") != (args.baseline_seconds is not None):
+            print("::error title=Mutation gate::--baseline-seconds goes with --role baseline, and only with it")
+            return 1
+        st = stamp(repo, dict(os.environ), run_text, args.timeout, args.baseline_seconds, args.role)
         args.out.write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
         print(f"stamp: {st['rustc'].splitlines()[0]}; {st['cargo_mutants']}; {st['cargo_nextest'].splitlines()[0]};"
               f" {st['verilator']}; {st['yosys']}; {st['gxx']}; {st['glibc']}; {st['ImageOS']} {st['ImageVersion']};"
               f" inert paths present: {st['inert_present'] or 'none'}")
         if st["inert_present"]:
-            print(f"::error title=Mutation gate::inert path(s) present while the shard tested: {st['inert_present']}")
+            print(f"::error title=Mutation gate::inert path(s) present while the {args.role} tested: {st['inert_present']}")
             return 1
         return 0
     if args.cmd == "key":

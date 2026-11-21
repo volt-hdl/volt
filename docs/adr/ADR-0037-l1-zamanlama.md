@@ -1,7 +1,7 @@
 # ADR-0037: L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing`
 
-> Statü: Kısmen yerini aldı: ADR-0127 — §5'te help'in içeriği: `delay<K>(...)` hizalama olarak önerilmez, help aşama register'ını gösterir (ADR-0127 önerildi; onaylanmazsa bu satır `Uygulandı`ya döner); kalanı Uygulandı
-> İlgili: ADR-0091 (gecikme inlay ipucu).
+> Statü: Kısmen yerini aldı: ADR-0127 — §5'te help'in içeriği: `delay<K>(...)` hizalama olarak önerilmez, help aşama register'ını gösterir; kalanı Uygulandı
+> İlgili: ADR-0091 (gecikme inlay ipucu), ADR-0126 (yeniden zamanlama iddiası karışımla sınırlanır: `let`, `wire` ve çıkış portunun bildirimi, değerin gecikmesi tam biliniyorsa denetlenir, #354).
 > Tarih: 2026-09-10
 > Etkilenen: type-inference.md §12 (yeni bölüm), volt-syntax (parser
 > desugar + `strict_timing` niteliği), volt-ast (`TimingInfo` yan

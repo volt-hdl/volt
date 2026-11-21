@@ -382,17 +382,27 @@ exclude_re = [
     # A1. `if x > y` runs only in the arm after `if x == y` (the same
     # Exact/Exact pattern), so x != y there and `>=` picks the same side
     # (#232, gate run 44597750883).
-    # expect: crates/volt-hir/src/timing.rs:654:55: replace > with >= in ModuleTiming<'a>::combine_operands
+    # expect: crates/volt-hir/src/timing.rs:716:55: replace > with >= in ModuleTiming<'a>::combine_operands
     "volt-hir/src/timing\\.rs:\\d+:\\d+: replace > with >= in ModuleTiming<'a>::combine_operands$",
     # A2, assumes register_write_help is called only for a register whose
     # source does not match its declaration (`n.saturating_add(1) != want`
-    # in check_all, its one caller): holds == want never reaches it, so
+    # in check_declared, its one caller): holds == want never reaches it, so
     # `<=` takes the same branch wherever it runs. The assumption's test:
     # a register written from a value one cycle younger than its
     # declaration gets no E5010 (timing_tests::annotated_reg_chain_clean;
     # #232, gate run 44597750883).
-    # expect: crates/volt-hir/src/timing.rs:734:18: replace < with <= in ModuleTiming<'a>::register_write_help
+    # expect: crates/volt-hir/src/timing.rs:796:18: replace < with <= in ModuleTiming<'a>::register_write_help
     "volt-hir/src/timing\\.rs:\\d+:\\d+: replace < with <= in ModuleTiming<'a>::register_write_help$",
+    # A2, assumes the only caller, ModuleTiming::check_declared, calls
+    # declared_mismatch only when got != want (`if got != want`), so
+    # want == got never reaches `want > got`, where `>=` alone differs. A
+    # declaration equal to its value's delay gives no diagnostic at all
+    # (timing_tests::let_declared_with_the_right_count_passes,
+    # wire_declared_with_the_right_count_passes,
+    # output_port_declared_with_the_right_count_passes; #354 gate run
+    # 44580231247).
+    # expect: crates/volt-hir/src/timing.rs:951:24: replace > with >= in declared_mismatch
+    "volt-hir/src/timing\\.rs:\\d+:\\d+: replace > with >= in declared_mismatch$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

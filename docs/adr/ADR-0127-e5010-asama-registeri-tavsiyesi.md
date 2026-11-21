@@ -1,8 +1,8 @@
 # ADR-0127: E5010'un Tavsiyesi Gerçek Aşama Register'ıdır — `delay<K>` Bir İddiadır, Hizalama Değildir (#232)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0037 — §5'te help'in içeriği: `delay<K>(...)` hizalama olarak önerilmez; help genç değer için aşama register'ını gösterir, `delay<K>`'yı en son ve bir iddia olarak anar
-> İlgili: ADR-0100 (son hane: tanı metni değişir, SV ve tetikleyici değişmez), ADR-0118 (`delay<K>` işaretsiz bir kaçıştır; işaret, gerekçe ve rapor v0.2.0'da: #358), ADR-0119 (İlke denetimi; İ1 denetlenmeyen beyan, İ4 tahmin yalnız söyler), ADR-0125 (tanı ilkesi: §1 üç parça, §2 (a) yol, §3 kaçış en son ve bedeliyle, §4 help'teki kod sınanır, §7 tanı metni son hanede)
+> İlgili: ADR-0100 (son hane: tanı metni değişir, SV ve tetikleyici değişmez), ADR-0126 (E5010'un bildirim kuralı: `let`, `wire` ve çıkış portundaki `Delayed<T, N>` denetlenir; help'i `delay<K>` önermez), ADR-0118 (`delay<K>` işaretsiz bir kaçıştır; işaret, gerekçe ve rapor v0.2.0'da: #358), ADR-0119 (İlke denetimi; İ1 denetlenmeyen beyan, İ4 tahmin yalnız söyler), ADR-0125 (tanı ilkesi: §1 üç parça, §2 (a) yol, §3 kaçış en son ve bedeliyle, §4 help'teki kod sınanır, §7 tanı metni son hanede)
 > Issue: #232 (ilgili: #353, #354, #358, #122, #362)
 > Tarih: 2026-11-19
 > Etkilenen: `crates/volt-hir/src/timing.rs` (E5010'un iki help'i, etiketleri ve neden satırı; `stage_register_help`, `register_write_help`), `crates/volt-hir/src/{lib,pipeline}.rs` (zamanlama geçidi tip sonucunu alır), `crates/volt-diagnostics/src/explain/{en,tr}.rs` (E5010), `tests/ui/pass/44`, `tests/ui/pass/161` (YENİ), `tests/ui/fail/32` (yorum), `tests/real_bugs/232_e5010_advice_delay_adds_no_register.volt` (YENİ), `crates/volt-hir/tests/e5010_advice_tests.rs` (YENİ), `crates/volt-driver/tests/e5010_advice_tests.rs` (YENİ), `crates/volt-driver/tests/seeded_bugs/specials.rs`, ui/pass sayımları, `README.md`, `book/src/limitations.md`, `CHANGELOG.md`

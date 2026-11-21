@@ -6,7 +6,7 @@
 | `fuzz-nightly.yml` | her gün 18:40 UTC (ADR-0123), elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
 | `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volt-hdl.github.io/volt/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
-| `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Aynı PR'ın daha önce temiz geçmiş bir kapı koşusunun anahtarı aynıysa parça koşmaz, karar o koşunun sonuçlarından verilir ve özet "reused: run …" der (aşağıda "Mutasyon kapısının önceki sonucu", #318). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile; her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin parça tablosundadır, sınırın yarısını aşarsa uyarı (#253); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
+| `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); zorunlu kontrol değildir | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Aynı PR'ın daha önce temiz geçmiş bir kapı koşusunun anahtarı aynıysa parça koşmaz, karar o koşunun sonuçlarından verilir ve özet "reused: run …" der (aşağıda "Mutasyon kapısının önceki sonucu", #318). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), temel koşu koşu başına tek bir iştir ve parçalarla paralel koşar (ADR-0128 §2: "Mutation baseline" işi; geçmezse özet mutant kararı vermeden düşer; aşağıda "Mutasyon kapısının temel koşusu ve zaman aşımı"), temel koşu işinde ve her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile, `mutants` profilinin sırasıyla (`.config/nextest.toml`, ADR-0128: PR'ın dokunduğu test ikilileri önce, yavaş Verilator ikilileri en sonda; aşağıda "Mutasyon kapısının test sırası"); temel koşunun ve her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin temel koşu tablosundadır, sınırın yarısını aşarsa uyarı (#253); mutant başına test zaman aşımı max(2 × temel koşu, `MUTANTS_TIMEOUT_FLOOR_SECONDS` = 3610 sn) (ADR-0128 §3); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
 | `known-failures.yml` | PR (`opened`, `synchronize`, `reopened`, `edited`), push (main), her gün 03:17 UTC, elle | **bilinen başarısızlıklar** (ADR-0117 §4, #254): `crates/volt-driver/tests/metamorphic/known_failures.json`'daki her kaydın issue'su açık olmalı; issue kapalıysa, yoksa ya da PR'sa, PR'da da PR o issue'yu kapatıyor (`Closes #N`) ve kayıt duruyorsa düşer (`scripts/ci/known_failures.py`; GitHub istemcisi ve kurallar `mutants-exclusions.yml`'in C kayıtlarınınkidir, #283). `github.token` ile okur (`issues: read`, `pull-requests: read`); token ya da ağ yoksa düşer. Gece de koşar: issue elle kapatılabilir. Gecelik metamorfik testin issue adımının self-test'i de burada koşar (`scripts/ci/nightly_issue.py --self-test`) |
 | `metamorphic-nightly.yml` | her gün 18:21 UTC (ADR-0123), elle (`ccache` girdisi) | **metamorfik test, gecelik katman** (ADR-0117 §5, #254): bütün yeniden yazımlar bütün derlemde (`tests/ui`, `examples/`, kitabın ```` ```volt ```` blokları, `tests/real_bugs/`; `VOLT_METAMORPHIC_TIER=nightly`), Verilator zorunlu, defterde sıfır SKIP. Uyaranın tohumu gecenin UTC tarihidir: koşunun başladığı andan 12 saat önceki UTC tarihi (`scripts/ci/nightly_seed.py`, ADR-0123) ("Seed of this night" adımı, rapor ve issue onu yazar; `VOLT_METAMORPHIC_SEED=<tohum>` koşuyu yeniden üretir). Kırmızı gece sabit başlıklı issue'yu açar ya da açık olanına raporlarla ve tohumla yorum ekler (`scripts/ci/nightly_issue.py`; sahte bir `gh` ile self-test'i her PR'da `known-failures.yml`'de koşar). PR katmanı (`tests/real_bugs/`, `tests/ui/`) `ci.yml`'in araçlı işinde koşar |
 | `difftest.yml` | her gün 17:03 UTC (#255, ADR-0123), elle (`seed`, `count`, `div_operands`, `issue` girdileri) | **fark testinin büyük koşusu** (ADR-0108): dört parça, ardışık tohumlar (parça k: tohum + k), parça başına 12.500 kabul edilmiş ifade, Verilator zorunlu (sabit hakem), her parçada defterde sıfır SKIP ve `diffs=0` ("Differential test summary"). Gecenin ilk tohumu gecenin UTC tarihidir, `YYYYMMDD00`: koşunun başladığı andan 12 saat önceki UTC tarihi (`scripts/ci/nightly_seed.py`, ADR-0123; gecikip gece yarısını geçen gece tarihini korur, iki gece hiçbir parçanın tohumunu paylaşmaz). Tohumu ayrı bir "Seed of this run" işi bir kez alır (bütün parçalar aynı tohumu koşar); günlüğe bir `::notice`, iş özetine her parçanın komutu yazılır: `VOLT_DIFFTEST_SEED=<tohum + k> VOLT_DIFFTEST_COUNT=12500 VOLT_REQUIRE_TOOLS=verilator cargo test --release -p volt-driver --test difftest_tests` k. parçayı sabit Verilator'la yeniden üretir. Elle koşuda `seed` boşsa aynı formül (son başlayan gecenin tohumu), doluysa o. Kırmızı gece sabit başlıklı issue'yu ("Nightly differential test is red (ADR-0108)") açar ya da açık olanına tohumla, komutlarla ve parçaların raporlarıyla yorum ekler (`scripts/ci/nightly_issue.py --kind difftest`; self-test'i her PR'da `known-failures.yml`'de koşar); yeşil gece bir şey yazmaz. Kırmızı elle koşu issue'ya yalnız `-f issue=on` ile yazar. ccache yalnız iş içindedir (aşağıda "ccache"). Saat ve süre: aşağıda "Gecelik saatler" |
@@ -121,6 +121,126 @@ aralarındaki sıra ve boşluklar korunur, :00 ve :30 kullanılmaz:
 - `difftest.yml` her gece main'de koşar ve `difftest` önbelleğini
   (anahtar değiştiyse) kaydeder; bir dalda elle koştuğunda main'inkini
   okur.
+
+## Mutasyon kapısının test sırası (ADR-0128, #366)
+
+Yakalanan bir mutant ilk düşen testte durur (`--max-fail=1:immediate`);
+ne kadar sürdüğünü yakalayan testin ne zaman başladığı belirler. #366'nın
+ölçümünde nextest'in varsayılan sırası `volt-driver`'ın Verilator'lı
+ikililerini öne koyuyordu: yakalayan test (çoğu PR'ın eklediği 0,01
+saniyelik bir test) 4222 testin 800-2400. sırasındaydı, yakalanan mutant
+medyanda 960 sn test koşuyordu.
+
+- **Profil `mutants`** (`.config/nextest.toml`): her test için ilk eşleşen
+  kural; öncelik 100 PR'ın dokunduğu test ikilileri, −100 yavaş 22
+  `volt-driver` ikilisi (temel koşuda testlerinin toplamı ≥ 40 sn), 50
+  `volt-driver` dışındaki her crate. Yerel `cargo nextest run` ve CI'ın
+  öteki işleri (`cargo test`) varsayılan profili kullanır.
+- **Parçanın "Test order" adımı** temel koşudan önce
+  `scripts/ci/mutants_nextest.py pr --changed mutants-list/changed.txt`
+  ile PR'ın ikililerini profile yazar (yalnız parçanın çalışma kopyasına),
+  `check` ile profilin adlandırdığı her ikilinin var olduğunu denetler ve
+  `NEXTEST_PROFILE=mutants`'ı iş ortamına koyar. Temel koşu ve her mutant
+  aynı sırayla koşar.
+- **Geçici girdi** `nextest_order` (`priority` | `default`): aynı commit'i
+  iki sırayla koşturup karşılaştırmak için (ADR-0128 "Doğrulama
+  yöntemi"); PR'da her zaman `priority`.
+- **Karşılaştırma:** `gh run download <id> --repo volt-hdl/volt --dir A`
+  ve `B`, sonra `python3 scripts/ci/mutants_compare.py A B`: mutant
+  listeleri ve her mutantın sonucu aynı değilse 1 ile çıkar, farkları
+  adlarıyla ("missed -> timeout: …"), iki koşunun parça ve mutant başına
+  derleme/test sürelerini yazar.
+- `volt-sv-emit/build.rs` yalnız var olan git dosyalarını izler: sığ
+  checkout'ta `.git/packed-refs` yoktur ve cargo var olmayan yolu her
+  çağrıda değişmiş sayıyordu; her mutantın test aşaması `volt-sv-emit`,
+  `volt-lsp` ve `volt-driver`'ı yeniden derliyordu (medyan 13,7 sn).
+
+## Mutasyon kapısının temel koşusu ve zaman aşımı (ADR-0128 §2–§3, #366)
+
+Her parça 18-31 dakikalık kendi temel koşusunu koşuyordu; yeni sırayla
+(§1) bir parçanın süresini artık o belirliyordu.
+
+- **Tek temel koşu.** "Mutation baseline" işi ilk işten sonra, parçalarla
+  aynı anda başlar. Parçanın eski adımının aynısını yapar: etkisiz
+  yolları siler, `mutants` profiliyle, bellek bekçisi altında, araçlar
+  zorunlu (`VOLT_REQUIRE_TOOLS=all`) bütün çalışma alanı testlerini koşar.
+  `mutants-baseline` artifact'ını yükler: derleme ve testlerin en yüksek
+  belleği (#253), damga (`stamp.json`, #318: araç sürümleri, koşucu imajı,
+  etkisiz yollar, temel koşunun saniyesi ve kuralın zaman aşımı), araç
+  defteri. Defter denetimi burada `--require-zero-skips --min-ran 60`'tır.
+- **Parçada temel koşu yok.** Parça testleri bir kez derler
+  (`cargo nextest run --workspace --no-run`; ilk mutant da yalnız
+  değiştirdiğini derlesin diye), kendi damgasını yazar (`--role shard`,
+  kullandığı zaman aşımıyla) ve mutantları koşar. Defter denetimi
+  `--require-zero-skips`'tir; `--min-ran` yok: bir parçanın mutantlarının
+  kaç araçlı teste ulaştığı nerede yakalandıklarına bağlıdır.
+- **Özet.** Temel koşu işi geçmediyse (`failure`, `cancelled`, `skipped`)
+  ya da artifact'ı yoksa özet "no mutant verdict" der ve düşer; tablolar
+  yalnız tanı içindir.
+- **Zaman aşımı** (§3): kural max(2 × temel koşu, F), F =
+  `MUTANTS_TIMEOUT_FLOOR_SECONDS` = 3610 sn (ADR-0128'den önceki en büyük
+  değer; yeni sıradaki en uzun tam takımın iki katından büyük). Parçalar
+  temel koşuyu beklemeden F ile başlar. Özet her parçanın kullandığı
+  zaman aşımını temel koşunun damgasındaki kural değeriyle karşılaştırır.
+  Kuraldan kısaysa o parçanın her timeout mutantı "not decided" olur ve
+  özet düşer; parçada timeout mutant yoksa yalnız uyarır. Yakalanan bir
+  mutant zaman aşımından önce düşmüş, missed bir mutant onun içinde
+  geçmiştir; ikisinin sonucu zaman aşımına bağlı değildir.
+- **Yeniden kullanım** (#318): önceki koşunun `mutants-baseline`'ı da
+  okunur: defteri `--min-ran 60` ile, damgası anahtara karşı denetlenir.
+  Artifact'ı olmayan koşu yeniden kullanılmaz.
+
+## Mutasyon kapısının yeniden denemesi (#364, ADR-0129)
+
+Missed mutantlar için gelen düzeltme çoğu zaman yalnız testtir; sonraki push
+bütün listeyi baştan denemez.
+
+- **Taban:** PR'ın son tam kapı koşusu. Tam koşu, bütün listeyi kendisi
+  sınamış, tamamlanmış ve iptal edilmemiş koşudur; yeniden kullanım ve
+  yeniden deneme koşuları atlanır. Kapıyı geçmiş olması gerekmez. Temel
+  koşusu geçmiş, her parçası tamamlanmış, SKIP 0 olmalıdır.
+- **Koşul:** tabanla aynı anahtar kısımları (`mutants`, `environment`), ve
+  anahtarın ağacında değişen her yol bir paketin `tests/`'inde
+  (`crates/<paket>/tests/…`). Kaynak dosya (kendi `#[cfg(test)]`'iyle
+  birlikte), kök `tests/`, `Cargo.toml` ya da başka bir yol değiştiyse kapı
+  tam koşar; günlük nedenini yazar.
+- **Yeniden sınananlar:**
+  - tabanın missed, timeout ve bellek sınırı mutantları;
+  - tabanın sınamadıkları;
+  - yakalayan test ikilisi bu push'ta değişen caught mutantlar.
+- **Yakalayan ikili** tabanın parça artifact'ındaki günlükten okunur: ilk
+  nextest hata satırı (`FAIL [..] (i/N) <ikili> <test>`), "Cancelling"
+  satırından öncesi. Bir hedefin kök dosyası o ikilidir; `tests/` altındaki
+  başka her yol paketin bütün ikilileridir. Hata satırı yoksa mutant yeniden
+  sınanır.
+- **Başka paketten okunan test dosyası.** Bir test dosyası başka bir
+  koddan adıyla okunabilir ya da içeri alınabilir: `#[path]`, `include!`,
+  `include_str!`, `../` ile yol, `CARGO_MANIFEST_DIR`'den ya da depo
+  kökünden yol. Bunu bulmak için `crates/` altındaki her Rust dosyasının
+  string literal'leri okunur; yorumlar sayılmaz. Bir literal dosyanın
+  dizinine, paketin dizinine ve depo köküne göre çözülür. Literal yalnız
+  başka bir paketin dizin adıysa o paketin bütün `tests/`'ini adlandırmış
+  sayılır.
+  - Okuyan bir test hedefinin kök dosyasıysa onun ikilisi de değişmiş
+    sayılır.
+  - Okuyan `tests/` altındaki başka bir dosyaysa paketinin bütün
+    ikilileri değişmiş sayılır.
+  - Okuyan test dışı kodsa (src/, build.rs, benches/, examples/) kapı
+    tam koşar.
+  - Bugün tek örnek `crates/volt-tools/tests/verilator_flags_tests.rs`:
+    volt-driver'ın `tests/verilator_canary_tests.rs` ve
+    `tests/metamorphic/sim.rs` dosyalarını okur.
+- **Taşınanlar** (yakalayan ikilisi değişmemiş caught, unviable) özette
+  "Carried over" olarak sayılır. Özetin başında `retest: run <id> (SHA
+  <sha>): k of N retested, N-k carried over` yazar.
+- **Liste** hedefli koşu gibi daraltılır (`--re` tam adlarla, `--in-diff`
+  satırlarıyla). `mutants_reuse.py retest-check` listenin yeniden
+  sınanacak her mutantı tuttuğunu ve kapının listesi dışında hiçbir şey
+  tutmadığını kanıtlar; kanıtlanamazsa kapı tam koşar.
+- **Elle:** `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+  `mutants_compare.py` bir yeniden denemeyi bütün kapı olarak okur
+  (`gate-all.txt` ve taşınan sonuçlar). Böylece aynı commit'teki tam
+  koşuyla karşılaştırılır.
 
 ## Mutasyon kapısının önceki sonucu (#318; ADR-0109 eki "Kapının önceki sonucu")
 

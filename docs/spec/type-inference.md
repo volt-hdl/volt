@@ -1020,13 +1020,27 @@ T            op Delayed<T,N>  →  E5010          (T undelayed, e.g. an input po
 IntLit       op Delayed<T,N>  →  Delayed<T,N>   (literals/constants exempt)
 delay<K>(x)  : Delayed<T,N>   →  Delayed<T,N+K>
 on clk { r <= e }  where e : Delayed<T,N>  →  r : Delayed<T,N+1>
+x : Delayed<T,N>   with value e : Delayed<T,M>  →  E5010   (N ≠ M; let, wire, output port)
+r : Delayed<T,N>   on clk { r <= e }, e : Delayed<T,M>  →  E5010   (N ≠ M+1)
 ```
+
+A declared `Delayed<T, N>` is a promise about the value's delay and is
+checked against it whenever that delay is exactly known: the source of
+each register write, the initializer of a `let`, the drivers of a `wire`
+or an output port (ADR-0126). An output port's declaration is the
+module's promise at its boundary; inference does not replace it. An
+input port's declaration is the assumption about its driver outside the
+module. A value with no fixed delay (a literal, a constant, a feedback
+loop) has nothing to compare.
 
 Exemptions: `if`/`match` conditions (control), `r <= r` hold writes
 (stall pattern), feedback loops (counters, pc, register files — no
-fixed delay exists, so they are unconstrained), and the initializer of
-an explicitly annotated `let` (a *retiming assertion* — the forwarding
-escape hatch). `Delayed` and `delay<K>` erase at the type level: name
+fixed delay exists, so they are unconstrained), and the value of an
+explicitly annotated `let` or `wire` that combines different delays (a
+*retiming assertion* — the forwarding escape hatch: its `N` is not
+compared and the mix inside it is not checked; under ADR-0118 an escape
+that needs an explicit mark in v0.2.0). `Delayed` and `delay<K>` erase
+at the type level: name
 resolution, type checking and SV emission see only the inner type and
 expression; generated RTL is unchanged. Without `@strict_timing` the
 pass does not run at all — existing code compiles bit-for-bit
