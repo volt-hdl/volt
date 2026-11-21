@@ -364,6 +364,34 @@ fn checked_port_write_guards_before_the_assignment() {
 }
 
 #[test]
+fn checked_value_is_guarded_like_a_port_write_but_written_nowhere() {
+    // #375: bütün-struct literalinin hesaplanmış alanı — port yazımıyla
+    // aynı denetim (`volt_port_fits`, `port_overflow`), yazma yok.
+    let cpp = cpp_of(vec![
+        TbStep::Loc("s_test.volt:9".into()),
+        TbStep::CheckValue {
+            name: "q_a".into(),
+            value: var("i"),
+            check: TbPortCheck {
+                bits: Some(4),
+                signed: false,
+                type_name: "u4".into(),
+            },
+        },
+    ]);
+    assert!(cpp.contains("static bool volt_port_fits("), "{cpp}");
+    assert!(cpp.contains("const unsigned long long volt_pv = v_i;"));
+    assert!(cpp.contains("if (!volt_port_fits(volt_pv, 4U, false)) {"));
+    assert!(cpp.contains(
+        "VOLT-ASSERT-FAIL port_overflow s_test.volt:9 left=%llu right=%llu port=q_a:u4\\n\", volt_pv, 4ULL);"
+    ));
+    assert!(
+        !cpp.contains("dut.q_a ="),
+        "denetlenen değer hiçbir porta yazılmaz"
+    );
+}
+
+#[test]
 fn port_overflow_report_names_port_type_and_width() {
     let cpp = cpp_of(vec![
         TbStep::Loc("adder_test.volt:4".into()),

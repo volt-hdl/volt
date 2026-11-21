@@ -244,6 +244,7 @@ impl<'a> Checker<'a, '_> {
                 let scope = &self.scope;
                 crate::sim_struct::check_struct_compare(
                     &scope.duts,
+                    &scope.consts,
                     args,
                     &mut |e, d| scope.expect_scalar(e, d),
                     self.diags,
