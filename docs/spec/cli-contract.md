@@ -621,6 +621,17 @@ test result: FAILED. 38 passed; 1 failed
 
 Çıkış kodu: 5
 
+**Beklenmedik bitiş (ADR-0130).** Testbench her testin sonucunu yazar ve
+hiçbir test kalmadıysa 0, biri kaldıysa 1 ile çıkar. Başka her bitiş
+(`$fatal`, `$error`, `$stop`, başarısız `assert`, çökme) benzetimin koşuyu
+kestiğini gösterir: sonucunu yazmadan kesilen test `FAILED` olur ve
+ayrıntısında çıkış kodu ile simülatörün iletileri yazılır; hiç başlamayan
+testler `test <ad> ... not run` satırıyla ve özetten önce ayrı bir listeyle
+raporlanır, geçti sayılmaz; özet `test result: FAILED. P passed; F failed;
+N not run` olur (`; N not run` yalnız N > 0 iken). Çıkış kodu 5'tir.
+Olağan koşunun raporu bu kuraldan etkilenmez. `$finish` süreci bitirmez
+(#382).
+
 **Test dosyası keşfi (ADR-0089):** argümansız `volt test`, çalışma
 dizininden yukarı ilk `Volt.toml`'u (ADR-0061) bulur ve proje kökünden
 ÖZYİNELEMELİ olarak `*_test.volt` arar — alt dizinden çalıştırmak da
