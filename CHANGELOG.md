@@ -9,6 +9,24 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** `volt test` benzetimin beklenmedik bitişini
+  artık testlerle uzlaştırır (#377, ADR-0130; sessiz yanlış düzeltmesi).
+  0.1.2'de sürücü benzetimin çıkış kodunu okumuyor ve yalnız
+  `VOLT-TEST-END` satırlarını sayıyordu: bir `extern` gövdesindeki
+  `$fatal`, `$error`, `$stop` ya da başarısız `assert` testbench'i bir
+  testin ortasında kesince o test ve ondan sonrakiler rapordan sessizce
+  düşüyor, koşu "test result: ok" diyip 0 ile çıkıyordu (düşmesi gereken
+  bir test hiç koşmadan). Artık yarıda kalan test `FAILED` olur ve
+  ayrıntısında çıkış kodu ile simülatörün iletileri (`%Fatal: ...`)
+  yazılır; hiç başlamayan testler `test <ad> ... not run` satırıyla ve
+  ayrı bir listeyle raporlanır, geçti sayılmaz; özet `test result:
+  FAILED. P passed; F failed; N not run` olur ve koşu 5 ile çıkar.
+  Verilator koşuyu keserken de 1 ile çıktığından (normal düşüşle aynı
+  kod) ayrım eksik `VOLT-TEST-END`'den yapılır. Olağan koşuların raporu
+  ve çıkış kodu değişmez; `; N not run` yalnız N > 0 iken yazılır.
+  `--nocapture` artık simülatörün stderr'ini de basar. `$finish` süreci
+  bitirmez ve kapsam dışıdır (#382). Son hanede (v0.1.3) çıkar,
+  ADR-0100'ün sessiz yanlış istisnası.
 - **Davranış değişikliği.** Bir reset artık `sync()` ya da `sync3()`'ten
   geçirilemez ve bir örneğin reset portuna yalnız bu modülün reset giriş
   portunun adı bağlanabilir (#340, ADR-0124; sessiz yanlış düzeltmesi).

@@ -242,6 +242,7 @@ mod tests {
             failure: None,
             contract: None,
             waveform: None,
+            stop: None,
         }
     }
 

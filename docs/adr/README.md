@@ -196,6 +196,7 @@ denetler.
 | [0089](ADR-0089-volt-test-proje-kesfi.md) | `volt test` — Proje Kökünden Özyinelemeli Test Keşfi | `volt test` testleri proje kökünden özyinelemeli olarak keşfeder. | Kısmen yerini aldı: ADR-0101 |
 | [0092](ADR-0092-dalga-formunda-enum-adlari.md) | Dalga Formunda Enum ve Trit Adları — GTKWave Oturumu ve Çeviri Tabloları | `volt run --vcd` ve `volt verify` karşı örneği enum/Trit sinyallerini adlarıyla gösteren bir GTKWave oturumu yazar; RTL değişmez. | Uygulandı |
 | [0101](ADR-0101-check-ve-test-ortak-kesif.md) | `volt check` ve `volt test` Ortak Keşif — Tek Keşif Fonksiyonu, Aynı Yol Biçimi, Kardeşsiz Test Dosyasında Tam Denetim | Argümansız `volt check` test dosyalarını `volt test`'in keşfiyle bulur; iki komut aynı öneksiz göreli yolu basar; `*_test.volt` kardeşi olmasa da `volt test` ile aynı tam denetimden geçer (editör dahil). | Uygulandı |
+| [0130](ADR-0130-benzetimin-beklenmedik-bitisi.md) | Benzetimin Beklenmedik Bitişi — `volt test` Çıkış Kodunu ve Eksik Test Sonucunu Uzlaştırır, Başlamayan Test "not run" Olur (#377) | Grup koşusu yalnız her test sonucunu yazdıysa ve süreç 0 (hepsi geçti) ya da 1 (biri kaldı) ile çıktıysa olağandır; başka her bitişte (`$fatal`, `$error`, `$stop`, başarısız `assert`, çökme) yarıda kalan test kalır, başlamayanlar `not run` olur, koşu 5 ile çıkar; simülatör iletileri rapora girer. Olağan koşunun raporu değişmez. `$finish` kapsam dışı (#382). Sessiz yanlış düzeltmesi, v0.1.3. | Uygulandı |
 
 ## SV üretimi
 
