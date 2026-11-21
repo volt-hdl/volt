@@ -177,6 +177,21 @@ const ATALIASED : u32 = ALIASED[2]
 const HUGE : [u32; 5000] = [1; 5000]
 const ATHUGE : u32 = HUGE[0]
 const NOTARR : u32 = ADD[0]
+const NE : bool = 3 != 4
+const LT : bool = 1 < 2
+const LTEQ : bool = 2 < 2
+const GT : bool = 3 > 2
+const GTEQ : bool = 2 > 2
+const LE : bool = 2 <= 3
+const LEGT : bool = 3 <= 2
+const ORL : bool = true || false
+const ORBITS : u32 = 5 | 1
+const AND0L : u32 = 0 & 3
+const AND0R : u32 = 3 & 0
+const IFZERO : u32 = if 0 { 4 } else { 8 }
+const IFARITH : u32 = if 0 + 1 { 4 } else { 8 }
+const NA : u32 = [3, 4]
+const ATNA : u32 = NA[1]
 ",
     );
     let expect = [
@@ -210,6 +225,20 @@ const NOTARR : u32 = ADD[0]
         ("ATALIASED", Some(6)),
         ("ATHUGE", None),
         ("NOTARR", None),
+        ("NE", Some(1)),
+        ("LT", Some(1)),
+        ("LTEQ", Some(0)),
+        ("GT", Some(1)),
+        ("GTEQ", Some(0)),
+        ("LE", Some(1)),
+        ("LEGT", Some(0)),
+        ("ORL", Some(1)),
+        ("ORBITS", Some(5)),
+        ("AND0L", Some(0)),
+        ("AND0R", Some(0)),
+        ("IFZERO", Some(8)),
+        ("IFARITH", Some(4)),
+        ("ATNA", None),
     ];
     for (name, want) in expect {
         assert_eq!(const_of(&ast, name), want, "{name}");
@@ -231,6 +260,14 @@ const FLAG : u32 = match true { false => 6, _ => 2 }
     assert_eq!(const_of(&ast, "SPEED"), Some(8));
     assert_eq!(const_of(&ast, "DIRECT"), Some(3));
     assert_eq!(const_of(&ast, "FLAG"), Some(2));
+    // Sınanan ile desen farklı varyant: yalnız adı tutan varyant seçilir.
+    let three = parse(
+        "\
+enum Three { A, B, C }
+const WHICH : u32 = match Three::C { Three::B => 1, _ => 2 }
+",
+    );
+    assert_eq!(const_of(&three, "WHICH"), Some(2));
 }
 
 #[test]
@@ -377,4 +414,128 @@ fn a_const_chain_and_both_operands_count_toward_the_depth_limit() {
     };
     assert_eq!(const_of(&right(limit), "R"), Some(limit as i128 + 1));
     assert_eq!(const_of(&right(limit + 1), "R"), None);
+}
+
+/// `X`'in değeri; `src`'deki ek bildirimlerle.
+fn x_of(src: &str) -> Result<i128, Unknown> {
+    let ast = parse(src);
+    eval(&ast, &TopLevel(&ast), const_expr(&ast, "X"))
+}
+
+/// `P0 = P1, ..., P{n} = tail`: `P0`'ın değer ifadesi kökte, `tail` n
+/// düzey derinde (her ad bir düzey).
+fn names_to(prefix: &str, n: usize, tail: &str) -> String {
+    let mut src = String::new();
+    for i in 0..n {
+        src.push_str(&format!("const {prefix}{i} : u32 = {prefix}{}\n", i + 1));
+    }
+    src.push_str(&format!("const {prefix}{n} : u32 = {tail}\n"));
+    src
+}
+
+/// `open` n kez, ortada `inner`, sonra `close` n kez.
+fn nest(n: usize, open: &str, inner: &str, close: &str) -> String {
+    format!("{}{inner}{}", open.repeat(n), close.repeat(n))
+}
+
+#[test]
+fn every_path_into_a_value_counts_toward_the_depth_limit() {
+    let max = MAX_CONST_DEPTH as usize;
+    // Her biçimde en içteki değer n düzey derinde: 64 tamam, 65 aşar.
+    let forms: [(&str, &str, &str, &str, i128); 8] = [
+        // `if`in seçilen kolu
+        ("taken", "if true { ", "4", " } else { 0 }", 4),
+        // dizi indeksinin indeksi
+        ("index", "ARR[", "0", "]", 0),
+        // `!`
+        ("not", "!", "true", "", 1),
+        // `&&`'in sol ve sağ operandı
+        ("and-left", "(", "true", " && true)", 1),
+        ("and-right", "(true && ", "true", ")", 1),
+        // karşılaştırmanın sol ve sağ operandı
+        ("cmp-left", "(", "1", " == 1)", 1),
+        ("cmp-right", "(1 == ", "1", ")", 1),
+        // `match` gövdesi
+        ("match-body", "match 0 { _ => ", "4", " }", 4),
+    ];
+    for (name, open, inner, close, value) in forms {
+        let src = |n: usize| {
+            let expr = nest(n, open, inner, close);
+            format!("const ARR : [u32; 2] = [0, 0]\nconst X : u32 = {expr}\n")
+        };
+        let ok = if name == "index" { max - 2 } else { max };
+        assert_eq!(x_of(&src(ok)), Ok(value), "{name}: {ok}");
+        assert_eq!(
+            x_of(&src(max + 1)),
+            Err(Unknown::TooDeep),
+            "{name}: {}",
+            max + 1
+        );
+    }
+}
+
+#[test]
+fn a_condition_counts_twice_per_level() {
+    // E0 = true, E{k+1} = if E{k} { 1 } else { 0 }: koşul bool'a (bir
+    // düzey), bool değil `if` olduğundan sayıya (bir düzey daha) iner.
+    let e = |n: usize| {
+        let mut x = "true".to_string();
+        for _ in 0..n {
+            x = format!("if ({x}) {{ 1 }} else {{ 0 }}");
+        }
+        format!("const X : u32 = {x}\n")
+    };
+    assert_eq!(x_of(&e(32)), Ok(1));
+    assert_eq!(x_of(&e(33)), Err(Unknown::TooDeep));
+}
+
+#[test]
+fn a_pattern_name_and_an_enum_value_count_toward_the_depth_limit() {
+    // Desendeki ad: `match`'in deseni bir düzey, adın değeri bir düzey daha.
+    let pat = |n: usize| {
+        format!(
+            "{}const X : u32 = match 1 {{ P0 => 5, _ => 7 }}\n",
+            names_to("P", n, "1")
+        )
+    };
+    assert_eq!(x_of(&pat(62)), Ok(5));
+    assert_eq!(x_of(&pat(63)), Err(Unknown::TooDeep));
+    // Enum'un açık değeri: sınanan bir düzey, düzen tablosu bir düzey daha.
+    let en = |n: usize| {
+        format!(
+            "{}enum V : u8 {{ A = Q0, B = 9 }}\nconst X : u32 = match V::A {{ V::A => 1, _ => 0 }}\n",
+            names_to("Q", n, "3")
+        )
+    };
+    assert_eq!(x_of(&en(61)), Ok(1));
+    assert_eq!(x_of(&en(62)), Err(Unknown::TooDeep));
+}
+
+#[test]
+fn a_constant_array_element_counts_toward_the_depth_limit() {
+    // `K{d}` = `ARR[i]`: indeks ifadesi d düzey derinde; eleman, dizinin
+    // değeri ve elemanın kendisi üç düzey daha.
+    let at = |d: usize, tail: &str| {
+        let src = format!(
+            "const ARR : [u32; 2] = [4, 5]\nconst VV : u32 = 7\nconst CC : u32 = 2\n\
+             const REP : [u32; 2] = [7; 2]\nconst REPV : [u32; 2] = [VV; 2]\n\
+             const REPC : [u32; 2] = [7; CC]\nconst ALIASED : [u32; 2] = ARR\n{}",
+            names_to("K", d, tail)
+        );
+        let ast = parse(&src);
+        eval(&ast, &TopLevel(&ast), const_expr(&ast, "K0"))
+    };
+    // Liste ve `[v; N]`: eleman d + 3'te.
+    assert_eq!(at(61, "ARR[0]"), Ok(4));
+    assert_eq!(at(62, "ARR[0]"), Err(Unknown::TooDeep));
+    assert_eq!(at(61, "REP[1]"), Ok(7));
+    assert_eq!(at(62, "REP[1]"), Err(Unknown::TooDeep));
+    // `[VV; 2]` ve `[7; CC]`: değer ya da sayı bir ad daha derinde.
+    assert_eq!(at(60, "REPV[1]"), Ok(7));
+    assert_eq!(at(61, "REPV[1]"), Err(Unknown::TooDeep));
+    assert_eq!(at(60, "REPC[1]"), Ok(7));
+    assert_eq!(at(61, "REPC[1]"), Err(Unknown::TooDeep));
+    // Başka bir dizi sabitinin adı: bir düzey daha.
+    assert_eq!(at(60, "ALIASED[1]"), Ok(5));
+    assert_eq!(at(61, "ALIASED[1]"), Err(Unknown::TooDeep));
 }
