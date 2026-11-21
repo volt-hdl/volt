@@ -176,6 +176,12 @@ fn ui_fail_299_delayed_out_port_wrong_count_e5010() {
 }
 
 #[test]
+fn ui_fail_309_test_struct_compare_leaf_overflow_e8512() {
+    // #375: bütün-struct karşılaştırmasında sığmayan literal alanı.
+    assert_ui_fail("fail/309_test_struct_compare_leaf_overflow.volt");
+}
+
+#[test]
 fn ui_fail_206_edgeless_sync_destination_e3016() {
     // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
     assert_ui_fail("fail/206_edgeless_sync_destination.volt");

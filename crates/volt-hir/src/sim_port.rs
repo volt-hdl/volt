@@ -240,9 +240,21 @@ pub fn describe_value(value: u64) -> String {
 
 /// DUT'un `dir` yönlü portunun genişliği (dış modül/çözülemeyen → `None`).
 fn dut_port_width(duts: &DutMap<'_>, dut: &Name, port: &Name, dir: PortDir) -> Option<PortWidth> {
+    port_path_width(duts, dut, &port.text, dir)
+}
+
+/// `dut_port_width`, port yolu metin olarak: düz ad ya da struct
+/// yaprağının noktalı yolu (`q.a`). Bütün-struct yazımı yapraklara
+/// açıldığında ve bütün-struct karşılaştırmasının literal alanında (#375)
+/// yaprağın genişliği bu tek yoldan çözülür.
+pub(crate) fn port_path_width(
+    duts: &DutMap<'_>,
+    dut: &Name,
+    path: &str,
+    dir: PortDir,
+) -> Option<PortWidth> {
     let (src, module) = (*duts.get(dut.text.as_str())?)?;
-    let found =
-        crate::sim_struct::find_port(src, module, &port.text).filter(|p| p.direction == dir)?;
+    let found = crate::sim_struct::find_port(src, module, path).filter(|p| p.direction == dir)?;
     port_type_width(src, found.ty)
 }
 
@@ -258,13 +270,30 @@ pub(crate) fn check_set_port_value(
     let Some(width) = dut_port_width(duts, dut, port, PortDir::In) else {
         return;
     };
+    let ty = width.type_name();
+    let label = lstr!(en: "port '{}' is {ty} (max {})", port.text, width.max_pattern();
+                      tr: "'{}' portu {ty} (en çok {})", port.text, width.max_pattern());
+    check_value_fits(consts, width, value, (port, label), diags);
+}
+
+/// Yazılan sabit değer `width`'e sığmalı (`PortWidth::accepts`), sığmıyorsa
+/// E8512; `target` hedefin adı ve "… is u4 (max 15)" etiketi. Port
+/// yazımında da (`check_set_port_value`) bütün-struct karşılaştırmasının
+/// literal alanında da (#375) TEK kural budur; çalışma zamanı eşi
+/// testbench'teki `volt_port_fits`'tir (ADR-0059 §2).
+pub(crate) fn check_value_fits(
+    consts: &TestConsts,
+    width: PortWidth,
+    value: &TestExpr,
+    (target, label): (&Name, String),
+    diags: &mut Vec<Diagnostic>,
+) {
     let Some(constant) = consts.eval(value) else {
         return; // çalışma zamanı değeri: testbench koşuda denetler
     };
     if width.accepts(constant) {
         return;
     }
-    let ty = width.type_name();
     let range = width.write_range();
     let help = if width.is_signed() {
         lstr!(en: "use a value in range {range}; write a negative number as 0 - n";
@@ -272,11 +301,7 @@ pub(crate) fn check_set_port_value(
     } else {
         lstr!(en: "use a value in range {range}"; tr: "{range} aralığında bir değer kullanın")
     };
-    diags.push(does_not_fit(consts, value, constant, help).with_secondary(
-        port.span,
-        lstr!(en: "port '{}' is {ty} (max {})", port.text, width.max_pattern();
-              tr: "'{}' portu {ty} (en çok {})", port.text, width.max_pattern()),
-    ));
+    diags.push(does_not_fit(consts, value, constant, help).with_secondary(target.span, label));
 }
 
 /// `assert_eq(dut.out, <sabit>)` / `assert_ne`: sabit, portun

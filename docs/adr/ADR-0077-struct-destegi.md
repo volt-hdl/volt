@@ -1,7 +1,7 @@
 # ADR-0077: Struct Desteği — Düz Struct Değerleri Donanıma İner
 
 > Statü: Uygulandı — Aşama 1 (tasarım), Aşama 2 (uygulama) ve Aşama 3 (örnekler, PR #36); notlar sonda
-> İlgili: ADR-0087 (primitif öğe tipi).
+> İlgili: ADR-0087 (primitif öğe tipi), ADR-0131 (bütün-struct karşılaştırmasında literal alanı, bütün yazmadaki gibi alanın tipinin bir değeri olmalı).
 > Tarih: 2026-09-24
 > Etkilenen (plan): volt-ast (ortak struct düzeni `struct_layout`,
 > `enum_layout`'un yanında), volt-syntax (bildirimde alan domain
