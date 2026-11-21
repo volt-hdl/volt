@@ -82,6 +82,26 @@ Bugünkü listenin (bugünkü `exclude_re`'den sonra) her mutantı için:
   - Bir paketin `tests/`'indeki her başka yol o paketin bütün ikilileri
     sayılır: bir modül, bir veri dosyası ya da silinmiş bir hedef. Kütüphane
     birim testleri de buna dahildir.
+  - **Paketler arası okuma.** Değişen bir test dosyasını başka bir kod
+    adıyla okuyabilir ya da içeri alabilir: `#[path]`, `include!`,
+    `include_str!`, `../` ile yol, `CARGO_MANIFEST_DIR`'den ya da depo
+    kökünden yol.
+    - **Tarama.** `crates/` altındaki her Rust dosyasının string
+      literal'leri okunur; yorumlar sayılmaz. Boşluk, `{}` ya da kaçış
+      dizisi içeren literal yol sayılmaz.
+    - **Çözümleme.** Her literal üç yere göre çözülür: dosyanın dizini, o
+      dosyanın paket dizini ve depo kökü. Değişen yola ya da onu içeren bir
+      dizine varan literal o yolu okur.
+    - **Parça parça kurulan yol.** Yalnız başka bir paketin dizin adı olan
+      bir literal (yol parça parça kurulduğunda) o paketin bütün
+      `tests/`'ini okur sayılır.
+    - **Okuyanın türüne göre:**
+      - bir test hedefinin kök dosyasıysa o ikili de değişmiş sayılır;
+      - `tests/` altındaki başka bir dosyaysa paketinin bütün ikilileri
+        değişmiş sayılır;
+      - test dışı kodsa (`src/`, `build.rs`, `benches/`, `examples/`)
+        eşleme kurulamaz ve kapı tam koşar: değişen dosya kütüphaneyi ya
+        da derlemeyi etkiler, her mutantın sonucu değişebilir.
 - **Neden doğru.** Kaynak aynı, ortam aynı, yakalayan ikilinin kaynağı
   da aynıysa o ikilinin düşen testi aynı mutantla yine düşer; mutant yine
   caught olur. Bu kez onu daha önce başlayan başka bir test yakalayabilir,
@@ -228,6 +248,32 @@ Mutant özeti beşinde de `ee9284a636b1`. Timeout ve bellek sınırı hepsinde 0
   mutantın tam takımı (17–21 dk) belirler.
 - Parça sayısı kapının bugünkü hesabıyla 3'tü (`-f shards=3`).
 
+**Paketler arası okuma.** Depoda bugün bir örnek var:
+`crates/volt-tools/tests/verilator_flags_tests.rs`, volt-driver'ın
+`tests/verilator_canary_tests.rs` ve `tests/metamorphic/sim.rs` dosyalarını
+depo kökünden yolla, metin olarak okur. Kuraldan önce bu iki dosyanın
+değişmesi yalnız volt-driver ikililerine bağlanıyordu ve
+`volt-tools::verilator_flags_tests` atlanıyordu. Şimdi gerçek ağaçta
+`metamorphic/sim.rs`'in değişmesi volt-driver'ın bütün ikililerini ve
+`volt-tools::verilator_flags_tests`'i değişmiş sayar.
+
+`mutants_reuse.py`'nin self-test'leri iki paketli (a, b) bir sahte çalışma
+alanında şunları sınar:
+- a'nın `tests/common/mod.rs` yardımcısının zayıflatılması: a'nın bütün
+  ikilileri değişmiş sayılır. Yardımcıyı kullanan `a::u`'nun yakaladığı
+  mutant yeniden sınanır; b'nin yakaladığı taşınır.
+- b'nin test kökünün depo kökünden yolla okuduğu `crates/a/tests/t.rs`:
+  `a::t` ve `b::flags`.
+- `include_str!("../../a/tests/data/x.txt")` ile okunan bir fikstür:
+  `b::flags` ve a'nın bütün ikilileri.
+- Aynı yolu b'nin `tests/support/mod.rs`'i okuyorsa b'nin bütün
+  ikilileri.
+- Yolu `join("a")` ile parça parça kuran test: okuyan ikili.
+- Aynı fikstürü b'nin `src/lib.rs`'i okuyorsa kapı tam koşar; günlükte
+  `named by crates/b/src/lib.rs, which is not a test file` yazar.
+- Yorumdaki yol, kaçış dizisi (`"a\nb/c"`) ve biçim dizgesi (`"{}/x"`)
+  hiçbir şey okumaz.
+
 **Yöntemden sapmalar.**
 
 - Taban ve senaryolar elle kapı koşularıdır (`gate_base`,
@@ -267,6 +313,16 @@ Mutant özeti beşinde de `ee9284a636b1`. Timeout ve bellek sınırı hepsinde 0
 - Testin okuduğu ama `tests/` dışında duran bir dosya (kök `tests/`,
   `examples/`, kitap) değişince kapı tam koşar. Böyle bir değişikliği ikili
   başına eşlemek bu ADR'nin dışındadır.
+- Paketler arası okuma kuralı string literal'lere dayanır. Çalışma anında
+  başka bir yoldan kurulan bir yol yakalanmaz: bir ortam değişkeninden, bir
+  dosyadan okunan, ya da bir paket dizin adı geçmeyen parçalardan
+  birleştirilen yol. Böyle bir okuyucunun yakaladığı bir mutantın sonucu,
+  okuduğu test dosyası değişince yanlış taşınabilir. Literal taraması bugün
+  tek bir paketler arası okuyucu buluyor (`verilator_flags_tests`).
+  Taramanın göremediği okuyucuların yokluğu ayrıca kanıtlanmadı.
+- Literal'ler dosyanın dizinine, paket dizinine ve depo köküne göre
+  çözülür. Bir test başka bir çalışma dizininden göreli yol kurarsa
+  (`set_current_dir`'den sonra) yakalanmaz.
 - Yakalayan ikili tabanın günlüğünden okunur. Günlük artifact'ın süresi
   dolmuşsa (90 gün) taban okunamaz; kapı tam koşar.
 - Taban, yakalanan bir mutantı ilk düşen testle kaydeder. Bu push başka
