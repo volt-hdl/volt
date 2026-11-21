@@ -1,7 +1,7 @@
 # ADR-0037: L1 Zamanlama Seviyesi — `Delayed<T, N>`, `delay<K>` ve `@strict_timing`
 
 > Statü: Uygulandı
-> İlgili: ADR-0091 (gecikme inlay ipucu).
+> İlgili: ADR-0091 (gecikme inlay ipucu), ADR-0126 (yeniden zamanlama iddiası karışımla sınırlanır: `let`, `wire` ve çıkış portunun bildirimi, değerin gecikmesi tam biliniyorsa denetlenir, #354).
 > Tarih: 2026-09-10
 > Etkilenen: type-inference.md §12 (yeni bölüm), volt-syntax (parser
 > desugar + `strict_timing` niteliği), volt-ast (`TimingInfo` yan

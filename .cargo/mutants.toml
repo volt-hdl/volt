@@ -379,6 +379,16 @@ exclude_re = [
     # arith_cut_property_tests pass with the mutant (#266 targeted run).
     # expect: crates/volt-hir/src/typeck/arith_cut.rs:232:9: replace TypeChecker<'_, '_>::is_const_path -> bool with true
     "typeck/arith_cut\\.rs:\\d+:\\d+: replace TypeChecker<'_, '_>::is_const_path -> bool with true$",
+    # A2, assumes the only caller, ModuleTiming::check_declared, calls
+    # declared_mismatch only when got != want (`if got != want`), so
+    # want == got never reaches `want > got`, where `>=` alone differs. A
+    # declaration equal to its value's delay gives no diagnostic at all
+    # (timing_tests::let_declared_with_the_right_count_passes,
+    # wire_declared_with_the_right_count_passes,
+    # output_port_declared_with_the_right_count_passes; #354 gate run
+    # 44580231247).
+    # expect: crates/volt-hir/src/timing.rs:718:24: replace > with >= in declared_mismatch
+    "volt-hir/src/timing\\.rs:\\d+:\\d+: replace > with >= in declared_mismatch$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are

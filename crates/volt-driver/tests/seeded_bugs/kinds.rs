@@ -184,6 +184,13 @@ pub fn kinds() -> Vec<Kind> {
             sites: drop_retiming,
         },
         Kind {
+            name: "timing.declared-delay-shift",
+            spec: "type-inference.md §12 / ADR-0126 (a declared Delayed<T, N> on a let, wire or output port must equal the value's exact delay: E5010)",
+            expect: Some(&["E5010"]),
+            near_miss: false,
+            sites: declared_delay_shift,
+        },
+        Kind {
             name: "drivers.duplicate-assign",
             spec: "type-inference.md §11.2 / ADR-0073 (a second driver of an output: E4001)",
             expect: Some(&["E4001"]),
@@ -1055,6 +1062,44 @@ fn drop_retiming(src: &Source) -> Sites {
         let new = format!("{} {}", raw[..colon].trim_end(), &raw[eq..]);
         out.push((
             format!("let {}: Delayed annotation removed", name.trim()),
+            src.with_line(i, &new),
+        ));
+    }
+    number(out)
+}
+
+/// `let`, `wire` or `out` declared `Delayed<T, N>`: N becomes N + 1, a
+/// declaration one cycle off its value (#354).
+fn declared_delay_shift(src: &Source) -> Sites {
+    let mut out = Vec::new();
+    for (i, raw) in src.lines.iter().enumerate() {
+        let code = code_part(raw);
+        let t = code.trim_start();
+        let Some(kw) = ["let ", "wire ", "out "]
+            .into_iter()
+            .find(|kw| t.starts_with(kw))
+        else {
+            continue;
+        };
+        let Some((name, ty)) = t[kw.len()..].split_once(':') else {
+            continue;
+        };
+        if !ty.trim_start().starts_with("Delayed<") {
+            continue;
+        }
+        let open = code.find("Delayed<").expect("Delayed") + "Delayed<".len();
+        let Some(close) = code[open..].find('>').map(|c| open + c) else {
+            continue;
+        };
+        let Some(comma) = code[open..close].rfind(',').map(|c| open + c + 1) else {
+            continue;
+        };
+        let Ok(n) = code[comma..close].trim().parse::<u32>() else {
+            continue;
+        };
+        let new = splice(raw, comma, close, &format!(" {}", n + 1));
+        out.push((
+            format!("{}{}: Delayed N {n} -> {}", kw, name.trim(), n + 1),
             src.with_line(i, &new),
         ));
     }

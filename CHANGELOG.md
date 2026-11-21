@@ -196,6 +196,22 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   gövdeleri `a ^ k` olan 256 kollu match E0018 almaya devam eder (256 kol
   + `^` = 257). Kök konumdaki match (tüm sağ taraf) her boyutta `case`
   olarak kalır; SV çıktısı değişmez. Son hanede (v0.1.3) çıkar.
+- **Davranış değişikliği.** `@strict_timing` modülünde bir `let`, `wire`
+  ya da çıkış portundaki `Delayed<T, N>` bildirimi, değerin gecikmesi tam
+  biliniyorsa N ile karşılaştırılır; uyuşmazlık bildirimde E5010
+  ("declared delay does not match the value") (#354, ADR-0126; sessiz
+  yanlış düzeltmesi, type-inference.md §12). 0.1.2'de bu bildirim yalnız
+  register'da denetleniyordu: `let s : Delayed<u32, 1> = b` (`b` 2
+  çevrimlik register) derleniyor ve sonraki `s + a` hizalı görünüyordu;
+  simülasyonda iki ayrı çevrimin değerleri toplanıyordu. Çıkış portunun
+  bildirimi (`out y : Delayed<u32, 5>`) çıkarımla sessizce eziliyordu;
+  artık sürücüsüyle denetlenir. Önce derlenen kod artık reddedilebilir,
+  ama yalnız bildirimi kanıtlanabilir biçimde yanlış olan kod. Aşamaları
+  karıştıran bir değerin üstündeki bildirim (ileri besleme) bugünkü gibi
+  yeniden zamanlama iddiasıdır ve derlenir (v0.2.0'da işaretli kaçış,
+  #358). Hiçbir tasarımın SV'si değişmez. `volt explain E5010` bir cümle
+  kazanır. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış
+  istisnası; sürüm notunun "Behavior changes" bölümüne girer.
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 

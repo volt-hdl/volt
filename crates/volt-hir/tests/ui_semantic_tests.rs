@@ -160,6 +160,22 @@ fn ui_pass_157_match_dead_arm_crossing_is_not_e3001() {
 }
 
 #[test]
+fn ui_fail_297_delayed_let_wrong_count_e5010() {
+    // #354 (ADR-0126): let'in bildirimi başlatıcısının gecikmesiyle uyuşmalı.
+    assert_ui_fail("fail/297_delayed_let_wrong_count.volt");
+}
+
+#[test]
+fn ui_fail_298_delayed_wire_wrong_count_e5010() {
+    assert_ui_fail("fail/298_delayed_wire_wrong_count.volt");
+}
+
+#[test]
+fn ui_fail_299_delayed_out_port_wrong_count_e5010() {
+    assert_ui_fail("fail/299_delayed_out_port_wrong_count.volt");
+}
+
+#[test]
 fn ui_fail_206_edgeless_sync_destination_e3016() {
     // ADR-0098 eki 2: kenarsız alana sync() aşamaları posedge flop oluyordu.
     assert_ui_fail("fail/206_edgeless_sync_destination.volt");
@@ -454,7 +470,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #332: 157 ölü koldaki alanlar arası atama E3001 değil;
     // #340 (ADR-0124): 158 reset portu yazılmayan çocuk (otomatik port),
     // 159 ham reset portunun kendisinin bağlanması.
-    assert_eq!(checked, 144);
+    // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
+    assert_eq!(checked, 145);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

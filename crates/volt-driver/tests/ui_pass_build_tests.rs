@@ -111,7 +111,8 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // kapsanan koldaki atama ikinci sürücü değil. #332: 157 ölü koldaki
     // alanlar arası atama E3001 değil. #340 (ADR-0124): 158 reset portu
     // yazılmayan çocuk, 159 ham reset portunun kendisinin bağlanması.
-    assert_eq!((built, check_only), (144, 0));
+    // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
+    assert_eq!((built, check_only), (145, 0));
 }
 
 #[test]
