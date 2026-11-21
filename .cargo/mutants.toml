@@ -106,7 +106,7 @@ exclude_re = [
     "typeck/literal_fold\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::check_literal_expr$",
     # A1. Sig is {width, signed}; with equal sign and equal width, c == d, so
     # returning c instead of d returns the same value.
-    # expect: crates/volt-sv-emit/src/expr.rs:60:63: replace > with >= in widen_sig
+    # expect: crates/volt-sv-emit/src/expr.rs:56:63: replace > with >= in widen_sig
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in widen_sig$",
     # A1. `l.hi > r.hi` runs only after the arm for l.hi == r.hi.
     # expect: crates/volt-sv-emit/src/let_width.rs:168:64: replace > with >= in Emitter<'_>::comparison_ctx
@@ -116,7 +116,7 @@ exclude_re = [
     "volt-sv-emit/src/let_width\\.rs:\\d+:\\d+: replace < with <= in demand$",
     # A2, assumes the emitter writes `'(` only after a decimal width (every
     # `{}'(` format in expr.rs): `>=` adds text that starts with a bare `'(`.
-    # expect: crates/volt-sv-emit/src/expr.rs:115:12: replace > with >= in starts_with_size_cast
+    # expect: crates/volt-sv-emit/src/expr.rs:111:12: replace > with >= in starts_with_size_cast
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace > with >= in starts_with_size_cast$",
     # A2, assumes is_right_operand is true only from the binary-operator
     # callers, which pass sv_prec 1..=10: then my_prec == parent_prec >= 1
@@ -124,26 +124,26 @@ exclude_re = [
     # The pins of this entry and the next two moved in #253 (#239): they
     # had matched nothing since 3135ceef (lines added above), and since
     # 63e4ffe7 1605:48 matched another mutant, `sig.width < 127` -> `<=`.
-    # expect: crates/volt-sv-emit/src/expr.rs:1373:93: replace > with >= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1373:93: replace > with >= in Emitter<'a>::emit_prec$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1118:93: replace > with >= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1118:93: replace > with >= in Emitter<'a>::emit_prec$",
     # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
     # highest) and a right operand's parent has 1..=10: an atom never needs
     # parentheses.
-    # expect: crates/volt-sv-emit/src/expr.rs:1374:35: replace < with <= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1374:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1119:35: replace < with <= in Emitter<'a>::emit_prec
+    "volt-sv-emit/src/expr\\.rs:1119:35: replace < with <= in Emitter<'a>::emit_prec$",
     # A2, assumes a select width fits a u16 (type check, base_width: u16), so
     # need <= 16: the arm runs when the start is 127+ bits wide or when
     # down >= 2^width (then need > width); sig.width == need is impossible.
-    # expect: crates/volt-sv-emit/src/expr.rs:1667:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1667:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1412:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:1412:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A1 (#282). `sig.width < 127` -> `<=` changes the guard only at
     # sig.width == 127. There its second operand is `down < (1i128 << 127)`,
     # and 1i128 << 127 is i128::MIN (a shift by less than 128 bits does not
     # overflow): no i128 is below it, so the guard is false, as `127 < 127`
     # makes it. True for every `down`, whatever calls the function. Pinned:
     # part_select_from_value has three `<` -> `<=` mutants.
-    # expect: crates/volt-sv-emit/src/expr.rs:1664:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1664:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1409:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:1409:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A2 (#302, ADR-0120), assumes the referee Verilator simulates a signed
     # `a >>> w` correctly. `w - 1` -> `w / 1` writes the amount w instead of
     # w - 1; by IEEE 1800-2017 §11.4.10 both fill every bit with the sign.
@@ -160,7 +160,7 @@ exclude_re = [
     # difftest_tests 1) and the SV (`a >>> 63`, `65'(e) + 65'(f) >>> 65`)
     # is lint-clean: K = w stays below cppw in the residual class too.
     # Re-check when the referee changes (ISSUE_302_MEASURED in the canary).
-    # expect: crates/volt-sv-emit/src/expr.rs:1474:40: replace - with / in Emitter<'a>::clamped_signed_shift
+    # expect: crates/volt-sv-emit/src/expr.rs:1219:40: replace - with / in Emitter<'a>::clamped_signed_shift
     "volt-sv-emit/src/expr\\.rs:\\d+:\\d+: replace - with / in Emitter<'a>::clamped_signed_shift$",
     # A2 (#303). Assumption: widen_if_narrow, through is_bare_cast, wraps the
     # bare text of a same-width cast chain in `$signed`/`$unsigned` before it
@@ -175,8 +175,8 @@ exclude_re = [
     # output net pass. Test of the assumption: with is_bare_cast looking
     # through one cast only, cast_chain_sim_tests fails (WIDTHEXPAND), the
     # signed same-width chains included. Pinned: emit_cast has several `>`.
-    # expect: crates/volt-sv-emit/src/expr.rs:1889:26: replace > with >= in Emitter<'a>::emit_cast
-    "volt-sv-emit/src/expr\\.rs:1889:26: replace > with >= in Emitter<'a>::emit_cast$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1634:26: replace > with >= in Emitter<'a>::emit_cast
+    "volt-sv-emit/src/expr\\.rs:1634:26: replace > with >= in Emitter<'a>::emit_cast$",
     # A2 (#303). Assumption: widen_if_narrow, through is_bare_cast, wraps the
     # bare text of a same-width cast chain in `$signed`/`$unsigned` before it
     # enters a wider context. `==` -> `!=` drops emit_cast's own wrapper
@@ -196,8 +196,8 @@ exclude_re = [
     # mutant makes width_dependent_operands_under_same_width_chains_keep_their_width
     # fail on its values (`(~a) as u8 as u8` in u14 computed at 14 bits).
     # Pinned: emit_cast has several `==`.
-    # expect: crates/volt-sv-emit/src/expr.rs:1893:38: replace == with != in Emitter<'a>::emit_cast
-    "volt-sv-emit/src/expr\\.rs:1893:38: replace == with != in Emitter<'a>::emit_cast$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1638:38: replace == with != in Emitter<'a>::emit_cast
+    "volt-sv-emit/src/expr\\.rs:1638:38: replace == with != in Emitter<'a>::emit_cast$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a
