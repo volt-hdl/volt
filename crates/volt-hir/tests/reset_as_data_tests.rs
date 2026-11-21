@@ -239,6 +239,48 @@ fn the_helps_bool_input_compiles_clean() {
 }
 
 #[test]
+fn a_reset_where_a_value_is_expected_gets_the_same_diagnostic() {
+    // `if rst` ve beklenen tipi olan her konum: reset'i veri olarak okuyan
+    // her yer aynı denetimden geçer, aynı tanıyı alır (#356).
+    for e in [
+        "if rst { true } else { false }",
+        "!rst",
+        "rst && true",
+        "true || rst",
+    ] {
+        let src = through_sync(e);
+        let d = reset_as_data(&src);
+        assert_eq!(d.len(), 1, "{e}: {:?}", diags(&src));
+        assert_eq!(codes(&src), ["E2003"], "{e}");
+        assert!(
+            d[0].message
+                .contains("a reset cannot be used as a value of type 'bool'"),
+            "{e}: {}",
+            d[0].message
+        );
+    }
+    let typed_let = "module M {
+    in  clk : clock
+    in  rst : reset(sync, active_high)
+    out y   : bool
+    let b : bool = rst
+    y = sync(b, clk)
+}
+";
+    assert_eq!(reset_as_data(typed_let).len(), 1, "{:?}", diags(typed_let));
+    let fn_arg = "fn id(x: bool) -> bool { x }
+module M {
+    in  clk : clock
+    in  rst : reset(sync, active_high)
+    out y   : bool
+    let t = id(rst)
+    y = sync(t, clk)
+}
+";
+    assert_eq!(reset_as_data(fn_arg).len(), 1, "{:?}", diags(fn_arg));
+}
+
+#[test]
 fn the_other_ways_to_read_a_reset_are_still_rejected() {
     // #356'nın kontrol tablosu: her biri bugün de reddedilmeli.
     // `concat(…)` ve `zext(…)` sürücünün E0003'üdür (ifade içinde çağrı);

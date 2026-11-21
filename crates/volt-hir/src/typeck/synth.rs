@@ -9,6 +9,7 @@ use volt_ast::{
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
+use super::reset_binding::ResetRead;
 use super::width::IntMeet;
 use super::TypeChecker;
 use crate::consteval::MAX_ARRAY_LEN;
@@ -280,8 +281,13 @@ impl TypeChecker<'_, '_> {
         }
         match op {
             UnOp::Not => {
-                self.check_is_bool(ot, span);
-                self.types.bool_ty()
+                // ADR-0065 R3 (#356): `!rst` reset'i veri olarak okur; tanı
+                // reset kuralının tek yerinden.
+                let bool_ty = self.types.bool_ty();
+                if !self.reject_reset_as_data(operand, ot, ResetRead::Value(bool_ty)) {
+                    self.check_is_bool(ot, span);
+                }
+                bool_ty
             }
             // Bit tersleme genişliği korur.
             UnOp::BitNot => ot,

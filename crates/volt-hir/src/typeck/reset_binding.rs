@@ -16,8 +16,10 @@
 //! konum (`if` koşulu, `!`, `&&`, fn argümanı, `as`) bunu tip kuralıyla
 //! zaten reddeder: reset ne `bool` ne sayıdır. Her tipi kabul eden iki
 //! konum, `match`'in sınananı ve karşılaştırma işleçlerinin operandı,
-//! reset'i tipinden ötürü reddetmiyordu (#356); ikisi de
-//! `reject_reset_as_data`'yı çağırır.
+//! reset'i tipinden ötürü reddetmiyordu (#356). Üç yer de aynı denetimi,
+//! `reject_reset_as_data`'yı çağırır: `match`'in sınananı, karşılaştırma
+//! ve beklenen tipi reset taşımayan her konum (`check`'in genel yolu), böylece
+//! `if rst` ile `match rst` aynı tanıyı alır.
 
 use volt_ast::{Expr, ExprKind, Idx, InstanceDecl, ItemKind, ModuleDecl, PortBinding, StmtKind};
 use volt_diagnostics::{
@@ -37,6 +39,9 @@ pub(super) enum ResetRead {
     MatchScrutinee,
     /// `==`, `!=`, `<`, `>`, `<=`, `>=` operandı.
     Comparison,
+    /// Beklenen tipi reset taşımayan konum (`if` koşulu, `!`, `&&`, fn
+    /// argümanı, tipli `let`, port bağlaması): beklenen tip.
+    Value(TypeId),
 }
 
 impl TypeChecker<'_, '_> {
@@ -46,7 +51,7 @@ impl TypeChecker<'_, '_> {
 
     /// Tip bir reset taşıyor mu: reset'in kendisi, ya da reset taşıyan bir
     /// dizi, demet ya da `Delayed`.
-    fn holds_reset(&self, ty: TypeId) -> bool {
+    pub(super) fn holds_reset(&self, ty: TypeId) -> bool {
         match self.types.ty(ty) {
             Ty::Reset { .. } => true,
             &Ty::Array { elem, .. } | &Ty::Delayed { inner: elem, .. } => self.holds_reset(elem),
@@ -107,6 +112,10 @@ impl TypeChecker<'_, '_> {
             }
             ResetRead::Comparison => {
                 lstr!(en: "a reset cannot be compared: {what}"; tr: "bir reset karşılaştırılamaz: {what}")
+            }
+            ResetRead::Value(expected) => {
+                let shown = self.show(expected);
+                lstr!(en: "a reset cannot be used as a value of type '{shown}': {what}"; tr: "bir reset '{shown}' tipinde bir değer olarak kullanılamaz: {what}")
             }
         };
         let span = self.ast.exprs[e].span;
