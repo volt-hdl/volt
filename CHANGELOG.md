@@ -199,7 +199,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
-### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129 Önerildi, 2026-11-21)
+### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
 
 - PR'ın son tam kapı koşusundan beri yalnız paketlerin `tests/`'indeki
   dosyalar değiştiyse kapı bütün listeyi baştan denemez. Mutantlar ve
@@ -210,6 +210,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Kalanın sonucu taşınır; özet "retest: run …, k of N retested" der.
   Başka her durumda kapı tam koşar.
 - Elle: `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+- Başka bir paketin testinin adıyla okuduğu ya da içeri aldığı bir test
+  dosyası değişirse okuyan ikili de değişmiş sayılır
+  (`crates/volt-tools/tests/verilator_flags_tests.rs` volt-driver'ın iki
+  test dosyasını okur). Test dışı kod (src/, build.rs) okuyorsa kapı tam
+  koşar.
 - Missed bir mutant için yazılan testi kaynak dosyanın
   `#[cfg(test)] mod tests`'i yerine bir test dosyasına koyun: sonraki
   push yalnız gerekeni yeniden sınar.

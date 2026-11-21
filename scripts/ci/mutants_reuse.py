@@ -94,6 +94,7 @@ import hashlib
 import io
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -661,6 +662,11 @@ def find(gh, scope: dict, key: dict, current: list[str], work: Path) -> dict:
 # real-bug corpora, read by several crates) is not one: a change there runs
 # the gate in full.
 TEST_PATH = re.compile(r"^(crates/[^/]+)/tests/")
+TEST_DIR = re.compile(r"^crates/[^/]+/tests(/|$)")
+RAW_START = re.compile(r'r(#*)"')
+# A literal that can be a path: no whitespace, no format braces, no escapes.
+PATH_LIKE = re.compile(r"^[^\s{}\\]+$")
+CHAR_LIT = re.compile(r"'(\\.|[^\\'])'")
 # nextest's failure lines in a mutant's log: FAIL, SIGSEGV, TIMEOUT, ... with
 # the binary id and the test name. Lines after "Cancelling due to test
 # failure" are the tests nextest terminated, not the one that caught it.
@@ -690,12 +696,90 @@ def changed_paths(old: dict, new: dict) -> list[str]:
     return sorted(p for p in set(to) | set(tn) if to.get(p) != tn.get(p))
 
 
-def changed_binaries(paths: list[str], metadata: dict) -> tuple[set[str], set[str], list[str]]:
-    """(exact binary ids, packages whose every binary counts as changed, non-test paths).
+def rust_literals(text: str) -> list[str]:
+    """The string literals of Rust code, comments skipped (line, nested block)."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        elif c == "r" and RAW_START.match(text, i) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            m = RAW_START.match(text, i)
+            close = '"' + m[1]
+            j = text.find(close, m.end())
+            j = n if j < 0 else j
+            out.append(text[m.end():j])
+            i = j + len(close)
+        elif c == '"':
+            j, buf = i + 1, []
+            while j < n and text[j] != '"':
+                step = 2 if text[j] == "\\" else 1
+                buf.append(text[j:j + step])
+                j += step
+            out.append("".join(buf))
+            i = j + 1
+        elif c == "'":
+            m = CHAR_LIT.match(text, i)
+            i = m.end() if m else i + 1
+        else:
+            i += 1
+    return out
+
+
+def tests_readers(files: dict[str, str], packages: dict[str, str]) -> list[tuple[str, str]]:
+    """(reader, target): Rust code under crates/ that names a path in a
+    package's tests/ directory other than its own file, by a string literal
+    (`#[path]`, `include!`, `include_str!`, a path read at run time).
+
+    A literal is resolved against the file's directory, its package's
+    directory (CARGO_MANIFEST_DIR) and the workspace root (where cargo runs
+    a test). A literal that is just another package's directory name (a
+    path joined piece by piece) counts as naming that package's whole
+    tests/ directory."""
+    out = []
+    for f, text in files.items():
+        parts = f.split("/")
+        if len(parts) < 3 or parts[0] != "crates":
+            continue
+        own = parts[1]
+        fdir, pdir = posixpath.dirname(f), f"crates/{own}"
+        for s in rust_literals(text):
+            if "/" in s:
+                if PATH_LIKE.match(s) is None or s.strip("/") in ("", ".", ".."):
+                    continue
+                for base in (fdir, pdir, ""):
+                    q = posixpath.normpath(posixpath.join(base, s.lstrip("/")))
+                    m = TEST_DIR.match(q)
+                    if m and q != f:
+                        out.append((f, q))
+            elif s in packages and s != own:
+                out.append((f, f"crates/{s}/tests"))
+    return sorted(set(out))
+
+
+def changed_binaries(paths: list[str], metadata: dict, files: dict[str, str] | None = None
+                     ) -> tuple[set[str], set[str], list[str]]:
+    """(exact binary ids, packages whose every binary counts as changed, paths that rule out a retest).
 
     `crates/<dir>/tests/<name>.rs` that is an integration test target is that
     binary; any other path under a package's `tests/` (a module, a data
     file, a deleted target) counts for every test binary of the package.
+    Code that reads or includes the path by name (tests_readers) adds its
+    own binary: the reader's binary when it is a test target's root file,
+    every binary of its package when it is another file under that
+    package's tests/. Code outside a tests/ directory (src/, build.rs,
+    benches/, examples/) that names it rules the retest out: its outcome
+    can change any mutant.
     """
     tests, _ = mutants_nextest.workspace_binaries(metadata)
     root = Path(metadata["workspace_root"])
@@ -704,16 +788,40 @@ def changed_binaries(paths: list[str], metadata: dict) -> tuple[set[str], set[st
         if pkg["id"] in metadata["workspace_members"]:
             d = Path(pkg["manifest_path"]).parent.resolve().relative_to(root.resolve()).as_posix()
             packages[d] = pkg["name"]
+    if files is None:
+        files = workspace_rust(root)
+    readers = tests_readers(files, {d.split("/", 1)[1] for d in packages if d.startswith("crates/")})
     exact, whole, other = set(), set(), []
     for p in paths:
         m = TEST_PATH.match(p)
         if not m or m[1] not in packages:
             other.append(p)
-        elif p in tests:
+            continue
+        if p in tests:
             exact.add(tests[p])
         else:
             whole.add(packages[m[1]])
+        for reader, target in readers:
+            if reader == p or not (p == target or p.startswith(target + "/")):
+                continue
+            rm = TEST_PATH.match(reader)
+            if reader in tests:
+                exact.add(tests[reader])
+            elif rm and rm[1] in packages:
+                whole.add(packages[rm[1]])
+            else:
+                other.append(f"{p} (named by {reader}, which is not a test file)")
     return exact, whole, other
+
+
+def workspace_rust(root: Path) -> dict[str, str]:
+    """Every tracked Rust file under crates/, by its path from the root."""
+    names = git(root, "ls-files", "-z", "--", "crates").split("\0")
+    out = {}
+    for n in names:
+        if n.endswith(".rs") and (root / n).is_file():
+            out[n] = (root / n).read_text(encoding="utf-8", errors="replace")
+    return out
 
 
 def binary_changed(binary: str, exact: set[str], whole: set[str]) -> bool:
@@ -1421,6 +1529,53 @@ def self_test() -> int:
         assert res["decision"] == "retest" and info["retest"] == {names[0]: "missed then"}, res
         res, _, _, _ = plan(base201(), run_id=201)
         assert res["decision"] == "full" and "hand run only" in res["reason"], res
+        # A shared helper and code that reads another package's tests/ (#364 review).
+        meta2 = {
+            "workspace_root": str(repo),
+            "workspace_members": ["a 0.1", "b 0.1"],
+            "packages": meta["packages"] + [{
+                "id": "b 0.1", "name": "b", "manifest_path": str(repo / "crates/b/Cargo.toml"),
+                "targets": [
+                    {"name": "b", "kind": ["lib"], "src_path": str(repo / "crates/b/src/lib.rs")},
+                    {"name": "flags", "kind": ["test"], "src_path": str(repo / "crates/b/tests/flags.rs")},
+                    {"name": "other", "kind": ["test"], "src_path": str(repo / "crates/b/tests/other.rs")},
+                ],
+            }],
+        }
+        src = {
+            "crates/a/tests/t.rs": "mod common;\n#[test] fn catches_it() { common::check(); }\n",
+            "crates/a/tests/u.rs": "mod common;\n#[test] fn more() { common::check(); }\n",
+            "crates/a/tests/common/mod.rs": "pub fn check() { assert!(true); }\n",
+            # b's test reads a's test file and a's fixture by path from the root.
+            "crates/b/tests/flags.rs": 'const F: &[&str] = &["crates/a/tests/t.rs", "crates/a/src/lib.rs"];\n'
+                                       'const D: &str = include_str!("../../a/tests/data/x.txt");\n',
+            # A comment, an escape and a format string name nothing.
+            "crates/b/tests/other.rs": '// reads "crates/a/tests/u.rs"\n/* "../../a/tests/u.rs" */\n'
+                                       'const S: &str = "a\\nb/c"; const G: &str = "{}/x";\n',
+        }
+        # Weakening the shared helper of a's binaries: every binary of a, and
+        # nothing of b; the mutant a::u caught is tested again.
+        assert changed_binaries(["crates/a/tests/common/mod.rs"], meta2, src) == (set(), {"a"}, [])
+        res, info, _, log = plan(with_logs(run(201), {names[0]: log_t.replace("a::t catches_it", "b::other x"),
+                                                     names[1]: log_t.replace("a::t catches_it", "a::u more")}), key=k_mod)
+        assert info["retest"] == {names[1]: "caught then by a::u, changed since"}, info
+        assert info["carried"] == {names[0]: {"outcome": "caught", "caught_by": ["b::other"]}}, info
+        # A test file another package's test names: its binary too.
+        assert changed_binaries(["crates/a/tests/t.rs"], meta2, src) == ({"a::t", "b::flags"}, set(), [])
+        assert changed_binaries(["crates/a/tests/u.rs"], meta2, src) == ({"a::u"}, set(), []), "a comment reads nothing"
+        assert changed_binaries(["crates/a/tests/data/x.txt"], meta2, src) == ({"b::flags"}, {"a"}, [])
+        # Read by a non-root file under b's tests/: every binary of b.
+        src_mod = dict(src, **{"crates/b/tests/support/mod.rs": 'pub const P: &str = "crates/a/tests/t.rs";\n'})
+        assert changed_binaries(["crates/a/tests/t.rs"], meta2, src_mod) == ({"a::t", "b::flags"}, {"b"}, [])
+        # A path joined piece by piece: the bare directory name counts as all of a's tests/.
+        src_join = dict(src, **{"crates/b/tests/other.rs": 'fn p() { root().join("a").join("tests"); }\n'})
+        assert changed_binaries(["crates/a/tests/common/mod.rs"], meta2, src_join) == ({"b::other"}, {"a"}, [])
+        # Read by code outside a tests/ directory: no retest, the gate runs in full.
+        src_lib = dict(src, **{"crates/b/src/lib.rs": 'pub const T: &str = include_str!("../../a/tests/data/x.txt");\n'})
+        ex, wh, ot = changed_binaries(["crates/a/tests/data/x.txt"], meta2, src_lib)
+        assert ot == ["crates/a/tests/data/x.txt (named by crates/b/src/lib.rs, which is not a test file)"], ot
+        assert rust_literals('let a = "x//y"; // "c"\n/* "d" /* "e" */ */ let b = r#"q"z"#; let c = \'"\'; let d = "e\\"f";') == [
+            "x//y", 'q"z', 'e\\"f']
         # retest-check: R in the final list, the list on the gate's, the rest carried over.
         with tempfile.TemporaryDirectory() as w:
             lp = Path(w)

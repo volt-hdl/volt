@@ -1,6 +1,6 @@
 # ADR-0129: Mutasyon Kapısının Yeniden Denemesi — Yalnız Test Dosyası Değişen Push'ta Yalnız Sonucu Değişebilecek Mutantlar Yeniden Sınanır
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0109 — "PR kapısı" eki §1 (her push değişen satırların bütün mutantlarını yeniden dener) ve "Kapının önceki sonucu" eki §3 ile §7 (önceki sonuç yalnız anahtarı aynı ve temiz geçmiş bir koşudan, bütünüyle alınır; mutant başına yeniden kullanım kapsam dışı); kalan her kararı yürürlükte
 > İlgili: ADR-0128 (doğrulama yöntemi ve `mutants_compare.py`; tek temel koşu işi, zaman aşımı tabanı ve test sırası yeniden denemede de aynıdır), ADR-0107 (temel koşu ve parçalarda defterde sıfır SKIP)
 > Issue: #364, #366 (planın PR 3'ü)

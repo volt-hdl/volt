@@ -190,7 +190,7 @@ Her parça 18-31 dakikalık kendi temel koşusunu koşuyordu; yeni sırayla
   okunur: defteri `--min-ran 60` ile, damgası anahtara karşı denetlenir.
   Artifact'ı olmayan koşu yeniden kullanılmaz.
 
-## Mutasyon kapısının yeniden denemesi (#364, ADR-0129 Önerildi)
+## Mutasyon kapısının yeniden denemesi (#364, ADR-0129)
 
 Missed mutantlar için gelen düzeltme çoğu zaman yalnız testtir; sonraki push
 bütün listeyi baştan denemez.
@@ -213,6 +213,23 @@ bütün listeyi baştan denemez.
   satırından öncesi. Bir hedefin kök dosyası o ikilidir; `tests/` altındaki
   başka her yol paketin bütün ikilileridir. Hata satırı yoksa mutant yeniden
   sınanır.
+- **Başka paketten okunan test dosyası.** Bir test dosyası başka bir
+  koddan adıyla okunabilir ya da içeri alınabilir: `#[path]`, `include!`,
+  `include_str!`, `../` ile yol, `CARGO_MANIFEST_DIR`'den ya da depo
+  kökünden yol. Bunu bulmak için `crates/` altındaki her Rust dosyasının
+  string literal'leri okunur; yorumlar sayılmaz. Bir literal dosyanın
+  dizinine, paketin dizinine ve depo köküne göre çözülür. Literal yalnız
+  başka bir paketin dizin adıysa o paketin bütün `tests/`'ini adlandırmış
+  sayılır.
+  - Okuyan bir test hedefinin kök dosyasıysa onun ikilisi de değişmiş
+    sayılır.
+  - Okuyan `tests/` altındaki başka bir dosyaysa paketinin bütün
+    ikilileri değişmiş sayılır.
+  - Okuyan test dışı kodsa (src/, build.rs, benches/, examples/) kapı
+    tam koşar.
+  - Bugün tek örnek `crates/volt-tools/tests/verilator_flags_tests.rs`:
+    volt-driver'ın `tests/verilator_canary_tests.rs` ve
+    `tests/metamorphic/sim.rs` dosyalarını okur.
 - **Taşınanlar** (yakalayan ikilisi değişmemiş caught, unviable) özette
   "Carried over" olarak sayılır. Özetin başında `retest: run <id> (SHA
   <sha>): k of N retested, N-k carried over` yazar.
