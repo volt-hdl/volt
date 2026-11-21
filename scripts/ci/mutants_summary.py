@@ -15,11 +15,22 @@ This script counts them, lists the missed mutants by file (file:line,
 change), writes the merged lists and a Markdown summary, and fails when a
 shard is not completed: no artifact, or fewer outcomes than the mutants it
 was given. A shard that is not completed is named at the top of the
-summary with the mutants it did not test, never left out. Each shard also
-brings the peak memory of its baseline (the watchdog's `--peak` files,
-`baseline-build-peak.txt` and `baseline-test-peak.txt`, #253): the shard
-table shows it, and a peak above half of the watchdog's limit
-(`--memory-limit-mib`) is a warning. A mutant whose
+summary with the mutants it did not test, never left out.
+
+The baseline is one job of the run, beside the shards (ADR-0128 §2): its
+artifact `mutants-baseline` (`--baseline DIR`) brings the peak memory of
+its build and tests (the watchdog's `--peak` files,
+`baseline-build-peak.txt` and `baseline-test-peak.txt`, #253) and its
+stamp: the seconds of its tests and the test timeout the rule gives,
+max(2 x baseline, floor) (ADR-0128 §3). The summary shows both; a peak
+above half of the watchdog's limit (`--memory-limit-mib`) is a warning.
+`--baseline-result` is that job's result: anything but `success` fails
+the run and gives no mutant verdict. Each shard's stamp names the test
+timeout it used (the floor: a shard does not wait for the baseline); a
+shard that used less than the rule gives fails on each of its timeout
+mutants (the outcome is not decided) and warns otherwise (no other
+outcome depends on the timeout: a caught mutant failed before it, a
+missed one passed within it). A mutant whose
 test process the watchdog killed at the memory limit is its own class,
 "memory limit": caught, as a timeout is (ADR-0109 section 4).
 
@@ -52,8 +63,10 @@ OUTCOMES = ("caught", "missed", "timeout", "unviable")
 # of `caught` (or `timeout`).
 KINDS = OUTCOMES + ("memory",)
 NAME = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): (?P<change>.+)$")
-# The two watchdog runs of a shard's baseline (#253): file part -> wording.
+# The two watchdog runs of the baseline job (#253): file part -> wording.
 PEAK_PARTS = {"build": "baseline build", "test": "baseline tests"}
+# The baseline job's artifact (ADR-0128 §2).
+BASELINE_ARTIFACT = "mutants-baseline"
 # `cargo mutants --list` colors its output when CARGO_TERM_COLOR=always.
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -113,33 +126,88 @@ def baseline_peak(d: Path, part: str) -> int | None:
         return None
 
 
-def memory_warnings(results: list[dict], limit_mib: int) -> list[str]:
-    """#253: a shard whose baseline peaked above half of the watchdog's limit.
+def read_stamp(d: Path | None) -> dict:
+    path = d / "stamp.json" if d is not None else None
+    if path is None or not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def baseline_facts(d: Path | None) -> dict:
+    """The baseline job's artifact (ADR-0128 §2): its seconds, the rule's
+    test timeout (§3) and the peak memory of its build and tests (#253)."""
+    present = d is not None and d.is_dir()
+    st = read_stamp(d) if present else {}
+    return {
+        "present": present,
+        "seconds": st.get("baseline_seconds"),
+        "timeout": st.get("timeout"),
+        "peak": {part: baseline_peak(d, part) if present else None for part in PEAK_PARTS},
+    }
+
+
+def memory_warnings(base: dict, limit_mib: int) -> list[str]:
+    """#253: the baseline peaked above half of the watchdog's limit.
 
     A mutant over the limit counts as caught (memory limit, #160); a baseline
     near the limit leaves a mutant little room, so a small increase of
     memory makes it "caught" and can hide a blind spot.
     """
     out = []
-    for r in results:
-        if not r["present"]:
-            continue
-        for part in PEAK_PARTS:
-            mib = r["peak"][part]
-            what = PEAK_PARTS[part]
-            if mib is None:
-                out.append(f"shard {r['shard']}: the {what}'s peak was not recorded")
-            elif mib * 2 > limit_mib:
-                out.append(
-                    f"shard {r['shard']}: the {what} peaked at {mib} MiB, above half of the watchdog's limit"
-                    f" ({limit_mib} MiB); a mutant that adds a little memory is reported as memory limit (caught)"
-                    " and can hide a blind spot"
-                )
+    if not base["present"]:
+        return out
+    for part in PEAK_PARTS:
+        mib = base["peak"][part]
+        what = PEAK_PARTS[part]
+        if mib is None:
+            out.append(f"the {what}'s peak was not recorded")
+        elif mib * 2 > limit_mib:
+            out.append(
+                f"the {what} peaked at {mib} MiB, above half of the watchdog's limit"
+                f" ({limit_mib} MiB); a mutant that adds a little memory is reported as memory limit (caught)"
+                " and can hide a blind spot"
+            )
     return out
 
 
-def peak_cell(res: dict) -> str:
-    return " / ".join("not recorded" if res["peak"][p] is None else str(res["peak"][p]) for p in PEAK_PARTS)
+def timeout_check(results: list[dict], base: dict) -> tuple[list[str], list[str]]:
+    """(errors, warnings) of ADR-0128 §3: each shard's --timeout against the rule.
+
+    The rule's timeout is max(2 x baseline, floor), from the baseline job's
+    stamp; a shard used the floor, before the baseline was measured. A
+    shard below the rule decided nothing about its timeout mutants (error);
+    with none, no outcome of it depends on the timeout (warning).
+    """
+    errors, warnings = [], []
+    rule = base.get("timeout")
+    if not base.get("present"):
+        return errors, warnings
+    if rule is None:
+        warnings.append("the baseline job's stamp holds no test timeout: the shards' --timeout is not checked")
+        return errors, warnings
+    for r in results:
+        used = r.get("used_timeout")
+        if used is None:
+            if r["present"]:
+                warnings.append(f"shard {r['shard']}: its stamp holds no --timeout: not checked against the rule's {rule} s")
+            continue
+        if used >= rule:
+            continue
+        why = (f"shard {r['shard']}: --timeout {used} s, below the rule's {rule} s"
+               f" (max(2 x baseline {base.get('seconds')} s, floor), ADR-0128 §3)")
+        if r["timeout"]:
+            errors.append(f"{why}; its {len(r['timeout'])} timeout mutant(s) are not decided: "
+                          + ", ".join(r["timeout"]))
+        else:
+            warnings.append(f"{why}; no mutant of it timed out, so no outcome depends on it")
+    return errors, warnings
+
+
+def baseline_cell(v) -> str:
+    return "not recorded" if v is None else str(v)
 
 
 def shard_result(root: Path, lists: Path, k: int, shards: int = 0) -> dict:
@@ -158,7 +226,8 @@ def shard_result(root: Path, lists: Path, k: int, shards: int = 0) -> dict:
         res[kind] = [n for n in res[kind] if n not in killed]
     seen = {n for kind in KINDS for n in res[kind]}
     res["untested"] = [n for n in res["expected"] if n not in seen]
-    res["peak"] = {part: baseline_peak(d, part) if d else None for part in PEAK_PARTS}
+    # ADR-0128 §3: the test timeout the shard used (its stamp).
+    res["used_timeout"] = read_stamp(d).get("timeout")
     return res
 
 
@@ -242,7 +311,12 @@ def c_list(out: list[str], gate: dict) -> None:
 
 
 def markdown(
-    results: list[dict], gate: dict | None = None, note: str | None = None, memory_limit: int | None = None
+    results: list[dict],
+    gate: dict | None = None,
+    note: str | None = None,
+    memory_limit: int | None = None,
+    base: dict | None = None,
+    baseline_status: str | None = None,
 ) -> str:
     tot = {k: sum(len(r[k]) for r in results) for k in KINDS}
     listed = sum(len(r["expected"]) for r in results)
@@ -258,6 +332,17 @@ def markdown(
         return "\n".join(out)
     if note:
         out += [note, ""]
+    no_verdict = baseline_status not in (None, "success")
+    if no_verdict:
+        out += [
+            f"### Mutation test: FAILED, the baseline job did not pass (`{baseline_status}`): no mutant verdict",
+            "",
+            "Every mutant is tested against the baseline's tree, tools and tests (ADR-0128 §2): with no passed"
+            " baseline, an outcome below may come from the tree itself (a failing test, a missing tool), not from"
+            " its mutant. The tables are for diagnosis only.",
+            "",
+        ]
+        gate = None
     if incomplete:
         out += [
             f"> **NOT COMPLETED: {len(incomplete)} of {len(results)} shard(s)** "
@@ -287,19 +372,34 @@ def markdown(
         f"| {listed} | {done} | {untested} | {tot['caught']} | {tot['missed']} | {tot['timeout']} "
         f"| {tot['memory']} | {tot['unviable']} |",
         "",
-        "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Baseline peak, MiB (build / tests) |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Test timeout, s |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|",
     ]
     for r in results:
         out.append(
             f"| {r['shard']} | {len(r['expected'])} | {tested(r)} | {len(r['caught'])} | {len(r['missed'])} "
-            f"| {len(r['timeout'])} | {len(r['memory'])} | {len(r['unviable'])} | {status(r)} | {peak_cell(r)} |"
+            f"| {len(r['timeout'])} | {len(r['memory'])} | {len(r['unviable'])} | {status(r)} "
+            f"| {baseline_cell(r.get('used_timeout'))} |"
         )
     out.append("")
-    if memory_limit is not None:
-        out += [f"Watchdog limit {memory_limit} MiB; a warning above half of it ({memory_limit // 2} MiB).", ""]
-        out += [f"> **Baseline memory.** {w}" for w in memory_warnings(results, memory_limit)]
-        out.append("")
+    if base is not None:
+        out += [
+            "| Baseline (one job, ADR-0128 §2) | Tests, s | Test timeout by the rule, s | Peak, MiB (build / tests) |",
+            "|---|---:|---:|---|",
+            f"| {'passed' if baseline_status in (None, 'success') else baseline_status}"
+            f"{'' if base['present'] else ', no artifact'} | {baseline_cell(base['seconds'])} "
+            f"| {baseline_cell(base['timeout'])} "
+            f"| {' / '.join(baseline_cell(base['peak'][p]) for p in PEAK_PARTS)} |",
+            "",
+        ]
+        errors, warnings = timeout_check(results, base)
+        out += [f"> **Test timeout.** {w}" for w in errors + warnings]
+        if errors or warnings:
+            out.append("")
+        if memory_limit is not None:
+            out += [f"Watchdog limit {memory_limit} MiB; a warning above half of it ({memory_limit // 2} MiB).", ""]
+            out += [f"> **Baseline memory.** {w}" for w in memory_warnings(base, memory_limit)]
+            out.append("")
     for kind, title in (
         ("missed", "Missed"),
         ("timeout", "Timeout"),
@@ -329,15 +429,18 @@ def summarize(
     config: Path | None = None,
     note: str | None = None,
     memory_limit: int | None = None,
+    baseline: Path | None = None,
+    baseline_status: str | None = None,
 ) -> int:
     results = [shard_result(root, lists, k, shards) for k in range(shards)]
+    base = baseline_facts(baseline) if (baseline is not None or baseline_status is not None) and results else None
     gate = None
     if config is not None:
         missed = sorted(n for r in results for n in r["missed"])
         open_, covered = gate_split(missed, exclusions(config))
         unexcluded = read_lines(lists / "unexcluded.txt")
         gate = {"open": open_, "covered": covered, "c": c_waiting(config, unexcluded)}
-    md = markdown(results, gate, note, memory_limit)
+    md = markdown(results, gate, note, memory_limit, base, baseline_status if results else None)
     print(md)
     if md_path:
         with md_path.open("a", encoding="utf-8") as f:
@@ -349,14 +452,27 @@ def summarize(
             (out_dir / f"{kind}.txt").write_text("".join(n + "\n" for n in names), encoding="utf-8")
         (out_dir / "summary.md").write_text(md + "\n", encoding="utf-8")
     code = 0
-    if memory_limit is not None:
-        for w in memory_warnings(results, memory_limit):
-            print(f"::warning title=Mutation baseline memory::{w}")
+    if base is not None:
+        if baseline_status not in (None, "success"):
+            print(f"::error title=Mutation test::the baseline job did not pass ({baseline_status}): no mutant verdict")
+            code = 1
+        elif not base["present"]:
+            print("::error title=Mutation test::no artifact of the baseline job (mutants-baseline)")
+            code = 1
+        errors, warnings = timeout_check(results, base)
+        for e in errors:
+            print(f"::error title=Mutation test timeout::{e}")
+            code = 1
+        for w in warnings:
+            print(f"::warning title=Mutation test timeout::{w}")
+        if memory_limit is not None:
+            for w in memory_warnings(base, memory_limit):
+                print(f"::warning title=Mutation baseline memory::{w}")
     for r in results:
         if not complete(r):
             print(f"::error title=Mutation test::shard {r['shard']}: {status(r).replace('**', '')}")
             code = 1
-    if gate is not None:
+    if gate is not None and baseline_status in (None, "success"):
         for n in gate["open"]:
             print(f"::error title=Mutation gate::missed, not covered by exclude_re: {n}")
         if gate["open"]:
@@ -427,7 +543,7 @@ def summarize_reused(
         head += [f"Excluded by today's `exclude_re`, tested then ({len(excluded_now)}):", ""]
         head += [f"- {x}" for x in excluded_now] + [""]
     c_list(head, gate)
-    body = markdown(results, None, None, memory_limit).split("\n")[2:]
+    body = markdown(results, None, None, memory_limit, baseline_facts(reuse / "baseline")).split("\n")[2:]
     md = "\n".join(head + [f"The tables of run {info['run']}:", ""] + body)
     print(md)
     if md_path:
@@ -608,44 +724,78 @@ def self_test() -> int:
         text = md_file.read_text(encoding="utf-8")
         assert "Excluded as C, waiting for their issue (1): the gate tries them again when the issue closes" in text, text
         assert f"- {d}: #301" in text and f"- {b}" not in text, text
-        # #253: the peak memory of each shard's baseline (the watchdog's
-        # --peak files), and a warning above half of the watchdog's limit.
+        # ADR-0128 §2, #253: the baseline is one job; its artifact brings the
+        # peak memory of its build and tests and a warning above half of the
+        # watchdog's limit.
         peaks = Path(tmp) / "peaks"
-        for k, build, test in ((0, "3000", "6144"), (1, "7000", "5000"), (2, None, "6145")):
+        for k in range(3):
             s = peaks / f"mutants-out-{k}"
             (s / "mutants.out").mkdir(parents=True)
             (s / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
-            if build is not None:
-                (s / "baseline-build-peak.txt").write_text(build + "\n", encoding="utf-8")
-            (s / "baseline-test-peak.txt").write_text(test + "\n", encoding="utf-8")
-        for k in range(3):
+            (s / "stamp.json").write_text(json.dumps({"role": "shard", "timeout": 3610}), encoding="utf-8")
             listed(k, [a])
+        bdir = Path(tmp) / "baseline"
+        bdir.mkdir()
+        (bdir / "stamp.json").write_text(
+            json.dumps({"role": "baseline", "baseline_seconds": 1300, "timeout": 3610}), encoding="utf-8")
+        (bdir / "baseline-build-peak.txt").write_text("7000\n", encoding="utf-8")
+        (bdir / "baseline-test-peak.txt").write_text("6144\n", encoding="utf-8")
         res = [shard_result(peaks, lists, k, 3) for k in range(3)]
-        assert [r["peak"] for r in res] == [
-            {"build": 3000, "test": 6144},
-            {"build": 7000, "test": 5000},
-            {"build": None, "test": 6145},
-        ], res
-        warns = memory_warnings(res, 12288)
+        assert [r["used_timeout"] for r in res] == [3610] * 3, res
+        base = baseline_facts(bdir)
+        assert base == {"present": True, "seconds": 1300, "timeout": 3610, "peak": {"build": 7000, "test": 6144}}, base
+        warns = memory_warnings(base, 12288)
         assert warns == [
-            "shard 1: the baseline build peaked at 7000 MiB, above half of the watchdog's limit (12288 MiB);"
-            " a mutant that adds a little memory is reported as memory limit (caught) and can hide a blind spot",
-            "shard 2: the baseline build's peak was not recorded",
-            "shard 2: the baseline tests peaked at 6145 MiB, above half of the watchdog's limit (12288 MiB);"
+            "the baseline build peaked at 7000 MiB, above half of the watchdog's limit (12288 MiB);"
             " a mutant that adds a little memory is reported as memory limit (caught) and can hide a blind spot",
         ], warns
-        md = markdown(res, memory_limit=12288)
-        assert "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Baseline peak, MiB (build / tests) |" in md, md
-        assert "| 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | completed | 3000 / 6144 |" in md, md
-        assert "| 2 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | completed | not recorded / 6145 |" in md, md
+        assert memory_warnings(dict(base, peak={"build": None, "test": 6145}), 12288)[0] == "the baseline build's peak was not recorded"
+        assert memory_warnings(baseline_facts(None), 12288) == []
+        md = markdown(res, memory_limit=12288, base=base)
+        assert "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Test timeout, s |" in md, md
+        assert "| 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | completed | 3610 |" in md, md
+        assert "| passed | 1300 | 3610 | 7000 / 6144 |" in md, md
         assert "Watchdog limit 12288 MiB; a warning above half of it (6144 MiB)." in md, md
-        assert "> **Baseline memory.** shard 1: the baseline build peaked at 7000 MiB" in md, md
+        assert "> **Baseline memory.** the baseline build peaked at 7000 MiB" in md, md
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            assert summarize(peaks, lists, 3, None, None, memory_limit=12288) == 0, "a baseline peak warns, never fails"
-        assert out.getvalue().count("::warning title=Mutation baseline memory::") == 3, out.getvalue()
-        # A baseline under half of the limit: no warning.
-        assert memory_warnings(res[:1], 12288) == []
+            assert summarize(peaks, lists, 3, None, None, memory_limit=12288, baseline=bdir,
+                             baseline_status="success") == 0, "a baseline peak warns, never fails"
+        assert out.getvalue().count("::warning title=Mutation baseline memory::") == 1, out.getvalue()
+        # The baseline job did not pass: no mutant verdict, the run fails, even
+        # with every mutant caught; and a gate's missed mutant is not judged.
+        for st in ("failure", "cancelled", "skipped"):
+            out = io.StringIO()
+            md_file = Path(tmp) / f"b-{st}.md"
+            with contextlib.redirect_stdout(out):
+                assert summarize(peaks, lists, 3, None, md_file, config=cfg, baseline=bdir, baseline_status=st) == 1, st
+            text = md_file.read_text(encoding="utf-8")
+            assert f"### Mutation test: FAILED, the baseline job did not pass (`{st}`): no mutant verdict" in text, text
+            assert "Pull-request gate: passed" not in text and "### Pull-request gate" not in text, text
+            assert f"::error title=Mutation test::the baseline job did not pass ({st})" in out.getvalue(), out.getvalue()
+        # No baseline artifact although the job passed: fails.
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize(peaks, lists, 3, None, None, baseline=Path(tmp) / "nobase", baseline_status="success") == 1
+        # ADR-0128 §3: a shard that used less than max(2 x baseline, floor).
+        slow = dict(base, seconds=2000, timeout=4000)
+        errs, warns = timeout_check(res, slow)
+        assert errs == [] and len(warns) == 3 and "no mutant of it timed out" in warns[0], (errs, warns)
+        assert "shard 0: --timeout 3610 s, below the rule's 4000 s (max(2 x baseline 2000 s, floor), ADR-0128 §3)" in warns[0], warns
+        res_t = [dict(res[0], timeout=[b])] + res[1:]
+        errs, warns = timeout_check(res_t, slow)
+        assert errs == [f"shard 0: --timeout 3610 s, below the rule's 4000 s (max(2 x baseline 2000 s, floor),"
+                        f" ADR-0128 §3); its 1 timeout mutant(s) are not decided: {b}"] and len(warns) == 2, (errs, warns)
+        assert timeout_check(res_t, base) == ([], []), "at the rule: nothing to say"
+        (bdir / "stamp.json").write_text(
+            json.dumps({"role": "baseline", "baseline_seconds": 2000, "timeout": 4000}), encoding="utf-8")
+        (peaks / "mutants-out-1" / "mutants.out" / "timeout.txt").write_text(b + "\n", encoding="utf-8")
+        listed(1, [a, b])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert summarize(peaks, lists, 3, None, None, baseline=bdir, baseline_status="success") == 1
+        assert "::error title=Mutation test timeout::shard 1: --timeout 3610 s" in out.getvalue(), out.getvalue()
+        listed(1, [a])
+        (peaks / "mutants-out-1" / "mutants.out" / "timeout.txt").unlink()
         # No mutant to test: the gate passes and says why.
         md_file = Path(tmp) / "summary.md"
         assert summarize(Path(tmp) / "none", lists, 0, None, md_file, config=cfg, note="No Rust source in scope changed.") == 0
@@ -702,6 +852,8 @@ def main() -> int:
     ap.add_argument("--note", help="a line for the top of the summary (why there is no mutant to test)")
     ap.add_argument("--memory-limit-mib", type=int, help="the watchdog's limit: warn on a baseline peak above half of it")
     ap.add_argument("--reused", type=Path, help="#318: the gate's verdict from an earlier run (mutants_reuse.py find)")
+    ap.add_argument("--baseline", type=Path, help="ADR-0128 §2: the baseline job's artifact (mutants-baseline)")
+    ap.add_argument("--baseline-result", help="ADR-0128 §2: the baseline job's result; anything but success fails")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
@@ -723,6 +875,8 @@ def main() -> int:
         args.config if args.gate else None,
         args.note,
         args.memory_limit_mib,
+        args.baseline,
+        args.baseline_result,
     )
 
 

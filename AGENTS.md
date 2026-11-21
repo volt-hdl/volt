@@ -193,7 +193,11 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   `.config/nextest.toml`) compares a reference run with
   `scripts/ci/mutants_compare.py` (ADR-0128, "Doğrulama yöntemi"): the
   same mutants, each with the same outcome; a setting under which any
-  mutant's outcome changes is reverted.
+  mutant's outcome changes is reverted. The baseline is one job per run
+  (`baseline` in `mutants.yml`, ADR-0128 §2): a check that needs the
+  whole unmutated suite (the tool ledger's `--min-ran`, the peak memory,
+  the reuse stamp) belongs there, not in a shard. The test timeout per
+  mutant never goes below `MUTANTS_TIMEOUT_FLOOR_SECONDS` (§3).
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

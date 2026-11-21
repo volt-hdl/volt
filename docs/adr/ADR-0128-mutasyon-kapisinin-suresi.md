@@ -1,11 +1,11 @@
 # ADR-0128: Mutasyon Kapısının Süresi — Test Sırası, Koşu Başına Tek Temel Koşu, Sabit Zaman Aşımı Tabanı ve Parça Sayısı; Sonuçlar Birebir Aynı Kalır
 
-> Statü: Kabul edildi — uygulaması aşamalı: §1 ve §5 #367'de; §2–§3 PR 2; §4 PR 4
+> Statü: Kabul edildi — uygulaması aşamalı: §1, §2, §3 ve §5 uygulandı; §4 PR 4
 > Önceki karar: ADR-0109 — §1'in temel koşusu (her parçada) ve zaman aşımı (parçanın temel koşusunun iki katı), §1'in nextest gerekçesi (varsayılan sıra), §3 ve "PR kapısı" eki §1'in parça hesabı (S = 15 dk, t = 600 sn), "PR kapısı" eki §4'ün zaman aşımı; kalan her kararı yürürlükte
 > İlgili: ADR-0104 (sürüm metni: `volt-sv-emit/build.rs` yeni commit'te yeniden koşmayı sürdürür), ADR-0107 (araç defteri nextest'in her sırasında aynı: SKIP: 0), ADR-0117 (metamorfik test kapının en yavaş ikilisidir)
 > Issue: #366 (ölçüm ve plan), #364 (yalnız kaçanları yeniden sınamak), #300 (parçalarda ccache), #305 (fuzz derleminin yeniden oynatılması)
 > Tarih: 2026-11-20
-> Etkilenen: `.config/nextest.toml` (YENİ), `scripts/ci/mutants_nextest.py` (YENİ), `scripts/ci/mutants_compare.py` (YENİ), `.github/workflows/mutants.yml`, `crates/volt-sv-emit/build.rs`, `crates/volt-sv-emit/src/version_text.rs`, `AGENTS.md`, `.github/workflows/README.md`, `CHANGELOG.md`
+> Etkilenen: `.config/nextest.toml` (YENİ), `scripts/ci/mutants_nextest.py` (YENİ), `scripts/ci/mutants_compare.py` (YENİ), `scripts/ci/mutants_summary.py`, `scripts/ci/mutants_reuse.py`, `.github/workflows/mutants.yml`, `crates/volt-sv-emit/build.rs`, `crates/volt-sv-emit/src/version_text.rs`, `AGENTS.md`, `.github/workflows/README.md`, `CHANGELOG.md`
 
 ## Sorun
 
@@ -78,7 +78,7 @@ koşmadığını değil: yakalanan mutant ilk düşen testte durur
   referans karşılaştırmaları içindir; §2–§4'ün karşılaştırmaları bitince
   kaldırılır.
 
-### 2. Koşu başına tek temel koşu (a, sonraki PR)
+### 2. Koşu başına tek temel koşu (a, uygulandı)
 
 Temel koşu parçadan çıkar, koşu başına tek bir iş olur: bugünkü adımın
 aynısı (nextest, aynı profil, etkisiz yolların silinmesi, bellek bekçisi,
@@ -90,7 +90,7 @@ defterin `--min-ran 60` denetimi (parçalar `--require-zero-skips`'i
 korur). Aynı SHA'daki CI test işinin yeşil olması tek başına yetmez:
 `cargo test` ile, etkisiz yollar dururken, bekçisiz ve ccache ile koşar.
 
-### 3. Sabit zaman aşımı tabanı (b, 2 ile birlikte)
+### 3. Sabit zaman aşımı tabanı (b, 2 ile birlikte, uygulandı)
 
 `--timeout = max(2 × koşunun temel koşusu, F)`. F, kapının kullandığı
 sırayla ölçülen en uzun geçen tam takımın en az iki katıdır ve bugünkü en
@@ -238,6 +238,137 @@ der. Yapılan:
   sınıra takıldı ve bir mutantın sonucu hedefli bir koşudan (44809805732,
   aynı commit, aynı sıra, tek parça) geldi. O mutant kendi parçasının öteki
   16 mutantıyla aynı süreçte değil, kendi temel koşusundan sonra koştu.
+
+### PR 2 (§2, §3): aynı gün A/A ve A/B
+
+**Uygulama.**
+
+- **Temel koşu işi.** "Mutation baseline" işi ilk işten sonra parçalarla
+  aynı anda başlar. Parçanın eski temel koşu adımının aynısını yapar:
+  etkisiz yolları siler, `mutants` profiliyle, bellek bekçisi altında,
+  `VOLT_REQUIRE_TOOLS=all` ile koşar. `mutants-baseline` artifact'ına
+  şunları yükler: bellek tepeleri, damga (`--role baseline`, temel
+  koşunun saniyesi ve kuralın zaman aşımı) ve araç defteri. Defter
+  `--require-zero-skips --min-ran 60` ile denetlenir.
+- **Parça.** Testleri bir kez derler (`cargo nextest run --workspace
+  --no-run`), damgasını kullandığı zaman aşımıyla yazar (`--role shard`)
+  ve `--require-zero-skips`'i korur.
+- **Özet.** Temel koşu işi `success` değilse ya da artifact'ı yoksa özet
+  "no mutant verdict" der ve düşer.
+- **Zaman aşımı.** Parçalar temel koşuyu beklemeden başlar; bu yüzden
+  kuralı (max(2 × temel koşu, F)) bir sonuç denetimi olarak uygular:
+  - Parçalar F ile koşar (`MUTANTS_TIMEOUT_FLOOR_SECONDS` = 3610 sn).
+  - Özet, her parçanın kullandığı değeri temel koşunun damgasındaki kural
+    değeriyle karşılaştırır.
+  - Parçanın değeri kuraldan kısaysa o parçanın her timeout mutantı
+    "not decided" olur ve özet düşer; parçada timeout mutant yoksa özet
+    yalnız uyarır. Yakalanan bir mutant zaman aşımından önce düşmüştür,
+    missed bir mutant onun içinde geçmiştir: ikisinin de sonucu zaman
+    aşımına bağlı değildir.
+  - F = 3610 sn, yeni sırayla ölçülen en uzun geçen tam takımın iki
+    katından büyüktür: o takım 1748 sn sürdü (aşağıda, #363'ün missed bir
+    mutantı).
+- **Yeniden kullanım** (#318). `mutants_reuse.py` önceki koşunun
+  `mutants-baseline`'ını da okur ve denetler: defterini `--min-ran 60`
+  ile, damgasını anahtarla.
+- **`--min-ran`'ın yeri.** Parçalarda kalsaydı kapı düşerdi: yeni düzende
+  parçaların defterleri 1–30 araç araması tutuyor (44823915142: 0/4 ve
+  2/4 parçalarında `1 lookup(s)`).
+
+**Ağaçlar.**
+
+- **#343.** A/A eski düzenin kanıt dalı `evidence/366-aa-343`'tür
+  (`ca1d6a0d`, PR 1'in kanıt ağacı: `62373205` → h `1e00aa85` → #343 →
+  #367'nin iş akışı). A/B'nin yeni düzeni `evidence/366-ab-343`'tür
+  (`28f24fdb` = `ca1d6a0d` + bu PR'ın commit'i; Rust ağacı aynı).
+  `gate_base=1e00aa85`, `shards=4`, `nextest_order=priority`. Üç koşu
+  aynı gün aynı dakikada başladı (2026-11-20 21:50 UTC).
+- **#363 (ikinci referans).** `evidence/366-new-363` (`679fbe43`):
+  `1e00aa85` → #363'ün ilk kapı koşusunun birleştirme ağacı
+  (`git merge-tree 62373205 b0a7dbf1`; koşunun commit'i `0609aa33`) →
+  #367 ve bu PR'ın iş akışı ile betikleri. Rust ağacı #363'ünkine h
+  eklenmiş hâlidir. `gate_base=1e00aa85`, `shards=3`.
+
+**Sonuç.** `mutants_compare.py` beş karşılaştırmanın hepsinde çıkış
+kodu **0** verdi:
+
+| A | B | Mutant | Sonuçlar (iki tarafta aynı) | Mutant özeti |
+|---|---|---:|---|---|
+| A/A: eski düzen 44823887730 | eski düzen 44823901140 | 68 | caught 59, unviable 9 | `b4239bffc770` |
+| A/B: eski düzen 44823887730 | yeni düzen 44823915142 | 68 | caught 59, unviable 9 | `b4239bffc770` |
+| A/B: eski düzen 44823901140 | yeni düzen 44823915142 | 68 | caught 59, unviable 9 | `b4239bffc770` |
+| kayıtlı referans 44615986697 (ADR-0128'den önce) | yeni düzen 44823915142 | 68 | caught 59, unviable 9 | `b4239bffc770` |
+| #363'ün ilk koşusu 44597750883 | yeni düzen 44823927528 | 65 | caught 54, missed 3, unviable 8 | `ee9284a636b1` |
+
+Missed, timeout ve bellek sınırı bütün koşularda 0'dır; tek istisna
+#363'ün 3 missed mutantıdır. Yeni düzende PR 1'in koşusu 44755128989 ile
+de çıkış kodu 0'dır.
+
+**Temel koşusu olmayan parçada missed mutant.** #363'ün 3 missed mutantı
+yeni düzende de missed (44823927528, 0/3 parçası; bu parçanın temel koşusu
+yok):
+
+| Mutant | 44597750883: test (sn) / sınır | 44823927528: test (sn) / sınır |
+|---|---:|---:|
+| `timing.rs:654:55: replace > with >=` | 1356 / 2596 | 1748 / 3610 |
+| `timing.rs:734:18: replace < with <=` | 1322 / 2596 | 1729 / 3610 |
+| `timing.rs:736:32: replace - with +` | 1316 / 2596 | 1729 / 3610 |
+
+- Missed mutant bütün takımı koşar. Takımın süresi sınırın %48'i;
+  referansta %51–52 idi.
+- Yeni parçada takım temel koşu işininkinden (1631 sn) %6–7 uzun sürdü.
+  Koşucu aynı imajdaydı (20261116.376.1) ama başka bir makineydi.
+- Eski kural parçanın kendi temel koşusunun iki katıydı. Aynı koşucuda bu
+  değer 3262–3496 sn olurdu, F'nin altında.
+- Özet kapıyı yalnız bu 3 mutant için düşürdü: `Pull-request gate:
+  FAILED, 3 missed mutant(s) not covered by exclude_re`. Referans koşu da
+  aynı 3 mutantla düşmüştü. Temel koşu tablosu: `| passed | 1631 | 3610 |
+  1262 / 3106 |`.
+
+**Süreler.**
+
+| | A/A 44823887730 | A/A 44823901140 | Yeni 44823915142 |
+|---|---:|---:|---:|
+| Koşunun duvar süresi | 37,5 dk | 31,6 dk | **20,3 dk** |
+| En yavaş iş | 36,7 dk (parça 1) | 30,9 dk (parça 3) | 19,6 dk (temel koşu işi) |
+| En yavaş parça | 36,7 dk | 30,9 dk | **7,6 dk** |
+| Temel koşu adımı (parça 0/1/2/3, ya da iş) | 1775 / 1795 / 1163 / 1130 sn | 1282 / 1225 / 1006 / 1402 sn | 1129 sn (testler 1088 sn), tek |
+| Parçada derleme adımı (0/1/2/3) | — | — | 54 / 44 / 60 / 41 sn |
+| Parçaların mutant adımı (0/1/2/3) | 261 / 373 / 165 / 255 sn | 207 / 262 / 186 / 419 sn | 296 / 374 / 261 / 289 sn |
+| Mutantların test süresi, toplam | 276 sn | 241 sn | 233 sn |
+| Mutantların derleme süresi, toplam | 771 sn | 829 sn | 980 sn |
+
+| | #363 referans 44597750883 | #363 yeni düzen 44823927528 |
+|---|---:|---:|
+| Koşunun duvar süresi | 239,7 dk | **94,4 dk** |
+| En yavaş parça | 238,5 dk (0/3) | 93,6 dk (0/3: 3 missed) |
+| Temel koşu | parça başına 1337 / 1138 / 1110 sn | tek iş, 1690 sn (testler 1631 sn) |
+| Parçaların mutant adımı (0/1/2) | 12924 / 11778 / 8577 sn | 5537 / 545 / 371 sn |
+| Mutantların test süresi, toplam | 32 079 sn | 5304 sn |
+
+- Yeni düzende koşunun süresini temel koşu işi (19–29 dk) ya da missed
+  mutantlı parça belirler. Missed mutantı olmayan bir parça 6–10 dk'da
+  biter.
+- Yeni düzende mutantların derleme toplamı A/A'nın iki koşusundan
+  %18–27 yüksek: 980 sn'ye karşı 771 ve 829 sn. Nedeni ölçülmedi.
+  Parçanın derleme adımı (41–60 sn) bu toplama dahil değildir.
+- 0/3 parçasının mutant adımının 5537 sn'sinin ~5200 sn'si 3 missed
+  mutanttır.
+
+**Yöntemden sapmalar.**
+
+- A/A çifti eski düzenle koşuldu: aynı ağaç, aynı sıra, aynı ayar. A/B'nin
+  A'sı bu çiftin iki koşusudur. Yeni düzenle ikinci bir koşu (yeni düzenin
+  A/A'sı) koşulmadı.
+- #363'ün referansı (44597750883) üç şeyiyle yeni koşudan ayrılır: h'yi
+  içermez, varsayılan sırayla koşmuştur ve eski düzendedir. Sonuç
+  eşitliği üçünün birlikte değişmesine karşı gösterildi.
+- #363 kanıt ağacında `.test-baseline` ve `.github/badges.json` birleşmede
+  çakıştı ve #363'ün sürümü alındı (yalnız test sayıları; hiçbir Rust
+  testi okumaz).
+- Koşucu imajları: A/A ve A/B'nin bütün işleri 20261116.133.1 ve
+  20261116.376.1'dedir. #363'ün yeni koşusu 20261116.376.1'de, referansının
+  parçaları 20261111.370.1, 20261116.133.1 ve 20261111.127.1'dedir.
 
 ## Reddedilenler
 

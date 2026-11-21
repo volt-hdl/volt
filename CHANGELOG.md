@@ -199,6 +199,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Mutasyon kapısında koşu başına tek temel koşu ve sabit zaman aşımı tabanı (#366, ADR-0128 §2–§3, 2026-11-21)
+
+- **Tek temel koşu.** Temel koşu parçalardan çıktı: koşu başına bir iş
+  ("Mutation baseline"), parçalarla aynı anda. Bütün testleri araçlar
+  zorunlu ve bellek bekçisi altında koşar; bellek tepe uyarısı, yeniden
+  kullanım damgası ve defterin `--min-ran 60` denetimi oradadır. Parçalar
+  `--require-zero-skips`'i korur. Temel koşu geçmezse özet mutant kararı
+  vermeden düşer.
+- **Zaman aşımı tabanı.** Mutant başına test zaman aşımı
+  max(2 × temel koşu, 3610 sn). Parçalar 3610 sn ile başlar; temel koşu
+  daha yavaşsa özet bunu denetler.
+- Mutant listesi ve her mutantın sonucu değişmez; aynı gün koşulan A/A ve
+  A/B karşılaştırmaları ADR-0128'de.
+
 ### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128 Önerildi, 2026-11-20)
 
 - **Test sırası.** Kapının parçaları testleri nextest'in `mutants`
