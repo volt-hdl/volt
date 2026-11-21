@@ -176,9 +176,9 @@ fn ui_fail_299_delayed_out_port_wrong_count_e5010() {
 }
 
 #[test]
-fn ui_fail_300_test_struct_compare_leaf_overflow_e8512() {
+fn ui_fail_309_test_struct_compare_leaf_overflow_e8512() {
     // #375: bütün-struct karşılaştırmasında sığmayan literal alanı.
-    assert_ui_fail("fail/300_test_struct_compare_leaf_overflow.volt");
+    assert_ui_fail("fail/309_test_struct_compare_leaf_overflow.volt");
 }
 
 #[test]
