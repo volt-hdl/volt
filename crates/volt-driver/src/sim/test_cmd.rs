@@ -8,8 +8,8 @@ use volt_diagnostics::lstr;
 use volt_sv_emit::{sim as tbgen, uses_sim_contracts, SimPort, SvaMode};
 
 use super::contracts::{covers_in, merge_covers, ContractIndex, CoverCount};
-use super::report::{print_summary, print_test_lines};
-use super::tb_output::{parse_tb_output, TestOutcome};
+use super::report::{print_summary, print_test_lines, Totals};
+use super::tb_output::{reconcile, GroupRun, TestOutcome};
 use super::test_build::{collect_groups, compile_unit, TestGroup, TestUnit};
 use super::test_files::resolve_files;
 use super::test_waves::{self, failed_tests, GroupWaves, WaveMode};
@@ -60,15 +60,15 @@ fn test_inner(filter: Option<&str>, opts: TestOptions<'_>) -> Result<ExitCode, E
     let verilator = require_verilator("volt test")?;
 
     // ── Grup başına verilate + koştur ──
-    let mut outcomes: Vec<TestOutcome> = Vec::new();
+    let mut totals = Totals::default();
     let mut covers: Vec<CoverCount> = Vec::new();
     for group in &groups {
         let unit = &units[group.unit];
-        let (group_outcomes, group_covers) = run_group(&verilator, unit, group, opts)?;
-        outcomes.extend(group_outcomes);
+        let (run, group_covers) = run_group(&verilator, unit, group, opts)?;
+        totals.add(run);
         merge_covers(&mut covers, group_covers);
     }
-    Ok(print_summary(&outcomes, &covers))
+    Ok(print_summary(&totals, &covers))
 }
 
 /// Modülün portları, SV'si ve onu üreten derleme (kontrat kimlikleri
@@ -142,7 +142,7 @@ fn run_group(
     unit: &TestUnit,
     group: &TestGroup,
     opts: TestOptions<'_>,
-) -> Result<(Vec<TestOutcome>, Vec<CoverCount>), ExitCode> {
+) -> Result<(GroupRun, Vec<CoverCount>), ExitCode> {
     let module = &group.module;
     let Some((ports, Some(sv), compiled)) = dut_of(unit, module) else {
         eprintln!(
@@ -181,11 +181,16 @@ fn run_group(
     let exe = verilate(verilator, &job, &[])?;
     let output = run_simulation(verilator, &exe, &sim_dir, &[])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     if opts.nocapture {
         print!("{stdout}");
+        eprint!("{stderr}");
     }
     let index = ContractIndex::new(&compiled.sva_props, &compiled.map, module);
-    let parsed: Vec<TestOutcome> = parse_tb_output(&stdout)
+    // ADR-0130: çıkış kodu ve eksik `VOLT-TEST-END` testlerle uzlaştırılır.
+    let names: Vec<String> = group.tests.iter().map(|t| t.name.clone()).collect();
+    let mut run = reconcile(module, &names, (&stdout, &stderr), output.status.code());
+    run.outcomes = std::mem::take(&mut run.outcomes)
         .into_iter()
         .map(|mut o| {
             o.contract = o.contract.map(|v| index.resolve(v));
@@ -199,21 +204,21 @@ fn run_group(
             o
         })
         .collect();
-    print_test_lines(&parsed);
+    print_test_lines(&run);
     let waves = GroupWaves {
         sim_dir: &sim_dir,
         module,
         ports: &ports,
         compiled,
     };
-    let parsed = attach_waveforms(
-        parsed,
+    run.outcomes = attach_waveforms(
+        run.outcomes,
         &waves,
         (verilator, &inputs),
         group,
         (opts.waves, uses_sim_contracts(&sv)),
     );
-    Ok((parsed, index.covers(&covers_in(&stdout))))
+    Ok((run, index.covers(&covers_in(&stdout))))
 }
 
 /// Düşen testlere dalga formu açma satırını ekler (ADR-0095 §3).
