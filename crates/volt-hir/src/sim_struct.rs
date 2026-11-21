@@ -425,9 +425,12 @@ pub(crate) fn is_whole_struct_arg(duts: &crate::sim::DutMap<'_>, arg: &TestExpr)
 }
 
 /// Bütün-struct karşılaştırması denetimi: bir taraf struct portu, diğeri
-/// aynı struct'ın eksiksiz literali; genişlik ≤ 64 bit.
+/// aynı struct'ın eksiksiz literali; genişlik ≤ 64 bit. Literalin her
+/// alanı, bütün-struct yazımındaki gibi alanın tipine sığmalıdır (#375):
+/// sabit E8512, hesaplanmış değer testbench'te denetlenir.
 pub(crate) fn check_struct_compare(
     duts: &crate::sim::DutMap<'_>,
+    consts: &crate::sim_const::TestConsts,
     args: &[TestExpr],
     check_scalar: &mut dyn FnMut(&TestExpr, &mut Vec<Diagnostic>),
     diags: &mut Vec<Diagnostic>,
@@ -450,11 +453,13 @@ pub(crate) fn check_struct_compare(
         duts.get(dut.text.as_str())
             .copied()
             .flatten()
-            .and_then(|(src, m)| struct_port_layout(src, m, &port.text).map(|l| (l, port.clone())))
+            .and_then(|(src, m)| {
+                struct_port_layout(src, m, &port.text).map(|l| (l, port.clone(), dut.clone()))
+            })
     };
-    let (layout, port, other) = match (layout_of(a), layout_of(b)) {
-        (Some((l, p)), _) => (l, p, b),
-        (None, Some((l, p))) => (l, p, a),
+    let (layout, port, dut, other) = match (layout_of(a), layout_of(b)) {
+        (Some((l, p, d)), _) => (l, p, d, b),
+        (None, Some((l, p, d))) => (l, p, d, a),
         (None, None) => {
             // İki literal ya da literal + sayı: karşılaştırılacak port yok.
             let lit = if matches!(a.kind, TestExprKind::StructLit { .. }) {
@@ -486,10 +491,29 @@ pub(crate) fn check_struct_compare(
                       tr: "'{}' portu '{}' struct'ı, bir '{}' literaliyle karşılaştırılıyor", port.text, layout.name, name.text),
             ));
         }
-        TestExprKind::StructLit { .. } => check_literal(&layout, other, check_scalar, diags),
+        TestExprKind::StructLit { .. } => {
+            let mut check_leaf = |path: &[String],
+                                  field: &Name,
+                                  v: &TestExpr,
+                                  d: &mut Vec<Diagnostic>| {
+                check_scalar(v, d);
+                // Yaprak genişliği yazımdaki gibi noktalı port yolundan.
+                let dotted = path.join(".");
+                let full = format!("{}.{dotted}", port.text);
+                let Some(width) = crate::sim_port::port_path_width(duts, &dut, &full, PortDir::Out)
+                else {
+                    return;
+                };
+                let ty = width.type_name();
+                let label = lstr!(en: "field '{dotted}' of '{}' is {ty} (max {})", layout.name, width.max_pattern();
+                                  tr: "'{}' struct'ının '{dotted}' alanı {ty} (en çok {})", layout.name, width.max_pattern());
+                crate::sim_port::check_value_fits(consts, width, v, (field, label), d);
+            };
+            check_literal(&layout, other, &mut check_leaf, diags);
+        }
         TestExprKind::PortRead { .. } => {
             // İki struct portu: aynı struct olmalı.
-            if let Some((l2, p2)) = layout_of(other) {
+            if let Some((l2, p2, _)) = layout_of(other) {
                 if l2.name != layout.name {
                     diags.push(type_mismatch(
                         p2.span,
@@ -523,21 +547,24 @@ fn number_vs_struct(layout: &StructLayout, port: &Name, other: &TestExpr) -> Dia
     )
 }
 
-/// Literal: her alan bir kez, bilinmeyen alan yok, değerler sayı.
+/// Yaprağın denetimi: yaprak yolu, literaldeki alan adı, değer.
+type CheckLeaf<'c> = dyn FnMut(&[String], &Name, &TestExpr, &mut Vec<Diagnostic>) + 'c;
+
+/// Literal: her alan bir kez, bilinmeyen alan yok, her yaprak `check_leaf`.
 fn check_literal(
     layout: &StructLayout,
     lit: &TestExpr,
-    check_scalar: &mut dyn FnMut(&TestExpr, &mut Vec<Diagnostic>),
+    check_leaf: &mut CheckLeaf<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    check_literal_at(layout, lit, &[], check_scalar, diags);
+    check_literal_at(layout, lit, &[], check_leaf, diags);
 }
 
 fn check_literal_at(
     layout: &StructLayout,
     lit: &TestExpr,
     prefix: &[String],
-    check_scalar: &mut dyn FnMut(&TestExpr, &mut Vec<Diagnostic>),
+    check_leaf: &mut CheckLeaf<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let TestExprKind::StructLit { name, fields } = &lit.kind else {
@@ -566,9 +593,9 @@ fn check_literal_at(
         path.push(f.text.clone());
         let is_leaf = layout.leaves.iter().any(|l: &Leaf| l.path == path);
         if is_leaf {
-            check_scalar(v, diags);
+            check_leaf(&path, f, v, diags);
         } else {
-            check_literal_at(layout, v, &path, check_scalar, diags);
+            check_literal_at(layout, v, &path, check_leaf, diags);
         }
     }
     let missing: Vec<&String> = level

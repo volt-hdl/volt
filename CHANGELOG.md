@@ -9,6 +9,19 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bütün-struct karşılaştırmasında
+  (`assert_eq(dut.q, P { .. })`, `assert_ne`) literalin her alanı artık
+  alanın tipine sığmalıdır (#375, ADR-0131; sessiz yanlış düzeltmesi).
+  0.1.2'de testbench alanı alan genişliğine maskeleyip paketliyordu:
+  `a : u4` iken `P { a: 17, .. }` `a: 1` gibi karşılaştırılıyor,
+  `assert_eq` `q.a = 1` tutan donanımda geçiyordu; hesaplanmış alan da
+  aynı biçimde maskeleniyordu (`P { a: v + 16 }`). Artık kural
+  bütün-struct yazımınınkiyle aynıdır (ADR-0059): sığmayan sabit alan
+  E8512 alır (ikincil etiket alanı adlandırır), hesaplanmış alan
+  karşılaştırmadan önce denetlenir ve sığmıyorsa test `port_overflow`
+  ile düşer. İşaretli alanda aralıktaki negatif sayı (`0 - 1`) geçerli
+  kalır. Alanına sığan literallerin testbench'i ve sonucu değişmez. Son
+  hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası.
 - **Davranış değişikliği.** `volt test` benzetimin beklenmedik bitişini
   artık testlerle uzlaştırır (#377, ADR-0130; sessiz yanlış düzeltmesi).
   0.1.2'de sürücü benzetimin çıkış kodunu okumuyor ve yalnız

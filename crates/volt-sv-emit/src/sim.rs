@@ -162,6 +162,16 @@ pub enum TbStep {
         value: TbValue,
         check: TbPortCheck,
     },
+    /// Hesaplanmış değer, hiçbir porta yazılmadan, `check`'in genişliğine
+    /// göre denetlenir; sığmıyorsa test `port_overflow` ile düşer
+    /// (`SetPortChecked`'in denetimi, yazmasız). Bütün-struct
+    /// karşılaştırmasında literal alanı (#375): `name` alanın yoludur
+    /// (`q.a`).
+    CheckValue {
+        name: String,
+        value: TbValue,
+        check: TbPortCheck,
+    },
     /// `step(n);`
     Step(u64),
     /// `reset();`
