@@ -2,7 +2,7 @@
 
 > Statü: Kabul edildi — uygulaması aşamalı: §1, §2, §3 ve §5 uygulandı; §4 PR 4
 > Önceki karar: ADR-0109 — §1'in temel koşusu (her parçada) ve zaman aşımı (parçanın temel koşusunun iki katı), §1'in nextest gerekçesi (varsayılan sıra), §3 ve "PR kapısı" eki §1'in parça hesabı (S = 15 dk, t = 600 sn), "PR kapısı" eki §4'ün zaman aşımı; kalan her kararı yürürlükte
-> İlgili: ADR-0104 (sürüm metni: `volt-sv-emit/build.rs` yeni commit'te yeniden koşmayı sürdürür), ADR-0107 (araç defteri nextest'in her sırasında aynı: SKIP: 0), ADR-0117 (metamorfik test kapının en yavaş ikilisidir)
+> İlgili: ADR-0129 (#364: test dosyası değişen push'ta yeniden deneme; bu ADR'nin doğrulama yöntemiyle), ADR-0104 (sürüm metni: `volt-sv-emit/build.rs` yeni commit'te yeniden koşmayı sürdürür), ADR-0107 (araç defteri nextest'in her sırasında aynı: SKIP: 0), ADR-0117 (metamorfik test kapının en yavaş ikilisidir)
 > Issue: #366 (ölçüm ve plan), #364 (yalnız kaçanları yeniden sınamak), #300 (parçalarda ccache), #305 (fuzz derleminin yeniden oynatılması)
 > Tarih: 2026-11-20
 > Etkilenen: `.config/nextest.toml` (YENİ), `scripts/ci/mutants_nextest.py` (YENİ), `scripts/ci/mutants_compare.py` (YENİ), `scripts/ci/mutants_summary.py`, `scripts/ci/mutants_reuse.py`, `.github/workflows/mutants.yml`, `crates/volt-sv-emit/build.rs`, `crates/volt-sv-emit/src/version_text.rs`, `AGENTS.md`, `.github/workflows/README.md`, `CHANGELOG.md`

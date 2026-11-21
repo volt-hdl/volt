@@ -199,6 +199,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129 Önerildi, 2026-11-21)
+
+- PR'ın son tam kapı koşusundan beri yalnız paketlerin `tests/`'indeki
+  dosyalar değiştiyse kapı bütün listeyi baştan denemez. Mutantlar ve
+  ortam da aynı olmalıdır. Kapı yalnız şunları yeniden sınar:
+  - o koşunun missed, timeout ve bellek sınırı mutantları;
+  - o koşunun sınamadığı mutantlar;
+  - yakalayan test ikilisi bu push'ta değişen caught mutantlar.
+- Kalanın sonucu taşınır; özet "retest: run …, k of N retested" der.
+  Başka her durumda kapı tam koşar.
+- Elle: `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+- Missed bir mutant için yazılan testi kaynak dosyanın
+  `#[cfg(test)] mod tests`'i yerine bir test dosyasına koyun: sonraki
+  push yalnız gerekeni yeniden sınar.
+
 ### Geliştirici notu — Mutasyon kapısında koşu başına tek temel koşu ve sabit zaman aşımı tabanı (#366, ADR-0128 §2–§3, 2026-11-21)
 
 - **Tek temel koşu.** Temel koşu parçalardan çıktı: koşu başına bir iş

@@ -61,6 +61,8 @@ runs in full and the log says why:
     mutants_reuse.py key --lists DIR [--out FILE]
     mutants_reuse.py find --lists DIR --pr N --head-repo OWNER/NAME --head-ref BRANCH [--github-output FILE]
     mutants_reuse.py mask
+    mutants_reuse.py retest --lists DIR (--pr N --head-repo OWNER/NAME --head-ref BRANCH | --run ID) [--github-output FILE]
+    mutants_reuse.py retest-check --lists DIR
     mutants_reuse.py stamp --out FILE --role baseline --baseline-seconds S --timeout T
     mutants_reuse.py stamp --out FILE --role shard --timeout T
     mutants_reuse.py --self-test
@@ -69,6 +71,17 @@ runs in full and the log says why:
 looks for the earlier run and, when it reuses one, writes DIR/reuse/
 (reuse.json, the earlier lists, the shards' outcomes and the baseline's
 files) for the summary job; GitHub Actions outputs `run`, `sha` and `key`.
+`retest` (#364, ADR-0129), when nothing was reused: the pull request's
+last full gate run (or the run `--run` names, a hand gate run's
+`retest_from`) is the base when its mutants and environment are this run's
+and every path changed since is under a package's `tests/`; it writes
+DIR/retest/ (retest.json: why each mutant is tested again, the outcomes
+carried over; retest.re: the exact names) and outputs `run` and `sha`.
+Tested again: the base's missed, timeout and memory-limit mutants, those
+it did not test, and those caught by a test binary the push changed (read
+from the nextest failure line of the mutant's log; a log that names none
+is tested again). `retest-check` checks the narrowed list against the
+gate's (`gate-all.txt`) and fixes what is carried over.
 `mask` deletes the inert paths from the checkout (the baseline job and each
 shard, before they test). `stamp` writes the tool versions, runner image
 and inert paths of the baseline job (with its seconds and the test timeout

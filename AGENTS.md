@@ -197,7 +197,12 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   (`baseline` in `mutants.yml`, ADR-0128 §2): a check that needs the
   whole unmutated suite (the tool ledger's `--min-ran`, the peak memory,
   the reuse stamp) belongs there, not in a shard. The test timeout per
-  mutant never goes below `MUTANTS_TIMEOUT_FLOOR_SECONDS` (§3).
+  mutant never goes below `MUTANTS_TIMEOUT_FLOOR_SECONDS` (§3). After a
+  push that changes only files under a package's `tests/`, the gate
+  retests only what that push can change (ADR-0129, #364): put a test for
+  a missed mutant in a test file, not in the source file's
+  `#[cfg(test)] mod tests`, and the next push retests the missed mutants
+  and those the changed test binaries caught, instead of the whole list.
 - Tests write into a temporary directory, never into the checkout; a
   child process (`volt`, a fake tool) runs there too. After `just check`,
   `git status` is clean; CI fails when the tests change or create a file.

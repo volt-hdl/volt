@@ -190,6 +190,41 @@ Her parça 18-31 dakikalık kendi temel koşusunu koşuyordu; yeni sırayla
   okunur: defteri `--min-ran 60` ile, damgası anahtara karşı denetlenir.
   Artifact'ı olmayan koşu yeniden kullanılmaz.
 
+## Mutasyon kapısının yeniden denemesi (#364, ADR-0129 Önerildi)
+
+Missed mutantlar için gelen düzeltme çoğu zaman yalnız testtir; sonraki push
+bütün listeyi baştan denemez.
+
+- **Taban:** PR'ın son tam kapı koşusu. Tam koşu, bütün listeyi kendisi
+  sınamış, tamamlanmış ve iptal edilmemiş koşudur; yeniden kullanım ve
+  yeniden deneme koşuları atlanır. Kapıyı geçmiş olması gerekmez. Temel
+  koşusu geçmiş, her parçası tamamlanmış, SKIP 0 olmalıdır.
+- **Koşul:** tabanla aynı anahtar kısımları (`mutants`, `environment`), ve
+  anahtarın ağacında değişen her yol bir paketin `tests/`'inde
+  (`crates/<paket>/tests/…`). Kaynak dosya (kendi `#[cfg(test)]`'iyle
+  birlikte), kök `tests/`, `Cargo.toml` ya da başka bir yol değiştiyse kapı
+  tam koşar; günlük nedenini yazar.
+- **Yeniden sınananlar:**
+  - tabanın missed, timeout ve bellek sınırı mutantları;
+  - tabanın sınamadıkları;
+  - yakalayan test ikilisi bu push'ta değişen caught mutantlar.
+- **Yakalayan ikili** tabanın parça artifact'ındaki günlükten okunur: ilk
+  nextest hata satırı (`FAIL [..] (i/N) <ikili> <test>`), "Cancelling"
+  satırından öncesi. Bir hedefin kök dosyası o ikilidir; `tests/` altındaki
+  başka her yol paketin bütün ikilileridir. Hata satırı yoksa mutant yeniden
+  sınanır.
+- **Taşınanlar** (yakalayan ikilisi değişmemiş caught, unviable) özette
+  "Carried over" olarak sayılır. Özetin başında `retest: run <id> (SHA
+  <sha>): k of N retested, N-k carried over` yazar.
+- **Liste** hedefli koşu gibi daraltılır (`--re` tam adlarla, `--in-diff`
+  satırlarıyla). `mutants_reuse.py retest-check` listenin yeniden
+  sınanacak her mutantı tuttuğunu ve kapının listesi dışında hiçbir şey
+  tutmadığını kanıtlar; kanıtlanamazsa kapı tam koşar.
+- **Elle:** `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+  `mutants_compare.py` bir yeniden denemeyi bütün kapı olarak okur
+  (`gate-all.txt` ve taşınan sonuçlar). Böylece aynı commit'teki tam
+  koşuyla karşılaştırılır.
+
 ## Mutasyon kapısının önceki sonucu (#318; ADR-0109 eki "Kapının önceki sonucu")
 
 Kapı her push'ta değişen Rust satırlarının mutantlarını baştan dener. Yalnız
