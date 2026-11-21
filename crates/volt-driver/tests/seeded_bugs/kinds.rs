@@ -126,6 +126,13 @@ pub fn kinds() -> Vec<Kind> {
             sites: reset_through_sync,
         },
         Kind {
+            name: "rdc.reset-read-as-data",
+            spec: "ADR-0065 R3 (a reset cannot be used as data, E2003): the scrutinee of a match and an operand of a comparison (#356)",
+            expect: Some(&["E2003"]),
+            near_miss: false,
+            sites: reset_read_as_data,
+        },
+        Kind {
             name: "domain.edge-removed",
             spec: "ADR-0098 (a flop clocked by a domain without a clock edge: E3016); applied where an `on` block of the domain's clock exists",
             expect: Some(&["E3016"]),
@@ -635,6 +642,30 @@ fn reset_through_sync(src: &Source) -> Sites {
                 );
                 out.push((
                     format!("{}: {} bound through sync(_, {clock})", m.name, r.name),
+                    Source::join(&lines, src.trailing_newline),
+                ));
+            }
+        }
+    }
+    number(out)
+}
+
+/// Every raw reset input port read as data, the #356 way: a
+/// `let <r>_data = …` line before the module's closing brace, once with
+/// the reset as the scrutinee of a match and once compared with itself.
+fn reset_read_as_data(src: &Source) -> Sites {
+    let mut out = Vec::new();
+    for m in src.modules().into_iter().filter(|m| !m.is_extern) {
+        for r in m.ports.iter().filter(|p| p.is_reset() && p.dir == "in") {
+            let n = &r.name;
+            for (how, expr) in [
+                ("match", format!("match {n} {{ true => true, _ => false }}")),
+                ("==", format!("{n} == {n}")),
+            ] {
+                let mut lines = src.lines.clone();
+                lines.insert(m.end, format!("    let {n}_data = {expr}"));
+                out.push((
+                    format!("{}: {n} read as data ({how})", m.name),
                     Source::join(&lines, src.trailing_newline),
                 ));
             }

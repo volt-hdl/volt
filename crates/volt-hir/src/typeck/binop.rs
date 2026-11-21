@@ -10,6 +10,7 @@ use volt_ast::{BinOp, Expr, Idx};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
+use super::reset_binding::ResetRead;
 use super::width::{clamp_width, IntMeet};
 use super::TypeChecker;
 use crate::ty::{Ty, TypeId};
@@ -405,6 +406,13 @@ impl TypeChecker<'_, '_> {
         rt: TypeId,
         span: Span,
     ) {
+        // ADR-0065 R3 (#356): reset karşılaştırılamaz; `rst == rst` aynı
+        // tipte olduğundan aşağıdaki birleştirmeden geçerdi. Tek tanı.
+        if self.reject_reset_as_data(lhs, lt, ResetRead::Comparison)
+            || self.reject_reset_as_data(rhs, rt, ResetRead::Comparison)
+        {
+            return;
+        }
         if lt == rt || self.types.is_error(lt) || self.types.is_error(rt) {
             return;
         }
