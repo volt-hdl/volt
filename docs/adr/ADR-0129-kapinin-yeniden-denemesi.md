@@ -150,7 +150,97 @@ gösterilmelidir.
 
 ## Kanıt
 
-Koşular bitince bu bölüme yazılır.
+**Ağaçlar** (2026-11-21, hepsi `gate_base=1e00aa85`, `shards=3`,
+`nextest_order=priority`):
+
+| Commit | Dal | İçerik |
+|---|---|---|
+| A `96279c01` | `evidence/364-base-363` | #363'ün ilk kapı koşusunun birleştirme ağacı + h + ADR-0128'in iş akışı + bu PR'ın kod commit'i (`1a2ea70b`) |
+| B `0f3da180` | `evidence/364-add-test` | A + yeni test dosyası `crates/volt-hir/tests/e5010_claim_count_tests.rs` |
+| C `bd040747` | `evidence/364-weaken-test` | A + `e5010_advice_tests.rs`'te `labels_say_how_old…` etiket metnini değil yalnız sayısını denetler |
+
+**B'nin testi.** Kaynağı 1 çevrim yaşında, register'ı 4 çevrimlik bir
+tasarımda `delay<2>` bekler. Yerelde, mutant `timing.rs:736:32: replace -
+with +` elle uygulanınca düşer (`delay<4>` çıkar). Mutant geri alınınca
+geçer.
+
+**Koşular.**
+
+| Koşu | Commit | Tür | Sınanan / taşınan | Sonuçlar (65 mutant) | Duvar süresi |
+|---|---|---|---|---|---:|
+| 44876460858 | A | tam (taban) | 65 / 0 | caught 54, missed 3, unviable 8 | 87,2 dk |
+| 44876469761 | B | tam | 65 / 0 | caught 55, missed 2, unviable 8 | 56,3 dk |
+| 44883230073 | B | yeniden deneme (`retest_from=44876460858`) | 3 / 62 | caught 55, missed 2, unviable 8 | **22,1 dk** |
+| 44876839372 | C | tam | 65 / 0 | caught 52, missed 5, unviable 8 | 126,9 dk |
+| 44883238106 | C | yeniden deneme (`retest_from=44876460858`) | 26 / 39 | caught 52, missed 5, unviable 8 | **47,9 dk** |
+
+**Sonuç eşitliği.** `mutants_compare.py`, çıkış kodları:
+
+| A | B | Çıkış | Sonuç |
+|---|---|---:|---|
+| B tam 44876469761 | B yeniden deneme 44883230073 | **0** | aynı 65 mutant, her biri aynı sonuçla |
+| C tam 44876839372 | C yeniden deneme 44883238106 | **0** | aynı 65 mutant, her biri aynı sonuçla |
+| #363'ün ilk koşusu 44597750883 | A tam 44876460858 | 0 | taban, ikinci referansla aynı |
+| A tam 44876460858 | B tam 44876469761 | 1 | `missed -> caught: timing.rs:736:32: replace - with +` (B'nin testi) |
+| A tam 44876460858 | C tam 44876839372 | 1 | `caught -> missed`: `timing.rs:826:5`'in iki mutantı (C'nin zayıflatması) |
+
+Mutant özeti beşinde de `ee9284a636b1`. Timeout ve bellek sınırı hepsinde 0.
+
+**Ne yeniden sınandı** (`mutants-list/retest/retest.json`):
+
+- **B.** Değişen yol `crates/volt-hir/tests/e5010_claim_count_tests.rs`,
+  yani ikili `volt-hir::e5010_claim_count_tests` (yeni; hiçbir mutantı
+  yakalamamıştı).
+  - Yeniden sınanan: yalnız 3 missed (`missed then`).
+  - 62 mutantın sonucu taşındı.
+  - `736:32` caught oldu (test 1,6 sn); öteki ikisi missed kaldı.
+- **C.** Değişen yol `crates/volt-hir/tests/e5010_advice_tests.rs`, yani
+  ikili `volt-hir::e5010_advice_tests`.
+  - Yeniden sınanan 26: 3 missed ve bu ikilinin yakaladığı 23 caught
+    (`caught then by volt-hir::e5010_advice_tests, changed since`).
+  - 39 mutantın sonucu taşındı: başka ikililerin yakaladıkları ve unviable.
+- **Zayıflatılan test.** `timing.rs:826:5: replace cycles_old -> String
+  with "xyzzy".into()` ve `… with String::new()` tabanda caught'tı
+  (yakalayan `volt-hir::e5010_advice_tests
+  labels_say_how_old_each_value_is_and_the_reason_says_why`). Yeniden
+  denemede yeniden sınandılar ve **missed** çıktılar (testleri 1021 ve
+  1076 sn; tam koşuda 1800 ve 1301 sn). Kapı ikisini de missed olarak
+  listeleyip düştü.
+
+**Özet** (günlükten):
+
+- B'nin yeniden denemesi:
+  - `**retest: run 44876460858 (SHA 96279c01…): 3 of 65 retested, 62 carried over**`
+  - `### Pull-request gate: FAILED, 2 missed mutant(s) not covered by exclude_re`
+  - toplam satırı `| 65 | 3 | 62 | 0 | 55 | 2 | 0 | 0 | 8 |`
+- C'nin yeniden denemesi:
+  - `**retest: run 44876460858 (…): 26 of 65 retested, 39 carried over**`
+  - `… FAILED, 5 missed mutant(s) …`
+  - `| 65 | 26 | 39 | 0 | 52 | 5 | 0 | 0 | 8 |`
+- Kapsam işinin günlüğü tabanı denetledi: `base run 44876460858 …: Tool
+  ledger [mutants-baseline]: 216 … SKIP: 0`. `retest-check`: `26 of 65
+  retested (0 on a retested line), 39 carried over`.
+
+**Süre.** B'de yeniden deneme 22,1 dk, tam koşu 56,3 dk. C'de 47,9 dk ve
+126,9 dk.
+
+- Yeniden denemenin süresini temel koşu işi (19–21 dk) ve missed bir
+  mutantın tam takımı (17–21 dk) belirler.
+- Parça sayısı kapının bugünkü hesabıyla 3'tü (`-f shards=3`).
+
+**Yöntemden sapmalar.**
+
+- Taban ve senaryolar elle kapı koşularıdır (`gate_base`,
+  `retest_from`), PR koşuları değil. PR yolu (son tam kapı koşusunu PR'ın
+  koşularından seçmek) self-test'te sınandı: reuse, retest ve süren
+  koşular atlanır; en yeni tam koşu karar verir, uymazsa daha eskisine
+  bakılmaz; fork ve başka PR dışarıda.
+- Kanıt ağacındaki kod commit'i `1a2ea70b`'dir. Bu PR'ın sonraki
+  commit'leri yalnız belgeleri ve `mutants_reuse.py`'nin docstring'ini
+  değiştirir.
+- #363 ağacında `.test-baseline` ve `badges.json` #363'ün sürümüdür
+  (ADR-0128 PR 2 kanıtıyla aynı ağaç); bu yüzden B ve C test sayılarını
+  güncellemez. Hiçbir test bu dosyaları okumaz.
 
 ## Reddedilenler
 
