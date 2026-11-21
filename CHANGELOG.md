@@ -9,6 +9,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Test bloğunda takma adla (`type Nib = u4`) ya
+  da sabit ifadesiyle (`const W : u32 = 2 + 2`, `uint<W>`) genişliği
+  verilen portların ve belleklerin genişliği artık bilinir (#376, ADR-0132;
+  sessiz yanlış düzeltmesi). 0.1.2'de test dili bu genişlikleri
+  "bilinmiyor" sayıyordu: `dut.a = 31` ve hiç eşleşemeyecek
+  `assert_ne(dut.q, 300)` E8512 almıyordu; hesaplanmış 31 yalnız C++
+  depolama tipine göre denetlenip 4 bitlik porta ulaşıyor, Verilator girişi
+  maskelemediğinden 4 bitlik çıkış 31 okuyor ve `assert_eq(dut.q, 31)`
+  geçiyordu; `[uint<W>; N]` belleğe `load` eleman genişliği ve uzunluk
+  denetiminden kaçıyordu. Artık sabit değer E8512/E8510 alır, hesaplanmış
+  değer koşuda `port_overflow` ile testi düşürür. Takma ad çözümü ve
+  genişlik sabitleri SV üreticisiyle aynı tek yerden hesaplanır; üretilen
+  SV, SVA, SDC ve XDC değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün
+  sessiz yanlış istisnası.
 - **Davranış değişikliği.** `volt test` benzetimin beklenmedik bitişini
   artık testlerle uzlaştırır (#377, ADR-0130; sessiz yanlış düzeltmesi).
   0.1.2'de sürücü benzetimin çıkış kodunu okumuyor ve yalnız

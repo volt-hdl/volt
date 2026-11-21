@@ -16,35 +16,13 @@
 use volt_ast::{Idx, ItemKind, SourceFile, TypeRef, TypeRefKind};
 use volt_diagnostics::lstr;
 
-/// Takma ad zincirinin en çok izlenen uzunluğu (savunma; döngü E4009).
-const MAX_ALIAS_DEPTH: usize = 64;
-
 /// `ty` generic olmayan bir takma adı gösteriyorsa (zincir boyunca)
-/// hedef tipi; değilse `ty`'nin kendisi.
+/// hedef tipi; değilse `ty`'nin kendisi. Zincir derinlik sınırında
+/// biterse varılan son tip (`volt_ast::alias`, tek yer).
 pub(crate) fn resolve(ast: &SourceFile, ty: Idx<TypeRef>) -> Idx<TypeRef> {
-    let mut cur = ty;
-    for _ in 0..MAX_ALIAS_DEPTH {
-        let TypeRefKind::Path { path, args } = &ast.types[cur].kind else {
-            return cur;
-        };
-        let [seg] = path.segments.as_slice() else {
-            return cur;
-        };
-        if !args.is_empty() {
-            return cur;
-        }
-        let target = ast.items.iter().find_map(|&i| {
-            let ItemKind::TypeAlias(a) = &ast.items_arena[i].kind else {
-                return None;
-            };
-            (a.name.text == seg.text && a.generics.is_empty()).then_some(a.target)
-        });
-        match target {
-            Some(t) => cur = t,
-            None => return cur,
-        }
+    match volt_ast::alias::alias_chain_end(ast, ty) {
+        Ok(t) | Err(t) => t,
     }
-    cur
 }
 
 pub(crate) fn item_named<'a>(ast: &'a SourceFile, name: &str) -> Option<&'a ItemKind> {

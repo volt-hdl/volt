@@ -2,83 +2,11 @@
 //! yeniden yazma (ADR-0077 Karar 5 kuralları 5–12).
 
 use volt_ast::{
-    BinOp, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, MatchArmBody,
-    ModuleDecl, Name, NumBase, Path, SourceFile, Stmt, StmtKind, UnOp,
+    BinOp, Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, MatchArmBody, ModuleDecl,
+    Name, NumBase, Path, SourceFile, Stmt, StmtKind,
 };
 
 use super::Lowerer;
-
-/// Sabit tamsayı (yaprak genişlikleri için): literal, `const` adı,
-/// aritmetik. Monomorfizasyon generic genişlikleri literale indirdi.
-pub(super) fn const_int(ast: &SourceFile, e: Idx<Expr>, depth: u32) -> Option<i128> {
-    if depth > 32 {
-        return None;
-    }
-    match &ast.exprs[e].kind {
-        ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
-        ExprKind::Path(p) if p.segments.len() == 1 => {
-            let name = &p.segments[0].text;
-            ast.items.iter().find_map(|&i| {
-                let ItemKind::Const(c) = &ast.items_arena[i].kind else {
-                    return None;
-                };
-                if c.name.text != *name {
-                    return None;
-                }
-                const_int(ast, c.value, depth + 1)
-            })
-        }
-        ExprKind::Unary {
-            op: UnOp::Neg,
-            operand,
-        } => const_int(ast, *operand, depth + 1).map(|v| -v),
-        ExprKind::Binary { op, lhs, rhs } => {
-            let (l, r) = (
-                const_int(ast, *lhs, depth + 1)?,
-                const_int(ast, *rhs, depth + 1)?,
-            );
-            match op {
-                BinOp::Add => l.checked_add(r),
-                BinOp::Sub => l.checked_sub(r),
-                BinOp::Mul => l.checked_mul(r),
-                BinOp::Div => l.checked_div(r),
-                BinOp::Rem => l.checked_rem(r),
-                BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
-                BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
-                BinOp::BitAnd
-                | BinOp::BitOr
-                | BinOp::BitXor
-                | BinOp::Eq
-                | BinOp::Ne
-                | BinOp::Lt
-                | BinOp::Gt
-                | BinOp::Le
-                | BinOp::Ge
-                | BinOp::And
-                | BinOp::Or
-                | BinOp::Imp => None,
-            }
-        }
-        ExprKind::BoolLit(_)
-        | ExprKind::StringLit(_)
-        | ExprKind::Path(_)
-        | ExprKind::Unary { .. }
-        | ExprKind::Index { .. }
-        | ExprKind::Range { .. }
-        | ExprKind::PartSelect { .. }
-        | ExprKind::Field { .. }
-        | ExprKind::Call { .. }
-        | ExprKind::Cast { .. }
-        | ExprKind::If { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::StructLit { .. }
-        | ExprKind::ArrayLit(_)
-        | ExprKind::TupleLit(_)
-        | ExprKind::Concat(_)
-        | ExprKind::Todo { .. }
-        | ExprKind::Error => None,
-    }
-}
 
 /// İfadenin doğrudan çocukları.
 pub(super) fn children(kind: &ExprKind) -> Vec<Idx<Expr>> {
@@ -487,7 +415,8 @@ impl Lowerer {
         let items: Vec<Idx<Expr>> = match &self.ast.exprs[v].kind {
             ExprKind::ArrayLit(volt_ast::ArrayLitKind::List(items)) => items.clone(),
             ExprKind::ArrayLit(volt_ast::ArrayLitKind::Repeat { value, count }) => {
-                let Some(n) = const_int(&self.ast, *count, 0).and_then(|n| usize::try_from(n).ok())
+                let Some(n) = volt_ast::const_eval::const_int(&self.ast, *count)
+                    .and_then(|n| usize::try_from(n).ok())
                 else {
                     return v;
                 };

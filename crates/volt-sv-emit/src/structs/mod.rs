@@ -29,7 +29,7 @@ mod value;
 
 /// Genişlik sabiti (takma ad ve E0003 metni için).
 pub(crate) fn const_int(ast: &SourceFile, e: Idx<Expr>) -> Option<i128> {
-    value::const_int(ast, e, 0)
+    volt_ast::const_eval::const_int(ast, e)
 }
 
 use std::collections::{HashMap, HashSet};
@@ -174,8 +174,7 @@ impl Lowerer {
         for &i in &ast.items {
             if let ItemKind::Struct(s) = &ast.items_arena[i].kind {
                 if !s.is_port {
-                    let l =
-                        struct_layout::layout(ast, s, &mut |e| value::const_int(ast, e, 0)).ok();
+                    let l = struct_layout::layout(ast, s, &mut |e| const_int(ast, e)).ok();
                     layouts.insert(s.name.text.clone(), l);
                 }
             }

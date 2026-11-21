@@ -26,6 +26,7 @@ module Dut {
     in  sv    : i8
     in  wide  : uint<WIDE>
     in  word  : Word
+    in  myst  : Mystery
     in  full  : u64
     in  lanes : [u8; 4]
     out data  : u8
@@ -101,8 +102,17 @@ fn packed_array_port_is_checked_as_one_vector() {
 
 #[test]
 fn unresolved_width_is_left_to_the_testbench() {
-    // Tip takma adı burada çözülmez: derleme zamanı tanısı yok.
-    assert!(codes("dut.word = 0x12345;").is_empty());
+    // Çözülemeyen tip adı: derleme zamanı tanısı yok, denetim koşuda
+    // C++ depolama tipine göre.
+    assert!(codes("dut.myst = 0x12345;").is_empty());
+}
+
+#[test]
+fn aliased_width_is_the_width_of_its_target() {
+    // #376: `type Word = u16` — takma adlı port, hedef tipinin genişliğini
+    // taşır (önceden "bilinmiyor"du ve 0x12345 E8512'den kaçıyordu).
+    assert!(codes("dut.word = 0xFFFF;").is_empty());
+    assert_eq!(codes("dut.word = 0x12345;"), vec!["E8512"]);
 }
 
 #[test]
@@ -182,7 +192,9 @@ fn test_port_width_reports_bits_and_sign() {
     assert_eq!((sv.bits, sv.is_signed()), (8, true));
     assert_eq!(width("wide").expect("uint<WIDE>").bits, 12);
     assert_eq!(width("lanes").expect("[u8; 4]").bits, 32);
-    assert!(width("word").is_none(), "takma ad çözülmez");
+    let word = width("word").expect("takma ad hedefine çözülür (#376)");
+    assert_eq!((word.bits, word.kind), (16, ScalarKind::UInt));
+    assert!(width("myst").is_none(), "çözülemeyen tip adı");
     assert!(width("nope").is_none());
     assert!(test_port_width(&[&ast], "Nope", "addr").is_none());
 }

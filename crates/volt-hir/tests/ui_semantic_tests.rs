@@ -718,6 +718,28 @@ fn ui_fail_61_test_const_propagation_e8512() {
     assert_ui_fail("fail/61_test_const_propagation.volt");
 }
 
+// #376: takma ad ve const ifadesiyle verilen port/eleman genişliği ve
+// bellek uzunluğu test dilinde de bilinir.
+#[test]
+fn ui_fail_305_test_alias_port_write_overflow_e8512() {
+    assert_ui_fail("fail/305_test_alias_port_write_overflow.volt");
+}
+
+#[test]
+fn ui_fail_306_test_const_width_compare_never_matches_e8512() {
+    assert_ui_fail("fail/306_test_const_width_compare_never_matches.volt");
+}
+
+#[test]
+fn ui_fail_307_test_load_const_width_element_e8510() {
+    assert_ui_fail("fail/307_test_load_const_width_element.volt");
+}
+
+#[test]
+fn ui_fail_308_test_load_const_length_e8510() {
+    assert_ui_fail("fail/308_test_load_const_length.volt");
+}
+
 #[test]
 fn ui_pass_81_test_const_ok_clean() {
     let result = analyze_file("pass/81_test_const_ok.volt");
