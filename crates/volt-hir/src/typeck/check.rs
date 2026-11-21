@@ -9,6 +9,7 @@ use volt_ast::{ArrayLitKind, BinOp, Expr, ExprKind, Idx};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
+use super::reset_binding::ResetRead;
 use super::width::{sign_prefix, sint_fits, uint_fits};
 use super::TypeChecker;
 use crate::ty::{Ty, TypeId};
@@ -87,7 +88,15 @@ impl TypeChecker<'_, '_> {
             | ExprKind::Todo { .. }
             | ExprKind::Error => {
                 let actual = self.synth(expr);
-                self.expect_assignable(actual, expected, span);
+                // ADR-0065 R3 (#356): reset beklenmeyen yerde okunan reset;
+                // tanı reset kuralının tek yerinden (match ve karşılaştırma
+                // gibi), olağan tip uyuşmazlığı yerine.
+                let reset_read = !self.types.is_error(expected)
+                    && !self.holds_reset(expected)
+                    && self.reject_reset_as_data(expr, actual, ResetRead::Value(expected));
+                if !reset_read {
+                    self.expect_assignable(actual, expected, span);
+                }
             }
         }
     }

@@ -50,6 +50,26 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   senkronlayın. Kabul edilmeye devam eden tasarımların SV'si değişmez.
   Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm
   notunun "Behavior changes" bölümüne girer.
+- **Davranış değişikliği.** Bir reset artık veri olarak `match`'in
+  sınananı ya da karşılaştırma işleçlerinin (`==`, `!=`, `<`, `>`, `<=`,
+  `>=`) operandı olamaz: E2003 (#356, ADR-0065 R3; sessiz yanlış
+  düzeltmesi). 0.1.2'de `let t = match rst { true => true, _ => false }`
+  ile `y = sync(t, clk)` hatasız derleniyordu; `t` reset'in kendisiydi ve
+  `sync()`'in flip-flop'larını aynı reset'in senkronize kopyası
+  temizlediğinden `y` her çevrimde 0'dı. `rst == rst`, `rst != rst`, iki
+  reset portunun karşılaştırılması ve reset taşıyan dizilerin
+  karşılaştırılması da kabul ediliyordu. `if rst`, `!rst`, `rst && …`,
+  fn argümanı ve `let b : bool = rst` zaten E2003 alıyordu ("type
+  mismatch: expected 'bool', found 'reset'"), `rst == true` da ("comparison
+  operands must have the same type"); artık hepsi aynı denetimden aynı
+  tanıyı alır: kod aynı (E2003), metin reset'in neden okunamadığını söyler
+  ("a reset cannot be used as a value of type 'bool'"). `rst as bool`
+  E2009 kalır. Reset'e bağlı davranış
+  için register'ın reset değerini, yazılımın tetiklediği yumuşak reset
+  için ayrı bir `bool` giriş portunu kullanın. Kabul edilmeye devam eden
+  tasarımların SV'si değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün
+  sessiz yanlış istisnası; sürüm notunun "Behavior changes" bölümüne
+  girer.
 - **Davranış değişikliği.** Bir `match` deyiminde (`on`/`comb` içinde,
   sayısal, `bool` ya da enum sınanan) ilk joker koldan (`_` ya da `A | _`)
   sonraki kollar artık SystemVerilog'a yazılmaz ve W2014 alır (#216;

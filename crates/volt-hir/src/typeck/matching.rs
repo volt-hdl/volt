@@ -19,10 +19,11 @@
 //! + sayısal sınanan) desen E2003 alır ve parser'ın E0014'ü aynen verilir.
 
 use volt_ast::match_cover::{ArmCover, Leaf, Unreachable};
-use volt_ast::{MatchArm, MatchStmt, Pattern, PatternKind};
+use volt_ast::{Expr, Idx, MatchArm, MatchStmt, Pattern, PatternKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use super::reset_binding::ResetRead;
 use super::TypeChecker;
 use crate::resolve::{DefId, DefKind};
 use crate::ty::{EnumId, Ty, TypeId};
@@ -30,7 +31,7 @@ use crate::ty::{EnumId, Ty, TypeId};
 impl TypeChecker<'_, '_> {
     pub(super) fn check_match_stmt(&mut self, m: &MatchStmt) {
         let scrut_ty = self.synth(m.scrutinee);
-        let dead = self.check_match_patterns(m.span, scrut_ty, &m.arms, false);
+        let dead = self.check_match_patterns(m.span, m.scrutinee, scrut_ty, &m.arms, false);
         // Tasarıma yazılmayan kol (sv-mapping.md §19.1): kol tip denetimi
         // görür, atamaları sürücü sayılmaz (#328, #331). Ölü kolun içindeki
         // her şey de ölüdür (iç içe `match`).
@@ -45,14 +46,17 @@ impl TypeChecker<'_, '_> {
     /// Desen tipleri, kapsayıcılık ve erişilemez kollar — deyim ve ifade
     /// `match`'inde aynı kural (ADR-0083 Karar 1, 3). `is_expr` yalnız
     /// tanı metnini seçer. Kol başına "tasarıma yazılmıyor" döner; ölü
-    /// kollar `dead_arms`'a da yazılır.
+    /// kollar `dead_arms`'a da yazılır. Reset tipli sınanan E2003'tür
+    /// (ADR-0065 R3, #356); desen denetimi yine de sürer.
     pub(super) fn check_match_patterns(
         &mut self,
         span: Span,
+        scrutinee: Idx<Expr>,
         scrut_ty: TypeId,
         arms: &[MatchArm],
         is_expr: bool,
     ) -> Vec<bool> {
+        self.reject_reset_as_data(scrutinee, scrut_ty, ResetRead::MatchScrutinee);
         let dead = match *self.types.ty(scrut_ty) {
             Ty::Enum(e) => self.check_enum_match(span, arms, e, is_expr),
             Ty::Bool
