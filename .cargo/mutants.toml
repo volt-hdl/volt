@@ -93,7 +93,7 @@ exclude_re = [
     "parser/auto_contract/scan\\.rs:\\d+:\\d+: delete match arm StmtKind::Assign\\(a\\) in scan_module$",
     # A1. `a == b || (a < b && ...)`: with `<=`, a == b is already true from
     # the first disjunct.
-    # expect: crates/volt-hir/src/typeck/check.rs:354:33: replace < with <= in TypeChecker<'_, '_>::expect_assignable
+    # expect: crates/volt-hir/src/typeck/check.rs:363:33: replace < with <= in TypeChecker<'_, '_>::expect_assignable
     "typeck/check\\.rs:\\d+:\\d+: replace < with <= in TypeChecker<'_, '_>::expect_assignable$",
     # A1. `lhi > rhi`: lhi == rhi returns on the line before, so `>=` and `>`
     # agree wherever this line runs.
