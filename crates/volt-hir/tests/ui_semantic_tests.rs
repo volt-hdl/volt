@@ -247,6 +247,21 @@ fn ui_fail_291_296_reset_path_e2003() {
 }
 
 #[test]
+fn ui_fail_300_304_reset_read_as_data_e2003() {
+    // ADR-0065 R3 (#356): reset match'in sınananı ve karşılaştırmanın
+    // operandı olamaz; sync() ile ve onsuz, iki ayrı reset portu da.
+    for f in [
+        "fail/300_reset_match_through_sync.volt",
+        "fail/301_reset_match_scrutinee.volt",
+        "fail/302_reset_eq_itself.volt",
+        "fail/303_reset_ne_itself.volt",
+        "fail/304_reset_ne_two_ports.volt",
+    ] {
+        assert_ui_fail(f);
+    }
+}
+
+#[test]
 fn ui_fail_220_223_compare_width_e2031() {
     // ADR-0106 (#106): farklı doğal genişlikte aritmetik karşılaştırma;
     // satır içi, tipsiz let, kontrat ve sığmayan sabit aynı kod.
