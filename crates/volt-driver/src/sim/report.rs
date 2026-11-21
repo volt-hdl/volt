@@ -3,63 +3,149 @@
 use std::process::ExitCode;
 
 use super::contracts::{cover_summary_lines, CoverCount};
-use super::tb_output::{AssertFailure, TestOutcome};
+use super::tb_output::{AssertFailure, GroupRun, GroupStop, SimStop, TestOutcome};
 
-/// Bir grubun test satırları: `test <ad> ... ok|FAILED`.
-pub(super) fn print_test_lines(outcomes: &[TestOutcome]) {
-    for o in outcomes {
-        println!(
-            "test {} ... {}",
-            o.name,
-            if o.passed { "ok" } else { "FAILED" }
-        );
+/// Bir grubun test satırlarını basar (`test_lines`).
+pub(super) fn print_test_lines(run: &GroupRun) {
+    for line in test_lines(run) {
+        println!("{line}");
     }
 }
 
-/// Cargo biçimli özet; en az bir test kaldıysa çıkış kodu 5. Cover
-/// özeti (ADR-0064) bilgidir, çıkış kodunu etkilemez.
-pub(super) fn print_summary(outcomes: &[TestOutcome], covers: &[CoverCount]) -> ExitCode {
-    let failed: Vec<&TestOutcome> = outcomes.iter().filter(|o| !o.passed).collect();
-    let passed = outcomes.len() - failed.len();
-    if !failed.is_empty() {
-        println!("\nfailures:");
+/// Bir grubun test satırları: `test <ad> ... ok|FAILED`, başlamayan
+/// testler için `test <ad> ... not run` (ADR-0130).
+fn test_lines(run: &GroupRun) -> Vec<String> {
+    let mut lines: Vec<String> = run
+        .outcomes
+        .iter()
+        .map(|o| {
+            format!(
+                "test {} ... {}",
+                o.name,
+                if o.passed { "ok" } else { "FAILED" }
+            )
+        })
+        .collect();
+    lines.extend(run.not_run.iter().map(|n| format!("test {n} ... not run")));
+    lines
+}
+
+/// Bütün grupların toplanmış sonucu (`volt test` özeti).
+#[derive(Debug, Default)]
+pub(super) struct Totals {
+    pub outcomes: Vec<TestOutcome>,
+    pub not_run: Vec<String>,
+    pub stops: Vec<GroupStop>,
+}
+
+impl Totals {
+    pub(super) fn add(&mut self, run: GroupRun) {
+        self.outcomes.extend(run.outcomes);
+        self.not_run.extend(run.not_run);
+        self.stops.extend(run.stop);
+    }
+}
+
+/// Özeti basar ve çıkış kodunu döndürür (`summary`).
+pub(super) fn print_summary(totals: &Totals, covers: &[CoverCount]) -> ExitCode {
+    let (lines, code) = summary(totals, covers);
+    for line in lines {
+        println!("{line}");
+    }
+    code
+}
+
+/// Cargo biçimli özet; en az bir test kaldıysa, başlamayan test varsa
+/// ya da bir benzetim beklenmedik bittiyse çıkış kodu 5 (ADR-0130).
+/// Cover özeti (ADR-0064) bilgidir, çıkış kodunu etkilemez.
+fn summary(totals: &Totals, covers: &[CoverCount]) -> (Vec<String>, ExitCode) {
+    let mut out: Vec<String> = Vec::new();
+    let failed: Vec<&TestOutcome> = totals.outcomes.iter().filter(|o| !o.passed).collect();
+    let passed = totals.outcomes.len() - failed.len();
+    if !failed.is_empty() || !totals.stops.is_empty() {
+        out.extend([String::new(), "failures:".to_string()]);
     }
     for o in &failed {
-        println!("---- {} ----", o.name);
-        for line in outcome_lines(o) {
-            println!("{line}");
-        }
+        out.push(format!("---- {} ----", o.name));
+        out.extend(outcome_lines(o));
         // ADR-0095: düşen testin kaydı (ADR-0092 açma satırı biçimi).
         if let Some(hint) = &o.waveform {
-            println!("  Waveform {hint}");
+            out.push(format!("  Waveform {hint}"));
         }
     }
-    let summary = cover_summary_lines(covers);
-    if !summary.is_empty() {
-        println!();
-        for line in summary {
-            println!("{line}");
-        }
+    for s in &totals.stops {
+        out.push(format!("---- simulation of {} ----", s.module));
+        out.extend(group_stop_lines(s));
     }
-    if failed.is_empty() {
-        println!("\ntest result: ok. {passed} passed; 0 failed");
-        return ExitCode::SUCCESS;
+    if !totals.not_run.is_empty() {
+        out.push(String::new());
+        out.push("not run (the simulation stopped before these tests started):".to_string());
+        out.extend(totals.not_run.iter().map(|n| format!("    {n}")));
     }
-    println!(
-        "\ntest result: FAILED. {passed} passed; {} failed",
+    let covered = cover_summary_lines(covers);
+    if !covered.is_empty() {
+        out.push(String::new());
+        out.extend(covered);
+    }
+    out.push(String::new());
+    if failed.is_empty() && totals.not_run.is_empty() && totals.stops.is_empty() {
+        out.push(format!("test result: ok. {passed} passed; 0 failed"));
+        return (out, ExitCode::SUCCESS);
+    }
+    let not_run = match totals.not_run.len() {
+        0 => String::new(),
+        n => format!("; {n} not run"),
+    };
+    out.push(format!(
+        "test result: FAILED. {passed} passed; {} failed{not_run}",
         failed.len()
-    );
-    ExitCode::from(5)
+    ));
+    (out, ExitCode::from(5))
 }
 
-/// Kalan testin ayrıntısı: kontrat ihlali (ADR-0064) test iddiasından
-/// ÖNCE gelir — ihlalin döngüsünde test durur.
+/// Kalan testin ayrıntısı: benzetimin duruşu, sonra kontrat ihlali
+/// (ADR-0064) test iddiasından ÖNCE gelir — ihlalin döngüsünde test
+/// durur.
 fn outcome_lines(o: &TestOutcome) -> Vec<String> {
+    if let Some(stop) = &o.stop {
+        return stop_lines("the simulation stopped during this test", stop);
+    }
     match (&o.contract, &o.failure) {
         (Some(v), _) => v.report_lines(),
         (None, Some(f)) => failure_lines(f),
         (None, None) => vec!["  test failed (no assertion detail)".to_string()],
     }
+}
+
+/// Teste bağlanamayan duruş: son testten sonra ya da ilk testten önce.
+fn group_stop_lines(s: &GroupStop) -> Vec<String> {
+    let what = match &s.after {
+        Some(name) => format!("the simulation stopped after test {name}"),
+        None => "the simulation stopped before its first test".to_string(),
+    };
+    stop_lines(&what, &s.stop)
+}
+
+/// Duruşun satırları (ADR-0125 düzeni: ne oldu, neden, ne yapabilirsin).
+fn stop_lines(what: &str, stop: &SimStop) -> Vec<String> {
+    let how = match stop.code {
+        Some(code) => format!("exit code {code}"),
+        None => "ended by a signal".to_string(),
+    };
+    let mut lines = vec![format!("  {what} ({how})")];
+    lines.extend(stop.messages.iter().map(|m| format!("    simulator: {m}")));
+    lines.push(
+        "  reason: the simulator ended the run before every test finished \
+         ($fatal, $error, $stop, a failed assertion or a crash), so this run \
+         has no trustworthy result"
+            .to_string(),
+    );
+    lines.push(
+        "  help: fix what the simulator reports above; \
+         `volt test --nocapture` shows its full output"
+            .to_string(),
+    );
+    lines
 }
 
 fn failure_lines(f: &AssertFailure) -> Vec<String> {
@@ -257,20 +343,229 @@ mod tests {
         );
     }
 
-    #[test]
-    fn print_summary_exit_code_follows_failures() {
-        let outcome = |passed| TestOutcome {
+    fn outcome(passed: bool) -> TestOutcome {
+        TestOutcome {
             name: "t".to_string(),
             passed,
             failure: None,
             contract: None,
             waveform: None,
+            stop: None,
+        }
+    }
+
+    fn code(totals: &Totals) -> String {
+        format!("{:?}", summary(totals, &[]).1)
+    }
+
+    fn named(name: &str, passed: bool) -> TestOutcome {
+        TestOutcome {
+            name: name.to_string(),
+            ..outcome(passed)
+        }
+    }
+
+    #[test]
+    fn a_normal_run_prints_the_same_report_as_before() {
+        // ADR-0130: olağan koşunun raporu değişmez — "not run" ve duruş yok.
+        let ok = Totals {
+            outcomes: vec![named("a", true), named("b", true)],
+            ..Totals::default()
         };
-        let code = |o: &[TestOutcome]| format!("{:?}", print_summary(o, &[]));
-        assert_eq!(code(&[outcome(true)]), format!("{:?}", ExitCode::SUCCESS));
         assert_eq!(
-            code(&[outcome(true), outcome(false)]),
+            summary(&ok, &[]).0,
+            ["", "test result: ok. 2 passed; 0 failed"]
+        );
+        let mut fails = named("b", false);
+        fails.failure = parse_assert_fail("assert_eq t.volt:3 left=1 right=2");
+        let failing = Totals {
+            outcomes: vec![named("a", true), fails],
+            ..Totals::default()
+        };
+        assert_eq!(
+            summary(&failing, &[]).0,
+            [
+                "",
+                "failures:",
+                "---- b ----",
+                "  assert_eq failed at t.volt:3",
+                "    left:  1",
+                "    right: 2",
+                "",
+                "test result: FAILED. 1 passed; 1 failed",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_stopped_run_lists_the_stop_and_the_tests_that_did_not_run() {
+        let mut stopped = named("trips", false);
+        stopped.stop = Some(stop(Some(1), &["%Fatal: x"]));
+        let totals = Totals {
+            outcomes: vec![named("first", true), stopped],
+            not_run: vec!["later".to_string(), "last".to_string()],
+            stops: Vec::new(),
+        };
+        let (lines, _) = summary(&totals, &[]);
+        let at = |s: &str| lines.iter().position(|l| l == s).unwrap_or(usize::MAX);
+        assert_eq!(&lines[..3], ["", "failures:", "---- trips ----"]);
+        assert_eq!(
+            lines[3],
+            "  the simulation stopped during this test (exit code 1)"
+        );
+        let header = at("not run (the simulation stopped before these tests started):");
+        assert_eq!(lines[header - 1], "");
+        assert_eq!(lines[header + 1..header + 3], ["    later", "    last"]);
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("test result: FAILED. 1 passed; 1 failed; 2 not run")
+        );
+    }
+
+    #[test]
+    fn a_stop_outside_any_test_is_reported_under_failures_with_its_module() {
+        let totals = Totals {
+            outcomes: vec![named("a", true)],
+            not_run: Vec::new(),
+            stops: vec![GroupStop {
+                module: "M".to_string(),
+                after: Some("a".to_string()),
+                stop: stop(Some(3), &[]),
+            }],
+        };
+        let (lines, code) = summary(&totals, &[]);
+        assert_eq!(&lines[..3], ["", "failures:", "---- simulation of M ----"]);
+        assert_eq!(
+            lines[3],
+            "  the simulation stopped after test a (exit code 3)"
+        );
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("test result: FAILED. 1 passed; 0 failed")
+        );
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::from(5)));
+    }
+
+    #[test]
+    fn test_lines_mark_results_and_tests_that_did_not_run() {
+        let run = GroupRun {
+            outcomes: vec![named("a", true), named("b", false)],
+            not_run: vec!["c".to_string()],
+            stop: None,
+        };
+        assert_eq!(
+            test_lines(&run),
+            ["test a ... ok", "test b ... FAILED", "test c ... not run"]
+        );
+    }
+
+    #[test]
+    fn totals_collect_every_group() {
+        let mut totals = Totals::default();
+        let group_stop = GroupStop {
+            module: "M".to_string(),
+            after: None,
+            stop: stop(None, &[]),
+        };
+        totals.add(GroupRun {
+            outcomes: vec![named("a", true)],
+            not_run: vec!["b".to_string()],
+            stop: Some(group_stop.clone()),
+        });
+        totals.add(GroupRun {
+            outcomes: vec![named("c", false)],
+            not_run: Vec::new(),
+            stop: None,
+        });
+        assert_eq!(totals.outcomes, [named("a", true), named("c", false)]);
+        assert_eq!(totals.not_run, ["b"]);
+        assert_eq!(totals.stops, [group_stop]);
+    }
+
+    fn stop(code: Option<i32>, messages: &[&str]) -> SimStop {
+        SimStop {
+            code,
+            messages: messages.iter().map(|m| m.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn print_summary_exit_code_follows_failures() {
+        let totals = |outcomes: Vec<TestOutcome>| Totals {
+            outcomes,
+            ..Totals::default()
+        };
+        assert_eq!(
+            code(&totals(vec![outcome(true)])),
+            format!("{:?}", ExitCode::SUCCESS)
+        );
+        assert_eq!(
+            code(&totals(vec![outcome(true), outcome(false)])),
             format!("{:?}", ExitCode::from(5))
+        );
+    }
+
+    #[test]
+    fn a_test_that_did_not_run_or_a_stopped_simulation_fails_the_run() {
+        // ADR-0130: every test passed, but one never started -> 5.
+        let not_run = Totals {
+            outcomes: vec![outcome(true)],
+            not_run: vec!["later".to_string()],
+            stops: Vec::new(),
+        };
+        assert_eq!(code(&not_run), format!("{:?}", ExitCode::from(5)));
+        // Every test passed, but the simulation ended abnormally after them -> 5.
+        let stopped = Totals {
+            outcomes: vec![outcome(true)],
+            not_run: Vec::new(),
+            stops: vec![GroupStop {
+                module: "M".to_string(),
+                after: Some("t".to_string()),
+                stop: stop(Some(3), &[]),
+            }],
+        };
+        assert_eq!(code(&stopped), format!("{:?}", ExitCode::from(5)));
+    }
+
+    #[test]
+    fn a_stopped_test_reports_the_exit_code_and_the_simulator_messages() {
+        let mut o = outcome(false);
+        o.stop = Some(stop(Some(1), &["%Fatal: chk.sv:2: out of range"]));
+        // A contract violation or an assertion recorded before the stop
+        // does not hide it: the stop is the first thing reported.
+        o.failure = parse_assert_fail("assert_eq t.volt:3 left=1 right=2");
+        let lines = outcome_lines(&o);
+        assert_eq!(
+            lines[..2],
+            [
+                "  the simulation stopped during this test (exit code 1)",
+                "    simulator: %Fatal: chk.sv:2: out of range",
+            ]
+        );
+        assert!(lines[2].starts_with("  reason: "), "{lines:?}");
+        assert!(lines[3].starts_with("  help: "), "{lines:?}");
+        assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn a_stop_by_a_signal_and_a_stop_outside_any_test_say_where_they_happened() {
+        let after = GroupStop {
+            module: "M".to_string(),
+            after: Some("last".to_string()),
+            stop: stop(None, &[]),
+        };
+        assert_eq!(
+            group_stop_lines(&after)[0],
+            "  the simulation stopped after test last (ended by a signal)"
+        );
+        let before = GroupStop {
+            module: "M".to_string(),
+            after: None,
+            stop: stop(Some(0), &[]),
+        };
+        assert_eq!(
+            group_stop_lines(&before)[0],
+            "  the simulation stopped before its first test (exit code 0)"
         );
     }
 }
