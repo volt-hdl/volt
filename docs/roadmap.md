@@ -147,6 +147,24 @@ follow user feedback.
   [ADR-0066](adr/ADR-0066-otomatik-fsm-sayac-kontratlari.md),
   [ADR-0086](adr/ADR-0086-otomatik-cover-erisilebilirligi.md)
 
+### Code coverage of a design's tests
+
+- **What:** `volt test --coverage` reports which lines of the Volt source
+  and which bits of each signal (toggle coverage) the tests never
+  exercised, per module, and writes the result to a file that the editor
+  and CI can read.
+- **Why:** a line that no test reaches, or a bit that never changes, is a
+  part of the design that no test checks. Hardware verification uses this
+  measure routinely; Volt can report it in terms of the Volt source
+  instead of the generated SystemVerilog.
+- **Status:** Not started. `volt test` counts the hits of `cover`
+  properties and automatic FSM covers (see
+  [Coverage in the editor](#coverage-in-the-editor)); it does not measure
+  line or toggle coverage. Verilator measures both on the generated
+  SystemVerilog; mapping the result back to Volt lines needs
+  [Source mapping in generated SystemVerilog](#source-mapping-in-generated-systemverilog).
+  No ADR yet: a new option of `volt test` needs one.
+
 ### Waveform sessions grouped by clock domain
 
 - **What:** the generated GTKWave session groups signals by clock domain
@@ -428,6 +446,8 @@ before the items below.
   [A Turkish edition of the book](#a-turkish-edition-of-the-book).
 - [Source mapping in generated SystemVerilog](#source-mapping-in-generated-systemverilog).
 - [FPGA project files](#fpga-project-files).
+- [Code coverage of a design's tests](#code-coverage-of-a-designs-tests):
+  shows a learner which parts of a design no test exercises.
 - [CDC crossing report](#cdc-crossing-report) and
   [FSM state diagrams](#fsm-state-diagrams): pictures of what a design
   does.
@@ -537,6 +557,26 @@ they are built, and some may not be built.
 - **Why:** people can try Volt before installing anything.
 - **Status:** Not started.
 
+### Mutation testing of a design's tests
+
+- **What:** Volt changes the design one small step at a time (a mutant: an
+  inverted condition, a constant off by one, a dropped assignment), runs
+  the design's tests against each mutant and reports every mutant that no
+  test detects, at its line in the Volt source.
+- **Why:** coverage says that a line ran; a mutant says whether a test
+  would notice the line computing the wrong thing. Volt checks its own
+  compiler this way on every pull request
+  ([ADR-0109](adr/ADR-0109-mutasyon-testi.md)); the same check on a user's
+  design tells how far its tests can be trusted. In the open-source flow,
+  MCY (Mutation Cover with Yosys) does this on a synthesized netlist and
+  uses formal verification to drop the mutants that cannot change an
+  output.
+- **Status:** Not started. No ADR yet.
+- **Open questions:** whether to mutate the Volt source (results map
+  directly to Volt lines) or the generated netlist (MCY's approach);
+  whether `volt verify` filters out mutants that cannot change an output;
+  run time on large designs.
+
 ### Timeline types (L2 timing)
 
 - **What:** types that describe when a value is valid over several cycles,
@@ -544,7 +584,17 @@ they are built, and some may not be built.
 - **Why:** multi-cycle protocols are checked by the type system, beyond
   the fixed latencies of `Delayed<T, N>`.
 - **Status:** Not started. L1 timing (`Delayed<T, N>`, `@strict_timing`)
-  works.
+  works. L2 has no grammar and needs its own ADR.
+- **Entry conditions:** work starts when real designs show stall/flush
+  errors or conflicts on a shared unit repeatedly, and L1, `Handshake` and
+  formal verification do not catch them. A lighter step comes before it:
+  stall and flush semantics for the `pipeline` block
+  ([ADR-0038](adr/ADR-0038-pipeline-sozdizimi.md)). Like L1, L2 stays
+  opt-in, so that people learning hardware design are not asked to use it.
+- **Note:** the compiler does not align latencies by itself (the
+  "automatic alignment" of ADR-0007's original plan). Alignment comes as a
+  tested suggestion on `E5010`, or from a construct the user writes on
+  purpose ([ADR-0119](adr/ADR-0119-niyet-ve-cikarim-ilkesi.md), İ1, İ4).
 - **ADR:** [ADR-0007](adr/ADR-0007-zamanlama-seviyeleri.md),
   [ADR-0037](adr/ADR-0037-l1-zamanlama.md)
 
