@@ -21,7 +21,10 @@ for both runs, the outcome counts, the build and test seconds from
 seconds and test timeout (`stamp.json`), the baseline job's seconds and
 the timeout its rule gives when the run has one (`mutants-baseline/`,
 ADR-0128 §2; a shard then has no baseline of its own) and the `key.json`
-hashes of the mutants and of the tree. A different tree hash is not a difference: the
+hashes of the mutants and of the tree. A retest (#364, ADR-0129:
+`mutants-list/retest/retest.json`) is read as the whole gate: its list is
+`gate-all.txt`, and the outcomes it carried over from its base run count
+as its own; the report says how many. A different tree hash is not a difference: the
 run under test carries the change. A different mutant hash is one.
 
     mutants_compare.py A_DIR B_DIR [--markdown FILE] [--times FILE.tsv]
@@ -111,6 +114,14 @@ def read_run(root: Path) -> dict:
                 "timeout": stamp.get("timeout"),
             }
         )
+    # #364: a retest carries the other outcomes over from its base run.
+    retest = {}
+    rp = lists / "retest" / "retest.json"
+    if rp.is_file():
+        retest = json.loads(rp.read_text(encoding="utf-8"))
+        listed = mutants_summary.read_lines(lists / "gate-all.txt")
+        for n, v in retest.get("carried", {}).items():
+            outcome.setdefault(n, v["outcome"])
     # ADR-0128 §2: one baseline job per run, beside the shards.
     bst = mutants_summary.read_stamp(root / mutants_summary.BASELINE_ARTIFACT)
     baseline = {"seconds": bst.get("baseline_seconds"), "timeout": bst.get("timeout")} if bst else None
@@ -126,6 +137,7 @@ def read_run(root: Path) -> dict:
         "shards": shard_rows,
         "key": key,
         "baseline": baseline,
+        "retest": retest,
     }
 
 
@@ -169,6 +181,11 @@ def report(a: dict, b: dict, diffs: list[str]) -> str:
         for r in (a, b)
     ]
     out.append(f"| Baseline job (ADR-0128 section 2): tests, timeout by the rule | {cell[0]} | {cell[1]} |")
+    rc = [
+        "-" if not r["retest"] else f"retest of run {r['retest']['run']}: {len(r['retest'].get('carried', {}))} carried over"
+        for r in (a, b)
+    ]
+    out.append(f"| Retest (#364) | {rc[0]} | {rc[1]} |")
     for side, run in (("A", a), ("B", b)):
         tb = sum(x[0] for x in run["times"].values())
         tt = sum(x[1] for x in run["times"].values())
@@ -227,7 +244,8 @@ def run(a_dir: Path, b_dir: Path, markdown: Path | None, times: Path | None) -> 
 
 
 def make_run(root: Path, shards: dict[int, dict[str, str]], key: str = "k", memory: dict[int, list[str]] | None = None,
-             missing: tuple[int, ...] = (), flat: bool = False, baseline_job: bool = False) -> Path:
+             missing: tuple[int, ...] = (), flat: bool = False, baseline_job: bool = False,
+             retest: dict[str, str] | None = None) -> Path:
     """A downloaded run: shards = {k: {mutant: outcome}}; outcome in OUTCOMES."""
     lists = root / "mutants-list"
     lists.mkdir(parents=True)
@@ -259,6 +277,11 @@ def make_run(root: Path, shards: dict[int, dict[str, str]], key: str = "k", memo
         for n in (memory or {}).get(k, []):
             with (d / "memory-kills.tsv").open("a", encoding="utf-8") as f:
                 f.write(f"t\t1\t2\t3\t{n}\tcmd\n")
+    if retest is not None:
+        (lists / "retest").mkdir()
+        (lists / "gate-all.txt").write_text("".join(n + "\n" for n in names + sorted(retest)), encoding="utf-8")
+        (lists / "retest" / "retest.json").write_text(
+            json.dumps({"run": 7, "carried": {n: {"outcome": o} for n, o in retest.items()}}), encoding="utf-8")
     if baseline_job:
         bd = root / mutants_summary.BASELINE_ARTIFACT
         bd.mkdir(parents=True)
@@ -297,6 +320,13 @@ def self_test() -> int:
     case("a shard not completed", base, base, 1, "no outcome in B", missing=(1,))
     case("another mutant hash", base, base, 1, "mutant hash differs", key="other")
     case("one shard, flat layout (#179)", {0: base[0]}, {0: base[0]}, 0, flat=True)
+    # #364: a retest of m2 alone, m1 and m3 carried over, compared with a full run.
+    case("a retest equals the full run", base, {0: {m2: "missed"}}, 0, "retest of run 7: 2 carried over",
+         retest={m1: "caught", m3: "unviable"})
+    case("a retest whose carried outcome differs", base, {0: {m2: "missed"}}, 1, f"unviable -> caught: {m3}",
+         retest={m1: "caught", m3: "caught"})
+    case("a retest that carries a mutant the full run lacks", {0: {m1: "caught"}}, {0: {m1: "caught"}}, 1,
+         f"only in B's list: {m3}", retest={m3: "unviable"})
     # ADR-0128 §2: B has one baseline job; its shards have none.
     case("a baseline job in B", base, base, 0, "| Baseline job (ADR-0128 section 2): tests, timeout by the rule"
          " | - (a baseline in each shard) | 1200 s, timeout 3610 s |", baseline_job=True)

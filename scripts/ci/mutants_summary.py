@@ -34,6 +34,14 @@ missed one passed within it). A mutant whose
 test process the watchdog killed at the memory limit is its own class,
 "memory limit": caught, as a timeout is (ADR-0109 section 4).
 
+A retest (#364, ADR-0129; `--retest DIR`, the `mutants-list/retest/`
+that mutants_reuse.py wrote) tested only part of the gate's list again
+after a test-only push: `retest.json` names the base run and carries over
+the outcome of every other mutant of `gate-all.txt` (caught by a test
+binary the push did not change, or unviable). The summary says so at the
+top, counts the carried outcomes with the tested ones and fails when a
+mutant of the gate's list has neither.
+
 A full or targeted run measures the tests: a missed mutant does not fail
 it. The pull-request gate (`--gate`, ADR-0109 appendix "PR kapısı") fails
 on every missed mutant that no `exclude_re` entry of the configuration
@@ -310,6 +318,40 @@ def c_list(out: list[str], gate: dict) -> None:
         out += [f"- {name}: #{n}" for name, n in gate["c"]] + [""]
 
 
+def retest_head(info: dict, tested: int, carried: int) -> list[str]:
+    """The top of a retest's summary (#364, ADR-0129)."""
+    url = info.get("url") or ""
+    run = f"[{info['run']}]({url})" if url else str(info["run"])
+    out = [
+        f"**retest: run {info['run']} (SHA {info['sha']}): {tested} of {tested + carried} retested,"
+        f" {carried} carried over**",
+        "",
+        f"Since the last full gate run {run} (SHA `{info['sha']}`) only test files changed"
+        f" ({len(info.get('changed_paths', []))}: {', '.join(f'`{p}`' for p in info.get('changed_paths', [])) or 'none'});"
+        " its mutants and its environment are this run's (#364, ADR-0129). Tested again: its missed, timeout and"
+        " memory-limit mutants, those it did not test, and those caught by a test binary this push changed"
+        f" ({', '.join(f'`{b}`' for b in info.get('changed_binaries', []) + [p + ' (every binary)' for p in info.get('changed_packages', [])]) or 'none'})."
+        " Every other outcome is carried over from that run; the verdict covers both.",
+        "",
+    ]
+    if info.get("retest"):
+        out += [f"<details><summary>Retested ({len(info['retest'])}): why</summary>", ""]
+        out += [f"- {x}: {why}" for x, why in sorted(info["retest"].items())]
+        out += ["", "</details>", ""]
+    return out
+
+
+def retest_problems(info: dict, results: list[dict], gate: list[str]) -> list[str]:
+    """Every mutant of the gate's list has an outcome: tested here or carried over."""
+    tested = {x for r in results for x in r["expected"]}
+    carried = info.get("carried", {})
+    out = [f"{x}: neither tested in this run nor carried over" for x in gate if x not in tested and x not in carried]
+    out += [f"{x}: carried over as {v.get('outcome')}, which is never carried" for x, v in sorted(carried.items())
+            if v.get("outcome") not in ("caught", "unviable")]
+    out += [f"{x}: tested and carried over" for x in sorted(tested & set(carried))]
+    return out
+
+
 def markdown(
     results: list[dict],
     gate: dict | None = None,
@@ -317,14 +359,18 @@ def markdown(
     memory_limit: int | None = None,
     base: dict | None = None,
     baseline_status: str | None = None,
+    retest: dict | None = None,
 ) -> str:
-    tot = {k: sum(len(r[k]) for r in results) for k in KINDS}
+    carried = {x: v["outcome"] for x, v in (retest or {}).get("carried", {}).items()}
+    tot = {k: sum(len(r[k]) for r in results) + sum(1 for o in carried.values() if o == k) for k in KINDS}
     listed = sum(len(r["expected"]) for r in results)
     done = sum(tested(r) for r in results)
     untested = sum(len(r["untested"]) for r in results)
     incomplete = [r for r in results if not complete(r)]
     out = ["## Mutation test (ADR-0109)", ""]
-    if not results:
+    if retest is not None:
+        out += retest_head(retest, listed, len(carried))
+    if not results and not carried:
         out += [f"**No mutant to test.** {note or ''}".rstrip(), ""]
         if gate is not None:
             out += ["Pull-request gate: **passed** (nothing to test).", ""]
@@ -367,10 +413,10 @@ def markdown(
             out += [f"- {n}" for n in gate["covered"]] + [""]
         c_list(out, gate)
     out += [
-        "| Mutants | Tested | Not tested | Caught | Missed | Timeout | Memory limit | Unviable |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|",
-        f"| {listed} | {done} | {untested} | {tot['caught']} | {tot['missed']} | {tot['timeout']} "
-        f"| {tot['memory']} | {tot['unviable']} |",
+        "| Mutants | Tested | Carried over | Not tested | Caught | Missed | Timeout | Memory limit | Unviable |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        f"| {listed + len(carried)} | {done} | {len(carried)} | {untested} | {tot['caught']} | {tot['missed']} "
+        f"| {tot['timeout']} | {tot['memory']} | {tot['unviable']} |",
         "",
         "| Shard | Mutants | Tested | Caught | Missed | Timeout | Memory limit | Unviable | Status | Test timeout, s |",
         "|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|",
@@ -413,6 +459,13 @@ def markdown(
             out += [f"<details><summary>Shard {r['shard']}: not tested ({len(r['untested'])})</summary>", ""]
             out += [f"- {n}" for n in r["untested"]]
             out += ["", "</details>", ""]
+    if carried:
+        out += [f"<details><summary>Carried over from run {retest['run']} ({len(carried)}): the outcome of then"
+                "</summary>", ""]
+        for x in sorted(carried):
+            by = retest["carried"][x].get("caught_by")
+            out.append(f"- {carried[x]}{' by ' + ', '.join(by) if by else ''}: {x}")
+        out += ["", "</details>", ""]
     unviable = sorted(n for r in results for n in r["unviable"])
     out += [f"<details><summary>Unviable ({len(unviable)}): the mutation does not build</summary>", ""]
     out += [f"- {n}" for n in unviable]
@@ -431,8 +484,11 @@ def summarize(
     memory_limit: int | None = None,
     baseline: Path | None = None,
     baseline_status: str | None = None,
+    retest: Path | None = None,
 ) -> int:
     results = [shard_result(root, lists, k, shards) for k in range(shards)]
+    info = json.loads((retest / "retest.json").read_text(encoding="utf-8")) if retest is not None else None
+    retest_errors = retest_problems(info, results, read_lines(lists / "gate-all.txt")) if info is not None else []
     base = baseline_facts(baseline) if (baseline is not None or baseline_status is not None) and results else None
     gate = None
     if config is not None:
@@ -440,7 +496,9 @@ def summarize(
         open_, covered = gate_split(missed, exclusions(config))
         unexcluded = read_lines(lists / "unexcluded.txt")
         gate = {"open": open_, "covered": covered, "c": c_waiting(config, unexcluded)}
-    md = markdown(results, gate, note, memory_limit, base, baseline_status if results else None)
+    md = markdown(results, gate, note, memory_limit, base, baseline_status if results else None, info)
+    if retest_errors:
+        md += "\n" + "\n".join(f"> **Retest.** {e}" for e in retest_errors) + "\n"
     print(md)
     if md_path:
         with md_path.open("a", encoding="utf-8") as f:
@@ -472,6 +530,13 @@ def summarize(
         if not complete(r):
             print(f"::error title=Mutation test::shard {r['shard']}: {status(r).replace('**', '')}")
             code = 1
+    for e in retest_errors:
+        print(f"::error title=Mutation gate retest::{e}")
+        code = 1
+    if info is not None:
+        print(f"::notice title=Mutation gate::retest: run {info['run']} (SHA {info['sha']}):"
+              f" {sum(len(r['expected']) for r in results)} of {len(read_lines(lists / 'gate-all.txt'))} retested,"
+              f" {len(info['carried'])} carried over")
     if gate is not None and baseline_status in (None, "success"):
         for n in gate["open"]:
             print(f"::error title=Mutation gate::missed, not covered by exclude_re: {n}")
@@ -602,7 +667,7 @@ def self_test() -> int:
         assert results[2]["untested"] == [a] and not results[2]["present"], results[2]
         md = markdown(results)
         assert "> **NOT COMPLETED: 2 of 3 shard(s)** (1, 2); 2 mutant(s) not tested." in md, md
-        assert "| 5 | 3 | 2 | 1 | 1 | 0 | 0 | 1 |" in md, md
+        assert "| 5 | 3 | 0 | 2 | 1 | 1 | 0 | 0 | 1 |" in md, md
         assert "| 1 | 2 | 1 | 0 | 0 | 0 | 0 | 1 | **NOT COMPLETED**: 1 not tested |" in md, md
         assert "| 2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | **NOT COMPLETED**: no artifact, 1 not tested |" in md, md
         assert "<details><summary>Shard 1: not tested (1)</summary>" in md and f"- {d}" in md, md
@@ -824,7 +889,7 @@ def self_test() -> int:
         assert f"reused: run 4242 (SHA {sha}), key {'k' * 64}" in text, text
         assert "### Pull-request gate: passed (reused)" in text and "No shard ran in this run" in text, text
         assert f"Excluded by today's `exclude_re`, tested then (1)" in text and f"- {b}" in text, text
-        assert "| 3 | 3 | 0 | 2 | 0 | 0 | 0 | 1 |" in text, text
+        assert "| 3 | 3 | 0 | 0 | 2 | 0 | 0 | 0 | 1 |" in text, text
         assert f"::notice title=Mutation gate::reused: run 4242 (SHA {sha}), key {'k' * 64}" in out.getvalue(), out.getvalue()
         assert (Path(tmp) / "merged" / "caught.txt").read_text(encoding="utf-8") == f"{a}\n{b}\n"
         # Defensive: a reused run that is not clean, or that did not test a mutant of this run, fails.
@@ -836,6 +901,58 @@ def self_test() -> int:
         (reuse / "shards" / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
             assert summarize_reused(reuse, cur, cfg, None, None) == 1, "a timeout is never reused"
+
+        # #364: a retest. Shard 0 tested a and b again; c and d are carried
+        # over from run 77 (caught by an unchanged binary, unviable).
+        rt = Path(tmp) / "rt"
+        rl = Path(tmp) / "rtlists"
+        (rl / "retest").mkdir(parents=True)
+        (rt / "mutants-out-0" / "mutants.out").mkdir(parents=True)
+        (rt / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(a + "\n", encoding="utf-8")
+        (rt / "mutants-out-0" / "mutants.out" / "missed.txt").write_text(b + "\n", encoding="utf-8")
+        (rl / "shard-0.txt").write_text(f"{a}\n{b}\n", encoding="utf-8")
+        (rl / "all.txt").write_text(f"{a}\n{b}\n", encoding="utf-8")
+        (rl / "gate-all.txt").write_text(f"{a}\n{b}\n{c}\n{d}\n", encoding="utf-8")
+        info = {"run": 77, "sha": "cd" * 20, "url": "u", "changed_paths": ["crates/x/tests/t.rs"],
+                "changed_binaries": ["x::t"], "changed_packages": [],
+                "retest": {a: "caught then by x::t, changed since", b: "missed then"},
+                "carried": {c: {"outcome": "caught", "caught_by": ["x::u"]}, d: {"outcome": "unviable"}}}
+        (rl / "retest" / "retest.json").write_text(json.dumps(info), encoding="utf-8")
+        md_file = Path(tmp) / "rt.md"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert summarize(rt, rl, 1, None, md_file, config=cfg, retest=rl / "retest") == 1, "b is missed"
+        text = md_file.read_text(encoding="utf-8")
+        assert f"**retest: run 77 (SHA {'cd' * 20}): 2 of 4 retested, 2 carried over**" in text, text
+        assert "| 4 | 2 | 2 | 0 | 2 | 1 | 0 | 0 | 1 |" in text, text
+        assert f"- caught by x::u: {c}" in text and f"- unviable: {d}" in text, text
+        assert f"- {b}: missed then" in text, text
+        assert "### Pull-request gate: FAILED, 1 missed mutant(s)" in text, text
+        assert f"::notice title=Mutation gate::retest: run 77 (SHA {'cd' * 20}): 2 of 4 retested, 2 carried over" in out.getvalue()
+        # Every mutant retested is caught: the gate passes.
+        (rt / "mutants-out-0" / "mutants.out" / "caught.txt").write_text(f"{a}\n{b}\n", encoding="utf-8")
+        (rt / "mutants-out-0" / "mutants.out" / "missed.txt").write_text("", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize(rt, rl, 1, None, None, config=cfg, retest=rl / "retest") == 0
+        # A mutant of the gate's list with no outcome at all, or carried over as missed: fails.
+        for bad in ({**info, "carried": {c: info["carried"][c]}},
+                    {**info, "carried": {**info["carried"], d: {"outcome": "missed"}}},
+                    {**info, "carried": {**info["carried"], a: {"outcome": "caught"}}}):
+            (rl / "retest" / "retest.json").write_text(json.dumps(bad), encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert summarize(rt, rl, 1, None, None, config=cfg, retest=rl / "retest") == 1, bad
+            assert "::error title=Mutation gate retest::" in out.getvalue(), out.getvalue()
+        # Nothing to retest: no shard, the verdict from the carried outcomes alone.
+        (rl / "retest" / "retest.json").write_text(json.dumps(
+            {**info, "retest": {}, "carried": {x: {"outcome": "caught", "caught_by": ["x::u"]} for x in (a, b, c, d)}}),
+            encoding="utf-8")
+        md_file = Path(tmp) / "rt0.md"
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize(Path(tmp) / "none", rl, 0, None, md_file, config=cfg, retest=rl / "retest") == 0
+        text = md_file.read_text(encoding="utf-8")
+        assert "0 of 4 retested, 4 carried over" in text and "No mutant to test" not in text, text
+        assert "### Pull-request gate: passed" in text and "| 4 | 0 | 4 | 0 | 4 | 0 | 0 | 0 | 0 |" in text, text
     print("mutants_summary self-test: ok")
     return 0
 
@@ -854,6 +971,7 @@ def main() -> int:
     ap.add_argument("--reused", type=Path, help="#318: the gate's verdict from an earlier run (mutants_reuse.py find)")
     ap.add_argument("--baseline", type=Path, help="ADR-0128 §2: the baseline job's artifact (mutants-baseline)")
     ap.add_argument("--baseline-result", help="ADR-0128 §2: the baseline job's result; anything but success fails")
+    ap.add_argument("--retest", type=Path, help="#364: mutants-list/retest/ of a retest (the carried outcomes)")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
@@ -877,6 +995,7 @@ def main() -> int:
         args.memory_limit_mib,
         args.baseline,
         args.baseline_result,
+        args.retest,
     )
 
 
