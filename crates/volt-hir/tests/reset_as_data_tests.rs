@@ -201,9 +201,9 @@ fn the_helps_bool_input_compiles_clean() {
     let src = "module M {
     in  clk  : clock
     in  rst  : reset(sync, active_high)
-    in  soft : bool
+    in  soft_rst : bool
     out y    : bool
-    let t = match soft { true => true, _ => false }
+    let t = match soft_rst { true => true, _ => false }
     y = sync(t, clk)
 }
 ";

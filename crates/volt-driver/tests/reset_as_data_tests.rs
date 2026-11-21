@@ -141,18 +141,18 @@ fn the_helps_two_ways_behave_in_simulation() {
     }
     let dir = temp_dir("sim");
     // Reset'e bağlı davranış register'ın reset değerindedir (5); yazılımla
-    // tetiklenen yumuşak reset ayrı bir bool giriştir (`soft`).
+    // tetiklenen yumuşak reset ayrı bir bool giriştir (`soft_rst`).
     std::fs::write(
         dir.join("top.volt"),
         "module SoftReset {
     in  clk  : clock
     in  rst  : reset(sync, active_high)
-    in  soft : bool
+    in  soft_rst : bool
     out q    : u8
 
     reg r : u8 = 5
     on clk {
-        if soft {
+        if soft_rst {
             r <= 5
         } else {
             r <= r + 1
@@ -164,21 +164,21 @@ fn the_helps_two_ways_behave_in_simulation() {
     )
     .expect("yazılmalı");
     // Değerler elle (ADR-0033): reset() dönünce r reset değerinde (5); her
-    // saat +1. soft bir kenar boyunca 1 iken r <= 5; sonra yine +1. İkinci
+    // saat +1. soft_rst bir kenar boyunca 1 iken r <= 5; sonra yine +1. İkinci
     // reset() 5'e döndürür.
     std::fs::write(
         dir.join("top_test.volt"),
         "test \"reset value and a soft reset input\" {
     let dut = SoftReset { };
-    dut.soft = false;
+    dut.soft_rst = false;
     reset();
     assert_eq(dut.q, 5);
     step(3);
     assert_eq(dut.q, 8);
-    dut.soft = true;
+    dut.soft_rst = true;
     step(1);
     assert_eq(dut.q, 5);
-    dut.soft = false;
+    dut.soft_rst = false;
     step(2);
     assert_eq(dut.q, 7);
     reset();
