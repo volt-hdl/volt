@@ -215,6 +215,60 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Bu bölümdeki diğer değişiklikler yalnız CI'ı ve geliştirme sürecini
   etkiler; derleyicinin girdisi ve çıktısı aynıdır.
 
+### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
+
+- PR'ın son tam kapı koşusundan beri yalnız paketlerin `tests/`'indeki
+  dosyalar değiştiyse kapı bütün listeyi baştan denemez. Mutantlar ve
+  ortam da aynı olmalıdır. Kapı yalnız şunları yeniden sınar:
+  - o koşunun missed, timeout ve bellek sınırı mutantları;
+  - o koşunun sınamadığı mutantlar;
+  - yakalayan test ikilisi bu push'ta değişen caught mutantlar.
+- Kalanın sonucu taşınır; özet "retest: run …, k of N retested" der.
+  Başka her durumda kapı tam koşar.
+- Elle: `-f gate_base=<revizyon> -f retest_from=<koşu>`.
+- Başka bir paketin testinin adıyla okuduğu ya da içeri aldığı bir test
+  dosyası değişirse okuyan ikili de değişmiş sayılır
+  (`crates/volt-tools/tests/verilator_flags_tests.rs` volt-driver'ın iki
+  test dosyasını okur). Test dışı kod (src/, build.rs) okuyorsa kapı tam
+  koşar.
+- Missed bir mutant için yazılan testi kaynak dosyanın
+  `#[cfg(test)] mod tests`'i yerine bir test dosyasına koyun: sonraki
+  push yalnız gerekeni yeniden sınar.
+
+### Geliştirici notu — Mutasyon kapısında koşu başına tek temel koşu ve sabit zaman aşımı tabanı (#366, ADR-0128 §2–§3, 2026-11-21)
+
+- **Tek temel koşu.** Temel koşu parçalardan çıktı: koşu başına bir iş
+  ("Mutation baseline"), parçalarla aynı anda. Bütün testleri araçlar
+  zorunlu ve bellek bekçisi altında koşar; bellek tepe uyarısı, yeniden
+  kullanım damgası ve defterin `--min-ran 60` denetimi oradadır. Parçalar
+  `--require-zero-skips`'i korur. Temel koşu geçmezse özet mutant kararı
+  vermeden düşer.
+- **Zaman aşımı tabanı.** Mutant başına test zaman aşımı
+  max(2 × temel koşu, 3610 sn). Parçalar 3610 sn ile başlar; temel koşu
+  daha yavaşsa özet bunu denetler.
+- Mutant listesi ve her mutantın sonucu değişmez; aynı gün koşulan A/A ve
+  A/B karşılaştırmaları ADR-0128'de.
+
+### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128 Önerildi, 2026-11-20)
+
+- **Test sırası.** Kapının parçaları testleri nextest'in `mutants`
+  profiliyle koşar (`.config/nextest.toml`): PR'ın dokunduğu test
+  ikilileri önce, `volt-driver` dışındaki crate'ler sonra, yavaş
+  Verilator ikilileri en sonda. Yakalanan bir mutant ilk düşen testte
+  durduğundan daha erken durur; hangi testlerin koştuğu ve her mutantın
+  sonucu değişmez (referans karşılaştırması ADR-0128'de). Elle koşuda
+  geçici `-f nextest_order=default` eski sırayı koşturur.
+- **Karşılaştırma aracı.** `scripts/ci/mutants_compare.py A B` iki kapı
+  koşusunu mutant mutant karşılaştırır; liste ya da bir sonuç farklıysa 1
+  ile çıkar.
+- **Gereksiz yeniden derleme.** `volt-sv-emit/build.rs` yalnız var olan
+  git dosyalarını izler. CI'ın sığ checkout'unda `.git/packed-refs`
+  yoktu; cargo var olmayan yolu her çağrıda değişmiş sayıp build script'i
+  yeniden koşturuyor, `volt-sv-emit`, `volt-lsp` ve `volt-driver` her
+  `cargo` çağrısında yeniden derleniyordu (kapıda mutant başına medyan
+  13,7 sn). `volt --version` yeni commit'te güncellenmeye devam eder.
+- Derleyicinin girdisi ve çıktısı değişmedi.
+
 ### Geliştirici notu — Fark testinin büyük koşusu her gece; gecelik saatler ve tohum (#255, ADR-0123, 2026-11-18)
 
 - **Gecelik tetik.** `difftest.yml` her gece main'de koşar; elle tetik

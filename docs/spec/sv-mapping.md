@@ -321,6 +321,11 @@ assign slow_data = sync_fast_data_stage1;
 - İki flip-flop varsayılan (3 için `sync3()` kullanılır)
 - Yorum satırı otomatik eklenir (SDC için ipucu)
 - SDC'de `set_false_path` üretilir (F4'te)
+- Kaynak `reset` tipinde olamaz: E2003 (ADR-0124). Aşamalar hedef alanın
+  reset'iyle temizlenir; kaynak o reset'in kendisiyse çıkış reset assert
+  olduğu sürece temiz kalır ve active_high bir reset hiç çıkmaz. Bir
+  reset'in senkronizörü, ham reset portundan türetilen bırakma zinciridir
+  (§7, ADR-0065 §2).
 
 ---
 
@@ -351,6 +356,12 @@ assign busy = u_busy;
 - İsimli port bağlama (positional asla kullanılmaz)
 - Çıkış sinyalleri için `<örnek>_<port>` wire üretilir
 - Clock ve reset otomatik bağlanır
+- Reset tipli bir porta yalnız ebeveynin reset giriş portunun adı
+  bağlanır (`rst: rst` ya da kısayol `rst`); `let`, `if`, `match` ya da
+  `sync()` ile türetilen değer E2003'tür (ADR-0065 §1, ADR-0124). Çocuğa
+  ebeveynin senkronize reset'ini vermenin yolu çocukta reset portu
+  yazmamaktır: otomatik portu ebeveynin o saat için zincir çıkışına
+  bağlanır.
 - ADR-0041: çıkış telleri modül gövdesinin BAŞINDA bildirilir (kullanım
   sırasından bağımsız); reset, hedef modülün saat alanı yapılandırmasından
   üst modülün aynı adlı reset portuna bağlanır; bağlanmamış giriş portu

@@ -633,6 +633,14 @@ bağımsız senkronize eder. Bitler farklı saat kenarlarında
 yakalanabilir → geçersiz ara değer. Bu Arch HDL'in de kabul
 ettiği bir sınır.
 
+**Kaynak reset olamaz (ADR-0124):** `sync()`/`sync3()` veri köprüsüdür;
+kaynağın tipi `reset` ise E2003. Senkronizörün aşamaları hedef alanın
+reset'iyle temizlenir: kaynak o reset'in kendisiyse çıkış reset assert
+olduğu sürece temizdir (active_high reset hiç çıkmaz, active_low yalnız
+tesadüfen). Reset ham reset portundan türetilen zincirle senkronlanır
+(ADR-0065 §2) ve alt modüle otomatik reset portuyla gider; reset tipli bir
+porta yalnız reset giriş portunun adı bağlanır (sv-mapping.md §9).
+
 ---
 
 ## 3. Çıkarım Akışı
