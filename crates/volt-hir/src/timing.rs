@@ -10,7 +10,9 @@
 //! açık `Delayed` anotasyonlarıyla kurulur.
 //!
 //! Kaçış noktaları (bilinçli yeniden zamanlama):
-//!   * `delay<K>(x)` — gecikmeye K ekler;
+//!   * `delay<K>(x)` — gecikmeye K ekler; register EKLEMEZ, denetlenmeyen
+//!     bir iddiadır (ADR-0127, #232). E5010'un yolu gerçek aşama
+//!     register'ıdır (`stage_register_help`);
 //!   * açık anotasyonlu `let` (`let f : Delayed<u32, 2> = ...`) —
 //!     sonucun gecikmesini BİLDİRİR, başlatıcısının içindeki karışım
 //!     denetimi bastırılır (forwarding/bypass bu kapıdan yazılır).
@@ -33,7 +35,8 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use crate::resolve::{DefId, DefKind, ResolveResult};
-use crate::typeck::DeadArms;
+use crate::ty::Ty;
+use crate::typeck::{DeadArms, TypeckResult};
 
 /// Bir tanımın boru hattı gecikmesi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,14 +68,24 @@ pub struct TimingResult {
 }
 
 /// `@strict_timing` modüllerini denetler; diğerlerine hiç dokunmaz.
-pub fn check_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) -> Vec<Diagnostic> {
-    analyze_timing(ast, res, dead).diagnostics
+pub fn check_timing(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    typeck: &TypeckResult,
+) -> Vec<Diagnostic> {
+    analyze_timing(ast, res, typeck).diagnostics
 }
 
 /// `check_timing` ile aynı geçit; tanılara ek olarak kesin gecikmeleri
-/// de döndürür. `dead`: tasarıma yazılmayan `match` kolları (tip
-/// denetiminden); onların kaynakları donanımda yoktur (#331).
-pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) -> TimingResult {
+/// de döndürür. `typeck`: tasarıma yazılmayan `match` kolları (onların
+/// kaynakları donanımda yoktur, #331) ve E5010'un önerdiği aşama
+/// register'ının tipi ile genişliği (ADR-0127).
+pub fn analyze_timing(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    typeck: &TypeckResult,
+) -> TimingResult {
+    let dead = &typeck.dead_arms;
     let mut diags = Vec::new();
     let mut delays = HashMap::new();
     for &item_idx in &ast.items {
@@ -85,6 +98,8 @@ pub fn analyze_timing(ast: &SourceFile, res: &ResolveResult, dead: &DeadArms) ->
                 ast,
                 res,
                 dead,
+                typeck,
+                clocks: Vec::new(),
                 diags: &mut diags,
                 declared: HashMap::new(),
                 delays: HashMap::new(),
@@ -112,6 +127,10 @@ struct ModuleTiming<'a> {
     res: &'a ResolveResult,
     /// Tasarıma yazılmayan `match` kolları: kaynak ve gecikme taşımaz.
     dead: &'a DeadArms,
+    /// Tipler: E5010'un önerdiği aşama register'ının tipi ve genişliği.
+    typeck: &'a TypeckResult,
+    /// Modüldeki `on` bloklarının ayrı saat adları (öneri metni için).
+    clocks: Vec<String>,
     diags: &'a mut Vec<Diagnostic>,
     /// Açık `Delayed<T, N>` anotasyonları: tanım → (N, anotasyon span'i).
     declared: HashMap<DefId, (u32, Span)>,
@@ -224,7 +243,14 @@ impl<'a> ModuleTiming<'a> {
                         .push(Source { rhs, span });
                 }
             }
-            StmtKind::On(on) => self.collect_block(on.body),
+            StmtKind::On(on) => {
+                if let volt_ast::OnTrigger::Clock(clk) = &on.trigger {
+                    if !self.clocks.contains(&clk.text) {
+                        self.clocks.push(clk.text.clone());
+                    }
+                }
+                self.collect_block(on.body);
+            }
             StmtKind::Comb(b) => self.collect_block(*b),
             StmtKind::For(f) => self.collect_block(f.body),
             StmtKind::Instance(_) | StmtKind::Expr(_) | StmtKind::Error => {}
@@ -452,6 +478,7 @@ impl<'a> ModuleTiming<'a> {
                 if n.saturating_add(1) != want {
                     let diff = n + 1;
                     let art = volt_diagnostics::a_an(u64::from(diff));
+                    let help = self.register_write_help(s.rhs, n, want);
                     self.diags.push(
                         Diagnostic::error(
                             ErrorCode::E5010,
@@ -460,7 +487,7 @@ impl<'a> ModuleTiming<'a> {
                                 s.span,
                                 lstr!(en: "source is {n} cycles — register would hold {art} {diff}-cycle value"; tr: "kaynak {n} çevrim — register {diff} çevrimlik değer tutar"),
                             ),
-                            lstr!(en: "align the source with delay<K>(...) or fix the declared cycle count"; tr: "kaynağı delay<K>(...) ile hizalayın ya da bildirilen çevrim sayısını düzeltin"),
+                            help,
                         )
                         .with_secondary(
                             aspan,
@@ -497,7 +524,7 @@ impl<'a> ModuleTiming<'a> {
                 let (l, r) = (*lhs, *rhs);
                 let a = self.delay_of(l, emit);
                 let b = self.delay_of(r, emit);
-                self.combine(a, b, emit)
+                self.combine_operands(a, b, [Some(l), Some(r)], emit)
             }
             ExprKind::Index { base, index } => {
                 let a = self.delay_of(*base, emit);
@@ -534,9 +561,10 @@ impl<'a> ModuleTiming<'a> {
                 else_expr,
                 ..
             } => {
-                let a = self.delay_of(*then_expr, emit);
-                let b = self.delay_of(*else_expr, emit);
-                self.combine(a, b, emit)
+                let (t, f) = (*then_expr, *else_expr);
+                let a = self.delay_of(t, emit);
+                let b = self.delay_of(f, emit);
+                self.combine_operands(a, b, [Some(t), Some(f)], emit)
             }
             ExprKind::Match { arms, .. } => {
                 let bodies: Vec<Idx<Expr>> = self
@@ -664,6 +692,19 @@ impl<'a> ModuleTiming<'a> {
     /// İki alt sonucu birleştirir; `emit` açıkken Exact/Exact
     /// uyuşmazlığında E5010 üretir ve kaskadı bastırmak için Any döner.
     fn combine(&mut self, a: (Delay, Span), b: (Delay, Span), emit: bool) -> (Delay, Span) {
+        self.combine_operands(a, b, [None, None], emit)
+    }
+
+    /// `combine`; `ops`, iki sonucun ifadeleri (doğrudan işlenenler
+    /// biliniyorsa). E5010'un yolu genç işlenenin adını ve tipini
+    /// buradan alır (ADR-0127).
+    fn combine_operands(
+        &mut self,
+        a: (Delay, Span),
+        b: (Delay, Span),
+        ops: [Option<Idx<Expr>>; 2],
+        emit: bool,
+    ) -> (Delay, Span) {
         match (a.0, b.0) {
             (Delay::Todo, _) | (_, Delay::Todo) => (Delay::Todo, a.1),
             (Delay::Any, _) => (b.0, b.1),
@@ -672,22 +713,27 @@ impl<'a> ModuleTiming<'a> {
             (Delay::Exact(x), Delay::Exact(y)) => {
                 self.mixed = true;
                 if emit {
-                    let (old, young) = if x > y { (x, y) } else { (y, x) };
-                    let diff = old - young;
+                    let (old, young, young_op) = if x > y {
+                        (x, y, ops[1])
+                    } else {
+                        (y, x, ops[0])
+                    };
+                    let help = format!(
+                        "{}; {}",
+                        self.stage_register_help(young_op, young, old),
+                        delay_claim_note(old - young, old),
+                    );
                     self.diags.push(
                         Diagnostic::error(
                             ErrorCode::E5010,
                             lstr!(en: "timing misalignment"; tr: "zamanlama hizasızlığı"),
-                            LabeledSpan::primary(
-                                a.1,
-                                lstr!(en: "{x} cycles"; tr: "{x} çevrim"),
-                            ),
-                            lstr!(en: "align the younger value with delay<{diff}>(...) or declare the result's delay explicitly (let x : Delayed<T, N> = ...)"; tr: "genç değeri delay<{diff}>(...) ile hizalayın ya da sonucun gecikmesini açıkça bildirin (let x : Delayed<T, N> = ...)"),
+                            LabeledSpan::primary(a.1, cycles_old(x)),
+                            help,
                         )
-                        .with_secondary(b.1, lstr!(en: "{y} cycles"; tr: "{y} çevrim"))
+                        .with_secondary(b.1, cycles_old(y))
                         .with_note(
                             NoteKind::Reason,
-                            lstr!(en: "values from different pipeline stages cannot be combined directly"; tr: "farklı boru hattı aşamalarının değerleri doğrudan birleştirilemez"),
+                            lstr!(en: "the result combines values from different cycles: the {young}-cycle value belongs to an item that entered {} later than the {old}-cycle value", cycle_count(old - young); tr: "sonuç farklı çevrimlerin değerlerini birleştiriyor: {young} çevrimlik değer, {old} çevrimlik değerden {} çevrim sonra giren bir öğeye ait", old - young),
                         ),
                     );
                 }
@@ -696,10 +742,197 @@ impl<'a> ModuleTiming<'a> {
         }
     }
 
+    /// E5010'un yolu (ADR-0127): `young` çevrimlik değeri `old` çevrime
+    /// taşıyan aşama register'ları, kodu ve bedeliyle. Değer tek adlı
+    /// bir sinyalse (`a`), tipi `0`/`false` ile başlatılabiliyorsa ve
+    /// önerilen adlar boşsa kod adıyla yazılır; değilse genel biçim.
+    fn stage_register_help(&self, value: Option<Idx<Expr>>, young: u32, old: u32) -> String {
+        let k = old - young;
+        let ty = value
+            .and_then(|e| self.typeck.expr_types.get(&e))
+            .map(|&id| self.typeck.types.ty(id));
+        let bits = ty.and_then(|t| match t {
+            Ty::Bool => Some(1),
+            Ty::UInt { width } | Ty::SInt { width } | Ty::Bits { width } => Some(*width),
+            Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => None,
+        });
+        let cost = register_cost(k, bits);
+        let block = match self.clocks.as_slice() {
+            [clk] => lstr!(en: "the `on {clk}` block"; tr: "`on {clk}` bloğu"),
+            _ => lstr!(en: "the `on` block of its clock"; tr: "saatinin `on` bloğu"),
+        };
+        let named = value.and_then(|e| self.named_stage_registers(e, ty, young, old));
+        match named {
+            Some((decls, loads, last)) => lstr!(
+                en: "add {} so that the {young}-cycle value is {} old too: {decls}, write `{loads}` in {block}, and use `{last}` here (cost: {cost})", stage_registers(k), cycle_count(old);
+                tr: "{young} çevrimlik değer de {old} çevrim yaşında olsun diye {k} aşama register'ı ekleyin: {decls}; {block} içine `{loads}` yazın ve burada `{last}` kullanın (bedel: {cost})"
+            ),
+            None => lstr!(
+                en: "add {} so that the {young}-cycle value is {} old too: declare each as `reg … : Delayed<T, N> = 0`, load the first from the value and each next one from the one before in {block}, and use the last one here (cost: {cost})", stage_registers(k), cycle_count(old);
+                tr: "{young} çevrimlik değer de {old} çevrim yaşında olsun diye {k} aşama register'ı ekleyin: her birini `reg … : Delayed<T, N> = 0` diye bildirin; {block} içinde ilkini değerden, sonrakileri bir öncekinden yükleyin ve burada sonuncusunu kullanın (bedel: {cost})"
+            ),
+        }
+    }
+
+    /// Register kuralının yolu (ADR-0127): `n` çevrimlik kaynak, `want`
+    /// çevrim bildirilmiş register. Kaynak gençse önce aşama register'ı,
+    /// sonra bildirimin düzeltilmesi ve en son `delay<K>`'nın iddia
+    /// olduğu; kaynak yaşlıysa bildirim ya da daha erken aşama.
+    fn register_write_help(&self, src: Idx<Expr>, n: u32, want: u32) -> String {
+        let holds = n + 1;
+        if holds < want {
+            let source_age = want - 1;
+            let k = source_age - n;
+            lstr!(
+                en: "write the register from a value {} old: {}; or, if it really holds a {holds}-cycle value, declare it as `Delayed<T, {holds}>`; {}", cycle_count(source_age), self.stage_register_help(Some(src), n, source_age), delay_claim_note(k, source_age);
+                tr: "register'ı {source_age} çevrim yaşında bir değerden yazın: {}; ya da gerçekten {holds} çevrimlik bir değer tutuyorsa `Delayed<T, {holds}>` diye bildirin; {}", self.stage_register_help(Some(src), n, source_age), delay_claim_note(k, source_age)
+            )
+        } else if want == 0 {
+            lstr!(
+                en: "a register is at least 1 cycle old: declare it as `Delayed<T, {holds}>`";
+                tr: "register en az 1 çevrim yaşındadır: `Delayed<T, {holds}>` diye bildirin"
+            )
+        } else {
+            lstr!(
+                en: "declare the register as `Delayed<T, {holds}>`, or write it from the stage {} earlier, where the value is {} old", cycle_count(holds - want), cycle_count(want.saturating_sub(1));
+                tr: "register'ı `Delayed<T, {holds}>` diye bildirin ya da değeri {} çevrim yaşında olduğu {} çevrim önceki aşamadan yazın", want.saturating_sub(1), holds - want
+            )
+        }
+    }
+
+    /// Adlı aşama register'ları: (`reg` bildirimleri, `on` satırı, son ad).
+    fn named_stage_registers(
+        &self,
+        e: Idx<Expr>,
+        ty: Option<&Ty>,
+        young: u32,
+        old: u32,
+    ) -> Option<(String, String, String)> {
+        if !matches!(self.ast.exprs[e].kind, ExprKind::Path(_)) {
+            return None;
+        }
+        let def = *self.res.resolutions.get(&e)?;
+        let name = &self.res.defs[def.0 as usize].name;
+        let (ty_text, init) = match ty? {
+            Ty::Bool => ("bool".to_string(), "false"),
+            Ty::UInt { width } => (format!("u{width}"), "0"),
+            Ty::SInt { width } => (format!("i{width}"), "0"),
+            Ty::Bits { width } => (format!("bits<{width}>"), "0"),
+            Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => return None,
+        };
+        let names: Vec<String> = (young + 1..=old).map(|n| format!("{name}_d{n}")).collect();
+        if names
+            .iter()
+            .any(|n| self.res.defs.iter().any(|d| &d.name == n))
+        {
+            return None;
+        }
+        let decl = |i: usize| {
+            format!(
+                "`reg {} : Delayed<{ty_text}, {}> = {init}`",
+                names[i],
+                young + 1 + i as u32
+            )
+        };
+        let decls = if names.len() <= 3 {
+            (0..names.len()).map(decl).collect::<Vec<_>>().join(", ")
+        } else {
+            format!("{}, …, {}", decl(0), decl(names.len() - 1))
+        };
+        let mut loads = vec![format!("{} <= {name}", names[0])];
+        for i in 1..names.len() {
+            loads.push(format!("{} <= {}", names[i], names[i - 1]));
+        }
+        let loads = if loads.len() <= 3 {
+            loads.join("  ")
+        } else {
+            format!("{}  …  {}", loads[0], loads[loads.len() - 1])
+        };
+        Some((decls, loads, names[names.len() - 1].clone()))
+    }
+
     fn is_path_to(&self, e: Idx<Expr>, def: DefId) -> bool {
         matches!(&self.ast.exprs[e].kind, ExprKind::Path(_))
             && self.res.resolutions.get(&e) == Some(&def)
     }
+}
+
+/// "N cycle(s) old" etiketi: hangi değer kaç çevrim yaşında (ADR-0125 §1).
+fn cycles_old(n: u32) -> String {
+    lstr!(en: "this value is {} old", cycle_count(n); tr: "bu değer {n} çevrim yaşında")
+}
+
+/// "1 cycle" / "N cycles".
+fn cycle_count(n: u32) -> String {
+    if n == 1 {
+        "1 cycle".to_string()
+    } else {
+        format!("{n} cycles")
+    }
+}
+
+/// "a stage register" / "N stage registers".
+fn stage_registers(k: u32) -> String {
+    if k == 1 {
+        "a stage register".to_string()
+    } else {
+        format!("{k} stage registers")
+    }
+}
+
+/// Aşama register'larının bedeli: "K register(s) of W bits".
+fn register_cost(k: u32, bits: Option<u16>) -> String {
+    let regs = if k == 1 {
+        "1 register".to_string()
+    } else {
+        format!("{k} registers")
+    };
+    match bits {
+        Some(w) => {
+            let unit = if w == 1 { "bit" } else { "bits" };
+            if k == 1 {
+                lstr!(en: "{regs} of {w} {unit}"; tr: "1 register, {w} bit")
+            } else {
+                lstr!(en: "{regs} of {w} {unit}"; tr: "{k} register, her biri {w} bit")
+            }
+        }
+        None => lstr!(en: "{regs} of the value's width"; tr: "{k} register, değerin genişliğinde"),
+    }
+}
+
+/// `delay<K>` bir register değildir (ADR-0127, #232): önerinin sonunda,
+/// kaçış gibi, bedeliyle anılır (ADR-0125 §3).
+fn delay_claim_note(k: u32, old: u32) -> String {
+    lstr!(
+        en: "`delay<{k}>(…)` is not such a register: it is a claim that adds no hardware and that Volt does not check, right only if the value really is {} old already (it does not change during {})", cycle_count(old), if k == 1 { "that cycle".to_string() } else { format!("those {k} cycles") };
+        tr: "`delay<{k}>(…)` böyle bir register değildir: donanım eklemeyen ve Volt'un denetlemediği bir iddiadır; yalnız değer gerçekten zaten {old} çevrim yaşındaysa (o {k} çevrim boyunca değişmiyorsa) doğrudur"
+    )
 }
 
 /// `let`, `wire` ya da çıkış portunun bildirimi değerin gecikmesiyle

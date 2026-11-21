@@ -349,7 +349,7 @@ IP-XACT or UVM output.
 ## Other features
 
 - `pipeline(N)` blocks with generated stage registers — [ADR-0038](docs/adr/ADR-0038-pipeline-sozdizimi.md), [`examples/fir_filter.volt`](examples/fir_filter.volt)
-- `Delayed<T, N>` latency types — [ADR-0037](docs/adr/ADR-0037-l1-zamanlama.md), [`tests/ui/pass/44_delayed_aligned.volt`](tests/ui/pass/44_delayed_aligned.volt)
+- `Delayed<T, N>` latency types, aligned with a real stage register — [ADR-0037](docs/adr/ADR-0037-l1-zamanlama.md), [ADR-0127](docs/adr/ADR-0127-e5010-asama-registeri-tavsiyesi.md), [`tests/ui/pass/44_delayed_aligned.volt`](tests/ui/pass/44_delayed_aligned.volt); `delay<K>` is a claim that adds no register: [`tests/ui/pass/161_delay_is_a_claim.volt`](tests/ui/pass/161_delay_is_a_claim.volt)
 - Port bundles (`struct port`) — [ADR-0039](docs/adr/ADR-0039-bundle-port-gruplari.md), [`tests/ui/pass/47_bundle_basic.volt`](tests/ui/pass/47_bundle_basic.volt)
 - Structs as signal types (the field declared at the top takes the most significant bits; one SV signal per field) — [ADR-0077](docs/adr/ADR-0077-struct-destegi.md), [`examples/riscv_core.volt`](examples/riscv_core.volt) (`instr as RType`)
 - Enum state types with exhaustive `match` and a generated state-valid invariant — [ADR-0074](docs/adr/ADR-0074-enum-destegi.md), [`examples/uart_tx.volt`](examples/uart_tx.volt), [`examples/i2c/`](examples/i2c/)

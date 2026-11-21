@@ -1,7 +1,8 @@
 //~ E5010
 // @strict_timing: an undelayed input port (0 cycles by definition)
-// cannot feed the same operator as a 2-cycle stage register unless it
-// is re-aligned with delay<2>(...) (ADR-0037).
+// cannot feed the same operator as a 2-cycle stage register (ADR-0037).
+// The fix is two stage registers for x (ADR-0127); delay<2>(x) would
+// only claim the age and add no register.
 
 @strict_timing
 module MissingDelay {
