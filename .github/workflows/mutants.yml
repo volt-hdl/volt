@@ -37,6 +37,18 @@ name: Mutation test
 #   the digests GitHub recorded, never from actions/cache. Every shard
 #   deletes the inert paths before its baseline, so its outcomes never
 #   depend on them.
+#   Retest (#364, ADR-0129): when the pull request's last full gate run
+#   (every shard and the baseline completed, SKIP: 0, whatever the verdict)
+#   has the same mutants before the exclusions and the same environment,
+#   and every path changed since is a test file (under a package's
+#   `tests/`), only part of the list is tested again: that run's missed,
+#   timeout and memory-limit mutants, those it did not test, and those
+#   caught by a test binary the push changed (the binary is read from the
+#   mutant's log in that run's artifact; a log that names none is tested
+#   again). Every other outcome is carried over and the summary says so
+#   ("retest: run <id> (SHA <sha>): k of N retested, N-k carried over").
+#   Anything else runs the gate in full and the log says why. By hand:
+#   `-f gate_base=<revision> -f retest_from=<run id>`.
 # - A full or targeted run, by hand (workflow_dispatch): a measurement; a
 #   missed mutant does not fail it.
 #
@@ -107,6 +119,12 @@ on:
         description: "The pull-request gate by hand: the mutants on the lines changed since this revision (empty: a full or targeted run)"
         required: false
         default: ""
+      # #364 (ADR-0129): a gate run by hand that retests part of an earlier
+      # run (its id) after a test-only change, as a pull request's push does.
+      retest_from:
+        description: "With gate_base: retest part of this earlier gate run's mutants (#364) when only test files changed since; empty: the gate runs in full"
+        required: false
+        default: ""
       # Temporary (ADR-0128, #366): the reference comparisons run the same
       # commit in both orders. Removed once ADR-0128 is decided.
       nextest_order:
@@ -133,6 +151,7 @@ env:
   MUTANTS_RE: ${{ inputs.re }}
   MUTANTS_EXPECT: ${{ inputs.expect }}
   MUTANTS_GATE_BASE: ${{ inputs.gate_base }}
+  MUTANTS_RETEST_FROM: ${{ inputs.retest_from }}
   # ADR-0128: priority on a pull request and by default; `default` only
   # when a run by hand asks for it.
   MUTANTS_NEXTEST_ORDER: ${{ inputs.nextest_order || 'priority' }}
@@ -210,6 +229,7 @@ jobs:
       reuse_run: ${{ steps.reuse.outputs.run }}
       reuse_sha: ${{ steps.reuse.outputs.sha }}
       reuse_key: ${{ steps.reuse.outputs.key }}
+      retest_run: ${{ steps.retest.outputs.run }}
     steps:
       # The whole history: the gate diffs against the merge commit's first
       # parent or against gate_base.
@@ -264,6 +284,10 @@ jobs:
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           if [ -n "$MUTANTS_EXPECT" ] && [ -z "$MUTANTS_RE" ]; then
             echo "::error title=Mutation test::expect goes with re (the number of mutants the regex was written for)"
+            exit 1
+          fi
+          if [ -n "$MUTANTS_RETEST_FROM" ] && [ "$mode" != gate ]; then
+            echo "::error title=Mutation gate::retest_from goes with gate_base (a gate run by hand)"
             exit 1
           fi
           if [ "$mode" = gate ]; then
@@ -345,6 +369,66 @@ jobs:
           fi
           python3 scripts/ci/mutants_reuse.py find --lists mutants-list --pr "$PR_NUMBER" \
             --head-repo "$HEAD_REPO" --head-ref "$HEAD_REF" --github-output "$GITHUB_OUTPUT"
+      # #364 (ADR-0129): no reuse; after a test-only push since the pull
+      # request's last full gate run (or since retest_from, by hand), only
+      # part of the list is tested again. mutants_reuse.py retest decides and
+      # writes mutants-list/retest/ (retest.json: the base run, why each
+      # mutant is tested again, the outcomes carried over; retest.re: the
+      # exact names). The list is then narrowed like a targeted run: --re
+      # with the names and --in-diff with their lines (cargo-mutants 27.1.0
+      # lets field-deletion mutants through --re; one on a retested line is
+      # tested again too). retest-check proves the narrowed list holds every
+      # mutant to retest and nothing off the gate's list. Anything wrong:
+      # the gate runs in full, and the log says why.
+      - name: Retest after a test-only push (#364, ADR-0129)
+        id: retest
+        if: ${{ steps.list.outputs.mode == 'gate' && steps.reuse.outputs.run == '' }}
+        env:
+          CARGO_TERM_COLOR: never
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          export PATH="$HOME/mutants-tools/bin:$PATH"
+          if [ ! -s mutants-list/all.txt ]; then
+            echo "No mutant to test: no retest."
+            exit 0
+          fi
+          args=(retest --lists mutants-list --github-output "$GITHUB_OUTPUT")
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args+=(--pr "$PR_NUMBER" --head-repo "$HEAD_REPO" --head-ref "$HEAD_REF")
+          elif [ -n "$MUTANTS_RETEST_FROM" ]; then
+            args+=(--run "$MUTANTS_RETEST_FROM")
+          else
+            echo "A gate run by hand without retest_from: the gate runs in full."
+            exit 0
+          fi
+          python3 scripts/ci/mutants_reuse.py "${args[@]}"
+          if [ ! -f mutants-list/retest/retest.json ]; then
+            exit 0
+          fi
+          cp mutants-list/all.txt mutants-list/gate-all.txt
+          cp mutants-list/filter.txt mutants-list/gate-filter.txt
+          ok=1
+          if [ -s mutants-list/retest/retest.re ]; then
+            re=$(cat mutants-list/retest/retest.re)
+            cargo mutants --list --re "$re" > mutants-list/retest/re.txt || ok=0
+            python3 scripts/ci/mutants_target.py diff --re "$re" --list mutants-list/retest/re.txt --out mutants-list/retest/retest.diff || ok=0
+            printf '%s\n' --re "$re" --in-diff mutants-list/retest/retest.diff > mutants-list/filter.txt
+            mapfile -t filter < mutants-list/filter.txt
+            cargo mutants --list "${filter[@]}" > mutants-list/all.txt || ok=0
+          else
+            : > mutants-list/all.txt
+          fi
+          if [ "$ok" = 1 ] && python3 scripts/ci/mutants_reuse.py retest-check --lists mutants-list; then
+            exit 0
+          fi
+          echo "::warning title=Mutation gate::the retest list could not be made; the gate runs in full"
+          mv mutants-list/gate-all.txt mutants-list/all.txt
+          mv mutants-list/gate-filter.txt mutants-list/filter.txt
+          rm -rf mutants-list/retest
+          echo "run=" >> "$GITHUB_OUTPUT"
       # ADR-0109 section 3, from the number of mutants of this run, unless
       # the input gives it; the gate with its measured t. No mutant, or a
       # reused earlier run (#318): no shard.
@@ -356,7 +440,10 @@ jobs:
           REUSE_RUN: ${{ steps.reuse.outputs.run }}
         run: |
           total=$(wc -l < mutants-list/all.txt)
-          if [ "$total" -eq 0 ]; then
+          if [ "$total" -eq 0 ] && [ -f mutants-list/retest/retest.json ]; then
+            # #364: nothing to test again; every outcome is carried over.
+            n=0
+          elif [ "$total" -eq 0 ]; then
             if [ "$MODE" != gate ]; then
               echo "::error title=Mutation test::no mutant in the run"
               exit 1
@@ -390,6 +477,8 @@ jobs:
           REUSE_RUN: ${{ steps.reuse.outputs.run }}
           REUSE_SHA: ${{ steps.reuse.outputs.sha }}
           REUSE_KEY: ${{ steps.reuse.outputs.key }}
+          RETEST_RUN: ${{ steps.retest.outputs.run }}
+          RETEST_SHA: ${{ steps.retest.outputs.sha }}
         run: |
           export PATH="$HOME/mutants-tools/bin:$PATH"
           mapfile -t filter < mutants-list/filter.txt
@@ -414,6 +503,10 @@ jobs:
           {
             if [ -n "$REUSE_RUN" ]; then
               echo "### Pull-request gate: $total mutants on the changed lines, reused: run $REUSE_RUN (SHA $REUSE_SHA), key $REUSE_KEY"
+              echo
+              cat mutants-list/note.txt
+            elif [ -n "$RETEST_RUN" ]; then
+              echo "### Pull-request gate: retest of run $RETEST_RUN (SHA $RETEST_SHA): $total of $(wc -l < mutants-list/gate-all.txt) mutants on the changed lines tested again, $MUTANTS_SHARDS shards"
               echo
               cat mutants-list/note.txt
             elif [ "$MODE" = gate ]; then
@@ -868,6 +961,7 @@ jobs:
             --memory-limit-mib "$MUTANTS_MEMORY_LIMIT_MIB")
           if [ "$MUTANTS_MODE" = gate ]; then args+=(--gate --config .cargo/mutants.toml); fi
           if [ "$MUTANTS_SHARDS" != 0 ]; then args+=(--baseline baseline --baseline-result "$BASELINE_RESULT"); fi
+          if [ -f lists/retest/retest.json ]; then args+=(--retest lists/retest); fi
           if [ -s lists/note.txt ]; then args+=(--note "$(cat lists/note.txt)"); fi
           python3 scripts/ci/mutants_summary.py "${args[@]}"
       - name: Upload the merged lists
