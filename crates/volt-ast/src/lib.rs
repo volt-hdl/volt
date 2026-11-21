@@ -6,8 +6,10 @@
 //! ifade kümesi. Her enum hata kurtarma için `Error` varyantı taşır
 //! (ast-nodes.md İ3).
 
+pub mod alias;
 pub mod arena;
 pub mod builtin;
+pub mod const_eval;
 pub mod enum_layout;
 pub mod graph;
 pub mod match_cover;

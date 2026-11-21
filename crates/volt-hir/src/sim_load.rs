@@ -16,7 +16,7 @@ use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sim::undefined_dut;
 use crate::sim_expr::{type_mismatch, Scope};
-use crate::sim_port::{literal_or_const, scalar_width, ScalarWidth};
+use crate::sim_port::{const_u32, scalar_width, ScalarWidth};
 
 /// Testbench'in doğrudan yazabildiği en geniş eleman (C++ `QData`).
 const MAX_LOAD_ELEM_BITS: u32 = 64;
@@ -116,8 +116,8 @@ pub(crate) fn check_load(
     let Some(info) = source_info else {
         return;
     };
-    if let Some(target_len) = literal_or_const(reg_src, *len) {
-        if info.len as u128 > target_len {
+    if let Some(target_len) = const_u32(reg_src, *len) {
+        if info.len > target_len as usize {
             diags.push(does_not_fit(
                 source.span,
                 lstr!(en: "{} element(s) do not fit into '{}' ({target_len} element(s))", info.len, reg.name.text;

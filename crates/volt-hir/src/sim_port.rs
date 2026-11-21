@@ -9,8 +9,7 @@
 //! verir.
 
 use volt_ast::{
-    Expr, ExprKind, Idx, ItemKind, Name, PortDir, SourceFile, TestBinOp, TestExpr, TestExprKind,
-    TypeRef, TypeRefKind,
+    Expr, Idx, Name, PortDir, SourceFile, TestBinOp, TestExpr, TestExprKind, TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 
@@ -101,7 +100,7 @@ impl PortWidth {
 /// Tip başvurusunun sayı olarak genişliği.
 pub(crate) enum ScalarWidth {
     Known(PortWidth),
-    /// Genişlik burada çözülemedi (generic parametre, takma ad, enum):
+    /// Genişlik burada çözülemedi (generic parametre, generic takma ad):
     /// denetim testbench'te C++ depolama tipine göre yapılır.
     Unknown,
     /// Demet, struct, iç içe dizi: tek sayı olarak yazılamaz.
@@ -110,11 +109,8 @@ pub(crate) enum ScalarWidth {
 
 pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
     let known = |bits, kind| ScalarWidth::Known(PortWidth { bits, kind });
-    let from_expr = |expr, kind| {
-        literal_or_const(src, expr)
-            .and_then(|v| u32::try_from(v).ok())
-            .map_or(ScalarWidth::Unknown, |bits| known(bits, kind))
-    };
+    let from_expr =
+        |expr, kind| const_u32(src, expr).map_or(ScalarWidth::Unknown, |bits| known(bits, kind));
     match &src.types[ty].kind {
         TypeRefKind::Bool => known(1, ScalarKind::Bool),
         TypeRefKind::UInt(n) => known(u32::from(*n), ScalarKind::UInt),
@@ -125,8 +121,12 @@ pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
         // Enum (ADR-0074): kodlama genişliğinde işaretsiz sayı.
         TypeRefKind::Path { .. } => match enum_width(src, ty) {
             Some(bits) => known(bits, ScalarKind::UInt),
-            // Tip takma adı: sayı olabilir, burada çözülmez.
-            None => ScalarWidth::Unknown,
+            // Tip takma adı: hedef tipin genişliği (#376; SV üreticisiyle
+            // aynı `volt_ast::alias`). Çözülmeyen ad bilinmiyor kalır.
+            None => match volt_ast::alias::alias_chain_end(src, ty) {
+                Ok(target) if target != ty => scalar_width(src, target),
+                Ok(_) | Err(_) => ScalarWidth::Unknown,
+            },
         },
         TypeRefKind::Clock
         | TypeRefKind::Reset(_)
@@ -164,7 +164,7 @@ fn port_type_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<PortWidth> {
             let ScalarWidth::Known(elem) = scalar_width(src, *elem) else {
                 return None;
             };
-            let len = u32::try_from(literal_or_const(src, *len)?).ok()?;
+            let len = const_u32(src, *len)?;
             Some(PortWidth {
                 bits: elem.bits.checked_mul(len)?,
                 kind: ScalarKind::Bits,
@@ -173,110 +173,15 @@ fn port_type_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<PortWidth> {
     }
 }
 
-/// Düz literal ya da düz literal değerli üst düzey `const`.
-pub(crate) fn literal_or_const(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {
-    literal_value(src, expr).or_else(|| {
-        let ExprKind::Path(path) = &src.exprs[expr].kind else {
-            return None;
-        };
-        let [only] = path.segments.as_slice() else {
-            return None;
-        };
-        src.items.iter().find_map(|idx| {
-            let ItemKind::Const(c) = &src.items_arena[*idx].kind else {
-                return None;
-            };
-            if c.name.text == only.text {
-                literal_value(src, c.value)
-            } else {
-                None
-            }
-        })
-    })
-}
-
-/// Enum açık değeri ve taban tipi genişliği için sabit değerlendirme
-/// (ADR-0074): literal, üst düzey `const`, tekli eksi ve aritmetik/
-/// kaydırma. HIR ve sv-emit'in kabul ettiği `A = K`, `A = 1 << 2`
-/// biçimleri test dilinde de aynı kodu verir.
+/// Tip ve düzen sabiti (genişlik, uzunluk, enum değeri):
+/// `volt_ast::const_eval` (SV üreticisiyle aynı tek değerlendirme, #376).
 pub(crate) fn const_value(src: &SourceFile, expr: Idx<Expr>) -> Option<i128> {
-    const MAX_DEPTH: u32 = 64;
-    fn go(src: &SourceFile, expr: Idx<Expr>, depth: u32) -> Option<i128> {
-        use volt_ast::{BinOp, UnOp};
-        if depth > MAX_DEPTH {
-            return None;
-        }
-        match &src.exprs[expr].kind {
-            ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
-            ExprKind::Unary {
-                op: UnOp::Neg,
-                operand,
-            } => go(src, *operand, depth + 1)?.checked_neg(),
-            ExprKind::Binary { op, lhs, rhs } => {
-                let (l, r) = (go(src, *lhs, depth + 1)?, go(src, *rhs, depth + 1)?);
-                match op {
-                    BinOp::Add => l.checked_add(r),
-                    BinOp::Sub => l.checked_sub(r),
-                    BinOp::Mul => l.checked_mul(r),
-                    BinOp::Div => l.checked_div(r),
-                    BinOp::Shl => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
-                    BinOp::Shr => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
-                    // Yalnız genişlik/kod aritmetiği katlanır.
-                    BinOp::Rem
-                    | BinOp::BitAnd
-                    | BinOp::BitOr
-                    | BinOp::BitXor
-                    | BinOp::Eq
-                    | BinOp::Ne
-                    | BinOp::Lt
-                    | BinOp::Gt
-                    | BinOp::Le
-                    | BinOp::Ge
-                    | BinOp::And
-                    | BinOp::Or
-                    | BinOp::Imp => None,
-                }
-            }
-            ExprKind::Path(path) => {
-                let [only] = path.segments.as_slice() else {
-                    return None;
-                };
-                let value = src.items.iter().find_map(|idx| {
-                    let ItemKind::Const(c) = &src.items_arena[*idx].kind else {
-                        return None;
-                    };
-                    (c.name.text == only.text).then_some(c.value)
-                })?;
-                go(src, value, depth + 1)
-            }
-            ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Cast { .. }
-            | ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => None,
-        }
-    }
-    go(src, expr, 0)
+    volt_ast::const_eval::const_int(src, expr)
 }
 
-fn literal_value(src: &SourceFile, expr: Idx<Expr>) -> Option<u128> {
-    if let ExprKind::IntLit { value, .. } = &src.exprs[expr].kind {
-        Some(*value)
-    } else {
-        None
-    }
+/// Genişlik ya da uzunluk sabiti: `const_value`, `u32`'ye sığıyorsa.
+pub(crate) fn const_u32(src: &SourceFile, expr: Idx<Expr>) -> Option<u32> {
+    const_value(src, expr).and_then(|v| u32::try_from(v).ok())
 }
 
 /// `module.port` genişliği; port yoksa ya da genişlik çözülemiyorsa

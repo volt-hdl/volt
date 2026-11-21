@@ -95,37 +95,9 @@ pub fn enum_of_type(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<&EnumDecl> {
     enum_named(ast, &path.segments.last()?.text)
 }
 
-/// Takma ad zincirinin sonu; döngüde `None`.
+/// Takma ad zincirinin sonu; döngüde `None` (`crate::alias`).
 pub(crate) fn follow_aliases(ast: &SourceFile, ty: Idx<TypeRef>) -> Option<Idx<TypeRef>> {
-    const MAX_ALIAS_DEPTH: usize = 64;
-    let mut cur = ty;
-    for _ in 0..MAX_ALIAS_DEPTH {
-        let TypeRefKind::Path { path, args } = &ast.types[cur].kind else {
-            return Some(cur);
-        };
-        let [seg] = path.segments.as_slice() else {
-            return Some(cur);
-        };
-        if !args.is_empty() {
-            return Some(cur);
-        }
-        let target = ast
-            .items
-            .iter()
-            .find_map(|&i| match &ast.items_arena[i].kind {
-                crate::ItemKind::TypeAlias(a)
-                    if a.name.text == seg.text && a.generics.is_empty() =>
-                {
-                    Some(a.target)
-                }
-                _ => None,
-            });
-        match target {
-            Some(t) => cur = t,
-            None => return Some(cur),
-        }
-    }
-    None
+    crate::alias::alias_chain_end(ast, ty).ok()
 }
 
 /// `enum E : T`'nin taban tipi. Kullanıcı tipine (takma ad dışında)
