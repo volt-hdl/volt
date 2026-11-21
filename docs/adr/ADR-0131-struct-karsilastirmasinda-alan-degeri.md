@@ -1,6 +1,6 @@
 # ADR-0131: Bütün-Struct Karşılaştırmasında Literal Alanı, Alanın Tipinin Bir Değeri Olarak Denetlenir (#375)
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0059 (port genişlik denetimi: sabit E8512, hesaplanmış değer koşuda düşer, maskeleme reddedildi; bu ADR kuralı bütün-struct karşılaştırmasının literal alanına uygular), ADR-0077 (test dilinde struct literali; bütün yazma alanları zaten port yazımı gibi denetliyordu), ADR-0100 (sessiz yanlış istisnası: önceden geçen testi düşüren düzeltme son hanede, v0.1.3)
 > Issue: #375 (kapsam incelemesi #379)
 > Tarih: 2026-11-21
@@ -45,6 +45,26 @@ GİZLER" diye reddettiği seçenek.
    (`sim_port::check_value_fits`, `sim_port::port_path_width`; koşuda
    `volt_port_fits` ve sürücünün `port_check`'i); yazım ve karşılaştırma
    aynı fonksiyonları çağırır.
+
+## İlke denetimi
+
+1. **Beyan (İ1):** Yeni beyan istenmez. Struct alanının tipi zaten bir
+   beyandır; bütün-struct karşılaştırması literalin alanını bu beyanla
+   denetlemiyordu (İ1'in "denetlenmeyen beyan" durumu). Artık bütün-struct
+   yazımındaki gibi denetlenir: sabit derlemede, hesaplanmış değer koşuda.
+2. **Çıkarım (İ2):** Kural yeni bir şey çıkarmaz; alanın genişliği
+   bildirilen tipten, yazımla aynı tek yoldan okunur.
+3. **Anlam değişikliği (İ3):** Alanına sığan literalli karşılaştırmanın
+   anlamı ve testbench'i değişmez. Değişen, önceden sessizce maskelenen
+   girdinin reddi ya da düşmesidir; bu İ3'ün değil ADR-0100'ün sessiz
+   yanlış istisnasının konusudur.
+4. **Niyet tahmini (İ4):** Uygulanmaz.
+5. **Metamorfik yeniden yazım (ADR-0117):** Kural iki yazımı aynı sığma
+   kuralına bağlar: bütün-struct karşılaştırması ile alan alan
+   karşılaştırma (`assert_eq(dut.q.a, ..)`). Katalogdaki yeniden yazımlar
+   tasarım yapıları üzerindedir, test bloğu yazımı yoktur; bu yeniden
+   yazım eklenebilir, ama test bloklarını yeniden yazan bir koşucu ister
+   ve bu ADR'de eklenmez.
 
 ## Sürüm (ADR-0100)
 
