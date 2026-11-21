@@ -167,3 +167,43 @@ fn constant_nesting_is_limited_to_the_sv_generators_depth() {
     let past = nested(MAX_CONST_DEPTH + 1);
     assert_eq!(const_of(&past, "D"), None);
 }
+
+#[test]
+fn only_a_single_segment_path_names_a_constant() {
+    // `m::K` bir üst düzey sabit değildir: ilk parçası (`m`) aynı adlı
+    // sabite eşlenmez.
+    let ast = parse("const m : u32 = 3\nconst X : u32 = m::K\n");
+    assert_eq!(const_of(&ast, "m"), Some(3));
+    assert_eq!(const_of(&ast, "X"), None);
+}
+
+#[test]
+fn a_const_chain_and_both_operands_count_toward_the_depth_limit() {
+    let limit = MAX_CONST_DEPTH as usize;
+    // K0 = K1, ..., K{n} = 1: en içteki değer n iç içelikte.
+    let chain = |n: usize| {
+        let mut src = String::new();
+        for i in 0..n {
+            src.push_str(&format!("const K{i} : u32 = K{}\n", i + 1));
+        }
+        src.push_str(&format!("const K{n} : u32 = 1\n"));
+        parse(&src)
+    };
+    assert_eq!(const_of(&chain(limit), "K0"), Some(1));
+    assert_eq!(const_of(&chain(limit + 1), "K0"), None);
+    // Sola iç içe toplam `1 + 1 + … + 1` (n işlem): sol operand derinliği.
+    let left = |n: usize| {
+        let sum = vec!["1"; n + 1].join(" + ");
+        parse(&format!("const L : u32 = {sum}\n"))
+    };
+    assert_eq!(const_of(&left(limit), "L"), Some(limit as i128 + 1));
+    assert_eq!(const_of(&left(limit + 1), "L"), None);
+    // Sağa iç içe toplam `1 + (1 + (… + 1))`: sağ operand derinliği.
+    let right = |n: usize| {
+        let open = "1 + (".repeat(n - 1);
+        let close = ")".repeat(n - 1);
+        parse(&format!("const R : u32 = {open}1 + 1{close}\n"))
+    };
+    assert_eq!(const_of(&right(limit), "R"), Some(limit as i128 + 1));
+    assert_eq!(const_of(&right(limit + 1), "R"), None);
+}
