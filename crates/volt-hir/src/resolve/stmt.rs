@@ -237,7 +237,11 @@ impl Resolver<'_> {
                         if let Some(&target) = self.instance_module.get(&base) {
                             self.check_port_exists(target, &field.clone());
                         } else if let Some(&prim) = self.instance_builtin.get(&base) {
-                            self.check_builtin_field(prim, &field.clone());
+                            // Yazım hedefi: yalnız portun varlığı. Örnek
+                            // portuna atamanın kendisi tip denetiminde
+                            // E4011'dir (#378); "giriş okunamaz" kuralı
+                            // okumaya aittir.
+                            self.check_builtin_port_exists(prim, &field.clone());
                         }
                     }
                     current = None;

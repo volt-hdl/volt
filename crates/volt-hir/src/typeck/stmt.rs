@@ -259,6 +259,13 @@ impl TypeChecker<'_, '_> {
         let (target, lhs_ty, bits) = self.lvalue_type(lhs);
         self.check(rhs, lhs_ty);
         let Some(def) = target else { return };
+        // Örneğin portunu örneğin kendisi sürer, girişi literalde bağlanır:
+        // atama E4011 (#378). Kullanıcı modülü ve yerleşik primitif için tek
+        // yer; önce yalnız SV üreticisi kullanıcı örneğini reddediyordu.
+        if matches!(self.res.def_kind(def), DefKind::Instance) {
+            self.instance_port_assigned(def, lhs);
+            return;
+        }
         // Donanımda olmayan atama sürücü değildir (§11.1, #328).
         if self.in_dead_arm {
             return;
