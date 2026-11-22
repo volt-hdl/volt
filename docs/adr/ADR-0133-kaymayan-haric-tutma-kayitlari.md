@@ -1,6 +1,6 @@
 # ADR-0133: Mutasyon Hariç Tutma Kayıtları Satıra Değil Fonksiyona ve Değişikliğe Bağlıdır — Ayırt Edici İpucu Sütundur, Satır Bilgidir
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0109 — §4'ün kayıt biçimi (satır:sütunu aynı değişiklik aynı fonksiyonda birden çok kez geçiyorsa sabitler) ve "PR kapısı" eki §3'ün karşılaştırması (beklenen adlar satır:sütunla karşılaştırılır, her kaymada güncellenir); kalan her kararı yürürlükte
 > İlgili: ADR-0128 (doğrulama yöntemi: kapının denediği mutant listesi önce ve sonra birebir aynı)
 > Issue: kayan kayıtlar PR #385 ve #389'da "Mutation exclusions"ı kırmızıya çevirdi
@@ -59,7 +59,9 @@ sık değişen özelliğidir: dosyada üstte yapılan her değişiklik onu kayd�
    yazılamaz; denetim düşer (Sınırlar).
 6. **Sürüm.** Denetim `mutants.yml`'nin sabitlediği cargo-mutants
    sürümüyle (`CARGO_MUTANTS_VERSION`) koşar; başka sürümde kurulum
-   komutunu yazıp düşer (adlar ve liste sürüme bağlıdır).
+   komutunu yazıp düşer (adlar ve liste sürüme bağlıdır). Bu, CI'daki
+   "Mutation exclusions" iş akışının davranışıdır; yerel `just check`
+   sürüm yokken denetimi düşmeden atlar (8. madde).
 7. **`just check` de denetler.** `just check` denetimi `--offline` ile
    koşar: GitHub okunmaz, C kayıtlarının issue durumları denetlenmez ve
    çıktı bunu söyler. "Mutation exclusions" iş akışı değişmedi; issue
