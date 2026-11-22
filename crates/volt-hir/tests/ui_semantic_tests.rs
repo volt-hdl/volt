@@ -1180,3 +1180,9 @@ fn ui_fail_314_instance_output_assign_e4011() {
 fn ui_fail_315_builtin_unknown_port_assign_e1009() {
     assert_ui_fail("fail/315_builtin_unknown_port_assign.volt");
 }
+
+// #371: R6 bir örnek çıkışından gelen saatte de (PLL) yakınsamayı görür.
+#[test]
+fn ui_fail_316_rdc_converge_derived_clock_e3003() {
+    assert_ui_fail("fail/316_rdc_converge_derived_clock.volt");
+}

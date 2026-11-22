@@ -23,6 +23,16 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   SV üreticisi ve kısıt yürüyücüsü aynı cevabı okur. Hiçbir tasarımın SV'si
   değişmez; yalnız bu biçimlerdeki `sync()`'lerin kısıt satırları değişir
   (ADR-0065 §4.2). Son hanede (v0.1.3) çıkar.
+- **Davranış değişikliği.** Aynı ham reset'i aynı saatte ayrı ayrı
+  senkronlayan iki örnek, saat bir örneğin çıkışı olduğunda da (ör. bir
+  PLL'in `p.clk_o`'su) artık E3003 alır (#371, ADR-0065 R6; sessiz yanlış
+  düzeltmesi). 0.1.2'de R6 yalnız üst modülün kendi saat portunu
+  sayıyordu: `volt check` sessizdi ve Yosys'in düzleştirilmiş
+  netlist'inde ham reset aynı saat ağında iki bağımsız zincirle
+  bırakılıyordu (iki register grubu reset'ten farklı çevrimlerde
+  çıkabilir). Tanı saati `p.clk_o` olarak adlandırır. Hiçbir geçerli
+  tasarımın SV'si değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz
+  yanlış istisnası.
 - **Davranış değişikliği.** Yerleşik bir primitif örneğinin portuna atama
   (`cnt.overflow = true`, `f.rd_data = d`, `on` bloğunda `cnt.overflow <=
   true`) artık E4011'dir (#378; sessiz yanlış düzeltmesi). 0.1.2'de bu
