@@ -35,6 +35,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           workspaces: |
             .
             fuzz

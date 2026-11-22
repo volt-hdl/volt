@@ -48,6 +48,8 @@ anstyle-query = "1.1"
 # ("Geliştirici notu — Geliştirme derlemesinde hata ayıklama bilgisi").
 # CI's mutation gate sets both levels to 0 in its environment, which
 # overrides this.
+# The CI Rust caches hash this file (`key: ${{ hashFiles('Cargo.toml') }}`):
+# rust-cache's own key covers the dependencies, not the profiles.
 [profile.dev]
 debug = "line-tables-only"
 

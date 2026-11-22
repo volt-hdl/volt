@@ -397,6 +397,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   içinde ağır iş (mutasyon, kapsam, tekrar tekrar derleme) koşmaz, çünkü
   sanal diski büyür ve kendiliğinden küçülmez; mutasyon kapısı yerelde
   koşmaz; işi biten worktree ve target dizinleri kaldırılır.
+- CI: `mutants.yml` dışındaki her `Swatinem/rust-cache` adımının anahtarı
+  `Cargo.toml`'un özetini de taşır. rust-cache'in kendi anahtarı yalnız
+  bağımlılıkları özetlediğinden profil değişikliği önbelleği yenilemiyor,
+  her iş bağımlılıkları yeniden derliyordu.
 - `just disk` (`scripts/disk.py`): boş disk, her worktree'nin `target/`
   boyutu ve Docker Desktop'ın sanal diski; sınırın altında 1 ile çıkar,
   hiçbir şey silmez.
