@@ -9,11 +9,20 @@ default:
 test:
     cargo test --all
 
-# Commit öncesi kapı: biçim + lint + testler
+# Windows'ta `python`, başka yerde `python3`
+python := if os_family() == "windows" { "python" } else { "python3" }
+
+# Commit öncesi kapı: biçim + lint + testler + mutasyon hariç tutma
+# kayıtları (ADR-0133: her kayıt tam beklenen mutantlarını eşler; issue
+# durumlarını yalnız CI okur, --offline). mutants.yml'nin sabitlediği
+# cargo-mutants sürümü (CARGO_MUTANTS_VERSION) kurulu değilse denetim
+# atlanır, çıktı bunu kurulum komutuyla söyler ve hata vermez
+# (--if-installed); "Mutation exclusions" iş akışı her PR'da denetler.
 check:
     cargo fmt --all --check
     cargo clippy --all-targets -- -D warnings
     cargo test --all
+    {{python}} scripts/ci/mutants_exclusions.py check --offline --if-installed
 
 # Kod kapsamı ölçümü: testler BİR kez koşar, üç rapor aynı profilden.
 # HTML: target/llvm-cov/html/, lcov (Codecov): target/llvm-cov/lcov.info

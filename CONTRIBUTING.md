@@ -66,7 +66,11 @@ So every change, however small, comes with evidence:
    that is already computed elsewhere, read it from there instead of
    computing it again (GOVERNANCE.md, "One place per rule").
 5. **Run the local gates**: `just check`, `just consistency`,
-   `just clippy-strict` (AGENTS.md, "Build and test").
+   `just clippy-strict` (AGENTS.md, "Build and test"). Besides format,
+   lint and tests, `just check` checks the mutation exclusions of
+   `.cargo/mutants.toml` when the cargo-mutants version that `mutants.yml`
+   pins is installed, and says that it skipped them otherwise; CI always
+   checks them (ADR-0133).
 6. **Open the pull request.** The description says what changed and why,
    which issues it closes (`Closes #N`), the evidence (the tests that
    failed before the fix and pass after it, and the CI results quoted from

@@ -172,9 +172,13 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   exclusions" job fails when that issue is closed, and when a pull request
   closes it (`Closes #N`) while the entry still stands: the pull request
   that fixes the bug removes the entry. Every `exclude_re`
-  entry names the mutants it was written for in `# expect:` lines; when
-  code moves, update their line:col (the "Mutation exclusions" job shows
-  the new one). Every source file of a crate's `src/` is in mutation scope
+  entry names the file, the change and the function, never a line; where
+  the same change occurs more than once in the function, the column tells
+  them apart (ADR-0133). It names the mutants it was written for in
+  `# expect:` lines, whose line number is information only (`check
+  --fix-lines` updates it); the check runs in the "Mutation exclusions"
+  job and in `just check` (which skips it, saying so, when the pinned
+  cargo-mutants is not installed), and an ambiguous entry fails it. Every source file of a crate's `src/` is in mutation scope
   unless `exclude_globs` lists it with its reason (`just consistency`,
   check 19). Runs by hand (`-f re=`, `-f gate_base=`) are for work outside
   a pull request. A targeted run (`-f re=`) always gives `-f expect=<n>`,

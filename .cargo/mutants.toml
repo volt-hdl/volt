@@ -68,16 +68,21 @@ exclude_globs = [
 #     issue is closed or does not exist, and when a pull request closes it
 #     (`Closes #N`) while the entry still stands: the fix removes the entry,
 #     and the gate tries the mutant again.
-# An entry names the file, the change and the function; it pins line:col
-# only where the same change occurs twice in that function.
+# An entry names the file, the change and the function, never a line
+# (ADR-0133): `<file>\\.rs:\\d+:\\d+: <change> in <function>$`. Where the
+# same change occurs more than once in the function and the entry is
+# written for fewer of them, the column tells them apart (`\\d+:93:`): it
+# does not move when lines are added or removed above the statement.
 # Every entry names the mutants it was written for, one `# expect:` line
-# each, exactly as `cargo mutants --list` prints them (#239). The mutation
-# workflow checks that each entry matches exactly those mutants in the list
-# before the exclusions (scripts/ci/mutants_exclusions.py): an entry that
-# matches nothing, misses an expected mutant or matches another one fails
-# it. When the code moves, update the line:col of the expect: lines (and
-# of a pinned entry) to the statement the entry was written for; the error
-# shows the mutants with the same file, change and function.
+# each, as `cargo mutants --list` prints them (#239). The check
+# (scripts/ci/mutants_exclusions.py; the "Mutation exclusions" workflow
+# and `just check`) compares them by file, column, change and function:
+# an entry that pins a line, matches nothing, misses an expected mutant or
+# matches another one (an ambiguity) fails it, and the error shows the
+# mutants with the same file, change and function. In an `# expect:` line
+# the line number is information only: when the code moves, the check
+# passes and names the new line; `python
+# scripts/ci/mutants_exclusions.py check --fix-lines` writes it.
 # Source: run 41905442445 (952 mutants, 157 missed).
 exclude_re = [
     # A1. `Some(s) if vstage == s` is the arm before `vstage < s`, so at
@@ -125,25 +130,29 @@ exclude_re = [
     # had matched nothing since 3135ceef (lines added above), and since
     # 63e4ffe7 1605:48 matched another mutant, `sig.width < 127` -> `<=`.
     # expect: crates/volt-sv-emit/src/expr.rs:1118:93: replace > with >= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1118:93: replace > with >= in Emitter<'a>::emit_prec$",
+    "volt-sv-emit/src/expr\\.rs:\\d+:93: replace > with >= in Emitter<'a>::emit_prec$",
     # A2, assumes no caller passes a parent_prec above PREC_ATOM (the
     # highest) and a right operand's parent has 1..=10: an atom never needs
     # parentheses.
     # expect: crates/volt-sv-emit/src/expr.rs:1119:35: replace < with <= in Emitter<'a>::emit_prec
-    "volt-sv-emit/src/expr\\.rs:1119:35: replace < with <= in Emitter<'a>::emit_prec$",
-    # A2, assumes a select width fits a u16 (type check, base_width: u16), so
-    # need <= 16: the arm runs when the start is 127+ bits wide or when
-    # down >= 2^width (then need > width); sig.width == need is impossible.
-    # expect: crates/volt-sv-emit/src/expr.rs:1412:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1412:48: replace < with <= in Emitter<'a>::part_select_from_value$",
-    # A1 (#282). `sig.width < 127` -> `<=` changes the guard only at
-    # sig.width == 127. There its second operand is `down < (1i128 << 127)`,
-    # and 1i128 << 127 is i128::MIN (a shift by less than 128 bits does not
-    # overflow): no i128 is below it, so the guard is false, as `127 < 127`
-    # makes it. True for every `down`, whatever calls the function. Pinned:
-    # part_select_from_value has three `<` -> `<=` mutants.
+    "volt-sv-emit/src/expr\\.rs:\\d+:35: replace < with <= in Emitter<'a>::emit_prec$",
+    # Two of the three `<` -> `<=` mutants of part_select_from_value, both
+    # at column 48 (the third, `down < ...`, is another column and is not
+    # excluded). One entry for the two: the column cannot tell them apart
+    # and the line is never pinned (ADR-0133).
+    # - `sig.width < need` (the second guard): A2, assumes a select width
+    #   fits a u16 (type check, base_width: u16), so need <= 16: the arm
+    #   runs when the start is 127+ bits wide or when down >= 2^width (then
+    #   need > width); sig.width == need is impossible.
+    # - `sig.width < 127` (the first guard): A1 (#282). `<=` changes the
+    #   guard only at sig.width == 127. There its second operand is
+    #   `down < (1i128 << 127)`, and 1i128 << 127 is i128::MIN (a shift by
+    #   less than 128 bits does not overflow): no i128 is below it, so the
+    #   guard is false, as `127 < 127` makes it. True for every `down`,
+    #   whatever calls the function.
     # expect: crates/volt-sv-emit/src/expr.rs:1409:48: replace < with <= in Emitter<'a>::part_select_from_value
-    "volt-sv-emit/src/expr\\.rs:1409:48: replace < with <= in Emitter<'a>::part_select_from_value$",
+    # expect: crates/volt-sv-emit/src/expr.rs:1412:48: replace < with <= in Emitter<'a>::part_select_from_value
+    "volt-sv-emit/src/expr\\.rs:\\d+:48: replace < with <= in Emitter<'a>::part_select_from_value$",
     # A2 (#302, ADR-0120), assumes the referee Verilator simulates a signed
     # `a >>> w` correctly. `w - 1` -> `w / 1` writes the amount w instead of
     # w - 1; by IEEE 1800-2017 §11.4.10 both fill every bit with the sign.
@@ -176,7 +185,7 @@ exclude_re = [
     # through one cast only, cast_chain_sim_tests fails (WIDTHEXPAND), the
     # signed same-width chains included. Pinned: emit_cast has several `>`.
     # expect: crates/volt-sv-emit/src/expr.rs:1634:26: replace > with >= in Emitter<'a>::emit_cast
-    "volt-sv-emit/src/expr\\.rs:1634:26: replace > with >= in Emitter<'a>::emit_cast$",
+    "volt-sv-emit/src/expr\\.rs:\\d+:26: replace > with >= in Emitter<'a>::emit_cast$",
     # A2 (#303). Assumption: widen_if_narrow, through is_bare_cast, wraps the
     # bare text of a same-width cast chain in `$signed`/`$unsigned` before it
     # enters a wider context. `==` -> `!=` drops emit_cast's own wrapper
@@ -197,7 +206,7 @@ exclude_re = [
     # fail on its values (`(~a) as u8 as u8` in u14 computed at 14 bits).
     # Pinned: emit_cast has several `==`.
     # expect: crates/volt-sv-emit/src/expr.rs:1638:38: replace == with != in Emitter<'a>::emit_cast
-    "volt-sv-emit/src/expr\\.rs:1638:38: replace == with != in Emitter<'a>::emit_cast$",
+    "volt-sv-emit/src/expr\\.rs:\\d+:38: replace == with != in Emitter<'a>::emit_cast$",
     # A2, assumes demand()'s two readers (flex_demand in let_width.rs,
     # Local::read in match_expr.rs) compare its result with `>= width` or
     # `< width` alone: returning c.width >= width instead of width for a
@@ -278,7 +287,7 @@ exclude_re = [
     # access (`p.y`), so the shorthand never reaches instance_output.
     # expect: crates/volt-hir/src/summary.rs:584:43: replace + with - in Walker<'_>::instance_output
     # expect: crates/volt-hir/src/summary.rs:584:43: replace + with * in Walker<'_>::instance_output
-    "volt-hir/src/summary\\.rs:584:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
+    "volt-hir/src/summary\\.rs:\\d+:43: replace \\+ with [-*] in Walker<'_>::instance_output$",
     # A2 (unreachable), assumes a binding to a port the target lacks is E1009
     # in name resolution (Volt module and built-in primitive) and the
     # compiler stops before domain inference after a resolve error
@@ -326,7 +335,7 @@ exclude_re = [
     # lines of 63e4ffe7). Pin moved from 899:20 in #253 (#239): it had
     # matched nothing since 63e4ffe7, which added 16 lines above it.
     # expect: crates/volt-syntax/src/parser/desugar.rs:915:20: delete ! in Parser<'_>::order_lets
-    "parser/desugar\\.rs:915:20: delete ! in Parser<'_>::order_lets$",
+    "parser/desugar\\.rs:\\d+:20: delete ! in Parser<'_>::order_lets$",
     # A2 (unreachable), assumes stall_name holds stage indices 0..N-1 only
     # (desugar_pipeline builds it from 0..nstages): at b + 1 == N the `<=`
     # mutant looks up stage N, which is never there.
@@ -337,7 +346,7 @@ exclude_re = [
     # `stall_name.get(&(b + 1))` one line below is caught. Pin moved from
     # 1073:35 in #253 (#239), as 899:20 above.
     # expect: crates/volt-syntax/src/parser/desugar.rs:1089:35: replace + with * in Parser<'_>::build_on_block
-    "parser/desugar\\.rs:1089:35: replace \\+ with \\* in Parser<'_>::build_on_block$",
+    "parser/desugar\\.rs:\\d+:35: replace \\+ with \\* in Parser<'_>::build_on_block$",
     # A2, assumes the fields of a register take disjoint bit ranges (laid out
     # in order from bit 0, ADR-0044 section 2): OR and XOR of disjoint masks
     # are equal. desugar_blind_spot_tests::mmio_fields_have_disjoint_bit_ranges

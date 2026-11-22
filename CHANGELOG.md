@@ -376,6 +376,24 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
+### Geliştirici notu — Mutasyon hariç tutma kayıtları satıra bağlı değil (ADR-0133, 2026-11-22)
+
+- `.cargo/mutants.toml`'daki bir `exclude_re` kaydı dosyayı, değişikliği
+  ve fonksiyonu adlandırır; satırı hiç sabitlemez (`\d+:\d+`). Aynı
+  değişiklik aynı fonksiyonda birden çok kez geçiyorsa ayırt edici ipucu
+  sütundur (`\d+:93`): üste satır eklenince değişmez. Satırı sabitleyen
+  dokuz kayıt sütuna çevrildi; hariç tutulan mutant kümesi aynı.
+- `# expect:` satırları dosya, sütun, değişiklik ve fonksiyonla
+  karşılaştırılır; satır numarası bilgidir. Kod kayınca denetim geçer ve
+  yeni satırı not olarak yazar; `python scripts/ci/mutants_exclusions.py
+  check --fix-lines` yeni satırları yazar. Belirsiz bir kayıt (yazılmadığı
+  bir mutantı da eşleyen) denetimi düşürür.
+- `just check` denetimi `--offline` ile koşar (C kayıtlarının issue
+  durumlarını yalnız CI okur). `mutants.yml`'nin sabitlediği cargo-mutants
+  sürümü kurulu değilse (hiç yoksa ya da başka sürümse) `just check`
+  denetimi atlar, bunu kurulum komutuyla söyler ve hata vermez; CI her
+  PR'da denetler ve orada araç yoksa düşer.
+
 ### Geliştirici notu — Geliştirme derlemesinde hata ayıklama bilgisi ve disk (2026-11-22)
 
 - `Cargo.toml`: geliştirme ve test profilinde çalışma alanı crate'leri
