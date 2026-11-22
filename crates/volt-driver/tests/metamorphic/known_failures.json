@@ -87,6 +87,20 @@
     },
     {
       "check": "clock-to-alias",
+      "design": "tests/ui/fail/316_rdc_converge_derived_clock.volt",
+      "relation": "safety",
+      "issue": 234,
+      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
+    },
+    {
+      "check": "clock-to-alias",
+      "design": "tests/real_bugs/371_reset_converge_instance_clock.volt",
+      "relation": "safety",
+      "issue": 234,
+      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
+    },
+    {
+      "check": "clock-to-alias",
       "design": "tests/ui/fail/67_rdc_root_async_reset.volt",
       "relation": "safety",
       "issue": 234,

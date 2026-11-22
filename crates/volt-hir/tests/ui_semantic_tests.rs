@@ -1147,3 +1147,9 @@ fn ui_fail_71_auto_fsm_unreachable_transition_compiles_cleanly() {
         ]
     );
 }
+
+// #371: R6 bir örnek çıkışından gelen saatte de (PLL) yakınsamayı görür.
+#[test]
+fn ui_fail_316_rdc_converge_derived_clock_e3003() {
+    assert_ui_fail("fail/316_rdc_converge_derived_clock.volt");
+}
