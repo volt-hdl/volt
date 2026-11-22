@@ -1147,3 +1147,35 @@ fn ui_fail_71_auto_fsm_unreachable_transition_compiles_cleanly() {
         ]
     );
 }
+
+// #378: bir örneğin portuna atama (yerleşik primitif ve kullanıcı modülü)
+// tip denetiminde E4011'dir; önce yerleşik primitifte kabul ediliyordu.
+#[test]
+fn ui_fail_310_builtin_output_assign_e4011() {
+    assert_ui_fail("fail/310_builtin_output_assign.volt");
+}
+
+#[test]
+fn ui_fail_311_builtin_fifo_output_assign_e4011() {
+    assert_ui_fail("fail/311_builtin_fifo_output_assign.volt");
+}
+
+#[test]
+fn ui_fail_312_builtin_output_assign_in_on_block_e4011() {
+    assert_ui_fail("fail/312_builtin_output_assign_in_on_block.volt");
+}
+
+#[test]
+fn ui_fail_313_builtin_input_assign_e4011() {
+    assert_ui_fail("fail/313_builtin_input_assign.volt");
+}
+
+#[test]
+fn ui_fail_314_instance_output_assign_e4011() {
+    assert_ui_fail("fail/314_instance_output_assign.volt");
+}
+
+#[test]
+fn ui_fail_315_builtin_unknown_port_assign_e1009() {
+    assert_ui_fail("fail/315_builtin_unknown_port_assign.volt");
+}

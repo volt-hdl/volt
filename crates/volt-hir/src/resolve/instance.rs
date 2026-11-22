@@ -125,6 +125,14 @@ impl Resolver<'_> {
         }
     }
 
+    /// Yerleşik primitifte port var mı (yazım hedefi `inst.port`);
+    /// bilinmeyen port E1009.
+    pub(super) fn check_builtin_port_exists(&mut self, prim: BuiltinPrim, field: &Name) {
+        if prim.port(&field.text).is_none() {
+            self.err_builtin_unknown_port(prim, field);
+        }
+    }
+
     /// E1009 — yerleşik primitifte bilinmeyen port adı; gerçek port
     /// listesi yardım metninde verilir.
     fn err_builtin_unknown_port(&mut self, prim: BuiltinPrim, port_name: &Name) {

@@ -368,14 +368,6 @@ fn instance_output_bound_in_literal_is_e4011() {
 }
 
 #[test]
-fn writing_to_instance_port_is_e4011() {
-    let c = codes(&format!(
-        "{CHILD}module Top {{ in clk : clock\n in x : u8\n out y : u8\n let f = Add {{ clk, a: x, b: x }}\n f.y = x\n y = x }}"
-    ));
-    assert!(c.contains(&"E4011"), "{c:?}");
-}
-
-#[test]
 fn two_instances_of_the_same_module_get_separate_wires() {
     let out = sv(&format!(
         "{CHILD}module Top {{ in clk : clock\n in x : u8\n out y : u8\n out z : u8\n let f = Add {{ clk, a: x, b: x }}\n let g = Add {{ clk, a: x, b: 1 }}\n y = f.y\n z = g.y }}"
