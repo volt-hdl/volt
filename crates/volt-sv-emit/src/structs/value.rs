@@ -193,63 +193,10 @@ impl Lowerer {
         self.env.insts.get(&p.segments[0].text)
     }
 
-    /// İfadenin struct tipi (adı); struct değilse `None`. Tip denetimi
-    /// geçmiştir — yalnız struct değerli biçimler tanınır.
+    /// İfadenin struct tipi (adı); struct değilse `None`
+    /// (`StructTypes::struct_of_expr`, #373).
     pub(super) fn struct_of_expr(&self, e: Idx<Expr>) -> Option<String> {
-        match &self.ast.exprs[e].kind {
-            ExprKind::Path(p) if p.segments.len() == 1 => {
-                let n = &p.segments[0].text;
-                self.env
-                    .sigs
-                    .get(n)
-                    .cloned()
-                    .or_else(|| self.consts.get(n).map(|(s, _)| s.clone()))
-            }
-            ExprKind::Field { base, field } => {
-                if let Some(target) = self.instance_target(*base) {
-                    return self.module_ports.get(target)?.get(&field.text).cloned();
-                }
-                let s = self.struct_of_expr(*base)?;
-                let decl = volt_ast::struct_layout::struct_named(&self.ast, &s)?;
-                let f = decl.fields.iter().find(|f| f.name.text == field.text)?;
-                self.struct_of_type(f.ty)
-            }
-            ExprKind::StructLit { path, .. } => {
-                let name = &path.segments.last()?.text;
-                self.layout(name).map(|_| name.clone())
-            }
-            ExprKind::Cast { ty, .. } => self.struct_of_type(*ty),
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => self
-                .struct_of_expr(*then_expr)
-                .or_else(|| self.struct_of_expr(*else_expr)),
-            // Match ifadesi `if` gibi: ilk struct tipli kol (ADR-0083 Karar 2).
-            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
-                MatchArmBody::Expr(e) => self.struct_of_expr(e),
-                MatchArmBody::Block(_) => None,
-            }),
-            ExprKind::Call { callee, args } => match callee_name(&self.ast, *callee) {
-                Some("prev" | "sync" | "sync3") => self.struct_of_expr(*args.first()?),
-                _ => None,
-            },
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Path(_)
-            | ExprKind::Binary { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::ArrayLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => None,
-        }
+        self.types.struct_of_expr(&self.ast, &self.env, e)
     }
 
     fn alloc(&mut self, kind: ExprKind, span: volt_span::Span) -> Idx<Expr> {
@@ -290,7 +237,7 @@ impl Lowerer {
                 if self.env.sigs.contains_key(&n) {
                     return Some(self.path_expr(Self::leaf_name(&n, sub), span));
                 }
-                let (_, value) = self.consts.get(&n)?.clone();
+                let (_, value) = self.types.const_struct(&n)?.clone();
                 self.project(value, sub)
             }
             ExprKind::Field { base, field } => {

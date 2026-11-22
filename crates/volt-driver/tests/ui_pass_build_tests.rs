@@ -113,8 +113,9 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // yazılmayan çocuk, 159 ham reset portunun kendisinin bağlanması.
     // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
     // #232 (ADR-0127): 161 `delay<K>` bir
-    // iddiadır, register eklemez.
-    assert_eq!((built, check_only), (146, 0));
+    // iddiadır, register eklemez. #373: 162 struct değerli sync()
+    // kaynakları (tipsiz let/reg dâhil).
+    assert_eq!((built, check_only), (147, 0));
 }
 
 #[test]

@@ -9,6 +9,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Struct değerli bir `sync()` kaynağının
+  `.sdc`/`.xdc` kısıtları artık kaynağın tipi bildirilmemiş olsa da alan
+  başına yazılır (#373; sessiz yanlış düzeltmesi). 0.1.2'de tipsiz bir
+  `let` ya da `reg` (struct literali, başka bir struct sinyali ya da
+  sabiti, `if`/`match`, örneğin struct çıkışı, struct öğeli FIFO'nun
+  `rd_data`'sı) `sync()` edildiğinde SV alan başına senkronizör üretiyor
+  (`sync_p_a_stage0`, `sync_p_b_stage0`), kısıtlar ise var olmayan
+  `sync_p_stage0_reg*` hücresini hedefliyordu: `get_cells` hiçbir şey
+  bulmuyor, ilk aşamaya giden false path (ya da `set_max_delay`) ve
+  `ASYNC_REG` sessizce düşüyordu; tipsiz `reg`'in `-from` deseni de
+  (`ru_reg*`) boştu. Sinyalin struct tipi artık tek yerde hesaplanır;
+  SV üreticisi ve kısıt yürüyücüsü aynı cevabı okur. Hiçbir tasarımın SV'si
+  değişmez; yalnız bu biçimlerdeki `sync()`'lerin kısıt satırları değişir
+  (ADR-0065 §4.2). Son hanede (v0.1.3) çıkar.
 - **Davranış değişikliği.** Yerleşik bir primitif örneğinin portuna atama
   (`cnt.overflow = true`, `f.rd_data = d`, `on` bloğunda `cnt.overflow <=
   true`) artık E4011'dir (#378; sessiz yanlış düzeltmesi). 0.1.2'de bu

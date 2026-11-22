@@ -18,6 +18,7 @@ pub mod mmio_names;
 pub mod reserved;
 pub mod reset_chain;
 pub mod struct_layout;
+pub mod struct_signals;
 pub mod visibility;
 pub mod visit;
 
