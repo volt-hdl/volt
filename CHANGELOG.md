@@ -48,6 +48,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   field access" (E1009) alıyordu; artık E4011'dir. Hiçbir geçerli
   tasarımın SV'si değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz
   yanlış istisnası.
+- **Davranış değişikliği.** `volt check-regmap`, bir makrosunu yeniden
+  tanımlayan ya da `#undef` eden C başlığını ve aynı adı iki kez taşıyan
+  register haritasını artık ayrışma sayar: E9003, çıkış 1 (#374; sessiz
+  yanlış düzeltmesi). 0.1.2'de başka bir Volt sürümünün imzasını taşıyan
+  (erişimci kodu karşılaştırılmayan) dosyada iki durum da "Match", çıkış 0
+  veriyordu. C başlığında ayrıştırıcı bir makronun ilk tanımını okuyordu,
+  C önişlemcisi ise genişlettiği yerde yürürlükte olan tanımı kullanır:
+  `#undef PWM_REGS_DUTY` + `#define PWM_REGS_DUTY (PWM_REGS_BASE + 0x14U)`
+  ile başlığın erişimcileri çözülmeyen bir adrese yazıyordu. JSON'da adla
+  eşleme ikinci `duty` register'ını ne eksik ne fazla sayıyordu. Artık
+  görünüm son tanımı okur. Modül önekli bir makronun iki farklı değeri ya
+  da `#undef`'i, aynı adla ikinci register ya da alan bir iç çelişkidir
+  (ADR-0063 §3 adım 4). Aynı metinle yeniden tanım (C'de geçerli ve anlamı
+  aynı) ayrışma değildir. Volt'un ürettiği dosyaların sonucu değişmez. Son
+  hanede (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası.
 - **Davranış değişikliği.** Bütün-struct karşılaştırmasında
   (`assert_eq(dut.q, P { .. })`, `assert_ne`) literalin her alanı artık
   alanın tipine sığmalıdır (#375, ADR-0131; sessiz yanlış düzeltmesi).

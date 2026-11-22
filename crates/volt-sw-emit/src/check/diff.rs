@@ -92,6 +92,7 @@ pub fn diff(expected: &DriverView, actual: &DriverView) -> Vec<Drift> {
             hex_word(expected.base),
         ));
     }
+    repeats(&mut out, module, actual);
     for want in &expected.registers {
         let subject = format!("{module}_{}", want.name);
         match actual.registers.iter().find(|r| r.name == want.name) {
@@ -115,6 +116,42 @@ pub fn diff(expected: &DriverView, actual: &DriverView) -> Vec<Drift> {
         }
     }
     out
+}
+
+/// Dosyada aynı adla ikinci register ya da register içinde ikinci alan:
+/// eşleme adla yapıldığından ikincisi ne eksik ne fazla görünürdü; dosya
+/// kendi içinde çelişir (ADR-0063 §3 adım 4, #374).
+fn repeats(out: &mut Vec<Drift>, module: &str, actual: &DriverView) {
+    for (i, r) in actual.registers.iter().enumerate() {
+        if let Some(first) = actual.registers[..i].iter().find(|p| p.name == r.name) {
+            out.push(Drift {
+                subject: format!("{module}_{}", r.name),
+                kind: DriftKind::Inconsistent,
+                file: Some(format!(
+                    "register {} is declared twice (offset {}, then {})",
+                    r.name,
+                    hex_offset(first.offset),
+                    hex_offset(r.offset)
+                )),
+                rtl: None,
+            });
+        }
+        for (j, f) in r.fields.iter().enumerate() {
+            if let Some(first) = r.fields[..j].iter().find(|p| p.name == f.name) {
+                out.push(Drift {
+                    subject: format!("{module}_{}.{}", r.name, f.name),
+                    kind: DriftKind::Inconsistent,
+                    file: Some(format!(
+                        "field {} is declared twice ({}, then {})",
+                        f.name,
+                        bits(first),
+                        bits(f)
+                    )),
+                    rtl: None,
+                });
+            }
+        }
+    }
 }
 
 fn register(out: &mut Vec<Drift>, subject: &str, want: &RegView, got: &RegView) {
