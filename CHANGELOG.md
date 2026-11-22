@@ -376,6 +376,31 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
+### Geliştirici notu — Geliştirme derlemesinde hata ayıklama bilgisi ve disk (2026-11-22)
+
+- `Cargo.toml`: geliştirme ve test profilinde çalışma alanı crate'leri
+  yalnız satır tablosu taşır (`debug = "line-tables-only"`), bağımlılıklar
+  hata ayıklama bilgisi taşımaz (`[profile.dev.package."*"] debug = false`).
+  Panik yığın izinde çalışma alanının çerçeveleri dosya:satır gösterir.
+  Sürüm profilleri değişmedi; mutasyon kapısı ortamında iki düzeyi de 0
+  yaptığından derlediği birimler aynıdır.
+- Ölçüm (Windows 11, `CARGO_BUILD_JOBS=2`, boş target, `15491142`):
+
+  | | Önce (tam bilgi) | Sonra |
+  |---|---|---|
+  | `cargo build` | 78 / 67 sn, 1,55 GB | 59 / 55 sn, 0,86 GB |
+  | `just check` | 366 / 354 sn | 314 / 305 sn |
+  | target, `just check`'ten sonra | 10,1 GB | 6,0 GB |
+
+- `AGENTS.md`, "Machines with limited resources": uzun bir yerel işten önce
+  ve iş boyunca boş disk denetlenir, 20 GB'ın altında iş durur; Docker
+  içinde ağır iş (mutasyon, kapsam, tekrar tekrar derleme) koşmaz, çünkü
+  sanal diski büyür ve kendiliğinden küçülmez; mutasyon kapısı yerelde
+  koşmaz; işi biten worktree ve target dizinleri kaldırılır.
+- `just disk` (`scripts/disk.py`): boş disk, her worktree'nin `target/`
+  boyutu ve Docker Desktop'ın sanal diski; sınırın altında 1 ile çıkar,
+  hiçbir şey silmez.
+
 ### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
 
 - PR'ın son tam kapı koşusundan beri yalnız paketlerin `tests/`'indeki
