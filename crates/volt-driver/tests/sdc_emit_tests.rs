@@ -483,6 +483,65 @@ fn every_synchronizer_of_a_struct_valued_source_is_constrained() {
 }
 
 #[test]
+fn a_flag_output_of_a_struct_fifo_is_synchronized_as_one_bit() {
+    // ADR-0087: yalnız struct öğeli primitifin VERİ çıkışı (`rd_data`) bir
+    // struct değeridir; `empty` bir bool'dur. Tipsiz `let e = fifo.empty`'nin
+    // sync()'i SV'de tek senkronizördür (sv-mapping §8: sync_e_stage<i>) ve
+    // kısıt onun ilk aşamasını adlandırır (ADR-0065 §4.2).
+    let dir = temp_dir("fifo-flag-src");
+    let src = dir.join("fifo_flag.volt");
+    std::fs::write(
+        &src,
+        "domain Fast { clock = posedge, reset = none, frequency = 100.mhz, }
+domain Slow { clock = posedge, reset = none, frequency = 25.mhz, }
+struct P {
+    a : bool,
+    b : bool,
+}
+pub module FifoFlag {
+    in  fclk : clock @Fast
+    in  sclk : clock @Slow
+    in  d    : P     @Fast
+    in  push : bool  @Fast
+    out q    : bool  @Slow
+    out r    : P     @Fast
+    let fifo = SyncFifo<P, 4> { clk: fclk, wr_data: d, wr_en: push, rd_en: push }
+    let e = fifo.empty
+    q = sync(e, sclk)
+    r = fifo.rd_data
+}
+",
+    )
+    .unwrap();
+    let (target, out) = build("fifo-flag", &src, "sdc,xdc");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    let rtl = target.join("rtl");
+    let sv = sv_module(&rtl, "FifoFlag");
+    assert_eq!(
+        sync_stage_registers(&sv),
+        vec![
+            ("sync_e_stage0".to_string(), 0),
+            ("sync_e_stage1".to_string(), 1)
+        ],
+        "{sv}"
+    );
+    for file in ["FifoFlag.sdc", "FifoFlag.xdc"] {
+        let text = read(&target.join("constraints").join(file));
+        assert!(
+            text.contains("-to [get_cells {sync_e_stage0_reg*}]"),
+            "{file}:\n{text}"
+        );
+        for pat in cell_patterns(&text) {
+            pattern_matches_register(&rtl, "FifoFlag", &pat)
+                .unwrap_or_else(|e| panic!("{file}: {pat}: {e}"));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&target);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn cell_name_check_rejects_a_misnamed_pattern() {
     // Testin kendisi için negatif: sv-emit'in üretmediği bir ad yakalanır.
     let (target, out) = build(

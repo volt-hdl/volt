@@ -403,6 +403,23 @@ exclude_re = [
     # 44580231247).
     # expect: crates/volt-hir/src/timing.rs:951:24: replace > with >= in declared_mismatch
     "volt-hir/src/timing\\.rs:\\d+:\\d+: replace > with >= in declared_mismatch$",
+    # A2, assumes lowering a module that has no struct-typed signal, no
+    # instance of a module with struct ports and no struct value (ADR-0077
+    # Karar 5 rule 15) leaves its AST as it was: every rewrite of
+    # lower_ports, lower_stmt, rewrite_expr, check_collisions, safety_net
+    # and note_unused is keyed on env.sigs or a struct-valued expression,
+    # and the emitter writes the lowered copy with empty notes. The two
+    # guards only keep such a module off the lowering path; `true` (and a
+    # guard that also lets multi-segment paths in) lowers it to the same SV. struct_tests::designs_without_struct_signals_emit_the_same_sv
+    # (a struct-free module with an instance field read, ==, `as`, `if` and
+    # a contract, in a unit with a struct declaration) stayed green with
+    # each mutant applied by hand (#373, gate run 44990131975).
+    # expect: crates/volt-sv-emit/src/structs/mod.rs:213:9: replace Lowerer::touches_struct_ports -> bool with true
+    "volt-sv-emit/src/structs/mod\\.rs:\\d+:\\d+: replace Lowerer::touches_struct_ports -> bool with true$",
+    # expect: crates/volt-sv-emit/src/structs/mod.rs:223:9: replace Lowerer::mentions_struct_values -> bool with true
+    "volt-sv-emit/src/structs/mod\\.rs:\\d+:\\d+: replace Lowerer::mentions_struct_values -> bool with true$",
+    # expect: crates/volt-sv-emit/src/structs/mod.rs:225:34: replace match guard p.segments.len() == 1 with true in Lowerer::mentions_struct_values
+    "volt-sv-emit/src/structs/mod\\.rs:\\d+:\\d+: replace match guard p\\.segments\\.len\\(\\) == 1 with true in Lowerer::mentions_struct_values$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
