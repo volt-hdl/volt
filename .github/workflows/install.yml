@@ -107,7 +107,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: install-${{ matrix.target }}
+          key: install-${{ matrix.target }}-${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Install musl tools
