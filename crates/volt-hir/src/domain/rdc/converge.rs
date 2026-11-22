@@ -7,14 +7,28 @@
 //! ile ham portu `r`'ye bağlanan her örneğin kendi sonucunun ebeveyn
 //! saatine eşlenmesi. Bir saat iki kaynaktan gelirse E3003 o modülde,
 //! bir kez raporlanır; üst modüle tekilleştirilmiş küme çıkar.
+//!
+//! Örneğin saati ebeveynde bir saat portu ya da bir örneğin çıkışı (PLL,
+//! saat bölücü) olabilir (#371): ikincisi de bir saat ağıdır ve aynı
+//! çıkışa bağlı iki zincir yakınsar. Üst modüle yalnız port saatleri çıkar;
+//! bir örneğin çıkışı ebeveynin dışında görünmez.
 
-use volt_ast::{InstanceDecl, PortBinding, SourceFile, StmtKind};
+use volt_ast::{ExprKind, InstanceDecl, PortBinding, SourceFile, StmtKind};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::facts::{contains, feeds_of, reset_free_bindings, ModuleFacts};
 use super::Rdc;
-use crate::resolve::DefId;
+use crate::resolve::{DefId, DefKind};
+
+/// Bir zincirin saati, modülün gözünden.
+#[derive(Clone, PartialEq, Eq)]
+enum ClockNet {
+    /// Modülün saat portu.
+    Port(DefId),
+    /// Bir örneğin çıkışı (`p.clk_o`): örnek ve port adı.
+    Output(DefId, String),
+}
 
 /// Bir bırakma senkronizörünün yeri.
 #[derive(Clone, Copy)]
@@ -34,11 +48,11 @@ impl<'a> Rdc<'a> {
         self.release_memo.insert((m, raw), Vec::new());
         let facts = self.facts;
         let module = &facts.modules[m];
-        let mut sites: Vec<(DefId, Site<'a>)> = Vec::new();
+        let mut sites: Vec<(ClockNet, Site<'a>)> = Vec::new();
         if let Some(ri) = module.raws.iter().position(|r| r.def == raw) {
             for (clock, fed) in module.clocks.iter().zip(feeds_of(module)) {
                 if fed == Some(ri) && self.chain_used(module, clock.def) {
-                    sites.push((clock.def, Site::Local));
+                    sites.push((ClockNet::Port(clock.def), Site::Local));
                 }
             }
         }
@@ -46,33 +60,42 @@ impl<'a> Rdc<'a> {
             self.instance_sites(module, inst, raw, &mut sites);
         }
 
-        let mut clocks: Vec<DefId> = Vec::new();
-        for &(clock, _) in &sites {
-            if clocks.contains(&clock) {
+        let mut nets: Vec<&ClockNet> = Vec::new();
+        for (net, _) in &sites {
+            if nets.contains(&net) {
                 continue;
             }
-            clocks.push(clock);
+            nets.push(net);
             let at: Vec<Site> = sites
                 .iter()
-                .filter(|(c, _)| *c == clock)
+                .filter(|(n, _)| n == net)
                 .map(|&(_, s)| s)
                 .collect();
             if at.len() > 1 {
-                self.err_converge(module, raw, clock, &at);
+                self.err_converge(module, raw, net, &at);
             }
         }
+        // Üst modüle yalnız port saatleri çıkar.
+        let clocks: Vec<DefId> = nets
+            .into_iter()
+            .filter_map(|n| match n {
+                ClockNet::Port(d) => Some(*d),
+                ClockNet::Output(..) => None,
+            })
+            .collect();
         self.release_memo.insert((m, raw), clocks.clone());
         clocks
     }
 
-    /// Örneğin `raw`'a bağlı ham portlarının bırakma saatleri, ebeveyn
-    /// saat portuna eşlenerek `sites`'e eklenir.
+    /// Örneğin `raw`'a bağlı ham portlarının bırakma saatleri, ebeveynin
+    /// saat ağına (saat portu ya da bir örneğin çıkışı) eşlenerek
+    /// `sites`'e eklenir.
     fn instance_sites(
         &mut self,
         module: &ModuleFacts,
         inst: &'a InstanceDecl,
         raw: DefId,
-        sites: &mut Vec<(DefId, Site<'a>)>,
+        sites: &mut Vec<(ClockNet, Site<'a>)>,
     ) {
         let facts = self.facts;
         let Some(target) = self.target_of(inst) else {
@@ -98,8 +121,8 @@ impl<'a> Rdc<'a> {
                     .bindings
                     .iter()
                     .find(|cb| cb.port_name.text == port.port.name.text)
-                    .and_then(|cb| self.bound_def(cb));
-                if let Some(parent) = parent.filter(|p| module.clocks.iter().any(|c| c.def == *p)) {
+                    .and_then(|cb| self.clock_net(module, cb));
+                if let Some(parent) = parent {
                     sites.push((parent, Site::Instance(inst, b.span)));
                 }
             }
@@ -155,6 +178,23 @@ impl<'a> Rdc<'a> {
             .and_then(|t| self.facts.by_def.get(t).copied())
     }
 
+    /// Saat bağlamasının ebeveyndeki ağı: modülün saat portu ya da bir
+    /// örneğin çıkışı (`p.clk_o`, #371). Başka bir değer (sabit, ifade) bir
+    /// saat ağı değildir; saat tipi denetimi onu zaten reddeder.
+    fn clock_net(&self, module: &ModuleFacts, cb: &PortBinding) -> Option<ClockNet> {
+        if let ExprKind::Field { base, field } = &self.facts.ast.exprs[cb.value].kind {
+            let inst = *self.res.resolutions.get(base)?;
+            return matches!(self.res.def_kind(inst), DefKind::Instance)
+                .then(|| ClockNet::Output(inst, field.text.clone()));
+        }
+        let def = self.bound_def(cb)?;
+        module
+            .clocks
+            .iter()
+            .any(|c| c.def == def)
+            .then_some(ClockNet::Port(def))
+    }
+
     /// Bağlamanın değeri olan yerel tanım (`port: ad`; `port` kısayolu
     /// ayrıştırıcıda `port: port`'a açılmıştır).
     fn bound_def(&self, b: &PortBinding) -> Option<DefId> {
@@ -162,12 +202,17 @@ impl<'a> Rdc<'a> {
     }
 
     /// E3003 (yakınsama biçimi, R6).
-    fn err_converge(&mut self, module: &ModuleFacts, raw: DefId, clock: DefId, at: &[Site]) {
+    fn err_converge(&mut self, module: &ModuleFacts, raw: DefId, clock: &ClockNet, at: &[Site]) {
         let raw_name = module.raws.iter().find(|r| r.def == raw).map_or_else(
             || self.res.defs[raw.0 as usize].name.clone(),
             |r| r.port.name.text.clone(),
         );
-        let clk = self.res.defs[clock.0 as usize].name.clone();
+        let clk = match clock {
+            ClockNet::Port(d) => self.res.defs[d.0 as usize].name.clone(),
+            ClockNet::Output(inst, port) => {
+                format!("{}.{port}", self.res.defs[inst.0 as usize].name)
+            }
+        };
         let top = &module.decl.name.text;
         let where_ = |s: &Site| match s {
             Site::Local => lstr!(en: "in '{top}'"; tr: "'{top}' içinde"),
@@ -207,7 +252,11 @@ impl<'a> Rdc<'a> {
                 lstr!(en: "first synchronizer of '{raw_name}' on '{clk}'";
                       tr: "'{clk}' üzerinde '{raw_name}' için ilk senkronizör"),
             );
-        } else if let Some(c) = module.clocks.iter().find(|c| c.def == clock) {
+        } else if let Some(c) = module
+            .clocks
+            .iter()
+            .find(|c| *clock == ClockNet::Port(c.def))
+        {
             diag = diag.with_secondary(
                 c.port.name.span,
                 lstr!(en: "'{top}' synchronizes '{raw_name}' to this clock";
