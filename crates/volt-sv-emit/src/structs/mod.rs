@@ -34,7 +34,8 @@ pub(crate) fn const_int(ast: &SourceFile, e: Idx<Expr>) -> Option<i128> {
 
 use std::collections::{HashMap, HashSet};
 
-use volt_ast::struct_layout::{self, Leaf, StructLayout};
+use volt_ast::struct_layout::{Leaf, StructLayout};
+use volt_ast::struct_signals::{ModuleSignals, StructTypes};
 use volt_ast::{
     Block, BlockStmt, ElseBranch, Expr, ExprKind, IfStmt, ItemKind, LValue, LValueSuffix, LetDecl,
     MatchArmBody, ModuleDecl, Name, Port, PortBinding, PortDir, RegDecl, SourceFile, Stmt,
@@ -123,25 +124,12 @@ pub(crate) fn lower(ast: &SourceFile) -> (Option<Lowered>, Vec<Diagnostic>) {
     )
 }
 
-/// Modül içi sembol bilgisi.
-#[derive(Default)]
-struct ModEnv {
-    /// Struct tipli sinyal → struct adı (geçerli düzenli).
-    sigs: HashMap<String, String>,
-    /// Kullanıcı modülü örneği → hedef modül adı.
-    insts: HashMap<String, String>,
-}
-
 pub(super) struct Lowerer {
     ast: SourceFile,
-    /// Düz struct adı → düzen (geçersizse `None`).
-    layouts: HashMap<String, Option<StructLayout>>,
-    /// Modül adı → (port adı → struct adı) — örnek bağlantısı ve
-    /// `s0.q.a` erişimi için (özgün tipler).
-    module_ports: HashMap<String, HashMap<String, String>>,
-    /// `const K : P = …` → (struct adı, değer).
-    consts: HashMap<String, (String, Idx<Expr>)>,
-    env: ModEnv,
+    /// Düzenler, modüllerin struct portları, struct sabitleri (özgün
+    /// tipler; kural `volt_ast::struct_signals`'da, #373).
+    types: StructTypes,
+    env: ModuleSignals,
     module: String,
     diags: Vec<Diagnostic>,
     notes: StructNotes,
@@ -151,83 +139,26 @@ pub(super) struct Lowerer {
 
 impl Lowerer {
     fn new(ast: SourceFile) -> Self {
-        let mut lw = Lowerer {
+        Lowerer {
+            types: StructTypes::new(&ast),
             ast,
-            layouts: HashMap::new(),
-            module_ports: HashMap::new(),
-            consts: HashMap::new(),
-            env: ModEnv::default(),
+            env: ModuleSignals::default(),
             module: String::new(),
             diags: Vec::new(),
             notes: StructNotes::default(),
             changed: false,
             rewritten: HashSet::new(),
-        };
-        lw.collect_items();
-        lw
+        }
     }
 
-    /// Düzenler, modül port tipleri ve struct sabitleri.
-    fn collect_items(&mut self) {
-        let ast = &self.ast;
-        let mut layouts = HashMap::new();
-        for &i in &ast.items {
-            if let ItemKind::Struct(s) = &ast.items_arena[i].kind {
-                if !s.is_port {
-                    let l = struct_layout::layout(ast, s, &mut |e| const_int(ast, e)).ok();
-                    layouts.insert(s.name.text.clone(), l);
-                }
-            }
-        }
-        self.layouts = layouts;
-        let mut module_ports = HashMap::new();
-        let mut consts = HashMap::new();
-        for &i in &self.ast.items {
-            match &self.ast.items_arena[i].kind {
-                ItemKind::Module(m) => {
-                    let ports: HashMap<String, String> = m
-                        .ports
-                        .iter()
-                        .filter_map(|p| Some((p.name.text.clone(), self.struct_of_type(p.ty)?)))
-                        .collect();
-                    module_ports.insert(m.name.text.clone(), ports);
-                }
-                ItemKind::Const(c) => {
-                    if let Some(s) = self.struct_of_type(c.ty) {
-                        consts.insert(c.name.text.clone(), (s, c.value));
-                    }
-                }
-                ItemKind::Domain(_)
-                | ItemKind::Fn(_)
-                | ItemKind::Struct(_)
-                | ItemKind::Enum(_)
-                | ItemKind::TypeAlias(_)
-                | ItemKind::Extern(_)
-                | ItemKind::Test(_)
-                | ItemKind::Error => {}
-            }
-        }
-        self.module_ports = module_ports;
-        self.consts = consts;
-    }
-
-    /// Tip, düzeni geçerli bir düz struct'ı adlandırıyorsa adı. Generic,
-    /// struct dizisi ya da düzeni kurulamayan struct indirgenmez —
-    /// emitter'ın tip eşlemesi onlara E0003 verir.
+    /// Tip, düzeni geçerli bir düz struct'ı adlandırıyorsa adı
+    /// (`StructTypes::struct_of_type`).
     fn struct_of_type(&self, ty: Idx<TypeRef>) -> Option<String> {
-        let decl = struct_layout::struct_of_type(&self.ast, ty)?;
-        let target = crate::alias::resolve(&self.ast, ty);
-        if let TypeRefKind::Path { args, .. } = &self.ast.types[target].kind {
-            if !args.is_empty() {
-                return None;
-            }
-        }
-        let name = decl.name.text.clone();
-        self.layouts.get(&name)?.as_ref().map(|_| name)
+        self.types.struct_of_type(&self.ast, ty)
     }
 
     fn layout(&self, name: &str) -> Option<&StructLayout> {
-        self.layouts.get(name)?.as_ref()
+        self.types.layout(name)
     }
 
     /// Bir yaprağın SV sinyal adı: `taban_alan_altalan`.
@@ -243,11 +174,10 @@ impl Lowerer {
         };
         let module = m.clone();
         self.module = module.name.text.clone();
-        self.env = ModEnv::default();
         // ADR-0087: struct öğeli primitif örnekleri paketlenmiş vektör;
         // giriş `as uint<W>`, çıkış `as P` — aşağıdaki kurallar indirger.
         let packed_prims = prim::pack_struct_prims(&mut self.ast, &module);
-        self.build_env(&module);
+        self.env = self.types.module_signals(&self.ast, &module);
         let uses_structs = packed_prims
             || !self.env.sigs.is_empty()
             || self.touches_struct_ports(&module)
@@ -278,104 +208,11 @@ impl Lowerer {
     }
 
     /// Struct tipli sinyaller ve örnekler.
-    fn build_env(&mut self, m: &ModuleDecl) {
-        for p in &m.ports {
-            if let Some(s) = self.struct_of_type(p.ty) {
-                self.env.sigs.insert(p.name.text.clone(), s);
-            }
-        }
-        // Tipsiz `let`/`reg` başka struct değerinden çıkarılır; iki tur
-        // sıra bağımlılığını çözer.
-        for _ in 0..2 {
-            for &stmt in &m.body {
-                let entry = match &self.ast.stmts[stmt].kind {
-                    StmtKind::Reg(r) => Some((
-                        r.name.text.clone(),
-                        r.ty.and_then(|t| self.struct_of_type(t)).or_else(|| {
-                            r.ty.is_none()
-                                .then(|| self.struct_of_expr(r.init))
-                                .flatten()
-                        }),
-                    )),
-                    StmtKind::Wire(w) => Some((w.name.text.clone(), self.struct_of_type(w.ty))),
-                    StmtKind::Let(l) => Some((l.name.text.clone(), self.let_struct(l))),
-                    StmtKind::Instance(inst) => {
-                        if let [seg] = inst.module_path.segments.as_slice() {
-                            self.env
-                                .insts
-                                .insert(inst.name.text.clone(), seg.text.clone());
-                        }
-                        None
-                    }
-                    StmtKind::On(on) => {
-                        self.scan_block_lets(on.body);
-                        None
-                    }
-                    StmtKind::Comb(b) => {
-                        self.scan_block_lets(*b);
-                        None
-                    }
-                    // Let bildirmeyen deyimler (modül düzeyi `for` parser'da açıldı, ADR-0056).
-                    StmtKind::Assign(_)
-                    | StmtKind::For(_)
-                    | StmtKind::Expr(_)
-                    | StmtKind::Error => None,
-                };
-                if let Some((name, Some(s))) = entry {
-                    self.env.sigs.insert(name, s);
-                }
-            }
-        }
-    }
-
-    fn let_struct(&self, l: &LetDecl) -> Option<String> {
-        match l.ty {
-            Some(t) => self.struct_of_type(t),
-            None => self.struct_of_expr(l.value),
-        }
-    }
-
-    /// Blok içi struct `let`'leri (ad modül çapında tekil sayılır).
-    fn scan_block_lets(&mut self, block: Idx<Block>) {
-        let stmts = self.ast.blocks[block].stmts.clone();
-        for s in &stmts {
-            match s {
-                BlockStmt::Let(l) => {
-                    if let Some(st) = self.let_struct(l) {
-                        self.env.sigs.insert(l.name.text.clone(), st);
-                    }
-                }
-                BlockStmt::If(i) => self.scan_if_lets(i),
-                BlockStmt::Match(m) => {
-                    for arm in &m.arms {
-                        if let MatchArmBody::Block(b) = arm.body {
-                            self.scan_block_lets(b);
-                        }
-                    }
-                }
-                BlockStmt::For(f) => self.scan_block_lets(f.body),
-                // Let taşımayan deyimler.
-                BlockStmt::NonBlockAssign { .. }
-                | BlockStmt::BlockAssign { .. }
-                | BlockStmt::Error => {}
-            }
-        }
-    }
-
-    fn scan_if_lets(&mut self, i: &IfStmt) {
-        self.scan_block_lets(i.then_block);
-        match &i.else_branch {
-            Some(ElseBranch::Block(b)) => self.scan_block_lets(*b),
-            Some(ElseBranch::If(n)) => self.scan_if_lets(n),
-            None => {}
-        }
-    }
-
     /// Modül, struct portlu bir modülü örnekliyor mu?
     fn touches_struct_ports(&self, m: &ModuleDecl) -> bool {
         self.env.insts.values().any(|t| {
-            self.module_ports
-                .get(t)
+            self.types
+                .module_ports(t)
                 .is_some_and(|ports| !ports.is_empty())
         }) || m.ports.iter().any(|p| self.struct_of_type(p.ty).is_some())
     }
@@ -386,7 +223,7 @@ impl Lowerer {
         let mut found = false;
         let mut visit = |ast: &SourceFile, e: Idx<Expr>| match &ast.exprs[e].kind {
             ExprKind::Path(p) if p.segments.len() == 1 => {
-                found |= self.consts.contains_key(&p.segments[0].text);
+                found |= self.types.const_struct(&p.segments[0].text).is_some();
             }
             ExprKind::Cast { ty, .. } => found |= self.struct_of_type(*ty).is_some(),
             ExprKind::StructLit { path, .. } => {
@@ -731,7 +568,7 @@ impl Lowerer {
     fn lower_bindings(&mut self, inst: &volt_ast::InstanceDecl) -> Vec<PortBinding> {
         let target = inst.module_path.segments.last().map(|s| s.text.clone());
         let ports = target
-            .and_then(|t| self.module_ports.get(&t).cloned())
+            .and_then(|t| self.types.module_ports(&t).cloned())
             .unwrap_or_default();
         let mut out = Vec::with_capacity(inst.bindings.len());
         for b in &inst.bindings {

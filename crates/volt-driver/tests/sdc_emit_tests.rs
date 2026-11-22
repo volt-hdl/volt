@@ -332,6 +332,8 @@ fn every_generated_cell_pattern_names_a_register_in_the_generated_sv() {
         ui("pass/84_rdc_raw_reset_per_domain.volt"),
         ui("pass/85_rdc_raw_reset_hierarchy.volt"),
         ui("pass/86_rdc_raw_reset_sync_domains.volt"),
+        // #373: struct değerli sync() kaynakları (tipsiz let/reg dâhil).
+        ui("pass/162_sync_struct_value_sources.volt"),
         root().join("examples/vga/vga_top.volt"),
         root().join("examples/hybrid_accel/hybrid_top.volt"),
     ];
@@ -403,6 +405,140 @@ fn every_generated_cell_pattern_names_a_register_in_the_generated_sv() {
         "her senkronizör türü ve reset zinciri denetlendi"
     );
     assert!(checked > 200, "denetlenen desen: {checked}");
+}
+
+/// Modül SV'sindeki senkronizör aşama register'ları: `sync_<x>_stage<i>`
+/// adlı (sv-mapping §8 adlandırması), bildirilen ve `<=` ile atanan
+/// sinyaller; `(ad, aşama)`.
+fn sync_stage_registers(sv: &str) -> Vec<(String, u32)> {
+    let mut out = Vec::new();
+    for line in sv.lines() {
+        let t = line.trim();
+        if !t.starts_with("logic") {
+            continue;
+        }
+        let Some(name) = t.trim_end_matches(';').split_whitespace().last() else {
+            continue;
+        };
+        let Some((head, stage)) = name.rsplit_once("_stage") else {
+            continue;
+        };
+        let Ok(stage) = stage.parse::<u32>() else {
+            continue;
+        };
+        if head.starts_with("sync_") && declares_register(sv, name) {
+            out.push((name.to_string(), stage));
+        }
+    }
+    out
+}
+
+#[test]
+fn every_synchronizer_of_a_struct_valued_source_is_constrained() {
+    // #373, ADR-0065 §4.2: hedefli kısıt her senkronizörün İLK aşamasına
+    // giden yolu kapatır (`-to [get_cells {<ilk aşama>_reg*}]`), XDC
+    // zincirin her aşamasını ASYNC_REG işaretler. Struct değerli kaynak
+    // SV'de alan başına bir senkronizördür (ADR-0077 Karar 5 kural 12);
+    // kaynağın struct tipi bildirilmemiş olsa da (tipsiz let/reg). Ters
+    // yön (her desen bir register'ı adlandırır) yukarıdaki testte.
+    let (target, out) = build(
+        "struct-sync",
+        &ui("pass/162_sync_struct_value_sources.volt"),
+        "sdc,xdc",
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    let sv = sv_module(&target.join("rtl"), "SyncStructSources");
+    let stages = sync_stage_registers(&sv);
+    // Elle: yedi kaynak (lit, ru, alias, sel, inst, c, popped) × iki alan
+    // (a, b) × iki aşama (sync()).
+    assert_eq!(stages.len(), 28, "SV aşama register'ları: {stages:?}");
+    let sdc = read(&target.join("constraints/SyncStructSources.sdc"));
+    let xdc = read(&target.join("constraints/SyncStructSources.xdc"));
+    let mut missing = Vec::new();
+    for (reg, stage) in &stages {
+        let pattern = format!("{reg}_reg*");
+        if *stage == 0 {
+            let to = format!("-to [get_cells {{{pattern}}}]");
+            for (file, text) in [("sdc", &sdc), ("xdc", &xdc)] {
+                if !text.contains(&to) {
+                    missing.push(format!("{file}: {to}"));
+                }
+            }
+        }
+        let async_reg = xdc
+            .lines()
+            .filter(|l| l.starts_with("set_property ASYNC_REG TRUE"))
+            .any(|l| cell_patterns(l).contains(&pattern));
+        if !async_reg {
+            missing.push(format!("xdc: ASYNC_REG {pattern}"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "kısıtsız senkronizör aşamaları:\n{}\n--- sdc\n{sdc}\n--- xdc\n{xdc}",
+        missing.join("\n")
+    );
+    let _ = std::fs::remove_dir_all(&target);
+}
+
+#[test]
+fn a_flag_output_of_a_struct_fifo_is_synchronized_as_one_bit() {
+    // ADR-0087: yalnız struct öğeli primitifin VERİ çıkışı (`rd_data`) bir
+    // struct değeridir; `empty` bir bool'dur. Tipsiz `let e = fifo.empty`'nin
+    // sync()'i SV'de tek senkronizördür (sv-mapping §8: sync_e_stage<i>) ve
+    // kısıt onun ilk aşamasını adlandırır (ADR-0065 §4.2).
+    let dir = temp_dir("fifo-flag-src");
+    let src = dir.join("fifo_flag.volt");
+    std::fs::write(
+        &src,
+        "domain Fast { clock = posedge, reset = none, frequency = 100.mhz, }
+domain Slow { clock = posedge, reset = none, frequency = 25.mhz, }
+struct P {
+    a : bool,
+    b : bool,
+}
+pub module FifoFlag {
+    in  fclk : clock @Fast
+    in  sclk : clock @Slow
+    in  d    : P     @Fast
+    in  push : bool  @Fast
+    out q    : bool  @Slow
+    out r    : P     @Fast
+    let fifo = SyncFifo<P, 4> { clk: fclk, wr_data: d, wr_en: push, rd_en: push }
+    let e = fifo.empty
+    q = sync(e, sclk)
+    r = fifo.rd_data
+}
+",
+    )
+    .unwrap();
+    let (target, out) = build("fifo-flag", &src, "sdc,xdc");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    let rtl = target.join("rtl");
+    let sv = sv_module(&rtl, "FifoFlag");
+    assert_eq!(
+        sync_stage_registers(&sv),
+        vec![
+            ("sync_e_stage0".to_string(), 0),
+            ("sync_e_stage1".to_string(), 1)
+        ],
+        "{sv}"
+    );
+    for file in ["FifoFlag.sdc", "FifoFlag.xdc"] {
+        let text = read(&target.join("constraints").join(file));
+        assert!(
+            text.contains("-to [get_cells {sync_e_stage0_reg*}]"),
+            "{file}:\n{text}"
+        );
+        for pat in cell_patterns(&text) {
+            pattern_matches_register(&rtl, "FifoFlag", &pat)
+                .unwrap_or_else(|e| panic!("{file}: {pat}: {e}"));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&target);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

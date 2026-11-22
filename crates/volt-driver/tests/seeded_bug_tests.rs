@@ -111,6 +111,8 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("timing.drop-retiming | tests/ui/pass/160_delayed_declared_counts.volt | let s: Delayed annotation removed", Hand::Safe(&[]), "type-inference.md §12: s = b is inferred as 2 cycles, the delay the annotation declared; nothing is mixed"),
     ("timing.drop-retiming | tests/ui/pass/160_delayed_declared_counts.volt | let f: Delayed annotation removed", Hand::Expect(&["E5010"]), "ADR-0037: the arms a (1) and b (2) are combined without the retiming assertion"),
     ("cdc.extern-domain-merge | tests/ui/pass/62_extern_domains.volt | ExtAsyncFifo: @Dst -> @Src", Hand::Expect(&["E3014"]), "K8a: the instance binds wr_clk to sys_clk and rd_clk to pix_clk, now the same symbolic domain"),
+    // ── the source of the removed sync() is a constant (#373 fixture) ──
+    ("cdc.drop-sync | tests/ui/pass/162_sync_struct_value_sources.volt | sync(c, sclk)", Hand::Safe(&[]), "domain-inference.md, Timeless: c is bound to the constant K, and a constant belongs to no clock domain and fits every domain (`q6 = c` crosses nothing)"),
     // ── the sync result is read inside an `on` block: K7 names both codes ──
     ("cdc.drop-sync | demo/crossing_fixed.volt | sync(pressed_r, slow_clk)", Hand::Expect(CDC_READ), ON_READ),
     ("cdc.sync-to-other-clock | demo/crossing_fixed.volt | sync(pressed_r, slow_clk) -> fast_clk", Hand::Expect(CDC_READ), ON_READ),

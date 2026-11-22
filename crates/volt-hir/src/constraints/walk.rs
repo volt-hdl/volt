@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::builtin::BuiltinPrim;
+use volt_ast::struct_signals::StructTypes;
 use volt_ast::{
     Attribute, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, ExprKind, Idx,
     InstanceDecl, ItemKind, MatchArmBody, ModuleDecl, Port, PortDir, ResetSync, SourceFile, Stmt,
@@ -281,6 +282,9 @@ fn collect_if_targets<'a>(
 struct Collector<'a> {
     ast: &'a SourceFile,
     dead: &'a DeadArms,
+    /// Sinyallerin struct tipi: sv-emit'in yaprak sinyalleriyle aynı
+    /// kaynak (#373).
+    types: StructTypes,
     domains: HashMap<&'a str, DomainDecl>,
     diags: Vec<Diagnostic>,
     /// Aynı konum için tek E0017 (alt modül birden çok üstten yürünür).
@@ -291,6 +295,7 @@ pub(super) fn collect(ast: &SourceFile, dead: &DeadArms) -> ConstraintResult {
     let mut c = Collector {
         ast,
         dead,
+        types: StructTypes::new(ast),
         domains: HashMap::new(),
         diags: Vec::new(),
         reported: HashSet::new(),
@@ -909,7 +914,7 @@ impl<'a> Collector<'a> {
             None
         };
         let leaves = src
-            .and_then(|s| struct_leaf_suffixes(self.ast, scope.module, s))
+            .and_then(|s| self.struct_leaf_suffixes(scope.module, s))
             .unwrap_or_default();
         if leaves.is_empty() {
             return self
@@ -921,6 +926,15 @@ impl<'a> Collector<'a> {
             .iter()
             .filter_map(|suffix| self.sync_bridge(rhs, sliced, scope, ctx, clocks, Some(suffix)))
             .collect()
+    }
+
+    /// Modülde struct tipli sinyalse (bildirilen tipten ya da tipsiz
+    /// `let`/`reg`'in değerinden, `StructTypes::module_signals`) yaprak
+    /// sonekleri (`a`, `i_x`; ADR-0077 düzeni); değilse `None`.
+    fn struct_leaf_suffixes(&self, m: &ModuleDecl, name: &str) -> Option<Vec<String>> {
+        let signals = self.types.module_signals(self.ast, m);
+        let layout = self.types.layout(signals.sigs.get(name)?)?;
+        Some(layout.leaves.iter().map(|l| l.suffix()).collect())
     }
 
     /// `dest = sync(src, dst_clk)` / `sync3(...)` (ya da `let dest = …`,
@@ -1255,39 +1269,6 @@ impl Ctx {
             Some(map) => map.get(local).cloned(),
         }
     }
-}
-
-/// Modülde struct tipli port/reg/wire/let ise yaprak sonekleri (`a`,
-/// `i_x`; ADR-0077 düzeni); değilse `None`.
-fn struct_leaf_suffixes(ast: &SourceFile, m: &ModuleDecl, name: &str) -> Option<Vec<String>> {
-    let port_ty = m.ports.iter().find(|p| p.name.text == name).map(|p| p.ty);
-    let ty = port_ty.or_else(|| {
-        m.body.iter().find_map(|&s| {
-            let (decl, ty) = match &ast.stmts[s].kind {
-                StmtKind::Reg(r) => (&r.name, r.ty),
-                StmtKind::Wire(w) => (&w.name, Some(w.ty)),
-                StmtKind::Let(l) => (&l.name, l.ty),
-                // Tipli değer bildirmeyen deyimler.
-                StmtKind::Instance(_)
-                | StmtKind::On(_)
-                | StmtKind::Comb(_)
-                | StmtKind::Assign(_)
-                | StmtKind::For(_)
-                | StmtKind::Expr(_)
-                | StmtKind::Error => return None,
-            };
-            if decl.text == name {
-                ty
-            } else {
-                None
-            }
-        })
-    })?;
-    let decl = volt_ast::struct_layout::struct_of_type(ast, ty)?;
-    let layout =
-        volt_ast::struct_layout::layout(ast, decl, &mut |e| crate::sim_port::const_value(ast, e))
-            .ok()?;
-    Some(layout.leaves.iter().map(|l| l.suffix()).collect())
 }
 
 fn single(ast: &SourceFile, e: Idx<volt_ast::Expr>) -> Option<&str> {

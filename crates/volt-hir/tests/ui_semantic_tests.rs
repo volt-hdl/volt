@@ -494,7 +494,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
     // #232 (ADR-0127): 161 `delay<K>` bir
     // iddiadır, register eklemez.
-    assert_eq!(checked, 146);
+    // #373: 162 struct değerli sync() kaynakları (tipsiz let/reg dâhil).
+    assert_eq!(checked, 147);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════
