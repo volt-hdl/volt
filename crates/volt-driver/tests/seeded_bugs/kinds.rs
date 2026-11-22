@@ -204,6 +204,13 @@ pub fn kinds() -> Vec<Kind> {
             near_miss: false,
             sites: duplicate_assign,
         },
+        Kind {
+            name: "drivers.write-builtin-output",
+            spec: "type-inference.md §11.2 (an instance output has one driver, the instance) + #378: an assignment to a port of an instance, built-in primitive or user module, is E4011",
+            expect: Some(&["E4011"]),
+            near_miss: false,
+            sites: write_builtin_output,
+        },
         // ── Near misses ──────────────────────────────────────────────
         Kind {
             name: "near.sync3-for-sync",
@@ -1133,6 +1140,47 @@ fn declared_delay_shift(src: &Source) -> Sites {
             format!("{}{}: Delayed N {n} -> {}", kw, name.trim(), n + 1),
             src.with_line(i, &new),
         ));
+    }
+    number(out)
+}
+
+/// Bir yerleşik primitif örneğinin ilk çıkışına, örneğin bulunduğu
+/// modülün sonunda kendi değeri yazılır: `f.rd_data = f.rd_data`. Çıkışı
+/// örnek sürer; atama ikinci bir sürücüdür (#378).
+fn write_builtin_output(src: &Source) -> Sites {
+    let mut out = Vec::new();
+    for m in src.modules().iter().filter(|m| !m.is_extern) {
+        for i in m.start + 1..m.end {
+            let code = src.code(i).trim_start();
+            let Some((name, rhs)) = code.strip_prefix("let ").and_then(|r| r.split_once('='))
+            else {
+                continue;
+            };
+            let name = name.trim();
+            if !is_ident(name) {
+                continue;
+            }
+            let prim: String = rhs
+                .trim_start()
+                .chars()
+                .take_while(|c| is_ident_char(*c))
+                .collect();
+            let Some(prim) = volt_ast::builtin::BuiltinPrim::from_name(&prim) else {
+                continue;
+            };
+            let Some(port) = prim
+                .ports()
+                .iter()
+                .find(|p| p.dir == volt_ast::PortDir::Out)
+            else {
+                continue;
+            };
+            let write = format!("    {name}.{0} = {name}.{0}", port.name);
+            out.push((
+                format!("{}: {name}.{} written", m.name, port.name),
+                src.with_inserted(m.end - 1, &write),
+            ));
+        }
     }
     number(out)
 }

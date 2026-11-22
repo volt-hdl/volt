@@ -2332,27 +2332,8 @@ impl<'a> Emitter<'a> {
     // ═══ LValue ═══════════════════════════════════════════════════
 
     fn emit_lvalue(&mut self, lv: &'a LValue) -> String {
-        // Yerleşik primitif alanı hedefte: `f.rd_data` → `f_rd_data`.
-        if let [LValueSuffix::Field(f)] = lv.suffixes.as_slice() {
-            if self.builtin_insts.contains_key(&lv.base.text) {
-                return format!("{}_{}", lv.base.text, f.text);
-            }
-            if self.user_insts.contains_key(&lv.base.text) {
-                self.error(
-                    ErrorCode::E4011,
-                    lstr!(
-                        en: "cannot assign to '{}.{}': instance ports are driven by the instance", lv.base.text, f.text;
-                        tr: "'{}.{}' atanamaz: örnek portlarını örneğin kendisi sürer", lv.base.text, f.text
-                    ),
-                    lv.span,
-                    &lstr!(
-                        en: "bind inputs in the instance literal and read outputs as {}.{}", lv.base.text, f.text;
-                        tr: "girişleri örnekleme literalinde bağlayın, çıkışları {}.{} ile okuyun", lv.base.text, f.text
-                    ),
-                );
-                return format!("{}_{}", lv.base.text, f.text);
-            }
-        }
+        // Örnek portu hedef olamaz: tip denetimi E4011 verir (#378), sürücü
+        // böyle bir tasarımı buraya getirmez.
         let mut out = lv.base.text.clone();
         let packed = self.packed_arrays.get(&lv.base.text).copied();
         for (n, suffix) in lv.suffixes.iter().enumerate() {

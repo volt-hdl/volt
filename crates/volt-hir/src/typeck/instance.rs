@@ -2,8 +2,10 @@
 //! ADR-0027/0029 stdlib primitifleri): port bağlamaları hedef portun
 //! tipiyle check modunda denetlenir.
 
-use volt_ast::{ExprKind, GenericArg, InstanceDecl, ItemKind, PortBinding, PortDir};
-use volt_diagnostics::{lstr, ErrorCode};
+use volt_ast::{
+    ExprKind, GenericArg, InstanceDecl, ItemKind, LValue, LValueSuffix, PortBinding, PortDir,
+};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -343,6 +345,98 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Hedef modülün port tipi (modüller arası akış için).
+    /// E4011 — bir örneğin portuna atama (#378). Çıkışı örneğin kendisi
+    /// sürer, girişi örnekleme literalinde bağlanır; atama ikinci bir
+    /// sürücü olurdu. Kullanıcı modülü ve yerleşik primitif için aynı
+    /// kural. Bilinmeyen port adı E1009'u isim çözümlemede aldı.
+    pub(super) fn instance_port_assigned(&mut self, def: DefId, lhs: &LValue) {
+        let Some(LValueSuffix::Field(field)) = lhs.suffixes.first() else {
+            return;
+        };
+        let ty = self.def_type(def);
+        let dir = match self.types.ty(ty).clone() {
+            Ty::Instance(m) => self.port_dir_of(DefId(m.0), &field.text),
+            Ty::Builtin { prim, .. } => prim.port(&field.text).map(|p| p.dir),
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::SInt { .. }
+            | Ty::Bits { .. }
+            | Ty::Trit
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Delayed { .. }
+            | Ty::IntLit
+            | Ty::UIntFlex { .. }
+            | Ty::SIntFlex { .. }
+            | Ty::Error => None,
+        };
+        let Some(dir) = dir else { return };
+        let (inst, port) = (&lhs.base.text, &field.text);
+        let (message, label, reason, help) = match dir {
+            PortDir::Out => (
+                lstr!(en: "'{inst}.{port}' is an output of instance '{inst}' and cannot be assigned";
+                      tr: "'{inst}.{port}', '{inst}' örneğinin çıkışıdır ve atanamaz"),
+                lstr!(en: "instance output written here"; tr: "örnek çıkışı burada yazılıyor"),
+                lstr!(en: "the instance drives its outputs; a second driver would put two drivers on one net (in SV, a variable written by the instance's logic and by an assign)";
+                      tr: "örnek çıkışlarını kendisi sürer; ikinci bir sürücü bir hatta iki sürücü koyardı (SV'de hem örneğin mantığının hem bir assign'ın yazdığı değişken)"),
+                lstr!(en: "read the output as {inst}.{port}; for a value of your own, declare a wire or a register with another name";
+                      tr: "çıkışı {inst}.{port} olarak okuyun; kendi değeriniz için başka adla bir wire ya da register bildirin"),
+            ),
+            PortDir::In => (
+                lstr!(en: "'{inst}.{port}' is an input of instance '{inst}' and cannot be assigned";
+                      tr: "'{inst}.{port}', '{inst}' örneğinin girişidir ve atanamaz"),
+                lstr!(en: "instance input written here"; tr: "örnek girişi burada yazılıyor"),
+                lstr!(en: "an instance input is bound once, in the instance literal; an assignment would bind it a second time";
+                      tr: "örnek girişi bir kez, örnekleme literalinde bağlanır; atama onu ikinci kez bağlardı"),
+                lstr!(en: "bind it in the instance literal: {inst} = ... {{ {port}: <value>, ... }}";
+                      tr: "örnekleme literalinde bağlayın: {inst} = ... {{ {port}: <değer>, ... }}"),
+            ),
+            PortDir::InOut | PortDir::OpenDrain => (
+                lstr!(en: "'{inst}.{port}' is a port of instance '{inst}' and cannot be assigned";
+                      tr: "'{inst}.{port}', '{inst}' örneğinin portudur ve atanamaz"),
+                lstr!(en: "instance port written here"; tr: "örnek portu burada yazılıyor"),
+                lstr!(en: "a bidirectional port is bound to a shared line in the instance literal";
+                      tr: "çift yönlü port örnekleme literalinde paylaşılan bir hatta bağlanır"),
+                lstr!(en: "bind it to a wire in the instance literal and drive that wire";
+                      tr: "örnekleme literalinde bir wire'a bağlayın ve o wire'ı sürün"),
+            ),
+        };
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E4011,
+                message,
+                LabeledSpan::primary(lhs.span, label),
+                help,
+            )
+            .with_note(NoteKind::Reason, reason),
+        );
+    }
+
+    /// Kullanıcı modülünün (ya da extern'in) portunun yönü.
+    fn port_dir_of(&self, module_def: DefId, port: &str) -> Option<PortDir> {
+        let &item_idx = self.res.item_of_def.get(&module_def)?;
+        let ports = match &self.ast.items_arena[item_idx].kind {
+            ItemKind::Module(m) => &m.ports,
+            ItemKind::Extern(x) => &x.ports,
+            ItemKind::Domain(_)
+            | ItemKind::Fn(_)
+            | ItemKind::Struct(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Const(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Test(_)
+            | ItemKind::Error => return None,
+        };
+        ports
+            .iter()
+            .find(|p| p.name.text == port)
+            .map(|p| p.direction)
+    }
+
     pub(super) fn port_type_of(&mut self, module_def: DefId, port: &str) -> Option<TypeId> {
         let ast = self.ast;
         let &item_idx = self.res.item_of_def.get(&module_def)?;
@@ -369,6 +463,51 @@ mod tests {
     use super::super::testutil::codes;
 
     const CHILD: &str = "module Child {\n    in  d : u8\n    out q : u8\n\n    q = d\n}\n\n";
+
+    // #378: örnek portuna atama tip denetiminde E4011 (önce SV üreticisinde,
+    // yalnız kullanıcı modülü için; volt-sv-emit adr0041_tests
+    // `writing_to_instance_port_is_e4011` buraya taşındı).
+    #[test]
+    fn writing_to_instance_port_is_e4011() {
+        for stmt in ["u.q = d", "u.d = d"] {
+            let c = codes(&format!(
+                "{CHILD}module Top {{\n    in  d : u8\n    out y : u8\n    let u = Child {{ d: d }}\n    {stmt}\n    y = u.q\n}}\n"
+            ));
+            assert_eq!(c, vec!["E4011"], "{stmt}");
+        }
+        for stmt in ["cnt.overflow = true", "cnt.enable = true"] {
+            let c = codes(&format!(
+                "module Top {{\n    in  clk : clock\n    in  en : bool\n    out w : bool\n    let cnt = Counter<8> {{ clk: clk, enable: en, clear: false }}\n    {stmt}\n    w = cnt.overflow\n}}\n"
+            ));
+            assert_eq!(c, vec!["E4011"], "{stmt}");
+        }
+    }
+
+    #[test]
+    fn the_diagnostic_names_the_direction_of_the_written_port() {
+        // Child'ın ilk portu giriş `d`, ikincisi çıkış `q`: yön yazılan
+        // portun kendisinden gelir. Çıkışın help'i okuma yazımını
+        // (`u.q`), girişinki literal bağlamasını (`d: <`) verir.
+        let help = |stmt: &str| {
+            let d = super::super::testutil::diagnostics(&format!(
+                "{CHILD}module Top {{\n    in  d : u8\n    out y : u8\n    let u = Child {{ d: d }}\n    {stmt}\n    y = u.q\n}}\n"
+            ));
+            assert_eq!(d.len(), 1, "{stmt}: {d:?}");
+            d[0].help.clone().unwrap_or_default()
+        };
+        let out = help("u.q = d");
+        assert!(out.contains("u.q") && !out.contains("q: <"), "{out}");
+        let inp = help("u.d = d");
+        assert!(inp.contains("d: <"), "{inp}");
+    }
+
+    #[test]
+    fn reading_an_instance_output_is_not_an_assignment() {
+        let c = codes(&format!(
+            "{CHILD}module Top {{\n    in  d : u8\n    out y : u8\n    let u = Child {{ d: d }}\n    y = u.q\n}}\n"
+        ));
+        assert!(!c.contains(&"E4011"), "{c:?}");
+    }
 
     #[test]
     fn port_binding_is_checked_against_the_target_port_type() {

@@ -19,6 +19,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   çıkabilir). Tanı saati `p.clk_o` olarak adlandırır. Hiçbir geçerli
   tasarımın SV'si değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz
   yanlış istisnası.
+- **Davranış değişikliği.** Yerleşik bir primitif örneğinin portuna atama
+  (`cnt.overflow = true`, `f.rd_data = d`, `on` bloğunda `cnt.overflow <=
+  true`) artık E4011'dir (#378; sessiz yanlış düzeltmesi). 0.1.2'de bu
+  yazım kabul ediliyordu ve SV aynı ağı hem primitifin `always_ff`'inden
+  hem bir `assign`'dan sürüyordu: geçersiz SV (IEEE 1800-2017 §6.5).
+  `volt build` 0 ile çıkıyor, Yosys iki sürücülü bir netlist üretiyor,
+  Verilator `MULTIDRIVEN` ile düşüyordu (`on` bloğundaki yazım "compiler
+  bug" diyen E0020 alıyordu). Kural kullanıcı modülü örneği için zaten
+  vardı (ADR-0072: `inst.port = ...` E4011); artık her örnek için tip
+  denetiminde tek yerde uygulanır, SV üreticisindeki kopya kalktı. Tanı
+  portun yönünü söyler: çıkışı örnek sürer, giriş örnekleme literalinde
+  bağlanır. Yerleşik bir girişe yazım önce "input port cannot be read via
+  field access" (E1009) alıyordu; artık E4011'dir. Hiçbir geçerli
+  tasarımın SV'si değişmez. Son hanede (v0.1.3) çıkar, ADR-0100'ün sessiz
+  yanlış istisnası.
 - **Davranış değişikliği.** Bütün-struct karşılaştırmasında
   (`assert_eq(dut.q, P { .. })`, `assert_ne`) literalin her alanı artık
   alanın tipine sığmalıdır (#375, ADR-0131; sessiz yanlış düzeltmesi).
