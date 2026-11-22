@@ -2458,7 +2458,7 @@ fn ui_pass_all_51_of_51_parse_clean() {
             ));
         }
     }
-    assert_eq!(total, 146, "ui/pass 146 dosya içermeli");
+    assert_eq!(total, 147, "ui/pass 147 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2522,10 +2522,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // arası atama E3001 değil), #340 (ADR-0124) 158'i (reset portu
     // yazılmayan çocuk) ve 159'u (ham reset portunun kendisinin bağlanması),
     // #354 160'ı (gerçek gecikmesiyle uyuşan Delayed bildirimleri), #232 (ADR-0127) 161'i
-    // (`delay<K>` bir iddiadır, register eklemez).
+    // (`delay<K>` bir iddiadır, register eklemez), #373 162'yi (struct
+    // değerli sync() kaynakları).
     assert_eq!(
-        clean, 146,
-        "146/146 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 147,
+        "147/147 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

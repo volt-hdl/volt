@@ -472,16 +472,30 @@ module M {
 
 /// Karar 5 kural 15: struct kullanmayan (Handshake payload'lı dahil)
 /// tasarımın indirgemesi yoktur — aynı kaynağın SV'si struct bildirimi
-/// eklenince değişmez.
+/// eklenince değişmez. Gövde indirgemenin yeniden yazdığı biçimleri
+/// (örnek çıkışına alan erişimi, `==`, `as`, `if`, kontrat) struct'sız
+/// taşır: struct'sız modül indirgense de aynı SV'yi vermelidir
+/// (`.cargo/mutants.toml`, `touches_struct_ports` ve
+/// `mentions_struct_values` A2 kayıtlarının varsayımı, #373).
 #[test]
 fn designs_without_struct_signals_emit_the_same_sv() {
-    let base = "module M {
+    let base = "module Child {
+    in  a : u8
+    out b : u8
+    b = a + 1
+}
+module M {
     in  clk : clock
     in  a   : u8
     out y   : u8
+    out z   : bool
     reg r : u8 = 0
     on clk { r <= a }
-    y = r
+    let c = Child { a: r }
+    let w = c.b as u16
+    y = if w == 3 { r } else { c.b }
+    z = r == a
+    assert: r == 0 || r != 0
 }
 ";
     let with_decl = format!("struct Unused {{\n    a : u4\n}}\n{base}");
@@ -587,5 +601,188 @@ fn struct_ports_in_the_test_language_simulate_with_field_names() {
         "{stdout}"
     );
     assert!(stdout.contains("differs: a"), "{stdout}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ═══ Sinyalin struct tipi tek yerde (#373, volt_ast::struct_signals) ═══
+
+/// Tipsiz değerlerin struct tipi: `if` dalındaki blok `let`'i, bir enum'un
+/// adını taşıyan blok `let`'i (modül düzeyindeki `Mode::On` enum'dur),
+/// iç içe struct alanı (`o.inner`, ilk alan değil); başka struct içeriği
+/// olmayan modülde struct sabitinin alanı ve alt modülün struct çıkışının
+/// alanı.
+const STRUCT_SOURCES: &str = "enum Mode { Off, On }
+struct P {
+    a : bool,
+    b : bool,
+}
+const K : P = P { a: true, b: false }
+struct Outer {
+    a     : bool,
+    inner : P,
+}
+
+pub module IfLet {
+    in  clk : clock
+    in  sel : bool
+    in  x   : bool
+    out q   : P
+    reg r : P = P { a: false, b: false }
+    on clk {
+        if sel {
+            let t = P { a: x, b: !x }
+            r <= t
+        }
+    }
+    q = r
+}
+
+pub module EnumShadow {
+    in  clk : clock
+    in  x   : bool
+    out y   : Mode
+    out z   : bool
+    reg r : bool = false
+    on clk {
+        let Mode = P { a: x, b: !x }
+        r <= Mode.a
+    }
+    let m = Mode::On
+    y = m
+    z = r
+}
+
+pub module ConstField {
+    out y : bool
+    y = K.a
+}
+
+pub module NestedField {
+    in  o : Outer
+    out q : P
+    let x = o.inner
+    q = x
+}
+
+module Child {
+    in  x : bool
+    out o : P
+    o = P { a: x, b: !x }
+}
+
+pub module ChildField {
+    in  x : bool
+    out y : bool
+    let c = Child { x: x }
+    y = c.o.b
+}
+";
+
+/// Beklenen değerler spec'ten elle: `if` dalı yalnız `sel` iken yazar
+/// (blok let'i `t` = {a: x, b: !x}); `Mode::On` enum varyantıdır, blok
+/// let'i `Mode` yalnız kendi bloğunda görünür (name-resolution.md,
+/// gölgeleme W1002); `K.a` sabitin `a` alanıdır (true); `o.inner`
+/// `Outer`'ın ikinci alanıdır; `c.o.b` çocuğun `!x`'idir.
+const STRUCT_SOURCES_TEST: &str = "test \"if block let\" {
+    let dut = IfLet { };
+    dut.sel = true;
+    dut.x = true;
+    step(1);
+    assert_eq(dut.q, P { a: true, b: false });
+    dut.sel = false;
+    dut.x = false;
+    step(1);
+    assert_eq(dut.q, P { a: true, b: false });
+    dut.sel = true;
+    step(1);
+    assert_eq(dut.q, P { a: false, b: true });
+}
+
+test \"enum path beside a block let of its name\" {
+    let dut = EnumShadow { };
+    dut.x = true;
+    step(1);
+    assert_eq(dut.y, Mode::On);
+    assert_eq(dut.z, true);
+    dut.x = false;
+    step(1);
+    assert_eq(dut.z, false);
+}
+
+test \"constant field\" {
+    let dut = ConstField { };
+    step(1);
+    assert_eq(dut.y, true);
+}
+
+test \"nested field\" {
+    let dut = NestedField { };
+    dut.o = Outer { a: true, inner: P { a: false, b: true } };
+    step(1);
+    assert_eq(dut.q, P { a: false, b: true });
+}
+
+test \"field of a child output\" {
+    let dut = ChildField { };
+    dut.x = true;
+    step(1);
+    assert_eq(dut.y, false);
+    dut.x = false;
+    step(1);
+    assert_eq(dut.y, true);
+}
+";
+
+#[test]
+fn untyped_struct_values_lower_where_the_rule_finds_them() {
+    // Derleme her makinede: mutasyon kapısının kaçırdığı biçimler (`if`
+    // dalındaki let, çok segmentli yol, iç içe alan, yalnız sabit ya da
+    // çocuğun struct çıkışını okuyan modül).
+    let files = build("sources", STRUCT_SOURCES, &[]);
+    for m in [
+        "IfLet.sv",
+        "EnumShadow.sv",
+        "ConstField.sv",
+        "NestedField.sv",
+        "ChildField.sv",
+    ] {
+        sv_of(&files, m);
+    }
+    if !have_verilator() {
+        eprintln!("atlandı (benzetim): Verilator yok");
+        return;
+    }
+    let dir = temp_dir("sources-sim");
+    std::fs::write(dir.join("sources.volt"), STRUCT_SOURCES).expect("tasarım");
+    std::fs::write(dir.join("sources_test.volt"), STRUCT_SOURCES_TEST).expect("test");
+    let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_TOOL_BACKEND", "local")
+        .current_dir(&dir)
+        .args([
+            "--lang",
+            "en",
+            "test",
+            "sources_test.volt",
+            "--target-dir",
+            "build",
+        ])
+        .output()
+        .expect("volt");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for name in [
+        "if_block_let",
+        "enum_path_beside_a_block_let_of_its_name",
+        "constant_field",
+        "nested_field",
+        "field_of_a_child_output",
+    ] {
+        assert!(stdout.contains(&format!("test {name} ... ok")), "{stdout}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
