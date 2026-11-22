@@ -2546,12 +2546,24 @@ impl<'a> Emitter<'a> {
                     &self.ast.types[crate::alias::resolve(self.ast, ty)].kind,
                     TypeRefKind::SIntN(_)
                 );
-                match self.eval_const(e) {
-                    Some(n) if n >= 1 => Some(Sig {
-                        width: n as u32,
-                        signed,
-                    }),
-                    _ => {
+                // Test dili port genişliğini aynı fonksiyonla hesaplar
+                // (#376, ADR-0132).
+                match volt_ast::const_eval::width(self.ast, &*self, e) {
+                    Ok(width) => Some(Sig { width, signed }),
+                    Err(why) => {
+                        let help = match why {
+                            volt_ast::const_eval::Unknown::NotConstant => lstr!(
+                                en: "N must be a constant expression (e.g. bits<8>)";
+                                tr: "N sabit bir ifade olmalı (ör. bits<8>)"
+                            ),
+                            volt_ast::const_eval::Unknown::TooDeep => {
+                                let max = volt_ast::const_eval::MAX_CONST_DEPTH;
+                                lstr!(
+                                    en: "N is nested more than {max} levels deep (each operation and each constant name in a chain of constants is a level); write it with fewer levels, e.g. give a constant in the chain its value directly";
+                                    tr: "N {max} düzeyden derin iç içe (her işlem ve bir sabit zincirindeki her sabit adı bir düzeydir); daha az düzeyle yazın, ör. zincirdeki bir sabite değerini doğrudan verin"
+                                )
+                            }
+                        };
                         self.error(
                             ErrorCode::E2005,
                             lstr!(
@@ -2559,10 +2571,7 @@ impl<'a> Emitter<'a> {
                                 tr: "bits<N> genişliği derleme zamanında belirlenemiyor"
                             ),
                             span,
-                            &lstr!(
-                                en: "N must be a constant expression (e.g. bits<8>)";
-                                tr: "N sabit bir ifade olmalı (ör. bits<8>)"
-                            ),
+                            &help,
                         );
                         None
                     }

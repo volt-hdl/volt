@@ -146,27 +146,6 @@ fn def_hover(analysis: &Analysis, def: DefId) -> String {
     md
 }
 
-/// Sabit genişlik (hover düzeni için): literal ya da düz `const`.
-fn const_int(ast: &volt_ast::SourceFile, e: volt_ast::Idx<volt_ast::Expr>) -> Option<i128> {
-    match &ast.exprs[e].kind {
-        volt_ast::ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
-        volt_ast::ExprKind::Path(p) if p.segments.len() == 1 => {
-            ast.items
-                .iter()
-                .find_map(|&i| match &ast.items_arena[i].kind {
-                    volt_ast::ItemKind::Const(c) if c.name.text == p.segments[0].text => {
-                        match &ast.exprs[c.value].kind {
-                            volt_ast::ExprKind::IntLit { value, .. } => i128::try_from(*value).ok(),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                })
-        }
-        _ => None,
-    }
-}
-
 /// Struct tipli tanımın (ya da struct bildiriminin) bit düzeni (ADR-0077).
 fn struct_layout_of_def(
     analysis: &Analysis,
@@ -191,7 +170,9 @@ fn struct_layout_of_def(
         return None;
     }
     let ast = &analysis.ast;
-    volt_ast::struct_layout::layout(ast, decl, &mut |e| const_int(ast, e)).ok()
+    // Düzen sabitleri SV üreticisininkiyle aynı değerlendiriciden (#376).
+    volt_ast::struct_layout::layout(ast, decl, &mut |e| volt_ast::const_eval::const_int(ast, e))
+        .ok()
 }
 
 /// `a: u4 [11:8], s: St [7:6], …` — yaprak tipleri kaynak yazımıyla.

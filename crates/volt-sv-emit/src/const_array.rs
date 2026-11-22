@@ -5,7 +5,7 @@
 //! içinde tek bir sabit tablo bildirimi üretir. Tablonun SV biçimi
 //! [`ConstArrayStyle`] ile seçilir — Yosys/Verilator ölçümüne göre.
 
-use volt_ast::{ArrayLitKind, Expr, ExprKind, Idx, NumBase, TypeRefKind};
+use volt_ast::{Expr, Idx, NumBase, TypeRefKind};
 use volt_diagnostics::{lstr, ErrorCode};
 use volt_span::Span;
 
@@ -26,9 +26,6 @@ pub enum ConstArrayStyle {
     #[default]
     CaseFunction,
 }
-
-/// Açılabilecek en uzun sabit tablo.
-const MAX_TABLE_LEN: u32 = 4096;
 
 impl<'a> Emitter<'a> {
     /// Dizi tipli üst düzey const'un (eleman imzası, uzunluk, değer
@@ -60,48 +57,13 @@ impl<'a> Emitter<'a> {
     /// Dizi sabitinin `i`. elemanı (derleme zamanı değeri); `path` dizi
     /// sabitine bağlanmıyorsa, sınır dışı ya da sabit olmayan elemanda None.
     pub(crate) fn const_array_element(&self, path: Idx<Expr>, i: i128) -> Option<i128> {
-        let name = self.const_array_at(path)?;
-        let &(_, value) = self.consts.get(name)?;
-        let elems = self.const_array_elements(value)?;
-        usize::try_from(i).ok().and_then(|i| elems.get(i).copied())
+        volt_ast::const_eval::array_element(self.ast, self, path, i)
     }
 
     /// Dizi literalinin elemanları: `[a, b, c]` ya da `[v; N]`; başka
     /// bir dizi sabitine referans da izlenir.
     pub(crate) fn const_array_elements(&self, value: Idx<Expr>) -> Option<Vec<i128>> {
-        match &self.ast.exprs[value].kind {
-            ExprKind::ArrayLit(ArrayLitKind::List(items)) => {
-                items.iter().map(|&e| self.eval_const(e)).collect()
-            }
-            ExprKind::ArrayLit(ArrayLitKind::Repeat { value, count }) => {
-                let v = self.eval_const(*value)?;
-                let n = usize::try_from(self.eval_const(*count)?).ok()?;
-                (n as u128 <= u128::from(MAX_TABLE_LEN)).then(|| vec![v; n])
-            }
-            ExprKind::Path(_) => {
-                let name = self.const_array_at(value)?;
-                let &(_, inner) = self.consts.get(name)?;
-                self.const_array_elements(inner)
-            }
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
-            | ExprKind::StringLit(_)
-            | ExprKind::Binary { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Range { .. }
-            | ExprKind::PartSelect { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Cast { .. }
-            | ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::StructLit { .. }
-            | ExprKind::TupleLit(_)
-            | ExprKind::Concat(_)
-            | ExprKind::Todo { .. }
-            | ExprKind::Error => None,
-        }
+        volt_ast::const_eval::array_elements(self.ast, self, value)
     }
 
     /// `COEFFS[k]` üretimi. Taban dizi sabiti değilse None (normal yol).

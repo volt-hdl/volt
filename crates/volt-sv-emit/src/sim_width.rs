@@ -28,11 +28,14 @@ fn bits_at(src: &SourceFile, ty: Idx<TypeRef>, depth: u32) -> Option<u32> {
     }
     let ty = crate::alias::resolve(src, ty);
     let from_expr = |e| crate::structs::const_int(src, e).and_then(|v| u32::try_from(v).ok());
+    // Port genişliği SV üreticisininkiyle aynı fonksiyondan (#376).
+    let top = volt_ast::const_eval::TopLevel(src);
+    let width = |e| volt_ast::const_eval::width(src, &top, e).ok();
     match &src.types[ty].kind {
         TypeRefKind::Bool | TypeRefKind::Clock | TypeRefKind::Reset(_) => Some(1),
         TypeRefKind::UInt(n) | TypeRefKind::SInt(n) => Some(u32::from(*n)),
         TypeRefKind::Trit => Some(2),
-        TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => from_expr(*e),
+        TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => width(*e),
         TypeRefKind::Array { elem, len } => {
             bits_at(src, *elem, depth + 1)?.checked_mul(from_expr(*len)?)
         }
