@@ -41,6 +41,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Format check
@@ -91,6 +94,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Cache OSS CAD Suite
@@ -232,6 +238,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Cache OSS CAD Suite
@@ -304,6 +313,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Cache OSS CAD Suite
@@ -401,6 +413,9 @@ jobs:
       - uses: extractions/setup-just@v2
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: Coverage report
@@ -443,6 +458,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           workspaces: |
             .
             fuzz
@@ -490,6 +508,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       - name: No local Verilator or sby

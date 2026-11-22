@@ -131,6 +131,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Cargo.toml's profiles are not in rust-cache's own key (it hashes
+          # the dependencies only): a profile change starts a new cache.
+          key: ${{ hashFiles('Cargo.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           env-vars: ImageOS
       # Verilator is the pinned release, not the Suite's development build

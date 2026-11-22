@@ -41,6 +41,17 @@ consistency:
 consistency:
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-consistency.ps1
 
+# Boş disk ve her worktree'nin target/ boyutu (AGENTS.md, "Machines with
+# limited resources"): uzun bir yerel işten önce ve iş boyunca. Sınırın
+# (varsayılan 20 GiB) altında 1 ile çıkar; hiçbir şey silmez.
+[unix]
+disk *args:
+    python3 scripts/disk.py {{args}}
+
+[windows]
+disk *args:
+    python scripts/disk.py {{args}}
+
 # Lexer + parser benchmark'ları (10K satırlık sentetik girdi).
 # Yalnızca lokal çalıştırılır — CI ortamı gürültülü olduğundan CI'da koşmaz.
 bench:

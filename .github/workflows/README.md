@@ -98,6 +98,16 @@ aralarındaki sıra ve boşluklar korunur, :00 ve :30 kullanılmaz:
   önbelleğini okur. GitHub'da bir PR'ın kaydettiği önbelleği başka bir PR
   okuyamaz: PR kopyaları yalnız aynı PR'ın sonraki push'larına yarar,
   10 GB'lık önbellek alanını doldurur ve main'in girdilerini çıkarır.
+- `mutants.yml` dışındaki her adım `key: ${{ hashFiles('Cargo.toml') }}`
+  taşır. rust-cache'in kendi anahtarı `Cargo.toml`'dan yalnız
+  bağımlılıkları özetler, profilleri değil: profil değişince (PR #395,
+  hata ayıklama bilgisi) anahtar aynı kalır, tam eşleşen önbellek yeniden
+  kaydedilmez ve her iş bağımlılıkları eski profilin önbelleğinin üstüne
+  yeniden derler. Kanıt: profil değişikliğinden sonra test işi
+  `Cache hit for: v0-rust-test-Linux-x64-75234bab-e566b306` (main'in
+  anahtarı) aldı. `mutants.yml` bu satırı taşımaz: iş akışı ortamı iki
+  hata ayıklama düzeyini de 0 yapar, parçaların derlediği birimler profil
+  değişikliğinden etkilenmez.
 - `ImageOS` (ör. `ubuntu24`) anahtarın ortam özetine girer: imaj değişince
   başka bir imajda derlenmiş build script ve proc-macro ikilileri (daha
   yeni glibc'ye bağlı olabilir) geri yüklenmez, önbellek boş başlar.

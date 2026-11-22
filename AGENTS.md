@@ -358,6 +358,23 @@ file name on file blocks) and rule 6 (the recap of Tutorial chapters).
   CARGO_PROFILE_TEST_DEBUG=line-tables-only
   ```
 
+  The two debug levels are also the defaults of `Cargo.toml` (line tables
+  for the workspace, no debug info for dependencies); setting them does
+  no harm.
+
+- **Check the free disk space before a long local job and while it runs**
+  (a full test suite, coverage, a build in a new worktree): `just disk`
+  prints it, with the size of every worktree's `target/`. Below 20 GB
+  free, stop the job and free space first.
+- **No heavy work inside Docker**: no mutation testing, coverage or
+  repeated builds in a container. Docker's virtual disk grows with what
+  runs inside it and does not shrink by itself when the files are
+  deleted; in November 2026 it filled the C: drive twice. The mutation
+  gate runs in CI, never locally (`.cargo/mutants.toml` allows listing
+  the mutants and trying one small file with `-j 1`).
+- **Remove what a finished job leaves**: a worktree you created
+  (`git worktree remove`), and every `target/` directory you made for it
+  (a worktree's own, or a `CARGO_TARGET_DIR` of a measurement).
 - **Run one Docker container at a time.** `volt test`, `volt run` and
   `volt verify` start a container when the tools are not installed
   locally (the Docker bridge, ADR-0094); formal and simulation containers
