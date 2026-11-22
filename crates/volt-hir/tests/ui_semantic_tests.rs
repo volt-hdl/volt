@@ -1174,3 +1174,8 @@ fn ui_fail_313_builtin_input_assign_e4011() {
 fn ui_fail_314_instance_output_assign_e4011() {
     assert_ui_fail("fail/314_instance_output_assign.volt");
 }
+
+#[test]
+fn ui_fail_315_builtin_unknown_port_assign_e1009() {
+    assert_ui_fail("fail/315_builtin_unknown_port_assign.volt");
+}

@@ -2332,16 +2332,8 @@ impl<'a> Emitter<'a> {
     // ═══ LValue ═══════════════════════════════════════════════════
 
     fn emit_lvalue(&mut self, lv: &'a LValue) -> String {
-        // Örnek portu hedefte (`f.rd_data` → `f_rd_data`). Örnek portuna
-        // atama tip denetiminde E4011'dir (#378): sürücü buraya böyle bir
-        // tasarım getirmez.
-        if let [LValueSuffix::Field(f)] = lv.suffixes.as_slice() {
-            if self.builtin_insts.contains_key(&lv.base.text)
-                || self.user_insts.contains_key(&lv.base.text)
-            {
-                return format!("{}_{}", lv.base.text, f.text);
-            }
-        }
+        // Örnek portu hedef olamaz: tip denetimi E4011 verir (#378), sürücü
+        // böyle bir tasarımı buraya getirmez.
         let mut out = lv.base.text.clone();
         let packed = self.packed_arrays.get(&lv.base.text).copied();
         for (n, suffix) in lv.suffixes.iter().enumerate() {

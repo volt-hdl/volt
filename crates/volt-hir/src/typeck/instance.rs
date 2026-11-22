@@ -484,6 +484,24 @@ mod tests {
     }
 
     #[test]
+    fn the_diagnostic_names_the_direction_of_the_written_port() {
+        // Child'ın ilk portu giriş `d`, ikincisi çıkış `q`: yön yazılan
+        // portun kendisinden gelir. Çıkışın help'i okuma yazımını
+        // (`u.q`), girişinki literal bağlamasını (`d: <`) verir.
+        let help = |stmt: &str| {
+            let d = super::super::testutil::diagnostics(&format!(
+                "{CHILD}module Top {{\n    in  d : u8\n    out y : u8\n    let u = Child {{ d: d }}\n    {stmt}\n    y = u.q\n}}\n"
+            ));
+            assert_eq!(d.len(), 1, "{stmt}: {d:?}");
+            d[0].help.clone().unwrap_or_default()
+        };
+        let out = help("u.q = d");
+        assert!(out.contains("u.q") && !out.contains("q: <"), "{out}");
+        let inp = help("u.d = d");
+        assert!(inp.contains("d: <"), "{inp}");
+    }
+
+    #[test]
     fn reading_an_instance_output_is_not_an_assignment() {
         let c = codes(&format!(
             "{CHILD}module Top {{\n    in  d : u8\n    out y : u8\n    let u = Child {{ d: d }}\n    y = u.q\n}}\n"
