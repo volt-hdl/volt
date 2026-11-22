@@ -66,9 +66,13 @@ GITHUB_REPOSITORY; without them, or without a network, it fails instead of
 passing. With `--pr` it always asks GitHub, whether or not a C entry exists.
 `--offline` (`just check`) does not read GitHub: the issue states are not
 checked, and the output says so; the workflow always reads them.
+`--if-installed` (`just check`): when the pinned cargo-mutants is not
+installed (none, or another version), the check is skipped, the output
+says so with the install command, and the exit code is 0; the workflow
+runs without it and fails instead.
 
     mutants_exclusions.py check [--config .cargo/mutants.toml] [--list FILE] [--markdown FILE]
-                                [--pr N | --offline] [--fix-lines]
+                                [--pr N | --offline] [--fix-lines] [--if-installed]
     mutants_exclusions.py list --out FILE [--config .cargo/mutants.toml] -- [CARGO MUTANTS ARGS...]
     mutants_exclusions.py --self-test
 
@@ -420,18 +424,29 @@ def pinned_version(config: Path) -> str:
     return m["v"]
 
 
+class ToolMissing(ConfigError):
+    """The pinned cargo-mutants is not installed (none, or another version)."""
+
+
+def installed_version() -> str | None:
+    """The version of the installed cargo-mutants, None when there is none."""
+    try:
+        out = subprocess.run(["cargo", "mutants", "--version"], check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return out.split()[-1] if out.split() else "?"
+
+
 def require_version(config: Path) -> None:
     """Fail unless the installed cargo-mutants is the pinned one: the mutant
     names and the list depend on the version."""
     want = pinned_version(config)
     install = f"cargo install --locked cargo-mutants --version {want}"
-    try:
-        out = subprocess.run(["cargo", "mutants", "--version"], check=True, capture_output=True, text=True).stdout
-    except (OSError, subprocess.CalledProcessError):
-        raise ConfigError(f"cargo-mutants is not installed; mutants.yml pins {want}: {install}")
-    have = out.split()[-1] if out.split() else "?"
+    have = installed_version()
+    if have is None:
+        raise ToolMissing(f"cargo-mutants is not installed; mutants.yml pins {want}: {install}")
     if have != want:
-        raise ConfigError(f"cargo-mutants {have} is installed and mutants.yml pins {want}: {install}")
+        raise ToolMissing(f"cargo-mutants {have} is installed and mutants.yml pins {want}: {install}")
 
 
 def unfiltered_list(config: Path, extra: list[str] = ()) -> list[str]:
@@ -462,6 +477,7 @@ def run_check(
     github=None,
     offline: bool = False,
     fix: bool = False,
+    if_installed: bool = False,
 ) -> int:
     try:
         text = config.read_text(encoding="utf-8")
@@ -471,6 +487,17 @@ def run_check(
             if list_file
             else unfiltered_list(config)
         )
+    except ToolMissing as err:
+        if if_installed:
+            # `just check` (ADR-0133): without the pinned cargo-mutants the
+            # check is skipped, said plainly; the workflow always runs it.
+            print(
+                f"Mutation exclusions: SKIPPED, not checked here: {err}."
+                " The \"Mutation exclusions\" workflow checks them on every pull request."
+            )
+            return 0
+        print(f"::error title=Mutation exclusions::{err}")
+        return 1
     except (ConfigError, subprocess.CalledProcessError) as err:
         print(f"::error title=Mutation exclusions::{err}")
         return 1
@@ -747,6 +774,34 @@ def self_test() -> int:
             pass
         else:
             raise AssertionError("a workflow without CARGO_MUTANTS_VERSION was accepted")
+        # --if-installed (`just check`): without the pinned cargo-mutants (none,
+        # or another version) the check is skipped with a message and exit 0;
+        # without the flag (the workflow) it fails. With it, the check runs.
+        (wf / "mutants.yml").write_text("env:\n  CARGO_MUTANTS_VERSION: 27.1.0\n", encoding="utf-8")
+        c = Path(d, ".cargo", "mutants.toml")
+        c.write_text(cfg, encoding="utf-8")
+        global installed_version
+        real = installed_version
+        try:
+            for have in (None, "26.2.0"):
+                installed_version = lambda have=have: have  # noqa: E731
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    assert run_check(c, None, None, offline=True, if_installed=True) == 0
+                    assert "Mutation exclusions: SKIPPED, not checked here" in out.getvalue(), out.getvalue()
+                    assert "cargo install --locked cargo-mutants --version 27.1.0" in out.getvalue(), out.getvalue()
+                    assert run_check(c, None, None, offline=True) == 1
+                    assert "::error title=Mutation exclusions::cargo-mutants" in out.getvalue(), out.getvalue()
+            # The pinned version is installed: the check runs (here on a list
+            # file, so that cargo-mutants itself is not started).
+            installed_version = lambda: "27.1.0"  # noqa: E731
+            require_version(c)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                l = Path(d, "list.txt")
+                l.write_text("\n".join(names) + "\n", encoding="utf-8")
+                assert run_check(c, l, None, offline=True, if_installed=True) == 0
+                assert "SKIPPED" not in out.getvalue() and "every entry matches" in out.getvalue(), out.getvalue()
+        finally:
+            installed_version = real
     print("mutants_exclusions self-test: ok")
     return 0
 
@@ -763,6 +818,11 @@ def main() -> int:
     c.add_argument("--pr", default="", help="the pull request whose closing issues to check (empty: none)")
     c.add_argument("--offline", action="store_true", help="do not read GitHub: the issue states are not checked")
     c.add_argument("--fix-lines", action="store_true", help="write today's line numbers into the expect: lines")
+    c.add_argument(
+        "--if-installed",
+        action="store_true",
+        help="without the pinned cargo-mutants, skip the check with a message and exit 0 (just check)",
+    )
     lst = sub.add_parser("list", help="cargo mutants --list without the exclusions (the gate's summary, #283)")
     lst.add_argument("--config", type=Path, default=Path(".cargo/mutants.toml"))
     lst.add_argument("--out", type=Path, required=True)
@@ -785,6 +845,7 @@ def main() -> int:
         int(args.pr) if args.pr else None,
         offline=args.offline,
         fix=args.fix_lines,
+        if_installed=args.if_installed,
     )
 
 

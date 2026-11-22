@@ -5,7 +5,7 @@
 > İlgili: ADR-0128 (doğrulama yöntemi: kapının denediği mutant listesi önce ve sonra birebir aynı)
 > Issue: kayan kayıtlar PR #385 ve #389'da "Mutation exclusions"ı kırmızıya çevirdi
 > Tarih: 2026-11-22
-> Etkilenen: `scripts/ci/mutants_exclusions.py`, `.cargo/mutants.toml`, `justfile`, `AGENTS.md`, `.github/workflows/README.md`, `CHANGELOG.md`
+> Etkilenen: `scripts/ci/mutants_exclusions.py`, `.cargo/mutants.toml`, `justfile`, `AGENTS.md`, `CONTRIBUTING.md`, `.github/workflows/README.md`, `CHANGELOG.md`
 
 ## Sorun
 
@@ -64,6 +64,16 @@ sık değişen özelliğidir: dosyada üstte yapılan her değişiklik onu kayd�
    koşar: GitHub okunmaz, C kayıtlarının issue durumları denetlenmez ve
    çıktı bunu söyler. "Mutation exclusions" iş akışı değişmedi; issue
    durumlarını her koşuda okur (#283).
+8. **cargo-mutants kurulu değilse `just check` atlar.** `just check`
+   denetimi `--if-installed` ile de koşar: sabitlenen sürüm kurulu
+   değilse (hiç yoksa ya da başka bir sürümse) denetim atlanır, çıktı
+   `Mutation exclusions: SKIPPED, not checked here: …` satırıyla nedenini
+   ve kurulum komutunu söyler, `just check` hata vermez. Sürüm kuruluysa
+   denetim koşar ve bulduğu her hata `just check`'i düşürür. Gerekçe: katkı
+   verenin makinesinde cargo-mutants zorunlu bir araç değildir; denetim her
+   PR'da "Mutation exclusions" iş akışında, bu bayrak olmadan koşar ve
+   orada araç yoksa düşer, atlamaz. `CONTRIBUTING.md` bunu bir cümleyle
+   söyler.
 
 Hariç tutulan mutant kümesi değişmez: bu karar kayıtların yazımını
 değiştirir, kapının denediği listeyi değiştirmez (Doğrulama).
@@ -111,7 +121,9 @@ Ağaç `15491142` (main), cargo-mutants 27.1.0.
   kayıt düşer ve adayları gösterir; aynı fonksiyonda yeni bir aynı
   değişiklik ve aynı sütunda ikinci bir satır (belirsizlik) düşer;
   `--fix-lines` yalnız satır numaralarını yazar; `--offline` GitHub'a
-  sormaz.
+  sormaz; `--if-installed` ile cargo-mutants yokken ya da başka sürümken
+  denetim atlanır ve 0 ile çıkar, bayraksız 1 ile düşer, doğru sürümle
+  denetim koşar.
 
 ## Sınırlar
 

@@ -390,7 +390,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   bir mutantı da eşleyen) denetimi düşürür.
 - `just check` denetimi `--offline` ile koşar (C kayıtlarının issue
   durumlarını yalnız CI okur). `mutants.yml`'nin sabitlediği cargo-mutants
-  sürümü gerekir; başka sürümde denetim kurulum komutunu yazıp düşer.
+  sürümü kurulu değilse (hiç yoksa ya da başka sürümse) `just check`
+  denetimi atlar, bunu kurulum komutuyla söyler ve hata vermez; CI her
+  PR'da denetler ve orada araç yoksa düşer.
 
 ### Geliştirici notu — Test dosyası değişen push'ta mutasyon kapısının yeniden denemesi (#364, ADR-0129, 2026-11-21)
 

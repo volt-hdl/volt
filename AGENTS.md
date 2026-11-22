@@ -176,8 +176,9 @@ bloğu"); `just consistency` (checks 9-12) enforces them.
   the same change occurs more than once in the function, the column tells
   them apart (ADR-0133). It names the mutants it was written for in
   `# expect:` lines, whose line number is information only (`check
-  --fix-lines` updates it); the check runs in `just check` and in the
-  "Mutation exclusions" job, and an ambiguous entry fails it. Every source file of a crate's `src/` is in mutation scope
+  --fix-lines` updates it); the check runs in the "Mutation exclusions"
+  job and in `just check` (which skips it, saying so, when the pinned
+  cargo-mutants is not installed), and an ambiguous entry fails it. Every source file of a crate's `src/` is in mutation scope
   unless `exclude_globs` lists it with its reason (`just consistency`,
   check 19). Runs by hand (`-f re=`, `-f gate_base=`) are for work outside
   a pull request. A targeted run (`-f re=`) always gives `-f expect=<n>`,
