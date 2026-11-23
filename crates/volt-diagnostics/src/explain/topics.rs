@@ -131,7 +131,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      environment variable at the executable.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
+            more: &["https://volthdl.org/tour/install.html"],
         }),
         ("verify-setup", Lang::Tr) => Some(Topic {
             title: "Formal doğrulama kurulumu",
@@ -191,7 +191,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      çalıştırılabilir dosyaya yöneltin.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
+            more: &["https://volthdl.org/tour/install.html"],
         }),
         ("simulation-setup", Lang::En) => Some(Topic {
             title: "Setting up simulation",
@@ -257,7 +257,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      the executable.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
+            more: &["https://volthdl.org/tour/install.html"],
         }),
         ("simulation-setup", Lang::Tr) => Some(Topic {
             title: "Simülasyon kurulumu",
@@ -324,7 +324,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      dosyaya yöneltin.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/install.html"],
+            more: &["https://volthdl.org/tour/install.html"],
         }),
         ("waveforms", Lang::En) => Some(Topic {
             title: "Waveforms",
@@ -387,7 +387,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      signals load but show raw codes.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/tests-and-waveforms.html"],
+            more: &["https://volthdl.org/tour/tests-and-waveforms.html"],
         }),
         ("waveforms", Lang::Tr) => Some(Topic {
             title: "Dalga formları",
@@ -449,7 +449,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      da). Başka bir dizinden sinyaller yüklenir ama ham kod gösterir.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/tests-and-waveforms.html"],
+            more: &["https://volthdl.org/tour/tests-and-waveforms.html"],
         }),
         ("getting-started", Lang::En) => Some(Topic {
             title: "Your first Volt design",
@@ -485,7 +485,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain domains', 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/new-check-build.html"],
+            more: &["https://volthdl.org/tour/new-check-build.html"],
         }),
         ("getting-started", Lang::Tr) => Some(Topic {
             title: "İlk Volt tasarımınız",
@@ -522,7 +522,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain domains', 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/new-check-build.html"],
+            more: &["https://volthdl.org/tour/new-check-build.html"],
         }),
         ("domains", Lang::En) => Some(Topic {
             title: "Clock domains and CDC safety",
@@ -561,7 +561,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/cdc-error.html"],
+            more: &["https://volthdl.org/tour/cdc-error.html"],
         }),
         ("domains", Lang::Tr) => Some(Topic {
             title: "Saat alanları ve CDC güvenliği",
@@ -599,7 +599,7 @@ fn lookup(name: &str, lang: Lang) -> Option<Topic> {
                      bkz. 'volt explain stdlib'.",
                 ),
             ],
-            more: &["https://volt-hdl.github.io/volt/tour/cdc-error.html"],
+            more: &["https://volthdl.org/tour/cdc-error.html"],
         }),
         ("contracts", Lang::En) => Some(Topic {
             title: "Behavioral contracts",

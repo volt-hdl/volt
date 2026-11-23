@@ -128,7 +128,7 @@ success() {
 
 none='No Volt release has been published yet.'
 source='cargo install --locked --path crates/volt-driver'
-book='https://volt-hdl.github.io/volt/tour/install.html#build-from-source'
+book='https://volthdl.org/tour/install.html#build-from-source'
 retry='trying again in 1 s'
 
 failure none "$none" "$source" "$book"

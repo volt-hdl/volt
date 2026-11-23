@@ -29,7 +29,7 @@ pub struct Explanation {
     pub fix: &'static str,
     /// SINIRLAR / NOT — opsiyonel ek bölüm (sarılır).
     pub note: Option<&'static str>,
-    /// DAHA FAZLA — kitaptaki ilgili bölümler (https://volt-hdl.github.io/volt/).
+    /// DAHA FAZLA — kitaptaki ilgili bölümler (https://volthdl.org/).
     pub extra_docs: &'static [&'static str],
 }
 

@@ -15,7 +15,8 @@
 #      octet-stream sunar; PS 5.1 ASCII dışını yanlış çözer)
 #  15. README, yol haritası ve kitaptaki belge bağlantıları ve çapaları var
 #      (kitabın kökü ve /dev/ kopyası aynı book/src'ye eşlenir, ADR-0100)
-#  16. alınmamış alan adına bağlantı yok (crates/, book/, README.md, scripts/)
+#  16. kitabın eski adresi (volt-hdl GitHub Pages) crates/, book/, README.md
+#      ve scripts/ altında geçmez; kitap SITE_URL'dedir (ADR-0135)
 #  17. explain metinlerindeki kitap bağlantıları yazılmış bir bölüme gider
 #      ve /dev/'i değil kökü (kurulu sürümün kitabı) gösterir
 #  18. release.yml ve book.yml yalnız tam vX.Y.Z etiketiyle tetiklenir
@@ -35,6 +36,10 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Kitabın adresi (ADR-0135): kök son sürümün, dev/ main'in kitabıdır
+# (ADR-0100). 13, 15 ve 17 bu kökle başlayan adresleri okur.
+SITE_URL="https://volthdl.org/"
+SITE_RE=$(printf '%s' "$SITE_URL" | sed 's/[.]/\\./g')
 # i18n sonrası 'EXXXX =>' tablosu messages/en.rs'te yaşar (code.rs makroya geçti)
 CODE_RS="$ROOT/crates/volt-diagnostics/src/messages/en.rs"
 VIOLATIONS=0
@@ -227,7 +232,7 @@ if [ -n "$adr_hits" ]; then
 fi
 
 # ── 13: kurulum adresleri (ADR-0096) ──────────────────────────────────
-# README'de, kitapta ve betiklerde geçen https://volt-hdl.github.io/volt/<ad>
+# README'de, kitapta ve betiklerde geçen $SITE_URL<ad>
 # adresi book.yml'nin Pages köküne kopyaladığı bir betik olmalı; her
 # releases/.../download/<ad> adresi release.yml'nin ürettiği bir varlık
 # (volt-<target>.<arşiv>, SHA256SUMS, install.sh, install.ps1). Yayınlanan
@@ -240,10 +245,10 @@ install_hits=$(
         [ -f "$ROOT/scripts/install/$n" ] || echo "book.yml scripts/install/$n dosyasını yayınlıyor, dosya yok (kontrol 13)"
     done
     for f in README.md $(cd "$ROOT" && find book/src -name '*.md' | sort) scripts/install/install.sh scripts/install/install.ps1 scripts/release/package.sh; do
-        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9._-]+\.(ps1|sh)' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
-            echo "$published" | grep -qx "$n" || echo "$f: https://volt-hdl.github.io/volt/$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)"
+        for n in $(grep -oE "${SITE_RE}[A-Za-z0-9._-]+\.(ps1|sh)" "$ROOT/$f" | sed 's#.*/##' | sort -u); do
+            echo "$published" | grep -qx "$n" || echo "$f: $SITE_URL$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)"
         done
-        for u in $(grep -oE 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9._/-]+\.(ps1|sh)' "$ROOT/$f" | sort -u); do
+        for u in $(grep -oE "${SITE_RE}dev/[A-Za-z0-9._/-]+\.(ps1|sh)" "$ROOT/$f" | sort -u); do
             echo "$f: $u — kurulum betikleri yalnız Pages kökünde yayınlanır, /dev/ altında değil (kontrol 13)"
         done
         for n in $(grep -oE 'releases/(latest/download|download/[^/[:space:]]+)/[A-Za-z0-9._-]+' "$ROOT/$f" | sed 's#.*/##' | sort -u); do
@@ -252,7 +257,7 @@ install_hits=$(
     done
     for f in README.md book/src/tour/install.md; do
         for n in $published; do
-            grep -qF "https://volt-hdl.github.io/volt/$n" "$ROOT/$f" || echo "$f yayınlanan kurulum betiğinin adresini içermiyor: https://volt-hdl.github.io/volt/$n (kontrol 13)"
+            grep -qF "$SITE_URL$n" "$ROOT/$f" || echo "$f yayınlanan kurulum betiğinin adresini içermiyor: $SITE_URL$n (kontrol 13)"
         done
     done
 )
@@ -278,8 +283,8 @@ done
 # ── 15: belge bağlantıları (yol haritası, README, kitap) ──────────────
 # README'deki ve docs/roadmap.md'deki göreli bağlantılar, bu dosyalarla
 # kitaptaki https://github.com/volt-hdl/volt/{blob,tree}/main/<yol>
-# bağlantıları var olan dosyaya gider; https://volt-hdl.github.io/volt/<ad>.html
-# ve .../volt/dev/<ad>.html bir kitap sayfasıdır (book/src/<ad>.md; kök son
+# bağlantıları var olan dosyaya gider; $SITE_URL<ad>.html
+# ve ${SITE_URL}dev/<ad>.html bir kitap sayfasıdır (book/src/<ad>.md; kök son
 # sürümün, /dev/ main'in kitabıdır, ADR-0100). .md hedefindeki #çapa, hedefin
 # bir başlığının GitHub kısaltmasıdır (küçük harf, noktalama silinir,
 # boşluk '-'); kitap içi bağlantıları mdbook denetler.
@@ -303,7 +308,7 @@ link_hits=$(
             p=${u#https://github.com/volt-hdl/volt/*/main/}
             case "$p" in *'#'*) doc_link "$f" "${p%%#*}" "${p#*#}" ;; *) doc_link "$f" "$p" "" ;; esac
         done
-        for n in $(grep -oE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$ROOT/$f" | sed 's#^https://volt-hdl\.github\.io/volt/##; s#^dev/##; s#\.html$##' | sort -u); do
+        for n in $(grep -oE "${SITE_RE}[A-Za-z0-9/_-]+\.html" "$ROOT/$f" | sed "s#^${SITE_RE}##; s#^dev/##; s#\.html\$##" | sort -u); do
             doc_link "$f" "book/src/$n.md" ""
         done
         case "$f" in README.md) dir="" ;; docs/roadmap.md) dir="docs/" ;; *) continue ;; esac
@@ -322,16 +327,18 @@ if [ -n "$link_hits" ]; then
     done <<< "$(echo "$link_hits" | sort -u)"
 fi
 
-# ── 16: alınmamış alan adı ────────────────────────────────────────────
-# volthdl[.]org alınmadı: kodda, kitapta, README'de ve betiklerde bağlantı
-# olamaz (docs/ tarihçedir, taranmaz). Kitabın adresi volt-hdl.github.io/volt.
-# Desen bölünmüş yazılır ki bu betik kendini yakalamasın.
-domain_hits=$(cd "$ROOT" && grep -rnIi 'volthdl[.]org' crates book README.md scripts \
-    --exclude-dir=target --exclude-dir=book 2>/dev/null)
-if [ -n "$domain_hits" ]; then
+# ── 16: kitabın eski adresi (ADR-0135) ────────────────────────────────
+# Kitap $SITE_URL adresindedir. Eski GitHub Pages adresi oraya yönlenir,
+# ama kodda, kitapta, README'de ve betiklerde geçmez (docs/ tarihçedir,
+# taranmaz; yayınlanmış sürüm notları eski adresi korur). target/ ve mdBook
+# çıktısı (book/book/) taranmaz, .ps1'deki kuralla aynı. Desen bölünmüş
+# yazılır ki bu betik kendini yakalamasın.
+old_site_hits=$(cd "$ROOT" && { find crates book scripts -type f -not -path '*/target/*' -not -path 'book/book/*' -print0; printf 'README.md\0'; } \
+    | xargs -0 grep -HnIi 'volt-hdl[.]github[.]io' 2>/dev/null)
+if [ -n "$old_site_hits" ]; then
     while IFS= read -r line; do
-        violation "$line: alınmamış alan adı; kitap https://volt-hdl.github.io/volt/ (kontrol 16)"
-    done <<< "$domain_hits"
+        violation "$line: kitabın eski adresi; kitap $SITE_URL (kontrol 16)"
+    done <<< "$old_site_hits"
 fi
 
 # ── 17: explain bağlantıları kitapta yazılmış bir bölüme gider ────────
@@ -339,11 +346,11 @@ fi
 # ve o bölüm "planned" yer tutucusu değildir. Bağlantı kökü gösterir: kök
 # kurulu sürümün kitabıdır, /dev/ main'in (ADR-0100).
 EXPLAIN_DIR="$ROOT/crates/volt-diagnostics/src/explain"
-for u in $(grep -ohE 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9/_-]*' "$EXPLAIN_DIR"/*.rs | sort -u); do
+for u in $(grep -ohE "${SITE_RE}dev/[A-Za-z0-9/_-]*" "$EXPLAIN_DIR"/*.rs | sort -u); do
     violation "explain bağlantısı /dev/'e gidiyor: $u — kurulu sürümün kitabı köktedir (kontrol 17)"
 done
-for n in $(grep -ohE 'https://volt-hdl\.github\.io/volt/[A-Za-z0-9/_-]+\.html' "$EXPLAIN_DIR"/*.rs \
-        | sed 's#^https://volt-hdl\.github\.io/volt/##; s#\.html$##' | grep -v '^dev/' | sort -u); do
+for n in $(grep -ohE "${SITE_RE}[A-Za-z0-9/_-]+\.html" "$EXPLAIN_DIR"/*.rs \
+        | sed "s#^${SITE_RE}##; s#\.html\$##" | grep -v '^dev/' | sort -u); do
     page="$ROOT/book/src/$n.md"
     if [ ! -f "$page" ]; then
         violation "explain bağlantısı kitapta yok: book/src/$n.md (kontrol 17)"

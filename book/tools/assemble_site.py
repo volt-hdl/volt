@@ -41,8 +41,9 @@ def add_banner(site: Path, make_html, skip: Path | None = None, keep_404: bool =
     "../..") so links in the banner work at any depth and on any host.
     Pages without <main> (mdBook's toc.html fragment) are left alone, and
     so is 404.html with `keep_404`: below the site root GitHub Pages never
-    serves it, and mdBook writes <base href="/volt/"> into it, which would
-    send the banner's relative link to the wrong place.
+    serves it, and mdBook writes the site root (site-url, "/") into it as
+    <base href>, which would send the banner's relative link to the wrong
+    place.
     """
     count = 0
     for page in sorted(site.rglob("*.html")):

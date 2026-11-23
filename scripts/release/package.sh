@@ -58,14 +58,14 @@ Put \`volt$exe\` on your PATH (or use the install script, below), then:
 
 Install script (downloads, verifies SHA256SUMS, sets PATH):
 
-    Windows:       irm https://volt-hdl.github.io/volt/install.ps1 | iex
-    Linux, macOS:  curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+    Windows:       irm https://volthdl.org/install.ps1 | iex
+    Linux, macOS:  curl -fsSL https://volthdl.org/install.sh | sh
 
 The binary is not code-signed. Windows SmartScreen: "More info" ->
 "Run anyway". macOS: \`xattr -d com.apple.quarantine volt\`.
 Checksums and build provenance: see the release page.
 
-Documentation: https://volt-hdl.github.io/volt/
+Documentation: https://volthdl.org/
 License: MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE).
 EOF
 

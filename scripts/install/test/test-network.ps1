@@ -146,7 +146,7 @@ try {
 
     $none = 'No Volt release has been published yet.'
     $source = 'cargo install --locked --path crates/volt-driver'
-    $book = 'https://volt-hdl.github.io/volt/tour/install.html#build-from-source'
+    $book = 'https://volthdl.org/tour/install.html#build-from-source'
     $retry = 'trying again in 1 s'
     Test-Failure 'none' -Expected @($none, $source, $book) -Absent @('error:')
     Test-Failure 'ratelimit-none' -Expected @('rate limited (HTTP 429)', $none, $source) -Absent @('error:')

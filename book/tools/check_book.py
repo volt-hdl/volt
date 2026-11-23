@@ -136,8 +136,13 @@ PLANNED_MARK_RE = re.compile(r"^> \*\*This chapter is planned\.\*\*", re.MULTILI
 PLANNED_TITLE = "(planned)"
 SUMMARY_ENTRY_RE = re.compile(r"\[([^\]]+)\]\(([^)#]+\.md)\)")
 # The ways a page is reached: on the published site (the latest release or
-# /dev/), as a file on GitHub, and through a relative Markdown link.
-SITE_LINK_RE = re.compile(r"https://volt-hdl\.github\.io/volt/(?:dev/)?([A-Za-z0-9_./-]+?)\.html")
+# /dev/), as a file on GitHub, and through a relative Markdown link. The
+# site is https://volthdl.org/ (ADR-0135); the published release notes keep
+# the earlier address, which redirects there, so it is read too.
+SITE_ROOT = "https://volthdl.org/"
+SITE_LINK_RE = re.compile(
+    r"(?:" + re.escape(SITE_ROOT) + r"|https://volt-hdl[.]github[.]io/volt/)(?:dev/)?([A-Za-z0-9_./-]+?)\.html"
+)
 GITHUB_LINK_RE = re.compile(r"https://github\.com/volt-hdl/volt/(?:blob|tree)/[^/\s)]+/book/src/([A-Za-z0-9_./-]+?\.md)")
 RELATIVE_LINK_RE = re.compile(r"\]\((?!https?:|mailto:|#)([^)\s#]+\.md)(?:#[^)\s]*)?\)")
 
@@ -438,15 +443,17 @@ def self_test_links() -> int:
         "book/src/ready.md": "# Ready\n\nSee the [setup](ready.md#top).\n",
         "book/src/part/later.md": planned_page.replace("(ready.md)", "(../ready.md)").replace("(other.md)", "(../other.md)"),
         "book/src/other.md": planned_page,
-        "README.md": "[book](https://volt-hdl.github.io/volt/ready.html)\n",
+        "README.md": f"[book]({SITE_ROOT}ready.html)\n",
         "docs/release-notes/v0.1.0.md": "# Volt 0.1.0\n",
     }
     cases = [
         ("a clean tree; planned pages link each other", {}, 0),
         ("release notes link a planned page on the site",
-         {"docs/release-notes/v0.1.0.md": "In the book: [Later](https://volt-hdl.github.io/volt/part/later.html#goal).\n"}, 1),
+         {"docs/release-notes/v0.1.0.md": f"In the book: [Later]({SITE_ROOT}part/later.html#goal).\n"}, 1),
+        ("release notes link a planned page at the earlier address",
+         {"docs/release-notes/v0.1.0.md": "[Later](https://volt-hdl" ".github.io/volt/part/later.html).\n"}, 1),
         ("the README links a planned page on /dev/ and on GitHub",
-         {"README.md": "[a](https://volt-hdl.github.io/volt/dev/other.html) "
+         {"README.md": f"[a]({SITE_ROOT}dev/other.html) "
                        "[b](https://github.com/volt-hdl/volt/blob/main/book/src/part/later.md)\n"}, 2),
         ("a written page links a planned page", {"book/src/ready.md": "Next: [later](part/later.md).\n"}, 1),
         ("SUMMARY.md does not mark a planned page",

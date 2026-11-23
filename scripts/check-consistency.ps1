@@ -20,11 +20,11 @@
 #  12. Her ADR docs/adr/README.md dizininde tam olarak bir tablo satırında,
 #      doğru dosyaya bağlı ve başlıktaki durumla mı geçiyor?
 #  13. README'de, kitapta ve kurulum betiklerinde geçen kurulum adresleri
-#      yayınlanan adlarla aynı mı? https://volt-hdl.github.io/volt/<ad>
+#      yayınlanan adlarla aynı mı? $siteUrl<ad> (kitabın kökü, ADR-0135)
 #      book.yml'nin Pages köküne kopyaladığı bir betik, releases/.../download/
 #      <ad> release.yml'nin bir varlığı olmalı; yayınlanan her betik README'de
 #      ve book/src/tour/install.md'de geçmeli (ADR-0096). Betikler yalnız
-#      Pages kökündedir; .../volt/dev/<ad>.ps1|sh adresi ihlaldir (ADR-0100).
+#      Pages kökündedir; ${siteUrl}dev/<ad>.ps1|sh adresi ihlaldir (ADR-0100).
 #  14. Kurulum betikleri (scripts/install/install.ps1, install.sh) saf ASCII
 #      ve BOM'suz mu? GitHub Pages bu dosyaları charset belirtmeden
 #      application/octet-stream olarak sunar; Windows PowerShell 5.1 (irm |
@@ -35,8 +35,9 @@
 #      bağlantıları var olan dosyaya, #çapaları var olan bir başlığa mı gidiyor?
 #      Kitabın kökü (son sürüm) ve /dev/ kopyası (main) aynı book/src'ye
 #      eşlenir (ADR-0100).
-#  16. crates/, book/, README.md ve scripts/ alınmamış alan adına (volthdl
-#      noktası org) bağlantı veriyor mu? docs/ tarihçedir, taranmaz.
+#  16. crates/, book/, README.md ve scripts/ kitabın eski adresini (volt-hdl
+#      GitHub Pages) içeriyor mu? Kitap $siteUrl'dedir (ADR-0135); eski adres
+#      oraya yönlenir. docs/ tarihçedir, taranmaz.
 #  17. volt explain metinlerindeki kitap bağlantıları book/src altında
 #      yazılmış (planned yer tutucusu olmayan) bir bölüme mi gidiyor? Kökü mü
 #      gösteriyor? Kök kurulu sürümün kitabıdır, /dev/ main'in (ADR-0100).
@@ -64,6 +65,10 @@ param([switch]$Update)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+# Kitabın adresi (ADR-0135): kök son sürümün, dev/ main'in kitabıdır
+# (ADR-0100). 13, 15 ve 17 bu kökle başlayan adresleri okur.
+$siteUrl = 'https://volthdl.org/'
+$siteRe = [regex]::Escape($siteUrl)
 $script:violations = @()
 
 function Add-Violation([string]$msg) {
@@ -277,10 +282,10 @@ $scan = @('README.md') +
     @('scripts/install/install.sh', 'scripts/install/install.ps1', 'scripts/release/package.sh')
 foreach ($f in $scan) {
     $text = [IO.File]::ReadAllText((Join-Path $root $f))
-    foreach ($n in [regex]::Matches($text, 'https://volt-hdl\.github\.io/volt/([A-Za-z0-9._-]+\.(ps1|sh))') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique) {
-        if ($published -notcontains $n) { $hits += "${f}: https://volt-hdl.github.io/volt/$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)" }
+    foreach ($n in [regex]::Matches($text, "$siteRe([A-Za-z0-9._-]+\.(ps1|sh))") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique) {
+        if ($published -notcontains $n) { $hits += "${f}: $siteUrl$n Pages'te yayınlanmıyor (book.yml) (kontrol 13)" }
     }
-    foreach ($u in [regex]::Matches($text, 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9._/-]+\.(ps1|sh)') | ForEach-Object { $_.Value } | Sort-Object -Unique) {
+    foreach ($u in [regex]::Matches($text, "${siteRe}dev/[A-Za-z0-9._/-]+\.(ps1|sh)") | ForEach-Object { $_.Value } | Sort-Object -Unique) {
         $hits += "${f}: $u — kurulum betikleri yalnız Pages kökünde yayınlanır, /dev/ altında değil (kontrol 13)"
     }
     foreach ($n in [regex]::Matches($text, 'releases/(latest/download|download/[^/\s]+)/([A-Za-z0-9._-]+)') | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique) {
@@ -290,7 +295,7 @@ foreach ($f in $scan) {
 foreach ($f in 'README.md', 'book/src/tour/install.md') {
     $text = [IO.File]::ReadAllText((Join-Path $root $f))
     foreach ($n in $published) {
-        if (-not $text.Contains("https://volt-hdl.github.io/volt/$n")) { $hits += "$f yayınlanan kurulum betiğinin adresini içermiyor: https://volt-hdl.github.io/volt/$n (kontrol 13)" }
+        if (-not $text.Contains("$siteUrl$n")) { $hits += "$f yayınlanan kurulum betiğinin adresini içermiyor: $siteUrl$n (kontrol 13)" }
     }
 }
 foreach ($h in $hits | Sort-Object -Unique) { Add-Violation $h }
@@ -315,8 +320,8 @@ foreach ($f in 'scripts/install/install.ps1', 'scripts/install/install.sh') {
 # ── 15: belge bağlantıları (yol haritası, README, kitap) ──────────────
 # README'deki ve docs/roadmap.md'deki göreli bağlantılar, bu dosyalarla
 # kitaptaki https://github.com/volt-hdl/volt/{blob,tree}/main/<yol>
-# bağlantıları var olan dosyaya gider; https://volt-hdl.github.io/volt/<ad>.html
-# ve .../volt/dev/<ad>.html bir kitap sayfasıdır (book/src/<ad>.md; kök son
+# bağlantıları var olan dosyaya gider; $siteUrl<ad>.html
+# ve ${siteUrl}dev/<ad>.html bir kitap sayfasıdır (book/src/<ad>.md; kök son
 # sürümün, /dev/ main'in kitabıdır, ADR-0100). .md hedefindeki #çapa, hedefin
 # bir başlığının GitHub kısaltmasıdır (küçük harf, noktalama silinir,
 # boşluk '-'); kitap içi bağlantıları mdbook denetler.
@@ -345,7 +350,7 @@ foreach ($f in $scan) {
     foreach ($m in [regex]::Matches($text, 'https://github\.com/volt-hdl/volt/(?:blob|tree)/main/([^\s)#"''>]+)(?:#([^\s)"''>]*))?')) {
         $hits += Test-DocLink $f $m.Groups[1].Value $m.Groups[2].Value
     }
-    foreach ($m in [regex]::Matches($text, 'https://volt-hdl\.github\.io/volt/(?:dev/)?([A-Za-z0-9/_-]+)\.html')) {
+    foreach ($m in [regex]::Matches($text, "$siteRe(?:dev/)?([A-Za-z0-9/_-]+)\.html")) {
         $hits += Test-DocLink $f "book/src/$($m.Groups[1].Value).md" ''
     }
     if ($f -notin 'README.md', 'docs/roadmap.md') { continue }
@@ -359,24 +364,28 @@ foreach ($f in $scan) {
 }
 foreach ($h in $hits | Where-Object { $_ } | Sort-Object -Unique) { Add-Violation $h }
 
-# ── 16: alınmamış alan adı ────────────────────────────────────────────
-# Desen bölünmüş yazılır ki bu betik kendini yakalamasın.
-$domainScan = @(Get-ChildItem (Join-Path $root 'crates'), (Join-Path $root 'book'), (Join-Path $root 'scripts') -Recurse -File |
+# ── 16: kitabın eski adresi (ADR-0135) ────────────────────────────────
+# Kitap $siteUrl adresindedir. Eski GitHub Pages adresi oraya yönlenir,
+# ama kodda, kitapta, README'de ve betiklerde geçmez (docs/ tarihçedir,
+# taranmaz; yayınlanmış sürüm notları eski adresi korur). target/ ve mdBook
+# çıktısı (book/book/) taranmaz, .sh'deki kuralla aynı. Desen bölünmüş
+# yazılır ki bu betik kendini yakalamasın.
+$oldSiteScan = @(Get-ChildItem (Join-Path $root 'crates'), (Join-Path $root 'book'), (Join-Path $root 'scripts') -Recurse -File |
     Where-Object { $_.FullName -notmatch '\\(target|book\\book)\\' }) + @(Get-Item (Join-Path $root 'README.md'))
-foreach ($m in ($domainScan | Select-String -Pattern 'volthdl[.]org' -SimpleMatch:$false)) {
+foreach ($m in ($oldSiteScan | Select-String -Pattern 'volt-hdl[.]github[.]io')) {
     $rel = $m.Path.Substring($root.Length + 1).Replace('\', '/')
-    Add-Violation "${rel}:$($m.LineNumber): alınmamış alan adı; kitap https://volt-hdl.github.io/volt/ (kontrol 16)"
+    Add-Violation "${rel}:$($m.LineNumber): kitabın eski adresi; kitap $siteUrl (kontrol 16)"
 }
 
 # ── 17: explain bağlantıları kitapta yazılmış bir bölüme gider ────────
 # Bağlantı kökü gösterir: kök kurulu sürümün kitabıdır, /dev/ main'in (ADR-0100).
 $explainDir = Join-Path $root 'crates\volt-diagnostics\src\explain'
-$devLinks = Get-ChildItem $explainDir -Filter *.rs | Select-String -Pattern 'https://volt-hdl\.github\.io/volt/dev/[A-Za-z0-9/_-]*' -AllMatches |
+$devLinks = Get-ChildItem $explainDir -Filter *.rs | Select-String -Pattern "${siteRe}dev/[A-Za-z0-9/_-]*" -AllMatches |
     ForEach-Object { $_.Matches } | ForEach-Object { $_.Value } | Sort-Object -Unique
 foreach ($u in $devLinks) {
     Add-Violation "explain bağlantısı /dev/'e gidiyor: $u — kurulu sürümün kitabı köktedir (kontrol 17)"
 }
-$pages = Get-ChildItem $explainDir -Filter *.rs | Select-String -Pattern 'https://volt-hdl\.github\.io/volt/([A-Za-z0-9/_-]+)\.html' -AllMatches |
+$pages = Get-ChildItem $explainDir -Filter *.rs | Select-String -Pattern "$siteRe([A-Za-z0-9/_-]+)\.html" -AllMatches |
     ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notlike 'dev/*' } | Sort-Object -Unique
 foreach ($n in $pages) {
     $page = Join-Path $root "book/src/$n.md"

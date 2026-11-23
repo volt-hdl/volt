@@ -238,13 +238,13 @@ the new contents and save.
 **Type this (Windows, PowerShell):**
 
 ```powershell
-irm https://volt-hdl.github.io/volt/install.ps1 | iex
+irm https://volthdl.org/install.ps1 | iex
 ```
 
 **Type this (macOS and Linux):**
 
 ```sh
-curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+curl -fsSL https://volthdl.org/install.sh | sh
 ```
 
 The script prints each step. When it has finished, **close the terminal
@@ -274,8 +274,8 @@ volt 0.1.2 (33354c5)
 ```
 
 This book describes Volt 0.1.2. The book at
-<https://volt-hdl.github.io/volt/> follows the latest release, and the
-book at <https://volt-hdl.github.io/volt/dev/> follows the development
+<https://volthdl.org/> follows the latest release, and the
+book at <https://volthdl.org/dev/> follows the development
 version. If `volt --version` prints another version, some output on these
 pages may differ from yours. The seven letters and digits in parentheses
 name the commit your copy of Volt was built from; they differ from the

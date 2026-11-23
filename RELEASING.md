@@ -286,7 +286,7 @@ gh run list --workflow book.yml --limit 2
 
 The `One-line install` jobs of `install.yml` now install 0.1.0 instead of
 printing "No Volt release has been published yet". The book run started by
-the tag puts the v0.1.0 book at https://volt-hdl.github.io/volt/.
+the tag puts the v0.1.0 book at https://volthdl.org/.
 
 ## Undo (a wrong tag, before publishing)
 

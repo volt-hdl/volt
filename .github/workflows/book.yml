@@ -1,7 +1,7 @@
 name: Book
 
 # The Volt book (book/, mdBook), published to GitHub Pages
-# (https://volt-hdl.github.io/volt/). The site matches the release (ADR-0100):
+# (https://volthdl.org/). The site matches the release (ADR-0100):
 #   /        the book of the latest release tag vX.Y.Z; before the earliest
 #            release, the book of main with a "pre-release" banner
 #   /dev/    the book of main, always, with a "development version" banner
@@ -137,6 +137,13 @@ jobs:
     name: Build the book
     if: github.ref_type != 'tag'
     runs-on: ubuntu-24.04
+    env:
+      # The site is served at the root of https://volthdl.org/ (ADR-0135).
+      # mdBook writes site-url into 404.html as <base href>. This overrides
+      # book/book.toml in both builds below: a release tag older than the
+      # new address says site-url = "/volt/", and its 404.html sits at the
+      # site root.
+      MDBOOK_OUTPUT__HTML__SITE_URL: "/"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -191,7 +198,7 @@ jobs:
             python3 book/tools/assemble_site.py --main book/book --out "$RUNNER_TEMP/site"
           fi
       # The one-line install commands fetch these from the site root:
-      # https://volt-hdl.github.io/volt/install.ps1 and install.sh. They come
+      # https://volthdl.org/install.ps1 and install.sh. They come
       # from main whatever book is at the root (ADR-0100).
       # scripts/check-consistency.* (check 13) holds the book and the README
       # to these names.
