@@ -1,6 +1,6 @@
 # ADR-0134: Mutasyon Kapısının Özeti Başarısızlıkta Kapalı Kalır — Önceki İşlerden Biri Planlandığı Gibi Bitmezse Özet Kırmızıdır
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > İlgili: ADR-0109 ("PR kapısı" eki §1 "Karar": özetin düştüğü durumlara bir tane eklenir), ADR-0128 (§2: temel koşu geçmezse özet mutant kararı vermez; bu ADR aynı kuralı özetten önceki bütün işlere genişletir), ADR-0125 (kırmızı ileti ne olduğunu, neden kırmızı olduğunu ve ne yapılabileceğini söyler)
 > Issue: #398 (zorunlu denetim kararı #366'da, belge #397)
 > Tarih: 2026-11-23

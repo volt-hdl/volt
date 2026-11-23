@@ -376,7 +376,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
-### Geliştirici notu — Mutasyon kapısının özeti başarısızlıkta kapalı kalır (#398, ADR-0134 Önerildi, 2026-11-23)
+### Geliştirici notu — Mutasyon kapısının özeti başarısızlıkta kapalı kalır (#398, ADR-0134, 2026-11-23)
 
 - "Mutation test summary" 2026-11-23'ten beri main için zorunlu
   denetimdir (#366). Özet artık koşu iptal edilmedikçe koşar ve önce
