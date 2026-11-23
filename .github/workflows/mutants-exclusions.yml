@@ -45,6 +45,9 @@ env:
 
 jobs:
   exclusions:
+    # The name stays "Mutation exclusions match their mutants": a required
+    # check of the "main protection" ruleset since 2026-11-23 (#366); a new
+    # name needs the ruleset updated too.
     name: Mutation exclusions match their mutants
     runs-on: ubuntu-24.04
     timeout-minutes: 30
