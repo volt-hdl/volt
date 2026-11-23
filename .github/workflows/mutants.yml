@@ -20,6 +20,8 @@ name: Mutation test
 #   of the previous one. Since 2026-11-23 "Mutation test summary" (the
 #   summary job) is a required check for main in the "main protection"
 #   ruleset (#366): a new name for that job needs the ruleset updated too.
+#   It is fail-closed (#398, ADR-0134): it runs unless the run was cancelled
+#   and fails when a job before it did not end as the tools job planned.
 #   The gate runs on opened, synchronize and reopened, never on `edited`:
 #   the check of the exclude_re entries (#239, #283) is a workflow of its
 #   own, mutants-exclusions.yml, which also runs on `edited`.
@@ -912,9 +914,13 @@ jobs:
     # protection" ruleset since 2026-11-23 (#366).
     name: Mutation test summary
     needs: [tools, baseline, mutants]
-    # Also after a failed or stopped shard or baseline (the summary names
-    # it) and when the gate has no shard (the summary says why).
-    if: ${{ !cancelled() && needs.tools.result == 'success' }}
+    # Fail-closed (#398, ADR-0134): the summary runs unless the run was
+    # cancelled, also when a job before it failed, was cancelled or was
+    # skipped, and it then fails. GitHub counts a skipped job as passed,
+    # even as a required check; before #398 a failed tools job skipped this
+    # one (run 43730310580). A push to main runs cache-warm alone: the tools
+    # job is skipped there on purpose, and so is this one.
+    if: ${{ !cancelled() && github.event_name != 'push' }}
     runs-on: ubuntu-24.04
     env:
       MUTANTS_SHARDS: ${{ needs.tools.outputs.shards }}
@@ -923,27 +929,37 @@ jobs:
       BASELINE_RESULT: ${{ needs.baseline.result }}
     steps:
       - uses: actions/checkout@v7
+      - name: Script self-test
+        run: python3 scripts/ci/mutants_summary.py --self-test
+      # #398 (ADR-0134): passes when the tools job passed and either planned
+      # no shard (the baseline and the shards skipped) or the baseline and
+      # every shard passed; fails otherwise, with what happened, why it is
+      # red and what to do (ADR-0125). The steps below still run when the
+      # tools job passed, so a failed shard or baseline is named in full.
+      - name: Every job of the run ended as planned (#398)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci/mutants_summary.py --needs "$NEEDS" --markdown "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v8
+        if: ${{ !cancelled() && needs.tools.result == 'success' }}
         with:
           name: mutants-list
           path: lists
       # With one shard the one artifact lands in shards/ itself (#179); the
       # script reads both layouts.
       - uses: actions/download-artifact@v8
-        if: ${{ needs.tools.outputs.shards != '0' }}
+        if: ${{ !cancelled() && needs.tools.result == 'success' && needs.tools.outputs.shards != '0' }}
         with:
           pattern: mutants-out-*
           path: shards
       # ADR-0128 §2: the baseline job's files. A baseline that failed before
       # its upload leaves none; the summary then says so and fails.
       - uses: actions/download-artifact@v8
-        if: ${{ needs.tools.outputs.shards != '0' }}
+        if: ${{ !cancelled() && needs.tools.result == 'success' && needs.tools.outputs.shards != '0' }}
         continue-on-error: true
         with:
           name: mutants-baseline
           path: baseline
-      - name: Script self-test
-        run: python3 scripts/ci/mutants_summary.py --self-test
       # A shard with no artifact, or with fewer outcomes than mutants, is
       # marked NOT COMPLETED at the top of the summary with its untested
       # mutants, and fails this step. The gate also fails on every missed
@@ -955,6 +971,7 @@ jobs:
       # earlier run (#318): the verdict from its outcomes, checked again
       # here, with today's exclude_re; the summary names the run.
       - name: Merge the shards into the job summary
+        if: ${{ !cancelled() && needs.tools.result == 'success' }}
         run: |
           if [ -n "$REUSE_RUN" ]; then
             python3 scripts/ci/mutants_summary.py --reused lists/reuse --lists lists --gate --config .cargo/mutants.toml \

@@ -48,8 +48,17 @@ on every missed mutant that no `exclude_re` entry of the configuration
 covers; the summary lists them with the classification rules. `--shards 0`
 is a gate run with no mutant to test (the reason is `--note`): it passes.
 
+The summary job runs unless the run was cancelled (#398, ADR-0134), also
+when a job before it failed. `--needs JSON` (the workflow's `toJSON(needs)`)
+checks first that every job of the run ended as the tools job planned:
+the tools job passed, and either it planned no shard (the baseline and the
+shards skipped) or the baseline and every shard passed. Anything else
+fails, with what happened, why it is red and what to do: a gate that did
+not run cannot count as passed.
+
     mutants_summary.py SHARDS_DIR --lists LISTS_DIR --shards N [--out DIR] [--markdown FILE]
                        [--gate --config .cargo/mutants.toml] [--note TEXT] [--memory-limit-mib N]
+    mutants_summary.py --needs JSON [--markdown FILE]
     mutants_summary.py --self-test
 """
 
@@ -57,6 +66,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -471,6 +481,99 @@ def markdown(
     out += [f"- {n}" for n in unviable]
     out += ["", "</details>", ""]
     return "\n".join(out)
+
+
+# #398 (ADR-0134): the jobs before the summary, by their key in `needs`, with
+# the names the run page shows.
+GATE_JOBS = {
+    "tools": "Tools and the mutants in scope",
+    "baseline": "Mutation baseline (every workspace test, every tool required)",
+    "mutants": "Mutation test, shard k/N",
+}
+
+
+def job_problems(needs: dict) -> list[str]:
+    """#398 (ADR-0134): every job before the summary that did not end as planned.
+
+    `needs` is the workflow's `toJSON(needs)`. As planned: the tools job
+    passed, and either it planned no shard (no mutant to test, an earlier
+    run reused, #318, or nothing to test again, #364), so the baseline and
+    the shards were skipped by their `if`; or it planned N > 0 shards and
+    the baseline and every shard passed. A job that failed, was cancelled,
+    is missing, or was skipped where it should have run is a problem.
+    """
+
+    def result(job: str) -> str:
+        return str((needs.get(job) or {}).get("result") or "missing")
+
+    tools = result("tools")
+    if tools != "success":
+        return [
+            f'"{GATE_JOBS["tools"]}" ended `{tools}`: the baseline and the shards need it,'
+            " so none of them ran"
+        ]
+    shards = str(((needs.get("tools") or {}).get("outputs") or {}).get("shards") or "")
+    if not shards.isdigit():
+        return [f'"{GATE_JOBS["tools"]}" passed but gave no number of shards (`{shards or "empty"}`)']
+    planned = "skipped" if int(shards) == 0 else "success"
+    problems = []
+    for job in ("baseline", "mutants"):
+        got = result(job)
+        if got == planned:
+            continue
+        if planned == "skipped":
+            problems.append(
+                f'"{GATE_JOBS[job]}" ended `{got}`, but the tools job planned no shard, so it should have been skipped'
+            )
+        elif got == "skipped":
+            problems.append(f'"{GATE_JOBS[job]}" was skipped, but the tools job planned {shards} shard(s)')
+        else:
+            problems.append(f'"{GATE_JOBS[job]}" ended `{got}`')
+    return problems
+
+
+def jobs_markdown(problems: list[str], run_id: str | None = None) -> str:
+    """#398 (ADR-0125, ADR-0134): what happened, why it is red, what to do."""
+    rerun = f"`gh run rerun {run_id} --failed`" if run_id else "`gh run rerun <run-id> --failed`"
+    lines = [
+        "## Mutation test (ADR-0109): FAILED, a job of the run did not end as planned (#398)",
+        "",
+        "**What happened.**",
+        "",
+        *[f"- {p}" for p in problems],
+        "",
+        "**Why this is red.** The summary gives its verdict from the jobs before it. A gate that did not run,"
+        " or did not finish, cannot count as passed: the mutants on the changed lines were not all tested.",
+        "",
+        "**What you can do.** Open the log of the job named above in this run and read its first error."
+        " When the cause is outside the pull request (a network or cache error, a runner that stopped), run the"
+        f" failed jobs again: {rerun}, or \"Re-run failed jobs\" on the run's page. When the cause is in the pull"
+        " request, fix it and push.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def check_jobs(needs: dict, md_path: Path | None, run_id: str | None = None) -> int:
+    """#398: fails unless every job before the summary ended as planned."""
+    problems = job_problems(needs)
+    if not problems:
+        tools = needs["tools"]
+        shards = tools.get("outputs", {}).get("shards")
+        print(
+            f'::notice title=Mutation test jobs::"{GATE_JOBS["tools"]}" success, {shards} shard(s) planned;'
+            f' baseline {needs.get("baseline", {}).get("result")}, shards {needs.get("mutants", {}).get("result")}:'
+            " as planned"
+        )
+        return 0
+    md = jobs_markdown(problems, run_id)
+    print(md)
+    if md_path:
+        with md_path.open("a", encoding="utf-8") as f:
+            f.write(md + "\n")
+    for p in problems:
+        print(f"::error title=Mutation test jobs::{p}. A gate that did not run cannot count as passed.")
+    return 1
 
 
 def summarize(
@@ -953,6 +1056,63 @@ def self_test() -> int:
         text = md_file.read_text(encoding="utf-8")
         assert "0 of 4 retested, 4 carried over" in text and "No mutant to test" not in text, text
         assert "### Pull-request gate: passed" in text and "| 4 | 0 | 4 | 0 | 4 | 0 | 0 | 0 | 0 |" in text, text
+
+    # #398 (ADR-0134): the jobs before the summary. Each row: tools result,
+    # its `shards` output (None: no output), baseline, shards, verdict, and a
+    # text the problem must hold. Passes only as planned: no shard and both
+    # skipped, or N shards and both passed.
+    def needs(tools: str, shards: str | None, baseline: str, mutants: str) -> dict:
+        outputs = {} if shards is None else {"shards": shards, "mode": "gate"}
+        return {
+            "tools": {"result": tools, "outputs": outputs},
+            "baseline": {"result": baseline, "outputs": {}},
+            "mutants": {"result": mutants, "outputs": {}},
+        }
+
+    cases = [
+        # (b) the tools job found no mutant to test (or reused a run): passes.
+        (needs("success", "0", "skipped", "skipped"), 0, None),
+        # (a) the gate ran: the baseline and every shard passed.
+        (needs("success", "3", "success", "success"), 0, None),
+        # The tools job did not pass: red, whatever came after (run 43730310580).
+        (needs("failure", None, "skipped", "skipped"), 1, '"Tools and the mutants in scope" ended `failure`'),
+        (needs("cancelled", None, "skipped", "skipped"), 1, '"Tools and the mutants in scope" ended `cancelled`'),
+        (needs("skipped", None, "skipped", "skipped"), 1, '"Tools and the mutants in scope" ended `skipped`'),
+        ({"baseline": {"result": "skipped"}, "mutants": {"result": "skipped"}}, 1, "ended `missing`"),
+        # The tools job passed but planned nothing readable.
+        (needs("success", None, "skipped", "skipped"), 1, "gave no number of shards (`empty`)"),
+        (needs("success", "x", "skipped", "skipped"), 1, "gave no number of shards (`x`)"),
+        # N shards planned: a baseline or a shard that failed, was cancelled or skipped.
+        (needs("success", "2", "failure", "success"), 1, '"Mutation baseline (every workspace test, every tool required)" ended `failure`'),
+        (needs("success", "2", "cancelled", "success"), 1, "Mutation baseline (every workspace test, every tool required)\" ended `cancelled`"),
+        (needs("success", "2", "skipped", "success"), 1, '"Mutation baseline (every workspace test, every tool required)" was skipped, but the tools job planned 2 shard(s)'),
+        (needs("success", "2", "success", "failure"), 1, '"Mutation test, shard k/N" ended `failure`'),
+        (needs("success", "2", "success", "cancelled"), 1, '"Mutation test, shard k/N" ended `cancelled`'),
+        (needs("success", "2", "success", "skipped"), 1, '"Mutation test, shard k/N" was skipped, but the tools job planned 2 shard(s)'),
+        # No shard planned, yet a job ran: not as planned.
+        (needs("success", "0", "success", "skipped"), 1, "planned no shard, so it should have been skipped"),
+        (needs("success", "0", "skipped", "failure"), 1, '"Mutation test, shard k/N" ended `failure`, but the tools job planned no shard'),
+    ]
+    for case, want, text in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            md_file = Path(tmp) / "jobs.md"
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                got = check_jobs(case, md_file, "123")
+            assert got == want, (case, got, out.getvalue())
+            if want == 0:
+                assert "::notice title=Mutation test jobs::" in out.getvalue() and "as planned" in out.getvalue(), case
+                assert not md_file.exists(), case
+                continue
+            text_md = md_file.read_text(encoding="utf-8")
+            assert text in text_md and "::error title=Mutation test jobs::" in out.getvalue(), (text, text_md)
+            # ADR-0125: what happened, why it is red, what to do.
+            for part in ("**What happened.**", "**Why this is red.**", "cannot count as passed",
+                         "**What you can do.**", "`gh run rerun 123 --failed`"):
+                assert part in text_md, (part, text_md)
+    # Two problems at once: both are named.
+    assert len(job_problems(needs("success", "4", "failure", "cancelled"))) == 2
+    assert "`gh run rerun <run-id> --failed`" in jobs_markdown(["x"])
     print("mutants_summary self-test: ok")
     return 0
 
@@ -972,10 +1132,13 @@ def main() -> int:
     ap.add_argument("--baseline", type=Path, help="ADR-0128 §2: the baseline job's artifact (mutants-baseline)")
     ap.add_argument("--baseline-result", help="ADR-0128 §2: the baseline job's result; anything but success fails")
     ap.add_argument("--retest", type=Path, help="#364: mutants-list/retest/ of a retest (the carried outcomes)")
+    ap.add_argument("--needs", help="#398: the workflow's toJSON(needs); fails unless every job ended as planned")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
+    if args.needs is not None:
+        return check_jobs(json.loads(args.needs), args.markdown, os.environ.get("GITHUB_RUN_ID"))
     if args.reused is not None:
         if args.lists is None:
             ap.error("--reused needs --lists")

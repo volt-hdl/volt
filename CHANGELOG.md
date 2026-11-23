@@ -376,6 +376,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
+### Geliştirici notu — Mutasyon kapısının özeti başarısızlıkta kapalı kalır (#398, ADR-0134, 2026-11-23)
+
+- "Mutation test summary" 2026-11-23'ten beri main için zorunlu
+  denetimdir (#366). Özet artık koşu iptal edilmedikçe koşar ve önce
+  önceki işlerin sonucunu denetler: "Tools and the mutants in scope"
+  geçmediyse, ya da planladığı temel koşu veya parçalardan biri geçmediyse
+  (düştü, iptal edildi, atlandı) özet kırmızıdır. Önceden tools işi
+  düşünce özet atlanıyordu ve GitHub atlanan işi geçmiş sayıyordu (koşu
+  43730310580); sonuçları tam olduğu hâlde düşen bir parça da yeşil
+  özet verebiliyordu.
+- Kırmızı özet işi ve sonucunu adlandırır, neden kırmızı olduğunu ve ne
+  yapılacağını yazar (günlükteki ilk hata; `gh run rerun <koşu> --failed`).
+- Mutant listesi ve sonuçları değişmez. Yeniden kullanım anahtarı iş
+  akışını içerdiğinden açık PR'ların bir sonraki kapı koşusu tam koşar.
+
 ### Geliştirici notu — Mutasyon hariç tutma kayıtları satıra bağlı değil (ADR-0133, 2026-11-22)
 
 - `.cargo/mutants.toml`'daki bir `exclude_re` kaydı dosyayı, değişikliği
