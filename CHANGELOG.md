@@ -376,7 +376,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
-### Kitabın adresi (ADR-0135 Önerildi, 2026-11-23)
+### Kitabın adresi (ADR-0135, 2026-11-23)
 
 - Kitap artık https://volthdl.org/ adresindedir (son sürüm) ve
   https://volthdl.org/dev/ (main); kurulum komutları

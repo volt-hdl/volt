@@ -1,6 +1,6 @@
 # ADR-0135: Kitabın Adresi volthdl.org — Kök Son Sürümün, `/dev/` main'in Kitabı Kalır; Eski Adres Yönlenir
 
-> Statü: Önerildi
+> Statü: Uygulandı
 > Önceki karar: ADR-0099 — §3'teki kitap adresi ve tutarlılık kontrolü 16 (alınmamış alan adına bağlantı yok): kitap https://volthdl.org/ adresindedir, kontrol 16 kitabın eski adresini arar
 > İlgili: ADR-0100 (§6'nın site düzeni aynı kalır: kök son sürüm etiketinin, `/dev/` main'in kitabı), ADR-0096 (kurulum betikleri sitenin kökünde kalır; adresleri https://volthdl.org/install.ps1 ve install.sh), ADR-0125 (§7: `volt explain` metnindeki kitap bağlantıları yalnız metin olarak değişir; yeni kod, seçenek ya da JSON alanı yok)
 > Tarih: 2026-11-23
