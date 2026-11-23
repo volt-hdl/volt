@@ -89,7 +89,7 @@ Until then every area is owned by the maintainer.
 
 | When | What runs | A red result |
 |---|---|---|
-| Every pull request | CI (build, tests with every tool required, book, consistency), the metamorphic test's PR tier, the mutation gate on the changed Rust lines | is fixed or explained in the pull request before it merges; the mutation gate is informational until the maintainer makes it a required check |
+| Every pull request | CI (build, tests with every tool required, book, consistency), the metamorphic test's PR tier, the mutation gate on the changed Rust lines | is fixed or explained in the pull request before it merges; the mutation gate's summary ("Mutation test summary") and the check of its exclusions ("Mutation exclusions match their mutants") are required checks since 2026-11-23 |
 | Every night | The large differential test, the whole-corpus metamorphic test, fuzzing; each night with a new seed | opens or updates an issue for that night (differential and metamorphic test); a fuzzing crash input is kept as an artifact of the run |
 | Every week | Install tests of the released binaries | is investigated before the next release |
 
