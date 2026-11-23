@@ -211,7 +211,7 @@ jobs:
         run: |
           # set +e: the expected exit 1 (no release yet) must reach `test`; set -e is restored below.
           set +e
-          out=$(curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh 2>&1)
+          out=$(curl -fsSL https://volthdl.org/install.sh | sh 2>&1)
           code=$?
           set -e
           echo "$out"
@@ -232,7 +232,7 @@ jobs:
           VERSION: ${{ steps.rel.outputs.version }}
         run: |
           # Everything the installer prints, Write-Host included.
-          $out = & { irm https://volt-hdl.github.io/volt/install.ps1 | iex } *>&1 | Out-String
+          $out = & { irm https://volthdl.org/install.ps1 | iex } *>&1 | Out-String
           $out
           # Still here: the installer did not close the session.
           if ($env:VERSION) {

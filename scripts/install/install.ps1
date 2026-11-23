@@ -1,6 +1,6 @@
 # Volt installer for Windows (ADR-0096).
 #
-#   irm https://volt-hdl.github.io/volt/install.ps1 | iex
+#   irm https://volthdl.org/install.ps1 | iex
 #
 # Downloads the newest release archive, checks it against the release's
 # SHA256SUMS, installs volt.exe into %LOCALAPPDATA%\Programs\Volt\bin and
@@ -17,7 +17,7 @@
 #                          when there is one
 #   VOLT_UNINSTALL=1       remove the files and the PATH entry again
 #
-# Example: $env:VOLT_VERSION = '0.1.0'; irm https://volt-hdl.github.io/volt/install.ps1 | iex
+# Example: $env:VOLT_VERSION = '0.1.0'; irm https://volthdl.org/install.ps1 | iex
 #
 # Under `iex` the script never calls `exit`: that would close the user's
 # window. A failure prints a short message (no PowerShell error record) and
@@ -34,7 +34,7 @@
 & {
 
 $VoltRepo = 'https://github.com/volt-hdl/volt'
-$VoltBook = 'https://volt-hdl.github.io/volt/tour/install.html'
+$VoltBook = 'https://volthdl.org/tour/install.html'
 # Where releases are looked up and downloaded from. VOLT_INSTALL_TEST_SERVER
 # is for install.yml's fake server (scripts/install/test/) and nothing else.
 $VoltDownloadRepo = $VoltRepo

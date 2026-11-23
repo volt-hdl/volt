@@ -11,7 +11,7 @@ An HDL where clock domain crossing bugs won't compile.
 The recording above, as text. `crossing.volt` passes a register from the
 fast clock domain to the slow one without a synchronizer
 ([the code](demo/crossing.volt), from the book's
-[clock domain crossing chapter](https://volt-hdl.github.io/volt/tour/cdc-error.html)):
+[clock domain crossing chapter](https://volthdl.org/tour/cdc-error.html)):
 
 ```sh
 volt check crossing.volt
@@ -167,7 +167,7 @@ defaults, or behind a small wrapper), no reset port is added to an
 `extern` cannot be named like a standard library module (`E1016`; a
 SystemVerilog module with such a name goes behind a wrapper). A worked
 example, checked, tested and built:
-[Using Volt in an existing project](https://volt-hdl.github.io/volt/cookbook/existing-project.html).
+[Using Volt in an existing project](https://volthdl.org/cookbook/existing-project.html).
 
 ## What Volt checks at compile time
 
@@ -367,7 +367,7 @@ More designs: [`examples/README.md`](examples/README.md).
 ## Limitations
 
 The full list, with workarounds, is in the book:
-[Known limitations](https://volt-hdl.github.io/volt/limitations.html).
+[Known limitations](https://volthdl.org/limitations.html).
 Planned work: [Roadmap](docs/roadmap.md).
 
 - **RDC checking covers reset release, not reset ordering.** `E3003`
@@ -461,13 +461,13 @@ Full comparison with sources:
 **Windows** (PowerShell):
 
 ```powershell
-irm https://volt-hdl.github.io/volt/install.ps1 | iex
+irm https://volthdl.org/install.ps1 | iex
 ```
 
 **Linux and macOS**:
 
 ```sh
-curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+curl -fsSL https://volthdl.org/install.sh | sh
 ```
 
 The script downloads the newest release for your platform (Windows
@@ -481,7 +481,7 @@ doctor`.
 Direct download links, checksum and provenance checks, the macOS
 quarantine flag and the settings of the script (`VOLT_VERSION`,
 `VOLT_INSTALL_DIR`, ...) are in the book:
-[Install Volt](https://volt-hdl.github.io/volt/tour/install.html).
+[Install Volt](https://volthdl.org/tour/install.html).
 
 **From source** (needs stable Rust):
 

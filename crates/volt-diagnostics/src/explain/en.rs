@@ -538,7 +538,7 @@ let y : u3 = 5 + 2      // ✓",
             "result = sync(data, slow_clk)    // ✓ two flip-flops",
         )
         .with_note("sync() synchronizes each bit independently. For multi-bit data the bits may be captured on different clock edges (0b11111111 → 0b11110000 as an invalid intermediate value). For multi-bit crossings use Gray coding (counters), AsyncFifo (data streams) or a handshake protocol (control).\n\nA module without a clock is combinational logic. Where it is placed, each of its outputs carries the clock domain of the inputs that output depends on, so a crossing through it is the same error; when one output joins inputs from two domains, the error is reported at the instance. An output with a domain annotation keeps that domain, and the inputs it depends on must carry it: a value from another domain is reported at the instance too. An extern module without a clock counts every output as depending on every input, unless its ports carry a domain annotation; there the annotation is your declaration and is not checked. sync() cannot take 'p.y' directly: name it first ('let p_y_raw = p.y') and synchronize the name.")
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3002 => Explanation::new(
             "Undefined clock domain",
             "The '@' annotation names a domain that is never declared.",
@@ -546,7 +546,7 @@ let y : u3 = 5 + 2      // ✓",
             "module M {\n    in data : u8 @Fasst    // ✗ E3002: no 'domain Fasst'\n}",
             "domain Fast { clock = posedge }\nmodule M {\n    in data : u8 @Fast     // ✓\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3003 => Explanation::new(
             "Reset domain crossing (RDC)",
             "A reset release is not synchronized to every clock it reaches: one asynchronous reset port is shared by several clock domains, the same raw reset is synchronized twice on one clock, or a raw reset port does not match the domain it feeds.",
@@ -555,7 +555,7 @@ let y : u3 = 5 + 2      // ✓",
             "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ one synchronizer per clock\n}",
         )
         .with_note("Clock-domain crossings of DATA between the two domains are still E3001; E3003 is only about the reset itself. A domain with 'reset = sync' that shares 'rst' with another clock is the milder W3010.")
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3004 => Explanation::new(
             "Reset sequence violation",
             "A register leaves reset before a domain it depends on has been released.",
@@ -609,7 +609,7 @@ let y : u3 = 5 + 2      // ✓",
             "module M {\n    in a : u8 @Fast\n    in b : u8 @Slow\n    wire t : u8         // ✗ E3010: @Fast or @Slow?\n}",
             "    wire t : u8 @Fast   // ✓ stated explicitly",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3011 => Explanation::new(
             "Register written from more than one domain",
             "Two 'on' blocks in different clock domains write the same register.",
@@ -617,7 +617,7 @@ let y : u3 = 5 + 2      // ✓",
             "on fast_clk { r <= a }\non slow_clk { r <= b }  // ✗ E3011",
             "on fast_clk {\n    r <= if sel { sync(b, fast_clk) } else { a }   // ✓ one domain\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3012 => Explanation::new(
             "Foreign-domain signal read inside an 'on' block",
             "The 'on' block's clock belongs to one domain, but the expression reads a signal from another.",
@@ -625,7 +625,7 @@ let y : u3 = 5 + 2      // ✓",
             "on slow_clk {\n    r <= fast_data      // ✗ E3012: fast_data is @Fast\n}",
             "on slow_clk {\n    r <= sync(fast_data, slow_clk)   // ✓\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
 
         E3013 => Explanation::new(
             "Bundle fields inferred in different clock domains",
@@ -659,7 +659,7 @@ extern module ExtRegFile {
     ...
 }",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
 
         E3015 => Explanation::new(
             "declassify inside a function",
@@ -1278,7 +1278,7 @@ p = d == -1048576",
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bits",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3004 => Explanation::new(
             "Unused domain definition",
             "This 'domain' is declared but no signal or block belongs to it.",
@@ -1321,7 +1321,7 @@ p = d == -1048576",
             "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' assumed synchronous to 'clk'\n}",
             "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ compiler synchronizes the release\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3010 => Explanation::new(
             "Synchronous reset shared by several clock domains",
             "Two or more clock domains with 'reset = sync' (the default) use the same generated 'rst' / 'rst_n' port, so its release is asynchronous to at least one of their clocks.",
@@ -1329,7 +1329,7 @@ p = d == -1048576",
             "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' sampled by 'sys_clk' and 'pix_clk'\n    in pix_clk : clock @Pix\n}",
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ one release synchronizer per clock\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3011 => Explanation::new(
             "Raw reset goes to an extern module while the module's registers use its synchronized copy",
             "A raw reset port ('in rst : reset(...)') is connected to an extern instance, and the same module's registers on that clock are reset through the synchronizer Volt puts in front of them.",

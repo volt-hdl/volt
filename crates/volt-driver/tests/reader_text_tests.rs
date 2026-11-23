@@ -1,7 +1,8 @@
 //! Tanı metinleri okura göre yazılır: `tests/ui` derleminin her tanısında
 //! (iki dilde; ileti, etiket, not, çözüm) iç belge numarası (ADR-) ve
-//! alınmamış alan adı yoktur, sayıdan önceki İngilizce artikel doğrudur
-//! ("an 8-bit", "a 16-bit").
+//! kitap bağlantısı yoktur (ne https://volthdl.org/ ne kitabın eski
+//! adresi; kitaba `volt explain` bağlanır, ADR-0099 §3, ADR-0135), sayıdan
+//! önceki İngilizce artikel doğrudur ("an 8-bit", "a 16-bit").
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -90,7 +91,10 @@ fn ui_corpus_diagnostics_name_no_adr_and_use_correct_articles() {
         for lang in ["en", "tr"] {
             for d in diagnostics(&file, lang) {
                 for t in texts(&d) {
-                    if t.contains("ADR-") || t.contains(concat!("volthdl", ".org")) {
+                    if t.contains("ADR-")
+                        || t.contains(concat!("volthdl", ".org"))
+                        || t.contains(concat!("volt-hdl", ".github.io"))
+                    {
                         bad.push(format!("{} [{lang}] {}: {t}", file.display(), d["code"]));
                     }
                     if lang == "en" {

@@ -103,7 +103,7 @@ fn render_e3001_en_follows_spec_section_order() {
     assert!(idx("EXAMPLE") < idx("SOLUTION"));
     assert!(idx("SOLUTION") < idx("NOTE"));
     assert!(idx("NOTE") < idx("FOR MORE"));
-    assert!(text.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
+    assert!(text.contains("https://volthdl.org/tour/cdc-error.html"));
     assert!(text.contains("sync(data, slow_clk)"));
 }
 
@@ -119,7 +119,7 @@ fn render_e3001_tr_follows_spec_section_order() {
     assert!(idx("ÖRNEK") < idx("ÇÖZÜM"));
     assert!(idx("ÇÖZÜM") < idx("NOT"));
     assert!(idx("NOT") < idx("DAHA FAZLA"));
-    assert!(text.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
+    assert!(text.contains("https://volthdl.org/tour/cdc-error.html"));
     // Kod parçacıkları çevrilmez (GLOSSARY.md §0).
     assert!(text.contains("sync(data, slow_clk)"));
 }
@@ -547,14 +547,15 @@ fn waveforms_topic_explains_recording_opening_and_enum_names() {
     }
 }
 
-/// Kullanıcıya dönük metin iç belge numarası (ADR-) ve alınmamış alan
-/// adına bağlantı taşımaz: okur ADR'leri bilmez; daha fazlası için
-/// `volt explain` ya da kitap bağlantısı verilir.
+/// Kullanıcıya dönük metin iç belge numarası (ADR-) ve kitabın eski
+/// adresini (GitHub Pages) taşımaz: okur ADR'leri bilmez; daha fazlası
+/// için `volt explain` ya da https://volthdl.org/ altındaki kitap
+/// bağlantısı verilir (ADR-0135).
 fn assert_reader_text(what: &str, text: &str) {
     assert!(!text.contains("ADR-"), "{what}: ADR atfı:\n{text}");
     assert!(
-        !text.contains(concat!("volthdl", ".org")),
-        "{what}: alınmamış alan adı:\n{text}"
+        !text.contains(concat!("volt-hdl", ".github.io")),
+        "{what}: kitabın eski adresi:\n{text}"
     );
 }
 

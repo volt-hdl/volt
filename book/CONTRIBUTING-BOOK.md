@@ -136,7 +136,7 @@ line, and checks:
   chapter, and after no written one;
 - `README.md`, `docs/release-notes/*.md` and every written page of the
   book link to no planned chapter: not on the site
-  (`https://volt-hdl.github.io/volt/...html`, `/dev/` too), not on GitHub,
+  (`https://volthdl.org/...html`, `/dev/` too), not on GitHub,
   not with a relative link. The site root shows the book of the latest
   release, so a planned page stays empty there until the next release.
   `SUMMARY.md` and the planned chapters may link to planned chapters.

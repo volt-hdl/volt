@@ -538,7 +538,7 @@ let y : u3 = 5 + 2      // ✓",
             "result = sync(data, slow_clk)    // ✓ iki flip-flop",
         )
         .with_note("sync() her biti bağımsız senkronize eder. Çok bitli veride bitler farklı saat kenarlarında yakalanabilir (0b11111111 → 0b11110000 geçersiz ara değer). Çok bitli geçişlerde Gray kodlama (sayaçlar), AsyncFifo (veri akışı) veya handshake protokolü (kontrol) kullanın.\n\nSaatsiz bir modül kombinasyonel mantıktır. Yerleştirildiği yerde her çıkışı, o çıkışın bağlı olduğu girişlerin saat alanını taşır; içinden geçen bir geçiş aynı hatadır. Bir çıkış iki alandan gelen girişleri birleştirirse hata örneğin olduğu yerde raporlanır. Alan anotasyonu taşıyan çıkış o alanda kalır ve bağlı olduğu girişler de o alanda olmalıdır: başka alandan gelen değer de örneğin olduğu yerde raporlanır. Saatsiz bir extern modülün portları alan anotasyonu taşımıyorsa her çıkışı her girişe bağlı sayılır; anotasyon orada sizin beyanınızdır ve denetlenmez. sync() 'p.y'yi doğrudan alamaz: önce adlandırın ('let p_y_raw = p.y') ve adı senkronize edin.")
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3002 => Explanation::new(
             "Tanımsız saat alanı",
             "'@' anotasyonu hiç bildirilmemiş bir alanı adlandırıyor.",
@@ -546,7 +546,7 @@ let y : u3 = 5 + 2      // ✓",
             "module M {\n    in data : u8 @Fasst    // ✗ E3002: 'domain Fasst' yok\n}",
             "domain Fast { clock = posedge }\nmodule M {\n    in data : u8 @Fast     // ✓\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3003 => Explanation::new(
             "Sıfırlama alanı geçişi (RDC)",
             "Bir reset bırakması ulaştığı her saate senkronlanmamış: tek bir asenkron reset portu birden çok saat alanınca paylaşılıyor, aynı ham reset bir saatte iki kez senkronlanıyor ya da bir ham reset portu beslediği alanla uyuşmuyor.",
@@ -555,7 +555,7 @@ let y : u3 = 5 + 2      // ✓",
             "module Top {\n    in fast_clk : clock @Fast\n    in slow_clk : clock @Slow\n    in rst_n : reset(async, active_low)   // ✓ saat başına bir senkronizör\n}",
         )
         .with_note("İki alan arasındaki VERİ geçişleri hâlâ E3001'dir; E3003 yalnız reset'in kendisiyle ilgilidir. 'reset = sync' bir alanın 'rst'yi başka bir saatle paylaşması daha hafif olan W3010'dur.")
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3004 => Explanation::new(
             "Sıfırlama sekans ihlali",
             "Bir register, bağımlı olduğu alan serbest bırakılmadan önce sıfırlamadan çıkıyor.",
@@ -609,7 +609,7 @@ let y : u3 = 5 + 2      // ✓",
             "module M {\n    in a : u8 @Fast\n    in b : u8 @Slow\n    wire t : u8         // ✗ E3010: @Fast mı @Slow mu?\n}",
             "    wire t : u8 @Fast   // ✓ açıkça belirtildi",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3011 => Explanation::new(
             "Register birden fazla domainden yazılıyor",
             "Farklı saat alanlarındaki iki 'on' bloğu aynı register'ı yazıyor.",
@@ -617,7 +617,7 @@ let y : u3 = 5 + 2      // ✓",
             "on fast_clk { r <= a }\non slow_clk { r <= b }  // ✗ E3011",
             "on fast_clk {\n    r <= if sel { sync(b, fast_clk) } else { a }   // ✓ tek alan\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         E3012 => Explanation::new(
             "'on' bloğunda yabancı domain sinyali okunuyor",
             "'on' bloğunun saati bir alana ait, ama ifade başka alandan bir sinyal okuyor.",
@@ -625,7 +625,7 @@ let y : u3 = 5 + 2      // ✓",
             "on slow_clk {\n    r <= fast_data      // ✗ E3012: fast_data @Fast\n}",
             "on slow_clk {\n    r <= sync(fast_data, slow_clk)   // ✓\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
 
         E3013 => Explanation::new(
             "Bundle alanları farklı saat alanlarında çıkarıldı",
@@ -659,7 +659,7 @@ extern module ExtRegFile {
     ...
 }",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
 
         E3015 => Explanation::new(
             "Fonksiyonda declassify",
@@ -1278,7 +1278,7 @@ p = d == -1048576",
             "slow_bus = sync(fast_bus, slow_clk)   // ⚠ W3003: 8 bit",
             "slow_bus = AsyncFifo { push: fast_bus, ... }   // ✓",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3004 => Explanation::new(
             "Kullanılmayan domain tanımı",
             "Bu 'domain' bildirilmiş ama hiçbir sinyal veya blok ona ait değil.",
@@ -1321,7 +1321,7 @@ p = d == -1048576",
             "domain Core { clock = posedge, reset = async active_low }\nmodule Top {\n    in clk : clock @Core     // ⚠ W3009: 'rst_n' 'clk'e senkron varsayılıyor\n}",
             "module Top {\n    in clk : clock @Core\n    in rst_n : reset(async, active_low)   // ✓ derleyici bırakmayı senkronlar\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3010 => Explanation::new(
             "Senkron reset birden çok saat alanınca paylaşılıyor",
             "'reset = sync' (varsayılan) iki ya da daha çok saat alanı aynı üretilmiş 'rst' / 'rst_n' portunu kullanıyor; bırakması saatlerden en az birine asenkron.",
@@ -1329,7 +1329,7 @@ p = d == -1048576",
             "domain Sys { clock = posedge, reset = sync active_high }\ndomain Pix { clock = posedge, reset = sync active_high }\nmodule Video {\n    in sys_clk : clock @Sys    // ⚠ W3010: 'rst' hem 'sys_clk' hem 'pix_clk' tarafından örnekleniyor\n    in pix_clk : clock @Pix\n}",
             "module Video {\n    in sys_clk : clock @Sys\n    in pix_clk : clock @Pix\n    in rst : reset(sync, active_high)   // ✓ saat başına bir bırakma senkronizörü\n}",
         )
-        .with_docs(&["https://volt-hdl.github.io/volt/tour/cdc-error.html"]),
+        .with_docs(&["https://volthdl.org/tour/cdc-error.html"]),
         W3011 => Explanation::new(
             "Modülün register'ları senkronize kopyayı kullanırken ham reset bir extern modüle gidiyor",
             "Ham bir reset portu ('in rst : reset(...)') bir extern örneğine bağlanmış; aynı modülün o saatteki register'ları ise Volt'un önlerine koyduğu senkronizör üzerinden sıfırlanıyor.",

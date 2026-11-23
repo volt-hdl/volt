@@ -35,16 +35,16 @@ No administrator rights are needed.
 **Type this (Windows, PowerShell):**
 
 ```powershell
-irm https://volt-hdl.github.io/volt/install.ps1 | iex
+irm https://volthdl.org/install.ps1 | iex
 ```
 
 **Type this (macOS and Linux, any shell):**
 
 ```sh
-curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+curl -fsSL https://volthdl.org/install.sh | sh
 ```
 
-No `curl`? `wget -qO- https://volt-hdl.github.io/volt/install.sh | sh`
+No `curl`? `wget -qO- https://volthdl.org/install.sh | sh`
 does the same.
 
 The script prints each step: the download, the SHA256 check, where it put
@@ -130,13 +130,13 @@ listed above and removes the `PATH` entry or line, and nothing else:
 **Type this (Windows, PowerShell):**
 
 ```powershell
-$env:VOLT_UNINSTALL = 1; irm https://volt-hdl.github.io/volt/install.ps1 | iex; Remove-Item Env:VOLT_UNINSTALL
+$env:VOLT_UNINSTALL = 1; irm https://volthdl.org/install.ps1 | iex; Remove-Item Env:VOLT_UNINSTALL
 ```
 
 **Type this (macOS and Linux):**
 
 ```sh
-curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_UNINSTALL=1 sh
+curl -fsSL https://volthdl.org/install.sh | VOLT_UNINSTALL=1 sh
 ```
 
 The script reads these settings from environment variables:

@@ -435,8 +435,8 @@ tags are the maintainer's work.
 - `demo/`: the README demo, recorded from a VHS script
   (`book/CONTRIBUTING-BOOK.md`, "The README demo").
 - `book/`: the Volt book (mdBook), published to
-  https://volt-hdl.github.io/volt/ (the latest release) and
-  https://volt-hdl.github.io/volt/dev/ (main).
+  https://volthdl.org/ (the latest release) and
+  https://volthdl.org/dev/ (main).
 - `docs/`: specification, ADRs, design documents, roadmap.
 
 ## A note for contributors

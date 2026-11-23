@@ -1,7 +1,7 @@
 #!/bin/sh
 # Volt installer for Linux and macOS (ADR-0096).
 #
-#   curl -fsSL https://volt-hdl.github.io/volt/install.sh | sh
+#   curl -fsSL https://volthdl.org/install.sh | sh
 #
 # Downloads the newest release archive for this platform, checks it against
 # the release's SHA256SUMS, installs `volt` into ~/.volt/bin and adds that
@@ -16,7 +16,7 @@
 #                          next to it when there is one
 #   VOLT_UNINSTALL=1       remove the files and the PATH line again
 #
-# Example: curl -fsSL https://volt-hdl.github.io/volt/install.sh | VOLT_VERSION=0.1.0 sh
+# Example: curl -fsSL https://volthdl.org/install.sh | VOLT_VERSION=0.1.0 sh
 #
 # Written for POSIX sh (dash, busybox, bash, zsh): no bash features.
 # Before anything is downloaded the release is resolved: GitHub's API
@@ -41,7 +41,7 @@ ATTEMPTS=3
 # Empty here. The copy attached to a release names that release (release.yml
 # writes it), so releases/download/vX.Y.Z/install.sh installs X.Y.Z.
 PINNED_VERSION=""
-BOOK_URL="https://volt-hdl.github.io/volt/tour/install.html"
+BOOK_URL="https://volthdl.org/tour/install.html"
 SOURCE_ADVICE="Build from source instead (needs Rust, https://rustup.rs):
   git clone $REPO_URL
   cd volt
@@ -84,7 +84,7 @@ detect_target() {
             fi ;;
         MINGW* | MSYS* | CYGWIN* | Windows_NT*)
             die "this is the Linux/macOS installer. On Windows, run in PowerShell:
-  irm https://volt-hdl.github.io/volt/install.ps1 | iex" ;;
+  irm https://volthdl.org/install.ps1 | iex" ;;
         *)
             die "no prebuilt Volt binary for $os $arch. Prebuilt binaries exist for:
 $SUPPORTED

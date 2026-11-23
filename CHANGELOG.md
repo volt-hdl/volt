@@ -376,6 +376,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `tests/ui/pass/44` artık gerçek aşama register'ıyla hizalar; README'nin
   `Delayed` örneği de odur.
 
+### Kitabın adresi (ADR-0135, 2026-11-23)
+
+- Kitap artık https://volthdl.org/ adresindedir (son sürüm) ve
+  https://volthdl.org/dev/ (main); kurulum komutları
+  `irm https://volthdl.org/install.ps1 | iex` ve
+  `curl -fsSL https://volthdl.org/install.sh | sh`'tir. `volt explain`'in
+  DAHA FAZLA bağlantıları, kurulum betiklerinin iletileri, README ve kitap
+  yeni adresi gösterir; eski https://volt-hdl.github.io/volt/ adresleri
+  yeni adrese yönlenir ve çalışmaya devam eder. Tanı kodları, üretilen SV
+  ve JSON çıktısı değişmez.
+
 ### Geliştirici notu — Mutasyon kapısının özeti başarısızlıkta kapalı kalır (#398, ADR-0134, 2026-11-23)
 
 - "Mutation test summary" 2026-11-23'ten beri main için zorunlu

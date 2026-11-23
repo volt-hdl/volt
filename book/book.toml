@@ -11,7 +11,10 @@ src = "src"
 create-missing = false
 
 [output.html]
-site-url = "/volt/"
+# The site root is https://volthdl.org/. book.yml sets the same value with
+# MDBOOK_OUTPUT__HTML__SITE_URL, so the book of an older release tag, whose
+# book.toml says "/volt/", gets the right <base> in its 404.html too.
+site-url = "/"
 git-repository-url = "https://github.com/volt-hdl/volt"
 edit-url-template = "https://github.com/volt-hdl/volt/edit/main/book/{path}"
 additional-css = ["theme/volt.css"]

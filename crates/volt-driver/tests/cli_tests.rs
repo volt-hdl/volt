@@ -478,7 +478,7 @@ fn explain_e3001_exit_0_with_spec_structure() {
     assert!(stdout.contains("EXAMPLE"), "stdout: {stdout}");
     assert!(stdout.contains("SOLUTION"), "stdout: {stdout}");
     assert!(stdout.contains("FOR MORE"), "stdout: {stdout}");
-    assert!(stdout.contains("https://volt-hdl.github.io/volt/tour/cdc-error.html"));
+    assert!(stdout.contains("https://volthdl.org/tour/cdc-error.html"));
     assert!(stdout.contains("sync("), "stdout: {stdout}");
 }
 

@@ -5,7 +5,7 @@
 This page lists the work we plan, not what Volt does today: what already
 works is in [CHANGELOG.md](../CHANGELOG.md), and what does not work yet is
 in the book's
-[Known limitations](https://volt-hdl.github.io/volt/limitations.html) page.
+[Known limitations](https://volthdl.org/limitations.html) page.
 
 - **No dates.** Volt has a single maintainer; an item is done when it is
   done.
