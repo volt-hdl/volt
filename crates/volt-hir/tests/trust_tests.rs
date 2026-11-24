@@ -557,3 +557,26 @@ fn a_public_match_guard_is_free() {
     );
     assert!(codes(&src).is_empty(), "{:?}", codes(&src));
 }
+
+// ═══ Extern portunun seviyesi: tek saat portunun anotasyonu ═══════
+
+/// `Vault`'un anotasyonsuz portları, tek saat portunun alanını (gizli)
+/// taşır; `clock_ty` saat portunun yazılışıdır (doğrudan ya da takma ad,
+/// #234: takma ad tipin kendisi gibi davranır, ADR-0070 §6).
+fn vault_read_into_public(prelude: &str, clock_ty: &str) -> String {
+    with_domains(&format!(
+        "{prelude}extern module Vault {{\n    in  vclk : {clock_ty} @SecureCore\n    in  addr : u8\n    out data : u8\n}}\nmodule M {{\n    in  clk  : clock @Debug\n    in  addr : u8 @Debug\n    out dbg  : u8 @Debug\n    let v = Vault {{ vclk: clk, addr: addr }}\n    dbg = v.data\n}}"
+    ))
+}
+
+#[test]
+fn an_extern_output_takes_the_level_of_its_single_clock_port() {
+    for (prelude, clock_ty) in [
+        ("", "clock"),
+        ("type Clk = clock\n", "Clk"),
+        ("type Clk0 = clock\ntype Clk = Clk0\n", "Clk"),
+    ] {
+        let src = vault_read_into_public(prelude, clock_ty);
+        assert_eq!(codes(&src), vec!["E3009"], "{clock_ty}: {src}");
+    }
+}

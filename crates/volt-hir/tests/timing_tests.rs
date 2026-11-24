@@ -988,3 +988,32 @@ fn the_register_write_text_names_the_cycle_it_would_hold() {
         "{labels:?}"
     );
 }
+
+#[test]
+fn a_counter_read_back_through_its_output_port_is_unconstrained() {
+    // Çıkış portunun gecikmesi sürücüsünden hesaplanır, giriş portu gibi 0
+    // çevrimle başlamaz (ADR-0037): `count` ile `c` birbirini besleyen bir
+    // döngüdür, sabit gecikmeye oturmaz ve serbest kalır; `count + step`
+    // bu yüzden aşama karıştırmaz. 0 ile başlasaydı döngü her turda bir
+    // çevrim büyür ve `next` sahte bir E5010 alırdı.
+    assert_eq!(
+        e5010_count(
+            "@strict_timing
+module M {
+    in  clk   : clock
+    in  step  : u8
+    out count : u8
+    out next  : u8
+
+    reg c : u8 = 0
+
+    on clk { c <= count + 1 }
+
+    count = c
+    next = count + step
+}
+"
+        ),
+        0
+    );
+}
