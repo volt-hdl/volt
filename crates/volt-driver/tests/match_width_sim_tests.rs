@@ -275,6 +275,49 @@ test "trit arms" {
     );
 }
 
+/// `Trit * x` (x i8) Trit değil, `x`'in tipidir (ADR-0062, type-inference.md
+/// §3.3 "Trit × sayı → sayının tipi"); yalnız `Trit * Trit` Trit'tir. Çarpım
+/// bir `let`'te ya da başka bir çarpımın işleneninde i8 değeriyle okunur:
+/// t = +1, x = 5, z = 3 → (t * x) * z = 15; t = -1 → -15 (i16'da 65521).
+/// Mutasyon kapısının kaçırdığı `trit.rs` `is_trit`'teki `&&` → `||`
+/// mutantını öldürür (#215'in PR'ı): o mutantla `t * x` Trit sayılır ve
+/// `p * z` Trit seçicisine iner (`p == 1 ? z : …`, 0).
+#[test]
+fn a_trit_times_a_number_is_the_number() {
+    sim(
+        "trit-product",
+        r#"module P {
+    in  d  : bool
+    in  x  : i8
+    in  z  : i8
+    out y1 : i16
+    out y2 : i16
+    let neg : Trit = -1
+    let pos : Trit = 1
+    let t1 : Trit = if d { neg } else { pos }
+    let p = t1 * x
+    y1 = p * z
+    y2 = (t1 * x) * z
+}
+
+test "a trit product is an i8, not a trit" {
+    let dut = P { };
+    dut.x = 5;
+    dut.z = 3;
+    dut.d = false;
+    step(1);
+    assert_eq(dut.y1, 15);
+    assert_eq(dut.y2, 15);
+    dut.d = true;
+    step(1);
+    assert_eq(dut.y1, 65521);
+    assert_eq(dut.y2, 65521);
+}
+"#,
+        1,
+    );
+}
+
 /// Araçsız: kolları literal olan match `let`'i `if` biçimi gibi derlenir;
 /// yalnız W2012 (iki `let` için iki kez) çıkar, hata yok. Düzeltmeden
 /// önce üretici match biçiminde her literal için E2005 ("cannot determine
