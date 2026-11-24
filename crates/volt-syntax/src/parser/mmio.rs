@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use volt_ast::alias::{signal_class, SignalClass};
 use volt_ast::mmio::{FieldDesc, FieldKind, RegAccess, RegDesc, RegMap};
 use volt_ast::mmio_names::Origin;
 use volt_ast::{
@@ -831,7 +832,7 @@ impl Parser<'_> {
         };
         m.ports
             .iter()
-            .find(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
+            .find(|p| signal_class(&self.ast, p.ty) == SignalClass::Clock)
             .map(|p| p.name.text.clone())
     }
 

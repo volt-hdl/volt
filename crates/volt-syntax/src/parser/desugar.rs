@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use volt_ast::alias::{signal_class, SignalClass};
 use volt_ast::{
     Block, BlockContext, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, LValue,
     LetDecl, ModuleDecl, Name, NumBase, OnBlock, OnTrigger, Path, PipelineDecl, RegDecl, Stmt,
@@ -1015,7 +1016,7 @@ impl Parser<'_> {
         let clocks: Vec<String> = p
             .ports
             .iter()
-            .filter(|port| matches!(self.ast.types[port.ty].kind, TypeRefKind::Clock))
+            .filter(|port| signal_class(&self.ast, port.ty) == SignalClass::Clock)
             .map(|port| port.name.text.clone())
             .collect();
         if clocks.len() == 1 {

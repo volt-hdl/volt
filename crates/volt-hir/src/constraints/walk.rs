@@ -11,12 +11,14 @@ use volt_ast::struct_signals::StructTypes;
 use volt_ast::{
     Attribute, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, ExprKind, Idx,
     InstanceDecl, ItemKind, MatchArmBody, ModuleDecl, Port, PortDir, ResetSync, SourceFile, Stmt,
-    StmtKind, TypeRefKind,
+    StmtKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
 
-use crate::typeck::DeadArms;
+use crate::port_class::DefTypes;
+use crate::resolve::ResolveResult;
+use crate::typeck::{DeadArms, TypeckResult};
 
 use super::parse::{
     parse_false_path, parse_multicycle, parse_timing, unsupported, PathKind, TimingForm,
@@ -57,7 +59,8 @@ struct DomainDecl {
     span: Span,
 }
 
-/// Bir modülün ad tabloları — çözümlemeden bağımsız, gövdeden toplanır.
+/// Bir modülün ad tabloları — gövdeden toplanır; portun saat olup
+/// olmadığı tip denetiminden (`DefTypes`, takma ad dahil, #234).
 struct Scope<'a> {
     ast: &'a SourceFile,
     /// Tasarıma yazılmayan `match` kolları (tip denetiminden): onlardaki
@@ -75,7 +78,8 @@ struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
-    fn new(ast: &'a SourceFile, dead: &'a DeadArms, module: &'a ModuleDecl) -> Self {
+    fn new(c: &Collector<'a>, module: &'a ModuleDecl) -> Self {
+        let (ast, dead) = (c.ast, c.dead);
         let mut scope = Scope {
             ast,
             dead,
@@ -87,7 +91,7 @@ impl<'a> Scope<'a> {
             reg_clock: HashMap::new(),
         };
         for p in &module.ports {
-            let is_clock = matches!(ast.types[p.ty].kind, TypeRefKind::Clock);
+            let is_clock = c.classes.is_clock_port(c.res, p);
             scope.ports.insert(
                 p.name.text.as_str(),
                 (
@@ -281,7 +285,10 @@ fn collect_if_targets<'a>(
 
 struct Collector<'a> {
     ast: &'a SourceFile,
+    res: &'a ResolveResult,
     dead: &'a DeadArms,
+    /// Portların saat/reset sınıfı (tip denetiminden).
+    classes: DefTypes<'a>,
     /// Sinyallerin struct tipi: sv-emit'in yaprak sinyalleriyle aynı
     /// kaynak (#373).
     types: StructTypes,
@@ -291,10 +298,16 @@ struct Collector<'a> {
     reported: HashSet<(FileId, u32, u32)>,
 }
 
-pub(super) fn collect(ast: &SourceFile, dead: &DeadArms) -> ConstraintResult {
+pub(super) fn collect(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    tyck: &TypeckResult,
+) -> ConstraintResult {
     let mut c = Collector {
         ast,
-        dead,
+        res,
+        dead: &tyck.dead_arms,
+        classes: DefTypes::of(tyck),
         types: StructTypes::new(ast),
         domains: HashMap::new(),
         diags: Vec::new(),
@@ -381,7 +394,7 @@ impl<'a> Collector<'a> {
         m: &'a ModuleDecl,
         attrs: &'a [Attribute],
     ) -> Option<ModuleConstraints> {
-        let scope = Scope::new(self.ast, self.dead, m);
+        let scope = Scope::new(self, m);
         let mut clocks: Vec<ClockConstraint> = scope
             .clock_ports()
             .map(|p| {
@@ -441,7 +454,7 @@ impl<'a> Collector<'a> {
         let raw_resets = m
             .ports
             .iter()
-            .filter(|p| is_raw_reset(self.ast, p))
+            .filter(|p| self.classes.is_raw_reset(self.res, p))
             .map(|p| p.name.text.clone())
             .collect();
         Some(ModuleConstraints {
@@ -1128,7 +1141,7 @@ impl<'a> Collector<'a> {
         let Some((sub, sub_attrs)) = self.module_named(target) else {
             return;
         };
-        let sub_scope = Scope::new(self.ast, self.dead, sub);
+        let sub_scope = Scope::new(self, sub);
         let mut clock_map: HashMap<String, String> = HashMap::new();
         for p in sub_scope.clock_ports() {
             let Some(b) = inst
@@ -1217,7 +1230,7 @@ impl<'a> Collector<'a> {
         let raws: Vec<&'a Port> = m
             .ports
             .iter()
-            .filter(|p| is_raw_reset(self.ast, p))
+            .filter(|p| self.classes.is_raw_reset(self.res, p))
             .collect();
         match raws.as_slice() {
             [only] if only.domain.is_none() => Some(*only),
@@ -1241,12 +1254,6 @@ impl<'a> Collector<'a> {
             (m.name.text == name).then_some((m, item.attrs.as_slice()))
         })
     }
-}
-
-/// Ham reset portu: giriş yönlü `reset` tipli port (sv-emit
-/// `reset_sync::is_raw_reset`).
-fn is_raw_reset(ast: &SourceFile, port: &Port) -> bool {
-    port.direction == PortDir::In && matches!(ast.types[port.ty].kind, TypeRefKind::Reset(_))
 }
 
 /// Modül adının `'a` ömürlü dilimi (ziyaret yığını için).

@@ -21,6 +21,7 @@ pub mod handshake;
 pub mod manifest_lint;
 pub mod manifest_search;
 pub mod pipeline;
+pub mod port_class;
 pub mod resolve;
 mod shorthand;
 pub mod sim;
@@ -59,6 +60,7 @@ pub use manifest_search::{
     find_manifest_dir, find_manifest_dir_in, SearchEnv, SearchStop, MANIFEST_DIR_ENV, MANIFEST_FILE,
 };
 pub use pipeline::{pre_resolve_checks, run_semantic_stages, SemanticStages};
+pub use port_class::{DefTypes, SignalClass};
 pub use resolve::{
     resolve_file, resolve_unit, BuiltinKind, DefData, DefId, DefKind, ResolveResult, Scope,
     ScopeId, ScopeKind,
@@ -139,7 +141,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
     let trust_diags = trust::check_trust(ast, &resolve, &typeck, &domain);
 
     // Reset alanı denetimi (ADR-0065): saat çıkarımının sonucu üzerinde.
-    let rdc_diags = domain::check_rdc(ast, &resolve, &domain);
+    let rdc_diags = domain::check_rdc(ast, &resolve, &typeck, &domain);
 
     // Test blokları (ADR-0033): dosyada hiç modül yoksa testler kardeş
     // dosyanın modüllerini kullanıyordur — modül-varlık denetimi atlanır
@@ -159,7 +161,7 @@ fn analyze_with(ast: &SourceFile, resolve: ResolveResult) -> AnalysisResult {
 
     // Zamanlama kısıtları (ADR-0054): @timing / @false_path / @multicycle
     // biçim ve tutarlılık denetimi (E0017); W0022 yalnız --emit=sdc,xdc'de.
-    let constraint_diags = constraints::check_constraints(ast, &typeck.dead_arms);
+    let constraint_diags = constraints::check_constraints(ast, &resolve, &typeck);
 
     // Uygulanmayan nitelikler (ADR-0048): W0021 — çözümlemeden bağımsız,
     // tek dosya API'sinde varsayılan politika uyarıdır.

@@ -443,6 +443,51 @@ fn on_completion_offers_clock_ports_only() {
     assert!(!l.contains(&"en"), "bool portu önerilmemeli: {l:?}");
 }
 
+/// #234: takma adla (ve takma ad zinciriyle) yazılan saat portu da
+/// önerilir (ADR-0070 §6). Yarım kodda ayrıştırma hatası tip denetimini
+/// durdurur: sınıf takma ad zincirinden okunur.
+#[test]
+fn on_completion_offers_aliased_clock_ports_in_unfinished_code() {
+    for prelude in [
+        "type Clk = clock\n",
+        "type ClkBase = clock\ntype Clk = ClkBase\n",
+    ] {
+        let src = format!("{prelude}module M {{\n    in clk : Clk\n    in en : bool\n    on ");
+        let a = analyze(&src);
+        assert!(a.typeck.is_none(), "yarım kod: tip denetimi koşmaz");
+        let items = completions(&a, src.len() as u32);
+        let l = labels(&items);
+        assert!(
+            l.contains(&"clk"),
+            "{prelude}: takma adlı saat önerilmeli: {l:?}"
+        );
+        assert!(
+            !l.contains(&"en"),
+            "{prelude}: bool portu önerilmemeli: {l:?}"
+        );
+    }
+}
+
+/// #234: tamamlanmış kodda sınıf tip denetiminden okunur; takma adlı
+/// saat önerilir, takma adlı reset ve veri portu önerilmez.
+#[test]
+fn on_completion_offers_aliased_clock_ports_from_the_type_checker() {
+    let src = "type Clk = clock\n\
+               type Rst = reset(sync, active_high)\n\
+               type Word = u8\n\
+               module M {\n    in clk : Clk\n    in rst : Rst\n    in d : Word\n    out q : Word\n\
+               \x20   reg r : Word = 0\n    on clk {\n        r <= d\n    }\n    q = r\n}\n";
+    let a = analyze(src);
+    assert!(a.typeck.is_some(), "hatasız kod: tip denetimi koştu");
+    // İmleç `on clk` satırında, `on `'dan hemen sonra.
+    let items = completions(&a, offset_of(src, "on clk", 0) + 3);
+    let l = labels(&items);
+    assert!(l.contains(&"clk"), "takma adlı saat önerilmeli: {l:?}");
+    for data in ["rst", "d", "q"] {
+        assert!(!l.contains(&data), "'{data}' saat değil: {l:?}");
+    }
+}
+
 #[test]
 fn member_completion_offers_builtin_ports() {
     let src = INSTANCE;

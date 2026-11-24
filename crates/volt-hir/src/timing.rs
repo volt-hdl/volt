@@ -29,11 +29,12 @@ use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
     Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind, MatchArmBody, ModuleDecl,
-    PortDir, SourceFile, StmtKind, TypeRef, TypeRefKind,
+    PortDir, SourceFile, StmtKind, TypeRef,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use crate::port_class::{DefTypes, SignalClass};
 use crate::resolve::{DefId, DefKind, ResolveResult};
 use crate::ty::Ty;
 use crate::typeck::{DeadArms, TypeckResult};
@@ -162,28 +163,14 @@ impl<'a> ModuleTiming<'a> {
                 self.delays.insert(def, Delay::Exact(n));
                 continue;
             }
-            let base = match self.ast.types[port.ty].kind {
-                // Saat/sıfırlama sinyalleri zamanlama taşımaz.
-                TypeRefKind::Clock | TypeRefKind::Reset(_) => Delay::Any,
-                TypeRefKind::Bool
-                | TypeRefKind::UInt(_)
-                | TypeRefKind::SInt(_)
-                | TypeRefKind::Bits(_)
-                | TypeRefKind::UIntN(_)
-                | TypeRefKind::SIntN(_)
-                | TypeRefKind::Trit
-                | TypeRefKind::Array { .. }
-                | TypeRefKind::Tuple(_)
-                | TypeRefKind::Path { .. }
-                | TypeRefKind::Error => {
-                    if port.direction == PortDir::In {
-                        // Giriş portu tanım gereği 0 çevrim gecikmelidir (ADR-0037).
-                        Delay::Exact(0)
-                    } else {
-                        // Çıkış portu sürücüsünden hesaplanır.
-                        Delay::Todo
-                    }
-                }
+            let base = match DefTypes::of(self.typeck).class(def) {
+                // Saat/sıfırlama sinyalleri zamanlama taşımaz (takma adla
+                // yazılanlar da, #234).
+                SignalClass::Clock | SignalClass::Reset(_) => Delay::Any,
+                // Giriş portu tanım gereği 0 çevrim gecikmelidir (ADR-0037).
+                SignalClass::Data if port.direction == PortDir::In => Delay::Exact(0),
+                // Çıkış portu sürücüsünden hesaplanır.
+                SignalClass::Data => Delay::Todo,
             };
             self.delays.insert(def, base);
         }

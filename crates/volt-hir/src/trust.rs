@@ -28,8 +28,8 @@ use volt_span::Span;
 
 use crate::builtin::PortKind;
 use crate::domain::{DomainId, DomainResult};
+use crate::port_class::DefTypes;
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
-use crate::ty::Ty;
 use crate::typeck::TypeckResult;
 
 /// Sabit nokta üst sınırı: kafes yüksekliği 3, her tur en az bir sinyali
@@ -130,10 +130,7 @@ impl<'a> Checker<'a> {
     }
 
     fn is_clock_def(&self, def: DefId) -> bool {
-        self.tyck
-            .def_types
-            .get(&def)
-            .is_some_and(|&t| matches!(self.tyck.types.ty(t), Ty::Clock))
+        DefTypes::of(self.tyck).is_clock(def)
     }
 
     fn domain_trust(&self, idx: u32) -> Option<(TrustLevel, u32)> {

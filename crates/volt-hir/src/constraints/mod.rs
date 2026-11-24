@@ -26,6 +26,9 @@ use volt_ast::{ClockEdge, SourceFile};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+use crate::resolve::ResolveResult;
+use crate::typeck::TypeckResult;
+
 pub use parse::{format_ps, PathKind};
 
 /// Pikosaniye cinsinden bir saniye — periyot hesabı için.
@@ -274,14 +277,22 @@ fn missing_frequency(c: &ClockConstraint, module: &str) -> Diagnostic {
 
 /// Birimdeki her saatli modül için kısıt modeli kurar; E0017 tanıları
 /// `diagnostics`'te döner.
-/// `dead`: tasarıma yazılmayan `match` kolları (tip denetiminden,
-/// `TypeckResult::dead_arms`); onlardaki yazma register'ın saatini
-/// belirlemez.
-pub fn collect_constraints(ast: &SourceFile, dead: &crate::DeadArms) -> ConstraintResult {
-    walk::collect(ast, dead)
+/// `tyck`: tasarıma yazılmayan `match` kolları (`dead_arms`; onlardaki
+/// yazma register'ın saatini belirlemez) ve portların saat/reset sınıfı
+/// (`port_class`, takma ad dahil, #234).
+pub fn collect_constraints(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    tyck: &TypeckResult,
+) -> ConstraintResult {
+    walk::collect(ast, res, tyck)
 }
 
 /// Yalnız tanılar (sürücü `check`, LSP ve `analyze` için kısayol).
-pub fn check_constraints(ast: &SourceFile, dead: &crate::DeadArms) -> Vec<Diagnostic> {
-    collect_constraints(ast, dead).diagnostics
+pub fn check_constraints(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    tyck: &TypeckResult,
+) -> Vec<Diagnostic> {
+    collect_constraints(ast, res, tyck).diagnostics
 }

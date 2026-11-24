@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use volt_ast::alias::{signal_class, SignalClass};
 use volt_ast::{
     Block, BlockStmt, ElseBranch, Expr, ExprKind, Idx, IfStmt, Item, MatchArmBody, ModuleDecl,
     OnTrigger, PatternKind, SourceFile, StmtKind, TypeRefKind,
@@ -146,7 +147,7 @@ pub(super) fn scan_module(
     let clock = m
         .ports
         .iter()
-        .find(|p| matches!(ast.types[p.ty].kind, TypeRefKind::Clock))?
+        .find(|p| signal_class(ast, p.ty) == SignalClass::Clock)?
         .name
         .text
         .clone();

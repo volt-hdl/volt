@@ -17,10 +17,13 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use volt_ast::{ItemKind, ModuleDecl, SourceFile, StmtKind, TypeRefKind};
+use volt_ast::alias::{signal_class, SignalClass};
+use volt_ast::{ItemKind, ModuleDecl, SourceFile, StmtKind};
 use volt_diagnostics::{Diagnostic, Severity};
 use volt_hir::unit_load::LoadedUnit;
-use volt_hir::{DefId, DefKind, DomainResult, ResolveResult, SemanticStages, TypeckResult};
+use volt_hir::{
+    DefId, DefKind, DefTypes, DomainResult, ResolveResult, SemanticStages, TypeckResult,
+};
 
 use volt_span::{FileId, SourceMap, Span};
 
@@ -330,12 +333,19 @@ impl Analysis {
             .collect()
     }
 
-    /// Modülün clock tipli port adları (`on ` tamamlaması).
+    /// Modülün clock tipli port adları (`on ` tamamlaması), takma adla
+    /// yazılanlar dahil (#234). Sınıf tip denetiminden okunur; tamamlama
+    /// çoğunlukla yarım kodda istenir ve ayrıştırma hatası tip denetimini
+    /// durdurur: o zaman takma ad zincirinden (`signal_class`).
     pub fn clock_ports<'a>(&'a self, module: &'a ModuleDecl) -> Vec<&'a str> {
+        let typed = self.resolve.as_ref().zip(self.typeck.as_ref());
         module
             .ports
             .iter()
-            .filter(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
+            .filter(|p| match typed {
+                Some((res, tyck)) => DefTypes::of(tyck).is_clock_port(res, p),
+                None => signal_class(&self.ast, p.ty) == SignalClass::Clock,
+            })
             .map(|p| p.name.text.as_str())
             .collect()
     }

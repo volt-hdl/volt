@@ -39,8 +39,8 @@ use volt_ast::{
 };
 use volt_span::Span;
 
+use crate::port_class::DefTypes;
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
-use crate::ty::Ty;
 use crate::typeck::TypeckResult;
 
 /// Bir modülün ya da extern'in özeti.
@@ -270,11 +270,7 @@ struct Clocks<'a> {
 
 impl Clocks<'_> {
     fn is_clock_port(&self, p: &Port) -> bool {
-        self.res
-            .decl_spans
-            .get(&p.name.span)
-            .and_then(|d| self.tyck.def_types.get(d))
-            .is_some_and(|&t| matches!(self.tyck.types.ty(t), Ty::Clock))
+        DefTypes::of(self.tyck).is_clock_port(self.res, p)
     }
 }
 
