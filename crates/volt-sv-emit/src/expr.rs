@@ -234,7 +234,17 @@ impl<'a> Emitter<'a> {
 
     // ═══ Genişlik çıkarımı (kaba) ═════════════════════════════════
 
+    /// İfadenin genişliği ve işareti. `width-shadow` özelliğinde (yalnız
+    /// testler) sonuç tip denetiminin genişliğiyle karşılaştırılmak üzere
+    /// kaydedilir (#407, ADR-0136); çıktı değişmez.
     pub(crate) fn width_of(&mut self, idx: Idx<Expr>) -> Option<Sig> {
+        let sig = self.own_width(idx);
+        #[cfg(feature = "width-shadow")]
+        crate::width_shadow::note(self.ast, idx, sig);
+        sig
+    }
+
+    fn own_width(&mut self, idx: Idx<Expr>) -> Option<Sig> {
         let ast = self.ast;
         match &ast.exprs[idx].kind {
             ExprKind::IntLit { suffix, .. } => suffix.map(suffix_sig),

@@ -36,6 +36,9 @@ mod sva;
 mod template;
 mod trit;
 mod waves;
+// #407 Aşama 1: yalnız testlerin açtığı genişlik gölgesi (ADR-0136).
+#[cfg(feature = "width-shadow")]
+pub mod width_shadow;
 
 use std::collections::{HashMap, HashSet};
 
