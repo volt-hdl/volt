@@ -9,6 +9,21 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** `match` ifadesi artık `if` ifadesiyle aynı
+  genişlikte üretilir (#215; sessiz yanlış düzeltmesi, type-inference.md
+  §3.9). 0.1.2'de `a`, `b` `u8` iken `let m = match c { true => a + b,
+  _ => a - b }` SV'de `logic [7:0] m` oluyordu ve 200 + 100 = 44
+  veriyordu; doğrusu 9 bit ve 300'dür. Aynı hata match'in sınananında da
+  vardı: `match a + b { 44 => …, 300 => … }` 8 bitlik bir `case`'e
+  iniyor, `300` `44`'ün etiketine düşüyordu (Verilator CASEOVERLAP);
+  karşılaştırmanın işleneni (`(match …) == 44`) ve indeks konumu
+  (`p[(match …) +: 1]`) taşma bitini kaybediyordu. Kolları yalnız
+  literal olan tipsiz `let` (`let l = match c { true => 5, _ => 6 }`)
+  `if` biçimi gibi `i32` olur; önceden E2005 ile reddediliyordu. Üretici
+  iki ifadenin kollarını tek yerden okur (`value_arms`). Gölgenin 487
+  girdi dosyasında değişen tek çıktı #215'in kendi örneğidir. `prev()`'in
+  genişliği ayrı izlenir (#413). Son hanede (v0.1.3) çıkar.
+
 - **Davranış değişikliği.** Struct değerli bir `sync()` kaynağının
   `.sdc`/`.xdc` kısıtları artık kaynağın tipi bildirilmemiş olsa da alan
   başına yazılır (#373; sessiz yanlış düzeltmesi). 0.1.2'de tipsiz bir

@@ -4,11 +4,13 @@
 //! `tests/ui/multifile`, `tests/real_bugs`, `examples`, `templates`, `demo`
 //! ve kitabın `volt` blokları (`book/tools/check_book.py` gibi).
 //!
-//! Bu aşamada test yalnız karşılaştırmanın gerçekten koştuğunu ister:
-//! sıfırdan çok birim ve ifade. Ayrışmalar sınıflanıp yazdırılır
-//! (`--nocapture`), sonucu düşürmez; katı hale getirmek sonraki adımın
-//! işidir. Kayıt üretilen SV'yi değiştirmez: her birim kayıtlı ve kayıtsız
-//! iki kez üretilir, metinler aynı olmalı.
+//! Test katıdır (ADR-0136 §2, #215'in düzeltmesinden sonra): (a) ve (b)
+//! sınıfında hiç ayrışma olmamalı, (c) sınıfındaki her ayrışma ADR-0136
+//! §5'in dört kuralından birine dayanmalı ([`C_RULES`]); değilse test
+//! ne olduğunu, nedenini ve ne yapılabileceğini söyleyerek düşer
+//! (ADR-0125 biçimi, [`verdict`]). Tablo `--nocapture` ile yazdırılır.
+//! Kayıt üretilen SV'yi değiştirmez: her birim kayıtlı ve kayıtsız iki kez
+//! üretilir, metinler aynı olmalı.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -100,6 +102,20 @@ struct Shape {
     path: bool,
 }
 
+/// (c) kuralları, ADR-0136 §5'in tablosundaki sırayla. Her biri dilin bir
+/// kuralıdır; [`classify`] (c)'yi yalnız bunlardan biriyle verir.
+const RULE_LITERAL: &str =
+    "boyutsuz literal bağlamdan tip alır (type-inference §4): üretici genişlik vermez";
+const RULE_CONTEXT: &str = "bağlam genişliği (ADR-0041): tip denetimi hedef tipi kaydeder, üretici doğal genişliği verip W'(x) yazar";
+const RULE_ARRAY: &str =
+    "dizi portu/teli paketlenmiş vektör (ADR-0056): üretici toplam genişliği verir";
+const RULE_FLEX: &str =
+    "esnek aralık (ADR-0025): üretici işlem genişliğini verir, okuyan genişliği seçer";
+
+/// (c) sınıfının izinli gerekçeleri: ADR-0136 §5'in dört kuralı. Yeni bir
+/// (c) kuralı dilin bir kuralına dayanır ve bir ADR ile buraya girer.
+const C_RULES: [&str; 4] = [RULE_LITERAL, RULE_CONTEXT, RULE_ARRAY, RULE_FLEX];
+
 /// Karşılaştırma: sınıf ve gerekçe etiketi.
 fn classify(emitted: Option<Sig>, checked: &Checked, shape: Shape) -> (Class, &'static str) {
     match (emitted, checked) {
@@ -109,10 +125,7 @@ fn classify(emitted: Option<Sig>, checked: &Checked, shape: Shape) -> (Class, &'
         (Some(s), Checked::Width { width, signed })
             if shape.context && s.width < *width && s.signed == *signed =>
         {
-            (
-                Class::C,
-                "bağlam genişliği (ADR-0041): tip denetimi hedef tipi kaydeder, üretici doğal genişliği verip W'(x) yazar",
-            )
+            (Class::C, RULE_CONTEXT)
         }
         (Some(_), Checked::Width { .. }) => (Class::A, "farklı somut genişlik"),
         (Some(s), Checked::Flex { hi, .. }) if s.width == *hi => {
@@ -122,30 +135,19 @@ fn classify(emitted: Option<Sig>, checked: &Checked, shape: Shape) -> (Class, &'
         // genişliktedir (ADR-0025): üreticinin verdiği, telin bildirildiği
         // genişliktir ve `hi` olmalıdır (#215). İşlem, `if` ve `match`
         // ise aralıktaki genişliği okuyana göre alır.
-        (Some(s), Checked::Flex { lo, hi })
-            if !shape.path && *lo <= s.width && s.width < *hi =>
-        {
-            (
-                Class::C,
-                "esnek aralık (ADR-0025): üretici işlem genişliğini verir, okuyan genişliği seçer",
-            )
+        (Some(s), Checked::Flex { lo, hi }) if !shape.path && *lo <= s.width && s.width < *hi => {
+            (Class::C, RULE_FLEX)
         }
         (Some(_), Checked::Flex { .. }) if shape.path => {
             (Class::A, "esnek tipli ad doğal genişlikten dar")
         }
         (Some(_), Checked::Flex { .. }) => (Class::A, "esnek aralığın dışında"),
-        (Some(s), Checked::Array { total }) if s.width == *total => (
-            Class::C,
-            "dizi portu/teli paketlenmiş vektör (ADR-0056): üretici toplam genişliği verir",
-        ),
-        (Some(_), Checked::Array { .. }) => {
-            (Class::A, "dizinin paketlenmiş genişliğinden farklı")
-        }
+        (Some(s), Checked::Array { total }) if s.width == *total => (Class::C, RULE_ARRAY),
+        (Some(_), Checked::Array { .. }) => (Class::A, "dizinin paketlenmiş genişliğinden farklı"),
         (None, Checked::NoWidth(_)) => (Class::BothNone, "iki taraf da genişliksiz"),
-        (None, Checked::Width { .. } | Checked::Flex { .. }) if shape.literal => (
-            Class::C,
-            "boyutsuz literal bağlamdan tip alır (type-inference §4): üretici genişlik vermez",
-        ),
+        (None, Checked::Width { .. } | Checked::Flex { .. }) if shape.literal => {
+            (Class::C, RULE_LITERAL)
+        }
         (None, Checked::Width { .. } | Checked::Flex { .. } | Checked::Array { .. }) => {
             (Class::B, "üretici genişlik vermiyor")
         }
@@ -584,8 +586,128 @@ fn emitter_widths_are_compared_with_the_type_checker() {
     }
     println!("{report}");
 
-    // Bu aşamada yalnız karşılaştırmanın gerçekten koştuğu istenir.
     assert!(totals.units > 0, "hiç birim karşılaştırılmadı\n{report}");
     assert!(totals.exprs > 0, "hiç ifade karşılaştırılmadı\n{report}");
     assert!(book > 0, "kitapta volt bloğu bulunmadı\n{report}");
+    // Katı karar: (a) ve (b) sıfır, (c) yalnız listeli kurallarla. Tablo
+    // yukarıda yazdırıldı; düşen testin çıktısında o da görünür.
+    if let Err(message) = verdict(&totals) {
+        panic!("{message}");
+    }
+}
+
+/// Gölgenin katı kararı (ADR-0136 §2): (a) ve (b) sınıfında ayrışma yok,
+/// (c) sınıfındaki her ayrışmanın gerekçesi [`C_RULES`]'tan. Değilse hata
+/// metni ADR-0125'in üç parçasını taşır: ne oldu (ayrışan ifadeler), neden
+/// (üretilen SV'nin anlamı ve Aşama 2'nin kilidi), ne yapabilirsin.
+fn verdict(totals: &Totals) -> Result<(), String> {
+    let bad: Vec<&Finding> = totals
+        .findings
+        .iter()
+        .filter(|f| match f.class {
+            Class::A | Class::B => true,
+            Class::C => !C_RULES.contains(&f.reason),
+            Class::Agree | Class::BothNone => false,
+        })
+        .collect();
+    if bad.is_empty() {
+        return Ok(());
+    }
+    let mut m = String::new();
+    let _ = writeln!(
+        m,
+        "genişlik gölgesi: SV üreticisi ile tip denetimi {} ifadede ayrışıyor",
+        bad.len()
+    );
+    let _ = writeln!(m, "ne oldu:");
+    for f in bad.iter().take(20) {
+        let class = match f.class {
+            Class::A => "(a) sessiz-yanlış adayı",
+            Class::B => "(b) kapsam boşluğu",
+            Class::C | Class::Agree | Class::BothNone => "(c) listede olmayan gerekçe",
+        };
+        let _ = writeln!(
+            m,
+            "  {class}: {} `{}`: üretici {}, tip denetimi {} ({})",
+            f.location, f.snippet, f.emitted, f.checked, f.reason
+        );
+    }
+    if bad.len() > 20 {
+        let _ = writeln!(m, "  … ve {} ifade daha", bad.len() - 20);
+    }
+    let _ = writeln!(
+        m,
+        "neden: üretilen SystemVerilog ifadeyi üreticinin genişliğinde hesaplar, \
+         Volt'taki anlamı ise tip denetiminin verdiği genişliktir. (a) iki somut \
+         genişliğin farkıdır: donanım spec'in söylediğinden farklı bir değer \
+         hesaplayabilir (#215'te 200 + 100 = 44). (b) bir tarafın genişlik \
+         vermemesidir: gölge o ifadeyi karşılaştıramaz. Listede olmayan bir (c) \
+         gerekçesi dilin bir kuralına dayandırılmamıştır. Genişlik, (a) ya da (b) \
+         kaldıkça tip denetiminden okunmaya geçemez (ADR-0136 §2)."
+    );
+    let _ = writeln!(
+        m,
+        "ne yapabilirsin: spec'e göre doğru genişliği bul (type-inference.md, \
+         ilgili ADR). Üretici yanlışsa üreticiyi düzelt ve en küçük örneği \
+         tests/real_bugs'a ekle; tip denetimi yanlışsa onu düzelt. Fark dilin \
+         tanımladığı bir kuralsa onu (c) olarak, kuralı yazan bir ADR ile \
+         `classify`'a ve `C_RULES`'a ekle. Hangisi olduğuna karar veremiyorsan \
+         \"silent-wrong?\" başlıklı bir issue aç; bu test o ayrışma çözülene \
+         kadar kırmızı kalır, ayrışmayı susturan bir istisna eklenmez."
+    );
+    Err(m)
+}
+
+/// Sınanan bir karar için tek bulgulu toplam.
+fn totals_with(class: Class, reason: &'static str) -> Totals {
+    let mut totals = Totals::default();
+    totals.findings.insert(Finding {
+        class,
+        reason,
+        location: "yeni.volt:3:9".to_string(),
+        snippet: "match c { true => a + b, _ => a - b }".to_string(),
+        emitted: "8".to_string(),
+        checked: "u8..u9".to_string(),
+    });
+    totals
+}
+
+/// Yeni bir (a) ayrışması testi düşürür; mesaj ADR-0125'in üç parçasını
+/// ve ayrışan ifadeyi taşır.
+#[test]
+fn a_new_silent_wrong_candidate_fails_with_what_why_and_how() {
+    let message =
+        verdict(&totals_with(Class::A, "farklı somut genişlik")).expect_err("(a) testi düşürmeli");
+    for part in [
+        "ne oldu:",
+        "neden:",
+        "ne yapabilirsin:",
+        "(a) sessiz-yanlış adayı",
+        "yeni.volt:3:9",
+        "üretici 8, tip denetimi u8..u9",
+    ] {
+        assert!(message.contains(part), "`{part}` yok:\n{message}");
+    }
+}
+
+/// Yeni bir (b) boşluğu da testi düşürür.
+#[test]
+fn a_new_coverage_gap_fails() {
+    let message = verdict(&totals_with(Class::B, "üretici genişlik vermiyor"))
+        .expect_err("(b) testi düşürmeli");
+    assert!(message.contains("(b) kapsam boşluğu"), "{message}");
+}
+
+/// Listede olmayan bir (c) gerekçesi testi düşürür; listedeki dördü
+/// düşürmez, uyuşan ve iki tarafı genişliksiz karşılaştırma da.
+#[test]
+fn only_the_four_listed_rules_are_expected_differences() {
+    let message = verdict(&totals_with(Class::C, "yeni bir gerekçe"))
+        .expect_err("listede olmayan (c) testi düşürmeli");
+    assert!(message.contains("(c) listede olmayan gerekçe"), "{message}");
+    for rule in C_RULES {
+        assert!(verdict(&totals_with(Class::C, rule)).is_ok(), "{rule}");
+    }
+    assert!(verdict(&totals_with(Class::Agree, "aynı genişlik")).is_ok());
+    assert!(verdict(&totals_with(Class::BothNone, "iki taraf da genişliksiz")).is_ok());
 }

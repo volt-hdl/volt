@@ -16,27 +16,6 @@
       "reason": "the let annotated public takes the secret level of its value (no E3009); the wire form gets E3009"
     },
     {
-      "check": "real-bug",
-      "design": "tests/real_bugs/215_match_expression_width.volt",
-      "relation": "test",
-      "issue": 215,
-      "reason": "the match expression is emitted at 8 bits: y = 44 for a = 200, b = 100, the spec gives 300"
-    },
-    {
-      "check": "if-to-match",
-      "design": "tests/real_bugs/215_match_expression_width.volt",
-      "relation": "hardware",
-      "issue": 215,
-      "reason": "the if form of z is 9 bits wide, its match form 8 bits: the sum loses its carry"
-    },
-    {
-      "check": "match-to-if",
-      "design": "tests/real_bugs/215_match_expression_width.volt",
-      "relation": "hardware",
-      "issue": 215,
-      "reason": "the match form of y is 8 bits wide, its if form 9 bits: the sum keeps its carry"
-    },
-    {
       "check": "clock-to-alias",
       "design": "tests/real_bugs/204_field_init_shorthand.volt",
       "relation": "safety",

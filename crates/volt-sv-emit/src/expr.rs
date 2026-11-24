@@ -51,6 +51,50 @@ impl Sig {
 
 /// Bildirilen imza bağlamdan dar ve aynı işaretliyse bağlam kazanır
 /// (literal doğrudan hedef genişliğiyle boyutlanır — ADR-0041).
+/// Koşullu ifadenin değer kolları: `if`'in iki dalı ya da `match`
+/// ifadesinin ifade gövdeli kolları, yazıldıkları sırayla; başka ifade
+/// `None`. type-inference.md §3.9 (ADR-0083): match ifadesi çok kollu `if`
+/// ifadesidir, genişlik davranışı ayrışmaz. Üretici iki ifadeyi kollarına
+/// bakan her yerde (genişlik, esnek aralık, literal, enum, Trit) bu
+/// listeden okur; kural tek yerdedir (#215: `match` `if`'in kuralını
+/// almadığı için dar üretiliyordu). Blok gövdeli kol gramerde ifade
+/// konumunda yoktur (E0001), tip denetimi gibi atlanır.
+pub(crate) fn value_arms(kind: &ExprKind) -> Option<Vec<Idx<Expr>>> {
+    match kind {
+        ExprKind::If {
+            then_expr,
+            else_expr,
+            ..
+        } => Some(vec![*then_expr, *else_expr]),
+        ExprKind::Match { arms, .. } => Some(
+            arms.iter()
+                .filter_map(|a| match a.body {
+                    MatchArmBody::Expr(e) => Some(e),
+                    MatchArmBody::Block(_) => None,
+                })
+                .collect(),
+        ),
+        ExprKind::IntLit { .. }
+        | ExprKind::BoolLit(_)
+        | ExprKind::StringLit(_)
+        | ExprKind::Path(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Range { .. }
+        | ExprKind::PartSelect { .. }
+        | ExprKind::Field { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::Cast { .. }
+        | ExprKind::StructLit { .. }
+        | ExprKind::ArrayLit(_)
+        | ExprKind::TupleLit(_)
+        | ExprKind::Concat(_)
+        | ExprKind::Todo { .. }
+        | ExprKind::Error => None,
+    }
+}
+
 pub(crate) fn widen_sig(declared: Option<Sig>, ctx: Option<Sig>) -> Option<Sig> {
     match (declared, ctx) {
         (Some(d), Some(c)) if c.signed == d.signed && c.width > d.width => Some(c),
@@ -349,14 +393,12 @@ impl<'a> Emitter<'a> {
                 let ty = *ty;
                 self.sig_of_typeref(ty, span)
             }
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                self.width_of(t).or_else(|| self.width_of(e))
-            }
+            // `if` ve match ifadesi: ilk genişliği bilinen kol (ADR-0083,
+            // `value_arms`).
+            ExprKind::If { .. } | ExprKind::Match { .. } => value_arms(&ast.exprs[idx].kind)
+                .unwrap_or_default()
+                .into_iter()
+                .find_map(|e| self.width_of(e)),
             // Yerleşik primitif ya da kullanıcı modülü örneği portu.
             ExprKind::Field { base, field } => {
                 let (base, field) = (*base, field.text.clone());
@@ -382,11 +424,6 @@ impl<'a> Emitter<'a> {
                     signed: false,
                 })
             }
-            // Match ifadesi `if` gibi: ilk genişliği bilinen kol (ADR-0083).
-            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
-                MatchArmBody::Expr(e) => self.width_of(e),
-                MatchArmBody::Block(_) => None,
-            }),
             // F1 parser yapıları — SV üretimi sonraki aşamalarda
             ExprKind::StringLit(_)
             | ExprKind::StructLit { .. }
@@ -737,14 +774,10 @@ impl<'a> Emitter<'a> {
                 let o = *operand;
                 self.tree_width_dependent(o)
             }
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                self.tree_width_dependent(t) || self.tree_width_dependent(e)
-            }
+            ExprKind::If { .. } | ExprKind::Match { .. } => value_arms(&ast.exprs[idx].kind)
+                .unwrap_or_default()
+                .into_iter()
+                .any(|e| self.tree_width_dependent(e)),
             ExprKind::Binary { .. }
             | ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
@@ -757,7 +790,6 @@ impl<'a> Emitter<'a> {
             | ExprKind::Field { .. }
             | ExprKind::Call { .. }
             | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
@@ -1778,14 +1810,10 @@ impl<'a> Emitter<'a> {
             ExprKind::Unary {
                 op: UnOp::BitNot, ..
             } => true,
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                self.width_dependent(t) || self.width_dependent(e)
-            }
+            ExprKind::If { .. } | ExprKind::Match { .. } => value_arms(&ast.exprs[idx].kind)
+                .unwrap_or_default()
+                .into_iter()
+                .any(|e| self.width_dependent(e)),
             // Dönüşüm kendi sınırını kurar (`emit_cast`); seçim, ad, literal
             // ve karşılaştırma değeri genişlikten bağımsızdır.
             ExprKind::IntLit { .. }
@@ -1799,7 +1827,6 @@ impl<'a> Emitter<'a> {
             | ExprKind::Field { .. }
             | ExprKind::Call { .. }
             | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
