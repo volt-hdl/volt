@@ -1,6 +1,6 @@
 # ADR-0136: Arka Uçlar Anlamsal Bilgiyi Tek Yerden Okur — Çözümlenmiş Ara Temsil, Aşamalı Geçiş, Genişlik Gölgesi
 
-> Statü: Önerildi
+> Statü: Uygulandı — Aşama 0 (envanter) ve Aşama 1 (genişlik gölgesi); Aşama 2–3 ve ara temsilin yeri (§3) açık
 > İlgili: ADR-0005 (crate sınırları: arka uçların `volt-ast` bağımlılığı Aşama 3'te kalkar; yerini alacağı kısım aşağıda), ADR-0010 (`volt-lower` yer tutucusu: ara temsilin yeri için seçeneklerden biri), ADR-0062 (Karar 4 "üretici HIR tiplerini görmez": Aşama 2'de kalkar), ADR-0081 (açılım AST kopyası üzerinde: Aşama 1 kopyadaki ifadeleri ayrıca sayar, Aşama 3 açılımı ara temsile taşır)
 > Issue: #407
 > Tarih: 2026-11-24
