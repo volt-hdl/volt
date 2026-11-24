@@ -12,7 +12,7 @@
 
 use volt_ast::{BinOp, Expr, ExprKind, Idx, UnOp};
 
-use crate::expr::Sig;
+use crate::expr::{value_arms, Sig};
 use crate::scope::Res;
 use crate::Emitter;
 
@@ -104,11 +104,13 @@ impl Emitter<'_> {
                 ) && self.is_unsized_literal(*lhs)
                     && self.is_unsized_literal(*rhs)
             }
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => self.is_unsized_literal(*then_expr) && self.is_unsized_literal(*else_expr),
+            // Kolları literal olan `if` ve match ifadesi (`value_arms`; kol
+            // listesi boş olmaz: `if` iki dallıdır, ifade kolu olmayan match
+            // üreticiye gelmeden E0001/E0014 alır).
+            kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => value_arms(kind)
+                .unwrap_or_default()
+                .into_iter()
+                .all(|e| self.is_unsized_literal(e)),
             ExprKind::IntLit {
                 suffix: Some(_), ..
             }
@@ -122,7 +124,6 @@ impl Emitter<'_> {
             | ExprKind::Field { .. }
             | ExprKind::Call { .. }
             | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
@@ -203,17 +204,18 @@ impl Emitter<'_> {
                 op: UnOp::BitNot,
                 operand,
             } => self.int_range(*operand),
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => {
-                let (t, e) = (*then_expr, *else_expr);
-                match (self.int_range(t), self.int_range(e)) {
-                    (Some(a), Some(b)) => a.meet(b),
-                    (Some(a), None) | (None, Some(a)) => Some(a),
-                    (None, None) => None,
-                }
+            // `if` ve match ifadesi aynı kural (type-inference.md §3.7,
+            // §3.9, `value_arms`): literal kol aralık vermez, somut kolların
+            // aralıkları kesişir (tip denetiminin `synth_if`/`synth_match`'i).
+            kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => {
+                let mut ranges = value_arms(kind)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|e| self.int_range(e))
+                    .collect::<Vec<_>>()
+                    .into_iter();
+                let first = ranges.next()?;
+                ranges.try_fold(first, Range::meet)
             }
             // Esnek aralığın alt ucu yalnız tipsiz yerelde ve tipsiz modül
             // `let`'inde vardır; ad kapsam zinciriyle çözülür (scope.rs).
@@ -242,7 +244,6 @@ impl Emitter<'_> {
             | ExprKind::Field { .. }
             | ExprKind::Call { .. }
             | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)

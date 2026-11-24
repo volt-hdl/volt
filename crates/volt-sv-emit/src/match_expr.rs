@@ -66,6 +66,17 @@ pub(crate) struct ProcScope {
 }
 
 impl<'a> Emitter<'a> {
+    /// Sınananın ve kol etiketlerinin genişliği, deyim `match`'i ve match
+    /// ifadesi için (type-inference.md §3.9): tip denetimi sınananı
+    /// sentezler, değeri doğal genişliğindedir (ADR-0025) ve desen
+    /// literalleri bu genişliğe denetlenir (`match a + b { 300 => … }`, a ve
+    /// b u8: 9 bit, 512 E2010). `case` ifadesi ve etiketler bu genişlikte
+    /// yazılır; işlem genişliğinde `300` `8'h2C` olur ve 44'ün kolunu
+    /// seçerdi (#215).
+    pub(crate) fn scrutinee_sig(&mut self, scrutinee: Idx<Expr>) -> Option<Sig> {
+        self.natural_sig(scrutinee)
+    }
+
     // ═══ Kök konum ════════════════════════════════════════════════
 
     /// `e` bir match ifadesiyse (sınanan, kollar).
@@ -275,7 +286,7 @@ impl<'a> Emitter<'a> {
         scrutinee: Idx<Expr>,
         arms: &'a [MatchArm],
     ) -> Option<ExprMatchPlan> {
-        let scrut_sig = self.width_of(scrutinee);
+        let scrut_sig = self.scrutinee_sig(scrutinee);
         let scrut_enum: Option<&'a EnumDecl> = self.enum_of_expr(scrutinee);
         let scrut = self.emit_prec(scrutinee, scrut_sig, PREC_EQ, false);
         let enum_plan = scrut_enum.map(|d| self.enum_match_plan(arms, d));

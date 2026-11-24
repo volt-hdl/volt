@@ -133,18 +133,12 @@ impl<'a> Emitter<'a> {
             ExprKind::Call { callee, args } if self.is_prev_call(*callee) => {
                 self.enum_of_expr(*args.first()?)
             }
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => self
-                .enum_of_expr(*then_expr)
-                .or_else(|| self.enum_of_expr(*else_expr)),
-            // Match ifadesi `if` gibi: ilk enum tipli kol (ADR-0083).
-            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| match a.body {
-                volt_ast::MatchArmBody::Expr(e) => self.enum_of_expr(e),
-                volt_ast::MatchArmBody::Block(_) => None,
-            }),
+            // `if` ve match ifadesi: ilk enum tipli kol (ADR-0083,
+            // `value_arms`).
+            kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => crate::expr::value_arms(kind)
+                .unwrap_or_default()
+                .into_iter()
+                .find_map(|e| self.enum_of_expr(e)),
             ExprKind::Field { base, field } => {
                 let inst = self.module_path(*base)?;
                 let module = &self.user_insts.get(inst)?.module;

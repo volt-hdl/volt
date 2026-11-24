@@ -79,14 +79,12 @@ parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
 
-**A `match` is computed at a narrower width than the type checker
-uses.** With `u8` operands, `let m = match sel { 0 => a + b, _ => a - b }`
-is an 8-bit signal in the generated SystemVerilog, so 200 + 100 gives 44;
-`match a + b` with an arm `44 =>` also takes the value 300; and a
-contract with `prev(a + b)` or a signed `prev()` compares at the wrong
-width. Write the choice as `if`/`else`, or put the subject in a `let`
-with an explicit width (`let s : u9 = a + b`, then `match s`). Tracked in
-[issue #215](https://github.com/volt-hdl/volt/issues/215).
+**A contract with `prev()` of a sum or of a signed value compares at
+the wrong width.** With `u8` operands, `prev(a + b) != 300` compares the
+8-bit sum with 44, and `prev(sa) < sb` with `i8` operands can compare
+unsigned. Keep the previous value in a register of the right type
+yourself (`reg p : u9 = 0`, `on clk { p <= a + b }`, then `p != 300`).
+Tracked in [issue #413](https://github.com/volt-hdl/volt/issues/413).
 
 **In a statement `match`, an arm after the wildcard wins.** In a `comb`
 block, `match s { 0 => { … } _ => { y = 7 } 1 => { y = 9 } }` gives 9 for

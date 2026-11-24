@@ -2168,7 +2168,7 @@ impl<'a> Emitter<'a> {
     /// Muhafız (guard) ile bağlama/yol/tuple desenleri sonraki aşamalarda.
     fn emit_match(&mut self, m: &'a MatchStmt, indent: usize, lines: &mut Vec<String>) {
         let ind = " ".repeat(indent);
-        let scrut_sig = self.width_of(m.scrutinee);
+        let scrut_sig = self.scrutinee_sig(m.scrutinee);
         let scrut_enum = self.enum_of_expr(m.scrutinee);
         let scrut = self.emit_expr(m.scrutinee, scrut_sig);
         // ADR-0074 Karar 4: erişilemez kol atlanır; kapsayıcı `_`'sız enum

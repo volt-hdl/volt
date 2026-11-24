@@ -73,11 +73,12 @@ impl Emitter<'_> {
                 lhs,
                 rhs,
             } => self.is_trit(*lhs) && self.is_trit(*rhs),
-            ExprKind::If {
-                then_expr,
-                else_expr,
-                ..
-            } => self.is_trit(*then_expr) && self.is_trit(*else_expr),
+            // Kolları Trit olan `if` ve match ifadesi (`value_arms`; kol
+            // listesi boş olmaz).
+            kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => crate::expr::value_arms(kind)
+                .unwrap_or_default()
+                .into_iter()
+                .all(|e| self.is_trit(e)),
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
@@ -88,7 +89,6 @@ impl Emitter<'_> {
             | ExprKind::Field { .. }
             | ExprKind::Call { .. }
             | ExprKind::Cast { .. }
-            | ExprKind::Match { .. }
             | ExprKind::StructLit { .. }
             | ExprKind::ArrayLit(_)
             | ExprKind::TupleLit(_)
