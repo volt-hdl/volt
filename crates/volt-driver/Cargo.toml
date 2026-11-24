@@ -30,3 +30,5 @@ serde_json.workspace = true
 volt-tools = { path = "../volt-tools" }
 # ADR-0108: fark testinin referans modeli ve koşucusu (derleyiciden bağımsız)
 volt-difftest = { path = "../volt-difftest" }
+# #407 Aşama 1 (ADR-0136): genişlik gölgesi yalnız testlerde açılır.
+volt-sv-emit = { path = "../volt-sv-emit", features = ["width-shadow"] }

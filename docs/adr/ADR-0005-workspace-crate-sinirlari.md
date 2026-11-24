@@ -1,6 +1,7 @@
 # ADR-0005: Workspace Crate Sınırları ve Araç Zinciri (Rust, logos, codespan-reporting)
 
 > Statü: Uygulandı — geriye dönük belgelendi (2026-09-16)
+> İlgili: ADR-0136 (önerildi: arka uçların `volt-ast` bağımlılığı Aşama 3'te kalkar; kabul edilirse "Karar"ın katmanlar maddesinin kısmen yerini alır)
 > Tarih: 2026-09-03
 > Etkilenen: Cargo.toml (workspace members/dependencies), crates/*/Cargo.toml,
 > scripts/check-consistency (kontrol 4), CLAUDE.md "Dizin Yapısı"
