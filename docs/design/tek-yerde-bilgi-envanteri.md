@@ -165,6 +165,14 @@ ile içe aktarılan takma ad da görülür. `volt-sv-emit` saat ve reset
 portlarını kendi `alias::resolve`'u üzerinden zaten çözüyordu (yukarıdaki
 satır); Aşama 2'de onun okuması da `port_class`'a geçer.
 
+ADR-0137 (#412): takma ad zinciri yolunun yedi çağıranı nedenleri ve onları
+kaldıracak adımla bir izin listesindedir
+(`crates/volt-driver/tests/signal_class_callers_tests.rs`); listede
+olmayan yeni çağıran testi düşürür. Sınıflama gölgesi
+(`crates/volt-driver/tests/class_shadow_tests.rs`) derlenen her birimin
+her portunda iki yolun aynı sınıfı verdiğini sınar; bilinen tek fark
+#415'tir.
+
 ## 4. Saat alanı, saat ve reset sınıflaması
 
 | Yer | Kullanan | Yardımcı | Not |
@@ -216,16 +224,33 @@ satır); Aşama 2'de onun okuması da `port_class`'a geçer.
 Bunlar envanterin yan ürünüdür; Aşama 2'de ilgili bilgi geçmeden önce
 çözülür ya da bakımcının kararıyla belgelenir.
 
-| Bilgi | Ayrışma |
-|---|---|
-| Genişlik üst sınırı | TD `<N>`'i 65535'te (`resolve_sized`), TD consteval 65536'da keser; `volt_ast::const_eval::width` ve SV `sig_of_typeref` sınırsız. |
-| Sabitte `as` | TD consteval `as`'ı yok sayar; SV `shift_amount` `as uN`'yi keser. |
-| `clog2` ve `~` | TD consteval değerlendirir; `volt_ast::const_eval`'da kolları yok, SV değer alamaz. |
-| Yerleşik DEPTH/N | TD yalnız literal kabul eder; SV herhangi bir `eval_const` değerini. |
-| Bool/Trit genişliği | `signal_width` Bool ve Trit için `None`; `bit_width` Bool 1, Trit 2; SV `bits_at` Trit 2; SIM `scalar_width` Trit'i skaler saymaz. |
-| Test dilinde tasarım sabiti | Yalnız düz (ya da eksi) literal sabit sayılır; hesaplanan `const` sayılmaz. |
-| Takma adlı saat/reset | #234 ile giderildi: sınıf `port_class` ya da `signal_class`'tan okunur (bölüm 3); kalan sınır #415. |
-| `domain` bildirimi | Üç ayrıştırıcı; reset alanında "son alan kazanır" ile `any` ayrışır. |
-| Sürücü saati | SDC `@clockport` zincirini izlemez; TD ve SV izler. |
-| Struct yaprak adı | `Leaf::suffix` dışında üç ayrı yazım. |
-| Değer aralığı | "Sığar mı" TD'de yedi kez, SIM'de bir kez yazılmış. |
+**Ayıklama (#412, ADR-0137 §5; 2026-11-24, `main` d185a50c).** Her satır için en küçük örnek `volt
+check`, `volt build` (SV, SVA, SDC, XDC, sürücüler) ve uygulanıyorsa
+`volt test` ile çalıştırıldı. Sınıflar: **sessiz yanlış** (çıktı ya da
+test sonucu spec'ten farklı ve tanı yok), **reddedilen** (bir taraf tanı
+veriyor, kullanıcı ayrışmaya ulaşamıyor), **gizli** (bugün kullanıcının
+görebileceği bir fark yok). Reddedilen ve gizli satırların bugünkü
+davranışı `crates/volt-driver/tests/divergence_triage_tests.rs`'te
+`rowN_` önekli testlerle sabittir. Sessiz yanlış satırların testi yoktur;
+her birinin issue'su son sütundadır (#418-#421). Ayıklamanın sessiz
+olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmayan
+`DomainInfo.reset`) #422'dedir.
+
+| # | Bilgi | Ayrışma | Sınıf (#412) | Gözlenen | Test ya da issue |
+|---|---|---|---|---|---|
+| 1 | Genişlik üst sınırı | TD `<N>`'i 65535'te (`resolve_sized`), TD consteval 65536'da keser; `volt_ast::const_eval::width` ve SV `sig_of_typeref` sınırsız. | sessiz yanlış | `bits<65536>` E2025'ten geçer, tip denetiminde sessizce hata tipi olur: `bits<8>`'e atama E2001'siz derlenir, SV `assign y = 8'(x)` keser. | #418 |
+| 2 | Sabitte `as` | TD consteval `as`'ı yok sayar; SV `shift_amount` `as uN`'yi keser. | reddedilen | `as`'lı sabit üreticide E0003; dizi indeksinde yanlış E2006 (kesilmemiş değer). Satır içi `x << (9 as u3)` derlenir, SV doğru, W2013 yanlış ("hep 0"; açık bulgu). | `row2_*`; #422 |
+| 3 | `clog2` ve `~` | TD consteval değerlendirir; `volt_ast::const_eval`'da kolları yok, SV değer alamaz. | reddedilen | genişlikte E2005, değerde E0003. | `row3_*`; #422 |
+| 4 | Yerleşik DEPTH/N | TD yalnız literal kabul eder; SV herhangi bir `eval_const` değerini. | reddedilen | adlı sabit E2008; generic parametre monomorflamada literal, iki taraf aynı. | `row4_*` |
+| 5 | Bool/Trit genişliği | `signal_width` Bool ve Trit için `None`; `bit_width` Bool 1, Trit 2; SV `bits_at` Trit 2; SIM `scalar_width` Trit'i skaler saymaz. | sessiz yanlış | `ShiftRegister<Trit, 4>`'ün `taps`'ı TD'de `bits<4>`, SV'de 8 bit; `bits<4>`'e atama SV'de kesilir. Trit `sync()`'i W3003 almaz. | #419 |
+| 6 | Test dilinde tasarım sabiti | Yalnız düz (ya da eksi) literal sabit sayılır; hesaplanan `const` sayılmaz. | reddedilen | hesaplanan const E8506; düz literal const E8512 sığma denetimine girer. | `row6_*` |
+| 7 | Takma adlı saat/reset | #234 ile giderildi: sınıf `port_class` ya da `signal_class`'tan okunur (bölüm 3); kalan sınır #415. | kapandı (#416) | #234'ün örnekleri doğrudan yazılanla aynı tanı ve dosyalar; kalan #415 reddedilen (E5011; E0019 önerisinde `on <clock>`). | `aliased_clock_reset_tests.rs`; `row7_issue_415_*`; sınıflama gölgesi (ADR-0137 §4) |
+| 8 | `domain` bildirimi | Üç ayrıştırıcı; reset alanında "son alan kazanır" ile `any` ayrışır. | sessiz yanlış | `reset = none` ardından `reset = sync active_high`: SV ve RDC son alanı alır, senkronizör üretilir; XDC onun `ASYNC_REG` satırını yazmaz. | #420 |
+| 9 | Sürücü saati | SDC `@clockport` zincirini izlemez; TD ve SV izler. | sessiz yanlış | `@a_clk` açıklamalı sinyalden `let` ile `sync()`: XDC `set_max_delay -datapath_only` yerine `set_false_path`. Yakalama register'ı da (`sync_<x>_src`) yalnız `@Alan` yazımında üretilir. Saat portu başka bir saat portuyla açıklanınca (`in c1 : clock @c0`) SDC yanlış W0022 verir, `create_clock` yazmaz. | #421 |
+| 10 | Struct yaprak adı | `Leaf::suffix` dışında üç ayrı yazım. | gizli | SV, SDC ve test dili `p.i.x`'i `p_i_x` yazar; çakışma E1003. | `row10_*` |
+| 11 | Değer aralığı | "Sığar mı" TD'de yedi kez, SIM'de bir kez yazılmış. | gizli | yedi TD kopyası 1..=64 bitte aynı sınırı verir (E2010, W2010); SIM'in bit deseni kabulü ADR-0059'un kuralı. | `row11_*` |
+
+Ayıklamanın yan bulgusu (gizli, #422): TD'nin `DomainInfo.reset`'i
+(`domain/tables.rs`) yazılmamış reset alanına `none` verir; spec'in
+varsayılanı `sync active_high`'tır (sv-mapping.md) ve RDC ile SV onu
+kullanır. Alan hiçbir yerde okunmadığı için bugün görünmez.
