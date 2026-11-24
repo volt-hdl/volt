@@ -208,14 +208,24 @@ impl TypeChecker<'_, '_> {
                 self.in_const_item = false;
             }
         }
+        // Port tipleri gövdelerden ÖNCE: reset bağlama kuralı (E2003)
+        // dosyada sonra bildirilen çocuğun portunu da sınıflar (#234).
+        for &item_idx in &ast.items {
+            let kind = &ast.items_arena[item_idx].kind;
+            if let ItemKind::Module(m) = kind {
+                self.type_ports(&m.ports);
+            } else if let ItemKind::Extern(x) = kind {
+                self.type_ports(&x.ports);
+            }
+        }
         for &item_idx in &ast.items {
             match &ast.items_arena[item_idx].kind {
                 ItemKind::Module(m) => self.check_module(m),
-                ItemKind::Extern(x) => self.type_extern_ports(x),
                 ItemKind::Fn(f) => self.check_fn(f),
-                // Bildirimler yukarıda (enum/struct/const) ya da başka geçitte
-                // denetlenir.
-                ItemKind::Domain(_)
+                // Bildirimler yukarıda (enum/struct/const/port tipleri) ya
+                // da başka geçitte denetlenir.
+                ItemKind::Extern(_)
+                | ItemKind::Domain(_)
                 | ItemKind::Struct(_)
                 | ItemKind::Enum(_)
                 | ItemKind::Const(_)

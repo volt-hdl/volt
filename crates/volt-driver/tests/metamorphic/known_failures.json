@@ -16,188 +16,6 @@
       "reason": "the let annotated public takes the secret level of its value (no E3009); the wire form gets E3009"
     },
     {
-      "check": "clock-to-alias",
-      "design": "tests/real_bugs/204_field_init_shorthand.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/194_generated_name_sync_stage.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/197_sync_inside_expression.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/219_extern_raw_reset.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3011 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/62_rdc_async_reset_shared.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/63_rdc_raw_reset_kind_mismatch.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/65_rdc_reset_convergence.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/316_rdc_converge_derived_clock.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/real_bugs/371_reset_converge_instance_clock.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/67_rdc_root_async_reset.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3009 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/68_rdc_sync_reset_shared.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/70_rdc_ram_write_side_register.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/107_struct_sync_contracts.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/131_let_sync.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3010 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/19_async_negedge_domain.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3009 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/fail/64_rdc_raw_reset_name_clash.volt",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "E3003 and W3009 are lost and the reset-port clash is reported as E1003 instead: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/real_bugs/137_stage_value_shadowed_by_loop_var.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E5011 \"a pipeline needs exactly one clock port (found 0)\": the pipeline check does not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/138_locals_shadow_rewritten_names.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E5011 \"a pipeline needs exactly one clock port (found 0)\": the pipeline check does not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/57_mmio_basic.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E1003 \"'clk' is already defined\": the @mmio expansion does not see the clock port written through an alias and adds its own"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/58_mmio_access_control.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E1003 \"'clk' is already defined\": the @mmio expansion does not see the clock port written through an alias and adds its own"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/72_mmio_driver_generation.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E1003 \"'clk' is already defined\": the @mmio expansion does not see the clock port written through an alias and adds its own"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "tests/ui/pass/73_sdc_single_clock.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E0017 on @timing(clk >= ...): the constraint pass (constraints/walk.rs) does not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "book/src/cookbook/reset-sync.md#blinker.volt@3",
-      "relation": "safety",
-      "issue": 234,
-      "reason": "W3009 is lost: reset domain checks (rdc/facts.rs) do not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "examples/fir_filter.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E5011 \"a pipeline needs exactly one clock port (found 0)\": the pipeline check does not see a clock port written through an alias"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "examples/soc/gpio.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E1003 \"'clk' is already defined\": the @mmio expansion does not see the clock port written through an alias and adds its own"
-    },
-    {
-      "check": "clock-to-alias",
-      "design": "examples/vga/vga_timing.volt",
-      "relation": "codes",
-      "issue": 234,
-      "reason": "false E0017 on @timing: the constraint pass (constraints/walk.rs) does not see a clock port written through an alias"
-    },
-    {
       "check": "wire-to-let",
       "design": "tests/ui/fail/185_domain_annot_wire_foreign.volt",
       "relation": "location",
@@ -210,6 +28,13 @@
       "relation": "location",
       "issue": 298,
       "reason": "the let's E3001 is at its annotation, the wire's at its assignment"
+    },
+    {
+      "check": "clock-to-alias",
+      "design": "tests/real_bugs/137_stage_value_shadowed_by_loop_var.volt",
+      "relation": "codes",
+      "issue": 415,
+      "reason": "false E5011 \"a pipeline needs exactly one clock port (found 0)\": the alias is declared after the pipeline (before the test block, the first item the rewrite finds), and the pipeline desugaring runs while the file is parsed, so it sees aliases declared before it only"
     }
   ]
 }

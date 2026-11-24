@@ -6,12 +6,12 @@ use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
     builtin::BuiltinPrim, ClockEdge, DomainKey, DomainValue, InstanceDecl, ItemKind, ModuleDecl,
-    Port, ResetPolarity, ResetSpec, ResetSync, SourceFile, StmtKind, TypeRefKind,
+    Port, ResetPolarity, ResetSpec, ResetSync, SourceFile, StmtKind,
 };
 use volt_span::Span;
 
 use super::super::{DomainId, DomainResult, DomainSource};
-use super::is_raw_reset;
+use crate::port_class::{DefTypes, SignalClass};
 use crate::resolve::{DefId, ResolveResult};
 
 /// Alanında `reset` yazılmamış saatin reset'i — sv-emit'in ürettiği
@@ -63,7 +63,12 @@ pub(super) struct RawFact<'a> {
 }
 
 impl<'a> UnitFacts<'a> {
-    pub(super) fn collect(ast: &'a SourceFile, res: &ResolveResult, dom: &DomainResult) -> Self {
+    pub(super) fn collect(
+        ast: &'a SourceFile,
+        res: &ResolveResult,
+        classes: DefTypes<'_>,
+        dom: &DomainResult,
+    ) -> Self {
         let instantiated: HashSet<DefId> = res.instance_module.values().copied().collect();
         let mut modules = Vec::new();
         let mut by_def = HashMap::new();
@@ -77,8 +82,8 @@ impl<'a> UnitFacts<'a> {
             by_def.insert(def, modules.len());
             modules.push(ModuleFacts {
                 decl: m,
-                clocks: clock_facts(ast, res, dom, m),
-                raws: raw_facts(ast, res, m),
+                clocks: clock_facts(ast, res, classes, dom, m),
+                raws: raw_facts(res, classes, m),
                 is_root: !instantiated.contains(&def),
             });
         }
@@ -93,13 +98,14 @@ impl<'a> UnitFacts<'a> {
 fn clock_facts<'a>(
     ast: &SourceFile,
     res: &ResolveResult,
+    classes: DefTypes<'_>,
     dom: &DomainResult,
     m: &'a ModuleDecl,
 ) -> Vec<ClockFact<'a>> {
     let reset_free = reset_free_bindings(ast, res, m);
     let mut out = Vec::new();
     for port in &m.ports {
-        if !matches!(ast.types[port.ty].kind, TypeRefKind::Clock) {
+        if !classes.is_clock_port(res, port) {
             continue;
         }
         let Some(&def) = res.decl_spans.get(&port.name.span) else {
@@ -154,16 +160,18 @@ fn declared_reset(
         })
 }
 
-fn raw_facts<'a>(ast: &SourceFile, res: &ResolveResult, m: &'a ModuleDecl) -> Vec<RawFact<'a>> {
+fn raw_facts<'a>(
+    res: &ResolveResult,
+    classes: DefTypes<'_>,
+    m: &'a ModuleDecl,
+) -> Vec<RawFact<'a>> {
     m.ports
         .iter()
-        .filter(|p| is_raw_reset(ast, p))
+        .filter(|p| classes.is_raw_reset(res, p))
         .filter_map(|port| {
             let def = *res.decl_spans.get(&port.name.span)?;
-            let spec = if let TypeRefKind::Reset(spec) = ast.types[port.ty].kind {
-                spec
-            } else {
-                None
+            let SignalClass::Reset(spec) = classes.class(def) else {
+                return None;
             };
             let ann = port
                 .domain

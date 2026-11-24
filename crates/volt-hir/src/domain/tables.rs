@@ -9,8 +9,8 @@ use volt_diagnostics::lstr;
 use volt_span::Span;
 
 use super::{ClockSpec, DomainId, DomainInfo, DomainSource, Inferencer};
+use crate::port_class::DefTypes;
 use crate::resolve::{BuiltinKind, DefId, DefKind};
-use crate::ty::Ty;
 
 impl Inferencer<'_> {
     pub(super) fn collect_domain_decls(&mut self) {
@@ -105,16 +105,12 @@ impl Inferencer<'_> {
     }
 
     pub(super) fn is_clock_def(&self, def: DefId) -> bool {
-        self.tyck
-            .def_types
-            .get(&def)
-            .is_some_and(|&t| matches!(self.tyck.types.ty(t), Ty::Clock))
+        DefTypes::of(self.tyck).is_clock(def)
     }
 
     /// Port clock tipinde mi (modül, extern ve örnekleme hedefi ortak).
     pub(super) fn is_clock_port(&self, port: &Port) -> bool {
-        self.decl_def(&port.name)
-            .is_some_and(|def| self.is_clock_def(def))
+        DefTypes::of(self.tyck).is_clock_port(self.res, port)
     }
 
     pub(super) fn decl_def(&self, name: &Name) -> Option<DefId> {

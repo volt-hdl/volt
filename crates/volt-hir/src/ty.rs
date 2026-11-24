@@ -60,6 +60,25 @@ impl From<volt_ast::ResetSpec> for ResetSpec {
     }
 }
 
+/// Tip denetiminin çözdüğü reset türü, sözdizimi katmanının diliyle
+/// (`port_class`, #234): reset alanı denetimi alan bildirimiyle onu
+/// karşılaştırır.
+impl From<ResetSpec> for volt_ast::ResetSpec {
+    fn from(spec: ResetSpec) -> Self {
+        volt_ast::ResetSpec {
+            sync: match spec.sync {
+                ResetSync::Sync => volt_ast::ResetSync::Sync,
+                ResetSync::Async => volt_ast::ResetSync::Async,
+                ResetSync::None => volt_ast::ResetSync::None,
+            },
+            polarity: match spec.polarity {
+                ResetPolarity::ActiveHigh => volt_ast::ResetPolarity::ActiveHigh,
+                ResetPolarity::ActiveLow => volt_ast::ResetPolarity::ActiveLow,
+            },
+        }
+    }
+}
+
 /// Volt tip evreni (type-inference.md §1).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Ty {

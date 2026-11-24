@@ -147,20 +147,23 @@ Göze çarpanlar:
 | `volt-hir/src/typeck/type_ref.rs:118` `resolve_named_type` | TD | **kendi** | DefId ve kapsam tabanlı, derinlik sınırı yok (`alias_stack`). `Ty::Clock`, `Ty::Struct` buradan gelir. |
 | `volt-hir/src/sim_port.rs:110` `scalar_width` | SIM | `alias_chain_end` | |
 
-**Takma adı hiç çözmeyen yerler** (saat ya da reset portunu `TypeRefKind`'a
-bakarak sınıflar; `type Clk = clock` ile yazılan port saat sayılmaz):
+**Saat ve reset sınıflaması** (#234 ile düzeltildi; önceden yedi yer ve
+ayrıştırıcının dört geçidi portu `TypeRefKind`'a bakarak sınıflıyordu,
+`type Clk = clock` ile yazılan port saat sayılmıyordu). Sınıf
+(`SignalClass`: saat, reset türüyle, veri) iki yoldan okunur; ikisi aynı
+türü döndürür:
 
-| Yer | Kullanan |
-|---|---|
-| `volt-hir/src/domain/rdc/facts.rs:93` `clock_facts` (satır 102), `:157` `raw_facts` (satır 163) | TD (RDC) |
-| `volt-hir/src/domain/rdc/mod.rs:81` `is_raw_reset` | TD (RDC) |
-| `volt-hir/src/constraints/walk.rs:78` `Scope::new` (satır 90), `:1248` `is_raw_reset` | SDC |
-| `volt-hir/src/timing.rs:151` `ModuleTiming::run` (satır 165) | TD (L1 zamanlama) |
-| `volt-hir/src/sim.rs:272` `check_set_port` (satır 284) | SIM (E8503) |
-| `volt-lsp/src/analysis.rs:334` `clock_ports` | LSP (`on` tamamlama) |
+| Yol | Yardımcı | Kim çağırır | Neden bu yol |
+|---|---|---|---|
+| Tip denetiminin çözdüğü tip (`Ty::Clock`, `Ty::Reset`) | `volt-hir/src/port_class.rs:40` `DefTypes::class` (`:60` `port`, `:66` `is_clock_port`, `:72` `is_raw_reset`) | RDC `rdc/facts.rs:98` `clock_facts`, `:163` `raw_facts`, `rdc/mod.rs:125` `is_raw_reset_port`; SDC `constraints/walk.rs:81` `Scope::new`, ham reset süzgeci (`reset_chains`, `feeding_raw`); L1 `timing.rs:152` `ModuleTiming::run`; TD `typeck/reset_binding.rs:268` `is_raw_reset_def` (E2003); alan çıkarımı `domain/tables.rs:107`, `:112`; özet `summary.rs:272`; güven `trust.rs:132`; LSP `analysis.rs:340` `clock_ports` (tip denetimi koştuysa) | Tip denetiminden sonra koşar. Tip denetimi port tiplerini gövdelerden önce kaydeder (`typeck/stmt.rs:47` `type_ports`), böylece E2003 kuralı dosyada sonra bildirilen çocuğun portunu da sınıflar. |
+| Takma ad zinciri (ada göre) | `volt-ast/src/alias.rs:37` `signal_class` (`alias_chain_end`) | SIM `sim.rs:273` `check_set_port` (E8503); RDC `rdc/mod.rs:63` `without_raw_reset_unused` (W1001 süzgeci); LSP `analysis.rs:340` (yarım kod); ayrıştırıcı `desugar.rs:1015` `single_clock` (E5011), `mmio.rs:829` `module_clock`, `register_assign.rs:55` `reg_clocks` (E0019 önerisi), `auto_contract/scan.rs:141` `scan_module` | Tip denetimine ulaşamaz: test blokları kardeş dosyayla birim olmadan denetlenir; W1001 süzgeci çözümleme hatalıyken de (tip denetimi koşmadan) çalışır; LSP tamamlaması çoğunlukla ayrıştırma hatalı yarım kodda istenir; ayrıştırıcı tip denetiminden önce koşar. |
 
-Bunlardan birinin etkisi doğrulandı (rapordaki "Açık bulgular"): saat portu
-takma adla yazılınca `volt build --emit=sdc` kısıt dosyası üretmez.
+Sınır: ayrıştırma sırasında koşan iki geçit (`single_clock`, `reg_clocks`)
+yalnız kendisinden önce bildirilen takma adı görür (#415). `@mmio` ve
+otomatik kontratlar dosya bütünüyle ayrıştırıldıktan sonra koşar; `use`
+ile içe aktarılan takma ad da görülür. `volt-sv-emit` saat ve reset
+portlarını kendi `alias::resolve`'u üzerinden zaten çözüyordu (yukarıdaki
+satır); Aşama 2'de onun okuması da `port_class`'a geçer.
 
 ## 4. Saat alanı, saat ve reset sınıflaması
 
@@ -170,10 +173,10 @@ takma adla yazılınca `volt build --emit=sdc` kısıt dosyası üretmez.
 | `volt-hir/src/domain/module.rs:12` `infer_module`; `:55` `scan_clock_ports`; `:179` `assign_port_domains` | TD | başvuru | `@clk` zinciri; kontrat saati ilk saat (satır 43). |
 | `volt-hir/src/domain/annotation.rs:12`; `trust_alias.rs:23`, `:39`; `reg.rs:17`, `:70`, `:236`; `expr.rs:11`, `:20`, `:90`, `:101`; `walk.rs:64`; `sync.rs:14`; `bidir.rs:15`; `edgeless.rs:74` | TD | başvuru | |
 | `volt-hir/src/domain/instance.rs:111`, `:150`, `:245`, `:278`, `:304`, `:652`; `builtin_instance.rs:77` | TD | başvuru; `DomainRole` | |
-| `volt-hir/src/domain/rdc/facts.rs:93`, `:137`, `:157`, `:187`, `:263`; `rdc/mod.rs:81`, `:126`; `rdc/converge.rs:43`, `:184` | TD (RDC) | kendi + `clock_resets_flops` | |
-| `volt-hir/src/summary.rs:272` `Clocks::is_clock_port` | TD | `Ty::Clock` | Takma adı çözer. |
-| `volt-hir/src/timing.rs:151` `ModuleTiming::run` | TD | kendi | |
-| `volt-hir/src/sim.rs:272` `check_set_port` | SIM | kendi | |
+| `volt-hir/src/domain/rdc/facts.rs:93`, `:137`, `:157`, `:187`, `:263`; `rdc/mod.rs:81`, `:126`; `rdc/converge.rs:43`, `:184` | TD (RDC) | kendi + `clock_resets_flops`; saat ve ham reset portu `port_class` (#234) | |
+| `volt-hir/src/summary.rs:272` `Clocks::is_clock_port` | TD | `port_class` | Takma adı çözer. |
+| `volt-hir/src/timing.rs:152` `ModuleTiming::run` | TD | `port_class` (#234) | |
+| `volt-hir/src/sim.rs:273` `check_set_port` | SIM | `signal_class` (#234) | |
 | `volt-sv-emit/src/lib.rs:828` `collect_domains` | SV | **kendi** | `domain` bildirimi → kenar ve reset; son alan kazanır. |
 | `volt-sv-emit/src/flop_audit.rs:48` `port_domain` | SV | **kendi** | TD `scan_clock_ports`'un ada göre kopyası. |
 | `volt-sv-emit/src/lib.rs:789` `clock_ports_of`; `:224` `domain_of_trigger` | SV | `port_domain`, `reset_sync` | |
@@ -187,7 +190,7 @@ takma adla yazılınca `volt build --emit=sdc` kısıt dosyası üretmez.
 | `volt-hir/src/constraints/walk.rs:335` `collect_domains`; `:379` `collect_module` | SDC | **kendi** | `domain` bildiriminin üçüncü ayrıştırıcısı; `has_reset` "son alan kazanır" yerine `any`. |
 | `volt-hir/src/constraints/walk.rs:945` `sync_bridge`; `:1017` `builtin_bridge`; `:1113` `user_instance` | SDC | kendi | `builtin_bridge` `DomainRole` yerine port adlarını (`wr_clk`, `rd_clk`, `src_clk`, `dst_clk`) sabit yazar. |
 | `volt-hir/src/constraints/walk.rs:1167` `reset_chains`; `:1201` `has_reset`; `:1212` `feeding_raw`; `:1248` `is_raw_reset` | SDC | `reset_chain`; gerisi kendi | `feeding_raw` SV `reset_sync::feeding_raw`'ın kopyası. |
-| `volt-lsp/src/analysis.rs:334` `clock_ports` | LSP | kendi | |
+| `volt-lsp/src/analysis.rs:340` `clock_ports` | LSP | `port_class`, yarım kodda `signal_class` (#234) | |
 | `volt-lsp/src/hover.rs:307`; `inlay.rs:228`, `:237` | LSP | TD `DomainResult` | Yalnız okur. |
 
 ## 5. Struct sinyalleri
@@ -221,7 +224,7 @@ Bunlar envanterin yan ürünüdür; Aşama 2'de ilgili bilgi geçmeden önce
 | Yerleşik DEPTH/N | TD yalnız literal kabul eder; SV herhangi bir `eval_const` değerini. |
 | Bool/Trit genişliği | `signal_width` Bool ve Trit için `None`; `bit_width` Bool 1, Trit 2; SV `bits_at` Trit 2; SIM `scalar_width` Trit'i skaler saymaz. |
 | Test dilinde tasarım sabiti | Yalnız düz (ya da eksi) literal sabit sayılır; hesaplanan `const` sayılmaz. |
-| Takma adlı saat/reset | Yedi yer takma adı çözmez (bölüm 3). |
+| Takma adlı saat/reset | #234 ile giderildi: sınıf `port_class` ya da `signal_class`'tan okunur (bölüm 3); kalan sınır #415. |
 | `domain` bildirimi | Üç ayrıştırıcı; reset alanında "son alan kazanır" ile `any` ayrışır. |
 | Sürücü saati | SDC `@clockport` zincirini izlemez; TD ve SV izler. |
 | Struct yaprak adı | `Leaf::suffix` dışında üç ayrı yazım. |

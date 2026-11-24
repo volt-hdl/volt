@@ -23,17 +23,26 @@ mod extern_reset;
 mod facts;
 mod share;
 
-use volt_ast::{ItemKind, Port, PortDir, SourceFile, TypeRefKind};
+use volt_ast::alias::{signal_class, SignalClass};
+use volt_ast::{ItemKind, Port, PortDir, SourceFile};
 use volt_diagnostics::{Diagnostic, ErrorCode};
 
 use super::{DomainId, DomainResult, Inferencer};
+use crate::port_class::DefTypes;
 use crate::resolve::{DefId, ResolveResult};
+use crate::typeck::TypeckResult;
 
 use facts::UnitFacts;
 
 /// Birimdeki bütün modüllerin reset sözleşmesini denetler (ADR-0065).
-pub fn check_rdc(ast: &SourceFile, res: &ResolveResult, dom: &DomainResult) -> Vec<Diagnostic> {
-    let facts = UnitFacts::collect(ast, res, dom);
+/// Portların saat/reset sınıfı tip denetiminden okunur (#234).
+pub fn check_rdc(
+    ast: &SourceFile,
+    res: &ResolveResult,
+    tyck: &TypeckResult,
+    dom: &DomainResult,
+) -> Vec<Diagnostic> {
+    let facts = UnitFacts::collect(ast, res, DefTypes::of(tyck), dom);
     let mut rdc = Rdc {
         res,
         facts: &facts,
@@ -48,7 +57,9 @@ pub fn check_rdc(ast: &SourceFile, res: &ResolveResult, dom: &DomainResult) -> V
 
 /// Ham reset portu adıyla okunmaz: bırakma senkronizörü onu örtük okur
 /// (ADR-0065 §2). Kullanım takibi (`resolve/`, W1001) bunu bilemez;
-/// tüketiciler resolve tanılarını bu süzgeçten geçirir.
+/// tüketiciler resolve tanılarını bu süzgeçten geçirir. Süzgeç tip
+/// denetiminden önce (ve çözümleme hatalıysa onsuz) koşar: ham reset
+/// portunu takma ad zincirinden tanır (`signal_class`, #234).
 pub fn without_raw_reset_unused(ast: &SourceFile, diags: &[Diagnostic]) -> Vec<Diagnostic> {
     let raw_spans: Vec<volt_span::Span> = ast
         .items
@@ -61,7 +72,9 @@ pub fn without_raw_reset_unused(ast: &SourceFile, diags: &[Diagnostic]) -> Vec<D
             }
         })
         .flat_map(|m| m.ports.iter())
-        .filter(|p| is_raw_reset(ast, p))
+        .filter(|p| {
+            p.direction == PortDir::In && matches!(signal_class(ast, p.ty), SignalClass::Reset(_))
+        })
         .map(|p| p.name.span)
         .collect();
     diags
@@ -74,12 +87,6 @@ pub fn without_raw_reset_unused(ast: &SourceFile, diags: &[Diagnostic]) -> Vec<D
         })
         .cloned()
         .collect()
-}
-
-/// Ham reset portu (ADR-0065 §1): `in r : reset(...)`. Yalnız giriş
-/// yönü; çıkış ve çift yönlü reset portu sv-emit'te E0003 kalır.
-pub(crate) fn is_raw_reset(ast: &SourceFile, port: &Port) -> bool {
-    port.direction == PortDir::In && matches!(ast.types[port.ty].kind, TypeRefKind::Reset(_))
 }
 
 struct Rdc<'a> {
@@ -116,7 +123,7 @@ impl Inferencer<'_> {
     /// Ham reset portu mu (ADR-0065 §1) — saat çıkarımı onu veri portu
     /// gibi alana atamaz.
     pub(super) fn is_raw_reset_port(&self, port: &Port, _def: DefId) -> bool {
-        is_raw_reset(self.ast, port)
+        DefTypes::of(self.tyck).is_raw_reset(self.res, port)
     }
 
     /// Ham reset portu hiçbir saat alanına ait değildir: bırakması

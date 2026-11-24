@@ -28,7 +28,7 @@ use volt_diagnostics::{
 use volt_span::Span;
 
 use super::TypeChecker;
-use crate::domain::is_raw_reset;
+use crate::port_class::DefTypes;
 use crate::resolve::{DefId, DefKind};
 use crate::ty::{Ty, TypeId};
 
@@ -258,7 +258,13 @@ impl TypeChecker<'_, '_> {
         self.is_raw_reset_def(def).then_some(def)
     }
 
-    /// `def` bir ham reset giriş portu mu (`domain::is_raw_reset`).
+    /// Portların sınıfı (#234): port tipleri gövdelerden önce kaydedilir
+    /// (`run`), dosyada sonra bildirilen çocuğun portu da sınıflanır.
+    fn classes(&self) -> DefTypes<'_> {
+        DefTypes::new(&self.types, &self.def_types)
+    }
+
+    /// `def` bir ham reset giriş portu mu (`DefTypes::is_raw_reset`).
     fn is_raw_reset_def(&self, def: DefId) -> bool {
         if !matches!(self.res.def_kind(def), DefKind::Port { .. }) {
             return false;
@@ -270,7 +276,7 @@ impl TypeChecker<'_, '_> {
             };
             m.ports
                 .iter()
-                .any(|p| p.name.span == at && is_raw_reset(self.ast, p))
+                .any(|p| p.name.span == at && self.classes().is_raw_reset(self.res, p))
         })
     }
 
@@ -329,7 +335,7 @@ impl TypeChecker<'_, '_> {
         // Çocuğun tek ham reset portu (reset tipli her giriş portu ham
         // olduğundan bağlanan port odur) gövdede okunmamalı.
         let raws: Vec<usize> = (0..child.ports.len())
-            .filter(|&i| is_raw_reset(ast, &child.ports[i]))
+            .filter(|&i| self.classes().is_raw_reset(res, &child.ports[i]))
             .collect();
         let [pi] = raws.as_slice() else {
             return None;

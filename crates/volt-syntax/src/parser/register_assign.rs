@@ -10,9 +10,9 @@
 
 use std::collections::HashMap;
 
+use volt_ast::alias::{signal_class, SignalClass};
 use volt_ast::{
     Block, BlockStmt, ElseBranch, Expr, Idx, IfStmt, LValue, MatchArmBody, Port, Stmt, StmtKind,
-    TypeRefKind,
 };
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
@@ -55,7 +55,7 @@ impl Parser<'_> {
     pub(super) fn reg_clocks(&self, ports: &[Port], body: &[Idx<Stmt>]) -> RegClocks {
         let clocks = ports
             .iter()
-            .filter(|p| matches!(self.ast.types[p.ty].kind, TypeRefKind::Clock))
+            .filter(|p| signal_class(&self.ast, p.ty) == SignalClass::Clock)
             .map(|p| p.name.text.clone())
             .collect();
         let regs = body

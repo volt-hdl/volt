@@ -28,8 +28,8 @@ fn render_groups(src: &str, module: &str, dialect: Dialect) -> String {
 fn render_style(src: &str, module: &str, dialect: Dialect, style: SdcStyle) -> String {
     let parsed = parse(FileId(0), src);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
-    let dead = volt_hir::analyze(&parsed.ast).typeck.dead_arms;
-    let r = collect_constraints(&parsed.ast, &dead);
+    let a = volt_hir::analyze(&parsed.ast);
+    let r = collect_constraints(&parsed.ast, &a.resolve, &a.typeck);
     assert!(r.diagnostics.is_empty(), "{:?}", r.diagnostics);
     let mc = r
         .modules

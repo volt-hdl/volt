@@ -3,8 +3,8 @@
 //! tablosuna (§11.1) buradan kaydedilir; analiz `crate::drivers`'tadır.
 
 use volt_ast::{
-    Block, BlockStmt, ElseBranch, Expr, ExprKind, ExternDecl, ForStmt, Idx, IfStmt, LValue,
-    LValueSuffix, LetDecl, MatchArm, MatchArmBody, ModuleDecl, PortDir, RegDecl, Stmt, StmtKind,
+    Block, BlockStmt, ElseBranch, Expr, ExprKind, ForStmt, Idx, IfStmt, LValue, LValueSuffix,
+    LetDecl, MatchArm, MatchArmBody, ModuleDecl, Port, PortDir, RegDecl, Stmt, StmtKind,
 };
 use volt_diagnostics::{lstr, Applicability, ErrorCode, Suggestion};
 use volt_span::Span;
@@ -16,9 +16,8 @@ use crate::ty::{Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
     pub(super) fn check_module(&mut self, m: &ModuleDecl) {
+        // Port tipleri `run`'ın ön geçişinde kaydedildi (`type_ports`).
         for p in &m.ports {
-            let ty = self.resolve_type_ref(p.ty);
-            self.record_def_type(&p.name, ty);
             // Giriş portunu üst modül sürer (ADR-0073): içeride atanırsa E4001.
             if p.direction == PortDir::In {
                 if let Some(&def) = self.res.decl_spans.get(&p.name.span) {
@@ -42,10 +41,11 @@ impl TypeChecker<'_, '_> {
         self.diagnostics.extend(diags);
     }
 
-    /// Extern modül portlarını tipler (ADR-0047): domain çıkarımı saat
-    /// portlarını `Ty::Clock` üzerinden tanır, K8 haritası kurulabilir.
-    pub(super) fn type_extern_ports(&mut self, x: &ExternDecl) {
-        for p in &x.ports {
+    /// Modül ve extern portlarını tipler; gövde denetiminden önce bütün
+    /// birim için koşar (`run`). Domain çıkarımı saat portlarını (extern
+    /// dahil, ADR-0047) `Ty::Clock` üzerinden tanır.
+    pub(super) fn type_ports(&mut self, ports: &[Port]) {
+        for p in ports {
             let ty = self.resolve_type_ref(p.ty);
             self.record_def_type(&p.name, ty);
         }

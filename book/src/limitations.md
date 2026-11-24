@@ -111,12 +111,6 @@ Tracked in [issue #208](https://github.com/volt-hdl/volt/issues/208).
 load the signal in the `on` block. Tracked in
 [issue #209](https://github.com/volt-hdl/volt/issues/209).
 
-**A clock port declared through a type alias is not a clock everywhere.**
-With `type Clk = clock`, an asynchronous reset shared by two clock
-domains gets no `E3003`, the SDC file has no `create_clock` for the
-clock, and a test block can drive it. Write `clock` for clock ports.
-Tracked in [issue #234](https://github.com/volt-hdl/volt/issues/234).
-
 **`E5010` is missed in a `comb` block.** In an `@strict_timing` module,
 choosing between values of different delays inside a `comb` block
 (`comb { if x[0] { w = a } else { w = b } }`) compiles, while the same

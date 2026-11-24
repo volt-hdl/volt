@@ -103,7 +103,7 @@ pub fn run_semantic_stages(
     let summaries = crate::summary::Summaries::compute(ast, resolve, &typeck);
     let domain = crate::infer_domains(ast, resolve, &typeck, &summaries);
     let trust = crate::check_trust(ast, resolve, &typeck, &domain);
-    let rdc = crate::check_rdc(ast, resolve, &domain);
+    let rdc = crate::check_rdc(ast, resolve, &typeck, &domain);
     out.extend(domain.diagnostics.iter().cloned());
     out.extend(trust);
     out.extend(rdc);
@@ -138,7 +138,7 @@ pub fn run_semantic_stages(
 
     // ── Zamanlama kısıtları (ADR-0054): E0017 her zaman; W0022 yalnız
     // `--emit=sdc,xdc`'de ──
-    let constraints = crate::collect_constraints(ast, &typeck.dead_arms);
+    let constraints = crate::collect_constraints(ast, resolve, &typeck);
     out.extend(constraints.diagnostics.iter().cloned());
 
     stages.typeck = Some(typeck);

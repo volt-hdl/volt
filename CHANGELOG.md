@@ -9,6 +9,40 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Tip takma adıyla yazılan saat ve reset
+  portları (`type Clk = clock`, `type Rst = reset(async, active_low)` ve
+  `type Clk = ClkBase` gibi zincirler) artık her denetimde doğrudan
+  yazılanlarla aynı davranır (#234; sessiz yanlış düzeltmesi, ADR-0070
+  §6). Önce: iki asenkron alanın saatleri `in fast_clk : Clk @Fast` ve
+  `in slow_clk : Clk @Slow` iken `volt check` sessizdi; `clock` yazılınca
+  `error[E3003]: asynchronous reset 'rst_n' is shared by 2 clock domains
+  without synchronization` veriyordu. `volt build --emit=sdc` takma adlı
+  saat için kısıt dosyası yazmıyor, `Note: no module with a clock port in
+  the unit; --emit=sdc produced nothing` deyip 0 ile çıkıyordu. Sonra:
+  iki biçim de E3003 alır, `.sdc` `create_clock` ile yazılır. Daha önce
+  kabul edilen bir tasarım şimdi E3003, W3009, W3010, W3011 (reset alanı,
+  ADR-0065) ya da E8503 (testte saat portu sürmek) alabilir;
+  `--emit=sdc` takma adlı saatin ve ham reset portunun kısıtlarını
+  (`create_clock`, senkronizörler, `set_false_path -from [get_ports
+  rst_n]`) yazar, `--emit=sva` otomatik FSM ve `@mmio` kontratlarını
+  üretir. Daha önce reddedilen ya da uyarı alan tasarımlar artık kabul
+  edilir: `@mmio` modülünde E1003, pipeline'da E5011, `@timing`'de E0017,
+  `@strict_timing`'de `sync(x, clk)` üzerinde E5010, takma adlı ham reset
+  portunda W1001, E2003 ve E3010. E0019'un önerisi `on <clock>` yerine
+  saat portunun adını yazar; LSP'nin `on ` tamamlaması takma adlı saati
+  önerir. Sınıf tek yerden okunur: tip denetiminden sonra koşan geçitler
+  tip denetiminin çözdüğü tipten (`volt_hir::port_class`), tip
+  denetiminden önce ya da onsuz koşanlar takma ad zincirinden
+  (`volt_ast::alias::signal_class`). Gölgenin 487 girdi dosyasında üç
+  dosyanın çıktısı değişir: saati takma adla yazılmış
+  `tests/ui/pass/92_type_alias_signal_types.volt`,
+  `149_handshake_clock_alias.volt` ve
+  `tests/fixtures/parity/q03_alias_chain_ok.volt` artık `--emit=sdc` ile
+  `.sdc` (ve W0022) alır, `clock` yazılmış biçimleriyle aynı. Takma ad
+  pipeline'dan ya da modülden sonra bildirilirse ayrıştırma sırasında
+  koşan iki geçit (pipeline saati, E0019 önerisi) onu görmez (#415). Son
+  hanede (v0.1.3) çıkar.
+
 - **Davranış değişikliği.** `match` ifadesi artık `if` ifadesiyle aynı
   genişlikte üretilir (#215; sessiz yanlış düzeltmesi, type-inference.md
   §3.9). 0.1.2'de `a`, `b` `u8` iken `let m = match c { true => a + b,

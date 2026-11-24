@@ -7,9 +7,8 @@
 
 use std::collections::HashMap;
 
-use volt_ast::{
-    ItemKind, ModuleDecl, Name, PortDir, SourceFile, TestExpr, TestExprKind, TestStmt, TypeRefKind,
-};
+use volt_ast::alias::{signal_class, SignalClass};
+use volt_ast::{ItemKind, ModuleDecl, Name, PortDir, SourceFile, TestExpr, TestExprKind, TestStmt};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan};
 
 use crate::sim_const::TestConsts;
@@ -268,7 +267,9 @@ impl<'a> Checker<'a, '_> {
 }
 
 /// `dut.port = v` sol tarafı: dut tanımlı, port var, yönü `in`,
-/// tipi `clock` değil.
+/// tipi `clock` değil (takma adla yazılan saat de, #234). Test blokları
+/// tip denetimi olmadan, DUT'un kendi kaynak dosyasında denetlenir
+/// (kardeş dosya ayrı ayrıştırılır): sınıf takma ad zincirinden okunur.
 fn check_set_port(duts: &DutMap<'_>, dut: &Name, port: &Name, diags: &mut Vec<Diagnostic>) {
     let Some(entry) = duts.get(dut.text.as_str()) else {
         diags.push(undefined_dut(dut));
@@ -281,7 +282,7 @@ fn check_set_port(duts: &DutMap<'_>, dut: &Name, port: &Name, diags: &mut Vec<Di
         diags.push(unknown_port(port, &module.name.text));
         return;
     };
-    let is_clock = matches!(src.types[p.ty].kind, TypeRefKind::Clock);
+    let is_clock = signal_class(src, p.ty) == SignalClass::Clock;
     if p.direction != PortDir::In || is_clock {
         diags.push(Diagnostic::error(
             ErrorCode::E8503,
