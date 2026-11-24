@@ -1,6 +1,6 @@
 # ADR-0137: Anlamsal Bilginin Tek Kaynağı — Çıktıyı Etkileyen Karar Tip Denetiminden ya da Ad Çözümlemeden Gelir, Sözdizimsel Tahmin İzin Listesinde Durur
 
-> Statü: Önerildi
+> Statü: Uygulandı — kural ve denetimi (§4); §3'ün geçiş adımları açık
 > İlgili: ADR-0136 (arka uçlar anlamsal bilgiyi tek yerden okur: bu ADR kuralı derleyicinin bütün geçitlerine genişletir, envanterin "Bilinen ayrışmalar" tablosunu ayıklar ve Aşama 1'in gölge biçimini saat/reset sınıflamasına uygular)
 > Issue: #412
 > Tarih: 2026-11-24
