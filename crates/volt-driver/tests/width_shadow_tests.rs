@@ -2,7 +2,8 @@
 //! verdiği genişlik (`width_of`) tip denetiminin `expr_types`'taki
 //! genişliğiyle karşılaştırılır. Girdi: `tests/fixtures`, `tests/ui/pass`,
 //! `tests/ui/multifile`, `tests/real_bugs`, `examples`, `templates`, `demo`
-//! ve kitabın `volt` blokları (`book/tools/check_book.py` gibi).
+//! ve kitabın `volt` blokları (`book/tools/check_book.py` gibi); sınıflama
+//! gölgesiyle ortak yükleyici `shadow_corpus` (ADR-0137).
 //!
 //! Test katıdır (ADR-0136 §2, #215'in düzeltmesinden sonra): (a) ve (b)
 //! sınıfında hiç ayrışma olmamalı, (c) sınıfındaki her ayrışma ADR-0136
@@ -12,18 +13,17 @@
 //! Kayıt üretilen SV'yi değiştirmez: her birim kayıtlı ve kayıtsız iki kez
 //! üretilir, metinler aynı olmalı.
 
+mod shadow_corpus;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use shadow_corpus::{display_name, has_error};
 use volt_ast::{BinOp, Expr, ExprKind, Idx, MatchArmBody, SourceFile, UnOp};
 use volt_hir::ty::{Ty, TypeArena, TypeId};
 use volt_sv_emit::width_shadow::{record, WidthNote};
 use volt_sv_emit::{ConstArrayStyle, Sig, SvaMode};
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 /// Tip denetiminin bir ifadeye verdiği genişlik.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,13 +281,7 @@ fn skip(
         .filter(|d| !d.code.is_warning())
         .map(|d| d.code.as_str())
         .collect();
-    let root = repo_root();
-    let name = main
-        .strip_prefix(&root)
-        .unwrap_or(main)
-        .display()
-        .to_string()
-        .replace('\\', "/");
+    let name = display_name(main);
     let codes: Vec<&str> = codes.into_iter().collect();
     totals
         .skipped
@@ -299,26 +293,14 @@ fn skip(
 /// Bir birimi derler, iki tarafı karşılaştırır. Derlenmeyen birim
 /// atlanır (sayılır).
 fn compare_unit(main: &Path, totals: &mut Totals) {
-    let Ok(unit) = volt_hir::unit_load::load_unit(main) else {
-        skip(totals, "okunamadı", main, &[]);
-        return;
+    let (unit, analysis) = match shadow_corpus::analyze(main) {
+        Ok(a) => (a.unit, a.analysis),
+        Err(s) => {
+            skip(totals, s.reason, main, &s.diagnostics);
+            return;
+        }
     };
-    let has_error = |d: &[volt_diagnostics::Diagnostic]| d.iter().any(|d| !d.code.is_warning());
-    if has_error(&unit.parsed.diagnostics) || has_error(&unit.diagnostics) {
-        skip(totals, "ayrıştırma hatası", main, &unit.parsed.diagnostics);
-        return;
-    }
     let ast = &unit.parsed.ast;
-    let imports = volt_hir::check_imports(ast, &unit.info);
-    if has_error(&imports.diagnostics) {
-        skip(totals, "import hatası", main, &imports.diagnostics);
-        return;
-    }
-    let analysis = volt_hir::analyze_unit(ast, &imports.scopes);
-    if analysis.has_errors() {
-        skip(totals, "anlamsal hata", main, &analysis.diagnostics);
-        return;
-    }
     let names = unit.source_names();
     let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
     let emit = || {
@@ -427,130 +409,17 @@ fn compare_notes(
     }
 }
 
-/// Dizindeki `.volt` dosyaları (alt dizinler dahil), sıralı.
-fn volt_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
-    entries.sort();
-    for path in entries {
-        if path.is_dir() {
-            volt_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "volt") {
-            out.push(path);
-        }
-    }
-}
-
-/// Kitabın `volt` blokları, `book/tools/check_book.py`'nin yaptığı gibi:
-/// `SUMMARY.md` sırasıyla; adsız blok tek başına, `file=` adlı bloklar
-/// kitabın dizini başına ortak bir çalışma dizininde; `should_fail` olan
-/// atlanır. Yazılan her blok o anda derlenir.
-fn book_blocks(work: &Path, totals: &mut Totals) -> usize {
-    let src = repo_root().join("book/src");
-    let summary = std::fs::read_to_string(src.join("SUMMARY.md")).expect("SUMMARY.md okunmalı");
-    let mut pages = vec![src.join("SUMMARY.md")];
-    for part in summary.split("](").skip(1) {
-        if let Some(end) = part.find(".md)") {
-            pages.push(src.join(&part[..end + 3]));
-        }
-    }
-    let mut workdirs: HashMap<PathBuf, PathBuf> = HashMap::new();
-    let mut blocks = 0;
-    for page in pages {
-        let Ok(text) = std::fs::read_to_string(&page) else {
-            continue;
-        };
-        let parent = page.parent().map(Path::to_path_buf).unwrap_or_default();
-        let next = workdirs.len();
-        let workdir = workdirs
-            .entry(parent)
-            .or_insert_with(|| work.join(format!("part-{next}")))
-            .clone();
-        std::fs::create_dir_all(&workdir).expect("çalışma dizini");
-        let lines: Vec<&str> = text.lines().collect();
-        let mut i = 0;
-        while i < lines.len() {
-            let trimmed = lines[i].trim_start();
-            let fence: String = trimmed
-                .chars()
-                .take_while(|&c| c == '`' || c == '~')
-                .collect();
-            if fence.len() < 3 || lines[i].len() - trimmed.len() > 3 {
-                i += 1;
-                continue;
-            }
-            let info = trimmed[fence.len()..].trim();
-            let mut body = String::new();
-            i += 1;
-            while i < lines.len() {
-                let close = lines[i].trim();
-                if close.starts_with(&fence)
-                    && close.trim_matches(fence.as_bytes()[0] as char).is_empty()
-                {
-                    break;
-                }
-                body.push_str(lines[i]);
-                body.push('\n');
-                i += 1;
-            }
-            i += 1;
-            let parts: Vec<&str> = info
-                .split(',')
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .collect();
-            if parts.first() != Some(&"volt") || parts.iter().any(|p| p.starts_with("should_fail"))
-            {
-                continue;
-            }
-            let named = parts.iter().find_map(|p| p.strip_prefix("file="));
-            let path = match named {
-                Some(name) => workdir.join(name),
-                None => {
-                    let dir = work.join(format!("unnamed-{blocks}"));
-                    std::fs::create_dir_all(&dir).expect("blok dizini");
-                    dir.join("block.volt")
-                }
-            };
-            std::fs::write(&path, &body).expect("blok yazılmalı");
-            blocks += 1;
-            compare_unit(&path, totals);
-        }
-    }
-    blocks
-}
-
 #[test]
 fn emitter_widths_are_compared_with_the_type_checker() {
-    let root = repo_root();
-    let mut files = Vec::new();
-    for dir in [
-        "tests/fixtures",
-        "tests/ui/pass",
-        "tests/ui/multifile",
-        "tests/real_bugs",
-        "examples",
-        "templates",
-        "demo",
-    ] {
-        volt_files(&root.join(dir), &mut files);
-    }
     let mut totals = Totals::default();
-    for file in &files {
-        compare_unit(file, &mut totals);
-    }
-    let work = std::env::temp_dir().join(format!("volt-width-shadow-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&work);
-    let book = book_blocks(&work, &mut totals);
-    let _ = std::fs::remove_dir_all(&work);
+    let (files, book) =
+        shadow_corpus::for_each_input("width-shadow", &mut |path| compare_unit(path, &mut totals));
 
     let mut report = String::new();
     let _ = writeln!(
         report,
         "genişlik gölgesi: {} dosya + {} kitap bloğu; derlenen birim {}; atlanan {:?}",
-        files.len(),
+        files,
         book,
         totals.units,
         totals
