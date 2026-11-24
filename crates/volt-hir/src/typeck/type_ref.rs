@@ -5,13 +5,19 @@
 use volt_ast::{Expr, Idx, ItemKind, TypeRef, TypeRefKind};
 
 use super::TypeChecker;
-use crate::consteval::MAX_ARRAY_LEN;
+use crate::consteval::{MAX_ARRAY_LEN, MAX_WIDTH};
 use crate::resolve::{is_widened_int_type, DefKind};
 use crate::ty::{EnumId, StructId, Ty, TypeId};
 
+// Tip denetimi genişliği `u16` tutar (`Ty::Bits { width }` ve
+// kardeşleri); sınır o gösterimin en büyüğüdür, ikisi ayrışamaz (#418).
+// Aşağıdaki `n as u16` dönüşümleri buna dayanır.
+const _: () = assert!(MAX_WIDTH == u16::MAX as u32);
+
 impl TypeChecker<'_, '_> {
-    /// AST tip referansı → arena tipi. Genişlikler sessizce sabitlenir;
-    /// geçersiz genişlik tanıları check_type_positions'ta zaten verildi.
+    /// AST tip referansı → arena tipi. Aralık dışı genişlik E2025'tir
+    /// (`resolve_sized`); modül düzeyi bildirimlerinkini
+    /// check_type_positions önceden verir ve tanı bir kez yazılır.
     pub(super) fn resolve_type_ref(&mut self, ty_idx: Idx<TypeRef>) -> TypeId {
         if let Some(&cached) = self.type_ref_cache.get(&ty_idx) {
             return cached;
@@ -70,11 +76,15 @@ impl TypeChecker<'_, '_> {
         }
     }
 
-    /// Sabit genişlikli aile: genişlik 1..=u16::MAX aralığında bir
-    /// derleme zamanı sabiti olmalı, değilse sessiz Error.
+    /// Sabit genişlikli aile: genişlik `1..=MAX_WIDTH` aralığında bir
+    /// derleme zamanı sabiti olmalı. Değeri bilinen ama aralık dışı
+    /// genişlik E2025'tir (ifade başına bir kez; modül düzeyi bildirimleri
+    /// `check_type_positions` önceden raporlar, takma ad hedefi, blok içi
+    /// `let` ve fonksiyon imzası burada raporlanır, #418). Sabit olmayan
+    /// genişlik (çözülmemiş generic parametre) sessiz Error'dır.
     fn resolve_sized(&mut self, kind: &TypeRefKind, width: Idx<Expr>) -> TypeId {
         match self.try_const_eval(width) {
-            Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => {
+            Some(n) if (1..=i128::from(MAX_WIDTH)).contains(&n) => {
                 let width = n as u16;
                 let ty = match kind {
                     TypeRefKind::UIntN(_) => Ty::UInt { width },
@@ -95,7 +105,11 @@ impl TypeChecker<'_, '_> {
                 };
                 self.types.intern(ty)
             }
-            _ => self.types.error(),
+            Some(_) => {
+                let _ = self.ev.eval_type_arg(width);
+                self.types.error()
+            }
+            None => self.types.error(),
         }
     }
 
@@ -106,7 +120,7 @@ impl TypeChecker<'_, '_> {
         }
         let (head, digits) = name.split_at(1);
         let width: u16 = match digits.parse::<u32>() {
-            Ok(w) if (1..=u32::from(u16::MAX)).contains(&w) => w as u16,
+            Ok(w) if (1..=MAX_WIDTH).contains(&w) => w as u16,
             _ => return Some(self.types.error()),
         };
         Some(match head {

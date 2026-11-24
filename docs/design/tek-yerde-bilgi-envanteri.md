@@ -66,11 +66,11 @@ Göze çarpanlar:
 | G | `volt-hir/src/ty.rs:237` `TypeArena::width_of` | TD, alan | kendi | UInt/SInt/Bits genişliği; esnekte `hi`. Bool/Trit/Enum/Struct/Array `None`. |
 | G | `volt-hir/src/ty.rs:282` `signal_width` | TD, alan | kendi | Enum kodlama, struct düzen genişliği; Bool ve Trit `None`. |
 | G+İ | `volt-hir/src/ty.rs:188` `int_range`; `:170` `uint_flex`; `:178` `sint_flex`; `:212` `concrete` | TD | kendi | (işaret, lo, hi) görünümü. |
-| G+İ | `volt-hir/src/typeck/type_ref.rs:24` `resolve_type_ref_uncached`; `:75` `resolve_sized`; `:103` `widened_int` | TD | kendi + TD consteval | TypeRef → Ty; `<N>` 1..=65535. |
+| G+İ | `volt-hir/src/typeck/type_ref.rs:30` `resolve_type_ref_uncached`; `:85` `resolve_sized`; `:117` `widened_int` | TD | kendi + TD consteval; ORTAK `MAX_WIDTH` | TypeRef → Ty; `<N>` 1..=`MAX_WIDTH` (65535); değeri bilinen aralık dışı `<N>` E2025 (`eval_type_arg`, #418). `u16` gösterimi `MAX_WIDTH`'e derleme zamanında bağlı. |
 | G+İ | `volt-hir/src/typeck/synth.rs:20` `synth`; `:57` `synth_uncached`; `:101` `synth_int_lit`; `:501` `suffix_ty` | TD | kendi | `expr_types`'ı yazar; soneksiz literal `IntLit`. |
 | G+İ | `volt-hir/src/typeck/synth.rs:260` `synth_unary`; `:360` `synth_if`; `:409` `synth_match`; `:163` `synth_call`; `:229` `synth_array_lit` | TD | kendi | |
 | G+İ | `volt-hir/src/typeck/binop.rs:53` `arith_of`; `:150` `arith_result`; `:187` `trit_arith_result`; `:242` `synth_bitwise`; `:299` `synth_shift`; `:400` `unify_for_comparison` | TD | kendi | `+ -` esnek lo..hi+1, `*` lo..2·hi, `/ %` hi. |
-| G+İ | `volt-hir/src/typeck/width.rs:28` `meet_int_ranges`; `:52` `operand_range`; `:73` `flex`; `:104` `clamp_width` | TD | kendi | Aralık kesişimi. |
+| G+İ | `volt-hir/src/typeck/width.rs:28` `meet_int_ranges`; `:52` `operand_range`; `:73` `flex`; `:106` `clamp_width` | TD | kendi; ORTAK `MAX_WIDTH` | Aralık kesişimi. |
 | G | `volt-hir/src/typeck/select.rs:15` `index_result`; `:61` `range_result`; `:139` `part_select_result`; `:213` `field_result`; `:263` `struct_field_type` | TD | kendi + `try_const_eval` | |
 | G+İ | `volt-hir/src/typeck/check.rs:18` `check`; `:149` `check_arith`; `:195` `widen_operands` | TD | kendi | Check kipi: literal, `if`, `match` beklenen tipi alır; ADR-0041'de operandların kaydı hedef tip olur. |
 | G+İ | `volt-hir/src/typeck/cast.rs:12` `synth_cast` | TD | `resolve_type_ref` | |
@@ -80,7 +80,7 @@ Göze çarpanlar:
 | G+İ | `volt-hir/src/typeck/arith_cut.rs:149` `arith_width`; `:169` `value_bounds`; `:194` `derived_bounds`; `:254` `type_bounds` | TD (W2016) | kendi | |
 | G+İ (sığma) | `width.rs:109` `uint_fits`, `:114` `sint_fits`; `check.rs:233`, `:284`; `cast.rs:35` `warn_literal_cut`; `literal_fold.rs:363` `literal_range`; `compare_width.rs:29` `fits`; `arith_cut.rs:291` `fits`; `matching.rs:508` `int_fits` | TD | kendi (7 kopya) | Bir (işaret, genişlik) tipinin değer aralığı her dosyada yeniden yazılmış. |
 | G+İ | `volt-hir/src/typeck/mod.rs:257` `compute_def_type` | TD | `resolve_type_ref` | Döngü değişkeni `IntLit`. |
-| G | `volt-hir/src/consteval.rs:180` `eval_type_arg`; `:132` `check_type` | TD tanıları | kendi | Genişlik 1..=65536 (E2025). |
+| G | `volt-hir/src/consteval.rs:185` `eval_type_arg`; `:137` `check_type` | TD tanıları | kendi; ORTAK `MAX_WIDTH` | Genişlik 1..=65535 (E2025); ifade başına bir tanı. |
 
 ### SV üretimi
 
@@ -94,8 +94,8 @@ Göze çarpanlar:
 | G | `volt-sv-emit/src/expr.rs:1223` `clamped_signed_shift`; `:1331` `address_width`; `:1343` `index_width_mismatch`; `:1363` `sized_index`; `:1261` `select_from_value`; `:1393` `part_select_from_value`; `:1435` `cut_value`; `:1730` `width_dependent` | SV | kendi; `eval_const` | Kendi clog2'si. |
 | G+İ | `volt-sv-emit/src/expr.rs:1547` `emit_cast` | SV | `sig_of_typeref`, `width_of` | |
 | G+İ | `volt-sv-emit/src/expr.rs` `value_arms`; `match_expr.rs` `scrutinee_sig` | SV | kendi | #215'ten sonra: `if`'in iki dalı ve match ifadesinin ifade kolları tek listede; `width_of`, `int_range`, `is_unsized_literal`, `width_dependent`, `tree_width_dependent`, `is_trit`, `enum_of_expr` ikisini bu listeden okur (type-inference.md §3.9). Deyim `match`'i ve match ifadesinin sınananı doğal genişlikte (`natural_sig`). |
-| G+İ | `volt-sv-emit/src/let_width.rs:184` `int_range`; `:255` `binary_range`; `:305` `operand_meet`; `:137` `natural_sig`; `:146` `operation_sig`; `:164` `comparison_ctx`; `:71` `untyped_let_sig` | SV | **kendi** | TD'nin esnek aralık kurallarını (ADR-0025) yeniden yazar; `MAX_WIDTH` kopyası (`:20`). |
-| G+İ | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | SV | ORTAK `const_eval::width`, `enum_layout`, takma ad | TypeRef → genişlik; `<N>` için üst sınır yok (TD 65535). |
+| G+İ | `volt-sv-emit/src/let_width.rs:184` `int_range`; `:255` `binary_range`; `:305` `operand_meet`; `:137` `natural_sig`; `:146` `operation_sig`; `:164` `comparison_ctx`; `:71` `untyped_let_sig` | SV | **kendi**; ORTAK `MAX_WIDTH` | TD'nin esnek aralık kurallarını (ADR-0025) yeniden yazar. |
+| G+İ | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | SV | ORTAK `const_eval::width`, `enum_layout`, takma ad | TypeRef → genişlik; `<N>`'in üst sınırını E2025 uygular (ORTAK `MAX_WIDTH`), aşan birim üreticiye ulaşmaz. |
 | G | `volt-sv-emit/src/lib.rs:2462` `array_reg_sig`; `:2416` `signal_sig`; `:2442` `port_sig`; `:2612` `leaf_sig`; `:2375` `lvalue_sig` | SV | `sig_of_typeref`, `eval_const` | Paketli dizi eleman×uzunluk. |
 | G+İ | `volt-sv-emit/src/lib.rs:1056` `emit_module` (sembol tablosu); `:1742` `emit_let_sync`; `:1775` `sync_source_sig`; `match_expr.rs:470` `emit_block_let` | SV | `sig_of_typeref`, `untyped_let_sig` | |
 | G+İ | `volt-sv-emit/src/enums.rs:28` `enum_sig`; `:107` `enum_variant_sig`; `waves.rs:254` `wave_signal_of` | SV | ORTAK `enum_layout` | |
@@ -231,14 +231,15 @@ test sonucu spec'ten farklı ve tanı yok), **reddedilen** (bir taraf tanı
 veriyor, kullanıcı ayrışmaya ulaşamıyor), **gizli** (bugün kullanıcının
 görebileceği bir fark yok). Reddedilen ve gizli satırların bugünkü
 davranışı `crates/volt-driver/tests/divergence_triage_tests.rs`'te
-`rowN_` önekli testlerle sabittir. Sessiz yanlış satırların testi yoktur;
-her birinin issue'su son sütundadır (#418-#421). Ayıklamanın sessiz
+`rowN_` önekli testlerle sabittir. Açık sessiz yanlış satırların testi
+yoktur; her birinin issue'su son sütundadır (#419-#421); kapanan satır
+1'in testi düzeltmesiyle girdi (#418). Ayıklamanın sessiz
 olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmayan
 `DomainInfo.reset`) #422'dedir.
 
 | # | Bilgi | Ayrışma | Sınıf (#412) | Gözlenen | Test ya da issue |
 |---|---|---|---|---|---|
-| 1 | Genişlik üst sınırı | TD `<N>`'i 65535'te (`resolve_sized`), TD consteval 65536'da keser; `volt_ast::const_eval::width` ve SV `sig_of_typeref` sınırsız. | sessiz yanlış | `bits<65536>` E2025'ten geçer, tip denetiminde sessizce hata tipi olur: `bits<8>`'e atama E2001'siz derlenir, SV `assign y = 8'(x)` keser. | #418 |
+| 1 | Genişlik üst sınırı | #418 ile giderildi: sınır tek sabittir, `volt_ast::const_eval::MAX_WIDTH` = 65535; TD consteval (E2025), `resolve_sized`, `widened_int`, `clamp_width`, `enum_layout`, `struct_layout` ve SV `let_width` onu okur. `const_eval::width` ve `sig_of_typeref` sınırı denetlemez; aşan birim E2025 ile durur, üreticiye ulaşmaz. | kapandı (#418) | Önce `bits<65536>` E2025'ten geçiyor, tip denetiminde sessizce hata tipi oluyordu: `bits<8>`'e atama E2001'siz derleniyor, SV `assign y = 8'(x)` kesiyordu. Şimdi E2025; takma ad hedefi, blok `let`'i ve fonksiyon imzası da. | `width_limit_tests.rs`; `tests/real_bugs/418_width_above_limit.volt` |
 | 2 | Sabitte `as` | TD consteval `as`'ı yok sayar; SV `shift_amount` `as uN`'yi keser. | reddedilen | `as`'lı sabit üreticide E0003; dizi indeksinde yanlış E2006 (kesilmemiş değer). Satır içi `x << (9 as u3)` derlenir, SV doğru, W2013 yanlış ("hep 0"; açık bulgu). | `row2_*`; #422 |
 | 3 | `clog2` ve `~` | TD consteval değerlendirir; `volt_ast::const_eval`'da kolları yok, SV değer alamaz. | reddedilen | genişlikte E2005, değerde E0003. | `row3_*`; #422 |
 | 4 | Yerleşik DEPTH/N | TD yalnız literal kabul eder; SV herhangi bir `eval_const` değerini. | reddedilen | adlı sabit E2008; generic parametre monomorflamada literal, iki taraf aynı. | `row4_*` |

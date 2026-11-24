@@ -10,14 +10,12 @@
 //! toplama/çıkarma 1 bit, çarpma iki kat genişler; bölme, mod, bit düzeyi
 //! işlemler ve kaydırma genişlemez.
 
+use volt_ast::const_eval::MAX_WIDTH;
 use volt_ast::{BinOp, Expr, ExprKind, Idx, UnOp};
 
 use crate::expr::{value_arms, Sig};
 use crate::scope::Res;
 use crate::Emitter;
-
-/// Sonuç genişliğinin üst sınırı (volt-hir `consteval::MAX_WIDTH`).
-const MAX_WIDTH: u32 = 65_536;
 
 /// Yalnız soneksiz literallerden oluşan tipsiz `let`in tipi
 /// (type-inference.md §5, W2012): `i32`.

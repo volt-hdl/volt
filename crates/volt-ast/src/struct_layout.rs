@@ -12,6 +12,7 @@
 //! `raw as P`), simülasyon raporu ve LSP hover aynı tabloyu kullanır.
 //! Sabit değerlendirme çağırana bırakılır (`eval`).
 
+use crate::const_eval::MAX_WIDTH;
 use crate::enum_layout;
 use crate::{Expr, Idx, ItemKind, SourceFile, StructDecl, TypeRef, TypeRefKind};
 
@@ -230,7 +231,7 @@ fn leaf_or_nested(
     let field = prefix.join(".");
     let target = enum_layout::follow_aliases(ast, ty).ok_or(LayoutError::TooDeep)?;
     let width = |n: Option<i128>| match n {
-        Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => Ok(n as u32),
+        Some(n) if (1..=i128::from(MAX_WIDTH)).contains(&n) => Ok(n as u32),
         _ => Err(LayoutError::UnknownWidth),
     };
     let (w, kind, signed) = match &ast.types[target].kind {
@@ -294,7 +295,7 @@ fn array_elem_width(
 ) -> Result<u32, LayoutError> {
     let target = enum_layout::follow_aliases(ast, elem).ok_or(LayoutError::TooDeep)?;
     let width = |n: Option<i128>| match n {
-        Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => Ok(n as u32),
+        Some(n) if (1..=i128::from(MAX_WIDTH)).contains(&n) => Ok(n as u32),
         _ => Err(LayoutError::UnknownWidth),
     };
     match &ast.types[target].kind {

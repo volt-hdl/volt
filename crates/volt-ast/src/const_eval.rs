@@ -28,6 +28,14 @@ pub const MAX_CONST_DEPTH: u32 = 64;
 /// `[v; N]` dizi sabitinin açılabilecek en uzun hâli.
 pub const MAX_TABLE_LEN: u32 = 4096;
 
+/// Tip genişliğinin (`bits<N>`, `uint<N>`, `sint<N>`) üst sınırı: N
+/// `1..=MAX_WIDTH` aralığındadır (const-eval.md, E2025). Sınırın tek
+/// yeridir (#418): sabit değerlendiricinin E2025'i, tip denetimi, enum ve
+/// struct düzeni ve SV üreticisi bunu okur. Tip denetimi genişliği `u16`
+/// tutar; sabit o gösterimin en büyüğüne eşittir (volt-hir'deki derleme
+/// zamanı denetimi).
+pub const MAX_WIDTH: u32 = 65_535;
+
 /// Tek parçalı bir adın değerlendirildiği yerdeki anlamı.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Binding {
@@ -93,9 +101,10 @@ pub fn const_int(ast: &SourceFile, e: Idx<Expr>) -> Option<i128> {
     eval(ast, &TopLevel(ast), e).ok()
 }
 
-/// Tip genişliği (`uint<N>`, `sint<N>`, `bits<N>`): N en az 1 olan ve
-/// `u32`'ye sığan sabit. SV üreticisi ve test dili port genişliğini bununla
-/// hesaplar.
+/// Tip genişliğinin değeri (`uint<N>`, `sint<N>`, `bits<N>`): N en az 1
+/// olan ve `u32`'ye sığan sabit. SV üreticisi ve test dili port genişliğini
+/// bununla hesaplar. [`MAX_WIDTH`]'i burada denetlemez: o sınırı E2025
+/// (HIR) uygular ve sınırı aşan genişlikli birim üreticiye ulaşmaz.
 pub fn width(ast: &SourceFile, scope: &dyn Scope, e: Idx<Expr>) -> Result<u32, Unknown> {
     let n = eval(ast, scope, e)?;
     u32::try_from(n)

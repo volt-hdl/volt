@@ -100,9 +100,11 @@ pub(super) fn sign_prefix(signed: bool) -> &'static str {
 /// En geniş `uN`/`iN` (ADR-0031: 1..=64; daha genişi E0003).
 pub(super) const MAX_INT_WIDTH: u32 = 64;
 
-/// Genişlemiş sonuç genişliği MAX_WIDTH ve u16 gösterim sınırıyla kırpılır.
+/// Genişlemiş sonuç genişliği MAX_WIDTH ile kırpılır; MAX_WIDTH `u16`
+/// gösteriminin en büyüğüdür (`type_ref.rs`'teki derleme zamanı
+/// denetimi), dönüşüm kesmez.
 pub(super) fn clamp_width(w: u32) -> u16 {
-    w.min(MAX_WIDTH).min(u32::from(u16::MAX)) as u16
+    w.min(MAX_WIDTH) as u16
 }
 
 /// `value` işaretsiz `width` bite sığıyor mu?
@@ -139,10 +141,10 @@ mod tests {
     #[test]
     fn clamp_width_saturates_at_max_width() {
         assert_eq!(clamp_width(9), 9);
-        assert_eq!(
-            u32::from(clamp_width(u32::MAX)),
-            MAX_WIDTH.min(u32::from(u16::MAX))
-        );
+        // Sınır 65535 (#418); elle yazılır, sabitten okunmaz.
+        assert_eq!(clamp_width(u32::MAX), 65_535);
+        assert_eq!(clamp_width(65_536), 65_535);
+        assert_eq!(clamp_width(65_535), 65_535);
     }
 
     #[test]

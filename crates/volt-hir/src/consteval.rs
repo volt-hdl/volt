@@ -5,7 +5,7 @@
 //! E2021. Sonuçlar önbelleklenir; aynı ifade iki kez hesaplanmaz ve
 //! aynı hata iki kez raporlanmaz. for açma (§8) F2'ye ertelendi.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
     ArrayLitKind, BinOp, Expr, ExprKind, Idx, ItemKind, SourceFile, TypeRef, TypeRefKind, UnOp,
@@ -15,7 +15,8 @@ use volt_span::Span;
 
 use crate::resolve::{BuiltinKind, DefId, DefKind, ResolveResult};
 
-pub const MAX_WIDTH: u32 = 65_536;
+/// Tip genişliğinin üst sınırı: tek yeri volt-ast'tir (#418).
+pub use volt_ast::const_eval::MAX_WIDTH;
 pub const MAX_ARRAY_LEN: usize = 1_048_576; // 1M eleman
 
 /// Derleme zamanı değeri. `i128` ara hesap taşmasını yakalamak için.
@@ -47,6 +48,9 @@ pub struct ConstEvaluator<'a> {
     def_cache: HashMap<DefId, ConstValue>,
     /// Şu an değerlendirilmekte olan sabitler (E2020 döngü tespiti).
     in_progress: Vec<DefId>,
+    /// E2025 raporlanmış genişlik ifadeleri: aynı ifade hem tip konumu
+    /// denetiminden hem tip denetiminden geçer, tanı bir kez yazılır.
+    invalid_widths: HashSet<Idx<Expr>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -58,6 +62,7 @@ impl<'a> ConstEvaluator<'a> {
             expr_cache: HashMap::new(),
             def_cache: HashMap::new(),
             in_progress: Vec::new(),
+            invalid_widths: HashSet::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -181,6 +186,7 @@ impl<'a> ConstEvaluator<'a> {
         let span = self.span_of(expr);
         match self.const_eval(expr) {
             ConstValue::Int(n) if n > 0 && n <= MAX_WIDTH as i128 => Some(n as u32),
+            ConstValue::Int(_) if !self.invalid_widths.insert(expr) => None,
             ConstValue::Int(n) => {
                 let reason = if n <= 0 {
                     lstr!(en: "width must be positive"; tr: "genişlik pozitif olmalı")
