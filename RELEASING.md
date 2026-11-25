@@ -208,6 +208,13 @@ Then check by hand that every entry of the new `[0.1.3]` section marked
 (ADR-0100 §3), and that the section has no behavior change in it that the
 patch rules do not allow.
 
+An entry may name an ADR with the status it had when the entry was
+written ("ADR-0140 önerisi", "ADR-0121, Önerildi"). Compare each such
+mention in the new section with the `> Statü:` line of the ADR in
+`docs/adr/`: when the ADR is now `Uygulandı` or `Kabul edildi`, drop the
+old status from the entry; when it is still `Önerildi`, leave the entry
+as it is and say so in the pull request.
+
 ### 1c. The release notes
 
 `docs/release-notes/v0.1.3.md`, in English, becomes the body of the
@@ -244,7 +251,7 @@ These pages show the version and output of `volt`:
 
 | Page | What changes |
 |---|---|
-| `book/src/setup.md` | both `volt --version` outputs, "This book describes Volt 0.1.3.", the `volt doctor` output |
+| `book/src/setup.md` | both `volt --version` outputs, "This book describes Volt 0.1.3.", both `volt doctor` outputs |
 | `book/src/tour/install.md` | "recorded with Volt 0.1.3", the `volt --version` output, both `volt doctor` outputs |
 | `book/src/tour/new-check-build.md` | "recorded with Volt 0.1.3", the `// Version:` line of the generated SV |
 | `book/src/limitations.md` | "Known bugs": the entries of the bugs 0.1.3 fixes leave; every open bug a user of 0.1.3 can hit has an entry, with its issue and a workaround |
@@ -260,7 +267,17 @@ volt --version
 ```
 
 `volt --version` prints `volt 0.1.3 (<commit>)`, where `<commit>` is the
-short hash of the commit of step 1a (`git rev-parse --short HEAD`). A page
+short hash of the commit of step 1a (`git rev-parse --short HEAD`).
+
+`volt doctor` is recorded twice on each of the two pages, from the home
+folder (the pages replace the user name with `you`): once with Docker
+Desktop running, and once with Docker Desktop installed but not running.
+For the second one, quit Docker Desktop, wait until `docker info` fails,
+record, and start it again. When an image is not downloaded on the
+recording machine, `volt doctor` prints `image not downloaded yet` under
+its line; record the output as it is.
+
+A page
 whose output is recorded again for another reason also gets the line
 "recorded with Volt 0.1.3"; a page that is not recorded again keeps its
 line. `docs/roadmap.md` is not part of the release pull request.

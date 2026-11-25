@@ -31,13 +31,32 @@ the cut operand of `+`, `-` and `*`
 ([#266](https://github.com/volt-hdl/volt/issues/266)) are under
 [Language](#language) below.
 
-**`volt build` follows links out of the project.** When `build/`, or a
-file in it, is a symbolic link, `volt build` writes through the link. A
-cloned repository can carry such a link, so building it can overwrite a
-file anywhere you can write; on Windows a directory junction in place of
-`build/` does the same. Do not build a repository you do not trust;
-before building one, check that `build/` and the files in it are not
-links. Tracked in [issue #221](https://github.com/volt-hdl/volt/issues/221).
+**Wrong results without a diagnostic.** These open bugs of Volt 0.1.3
+compile without an error and give a result other than the one the source
+says. "Suspected" marks a bug that was found by reading the code and has
+not been reproduced by running it yet. The paragraphs below give the
+workaround of each.
+
+- [#434](https://github.com/volt-hdl/volt/issues/434) (suspected): `~` on a `Trit` works on its two-bit code, so `~t` for t = +1 gives a value outside {-1, 0, +1} (read as -2).
+- [#413](https://github.com/volt-hdl/volt/issues/413): a `prev()` of a wide or signed expression in a contract compares at the operation width and unsigned, so the contract checks a different value.
+- [#214](https://github.com/volt-hdl/volt/issues/214): a `const` that does not fit its type is accepted; compile time and the hardware see different values.
+- [#372](https://github.com/volt-hdl/volt/issues/372): when the source of a `sync()` is an instance output or is reached through more than 8 `let`s, the constraint files leave the path into the synchronizer untimed (`set_false_path`).
+- [#421](https://github.com/volt-hdl/volt/issues/421): a signal annotated with a clock port name (`@a_clk`) loses its source clock in the constraint files, and a `sync()` of such a port gets no capture register.
+- [#435](https://github.com/volt-hdl/volt/issues/435) (suspected): the clock of a `clock = none` domain may get a `create_clock` line in the SDC file.
+- [#208](https://github.com/volt-hdl/volt/issues/208): nothing clocked by a clock output of an `extern module` (a PLL, a clock buffer) is checked for clock-domain crossings.
+- [#209](https://github.com/volt-hdl/volt/issues/209): a register's reset value can be a signal, and it skips the clock-domain and trust checks.
+- [#217](https://github.com/volt-hdl/volt/issues/217): `E5010` is missed when values of different delays meet in a `comb` block.
+- [#219](https://github.com/volt-hdl/volt/issues/219): a timing constraint on a register `slow` also applies to a register named `slow_reg…`.
+- [#226](https://github.com/volt-hdl/volt/issues/226): `@false_path` and `@multicycle` are written to the SDC file without a check, and the timing tool then leaves the path untimed.
+- [#210](https://github.com/volt-hdl/volt/issues/210): a secret passes through an unclassified input port of a submodule to a public output without `E3009`.
+- [#211](https://github.com/volt-hdl/volt/issues/211): the trust annotation of a `wire` or a `let` is not read.
+- [#154](https://github.com/volt-hdl/volt/issues/154): a struct `let`'s flattened field shadows a port or signal of the same name in the generated SystemVerilog.
+- [#155](https://github.com/volt-hdl/volt/issues/155): a module-level `let` named like a bundle port or `regs` is accepted, and the name means two things.
+- [#161](https://github.com/volt-hdl/volt/issues/161): a constant imported with `use … as` is written into the SystemVerilog under its alias, a name that does not exist there.
+- [#162](https://github.com/volt-hdl/volt/issues/162): a test block reads a private constant of another file.
+- [#229](https://github.com/volt-hdl/volt/issues/229): a port bound twice in one instance takes the last binding, and `@false_path` or `@multicycle` on a struct port constrains nothing.
+- [#220](https://github.com/volt-hdl/volt/issues/220): an `@mmio` module accepts an unaligned base address and a repeated argument, and a `*/` in a `///` comment ends the C comment of the generated header.
+- [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -86,11 +105,31 @@ unsigned. Keep the previous value in a register of the right type
 yourself (`reg p : u9 = 0`, `on clk { p <= a + b }`, then `p != 300`).
 Tracked in [issue #413](https://github.com/volt-hdl/volt/issues/413).
 
-**In a statement `match`, an arm after the wildcard wins.** In a `comb`
-block, `match s { 0 => { … } _ => { y = 7 } 1 => { y = 9 } }` gives 9 for
-`s = 1`, while the same `match` written as an expression gives 7. Write
-the wildcard arm last. Tracked in
-[issue #216](https://github.com/volt-hdl/volt/issues/216).
+**`~` on a `Trit` gives a value outside the `Trit` set (suspected).**
+`~` works on the two-bit code of a `Trit`, not on its value: for t = +1
+(code `01`), `~t` is the code `10`, which reads as -2. This was found by
+reading the code and has not been run yet. To negate a `Trit`, write
+`-t`. Tracked in [issue #434](https://github.com/volt-hdl/volt/issues/434).
+
+**A `sync()` can lose its source clock in the constraint files.** When
+the source of a `sync()` is an instance output (`let so = s.o`), is
+reached through more than 8 `let`s, or is a signal annotated with a
+clock port name (`in d : bool @a_clk`) instead of a domain name, the XDC
+file writes `set_false_path` instead of
+`set_max_delay -datapath_only`, so the path into the synchronizer is not
+timed; with `@a_clk` a port source also gets no capture register.
+Annotate signals with the domain name (`@A`), and look for a `?` in the
+`# sync` comments of the constraint files (`# sync 'sync_so': ? -> sclk`):
+for each one, add the `set_max_delay -datapath_only` line yourself.
+Tracked in [issue #372](https://github.com/volt-hdl/volt/issues/372) and
+[issue #421](https://github.com/volt-hdl/volt/issues/421).
+
+**A `clock = none` domain's clock may get a `create_clock` line
+(suspected).** The constraint generator turns every clock port into a
+clock constraint without looking at the domain's edge. This was found by
+reading the code and has not been run yet. If your design has such a
+domain, check its SDC file and remove a `create_clock` for that clock.
+Tracked in [issue #435](https://github.com/volt-hdl/volt/issues/435).
 
 **A `const` that does not fit its type is accepted.** With
 `const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a
