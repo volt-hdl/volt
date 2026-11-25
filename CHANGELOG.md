@@ -9,6 +9,23 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Tip genişliğinin üst sınırı tek bir sabittir,
+  65535 (#418; sessiz yanlış düzeltmesi, ADR-0100): `bits<65536>`,
+  `uint<65536>` ve `sint<65536>` artık E2025 ile reddedilir. Önce E2025
+  `1..=65536`'yı kabul ediyor, tip denetimi ise 65535'in üstünü tanısız
+  hata tipine çeviriyordu: `in x : bits<65536>`, `out y : bits<8>` ve
+  `y = x` ile `volt check` 0 hata veriyor, `volt build` `assign y =
+  8'(x);` yazıp üstteki 65528 biti atıyordu. Sonra: `error[E2025]:
+  invalid width: 65536`, yardım satırı `width must be in the range
+  1..=65535`; SV yazılmaz. 65536'ya çıkan sabit ifade (`256 * 256`) ve
+  generic argüman (`G<65536>`) da E2025 alır. Tip takma adının hedefi
+  (`type Wide = bits<65536>`), blok içi `let` ve fonksiyon imzası
+  sınırı aşınca önce sessizdi, şimdi E2025 alır; aynı konumlarda
+  `bits<0>` önce yanıltıcı E2005 ("cannot be determined at compile
+  time") alıyordu, şimdi E2025 alır. 65535 ve altındaki genişlikler
+  değişmez: gölgenin 488 girdi dosyasında üretilen çıktı aynıdır. Son
+  hanede (v0.1.3) çıkar.
+
 - **Davranış değişikliği.** Tip takma adıyla yazılan saat ve reset
   portları (`type Clk = clock`, `type Rst = reset(async, active_low)` ve
   `type Clk = ClkBase` gibi zincirler) artık her denetimde doğrudan

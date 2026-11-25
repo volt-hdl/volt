@@ -115,7 +115,9 @@ pub fn repr_of(
         return Repr::Cycle;
     };
     let width = |n: Option<i128>| match n {
-        Some(n) if (1..=i128::from(u16::MAX)).contains(&n) => Repr::Width(n as u32),
+        Some(n) if (1..=i128::from(crate::const_eval::MAX_WIDTH)).contains(&n) => {
+            Repr::Width(n as u32)
+        }
         Some(_) => Repr::Invalid,
         None => Repr::Unknown,
     };
