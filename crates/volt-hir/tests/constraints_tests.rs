@@ -667,3 +667,55 @@ fn reset_chain_only_where_consumed() {
         .collect();
     assert_eq!(stages, ["rst_sync_fast_clk_stage0"]);
 }
+
+// ═══ Domain alanları (#420, ADR-0140) ════════════════════════════
+
+/// Saatin kenarı domain bildiriminin `clock` alanından gelir (ortak
+/// okuyucu `DomainDecl::clock_edge`); yazılmamışsa yükselen kenar
+/// (grammar-full.ebnf §3, ClockEdge; sv-mapping.md varsayılanı).
+#[test]
+fn a_clock_takes_the_edge_of_its_domain_declaration() {
+    let src = "domain Fall { clock = negedge, frequency = 50.mhz }\n\
+               domain Rise { frequency = 25.mhz }\n\
+               module M {\n    in f_clk : clock @Fall\n    in r_clk : clock @Rise\n    \
+               in a : bool @Fall\n    out y : bool @Rise\n    reg q : bool = false\n    \
+               on f_clk { q <= a }\n    y = sync(q, r_clk)\n}\n";
+    let r = collect(src);
+    assert!(r.diagnostics.is_empty(), "{:?}", codes(&r.diagnostics));
+    let edges: Vec<(&str, volt_ast::ClockEdge)> = r.modules[0]
+        .clocks
+        .iter()
+        .map(|c| (c.port.as_str(), c.edge))
+        .collect();
+    assert_eq!(
+        edges,
+        [
+            ("f_clk", volt_ast::ClockEdge::Negedge),
+            ("r_clk", volt_ast::ClockEdge::Posedge)
+        ]
+    );
+}
+
+/// `reset = none` domain'inde ham reset zinciri yoktur; senkron reset'li
+/// domain'de vardır (ADR-0065 §2). Alan ortak okuyucudan
+/// (`DomainDecl::reset`), SV ile aynı alan.
+#[test]
+fn a_reset_free_domain_gets_no_reset_chain() {
+    let module = |reset: &str| {
+        format!(
+            "domain D {{ clock = posedge, frequency = 50.mhz, reset = {reset} }}\n\
+             module M {{\n    in clk : clock @D\n    in rst : reset(sync, active_high)\n    \
+             in a : u8 @D\n    out y : u8 @D\n    reg q : u8 = 0\n    on clk {{ q <= a }}\n    y = q\n}}\n"
+        )
+    };
+    let chains = |reset: &str| -> Vec<String> {
+        let r = collect(&module(reset));
+        r.modules[0]
+            .reset_chains
+            .iter()
+            .map(|c| c.stages[0].clone())
+            .collect()
+    };
+    assert_eq!(chains("sync active_high"), ["rst_sync_clk_stage0"]);
+    assert!(chains("none").is_empty());
+}

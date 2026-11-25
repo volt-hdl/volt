@@ -178,15 +178,16 @@ her portunda iki yolun aynı sınıfı verdiğini sınar; bilinen tek fark
 
 | Yer | Kullanan | Yardımcı | Not |
 |---|---|---|---|
-| `volt-hir/src/domain/tables.rs:16` `collect_domain_decls`; `:59` `implicit_clock_domain`; `:128` `def_domain`; `:107` `is_clock_def`; `:115` `is_clock_port` | TD | **başvuru**; `Ty::Clock` | |
+| `volt-hir/src/domain/tables.rs:16` `collect_domain_decls`; `:59` `implicit_clock_domain`; `:128` `def_domain`; `:107` `is_clock_def`; `:115` `is_clock_port` | TD | **başvuru**; `Ty::Clock`; `domain` alanları ORTAK `domain_fields` (#420) | `collect_domain_decls` kenarı, reset'i ve `trust_level`'ı ortak okuyucudan alır. |
+| `volt-ast/src/domain_fields.rs:42` `DomainDecl::field`, `:49` `repeated_fields`, `:61` `clock_edge`, `:72` `reset`, `:87` `trust_level`, `:96` `frequency` (#420'nin dalında) | ORTAK | — | `domain` bildiriminin tek okuyucusu: anahtarın ilk yazımı. İkinci yazım E1003'tür; onu ayrıştırıcı bildirimi kurduğu yerde raporlar (`volt-syntax/src/parser/item.rs` `repeated_domain_fields`, ADR-0140). TD, RDC, SDC ve SV okur. |
 | `volt-hir/src/domain/module.rs:12` `infer_module`; `:55` `scan_clock_ports`; `:179` `assign_port_domains` | TD | başvuru | `@clk` zinciri; kontrat saati ilk saat (satır 43). |
 | `volt-hir/src/domain/annotation.rs:12`; `trust_alias.rs:23`, `:39`; `reg.rs:17`, `:70`, `:236`; `expr.rs:11`, `:20`, `:90`, `:101`; `walk.rs:64`; `sync.rs:14`; `bidir.rs:15`; `edgeless.rs:74` | TD | başvuru | |
 | `volt-hir/src/domain/instance.rs:111`, `:150`, `:245`, `:278`, `:304`, `:652`; `builtin_instance.rs:77` | TD | başvuru; `DomainRole` | |
-| `volt-hir/src/domain/rdc/facts.rs:93`, `:137`, `:157`, `:187`, `:263`; `rdc/mod.rs:81`, `:126`; `rdc/converge.rs:43`, `:184` | TD (RDC) | kendi + `clock_resets_flops`; saat ve ham reset portu `port_class` (#234) | |
+| `volt-hir/src/domain/rdc/facts.rs:93`, `:137`, `:157`, `:187`, `:263`; `rdc/mod.rs:81`, `:126`; `rdc/converge.rs:43`, `:184` | TD (RDC) | kendi + `clock_resets_flops`; saat ve ham reset portu `port_class` (#234); `domain` reset'i ORTAK `domain_fields` (#420) | `declared_reset` alanı ortak okuyucudan alır; önce "son alan kazanır". |
 | `volt-hir/src/summary.rs:272` `Clocks::is_clock_port` | TD | `port_class` | Takma adı çözer. |
 | `volt-hir/src/timing.rs:152` `ModuleTiming::run` | TD | `port_class` (#234) | |
 | `volt-hir/src/sim.rs:273` `check_set_port` | SIM | `signal_class` (#234) | |
-| `volt-sv-emit/src/lib.rs:828` `collect_domains` | SV | **kendi** | `domain` bildirimi → kenar ve reset; son alan kazanır. |
+| `volt-sv-emit/src/lib.rs:828` `collect_domains` | SV | ORTAK `domain_fields` (#420) | `domain` bildirimi → kenar ve reset; yazılmamış alan spec varsayılanı. Önce kendi döngüsü, "son alan kazanır". |
 | `volt-sv-emit/src/flop_audit.rs:48` `port_domain` | SV | **kendi** | TD `scan_clock_ports`'un ada göre kopyası. |
 | `volt-sv-emit/src/lib.rs:789` `clock_ports_of`; `:224` `domain_of_trigger` | SV | `port_domain`, `reset_sync` | |
 | `volt-sv-emit/src/lib.rs:1790` `try_emit_sync_bridge`; `flop_audit.rs:176` `audit_sync`; `:98` `audit_module` | SV | **kendi** (iki kopya) | Yakalama saati iki yerde ayrı yazılmış. |
@@ -196,7 +197,7 @@ her portunda iki yolun aynı sınıfı verdiğini sınar; bilinen tek fark
 | `volt-sv-emit/src/lib.rs:1041` `chain_consumed`; `sim.rs:63` `collect_sim_ports` | SV, SIM | ORTAK `reset_chain`; `clock_ports_of` | |
 | `volt-ast/src/reset_chain.rs:22` `chain_consumed`; `:86` `syncs_to`; `builtin.rs:294` `clock_resets_flops` | ORTAK | — | SV, SDC ve RDC kullanır. |
 | `volt-hir/src/constraints/walk.rs:78` `Scope::new`; `:146` `clock_of_domain`; `:159` `driver_clock_depth` | SDC | **kendi** | Ayrı sürücü saati izleyicisi (derinlik 8); `@clockport` zincirini izlemez. |
-| `volt-hir/src/constraints/walk.rs:335` `collect_domains`; `:379` `collect_module` | SDC | **kendi** | `domain` bildiriminin üçüncü ayrıştırıcısı; `has_reset` "son alan kazanır" yerine `any`. |
+| `volt-hir/src/constraints/walk.rs:335` `collect_domains`; `:379` `collect_module`; `apply_edges` | SDC | ORTAK `domain_fields` (#420) | `has_reset`, `frequency` ve kenar ortak okuyucudan. Önce `domain` bildiriminin üçüncü ayrıştırıcısıydı: `has_reset` "son alan kazanır" yerine `any`, `apply_edges` kenarda ilk alan (SV son alanı okuyordu). |
 | `volt-hir/src/constraints/walk.rs:945` `sync_bridge`; `:1017` `builtin_bridge`; `:1113` `user_instance` | SDC | kendi | `builtin_bridge` `DomainRole` yerine port adlarını (`wr_clk`, `rd_clk`, `src_clk`, `dst_clk`) sabit yazar. |
 | `volt-hir/src/constraints/walk.rs:1167` `reset_chains`; `:1201` `has_reset`; `:1212` `feeding_raw`; `:1248` `is_raw_reset` | SDC | `reset_chain`; gerisi kendi | `feeding_raw` SV `reset_sync::feeding_raw`'ın kopyası. |
 | `volt-lsp/src/analysis.rs:340` `clock_ports` | LSP | `port_class`, yarım kodda `signal_class` (#234) | |
@@ -233,8 +234,8 @@ veriyor, kullanıcı ayrışmaya ulaşamıyor), **gizli** (bugün kullanıcını
 görebileceği bir fark yok). Reddedilen ve gizli satırların bugünkü
 davranışı `crates/volt-driver/tests/divergence_triage_tests.rs`'te
 `rowN_` önekli testlerle sabittir. Açık sessiz yanlış satırların testi
-yoktur; her birinin issue'su son sütundadır (#420, #421); kapanan satır
-1'in (#418) ve 5'in (#419) testleri düzeltmeleriyle girdi. Ayıklamanın sessiz
+yoktur; issue'su son sütundadır (#421); kapanan satır 1'in (#418), 5'in
+(#419) ve 8'in (#420) testleri düzeltmeleriyle girdi. Ayıklamanın sessiz
 olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmayan
 `DomainInfo.reset`) #422'dedir.
 
@@ -247,7 +248,7 @@ olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmaya
 | 5 | Bool/Trit genişliği | #419 ile giderildi: TD'de tek fonksiyon `TypeArena::bit_width`, skaler tablo ORTAK `volt_ast::bit_width::Scalar` (Bool, Clock, Reset 1; Trit 2); AST tarafı `type_ref_bits` (SV testbench, SIM). `signal_width`, TD `bit_width` kopyası, `unwrap_or(1)`, SV `bits_at` ve SIM `enum_width` kaldırıldı; genişlik gölgesi de `bit_width`'i okur. SIM'in Trit'i "skaler değil" sayması genişlik değil, test dilinde yazılış kuralıdır. | kapandı (#419) | Önce `ShiftRegister<Trit, 4>`'ün `taps`'ı TD'de `bits<4>`, SV'de 8 bit; `bits<4>`'e atama SV'de kesiliyordu, Trit `sync()`'i W3003 almıyordu. Şimdi `taps` `bits<8>`, Trit `sync()`'i W3003; `taps` genişlik sınırını aşarsa E2025. | `bit_width_tests.rs`; `ui/pass/163_scalar_width_uses.volt`; `tests/real_bugs/419_shift_register_trit_taps.volt` |
 | 6 | Test dilinde tasarım sabiti | Yalnız düz (ya da eksi) literal sabit sayılır; hesaplanan `const` sayılmaz. | reddedilen | hesaplanan const E8506; düz literal const E8512 sığma denetimine girer. | `row6_*` |
 | 7 | Takma adlı saat/reset | #234 ile giderildi: sınıf `port_class` ya da `signal_class`'tan okunur (bölüm 3); kalan sınır #415. | kapandı (#416) | #234'ün örnekleri doğrudan yazılanla aynı tanı ve dosyalar; kalan #415 reddedilen (E5011; E0019 önerisinde `on <clock>`). | `aliased_clock_reset_tests.rs`; `row7_issue_415_*`; sınıflama gölgesi (ADR-0137 §4) |
-| 8 | `domain` bildirimi | Üç ayrıştırıcı; reset alanında "son alan kazanır" ile `any` ayrışır. | sessiz yanlış | `reset = none` ardından `reset = sync active_high`: SV ve RDC son alanı alır, senkronizör üretilir; XDC onun `ASYNC_REG` satırını yazmaz. | #420 |
+| 8 | `domain` bildirimi | #420 ile giderildi: bir alan anahtarı bildirimde en çok bir kez yazılır, ikinci yazım E1003 (iki alanı gösterir; ADR-0140). Alanları okuyan beş yer (TD `collect_domain_decls`, RDC `declared_reset`, SDC `collect_domains` ve `apply_edges`, SV `collect_domains`) ORTAK `volt_ast::domain_fields`'ı okur; "son alan kazanır", `any` ve kenarda "ilk alan" kodda kalmadı. | kapandı (#420) | Önce `reset = none` ardından `reset = sync active_high` tanısız derleniyordu: SV ve RDC son alanı alıyor, senkronizör üretiliyor; XDC onun `ASYNC_REG` satırını yazmıyordu. Şimdi E1003. | `domain_field_once_tests.rs`; `ui/fail/317_domain_field_written_twice.volt`; `ui/pass/164_domain_every_field_once.volt`; `tests/real_bugs/420_domain_reset_written_twice.volt` |
 | 9 | Sürücü saati | SDC `@clockport` zincirini izlemez; TD ve SV izler. | sessiz yanlış | `@a_clk` açıklamalı sinyalden `let` ile `sync()`: XDC `set_max_delay -datapath_only` yerine `set_false_path`. Yakalama register'ı da (`sync_<x>_src`) yalnız `@Alan` yazımında üretilir. Saat portu başka bir saat portuyla açıklanınca (`in c1 : clock @c0`) SDC yanlış W0022 verir, `create_clock` yazmaz. | #421 |
 | 10 | Struct yaprak adı | `Leaf::suffix` dışında üç ayrı yazım. | gizli | SV, SDC ve test dili `p.i.x`'i `p_i_x` yazar; çakışma E1003. | `row10_*` |
 | 11 | Değer aralığı | "Sığar mı" TD'de yedi kez, SIM'de bir kez yazılmış. | gizli | yedi TD kopyası 1..=64 bitte aynı sınırı verir (E2010, W2010); SIM'in bit deseni kabulü ADR-0059'un kuralı. | `row11_*` |

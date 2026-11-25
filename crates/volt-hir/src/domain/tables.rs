@@ -1,10 +1,7 @@
 //! Domain tablosu (§1): `domain` bildirimleri, anotasyonsuz clock
 //! portunun örtük alanı (K2) ve bütün kuralların paylaştığı sorgular.
 
-use volt_ast::{
-    ClockEdge, DomainKey, DomainValue, Expr, Idx, ItemKind, Name, Port, ResetPolarity, ResetSpec,
-    ResetSync,
-};
+use volt_ast::{ClockEdge, Expr, Idx, ItemKind, Name, Port, ResetPolarity, ResetSpec, ResetSync};
 use volt_diagnostics::lstr;
 use volt_span::Span;
 
@@ -21,26 +18,19 @@ impl Inferencer<'_> {
             let Some(&def) = self.res.decl_spans.get(&d.name.span) else {
                 continue;
             };
-            let mut clock = ClockSpec {
-                edge: ClockEdge::Posedge,
+            // Alanlar ortak okuyucudan (#420, ADR-0140). Yazılmamış reset
+            // `none` sayılır (#422'nin bulgusu; bu tablonun kendi kuralı).
+            let clock = ClockSpec {
+                edge: d.clock_edge().unwrap_or(ClockEdge::Posedge),
             };
-            let mut reset = ResetSpec {
-                sync: ResetSync::None,
-                polarity: ResetPolarity::ActiveHigh,
-            };
-            let mut trust = None;
-            let mut trust_span = None;
-            for field in &d.fields {
-                match (&field.key, &field.value) {
-                    (DomainKey::Clock, DomainValue::ClockEdge(edge)) => clock.edge = *edge,
-                    (DomainKey::Reset, DomainValue::Reset(spec)) => reset = *spec,
-                    (DomainKey::TrustLevel, DomainValue::Trust(level)) => {
-                        trust = Some(*level);
-                        trust_span = Some(field.span);
-                    }
-                    _ => {}
-                }
-            }
+            let reset = d.reset().map_or(
+                ResetSpec {
+                    sync: ResetSync::None,
+                    polarity: ResetPolarity::ActiveHigh,
+                },
+                |(spec, _)| spec,
+            );
+            let (trust, trust_span) = d.trust_level().unzip();
             let id = self.domains.len() as u32;
             self.domains.push(DomainInfo {
                 name: d.name.text.clone(),

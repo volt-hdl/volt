@@ -1,7 +1,7 @@
 # ADR-0137: Anlamsal Bilginin Tek Kaynağı — Çıktıyı Etkileyen Karar Tip Denetiminden ya da Ad Çözümlemeden Gelir, Sözdizimsel Tahmin İzin Listesinde Durur
 
 > Statü: Uygulandı — kural ve denetimi (§4); §3'ün geçiş adımları açık
-> İlgili: ADR-0136 (arka uçlar anlamsal bilgiyi tek yerden okur: bu ADR kuralı derleyicinin bütün geçitlerine genişletir, envanterin "Bilinen ayrışmalar" tablosunu ayıklar ve Aşama 1'in gölge biçimini saat/reset sınıflamasına uygular), ADR-0139 (kural kodlama bilgisine uygulanır; ikili varsayımların envanteri)
+> İlgili: ADR-0136 (arka uçlar anlamsal bilgiyi tek yerden okur: bu ADR kuralı derleyicinin bütün geçitlerine genişletir, envanterin "Bilinen ayrışmalar" tablosunu ayıklar ve Aşama 1'in gölge biçimini saat/reset sınıflamasına uygular), ADR-0139 (kural kodlama bilgisine uygulanır; ikili varsayımların envanteri), ADR-0140 (`domain` bildiriminin tek okuyucusu ve yinelenen alanda E1003; §5'in 8. satırını kapatır)
 > Issue: #412
 > Tarih: 2026-11-24
 > Etkilenen: `crates/volt-driver/tests/class_shadow_tests.rs` (YENİ), `crates/volt-driver/tests/signal_class_callers_tests.rs` (YENİ), `crates/volt-driver/tests/divergence_triage_tests.rs` (YENİ), `crates/volt-driver/tests/shadow_corpus/mod.rs` (YENİ, genişlik gölgesiyle ortak yükleyici), `crates/volt-driver/tests/width_shadow_tests.rs` (yükleyici ortak modüle taşındı), `docs/design/tek-yerde-bilgi-envanteri.md` ("Bilinen ayrışmalar" tablosu)

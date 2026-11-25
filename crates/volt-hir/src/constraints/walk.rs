@@ -9,9 +9,8 @@ use std::collections::{HashMap, HashSet};
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::struct_signals::StructTypes;
 use volt_ast::{
-    Attribute, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, ExprKind, Idx,
-    InstanceDecl, ItemKind, MatchArmBody, ModuleDecl, Port, PortDir, ResetSync, SourceFile, Stmt,
-    StmtKind,
+    Attribute, Block, BlockStmt, ClockEdge, DomainValue, ElseBranch, ExprKind, Idx, InstanceDecl,
+    ItemKind, MatchArmBody, ModuleDecl, Port, PortDir, ResetSync, SourceFile, Stmt, StmtKind,
 };
 use volt_diagnostics::{lstr, Diagnostic, LabeledSpan, NoteKind};
 use volt_span::{FileId, Span};
@@ -350,16 +349,13 @@ impl<'a> Collector<'a> {
             let ItemKind::Domain(d) = &self.ast.items_arena[item_idx].kind else {
                 continue;
             };
+            // Alanlar ortak okuyucudan (#420, ADR-0140): SV ve RDC ile aynı
+            // alan. Yazılmamış reset spec varsayılanıdır (sync active_high).
             let mut freq_hz = None;
-            let has_reset = !d.fields.iter().any(|f| {
-                f.key == DomainKey::Reset
-                    && (matches!(&f.value, DomainValue::ClockEdge(ClockEdge::None))
-                        || matches!(&f.value, DomainValue::Reset(spec) if spec.sync == ResetSync::None))
-            });
-            for field in &d.fields {
-                if field.key != DomainKey::Frequency {
-                    continue;
-                }
+            let has_reset = d
+                .reset()
+                .is_none_or(|(spec, _)| spec.sync != ResetSync::None);
+            if let Some(field) = d.frequency() {
                 match &field.value {
                     DomainValue::Literal(e) => match super::parse::parse_frequency(self.ast, *e) {
                         Ok(hz) => freq_hz = Some(hz),
@@ -474,11 +470,7 @@ impl<'a> Collector<'a> {
             let ItemKind::Domain(d) = &self.ast.items_arena[item_idx].kind else {
                 continue;
             };
-            let edge = d.fields.iter().find_map(|f| match (&f.key, &f.value) {
-                (DomainKey::Clock, DomainValue::ClockEdge(e)) => Some(*e),
-                _ => None,
-            });
-            if let Some(edge) = edge {
+            if let Some(edge) = d.clock_edge() {
                 for c in clocks.iter_mut().filter(|c| c.domain == d.name.text) {
                     c.edge = edge;
                 }

@@ -9,6 +9,25 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir `domain` bildiriminde aynı alan
+  anahtarının ikinci yazımı E1003'tür (#420; sessiz yanlış düzeltmesi,
+  ADR-0100; ADR-0140 önerisi). Önce `reset = none` ardından `reset = sync
+  active_high` yazılan domain tanısız derleniyordu: SV ve reset alanı
+  denetimleri son alanı alıp reset senkronizörünü (`rst_sync_clk_stage0/1`)
+  üretiyor, kısıt modeli alanı reset'siz sayıyor, XDC o zincirin `set_property
+  ASYNC_REG TRUE` satırını, SDC de `# rst_sync_clk` yorumunu yazmıyordu.
+  Sonra: `error[E1003]: field 'reset' is written twice in domain 'Sys'`;
+  ikincil etiket ilk alanı gösterir, `= help:` iki satırdan birinin
+  silinmesini söyler; çıkış kodu 1, dosya yazılmaz. Kural ayrıştırıcının
+  tanıdığı her anahtar için geçerlidir (`clock`, `frequency`, `reset`,
+  `reset_cycles`, `reset_sequence`, `trust_level`), aynı değerin
+  yinelenmesi de E1003'tür; bilinmeyen anahtar (W0020) sayılmaz. Bildirimi
+  okuyan her geçit alanları tek ortak okuyucudan alır. Gölgenin girdisinde
+  başka çıktı değişmez: 493 dosya ve 25 kitap bloğunda, #420'nin
+  `tests/real_bugs` örneği dışında, çıkış kodu, tanılar ve çıktılar
+  (`--emit` ile 1016 dosya) main'dekiyle aynıdır. Son hanede (v0.1.3)
+  çıkar.
+
 - **Davranış değişikliği.** Bir tipin bit genişliği tek fonksiyondan
   gelir; `Trit` her yerde 2 bittir (#419; sessiz yanlış düzeltmesi,
   ADR-0100). `ShiftRegister<Trit, N>`'in `taps`'ı artık `bits<2N>`'dir

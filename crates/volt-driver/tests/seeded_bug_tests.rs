@@ -83,6 +83,9 @@ const HAND: &[(&str, Hand, &str)] = &[
     ("rdc.drop-raw-reset | tests/fixtures/formal_obligations/three_level_violate.volt | Top.rst", Hand::Safe(&[]), SYNC_ROOT),
     ("rdc.drop-raw-reset | tests/fixtures/formal_obligations/violate.volt | Parent.rst", Hand::Safe(&[]), SYNC_ROOT),
     ("rdc.drop-raw-reset | tests/ui/pass/158_reset_child_automatic_port.volt | AutomaticResetPort.rst", Hand::Safe(&[]), SYNC_ROOT),
+    // The raw reset fed one sync domain (Fast); Slow is `reset = none`, so
+    // no second clock shares the automatic port (no R5').
+    ("rdc.drop-raw-reset | tests/ui/pass/164_domain_every_field_once.volt | DomainEveryFieldOnce.rst", Hand::Safe(&[]), SYNC_ROOT),
     (
         "rdc.drop-raw-reset | tests/ui/pass/159_reset_raw_port_binding.volt | RawResetBinding.rst",
         Hand::Expect(&["E1001"]),
