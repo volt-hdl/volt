@@ -5,7 +5,7 @@
 //! çevrilir: E2013 (geçersiz bildirim), E1003 (yinelenen alan), E4010
 //! (düzleştirme bütçesi), E2014 (literalde eksik/yinelenen alan), E1008
 //! (bilinmeyen alan erişimi), E2009 (`as` kuralları, Karar 4). Geçerli
-//! düzenin genişliği `TypeArena`'ya yazılır — `signal_width` (W3003)
+//! düzenin genişliği `TypeArena`'ya yazılır — `bit_width` (W3003, `taps`)
 //! oradan okur.
 
 use volt_ast::struct_layout::{self, LayoutError, StructLayout};

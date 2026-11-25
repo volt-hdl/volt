@@ -198,7 +198,7 @@ impl Inferencer<'_> {
         match self.stmt_anchor {
             None => {
                 let call = format!("sync({name}, {clk})");
-                // suggestion: e3001_module_level, e3001_let_annotation
+                // suggestion: e3001_module_level, e3001_let_annotation, e3001_one_bit_array
                 let fix =
                     Suggestion::replace(src_span, call.clone(), Applicability::MaybeIncorrect);
                 Some((call, fix))
@@ -259,10 +259,13 @@ impl Inferencer<'_> {
         }
     }
 
-    /// Tek bitlik değer mi (`sync()` yalnız tek biti köprüler, K9).
+    /// Tek bitlik veri mi (`sync()` yalnız tek biti köprüler, K9). Saat ve
+    /// reset tek bittir ama veri değildir: `sync()` kaynağı olamazlar
+    /// (reset ADR-0124 kural 1, E2003), öneri onlara yazılmaz.
     pub(super) fn is_one_bit(&self, e: Idx<Expr>) -> bool {
         self.tyck.expr_types.get(&e).is_some_and(|&t| {
-            matches!(self.tyck.types.ty(t), Ty::Bool) || self.tyck.types.signal_width(t) == Some(1)
+            !matches!(self.tyck.types.ty(t), Ty::Clock | Ty::Reset { .. })
+                && self.tyck.types.bit_width(t) == Some(1)
         })
     }
 

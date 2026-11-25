@@ -227,6 +227,32 @@ pub const SPECIALS: &[Special] = &[
         near_miss: false,
         spec: "domain-inference.md K9 (sync() of a value wider than one bit: W3003)",
     },
+    // #419: a Trit is two bits (ADR-0003) and an array is element ×
+    // length bits (ADR-0056); before the fix both crossed without W3003.
+    Special {
+        kind: "cdc.sync-multibit-trit",
+        design: UI13,
+        site: "fast_flag/slow_flag as Trit",
+        edits: &[
+            ("    in  fast_flag : bool  @Fast", "    in  fast_flag : Trit  @Fast"),
+            ("    out slow_flag : bool  @Slow", "    out slow_flag : Trit  @Slow"),
+        ],
+        codes: &["W3003"],
+        near_miss: false,
+        spec: "domain-inference.md K9 (sync() of a value wider than one bit: W3003) + ADR-0003 (a Trit is two bits)",
+    },
+    Special {
+        kind: "cdc.sync-multibit-array",
+        design: UI13,
+        site: "fast_flag/slow_flag as [bool; 2]",
+        edits: &[
+            ("    in  fast_flag : bool  @Fast", "    in  fast_flag : [bool; 2] @Fast"),
+            ("    out slow_flag : bool  @Slow", "    out slow_flag : [bool; 2] @Slow"),
+        ],
+        codes: &["W3003"],
+        near_miss: false,
+        spec: "domain-inference.md K9 (sync() of a value wider than one bit: W3003) + ADR-0056 (an array is element × length bits)",
+    },
     Special {
         kind: "cdc.merge-in-clockless-child",
         design: UI13,

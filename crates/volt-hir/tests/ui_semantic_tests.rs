@@ -495,7 +495,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #232 (ADR-0127): 161 `delay<K>` bir
     // iddiadır, register eklemez.
     // #373: 162 struct değerli sync() kaynakları (tipsiz let/reg dâhil).
-    assert_eq!(checked, 147);
+    // #419: 163 her skaler tipin her kullanım yerinde tek genişliği.
+    assert_eq!(checked, 148);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

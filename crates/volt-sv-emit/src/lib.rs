@@ -2511,9 +2511,12 @@ impl<'a> Emitter<'a> {
     }
 
     pub(crate) fn sig_of_typeref(&mut self, ty: Idx<TypeRef>, span: Span) -> Option<Sig> {
-        match &self.ast.types[crate::alias::resolve(self.ast, ty)].kind {
+        let kind = &self.ast.types[crate::alias::resolve(self.ast, ty)].kind;
+        // Skaler genişlik tip denetimiyle aynı tablodan (#419).
+        let scalar = volt_ast::bit_width::Scalar::of(kind).map(|s| s.bits());
+        match kind {
             TypeRefKind::Bool | TypeRefKind::Clock => Some(Sig {
-                width: 1,
+                width: scalar?,
                 signed: false,
             }),
             TypeRefKind::UInt(n) => Some(Sig {
@@ -2563,7 +2566,7 @@ impl<'a> Emitter<'a> {
             }
             // ADR-0003: 2 bit işaretli depolama (+1 = 01, 0 = 00, -1 = 11).
             TypeRefKind::Trit => Some(Sig {
-                width: 2,
+                width: scalar?,
                 signed: true,
             }),
             // Ham reset GİRİŞ portu (ADR-0065) buraya gelmez; kalan konumlar.

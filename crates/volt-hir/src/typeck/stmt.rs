@@ -318,21 +318,25 @@ impl TypeChecker<'_, '_> {
             return;
         }
         let ty = self.def_type(def);
-        let leaves = if let Ty::Struct(sid) = self.types.ty(ty).clone() {
+        // Struct ve bundle (`struct port`) yapraklarıyla: genişlik düzenin
+        // `W`'si (ADR-0077). Bundle tek sinyal değildir, `bit_width`'i
+        // yoktur; alanları yine kısmi sürülür. Diğer tipler tek kaynaktan
+        // (#419).
+        let (width, leaves) = if let Ty::Struct(sid) = self.types.ty(ty).clone() {
             let Some(l) = self.struct_layout(sid) else {
                 return;
             };
-            Some(
-                l.leaves
-                    .iter()
-                    .map(|leaf| (leaf.dotted(), leaf.lsb, leaf.width))
-                    .collect(),
-            )
+            let leaves = l
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.dotted(), leaf.lsb, leaf.width))
+                .collect();
+            (l.width, Some(leaves))
         } else {
-            None
-        };
-        let Some(width) = self.bit_width(ty) else {
-            return;
+            let Some(width) = self.types.bit_width(ty) else {
+                return;
+            };
+            (width, None)
         };
         self.coverage.insert(def, Coverage { width, leaves });
     }
@@ -388,7 +392,7 @@ impl TypeChecker<'_, '_> {
                     }
                 };
                 let w = match *self.types.ty(ty) {
-                    Ty::Array { elem, .. } => self.bit_width(elem)?,
+                    Ty::Array { elem, .. } => self.types.bit_width(elem)?,
                     // Dizi olmayan tabanda indeks tek bit seçer.
                     Ty::Bool
                     | Ty::UInt { .. }
@@ -450,32 +454,6 @@ impl TypeChecker<'_, '_> {
         };
         let def = self.res.use_spans.get(&seg.span)?;
         self.loop_bounds.get(def).copied()
-    }
-
-    /// Sürücü analizi için depolama genişliği (bool 1, Trit 2, dizi
-    /// eleman × uzunluk, enum kodlama genişliği, struct düzen genişliği
-    /// `W` — ADR-0077); düzeni bilinmeyen tipler `None`.
-    fn bit_width(&mut self, ty: TypeId) -> Option<u32> {
-        match self.types.ty(ty).clone() {
-            Ty::Bool => Some(1),
-            Ty::Trit => Some(2),
-            Ty::Array { elem, len } => self.bit_width(elem)?.checked_mul(len),
-            Ty::Struct(sid) => self.struct_layout(sid).map(|l| l.width),
-            Ty::Enum(e) => self.types.enum_width(e).map(u32::from),
-            Ty::UInt { .. }
-            | Ty::SInt { .. }
-            | Ty::Bits { .. }
-            | Ty::Clock
-            | Ty::Reset { .. }
-            | Ty::Tuple(_)
-            | Ty::Instance(_)
-            | Ty::Builtin { .. }
-            | Ty::Delayed { .. }
-            | Ty::IntLit
-            | Ty::UIntFlex { .. }
-            | Ty::SIntFlex { .. }
-            | Ty::Error => self.types.width_of(ty).map(u32::from),
-        }
     }
 
     pub(super) fn new_group(&mut self) -> u32 {

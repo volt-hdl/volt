@@ -9,6 +9,30 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Bir tipin bit genişliği tek fonksiyondan
+  gelir; `Trit` her yerde 2 bittir (#419; sessiz yanlış düzeltmesi,
+  ADR-0100). `ShiftRegister<Trit, N>`'in `taps`'ı artık `bits<2N>`'dir
+  (ADR-0029: `bits<LEN * width(T)>`). Önce tip denetimi `Trit`'i bir bit
+  sayıyordu: `taps` `bits<N>` oluyor, `bits<4>` porta atama `volt check`'te
+  temiz geçiyor, `volt build` `assign window = 4'(sr_taps);` yazıp dört
+  aşamanın ikisini atıyordu; doğru `bits<8>` port E2001 alıyordu. Sonra:
+  `bits<4>` port `error[E2001]: bit width mismatch: a bits<8> value cannot
+  be assigned to a bits<4> target`, `bits<8>` port temiz. Yeni W3003
+  uyarıları: genişliği 1'den büyük her `sync()` verisi W3003 alır
+  (domain-inference.md); önce `Trit` (2 bit) ve dizi (`[bool; 4]`, 4 bit)
+  almıyordu, şimdi alır (`two-flop synchronization does not guarantee
+  bit coherence for 2-bit signals`). `taps`'ın genişliği sınırı (65535)
+  aşarsa E2025: önce çarpım 16 bite kesiliyordu,
+  `ShiftRegister<bits<2000>, 64>`'ün 128000 bitlik `taps`'ı `bits<62464>`
+  sayılıyor ve o porta atama temiz geçiyordu; şimdi `error[E2025]:
+  ShiftRegister<bits<2000>, 64>: 'taps' would be 128000 bits wide (64
+  stages × 2000 bits), above the width limit 65535`. RAM ailesinin
+  `Trit` öğeli E2009 önerisi `Ram<u1, ...>` yerine `Ram<u2, ...>` der.
+  Tek elemanlı `[bool; 1]` tek bittir: alan geçişindeki E3001 artık
+  `bool`'unki gibi `sync(a, clk)` önerisini taşır. Gölgenin girdisinde başka çıktı değişmez: main'deki 489 dosya
+  ve 25 kitap bloğunda (`--emit` ile 1107 dosya) çıkış kodu, tanılar ve
+  çıktılar aynıdır. Son hanede (v0.1.3) çıkar.
+
 - **Davranış değişikliği.** Volt'un yazdığı her dosya çıktı kökünün
   altında kalır; kökün altındaki yolda ya da hedefte bir sembolik
   bağlantı varsa yazım reddedilir (#221; güvenlik düzeltmesi, ADR-0138

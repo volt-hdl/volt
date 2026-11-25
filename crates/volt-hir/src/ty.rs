@@ -7,6 +7,8 @@
 
 use std::collections::HashMap;
 
+use volt_ast::bit_width::Scalar;
+
 /// Arena'daki bir tipin opak kimliği.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(u32);
@@ -293,31 +295,34 @@ impl TypeArena {
         self.struct_widths.get(&s).copied()
     }
 
-    /// Sinyalin donanımdaki bit genişliği (saat alanı geçişi denetimi,
-    /// W3003): sayısal tiplerde `width_of`, enum'da kodlama genişliği
-    /// (ADR-0074 Karar 6), struct'ta düzen genişliği `W` (ADR-0077 Karar
-    /// 6). Bit seçimi `width_of`'u kullanır — enum ve bütün struct bit
-    /// seçilemez (E2003).
-    pub fn signal_width(&self, id: TypeId) -> Option<u16> {
+    /// Sinyalin donanımdaki bit genişliği; derleyicinin tek kaynağı (#419,
+    /// ADR-0137 §1): `ShiftRegister`'ın `taps`'ı (ADR-0029), `sync()`'in
+    /// W3003'ü, kısmi sürücü kapsamı (E4012) ve tek bitlik `sync()` önerisi
+    /// bunu okur. Skaler tipler `volt_ast::bit_width::Scalar::bits`
+    /// (`bool`, `clock`, `reset` 1; `Trit` 2), sayısal tipler `width_of`,
+    /// enum kodlama genişliği (ADR-0074 Karar 6), struct düzen genişliği `W`
+    /// (ADR-0077 Karar 6), dizi eleman × uzunluk (ADR-0056), `Delayed<T, N>`
+    /// `T`'ninki (ADR-0037: tip düzeyinde silinir). Genişliği olmayan tip
+    /// (demet, örnek, boyutsuz literal, hata) ya da düzeni geçersiz
+    /// enum/struct ve bundle (`struct port`, tek sinyal değil) `None`;
+    /// çağıran onu 1 bit saymaz. Bit seçimi
+    /// `width_of`'u kullanır — enum ve bütün struct bit seçilemez (E2003).
+    pub fn bit_width(&self, id: TypeId) -> Option<u32> {
         match self.ty(id) {
-            Ty::Enum(e) => self.enum_width(*e),
-            Ty::Struct(s) => self.struct_width(*s).and_then(|w| u16::try_from(w).ok()),
-            Ty::Bool
-            | Ty::UInt { .. }
+            Ty::Bool => Some(Scalar::Bool.bits()),
+            Ty::Clock => Some(Scalar::Clock.bits()),
+            Ty::Reset { .. } => Some(Scalar::Reset.bits()),
+            Ty::Trit => Some(Scalar::Trit.bits()),
+            Ty::UInt { .. }
             | Ty::SInt { .. }
             | Ty::Bits { .. }
-            | Ty::Trit
-            | Ty::Clock
-            | Ty::Reset { .. }
-            | Ty::Array { .. }
-            | Ty::Tuple(_)
-            | Ty::Instance(_)
-            | Ty::Builtin { .. }
-            | Ty::Delayed { .. }
-            | Ty::IntLit
             | Ty::UIntFlex { .. }
-            | Ty::SIntFlex { .. }
-            | Ty::Error => self.width_of(id),
+            | Ty::SIntFlex { .. } => self.width_of(id).map(u32::from),
+            Ty::Enum(e) => self.enum_width(*e).map(u32::from),
+            Ty::Struct(s) => self.struct_width(*s),
+            Ty::Array { elem, len } => self.bit_width(*elem)?.checked_mul(*len),
+            Ty::Delayed { inner, .. } => self.bit_width(*inner),
+            Ty::Tuple(_) | Ty::Instance(_) | Ty::Builtin { .. } | Ty::IntLit | Ty::Error => None,
         }
     }
 

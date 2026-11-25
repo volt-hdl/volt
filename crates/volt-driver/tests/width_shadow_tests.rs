@@ -20,7 +20,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use shadow_corpus::{display_name, has_error};
-use volt_ast::{BinOp, Expr, ExprKind, Idx, MatchArmBody, SourceFile, UnOp};
+use volt_ast::{BinOp, Expr, ExprKind, Idx, ItemKind, MatchArmBody, SourceFile, UnOp};
 use volt_hir::ty::{Ty, TypeArena, TypeId};
 use volt_sv_emit::width_shadow::{record, WidthNote};
 use volt_sv_emit::{ConstArrayStyle, Sig, SvaMode};
@@ -40,32 +40,39 @@ enum Checked {
     Missing,
 }
 
+/// Genişlik tip denetiminin tek kaynağından, `TypeArena::bit_width`'ten
+/// okunur (#419): `taps`, W3003 ve kısmi sürücü kapsamı da onu okur. Gölge
+/// #419'a kadar kendi kopyasıyla (`Trit` 2, `bool` 1) karşılaştırıyordu;
+/// o kopya doğruydu, karar veren fonksiyon (`signal_width`) değildi, bu
+/// yüzden gölge `Trit`'in genişliğini hiç sınamadı.
 fn checked(types: &TypeArena, ty: TypeId) -> Checked {
-    let width = |width: u16, signed| Checked::Width {
-        width: u32::from(width),
-        signed,
-    };
+    let no_width = || Checked::NoWidth(types.display(ty));
     match types.ty(ty) {
-        Ty::Bool | Ty::Clock | Ty::Reset { .. } => width(1, false),
-        Ty::UInt { width: w } | Ty::Bits { width: w } => width(*w, false),
-        Ty::SInt { width: w } => width(*w, true),
-        Ty::Trit => width(2, true),
         Ty::UIntFlex { lo, hi } | Ty::SIntFlex { lo, hi } => Checked::Flex {
             lo: u32::from(*lo),
             hi: u32::from(*hi),
         },
         Ty::Delayed { inner, .. } => checked(types, *inner),
-        Ty::Enum(_) | Ty::Struct(_) => match types.signal_width(ty) {
-            Some(w) => width(w, false),
-            None => Checked::NoWidth(types.display(ty)),
+        Ty::Array { elem, .. } => match (checked(types, *elem), types.bit_width(ty)) {
+            (Checked::Width { .. }, Some(total)) => Checked::Array { total },
+            _ => no_width(),
         },
-        Ty::Array { elem, len } => match checked(types, *elem) {
-            Checked::Width { width, .. } => Checked::Array { total: width * len },
-            _ => Checked::NoWidth(types.display(ty)),
+        Ty::IntLit | Ty::Tuple(_) | Ty::Instance(_) | Ty::Builtin { .. } | Ty::Error => no_width(),
+        Ty::Bool
+        | Ty::Clock
+        | Ty::Reset { .. }
+        | Ty::UInt { .. }
+        | Ty::Bits { .. }
+        | Ty::SInt { .. }
+        | Ty::Trit
+        | Ty::Enum(_)
+        | Ty::Struct(_) => match types.bit_width(ty) {
+            Some(width) => Checked::Width {
+                width,
+                signed: matches!(types.ty(ty), Ty::SInt { .. } | Ty::Trit),
+            },
+            None => no_width(),
         },
-        Ty::IntLit | Ty::Tuple(_) | Ty::Instance(_) | Ty::Builtin { .. } | Ty::Error => {
-            Checked::NoWidth(types.display(ty))
-        }
     }
 }
 
@@ -463,6 +470,74 @@ fn emitter_widths_are_compared_with_the_type_checker() {
     if let Err(message) = verdict(&totals) {
         panic!("{message}");
     }
+}
+
+/// Portun genişliği iki temsilde aynıdır (#419): tip denetiminin
+/// `TypeArena::bit_width`'i (tanımın tipi) ile AST'yi okuyan arka uçların
+/// `volt_ast::bit_width::type_ref_bits`'i (SV testbench'i, test dili;
+/// ADR-0136 Aşama 2'ye kadar tip denetimine ulaşamazlar). İkisi skaler
+/// genişliği aynı tablodan okur (`Scalar::bits`); dizi, enum, struct ve
+/// takma ad kuralını ayrı temsillerde uygularlar, bu test onları gölgenin
+/// bütün girdisinde karşılaştırır.
+#[test]
+fn port_widths_agree_between_the_type_checker_and_the_ast() {
+    let mut units = 0;
+    let mut ports = 0;
+    let mut with_width = 0;
+    let mut unmapped = 0;
+    let mut bad: Vec<String> = Vec::new();
+    let (files, book) = shadow_corpus::for_each_input("port-width", &mut |path| {
+        let Ok(a) = shadow_corpus::analyze(path) else {
+            return;
+        };
+        units += 1;
+        let ast = &a.unit.parsed.ast;
+        let typeck = &a.analysis.typeck;
+        for &idx in &ast.items {
+            let decl_ports = match &ast.items_arena[idx].kind {
+                ItemKind::Module(m) => &m.ports,
+                ItemKind::Extern(e) => &e.ports,
+                _ => continue,
+            };
+            for port in decl_ports {
+                let def = a.analysis.resolve.decl_spans.get(&port.name.span);
+                let Some(&ty) = def.and_then(|d| typeck.def_types.get(d)) else {
+                    unmapped += 1;
+                    continue;
+                };
+                ports += 1;
+                let checked = typeck.types.bit_width(ty);
+                let from_ast = volt_ast::bit_width::type_ref_bits(ast, port.ty);
+                if checked.is_some() {
+                    with_width += 1;
+                }
+                if checked != from_ast {
+                    let (line, col) = a.unit.map.line_col(port.name.span);
+                    let file = display_name(a.unit.map.path(port.name.span.file));
+                    bad.push(format!(
+                        "  {file}:{line}:{col} `{}`: tip denetimi {} ({checked:?}), AST {from_ast:?}",
+                        port.name.text,
+                        typeck.types.display(ty)
+                    ));
+                }
+            }
+        }
+    });
+    println!(
+        "port genişliği: {files} dosya + {book} kitap bloğu; birim {units}; port {ports}          (genişlikli {with_width}, tanımı eşlenmeyen {unmapped}); ayrışan {}",
+        bad.len()
+    );
+    assert!(units > 0 && with_width > 0, "hiç port karşılaştırılmadı");
+    assert!(
+        bad.is_empty(),
+        "ne oldu: tip denetimi ile AST {} portun genişliğinde ayrışıyor:
+{}
+         neden: SV testbench'i ve test dili port genişliğini AST'den okur,          tip denetimi tanımın tipinden; ayrışınca testbench porta tip          denetiminin söylediğinden farklı genişlikte yazar ya da okur (#419'da          `taps`'ın iki genişliği).
+         ne yapabilirsin: spec'e göre doğru genişliği bul; yanlış olan tarafı          (`TypeArena::bit_width` ya da `volt_ast::bit_width::type_ref_bits`)          düzelt, skaler genişliği yalnız `Scalar::bits`'te değiştir.",
+        bad.len(),
+        bad.join("
+")
+    );
 }
 
 /// Gölgenin katı kararı (ADR-0136 §2): (a) ve (b) sınıfında ayrışma yok,

@@ -114,8 +114,9 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // #354 (ADR-0126): 160 gerçek gecikmesiyle uyuşan Delayed bildirimleri.
     // #232 (ADR-0127): 161 `delay<K>` bir
     // iddiadır, register eklemez. #373: 162 struct değerli sync()
-    // kaynakları (tipsiz let/reg dâhil).
-    assert_eq!((built, check_only), (147, 0));
+    // kaynakları (tipsiz let/reg dâhil). #419: 163 her skaler tipin her
+    // kullanım yerinde tek genişliği.
+    assert_eq!((built, check_only), (148, 0));
 }
 
 #[test]

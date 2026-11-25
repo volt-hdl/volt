@@ -8,6 +8,7 @@
 
 pub mod alias;
 pub mod arena;
+pub mod bit_width;
 pub mod builtin;
 pub mod const_eval;
 pub mod enum_layout;

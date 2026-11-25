@@ -4,7 +4,7 @@
 //! ortak); burada ihlaller tanıya çevrilir: E2030 (geçersiz kodlama),
 //! E2010 (açık değer negatif ya da taban tipine sığmıyor), E2021 (açık
 //! değer sabit değil), E1003 (yinelenen varyant adı). Geçerli tablonun
-//! genişliği `TypeArena`'ya yazılır — `signal_width` (W3003) ve tip
+//! genişliği `TypeArena`'ya yazılır — `bit_width` (W3003, `taps`) ve tip
 //! dönüşümü kuralları (`enum as uN`) oradan okur.
 //!
 //! Payload'lı ve generic enum'larda kodlama denetlenmez: bildirimleri
