@@ -1,7 +1,7 @@
 # ADR-0028: Ayrılmış Kelime Revizyonu — Stdlib'e Taşınanlar Serbest
 
 > Statü: Uygulandı
-> İlgili: ADR-0078 (hedef dillerin ayrılmış sözcükleri).
+> İlgili: ADR-0078 (hedef dillerin ayrılmış sözcükleri), ADR-0139 (`Spike`, `PTrit`, `spike` rezervi olduğu gibi kalır; olay güdümlü zaman modeli yalnız gelecek yön).
 > Tarih: 2026-09-08
 > Etkilenen: volt-syntax (token.rs Reserved listesi, lexer testleri),
 > docs/spec/grammar-full.ebnf §17 (bu ADR kaynaklı güncelleme),
