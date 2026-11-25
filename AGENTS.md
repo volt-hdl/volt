@@ -296,6 +296,22 @@ evidence: a test that skips prints `ok` too (ADR-0107).
   with its tool required. Quote the `SKIP: 0` line of the tool job and the
   result of "Tool coverage" in the report.
 
+## Windows PowerShell 5.1
+
+Windows PowerShell 5.1 passes a double quote inside an argument to a
+native program without escaping it, so the argument splits in two. With
+`gh`:
+
+- **Filter `gh` output with its own `--jq`**, not with a separate `jq`
+  (Windows does not have one by default) or a parse in PowerShell:
+  `gh pr view <number> --json state --jq .state`. A double quote inside
+  the expression is written `\"`.
+- **Pass a body through a file.** Write the body of a pull request, an
+  issue or a comment to a file and give it with `--body-file`, never as
+  `--body "..."`: a double quote in the text splits the argument. Write
+  the file as UTF-8: `[IO.File]::WriteAllText` does, while `Set-Content`
+  in 5.1 writes the ANSI code page.
+
 ## Banned words
 
 Prose in the book (`book/src/`), `README.md`, `CHANGELOG.md` and
