@@ -124,6 +124,12 @@ AttrArg         = Ident "=" Expr
 DomainDecl      = "domain" Ident "{" { DomainField } "}" ;    (* [F1] *)
 
 DomainField     = DomainKey "=" DomainValue [ "," ] ;
+                  (* Bir bildirimde her anahtar en çok bir kez yazılır:
+                     aynı anahtarın ikinci yazımı, değeri ne olursa olsun,
+                     E1003'tür ve iki alanı da gösterir (ADR-0140, #420).
+                     Bildirim alanlarının kapsamıdır; iki ayrı domain aynı
+                     anahtarı birer kez yazar. Bilinmeyen anahtar W0020
+                     alır, bir alan sayılmaz. *)
 
 DomainKey       = (* saat *)
                   "clock" | "frequency"
