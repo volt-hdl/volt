@@ -15,6 +15,7 @@ use super::test_files::resolve_files;
 use super::test_waves::{self, failed_tests, GroupWaves, WaveMode};
 use super::verilator::{require_verilator, run_simulation, verilate, VerilateJob};
 use super::{create_sim_dir, modules_of, write_file};
+use crate::output::OutputRoot;
 use crate::tool_backend::Runner;
 use crate::Compiled;
 
@@ -26,7 +27,8 @@ pub(crate) struct TestOptions<'a> {
     pub contracts: bool,
     /// Dalga formu kaydı (ADR-0095): `--waves` / `--no-waves`.
     pub waves: WaveMode,
-    pub target_dir: &'a Path,
+    /// Çıktı kökü ve dizini (`--target-dir`, #221).
+    pub out: &'a OutputRoot,
 }
 
 pub(crate) fn test(filter: Option<&str>, opts: TestOptions<'_>) -> ExitCode {
@@ -92,6 +94,7 @@ fn dut_of<'u>(
 /// girdilerini sırasıyla döndürür. `trace_all` (`--waves`): testbench her
 /// testi kendi VCD'sine izler (ADR-0095).
 fn write_group_files(
+    out: &OutputRoot,
     sim_dir: &Path,
     group: &TestGroup,
     ports: &[SimPort],
@@ -99,9 +102,9 @@ fn write_group_files(
     (tb_name, trace_all): (&str, bool),
 ) -> Result<Vec<String>, ExitCode> {
     let module = &group.module;
-    create_sim_dir(sim_dir)?;
+    create_sim_dir(out, sim_dir)?;
     let sv_name = format!("{module}.sv");
-    write_file(&sim_dir.join(&sv_name), sv)?;
+    write_file(out, &sim_dir.join(&sv_name), sv)?;
     // İzleyici yalnız SV'de DPI çağrısı varsa (kontratsız tasarımda
     // testbench ADR-0033/0058 çıktısıyla bayt bayt aynı kalır).
     let contracts = uses_sim_contracts(sv);
@@ -115,18 +118,19 @@ fn write_group_files(
     } else {
         tbgen::test_testbench_cpp_with(module, ports, &group.tests, contracts)
     };
-    write_file(&sim_dir.join(tb_name), &tb)?;
+    write_file(out, &sim_dir.join(tb_name), &tb)?;
     // `load` hedefleri yalnız adlarıyla açılır (ADR-0058): .vlt
     // dosyası SV'den ÖNCE verilir.
     let mut inputs = Vec::new();
     if !group.load_targets.is_empty() {
         let vlt_name = format!("load_{module}.vlt");
         let vlt = tbgen::load_config_vlt(&group.load_targets);
-        write_file(&sim_dir.join(&vlt_name), &vlt)?;
+        write_file(out, &sim_dir.join(&vlt_name), &vlt)?;
         inputs.push(vlt_name);
     }
     // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
     inputs.extend(crate::extern_stage::stage_extern_sources(
+        out,
         externs,
         sim_dir,
         &[sv_name.as_str(), tb_name],
@@ -156,13 +160,14 @@ fn run_group(
     };
 
     // Alt dizindeki aynı adlı testler ayrı dizine (ADR-0089).
-    let sim_dir = opts.target_dir.join("sim").join(unit.sim_key());
+    let sim_dir = opts.out.dir().join("sim").join(unit.sim_key());
     let tb_name = format!("tb_{module}.cpp");
     let trace_all = opts.waves == WaveMode::All;
     if opts.waves != WaveMode::Off {
-        test_waves::prepare_dir(&sim_dir, module);
+        test_waves::prepare_dir(opts.out, &sim_dir, module);
     }
     let inputs = write_group_files(
+        opts.out,
         &sim_dir,
         group,
         &ports,
@@ -178,7 +183,7 @@ fn run_group(
         trace: trace_all,
         mdir: &format!("obj_{}", module.to_lowercase()),
     };
-    let exe = verilate(verilator, &job, &[])?;
+    let exe = verilate(verilator, opts.out, &job, &[])?;
     let output = run_simulation(verilator, &exe, &sim_dir, &[])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -206,6 +211,7 @@ fn run_group(
         .collect();
     print_test_lines(&run);
     let waves = GroupWaves {
+        out: opts.out,
         sim_dir: &sim_dir,
         module,
         ports: &ports,

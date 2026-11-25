@@ -1,7 +1,7 @@
 # ADR-0021: Artifact Üretim Mimarisi ve CLI Sözleşmesi — Tek Kaynak, `build/` Dizini, Çıkış Kodları
 
 > Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); cocotb, UPF, DFT ve belge üretimi planı uygulanmadı
-> İlgili: ADR-0053 (sürücü/başlık/regmap üretimi), ADR-0054 (SDC/XDC üretimi).
+> İlgili: ADR-0053 (sürücü/başlık/regmap üretimi), ADR-0054 (SDC/XDC üretimi), ADR-0138 (çıktı kökü: yazım kökün altında kalır, bağlantının üzerinden yazılmaz; #221).
 > Tarih: 2026-09-03
 > Etkilenen: cli-contract.md §0/§2/§4/§5/§11, volt-driver/src/main.rs (ExitCode),
 > volt-driver/src/{sim,verify}.rs, .github/workflows/ci.yml

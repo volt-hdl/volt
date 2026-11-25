@@ -20,6 +20,7 @@ use volt_sv_emit::{sim as tbgen, SimPort, SimReset, TbTest};
 use super::tb_output::{parse_tb_output, TestOutcome};
 use super::verilator::{run_simulation, verilate, VerilateJob};
 use super::write_file;
+use crate::output::OutputRoot;
 use crate::tool_backend::Runner;
 use crate::waves::{self, PlainTrace, WaveScope};
 use crate::Compiled;
@@ -62,7 +63,7 @@ pub(super) fn vcd_rel(module: &str, test: &str) -> String {
 /// Grubun eski kayıtlarını siler ve dizini hazırlar: bugün geçen testin
 /// dünkü VCD'si yanıltmasın. Docker dizini kök sahipli oluşturmasın diye
 /// dizin ana makinede kurulur.
-pub(super) fn prepare_dir(sim_dir: &Path, module: &str) {
+pub(super) fn prepare_dir(out: &OutputRoot, sim_dir: &Path, module: &str) {
     let dir = sim_dir.join(WAVES_DIR);
     let prefix = format!("{module}-");
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -71,18 +72,19 @@ pub(super) fn prepare_dir(sim_dir: &Path, module: &str) {
             if name.starts_with(&prefix) {
                 let path = entry.path();
                 let _ = if path.is_dir() {
-                    std::fs::remove_dir_all(&path)
+                    out.remove_dir_all(&path)
                 } else {
-                    std::fs::remove_file(&path)
+                    out.remove_file(&path)
                 };
             }
         }
     }
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = out.create_dir_all(&dir);
 }
 
 /// Bir grubun dalga formu bağlamı.
 pub(super) struct GroupWaves<'a> {
+    pub out: &'a OutputRoot,
     pub sim_dir: &'a Path,
     pub module: &'a str,
     pub ports: &'a [SimPort],
@@ -124,6 +126,7 @@ impl GroupWaves<'_> {
             })
             .collect();
         let session = match waves::write_session_with(
+            self.out,
             &vcd,
             &self.compiled.waves,
             self.module,
@@ -175,7 +178,7 @@ impl GroupWaves<'_> {
         let vcds: Vec<String> = failed.iter().map(|t| vcd_rel(module, &t.name)).collect();
         let tb = tbgen::test_testbench_cpp_traced(module, self.ports, failed, contracts, &vcds);
         let tb_name = format!("tb_{module}_waves.cpp");
-        write_file(&self.sim_dir.join(&tb_name), &tb)?;
+        write_file(self.out, &self.sim_dir.join(&tb_name), &tb)?;
         let job = VerilateJob {
             sim_dir: self.sim_dir,
             inputs,
@@ -184,7 +187,7 @@ impl GroupWaves<'_> {
             trace: true,
             mdir: &format!("obj_{}_waves", module.to_lowercase()),
         };
-        let exe = verilate(runner, &job, &[])?;
+        let exe = verilate(runner, self.out, &job, &[])?;
         let output = run_simulation(runner, &exe, self.sim_dir, &[])?;
         let rerun = parse_tb_output(&String::from_utf8_lossy(&output.stdout));
         Ok(self.hints_for(failed, &rerun))
@@ -286,7 +289,9 @@ mod tests {
         assert_eq!(compiled.errors(), 0);
         let module = super::super::modules_of(&compiled.ast)[0];
         let ports = tbgen::collect_sim_ports(&compiled.ast, module);
+        let out = OutputRoot::new(&dir, crate::output::Origin::TargetDir);
         let waves = GroupWaves {
+            out: &out,
             sim_dir: &dir,
             module: "Fsm",
             ports: &ports,
@@ -333,7 +338,11 @@ mod tests {
         }
 
         // Act
-        prepare_dir(&dir, "A");
+        prepare_dir(
+            &OutputRoot::new(&dir, crate::output::Origin::TargetDir),
+            &dir,
+            "A",
+        );
 
         // Assert
         assert!(!waves.join("A-t.vcd").exists());

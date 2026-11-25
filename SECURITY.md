@@ -25,6 +25,39 @@ a public issue and title it `silent-wrong:` when the compiler accepts a
 design that computes the wrong thing. Public issues are tested and fixed
 in the open.
 
+## Where Volt writes files
+
+Every file Volt writes stays under the output root of the command: the
+current directory for `build/` (or the directory given with
+`--target-dir`), the new project directory for `volt new`, the current
+directory for `volt init`, and the directory of the file given with
+`volt run --vcd`. The root itself and the path above it are your choice
+and are not checked. Below the root, Volt refuses to write, create,
+copy or delete through a symbolic link, or to a path that leaves the
+root with `..`; the command stops with exit code 3 and names the link.
+This keeps a link that comes with a cloned repository (for example
+`build/rtl/Top.sv` pointing at a file in your home directory) from
+making `volt build` overwrite that file (#221).
+
+On Windows:
+
+- Git for Windows clones symbolic links as plain text files unless
+  symbolic links were enabled when Git was installed
+  (`core.symlinks=true`, which needs Developer Mode or administrator
+  rights). With the default setting a cloned repository cannot plant a
+  link.
+- Volt treats a junction and every other reparse point like a symbolic
+  link. Git never creates junctions, but a script or an archive tool can.
+- If a directory under the output root is a reparse point for another
+  reason (for example a cloud-sync placeholder), Volt refuses to write
+  there too; choose an output directory outside it with `--target-dir`.
+
+A tool that Volt starts (Verilator, SymbiYosys) writes inside directories
+that Volt checks before the tool starts. Between that check and the write
+there is a short window in which another program running as you could
+swap a directory for a link; Volt does not close it, because such a
+program can already write to your files.
+
 ## How to report
 
 Use the **Report a vulnerability** button on the repository's

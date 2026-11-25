@@ -9,6 +9,7 @@ use std::process::{Command, ExitCode, Output};
 use volt_diagnostics::lstr;
 use volt_tools::docker_paths::{container_path, host_absolute, Mounts};
 
+use crate::output::OutputRoot;
 use crate::tool_backend::{self, DockerTool, Runner};
 
 /// Günlüğün başarısızlıkta basılan kuyruğu (satır).
@@ -135,14 +136,16 @@ impl VerilateJob<'_> {
 /// Verilator'u koşturur; başarısızlıkta günlüğün kuyruğunu basar.
 /// Başarıda üretilen yürütülebilirin mutlak yolunu döndürür. `extra`
 /// Docker'da sim dizinine ek olarak bağlanan dizinlerdir (VCD dizini).
+/// `out`: sim dizininin çıktı kökü (#221).
 pub(super) fn verilate(
     runner: &Runner,
+    out: &OutputRoot,
     job: &VerilateJob<'_>,
     extra: &[&Path],
 ) -> Result<PathBuf, ExitCode> {
     let obj_dir = job.sim_dir.join(job.mdir);
     let stamp = build_stamp(runner);
-    prepare_obj_dir(&obj_dir, &stamp);
+    prepare_obj_dir(out, &obj_dir, &stamp);
     let exe = match runner {
         Runner::Local(verilator) => {
             let output = run_tool(job.command(verilator), verilator)?;
@@ -152,11 +155,11 @@ pub(super) fn verilate(
             }
             job.exe_path()
         }
-        Runner::Docker(tool) => verilate_in_docker(tool, job, extra)?,
+        Runner::Docker(tool) => verilate_in_docker(tool, out, job, extra)?,
     };
     // Damga yalnız başarıdan sonra: yarıda kalan derleme damgasız kalır
     // ve bir sonraki koşu dizini temizden kurar.
-    let _ = std::fs::write(obj_dir.join(STAMP_FILE), &stamp);
+    let _ = out.write(&obj_dir.join(STAMP_FILE), &stamp);
     Ok(exe)
 }
 
@@ -203,17 +206,23 @@ fn build_stamp(runner: &Runner) -> String {
 /// Damgası olmayan (yarıda kalmış ya da eski) ya da başka bir araçla
 /// kurulmuş obj dizinini siler; derleme onu baştan kurar. Damgayı
 /// derlemeden önce kaldırır: bu derleme yarıda kalırsa dizin damgasız
-/// kalır.
-fn prepare_obj_dir(obj_dir: &Path, stamp: &str) {
-    if !obj_dir.exists() {
+/// kalır. Kendisi ya da içi bir bağlantı taşıyan obj dizini de silinir
+/// (#221): Verilator var olan dosyaların üzerine yazar ve bağlantıyı
+/// izlerdi; std'nin `remove_dir_all`'ı bağlantıyı izlemez, yalnız onu
+/// siler.
+fn prepare_obj_dir(out: &OutputRoot, obj_dir: &Path, stamp: &str) {
+    if std::fs::symlink_metadata(obj_dir).is_err() {
         return;
     }
     let stamp_path = obj_dir.join(STAMP_FILE);
-    let current = std::fs::read_to_string(&stamp_path).ok();
+    let current = match out.check_tree(obj_dir) {
+        Ok(()) => std::fs::read_to_string(&stamp_path).ok(),
+        Err(_) => None,
+    };
     if current.as_deref() == Some(stamp) {
-        let _ = std::fs::remove_file(&stamp_path);
+        let _ = out.remove_file(&stamp_path);
     } else {
-        let _ = std::fs::remove_dir_all(obj_dir);
+        let _ = out.remove_dir_all(obj_dir);
     }
 }
 
@@ -222,6 +231,7 @@ fn prepare_obj_dir(obj_dir: &Path, stamp: &str) {
 /// sim dizinine yazılır (yeniden koşturma yerel araç gerektirirdi).
 fn verilate_in_docker(
     tool: &DockerTool,
+    out: &OutputRoot,
     job: &VerilateJob<'_>,
     extra: &[&Path],
 ) -> Result<PathBuf, ExitCode> {
@@ -238,7 +248,7 @@ fn verilate_in_docker(
         let log = output_text(&output);
         print_log_tail(&log);
         let log_path = job.sim_dir.join("verilator.log");
-        let _ = std::fs::write(&log_path, &log);
+        let _ = out.write(&log_path, &log);
         let (module, image) = (job.module, tool.image.name);
         eprintln!(
             "{}",
@@ -348,11 +358,15 @@ fn print_log_tail(log: &str) {
 /// Testbench'e gömülecek VCD yolu (`/` ayraçlı): yerelde ana makine
 /// yolu, Docker'da konteyner yolu — dizini `extra` ile bağlanmalı
 /// (`vcd_mount_dir`).
-pub(super) fn vcd_path_for(runner: &Runner, host_vcd: &Path) -> Result<String, ExitCode> {
+pub(super) fn vcd_path_for(
+    runner: &Runner,
+    out: &OutputRoot,
+    host_vcd: &Path,
+) -> Result<String, ExitCode> {
     match runner {
         Runner::Local(_) => Ok(c_path(host_vcd)),
         Runner::Docker(_) => {
-            let dir = vcd_mount_dir(host_vcd);
+            let dir = vcd_mount_dir(out, host_vcd);
             let name = host_vcd.file_name().unwrap_or_default();
             let full = host_dir(&dir)?.join(name);
             container_path(&full).ok_or_else(|| unmappable(&full))
@@ -361,13 +375,13 @@ pub(super) fn vcd_path_for(runner: &Runner, host_vcd: &Path) -> Result<String, E
 }
 
 /// VCD'nin konteynere bağlanan dizini; yoksa oluşturulur (Docker onu
-/// kök sahipli oluştururdu).
-pub(super) fn vcd_mount_dir(host_vcd: &Path) -> PathBuf {
+/// kök sahipli oluştururdu). `out`: VCD'nin kökü (`--vcd`'nin dizini).
+pub(super) fn vcd_mount_dir(out: &OutputRoot, host_vcd: &Path) -> PathBuf {
     let dir = match host_vcd.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = out.create_dir_all(&dir);
     dir
 }
 
@@ -393,6 +407,7 @@ pub(super) fn c_path(p: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::Origin;
 
     fn job<'a>(inputs: &'a [String], trace: bool) -> VerilateJob<'a> {
         VerilateJob {
@@ -508,24 +523,26 @@ mod tests {
         let root = std::env::temp_dir().join(format!("volt-stamp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let obj = root.join("obj_dir");
+        std::fs::create_dir_all(&root).unwrap();
+        let out = OutputRoot::new(&root, Origin::TargetDir);
 
         // Yarıda kalmış: damga yok, Makefile yarım.
         std::fs::create_dir_all(&obj).unwrap();
         std::fs::write(obj.join("VX.mk"), "half").unwrap();
-        prepare_obj_dir(&obj, "stamp A");
+        prepare_obj_dir(&out, &obj, "stamp A");
         assert!(!obj.exists(), "damgasız dizin silinmeli");
 
         // Başka araç (Docker'dan yerele): damga farklı.
         std::fs::create_dir_all(&obj).unwrap();
         std::fs::write(obj.join(STAMP_FILE), "stamp B").unwrap();
-        prepare_obj_dir(&obj, "stamp A");
+        prepare_obj_dir(&out, &obj, "stamp A");
         assert!(!obj.exists(), "farklı damgalı dizin silinmeli");
 
         // Aynı araç: dizin kalır, damga derleme bitene dek kalkar.
         std::fs::create_dir_all(&obj).unwrap();
         std::fs::write(obj.join("VX.mk"), "ok").unwrap();
         std::fs::write(obj.join(STAMP_FILE), "stamp A").unwrap();
-        prepare_obj_dir(&obj, "stamp A");
+        prepare_obj_dir(&out, &obj, "stamp A");
         assert!(obj.join("VX.mk").is_file());
         assert!(!obj.join(STAMP_FILE).exists());
         let _ = std::fs::remove_dir_all(&root);
@@ -552,6 +569,7 @@ mod tests {
         let here = std::env::temp_dir();
         j.sim_dir = &here;
         let runner = Runner::Local(PathBuf::from("volt-no-such-verilator-binary"));
-        assert!(verilate(&runner, &j, &[]).is_err());
+        let out = OutputRoot::new(&here, Origin::TargetDir);
+        assert!(verilate(&runner, &out, &j, &[]).is_err());
     }
 }

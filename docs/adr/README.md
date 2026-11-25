@@ -252,6 +252,7 @@ denetler.
 | [0084](ADR-0084-doctor-ve-new.md) | `volt doctor` ve `volt new` / `volt init` — Kurulum Teşhisi, Tek Kaynaklı Araç Keşfi, Doğrulanmış Şablonlar | `volt doctor` kurulumu teşhis eder; `volt new` / `volt init` doğrulanmış şablonlardan proje kurar. | Uygulandı |
 | [0091](ADR-0091-lsp-inlay-quick-fix.md) | LSP — Inlay İpuçları, Quick Fix ve Protokol Testleri | LSP tip, saat alanı ve gecikme inlay ipuçları ile tek öneriden quick fix sunar. | Uygulandı |
 | [0095](ADR-0095-proje-kipi-test-dalga-formu-watch.md) | Proje Kipi — Argümansız check/build/run/verify, Düşen Testin Dalga Formu ve `volt test --watch` | Dosyasız komutlar Volt.toml projesinde çalışır, üst modül `top` ya da tek adaydan gelir; düşen test izle yeniden koşup `Waveform` satırı verir; `--watch` kayıtta yeniden koşar. | Uygulandı |
+| [0138](ADR-0138-cikti-koku-ve-baglantilar.md) | Çıktı Yazımı Kökün Altında Kalır — Bağlantının Üzerinden Yazılmaz, Tek Yazma Kapısı | Her komutun bir çıktı kökü vardır (çalışma dizini; `--target-dir`, `volt new`'in dizini ya da `--vcd`'nin dizini verildiyse o): kökün altındaki yolda ya da hedefte bir sembolik bağlantı (Windows'ta junction ve reparse point) ya da kök dışına çıkan hedef yazımı reddeder, çıkış kodu 3, yeni tanı kodu yok. volt-driver'ın bütün yazımları tek yardımcıdan geçer; izin listesi testi başka bir doğrudan yazımı düşürür (#221). | Önerildi |
 
 ## Tanılar ve sağlamlık (fuzz, sınırlar)
 
