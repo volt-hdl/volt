@@ -47,6 +47,7 @@ module UseBool {
     out window : bits<4>
     out oldest : bool
     out third  : bool
+    out all    : [bool; 3]
     out field  : bool
     out ok     : bool
     out late   : Delayed<bool, 1>
@@ -61,6 +62,7 @@ module UseBool {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
@@ -81,6 +83,7 @@ module UseTrit {
     out window : bits<8>
     out oldest : Trit
     out third  : Trit
+    out all    : [Trit; 3]
     out field  : Trit
     out ok     : bool
     out late   : Delayed<Trit, 1>
@@ -95,6 +98,7 @@ module UseTrit {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
@@ -115,6 +119,7 @@ module UseU3 {
     out window : bits<12>
     out oldest : u3
     out third  : u3
+    out all    : [u3; 3]
     out field  : u3
     out ok     : bool
     out late   : Delayed<u3, 1>
@@ -129,6 +134,7 @@ module UseU3 {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
@@ -149,6 +155,7 @@ module UseI5 {
     out window : bits<20>
     out oldest : i5
     out third  : i5
+    out all    : [i5; 3]
     out field  : i5
     out ok     : bool
     out late   : Delayed<i5, 1>
@@ -163,6 +170,7 @@ module UseI5 {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
@@ -183,6 +191,7 @@ module UseB6 {
     out window : bits<24>
     out oldest : bits<6>
     out third  : bits<6>
+    out all    : [bits<6>; 3]
     out field  : bits<6>
     out ok     : bool
     out late   : Delayed<bits<6>, 1>
@@ -197,6 +206,7 @@ module UseB6 {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
@@ -310,6 +320,7 @@ module UseTr {
     out window : bits<8>
     out oldest : Tr
     out third  : Tr
+    out all    : [Tr; 3]
     out field  : Tr
     out ok     : bool
     out late   : Delayed<Tr, 1>
@@ -324,6 +335,7 @@ module UseTr {
     window = sr.taps
     oldest = sr.data_out
     third  = arr[2]
+    all    = arr
     field  = h.f
     ok     = h.ok
     late   = r
