@@ -46,11 +46,15 @@ On Windows:
   (`core.symlinks=true`, which needs Developer Mode or administrator
   rights). With the default setting a cloned repository cannot plant a
   link.
-- Volt treats a junction and every other reparse point like a symbolic
-  link. Git never creates junctions, but a script or an archive tool can.
-- If a directory under the output root is a reparse point for another
-  reason (for example a cloud-sync placeholder), Volt refuses to write
-  there too; choose an output directory outside it with `--target-dir`.
+- Volt treats a junction like a symbolic link. Git never creates
+  junctions, but a script or an archive tool can.
+- Volt asks Rust's standard library whether an entry is a link
+  (`FileType::is_symlink`). On Windows that is a reparse point whose tag
+  is a name surrogate: a reparse point that sends the write to another
+  path, as symbolic links and junctions do. Reparse points that keep the
+  write in place, such as cloud-sync placeholders (OneDrive files on
+  demand), compressed or deduplicated files, are not links: Volt writes to
+  them as to any other file.
 
 A tool that Volt starts (Verilator, SymbiYosys) writes inside directories
 that Volt checks before the tool starts. Between that check and the write

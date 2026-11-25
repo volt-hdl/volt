@@ -26,8 +26,11 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   bekleyen, hedefi olmayan bir bağlantı da reddedilir), `volt run --vcd`'de
   VCD'nin dizini. Kökün kendisi ve üstü denetlenmez: bağlantı olan bir
   ana dizin ya da açıkça verilen bir `--target-dir` bağlantısı eskisi
-  gibi çalışır. Windows'ta junction ve başka her reparse point bağlantı
-  sayılır. Bağlantı taşıyan bir Verilator obj dizini silinip baştan
+  gibi çalışır. Windows'ta junction da bağlantı sayılır: Rust'ın standart
+  kütüphanesinin tanımıyla (`FileType::is_symlink`) yazımı başka bir yola
+  yönlendiren (name surrogate) reparse point; OneDrive yer tutucusu,
+  sıkıştırma ya da tekilleştirme gibi yazımı yerinde bırakan reparse
+  point'ler bağlantı değildir, yazım eskisi gibi yapılır (#427). Bağlantı taşıyan bir Verilator obj dizini silinip baştan
   kurulur; `build/formal` altında bağlantı varsa `volt verify` reddeder.
   Bağlantısız yollarda üretilen dosyalar bayt bayt aynıdır (gölgenin 489
   girdi dosyasında `build`, `test` ve `verify` çıktıları main ile

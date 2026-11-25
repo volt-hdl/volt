@@ -1,8 +1,8 @@
 # ADR-0138: Çıktı Yazımı Kökün Altında Kalır — Bağlantının Üzerinden Yazılmaz, Tek Yazma Kapısı
 
-> Statü: Önerildi — uygulaması #221'in PR'ında
+> Statü: Uygulandı — bakımcı onayı (2026-11-25): Windows'ta yalnız yönlendiren (name surrogate) reparse point bağlantıdır
 > İlgili: ADR-0021 (çıktılar `build/` altına; çıkış kodu 3 G/Ç hatasıdır), ADR-0125 (ret iletisi ne oldu, neden, ne yapabilirsin der; yeni tanı kodu yok, §7)
-> Issue: #221
+> Issue: #221, #427
 > Tarih: 2026-11-25
 > Etkilenen: `crates/volt-driver/src/output.rs` (YENİ, tek yazma kapısı), volt-driver'ın yazma noktaları (`main.rs`, `new/`, `sim/`, `verify.rs`, `verify_jobs.rs`, `waves.rs`, `extern_stage.rs`, `watch.rs`), `crates/volt-driver/tests/output_links_tests.rs` (YENİ), `crates/volt-driver/tests/output_writes_tests.rs` (YENİ, izin listesi), `SECURITY.md`, `CHANGELOG.md`
 
@@ -47,8 +47,10 @@ olabilir, bu meşrudur.
 Kökün altındaki yolun var olan her parçası ve hedefin kendisi denetlenir
 (`symlink_metadata`, bağlantıyı izlemeden):
 
-- **Bağlantı:** sembolik bağlantı; Windows'ta junction ve başka her
-  reparse point. Yazım reddedilir.
+- **Bağlantı:** std'nin `FileType::is_symlink`'inin bağlantı dediği
+  girdi: Unix'te sembolik bağlantı; Windows'ta yazımı başka bir yola
+  yönlendiren (name surrogate) reparse point, yani sembolik bağlantı ve
+  junction (§5). Yazım reddedilir.
 - **Kök dışı:** hedef kökün dışına çıkıyorsa (`..`) yazım reddedilir.
 
 Kural yazmaya, dizin kurmaya, kopyalamaya, yeniden adlandırmaya ve
@@ -91,10 +93,22 @@ Bugün liste boştur.
   sembolik bağlantılar açıldıysa (`core.symlinks=true`, Geliştirici Modu
   ya da yönetici yetkisi) gerçek bağlantı çıkar ve kural onu reddeder.
 - Git junction saklamaz; junction'ı kullanıcı, bir betik ya da arşiv
-  aracı kurar. std junction'ı sembolik bağlantı sayar
-  (`FileType::is_symlink`); öteki reparse point'ler
-  `FILE_ATTRIBUTE_REPARSE_POINT` ile yakalanır. İkisi de yetki istemeden
-  okunur, `unsafe` gerekmez.
+  aracı kurar.
+- Bağlantı std'nin Windows tanımıdır (`library/std/src/sys/fs/windows.rs`,
+  `FileType::new`): `is_symlink` = `FILE_ATTRIBUTE_REPARSE_POINT` **ve**
+  reparse etiketinin name surrogate biti (`0x20000000`). Etiket
+  `symlink_metadata`'da (`FILE_FLAG_OPEN_REPARSE_POINT` ile açılan
+  tanıtıcıdan, `FileAttributeTagInfo`) okunur. Sembolik bağlantı
+  (`IO_REPARSE_TAG_SYMLINK`) ve junction (`IO_REPARSE_TAG_MOUNT_POINT`)
+  name surrogate'tır: adı başka bir yola yönlendirir, yazım oraya düşer;
+  reddedilir.
+- Name surrogate olmayan reparse point'ler, ör. bulut eşitleme yer
+  tutucuları (`IO_REPARSE_TAG_CLOUD_*`, OneDrive'ın isteğe bağlı
+  dosyaları), sıkıştırma (WOF) ve tekilleştirme, yazımı yerinde bırakır:
+  bağlantı değildir, Volt onlara sıradan dosya gibi yazar. Belgeler
+  klasörü OneDrive'a eşitlenmiş bir Windows kullanıcısında `volt build`
+  bu yüzden çalışır (#427).
+- Denetim yetki istemez, `unsafe` gerekmez.
 
 ### 6. Sürüm
 
@@ -132,13 +146,15 @@ reddedilir: CHANGELOG'da "Davranış değişikliği" satırıdır.
   araç başlamadan önce denetlenir; aracın kendi kurduğu bir bağlantı
   (bugün hiçbiri kurmuyor) sonraki koşuda reddedilir ya da (obj dizini)
   silinir.
-- **Windows'ta başka reparse point'ler.** Her reparse point reddedilir,
-  yalnız yönlendiren (junction, sembolik bağlantı) türler değil: std
-  türü güvenli API ile ayırt etmeye izin vermez. Bulut eşitleme yer
-  tutucuları (ör. OneDrive'ın isteğe bağlı dosyaları) reparse point
-  olarak görünürse Volt o dizinde yazmaz; kullanıcı `--target-dir` ile
-  dışarıda bir dizin seçer. Bunun gerçek bir OneDrive klasöründe nasıl
-  göründüğü doğrulanmadı (#427; seçenekler orada).
+- **Windows'ta name surrogate olmayan reparse point'ler.** Kural onları
+  kabul eder (§5); bu, std'nin tanımına dayanır. Test ortamında böyle bir
+  reparse point yetkisiz ve `unsafe` olmadan kurulamaz: bulut yer
+  tutucusu bir eşitleme sağlayıcısı ister, tekilleştirme sunucu rolü,
+  WOF sıkıştırması (`compact /exe`) kullanıcı kipinde reparse point
+  olarak görünmez. Gerçek bir OneDrive klasöründe sınama yapılmadı.
+- **Name surrogate olan başka etiketler.** Etiketinde name surrogate biti
+  olan her reparse point bağlantı sayılır ve reddedilir; std ayrım
+  yapmaz, Volt da yapmaz.
 - **Diğer crate'ler.** `volt-lsp` ve `volt-tools`'un `src/`'sinde dosya
   yazan üretim kodu yoktur (yalnız testleri yazar); `volt-difftest` bir
   test koşucusudur, kendi geçici dizinine yazar. İzin listesi bugün

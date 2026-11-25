@@ -13,8 +13,12 @@
 //! kullanıcının ana dizini bir bağlantı olabilir, bu meşrudur.
 //!
 //! **Denetim.** Kökün altındaki yolun var olan her parçası ve hedefin
-//! kendisi denetlenir. Sembolik bağlantı (Windows'ta junction ve başka her
-//! reparse point) yazımı reddeder; kökün dışına çıkan hedef (`..`) de.
+//! kendisi denetlenir. Bağlantı yazımı reddeder; kökün dışına çıkan hedef
+//! (`..`) de. Bağlantı, std'nin `FileType::is_symlink`'idir: Unix'te
+//! sembolik bağlantı, Windows'ta adı başka bir yere yönlendiren (name
+//! surrogate) reparse point, yani sembolik bağlantı ve junction. Yazımı
+//! yerinde bırakan reparse point'ler (bulut yer tutucusu, sıkıştırma,
+//! tekilleştirme) bağlantı değildir, reddedilmez.
 //! Red, G/Ç hatası olarak bildirilir: çıkış kodu 3 (cli-contract §2), ileti
 //! ADR-0125'in biçiminde, yeni tanı kodu yok (ADR-0125 §7).
 //!
@@ -73,8 +77,6 @@ pub(crate) struct OutputRoot {
 pub(crate) enum RefusalKind {
     /// Sembolik bağlantı (Windows'ta junction da).
     Link,
-    /// Windows: bağlantı olmayan bir reparse point.
-    ReparsePoint,
     /// Hedef kökün dışında (`..`).
     OutsideRoot,
 }
@@ -223,8 +225,8 @@ impl OutputRoot {
             }
             match fs::symlink_metadata(&real) {
                 Ok(meta) => {
-                    if let Some(kind) = link_kind(&meta) {
-                        return Err(self.refusal(shown, kind));
+                    if is_link(&meta) {
+                        return Err(self.refusal(shown, RefusalKind::Link));
                     }
                 }
                 // Bu parça yoksa altındakiler de yoktur.
@@ -262,8 +264,8 @@ impl OutputRoot {
             let Ok(meta) = fs::symlink_metadata(&real) else {
                 return Err(err.into());
             };
-            if let Some(kind) = link_kind(&meta) {
-                return Err(self.refusal(shown, kind));
+            if is_link(&meta) {
+                return Err(self.refusal(shown, RefusalKind::Link));
             }
             if !meta.is_dir() {
                 return Err(err.into());
@@ -333,8 +335,8 @@ impl OutputRoot {
                 let entry = entry?;
                 let meta = fs::symlink_metadata(entry.path())?;
                 let shown = shown.join(entry.file_name());
-                if let Some(kind) = link_kind(&meta) {
-                    return Err(self.refusal(shown, kind));
+                if is_link(&meta) {
+                    return Err(self.refusal(shown, RefusalKind::Link));
                 }
                 if meta.is_dir() {
                     stack.push((entry.path(), shown));
@@ -366,40 +368,14 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-/// Bağlantı mı: sembolik bağlantı (Windows'ta std junction'ı da böyle
-/// sayar) ya da Windows'ta başka bir reparse point.
-fn link_kind(meta: &fs::Metadata) -> Option<RefusalKind> {
-    if meta.file_type().is_symlink() {
-        Some(RefusalKind::Link)
-    } else if is_reparse_point(meta) {
-        Some(RefusalKind::ReparsePoint)
-    } else {
-        None
-    }
-}
-
-/// Windows: dosya öznitelikleri reparse point diyor mu. Başka platformda
-/// reparse point yoktur. Bit denetimi [`has_reparse_bit`]'tedir: her
-/// platformda sınanır.
-fn is_reparse_point(meta: &fs::Metadata) -> bool {
-    #[cfg(windows)]
-    let attributes = {
-        use std::os::windows::fs::MetadataExt as _;
-        meta.file_attributes()
-    };
-    #[cfg(not(windows))]
-    let attributes = {
-        let _ = meta;
-        0
-    };
-    has_reparse_bit(attributes)
-}
-
-/// `FILE_ATTRIBUTE_REPARSE_POINT` (Windows SDK, `winnt.h`).
-const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-
-fn has_reparse_bit(attributes: u32) -> bool {
-    attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+/// Bağlantı mı (`symlink_metadata`'nın, izlenmeyen girdisi). std'nin
+/// Windows tanımı (`library/std/src/sys/fs/windows.rs`, `FileType::new`):
+/// `is_symlink` = `FILE_ATTRIBUTE_REPARSE_POINT` ve etiketin name surrogate
+/// biti (`0x20000000`). Sembolik bağlantı ve junction bu bitle yazımı başka
+/// bir yere yönlendirir; bulut yer tutucusu (`IO_REPARSE_TAG_CLOUD_*`),
+/// sıkıştırma ve tekilleştirme name surrogate değildir, yazım yerinde olur.
+fn is_link(meta: &fs::Metadata) -> bool {
+    meta.file_type().is_symlink()
 }
 
 /// Hedef yoksa yalnız yeni bir dosya olarak açılır: `create_new`
@@ -447,14 +423,6 @@ impl Refusal {
                          depodaki) başka bir yerdeki dosyanın üzerine yazdıramaz"
                 )
             }
-            RefusalKind::ReparsePoint => lstr!(
-                en: "'{culprit}' is a reparse point; Volt cannot tell where a write through it \
-                     lands, so it writes only to plain files and directories inside its output \
-                     directory";
-                tr: "'{culprit}' bir reparse point; Volt onun üzerinden yapılan bir yazımın \
-                     nereye düştüğünü bilemez, bu yüzden çıktı dizininin içinde yalnız sıradan \
-                     dosya ve dizinlere yazar"
-            ),
             RefusalKind::OutsideRoot => lstr!(
                 en: "'{culprit}' is outside the output directory '{root}'; Volt writes only \
                      inside it";
@@ -481,7 +449,7 @@ impl Refusal {
             ),
         };
         match self.kind {
-            RefusalKind::Link | RefusalKind::ReparsePoint => lstr!(
+            RefusalKind::Link => lstr!(
                 en: "remove the link '{culprit}' if you did not create it, or {elsewhere}";
                 tr: "'{culprit}' bağlantısını siz kurmadıysanız kaldırın ya da {elsewhere}"
             ),
@@ -709,46 +677,35 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Reparse point biti öteki özniteliklerden bağımsız okunur (dizin
-    /// 0x10, arşiv 0x20, salt okunur 0x1).
-    #[test]
-    fn the_reparse_bit_is_read_alone() {
-        assert!(has_reparse_bit(0x400));
-        assert!(has_reparse_bit(0x400 | 0x10 | 0x20));
-        assert!(!has_reparse_bit(0x10 | 0x20 | 0x1));
-        assert!(!has_reparse_bit(0));
-    }
-
     /// Bağlantı olmayan sıradan dosya ve dizin reddedilmez; bağlantı
-    /// `Link`'tir (Windows'ta junction da).
+    /// reddedilir (Windows'ta junction da: name surrogate bir reparse point).
     #[test]
     fn plain_entries_are_not_links_and_links_are() {
         let dir = temp("kind");
         fs::write(dir.join("f.txt"), "f").expect("yaz");
         fs::create_dir_all(dir.join("d")).expect("dizin");
         link_dir(&dir.join("d"), &dir.join("l"));
-        let kind = |p: &str| link_kind(&fs::symlink_metadata(dir.join(p)).expect("meta"));
+        let link = |p: &str| is_link(&fs::symlink_metadata(dir.join(p)).expect("meta"));
 
-        assert_eq!(kind("f.txt"), None);
-        assert_eq!(kind("d"), None);
-        assert_eq!(kind("l"), Some(RefusalKind::Link));
+        assert!(!link("f.txt"));
+        assert!(!link("d"));
+        assert!(link("l"));
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// `is_reparse_point` Windows'ta dosya özniteliğini okur (junction bir
-    /// reparse point'tir); başka platformda reparse point yoktur, her girdi
-    /// için `false` (ADR-0109 A2 girdisinin varsayımı).
+    /// Hedefi olmayan (asılı) bir bağlantı da bağlantıdır: `volt init`'in
+    /// yazacağı bir adda duran asılı bağlantı, yazımı depo dışına
+    /// yönlendirirdi. Windows'ta hedef dizini silinmiş bir junction.
     #[test]
-    fn reparse_points_are_read_on_windows_and_absent_elsewhere() {
-        let dir = temp("reparse");
-        fs::write(dir.join("f.txt"), "f").expect("yaz");
-        fs::create_dir_all(dir.join("d")).expect("dizin");
-        link_dir(&dir.join("d"), &dir.join("l"));
-        let reparse = |p: &str| is_reparse_point(&fs::symlink_metadata(dir.join(p)).expect("meta"));
+    fn a_dangling_link_is_a_link() {
+        let dir = temp("dangling");
+        fs::create_dir_all(dir.join("gone")).expect("dizin");
+        link_dir(&dir.join("gone"), &dir.join("l"));
+        fs::remove_dir(dir.join("gone")).expect("hedefi sil");
 
-        assert!(!reparse("f.txt"));
-        assert!(!reparse("d"));
-        assert_eq!(reparse("l"), cfg!(windows));
+        let meta = fs::symlink_metadata(dir.join("l")).expect("bağlantının kendisi okunur");
+
+        assert!(is_link(&meta));
         let _ = fs::remove_dir_all(&dir);
     }
 

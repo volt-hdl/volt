@@ -1,6 +1,6 @@
 //! Çıktı yazımı ve bağlantılar (#221): Volt'un yazdığı her dosya çıktı
 //! kökünün altında kalır; kökün altındaki yolda ya da hedefte bir
-//! sembolik bağlantı (Windows'ta junction ya da başka bir reparse point)
+//! sembolik bağlantı (Windows'ta junction; std'nin `is_symlink`'i)
 //! varsa yazım reddedilir, çıkış kodu 3 (G/Ç hatası).
 //!
 //! Kök: varsayılan `build/` için çalışma dizini (proje kökü),
@@ -414,6 +414,37 @@ fn build_refuses_a_build_directory_that_is_a_junction() {
         written.is_empty(),
         "junction'ın hedefine yazılmamalı: {written:?}"
     );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Windows: hedefi silinmiş (asılı) bir junction da bağlantıdır. Volt onun
+/// yerine dizin kurmaz, üzerinden de yazmaz: `build/rtl` reddedilir ve
+/// junction'ın gösterdiği yerde dizin oluşmaz.
+#[cfg(windows)]
+#[test]
+fn build_refuses_a_dangling_junction_in_the_build_directory() {
+    // Arrange
+    let base = temp_dir("dangling-junction");
+    let repo = base.join("repo");
+    let gone = base.join("gone");
+    std::fs::create_dir_all(&gone).expect("dizin");
+    std::fs::create_dir_all(repo.join("build")).expect("dizin");
+    write(&repo.join("m.volt"), TOP);
+    let made = Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(repo.join("build").join("rtl"))
+        .arg(&gone)
+        .output()
+        .expect("cmd çalışmalı");
+    assert!(made.status.success(), "junction kurulamadı: {made:?}");
+    std::fs::remove_dir(&gone).expect("hedefi sil");
+
+    // Act
+    let out = volt(&repo, &["build", "m.volt"]);
+
+    // Assert
+    assert_refused(&out, "build/rtl");
+    assert!(!gone.exists(), "junction'ın hedefi kurulmamalı");
     let _ = std::fs::remove_dir_all(&base);
 }
 
