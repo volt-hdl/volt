@@ -625,6 +625,7 @@ Yerleşik: sync(a, clk)                  ✓ çözülür
 Yazım hatası: 'enabel'                  ✗ E1001 + öneri
 Bildirimden önce kullanım               ✗ E1002
 Aynı kapsamda çift tanım                ✗ E1003
+Domain bildiriminde aynı alan iki kez   ✗ E1003 (ADR-0140)
 Tanımsız enum varyantı                  ✗ E1007
 Tanımsız port: uart.nonexistent         ✗ E1009
 Kullanılmayan register                  ⚠ W1004
