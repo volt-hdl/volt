@@ -504,6 +504,27 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   yeni adrese yönlenir ve çalışmaya devam eder. Tanı kodları, üretilen SV
   ve JSON çıktısı değişmez.
 
+### Geliştirici notu — Yama sürümünün adımları; Windows PowerShell 5.1 notu (#278, 2026-11-25)
+
+- `RELEASING.md` artık bir yama sürümü için yazılmıştır (örnek v0.1.3):
+  sürüm numarasının geçtiği dokuz dosya ve onları değiştiren komutlar,
+  `docs/release-notes/vX.Y.Z.md` ve onun "Behavior changes" bölümünün
+  CHANGELOG'daki "Davranış değişikliği" maddelerinden kurulması,
+  `notes.py --check`, README ve kitap sayfaları, eksiksiz `git add`
+  listesi ve `just clippy-strict`. "The patch rules" bölümü ADR-0100 §1'i
+  (son hane yalnız düzeltme; sessiz yanlış istisnası), ADR-0119'un geçiş
+  uyarısını ve ADR-0125 §7'yi (tanı metni) özetler. v0.1.0'a özgü 1. adım
+  bir ek bölümde kayıt olarak durur; "Undo" bölümü etiket silinince
+  kitabın kökünün kalan son sürüme döndüğünü söyler.
+- Dal stratejisi kararlaştırılmadı: main'de v0.2'ye özgü bir değişiklik
+  yokken yama sürümü main'den çıkar (ADR-0100 §2); ilk v0.2 değişikliği
+  main'e girmeden önce bakımcı 0.1.x sürümlerinin nereden çıkacağına
+  (ör. `release/0.1`) yeni bir ADR ile karar verir.
+- `AGENTS.md`, "Windows PowerShell 5.1": `gh` çıktısı `gh`'nin kendi
+  `--jq`'suyla süzülür; PR, issue ve yorum gövdesi dosyaya yazılıp
+  `--body-file` ile verilir, çünkü 5.1 argümandaki çift tırnağı kaçırmaz
+  ve argüman bölünür.
+
 ### Geliştirici notu — Mutasyon kapısının özeti başarısızlıkta kapalı kalır (#398, ADR-0134, 2026-11-23)
 
 - "Mutation test summary" 2026-11-23'ten beri main için zorunlu
