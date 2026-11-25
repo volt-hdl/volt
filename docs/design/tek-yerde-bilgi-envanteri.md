@@ -64,7 +64,7 @@ Göze çarpanlar:
 | Bilgi | Yer | Kullanan | Yardımcı | Not |
 |---|---|---|---|---|
 | G | `volt-hir/src/ty.rs:237` `TypeArena::width_of` | TD, alan | kendi | UInt/SInt/Bits genişliği; esnekte `hi`. Bool/Trit/Enum/Struct/Array `None`. |
-| G | `volt-hir/src/ty.rs:282` `signal_width` | TD, alan | kendi | Enum kodlama, struct düzen genişliği; Bool ve Trit `None`. |
+| G | `volt-hir/src/ty.rs:309` `bit_width` | TD, alan | ORTAK `bit_width::Scalar` | Sinyalin genişliği, TD'nin tek kaynağı (#419): skaler tablo (Bool, Clock, Reset 1; Trit 2), sayısalda `width_of`, enum kodlama, struct düzen genişliği (bundle `None`: tek sinyal değil; E4012 kapsamı düzenin `W`sini okur), dizi eleman×uzunluk, `Delayed` iç tipinki; demet, örnek, literal, hata `None`. `taps`, W3003, `is_one_bit`, E4012 kapsamı, E2009 önerisi, genişlik gölgesi okur. `signal_width` ve `stmt.rs` `bit_width` kopyaları kaldırıldı. |
 | G+İ | `volt-hir/src/ty.rs:188` `int_range`; `:170` `uint_flex`; `:178` `sint_flex`; `:212` `concrete` | TD | kendi | (işaret, lo, hi) görünümü. |
 | G+İ | `volt-hir/src/typeck/type_ref.rs:30` `resolve_type_ref_uncached`; `:85` `resolve_sized`; `:117` `widened_int` | TD | kendi + TD consteval; ORTAK `MAX_WIDTH` | TypeRef → Ty; `<N>` 1..=`MAX_WIDTH` (65535); değeri bilinen aralık dışı `<N>` E2025 (`eval_type_arg`, #418). `u16` gösterimi `MAX_WIDTH`'e derleme zamanında bağlı. |
 | G+İ | `volt-hir/src/typeck/synth.rs:20` `synth`; `:57` `synth_uncached`; `:101` `synth_int_lit`; `:501` `suffix_ty` | TD | kendi | `expr_types`'ı yazar; soneksiz literal `IntLit`. |
@@ -74,9 +74,9 @@ Göze çarpanlar:
 | G | `volt-hir/src/typeck/select.rs:15` `index_result`; `:61` `range_result`; `:139` `part_select_result`; `:213` `field_result`; `:263` `struct_field_type` | TD | kendi + `try_const_eval` | |
 | G+İ | `volt-hir/src/typeck/check.rs:18` `check`; `:149` `check_arith`; `:195` `widen_operands` | TD | kendi | Check kipi: literal, `if`, `match` beklenen tipi alır; ADR-0041'de operandların kaydı hedef tip olur. |
 | G+İ | `volt-hir/src/typeck/cast.rs:12` `synth_cast` | TD | `resolve_type_ref` | |
-| G+İ | `volt-hir/src/typeck/stmt.rs:85` `handle_reg`; `:116` `handle_let`; `:342` `lvalue_type`; `:375` `suffix_bits`; `:458` `bit_width` | TD | kendi; `StructLayout::field_bits` | `bit_width` Bool 1, Trit 2, dizi eleman×uzunluk: `signal_width`'ten farklı. |
+| G+İ | `volt-hir/src/typeck/stmt.rs:85` `handle_reg`; `:116` `handle_let`; `:342` `lvalue_type`; `:375` `suffix_bits` | TD | `TypeArena::bit_width`; `StructLayout::field_bits` | Kendi `bit_width` kopyası #419 ile kaldırıldı. |
 | G | `volt-hir/src/typeck/enums.rs:23` `check_enum_decls`; `structs.rs:23` `check_struct_decls`; `:172` `struct_layout` | TD | ORTAK `enum_layout`, `struct_layout` | Genişlik tablolarını arenaya yazar. |
-| G | `volt-hir/src/typeck/instance.rs:127` `builtin_port_type` | TD | kendi | Addr = log2(DEPTH), Taps = dim·T. |
+| G | `volt-hir/src/typeck/instance.rs:129` `builtin_port_type`; `:168` `taps_width`; `:185` `check_taps_width` | TD | `TypeArena::bit_width`, ORTAK `MAX_WIDTH` | Addr = log2(DEPTH), Taps = dim·`bit_width(T)`; genişliği olmayan T hata tipi (kendi tanısı var), sınırı aşan çarpım E2025 (#419; önce `unwrap_or(1)` ve `as u16`). |
 | G+İ | `volt-hir/src/typeck/arith_cut.rs:149` `arith_width`; `:169` `value_bounds`; `:194` `derived_bounds`; `:254` `type_bounds` | TD (W2016) | kendi | |
 | G+İ (sığma) | `width.rs:109` `uint_fits`, `:114` `sint_fits`; `check.rs:233`, `:284`; `cast.rs:35` `warn_literal_cut`; `literal_fold.rs:363` `literal_range`; `compare_width.rs:29` `fits`; `arith_cut.rs:291` `fits`; `matching.rs:508` `int_fits` | TD | kendi (7 kopya) | Bir (işaret, genişlik) tipinin değer aralığı her dosyada yeniden yazılmış. |
 | G+İ | `volt-hir/src/typeck/mod.rs:257` `compute_def_type` | TD | `resolve_type_ref` | Döngü değişkeni `IntLit`. |
@@ -95,7 +95,7 @@ Göze çarpanlar:
 | G+İ | `volt-sv-emit/src/expr.rs:1547` `emit_cast` | SV | `sig_of_typeref`, `width_of` | |
 | G+İ | `volt-sv-emit/src/expr.rs` `value_arms`; `match_expr.rs` `scrutinee_sig` | SV | kendi | #215'ten sonra: `if`'in iki dalı ve match ifadesinin ifade kolları tek listede; `width_of`, `int_range`, `is_unsized_literal`, `width_dependent`, `tree_width_dependent`, `is_trit`, `enum_of_expr` ikisini bu listeden okur (type-inference.md §3.9). Deyim `match`'i ve match ifadesinin sınananı doğal genişlikte (`natural_sig`). |
 | G+İ | `volt-sv-emit/src/let_width.rs:184` `int_range`; `:255` `binary_range`; `:305` `operand_meet`; `:137` `natural_sig`; `:146` `operation_sig`; `:164` `comparison_ctx`; `:71` `untyped_let_sig` | SV | **kendi**; ORTAK `MAX_WIDTH` | TD'nin esnek aralık kurallarını (ADR-0025) yeniden yazar. |
-| G+İ | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | SV | ORTAK `const_eval::width`, `enum_layout`, takma ad | TypeRef → genişlik; `<N>`'in üst sınırını E2025 uygular (ORTAK `MAX_WIDTH`), aşan birim üreticiye ulaşmaz. |
+| G+İ | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | SV | ORTAK `const_eval::width`, `enum_layout`, `bit_width::Scalar`, takma ad | TypeRef → genişlik; `<N>`'in üst sınırını E2025 uygular (ORTAK `MAX_WIDTH`), aşan birim üreticiye ulaşmaz. |
 | G | `volt-sv-emit/src/lib.rs:2462` `array_reg_sig`; `:2416` `signal_sig`; `:2442` `port_sig`; `:2612` `leaf_sig`; `:2375` `lvalue_sig` | SV | `sig_of_typeref`, `eval_const` | Paketli dizi eleman×uzunluk. |
 | G+İ | `volt-sv-emit/src/lib.rs:1056` `emit_module` (sembol tablosu); `:1742` `emit_let_sync`; `:1775` `sync_source_sig`; `match_expr.rs:470` `emit_block_let` | SV | `sig_of_typeref`, `untyped_let_sig` | |
 | G+İ | `volt-sv-emit/src/enums.rs:28` `enum_sig`; `:107` `enum_variant_sig`; `waves.rs:254` `wave_signal_of` | SV | ORTAK `enum_layout` | |
@@ -103,7 +103,7 @@ Göze çarpanlar:
 | G | `volt-sv-emit/src/builtin_prim.rs:49` `addr_width`; `:83` `builtin_inst_info`; `builtin_data.rs:20` `struct_width` | SV | kendi; ORTAK `struct_layout` | DEPTH `eval_const`'la (TD yalnız literal kabul eder). |
 | G | `volt-sv-emit/src/const_array.rs:33` `array_const_info`; `:158` `case_function` | SV | `array_reg_sig`; kendi clog2 | |
 | G+İ | `volt-sv-emit/src/inline/types.rs:38` `canon_depth`; `:71` `widened`; `:137` `DeclTypes::type_of` | SV (fn açılımı) | kendi | Açılımın kendi tip gösterimi. |
-| G | `volt-sv-emit/src/sim_width.rs:21` `port_bits`; `:25` `bits_at`; `sim.rs:63` `collect_sim_ports`; `past.rs:73` `past_reg_block` | SV testbench, formal | ORTAK `const_eval::width`, `enum_layout` | Trit 2. |
+| G | `volt-sv-emit/src/sim.rs:63` `collect_sim_ports`; `past.rs:73` `past_reg_block` | SV testbench, formal | ORTAK `bit_width::type_ref_bits` | `sim_width.rs`'in kendi `bits_at` kopyası #419 ile kaldırıldı. |
 
 ### Üretilen sürücüler, kısıtlar, test simülasyonu
 
@@ -112,7 +112,7 @@ Göze çarpanlar:
 | G | `volt-syntax/src/parser/mmio.rs:524` `field_ty`; `:105` `FieldTy::width` | SW (`RegMap`) | kendi | Yalnız literal `N` (1..=32); const yok. |
 | G | `volt-sw-emit/src/names.rs:9` `rust_type`; `:19` `c_type`; `check/mod.rs:182` `field_mask` | SW | `FieldDesc.width` | |
 | — | `volt-sdc-emit/src/*` | SDC | — | Genişlik, işaret, sabit hesaplamaz. |
-| G+İ | `volt-hir/src/sim_port.rs:110` `scalar_width`; `:145` `enum_width`; `:160` `port_type_width`; `:193` `test_port_width` | SIM | ORTAK `const_eval::width`, `alias_chain_end`, `enum_layout` | Trit ve dizi "skaler değil". |
+| G+İ | `volt-hir/src/sim_port.rs:110` `scalar_width`; `:155` `port_type_width`; `:187` `test_port_width` | SIM | ORTAK `bit_width::type_ref_bits`, `alias_chain_end`, `enum_of_type` | Genişlik ORTAK'tan (#419); burada yalnız değerin test dilinde yazılışı seçilir: Clock, Reset, Trit, dizi ve demet "skaler değil" (sayı olarak yazılmaz), struct bilinmiyor. `enum_width` kopyası kaldırıldı. |
 | G+İ | `volt-hir/src/sim_port.rs:44-92` `PortWidth` yöntemleri; `:288` `check_value_fits` | SIM | kendi | Değer aralığı (TD'nin sığma kopyalarından ayrı). |
 | G | `volt-hir/src/sim_struct.rs:40` `struct_port_layout`; `sim_load.rs:46` `check_load` | SIM | ORTAK `struct_layout`, `scalar_width` | |
 | G+İ | `volt-driver/src/sim_lower.rs:288` `set_port`; `:326` `port_width`; `:332` `fits_without_check`; `sim_struct.rs:86` `labels`; `:136` `packed_literal` | SIM | `test_port_width`, `StructLayout` | |
@@ -142,6 +142,7 @@ Göze çarpanlar:
 | Yer | Kullanan | Yardımcı | Not |
 |---|---|---|---|
 | `volt-ast/src/alias.rs:21` `alias_chain_end` | ORTAK | — | Ada göre, derinlik 64; döngüde `Err(son)`. |
+| `volt-ast/src/bit_width.rs:29` `Scalar::bits`; `:66` `type_ref_bits` | ORTAK | `alias_chain_end`, `const_eval`, `enum_layout`, `struct_layout` | Skaler genişlik tablosu (Bool, Clock, Reset 1; Trit 2) ve AST tipinin genişliği (#419). TD `bit_width`, SV `sig_of_typeref`, `struct_layout` yaprağı, SV testbench ve SIM okur. |
 | `volt-ast/src/enum_layout.rs:99` `follow_aliases`; `struct_layout.rs:162` `struct_of_type`; `:222`; `:289`; `const_eval.rs:389` `is_array` | ORTAK | `alias_chain_end` | Döngüde `None`. |
 | `volt-sv-emit/src/alias.rs:22` `resolve` | SV | `alias_chain_end` | Döngüde de son tipi verir (`follow_aliases`'tan farklı). Yaklaşık 30 fonksiyon çağırır: `flop_audit.rs:74` `is_clock_type`, `reset_sync.rs:37`, `lib.rs:789` `clock_ports_of`, `lib.rs:2513` `sig_of_typeref`, `inline/types.rs:38`, `structs/mod.rs:303` vb. |
 | `volt-hir/src/typeck/type_ref.rs:118` `resolve_named_type` | TD | **kendi** | DefId ve kapsam tabanlı, derinlik sınırı yok (`alias_stack`). `Ty::Clock`, `Ty::Struct` buradan gelir. |
@@ -232,8 +233,8 @@ veriyor, kullanıcı ayrışmaya ulaşamıyor), **gizli** (bugün kullanıcını
 görebileceği bir fark yok). Reddedilen ve gizli satırların bugünkü
 davranışı `crates/volt-driver/tests/divergence_triage_tests.rs`'te
 `rowN_` önekli testlerle sabittir. Açık sessiz yanlış satırların testi
-yoktur; her birinin issue'su son sütundadır (#419-#421); kapanan satır
-1'in testi düzeltmesiyle girdi (#418). Ayıklamanın sessiz
+yoktur; her birinin issue'su son sütundadır (#420, #421); kapanan satır
+1'in (#418) ve 5'in (#419) testleri düzeltmeleriyle girdi. Ayıklamanın sessiz
 olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmayan
 `DomainInfo.reset`) #422'dedir.
 
@@ -243,7 +244,7 @@ olmayan bulguları (yanlış W2013, yanlış E2006, yanıltıcı E2005, okunmaya
 | 2 | Sabitte `as` | TD consteval `as`'ı yok sayar; SV `shift_amount` `as uN`'yi keser. | reddedilen | `as`'lı sabit üreticide E0003; dizi indeksinde yanlış E2006 (kesilmemiş değer). Satır içi `x << (9 as u3)` derlenir, SV doğru, W2013 yanlış ("hep 0"; açık bulgu). | `row2_*`; #422 |
 | 3 | `clog2` ve `~` | TD consteval değerlendirir; `volt_ast::const_eval`'da kolları yok, SV değer alamaz. | reddedilen | genişlikte E2005, değerde E0003. | `row3_*`; #422 |
 | 4 | Yerleşik DEPTH/N | TD yalnız literal kabul eder; SV herhangi bir `eval_const` değerini. | reddedilen | adlı sabit E2008; generic parametre monomorflamada literal, iki taraf aynı. | `row4_*` |
-| 5 | Bool/Trit genişliği | `signal_width` Bool ve Trit için `None`; `bit_width` Bool 1, Trit 2; SV `bits_at` Trit 2; SIM `scalar_width` Trit'i skaler saymaz. | sessiz yanlış | `ShiftRegister<Trit, 4>`'ün `taps`'ı TD'de `bits<4>`, SV'de 8 bit; `bits<4>`'e atama SV'de kesilir. Trit `sync()`'i W3003 almaz. | #419 |
+| 5 | Bool/Trit genişliği | #419 ile giderildi: TD'de tek fonksiyon `TypeArena::bit_width`, skaler tablo ORTAK `volt_ast::bit_width::Scalar` (Bool, Clock, Reset 1; Trit 2); AST tarafı `type_ref_bits` (SV testbench, SIM). `signal_width`, TD `bit_width` kopyası, `unwrap_or(1)`, SV `bits_at` ve SIM `enum_width` kaldırıldı; genişlik gölgesi de `bit_width`'i okur. SIM'in Trit'i "skaler değil" sayması genişlik değil, test dilinde yazılış kuralıdır. | kapandı (#419) | Önce `ShiftRegister<Trit, 4>`'ün `taps`'ı TD'de `bits<4>`, SV'de 8 bit; `bits<4>`'e atama SV'de kesiliyordu, Trit `sync()`'i W3003 almıyordu. Şimdi `taps` `bits<8>`, Trit `sync()`'i W3003; `taps` genişlik sınırını aşarsa E2025. | `bit_width_tests.rs`; `ui/pass/163_scalar_width_uses.volt`; `tests/real_bugs/419_shift_register_trit_taps.volt` |
 | 6 | Test dilinde tasarım sabiti | Yalnız düz (ya da eksi) literal sabit sayılır; hesaplanan `const` sayılmaz. | reddedilen | hesaplanan const E8506; düz literal const E8512 sığma denetimine girer. | `row6_*` |
 | 7 | Takma adlı saat/reset | #234 ile giderildi: sınıf `port_class` ya da `signal_class`'tan okunur (bölüm 3); kalan sınır #415. | kapandı (#416) | #234'ün örnekleri doğrudan yazılanla aynı tanı ve dosyalar; kalan #415 reddedilen (E5011; E0019 önerisinde `on <clock>`). | `aliased_clock_reset_tests.rs`; `row7_issue_415_*`; sınıflama gölgesi (ADR-0137 §4) |
 | 8 | `domain` bildirimi | Üç ayrıştırıcı; reset alanında "son alan kazanır" ile `any` ayrışır. | sessiz yanlış | `reset = none` ardından `reset = sync active_high`: SV ve RDC son alanı alır, senkronizör üretilir; XDC onun `ASYNC_REG` satırını yazmaz. | #420 |

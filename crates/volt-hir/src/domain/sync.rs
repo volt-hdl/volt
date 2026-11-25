@@ -38,7 +38,7 @@ impl Inferencer<'_> {
 
         // Çok bitli veri uyarısı (W3003).
         if let Some(&ty) = self.tyck.expr_types.get(&data) {
-            if let Some(w) = self.tyck.types.signal_width(ty) {
+            if let Some(w) = self.tyck.types.bit_width(ty) {
                 if w > 1 {
                     self.warn_multibit_sync(w, span);
                 }
@@ -137,7 +137,7 @@ impl Inferencer<'_> {
     }
 
     /// W3003 — çok bitli veri iki-flop ile bit tutarlı taşınamaz.
-    fn warn_multibit_sync(&mut self, w: u16, span: Span) {
+    fn warn_multibit_sync(&mut self, w: u32, span: Span) {
         self.diagnostics.push(
             Diagnostic::warning(
                 ErrorCode::W3003,

@@ -108,44 +108,39 @@ pub(crate) enum ScalarWidth {
 }
 
 pub(crate) fn scalar_width(src: &SourceFile, ty: Idx<TypeRef>) -> ScalarWidth {
-    let known = |bits, kind| ScalarWidth::Known(PortWidth { bits, kind });
-    // SV üreticisinin port genişliğiyle aynı fonksiyon (#376, ADR-0132).
-    let top = volt_ast::const_eval::TopLevel(src);
-    let from_expr = |expr, kind| match volt_ast::const_eval::width(src, &top, expr) {
-        Ok(bits) => known(bits, kind),
-        Err(_) => ScalarWidth::Unknown,
+    // Tip takma adı hedef tipidir (#376; SV üreticisiyle aynı
+    // `volt_ast::alias`). Çözülmeyen ad bilinmiyor kalır.
+    let Ok(target) = volt_ast::alias::alias_chain_end(src, ty) else {
+        return ScalarWidth::Unknown;
     };
-    match &src.types[ty].kind {
-        TypeRefKind::Bool => known(1, ScalarKind::Bool),
-        TypeRefKind::UInt(n) => known(u32::from(*n), ScalarKind::UInt),
-        TypeRefKind::SInt(n) => known(u32::from(*n), ScalarKind::SInt),
-        TypeRefKind::Bits(e) => from_expr(*e, ScalarKind::Bits),
-        TypeRefKind::UIntN(e) => from_expr(*e, ScalarKind::UInt),
-        TypeRefKind::SIntN(e) => from_expr(*e, ScalarKind::SInt),
+    // Burada yalnız değerin test dilinde nasıl yazıldığı seçilir; genişlik
+    // tip denetimiyle ve SV üreticisiyle aynı kuraldan gelir (#419).
+    let kind = match &src.types[target].kind {
+        TypeRefKind::Bool => ScalarKind::Bool,
+        TypeRefKind::UInt(_) | TypeRefKind::UIntN(_) => ScalarKind::UInt,
+        TypeRefKind::SInt(_) | TypeRefKind::SIntN(_) => ScalarKind::SInt,
+        TypeRefKind::Bits(_) => ScalarKind::Bits,
         // Enum (ADR-0074): kodlama genişliğinde işaretsiz sayı.
-        TypeRefKind::Path { .. } => match enum_width(src, ty) {
-            Some(bits) => known(bits, ScalarKind::UInt),
-            // Tip takma adı: hedef tipin genişliği (#376; SV üreticisiyle
-            // aynı `volt_ast::alias`). Çözülmeyen ad bilinmiyor kalır.
-            None => match volt_ast::alias::alias_chain_end(src, ty) {
-                Ok(target) if target != ty => scalar_width(src, target),
-                Ok(_) | Err(_) => ScalarWidth::Unknown,
-            },
-        },
+        TypeRefKind::Path { .. } if volt_ast::enum_layout::enum_of_type(src, target).is_some() => {
+            ScalarKind::UInt
+        }
+        // Struct, generic parametre, generic takma ad: denetim testbench'te
+        // C++ depolama tipine göre yapılır.
+        TypeRefKind::Path { .. } => return ScalarWidth::Unknown,
+        // Test dili saat, reset ve `Trit` değerini sayı olarak yazmaz;
+        // dizi ve demet tek sayı değildir (genişlikleri yine tek
+        // kuraldandır: `Trit` 2 bit).
         TypeRefKind::Clock
         | TypeRefKind::Reset(_)
         | TypeRefKind::Trit
         | TypeRefKind::Array { .. }
         | TypeRefKind::Tuple(_)
-        | TypeRefKind::Error => ScalarWidth::NotScalar,
+        | TypeRefKind::Error => return ScalarWidth::NotScalar,
+    };
+    match volt_ast::bit_width::type_ref_bits(src, target) {
+        Some(bits) => ScalarWidth::Known(PortWidth { bits, kind }),
+        None => ScalarWidth::Unknown,
     }
-}
-
-/// Geçerli kodlamalı enum tipinin genişliği (ADR-0074).
-fn enum_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
-    let decl = volt_ast::enum_layout::enum_of_type(src, ty)?;
-    let eval = &mut |e| const_value(src, e);
-    volt_ast::enum_layout::valid_layout(src, decl, eval).map(|l| l.width)
 }
 
 /// Portun enum tipi adı (ADR-0074): `assert_eq(dut.state, State::Idle)`
@@ -162,15 +157,14 @@ fn port_type_width(src: &SourceFile, ty: Idx<TypeRef>) -> Option<PortWidth> {
         ScalarWidth::Known(width) => Some(width),
         ScalarWidth::Unknown => None,
         ScalarWidth::NotScalar => {
-            let TypeRefKind::Array { elem, len } = &src.types[ty].kind else {
+            let TypeRefKind::Array { elem, .. } = &src.types[ty].kind else {
                 return None;
             };
-            let ScalarWidth::Known(elem) = scalar_width(src, *elem) else {
+            let ScalarWidth::Known(_) = scalar_width(src, *elem) else {
                 return None;
             };
-            let len = const_u32(src, *len)?;
             Some(PortWidth {
-                bits: elem.bits.checked_mul(len)?,
+                bits: volt_ast::bit_width::type_ref_bits(src, ty)?,
                 kind: ScalarKind::Bits,
             })
         }

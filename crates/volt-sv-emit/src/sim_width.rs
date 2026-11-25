@@ -5,48 +5,13 @@
 //! `volt run` testbench'i genişliği kanıtlanamayan portları şablon
 //! yardımcılarıyla sürer ve basar; skaler portta yardımcı eski ifadenin
 //! aynısını üretir, bu yüzden dar portlu tasarımın testbench'i bayt bayt
-//! değişmez.
-
-use volt_ast::{Idx, SourceFile, TypeRef, TypeRefKind};
+//! değişmez. Portun genişliği tip denetimiyle aynı kuraldır
+//! (`volt_ast::bit_width::type_ref_bits`, #419).
 
 use crate::SimPort;
 
-/// İç içe tip (dizi, takma ad) için özyineleme sınırı.
-const MAX_TYPE_DEPTH: u32 = 16;
-
 /// Verilator'un skaler C++ tipine (`QData`) sığan en geniş port.
 pub(crate) const MAX_SCALAR_BITS: u32 = 64;
-
-/// Tipin bit genişliği; derleme zamanında çözülemezse `None`.
-pub(crate) fn port_bits(src: &SourceFile, ty: Idx<TypeRef>) -> Option<u32> {
-    bits_at(src, ty, 0)
-}
-
-fn bits_at(src: &SourceFile, ty: Idx<TypeRef>, depth: u32) -> Option<u32> {
-    if depth > MAX_TYPE_DEPTH {
-        return None;
-    }
-    let ty = crate::alias::resolve(src, ty);
-    let from_expr = |e| crate::structs::const_int(src, e).and_then(|v| u32::try_from(v).ok());
-    // Port genişliği SV üreticisininkiyle aynı fonksiyondan (#376).
-    let top = volt_ast::const_eval::TopLevel(src);
-    let width = |e| volt_ast::const_eval::width(src, &top, e).ok();
-    match &src.types[ty].kind {
-        TypeRefKind::Bool | TypeRefKind::Clock | TypeRefKind::Reset(_) => Some(1),
-        TypeRefKind::UInt(n) | TypeRefKind::SInt(n) => Some(u32::from(*n)),
-        TypeRefKind::Trit => Some(2),
-        TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) | TypeRefKind::SIntN(e) => width(*e),
-        TypeRefKind::Array { elem, len } => {
-            bits_at(src, *elem, depth + 1)?.checked_mul(from_expr(*len)?)
-        }
-        TypeRefKind::Path { .. } => {
-            let decl = volt_ast::enum_layout::enum_of_type(src, ty)?;
-            let eval = &mut |e| crate::structs::const_int(src, e);
-            volt_ast::enum_layout::valid_layout(src, decl, eval).map(|l| l.width)
-        }
-        TypeRefKind::Tuple(_) | TypeRefKind::Error => None,
-    }
-}
 
 /// Port Verilator modelinde `VlWide` olabilir mi? Genişlik bilinmiyorsa
 /// evet (yardımcı her iki tipte de derlenir).
@@ -120,7 +85,10 @@ mod tests {
         module
             .ports
             .iter()
-            .map(|p| (p.name.text.clone(), port_bits(&ast, p.ty)))
+            .map(|p| {
+                let bits = volt_ast::bit_width::type_ref_bits(&ast, p.ty);
+                (p.name.text.clone(), bits)
+            })
             .collect()
     }
 

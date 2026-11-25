@@ -72,7 +72,8 @@ pub fn collect_sim_ports(src: &SourceFile, module: &ModuleDecl) -> Vec<SimPort> 
                 TypeRefKind::Clock
             ),
             reset: None,
-            bits: crate::sim_width::port_bits(src, p.ty),
+            // Port genişliği tip denetimiyle aynı kuraldan (#419).
+            bits: volt_ast::bit_width::type_ref_bits(src, p.ty),
         })
         .collect();
     let clocks = crate::clock_ports_of(src, &crate::collect_domains(src), module);

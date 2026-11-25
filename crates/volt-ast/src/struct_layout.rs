@@ -12,6 +12,7 @@
 //! `raw as P`), simülasyon raporu ve LSP hover aynı tabloyu kullanır.
 //! Sabit değerlendirme çağırana bırakılır (`eval`).
 
+use crate::bit_width::Scalar;
 use crate::const_eval::MAX_WIDTH;
 use crate::enum_layout;
 use crate::{Expr, Idx, ItemKind, SourceFile, StructDecl, TypeRef, TypeRefKind};
@@ -235,12 +236,12 @@ fn leaf_or_nested(
         _ => Err(LayoutError::UnknownWidth),
     };
     let (w, kind, signed) = match &ast.types[target].kind {
-        TypeRefKind::Bool => (1, LeafKind::Plain, false),
+        TypeRefKind::Bool => (Scalar::Bool.bits(), LeafKind::Plain, false),
         TypeRefKind::UInt(n) => (u32::from(*n), LeafKind::Plain, false),
         TypeRefKind::SInt(n) => (u32::from(*n), LeafKind::Plain, true),
         TypeRefKind::Bits(e) | TypeRefKind::UIntN(e) => (width(eval(*e))?, LeafKind::Plain, false),
         TypeRefKind::SIntN(e) => (width(eval(*e))?, LeafKind::Plain, true),
-        TypeRefKind::Trit => (2, LeafKind::Trit, true),
+        TypeRefKind::Trit => (Scalar::Trit.bits(), LeafKind::Trit, true),
         TypeRefKind::Array { elem, len } => {
             let elem_w = array_elem_width(ast, *elem, &field, eval)?;
             let n = width(eval(*len))?;

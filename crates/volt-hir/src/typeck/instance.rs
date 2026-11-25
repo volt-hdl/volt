@@ -13,6 +13,7 @@ use crate::builtin::{BuiltinPrim, ConstRule, PortKind};
 use crate::drivers::DriverKind;
 use crate::resolve::{DefId, DefKind};
 use crate::ty::{ModuleId, Ty, TypeId};
+use crate::MAX_WIDTH;
 
 impl TypeChecker<'_, '_> {
     pub(super) fn handle_instance(&mut self, inst: &InstanceDecl) {
@@ -100,6 +101,7 @@ impl TypeChecker<'_, '_> {
     ) {
         let (data, dim) = self.builtin_generic_args(inst, prim);
         self.check_memory_element(inst, prim, data);
+        self.check_taps_width(inst, prim, data, dim);
         let ty = self.types.intern(Ty::Builtin { prim, data, dim });
         if let Some(def) = def {
             self.def_types.insert(def, ty);
@@ -149,14 +151,61 @@ impl TypeChecker<'_, '_> {
                 if self.types.is_error(data) || dim == 0 {
                     return self.types.error();
                 }
-                // Bool `width_of`'ta None döner ama 1 bit taşır; struct/enum
-                // T paketlenmiş genişliğiyle (ADR-0087).
-                let w = self.types.signal_width(data).unwrap_or(1) as u32;
-                self.types.intern(Ty::Bits {
-                    width: (dim * w) as u16,
-                })
+                // T'nin genişliği tek kaynaktan (#419): `Trit` 2 bit,
+                // struct/enum paketlenmiş genişliğiyle (ADR-0087).
+                // Genişliği olmayan T (düzeni geçersiz struct/enum) kendi
+                // tanısını aldı; 1 bit sayılmaz, port hata tipidir.
+                let Some(w) = self.types.bit_width(data) else {
+                    return self.types.error();
+                };
+                self.taps_type(dim, w)
             }
         }
+    }
+
+    /// `taps : bits<LEN * width(T)>` (ADR-0029); genişlik sınırını
+    /// (`MAX_WIDTH`, const-eval.md E2025) aşan çarpım `None`.
+    fn taps_width(dim: u32, w: u32) -> Option<u16> {
+        dim.checked_mul(w)
+            .filter(|&n| n <= MAX_WIDTH)
+            .and_then(|n| u16::try_from(n).ok())
+    }
+
+    fn taps_type(&mut self, dim: u32, w: u32) -> TypeId {
+        match Self::taps_width(dim, w) {
+            Some(width) => self.types.intern(Ty::Bits { width }),
+            // E2025'i örnekleme verdi (`check_taps_width`).
+            None => self.types.error(),
+        }
+    }
+
+    /// E2025 — `taps` genişliği (`LEN × width(T)`) sınırı aşıyor. #419'dan
+    /// önce çarpım `u16`'ya sessizce kesiliyordu: `ShiftRegister<bits<2000>,
+    /// 64>`'ün `taps`'ı 128000 bit yerine `bits<62464>` sayılıyordu.
+    fn check_taps_width(&mut self, inst: &InstanceDecl, prim: BuiltinPrim, data: TypeId, dim: u32) {
+        if dim == 0 || !prim.ports().iter().any(|p| p.kind == PortKind::Taps) {
+            return;
+        }
+        let Some(w) = self.types.bit_width(data) else {
+            return;
+        };
+        if Self::taps_width(dim, w).is_some() {
+            return;
+        }
+        let (name, t, param) = (prim.name(), self.show(data), prim.const_param_name());
+        let total = u64::from(dim) * u64::from(w);
+        let span = match inst.generic_args.get(prim.type_arg_count()) {
+            Some(GenericArg::Const(e)) => self.ast.exprs[*e].span,
+            Some(GenericArg::Type(ty)) => self.ast.types[*ty].span,
+            None => inst.name.span,
+        };
+        self.error(
+            ErrorCode::E2025,
+            span,
+            lstr!(en: "{name}<{t}, {dim}>: 'taps' would be {total} bits wide ({dim} stages × {w} bits), above the width limit {MAX_WIDTH}"; tr: "{name}<{t}, {dim}>: 'taps' {total} bit genişliğinde olur ({dim} aşama × {w} bit), genişlik sınırı {MAX_WIDTH}'in üstünde"),
+            lstr!(en: "'taps' too wide"; tr: "'taps' çok geniş"),
+            lstr!(en: "use fewer stages or a narrower element type: {param} × width(T) must be at most {MAX_WIDTH}"; tr: "daha az aşama ya da daha dar öğe tipi kullanın: {param} × genişlik(T) en çok {MAX_WIDTH} olmalı"),
+        );
     }
 
     /// RAM ailesinin (`Ram`, `DualPortRam`, `AsyncDualPortRam`) öğesi enum
@@ -201,7 +250,6 @@ impl TypeChecker<'_, '_> {
             return;
         };
         let (name, t) = (prim.name(), self.show(data));
-        let w = self.types.signal_width(data).unwrap_or(1);
         let span = match inst.generic_args.first() {
             Some(GenericArg::Type(ty)) => self.ast.types[*ty].span,
             _ => inst.name.span,
@@ -211,12 +259,22 @@ impl TypeChecker<'_, '_> {
         } else {
             lstr!(en: "field '{field}' of '{t}' is an enum or Trit"; tr: "'{t}' tipinin '{field}' alanı enum ya da Trit")
         };
+        // Ham bitlerin genişliği tek kaynaktan (#419); düzeni geçersiz
+        // enum/struct kendi tanısını aldı, öneri genişliği adlandırmaz.
+        let help = match self.types.bit_width(data) {
+            Some(w) => {
+                lstr!(en: "store the raw bits ({name}<u{w}, ...> with 'value as u{w}') and decode the enum field explicitly after reading"; tr: "ham bitleri saklayın ({name}<u{w}, ...>, 'değer as u{w}') ve okuduktan sonra enum alanını açıkça çözün")
+            }
+            None => {
+                lstr!(en: "store the raw bits in an unsigned element of the same width and decode the enum field explicitly after reading"; tr: "ham bitleri aynı genişlikte işaretsiz bir öğede saklayın ve okuduktan sonra enum alanını açıkça çözün")
+            }
+        };
         self.error(
             ErrorCode::E2009,
             span,
             lstr!(en: "{name}<{t}, ...> is invalid: {what}, and a never-written address reads back raw bits that may be no valid value"; tr: "{name}<{t}, ...> geçersiz: {what} ve hiç yazılmamış adres geçerli olmayabilecek ham bitler döndürür"),
             lstr!(en: "memory contents are not initialised"; tr: "bellek içeriği başlatılmaz"),
-            lstr!(en: "store the raw bits ({name}<u{w}, ...> with 'value as u{w}') and decode the enum field explicitly after reading"; tr: "ham bitleri saklayın ({name}<u{w}, ...>, 'değer as u{w}') ve okuduktan sonra enum alanını açıkça çözün"),
+            help,
         );
     }
 
