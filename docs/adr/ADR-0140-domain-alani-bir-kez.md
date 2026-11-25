@@ -1,6 +1,6 @@
 # ADR-0140: Domain Bildiriminde Her Alan Bir Kez — İkinci Yazım E1003, Alanlar Tek Okuyucudan
 
-> Statü: Önerildi
+> Statü: Uygulandı — 2026-11-25
 > İlgili: ADR-0137 (§1'in kuralının `domain` bildirimine uygulanışı; §5'in ayıklamasındaki 8. satırı kapatır)
 > Issue: #420
 > Tarih: 2026-11-25
