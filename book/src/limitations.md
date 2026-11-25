@@ -58,6 +58,17 @@ workaround of each.
 - [#220](https://github.com/volt-hdl/volt/issues/220): an `@mmio` module accepts an unaligned base address and a repeated argument, and a `*/` in a `///` comment ends the C comment of the generated header.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 
+**Errors, false warnings and failures.** These open bugs of Volt 0.1.3
+do not give a wrong result: Volt stops with an error or warns where
+nothing is wrong, or a step fails. The paragraphs below describe more
+bugs of this kind, each with its workaround.
+
+- [#306](https://github.com/volt-hdl/volt/issues/306): the one-line install failed on Ubuntu 26.04 in the project's tests, because of a dangling symbolic link; if it fails for you, use the [manual install](tour/install.md#manual-install).
+- [#342](https://github.com/volt-hdl/volt/issues/342): binding a reset port with a spec to a child's `in rst : reset` (no spec) gets a false `E2003` ("expected 'reset', found 'reset'"); write the same spec on the child's port, `reset(sync, active_high)`.
+- [#344](https://github.com/volt-hdl/volt/issues/344): a module without registers that instantiates an `extern` and a Volt child with its own raw reset port gets a false `W3011`, whose label names a synchronizer that is not generated; the warning can be ignored there.
+- [#362](https://github.com/volt-hdl/volt/issues/362): `delay<K>` inside a `fn` body has no effect on the timing check, and nothing says so; write `delay<K>` at the call site.
+- [#422](https://github.com/volt-hdl/volt/issues/422): a constant written with `as` is checked with its uncut value (a false `W2013` for `x << (9 as u3)`, a false `E2006` for an index `const K : u32 = 5 as u2`), and a width constant that uses `clog2` or `~` stops `volt build` with an `E2005` that calls it not constant; write the value itself (`1`, `4`).
+
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
 SystemVerilog: `let p : S` with a field `x` becomes `p_x`. If a port or
