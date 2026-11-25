@@ -5,13 +5,13 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.3] - 2026-11-25
 
 ### Behavior changes
 
 - **Davranış değişikliği.** Bir `domain` bildiriminde aynı alan
   anahtarının ikinci yazımı E1003'tür (#420; sessiz yanlış düzeltmesi,
-  ADR-0100; ADR-0140 önerisi). Önce `reset = none` ardından `reset = sync
+  ADR-0100; ADR-0140). Önce `reset = none` ardından `reset = sync
   active_high` yazılan domain tanısız derleniyordu: SV ve reset alanı
   denetimleri son alanı alıp reset senkronizörünü (`rst_sync_clk_stage0/1`)
   üretiyor, kısıt modeli alanı reset'siz sayıyor, XDC o zincirin `set_property
@@ -54,8 +54,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 - **Davranış değişikliği.** Volt'un yazdığı her dosya çıktı kökünün
   altında kalır; kökün altındaki yolda ya da hedefte bir sembolik
-  bağlantı varsa yazım reddedilir (#221; güvenlik düzeltmesi, ADR-0138
-  önerisi). Önce: klonlanan bir depoda `build/rtl/Top.sv` depo dışındaki
+  bağlantı varsa yazım reddedilir (#221; güvenlik düzeltmesi,
+  ADR-0138). Önce: klonlanan bir depoda `build/rtl/Top.sv` depo dışındaki
   bir dosyaya bağlantıyken `volt build` o dosyanın üzerine yazıyordu;
   `build` dizininin kendisi bağlantıysa bütün çıktılar onu izliyordu.
   Sonra: `error: cannot write 'build/rtl/Top.sv'`, `= reason:` satırı
@@ -411,7 +411,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (v0.1.3) çıkar, ADR-0100'ün sessiz yanlış istisnası; sürüm notunun
   "Behavior changes" bölümüne girer.
 - **Davranış değişikliği.** Önerilen ve sabitlenen Verilator 5.054'tür
-  (#309; sessiz yanlış düzeltmesi, ADR-0121, Önerildi). Verilator yerelde
+  (#309; sessiz yanlış düzeltmesi, ADR-0121). Verilator yerelde
   kurulu değilken `volt test` ve `volt run` artık
   `verilator/verilator:v5.054` imajını (özetle sabit) koşturur: ilk koşu
   yeni imajı bir kez indirir (~250 MB) ve bildirim satırı `(verilator/verilator:v5.054)`
@@ -640,7 +640,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 - Mutant listesi ve her mutantın sonucu değişmez; aynı gün koşulan A/A ve
   A/B karşılaştırmaları ADR-0128'de.
 
-### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128 Önerildi, 2026-11-20)
+### Geliştirici notu — Mutasyon kapısının test sırası ve gereksiz yeniden derleme (#366, ADR-0128, 2026-11-20)
 
 - **Test sırası.** Kapının parçaları testleri nextest'in `mutants`
   profiliyle koşar (`.config/nextest.toml`): PR'ın dokunduğu test

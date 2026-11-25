@@ -47,7 +47,9 @@ dil sunucusu, **ORTAK** `volt-ast`'teki ortak yardımcılar, **SYN**
 modeli).
 
 Yöntem: kod okuması; hiçbir şey koşturulmadı. Her satır numarası
-2503284d'de dosya okunarak doğrulandı. Davranış hakkındaki bir iddia
+2503284d'de dosya okunarak doğrulandı. Sonradan kapanan satırlar
+"Kapandı (#N, PR #M)" ile işaretlidir; satır numaraları ve Özet'in
+sayıları 2503284d'deki hâldir. Davranış hakkındaki bir iddia
 koşturulmadığı için "Açık bulgular" bölümünde "koşturulmadı" diye
 işaretlidir. Bir yer iki eksende görünebilir (ör. `past.rs`
 `past_reg_block`: genişliği b'de, ilk çevrim anlamı c'de); her eksen onu
@@ -428,15 +430,15 @@ okumaz, yalnız kopyalar.
 | Yer | Kullanan | Not | Sınıf | Bilgi |
 |---|---|---|---|---|
 | `volt-hir/src/domain/mod.rs:72` `DomainId`; `:85` `ClockSpec`; `:91` `DomainInfo` (tip) | TD | `Explicit` \| `Timeless` \| `Unresolved` \| `Error`. | dil | tek |
-| `volt-hir/src/domain/tables.rs:16` `collect_domain_decls` | TD | Okuyucu 1: kenarda son alan kazanır; reset varsayılanı `None` (#422). | dil | dağınık |
+| `volt-hir/src/domain/tables.rs:16` `collect_domain_decls` | TD | Okuyucu 1: kenarda son alan kazanır; reset varsayılanı `None` (#422). **Kapandı (#420, PR #433):** kenarı ve reset'i ORTAK `volt_ast::domain_fields` verir, ikinci yazım E1003 (ADR-0140); reset varsayılanının ayrışması açık (#422). | dil | dağınık |
 | `volt-hir/src/domain/tables.rs:59` `implicit_clock_domain` | TD | Açıklamasız saat = örtük posedge alan. | dil | dağınık |
 | `volt-hir/src/domain/edgeless.rs:23` `EdgeUse` (tip); `:50` `check_edgeless_use`; `:74` `edgeless_domain` | TD | E3016; kenar isteyen altı kullanım. | dil | dağınık |
 | `volt-hir/src/domain/instance.rs:86` `check_child_clock_edges`; `:111` `child_port_has_edge` | TD | Çocuk saat portu kenarlı alanda. | dil | tek |
-| `volt-hir/src/domain/rdc/facts.rs:19` `DEFAULT_RESET` (sabit); `:98` `clock_facts`; `:143` `declared_reset` | TD | Okuyucu 2 (yalnız reset); varsayılan `sync active_high`. | dil | dağınık |
-| `volt-sv-emit/src/lib.rs:828` `collect_domains` | SV | Okuyucu 3: son alan kazanır. | arka uç | dağınık |
+| `volt-hir/src/domain/rdc/facts.rs:19` `DEFAULT_RESET` (sabit); `:98` `clock_facts`; `:143` `declared_reset` | TD | Okuyucu 2 (yalnız reset); varsayılan `sync active_high`. **Kapandı (#420, PR #433):** `declared_reset` alanı ORTAK `domain_fields`'tan alır; varsayılanın ayrışması açık (#422). | dil | dağınık |
+| `volt-sv-emit/src/lib.rs:828` `collect_domains` | SV | Okuyucu 3: son alan kazanır. **Kapandı (#420, PR #433):** kenar ve reset ORTAK `domain_fields`'tan; "son alan" kodda kalmadı. | arka uç | dağınık |
 | `volt-sv-emit/src/lib.rs:111` `ResetCfg::DEFAULT`; `:165` `DomainInfo::SPEC_DEFAULT` (sabit) | SV | posedge + `sync active_high`; kural sv-mapping.md'de, dil kuralı mı SV eşlemesi mi spec ayırmaz. | belirsiz | dağınık |
-| `volt-hir/src/constraints/walk.rs:348` `collect_domains` | SDC | Okuyucu 4: `has_reset = !any(reset = none)` (#420). | arka uç | dağınık |
-| `volt-hir/src/constraints/walk.rs:472` `apply_edges` | SDC | Okuyucu 5: `clock =` için ilk alan kazanır (`find_map`); TD ve SV'de son. | arka uç | dağınık |
+| `volt-hir/src/constraints/walk.rs:348` `collect_domains` | SDC | Okuyucu 4: `has_reset = !any(reset = none)` (#420). **Kapandı (#420, PR #433):** `has_reset` ORTAK `domain_fields`'tan; `any` kodda kalmadı. | arka uç | dağınık |
+| `volt-hir/src/constraints/walk.rs:472` `apply_edges` | SDC | Okuyucu 5: `clock =` için ilk alan kazanır (`find_map`); TD ve SV'de son. **Kapandı (#420, PR #433):** kenar ORTAK `domain_fields`'tan; alan bir kez yazıldığından ilk/son ayrışması kalmadı. | arka uç | dağınık |
 
 ### c.5 Register, `on`, `<=`, reset değeri
 
@@ -692,6 +694,9 @@ Aynı ikili ya da saatli bilginin birden çok yerde hesaplandığı yerler.
     TD ve SV son alanı, SDC `apply_edges` ilk alanı alır; reset
     varsayılanı TD'de `None`, RDC ve SV'de `sync active_high`, SDC'de
     `any(reset = none)` (#420, #422). Yinelenen anahtar için tanı yok.
+    **Beş okuyucu kapandı (#420, PR #433):** hepsi ORTAK
+    `volt_ast::domain_fields`'ı okur, ikinci yazım E1003'tür (ADR-0140).
+    Reset varsayılanının ayrışması açıktır (#422).
 31. **Örtük alan varsayılanı (posedge + reset)**, 4 yer: `tables.rs:59`,
     SV `lib.rs:165`, RDC `facts.rs:19`, SDC `walk.rs` (`has_reset`
     varsayılanı).
@@ -762,7 +767,7 @@ bulundu. Sınıflar AGENTS.md'nin rapor sözlüğündendir.
 |---|---|---|---|
 | 1 | `~t` (t: Trit) Trit tiplidir: spec type-inference.md §3.4 `UnOp::BitNot => ot` der, `synth.rs:260` öyle uygular. SV kodlamasında `~2'sb01 = 2'sb10` (−2), ADR-0003'ün değer kümesi {−1, 0, +1} dışında. Bit işleminin değer kümesi yerine kodlama üzerinde tanımlandığı bir yer. Bunu yakalayan test bulunamadı. | karar gerektiren (spec ile ADR-0003 çelişiyor; sessiz yanlış olabilir) | spec §3.4; ADR-0003; ADR-0062 K1 |
 | 2 | `past.rs:73` `past_reg_block` genişliği `width_of(x).map(..).unwrap_or(1)` ile alır (satır 100): #419'un kaldırdığı "bilinmiyorsa 1 bit" kalıbı; yardımcı register işaretsiz bildirilir. `tek-yerde-bilgi-envanteri.md` bu fonksiyonun `type_ref_bits` kullandığını yazar; bugün değil. | sessiz yanlış şüphesi (koşturulmadı) | ADR-0137 §1 |
-| 3 | SDC `apply_edges` (`constraints/walk.rs:472`) yinelenen `clock =` alanında ilk alanı, TD ve SV son alanı alır; yinelenen anahtar için tanı yok. #420 ile aynı kök (yinelenen `domain` alanı). | sessiz yanlış şüphesi (#420 ailesi) | #420 |
+| 3 | SDC `apply_edges` (`constraints/walk.rs:472`) yinelenen `clock =` alanında ilk alanı, TD ve SV son alanı alır; yinelenen anahtar için tanı yok. #420 ile aynı kök (yinelenen `domain` alanı). **Kapandı (#420, PR #433):** `apply_edges` kenarı ORTAK `domain_fields`'tan okur; yinelenen `clock =` E1003'tür. | kapandı (#420); önce sessiz yanlış şüphesi (#420 ailesi) | #420; ADR-0140 |
 | 4 | Sabit değerlendiriciler bit kaybeden `<<`'de ayrışır: TD `consteval.rs:646` `checked_shl` yalnız miktarı denetler (`3 << 127` bit kaybeder), ORTAK `arith` `None` verir. | gizli ya da reddedilen (koşturulmadı) | `tek-yerde-bilgi-envanteri.md` ayrışma 2–3 ile aynı aile |
 | 5 | SDC `collect_module` (`walk.rs:392`) saat tipli her portu `ClockConstraint` yapar, kenara bakmaz; `clock = none` alanının saati için `create_clock` yazılabilir. SIM `cycle_fn` kenarsız saati de çevirir. | belirsiz (koşturulmadı) | E3016'nın kapsamı |
 | 6 | `timing.rs:736` `stage_register_help` `bit_width` yerine kendi tablosunu kullanır; Trit, enum, struct, dizi için öneride bedel yazılmaz. `struct_layout.rs:303` `Bool => Ok(1)` sabittir (aynı dosya 239'da `Scalar` okur). | iyileştirme | ADR-0137 §1 |
