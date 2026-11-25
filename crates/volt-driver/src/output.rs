@@ -192,10 +192,11 @@ impl OutputRoot {
         let outside = || self.refusal(path.to_path_buf(), RefusalKind::OutsideRoot);
         let rel = full.strip_prefix(&root).map_err(|_| outside())?;
         let mut parts = Vec::new();
+        // `absolute` ve `components` `.` parçalarını düşürür; kalan her
+        // Normal dışı parça (`..`, kök, önek) kökün dışına çıkar.
         for c in rel.components() {
             match c {
                 Component::Normal(n) => parts.push(n.to_os_string()),
-                Component::CurDir => {}
                 _ => return Err(outside()),
             }
         }
@@ -251,13 +252,16 @@ impl OutputRoot {
         for part in &parts {
             real.push(part);
             shown.push(part);
-            // `create_dir` var olan bir bağlantıyı izlemez: AlreadyExists.
+            // `create_dir` var olan bir bağlantıyı izlemez, hata verir.
+            // std'nin `create_dir_all`'ı gibi hatanın türüne bakılmaz:
+            // parça var olan gerçek bir dizinse sürülür, yoksa hata döner.
             let err = match fs::create_dir(&real) {
                 Ok(()) => continue,
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => e,
-                Err(e) => return Err(e.into()),
+                Err(e) => e,
             };
-            let meta = fs::symlink_metadata(&real)?;
+            let Ok(meta) = fs::symlink_metadata(&real) else {
+                return Err(err.into());
+            };
             if let Some(kind) = link_kind(&meta) {
                 return Err(self.refusal(shown, kind));
             }
@@ -400,14 +404,15 @@ fn has_reparse_bit(attributes: u32) -> bool {
 
 /// Hedef yoksa yalnız yeni bir dosya olarak açılır: `create_new`
 /// (`O_CREAT|O_EXCL`) denetimden sonra konan bir bağlantıyı izlemez. Varsa
-/// (denetimde bağlantı değildi) kısaltılarak açılır.
+/// (denetimde bağlantı değildi) kısaltılarak açılır. İkinci açış dosya
+/// kurmaz; `create_new` başka bir nedenle düştüyse (üst dizin yok, izin)
+/// o da aynı nedenle düşer, hatanın türüne bakmak gerekmez.
 fn open_for_write(real: &Path) -> io::Result<File> {
-    match OpenOptions::new().write(true).create_new(true).open(real) {
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-            OpenOptions::new().write(true).truncate(true).open(real)
-        }
-        opened => opened,
-    }
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(real)
+        .or_else(|_| OpenOptions::new().write(true).truncate(true).open(real))
 }
 
 impl fmt::Display for OutputError {
@@ -688,6 +693,22 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// Okunamayan bir yol (burada dizin değil, bir dosya) denetlenemez:
+    /// `check_tree` hata döndürür. Yalnız var olmayan dizin boş sayılır.
+    #[test]
+    fn check_tree_fails_when_it_cannot_read_a_directory() {
+        let dir = temp("unreadable");
+        let out = dir.join("out");
+        fs::create_dir_all(&out).expect("dizin");
+        fs::write(out.join("f.txt"), "f").expect("yaz");
+        let root = OutputRoot::new(&out, Origin::TargetDir);
+
+        let result = root.check_tree(&out.join("f.txt"));
+
+        assert!(matches!(result, Err(OutputError::Io(_))), "{result:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// Reparse point biti öteki özniteliklerden bağımsız okunur (dizin
     /// 0x10, arşiv 0x20, salt okunur 0x1).
     #[test]
@@ -711,6 +732,23 @@ mod tests {
         assert_eq!(kind("f.txt"), None);
         assert_eq!(kind("d"), None);
         assert_eq!(kind("l"), Some(RefusalKind::Link));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `is_reparse_point` Windows'ta dosya özniteliğini okur (junction bir
+    /// reparse point'tir); başka platformda reparse point yoktur, her girdi
+    /// için `false` (ADR-0109 A2 girdisinin varsayımı).
+    #[test]
+    fn reparse_points_are_read_on_windows_and_absent_elsewhere() {
+        let dir = temp("reparse");
+        fs::write(dir.join("f.txt"), "f").expect("yaz");
+        fs::create_dir_all(dir.join("d")).expect("dizin");
+        link_dir(&dir.join("d"), &dir.join("l"));
+        let reparse = |p: &str| is_reparse_point(&fs::symlink_metadata(dir.join(p)).expect("meta"));
+
+        assert!(!reparse("f.txt"));
+        assert!(!reparse("d"));
+        assert_eq!(reparse("l"), cfg!(windows));
         let _ = fs::remove_dir_all(&dir);
     }
 

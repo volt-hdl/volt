@@ -357,6 +357,34 @@ fn run_refuses_a_vcd_path_that_is_a_link() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// Denetim bir yolu okuyamazsa (burada yolun bir parçası dosya: Linux'ta
+/// ENOTDIR) yalnız "yok" (NotFound) yazılabilir sayılır; öteki her hata
+/// simülasyondan önce G/Ç hatası olarak bildirilir, çıkış kodu 3. Kökün
+/// kendisi okunamıyorsa da (`notes.txt/sub`) aynı. Windows aynı yolu
+/// "yok" diye bildirir (ERROR_PATH_NOT_FOUND): test Linux'ta koşar.
+#[cfg(unix)]
+#[test]
+fn run_reports_a_vcd_path_it_cannot_read_before_the_simulation() {
+    // Arrange
+    let base = temp_dir("vcdfile");
+    write(&base.join("top.volt"), TOP);
+    write(&base.join("notes.txt"), "not a directory\n");
+
+    for vcd in ["notes.txt/waves.vcd", "notes.txt/sub/waves.vcd"] {
+        // Act
+        let out = volt(&base, &["run", "--vcd", vcd, "top.volt"]);
+
+        // Assert
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(3), "{vcd}:\n{err}");
+        assert!(
+            err.contains(&format!("error: cannot write '{vcd}': Not a directory")),
+            "{vcd}:\n{err}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// Windows: junction yetki istemeden kurulur ve bir dizin bağlantısı gibi
 /// davranır; `build` bir junction ise yazım reddedilir.
 #[cfg(windows)]
@@ -392,6 +420,36 @@ fn build_refuses_a_build_directory_that_is_a_junction() {
 /// Bağlantısız yollar eskisi gibi yazılır: `build`, `test` ve `verify`
 /// çıktıları varsayılan kökte ve `--target-dir` kökünde bayt bayt aynıdır;
 /// `volt new` şablon dosyalarını depodaki şablonla bayt bayt aynı yazar.
+/// Yoldaki `.` parçaları kökün içinde kalır: kök de hedef de mutlak yola
+/// çevrilirken `.` düşer (std `absolute`, `Path::components`); `.` taşıyan
+/// bir `--target-dir` reddedilmez, dosyalar o dizine yazılır.
+#[test]
+fn dot_components_in_the_output_path_stay_under_the_root() {
+    // Arrange
+    let base = temp_dir("dots");
+    write(&base.join("top.volt"), CONTRACT);
+
+    // Act
+    let target = ["--target-dir", "./o/./t"];
+    let build = volt(&base, &[&["build"][..], &target, &["top.volt"]].concat());
+    let verify = volt(&base, &[&["verify"][..], &target, &["top.volt"]].concat());
+
+    // Assert
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    // Araç sahte: `o/t/formal` denetlenir, dosyalar yazılır, sby
+    // başlatılamaz (çıkış 3, ret iletisi yok).
+    assert_eq!(verify.status.code(), Some(3), "{}", stderr(&verify));
+    assert!(
+        !stderr(&verify).contains("= reason:"),
+        "{}",
+        stderr(&verify)
+    );
+    for f in ["rtl/Top.sv", "formal/top.sv", "formal/top.sby"] {
+        assert!(base.join("o/t").join(f).is_file(), "{f} yazılmadı");
+    }
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[test]
 fn outputs_without_links_are_written_as_before() {
     // Arrange

@@ -1,4 +1,5 @@
-//! Dalga formunda enum adları (ADR-0092) — `volt run --vcd` uçtan uca.
+//! Dalga formunda enum adları (ADR-0092) — `volt run --vcd` uçtan uca;
+//! düşen testin izli yeniden koşusu ve dalga formu satırı (ADR-0095).
 //!
 //! Gerçek Verilator ister (`VOLT_VERILATOR` ya da `PATH`); yoksa atlanır,
 //! `VOLT_REQUIRE_TOOLS=verilator` ile düşer (ADR-0079 §3). Oturumdaki her
@@ -236,5 +237,71 @@ fn design_without_enums_writes_only_the_vcd() {
     assert_eq!(files, ["build", "w.vcd"]);
     let hint = format!("Waveform {}\n", dir.join("w.vcd").display());
     assert!(stderr.contains(&hint), "{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR-0095: düşen test izli yeniden koşulur ve `failures:` bölümünde
+/// yalnız onun dalga formu satırı basılır; VCD `waves/<Modül>-<test>.vcd`
+/// adıyla yazılır. Geçen testin kaydı yoktur.
+#[test]
+fn a_failed_test_is_rerun_with_tracing_and_named_in_its_waveform_line() {
+    if tools::require(tools::Tool::Verilator).is_none() {
+        return;
+    }
+    // Arrange
+    let dir = temp_dir("failed");
+    std::fs::write(
+        dir.join("counter.volt"),
+        "pub module Counter {\n    in  clk    : clock\n    in  enable : bool\n    \
+         out count  : u8\n    reg c : u8 = 0\n    on clk {\n        if enable { c <= c + 1 }\n    }\n    \
+         count = c\n}\n",
+    )
+    .expect("yaz");
+    std::fs::write(
+        dir.join("counter_test.volt"),
+        "test \"counts\" {\n    let dut = Counter { };\n    dut.enable = true;\n    \
+         step(3);\n    assert_eq(dut.count, 3);\n}\n\n\
+         test \"miscounts\" {\n    let dut = Counter { };\n    dut.enable = true;\n    \
+         step(3);\n    assert_eq(dut.count, 4);\n}\n",
+    )
+    .expect("yaz");
+
+    // Act
+    let out = volt()
+        .current_dir(&dir)
+        .env_remove("VOLT_MANIFEST_DIR")
+        .args(["test", "counter_test.volt"])
+        .output()
+        .expect("volt test");
+
+    // Assert
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(5), "{stdout}\n{stderr}");
+    let lines: Vec<&str> = stdout
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| l.starts_with("Waveform "))
+        .collect();
+    assert_eq!(lines.len(), 1, "{stdout}");
+    let vcd = lines[0]
+        .split_whitespace()
+        .find(|w| w.ends_with(".vcd"))
+        .unwrap_or_else(|| panic!("VCD yolu yok: {}", lines[0]));
+    let vcd = dir.join(vcd);
+    assert_eq!(
+        vcd.file_name().and_then(|n| n.to_str()),
+        Some("Counter-miscounts.vcd"),
+        "{}",
+        lines[0]
+    );
+    assert!(vcd.is_file(), "{} yazılmadı", vcd.display());
+    let mut recorded: Vec<String> = std::fs::read_dir(vcd.parent().expect("dizin"))
+        .expect("waves dizini")
+        .map(|e| e.expect("girdi").file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".vcd"))
+        .collect();
+    recorded.sort();
+    assert_eq!(recorded, ["Counter-miscounts.vcd"]);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -429,6 +429,27 @@ exclude_re = [
     "volt-sv-emit/src/structs/mod\\.rs:\\d+:\\d+: replace Lowerer::mentions_struct_values -> bool with true$",
     # expect: crates/volt-sv-emit/src/structs/mod.rs:225:34: replace match guard p.segments.len() == 1 with true in Lowerer::mentions_struct_values
     "volt-sv-emit/src/structs/mod\\.rs:\\d+:\\d+: replace match guard p\\.segments\\.len\\(\\) == 1 with true in Lowerer::mentions_struct_values$",
+    # A2, assumes the gate runs on Linux, where there are no reparse points:
+    # off Windows is_reparse_point reads no attribute and is false for every
+    # entry (output::tests::reparse_points_are_read_on_windows_and_absent_elsewhere
+    # is the assumption's test). On Windows the same test kills the mutant: a
+    # junction carries the reparse bit. The bit itself is tested on every
+    # platform (output::tests::the_reparse_bit_is_read_alone). #221, gate run
+    # 45563100045.
+    # expect: crates/volt-driver/src/output.rs:385:5: replace is_reparse_point -> bool with false
+    "volt-driver/src/output\\.rs:\\d+:\\d+: replace is_reparse_point -> bool with false$",
+    # A2, assumes the gate runs on Linux, where Docker mounts every host
+    # directory at the same path (docker_paths::container_path_str is the
+    # identity off Windows), so Mounts::host_text returns the log unchanged
+    # and translate_task_logs writes nothing; `==` rewrites each log with its
+    # own text (volt-tools docker_paths::tests::host_text_is_identity_on_unix
+    # is the assumption's test). On Windows
+    # docker_backend_tests::verify_runs_sby_once_in_one_named_container checks
+    # the translated logfile.txt and kills both. #221, gate run 45563100045.
+    # expect: crates/volt-driver/src/verify_jobs.rs:217:5: replace translate_task_logs with ()
+    "volt-driver/src/verify_jobs\\.rs:\\d+:\\d+: replace translate_task_logs with \\(\\)$",
+    # expect: crates/volt-driver/src/verify_jobs.rs:228:25: replace != with == in translate_task_logs
+    "volt-driver/src/verify_jobs\\.rs:\\d+:\\d+: replace != with == in translate_task_logs$",
 ]
 
 # Every test of the workspace runs for every mutant: emitter faults are
