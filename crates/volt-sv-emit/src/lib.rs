@@ -44,10 +44,9 @@ use std::collections::{HashMap, HashSet};
 
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
-    ArrayLitKind, Block, BlockStmt, ClockEdge, DomainKey, DomainValue, ElseBranch, Expr, ExprKind,
-    Idx, IfStmt, ItemKind, LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock,
-    OnTrigger, Pattern, PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind,
-    TypeRef, TypeRefKind,
+    ArrayLitKind, Block, BlockStmt, ClockEdge, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
+    LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock, OnTrigger, Pattern,
+    PatternKind, PortDir, ResetPolarity, ResetSync, SourceFile, StmtKind, TypeRef, TypeRefKind,
 };
 use volt_diagnostics::{
     lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, Severity, Suggestion,
@@ -829,25 +828,18 @@ pub(crate) fn collect_domains(ast: &SourceFile) -> HashMap<String, DomainInfo> {
     let mut map = HashMap::new();
     for &item_idx in &ast.items {
         if let ItemKind::Domain(domain) = &ast.items_arena[item_idx].kind {
+            // Alanlar ortak okuyucudan (#420, ADR-0140); yazılmamış alan
+            // spec varsayılanını alır.
             let mut info = DomainInfo::SPEC_DEFAULT;
-            for field in &domain.fields {
-                match (&field.key, &field.value) {
-                    (DomainKey::Clock, DomainValue::ClockEdge(edge)) => info.edge = *edge,
-                    (DomainKey::Reset, DomainValue::Reset(spec)) => {
-                        info.reset = ResetCfg {
-                            sync: spec.sync,
-                            polarity: spec.polarity,
-                            synced: None,
-                        };
-                    }
-                    (DomainKey::Reset, DomainValue::ClockEdge(ClockEdge::None)) => {
-                        info.reset = ResetCfg {
-                            sync: ResetSync::None,
-                            ..ResetCfg::DEFAULT
-                        };
-                    }
-                    _ => {}
-                }
+            if let Some(edge) = domain.clock_edge() {
+                info.edge = edge;
+            }
+            if let Some((spec, _)) = domain.reset() {
+                info.reset = ResetCfg {
+                    sync: spec.sync,
+                    polarity: spec.polarity,
+                    synced: None,
+                };
             }
             map.insert(domain.name.text.clone(), info);
         }

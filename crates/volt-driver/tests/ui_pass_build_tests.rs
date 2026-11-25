@@ -115,8 +115,8 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // #232 (ADR-0127): 161 `delay<K>` bir
     // iddiadır, register eklemez. #373: 162 struct değerli sync()
     // kaynakları (tipsiz let/reg dâhil). #419: 163 her skaler tipin her
-    // kullanım yerinde tek genişliği.
-    assert_eq!((built, check_only), (148, 0));
+    // kullanım yerinde tek genişliği. #420: 164 her domain alanı bir kez.
+    assert_eq!((built, check_only), (149, 0));
 }
 
 #[test]

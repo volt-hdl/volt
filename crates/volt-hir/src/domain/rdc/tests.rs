@@ -12,8 +12,14 @@ use crate::typeck::typecheck;
 
 /// Olgu tablosu üzerinde `check` çalıştırır.
 fn with_facts(src: &str, check: impl FnOnce(&UnitFacts)) {
+    with_facts_after(src, &[], check);
+}
+
+/// [`with_facts`], ayrıştırıcının tam olarak `codes` tanılarını verdiği
+/// kaynakta.
+fn with_facts_after(src: &str, codes: &[&str], check: impl FnOnce(&UnitFacts)) {
     let parsed = parse(FileId(0), src);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
+    assert_eq!(parsed.error_codes(), codes);
     let res = resolve_file(&parsed.ast);
     let mut evaluator = ConstEvaluator::new(&parsed.ast, &res);
     evaluator.eval_all_consts();
@@ -59,14 +65,19 @@ fn reset_none_is_never_fed_by_a_raw_port() {
     );
 }
 
+/// #420 (ADR-0140): ikinci `reset` alanı E1003'tür. Önce RDC sv-emit gibi
+/// son alanı alıyordu, kısıt modeli başka bir kural uyguluyordu. Şimdi her
+/// okuyucu alanı ortak okuyucudan (`DomainDecl::reset`) alır: hatalı
+/// birimde de RDC, SV ile aynı alanı, ilk yazımı okur.
 #[test]
-fn the_last_reset_field_wins_like_in_sv_emit() {
-    with_facts(
+fn a_repeated_reset_field_is_e1003_and_rdc_reads_the_field_sv_emit_reads() {
+    with_facts_after(
         "domain D { reset = sync active_high, reset = async active_low }\nmodule M { in clk : clock @D }",
+        &["E1003"],
         |f| {
             let expected = ResetSpec {
-                sync: ResetSync::Async,
-                polarity: ResetPolarity::ActiveLow,
+                sync: ResetSync::Sync,
+                polarity: ResetPolarity::ActiveHigh,
             };
             assert_eq!(f.modules[0].clocks[0].reset, Some(expected));
         },

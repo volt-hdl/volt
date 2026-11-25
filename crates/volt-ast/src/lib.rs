@@ -11,6 +11,7 @@ pub mod arena;
 pub mod bit_width;
 pub mod builtin;
 pub mod const_eval;
+pub mod domain_fields;
 pub mod enum_layout;
 pub mod graph;
 pub mod match_cover;

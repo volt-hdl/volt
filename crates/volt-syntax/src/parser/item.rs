@@ -1594,7 +1594,35 @@ impl Parser<'_> {
         }
 
         self.expect_closing(RBrace, "}", open);
-        ItemKind::Domain(DomainDecl { name, fields })
+        let decl = DomainDecl { name, fields };
+        self.repeated_domain_fields(&decl);
+        ItemKind::Domain(decl)
+    }
+
+    /// E1003 — bir alan anahtarı bildirimde ikinci kez yazılmış (#420,
+    /// ADR-0140). Denetimin tek yeri: alanı okuyan geçitler
+    /// `DomainDecl`'ın ortak okuyucusunu kullanır ve ilk yazımı görür.
+    fn repeated_domain_fields(&mut self, decl: &DomainDecl) {
+        let domain = &decl.name.text;
+        for (first, repeat) in decl.repeated_fields() {
+            let key = repeat.key.as_str();
+            self.push_diag(
+                Diagnostic::error(
+                    ErrorCode::E1003,
+                    lstr!(en: "field '{key}' is written twice in domain '{domain}'"; tr: "'{key}' alanı '{domain}' domain'inde iki kez yazılmış"),
+                    LabeledSpan::primary(
+                        repeat.span,
+                        lstr!(en: "second '{key}' field"; tr: "ikinci '{key}' alanı"),
+                    ),
+                    lstr!(en: "a domain field has one value: keep one of the two '{key}' lines and remove the other";
+                          tr: "bir domain alanının tek değeri vardır: iki '{key}' satırından birini bırakıp ötekini silin"),
+                )
+                .with_secondary(
+                    first.span,
+                    lstr!(en: "'{key}' first written here"; tr: "'{key}' ilk burada yazıldı"),
+                ),
+            );
+        }
     }
 
     fn parse_domain_field(&mut self) -> Option<DomainField> {

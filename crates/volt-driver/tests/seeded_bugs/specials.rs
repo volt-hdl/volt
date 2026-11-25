@@ -737,6 +737,17 @@ pub const SPECIALS: &[Special] = &[
         near_miss: false,
         spec: "ADR-0103 (raw reset to an extern while the registers use its synchronized copy: W3011)",
     },
+    // #420: a second reset field gave the SV a synchronizer and the XDC
+    // no ASYNC_REG for it; a field key written twice is E1003.
+    Special {
+        kind: "rdc.domain-reset-written-twice",
+        design: UI83,
+        site: "Fast gets reset = none before its reset line",
+        edits: &[("domain Fast {\n", "domain Fast {\n    reset = none\n")],
+        codes: &["E1003"],
+        near_miss: false,
+        spec: "ADR-0140 (a field key written twice in one domain declaration: E1003, both fields shown)",
+    },
     // ── trust levels: leak forms on 71_declassify, each with a twin ─
     Special {
         kind: "trust.leak-bit",

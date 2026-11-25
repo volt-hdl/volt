@@ -5,8 +5,8 @@
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::{
-    builtin::BuiltinPrim, ClockEdge, DomainKey, DomainValue, InstanceDecl, ItemKind, ModuleDecl,
-    Port, ResetPolarity, ResetSpec, ResetSync, SourceFile, StmtKind,
+    builtin::BuiltinPrim, InstanceDecl, ItemKind, ModuleDecl, Port, ResetPolarity, ResetSpec,
+    ResetSync, SourceFile, StmtKind,
 };
 use volt_span::Span;
 
@@ -149,15 +149,9 @@ fn declared_reset(
     let ItemKind::Domain(d) = &ast.items_arena[item].kind else {
         return None;
     };
-    // sv-emit ile aynı: son yazılan alan geçerli; `reset = none` reset'siz.
-    d.fields
-        .iter()
-        .rev()
-        .find_map(|f| match (&f.key, &f.value) {
-            (DomainKey::Reset, DomainValue::Reset(spec)) => Some((Some(*spec), f.span)),
-            (DomainKey::Reset, DomainValue::ClockEdge(ClockEdge::None)) => Some((None, f.span)),
-            _ => None,
-        })
+    // Ortak okuyucudan (#420, ADR-0140); `reset = none` reset'siz.
+    let (spec, span) = d.reset()?;
+    Some(((spec.sync != ResetSync::None).then_some(spec), span))
 }
 
 fn raw_facts<'a>(
