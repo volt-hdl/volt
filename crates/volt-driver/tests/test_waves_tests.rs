@@ -3,7 +3,8 @@
 //! Verilator gerekmez: sürücü testbench'i aracı çağırmadan önce yazar;
 //! çalıştırılamayan bir `VOLT_VERILATOR` ile koşu çıkış kodu 3'le biter
 //! ve yazılan metin denetlenir (sim_golden deseni). Düşen testin izli
-//! yeniden koşusu gerçek Verilator ister: `docker_e2e_tests.rs`.
+//! yeniden koşusu gerçek Verilator ister: `wave_session_tests.rs` (yerel)
+//! ve `docker_e2e_tests.rs`.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};

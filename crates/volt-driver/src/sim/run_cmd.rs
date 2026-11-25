@@ -16,6 +16,7 @@ use super::verilator::{
 };
 use super::{create_sim_dir, modules_of, write_file};
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::output::{Action, Origin, OutputRoot};
 use crate::tool_backend::Runner;
 use crate::waves::{self, Session, WaveScope};
 use crate::{render_diagnostics, Compiled, OutputFormat};
@@ -29,7 +30,8 @@ pub(crate) struct RunOptions<'a> {
     /// Kontrat izleyicileri (ADR-0064) — `volt run`'da isteğe bağlı:
     /// duman uyarıcısı (girişler 1) tasarımın varsayımlarını gözetmez.
     pub contracts: bool,
-    pub target_dir: &'a Path,
+    /// Çıktı kökü ve dizini (`--target-dir`, #221).
+    pub out: &'a OutputRoot,
 }
 
 pub(crate) fn run(file: &Path, opts: RunOptions<'_>) -> ExitCode {
@@ -43,7 +45,7 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
         cycles,
         vcd,
         top,
-        target_dir,
+        out,
         ..
     } = opts;
     let start = Instant::now();
@@ -69,27 +71,34 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let sim_dir = target_dir.join("sim").join(&stem);
+    let sim_dir = out.dir().join("sim").join(&stem);
     let sv_name = format!("{module_name}.sv");
-    create_sim_dir(&sim_dir)?;
-    write_file(&sim_dir.join(&sv_name), &sv)?;
+    // `--vcd` dosyasını simülasyon yazar; kökü VCD'nin dizinidir
+    // (kullanıcının seçimi). Dosyanın kendisi simülasyondan önce denetlenir
+    // (#221).
+    let vcd_out = vcd.map(|p| (absolute_vcd(p), vcd_root(p)));
+    if let (Some(p), Some((_, root))) = (vcd, &vcd_out) {
+        root.check(p).map_err(|e| e.report(Action::Write, p))?;
+    }
+    create_sim_dir(out, &sim_dir)?;
+    write_file(out, &sim_dir.join(&sv_name), &sv)?;
     // Extern gövdeleri (ADR-0076) üretilen SV'den önce.
-    let mut inputs = stage_extern_sources(&compiled.extern_sources, &sim_dir, &[sv_name.as_str()])?;
+    let mut inputs =
+        stage_extern_sources(out, &compiled.extern_sources, &sim_dir, &[sv_name.as_str()])?;
     inputs.push(sv_name);
     let contracts = uses_sim_contracts(&sv);
     // Docker'da VCD dizini de konteynere bağlanır (ADR-0094).
-    let abs_vcd = vcd.map(absolute_vcd);
-    let vcd_str = abs_vcd
-        .as_deref()
-        .map(|p| vcd_path_for(&verilator, p))
+    let vcd_str = vcd_out
+        .as_ref()
+        .map(|(p, root)| vcd_path_for(&verilator, root, p))
         .transpose()?;
-    let extra: Vec<PathBuf> = match (&verilator, &abs_vcd) {
-        (Runner::Docker(_), Some(p)) => vec![vcd_mount_dir(p)],
+    let extra: Vec<PathBuf> = match (&verilator, &vcd_out) {
+        (Runner::Docker(_), Some((p, root))) => vec![vcd_mount_dir(root, p)],
         _ => Vec::new(),
     };
     let extra: Vec<&Path> = extra.iter().map(PathBuf::as_path).collect();
     let tb = run_testbench(&module_name, &ports, cycles, vcd_str.as_deref(), contracts);
-    write_file(&sim_dir.join("tb.cpp"), &tb)?;
+    write_file(out, &sim_dir.join("tb.cpp"), &tb)?;
 
     eprintln!(
         "{}",
@@ -106,7 +115,7 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
         trace: vcd.is_some(),
         mdir: "obj_dir",
     };
-    let exe = verilate(&verilator, &job, &extra)?;
+    let exe = verilate(&verilator, out, &job, &extra)?;
     let stdout = simulate(&verilator, &exe, &sim_dir, &extra)?;
     let code = if contracts {
         let index = ContractIndex::new(&compiled.sva_props, &compiled.map, &module_name);
@@ -115,8 +124,14 @@ fn run_inner(file: &Path, opts: RunOptions<'_>) -> Result<ExitCode, ExitCode> {
         ExitCode::SUCCESS
     };
     // Enum/Trit adları için GTKWave oturumu (ADR-0092).
-    let wave = vcd.map(|p| {
-        let session = waves::write_or_warn(p, &compiled.waves, &module_name, WaveScope::Simulation);
+    let wave = vcd.zip(vcd_out.as_ref()).map(|(p, (_, root))| {
+        let session = waves::write_or_warn(
+            root,
+            p,
+            &compiled.waves,
+            &module_name,
+            WaveScope::Simulation,
+        );
         (p, session)
     });
     print_finished(file, wave, start);
@@ -262,6 +277,11 @@ fn run_testbench(
     contracts: bool,
 ) -> String {
     tbgen::run_testbench_cpp_with(module, ports, cycles, vcd, contracts)
+}
+
+/// `--vcd` dosyasının çıktı kökü: kullanıcının verdiği yolun dizini.
+fn vcd_root(vcd: &Path) -> OutputRoot {
+    OutputRoot::new(vcd.parent().unwrap_or(Path::new("")), Origin::Vcd)
 }
 
 /// VCD yolu kullanıcı cwd'sine göre çözülür; tb'ye mutlak gömülür.

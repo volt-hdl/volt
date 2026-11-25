@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use volt_tools::docker_paths::Mounts;
 
+use crate::output::OutputRoot;
 use crate::tool_backend::Runner;
 use crate::verify::{interpret_sby_output, SbyOutcome};
 
@@ -108,6 +109,9 @@ pub(crate) struct RunConfig<'a> {
     /// `cwd`'ye göreli `.sby` dosya adı.
     pub(crate) sby_file: &'a str,
     pub(crate) cwd: &'a Path,
+    /// Çıktı kökü: sby'nin günlüklerinin yol çevirisi onun üzerinden
+    /// yazılır (#221).
+    pub(crate) out: &'a OutputRoot,
     pub(crate) jobs: usize,
     pub(crate) fail_fast: bool,
     /// Görev sonucunu düzelten kanca (cover kipi derinlik sınırı,
@@ -197,7 +201,7 @@ pub(crate) fn run_sby_tasks(
     }
     let exit_code = child.wait().ok().and_then(|s| s.code());
     if launch.container.is_some() {
-        translate_task_logs(cfg.cwd, tasks, &launch.mounts);
+        translate_task_logs(cfg.out, cfg.cwd, tasks, &launch.mounts);
     }
     Ok(RunReport {
         tasks: results,
@@ -209,7 +213,7 @@ pub(crate) fn run_sby_tasks(
 /// Docker'da sby'nin kendi yazdığı günlükler (`logfile.txt`, JUnit
 /// `.xml`) konteyner yolu taşır; hata ipucu kullanıcıyı `logfile.txt`'ye
 /// yönlendirdiği için ana makine yoluna çevrilir (ADR-0094 §2.3).
-fn translate_task_logs(cwd: &Path, tasks: &[TaskSpec], mounts: &Mounts) {
+fn translate_task_logs(out: &OutputRoot, cwd: &Path, tasks: &[TaskSpec], mounts: &Mounts) {
     for task in tasks {
         let Ok(entries) = std::fs::read_dir(cwd.join(&task.workdir)) else {
             continue;
@@ -222,7 +226,7 @@ fn translate_task_logs(cwd: &Path, tasks: &[TaskSpec], mounts: &Mounts) {
             if let Ok(text) = std::fs::read_to_string(&path) {
                 let host = mounts.host_text(&text);
                 if host != text {
-                    let _ = std::fs::write(&path, host);
+                    let _ = out.write(&path, host);
                 }
             }
         }

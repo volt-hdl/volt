@@ -48,7 +48,7 @@ pub(crate) fn watch(filter: Option<&str>, opts: TestOptions<'_>) -> ExitCode {
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut live = Live {
-        scope: WatchScope::new(&cwd, filter, opts.target_dir),
+        scope: WatchScope::new(&cwd, filter, opts.out.dir()),
         filter,
         opts,
     };

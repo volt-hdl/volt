@@ -18,6 +18,8 @@ use volt_diagnostics::lstr;
 
 use templates::Template;
 
+use crate::output::{Action, Origin, OutputRoot};
+
 /// `volt new` / `volt init` ortak seçenekleri.
 pub(crate) struct NewOptions<'a> {
     pub template: &'a str,
@@ -243,23 +245,18 @@ fn is_empty_dir(dir: &Path) -> bool {
     std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none())
 }
 
-/// Şablonu yazar; ilk hatada durur (çıkış 3).
+/// Şablonu yazar; ilk hatada durur (çıkış 3). Proje dizini çıktı
+/// köküdür (#221): kullanıcının seçimidir, yolu denetlenmez; içine
+/// yazılan dosyalar denetlenir (`volt init`'te çalışma dizinindeki bir
+/// bağlantı dosyayı başka bir yerde oluştururdu).
 fn write_files(dir: &Path, template: &Template, name: &str) -> Result<(), ExitCode> {
-    let fail = |path: &Path, e: std::io::Error| {
-        let path = path.display();
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "error: cannot write '{path}': {e}";
-                tr: "hata: '{path}' yazılamadı: {e}"
-            )
-        );
-        ExitCode::from(3)
-    };
-    std::fs::create_dir_all(dir).map_err(|e| fail(dir, e))?;
+    let out = OutputRoot::new(dir, Origin::Project);
+    out.create_dir_all(dir)
+        .map_err(|e| e.report(Action::Write, dir))?;
     for (file, content) in template.files {
         let path = dir.join(file);
-        std::fs::write(&path, templates::render(content, name)).map_err(|e| fail(&path, e))?;
+        out.write(&path, templates::render(content, name))
+            .map_err(|e| e.report(Action::Write, &path))?;
     }
     Ok(())
 }

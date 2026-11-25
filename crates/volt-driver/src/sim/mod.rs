@@ -33,7 +33,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use volt_ast::{ItemKind, ModuleDecl, SourceFile};
-use volt_diagnostics::lstr;
+
+use crate::output::{Action, OutputRoot};
 
 pub(crate) use discover::{discover_test_files, is_test_file, project_files};
 pub(crate) use run_cmd::{run, RunOptions};
@@ -42,25 +43,16 @@ pub(crate) use test_waves::WaveMode;
 
 // ═══ Ortak yardımcılar ════════════════════════════════════════════
 
-fn io_error(path: &Path, err: &std::io::Error) -> ExitCode {
-    eprintln!(
-        "{}",
-        lstr!(
-            en: "error: cannot write '{}': {}", path.display(), err;
-            tr: "hata: '{}' yazılamadı: {}", path.display(), err
-        )
-    );
-    ExitCode::from(3)
-}
-
-/// Sim dizinini (yoksa) oluşturur.
-fn create_sim_dir(sim_dir: &Path) -> Result<(), ExitCode> {
-    std::fs::create_dir_all(sim_dir).map_err(|err| io_error(sim_dir, &err))
+/// Sim dizinini (yoksa) oluşturur; hata iletisi yazım hatasınınkidir.
+fn create_sim_dir(out: &OutputRoot, sim_dir: &Path) -> Result<(), ExitCode> {
+    out.create_dir_all(sim_dir)
+        .map_err(|err| err.report(Action::Write, sim_dir))
 }
 
 /// Üretilen dosyayı (SV, testbench, `.vlt`) sim dizinine yazar.
-fn write_file(path: &Path, contents: &str) -> Result<(), ExitCode> {
-    std::fs::write(path, contents).map_err(|err| io_error(path, &err))
+fn write_file(out: &OutputRoot, path: &Path, contents: &str) -> Result<(), ExitCode> {
+    out.write(path, contents)
+        .map_err(|err| err.report(Action::Write, path))
 }
 
 /// AST'deki modülleri kaynak sırasıyla listeler.
@@ -77,20 +69,24 @@ fn modules_of(ast: &SourceFile) -> Vec<&ModuleDecl> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::Origin;
 
     #[test]
     fn write_file_reports_missing_parent_as_error() {
-        let dir = std::env::temp_dir().join(format!("volt-sim-mod-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let base = std::env::temp_dir().join(format!("volt-sim-mod-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("temp dizini");
+        let out = OutputRoot::new(&base, Origin::TargetDir);
+        let dir = base.join("sim");
 
         // Üst dizin yokken yazım hatadır; oluşturulunca başarılıdır.
-        assert!(write_file(&dir.join("tb.cpp"), "x").is_err());
-        assert!(create_sim_dir(&dir).is_ok());
-        assert!(write_file(&dir.join("tb.cpp"), "x").is_ok());
+        assert!(write_file(&out, &dir.join("tb.cpp"), "x").is_err());
+        assert!(create_sim_dir(&out, &dir).is_ok());
+        assert!(write_file(&out, &dir.join("tb.cpp"), "x").is_ok());
         assert_eq!(
             std::fs::read_to_string(dir.join("tb.cpp")).expect("oku"),
             "x"
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

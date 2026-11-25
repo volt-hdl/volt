@@ -7,9 +7,9 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use volt_diagnostics::lstr;
 use volt_sv_emit::SvaMode;
 
+use crate::output::{Action, OutputRoot};
 use crate::{compile, Compiled};
 
 /// `run`/`test`/`verify` derlemesi (ADR-0076): örneklenen her extern'ün
@@ -40,6 +40,7 @@ pub(crate) fn compile_for_tool(
 /// duyarsız çakışırsa `extern_<k>_<dosya adı>`, k boş ad bulunana dek
 /// artar: hiçbir kopya başka bir dosyanın üzerine yazılmaz.
 pub(crate) fn stage_extern_sources(
+    out: &OutputRoot,
     sources: &[volt_hir::ExternSourceFile],
     dir: &Path,
     reserved: &[&str],
@@ -65,15 +66,8 @@ pub(crate) fn stage_extern_sources(
             k += 1;
         }
         let dest = dir.join(&name);
-        if let Err(err) = std::fs::copy(&src.path, &dest) {
-            eprintln!(
-                "{}",
-                lstr!(
-                    en: "error: cannot copy '{}' to '{}': {}", src.path.display(), dest.display(), err;
-                    tr: "hata: '{}', '{}' konumuna kopyalanamadı: {}", src.path.display(), dest.display(), err
-                )
-            );
-            return Err(ExitCode::from(3));
+        if let Err(err) = out.copy(&src.path, &dest) {
+            return Err(err.report(Action::Copy { from: &src.path }, &dest));
         }
         names.push(name);
     }
@@ -83,6 +77,7 @@ pub(crate) fn stage_extern_sources(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::Origin;
     use std::path::PathBuf;
 
     fn src(module: &str, path: PathBuf) -> volt_hir::ExternSourceFile {
@@ -107,7 +102,9 @@ mod tests {
             src("A", dir.join("a").join("fifo.sv")),
             src("B", dir.join("b").join("fifo.sv")),
         ];
-        let names = stage_extern_sources(&sources, &dir.join("out"), &[]).expect("kopyalanmalı");
+        let root = OutputRoot::new(&dir.join("out"), Origin::TargetDir);
+        let names =
+            stage_extern_sources(&root, &sources, &dir.join("out"), &[]).expect("kopyalanmalı");
         assert_eq!(names, ["extern_fifo.sv", "extern_1_fifo.sv"]);
         let second = std::fs::read_to_string(dir.join("out").join("extern_1_fifo.sv")).expect("b");
         assert!(second.contains("module B"), "{second}");
@@ -133,7 +130,9 @@ mod tests {
             src("C", dir.join("c").join("FIFO.sv")),
         ];
         let out = dir.join("out");
-        let names = stage_extern_sources(&sources, &out, &["EXTERN_fifo.sv"]).expect("kopya");
+        let root = OutputRoot::new(&out, Origin::TargetDir);
+        let names =
+            stage_extern_sources(&root, &sources, &out, &["EXTERN_fifo.sv"]).expect("kopya");
         assert_eq!(
             names,
             ["extern_1_fifo.sv", "extern_1_1_fifo.sv", "extern_2_FIFO.sv"]
@@ -153,7 +152,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("dizin");
         let sources = [src("A", dir.join("gone.sv"))];
-        assert!(stage_extern_sources(&sources, &dir, &[]).is_err());
+        let root = OutputRoot::new(&dir, Origin::TargetDir);
+        assert!(stage_extern_sources(&root, &sources, &dir, &[]).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

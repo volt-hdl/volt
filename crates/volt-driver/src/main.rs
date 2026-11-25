@@ -13,6 +13,7 @@ mod doctor;
 mod extern_stage;
 mod interrupt;
 mod new;
+mod output;
 mod project;
 mod reach;
 mod regmap_check;
@@ -35,7 +36,7 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use volt_diagnostics::{
     explain, lstr, render_human, render_short, to_json_value, Diagnostic, ErrorCode, Lang, Severity,
 };
@@ -48,6 +49,8 @@ use volt_sv_emit::{
 };
 use volt_sw_emit::{EmitOpts, SwKind};
 use volt_syntax::ParseResult;
+
+use output::Action;
 
 #[derive(Parser)]
 #[command(name = "volt", version = volt_sv_emit::VOLT_VERSION_TEXT)]
@@ -461,7 +464,9 @@ fn main() -> ExitCode {
 }
 
 fn run() -> ExitCode {
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let explicit_target = target_dir_explicit(&matches);
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     volt_diagnostics::set_lang(resolve_lang(cli.lang));
     MAX_DIAGNOSTICS.store(cli.max_diagnostics, Ordering::Relaxed);
     // cli-contract.md §3: tanılar stderr'e yazar, renk kararı ona göre.
@@ -520,11 +525,12 @@ fn run() -> ExitCode {
             };
             // Proje kipinde birden çok üst modül dosyası: sırayla, en
             // kötü çıkış kodu (ADR-0095).
+            let out = output::OutputRoot::for_target(&target_dir, explicit_target);
             let mut worst = ExitCode::SUCCESS;
             for f in &files {
                 let code = build(
                     f,
-                    &target_dir,
+                    &out,
                     format,
                     mode,
                     single_file,
@@ -574,7 +580,7 @@ fn run() -> ExitCode {
             };
             verify::verify(
                 &file,
-                &target_dir,
+                &output::OutputRoot::for_target(&target_dir, explicit_target),
                 format,
                 SbyOptions {
                     mode: mode.into(),
@@ -612,7 +618,7 @@ fn run() -> ExitCode {
                     vcd: vcd.as_deref(),
                     top: top.as_deref(),
                     contracts,
-                    target_dir: &target_dir,
+                    out: &output::OutputRoot::for_target(&target_dir, explicit_target),
                 },
             )
         }
@@ -625,6 +631,7 @@ fn run() -> ExitCode {
             no_contracts,
             target_dir,
         } => {
+            let out = output::OutputRoot::for_target(&target_dir, explicit_target);
             let opts = sim::TestOptions {
                 nocapture,
                 contracts: !no_contracts,
@@ -633,7 +640,7 @@ fn run() -> ExitCode {
                     (_, true) => sim::WaveMode::Off,
                     _ => sim::WaveMode::OnFailure,
                 },
-                target_dir: &target_dir,
+                out: &out,
             };
             if watch {
                 watch::watch(filter.as_deref(), opts)
@@ -1075,7 +1082,7 @@ struct SdcRequest<'a> {
 
 fn build(
     file: &Path,
-    target_dir: &Path,
+    out: &output::OutputRoot,
     format: OutputFormat,
     sva_mode: SvaMode,
     single_file: bool,
@@ -1127,16 +1134,10 @@ fn build(
         return ExitCode::from(1);
     };
 
+    let target_dir = out.dir();
     let rtl_dir = target_dir.join("rtl");
-    if let Err(err) = std::fs::create_dir_all(&rtl_dir) {
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "error: cannot create '{}': {}", rtl_dir.display(), err;
-                tr: "hata: '{}' oluşturulamadı: {}", rtl_dir.display(), err
-            )
-        );
-        return ExitCode::from(3);
+    if let Err(err) = out.create_dir_all(&rtl_dir) {
+        return err.report(Action::Create, &rtl_dir);
     }
     // ADR-0024: modül başına bir dosya (build/rtl/<Modül>.sv);
     // `--single-file` eski düzeni (build/rtl/<kaynak>.sv) korur. Modülsüz
@@ -1158,15 +1159,8 @@ fn build(
             .collect()
     };
     for (path, content) in &outputs {
-        if let Err(err) = std::fs::write(path, content) {
-            eprintln!(
-                "{}",
-                lstr!(
-                    en: "error: cannot write '{}': {}", path.display(), err;
-                    tr: "hata: '{}' yazılamadı: {}", path.display(), err
-                )
-            );
-            return ExitCode::from(3);
+        if let Err(err) = out.write(path, content) {
+            return err.report(Action::Write, path);
         }
     }
     let sv_count = outputs.len();
@@ -1178,27 +1172,13 @@ fn build(
         .collect();
     if !compiled.sva_files.is_empty() {
         let formal_dir = target_dir.join("formal");
-        if let Err(err) = std::fs::create_dir_all(&formal_dir) {
-            eprintln!(
-                "{}",
-                lstr!(
-                    en: "error: cannot create '{}': {}", formal_dir.display(), err;
-                    tr: "hata: '{}' oluşturulamadı: {}", formal_dir.display(), err
-                )
-            );
-            return ExitCode::from(3);
+        if let Err(err) = out.create_dir_all(&formal_dir) {
+            return err.report(Action::Create, &formal_dir);
         }
         for sva in &compiled.sva_files {
             let sva_path = formal_dir.join(format!("{}.sva", sva.module_name.to_lowercase()));
-            if let Err(err) = std::fs::write(&sva_path, &sva.content) {
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: cannot write '{}': {}", sva_path.display(), err;
-                        tr: "hata: '{}' yazılamadı: {}", sva_path.display(), err
-                    )
-                );
-                return ExitCode::from(3);
+            if let Err(err) = out.write(&sva_path, &sva.content) {
+                return err.report(Action::Write, &sva_path);
             }
             artifacts.push(sva_path.display().to_string());
         }
@@ -1213,7 +1193,7 @@ fn build(
         version: volt_sv_emit::VOLT_VERSION.to_string(),
     };
     if !sw.kinds.is_empty() {
-        match write_sw_outputs(target_dir, &compiled.regmaps, sw.kinds, &sw_opts, format) {
+        match write_sw_outputs(out, &compiled.regmaps, sw.kinds, &sw_opts, format) {
             Ok(paths) => artifacts.extend(paths),
             Err(code) => return code,
         }
@@ -1252,7 +1232,7 @@ fn build(
             version: volt_sv_emit::VOLT_VERSION_TEXT.to_string(),
             style: sdc.style,
         };
-        match write_constraint_outputs(target_dir, &compiled.constraints, dialects, &opts, format) {
+        match write_constraint_outputs(out, &compiled.constraints, dialects, &opts, format) {
             Ok(paths) => artifacts.extend(paths),
             Err(code) => return code,
         }
@@ -1343,6 +1323,15 @@ fn build(
     ExitCode::SUCCESS
 }
 
+/// `--target-dir` komut satırında açıkça verildi mi (#221): verildiyse
+/// çıktı kökü o dizindir, varsayılan `build`'de çalışma dizini.
+fn target_dir_explicit(matches: &clap::ArgMatches) -> bool {
+    matches.subcommand().is_some_and(|(_, sub)| {
+        sub.ids().any(|id| id.as_str() == "target_dir")
+            && sub.value_source("target_dir") == Some(clap::parser::ValueSource::CommandLine)
+    })
+}
+
 /// Modülsüz birim (ADR-0042 ek): hata değil — fn/const/tip kütüphanesi
 /// başka bir dosyadan `use` ile kullanılır.
 fn print_library_note(file: &Path) {
@@ -1372,7 +1361,7 @@ fn print_library_note(file: &Path) {
 /// modülü yoksa dosya üretilmez; insan biçiminde bir not düşülür (hata
 /// değil — sürücüsü olmayan bir tasarım geçerlidir).
 fn write_sw_outputs(
-    target_dir: &Path,
+    out: &output::OutputRoot,
     regmaps: &[volt_ast::mmio::RegMap],
     kinds: &[SwKind],
     opts: &EmitOpts,
@@ -1394,27 +1383,13 @@ fn write_sw_outputs(
     let mut written = Vec::new();
     for map in regmaps {
         for &kind in kinds {
-            let path = kind.output_path(target_dir, map);
+            let path = kind.output_path(out.dir(), map);
             let dir = path.parent().expect("çıktı yolu bir dizin içinde");
-            if let Err(err) = std::fs::create_dir_all(dir) {
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: cannot create '{}': {}", dir.display(), err;
-                        tr: "hata: '{}' oluşturulamadı: {}", dir.display(), err
-                    )
-                );
-                return Err(ExitCode::from(3));
+            if let Err(err) = out.create_dir_all(dir) {
+                return Err(err.report(Action::Create, dir));
             }
-            if let Err(err) = std::fs::write(&path, kind.render(map, opts)) {
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: cannot write '{}': {}", path.display(), err;
-                        tr: "hata: '{}' yazılamadı: {}", path.display(), err
-                    )
-                );
-                return Err(ExitCode::from(3));
+            if let Err(err) = out.write(&path, kind.render(map, opts)) {
+                return Err(err.report(Action::Write, &path));
             }
             written.push(path.display().to_string());
         }
@@ -1426,7 +1401,7 @@ fn write_sw_outputs(
 /// lehçeleri `build/constraints/<Modül>.<sdc|xdc>` olarak yazar, yazılan
 /// yolları döndürür. Saatli modül yoksa `Note:` satırı, çıkış 0.
 fn write_constraint_outputs(
-    target_dir: &Path,
+    out: &output::OutputRoot,
     constraints: &volt_hir::ConstraintResult,
     dialects: &[Dialect],
     opts: &volt_sdc_emit::EmitOpts,
@@ -1445,30 +1420,16 @@ fn write_constraint_outputs(
         }
         return Ok(Vec::new());
     }
-    let dir = target_dir.join("constraints");
-    if let Err(err) = std::fs::create_dir_all(&dir) {
-        eprintln!(
-            "{}",
-            lstr!(
-                en: "error: cannot create '{}': {}", dir.display(), err;
-                tr: "hata: '{}' oluşturulamadı: {}", dir.display(), err
-            )
-        );
-        return Err(ExitCode::from(3));
+    let dir = out.dir().join("constraints");
+    if let Err(err) = out.create_dir_all(&dir) {
+        return Err(err.report(Action::Create, &dir));
     }
     let mut written = Vec::new();
     for mc in &constraints.modules {
         for &dialect in dialects {
-            let path = dialect.output_path(target_dir, &mc.module);
-            if let Err(err) = std::fs::write(&path, dialect.render(mc, opts)) {
-                eprintln!(
-                    "{}",
-                    lstr!(
-                        en: "error: cannot write '{}': {}", path.display(), err;
-                        tr: "hata: '{}' yazılamadı: {}", path.display(), err
-                    )
-                );
-                return Err(ExitCode::from(3));
+            let path = dialect.output_path(out.dir(), &mc.module);
+            if let Err(err) = out.write(&path, dialect.render(mc, opts)) {
+                return Err(err.report(Action::Write, &path));
             }
             written.push(path.display().to_string());
         }

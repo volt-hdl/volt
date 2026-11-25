@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use volt_diagnostics::lstr;
 use volt_sv_emit::{filter_text, gtkw_text, WaveInfo, GTKW_MARKER};
 
+use crate::output::{OutputError, OutputRoot};
+
 /// VCD'yi üreten araç: hiyerarşi önekini belirler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WaveScope {
@@ -56,23 +58,25 @@ pub(crate) struct PlainTrace {
 /// sinyali yoksa hiçbir dosya üretilmez; daha önce Volt'un yazdığı eski
 /// oturum varsa silinir (başka tasarımın adlarını göstermesin).
 pub(crate) fn write_session(
+    out: &OutputRoot,
     vcd: &Path,
     info: &WaveInfo,
     top: &str,
     scope: WaveScope,
-) -> std::io::Result<Session> {
-    write_session_with(vcd, info, top, scope, &[])
+) -> Result<Session, OutputError> {
+    write_session_with(out, vcd, info, top, scope, &[])
 }
 
 /// [`write_session`] + `plain` izleri: liste boş değilse enum'suz
 /// tasarımda da oturum yazılır (ADR-0095).
 pub(crate) fn write_session_with(
+    out: &OutputRoot,
     vcd: &Path,
     info: &WaveInfo,
     top: &str,
     scope: WaveScope,
     plain: &[PlainTrace],
-) -> std::io::Result<Session> {
+) -> Result<Session, OutputError> {
     let gtkw = session_path(vcd);
     let ours = is_volt_session(&gtkw);
     let prefix = match scope {
@@ -84,7 +88,7 @@ pub(crate) fn write_session_with(
     let session = info.session(top, &prefix);
     if session.is_none() && plain.is_empty() {
         if ours {
-            remove_session(&gtkw, &filters_dir(vcd))?;
+            remove_session(out, &gtkw, &filters_dir(vcd))?;
         }
         return Ok(Session::None);
     }
@@ -94,11 +98,11 @@ pub(crate) fn write_session_with(
     let mut filters = Vec::new();
     if let Some(session) = &session {
         let dir = filters_dir(vcd);
-        std::fs::create_dir_all(&dir)?;
+        out.create_dir_all(&dir)?;
         let names = filter_file_names(&session.tables);
         for (table, name) in session.tables.iter().zip(&names) {
             let path = dir.join(name);
-            std::fs::write(&path, filter_text(table))?;
+            out.write(&path, filter_text(table))?;
             filters.push(viewer_path(&path));
         }
     }
@@ -114,7 +118,7 @@ pub(crate) fn write_session_with(
         .as_ref()
         .map(|s| s.traces.iter().map(|t| t.path.as_str()).collect())
         .unwrap_or_default();
-    std::fs::write(&gtkw, with_plain_traces(&text, &prefix, plain, &enum_paths))?;
+    out.write(&gtkw, with_plain_traces(&text, &prefix, plain, &enum_paths))?;
     Ok(Session::Written(gtkw))
 }
 
@@ -164,16 +168,16 @@ fn is_volt_session(gtkw: &Path) -> bool {
 
 /// Volt'un eski oturumunu ve tablolarını siler (yalnız `.txt`'ler; dizin
 /// boş kalırsa o da).
-fn remove_session(gtkw: &Path, dir: &Path) -> std::io::Result<()> {
-    std::fs::remove_file(gtkw)?;
+fn remove_session(out: &OutputRoot, gtkw: &Path, dir: &Path) -> Result<(), OutputError> {
+    out.remove_file(gtkw)?;
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.extension().is_some_and(|e| e == "txt") {
-                std::fs::remove_file(&p)?;
+                out.remove_file(&p)?;
             }
         }
-        let _ = std::fs::remove_dir(dir);
+        let _ = out.remove_dir(dir);
     }
     Ok(())
 }
@@ -204,8 +208,14 @@ pub(crate) fn open_hint(vcd: &Path, session: &Session) -> String {
 
 /// Yazım hatası dalga formunu geçersiz kılmaz: uyarı basılır, oturumsuz
 /// devam edilir.
-pub(crate) fn write_or_warn(vcd: &Path, info: &WaveInfo, top: &str, scope: WaveScope) -> Session {
-    match write_session(vcd, info, top, scope) {
+pub(crate) fn write_or_warn(
+    out: &OutputRoot,
+    vcd: &Path,
+    info: &WaveInfo,
+    top: &str,
+    scope: WaveScope,
+) -> Session {
+    match write_session(out, vcd, info, top, scope) {
         Ok(s) => s,
         Err(e) => {
             eprintln!(
@@ -223,7 +233,12 @@ pub(crate) fn write_or_warn(vcd: &Path, info: &WaveInfo, top: &str, scope: WaveS
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::Origin;
     use volt_sv_emit::{WaveModule, WaveSignal, WaveTable};
+
+    fn root(dir: &Path) -> OutputRoot {
+        OutputRoot::new(dir, Origin::TargetDir)
+    }
 
     fn info(with_enum: bool) -> WaveInfo {
         let signals = if with_enum {
@@ -265,7 +280,14 @@ mod tests {
     fn writes_session_and_filters_next_to_the_vcd() {
         let dir = scratch("write");
         let vcd = dir.join("waves.vcd");
-        let s = write_session(&vcd, &info(true), "UartTx", WaveScope::Simulation).expect("yazım");
+        let s = write_session(
+            &root(&dir),
+            &vcd,
+            &info(true),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("yazım");
         assert_eq!(s, Session::Written(dir.join("waves.gtkw")));
         let gtkw = std::fs::read_to_string(dir.join("waves.gtkw")).expect("gtkw");
         assert!(gtkw.starts_with(GTKW_MARKER), "{gtkw}");
@@ -278,7 +300,14 @@ mod tests {
             "{filter}"
         );
         let formal = dir.join("m_cex.vcd");
-        write_session(&formal, &info(true), "UartTx", WaveScope::Formal).expect("yazım");
+        write_session(
+            &root(&dir),
+            &formal,
+            &info(true),
+            "UartTx",
+            WaveScope::Formal,
+        )
+        .expect("yazım");
         let text = std::fs::read_to_string(dir.join("m_cex.gtkw")).expect("gtkw");
         assert!(text.contains("\nUartTx.state_r[1:0]\n"), "{text}");
         let _ = std::fs::remove_dir_all(&dir);
@@ -288,12 +317,33 @@ mod tests {
     fn design_without_enums_writes_nothing_and_clears_a_stale_session() {
         let dir = scratch("none");
         let vcd = dir.join("waves.vcd");
-        let s = write_session(&vcd, &info(false), "UartTx", WaveScope::Simulation).expect("ok");
+        let s = write_session(
+            &root(&dir),
+            &vcd,
+            &info(false),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("ok");
         assert_eq!(s, Session::None);
         assert_eq!(std::fs::read_dir(&dir).expect("dizin").count(), 0);
         // Önceki koşunun Volt oturumu silinir.
-        write_session(&vcd, &info(true), "UartTx", WaveScope::Simulation).expect("yazım");
-        write_session(&vcd, &info(false), "UartTx", WaveScope::Simulation).expect("ok");
+        write_session(
+            &root(&dir),
+            &vcd,
+            &info(true),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("yazım");
+        write_session(
+            &root(&dir),
+            &vcd,
+            &info(false),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("ok");
         assert_eq!(std::fs::read_dir(&dir).expect("dizin").count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -304,7 +354,14 @@ mod tests {
         let vcd = dir.join("waves.vcd");
         let mine = "[timestart] 0\nTOP.x\n";
         std::fs::write(dir.join("waves.gtkw"), mine).expect("yazım");
-        let s = write_session(&vcd, &info(true), "UartTx", WaveScope::Simulation).expect("ok");
+        let s = write_session(
+            &root(&dir),
+            &vcd,
+            &info(true),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("ok");
         assert_eq!(s, Session::Kept(dir.join("waves.gtkw")));
         assert_eq!(
             std::fs::read_to_string(dir.join("waves.gtkw")).expect("oku"),
@@ -313,7 +370,14 @@ mod tests {
         // Tablolar yine tazelenir (kullanıcı oturumu onları gösterebilir).
         assert!(dir.join("waves.filters").join("TxState.txt").is_file());
         // Enum'suz tasarımda kullanıcının dosyası çıktıyı değiştirmez.
-        let s = write_session(&vcd, &info(false), "UartTx", WaveScope::Simulation).expect("ok");
+        let s = write_session(
+            &root(&dir),
+            &vcd,
+            &info(false),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("ok");
         assert_eq!(s, Session::None);
         assert_eq!(
             std::fs::read_to_string(dir.join("waves.gtkw")).expect("oku"),
@@ -330,7 +394,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("dizin");
         let vcd = dir.join("w.vcd");
-        write_session(&vcd, &info(true), "UartTx", WaveScope::Simulation).expect("yazım");
+        write_session(
+            &root(&dir),
+            &vcd,
+            &info(true),
+            "UartTx",
+            WaveScope::Simulation,
+        )
+        .expect("yazım");
         let text = std::fs::read_to_string(dir.join("w.gtkw")).expect("gtkw");
         let rel = format!(
             "{}/w.filters/TxState.txt",

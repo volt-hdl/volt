@@ -9,6 +9,33 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Volt'un yazdığı her dosya çıktı kökünün
+  altında kalır; kökün altındaki yolda ya da hedefte bir sembolik
+  bağlantı varsa yazım reddedilir (#221; güvenlik düzeltmesi, ADR-0138
+  önerisi). Önce: klonlanan bir depoda `build/rtl/Top.sv` depo dışındaki
+  bir dosyaya bağlantıyken `volt build` o dosyanın üzerine yazıyordu;
+  `build` dizininin kendisi bağlantıysa bütün çıktılar onu izliyordu.
+  Sonra: `error: cannot write 'build/rtl/Top.sv'`, `= reason:` satırı
+  bağlantıyı adlandırır, `= help:` bağlantıyı kaldırmayı ya da
+  `--target-dir` ile başka bir dizin seçmeyi önerir; çıkış kodu 3, hiçbir
+  dosya yazılmaz. Daha önce yazılan, şimdi reddedilen yollar: kökün
+  altında bağlantı olan bir parçadan geçen ya da kendisi bağlantı olan
+  her hedef; `build`, `run`, `test`, `verify` için kök çalışma dizinidir
+  (`build/` dahil denetlenir), `--target-dir` verilmişse o dizindir;
+  `volt new`'de proje dizini, `volt init`'te çalışma dizini (orada
+  bekleyen, hedefi olmayan bir bağlantı da reddedilir), `volt run --vcd`'de
+  VCD'nin dizini. Kökün kendisi ve üstü denetlenmez: bağlantı olan bir
+  ana dizin ya da açıkça verilen bir `--target-dir` bağlantısı eskisi
+  gibi çalışır. Windows'ta junction da bağlantı sayılır: Rust'ın standart
+  kütüphanesinin tanımıyla (`FileType::is_symlink`) yazımı başka bir yola
+  yönlendiren (name surrogate) reparse point; OneDrive yer tutucusu,
+  sıkıştırma ya da tekilleştirme gibi yazımı yerinde bırakan reparse
+  point'ler bağlantı değildir, yazım eskisi gibi yapılır (#427). Bağlantı taşıyan bir Verilator obj dizini silinip baştan
+  kurulur; `build/formal` altında bağlantı varsa `volt verify` reddeder.
+  Bağlantısız yollarda üretilen dosyalar bayt bayt aynıdır (gölgenin 489
+  girdi dosyasında `build`, `test` ve `verify` çıktıları main ile
+  karşılaştırıldı); yeni tanı kodu ya da seçenek yok.
+
 - **Davranış değişikliği.** Tip genişliğinin üst sınırı tek bir sabittir,
   65535 (#418; sessiz yanlış düzeltmesi, ADR-0100): `bits<65536>`,
   `uint<65536>` ve `sint<65536>` artık E2025 ile reddedilir. Önce E2025

@@ -27,6 +27,7 @@ use volt_diagnostics::{
 use volt_sv_emit::{sby_config_tasks, SbyOptions, SbyTask, SvaMode, SvaProp};
 
 use crate::extern_stage::{compile_for_tool, stage_extern_sources};
+use crate::output::{Action, OutputRoot};
 use crate::tool_backend::Runner;
 use crate::verify_jobs::{run_sby_tasks, Jobs, RunConfig, TaskSpec, TaskStatus};
 use crate::verify_plan::{environment_assumptions, owner_module_at, plan_tasks, TaskPlan};
@@ -75,7 +76,7 @@ pub(crate) struct VerifyArgs {
 
 pub(crate) fn verify(
     file: &Path,
-    target_dir: &Path,
+    out: &OutputRoot,
     format: OutputFormat,
     opts: SbyOptions,
     args: VerifyArgs,
@@ -142,33 +143,38 @@ pub(crate) fn verify(
     let modules: Vec<String> = plans.iter().map(|p| p.module.clone()).collect();
 
     // ── ADIM 1: build/formal/ altına tek .sv + görevli .sby üret ──
-    let formal_dir = target_dir.join("formal");
-    if let Err(err) = std::fs::create_dir_all(&formal_dir) {
-        return io_error(&formal_dir, &err);
+    let formal_dir = out.dir().join("formal");
+    if let Err(err) = out.create_dir_all(&formal_dir) {
+        return err.report(Action::Write, &formal_dir);
     }
     let job = job_name(file);
     let sv_name = format!("{job}.sv");
     let sby_name = format!("{job}.sby");
     let sv_path = formal_dir.join(&sv_name);
-    if let Err(err) = std::fs::write(&sv_path, &sv) {
-        return io_error(&sv_path, &err);
+    if let Err(err) = out.write(&sv_path, &sv) {
+        return err.report(Action::Write, &sv_path);
     }
     // Extern gövdeleri (ADR-0076) sby'nin [files]/[script] listesinde,
     // üretilen SV'den önce.
     let reserved = [sv_name.as_str(), sby_name.as_str()];
-    let extern_files = match stage_extern_sources(&compiled.extern_sources, &formal_dir, &reserved)
-    {
-        Ok(names) => names,
-        Err(code) => return code,
-    };
+    let extern_files =
+        match stage_extern_sources(out, &compiled.extern_sources, &formal_dir, &reserved) {
+            Ok(names) => names,
+            Err(code) => return code,
+        };
     let mut tasks = sby_tasks(&modules, &compiled.multiclock_modules);
     for (task, plan) in tasks.iter_mut().zip(&plans) {
         task.sub_defines = plan.sub_defines.clone();
     }
     let sby_path = formal_dir.join(&sby_name);
     let sby_text = sby_config_tasks(&tasks, &sv_name, &extern_files, &opts);
-    if let Err(err) = std::fs::write(&sby_path, sby_text) {
-        return io_error(&sby_path, &err);
+    if let Err(err) = out.write(&sby_path, sby_text) {
+        return err.report(Action::Write, &sby_path);
+    }
+    // sby `-f` görev dizinlerini siler ve yeniden kurar; içindeki ya da
+    // yolundaki bir bağlantıyı izlememesi için dizin önceden denetlenir.
+    if let Err(err) = out.check_tree(&formal_dir) {
+        return err.report(Action::Write, &formal_dir);
     }
     let mut artifacts = vec![
         sv_path.display().to_string(),
@@ -219,6 +225,7 @@ pub(crate) fn verify(
         sby: &sby,
         sby_file: &sby_name,
         cwd: &formal_dir,
+        out,
         jobs,
         fail_fast: args.fail_fast,
         settle: (opts.mode == volt_sv_emit::SbyMode::Cover)
@@ -293,6 +300,7 @@ pub(crate) fn verify(
             } => {
                 any_fail = true;
                 let cex = copy_trace(
+                    out,
                     &formal_dir,
                     &specs[idx].workdir,
                     &tasks[idx].name,
@@ -303,7 +311,7 @@ pub(crate) fn verify(
                 }
                 // Enum/Trit adları için GTKWave oturumu (ADR-0092).
                 let session =
-                    trace_session(cex.as_deref(), &compiled.waves, module, &mut artifacts);
+                    trace_session(out, cex.as_deref(), &compiled.waves, module, &mut artifacts);
                 let (prop, diag) = counterexample_diagnostic(
                     module,
                     failure,
@@ -323,6 +331,7 @@ pub(crate) fn verify(
             } => {
                 any_unknown = true;
                 let trace = copy_trace(
+                    out,
                     &formal_dir,
                     &specs[idx].workdir,
                     &tasks[idx].name,
@@ -331,8 +340,13 @@ pub(crate) fn verify(
                 if let Some(t) = &trace {
                     artifacts.push(t.display().to_string());
                 }
-                let session =
-                    trace_session(trace.as_deref(), &compiled.waves, module, &mut artifacts);
+                let session = trace_session(
+                    out,
+                    trace.as_deref(),
+                    &compiled.waves,
+                    module,
+                    &mut artifacts,
+                );
                 let (prop, diag) = unproven_diagnostic(
                     module,
                     failure,
@@ -797,17 +811,6 @@ fn print_global_log(log: &str) {
 }
 
 /// G/Ç hatası: mesaj + çıkış kodu 3 (cli-contract.md §2).
-fn io_error(path: &Path, err: &std::io::Error) -> ExitCode {
-    eprintln!(
-        "{}",
-        lstr!(
-            en: "error: cannot write '{}': {}", path.display(), err;
-            tr: "hata: '{}' yazılamadı: {}", path.display(), err
-        )
-    );
-    ExitCode::from(3)
-}
-
 /// UX Anayasası biçiminde kurulum yardımı (goal ADIM 3).
 fn print_sby_not_found() {
     eprintln!(
@@ -1211,6 +1214,7 @@ fn with_origin_and_trace(mut diag: Diagnostic, prop: &SvaProp, trace: Option<&Pa
 /// Kopyalanan izin yanına GTKWave oturumu (ADR-0092); yazılan `.gtkw`
 /// çıktı listesine eklenir.
 fn trace_session(
+    out: &OutputRoot,
     trace: Option<&Path>,
     info: &volt_sv_emit::WaveInfo,
     module: &str,
@@ -1219,7 +1223,7 @@ fn trace_session(
     let Some(trace) = trace else {
         return Session::None;
     };
-    let session = waves::write_or_warn(trace, info, module, WaveScope::Formal);
+    let session = waves::write_or_warn(out, trace, info, module, WaveScope::Formal);
     if let Session::Written(gtkw) = &session {
         artifacts.push(gtkw.display().to_string());
     }
@@ -1264,7 +1268,13 @@ enum TraceKind {
 
 /// sby'nin `<iş>_<görev>/engine_0/` altındaki izini `build/formal/`
 /// köküne kopyalar; iz üretilmediyse `None`.
-fn copy_trace(formal_dir: &Path, workdir: &str, stem: &str, kind: TraceKind) -> Option<PathBuf> {
+fn copy_trace(
+    out: &OutputRoot,
+    formal_dir: &Path,
+    workdir: &str,
+    stem: &str,
+    kind: TraceKind,
+) -> Option<PathBuf> {
     let (names, suffix): (&[&str], &str) = match kind {
         TraceKind::Counterexample => (&["trace.vcd", "trace_tb.vcd"], "cex"),
         TraceKind::Induction => (&["trace_induct.vcd"], "induct"),
@@ -1275,7 +1285,7 @@ fn copy_trace(formal_dir: &Path, workdir: &str, stem: &str, kind: TraceKind) -> 
         .map(|n| engine_dir.join(n))
         .find(|p| p.is_file())?;
     let dest = formal_dir.join(format!("{stem}_{suffix}.vcd"));
-    std::fs::copy(&trace, &dest).ok()?;
+    out.copy(&trace, &dest).ok()?;
     Some(dest)
 }
 
