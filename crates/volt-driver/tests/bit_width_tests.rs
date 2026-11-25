@@ -523,3 +523,51 @@ fn taps_exactly_at_the_width_limit_is_valid() {
     assert_eq!(codes(&over), ["E2025"], "{over:?}");
     assert!(over[0].1.contains("69904 bits wide"), "{over:?}");
 }
+
+/// Test dili değeri sayı olarak yalnız skalerde (ve enum'da) yazar; struct
+/// elemanının genişliği orada "bilinmiyor"dur (`scalar_width`, #419):
+/// struct dizisine `load` değer aralığı denetimine (E8510) girmez, kullanıcı
+/// tasarımın asıl hatasını görür: struct dizisinin SV eşlemesi yok (E0003).
+#[test]
+fn load_into_a_struct_array_reports_the_design_error_not_a_width() {
+    let dir = temp_dir("load-struct");
+    std::fs::write(dir.join("img.hex"), "1\n9\n").expect("yaz");
+    let src = "struct P {
+    t  : u2
+    ok : bool
+}
+
+module M {
+    in  clk : clock
+    out y   : u2
+    reg mem : [P; 4] = [P { t: 0, ok: false }; 4]
+    on clk { mem[0] <= mem[1] }
+    y = mem[0].t
+}
+
+test \"load into struct memory\" {
+    let dut = M { };
+    let image = read_hex(\"img.hex\");
+    load(dut.mem, image);
+    step(1);
+    assert_eq(dut.y, 0);
+}
+";
+    let file = dir.join("case.volt");
+    std::fs::write(&file, src).expect("yaz");
+    let out = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .args(["--lang", "en", "check", "--format", "json"])
+        .arg(&file)
+        .current_dir(&dir)
+        .output()
+        .expect("volt");
+    let env: Value = serde_json::from_slice(&out.stdout).expect("json");
+    let _ = std::fs::remove_dir_all(&dir);
+    let got: Vec<&str> = env["diagnostics"]
+        .as_array()
+        .expect("tanılar")
+        .iter()
+        .filter_map(|d| d["code"].as_str())
+        .collect();
+    assert_eq!(got, ["E0003"], "{env:#}");
+}
