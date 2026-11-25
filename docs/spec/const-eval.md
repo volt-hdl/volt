@@ -442,7 +442,7 @@ fn eval_type_arg(&mut self, expr: Idx<Expr>) -> Result<u32, EvalError> {
     }
 }
 
-pub const MAX_WIDTH: u32 = 65_536;
+pub const MAX_WIDTH: u32 = 65_535;
 pub const MAX_ARRAY_LEN: usize = 1_048_576;   // 1M eleman
 ```
 
