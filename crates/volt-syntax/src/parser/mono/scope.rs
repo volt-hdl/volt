@@ -34,6 +34,7 @@
 //! kabul eder.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use volt_ast::visibility::{item_name, RootFilter};
 use volt_ast::{Idx, Item, ItemKind, Name, SourceFile};
@@ -72,17 +73,52 @@ pub(crate) struct Entry {
     pub resolver_sees: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 struct Frame {
     names: HashMap<String, Entry>,
     /// Bu kapsamın sıralı gövdesinde daha aşağıda bildirilecek adlar.
     pending: HashMap<String, Entry>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Bu iş parçacığında kopyalanan kapsam girdileri (#446, yalnız test
+    /// derlemesinde): her [`Frame`] kopyası `names` ve `pending`
+    /// girdilerinin sayısı kadar artırır. Kapsam zincirinin maliyetini süre
+    /// ölçmeden sayar.
+    static ENTRIES_COPIED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Bu iş parçacığında şimdiye kadar kopyalanan kapsam girdisi sayısı
+/// (#446). Ayrıştırmadan önceki ve sonraki değerin farkı o ayrıştırmanın
+/// kopyaladığı girdilerdir.
+#[cfg(test)]
+pub(crate) fn entries_copied() -> usize {
+    ENTRIES_COPIED.with(std::cell::Cell::get)
+}
+
+impl Clone for Frame {
+    fn clone(&self) -> Self {
+        #[cfg(test)]
+        ENTRIES_COPIED.with(|c| c.set(c.get() + self.names.len() + self.pending.len()));
+        Frame {
+            names: self.names.clone(),
+            pending: self.pending.clone(),
+        }
+    }
+}
+
 /// İçten dışa kapsam yığını.
+///
+/// Kapsamlar paylaşılır (#446): zincirin kopyası kapsamları değil, onlara
+/// sayaçlı işaretçileri kopyalar; bir kapsam yalnız paylaşılırken yazılınca
+/// kopyalanır (`Rc::make_mut`). Modül düzeyi `for` her yinelemede zinciri
+/// kopyalar ve modül kapsamı önceki döngülerin açtığı her adı taşır; kapsam
+/// kopyası n `let` açan döngüden sonraki n yinelemeli döngüyü n² yapıyordu.
+/// Kopyanın yazılan kapsamı aslınkinden ayrılır: değer kopyasıyla aynı.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Scopes {
-    frames: Vec<Frame>,
+    frames: Vec<Rc<Frame>>,
 }
 
 impl Scopes {
@@ -178,7 +214,7 @@ impl Scopes {
     }
 
     pub(crate) fn push(&mut self) {
-        self.frames.push(Frame::default());
+        self.frames.push(Rc::default());
     }
 
     pub(crate) fn pop(&mut self) {
@@ -188,7 +224,10 @@ impl Scopes {
     /// En içteki kapsamın sıralı gövdesinde ileride bildirilecek ad.
     pub(crate) fn expect(&mut self, name: &str, entry: Entry) {
         if let Some(top) = self.frames.last_mut() {
-            top.pending.entry(name.to_string()).or_insert(entry);
+            Rc::make_mut(top)
+                .pending
+                .entry(name.to_string())
+                .or_insert(entry);
         }
     }
 
@@ -197,7 +236,7 @@ impl Scopes {
     /// Dönüş: bildirimin örttüğü dış bağ (gölgeleme, §6).
     pub(crate) fn declare(&mut self, name: &str, entry: Entry) -> Option<Entry> {
         let shadowed = self.lookup_outer(name).cloned();
-        let top = self.frames.last_mut()?;
+        let top = Rc::make_mut(self.frames.last_mut()?);
         top.pending.remove(name);
         if top.names.contains_key(name) {
             return None;
@@ -522,5 +561,121 @@ module M {
         assert!(s.resolve("J").is_some());
         assert!(s.resolve("y").is_some());
         assert!(!s.is_local("K"));
+    }
+
+    /// Sayaç (#446): bir kapsamın kopyası `names` ve `pending` girdilerinin
+    /// toplamı kadar sayılır.
+    #[test]
+    fn copying_a_frame_counts_its_names_and_its_pending_names() {
+        let mut s = Scopes::default();
+        s.push();
+        s.declare_outer(&name("a", 0));
+        s.declare_outer(&name("b", 1));
+        s.expect("c", entry(Binding::Outer));
+        let before = entries_copied();
+        let _copy = Frame::clone(&s.frames[0]);
+        assert_eq!(entries_copied() - before, 3);
+    }
+
+    /// Zincirin kopyası bağımsızdır: kopyaya sonradan bildirilen ad aslında,
+    /// aslına sonradan bildirilen ad kopyada görünmez.
+    #[test]
+    fn a_copied_chain_and_its_original_do_not_see_each_others_later_names() {
+        let mut a = Scopes::default();
+        a.push();
+        a.declare_outer(&name("x", 0));
+        let mut b = a.clone();
+        b.declare_outer(&name("y", 1));
+        a.declare_outer(&name("z", 2));
+        assert!(a.resolve("x").is_some() && b.resolve("x").is_some());
+        assert!(a.resolve("y").is_none());
+        assert!(b.resolve("y").is_some());
+        assert!(b.resolve("z").is_none());
+        b.pop();
+        assert!(b.resolve("x").is_none());
+        assert!(a.resolve("x").is_some());
+    }
+
+    /// Zincir kopyası kapsamları kopyalamaz (#446): kopyanın en içteki
+    /// kapsamına yazmak yalnız o kapsamı kopyalar, alttaki büyük kapsamları
+    /// değil.
+    #[test]
+    fn writing_into_a_copied_chain_copies_the_written_frame_only() {
+        let mut a = Scopes::default();
+        a.push();
+        for i in 0..100u32 {
+            a.declare_outer(&name(&format!("n{i}"), i));
+        }
+        a.push();
+        a.declare_outer(&name("top", 100));
+        let before = entries_copied();
+        let mut b = a.clone();
+        assert_eq!(entries_copied() - before, 0, "kopya tek başına");
+        b.declare_outer(&name("more", 101));
+        assert_eq!(entries_copied() - before, 1, "yalnız yazılan kapsam");
+    }
+
+    fn copied_while_parsing(src: &str) -> usize {
+        let before = entries_copied();
+        let _ = crate::parse_on_current_stack(volt_span::FileId(0), src);
+        entries_copied() - before
+    }
+
+    /// #446: modül düzeyi `for`un her yinelemesi kapsam zincirini kopyalıyordu;
+    /// zincir önceki döngülerin açtığı her adı taşır. n `let` açan döngüden
+    /// sonraki n yinelemeli döngü n² girdi kopyalıyordu (n = 4000: release
+    /// derlemede 0,8 s). Sınır n: yineleme başına kopya kalmaz.
+    #[test]
+    fn a_loop_after_n_unrolled_lets_does_not_copy_them_per_iteration() {
+        let n = 1000;
+        let src = format!(
+            "const N : u32 = {n}
+module M {{
+    out b : [u1; {n}]
+    for i in 0..N {{
+        let d = 1
+    }}
+    for j in 0..N {{
+        b[j] = 1
+    }}
+}}
+"
+        );
+        let copied = copied_while_parsing(&src);
+        assert!(
+            copied <= n,
+            "{copied} kapsam girdisi kopyalandı (sınır {n})"
+        );
+    }
+
+    /// #446'nın fuzz girdileri (gece koşusu 45739110046, 25-35 s; derlem
+    /// taramasında 1 s'yi aşan 23 girdi): hata kurtarmanın kurduğu kardeş
+    /// döngüler. Kopya kaynağın baytını aşmaz.
+    #[test]
+    fn the_slow_fuzz_inputs_copy_no_more_entries_than_their_bytes() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fuzz_regressions");
+        let mut files: Vec<String> = std::fs::read_dir(&dir)
+            .expect("tests/fuzz_regressions okunmalı")
+            .map(|e| {
+                e.expect("dizin girdisi")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|n| n.starts_with("slow_for_scope_clone_"))
+            .collect();
+        files.sort();
+        assert!(files.len() >= 24, "{} girdi", files.len());
+        for file in files {
+            let bytes = std::fs::read(dir.join(&file)).expect("girdi okunmalı");
+            let src = String::from_utf8(bytes).expect("geçerli UTF-8");
+            let copied = copied_while_parsing(&src);
+            assert!(
+                copied <= src.len(),
+                "{file}: {copied} kapsam girdisi kopyalandı (sınır {})",
+                src.len()
+            );
+        }
     }
 }

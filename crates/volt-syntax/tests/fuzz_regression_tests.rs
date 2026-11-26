@@ -140,3 +140,44 @@ fn stack_depth_fuzz_findings_report_one_e0018_quickly() {
         assert_eq!(codes, ["E0018"], "{name}");
     }
 }
+
+/// #446 (gece fuzz koşusu 45739110046, yavaş birimler 25, 31 ve 35 s; derlem
+/// taramasında 1 s'yi aşan 23 girdi): hata kurtarma aynı modülde kardeş
+/// `for`lar kurar, ilk döngü n `let` açar.
+/// Kapsam zinciri her yinelemede bütün kapsamlarıyla kopyalanıyordu;
+/// modül kapsamı önceki döngünün n adını taşıdığından ikinci döngü n²
+/// girdi kopyalıyordu (n = 4008). Release derlemede düzeltmeden önce
+/// girdi başına 4-6 s, sonra 0,1 s'nin altında. Sınır 2 s: debug derleme
+/// ve yavaş bir CI makinesi için pay; adım sayan sınır
+/// `parser::mono::scope` testlerindedir (kopyalanan kapsam girdisi).
+#[test]
+fn sibling_for_scope_copy_fuzz_findings_parse_within_two_seconds() {
+    let inputs: Vec<PathBuf> = regression_inputs()
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("slow_for_scope_clone_")
+        })
+        .collect();
+    // Gece koşusunun 23 yavaş girdisi (derlem taraması) + küçültülmüşü.
+    assert!(
+        inputs.len() >= 24,
+        "{} slow_for_scope_clone_ girdisi",
+        inputs.len()
+    );
+    for path in inputs {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let src = String::from_utf8(std::fs::read(&path).expect("girdi"))
+            .unwrap_or_else(|_| panic!("{name}: geçerli UTF-8 olmalı"));
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(parse(FileId(0), &src).diagnostics.len());
+        });
+        let diagnostics = rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|_| panic!("{name}: 2 s içinde ayrışmalı (kapsam kopyası)"));
+        assert!(diagnostics > 0, "{name}: bozuk girdi tanı üretmeli");
+    }
+}
