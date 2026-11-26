@@ -2459,7 +2459,8 @@ fn ui_pass_all_51_of_51_parse_clean() {
         }
     }
     // #413: 165 prev() yardımcı register'ı x'in tipinde.
-    assert_eq!(total, 150, "ui/pass 150 dosya içermeli");
+    // #434: 166 Trit'in tersi `-t`.
+    assert_eq!(total, 151, "ui/pass 151 dosya içermeli");
     // F1b öncesi 02 ve 19 'out out : u8' yazıyordu (port adı olarak
     // 'out' anahtar kelimesi); fixture'lar 'result' olarak düzeltildi,
     // artık tamamı temiz ayrışmalı. F4b 23_provable_invariant'ı ekledi;
@@ -2526,10 +2527,11 @@ fn ui_pass_all_51_of_51_parse_clean() {
     // (`delay<K>` bir iddiadır, register eklemez), #373 162'yi (struct
     // değerli sync() kaynakları), #419 163'ü (her skaler tipin her
     // kullanım yerinde tek genişliği), #420 164'ü (her domain alanı bir
-    // kez), #413 165'i (prev() yardımcı register'ı x'in tipinde).
+    // kez), #413 165'i (prev() yardımcı register'ı x'in tipinde), #434
+    // 166'yı (Trit'in tersi `-t`).
     assert_eq!(
-        clean, 150,
-        "150/150 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
+        clean, 151,
+        "151/151 ayrışmalı; temiz: {clean}, sorunlu: {dirty:#?}"
     );
 }
 

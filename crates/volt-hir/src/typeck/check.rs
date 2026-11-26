@@ -99,6 +99,9 @@ impl TypeChecker<'_, '_> {
                 }
             }
         }
+        // #434: bağlamdan tipini alan literal ağacındaki `~` beklenen tipte
+        // çalışır; `~`'nin tanımlı olduğu tipler `bit_not_result`'ta.
+        self.check_literal_bit_not(expr, expected);
     }
 
     /// ADR-0035: dizi literalleri hedef eleman tipine daraltılır —
