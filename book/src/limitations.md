@@ -31,7 +31,7 @@ the cut operand of `+`, `-` and `*`
 ([#266](https://github.com/volt-hdl/volt/issues/266)) are under
 [Language](#language) below.
 
-**Wrong results without a diagnostic.** These open bugs of Volt 0.1.3
+**Wrong results without a diagnostic.** These open bugs of Volt 0.1.4
 compile without an error and give a result other than the one the source
 says. "Suspected" marks a bug that was found by reading the code and has
 not been reproduced by running it yet. The paragraphs below give the
@@ -55,8 +55,10 @@ workaround of each.
 - [#229](https://github.com/volt-hdl/volt/issues/229): a port bound twice in one instance takes the last binding, and `@false_path` or `@multicycle` on a struct port constrains nothing.
 - [#220](https://github.com/volt-hdl/volt/issues/220): an `@mmio` module accepts an unaligned base address and a repeated argument, and a `*/` in a `///` comment ends the C comment of the generated header.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
+- [#382](https://github.com/volt-hdl/volt/issues/382): a `$finish` in the SystemVerilog body of an `extern` module does not end a `volt test` run, so a test can pass after the check in it failed.
+- [#443](https://github.com/volt-hdl/volt/issues/443) (suspected): a whole-array register assignment (`r <= arr`) is written as `r <= 6'(arr)`, a cast to the width of one element; Verilator rejects it (see the list below), and what another tool, such as a synthesis tool, makes of it has not been checked.
 
-**Errors, false warnings and failures.** These open bugs of Volt 0.1.3
+**Errors, false warnings and failures.** These open bugs of Volt 0.1.4
 do not give a wrong result: Volt stops with an error or warns where
 nothing is wrong, or a step fails. The paragraphs below describe more
 bugs of this kind, each with its workaround.
@@ -66,6 +68,13 @@ bugs of this kind, each with its workaround.
 - [#344](https://github.com/volt-hdl/volt/issues/344): a module without registers that instantiates an `extern` and a Volt child with its own raw reset port gets a false `W3011`, whose label names a synchronizer that is not generated; the warning can be ignored there.
 - [#362](https://github.com/volt-hdl/volt/issues/362): `delay<K>` inside a `fn` body has no effect on the timing check, and nothing says so; write `delay<K>` at the call site.
 - [#422](https://github.com/volt-hdl/volt/issues/422): a constant written with `as` is checked with its uncut value (a false `W2013` for `x << (9 as u3)`, a false `E2006` for an index `const K : u32 = 5 as u2`), and a width constant that uses `clog2` or `~` stops `volt build` with an `E2005` that calls it not constant; write the value itself (`1`, `4`).
+- [#442](https://github.com/volt-hdl/volt/issues/442): `prev()` of a named constant (`invariant: prev(M) == 9`) passes `volt check`, but `volt test` and `volt verify` stop with a Verilator syntax error, because the helper register is named after the constant's value (`past_8'd9_1`); write the constant without `prev()` (`invariant: M == 9`): the earlier value of a constant is the constant.
+- [#443](https://github.com/volt-hdl/volt/issues/443): a whole array register assigned or read at once (`r <= arr`, `all = r`) stops `volt test` and `volt verify` with a Verilator error (`SEL is not an unpacked array`, `CASTSIZE`); write both sides element by element: `on clk { for i in 0..4 { r[i] <= arr[i] } }` and `for i in 0..4 { all[i] = r[i] }`.
+- [#79](https://github.com/volt-hdl/volt/issues/79): two clock ports of one domain (`in c1 : clock @c0`) get a false `W3010` ("reset 'rst' is shared by 2 clocks"); the warning can be ignored there, and its suggestion, a raw reset port, adds synchronizers the design does not need.
+- [#124](https://github.com/volt-hdl/volt/issues/124): a variable part-select whose start always folds to a constant out of range (`s[(p | 31) +: 20]` on a 20-bit `s`) compiles, and `volt test` stops with Verilator's `SELRANGE` warning; such a select reads nothing inside the value, so remove it or write the start you mean.
+- [#251](https://github.com/volt-hdl/volt/issues/251): two generic modules with the same name in two packages get a misleading `E1001` ("undefined name: 'M_8'") instead of `E1003`; give one of them another name.
+- [#390](https://github.com/volt-hdl/volt/issues/390): a chain of constants in which each one names the one before twice (`const A2 : u64 = A1 + A1`) takes time that doubles with each link, so `volt check`, `volt build` and the editor stop responding on a short file; name the earlier constant once (`const A2 : u64 = 2 * A1`).
+- [#448](https://github.com/volt-hdl/volt/issues/448): when a name used in a module-level `for` with thousands of iterations is undefined, `volt check`, `volt build` and the editor take seconds to report the `E1001`, even on a file of a few lines; the delay goes away once the name is declared, so fix the `E1001` it reports (or lower the loop bound while you do).
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -280,6 +289,27 @@ without it. Tracked in
 TOML, `volt build` compiles and exits with 0, without a diagnostic. If a
 setting seems to have no effect, check the syntax of the file. Tracked
 in [issue #222](https://github.com/volt-hdl/volt/issues/222).
+
+**A `$finish` in an `extern` body does not end a test.** When the
+SystemVerilog body of an `extern` module (`@source`) calls `$finish` to
+stop on a failed check, `volt test` prints Verilator's `Verilog $finish`
+line and goes on, and the test can pass. Write the check in Volt instead,
+as a contract of the module that instantiates the `extern`
+(`invariant: a <= 100`) or as an `assert_eq` in the test: a violated
+contract fails the test. Tracked in
+[issue #382](https://github.com/volt-hdl/volt/issues/382).
+
+**A whole array register assigned or read at once does not reach
+Verilator.** With `reg r : [u6; 4]`, `on clk { r <= arr }` is written as
+`r <= 6'(arr);` and `all = r` as `assign all = 24'(r);`: casts to the
+width of one element and of the whole port, on an unpacked array. `volt
+check` and `volt build` accept the design, and `volt test` stops with a
+Verilator error. Whether another tool reads `r <= 6'(arr)` as a copy of
+all four elements has not been checked (suspected wrong result). Assign
+and read the elements one by one:
+`on clk { for i in 0..4 { r[i] <= arr[i] } }` and
+`for i in 0..4 { all[i] = r[i] }`. Tracked in
+[issue #443](https://github.com/volt-hdl/volt/issues/443).
 
 **Some explanations in `volt explain` are wrong.** The solution of
 `E3012` and `E3011` (`r <= sync(fast_data, slow_clk)` in an `on` block)
