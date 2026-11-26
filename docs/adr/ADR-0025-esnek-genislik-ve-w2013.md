@@ -1,6 +1,6 @@
 # ADR-0025: Aritmetik Sonuçlarda Esnek Genişlik Aralığı ve W2013
 
-> Statü: Kısmen yerini aldı: ADR-0106, ADR-0120 — karşılaştırma işleçlerinde aralık kesişimi (taşmayı atan karşılaştırma) ve ekteki zincir kuralının karşılaştırmayı dışarıda bırakması; tipsiz `let` telinin SV genişliği ekte (2026-10-01) (ADR-0106); W2013'ün "sonuç her zaman 0'dır" cümlesi işaretli `>>` için: sonuç işaret bitiyle dolar (ADR-0120, Önerildi)
+> Statü: Kısmen yerini aldı: ADR-0106, ADR-0120 — karşılaştırma işleçlerinde aralık kesişimi (taşmayı atan karşılaştırma) ve ekteki zincir kuralının karşılaştırmayı dışarıda bırakması; tipsiz `let` telinin SV genişliği ekte (2026-10-01) (ADR-0106); W2013'ün "sonuç her zaman 0'dır" cümlesi işaretli `>>` için: sonuç işaret bitiyle dolar (ADR-0120)
 > İlgili: ADR-0112 (`/` ve `%`'nin kesişimden geniş işleneni bölmeden önce kesilir: geçici uyarı W2015, #150), ADR-0116 (`+ - *`'nın kesişimden geniş işleneni işlemden önce kesilir: geçici uyarı W2016, #266)
 > Tarih: 2026-09-03
 > Etkilenen: type-inference.md §3.3/§5 yorumu, volt-hir (typeck), W2013

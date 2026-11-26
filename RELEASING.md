@@ -273,7 +273,24 @@ short hash of the commit of step 1a (`git rev-parse --short HEAD`).
 folder (the pages replace the user name with `you`): once with Docker
 Desktop running, and once with Docker Desktop installed but not running.
 For the second one, quit Docker Desktop, wait until `docker info` fails,
-record, and start it again. When an image is not downloaded on the
+record, and start it again.
+
+An agent does not quit Docker Desktop on the maintainer's machine. It
+records the second output with Docker Desktop running, pointing
+`DOCKER_HOST` at a named pipe that does not exist for that one command:
+
+```powershell
+Set-Location $HOME
+$env:DOCKER_HOST = 'npipe:////./pipe/volt_no_such_docker_engine'
+docker info *> $null; "docker info exit=$LASTEXITCODE"   # 1: the daemon is not reachable
+volt doctor
+Remove-Item Env:DOCKER_HOST
+```
+
+`volt doctor` asks the daemon through `docker info`, so the code path is
+the same as with Docker Desktop stopped: the `test, run`, `verify` and
+`docker` lines say that the daemon is not running. The pull request says
+that the output was recorded this way. When an image is not downloaded on the
 recording machine, `volt doctor` prints `image not downloaded yet` under
 its line; record the output as it is.
 
@@ -341,6 +358,15 @@ git push origin v0.1.3
 The tag is exactly `v0.1.3`, no suffix (ADR-0100). The push starts
 `release.yml` (release run) and `book.yml` (the book's root moves to
 v0.1.3).
+
+The book's root moves at this push, not when the GitHub Release is
+published in step 6: `book.yml` puts the book of the latest release tag
+at https://volthdl.org/, whether that tag has a published Release or
+not (observed with v0.1.3). From the push until step 6, the root
+describes 0.1.3 while the install scripts, which take
+`releases/latest`, still install 0.1.2. Go through steps 4 to 6 without
+a break; if the release run fails, delete the tag ([Undo](#undo-a-wrong-tag-before-publishing)),
+which also moves the root back.
 
 ## 4. Watch the release run
 
@@ -423,8 +449,9 @@ gh run list --workflow book.yml --limit 2
 ```
 
 The `One-line install` jobs of `install.yml` now install 0.1.3 instead of
-0.1.2. The book run started by the tag puts the v0.1.3 book at
-https://volthdl.org/.
+0.1.2. The book run that the tag push started in step 3 has already put
+the v0.1.3 book at https://volthdl.org/; publishing does not rebuild it.
+The `book.yml` list shows that run and the run on `main` it started.
 
 ## Undo (a wrong tag, before publishing)
 
