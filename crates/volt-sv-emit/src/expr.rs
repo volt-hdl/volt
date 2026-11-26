@@ -407,9 +407,9 @@ impl<'a> Emitter<'a> {
             }
             // prev(x[, N]) (ADR-0040: `prev(x: T) -> T`): tip denetiminin
             // argümana verdiği genişlik ve işaret, yardımcı register'ınkiyle
-            // aynı kaynaktan (#413).
-            ExprKind::Call { callee, .. } if self.is_prev_call(*callee) => self.prev_sig(idx),
-            ExprKind::Call { .. } | ExprKind::Error => None,
+            // aynı kaynaktan (#413). `prev_sig` öteki çağrılara cevap vermez.
+            ExprKind::Call { .. } => self.prev_sig(idx),
+            ExprKind::Error => None,
             // Struct indirgemesinin birleştirmesi (ADR-0077): yaprak
             // genişliklerinin toplamı, işaretsiz.
             ExprKind::Concat(parts) => {

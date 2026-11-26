@@ -76,7 +76,14 @@ impl<'a> Emitter<'a> {
     /// ADR-0141). Struct indirgemesinin yaprağıysa (ADR-0077) özgün
     /// argümanın tipinin o alanı (`StructNotes::prev_leaves`). Tip denetimi
     /// genişlik vermiyorsa `None`: çağıran onu bir varsayılanla doldurmaz.
+    /// `prev()` olmayan çağrı `None`.
     pub(crate) fn prev_sig(&self, call: Idx<Expr>) -> Option<Sig> {
+        let ExprKind::Call { callee, .. } = &self.ast.exprs[call].kind else {
+            return None;
+        };
+        if !self.is_prev_call(*callee) {
+            return None;
+        }
         let value = match self.struct_notes.prev_leaves.get(&call) {
             Some((orig, path)) => {
                 let v = self.prev_arg_value(*orig)?;
