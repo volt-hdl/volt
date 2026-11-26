@@ -159,6 +159,34 @@ fn prev_with_non_literal_depth_is_e5017() {
     assert_eq!(count(&result, "E5017"), 1, "{:?}", result.error_codes());
 }
 
+/// #413'ün incelemesi: üreticinin `prev_depth`'i sabit olmayan derinliği
+/// 1 sayar (`unwrap_or(1)`); oraya ulaşan derinlik olmamalı. Port
+/// (`prev(x, x)`, yukarıda), register, adlı sabit ve sabit ifade derinliği
+/// isim çözümlemede E5017'dir (ADR-0040 §2: "N >= 1 tamsayı literali").
+#[test]
+fn prev_depth_that_is_not_a_literal_is_e5017() {
+    for depth in ["r", "go", "N", "1 + 1", "N + 0"] {
+        let result = analyze_src(&format!(
+            "const N : u32 = 2\n{HEAD}    invariant: prev(x, {depth}) == r\n}}"
+        ));
+        assert_eq!(
+            count(&result, "E5017"),
+            1,
+            "prev(x, {depth}): {:?}",
+            result.error_codes()
+        );
+    }
+}
+
+/// Generic parametre derinliği monomorflamada literal olur (ADR-0041):
+/// `G<2>`'de `prev(x, D)` `prev(x, 2)`'dir ve kabul edilir.
+#[test]
+fn prev_depth_from_a_generic_parameter_is_its_literal() {
+    let src = "module G<const D: u32> {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    reg r : u8 = 0\n    on clk { r <= x }\n    y = r\n    invariant: prev(x, D) == r\n}\nmodule Top {\n    in  clk : clock\n    in  x : u8\n    out y : u8\n    let g = G<2> { clk: clk, x: x }\n    y = g.y\n}\n";
+    let result = analyze_src(src);
+    assert!(!result.has_errors(), "{:?}", result.error_codes());
+}
+
 #[test]
 fn prev_with_literal_depth_is_accepted() {
     let result = analyze_src(&format!("{HEAD}    invariant: prev(x, 3) == r\n}}"));

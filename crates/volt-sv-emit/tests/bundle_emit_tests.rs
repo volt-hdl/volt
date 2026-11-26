@@ -1,6 +1,8 @@
 //! Bundle (port grubu) SV üretimi — ADR-0039: bundle DÜZLEŞİR, SV
 //! `interface` üretilmez; port adı `<bundle>_<alan>`.
 
+mod typed;
+
 use volt_span::FileId;
 use volt_sv_emit::emit;
 
@@ -172,7 +174,7 @@ fn builtin_handshake_fired_emits_valid_and_ready() {
 fn builtin_handshake_auto_contracts_reach_immediate_sva() {
     let parsed = volt_syntax::parser::parse(FileId(0), PRODUCER);
     assert!(parsed.diagnostics.is_empty());
-    let out = volt_sv_emit::emit_full(
+    let out = typed::emit_full(
         &parsed.ast,
         "test.volt",
         PRODUCER,
@@ -203,7 +205,7 @@ fn builtin_handshake_auto_contracts_reach_immediate_sva() {
 fn builtin_handshake_consumer_contracts_are_assumptions() {
     let src = "module C {\n    in  clk : clock\n    in  rx : Handshake<u8>\n    out d : u8\n    rx.ready = true\n    d = rx.data\n}\n";
     let parsed = volt_syntax::parser::parse(FileId(0), src);
-    let out = volt_sv_emit::emit_full(
+    let out = typed::emit_full(
         &parsed.ast,
         "test.volt",
         src,

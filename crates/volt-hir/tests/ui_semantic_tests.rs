@@ -497,7 +497,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #373: 162 struct değerli sync() kaynakları (tipsiz let/reg dâhil).
     // #419: 163 her skaler tipin her kullanım yerinde tek genişliği.
     // #420: 164 her domain alanı bir kez.
-    assert_eq!(checked, 149);
+    // #413: 165 prev() yardımcı register'ı x'in tipinde.
+    assert_eq!(checked, 150);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

@@ -116,7 +116,8 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // iddiadır, register eklemez. #373: 162 struct değerli sync()
     // kaynakları (tipsiz let/reg dâhil). #419: 163 her skaler tipin her
     // kullanım yerinde tek genişliği. #420: 164 her domain alanı bir kez.
-    assert_eq!((built, check_only), (149, 0));
+    // #413: 165 prev() yardımcı register'ı x'in tipinde.
+    assert_eq!((built, check_only), (150, 0));
 }
 
 #[test]

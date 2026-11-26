@@ -42,7 +42,8 @@ Göze çarpanlar:
   (`trit_sum_sig` ↔ TD `trit_arith_result`), yerleşik primitif portları
   (`builtin_field_sig` ↔ TD `builtin_port_type`), literal aritmetiği
   (`fold_literal_arith` ↔ TD `literal_fold`). İşareti hesaplayan ortak
-  yardımcı yok.
+  yardımcı yok. (#413'ten beri tip denetiminde `TypeArena::is_signed`
+  var; `prev()`'in yardımcı register'ı onu `CheckedTypes` üzerinden okur.)
 - **Sabit değer:** iki değerlendirici var: TD'nin `ConstEvaluator`'ı
   (`volt-hir/src/consteval.rs`) ve ortak `volt_ast::const_eval` (SV, SIM ve
   düzenler). TD ortak değerlendiriciyi hiç çağırmaz. Kapsamları farklı
@@ -65,6 +66,8 @@ Göze çarpanlar:
 |---|---|---|---|---|
 | G | `volt-hir/src/ty.rs:237` `TypeArena::width_of` | TD, alan | kendi | UInt/SInt/Bits genişliği; esnekte `hi`. Bool/Trit/Enum/Struct/Array `None`. |
 | G | `volt-hir/src/ty.rs:309` `bit_width` | TD, alan | ORTAK `bit_width::Scalar` | Sinyalin genişliği, TD'nin tek kaynağı (#419): skaler tablo (Bool, Clock, Reset 1; Trit 2), sayısalda `width_of`, enum kodlama, struct düzen genişliği (bundle `None`: tek sinyal değil; E4012 kapsamı düzenin `W`sini okur), dizi eleman×uzunluk, `Delayed` iç tipinki; demet, örnek, literal, hata `None`. `taps`, W3003, `is_one_bit`, E4012 kapsamı, E2009 önerisi, genişlik gölgesi okur. `signal_width` ve `stmt.rs` `bit_width` kopyaları kaldırıldı. |
+| İ | `volt-hir/src/ty.rs` `TypeArena::is_signed` | TD, SV (`prev()`) | kendi | Değerin işareti, `bit_width`'in eşi (#413): `iN`, işaretli esnek aralık, `Trit` işaretli; `Delayed` iç tipinki. `checked_types` ve genişlik gölgesi okur; TD'nin öteki işaret kararları (`int_range` ...) bugün kendi eşleşmelerini yapar. |
+| G+İ | `volt-hir/src/typeck/checked.rs` `TypeckResult::checked_types` | SV (`prev()`) | `TypeArena::bit_width`, `is_signed`, `struct_fields` | Tip denetiminin cevabı AST'yi okuyan arka uca (`volt_ast::checked::CheckedTypes`, ADR-0141); kendi kuralı yok. Struct alanlarının tipi `check_struct_decls`'te `struct_field_type`'ın çözümüyle yazılır. |
 | G+İ | `volt-hir/src/ty.rs:188` `int_range`; `:170` `uint_flex`; `:178` `sint_flex`; `:212` `concrete` | TD | kendi | (işaret, lo, hi) görünümü. |
 | G+İ | `volt-hir/src/typeck/type_ref.rs:30` `resolve_type_ref_uncached`; `:85` `resolve_sized`; `:117` `widened_int` | TD | kendi + TD consteval; ORTAK `MAX_WIDTH` | TypeRef → Ty; `<N>` 1..=`MAX_WIDTH` (65535); değeri bilinen aralık dışı `<N>` E2025 (`eval_type_arg`, #418). `u16` gösterimi `MAX_WIDTH`'e derleme zamanında bağlı. |
 | G+İ | `volt-hir/src/typeck/synth.rs:20` `synth`; `:57` `synth_uncached`; `:101` `synth_int_lit`; `:501` `suffix_ty` | TD | kendi | `expr_types`'ı yazar; soneksiz literal `IntLit`. |
@@ -103,7 +106,8 @@ Göze çarpanlar:
 | G | `volt-sv-emit/src/builtin_prim.rs:49` `addr_width`; `:83` `builtin_inst_info`; `builtin_data.rs:20` `struct_width` | SV | kendi; ORTAK `struct_layout` | DEPTH `eval_const`'la (TD yalnız literal kabul eder). |
 | G | `volt-sv-emit/src/const_array.rs:33` `array_const_info`; `:158` `case_function` | SV | `array_reg_sig`; kendi clog2 | |
 | G+İ | `volt-sv-emit/src/inline/types.rs:38` `canon_depth`; `:71` `widened`; `:137` `DeclTypes::type_of` | SV (fn açılımı) | kendi | Açılımın kendi tip gösterimi. |
-| G | `volt-sv-emit/src/sim.rs:63` `collect_sim_ports`; `past.rs:73` `past_reg_block` | SV testbench, formal | ORTAK `bit_width::type_ref_bits` | `sim_width.rs`'in kendi `bits_at` kopyası #419 ile kaldırıldı. |
+| G | `volt-sv-emit/src/sim.rs:63` `collect_sim_ports` | SV testbench | ORTAK `bit_width::type_ref_bits` | `sim_width.rs`'in kendi `bits_at` kopyası #419 ile kaldırıldı. |
+| G+İ | `volt-sv-emit/src/past.rs` `prev_sig` (`past_reg_block`'un yardımcı register'ı, `emit_prev`'in `$past` argümanı, `width_of`'un `prev()` kolu) | SV formal (`volt verify`), SV testbench (`volt test`), SVA | TD (`CheckedTypes`: `TypeArena::bit_width`, `is_signed`) | #413 (ADR-0141): üretici hesap yapmaz, tip denetiminin argümana verdiği tipi okur; struct yaprağı `StructNotes::prev_leaves` ile kökteki argümanın alanından. Tip denetimi genişlik vermezse E2005. Bu satır önce `past_reg_block`'u `sim.rs` ile birlikte ORTAK `type_ref_bits` kullanıyor diye yazıyordu; yanlıştı: `past_reg_block` `width_of(x)`'i `unwrap_or(1)` ile okuyor ve işareti hiç yazmıyordu (`logic [W-1:0]`). |
 
 ### Üretilen sürücüler, kısıtlar, test simülasyonu
 

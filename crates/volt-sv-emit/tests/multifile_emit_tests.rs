@@ -67,6 +67,7 @@ fn per_module_header_names_the_module_source_file() {
         &sources,
         SvaMode::None,
         ConstArrayStyle::default(),
+        &volt_sv_emit::CheckedTypes::default(),
     );
     assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
     assert!(
@@ -105,6 +106,7 @@ fn sva_comment_lines_are_numbered_per_source_file() {
         &sources,
         SvaMode::Inline,
         ConstArrayStyle::default(),
+        &volt_sv_emit::CheckedTypes::default(),
     );
     assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
     assert!(out.sv.contains("from lib.volt:8"), "{}", out.sv);

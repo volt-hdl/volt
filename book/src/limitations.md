@@ -38,7 +38,6 @@ not been reproduced by running it yet. The paragraphs below give the
 workaround of each.
 
 - [#434](https://github.com/volt-hdl/volt/issues/434) (suspected): `~` on a `Trit` works on its two-bit code, so `~t` for t = +1 gives a value outside {-1, 0, +1} (read as -2).
-- [#413](https://github.com/volt-hdl/volt/issues/413): a `prev()` of a wide or signed expression in a contract compares at the operation width and unsigned, so the contract checks a different value.
 - [#214](https://github.com/volt-hdl/volt/issues/214): a `const` that does not fit its type is accepted; compile time and the hardware see different values.
 - [#372](https://github.com/volt-hdl/volt/issues/372): when the source of a `sync()` is an instance output or is reached through more than 8 `let`s, the constraint files leave the path into the synchronizer untimed (`set_false_path`).
 - [#421](https://github.com/volt-hdl/volt/issues/421): a signal annotated with a clock port name (`@a_clk`) loses its source clock in the constraint files, and a `sync()` of such a port gets no capture register.
@@ -108,13 +107,6 @@ a type** (`in x : uint<N>`) is rejected with `E2021` ("this is a generic
 parameter (runtime value)"), also in a file loaded with `use`. Instantiate
 the module once, for example `Fir<8> { ... }`. Tracked in
 [issue #172](https://github.com/volt-hdl/volt/issues/172).
-
-**A contract with `prev()` of a sum or of a signed value compares at
-the wrong width.** With `u8` operands, `prev(a + b) != 300` compares the
-8-bit sum with 44, and `prev(sa) < sb` with `i8` operands can compare
-unsigned. Keep the previous value in a register of the right type
-yourself (`reg p : u9 = 0`, `on clk { p <= a + b }`, then `p != 300`).
-Tracked in [issue #413](https://github.com/volt-hdl/volt/issues/413).
 
 **`~` on a `Trit` gives a value outside the `Trit` set (suspected).**
 `~` works on the two-bit code of a `Trit`, not on its value: for t = +1

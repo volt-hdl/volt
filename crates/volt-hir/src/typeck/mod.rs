@@ -31,6 +31,7 @@ mod arith_cut;
 mod binop;
 mod cast;
 mod check;
+mod checked;
 mod compare_width;
 mod contract;
 mod diag;
@@ -336,6 +337,22 @@ mod testutil {
             parsed.error_codes()
         );
         analyze(&parsed.ast)
+    }
+
+    /// Hatasız analiz edilen kaynağın AST'si ve tip denetimi sonucu.
+    pub(super) fn check(src: &str) -> (volt_ast::SourceFile, crate::TypeckResult) {
+        let parsed = parse(FileId(0), src);
+        let result = analyzed(src);
+        assert!(
+            !result.has_errors(),
+            "kaynak hatasız olmalı: {:?}",
+            result
+                .diagnostics
+                .iter()
+                .map(|d| d.code.as_str())
+                .collect::<Vec<_>>()
+        );
+        (parsed.ast, result.typeck)
     }
 
     /// Yalnız tip denetleyicinin ürettiği tanılar.

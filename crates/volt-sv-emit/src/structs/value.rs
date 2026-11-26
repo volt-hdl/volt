@@ -326,7 +326,13 @@ impl Lowerer {
                 let x = self.project(first, sub)?;
                 let mut args = args.clone();
                 args[0] = x;
-                Some(self.alloc(ExprKind::Call { callee, args }, span))
+                let leaf = self.alloc(ExprKind::Call { callee, args }, span);
+                // #413: yaprağın tipi özgün `prev()`'in argümanının tipinden
+                // alan yoluyla okunur (`Emitter::prev_sig`).
+                if callee_name(&self.ast, callee) == Some("prev") {
+                    self.notes.prev_leaves.insert(leaf, (e, sub.to_vec()));
+                }
+                Some(leaf)
             }
             ExprKind::IntLit { .. }
             | ExprKind::BoolLit(_)
@@ -450,6 +456,10 @@ impl Lowerer {
                     self.rewrite_expr(p);
                     let kind = self.ast.exprs[p].kind.clone();
                     self.ast.exprs[e].kind = kind;
+                    // `prev(p).lo` yerinde `prev(p_lo)` olur: kökeni de (#413).
+                    if let Some(origin) = self.notes.prev_leaves.get(&p).cloned() {
+                        self.notes.prev_leaves.insert(e, origin);
+                    }
                 } else {
                     self.unsupported_value(root, &s);
                 }

@@ -256,6 +256,9 @@ DEPTH iki kuvveti, `taps = LEN × genişlik(T)`), ADR-0044 (MMIO alanı en
 | `volt-ast/src/bit_width.rs:29` `Scalar::bits`; `:37` `Scalar::of` | ORTAK | Tablonun kendisi; yalnız bit sayısı (işaret ve kod tablosu yok). | dil | tek |
 | `volt-ast/src/bit_width.rs:66` `type_ref_bits` (`:70` `bits_at`) | ORTAK | AST tipinin genişliği; SV testbench ve SIM okur. | dil | tek |
 | `volt-hir/src/ty.rs:310` `TypeArena::bit_width` | TD | Tip denetiminin tek kaynağı (#419). | dil | tek |
+| `volt-hir/src/ty.rs:319` `TypeArena::is_signed` (Trit kolu `:321`) | TD | Eklendi (#413, PR #440; satır numarası o daldan, Özet'in sayılarına girmez). İşaretin tek fonksiyonu, `bit_width`'in yanında (ADR-0141). Trit kolu `true`: Trit'in 2 bitlik ikiye tümleyen kodlamasının bilgisi (ADR-0062), değer kümesi {−1, 0, +1} değil (ADR-0139). Aynı bilgi ORTAK `leaf_or_nested` ve SV `sig_of_typeref`'te de yazılı; #436'nın izin listesine girer. | arka uç | dağınık |
+| `volt-ast/src/checked.rs:40` `CheckedTypes` (`:24` `CheckedValue`) | ORTAK | Eklendi (#413, PR #440). TD'nin cevabını SV'ye taşıyan tablo (ADR-0141): `Bits { width, signed }` `bit_width` ve `is_signed`'dan gelir; tablo hesap yapmaz, Trit'i ayrıca tanımaz (Trit `Bits { width: 2, signed: true }` olarak gelir: kodlama bilgisi). ADR-0136 §3'ün ara temsili değildir; IR kararıyla taşınır ya da kaldırılır. | arka uç | tek |
+| `volt-hir/src/typeck/checked.rs:19` `TypeckResult::checked_types` (`:32` `checked_value`) | TD | Eklendi (#413, PR #440). Tablonun tek doldurucusu: her tip kolu `bit_width` ve `is_signed`'dan, struct alanları `struct_fields`'tan. | arka uç | tek |
 | `volt-hir/src/ty.rs:258` `TypeArena::width_of` | TD | Yalnız sayısal tipler; Bool ve Trit `None`. | dil | tek |
 | `volt-ast/src/struct_layout.rs:224` `leaf_or_nested` | ORTAK | Genişlik `Scalar`'dan; Trit'in `signed: true`'su ve `LeafKind::Trit` burada yazılır. | dil | dağınık |
 | `volt-ast/src/struct_layout.rs:291` `array_elem_width` | ORTAK | `TypeRefKind::Bool => Ok(1)` sabit (satır 303); aynı dosyanın 239. satırı `Scalar::Bool.bits()` okur. | dil | dağınık |
@@ -369,7 +372,7 @@ Demet tipinin bit düzeni tanımlı değildir: `bit_width` ve `type_ref_bits`
 
 | Yer | Kullanan | Not | Sınıf | Bilgi |
 |---|---|---|---|---|
-| `volt-sv-emit/src/past.rs:73` `past_reg_block` | SV, SIM | Genişlik `self.width_of(x).map(..).unwrap_or(1)` (satır 100): #419'un kaldırdığı "bilinmiyorsa 1 bit" kalıbı; yardımcı register `logic [W-1:0]` işaretsiz. | arka uç | dağınık |
+| `volt-sv-emit/src/past.rs:73` `past_reg_block` | SV, SIM | Genişlik `self.width_of(x).map(..).unwrap_or(1)` (satır 100): #419'un kaldırdığı "bilinmiyorsa 1 bit" kalıbı; yardımcı register `logic [W-1:0]` işaretsiz. **Kapandı (#413, PR #440):** genişlik ve işaret `prev_sig`'den (`CheckedTypes`, TD'nin `bit_width` ve `is_signed`'ı); işaretli tip `logic signed`; genişlik yoksa E2005, 1 bit yok. | arka uç | dağınık |
 
 `sby.rs` ve `sva.rs` (`ONE_BIT` dışında) kodlama seçmez. Sürücü VCD
 okumaz, yalnız kopyalar.
@@ -739,6 +742,7 @@ Aşama 1'in izin listesi testinin başlangıç listesi budur.
 | Yer | Bildiği |
 |---|---|
 | `volt-ast/src/struct_layout.rs:224` `leaf_or_nested` | işaretli (`signed: true`), `LeafKind::Trit` |
+| `volt-hir/src/ty.rs:321` `TypeArena::is_signed` (Trit kolu; eklendi #413, PR #440) | işaretli |
 | `volt-ast/src/struct_layout.rs:31` `LeafKind` (tip), `:96` `has_enum_or_trit` | `10` geçersiz kod |
 | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | işaretli; yorumda `01`/`00`/`11` |
 | `volt-sv-emit/src/trit.rs:17`–`:18` `TRIT_POS`, `TRIT_NEG` | 2 bit, işaretli, `01`, `11` |
@@ -766,7 +770,7 @@ bulundu. Sınıflar AGENTS.md'nin rapor sözlüğündendir.
 | # | Bulgu | Sınıf | Dayanak |
 |---|---|---|---|
 | 1 | `~t` (t: Trit) Trit tiplidir: spec type-inference.md §3.4 `UnOp::BitNot => ot` der, `synth.rs:260` öyle uygular. SV kodlamasında `~2'sb01 = 2'sb10` (−2), ADR-0003'ün değer kümesi {−1, 0, +1} dışında. Bit işleminin değer kümesi yerine kodlama üzerinde tanımlandığı bir yer. Bunu yakalayan test bulunamadı. | karar gerektiren (spec ile ADR-0003 çelişiyor; sessiz yanlış olabilir) | spec §3.4; ADR-0003; ADR-0062 K1 |
-| 2 | `past.rs:73` `past_reg_block` genişliği `width_of(x).map(..).unwrap_or(1)` ile alır (satır 100): #419'un kaldırdığı "bilinmiyorsa 1 bit" kalıbı; yardımcı register işaretsiz bildirilir. `tek-yerde-bilgi-envanteri.md` bu fonksiyonun `type_ref_bits` kullandığını yazar; bugün değil. | sessiz yanlış şüphesi (koşturulmadı) | ADR-0137 §1 |
+| 2 | `past.rs:73` `past_reg_block` genişliği `width_of(x).map(..).unwrap_or(1)` ile alır (satır 100): #419'un kaldırdığı "bilinmiyorsa 1 bit" kalıbı; yardımcı register işaretsiz bildirilir. `tek-yerde-bilgi-envanteri.md` bu fonksiyonun `type_ref_bits` kullandığını yazar; bugün değil. **Kapandı (#413, PR #440):** koşturuldu, işaret ve doğal genişlik için sessiz yanlıştı (`tests/real_bugs/413_prev_width_and_sign.volt`); 1 bit yoluna düşen girdiler başka bir tanı da alıyordu. Genişlik ve işaret TD'den (ADR-0141); envanter satırı düzeltildi. | kapandı (#413); önce sessiz yanlış şüphesi | ADR-0137 §1; ADR-0141 |
 | 3 | SDC `apply_edges` (`constraints/walk.rs:472`) yinelenen `clock =` alanında ilk alanı, TD ve SV son alanı alır; yinelenen anahtar için tanı yok. #420 ile aynı kök (yinelenen `domain` alanı). **Kapandı (#420, PR #433):** `apply_edges` kenarı ORTAK `domain_fields`'tan okur; yinelenen `clock =` E1003'tür. | kapandı (#420); önce sessiz yanlış şüphesi (#420 ailesi) | #420; ADR-0140 |
 | 4 | Sabit değerlendiriciler bit kaybeden `<<`'de ayrışır: TD `consteval.rs:646` `checked_shl` yalnız miktarı denetler (`3 << 127` bit kaybeder), ORTAK `arith` `None` verir. | gizli ya da reddedilen (koşturulmadı) | `tek-yerde-bilgi-envanteri.md` ayrışma 2–3 ile aynı aile |
 | 5 | SDC `collect_module` (`walk.rs:392`) saat tipli her portu `ClockConstraint` yapar, kenara bakmaz; `clock = none` alanının saati için `create_clock` yazılabilir. SIM `cycle_fn` kenarsız saati de çevirir. | belirsiz (koşturulmadı) | E3016'nın kapsamı |

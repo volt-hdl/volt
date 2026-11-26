@@ -1337,6 +1337,7 @@ version = "0.1.3"
 dependencies = [
  "volt-ast",
  "volt-diagnostics",
+ "volt-hir",
  "volt-span",
  "volt-syntax",
 ]

@@ -35,7 +35,18 @@ impl<'a> TypeChecker<'a, '_> {
                 continue;
             };
             match struct_layout::layout(ast, decl, &mut |e| self.try_const_eval(e)) {
-                Ok(layout) => self.types.set_struct_width(StructId(def.0), layout.width),
+                Ok(layout) => {
+                    self.types.set_struct_width(StructId(def.0), layout.width);
+                    // Alanların tipi, alan erişiminin (`struct_field_type`)
+                    // aynı çözümüyle (#413): bütün-struct `prev(p)`'nin
+                    // yaprakları buradan okunur.
+                    let fields = decl
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.text.clone(), self.resolve_type_ref(f.ty)))
+                        .collect();
+                    self.types.set_struct_fields(StructId(def.0), fields);
+                }
                 Err(LayoutError::TooDeep) => self.flatten_budget(decl, false),
                 Err(LayoutError::TooManyLeaves) => self.flatten_budget(decl, true),
                 // Alansız struct ve bundle alanı `check_field_kinds`'te

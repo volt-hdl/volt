@@ -4,8 +4,10 @@
 //! karşılığıdır: aynı kenar, aynı reset koruması, aynı `prev()` zinciri,
 //! aynı property adları; formal varsayımlar ve init blokları yoktur.
 
+mod typed;
+
 use volt_span::FileId;
-use volt_sv_emit::{emit_full, uses_sim_contracts, EmitOutput, SvaMode};
+use volt_sv_emit::{uses_sim_contracts, EmitOutput, SvaMode};
 
 fn emit(src: &str, mode: SvaMode) -> EmitOutput {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
@@ -14,7 +16,7 @@ fn emit(src: &str, mode: SvaMode) -> EmitOutput {
         "parse hatasız olmalı: {:?}",
         parsed.error_codes()
     );
-    let out = emit_full(&parsed.ast, "test.volt", src, mode);
+    let out = typed::emit_full(&parsed.ast, "test.volt", src, mode);
     assert!(
         !out.diagnostics
             .iter()
@@ -442,7 +444,7 @@ mod testbench {
 fn unsupported_contract_is_skipped_with_w5001_keeping_verify_names() {
     let src = "module M {\n    in clk : clock\n    in a : u4\n    invariant: match a { 0 if a == 0 => true, _ => a != 7 }\n    invariant: a != 9\n}\n";
     let parsed = volt_syntax::parser::parse(FileId(0), src);
-    let out = emit_full(&parsed.ast, "test.volt", src, SvaMode::Simulation);
+    let out = typed::emit_full(&parsed.ast, "test.volt", src, SvaMode::Simulation);
     let codes: Vec<&str> = out.diagnostics.iter().map(|d| d.code.as_str()).collect();
     assert_eq!(codes, ["W5001"]);
     assert!(!out.sv.contains("\"M.inv_0\""), "{}", out.sv);
@@ -452,7 +454,7 @@ fn unsupported_contract_is_skipped_with_w5001_keeping_verify_names() {
         out.sv
     );
     // Formal akış aynı ifadeyi hâlâ E0003 ile reddeder (davranış değişmedi).
-    let formal = emit_full(&parsed.ast, "test.volt", src, SvaMode::Immediate);
+    let formal = typed::emit_full(&parsed.ast, "test.volt", src, SvaMode::Immediate);
     assert!(formal
         .diagnostics
         .iter()

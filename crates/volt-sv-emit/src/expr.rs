@@ -405,12 +405,11 @@ impl<'a> Emitter<'a> {
                 self.builtin_field_sig(base, &field)
                     .or_else(|| self.user_field_sig(base, &field))
             }
-            // prev(x[, N]) (ADR-0040): argümanın genişliği.
-            ExprKind::Call { callee, args } if self.is_prev_call(*callee) => {
-                let x = args.first().copied()?;
-                self.width_of(x)
-            }
-            ExprKind::Call { .. } | ExprKind::Error => None,
+            // prev(x[, N]) (ADR-0040: `prev(x: T) -> T`): tip denetiminin
+            // argümana verdiği genişlik ve işaret, yardımcı register'ınkiyle
+            // aynı kaynaktan (#413). `prev_sig` öteki çağrılara cevap vermez.
+            ExprKind::Call { .. } => self.prev_sig(idx),
+            ExprKind::Error => None,
             // Struct indirgemesinin birleştirmesi (ADR-0077): yaprak
             // genişliklerinin toplamı, işaretsiz.
             ExprKind::Concat(parts) => {

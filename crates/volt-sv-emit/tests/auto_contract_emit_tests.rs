@@ -4,13 +4,15 @@
 //! bayt değişmez. Her üretilen property'nin yorumu kuralı, kontrat
 //! metnini ve kökenini ("generated from") taşır.
 
+mod typed;
+
 use volt_span::FileId;
-use volt_sv_emit::{emit_full, CoverReach, EmitOutput, SvaMode};
+use volt_sv_emit::{CoverReach, EmitOutput, SvaMode};
 
 fn emit(src: &str, mode: SvaMode) -> EmitOutput {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.error_codes());
-    let out = emit_full(&parsed.ast, "div.volt", src, mode);
+    let out = typed::emit_full(&parsed.ast, "div.volt", src, mode);
     assert!(
         !out.diagnostics
             .iter()

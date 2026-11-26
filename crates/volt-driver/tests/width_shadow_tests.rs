@@ -310,6 +310,7 @@ fn compare_unit(main: &Path, totals: &mut Totals) {
     let ast = &unit.parsed.ast;
     let names = unit.source_names();
     let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
+    let checked = analysis.typeck.checked_types(ast);
     let emit = || {
         volt_sv_emit::emit_unit(
             ast,
@@ -317,6 +318,7 @@ fn compare_unit(main: &Path, totals: &mut Totals) {
             &sources,
             SvaMode::None,
             ConstArrayStyle::default(),
+            &checked,
         )
     };
     let plain = emit();
@@ -654,4 +656,244 @@ fn only_the_four_listed_rules_are_expected_differences() {
     }
     assert!(verdict(&totals_with(Class::Agree, "aynı genişlik")).is_ok());
     assert!(verdict(&totals_with(Class::BothNone, "iki taraf da genişliksiz")).is_ok());
+}
+
+// ═══ prev() yardımcı register'ları (#413) ═══════════════════════════
+
+/// Bir yardımcı register kararının sınıfı.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum HelperClass {
+    /// Genişlik ve işaret tip denetimininkiyle aynı (ya da iki taraf da
+    /// genişliksiz).
+    Agree,
+    /// (a) iki taraf da somut, genişlik ya da işaret farklı.
+    A,
+    /// (b) bir taraf genişlik vermiyor.
+    B,
+    /// Kopya AST'nin kökle eşleşmeyen ve kökeni yazılmamış düğümü.
+    Unmatched,
+}
+
+/// Tip denetiminin bir tipe verdiği genişlik ve işaret: kararı veren iki
+/// fonksiyon, `TypeArena::bit_width` ve `TypeArena::is_signed` (#419'un
+/// dersi: gölge kendi kopyasıyla ölçmez).
+fn type_sig(types: &TypeArena, ty: TypeId) -> Option<Sig> {
+    Some(Sig {
+        width: types.bit_width(ty)?,
+        signed: types.is_signed(ty),
+    })
+}
+
+/// Struct tipinin `path` alanının tipi (`TypeArena::struct_fields`).
+fn field_type(types: &TypeArena, mut ty: TypeId, path: &[String]) -> Option<TypeId> {
+    for name in path {
+        let Ty::Struct(s) = types.ty(ty) else {
+            return None;
+        };
+        ty = types
+            .struct_fields(*s)?
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|&(_, t)| t)?;
+    }
+    Some(ty)
+}
+
+#[derive(Default)]
+struct HelperTotals {
+    units: usize,
+    helpers: usize,
+    /// Karşılaştırmanın `prev()` çağrısına verdiği genişlikler (literal
+    /// boyutu, işaretli karşılaştırma).
+    calls: usize,
+    by_class: BTreeMap<HelperClass, usize>,
+    /// Girdi dosyası başına karşılaştırılan yardımcı sayısı.
+    per_file: BTreeMap<String, usize>,
+    findings: BTreeSet<String>,
+}
+
+/// Kopyadaki bir düğüm kök AST'deki aynı indeksli ve aynı konumlu ifade mi.
+fn root_of(
+    root: usize,
+    root_exprs: &HashMap<Idx<Expr>, &Expr>,
+    ast: usize,
+    e: Idx<Expr>,
+    span: volt_span::Span,
+) -> Option<Idx<Expr>> {
+    if ast == root {
+        return Some(e);
+    }
+    root_exprs.get(&e).filter(|r| r.span == span).map(|_| e)
+}
+
+fn classify_helper(emitted: Option<Sig>, checked: Option<Sig>) -> HelperClass {
+    match (emitted, checked) {
+        (Some(e), Some(c)) if e.width == c.width && e.signed == c.signed => HelperClass::Agree,
+        (Some(_), Some(_)) => HelperClass::A,
+        (None, None) => HelperClass::Agree,
+        _ => HelperClass::B,
+    }
+}
+
+fn compare_helpers(main: &Path, totals: &mut HelperTotals) {
+    let Ok(a) = shadow_corpus::analyze(main) else {
+        return;
+    };
+    let ast = &a.unit.parsed.ast;
+    let typeck = &a.analysis.typeck;
+    let names = a.unit.source_names();
+    let sources = volt_sv_emit::unit_source_texts(&names, &a.unit.map);
+    let root = ast as *const SourceFile as usize;
+    let root_exprs: HashMap<Idx<Expr>, &Expr> = ast.exprs.iter_idx().collect();
+    let file = display_name(main);
+    // Sürücünün yolu: üretici tip denetiminin tablosunu okur (ADR-0141).
+    let checked = typeck.checked_types(ast);
+    let at = |span: volt_span::Span| {
+        let (line, col) = a.unit.map.line_col(span);
+        format!("{}:{line}:{col}", display_name(a.unit.map.path(span.file)))
+    };
+    // İki kip aynı fonksiyonla (`past_reg_block`) bildirir: `volt test`
+    // (Simulation) ve `volt verify` (Immediate).
+    for mode in [SvaMode::Simulation, SvaMode::Immediate] {
+        let emit = || {
+            volt_sv_emit::emit_unit(
+                ast,
+                "shadow.volt",
+                &sources,
+                mode,
+                ConstArrayStyle::default(),
+                &checked,
+            )
+        };
+        let (out, notes, helpers) = volt_sv_emit::width_shadow::record_all(emit);
+        if has_error(&out.diagnostics) {
+            continue;
+        }
+        if mode == SvaMode::Simulation {
+            totals.units += 1;
+        }
+        for h in &helpers {
+            totals.helpers += 1;
+            *totals.per_file.entry(file.clone()).or_default() += 1;
+            let checked = match root_of(root, &root_exprs, h.ast, h.arg, h.arg_span) {
+                Some(x) => typeck
+                    .expr_types
+                    .get(&x)
+                    .and_then(|&t| type_sig(&typeck.types, t)),
+                None => match &h.origin {
+                    Some((o, span, path)) => root_of(root, &root_exprs, h.ast, *o, *span)
+                        .and_then(|o| typeck.expr_types.get(&o).copied())
+                        .and_then(|t| field_type(&typeck.types, t, path))
+                        .and_then(|t| type_sig(&typeck.types, t)),
+                    None => {
+                        *totals.by_class.entry(HelperClass::Unmatched).or_default() += 1;
+                        totals.findings.insert(format!(
+                            "  [Unmatched] {mode:?} {} yardımcı: kopya düğüm, kökeni yok",
+                            at(h.call_span)
+                        ));
+                        continue;
+                    }
+                },
+            };
+            let class = classify_helper(h.sig, checked);
+            *totals.by_class.entry(class).or_default() += 1;
+            if class != HelperClass::Agree {
+                totals.findings.insert(format!(
+                    "  [{class:?}] {mode:?} {} yardımcı: üretici {}, tip denetimi {}",
+                    at(h.call_span),
+                    sig_text(h.sig),
+                    sig_text(checked)
+                ));
+            }
+        }
+        // Karşılaştırmanın `prev()`'e verdiği genişlik (literal boyutu,
+        // işaretli karşılaştırma): argümanın tipi.
+        for n in &notes {
+            let Some(call) = root_of(root, &root_exprs, n.ast, n.expr, n.span) else {
+                continue;
+            };
+            let ExprKind::Call { callee, args } = &ast.exprs[call].kind else {
+                continue;
+            };
+            let is_prev = matches!(&ast.exprs[*callee].kind,
+                ExprKind::Path(p) if p.segments.len() == 1 && p.segments[0].text == "prev");
+            if !is_prev {
+                continue;
+            }
+            totals.calls += 1;
+            let checked = typeck
+                .expr_types
+                .get(&args[0])
+                .and_then(|&t| type_sig(&typeck.types, t));
+            let class = classify_helper(n.sig, checked);
+            *totals.by_class.entry(class).or_default() += 1;
+            if class != HelperClass::Agree {
+                totals.findings.insert(format!(
+                    "  [{class:?}] {mode:?} {} prev() değeri: üretici {}, tip denetimi {}",
+                    at(n.span),
+                    sig_text(n.sig),
+                    sig_text(checked)
+                ));
+            }
+        }
+    }
+}
+
+/// Her `prev()` yardımcı register'ı (`volt test` ve `volt verify`) ve
+/// karşılaştırmanın `prev()`'e verdiği genişlik, tip denetiminin argümana
+/// verdiği genişlik ve işaretle aynıdır (#413, ADR-0040: `prev(x: T) -> T`).
+/// Kayıt kararın verildiği yerde, `past_reg_block`'ta ve `width_of`'ta
+/// alınır; beklenen değer `TypeArena::bit_width` ve `TypeArena::is_signed`.
+/// Girdi genişlik gölgesininkidir; `tests/ui/pass/165_prev_helper_types.volt`
+/// her tip türünü (takma ad, generic parametre, sabit ifade, struct alanı,
+/// bütün struct, enum, dizi elemanı, dizi, Trit, işaretli, aritmetik sonuç)
+/// taşır.
+#[test]
+fn prev_helper_registers_have_the_type_checkers_width_and_sign() {
+    let mut totals = HelperTotals::default();
+    let (files, book) =
+        shadow_corpus::for_each_input("prev-helper", &mut |p| compare_helpers(p, &mut totals));
+    let mut report = format!(
+        "prev() yardımcıları: {files} dosya + {book} kitap bloğu; derlenen birim {}; \
+         yardımcı {}, prev() değeri {}\n",
+        totals.units, totals.helpers, totals.calls
+    );
+    for (class, n) in &totals.by_class {
+        let _ = writeln!(report, "  {class:?}\t{n}");
+    }
+    for f in &totals.findings {
+        let _ = writeln!(report, "{f}");
+    }
+    let count = |c: HelperClass| totals.by_class.get(&c).copied().unwrap_or(0);
+    let (a, b, unmatched) = (
+        count(HelperClass::A),
+        count(HelperClass::B),
+        count(HelperClass::Unmatched),
+    );
+    let _ = writeln!(
+        report,
+        "prev() yardımcıları: (a) {a}, (b) {b}, eşleşmeyen {unmatched}"
+    );
+    println!("{report}");
+    let fixture = totals
+        .per_file
+        .get("tests/ui/pass/165_prev_helper_types.volt")
+        .copied()
+        .unwrap_or(0);
+    assert!(
+        fixture > 0,
+        "165_prev_helper_types.volt karşılaştırılmadı\n{report}"
+    );
+    assert!(
+        a == 0 && b == 0 && unmatched == 0,
+        "ne oldu: {} prev() yardımcısı ya da değeri tip denetiminden farklı \
+         genişlikte ya da işarette:\n{report}\
+         neden: prev(x)'in tipi x'in tipidir (ADR-0040); yardımcı register \
+         başka genişlikte ya da işaretsiz bildirilirse kontrat x'in değerini \
+         değil kesilmiş ya da işaretsiz okunmuş bir değeri sınar (#413).\n\
+         ne yapabilirsin: üretici genişliği ve işareti tip denetiminin \
+         tablosundan (`CheckedTypes`) okumalı; kopya AST'nin yeni düğümü için \
+         kökeni (`StructNotes::prev_leaves`) yazılmalı.",
+        a + b + unmatched
+    );
 }

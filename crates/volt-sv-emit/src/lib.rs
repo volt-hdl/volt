@@ -43,6 +43,7 @@ pub mod width_shadow;
 use std::collections::{HashMap, HashSet};
 
 use volt_ast::builtin::BuiltinPrim;
+pub use volt_ast::checked::CheckedTypes;
 use volt_ast::{
     ArrayLitKind, Block, BlockStmt, ClockEdge, ElseBranch, Expr, ExprKind, Idx, IfStmt, ItemKind,
     LValue, LValueSuffix, MatchArmBody, MatchStmt, ModuleDecl, OnBlock, OnTrigger, Pattern,
@@ -443,6 +444,7 @@ pub fn validate_unit(
         sources,
         SvaMode::None,
         ConstArrayStyle::default(),
+        &CheckedTypes::default(),
     )
     .diagnostics
 }
@@ -453,6 +455,11 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
 }
 
 /// `emit_full` + değişken indeksli const dizilerin SV biçimi (ADR-0041).
+///
+/// Tip denetiminin tablosu olmadan üretir: `prev()`'in genişliği tip
+/// denetiminden gelir (#413), bu yüzden kontratında `prev()` olan bir
+/// modül SVA, Immediate ya da Simulation kipinde E2005 alır. Sürücü
+/// [`emit_unit`]'i tabloyla çağırır.
 pub fn emit_full_opts(
     ast: &SourceFile,
     source_name: &str,
@@ -465,17 +472,28 @@ pub fn emit_full_opts(
         name: source_name,
         text: source,
     }];
-    emit_unit(ast, source_name, &sources, mode, const_array_style)
+    emit_unit(
+        ast,
+        source_name,
+        &sources,
+        mode,
+        const_array_style,
+        &CheckedTypes::default(),
+    )
 }
 
 /// Çoklu dosya derleme birimi (ADR-0042): `sources` birimdeki tüm
 /// dosyalar, `source_name` ana dosyanın adı (birleşik çıktı başlığı).
+/// `checked` tip denetiminin `ast`'e verdiği genişlik ve işaret
+/// (`TypeckResult::checked_types`, ADR-0141): `prev()`'in yardımcı
+/// register'ı ve değeri onu okur (#413).
 pub fn emit_unit(
     ast: &SourceFile,
     source_name: &str,
     sources: &[SourceText<'_>],
     mode: SvaMode,
     const_array_style: ConstArrayStyle,
+    checked: &CheckedTypes,
 ) -> EmitOutput {
     // ADR-0081 Karar 12.4: fn gövdeleri tanımda, çağrı sayısından
     // bağımsız bir kez doğrulanır; doğrulanamayanın çağrıları açılmaz.
@@ -505,6 +523,7 @@ pub fn emit_unit(
         struct_notes,
         inline_notes,
     );
+    emitter.checked = Some(checked);
     let mut diagnostics = fn_diags;
     diagnostics.extend(inline_diags);
     diagnostics.extend(struct_diags);
@@ -632,6 +651,7 @@ fn new_emitter<'a>(
         wave_modules: Vec::new(),
         struct_notes,
         inline_notes,
+        checked: None,
         inline_headers_done: HashSet::new(),
         self_sizing: HashSet::new(),
         module_name: String::new(),
@@ -700,6 +720,8 @@ fn validate_functions(
         Some(l) => (&l.ast, &l.notes),
         None => (&unit, &no_notes),
     };
+    // Sentetik birim tip denetiminden geçmedi: tablo yok (`SvaMode::None`
+    // kontrat üretmez, `prev()` sorulmaz).
     let mut emitter = new_emitter(
         unit,
         source_name,
@@ -925,6 +947,9 @@ pub(crate) struct Emitter<'a> {
     /// Struct indirgemesinin notları (ADR-0077): düzen yorumu, okunmayan
     /// yaprak, paketlenmiş dizi register'ı.
     pub(crate) struct_notes: &'a structs::StructNotes,
+    /// Tip denetiminin kök AST'ye verdiği genişlik ve işaret (ADR-0141);
+    /// tip denetiminden geçmeyen birimde (fn doğrulaması) yok.
+    pub(crate) checked: Option<&'a CheckedTypes>,
     /// fn açılımının notları (ADR-0081): çağrı başlığı yorumu, boyut
     /// dönüşümleri, const'a bağlı gövde yolları.
     pub(crate) inline_notes: &'a inline::InlineNotes,

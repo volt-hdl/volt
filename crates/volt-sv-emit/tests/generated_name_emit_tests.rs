@@ -4,11 +4,13 @@
 //! (`past_*`, `volt_hits_*`) çakışırsa `_2`, `_3`… alır. Çakışma yoksa
 //! adlar değişmez.
 
+mod typed;
+
 use std::collections::HashMap;
 
 use volt_diagnostics::{Diagnostic, ErrorCode};
 use volt_span::FileId;
-use volt_sv_emit::{emit_full, EmitOutput, SvaMode};
+use volt_sv_emit::{EmitOutput, SvaMode};
 
 fn emit(src: &str, mode: SvaMode) -> EmitOutput {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
@@ -17,7 +19,7 @@ fn emit(src: &str, mode: SvaMode) -> EmitOutput {
         "parse hatasız olmalı: {:?}",
         parsed.error_codes()
     );
-    emit_full(&parsed.ast, "test.volt", src, mode)
+    typed::emit_full(&parsed.ast, "test.volt", src, mode)
 }
 
 fn errors(out: &EmitOutput) -> Vec<&Diagnostic> {
