@@ -310,8 +310,14 @@ ExprKind::Unary { op, operand } => {
     match op {
         // !x — sadece bool
         UnOp::Not => { self.check_is_bool(ot, span); self.mk_ty(Ty::Bool) }
-        // ~x — bit tersleme, genişlik korunur
-        UnOp::BitNot => ot,
+        // ~x — bit tersleme, genişlik korunur; Trit'te ve Trit dizisinde
+        // tanımlı değil, E2003 (ADR-0142)
+        UnOp::BitNot => if self.holds_trit(ot) {
+            self.error(E2003, span);
+            self.mk_ty(Ty::Error)
+        } else {
+            ot
+        },
         // -x — işaretli olmalı, 1 bit genişler
         UnOp::Neg => match self.ty(ot) {
             Ty::SInt { width } => self.mk_ty(Ty::SInt { width: width + 1 }),
@@ -328,6 +334,18 @@ ExprKind::Unary { op, operand } => {
     }
 }
 ```
+
+**`~` değer kümesi üzerinde tanımlıdır (ADR-0142).** `~` bitleri tersler
+ve işlenenin tipini korur: `bool`, `uN`, `iN`, `bits<N>` ve bunların
+dizileri. `Trit`'in değer kümesi {-1, 0, +1}'dir (ADR-0003); bitlerini
+terslemek bu kümede bir işlem değildir (+1'i kodlayan bitler terslenince
+kümenin dışında bir desen olur), bu yüzden `~` `Trit`'te ve `Trit` tutan
+dizide (`holds_trit`: `Trit` ya da elemanı `holds_trit` olan dizi)
+E2003'tür. Kural değere değil tipe bakar: `~0` da reddedilir. Bağlamdan
+`Trit` tipini alan literal ifadesindeki `~` (`y : Trit` için `y = ~1`,
+`y = -(~1)`, `y = t * ~1`; generic `const S : Trit` parametresinin `~S`'i)
+`Trit` üzerindedir ve aynı hatayı alır. `Trit`'in tersi `-t`'dir: -(+1) =
+-1, -0 = 0, -(-1) = +1.
 
 ### 3.5 Bit ve Aralık Seçimi
 
@@ -903,6 +921,8 @@ a + b   (a:u8, b:i8)        HATA E2002
 a + b   (a,b: bits<8>)      HATA E2004
 a[9]    (a: u8)             HATA E2006
 x as Trit                   HATA E2009
+~t      (t: Trit)           HATA E2003
+~a      (a: [Trit; 2])      HATA E2003
 ```
 
 ---
