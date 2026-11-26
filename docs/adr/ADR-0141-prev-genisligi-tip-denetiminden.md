@@ -1,7 +1,7 @@
 # ADR-0141: `prev()`'in Genişliği ve İşareti Tip Denetiminden — Üreticiye Tip Denetiminin Cevabı, Yardımcı Register `x`'in Tipinde
 
-> Statü: Önerildi
-> İlgili: ADR-0040 (`prev(x: T) -> T`; yardımcı register zincirinin bildirimi `x`'in tipini alır), ADR-0136 (Aşama 2'nin ilk adımı: üretici bir bilgiyi tip denetiminden okur; kanal `volt-hir` bağımlılığı eklemez), ADR-0137 (§1'in kuralı `prev()`'in genişliğine ve işaretine uygulanır), ADR-0062 (Karar 4'ün "üretici HIR tiplerini görmez" gerekçesi `prev()` için kalkar; çarpansız `Trit * x` eşlemesi değişmez)
+> Statü: Uygulandı — 2026-11-26
+> İlgili: ADR-0040 (`prev(x: T) -> T`; yardımcı register zincirinin bildirimi `x`'in tipini alır), ADR-0136 (Aşama 2'nin ilk adımı: üretici bir bilgiyi tip denetiminden okur; kanal `volt-hir` bağımlılığı eklemez), ADR-0137 (§1'in kuralı `prev()`'in genişliğine ve işaretine uygulanır), ADR-0062 (Karar 4'ün "üretici HIR tiplerini görmez" gerekçesi `prev()` için kalkar; çarpansız `Trit * x` eşlemesi değişmez), ADR-0139 (genişlik ve işaret kodlama bilgisidir; değer kümesi ayrı kalır), ADR-0136 §3 (IR kararı bu ADR'de verilmez)
 > Issue: #413
 > Tarih: 2026-11-26
 > Etkilenen: `crates/volt-ast/src/checked.rs` (YENİ, `CheckedTypes`), `crates/volt-hir/src/ty.rs` (`TypeArena::is_signed`, `struct_fields`), `crates/volt-hir/src/typeck/checked.rs` (YENİ, `TypeckResult::checked_types`), `crates/volt-hir/src/typeck/structs.rs`, `crates/volt-sv-emit/src/past.rs`, `crates/volt-sv-emit/src/expr.rs`, `crates/volt-sv-emit/src/lib.rs` (`emit_unit`), `crates/volt-sv-emit/src/structs/` (`StructNotes::prev_leaves`), `crates/volt-sv-emit/src/width_shadow.rs`, `crates/volt-driver/src/main.rs`, `crates/volt-driver/tests/width_shadow_tests.rs`, `docs/design/tek-yerde-bilgi-envanteri.md`
@@ -95,6 +95,8 @@ derlenen bir tasarım ulaşmaz.
 4. **Niyet tahmini (İ4):** kaldırılır: genişliği bilinmeyen değer bir bit
    sayılmaz, E2005 verir.
 5. **Metamorfik yeniden yazım:** uygulanmaz.
+6. **ADR-0139:** yeni bir ikili varsayım eklenmez; Trit'in işareti
+   `bit_width`'in yanındaki tek fonksiyondadır.
 
 ## Doğrulama
 
@@ -126,6 +128,14 @@ derlenen bir tasarım ulaşmaz.
   gövdesinde E5017).
 - `volt check` ve LSP üreticiyi kontratsız kipte (RTL) çalıştırır; tablo
   onlara verilmez, `prev()` sorulmaz.
+- IR kararı verilmez. `CheckedTypes`, ADR-0136 §3'teki ara temsil
+  değildir; o karar ayrı bir ADR'dir. Tablo, o karar verilene kadar tip
+  denetiminin cevabını üreticiye taşıyan dar bir kanaldır; IR geldiğinde
+  onun içine taşınır ya da kaldırılır.
+- Tablonun taşıdığı genişlik ve işaret kodlama bilgisidir (ADR-0139).
+  Trit'in işaretli 2 biti değer kümesi (−1/0/+1) değil, bugünkü SV
+  kodlamasıdır. `is_signed`'ın ve `bit_width`'in Trit kolları kodlama
+  bilgisinin yeridir ve ikili varsayımlar envanterinde kayıtlıdır (#436).
 
 ## Reddedilenler
 
