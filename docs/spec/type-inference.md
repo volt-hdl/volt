@@ -552,6 +552,28 @@ uyarısız; `(-129) as i8` = 0x7F ve W2010. Sığma `literal_fits` ile (§4)
 sint<128>` (2¹²⁷) W2010, 128 bitten geniş işaretli hedefe her literal
 sığar.
 
+### 3.10 `prev()` (ADR-0040, ADR-0141)
+
+`prev(x)` ve `prev(x, N)` (yalnız kontratlarda, E5017) `x`'in tipini
+taşır: `prev(x: T) -> T`. Değer, `x`'in bir (ya da `N`) döngü önceki
+değeridir; genişliği ve işareti `x`'in tipininkidir. Esnek tipli `x`'in
+(ADR-0025) değeri doğal genişliğindedir: `u8` `a`, `b` için
+`prev(a + b)` 9 bittir ve taşmayı taşır; `i8` `sa`, `sb` için
+`prev(sa + sb)` 9 bit işaretlidir. `Trit`, `iN` ve işaretli aralık
+işaretlidir; `bits`, `bool`, enum, struct ve dizi işaretsizdir.
+
+```
+Γ ⊢ x ⇒ T
+──────────────────
+Γ ⊢ prev(x) ⇒ T      Γ ⊢ prev(x, N) ⇒ T   (N ≥ 1 tamsayı literali)
+```
+
+Tip denetimi genişliği olmayan `T`'yi (boyutsuz literal, demet)
+reddetmez: `prev(5) == a` ve `prev((a, b)) == (a, b)` `volt check`'ten
+hatasız geçer. `prev()`'in değerinin bir genişliği olması SV eşlemesinin
+kuralıdır (sv-mapping.md §15): yardımcı register'ı bildiren `volt test`
+ve `volt verify` E2005 verir (`prev(5)` yerine `prev(5 as u8)`).
+
 ## 4. Kontrol Modu ve Literal Çözümleme
 
 `check` modunun asıl işi: soneksiz literalleri bağlamdan çözmek.
