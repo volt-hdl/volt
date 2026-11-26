@@ -513,6 +513,23 @@ designer did not state.
 Long-term and research work. These items need a design decision before
 they are built, and some may not be built.
 
+### When does work beyond binary logic start?
+
+Volt keeps a signal's value set, its encoding and its timing model apart (ADR-0139). The work is staged, and a stage is written down when we know how to test it.
+
+- **Now (0.1.x):** no new binary assumptions. Every new decision record checks that encoding facts stay in one place. Trit correctness bugs are fixed like any other bug.
+- **Toward 0.2:** finish Trit end to end (#430, #436 (#434 was fixed in 0.1.4)) and decide the intermediate representation so that value set, encoding and timing model travel separately (ADR-0136 §3).
+- **Later, by condition rather than by date:** hybrid binary–ternary boundary rules and an experimental second backend start when at least two of these hold:
+  - the list of known silent-wrong bugs is mostly empty and a 1.0 stability policy exists;
+  - the project has a second regular contributor;
+  - a user, research group or partner needs a ternary-weight accelerator or a neuromorphic design;
+  - there is a target we can measure: an open simulator or an FPGA running a hybrid design.
+- **Design note:** [binary–ternary hybrid design](design/ikili-uclu-melez-tasarim.md)
+  (in Turkish, not binding): where ternary pays off, encodings, boundary
+  rules and how each idea would be tested.
+- **ADR:** [ADR-0136](adr/ADR-0136-anlamsal-bilgi-tek-yerden.md),
+  [ADR-0139](adr/ADR-0139-deger-kumesi-kodlama-zaman-modeli.md)
+
 ### Information flow and formal verification
 
 - **What:** prove the absence of leaks between trust levels formally, in
