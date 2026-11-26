@@ -30,9 +30,7 @@ module TritNegate {
     term = (-w) * x
     fld  = -s.t
     late = -r
-    comb {
-        for i in 0..2 {
-            all[i] = -ws[i]
-        }
-    }
+    // The help's form (ADR-0142 sec. 2): a module-level loop over the
+    // real length of the array.
+    for i in 0..2 { all[i] = -ws[i] }
 }

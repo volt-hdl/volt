@@ -130,3 +130,48 @@ fn the_same_design_with_bit_not_is_e2003_with_minus_t_in_the_help() {
     );
     assert!(text.contains("-t"), "{text}");
 }
+
+/// `volt check`'in çıktısı (çıkış başarılı mı, stdout + stderr).
+fn volt_check(tag: &str, src: &str) -> (bool, String) {
+    let dir = temp_dir(tag);
+    std::fs::write(dir.join("design.volt"), src).expect("yaz");
+    let output = Command::new(env!("CARGO_BIN_EXE_volt"))
+        .env("VOLT_LANG", "en")
+        .env("NO_COLOR", "1")
+        .current_dir(&dir)
+        .args(["check", "design.volt"])
+        .output()
+        .expect("volt check");
+    let _ = std::fs::remove_dir_all(&dir);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.success(), text)
+}
+
+/// Trit dizisinde yardım her elemanı dizinin gerçek uzunluğuyla çeviren
+/// döngüyü yazar (ADR-0142 §2). Yardımdaki kod `volt check`'in kendi
+/// çıktısından alınır, `y = ~a`'nın yerine konur ve tasarım bütün
+/// denetimlerden (SV eşlemesi dahil) tanısız geçer (ADR-0125 §4).
+#[test]
+fn the_array_help_code_from_volt_check_compiles_clean() {
+    let design = |body: &str| {
+        format!("module M {{\n    in  a : [Trit; 3]\n    out y : [Trit; 3]\n    {body}\n}}\n")
+    };
+    let (ok, text) = volt_check("array-not", &design("y = ~a"));
+    assert!(!ok, "{text}");
+    let help = text
+        .lines()
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("= help: negate each element with '-': ")
+        })
+        .unwrap_or_else(|| panic!("dizi yardımı yok:\n{text}"));
+    let code = help.split("; ").next().expect("yardımda kod");
+    assert_eq!(code, "for i in 0..3 { y[i] = -a[i] }", "{text}");
+    let (ok, text) = volt_check("array-help", &design(code));
+    assert!(ok, "{text}");
+    assert!(text.contains("Result 0 error(s), 0 warning(s)"), "{text}");
+}

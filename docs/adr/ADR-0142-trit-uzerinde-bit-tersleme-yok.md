@@ -1,6 +1,6 @@
 # ADR-0142: `~` Trit Üzerinde Tanımlı Değildir — İşlem Değer Kümesine Aittir, Trit'in Tersi `-t`
 
-> Statü: Önerildi
+> Statü: Uygulandı — 2026-11-26
 > İlgili: ADR-0003 (Trit'in değer kümesi {-1, 0, +1}; `-Trit` Trit'tir), ADR-0062 (Trit'in iki bitlik kodu; `~` önce bu kod üzerinde çalışıyordu), ADR-0139 (envanterin "Açık bulgular" 1'i kapanır; "işlem değer kümesine aittir" ilkesinin ilk uygulaması)
 > Issue: #434
 > Tarih: 2026-11-26
@@ -60,7 +60,8 @@ yeni kod yok). ADR-0125'e göre:
 - `help` (ne yapılabilir, ADR-0125 §2 (a), kodla): Trit'te `use '-' for
   ternary negation: write -t instead of ~t; '-' maps +1 to -1, 0 to 0 and
   -1 to +1`; dizide `-` dizinin kendisinde tanımlı olmadığı için eleman
-  eleman: `for i in 0..N { y[i] = -a[i] }`.
+  eleman, dizinin gerçek uzunluğuyla: `[Trit; 2]` için `for i in 0..2 {
+  y[i] = -a[i] }`; iç içe dizide her boyut bir döngü (`i`, `j`, ...).
 
 Makine önerisi yoktur: `~a`'yı `-a`'ya çeviren öneri dizide yanlış olur
 ve bir literal bağlamında (`~1`) niyet belli değildir.

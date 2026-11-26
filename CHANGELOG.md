@@ -27,7 +27,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   (ya da `Trit` dizisini) `~` ile çeviren tasarımlar, örneğin üçlü bir
   ağırlığı `~w` ile olumsuzlayan bir MAC. Ne yapmalı: `~t` yerine `-t`
   yazın (-(+1) = -1, -0 = 0, -(-1) = +1; `-Trit` `Trit`'tir); bir `Trit`
-  dizisini eleman eleman çevirin: `for i in 0..N { y[i] = -a[i] }`.
+  dizisini eleman eleman çevirin: `a : [Trit; 2]` için
+  `for i in 0..2 { y[i] = -a[i] }` (yardım dizinin gerçek uzunluğunu yazar).
   `&`, `|`, `^`, `<<`, `>>` ve bit seçme `Trit`'te önceden de E2003'tü;
   değişmez. Ölçüm: main (ad6b0d4d) ile bu dalın ikilileri gölgenin
   girdisinde (`examples/` dahil 497 dosya) `volt build --single-file

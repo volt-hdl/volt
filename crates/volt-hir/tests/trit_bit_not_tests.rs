@@ -126,17 +126,41 @@ fn bit_not_of_a_whole_trit_array_is_e2003_and_names_the_array() {
         "    y = ~a",
     ));
     assert_eq!(d.message, "operator '~' is not defined for '[Trit; 2]'");
-    // `-` dizinin kendisinde tanımlı değil; yardım elemanı gösterir.
-    assert!(help(&d).contains("-a[i]"), "{}", help(&d));
     // İç içe dizi de Trit tutar.
     let d = the_bit_not_error(&module(
-        "    in  a : [[Trit; 2]; 2]\n    out y : [[Trit; 2]; 2]",
+        "    in  a : [[Trit; 2]; 3]\n    out y : [[Trit; 2]; 3]",
         "    y = ~a",
     ));
     assert_eq!(
         d.message,
-        "operator '~' is not defined for '[[Trit; 2]; 2]'"
+        "operator '~' is not defined for '[[Trit; 2]; 3]'"
     );
+}
+
+/// Dizide yardım (ADR-0142 §2): `-` dizinin kendisinde tanımlı değil;
+/// yardım her Trit'i dizinin gerçek uzunluklarıyla çeviren döngüyü yazar.
+/// Metin tam olarak sınanır ve yardımdaki kod, `y = ~a`'nın yerine
+/// konunca tanısız derlenir (ADR-0125 §4).
+#[test]
+fn the_array_help_writes_the_real_lengths_and_its_code_compiles() {
+    for (ty, code) in [
+        ("[Trit; 2]", "for i in 0..2 { y[i] = -a[i] }"),
+        ("[Trit; 5]", "for i in 0..5 { y[i] = -a[i] }"),
+        (
+            "[[Trit; 2]; 3]",
+            "for i in 0..3 { for j in 0..2 { y[i][j] = -a[i][j] } }",
+        ),
+    ] {
+        let ports = format!("    in  a : {ty}\n    out y : {ty}");
+        let d = the_bit_not_error(&module(&ports, "    y = ~a"));
+        assert_eq!(
+            help(&d),
+            format!("negate each element with '-': {code}; '-' maps +1 to -1, 0 to 0 and -1 to +1"),
+            "{ty}"
+        );
+        let c = codes(&module(&ports, &format!("    {code}")));
+        assert!(c.is_empty(), "{ty}: {code}: {c:?}");
+    }
 }
 
 #[test]

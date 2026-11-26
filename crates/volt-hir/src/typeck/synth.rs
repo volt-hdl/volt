@@ -361,8 +361,9 @@ impl TypeChecker<'_, '_> {
         }
         let shown = self.show(ot);
         let help = if matches!(self.types.ty(ot), Ty::Array { .. }) {
-            lstr!(en: "negate each element with '-': for i in 0..N {{ y[i] = -a[i] }}; '-' maps +1 to -1, 0 to 0 and -1 to +1";
-                  tr: "her elemanı '-' ile çevirin: for i in 0..N {{ y[i] = -a[i] }}; '-', +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir")
+            let code = self.negate_each_trit(ot);
+            lstr!(en: "negate each element with '-': {code}; '-' maps +1 to -1, 0 to 0 and -1 to +1";
+                  tr: "her elemanı '-' ile çevirin: {code}; '-', +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir")
         } else {
             lstr!(en: "use '-' for ternary negation: write -t instead of ~t; '-' maps +1 to -1, 0 to 0 and -1 to +1";
                   tr: "üçlü olumsuzlama için '-' kullanın: ~t yerine -t yazın; '-', +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir")
@@ -384,6 +385,26 @@ impl TypeChecker<'_, '_> {
             ),
         );
         self.types.error()
+    }
+
+    /// Trit dizisinin her Trit'ini `-` ile çeviren kod, dizinin gerçek
+    /// uzunluklarıyla (`-` dizinin kendisinde tanımlı değil): `[Trit; 2]`
+    /// için `for i in 0..2 { y[i] = -a[i] }`; iç içe dizide her boyut bir
+    /// döngü (`i`, `j`, ...). `a` işlenen, `y` hedef yerine geçer.
+    fn negate_each_trit(&self, ty: TypeId) -> String {
+        let mut lens = Vec::new();
+        let mut t = ty;
+        while let Ty::Array { elem, len } = *self.types.ty(t) {
+            lens.push(len);
+            t = elem;
+        }
+        let vars: Vec<char> = (0..lens.len()).map(|d| (b'i' + d as u8) as char).collect();
+        let index: String = vars.iter().map(|v| format!("[{v}]")).collect();
+        let mut code = format!("y{index} = -a{index}");
+        for (v, len) in vars.iter().zip(&lens).rev() {
+            code = format!("for {v} in 0..{len} {{ {code} }}");
+        }
+        code
     }
 
     /// Tip bir Trit ya da (iç içe) Trit dizisi mi.

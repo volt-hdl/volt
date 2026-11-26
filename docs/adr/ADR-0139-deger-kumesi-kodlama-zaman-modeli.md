@@ -1,7 +1,7 @@
 # ADR-0139: Değer Kümesi, Kodlama ve Zaman Modeli Ayrı Bilgilerdir — İkili Varsayımların Envanteri, Kodlamanın Tek Yeri, Ara Temsile Gereksinim
 
 > Statü: Uygulandı — 2026-11-25; Aşama 0, envanter
-> İlgili: ADR-0003 (Trit tipi: değer kümesi {-1, 0, +1}; Aşama 1'in turnusolu), ADR-0028 (`Spike`, `PTrit`, `spike` rezerve: bu ADR mekanizma eklemez), ADR-0062 (Trit'in SV eşlemesi: bugünkü tek ikili olmayan değer kümesinin kodlaması), ADR-0136 (§3'ün ara temsil kararına bir gereksinim koyar, kararı vermez), ADR-0137 (kodlama bilgisi anlamsal bilgidir ve tek kaynaktan okunur), ADR-0142 (önerildi: envanterin "Açık bulgular" 1'i kapanır; `~` Trit'te tanımlı değil, ilkenin ilk uygulaması)
+> İlgili: ADR-0003 (Trit tipi: değer kümesi {-1, 0, +1}; Aşama 1'in turnusolu), ADR-0028 (`Spike`, `PTrit`, `spike` rezerve: bu ADR mekanizma eklemez), ADR-0062 (Trit'in SV eşlemesi: bugünkü tek ikili olmayan değer kümesinin kodlaması), ADR-0136 (§3'ün ara temsil kararına bir gereksinim koyar, kararı vermez), ADR-0137 (kodlama bilgisi anlamsal bilgidir ve tek kaynaktan okunur), ADR-0142 (envanterin "Açık bulgular" 1'i kapanır; `~` Trit'te tanımlı değil, ilkenin ilk uygulaması)
 > Tarih: 2026-11-25
 > Etkilenen: `docs/design/ikili-varsayimlar-envanteri.md` (YENİ, Aşama 0). Kod ve davranış değişmez.
 

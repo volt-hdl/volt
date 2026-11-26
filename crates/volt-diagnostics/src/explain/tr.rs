@@ -346,7 +346,7 @@ Reset, tipinin yanında biçimi de denetlenen tek değerdir. Volt bir reset'i mo
         .with_note(
             "Çevresi tip bildirmediğinde (tipsiz let) 'if' ifadesinin dalları ve 'match' ifadesinin kolları tek tipte olmalı: 'let r = match op { 0 => a, _ => true }' E2003 \"match kolları farklı tipte\" verir. Tip bildirildiğinde (tipli let, atama hedefi, port) o tip 'if'teki gibi her kola itilir: 'let r : u9 = match op { 0 => a + b, _ => b }' a + b'yi 9 bitte hesaplar.
 
-Bir operatör yalnız bazı tiplerde tanımlıdır. '~' bool, uN, iN, bits<N> ve bunların dizilerinin bitlerini tersler; Trit'te E2003'tür: Trit -1, 0 ya da +1'dir, '~' değerini değil onu kodlayan bitleri tersler ve +1'i kodlayan bitleri terslemek bu üç değerden hiçbiri olmayan bir desen verir. Trit'i '-' ile çevirin: 'y = ~t' E2003'tür, 'y = -t' +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir. Trit dizisinde her elemanı çevirin: 'for i in 0..N { y[i] = -a[i] }'.",
+Bir operatör yalnız bazı tiplerde tanımlıdır. '~' bool, uN, iN, bits<N> ve bunların dizilerinin bitlerini tersler; Trit'te E2003'tür: Trit -1, 0 ya da +1'dir, '~' değerini değil onu kodlayan bitleri tersler ve +1'i kodlayan bitleri terslemek bu üç değerden hiçbiri olmayan bir desen verir. Trit'i '-' ile çevirin: 'y = ~t' E2003'tür, 'y = -t' +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir. Trit dizisinde her elemanı çevirin: 'a : [Trit; 2]' için 'for i in 0..2 { y[i] = -a[i] }'.",
         ),
         E2004 => Explanation::new(
             "bits<N> tipinde aritmetik",
