@@ -10,6 +10,7 @@ pub mod alias;
 pub mod arena;
 pub mod bit_width;
 pub mod builtin;
+pub mod checked;
 pub mod const_eval;
 pub mod domain_fields;
 pub mod enum_layout;

@@ -937,7 +937,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
     // `X_test.volt`: test blokları `volt test` ile aynı tam denetimden
     // geçer (kardeş tasarım varsa onunla, ADR-0101).
     let test_target = volt_hir::unit_load::TestTarget::for_unit(file);
-    let Some(constraints) = run_semantic_stages(
+    let Some((constraints, checked)) = run_semantic_stages(
         &parsed,
         &imports.scopes,
         &test_files,
@@ -959,6 +959,7 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
         &sources,
         sva_mode,
         ConstArrayStyle::default(),
+        &checked,
     );
     diagnostics.extend(emitted.diagnostics);
     // Açılmış `for` yinelemelerine düşen tanılara bağlam notu (ADR-0056).
@@ -1001,16 +1002,20 @@ fn compile_all(file: &Path, want_sv: bool, sva_mode: SvaMode) -> Result<Compiled
 /// Aşama 2-4: birim modu çözümleme (ADR-0042) + paylaşılan kapılı
 /// boru hattı (ADR-0070, LSP ile aynı fonksiyon). Tanılar `out`'a
 /// eklenir; bir aşama hata üretirse `None`. Başarıda zamanlama kısıtı
-/// modeli (ADR-0054) döner.
+/// modeli (ADR-0054) ve tip denetiminin üreticiye cevabı (ADR-0141:
+/// `prev()`'in genişliği ve işareti, #413) döner.
 fn run_semantic_stages(
     parsed: &ParseResult,
     scopes: &std::collections::HashMap<FileId, FileScope>,
     test_files: &dyn volt_hir::TestFileLoader,
     tests: &volt_hir::unit_load::TestTarget,
     out: &mut Vec<Diagnostic>,
-) -> Option<volt_hir::ConstraintResult> {
+) -> Option<(volt_hir::ConstraintResult, volt_sv_emit::CheckedTypes)> {
     let resolve = volt_hir::resolve_unit(&parsed.ast, scopes);
-    volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), tests, out).constraints
+    let stages = volt_hir::run_semantic_stages(&parsed.ast, resolve, Some(test_files), tests, out);
+    let constraints = stages.constraints?;
+    let checked = stages.typeck?.checked_types(&parsed.ast);
+    Some((constraints, checked))
 }
 
 /// Tanıları seçilen formatta stderr'e yazar (JSON zarfı hariç — o

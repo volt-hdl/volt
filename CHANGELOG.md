@@ -5,6 +5,90 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- **Davranış değişikliği.** `prev(x)`'in değeri `x`'in işaretini taşır
+  (#413; sessiz yanlış düzeltmesi, ADR-0100; ADR-0040: `prev(x: T) -> T`;
+  ADR-0141). Önce `volt test` ve `volt verify` her `prev()` yardımcı
+  register'ını işaretsiz bildiriyordu (`logic [7:0] past_sa_1;`): `i8`
+  bir `sa` için `prev(sa) < sb` -1'i 255 olarak karşılaştırıyor,
+  `prev(sa) as i16` sıfırla genişletiyordu; işaretli struct alanında
+  (`prev(p.y)`, `prev(p).y`) ve `Trit`'te (`prev(t) < t`) de aynısı
+  oluyordu. Kontrat tanısız olarak başka bir değeri sınıyor, gerçek bir
+  ihlali kaçırabiliyor ya da sahte ihlal verebiliyordu. Sonra:
+  `logic signed [7:0] past_sa_1;`, `prev(sa) < sb` işaretli karşılaştırılır.
+  Kimi etkiler: kontratında işaretli bir değerin (`iN`, işaretli struct
+  alanı, `Trit`, işaretli aritmetik) `prev()`'ini sıralı karşılaştırma
+  (`<`, `<=`, `>`, `>=`), genişletme ya da aritmetikle kullanan tasarımlar.
+  Eşitlik (`==`, `!=`) aynı sonucu verir: `examples/hybrid_accel` ve
+  `examples/systolic/pe_array.volt`'ün `prev(act) == act_out` ve
+  `prev(a_in) == a_out` kontratlarında yalnız bildirim değişir. Ne
+  yapmalı: önce geçen bir kontrat şimdi ihlal verebilir, önce ihlal veren
+  geçebilir; sonuç kontratın Volt'taki anlamıdır, tasarımı ve kontratı
+  buna göre gözden geçirin. Sınırlamalar sayfasının önerdiği elle tutulan
+  register (`reg p : i8 = 0`, `on clk { p <= sa }`) artık gerekmez.
+  `--emit=sva` çıktısında işaret değişmez (`$past` argümanın tipini
+  korur).
+
+- **Davranış değişikliği.** `prev(x)`'in değeri `x`'in doğal
+  genişliğindedir (#413; sessiz yanlış düzeltmesi, ADR-0100; ADR-0025;
+  ADR-0141). Önce bir aritmetik `x`'in yardımcı register'ı ve
+  karşılaştırması işlem genişliğindeydi: `u8` `a`, `b` için `prev(a + b)`
+  8 bitti, `prev(a + b) != 300` 300'ü `8'h2C` (44) yazıp 44 ile
+  karşılaştırıyordu; `--emit=sva` `$past(a + b) != 8'h2C` yazıyordu
+  (`$past`'in argümanı öz-belirlenimlidir, toplam 8 bitte hesaplanıyordu).
+  Sonra: `volt test` ve `volt verify`'da `logic [8:0] past_e1_1;`,
+  `past_e1_1 <= 9'(a) + 9'(b);`, `past_e1_1 != 9'd300`; `--emit=sva`'da
+  `$past(9'(a) + 9'(b)) != 9'd300`. Genişlik tip denetiminden gelir; tip
+  denetimi argümana genişlik vermiyorsa (boyutsuz literal, `prev(5)`)
+  register bir bit sayılmaz, `volt test` ve `volt verify`
+  `error[E2005]: cannot determine the width of the prev() argument` verir
+  (aynı girdi önce de E2005 alıyordu, literalin kendisi için). Kimi
+  etkiler: kontratında `prev()`'in argümanı taşabilen bir işlem (`+`,
+  `-`, `*`) olan tasarımlar. Ne yapmalı: değer artık taşma bitini taşır;
+  işlem genişliğinde karşılaştırma isteyen kontrat bunu dönüşümle yazar
+  (`prev((a + b) as u8)`, W2010 daraltma uyarısıyla). Sınırlamalar
+  sayfasının önerdiği `reg p : u9` geçici çözümü artık gerekmez.
+
+  İki maddenin ortak ölçümü: main (dccaeda4) ile bu dalın ikilileri
+  gölgenin girdisinde (482 dosya) `volt build --single-file
+  --emit=sva,sdc,xdc,rust,c,regmap` ile çalıştırıldı: çıkış kodları,
+  stdout, stderr (çıktı yolu ve süre dışında) ve üretilen 980 dosya,
+  #413'ün iki yeni girdisinin üç `.sva` dosyası dışında aynıdır. Üretici
+  bütün girdi birimlerinde (371 birim ve kitap blokları) dört kipte
+  (yalnız RTL, `--emit=sva`, `volt test`, `volt verify`) çalıştırıldı:
+  tanılar aynıdır; fark, yeni girdiler dışında, yedi örnek dosyasının
+  dokuz yardımcı register bildirimindedir (`logic [7:0]` →
+  `logic signed [7:0]`). Son hanede çıkar.
+
+### Diagnostics
+
+- `prev()`'in argümanının genişliği belirlenemezse (`volt test`,
+  `volt verify`) E2005 artık argümanı gösterir ve `prev()`'i adlandırır:
+  `cannot determine the width of the prev() argument`; öneri değere
+  genişliği olan bir tip vermeyi söyler (`prev(x as u8)`) (#413).
+
+### Geliştirici notu — Üretici `prev()`'in genişliğini ve işaretini tip denetiminden okur (#413, ADR-0141, 2026-11-26)
+
+- `volt_ast::checked::CheckedTypes`: tip denetiminin kök AST'nin her
+  ifadesine verdiği genişlik ve işaret; tek doldurucu
+  `TypeckResult::checked_types` (genişlik `TypeArena::bit_width`, işaret
+  yeni `TypeArena::is_signed`, struct alanları `TypeArena::struct_fields`).
+  Sürücü tabloyu `volt_sv_emit::emit_unit`'e verir; üretici `volt-hir`'e
+  bağlanmaz. Struct indirgemesinin yeni yaprak `prev()` düğümleri
+  kökenlerini `StructNotes::prev_leaves`'e yazar.
+- Genişlik gölgesi `prev()` yardımcı register'larını ve karşılaştırmanın
+  `prev()`'e verdiği genişliği de kapsar (`volt test` ve `volt verify`
+  kipleri, `prev_helper_registers_have_the_type_checkers_width_and_sign`):
+  aynı girdide eski karar mantığıyla (yardımcı `width_of(x)`'ten,
+  işaretsiz) (a) 106 karşılaştırma (70 ayrı bulgu: 42'si yalnız işaret,
+  28'i genişlik), (b) 0; bu dalda (a) 0, (b) 0, kökeni yazılmamış kopya
+  düğüm 0.
+- `volt-sv-emit`'in testleri sürücünün yolunu izler (`tests/typed`,
+  `volt-hir` yalnız dev-dependency).
+
 ## [0.1.3] - 2026-11-25
 
 ### Behavior changes

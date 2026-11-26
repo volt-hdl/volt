@@ -146,6 +146,10 @@ pub struct TypeArena {
     /// Geçerli düzenli struct'ların toplam genişliği `W` (ADR-0077 Karar
     /// 3); düzen tip denetçisinde kurulur.
     struct_widths: HashMap<StructId, u32>,
+    /// Geçerli düzenli struct'ların alanları ve tipleri, bildirim sırasıyla
+    /// (#413): arka uçlar bütün-struct değerin yapraklarının tipini buradan
+    /// okur (`TypeckResult::checked_types`).
+    struct_fields: HashMap<StructId, Vec<(String, TypeId)>>,
 }
 
 impl TypeArena {
@@ -293,6 +297,44 @@ impl TypeArena {
     /// Struct'ın toplam genişliği `W`; düzeni geçersizse `None`.
     pub fn struct_width(&self, s: StructId) -> Option<u32> {
         self.struct_widths.get(&s).copied()
+    }
+
+    /// Struct düzeninin alanlarını kaydeder (#413).
+    pub fn set_struct_fields(&mut self, s: StructId, fields: Vec<(String, TypeId)>) {
+        self.struct_fields.insert(s, fields);
+    }
+
+    /// Struct'ın alanları ve tipleri, bildirim sırasıyla; düzeni
+    /// geçersizse `None`.
+    pub fn struct_fields(&self, s: StructId) -> Option<&[(String, TypeId)]> {
+        self.struct_fields.get(&s).map(Vec::as_slice)
+    }
+
+    /// Değer işaretli mi; derleyicinin tek kaynağı (#413, ADR-0137 §1).
+    /// `iN`, işaretli esnek aralık (ADR-0025) ve `Trit` (ADR-0003, ADR-0062:
+    /// 2 bit işaretli depolama, +1 = 01, -1 = 11) işaretli; `Delayed<T, N>`
+    /// `T`'ninki (ADR-0037). Öteki her tip işaretsizdir: `uN`, `bits`,
+    /// `bool`, enum (kodlama, ADR-0074), struct ve dizi (paketlenmiş vektör,
+    /// ADR-0056, ADR-0077).
+    pub fn is_signed(&self, id: TypeId) -> bool {
+        match self.ty(id) {
+            Ty::SInt { .. } | Ty::SIntFlex { .. } | Ty::Trit => true,
+            Ty::Delayed { inner, .. } => self.is_signed(*inner),
+            Ty::Bool
+            | Ty::UInt { .. }
+            | Ty::Bits { .. }
+            | Ty::UIntFlex { .. }
+            | Ty::Clock
+            | Ty::Reset { .. }
+            | Ty::Array { .. }
+            | Ty::Tuple(_)
+            | Ty::Struct(_)
+            | Ty::Enum(_)
+            | Ty::Instance(_)
+            | Ty::Builtin { .. }
+            | Ty::IntLit
+            | Ty::Error => false,
+        }
     }
 
     /// Sinyalin donanımdaki bit genişliği; derleyicinin tek kaynağı (#419,

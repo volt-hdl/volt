@@ -65,6 +65,11 @@ pub(crate) struct StructNotes {
     /// `on` bloğu bir yaprağı yazıyorsa hepsi o bloğun reset'ine girer —
     /// yazılmayan yaprak reset değerini korur (Karar 4).
     pub siblings: HashMap<(String, String), Vec<String>>,
+    /// Bütün-struct değerin `prev()`'inden indirgenen yaprak çağrısı →
+    /// (özgün `prev()` çağrısı, yaprağın alan yolu) (#413): yaprağın yeni
+    /// düğümünün tipi tip denetiminde yoktur, kökteki argümanın tipinden
+    /// alan yoluyla okunur.
+    pub prev_leaves: HashMap<Idx<Expr>, (Idx<Expr>, Vec<String>)>,
 }
 
 impl StructNotes {

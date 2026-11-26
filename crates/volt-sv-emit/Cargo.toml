@@ -16,3 +16,7 @@ volt-diagnostics = { path = "../volt-diagnostics" }
 
 [dev-dependencies]
 volt-syntax = { path = "../volt-syntax" }
+# #413 (ADR-0141): testler sürücünün yolunu izler, üretici tip denetiminin
+# tablosunu okur (`tests/typed`). Yalnız test derlemesi; üretici volt-hir'e
+# bağlanmaz (ADR-0136).
+volt-hir = { path = "../volt-hir" }

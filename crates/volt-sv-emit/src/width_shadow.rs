@@ -28,16 +28,68 @@ pub struct WidthNote {
     pub sig: Option<Sig>,
 }
 
+/// Bir `prev()` çağrısının yardımcı register'ı (#413): `past_reg_block`'un
+/// kararı, yani SV'de bildirilen genişlik ve işaret.
+#[derive(Debug, Clone)]
+pub struct HelperNote {
+    /// Çağrının ait olduğu AST'nin adresi ([`WidthNote::ast`] gibi).
+    pub ast: usize,
+    pub call: Idx<Expr>,
+    pub call_span: Span,
+    /// `prev(x[, N])`'in `x`'i.
+    pub arg: Idx<Expr>,
+    pub arg_span: Span,
+    /// Struct indirgemesinin yaprağı (ADR-0077): bütün-struct argüman
+    /// (indeksi ve konumu) ve yaprağın alan yolu.
+    pub origin: Option<(Idx<Expr>, Span, Vec<String>)>,
+    /// Bildirilen genişlik ve işaret; `None`: genişlik bilinmiyor, register
+    /// bildirilmedi (E2005).
+    pub sig: Option<Sig>,
+}
+
 thread_local! {
     static NOTES: RefCell<Option<Vec<WidthNote>>> = const { RefCell::new(None) };
+    static HELPERS: RefCell<Option<Vec<HelperNote>>> = const { RefCell::new(None) };
 }
 
 /// `f` koşarken bu iş parçacığında üreticinin verdiği genişlikleri toplar.
 pub fn record<R>(f: impl FnOnce() -> R) -> (R, Vec<WidthNote>) {
+    let (out, notes, _) = record_all(f);
+    (out, notes)
+}
+
+/// [`record`] ve `prev()` yardımcı register'larının kararları.
+pub fn record_all<R>(f: impl FnOnce() -> R) -> (R, Vec<WidthNote>, Vec<HelperNote>) {
     NOTES.with(|n| *n.borrow_mut() = Some(Vec::new()));
+    HELPERS.with(|n| *n.borrow_mut() = Some(Vec::new()));
     let out = f();
     let notes = NOTES.with(|n| n.borrow_mut().take()).unwrap_or_default();
-    (out, notes)
+    let helpers = HELPERS.with(|n| n.borrow_mut().take()).unwrap_or_default();
+    (out, notes, helpers)
+}
+
+/// Yardımcı register kararını kaydeder; [`record_all`] dışında bir şey
+/// yapmaz.
+pub(crate) fn note_helper(
+    ast: &SourceFile,
+    call: Idx<Expr>,
+    arg: Idx<Expr>,
+    origin: Option<(Idx<Expr>, Vec<String>)>,
+    sig: Option<Sig>,
+) {
+    HELPERS.with(|n| {
+        if let Some(notes) = n.borrow_mut().as_mut() {
+            notes.push(HelperNote {
+                ast: ast as *const SourceFile as usize,
+                call,
+                call_span: ast.exprs[call].span,
+                arg,
+                arg_span: ast.exprs[arg].span,
+                origin: origin.map(|(o, path)| (o, ast.exprs[o].span, path)),
+                sig,
+            });
+        }
+    });
 }
 
 /// `width_of`'un sonucunu kaydeder; [`record`] dışında bir şey yapmaz.

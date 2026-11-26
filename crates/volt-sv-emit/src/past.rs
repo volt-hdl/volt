@@ -13,17 +13,26 @@
 //!   sonrası ilk döngüde `prev(x) == 0` kabul edilir.
 //! - `SvaMode::Simulation` (`volt test`, ADR-0064): Immediate ile aynı
 //!   zincir — simülasyonda da ilk döngü `prev(x) == 0` (formal ile aynı).
+//!
+//! `prev(x)`'in tipi `x`'in tipidir (ADR-0040). Yardımcı register'ın ve
+//! değerin genişliği ve işareti tip denetiminin `x`'e verdiği tipten gelir
+//! ([`Emitter::prev_sig`], #413, ADR-0137 §1, ADR-0141): esnek aritmetik
+//! sonucu doğal genişliğinde (ADR-0025), `iN`, işaretli aralık ve `Trit`
+//! işaretli. Tip denetimi genişlik vermiyorsa register bildirilmez, E2005.
 
+use volt_ast::checked::CheckedValue;
 use volt_ast::{Expr, ExprKind, Idx, ModuleDecl};
+use volt_diagnostics::{lstr, ErrorCode};
 
 use crate::expr::Sig;
 use crate::{ClockPort, Emitter, SvaMode};
 
-/// Yardımcı reg zinciri: (taban ad, kaynak ifade metni, genişlik, azami derinlik).
+/// Yardımcı reg zinciri: (taban ad, kaynak ifade metni, genişlik ve işaret,
+/// azami derinlik).
 struct PastChain {
     base: String,
     src: String,
-    width: u32,
+    sig: Sig,
     max_depth: u32,
 }
 
@@ -51,12 +60,44 @@ impl<'a> Emitter<'a> {
             }
         }
         let depth = self.prev_depth(args);
+        // `$past`'in argümanı öz-belirlenimlidir: bağlam yoksa değer
+        // `prev(x)`'in genişliğinde hesaplanır (`a + b` taşmasıyla, #413).
+        let ctx = ctx.or_else(|| self.prev_sig(call));
         let inner = self.emit_expr(x, ctx);
         if depth == 1 {
             format!("$past({inner})")
         } else {
             format!("$past({inner}, {depth})")
         }
+    }
+
+    /// `prev(x[, N])`'in değerinin genişliği ve işareti: tip denetiminin
+    /// `x`'e verdiği tip (ADR-0040: `prev(x: T) -> T`), tek kaynak (#413,
+    /// ADR-0141). Struct indirgemesinin yaprağıysa (ADR-0077) özgün
+    /// argümanın tipinin o alanı (`StructNotes::prev_leaves`). Tip denetimi
+    /// genişlik vermiyorsa `None`: çağıran onu bir varsayılanla doldurmaz.
+    pub(crate) fn prev_sig(&self, call: Idx<Expr>) -> Option<Sig> {
+        let value = match self.struct_notes.prev_leaves.get(&call) {
+            Some((orig, path)) => {
+                let v = self.prev_arg_value(*orig)?;
+                self.checked?.field(v, path)?
+            }
+            None => self.prev_arg_value(call)?,
+        };
+        match value {
+            CheckedValue::Bits { width, signed } => Some(Sig { width, signed }),
+            CheckedValue::Struct(_) | CheckedValue::NoWidth => None,
+        }
+    }
+
+    /// Tip denetiminin `prev()` çağrısının argümanına verdiği değer; argüman
+    /// kök AST'nin bir ifadesi değilse `None`.
+    fn prev_arg_value(&self, call: Idx<Expr>) -> Option<CheckedValue> {
+        let ExprKind::Call { args, .. } = &self.ast.exprs[call].kind else {
+            return None;
+        };
+        let x = *args.first()?;
+        self.checked?.expr(x, self.ast.exprs[x].span)
     }
 
     /// İkinci argüman (döngü sayısı); yoksa ya da sabit değilse 1.
@@ -96,9 +137,23 @@ impl<'a> Emitter<'a> {
                 continue;
             };
             let depth = self.prev_depth(&args);
-            let src = self.emit_expr(x, None);
-            let width = self.width_of(x).map(|s| s.width).unwrap_or(1);
-            let idx = match chains.iter().position(|c| c.src == src) {
+            let sig = self.prev_sig(call);
+            #[cfg(feature = "width-shadow")]
+            crate::width_shadow::note_helper(
+                self.ast,
+                call,
+                x,
+                self.struct_notes.prev_leaves.get(&call).cloned(),
+                sig,
+            );
+            let Some(sig) = sig else {
+                self.prev_width_unknown(x);
+                continue;
+            };
+            // Kaynak register'ın genişliğinde (atamanın bağlamı): `a + b`
+            // taşmasıyla yazılır, Verilator WIDTHEXPAND vermez.
+            let src = self.emit_expr(x, Some(sig));
+            let idx = match chains.iter().position(|c| c.src == src && c.sig == sig) {
                 Some(i) => i,
                 None => {
                     let simple = matches!(
@@ -121,7 +176,7 @@ impl<'a> Emitter<'a> {
                     chains.push(PastChain {
                         base,
                         src,
-                        width,
+                        sig,
                         max_depth: 0,
                     });
                     chains.len() - 1
@@ -139,11 +194,7 @@ impl<'a> Emitter<'a> {
             "{ind}// prev() helper registers (ADR-0040): value N cycles ago, 0 after reset"
         )];
         for chain in &chains {
-            let ty = if chain.width == 1 {
-                "logic".to_string()
-            } else {
-                format!("logic [{}:0]", chain.width - 1)
-            };
+            let ty = chain.sig.decl_type();
             for k in 1..=chain.max_depth {
                 out.push(format!("{ind}{ty} {}_{k};", chain.base));
             }
@@ -185,6 +236,27 @@ impl<'a> Emitter<'a> {
             }
         }
         Some(out.join("\n"))
+    }
+}
+
+impl Emitter<'_> {
+    /// E2005: tip denetimi `prev()`'in argümanına genişlik vermedi (boyutsuz
+    /// literal, demet ...). Yardımcı register bir varsayılanla (1 bit)
+    /// bildirilmez (#413).
+    fn prev_width_unknown(&mut self, x: Idx<Expr>) {
+        let span = self.ast.exprs[x].span;
+        self.error(
+            ErrorCode::E2005,
+            lstr!(
+                en: "cannot determine the width of the prev() argument";
+                tr: "prev() argümanının genişliği belirlenemiyor"
+            ),
+            span,
+            &lstr!(
+                en: "prev(x) holds a value of x's type; give the value a type with a width, for example prev(x as u8)";
+                tr: "prev(x), x'in tipinde bir değer tutar; değere genişliği olan bir tip verin, örneğin prev(x as u8)"
+            ),
+        );
     }
 }
 
