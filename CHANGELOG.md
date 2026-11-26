@@ -70,6 +70,22 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `cannot determine the width of the prev() argument`; öneri değere
   genişliği olan bir tip vermeyi söyler (`prev(x as u8)`) (#413).
 
+### Düzeltildi — Kardeş `for` döngülerinin açılımı karesel süre alıyordu (#446, 2026-11-26)
+
+- Aynı modülde `let` açan bir `for`dan sonra gelen her modül düzeyi `for`
+  açılımı, yinelemesi başına önceki döngülerin açtığı bütün adları
+  kopyalıyordu: n `let` açan döngüden sonraki n yinelemeli döngü n²
+  kapsam girdisi kopyalıyordu. 4 KB'tan küçük girdilerin ayrıştırılması
+  saniyeler sürüyordu: gece fuzz koşusunun (45739110046) üç yavaş girdisi
+  (25, 31 ve 35 s, fuzz derlemesinde) release derlemede `volt check` ile
+  8-11 s sürüyordu, şimdi 0,3 s'nin altında. `volt build` ve dil sunucusu
+  aynı ayrıştırıcıyı kullanır. Kapsam zinciri artık kapsamları paylaşır
+  ve yalnız yazılan kapsamı kopyalar; tanılar ve üretilen dosyalar
+  değişmez. Gece derleminin (115 764 dosya) release ayrıştırıcıyla
+  taramasında 1 saniyeyi aşan girdi 23'ten 0'a, toplam ayrıştırma süresi
+  143 s'den 68 s'ye indi. 23 girdi ve küçültülmüş biçimi
+  `tests/fuzz_regressions/slow_for_scope_clone_*` altındadır.
+
 ### Geliştirici notu — Üretici `prev()`'in genişliğini ve işaretini tip denetiminden okur (#413, ADR-0141, 2026-11-26)
 
 - `volt_ast::checked::CheckedTypes`: tip denetiminin kök AST'nin her
