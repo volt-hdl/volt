@@ -5,6 +5,33 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- Yok: bu bölümdeki değişiklikler yalnız CI'ı değiştirir.
+
+### Geliştirici notu — Fuzz başarısızlıkta kapalı kalır; gece derlemi küçülür, PR tohumlardan fuzz eder (#305, ADR-0143, 2026-11-26)
+
+- libFuzzer'ın `-max_total_time`'ı derlemin yeniden oynatmasını da sayar.
+  Önceden gece işi 1800 s'nin 1530'unu yeniden oynatmaya harcıyor, 370 s
+  fuzz ediyordu (koşu 45739110046); PR'daki "Fuzz (60 s)" 924 s yeniden
+  oynatıp 0 s fuzz ediyordu (koşu 45873059789). İkisi de yeşildi.
+- Yeni `scripts/ci/fuzz_health.py` libFuzzer çıktısını zaman damgalı bir
+  loga yazar ve iki işte "Fuzz health (fail closed)" adımında okur:
+  `INITED` ya da `Done` yoksa ya da gerçek fuzz süresi (`INITED` → `Done`)
+  bütçenin yarısından azsa iş kırmızıdır. Her koşunun özetinde derlem
+  boyutu, yeniden oynatma süresi, gerçek fuzz süresi, exec/s ve slow-unit
+  sayısı vardır.
+- Gece işi geri yüklenen derlemi 4 KB'a keser ve `-merge=1` ile
+  küçültür (115 692 dosyanın ~14 000'i kapsam ekler); birleşmiş derlem,
+  kapsamı (cov/ft) aynı ikiliyle korunduysa kaydedilir.
+- PR işi ("Fuzz (120 s, seeds)") gece derlemini okumaz; `tests/ui/` ve
+  `tests/fuzz_regressions/`'tan 120 s fuzz eder.
+- İki işte `-timeout=10` (önceden 1200 s) ve `-report_slow_units=2`;
+  `fuzz/artifacts` (slow-unit, crash, timeout) koşu yeşil olsa da
+  artifact olarak yüklenir (gece 30, PR 14 gün).
+
 ## [0.1.4] - 2026-11-26
 
 ### Behavior changes

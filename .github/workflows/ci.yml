@@ -447,12 +447,24 @@ jobs:
           verbose: true
 
   fuzz:
-    name: Fuzz (60 s)
+    name: Fuzz (120 s, seeds)
     runs-on: ubuntu-24.04
-    # Short smoke run on every push/PR. The long run (30 min, corpus carried
-    # over between nights) lives in fuzz-nightly.yml. The nightly corpus is
-    # restored read-only here (caches saved on main are visible to PRs), so
-    # the 60 s start from everything the nightly job has already found.
+    # Fuzz run on every push/PR from the seeds alone: tests/ui and the fuzz
+    # regression inputs (ADR-0067), 526 files that replay in seconds. The
+    # nightly corpus (fuzz-nightly.yml) is not restored here (ADR-0143,
+    # #305): its replay took 923 s of the old 60 s budget (run 45873059789)
+    # and the job fuzzed for 0 s, green. The nightly job is where the corpus
+    # grows; this job checks that the change does not make the parser panic,
+    # hang or slow down on the seeds and their mutations.
+    timeout-minutes: 20
+    defaults:
+      run:
+        # bash -eo pipefail: a failing libFuzzer is not hidden by the pipe
+        # into fuzz_health.py stamp.
+        shell: bash
+    env:
+      FUZZ_SECONDS: "120"
+      ARTIFACTS: fuzz/artifacts/parse_never_panics
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
@@ -468,32 +480,44 @@ jobs:
           env-vars: ImageOS
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
-      - name: Restore nightly corpus (read-only)
-        uses: actions/cache/restore@v6
-        with:
-          path: fuzz/corpus/parse_never_panics
-          key: fuzz-corpus-parse_never_panics-${{ github.run_id }}
-          restore-keys: fuzz-corpus-parse_never_panics-
-      # First corpus dir receives new inputs; tests/ui and the fuzz regression
-      # inputs (ADR-0067) are read-only seeds. -max_len is fixed (ADR-0080 §6):
-      # otherwise libFuzzer takes the largest seed as the limit, and the 60 KB
-      # stack_* regressions made every mutated input up to 60 KB (1221 -> 713
-      # exec/s). Longer seeds are truncated to a 4 KB prefix, which still
-      # nests past the 256-level depth limit.
-      - name: parse_never_panics (60 s)
+      - name: Fuzz health self-test (scripts/ci/fuzz_health.py)
+        run: python3 scripts/ci/fuzz_health.py --self-test
+      # The leading corpus dir (empty, outside the checkout) receives new
+      # inputs; libFuzzer never writes to the seeds, tests/ui and
+      # tests/fuzz_regressions.
+      # The flags are the nightly job's (fuzz-nightly.yml, FUZZ_FLAGS):
+      # -max_len=4096 (ADR-0080 §6), -timeout=10 and -report_slow_units=2
+      # (ADR-0143).
+      - name: parse_never_panics (120 s)
+        id: fuzz
         run: |
-          mkdir -p fuzz/corpus/parse_never_panics
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/fuzz-corpus"
           cargo +nightly fuzz run parse_never_panics \
-            "$GITHUB_WORKSPACE/fuzz/corpus/parse_never_panics" \
+            "$RUNNER_TEMP/fuzz-corpus" \
             "$GITHUB_WORKSPACE/tests/ui" \
             "$GITHUB_WORKSPACE/tests/fuzz_regressions" \
-            -- -max_total_time=60 -max_len=4096
-      - name: Upload crash input
-        if: failure()
+            -- -max_total_time="$FUZZ_SECONDS" -max_len=4096 -timeout=10 -report_slow_units=2 \
+            2>&1 | python3 scripts/ci/fuzz_health.py stamp --out "$RUNNER_TEMP/fuzz.log"
+      # Runs unless the run was cancelled, so a failed or skipped fuzz step
+      # still gets its verdict: this step fails when the log is missing or
+      # incomplete or the real fuzz time is below half the budget (ADR-0143).
+      - name: Fuzz health (fail closed)
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/ci/fuzz_health.py check \
+            --log "$RUNNER_TEMP/fuzz.log" --budget "$FUZZ_SECONDS" \
+            --artifacts "$ARTIFACTS" --title "Fuzz parse_never_panics (PR, ${FUZZ_SECONDS} s, seeds)"
+      # Every run, green or red: slow-unit files come from green runs too.
+      # An empty directory uploads nothing and does not fail.
+      - name: Upload fuzz artifacts
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-crash-parse_never_panics
-          path: fuzz/artifacts/parse_never_panics/
+          name: fuzz-artifacts-parse_never_panics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.ARTIFACTS }}/
+          if-no-files-found: ignore
+          retention-days: 14
 
   docker-backend:
     name: Docker backend (no local Verilator/sby)
