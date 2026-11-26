@@ -342,6 +342,15 @@ The tag is exactly `v0.1.3`, no suffix (ADR-0100). The push starts
 `release.yml` (release run) and `book.yml` (the book's root moves to
 v0.1.3).
 
+The book's root moves at this push, not when the GitHub Release is
+published in step 6: `book.yml` puts the book of the latest release tag
+at https://volthdl.org/, whether that tag has a published Release or
+not (observed with v0.1.3). From the push until step 6, the root
+describes 0.1.3 while the install scripts, which take
+`releases/latest`, still install 0.1.2. Go through steps 4 to 6 without
+a break; if the release run fails, delete the tag ([Undo](#undo-a-wrong-tag-before-publishing)),
+which also moves the root back.
+
 ## 4. Watch the release run
 
 ```powershell
@@ -423,8 +432,9 @@ gh run list --workflow book.yml --limit 2
 ```
 
 The `One-line install` jobs of `install.yml` now install 0.1.3 instead of
-0.1.2. The book run started by the tag puts the v0.1.3 book at
-https://volthdl.org/.
+0.1.2. The book run that the tag push started in step 3 has already put
+the v0.1.3 book at https://volthdl.org/; publishing does not rebuild it.
+The `book.yml` list shows that run and the run on `main` it started.
 
 ## Undo (a wrong tag, before publishing)
 
