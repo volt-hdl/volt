@@ -534,6 +534,29 @@ farklı argüman için bir register zinciri üretilir; reset değeri 0'dır
 derinlikleri tek zinciri paylaşır; bileşik argüman `past_e<k>_N` adını
 alır.
 
+Yardımcı register `x`'in tipindedir (type-inference.md §3.10,
+ADR-0141): işaretsiz tip `logic [W-1:0]` (1 bit `logic`), işaretli tip
+(`iN`, işaretli aralık, `Trit`) `logic signed [W-1:0]`; `W` tip
+denetiminin genişliğidir, esnek tipte doğal genişlik. Kaynak o
+genişlikte yazılır ve karşılaştırma `prev(x)`'in genişliğindedir:
+
+| Volt (`a`, `b` : `u8`; `sa` : `i8`) | `--emit=sva` | `volt verify` / `volt test` |
+|---|---|---|
+| `prev(a + b) != 300` | `$past(9'(a) + 9'(b)) != 9'd300` | `logic [8:0] past_e1_1;` `past_e1_1 <= 9'(a) + 9'(b);` `past_e1_1 != 9'd300` |
+| `prev(sa) < sb` | `$past(sa) < sb` | `logic signed [7:0] past_sa_1;` `past_sa_1 < sb` |
+
+`$past`'in argümanı öz-belirlenimlidir; bağlam yoksa `prev(x)`'in
+genişliğinde yazılır.
+
+Tip denetimi genişliği olmayan argümanı (boyutsuz literal `prev(5)`,
+demet `prev((a, b))`) reddetmez (type-inference.md §3.10); kural bu
+eşlemededir. `volt test` ve `volt verify`'da yardımcı register
+bildirilmez ve argüman E2005 alır ("cannot determine the width of the
+prev() argument"). `--emit=sva`'da `$past`'in argümanı karşılaştırmanın
+genişliğini alabilir: `prev(5) == a` (`a` : `u8`) `$past(8'd5) == a`
+yazılır; bağlam da yoksa (`prev(5) == 5`) literal E2005 alır. Demet
+`--emit=sva`'da E0003'tür.
+
 ```systemverilog
 // prev() helper registers (ADR-0040): value N cycles ago, 0 after reset
 logic past_b_valid_1;
