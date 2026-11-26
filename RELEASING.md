@@ -273,7 +273,24 @@ short hash of the commit of step 1a (`git rev-parse --short HEAD`).
 folder (the pages replace the user name with `you`): once with Docker
 Desktop running, and once with Docker Desktop installed but not running.
 For the second one, quit Docker Desktop, wait until `docker info` fails,
-record, and start it again. When an image is not downloaded on the
+record, and start it again.
+
+An agent does not quit Docker Desktop on the maintainer's machine. It
+records the second output with Docker Desktop running, pointing
+`DOCKER_HOST` at a named pipe that does not exist for that one command:
+
+```powershell
+Set-Location $HOME
+$env:DOCKER_HOST = 'npipe:////./pipe/volt_no_such_docker_engine'
+docker info *> $null; "docker info exit=$LASTEXITCODE"   # 1: the daemon is not reachable
+volt doctor
+Remove-Item Env:DOCKER_HOST
+```
+
+`volt doctor` asks the daemon through `docker info`, so the code path is
+the same as with Docker Desktop stopped: the `test, run`, `verify` and
+`docker` lines say that the daemon is not running. The pull request says
+that the output was recorded this way. When an image is not downloaded on the
 recording machine, `volt doctor` prints `image not downloaded yet` under
 its line; record the output as it is.
 

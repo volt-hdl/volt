@@ -1,7 +1,7 @@
 # ADR-0040: Ardışık Kontratlar — `prev()` Yerleşiği
 
 > Statü: Uygulandı
-> İlgili: ADR-0064 (`prev()` simülasyonda), ADR-0141 (önerildi: yardımcı register'ın genişliği ve işareti tip denetiminden, `x`'in tipinde).
+> İlgili: ADR-0064 (`prev()` simülasyonda), ADR-0141 (yardımcı register'ın genişliği ve işareti tip denetiminden, `x`'in tipinde).
 > Tarih: 2026-09-13
 > Etkilenen: sv-mapping.md §15, volt-hir (resolve.rs prelude `prev` +
 > E5017, typeck.rs tip taşıma, domain.rs alan kuralı), volt-sv-emit
