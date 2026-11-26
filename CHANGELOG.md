@@ -9,6 +9,33 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** `~` bir `Trit` üzerinde tanımlı değildir:
+  `~t` artık `error[E2003]: operator '~' is not defined for 'Trit'`
+  verir, yardımı `-t`'yi gösterir (#434; sessiz yanlış düzeltmesi,
+  ADR-0100; ADR-0003, ADR-0139, ADR-0142). Önce `~t` `Trit` tipliydi ve
+  tanısız derleniyordu, ama `~` değeri değil iki bitlik kodu (+1 = `01`,
+  0 = `00`, -1 = `11`) tersliyordu: t = +1 için `10` kodunu, yani
+  `Trit`'in değer kümesinin dışındaki -2'yi; t = 0 için -1'i; t = -1
+  için 0'ı veriyordu (main'de `volt test` ile Verilator'da ölçüldü).
+  Aynı ret `~`'nin Trit'e ulaştığı her yolda geçerlidir: port, register,
+  struct alanı, Trit dizisinin elemanı ve dizinin kendisi
+  (`operator '~' is not defined for '[Trit; 2]'`), fn gövdesi, bağlamdan
+  `Trit` tipini alan literal (`y = ~1`, `-(~1)`, `t * ~1`, `reg r : Trit
+  = ~0`), `const C : Trit = ~1` ve generic `const S : Trit`
+  parametresinin `~S`'i. `~0`'ın kodu (`11`, -1) bir Trit değeri olsa da
+  reddedilir: kural değere değil tipe bakar. Kimi etkiler: bir `Trit`'i
+  (ya da `Trit` dizisini) `~` ile çeviren tasarımlar, örneğin üçlü bir
+  ağırlığı `~w` ile olumsuzlayan bir MAC. Ne yapmalı: `~t` yerine `-t`
+  yazın (-(+1) = -1, -0 = 0, -(-1) = +1; `-Trit` `Trit`'tir); bir `Trit`
+  dizisini eleman eleman çevirin: `a : [Trit; 2]` için
+  `for i in 0..2 { y[i] = -a[i] }` (yardım dizinin gerçek uzunluğunu yazar).
+  `&`, `|`, `^`, `<<`, `>>` ve bit seçme `Trit`'te önceden de E2003'tü;
+  değişmez. Ölçüm: main (ad6b0d4d) ile bu dalın ikilileri gölgenin
+  girdisinde (`examples/` dahil 497 dosya) `volt build --single-file
+  --emit=sva,sdc` ile çalıştırıldı: çıkış kodları ve üretilen 688 dosya
+  yeni `tests/real_bugs/434_trit_bit_not.volt` dışında aynıdır; kitabın
+  31 `volt` bloğu derlenir.
+
 - **Davranış değişikliği.** `prev(x)`'in değeri `x`'in işaretini taşır
   (#413; sessiz yanlış düzeltmesi, ADR-0100; ADR-0040: `prev(x: T) -> T`;
   ADR-0141). Önce `volt test` ve `volt verify` her `prev()` yardımcı

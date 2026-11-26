@@ -6,7 +6,7 @@
 use volt_ast::{
     ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, ItemKind, MatchArm, UnOp,
 };
-use volt_diagnostics::{lstr, ErrorCode};
+use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
 use super::reset_binding::ResetRead;
@@ -289,8 +289,7 @@ impl TypeChecker<'_, '_> {
                 }
                 bool_ty
             }
-            // Bit tersleme genişliği korur.
-            UnOp::BitNot => ot,
+            UnOp::BitNot => self.bit_not_result(ot, span),
             UnOp::Neg => match *self.types.ty(ot) {
                 Ty::SInt { width } | Ty::SIntFlex { hi: width, .. } => {
                     self.types.intern(Ty::SInt {
@@ -344,6 +343,130 @@ impl TypeChecker<'_, '_> {
                 | Ty::Delayed { .. }
                 | Ty::Error => self.types.error(),
             },
+        }
+    }
+
+    /// §3.4 — `~x`'in tanımlı olduğu tipler ve sonucu; kuralın tek yeri
+    /// (#434, ADR-0142). `~` bitleri tersler ve tipi korur: bool, uN, iN,
+    /// bits<N> ve bunların dizileri. Trit'te tanımlı değildir: değer kümesi
+    /// {-1, 0, +1} (ADR-0003), `~` ise iki bitlik kodu tersler (ADR-0062)
+    /// ve +1'in `01` kodundan küme dışındaki `10`'u (-2) yapar. Trit tutan
+    /// dizi de öyledir: paketlenmiş vektörün `~`'si her elemanınkidir
+    /// (ADR-0056). Struct ve enum `-` ile birlikte `synth_unary`'de
+    /// reddedilir. Çağıranlar: sentez (işlenenin tipi) ve check kipindeki
+    /// literal (`check_literal_bit_not`: literalin uyarlandığı tip).
+    pub(super) fn bit_not_result(&mut self, ot: TypeId, span: Span) -> TypeId {
+        if !self.holds_trit(ot) {
+            return ot;
+        }
+        let shown = self.show(ot);
+        let help = if matches!(self.types.ty(ot), Ty::Array { .. }) {
+            let code = self.negate_each_trit(ot);
+            lstr!(en: "negate each element with '-': {code}; '-' maps +1 to -1, 0 to 0 and -1 to +1";
+                  tr: "her elemanı '-' ile çevirin: {code}; '-', +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir")
+        } else {
+            lstr!(en: "use '-' for ternary negation: write -t instead of ~t; '-' maps +1 to -1, 0 to 0 and -1 to +1";
+                  tr: "üçlü olumsuzlama için '-' kullanın: ~t yerine -t yazın; '-', +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir")
+        };
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2003,
+                lstr!(en: "operator '~' is not defined for '{shown}'"; tr: "'~' operatörü '{shown}' için tanımlı değil"),
+                LabeledSpan::primary(
+                    span,
+                    lstr!(en: "'~' inverts the bits that encode a Trit, not its value"; tr: "'~' Trit'in değerini değil onu kodlayan bitleri tersler"),
+                ),
+                help,
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a Trit is -1, 0 or +1; inverting the bits that encode +1 gives a pattern that is none of the three values";
+                      tr: "Trit -1, 0 ya da +1'dir; +1'i kodlayan bitleri terslemek bu üç değerden hiçbiri olmayan bir desen verir"),
+            ),
+        );
+        self.types.error()
+    }
+
+    /// Trit dizisinin her Trit'ini `-` ile çeviren kod, dizinin gerçek
+    /// uzunluklarıyla (`-` dizinin kendisinde tanımlı değil): `[Trit; 2]`
+    /// için `for i in 0..2 { y[i] = -a[i] }`; iç içe dizide her boyut bir
+    /// döngü (`i`, `j`, ...). `a` işlenen, `y` hedef yerine geçer.
+    fn negate_each_trit(&self, ty: TypeId) -> String {
+        let mut lens = Vec::new();
+        let mut t = ty;
+        while let Ty::Array { elem, len } = *self.types.ty(t) {
+            lens.push(len);
+            t = elem;
+        }
+        let vars: Vec<char> = (0..lens.len()).map(|d| (b'i' + d as u8) as char).collect();
+        let index: String = vars.iter().map(|v| format!("[{v}]")).collect();
+        let mut code = format!("y{index} = -a{index}");
+        for (v, len) in vars.iter().zip(&lens).rev() {
+            code = format!("for {v} in 0..{len} {{ {code} }}");
+        }
+        code
+    }
+
+    /// Tip bir Trit ya da (iç içe) Trit dizisi mi.
+    fn holds_trit(&self, ty: TypeId) -> bool {
+        if let Ty::Array { elem, .. } = *self.types.ty(ty) {
+            return self.holds_trit(elem);
+        }
+        matches!(self.types.ty(ty), Ty::Trit)
+    }
+
+    /// Check kipi (§4): tipini bağlamdan alan literal ağacındaki `~` (`~1`,
+    /// `-(~1)`, `~1 | 0`; generic `~S` örnekte `~1`'dir) beklenen tipte
+    /// çalışır: üretici onu o genişlikte yazar (Trit'te `~2'sd1` = `10`).
+    /// Kural `bit_not_result`'tan, işlenen tipi literalin uyarlandığı tip.
+    /// Literal uyarlanamıyorsa uyumsuzluğu atanabilirlik denetimi bildirir.
+    pub(super) fn check_literal_bit_not(&mut self, expr: Idx<Expr>, expected: TypeId) {
+        if !self.is_literal_adaptable(expected) {
+            return;
+        }
+        if let Some(span) = self.literal_bit_not(expr) {
+            self.bit_not_result(expected, span);
+        }
+    }
+
+    /// Literal tipli (`IntLit`) alt ağaçtaki ilk `~`'nin konumu. Tekli ve
+    /// ikili işlemlerin işlenenlerine iner; literal tipli olmayan bir
+    /// işlenen (`t * ~1`'in `t`'si gibi) ağacın dışındadır.
+    fn literal_bit_not(&self, expr: Idx<Expr>) -> Option<Span> {
+        let literal_typed = self
+            .expr_types
+            .get(&expr)
+            .is_some_and(|&t| self.types.is_int_lit(t));
+        if !literal_typed {
+            return None;
+        }
+        let e = &self.ast.exprs[expr];
+        match &e.kind {
+            ExprKind::Unary {
+                op: UnOp::BitNot, ..
+            } => Some(e.span),
+            ExprKind::Unary { operand, .. } => self.literal_bit_not(*operand),
+            ExprKind::Binary { lhs, rhs, .. } => self
+                .literal_bit_not(*lhs)
+                .or_else(|| self.literal_bit_not(*rhs)),
+            ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => None,
         }
     }
 

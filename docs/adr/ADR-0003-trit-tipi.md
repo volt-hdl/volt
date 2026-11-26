@@ -1,7 +1,7 @@
 # ADR-0003: Trit Tipi — Kısıtlı i2 ve Katmanlı Görünürlük
 
 > Statü: Kabul edildi — geriye dönük belgelendi (2026-09-16); `import volt::ternary` opt-in yolu uygulanmadı
-> İlgili: ADR-0062 (Trit SV eşlemesi), ADR-0139 (Trit'in değer kümesi ve kodlaması ayrı bilgilerdir; Trit'in uçtan uca tamamlanması Aşama 1'in turnusolu).
+> İlgili: ADR-0062 (Trit SV eşlemesi), ADR-0139 (Trit'in değer kümesi ve kodlaması ayrı bilgilerdir; Trit'in uçtan uca tamamlanması Aşama 1'in turnusolu), ADR-0142 (`~` Trit'te tanımlı değil; Trit'in tersi `-t`).
 > Tarih: 2026-09-03 (karar); tip kuralları F2a/F2b (2026-09-03)
 > Etkilenen: type-inference.md §3.3/§3.6/§10, grammar-full.ebnf §17,
 > volt-hir/src/ty.rs (`Ty::Trit`), volt-hir/src/typeck.rs

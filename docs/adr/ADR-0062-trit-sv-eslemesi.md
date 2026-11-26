@@ -1,7 +1,7 @@
 # ADR-0062: Trit SV Eşlemesi — İşaretli 2 Bit ve Çarpansız Ternary MAC
 
 > Statü: Uygulandı
-> İlgili: ADR-0003 (Trit tipi, 2 bit işaretli depolama), ADR-0041 (aynı-işaret genişleme, `W'(x)`), ADR-0057 (SV önceliği), ADR-0136 (önerildi: Karar 4'ün "üretici HIR tiplerini görmez" gerekçesi Aşama 2'de kalkar), ADR-0139 (Trit'in `01`/`11` kodları kodlama bilgisidir ve tek yerde durur), ADR-0141 (önerildi: `prev()`'in genişliği ve işareti tip denetiminden; `prev(t)` işaretli 2 bit).
+> İlgili: ADR-0003 (Trit tipi, 2 bit işaretli depolama), ADR-0041 (aynı-işaret genişleme, `W'(x)`), ADR-0057 (SV önceliği), ADR-0136 (önerildi: Karar 4'ün "üretici HIR tiplerini görmez" gerekçesi Aşama 2'de kalkar), ADR-0139 (Trit'in `01`/`11` kodları kodlama bilgisidir ve tek yerde durur), ADR-0141 (önerildi: `prev()`'in genişliği ve işareti tip denetiminden; `prev(t)` işaretli 2 bit), ADR-0142 (`~` bu kod üzerinde çalışıyordu; Trit'te tanımlı değil).
 > Tarih: 2026-09-21
 > Etkilenen: volt-sv-emit (`trit.rs` YENİ — `is_trit`, `try_emit_trit_mul`,
 > `trit_sum_sig`; `lib.rs` `sig_of_typeref`, `trits` kümesi, `error`

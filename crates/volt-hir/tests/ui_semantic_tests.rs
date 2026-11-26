@@ -311,6 +311,13 @@ fn ui_fail_242_literal_arithmetic_trit_out_of_range_e2011() {
 }
 
 #[test]
+fn ui_fail_318_trit_bit_not_e2003() {
+    // #434 (ADR-0142): `~` Trit'te tanımlı değil; önceden iki bitlik kodu
+    // tersliyordu ve +1 için `10` (-2) veriyordu.
+    assert_ui_fail("fail/318_trit_bit_not.volt");
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");
@@ -498,7 +505,9 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #419: 163 her skaler tipin her kullanım yerinde tek genişliği.
     // #420: 164 her domain alanı bir kez.
     // #413: 165 prev() yardımcı register'ı x'in tipinde.
-    assert_eq!(checked, 150);
+    // #434 (ADR-0142): 166 Trit'in tersi `-t` (port, register, alan, dizi
+    //       elemanı, ternary MAC).
+    assert_eq!(checked, 151);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

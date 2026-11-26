@@ -344,7 +344,9 @@ A reset is the one value that is checked by its form as well as its type. Volt s
             "y = if count != 0 { a } else { b }   // ✓",
         )
         .with_note(
-            "The branches of an 'if' expression and the arms of a 'match' expression must have one type when nothing around them states it (an untyped let): 'let r = match op { 0 => a, _ => true }' is E2003 \"match arms have different types\". With a stated type (a typed let, an assignment target, a port) that type is pushed into every arm, like 'if': 'let r : u9 = match op { 0 => a + b, _ => b }' computes a + b in 9 bits.",
+            "The branches of an 'if' expression and the arms of a 'match' expression must have one type when nothing around them states it (an untyped let): 'let r = match op { 0 => a, _ => true }' is E2003 \"match arms have different types\". With a stated type (a typed let, an assignment target, a port) that type is pushed into every arm, like 'if': 'let r : u9 = match op { 0 => a + b, _ => b }' computes a + b in 9 bits.
+
+An operator is defined for some types only. '~' inverts the bits of bool, uN, iN, bits<N> and arrays of them, and is E2003 on a Trit: a Trit is -1, 0 or +1, '~' acts on the bits that encode it, not on its value, and inverting the bits that encode +1 gives a pattern that is none of the three values. Negate a Trit with '-': 'y = ~t' is E2003, 'y = -t' maps +1 to -1, 0 to 0 and -1 to +1. For an array of Trit, negate each element: for 'a : [Trit; 2]', 'for i in 0..2 { y[i] = -a[i] }'.",
         ),
         E2004 => Explanation::new(
             "Arithmetic on a bits<N> type",
