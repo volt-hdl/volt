@@ -31,7 +31,7 @@ the cut operand of `+`, `-` and `*`
 ([#266](https://github.com/volt-hdl/volt/issues/266)) are under
 [Language](#language) below.
 
-**Wrong results without a diagnostic.** These open bugs of Volt 0.1.4
+**Wrong results without a diagnostic.** These open bugs of Volt 0.1.5
 compile without an error and give a result other than the one the source
 says. "Suspected" marks a bug that was found by reading the code and has
 not been reproduced by running it yet. The paragraphs below give the
@@ -56,8 +56,11 @@ workaround of each.
 - [#220](https://github.com/volt-hdl/volt/issues/220): an `@mmio` module accepts an unaligned base address and a repeated argument, and a `*/` in a `///` comment ends the C comment of the generated header.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 - [#382](https://github.com/volt-hdl/volt/issues/382): a `$finish` in the SystemVerilog body of an `extern` module does not end a `volt test` run, so a test can pass after the check in it failed.
+- [#468](https://github.com/volt-hdl/volt/issues/468): a product with a generic `const S : Trit` parameter (`S * x`, `-S * x`) follows the rule of an integer product, not of a `Trit` product: an untyped `let` gets a wider type, and as the operand of another operation the product does not wrap in `iN` (`(-S * x) as i12` gives +2 where `(t * x) as i12` gives -2).
+- [#465](https://github.com/volt-hdl/volt/issues/465): an index that is a `Trit` (`x[t]`) is accepted, and for t = -1 it reads bit 3 of `x`, the two-bit code of -1 read as unsigned; the specification does not define an index of -1.
+- [#467](https://github.com/volt-hdl/volt/issues/467) (suspected): the SystemVerilog generator recognizes a `Trit` by the form of the expression; a `Trit` product or `-t` in a form it does not recognize would get the width of a two-bit integer in an untyped `let`. No such form is known.
 
-**Errors, false warnings and failures.** These open bugs of Volt 0.1.4
+**Errors, false warnings and failures.** These open bugs of Volt 0.1.5
 do not give a wrong result: Volt stops with an error or warns where
 nothing is wrong, or a step fails. The paragraphs below describe more
 bugs of this kind, each with its workaround.
@@ -74,6 +77,8 @@ bugs of this kind, each with its workaround.
 - [#251](https://github.com/volt-hdl/volt/issues/251): two generic modules with the same name in two packages get a misleading `E1001` ("undefined name: 'M_8'") instead of `E1003`; give one of them another name.
 - [#390](https://github.com/volt-hdl/volt/issues/390): a chain of constants in which each one names the one before twice (`const A2 : u64 = A1 + A1`) takes time that doubles with each link, so `volt check`, `volt build` and the editor stop responding on a short file; name the earlier constant once (`const A2 : u64 = 2 * A1`).
 - [#448](https://github.com/volt-hdl/volt/issues/448): when a name used in a module-level `for` with thousands of iterations is undefined, `volt check`, `volt build` and the editor take seconds to report the `E1001`, even on a file of a few lines; the delay goes away once the name is declared, so fix the `E1001` it reports (or lower the loop bound while you do).
+- [#141](https://github.com/volt-hdl/volt/issues/141): a struct of your own named `Counter` is taken for the built-in counter, and `Counter { a: x, b: true }` gets `E0003` ("'Counter' without its generic arguments"); give the struct another name.
+- [#415](https://github.com/volt-hdl/volt/issues/415): a type alias for a clock (`type Clk = clock`) declared below the `pipeline` that uses it is not seen there, and `volt check` reports `E5011` ("a pipeline needs exactly one clock port (found 0)"); declare the alias above the pipeline.
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -134,6 +139,39 @@ clock constraint without looking at the domain's edge. This was found by
 reading the code and has not been run yet. If your design has such a
 domain, check its SDC file and remove a `create_clock` for that clock.
 Tracked in [issue #435](https://github.com/volt-hdl/volt/issues/435).
+
+**A product with a generic `Trit` parameter is typed as an integer
+product.** In `module M<const S : Trit>`, `S * x` follows the rule of a
+product of two integers, not the rule of a `Trit` product, which gives
+`iN` for `x : iN`. An untyped `let` that holds `S * x` is wider than
+`x`, and as the operand of another operation the product does not wrap
+in `iN`: in `M<1>` with `x : i2 = -2`, `(-S * x) as i12` gives +2, where
+the same expression with a `Trit` signal t = -1, `(t * x) as i12`, gives
+-2 (measured with `volt test`). Copy the parameter into a `Trit` `let`
+and multiply with that: with `let s : Trit = -S`, `(s * x) as i12` gives
+-2, as for a `Trit` signal. Tracked in
+[issue #468](https://github.com/volt-hdl/volt/issues/468).
+
+**An index that is a `Trit` reads the bit of its code.** `x[t]` with
+`t : Trit` is accepted, and the specification does not say what an index
+of -1 means. The generated SystemVerilog shifts `x` right by `t` read as
+unsigned, so for t = -1 (code `11`) `x[t]` reads bit 3 of `x`, without a
+diagnostic (measured with `volt test`). Turn the `Trit` into the unsigned
+index you mean before you index: `x[(t as i3 + 1) as u3]` reads bit 0, 1
+and 2 for t = -1, 0 and +1. Tracked in
+[issue #465](https://github.com/volt-hdl/volt/issues/465).
+
+**A `Trit` in a form the generator does not recognize (suspected).** The
+SystemVerilog generator decides whether a value is a `Trit` from the form
+of the expression, not from its type. A `Trit` product or `-t` in a form
+it does not recognize would get the width of a two-bit integer in an
+untyped `let`, the bug that 0.1.5 fixes. No such form is known: a `Trit`
+port, signal, struct field, array element, function parameter and a
+`let` in a `comb` or `on` block are recognized; a generic `Trit`
+parameter is the case above. This was found by reading the code. To rule
+it out, give a `let` that holds a `Trit` product or `-t` its type:
+`let s : i8 = t * x`. Tracked in
+[issue #467](https://github.com/volt-hdl/volt/issues/467).
 
 **A `const` that does not fit its type is accepted.** With
 `const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a
