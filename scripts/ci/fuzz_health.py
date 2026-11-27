@@ -53,8 +53,9 @@ sys.dont_write_bytecode = True  # no __pycache__ in the checkout
 # The real fuzz time must be at least this share of the budget (ADR-0143).
 MIN_FUZZ_SHARE = 0.5
 # How far the merged corpus' replay may fall below the merge's own cov/ft
-# before the corpus is not saved (ADR-0143): the merge and the replay run in
-# two processes, and the hash seeds of std's HashMap differ between them.
+# before the corpus is not saved (ADR-0143). It covers the 0.1-0.3 % gap
+# measured on the dispatch runs; a possible cause, not verified, is that the
+# merge and the replay run in two processes with different HashMap seeds.
 DEFAULT_TOLERANCE = 0.01
 ARTIFACT_KINDS = ("crash", "timeout", "oom", "leak", "slow-unit")
 

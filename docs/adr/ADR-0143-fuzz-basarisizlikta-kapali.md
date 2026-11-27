@@ -1,6 +1,6 @@
 # ADR-0143: Fuzz Başarısızlıkta Kapalı Kalır — Gerçek Fuzz Süresi Ölçülür, Gece Derlemi Küçültülür, PR Tohumlardan Fuzz Eder
 
-> Statü: Önerildi
+> Statü: Uygulandı — 2026-11-27
 > İlgili: ADR-0080 (§6: `-max_len=4096` aynı kalır; bu ADR'nin bayrakları ona eklenir), ADR-0123 (gecelik fuzz işinin saati ve yeri aynı; işin içi değişir), ADR-0134 (aynı ilke: bir kapı planlandığı gibi koşmadıysa yeşil vermez; bu ADR onu fuzz işlerine uygular)
 > Issue: #305 (#410'un ilkesi)
 > Tarih: 2026-11-26
@@ -65,11 +65,12 @@ kayboldu ve önbellekten geri alınmak zorunda kalındı.
    oynatması (`INITED` satırı) birleştirmenin aynı ikiliyle geri yüklenen
    derlemde ölçtüğü cov ve ft'ye %1 payla ulaştı, kaydedilecek dosya
    sayısı birleştirmenin yazdığından az değil ve 4 KB'tan uzun dosya yok.
-   Pay, iki ayrı sürecin (birleştirme ve fuzz) `HashMap` tohumları farklı
-   olduğu içindir; kaba bir kaybı (boş ya da yanlış klasör, düşen
-   birleştirme) yakalar. Fuzz bir çökme bulsa da derlem bu koşulla
-   kaydedilir; iş yine kırmızıdır. Koşul sağlanmazsa kayıt olmaz ve iş
-   kırmızıdır: bir sonraki gece eski derlemi yeniden alır.
+   Pay ölçülen %0,1-0,3'lük farkı karşılar; olası nedeni iki sürecin
+   (birleştirme ve fuzz) farklı `HashMap` tohumlarıdır, doğrulanmadı. Pay
+   kaba bir kaybı (boş ya da yanlış klasör, düşen birleştirme) yakalar.
+   Fuzz bir çökme bulsa da derlem bu koşulla kaydedilir; iş yine
+   kırmızıdır. Koşul sağlanmazsa kayıt olmaz ve iş kırmızıdır: bir sonraki
+   gece eski derlemi yeniden alır.
 6. **PR işi tohumlardan fuzz eder.** "Fuzz (120 s, seeds)" gece derlemini
    okumaz; tohum `tests/ui/` ve `tests/fuzz_regressions/`'tır (526 dosya;
    release'te hepsi 1,95 s'de ayrışır, en yavaşı #446 regresyonları
@@ -80,7 +81,9 @@ kayboldu ve önbellekten geri alınmak zorunda kalındı.
    hâline bağlıdır. Derlemin derinliği gece işindedir; PR işi değişikliğin
    ayrıştırıcıyı tohumlar ve mutasyonları üzerinde paniğe, takılmaya ya da
    yavaşlamaya götürmediğini denetler. Yeni girdiler checkout dışında
-   geçici bir klasöre yazılır.
+   geçici bir klasöre yazılır. "Fuzz (120 s, seeds)" zorunlu denetim
+   değildir; bir haftalık gözlemden sonra zorunlu denetimler listesine
+   alınması ayrı bir karardır.
 7. **Artifact her koşuda.** `fuzz/artifacts/parse_never_panics/`
    (slow-unit, crash, timeout, oom dosyaları) koşu yeşil olsa da yüklenir
    (`if: !cancelled()`, `if-no-files-found: ignore`; gece 30 gün, PR 14 gün).

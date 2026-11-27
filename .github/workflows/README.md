@@ -27,7 +27,7 @@ aralarındaki sıra ve boşluklar korunur, :00 ve :30 kullanılmaz:
 |---|---|---|---|---|---|
 | `difftest.yml` | her gün 17:03 | 20:03 | 04:03 | 1 (tohum, 2 s), sonra 4 parça; kırmızı gecede +1 | duvar saati 7 dk 10 s; parçalar 325-423 s, toplam ≈ 24 iş-dakikası (koşu 44237991576) |
 | `metamorphic-nightly.yml` | her gün 18:21 | 21:21 | 05:21 | 1; kırmızı gecede +1 | ~2 dk (koşu 44070588184) |
-| `fuzz-nightly.yml` | her gün 18:40 | 21:40 | 05:40 | 1 | ~31 dk (koşu 45739110046); küçültmeden sonra yeniden ölçülecek (ADR-0143) |
+| `fuzz-nightly.yml` | her gün 18:40 | 21:40 | 05:40 | 1 | ilk birleştirme gecesi ~46 dk (koşu 45890666881), sürekli durum ~35 dk (koşu 45896419608); küçültmeden önce ~31 dk (koşu 45739110046) |
 | `known-failures.yml` | her gün 03:17 | | | 1 | ~10 s |
 | `install.yml` | pazartesi 05:17 | | | 3 platform | |
 
