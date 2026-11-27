@@ -209,6 +209,13 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
   sert bulgular R biçiminde E2005, aynı neden. Bulguların fn gövdelerinden
   yeniden kurulan 133 tasarım `clone_of_name` ile tanısız derlenir
   (7ef96dcd'nin ikilisiyle 119'u E2005).
+- e3ce9472'nin CI'ı (46015724899): fark testinin küçük koşusu (tohum
+  20261104, 2000 ifade) `diffs=0`, `regressions=58 failed=0
+  hand-computed=100 compared=100`; real-bug dosyası `4 passed`. Aynı
+  head'de elle tetiklenen büyük koşu (46024426169, tohum 2026112700 + k,
+  parça başına 12 500) dört parçada `diffs=0`: 0 değer farkı, 0 sözleşme
+  düşmesi, 0 E2005, 0 WIDTH; regresyonlar her parçada `failed=0`. Bu
+  satırları ekleyen commit kod değiştirmez.
 - Karar 8, önce kırmızı: regresyon örneklerinin aynısı ve real-bug
   dosyasının yeni blokları `volt test` (Verilator 5.054, Docker) ile.
   Main'in (c4f24632) ikilisiyle i2 örnekleri düştü (`(t * x2) as i12`,

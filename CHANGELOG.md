@@ -52,7 +52,10 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   hesaplanır (ADR-0041, ADR-0062 Karar 2); t = -1, w : i8 = -128 için
   +128. Kimi etkiler: Trit -1 ile iN::MIN'in çarpımını bir işlemin
   işleneni olarak kullanan tasarımlar. Ne yapmalı: yükseltin; değer artık
-  kuralın söylediğidir.
+  kuralın söylediğidir. Matematiksel sonucu isteyen tasarım iN yanını önce
+  genişletir: `t * (x as i(N+1))`. `(t * x) as i(N+1)` sarmış değeri
+  verir. Örnek: x : i8 = -128, t = -1 için `t * (x as i9)` → +128,
+  `(t * x) as i9` → -128.
 
 ### Geliştirici notu — Trit aritmetiğinin genişliği tip denetiminden (#463, ADR-0145, 2026-11-27)
 
