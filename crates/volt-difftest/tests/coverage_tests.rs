@@ -115,3 +115,25 @@ fn trit_and_its_operations_are_generated() {
 fn a_key_outside_the_table_is_a_programming_error() {
     item_of("a <=> b");
 }
+
+/// Geniş literalin (`K as bits<N>`, A14) işleneni literal sayılır: modelde
+/// kendi başına tipi yoktur, "ill-typed" değildir.
+#[test]
+fn a_wide_literal_operand_counts_as_a_literal() {
+    use volt_difftest::ast::{Expr, LitFmt, PortTy};
+    use volt_difftest::harness::Case;
+    let ports = [PortTy::Bits(128)];
+    let e = Expr::cast(Expr::WideLit(1u128 << 127, LitFmt::Hex), PortTy::Bits(128));
+    let mut rng = Rng::new(1);
+    let c = Case::new(0, e, &ports, &mut rng);
+    let mut cov = Coverage::default();
+    cov.add_case(&c, &ports);
+    assert_eq!(
+        cov.op_types.get("a as T on integer literal (untyped)"),
+        Some(&1),
+        "{:?}",
+        cov.op_types
+    );
+    assert_eq!(cov.op_types.get("a as T on ill-typed operand"), None);
+    assert_eq!(cov.count("hexadecimal (0x)"), 1);
+}

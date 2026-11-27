@@ -194,3 +194,38 @@ fn short_diagnostics_parse_to_line_and_code() {
         vec![(12, "E2003".to_string()), (20, "E2009".to_string())]
     );
 }
+
+/// İkili satırların ikinci işleneni: kaydırmada miktar (literal ya da uN
+/// port), öteki işlemlerde satırın tipinden bir ifade.
+#[test]
+fn the_second_operand_follows_the_operation() {
+    use volt_difftest::ast::Expr;
+    use volt_difftest::model::{Model, Ty};
+    let (cases, ports) = generate(458, 8);
+    let m = Model { ports: &ports };
+    let ty = |e: &Expr| m.synth(e).map(|t| t.ty);
+    for c in &cases {
+        let u = &UNDEFINED[c.row];
+        let Op::Bin(op) = u.op else { continue };
+        let Expr::Bin(_, a, b) = &c.expr else {
+            panic!("{}: {}", u.text(), c.line(0))
+        };
+        let tb = ty(b);
+        if op.is_shift() {
+            assert!(
+                matches!(tb, Ok(Ty::Lit(_)) | Ok(Ty::Int { signed: false, .. })),
+                "{}: {} ({tb:?})",
+                u.text(),
+                c.line(0)
+            );
+        } else {
+            assert_eq!(
+                std::mem::discriminant(&tb.unwrap()),
+                std::mem::discriminant(&ty(a).unwrap()),
+                "{}: {}",
+                u.text(),
+                c.line(0)
+            );
+        }
+    }
+}
