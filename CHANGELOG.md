@@ -19,17 +19,19 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   gösterir. `coverage_tests` CI tohumuyla Verilator'suz koşar ve bir tür
   sıfıra düşünce kırmızıdır.
 - Üreteç ve referans model `Trit`'i taşır: Trit portları ve literalleri,
-  `-t`, `t * u`, `t ± u` (i3), `t * x` (iN), `t as iN` ve karşılaştırma,
-  bütün biçimlerde. Yeni varsayım etiketleri A15 (Trit çarpımının taşması)
-  ve A16 (Trit sıralaması).
+  `t ± u` (i3), `t as iN` ve karşılaştırma, bütün biçimlerde; `-t` ve
+  Trit çarpımı (`t * u`, `t * x`) yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile.
+  Yeni varsayım etiketleri A15 (Trit çarpımının taşması) ve A16 (Trit
+  sıralaması).
 - Beklenen ret ölçütü (`crates/volt-difftest/src/reject.rs`): her tipin
   tanımsız işlemleri tek tablodan üretilir ve tam beklenen kodla
   reddedilmelidir; `difftest_reject_tests` her işte koşar. Eski bir
   ikiliyle: `cargo run -p volt-difftest --example volt-difftest-reject --
   --volt <yol>` (v0.1.3 `~t`'yi kabul eder, #434).
-- Trit çarpımının literalle karşılaştırması derleyicide E2005 veriyor
-  (önceden var olan hata); üreteç o biçimi yalnız
-  `VOLT_DIFFTEST_TRIT_LIT_CMP=1` ile üretir.
+- SV üreticisi `-t`'ye ve Trit çarpımına yanlış genişlik aralığı veriyor
+  (önceden var olan hata, v0.1.3'te de): literalle karşılaştırmada E2005,
+  tipsiz `let`'te ve `-(t * x)`'te kesilen değer, WIDTH uyarıları. Fark
+  testi bu iki işlemi hata düzelene kadar bayrakla üretir.
 
 ### Geliştirici notu — Fuzz başarısızlıkta kapalı kalır; gece derlemi küçülür, PR tohumlardan fuzz eder (#305, ADR-0143, 2026-11-26)
 

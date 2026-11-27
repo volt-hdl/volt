@@ -61,7 +61,11 @@ Kurallar:
 | Trit'in öteki tip karışımları (`t + x`, `t * y` (y : uN), `t == x`) | hata, kod adlandırılmamış | §3.3 `error_incompatible` |
 
 Üreteç Trit portlarını ve literallerini, bu işlemleri ve dönüşümleri
-bugünkü bütün biçimlerde üretir. Testbench Trit portunu yalnız değer
+bugünkü bütün biçimlerde üretir; `-t` ve Trit çarpımı (`t * u`, `t * x`)
+bugün yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile (§5). Varsayılanda Trit
+portları, literalleri, `t ± u`, `t as iN` ve karşılaştırmalar üretilir.
+Model bütün tabloyu taşır; ret ölçütü işlenenlerini kapıdan bağımsız,
+bütün Trit ifadelerinden alır. Testbench Trit portunu yalnız değer
 kümesinin kodlarıyla sürer: `10` (-2) Volt kaynağından üretilemez
 (ADR-0062 Karar 1) ve Trit'in anlamı onu tanımlamaz.
 
@@ -102,17 +106,28 @@ de alınır ve tablonunkiyle aynı olmalıdır (ayrışma koşuyu düşürür).
   <yol> [--seed N]` aynı ölçütü verilen bir ikiliyle koşar (yayımlanmış
   bir sürüm gibi); ikili depoya girmez.
 
-### 5. Bulunan derleyici hatasının kapısı
+### 5. Bulunan derleyici hatası ve kapısı
 
-Bir yanı literal (ya da literal aritmetiği) olan karşılaştırmada öteki
-yan bir Trit çarpımı içerirse (`t * x == 1`, x : i3..i64; `-t * u < 0`)
-derleyici geçerli tasarımı E2005 ile reddeder (v0.1.3'te de). Model ve
-spesifikasyon geçerli der; fark gerçek bir derleyici hatasıdır ve bu
-ADR'nin değişikliğinde düzeltilmez. Üreteç o biçimi yalnız
-`VOLT_DIFFTEST_TRIT_LIT_CMP=1` ile üretir (#150'nin
-`VOLT_DIFFTEST_DIV_OPERANDS`'ı gibi); varsayılanda karşılaştırmanın
-literal yanı bir ifade olur ve literalle karşılaştırma biçimi o ifadede
-düşer. Hatanın issue'su kapanınca varsayılan açılır.
+SV üreticisinin doğal genişlik aralığı (`volt-sv-emit` `let_width.rs`
+`int_range`/`binary_range`) `-t`'yi i3 sayar, `Trit * iN`'e aralık vermez
+(N ≠ 2), `Trit * Trit`'e [2, 4] verir. Bu PR'ın ilk CI koşusu tam üreteçle
+dört sonucunu gösterdi (v0.1.3'te de var olan hatanın sonuçları):
+
+- literalle karşılaştırmada geçerli tasarım E2005 alır (`t * x == 1`,
+  `-t * u < 0`);
+- tipsiz `let`'in teli kısa bildirilir ve değer kesilir (sessiz yanlış):
+  `let s = p44 * p192 * (1 * p282)` (i14) `wire signed [7:0]`, p44 =
+  0x2000, iki Trit +1 iken 0;
+- `-(t * x)` genişlemez (sessiz yanlış): `(-(p79 * p227))[17:1]`, t = -1,
+  x = -1, beklenen 0x1ffff, Verilator 0xffff; Trit'siz eşdeğer biçim doğru;
+- `let s = -t` 3 bitlik teldir; `s * 1` 2 bitlik kodla karşılaştırır:
+  WIDTHEXPAND ve WIDTHTRUNC (`volt test` durur, #123).
+
+Model ve spesifikasyon bu ifadelerin hepsini geçerli ve tanımlı der; fark
+derleyicinin hatasıdır ve bu ADR'nin değişikliğinde düzeltilmez. Üreteç
+`-t`'yi ve Trit çarpımını yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile üretir
+(#150'nin `VOLT_DIFFTEST_DIV_OPERANDS`'ı gibi). Hatanın issue'su kapanınca
+varsayılan açılır; o zaman A15 de koşuda görünür olur.
 
 ## ADR-0108 ve ADR-0139 ile ilişkisi
 
@@ -156,8 +171,17 @@ düşer. Hatanın issue'su kapanınca varsayılan açılır.
   diyor, `volt check` kabul ediyor, `volt build` geçiyor; model geçersiz
   diyor, derleyici reddediyor) CI tohumuyla 12 toplu koşuda (3000 ifade,
   440'ı Trit'li geçerli) ve 2026112700 tohumuyla 24 toplu koşuda (857)
-  sıfır ayrışma. `VOLT_DIFFTEST_TRIT_LIT_CMP=1` ile CI tohumunun 9 toplu
-  koşusunda 29 E2005.
+  sıfır ayrışma (tam üreteçle, kapıdan önce; E2005 dışında).
+- Tam üreteçle CI: "Verilator lint" (koşu 45942223357, tohum 20261104,
+  2000 ifade) `diffs=179`: 4 değer farkı, 175 WIDTH uyarısı. Elle
+  tetiklenen büyük koşu (45942236536, tohum 2026112600 + k, parça başına
+  12 500) dört parçada `diffs=933, 945, 987, 987`: 272 değer farkı, 25
+  sözleşme düşmesi, ~3550 WIDTH uyarısı. Değer farkı ve sözleşme
+  gruplarının hepsi `-t` ya da Trit çarpımı içerir; içermeyen Trit'li
+  bulgu yok.
+- Kapıdan sonra, yerelde: CI tohumunun ilk 9 toplu koşusunun SV'si
+  sabitlenmiş Verilator 5.054 ile `--lint-only -Wall`: WIDTH uyarısı yok;
+  `VOLT_DIFFTEST_TRIT_ARITH=1` ile 3 toplu koşuda 50'den çok.
 - Beklenen ret ölçütü, tohum 458, satır başına 8 örnek (23 satır, 184
   ifade): v0.1.3'ün yayımlanmış Windows ikilisiyle `diffs=8`, sekizi de
   `Trit: ~a — expected E2003, compiler accepted` (#434); bugünkü main
@@ -192,5 +216,8 @@ düşer. Hatanın issue'su kapanınca varsayılan açılır.
 - **A15'te çarpımı karşılaştırmamak** (`iN::MIN / -1` gibi, #122). Değeri
   ADR-0062 Karar 2'nin çarpım bağlamı belirler; okumayı etiketlemek
   derleyiciyle ayrışırsa farkı gösterir, karşılaştırmamak gizlerdi.
-- **E2005'li biçimi üretip farkı her koşuda görmek.** CI'ı bilinen bir
+- **Hatalı biçimleri üretip farkı her koşuda görmek.** CI'ı bilinen bir
   hata için kırmızı tutar; kapı biçimi adlandırır, `=1` onu geri açar.
+- **Kapıyı yalnız hatalı biçimlere daraltmak** (yalnız `let` biçimleri,
+  yalnız literalle karşılaştırma). Hata satır içi biçimde de değer
+  değiştiriyor; sınırı üreticinin hatalı aralık verdiği iki işlem çiziyor.

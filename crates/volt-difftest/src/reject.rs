@@ -229,7 +229,7 @@ impl RejectCase {
 
 fn operand(g: &mut Gen, on: Operand, w: u32, d: u32) -> Expr {
     match on {
-        Operand::Trit => g.trit(d),
+        Operand::Trit => g.trit_any(d),
         Operand::UInt => g.int_exact(false, w, d),
         Operand::SInt => g.int_exact(true, w, d),
         Operand::Bits => g.bits(w, d),

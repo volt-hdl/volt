@@ -221,11 +221,6 @@ impl Case {
         if nat == PortTy::Trit {
             case.cmp_lit = Some((rng.pick(&BinOp::CMP), rng.pick(&[-1, 0, 1])));
         }
-        // Trit çarpımının literalle karşılaştırması derleyicide E2005
-        // (`gen::trit_lit_cmp_enabled`): k biçimi o ifadede düşer.
-        if !crate::gen::trit_lit_cmp_enabled() && crate::gen::has_trit_mul(&case.expr, ports) {
-            case.cmp_lit = None;
-        }
         // Gövde `let`'i varsayılan açık; `VOLT_DIFFTEST_FN_LET=0` kapatır (`hygiene`).
         let body_let = crate::hygiene::body_let_enabled()
             .then_some(case.extracted.as_ref())
