@@ -105,6 +105,28 @@ impl Emitter<'_> {
         }
     }
 
+    /// `Trit × iN` çarpımının iN yanı (type-inference.md §3.3: çarpım
+    /// iN'dir, ternary MAC). Değeri Trit olan çarpım (`t * u`, `t * 1`)
+    /// ve öteki ifadeler `None`.
+    pub(crate) fn trit_product_int_side(&self, idx: Idx<Expr>) -> Option<Idx<Expr>> {
+        let ExprKind::Binary {
+            op: BinOp::Mul,
+            lhs,
+            rhs,
+        } = self.ast.exprs[idx].kind
+        else {
+            return None;
+        };
+        if self.is_trit(idx) {
+            return None;
+        }
+        match (self.is_trit(lhs), self.is_trit(rhs)) {
+            (true, false) => Some(rhs),
+            (false, true) => Some(lhs),
+            (true, true) | (false, false) => None,
+        }
+    }
+
     /// `Trit ± Trit` → i3 (taşma: +1 + +1 = +2); diğer durumlarda `None`.
     pub(crate) fn trit_sum_sig(&self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>) -> Option<Sig> {
         (matches!(op, BinOp::Add | BinOp::Sub) && self.is_trit(lhs) && self.is_trit(rhs)).then_some(

@@ -239,6 +239,26 @@ impl Case {
         case
     }
 
+    /// Geniş hedefi (w biçimi) sabitler: regresyon örneğinin elle
+    /// hesaplanmış değeri o genişliktedir (`regress.rs`). Hedef modelde
+    /// geçerli olmalı.
+    pub fn set_wide(&mut self, t: PortTy, ports: &[PortTy]) {
+        let model = Model { ports };
+        assert!(
+            matches!(self.kind, Kind::Valid(_)) && model.check(&self.expr, t).is_ok(),
+            "geniş hedef geçersiz: {t:?}"
+        );
+        self.wide = Some(t);
+        if !self.variants.contains(&Variant::W) {
+            let at = self
+                .variants
+                .iter()
+                .position(|v| *v == Variant::G || *v == Variant::R)
+                .unwrap_or(self.variants.len());
+            self.variants.insert(at, Variant::W);
+        }
+    }
+
     /// Sözleşme biçimi (g) iki x'i karşılaştırırdı: modelin herhangi bir
     /// vektörde x dediği ifadede (sınır dışı değişken seçim, ADR-0035)
     /// sözleşme konmaz; değer biçimleri o vektörü zaten atlar.

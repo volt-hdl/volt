@@ -205,3 +205,32 @@ fn without_the_table_a_trit_comparison_still_emits() {
     let out = volt_sv_emit::emit(&parsed.ast, "test.volt");
     assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
 }
+
+/// ADR-0145 Karar 8: `Trit × iN` bir işlemin işleneniyken iN'de sarar. İtilen
+/// `+`'nın işleneni olan çarpım kendi genişliğinde (i13) hesaplanır ve
+/// `14'($signed(...))` ile yalıtılır; tip denetimi o işlenene hedef tipi
+/// (i14) kaydetse de genişlik iN yanından okunur.
+#[test]
+fn a_trit_product_under_a_pushed_sum_is_isolated_at_its_own_width() {
+    let out = sv("module M { in t : Trit in x : i13 in y : i13 out o : i14 o = t * x + y }");
+    let want = "assign o = 14'($signed(t == 2'sb01 ? x : (t == 2'sb11 ? -(x) : 13'sd0))) + 14'(y);";
+    assert!(assigns(&out).contains(&want), "çıktı:\n{out}");
+}
+
+/// İki yanı aynı genişlikte olan i2 çarpımı da (Trit 2 bit, x : i2)
+/// dönüşümün işleneniyken i2'de yalıtılır: t = -1, x = -2 → -2.
+#[test]
+fn an_i2_trit_product_under_a_cast_is_isolated_at_its_own_width() {
+    let out = sv("module M { in t : Trit in x : i2 out o : i12 o = (t * x) as i12 }");
+    let want = "assign o = 12'($signed((t == 2'sb01 ? x : (t == 2'sb11 ? -(x) : 2'sd0))));";
+    assert!(assigns(&out).contains(&want), "çıktı:\n{out}");
+}
+
+/// Sınırın öteki yanı: en üstte geniş hedefe yazılan çarpım ADR-0041 ile
+/// hedefe itilir (ADR-0062 Karar 2); x ve sıfır hedef genişliğinde.
+#[test]
+fn a_trit_product_at_the_top_of_a_wider_target_is_pushed() {
+    let out = sv("module M { in t : Trit in x : i8 out o : i12 o = t * x }");
+    let want = "assign o = t == 2'sb01 ? 12'(x) : (t == 2'sb11 ? -(12'(x)) : 12'sd0);";
+    assert!(assigns(&out).contains(&want), "çıktı:\n{out}");
+}

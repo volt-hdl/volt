@@ -13,6 +13,14 @@
 // on the four-bit wire. Fixed in the pull request that closes #463: the
 // emitter reads the width of `-t`, of a Trit product and of `t + u` from
 // the type checker (ADR-0145).
+//
+// The same family, found by the large differential run on the pull request
+// (#458's generator): a Trit product as the operand of an operation was
+// computed at the operation's width. ADR-0145 Decision 8: `t * x` is iN;
+// as the operand of an operation (as, + and -, a bitwise operation, a
+// comparison, a selection) it wraps in iN, so t = -1, x = iN::MIN gives
+// iN::MIN. At the top of a wider target it is pushed to the target and
+// computed at the target width (ADR-0041, ADR-0062 Decision 2).
 
 module TritProductWidth {
     in  tp : bool
@@ -21,8 +29,17 @@ module TritProductWidth {
     in  un : bool
     in  x  : i14
     in  y  : i17
+    in  w  : i8
+    in  v  : i13
+    in  sel : bool
+    in  z  : i2
     out o1 : i14
     out o2 : bits<17>
+    out o3 : i12
+    out o4 : i12
+    out o5 : i14
+    out o6 : i12
+    out o7 : i12
 
     let t : Trit = if tp { 1 } else if tn { -1 } else { 0 }
     let u : Trit = if up { 1 } else if un { -1 } else { 0 }
@@ -30,6 +47,11 @@ module TritProductWidth {
     let s = t * x * u
     o1 = s
     o2 = (-(t * y))[17:1]
+    o3 = t * w
+    o4 = (t * w) as i12
+    o5 = -u * v + v
+    o6 = if sel { t * w } else { 0 }
+    o7 = (t * z) as i12
 }
 
 // Values by hand. t = +1 and u = +1 select x (sec. 3.3, ADR-0062: the
@@ -64,4 +86,48 @@ test "a zero Trit gives zero" {
     // t = 0: t * x * u = 0 and -(t * y) = 0 (sec. 3.3, 3.4).
     assert_eq(dut.o1, 0);
     assert_eq(dut.o2, 0);
+}
+
+// ADR-0145 Decision 8, both sides of the line. t = -1, w = -128 (pattern
+// 128), u = +1, v = -4096 (pattern 4096, i13::MIN), z = -2 (pattern 2,
+// i2::MIN). On main, o7 fails: the emitter isolated a product whose two
+// sides differ in width (o4, o6), and the two sides of an i2 product do
+// not. o5 failed while the emitter read the product's width from the type
+// checker's entry for the product: as the operand of a pushed `+`, that
+// entry is the target type (ADR-0041); the width now comes from the iN
+// side.
+test "a Trit product wraps in its own width as an operand" {
+    let dut = TritProductWidth { };
+    dut.tp = false;
+    dut.tn = true;
+    dut.up = true;
+    dut.un = false;
+    dut.w = 128;
+    dut.v = 4096;
+    dut.sel = true;
+    step(1);
+    // 3. At the top of the i12 target the product is pushed and computed
+    //    at 12 bits: -1 * -128 = +128.
+    assert_eq(dut.o3, 128);
+    // 4. As the operand of `as` it is computed in i8: -1 * -128 wraps to
+    //    -128; widened by its sign, 0xf80 = 3968.
+    assert_eq(dut.o4, 3968);
+    // 5. -u = -1; -u * v wraps in i13 to -4096; -4096 + -4096 = -8192 in
+    //    i14, the pattern 0x2000 = 8192. Computed at 14 bits it would be
+    //    +4096 - 4096 = 0.
+    assert_eq(dut.o5, 8192);
+    // 6. As a selected arm it is computed in i8: -128, 0xf80 = 3968.
+    assert_eq(dut.o6, 3968);
+}
+
+test "an i2 Trit product wraps in i2 under a cast" {
+    let dut = TritProductWidth { };
+    dut.tp = false;
+    dut.tn = true;
+    dut.z = 2;
+    step(1);
+    // 7. -1 * -2 = +2 does not fit i2 and wraps to -2; widened by its
+    //    sign, 0xffe = 4094. On main the product is computed at 12 bits:
+    //    +2.
+    assert_eq(dut.o7, 4094);
 }

@@ -352,8 +352,15 @@ impl Emitter<'_> {
     /// genişliktir; esnek işlenenli çarpımda (`t * (a + b)`) tablo doğal
     /// genişliği taşır, alt uç da odur (ADR-0144 §2: aralığı Trit'te
     /// tanımlı değil). Cevap yoksa E2005 ve `None`.
+    ///
+    /// `Trit × iN`'de okunan, iN yanının değeridir (§3.3: çarpım iN'dir).
+    /// Çarpımın kendi kaydı değil: çarpım itilen bir aritmetiğin
+    /// işleneniyse tip denetimi ona hedef tipi kaydeder (ADR-0041,
+    /// `widen_operands`); çarpım ise iN'de hesaplanır ve sarar (ADR-0145
+    /// Karar 8).
     fn checked_trit_range(&mut self, idx: Idx<Expr>) -> Option<Range> {
-        match self.checked_value(idx) {
+        let read = self.trit_product_int_side(idx).unwrap_or(idx);
+        match self.checked_value(read) {
             Some(CheckedValue::Bits { width, signed }) => Some(Range::exact(Sig { width, signed })),
             Some(CheckedValue::Struct(_) | CheckedValue::NoWidth) | None => {
                 self.error(

@@ -15,7 +15,10 @@
 //! örnek (işaretsiz çıkarmanın sarması, esnek toplamın kaydırması) elle
 //! sabitlenmez. A12'nin okuması (işaretli `>>` genişlik kadar ya da fazla
 //! kaydırınca işaretle dolar) ADR-0120'de kural olarak yazıldı; #302'nin
-//! elle hesabı o kurala dayanır.
+//! elle hesabı o kurala dayanır. A15'in okuması da kuraldır (ADR-0145
+//! Karar 8): `t * x` (x : iN) bir işlemin işleneniyken iN içinde sarar
+//! (t = -1, x = iN::MIN → iN::MIN); en üstte geniş bir hedefe yazılınca
+//! ADR-0041 ile hedefe itilir. #463'ün A15 örnekleri o kurala dayanır.
 
 use crate::ast::{BinOp, Expr, LitFmt, PortTy, UnOp};
 
@@ -54,11 +57,13 @@ fn index(a: Expr, i: Expr) -> Expr {
 /// Spesifikasyondan elle hesaplanmış bir değer: port başına giriş
 /// (işaretli tipte işaretli değer; 128 bitlik işaretsiz portta 128 bitlik
 /// örüntünün i128 okuması, 2^127 = `i128::MIN`) ve ifadenin doğal
-/// tipindeki beklenen değer (`bool` için 0/1).
+/// tipindeki (`wide`: örneğin geniş hedefindeki) beklenen değer (`bool`
+/// için 0/1).
 #[derive(Clone, Debug)]
 pub struct Pin {
     pub inputs: Vec<i128>,
     pub want: i128,
+    pub wide: bool,
 }
 
 /// Regresyon örneği: issue, açıklama, port tipleri, ifade, elle
@@ -73,6 +78,9 @@ pub struct Regression {
     /// `None`: rastgele iç düğüm. Sabit yol, r biçiminin gövde `let`'ini
     /// tohumdan bağımsız kılar (#132).
     pub extract: Option<Vec<usize>>,
+    /// w biçiminin (ifade daha geniş bir hedefe yazılır, ADR-0041 itmesi)
+    /// sabit hedefi; `None`: rastgele genişlik.
+    pub wide: Option<PortTy>,
 }
 
 impl Regression {
@@ -81,6 +89,24 @@ impl Regression {
         self.pins.push(Pin {
             inputs: inputs.to_vec(),
             want,
+            wide: false,
+        });
+        self
+    }
+
+    /// Geniş hedefte (`target`, w biçimi) elle hesaplanmış değer.
+    fn pin_wide(mut self, target: PortTy, inputs: &[i128], want: i128) -> Regression {
+        assert_eq!(inputs.len(), self.ports.len(), "{}", self.what);
+        assert!(
+            self.wide.is_none_or(|t| t == target),
+            "{}: tek geniş hedef",
+            self.what
+        );
+        self.wide = Some(target);
+        self.pins.push(Pin {
+            inputs: inputs.to_vec(),
+            want,
+            wide: true,
         });
         self
     }
@@ -99,6 +125,7 @@ fn r(issue: &'static str, what: &'static str, ports: Vec<PortTy>, expr: Expr) ->
         expr,
         pins: Vec::new(),
         extract: None,
+        wide: None,
     }
 }
 
@@ -735,6 +762,195 @@ pub fn all() -> Vec<Regression> {
         .pin(&[1, 1], 131_071)
         .pin(&[1, -65_536], 32_768)
         .pin(&[0, 1], 0),
+        // ── A15: Trit çarpımı bir işlemin işleneniyken iN'de sarar (#463) ──
+        // ADR-0145 Karar 8: `t * x` (t : Trit, x : iN) iN'dir; bir işlemin
+        // işleneniyken (as, `+`, `-`, bit işlemi, karşılaştırma, seçim) iN
+        // içinde ikiye tümleyenle sarar, t = -1, x = iN::MIN → iN::MIN. En
+        // üstte geniş hedefe yazılan çarpım ADR-0041 ile hedefe itilir
+        // (ADR-0062 Karar 2). Düzeltmeden önce üretici çarpımı iki durumda
+        // işlemin bağlamında basıyordu, seçicinin -(x)'i orada +2^(N-1)
+        // verir: iki yanı aynı genişlikte olan i2 çarpımı (main'de de) ve
+        // itilen aritmetiğin işleneni olan çarpım (bu PR'ın ilk hâlinde:
+        // tip denetimi itilen işlenene hedef tipi kaydeder, ADR-0041).
+        // Örnekler fark testinin #466'daki büyük koşusunun (45989294363)
+        // bulgularının en küçükleri; ilk iki örnek sınırın iki yanı.
+        r(
+            "#463",
+            "Trit product of i8: natural width, and at the top of a wider target",
+            vec![Trit, SInt(8)],
+            bin(BinOp::Mul, p(0), p(1)),
+        )
+        // Sınırın en üstteki yanı. `p0 * p1` i8; p0 = -1, p1 = -128: doğal
+        // tipte (i8) çarpım sarar, -128. i12 hedefte en üstteki çarpım
+        // hedefe itilir ve 12 bitte yapılır: +128 = 0x080. p0 = +1: -128,
+        // i12'de 0xF80.
+        .pin(&[-1, -128], -128)
+        .pin_wide(SInt(12), &[-1, -128], 128)
+        .pin_wide(SInt(12), &[1, -128], -128),
+        r(
+            "#463",
+            "Trit product of i8 cast to i12",
+            vec![Trit, SInt(8)],
+            cast(bin(BinOp::Mul, p(0), p(1)), SInt(12)),
+        )
+        // Sınırın iç içe yanı. `(p0 * p1) as i12`: çarpım dönüşümün
+        // işlenenidir, i8'de yapılır; aynı işaretli genişletme işaretle
+        // genişletir (§3.6). p0 = -1, p1 = -128: -128, i12'de 0xF80 (main'de
+        // de doğruydu: iki yanı farklı genişlikteki çarpım yalıtılıyordu).
+        // p0 = -1, p1 = 5: -5. p0 = 0: 0.
+        .pin(&[-1, -128], -128)
+        .pin(&[-1, 5], -5)
+        .pin(&[0, -128], 0),
+        r(
+            "#463",
+            "Trit product of i2 cast to i12",
+            vec![Trit, SInt(2)],
+            cast(bin(BinOp::Mul, p(0), p(1)), SInt(12)),
+        )
+        // `(p0 * p1) as i12`, p1 : i2. p0 = -1, p1 = -2: +2 i2'ye sığmaz,
+        // çarpım -2'ye sarar; i12'de 0xFFE. Düzeltmeden önce (main'de de)
+        // çarpım 12 bitte yapılıyordu: +2. p0 = +1: -2.
+        .pin(&[-1, -2], -2)
+        .pin(&[1, -2], -2),
+        r(
+            "#463",
+            "minus Trit times i13, operand of +",
+            vec![Trit, SInt(13), SInt(13)],
+            bin(
+                BinOp::Add,
+                bin(BinOp::Mul, Expr::un(UnOp::Neg, p(0)), p(1)),
+                p(2),
+            ),
+        )
+        // `-p0 * p1 + p2`: `-p0` Trit (§3.4), `-p0 * p1` i13, toplam i14.
+        // p0 = +1 (etkin Trit -1), p1 = -4096 = i13::MIN: çarpım -4096, + 0
+        // = -4096 (i14 örüntüsü 0x3000; 14 bitte 0x1000 olurdu). p2 =
+        // 4095: -1. p0 = 0: p2, 7.
+        .pin(&[1, -4096, 0], -4096)
+        .pin(&[1, -4096, 4095], -1)
+        .pin(&[0, -4096, 7], 7),
+        r(
+            "#463",
+            "Trit times i33, operand of -",
+            vec![Trit, SInt(33), SInt(33)],
+            bin(BinOp::Sub, bin(BinOp::Mul, p(0), p(1)), p(2)),
+        )
+        // `p0 * p1 - p2`, i34. p0 = -1, p1 = -2^32: çarpım -2^32; - 0 =
+        // -2^32, - 1 = -2^32 - 1. p1 = 5: -5.
+        .pin(&[-1, -(1 << 32), 0], -(1 << 32))
+        .pin(&[-1, -(1 << 32), 1], -(1 << 32) - 1)
+        .pin(&[-1, 5, 0], -5),
+        r(
+            "#463",
+            "i37 times minus a Trit product, operand of +",
+            vec![SInt(37), Trit, Trit, SInt(37)],
+            bin(
+                BinOp::Add,
+                bin(
+                    BinOp::Mul,
+                    p(0),
+                    Expr::un(UnOp::Neg, bin(BinOp::Mul, p(1), p(2))),
+                ),
+                p(3),
+            ),
+        )
+        // `p0 * -(p1 * p2) + p3`, i38: `p1 * p2` Trit, `-` Trit, çarpım
+        // i37. p1 = p2 = +1: etkin Trit -1; p0 = -2^36: -2^36. p0 = 5: -5.
+        // p1 = 0: p3, 3.
+        .pin(&[-(1 << 36), 1, 1, 0], -(1 << 36))
+        .pin(&[5, 1, 1, 0], -5)
+        .pin(&[-(1 << 36), 0, 1, 3], 3),
+        r(
+            "#463",
+            "i53 times a literal times a Trit product, operand of +",
+            vec![SInt(53), Trit, Trit, SInt(53)],
+            bin(
+                BinOp::Add,
+                bin(
+                    BinOp::Mul,
+                    p(0),
+                    bin(
+                        BinOp::Mul,
+                        lit(1),
+                        bin(
+                            BinOp::Mul,
+                            Expr::un(UnOp::Neg, p(1)),
+                            Expr::un(UnOp::Neg, p(2)),
+                        ),
+                    ),
+                ),
+                p(3),
+            ),
+        )
+        // `p0 * (1 * (-p1 * -p2)) + p3`, i54: literal Trit'e uyarlanır
+        // (§4), `1 * (...)` Trit; çarpım i53. p1 = +1, p2 = -1: (-1)(+1) =
+        // -1; p0 = -2^52: -2^52. p0 = 7: -7.
+        .pin(&[-(1 << 52), 1, -1, 0], -(1 << 52))
+        .pin(&[7, 1, -1, 0], -7),
+        r(
+            "#463",
+            "Trit times i2 or 1, cast to i55, bits 41..7 as u35",
+            vec![Trit, SInt(2)],
+            cast(
+                range(
+                    cast(
+                        bin(BinOp::Or, bin(BinOp::Mul, p(0), p(1)), lit(1)),
+                        SInt(55),
+                    ),
+                    41,
+                    7,
+                ),
+                UInt(35),
+            ),
+        )
+        // `((p0 * p1 | 1) as i55)[41:7] as u35`. p0 = -1, p1 = -2: çarpım
+        // i2'de -2 (0b10), `| 1` -1 (0b11); i55'te bütün bitler 1, bitleri
+        // 41..7 35 tane 1: 0x7_FFFF_FFFF. 55 bitte çarpım +2, `| 1` 3
+        // olurdu: 0. p0 = +1, p1 = 0: 1, bitleri 41..7 0.
+        .pin(&[-1, -2], 0x7_FFFF_FFFF)
+        .pin(&[1, 0], 0),
+        r(
+            "#463",
+            "i2 minus a Trit product times i2",
+            vec![SInt(2), Trit, Trit, SInt(2)],
+            bin(
+                BinOp::Sub,
+                p(0),
+                bin(BinOp::Mul, bin(BinOp::Mul, p(1), p(2)), p(3)),
+            ),
+        )
+        // `p0 - (p1 * p2) * p3`, i3. p1 = +1, p2 = -1: etkin Trit -1; p3 =
+        // -2: çarpım i2'de -2; 0 - (-2) = 2 (3 bitte -2 olurdu). p0 = -2,
+        // p3 = 1: -2 - (-1) = -1.
+        .pin(&[0, 1, -1, -2], 2)
+        .pin(&[-2, 1, -1, 1], -1),
+        r(
+            "#463",
+            "i2 plus i2 times a Trit times a literal",
+            vec![SInt(2), SInt(2), Trit],
+            bin(
+                BinOp::Add,
+                p(0),
+                bin(BinOp::Mul, p(1), bin(BinOp::Mul, p(2), lit(1))),
+            ),
+        )
+        // `p0 + p1 * (p2 * 1)`, i3. p2 = -1, p1 = -2: çarpım i2'de -2; 0 +
+        // (-2) = -2 (3 bitte +2 olurdu). p0 = 1: -1. p1 = 1, p0 = -2: -3.
+        .pin(&[0, -2, -1], -2)
+        .pin(&[1, -2, -1], -1)
+        .pin(&[-2, 1, -1], -3),
+        r(
+            "#463",
+            "i2 times a Trit, bitwise and, at a wider target",
+            vec![SInt(2), Trit],
+            bin(BinOp::And, bin(BinOp::Mul, p(0), p(1)), lit(-1)),
+        )
+        // `p0 * p1 & -1`, i2: bit işlemi itilmez, çarpım işlemin
+        // işlenenidir. p0 = -2, p1 = -1: -2 & -1 = -2; i12 hedefte işaretle
+        // genişler, 0xFFE (12 bitte +2 olurdu). p0 = 1: -1, 0xFFF.
+        .pin(&[-2, -1], -2)
+        .pin_wide(SInt(12), &[-2, -1], -2)
+        .pin_wide(SInt(12), &[1, -1], -1),
     ]
 }
 
@@ -784,9 +1000,14 @@ mod tests {
                         raw(*v, w)
                     })
                     .collect();
+                let out = if pin.wide {
+                    r.wide.expect("geniş hedef")
+                } else {
+                    nat
+                };
                 assert_eq!(
-                    m.eval_check(&r.expr, nat, &inp),
-                    Some(raw(pin.want, nat.width())),
+                    m.eval_check(&r.expr, out, &inp),
+                    Some(raw(pin.want, out.width())),
                     "{} {}: {:?}",
                     r.issue,
                     r.what,

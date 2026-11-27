@@ -39,6 +39,20 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   boyutlanır. Tip denetimi bir Trit işlemine genişlik vermezse üretici
   tahmin etmez, E2005 verir ("cannot determine the width of this Trit
   operation"); sürücünün yolunda bu olmaz.
+- **Davranış değişikliği.** Trit × iN çarpımı bir işlemin işleneniyken
+  (`as`, `+` ve `-` işleneni, bit işlemi, karşılaştırma, seçim) `iN`
+  içinde ikiye tümleyenle sarar: t = -1, x = iN::MIN için sonuç
+  iN::MIN'dir (#463; sessiz yanlış düzeltmesi, ADR-0100; ADR-0145 Karar
+  8). Önce üretilen SV iki yanı aynı genişlikte olan çarpımı (Trit ile
+  `i2`) işlemin bağlamında hesaplıyordu ve +2^(N-1) veriyordu: t = -1,
+  x : i2 = -2 için `(t * x) as i12` ve `if s { t * x } else { 0 }` (hedef
+  i12) +2 verirdi, şimdi -2'dir (0xFFE); `x * t & -1`, `z - (t * u) * x`
+  ve `((t * x | 1) as i55)[41:7]` de değişir. En üstte geniş bir hedefe yazılan çarpım
+  değişmez: `let acc : i16 = t * w` hedefe itilir ve hedef genişliğinde
+  hesaplanır (ADR-0041, ADR-0062 Karar 2); t = -1, w : i8 = -128 için
+  +128. Kimi etkiler: Trit -1 ile iN::MIN'in çarpımını bir işlemin
+  işleneni olarak kullanan tasarımlar. Ne yapmalı: yükseltin; değer artık
+  kuralın söylediğidir.
 
 ### Geliştirici notu — Trit aritmetiğinin genişliği tip denetiminden (#463, ADR-0145, 2026-11-27)
 
@@ -50,8 +64,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   LSP onu `volt check` gibi verir. Tablosuz `emit`/`emit_full` Trit
   aritmetiğinde E2005 verir; testler `tests/typed`'ın yolunu izler.
 - Fark testi: `VOLT_DIFFTEST_TRIT_ARITH` kaldırıldı, `-t` ve Trit çarpımı
-  her koşuda üretilir (A15 de koşuda görünür). `regress.rs` #463'ün iki
-  sessiz yanlışını elle hesaplanmış değerlerle sabitler.
+  her koşuda üretilir. `regress.rs` #463'ün iki sessiz yanlışını ve A15
+  köşesinin örneklerini elle hesaplanmış değerlerle sabitler; bir
+  regresyon örneği w biçiminin hedefini sabitleyebilir
+  (`Regression::pin_wide`). A15'in açıklaması kuralı söyler (ADR-0145
+  Karar 8); etiket raporda kalır.
+- `volt-sv-emit`: Trit × iN çarpımı `width_dependent`'te bağlama bağlıdır
+  ve ADR-0106 §6'nın yoluyla kendi genişliğinde yalıtılır; doğal
+  genişliği tablodaki iN yanından okunur (`trit_product_int_side`).
+- `tests/ui/pass/167_trit_recognition_shapes.volt`: gölgenin girdisi;
+  Trit struct alanında, dizi elemanında, fn parametresinde, generic
+  const'ta, `comb` ve `on` yerelinde.
 - `tests/real_bugs/463_trit_product_width.volt`: genişlik gölgesinin ve
   real-bug testinin girdisi; main'de ikisi de kırmızıydı.
 

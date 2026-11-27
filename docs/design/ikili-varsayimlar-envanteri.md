@@ -333,7 +333,7 @@ Demet tipinin bit düzeni tanımlı değildir: `bit_width` ve `type_ref_bits`
 |---|---|---|---|---|
 | `volt-sv-emit/src/trit.rs:17`–`:18` `TRIT_POS`, `TRIT_NEG` (sabit) | SV | `2'sb01`, `2'sb11`. ADR-0077 K3 kodu struct dönüşümünde gözlenebilir kılar. | dil | dağınık |
 | `volt-sv-emit/src/trit.rs:113` `try_emit_trit_mul` | SV | Çarpansız seçici; `10` `else` dalında 0'a gider (ADR-0062 K2). | arka uç | dağınık |
-| `volt-sv-emit/src/trit.rs:102` `trit_sum_sig` | SV | Trit ± Trit = 3 bit işaretli; TD `trit_arith_result`'ın kopyası. #463'ten beri yalnız `width_of` okur; `let_width.rs` tablodan (ADR-0145). | dil | dağınık |
+| `volt-sv-emit/src/trit.rs:131` `trit_sum_sig` | SV | Trit ± Trit = 3 bit işaretli; TD `trit_arith_result`'ın kopyası. #463'ten beri yalnız `width_of` okur; `let_width.rs` tablodan (ADR-0145). | dil | dağınık |
 | `volt-sv-emit/src/trit.rs:22` `is_trit_typeref`; `:41` `note_trit`; `:50` `is_trit`; `lib.rs:858` `Emitter` (`:873` `trits` alanı); `lib.rs:1426` `emit_body` | SV | Trit-lik AST'den yeniden çıkarılır (ADR-0062 K4); tanınmayan biçimde jenerik `*`, yalnız i2 ikiye tümleyende doğru. #463'ten (ADR-0145) beri literal çarpanı (`t * 1`, §4) ve süreç yereli (`ProcLocal::trit`) de tanınır; Trit aritmetiğinin genişliği bu tanımayla tablodan okunur. | arka uç | dağınık |
 | `volt-sv-emit/src/expr.rs:802` `emit_prec` | SV | `try_emit_trit_mul`'u çağırır. | arka uç | tek |
 | `volt-sv-emit/src/waves.rs:172` `trit_table`; `:164` `invalid_label` | SV | `width: 2`, `00`/`01`/`11`; `10` "invalid −2"; kodları `TRIT_POS`/`TRIT_NEG`'den okumaz. | arka uç | dağınık |
@@ -747,7 +747,7 @@ Aşama 1'in izin listesi testinin başlangıç listesi budur.
 | `volt-sv-emit/src/lib.rs:2513` `sig_of_typeref` | işaretli; yorumda `01`/`00`/`11` |
 | `volt-sv-emit/src/trit.rs:17`–`:18` `TRIT_POS`, `TRIT_NEG` | 2 bit, işaretli, `01`, `11` |
 | `volt-sv-emit/src/trit.rs:113` `try_emit_trit_mul` | `01`, `11`; `10` → 0 |
-| `volt-sv-emit/src/trit.rs:102` `trit_sum_sig` | i2 + i2 = 3 bit işaretli |
+| `volt-sv-emit/src/trit.rs:131` `trit_sum_sig` | i2 + i2 = 3 bit işaretli |
 | `volt-sv-emit/src/trit.rs:50` `is_trit` | jenerik `*` ikiye tümleyen i2'de doğru |
 | `volt-sv-emit/src/waves.rs:172` `trit_table` | 2 bit; `00`, `01`, `11` |
 | `volt-sv-emit/src/waves.rs:164` `invalid_label` | `10` işaretli okununca −2 |

@@ -164,10 +164,13 @@ pub mod tag {
     /// saymaz; derleyici kabul eder, #207). Sığmayan literal üretilmez.
     pub const LIT_TO_BITS: u32 = 1 << 14;
     /// A15 (#458): `t * x` (`t : Trit`, `x : iN`) iN'dir (§3.3); t = -1,
-    /// x = iN::MIN'de çarpım (2^(N-1)) iN'e sığmaz ve şartname değeri
-    /// söylemez. Model çarpımın yapıldığı genişlikte (doğal N; check
-    /// kipinde en üstteki çarpım hedef genişlikte, ADR-0062 Karar 2)
-    /// ikiye tümleyenle sarar: iN::MIN. Etiket her `Trit * iN`'dedir.
+    /// x = iN::MIN'de çarpım (2^(N-1)) iN'e sığmaz. Okuma ADR-0145 Karar
+    /// 8'de kural olarak yazıldı (#463): çarpım bir işlemin işleneniyken
+    /// iN içinde ikiye tümleyenle sarar (iN::MIN); check kipinde en üstteki
+    /// çarpım ADR-0041 ile hedefe itilir ve hedef genişliğinde yapılır
+    /// (ADR-0062 Karar 2). Model bu ikisini zaten böyle hesaplıyordu. Etiket
+    /// her `Trit * iN`'de raporda kalır (A12 gibi): değeri bu kurala bağlı
+    /// ifadeler ayrı sayılır.
     pub const TRIT_MUL_WRAP: u32 = 1 << 15;
     /// A16 (#458): iki Trit'in sıralama karşılaştırması (`<`, `<=`, `>`,
     /// `>=`) değerleri karşılaştırır, -1 < 0 < +1. §3.3 karşılaştırmada
@@ -250,7 +253,7 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
     (
         tag::TRIT_MUL_WRAP,
         "A15",
-        "t * x (t : Trit, x : iN) wraps at the width it is computed in: -1 * iN::MIN is iN::MIN",
+        "t * x (t : Trit, x : iN) wraps in iN as an operand: -1 * iN::MIN is iN::MIN; at the top of a wider target it is computed at the target width (rule: ADR-0145 Decision 8)",
     ),
     (
         tag::TRIT_ORDER,
