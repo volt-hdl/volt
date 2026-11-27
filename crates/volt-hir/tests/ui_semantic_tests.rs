@@ -507,7 +507,8 @@ fn ui_pass_files_have_no_semantic_errors() {
     // #413: 165 prev() yardımcı register'ı x'in tipinde.
     // #434 (ADR-0142): 166 Trit'in tersi `-t` (port, register, alan, dizi
     //       elemanı, ternary MAC).
-    assert_eq!(checked, 151);
+    // #463 (ADR-0145): 167 Trit'in tanındığı yerler, gölgenin girdisi.
+    assert_eq!(checked, 152);
 }
 
 // ═══ SDC üretimi (ADR-0054) ═══════════════════════════════════════

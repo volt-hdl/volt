@@ -3,6 +3,8 @@
 //! Kural referansları: docs/spec/sv-mapping.md.
 //! KRİTİK: counter.volt çıktısı counter.expected.sv ile BİREBİR eşleşmeli.
 
+mod typed;
+
 use volt_span::FileId;
 use volt_sv_emit::{emit, EmitResult, VOLT_VERSION, VOLT_VERSION_TEXT};
 
@@ -646,9 +648,15 @@ fn ui_pass_sweep_no_panics_and_f0_files_emit_clean_sv() {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let src = std::fs::read_to_string(&path).expect("dosya okunmalı");
 
-        // Panik yok garantisi: parse + emit her dosyada çalışır
+        // Panik yok garantisi: parse + emit her dosyada çalışır. Sürücünün
+        // yolu: Trit aritmetiğinin genişliği tip denetiminin tablosundan
+        // (#463, ADR-0145; tablosuz `emit` onda E2005 verir).
         let parsed = volt_syntax::parser::parse(FileId(0), &src);
-        let result = emit(&parsed.ast, &name);
+        let out = typed::emit_full(&parsed.ast, &name, &src, volt_sv_emit::SvaMode::None);
+        let result = EmitResult {
+            sv: out.sv,
+            diagnostics: out.diagnostics,
+        };
 
         let all_clean = parsed.diagnostics.is_empty() && !result.has_errors();
         if all_clean {

@@ -104,6 +104,33 @@ fn clean_file_has_no_error_diagnostics() {
     assert!(a.resolve.is_some() && a.typeck.is_some() && a.domain.is_some());
 }
 
+/// #463 (ADR-0145): Trit çarpımının literalle karşılaştırması ve eksisi
+/// editörde de tanısızdır. LSP'nin emit doğrulaması tip denetiminin
+/// tablosunu `volt check` gibi verir; tablosuz üretici Trit aritmetiğinin
+/// genişliğini bilmez ve E2005 verir.
+#[test]
+fn a_trit_product_compared_with_a_literal_is_clean_in_the_editor() {
+    let src = "module M {
+    in  t : Trit
+    in  x : i8
+    out y : bool
+                   out z : i9
+
+    y = t * x == 1
+    z = -(t * x)
+}
+";
+    let a = analyze(src);
+    assert!(
+        a.diagnostics.is_empty(),
+        "{:?}",
+        a.diagnostics
+            .iter()
+            .map(|d| format!("{} {}", d.code.as_str(), d.message))
+            .collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn cdc_violation_reports_e3001() {
     let a = analyze(CDC_VIOLATION);

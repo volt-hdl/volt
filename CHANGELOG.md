@@ -9,7 +9,79 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
-- Yok: bu bölümdeki değişiklikler yalnız CI'ı değiştirir.
+- **Davranış değişikliği.** Trit aritmetiğini tipsiz `let`'te tutan
+  tasarımların teli artık tip denetiminin verdiği genişliktedir (#463;
+  sessiz yanlış düzeltmesi, ADR-0100; ADR-0145). `let s = t * x`
+  (t : `Trit`, x : `iN`) `iN`, `let p = t * u` ve `let n = -t` `Trit`
+  (2 bit), modül `let`'inde ve `on`/`comb` bloğunun yerelinde. Önce
+  üretici Trit'i iki bitlik bir tamsayı sayıyordu: `let s = t * x * u`
+  (x : i14) `wire signed [3:0]` bildiriliyor ve değer dört bite
+  kesiliyordu; `let n = -t` 3 bitlik teldi ve `n`'yi Trit koduyla
+  karşılaştıran SV Verilator'da WIDTH uyarısı veriyor, `volt test`
+  duruyordu. Kimi etkiler: Trit çarpımını ya da `-t`'yi tipsiz bir
+  `let`'te tutan tasarımlar. Ne yapmalı: yükseltin; değer artık spec'in
+  söylediğidir (type-inference.md §3.3, §3.4).
+- **Davranış değişikliği.** Trit çarpımının eksisi (`-(t * x)`, x :
+  `iN`) bir bit genişler, `i(N+1)`'dir (#463; sessiz yanlış düzeltmesi,
+  ADR-0145). Önce `N` bitte alınıyordu: `(-(t * y))[17:1]` (y : i17)
+  t = +1, y = 1 için 0x1FFFF yerine 0x0FFFF veriyordu; tipsiz `let`'te ve
+  bit ya da aralık seçiminde değer değişir. `on`/`comb` bloğunun yereli
+  olan bir Trit (`let t : Trit = ...` ya da Trit değerli tipsiz yerel)
+  artık Trit sayılır: onunla yapılan çarpım seçici olarak üretilir ve
+  aynı genişlik kuralını alır (önce `let s = -(t * x)` 8 bitte kalıyordu).
+  Kimi etkiler: Trit çarpımının eksisini alan tasarımlar. Ne yapmalı:
+  yükseltin.
+- **Davranış değişikliği.** Trit çarpımının ya da `-t`'nin literalle
+  karşılaştırması (`t * x == 1`, `-t * u < 0`, literal çarpanlı
+  `-(t * 1 * u) * -(1 * v * w) == 1`) artık derlenir; önce geçerli tasarım
+  `error[E2005]: cannot determine the width of the literal` alıyordu
+  (#463, ADR-0145). Literal çarpanı Trit'in tipini alır: `t * 1` Trit'tir. Literal karşı yanın tipinde
+  boyutlanır. Tip denetimi bir Trit işlemine genişlik vermezse üretici
+  tahmin etmez, E2005 verir ("cannot determine the width of this Trit
+  operation"); sürücünün yolunda bu olmaz.
+- **Davranış değişikliği.** Trit × iN çarpımı bir işlemin işleneniyken
+  (`as`, `+` ve `-` işleneni, bit işlemi, karşılaştırma, seçim) `iN`
+  içinde ikiye tümleyenle sarar: t = -1, x = iN::MIN için sonuç
+  iN::MIN'dir (#463; sessiz yanlış düzeltmesi, ADR-0100; ADR-0145 Karar
+  8). Önce üretilen SV iki yanı aynı genişlikte olan çarpımı (Trit ile
+  `i2`) işlemin bağlamında hesaplıyordu ve +2^(N-1) veriyordu: t = -1,
+  x : i2 = -2 için `(t * x) as i12` ve `if s { t * x } else { 0 }` (hedef
+  i12) +2 verirdi, şimdi -2'dir (0xFFE); `x * t & -1`, `z - (t * u) * x`
+  ve `((t * x | 1) as i55)[41:7]` de değişir. En üstte geniş bir hedefe yazılan çarpım
+  değişmez: `let acc : i16 = t * w` hedefe itilir ve hedef genişliğinde
+  hesaplanır (ADR-0041, ADR-0062 Karar 2); t = -1, w : i8 = -128 için
+  +128. Kimi etkiler: Trit -1 ile iN::MIN'in çarpımını bir işlemin
+  işleneni olarak kullanan tasarımlar. Ne yapmalı: yükseltin; değer artık
+  kuralın söylediğidir. Matematiksel sonucu isteyen tasarım iN yanını önce
+  genişletir: `t * (x as i(N+1))`. `(t * x) as i(N+1)` sarmış değeri
+  verir. Örnek: x : i8 = -128, t = -1 için `t * (x as i9)` → +128,
+  `(t * x) as i9` → -128.
+
+### Geliştirici notu — Trit aritmetiğinin genişliği tip denetiminden (#463, ADR-0145, 2026-11-27)
+
+- `volt-sv-emit` `let_width.rs`: `int_range` `-t`'nin, Trit'li çarpımın
+  ve `t ± u`'nun aralığını hesaplamaz, ADR-0141'in `CheckedTypes`
+  tablosundan okur; `binary_range`'in Trit kolu kalktı. fn açılımının
+  kopyaları gövdedeki özgün düğüme bağlanır (`InlineNotes::origins`).
+- `volt_sv_emit::validate_unit` dördüncü parametre olarak tabloyu alır;
+  LSP onu `volt check` gibi verir. Tablosuz `emit`/`emit_full` Trit
+  aritmetiğinde E2005 verir; testler `tests/typed`'ın yolunu izler.
+- Fark testi: `VOLT_DIFFTEST_TRIT_ARITH` kaldırıldı, `-t` ve Trit çarpımı
+  her koşuda üretilir. `regress.rs` #463'ün iki sessiz yanlışını ve A15
+  köşesinin örneklerini elle hesaplanmış değerlerle sabitler; bir
+  regresyon örneği w biçiminin hedefini sabitleyebilir
+  (`Regression::pin_wide`). A15'in açıklaması kuralı söyler (ADR-0145
+  Karar 8); etiket raporda kalır.
+- `volt-sv-emit`: Trit × iN çarpımı `width_dependent`'te bağlama bağlıdır
+  ve ADR-0106 §6'nın yoluyla kendi genişliğinde yalıtılır; doğal
+  genişliği tablodaki iN yanından okunur (`trit_product_int_side`). fn
+  açılımında parametre ve `let` adının yerine geçen kopya gövdedeki adın
+  değerini okur (`clone_of_name`).
+- `tests/ui/pass/167_trit_recognition_shapes.volt`: gölgenin girdisi;
+  Trit struct alanında, dizi elemanında, fn parametresinde, generic
+  const'ta, `comb` ve `on` yerelinde.
+- `tests/real_bugs/463_trit_product_width.volt`: genişlik gölgesinin ve
+  real-bug testinin girdisi; main'de ikisi de kırmızıydı.
 
 ### Geliştirici notu — Fark testi kapsamını sayar, Trit üretir, tanımsız işlemlerin reddini bekler (#458, #463, ADR-0144, 2026-11-27)
 
@@ -20,7 +92,8 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   sıfıra düşünce kırmızıdır.
 - Üreteç ve referans model `Trit`'i taşır: Trit portları ve literalleri,
   `t ± u` (i3), `t as iN` ve karşılaştırma, bütün biçimlerde; `-t` ve
-  Trit çarpımı (`t * u`, `t * x`) yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile.
+  Trit çarpımı (`t * u`, `t * x`) #463'ün düzeltmesine kadar yalnız
+  `VOLT_DIFFTEST_TRIT_ARITH=1` ile (kapı ADR-0145'le kalktı).
   Yeni varsayım etiketleri A15 (Trit çarpımının taşması) ve A16 (Trit
   sıralaması).
 - Beklenen ret ölçütü (`crates/volt-difftest/src/reject.rs`): her tipin

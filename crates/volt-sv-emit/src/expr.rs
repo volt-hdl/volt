@@ -1765,6 +1765,10 @@ impl<'a> Emitter<'a> {
                 let (op, lhs, rhs) = (*op, *lhs, *rhs);
                 match op {
                     BinOp::Shl | BinOp::Shr => true,
+                    // `Trit × iN` iN'de sarar: t = -1, x = iN::MIN → iN::MIN
+                    // (ADR-0145 Karar 8). Seçicinin `-(x)`'i daha geniş bir
+                    // bağlamda +2^(N-1) verirdi.
+                    BinOp::Mul if self.trit_product_int_side(idx).is_some() => true,
                     BinOp::Sub
                         if self.natural_sig(idx).is_some_and(|s| !s.signed)
                             && self.eval_const(idx).is_none() =>

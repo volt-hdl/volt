@@ -432,11 +432,14 @@ pub fn unit_source_texts<'a>(
 
 /// Çıktı üretmeden emit doğrulaması (ADR-0070): `volt check` ve LSP,
 /// `volt build`'in varsayılan emit'inin tanılarını aynen görür (SV
-/// eşlemesi henüz olmayan yapılar dahil). Üretilen SV atılır.
+/// eşlemesi henüz olmayan yapılar dahil). Üretilen SV atılır. `checked`
+/// sürücünün `emit_unit`'e verdiği tablodur (ADR-0141): Trit aritmetiğinin
+/// genişliği ondan okunur (#463, ADR-0145), editör de aynı cevabı görür.
 pub fn validate_unit(
     ast: &SourceFile,
     source_name: &str,
     sources: &[SourceText<'_>],
+    checked: &CheckedTypes,
 ) -> Vec<Diagnostic> {
     emit_unit(
         ast,
@@ -444,7 +447,7 @@ pub fn validate_unit(
         sources,
         SvaMode::None,
         ConstArrayStyle::default(),
-        &CheckedTypes::default(),
+        checked,
     )
     .diagnostics
 }
@@ -458,8 +461,9 @@ pub fn emit_full(ast: &SourceFile, source_name: &str, source: &str, mode: SvaMod
 ///
 /// Tip denetiminin tablosu olmadan üretir: `prev()`'in genişliği tip
 /// denetiminden gelir (#413), bu yüzden kontratında `prev()` olan bir
-/// modül SVA, Immediate ya da Simulation kipinde E2005 alır. Sürücü
-/// [`emit_unit`]'i tabloyla çağırır.
+/// modül SVA, Immediate ya da Simulation kipinde E2005 alır; Trit
+/// aritmetiği (`-t`, Trit'li çarpım, `t ± u`) de her kipte (#463,
+/// ADR-0145). Sürücü [`emit_unit`]'i tabloyla çağırır.
 pub fn emit_full_opts(
     ast: &SourceFile,
     source_name: &str,
@@ -497,7 +501,8 @@ pub fn emit_unit(
 ) -> EmitOutput {
     // ADR-0081 Karar 12.4: fn gövdeleri tanımda, çağrı sayısından
     // bağımsız bir kez doğrulanır; doğrulanamayanın çağrıları açılmaz.
-    let (invalid_fns, fn_diags) = validate_functions(ast, source_name, sources, const_array_style);
+    let (invalid_fns, fn_diags) =
+        validate_functions(ast, source_name, sources, const_array_style, checked);
     // ADR-0081: fn çağrıları çağrı yerinde açılır (struct indirgemesinden
     // ÖNCE); çağrı yoksa özgün AST (çıktı byte-aynı).
     let (inlined, inline_diags) = inline::lower(ast, &invalid_fns);
@@ -705,6 +710,7 @@ fn validate_functions(
     source_name: &str,
     sources: &[SourceText<'_>],
     const_array_style: ConstArrayStyle,
+    checked: &CheckedTypes,
 ) -> (HashSet<String>, Vec<Diagnostic>) {
     let mut invalid = HashSet::new();
     let mut diags = Vec::new();
@@ -720,8 +726,11 @@ fn validate_functions(
         Some(l) => (&l.ast, &l.notes),
         None => (&unit, &no_notes),
     };
-    // Sentetik birim tip denetiminden geçmedi: tablo yok (`SvaMode::None`
-    // kontrat üretmez, `prev()` sorulmaz).
+    // Sentetik birim kök AST'nin kopyasıdır: gövdenin ifadeleri aynı
+    // indekste ve konumda, tablo onların tip denetimindeki değerini verir
+    // (Trit aritmetiği, #463). Eklenen düğümler (portlar, `__c` yolları)
+    // tabloda yoktur ya da çağrının değerini taşır. `SvaMode::None`
+    // kontrat üretmez, `prev()` sorulmaz.
     let mut emitter = new_emitter(
         unit,
         source_name,
@@ -731,6 +740,7 @@ fn validate_functions(
         struct_notes,
         &inline_notes,
     );
+    emitter.checked = Some(checked);
     for &item in &unit.items {
         let ItemKind::Module(m) = &unit.items_arena[item].kind else {
             continue;
@@ -948,7 +958,8 @@ pub(crate) struct Emitter<'a> {
     /// yaprak, paketlenmiş dizi register'ı.
     pub(crate) struct_notes: &'a structs::StructNotes,
     /// Tip denetiminin kök AST'ye verdiği genişlik ve işaret (ADR-0141);
-    /// tip denetiminden geçmeyen birimde (fn doğrulaması) yok.
+    /// `prev()`'in ve Trit aritmetiğinin (ADR-0145) genişliği. Tablosuz
+    /// giriş noktaları (`emit`, `emit_full`) boş tablo verir.
     pub(crate) checked: Option<&'a CheckedTypes>,
     /// fn açılımının notları (ADR-0081): çağrı başlığı yorumu, boyut
     /// dönüşümleri, const'a bağlı gövde yolları.

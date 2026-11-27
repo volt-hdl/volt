@@ -82,27 +82,23 @@ fn the_report_names_what_is_never_generated() {
     assert_eq!(cov.missing().len(), never);
 }
 
-/// #458: Trit, tanımlı işlemleriyle (`t ± u`, `t as iN`, karşılaştırma)
-/// üretilir; `-t` ve Trit çarpımı yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile
-/// (`gen::trit_arith_enabled`). İşlem ve işlenen tipi sayacı raporda.
+/// #458: Trit, tanımlı işlemleriyle (`t ± u`, `t as iN`, karşılaştırma,
+/// `-t`, Trit çarpımı) üretilir. `-t` ve Trit çarpımı #463 kapanana kadar
+/// bir kapının arkasındaydı (ADR-0144 §5); kapı kalktı (ADR-0145). İşlem ve
+/// işlenen tipi sayacı raporda.
 #[test]
 fn trit_and_its_operations_are_generated() {
     let cov = ci_seed_coverage();
     assert!(cov.count("Trit") > 0);
     let text = cov.render();
-    let mut want = vec![
+    let want = [
         "a + b on Trit",
         "a - b on Trit",
         "a as T on Trit",
         "a == b on Trit",
+        "-a on Trit",
+        "a * b on Trit",
     ];
-    if volt_difftest::gen::trit_arith_enabled() {
-        want.extend(["-a on Trit", "a * b on Trit"]);
-    } else {
-        // Geçersiz akışta `~t`, `t * y` (y : uN) gibi ifadeler kalır, ama
-        // geçerli bir `-t` üretilmez.
-        assert_eq!(cov.op_types.get("-a on Trit"), None, "{text}");
-    }
     for k in want {
         let n = cov.op_types.get(k).copied().unwrap_or(0);
         assert!(n > 0, "{k}: 0\n{text}");

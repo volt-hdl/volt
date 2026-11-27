@@ -3,8 +3,10 @@
 //! (ADR-0074 `enum_layout`): açık değerli, taban tipli ve `match`'in son
 //! kolu `default` olan enum dahil.
 
+mod typed;
+
 use volt_span::FileId;
-use volt_sv_emit::{emit_full, filter_text, SvaMode, WaveInfo};
+use volt_sv_emit::{filter_text, SvaMode, WaveInfo};
 
 fn waves(src: &str) -> WaveInfo {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
@@ -13,7 +15,9 @@ fn waves(src: &str) -> WaveInfo {
         "parse hatasız olmalı: {:?}",
         parsed.error_codes()
     );
-    let out = emit_full(&parsed.ast, "test.volt", src, SvaMode::None);
+    // Sürücünün yolu: Trit aritmetiği tip denetiminin tablosunu okur
+    // (#463, ADR-0145).
+    let out = typed::emit_full(&parsed.ast, "test.volt", src, SvaMode::None);
     assert!(
         out.diagnostics.is_empty(),
         "emit hatasız olmalı: {:?}",

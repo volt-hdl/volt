@@ -208,6 +208,9 @@ impl<'a> Expander<'a> {
         if self.notes.self_sized.contains(&repl) {
             self.notes.self_sized.insert(e);
         }
+        if let Some(&o) = self.notes.origins.get(&repl) {
+            self.notes.origins.insert(e, o);
+        }
     }
 
     // ═══ Çağrının açılması ════════════════════════════════════════
@@ -466,11 +469,11 @@ impl<'a> Expander<'a> {
         match &node.kind {
             ExprKind::Path(p) if p.segments.len() == 1 => match info.bindings.get(&fe) {
                 Some(Binding::Param(i)) => match env.params[*i] {
-                    Some(t) => self.clone_tree(t),
+                    Some(t) => self.clone_of_name(t, fe),
                     None => self.error_node(node.span),
                 },
                 Some(Binding::Let(j)) => match env.lets[*j] {
-                    Some(t) => self.clone_tree(t),
+                    Some(t) => self.clone_of_name(t, fe),
                     None => self.error_node(node.span),
                 },
                 _ => {
@@ -541,10 +544,13 @@ impl<'a> Expander<'a> {
             | ExprKind::Todo { .. }
             | ExprKind::Error) => {
                 let kind = map_children(kind, |c| self.inst(info, c, env, mode));
-                self.alloc(Expr {
+                let n = self.alloc(Expr {
                     span: node.span,
                     kind,
-                })
+                });
+                // Trit aritmetiğinin değeri gövdedeki düğümden okunur (#463).
+                self.notes.origins.insert(n, fe);
+                n
             }
         }
     }
@@ -560,6 +566,17 @@ impl<'a> Expander<'a> {
         };
         let global = matches!(info.bindings.get(&callee), None | Some(Binding::Global));
         (global && self.fns.contains_key(&seg.text)).then(|| seg.text.clone())
+    }
+
+    /// Gövdedeki parametre ya da `let` adının (`fe`) yerine geçen şablonun
+    /// kopyası. Kopyanın kökeni gövdedeki addır: tel kipinde şablon üretilmiş
+    /// bir teldir ve tabloda yoktur; adın tablodaki değeri gövdenin bir kez
+    /// denetlendiği tiptir (parametrenin bildirilen tipi, `let`'in tipi).
+    /// Trit × iN'nin genişliği iN yanından okunur (ADR-0145 Karar 8).
+    fn clone_of_name(&mut self, t: Idx<Expr>, fe: Idx<Expr>) -> Idx<Expr> {
+        let n = self.clone_tree(t);
+        self.notes.origins.insert(n, fe);
+        n
     }
 
     /// Çıktı AST'sindeki bir şablonun taze kopyası.
@@ -582,6 +599,11 @@ impl<'a> Expander<'a> {
         if self.notes.self_sized.contains(&e) {
             self.notes.self_sized.insert(n);
         }
+        // Kopyanın kökeni şablonunkidir; şablon kök AST'nin düğümüyse
+        // kendisi (tablo konumu da denetler: yerine başka düğüm yazılmış
+        // kök indeksi cevap vermez).
+        let origin = self.notes.origins.get(&e).copied().unwrap_or(e);
+        self.notes.origins.insert(n, origin);
         n
     }
 

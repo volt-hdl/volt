@@ -446,8 +446,10 @@ pub struct Batch {
     pub ports: Vec<PortTy>,
     pub vecs: Vec<Vec<u128>>,
     /// Elle hesaplanmış değerler: (ifade kimliği, vektör, beklenen bit
-    /// örüntüsü). Yalnız regresyon toplu koşusunda.
-    pub pins: Vec<(usize, usize, u128)>,
+    /// örüntüsü, geniş hedef mi). Geniş hedefteki değer w biçiminin
+    /// çıkışında, öteki değer a–e biçimlerinin çıkışında (doğal tipte)
+    /// karşılaştırılır. Yalnız regresyon toplu koşusunda.
+    pub pins: Vec<(usize, usize, u128, bool)>,
 }
 
 /// Rastgele toplu koşu: `size` ifade (%5 geçersiz, %0,5 `concat`, gerisi
@@ -611,7 +613,15 @@ impl<'a> Runner<'a> {
             .into_iter()
             .enumerate()
             .zip(&regs)
-            .map(|((i, e), r)| Case::new_extracting(i, e, &ports, &mut rng, r.extract.as_deref()))
+            .map(|((i, e), r)| {
+                let mut c = Case::new_extracting(i, e, &ports, &mut rng, r.extract.as_deref());
+                // Örneğin geniş hedefi sabittir (elle hesaplanan değer o
+                // genişlikte); w biçimi her zaman üretilir.
+                if let Some(t) = r.wide {
+                    c.set_wide(t, &ports);
+                }
+                c
+            })
             .collect();
         for (c, r) in cases.iter().zip(&regs) {
             assert!(
@@ -640,7 +650,12 @@ impl<'a> Runner<'a> {
                 for (j, v) in pin.inputs.iter().enumerate() {
                     vecs[vi][off + j] = (*v as u128) & mask(r.ports[j].width());
                 }
-                pins.push((c.id, vi, (pin.want as u128) & mask(nat.width())));
+                let out = if pin.wide {
+                    r.wide.expect("geniş hedef")
+                } else {
+                    nat
+                };
+                pins.push((c.id, vi, (pin.want as u128) & mask(out.width()), pin.wide));
             }
             off += r.ports.len();
         }
@@ -1217,20 +1232,24 @@ impl<'a> Runner<'a> {
             }
         }
         // Elle hesaplanmış değerler (regresyon kümesi): modelden bağımsız,
-        // değer biçimlerinin (a–e, doğal tipte çıkış) her biri.
-        for &(id, vi, want) in &b.pins {
+        // değer biçimlerinin (a–e, doğal tipte çıkış) her biri; geniş
+        // hedefteki değer w biçiminde.
+        for &(id, vi, want, wide) in &b.pins {
             let Some(i) = by_id(id) else {
                 continue;
             };
             let c = &b.cases[i];
             let mut seen = false;
             for (j, o) in built.outputs.iter().enumerate() {
-                if o.case != id
-                    || !matches!(
+                let compared = if wide {
+                    o.variant == Variant::W
+                } else {
+                    matches!(
                         o.variant,
                         Variant::A | Variant::B | Variant::C | Variant::D | Variant::E
                     )
-                {
+                };
+                if o.case != id || !compared {
                     continue;
                 }
                 seen = true;

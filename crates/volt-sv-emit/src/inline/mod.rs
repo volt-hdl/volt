@@ -59,6 +59,10 @@ pub(crate) struct InlineNotes {
     /// İkame kipinde tipsiz `let` değeri: emitter onu tel kipindeki telin
     /// çıkarılacak genişliğinde `W'(e)` olarak yazar.
     pub self_sized: HashSet<Idx<Expr>>,
+    /// Gövdeden kopyalanan düğüm → fn gövdesindeki özgün düğüm (kök AST).
+    /// Kopya tip denetiminin tablosunda yoktur; Trit aritmetiğinin
+    /// genişliği özgün düğümün değerinden okunur (#463, ADR-0145).
+    pub origins: HashMap<Idx<Expr>, Idx<Expr>>,
 }
 
 impl InlineNotes {

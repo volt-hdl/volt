@@ -117,8 +117,10 @@ fn ui_pass_fixtures_build_unless_marked_check_only() {
     // kaynakları (tipsiz let/reg dâhil). #419: 163 her skaler tipin her
     // kullanım yerinde tek genişliği. #420: 164 her domain alanı bir kez.
     // #413: 165 prev() yardımcı register'ı x'in tipinde. #434 (ADR-0142):
-    // 166 Trit'in tersi `-t`.
-    assert_eq!((built, check_only), (151, 0));
+    // 166 Trit'in tersi `-t`. #463 (ADR-0145): 167 Trit'in tanındığı
+    // yerler (struct alanı, dizi elemanı, fn parametresi, generic const,
+    // comb/on yereli), gölgenin girdisi.
+    assert_eq!((built, check_only), (152, 0));
 }
 
 #[test]
