@@ -2,8 +2,8 @@
 
 | Dosya | Tetik | İçerik |
 |---|---|---|
-| `ci.yml` | push (main), PR, elle (`workflow_dispatch`; tek girdisi `ccache`, aşağıda "ccache") | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **60 sn fuzz** |
-| `fuzz-nightly.yml` | her gün 18:40 UTC (ADR-0123), elle (`workflow_dispatch`) | **30 dk fuzz**, corpus geceden geceye taşınır |
+| `ci.yml` | push (main), PR, elle (`workflow_dispatch`; tek girdisi `ccache`, aşağıda "ccache") | biçim + clippy + test, Verilator, tutarlılık, formal, OpenSTA, coverage, **120 sn fuzz** (yalnız tohumlardan, ADR-0143) |
+| `fuzz-nightly.yml` | her gün 18:40 UTC (ADR-0123), elle (`workflow_dispatch`) | derlemi `-merge=1` ile küçültür, **30 dk fuzz**; corpus geceden geceye taşınır (ADR-0143) |
 | `release.yml` | yalnız tam `vX.Y.Z` tag'i (`-rc`, aşama ve önekli tag'ler tetiklemez; tutarlılık kontrolü 18), elle (`workflow_dispatch` = kuru koşu, herhangi bir daldan) | 4 platform arşivi + her platformda duman testi + kurulum betikleri bu arşivlerle + `.vsix` + `SHA256SUMS` + sürüm notu (`docs/release-notes/vX.Y.Z.md`); yalnız tag'de `publish` işi: derleme kaynağı kaydı ve **taslak** Release (ADR-0093, ADR-0105). Kuru koşu yalnız artifact yükler. PR'da koşmaz |
 | `book.yml` | push (main), `vX.Y.Z` tag'i, PR, elle | kitap (`book/`, mdBook): denetleyicinin öz-testi, her ```` ```volt ```` bloğu `volt check`'ten, her test bloğu Verilator'dan geçer; mdbook uyarısız derlenir; site kökü ve `/dev/` birleştirilir (aşağıda "Kitap ve Pages düzeni"). Yalnız main'de GitHub Pages'e yayımlar (https://volthdl.org/; depo ayarı Settings → Pages → Source: GitHub Actions gerekir). Tag'de yayımlamaz, main'de yeni bir koşu başlatır |
 | `mutants.yml` | PR (kapı; `opened`, `synchronize`, `reopened`, `edited`'da değil), elle (`workflow_dispatch`), push (main; yalnız `cache-warm` işi, aşağıda "Rust önbelleği"); özet işi "Mutation test summary" 2026-11-23'ten beri main için zorunlu kontroldür ("main protection" ruleset'i, #366), adı değişirse ruleset de güncellenir; özet başarısızlıkta kapalı kalır (#398, ADR-0134): koşu iptal edilmedikçe koşar, tools işi geçmediyse ya da planladığı temel koşu ve parçalardan biri geçmediyse (ya da parça planlanmadığı hâlde biri koştuysa) ne olduğunu, nedenini ve ne yapılacağını yazıp düşer (`mutants_summary.py --needs`) | **mutasyon testi** (ADR-0109): cargo-mutants, kapsam `.cargo/mutants.toml` (her crate'in `src/`'i; dışarıda kalan dosya `exclude_globs`'ta adıyla ve gerekçesiyle, tutarlılık kontrolü 19). **PR kapısı** (ADR-0109 eki "PR kapısı", #253): her PR'da PR'ın değiştirdiği Rust satırlarındaki mutantlar (`cargo mutants --in-diff`, birleştirme commit'inin ilk ebeveynine göre fark), parça sayısı ölçülen t = 600 sn ile §3'ün hesabından; `exclude_re`'nin kapsamadığı her missed mutant özet işini düşürür, özet onları ve sınıflandırma kurallarını listeler; kapsamdaki Rust'a dokunmayan PR'da iş bir şey denemeden yeşil biter ve nedenini yazar; aynı PR'a yeni push eski koşuyu iptal eder (`concurrency`). Aynı PR'ın daha önce temiz geçmiş bir kapı koşusunun anahtarı aynıysa parça koşmaz, karar o koşunun sonuçlarından verilir ve özet "reused: run …" der (aşağıda "Mutasyon kapısının önceki sonucu", #318). Elle kapı: `-f gate_base=<revizyon>`. Hariç tutma denetimi `mutants-exclusions.yml`'dedir (aşağıda); kapı özeti C kayıtlarının dışarıda tuttuğu mutantları issue numarasıyla listeler. Elle koşu (ölçüm): `MUTANTS_SHARDS` parça (`--shard k/N`; N ilk işte ADR-0109 §3'ün hesabıyla koşunun mutant sayısından bulunur, `shards` girdisi onu ezer), temel koşu koşu başına tek bir iştir ve parçalarla paralel koşar (ADR-0128 §2: "Mutation baseline" işi; geçmezse özet mutant kararı vermeden düşer; aşağıda "Mutasyon kapısının temel koşusu ve zaman aşımı"), temel koşu işinde ve her parçada araçlı işin OSS CAD Suite'i ve `VOLT_REQUIRE_TOOLS=all`, testler nextest ile, `mutants` profilinin sırasıyla (`.config/nextest.toml`, ADR-0128: PR'ın dokunduğu test ikilileri önce, yavaş Verilator ikilileri en sonda; aşağıda "Mutasyon kapısının test sırası"); temel koşunun ve her parçanın derleme ve testleri `scripts/ci/mutants_watchdog.py` altında koşar: süreç ağacı `MUTANTS_MEMORY_LIMIT_MIB`'i aşınca en büyük süreç öldürülür, mutant "memory limit" (yakalandı) diye raporlanır, parça sürer (#160); temel koşunun derleme ve testlerinin en yüksek belleği (`--peak`) özetin temel koşu tablosundadır, sınırın yarısını aşarsa uyarı (#253); mutant başına test zaman aşımı max(2 × temel koşu, `MUTANTS_TIMEOUT_FLOOR_SECONDS` = 3610 sn) (ADR-0128 §3); ilk iş her parçanın mutant listesini `mutants-list` artifact'ı olarak yükler, her parça `mutants-out-<k>` artifact'ını kesilse de yükler (`if: always()`), son iş toplam/caught/missed/timeout/memory limit/unviable ve missed listesini iş özetine yazar (`mutants-summary` artifact'ı; tek parçalı koşunun düz yapıtını da okur, #179). Elle koşuda missed mutant işi düşürmez; tamamlanmayan parça (artifact'ı yok ya da 300 dakikada bitmedi; iş sınırı 330 dakika) özetin başında test edilmeyen mutantlarıyla "NOT COMPLETED" diye adlandırılır ve özet işini düşürür. Tetik: `gh workflow run mutants.yml --ref <dal>`. Hedefli koşu (ADR-0109, "Hedefli koşu"): `-f re=<regex>` yalnız adı eşleşen mutantları dener; cargo-mutants `--re` ile alan silme mutantlarını süzmediğinden liste `scripts/ci/mutants_target.py`'nin yazdığı satır diff'iyle (`--in-diff`) ikinci kez daraltılır ve son listede eşleşmeyen bir mutant varsa ya da liste `-f expect=<n>` (regex'in yazıldığı mutant sayısı; `re` ile zorunlu, #253) kadar mutant tutmuyorsa ilk iş düşer; `-f shards=<1-20>` parça sayısı |
@@ -27,7 +27,7 @@ aralarındaki sıra ve boşluklar korunur, :00 ve :30 kullanılmaz:
 |---|---|---|---|---|---|
 | `difftest.yml` | her gün 17:03 | 20:03 | 04:03 | 1 (tohum, 2 s), sonra 4 parça; kırmızı gecede +1 | duvar saati 7 dk 10 s; parçalar 325-423 s, toplam ≈ 24 iş-dakikası (koşu 44237991576) |
 | `metamorphic-nightly.yml` | her gün 18:21 | 21:21 | 05:21 | 1; kırmızı gecede +1 | ~2 dk (koşu 44070588184) |
-| `fuzz-nightly.yml` | her gün 18:40 | 21:40 | 05:40 | 1 | ~31 dk |
+| `fuzz-nightly.yml` | her gün 18:40 | 21:40 | 05:40 | 1 | ilk birleştirme gecesi ~46 dk (koşu 45890666881), sürekli durum ~35 dk (koşu 45896419608); küçültmeden önce ~31 dk (koşu 45739110046) |
 | `known-failures.yml` | her gün 03:17 | | | 1 | ~10 s |
 | `install.yml` | pazartesi 05:17 | | | 3 platform | |
 
@@ -465,19 +465,53 @@ bu derlemeleri ccache'ten geçirir:
 
 ## Fuzz
 
-- PR/push'taki fuzz işi 60 saniyelik bir duman testidir; CI'nın toplam süresi
-  artık en uzun iş (Verilator lint, ~2 dk) tarafından belirlenir. Önceden 300 sn
-  fuzz tek başına ~6 dk sürüyordu.
-- Gecelik iş corpus'u `actions/cache` ile saklar: en yeni
-  `fuzz-corpus-parse_never_panics-*` girdisini geri yükler, üstüne fuzz'lar ve
-  büyüyen corpus'u yeni bir anahtarla kaydeder (önbellek girdileri değişmez).
-  Çökme olsa da corpus kaydedilir.
-- PR fuzz işi aynı corpus'u yalnız okur (main'de kaydedilen önbellek PR'lara
-  görünür); `tests/ui/` ve `tests/fuzz_regressions/` (eski fuzz bulguları,
-  ADR-0067) her iki işte de salt okunur tohumdur.
-- Çökme bulunursa girdi `fuzz-crash-parse_never_panics*` artifact'ı olarak
-  yüklenir. Yerelde yeniden üretmek için (Linux/WSL, nightly):
-  `cargo +nightly fuzz run parse_never_panics <indirilen-dosya>`.
+Kural ADR-0143'tedir (#305). libFuzzer önce derlemdeki her girdiyi bir kez
+koşar (yeniden oynatma); `INITED` satırı onu bitirir. `-max_total_time`
+sürecin başından sayar, yeniden oynatma dahil: derlem büyüdükçe bütçe
+yeniden oynatmaya gidiyordu (gece 45739110046: 1800 s'nin 1530'u; PR
+45873059789: 60 s'lik iş 923 s yeniden oynattı, 0 s fuzz etti, yeşildi).
+
+- **Başarısızlıkta kapalı.** Her iki iş libFuzzer'ın çıktısını
+  `scripts/ci/fuzz_health.py stamp` ile zaman damgalı bir loga yazar;
+  "Fuzz health (fail closed)" adımı (`check`) şu durumlarda işi kırmızı
+  yapar: `INFO: Seed:` yok (libFuzzer başlamadı), `INITED` yok (yeniden
+  oynatma bitmedi), `Done N runs` yok (çökme, zaman aşımı ya da öldürülen
+  adım), gerçek fuzz süresi (`INITED` → `Done`) bütçenin yarısından az.
+  Adım iptal dışında her zaman koşar; önceki adım düşse ya da atlansa da
+  hükmünü verir. Betiğin öz-testi (`--self-test`) her iki işte koşar ve
+  bozuk logların (INITED'siz, `Done`'suz, kısaltılmış, boş) kırmızı
+  verdiğini sınar.
+- **Görünürlük.** Her koşunun özetinde (`GITHUB_STEP_SUMMARY`): derlem
+  boyutu, yeniden oynatma süresi, gerçek fuzz süresi, `INITED`'den sonraki
+  exec/s, slow-unit sayısı, gecede birleştirme ve kapsam (cov/ft).
+- **Bayraklar** (iki işte aynı): `-max_len=4096` (ADR-0080 §6),
+  `-timeout=10` (fuzz derlemesinde 4 KB'lık en yavaş girdi #449'dan sonra
+  ~1,6 s; #446'nın 25-35 s'lik girdileri varsayılan 1200 s altında
+  kırmızı vermedi), `-report_slow_units=2` (bilinen en yavaştan yavaş her
+  girdi `slow-unit-*` dosyası olur).
+- **Gece işi** (`fuzz-nightly.yml`): en yeni
+  `fuzz-corpus-parse_never_panics-*` girdisini geri yükler, 4 KB'tan uzun
+  girdileri 4 KB'lık öneklerine keser (libFuzzer zaten yalnız onu
+  okuyordu), derlemi `-merge=1` ile boş klasöre birleştirir (yalnız kapsam
+  ekleyen girdiler kalır), birleşmiş derlemin üstüne fuzz eder ve onu yeni
+  bir anahtarla kaydeder. Kayıt koşulu (`corpus_ok`): birleştirme tek
+  denemede bitti ve birleşmiş derlemin yeniden oynatması, birleştirmenin
+  aynı ikiliyle geri yüklenen derlemde ölçtüğü cov ve ft'ye (%1 pay)
+  ulaştı. Fuzz bir çökme bulsa da bu koşulla kaydedilir; iş yine kırmızıdır.
+- **PR işi** (`ci.yml`, "Fuzz (120 s, seeds)"): gece derlemini okumaz;
+  `tests/ui/` ve `tests/fuzz_regressions/` (ADR-0067) tohumdur, yeniden
+  oynatma saniyeler sürer. Yeni girdiler checkout dışında geçici bir
+  klasöre yazılır.
+- **Artifact.** `fuzz/artifacts/parse_never_panics/` (slow-unit, crash,
+  timeout, oom dosyaları) koşu yeşil olsa da yüklenir:
+  `fuzz-artifacts-parse_never_panics-<koşu>-<deneme>` (gece 30 gün, PR 14
+  gün); klasör boşsa adım hata vermez. Yerelde yeniden üretmek için
+  (Linux/WSL, nightly): `cargo +nightly fuzz run parse_never_panics
+  <indirilen-dosya>`.
+- **Önbellek kapsamı.** Bir dalda elle koşulan gece işinin kaydettiği
+  derlem yalnız o dala görünür; main'in zincirine karışmaz (`gh cache
+  list --key fuzz-corpus-parse_never_panics` her girdinin `ref`'ini
+  gösterir).
 - Elle tetikleme: `gh workflow run fuzz-nightly.yml -f seconds=1800`
   (`seconds` isteğe bağlı, varsayılan 1800).
 

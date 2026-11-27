@@ -2,7 +2,7 @@
 
 > Statü: Uygulandı
 > Önceki karar: ADR-0058 — test dili derinlik sınırı
-> İlgili: ADR-0067 (fuzz regresyonları), ADR-0068 §6 "Sınırlar" (bu ADR'nin konusu olan bulgu), ADR-0058 (test dili derinlik sınırı — aynı sayacı kullanır), ADR-0069 (tip çizgesi), ADR-0070 (CLI/LSP ortak boru hattı).
+> İlgili: ADR-0067 (fuzz regresyonları), ADR-0068 §6 "Sınırlar" (bu ADR'nin konusu olan bulgu), ADR-0058 (test dili derinlik sınırı — aynı sayacı kullanır), ADR-0069 (tip çizgesi), ADR-0070 (CLI/LSP ortak boru hattı), ADR-0143 (fuzz işlerinin bayrakları: §6'nın `-max_len=4096`'sına `-timeout=10` ve `-report_slow_units=2` eklenir).
 > Tarih: 2026-09-25
 > Etkilenen: volt-syntax (`parser/depth.rs` — YENİ: `MAX_DEPTH` = 256,
 > `descend`, sınırda grup atlama; `stack.rs` — YENİ: `COMPILER_STACK_SIZE`
