@@ -234,3 +234,42 @@ fn a_trit_product_at_the_top_of_a_wider_target_is_pushed() {
     let want = "assign o = t == 2'sb01 ? 12'(x) : (t == 2'sb11 ? -(12'(x)) : 12'sd0);";
     assert!(assigns(&out).contains(&want), "çıktı:\n{out}");
 }
+
+/// Trit × iN'nin iN yanı fn parametresiyse genişlik gövdedeki parametre
+/// adının tablodaki değerinden okunur: tel kipinde parametrenin yerine
+/// üretilmiş tel geçer, tabloda yoktur (ADR-0081, ADR-0145 Karar 8). Önce
+/// generic modülün döngüsündeki çağrı E2005 alıyordu (fark testinin R
+/// biçimi).
+#[test]
+fn a_trit_product_of_a_fn_parameter_reads_the_parameter_type() {
+    let out = sv("fn h(t : Trit, x : i14, u : Trit) -> i14 {
+    let s = t * x
+    s * u
+}
+
+module R<const A : u32, const B : u32> {
+    in t : Trit
+    in x : i14
+    in u : Trit
+    out o : i14
+    for k in 0..1 {
+        let y = x
+        o = h(t, y, u)
+    }
+}
+
+module M {
+    in  t : Trit
+    in  x : i14
+    in  u : Trit
+    out o : i14
+    let r = R<0, 2> { t: t, x: x, u: u }
+    o = r.o
+}");
+    assert!(
+        assigns(&out)
+            .iter()
+            .any(|l| l.starts_with("wire signed [13:0] h_0_s = ")),
+        "çıktı:\n{out}"
+    );
+}

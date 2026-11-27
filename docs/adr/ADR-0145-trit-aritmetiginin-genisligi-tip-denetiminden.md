@@ -114,6 +114,12 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
    aşağıdaki büyük koşunun i13, i33, i37 ve i53 bulguları bu yüzdendi. i2
    çarpımı (Trit ile i2'nin genişliği aynı) main'de de yalıtılmıyordu. En
    üstte geniş hedefe yazılan çarpım (`emit_assigned`'ın itmesi) yalıtılmaz.
+   fn açılımında (ADR-0081) iN yanı bir parametre ya da gövde `let`'i
+   olabilir; yerine geçen kopya gövdedeki adın tablodaki değerini okur
+   (`clone_of_name`: parametrenin bildirilen tipi, `let`'in tipi; tel
+   kipinde şablon üretilmiş bir teldir ve tabloda yoktur). Köken araması
+   kökenin kendi konumuyla yapılır (`checked_value`): parametrenin yerine
+   geçen kopya argümanın konumunu taşır.
    Karşılaştırmanın iki somut yanı aynı genişlikte olmalıdır (E2031):
    karşılaştırma çarpımı genişletmez. Modelin hesabı değişmez; A15 etiketi
    A12 gibi (ADR-0120) raporda kalır, açıklaması kuralı söyler.
@@ -194,6 +200,15 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
   farkı, 4 sözleşme düşmesi, 0 E2005, 0 WIDTH. Hepsi A15'in köşesindeki
   sekiz ifadeydi (dördünün sözleşme biçimiyle 12 bulgu); Karar 8 onları
   kapatır.
+- Karar 8'in ilk commit'i (7ef96dcd) CI'da (46010194296) fark testinin
+  küçük koşusunda `diffs=12` verdi: hepsi R biçiminde E2005 (iN yanı fn
+  parametresi ya da gövde `let`'i, açılımda tabloda yok), 4'ü regresyon
+  örneği. Aynı head'de elle tetiklenen büyük koşu (46010196102, tohum
+  2026112700 + k, parça başına 12 500; önceki koşulardan farklı tohum)
+  `diffs=42, 38, 38, 38` verdi: 0 değer farkı, 0 sözleşme düşmesi; bütün
+  sert bulgular R biçiminde E2005, aynı neden. Bulguların fn gövdelerinden
+  yeniden kurulan 133 tasarım `clone_of_name` ile tanısız derlenir
+  (7ef96dcd'nin ikilisiyle 119'u E2005).
 - Karar 8, önce kırmızı: regresyon örneklerinin aynısı ve real-bug
   dosyasının yeni blokları `volt test` (Verilator 5.054, Docker) ile.
   Main'in (c4f24632) ikilisiyle i2 örnekleri düştü (`(t * x2) as i12`,

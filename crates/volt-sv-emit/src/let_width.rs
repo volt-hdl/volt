@@ -387,8 +387,11 @@ impl Emitter<'_> {
         let table = self.checked?;
         let span = self.ast.exprs[idx].span;
         table.expr(idx, span).or_else(|| {
+            // Köken gövdedeki özgün düğümdür; kopyada aynı indekste durur.
+            // Konum kökeninkidir: parametrenin yerine geçen kopya argümanın
+            // konumunu taşır (ADR-0081).
             let origin = *self.inline_notes.origins.get(&idx)?;
-            table.expr(origin, span)
+            table.expr(origin, self.ast.exprs[origin].span)
         })
     }
 

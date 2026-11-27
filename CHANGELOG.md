@@ -71,7 +71,9 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   Karar 8); etiket raporda kalır.
 - `volt-sv-emit`: Trit × iN çarpımı `width_dependent`'te bağlama bağlıdır
   ve ADR-0106 §6'nın yoluyla kendi genişliğinde yalıtılır; doğal
-  genişliği tablodaki iN yanından okunur (`trit_product_int_side`).
+  genişliği tablodaki iN yanından okunur (`trit_product_int_side`). fn
+  açılımında parametre ve `let` adının yerine geçen kopya gövdedeki adın
+  değerini okur (`clone_of_name`).
 - `tests/ui/pass/167_trit_recognition_shapes.volt`: gölgenin girdisi;
   Trit struct alanında, dizi elemanında, fn parametresinde, generic
   const'ta, `comb` ve `on` yerelinde.
