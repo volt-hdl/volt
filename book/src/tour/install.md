@@ -24,7 +24,7 @@ and more about Docker.
 
 </div>
 
-The output on this page was recorded with Volt 0.1.4 on Windows 11. On
+The output on this page was recorded with Volt 0.1.5 on Windows 11. On
 Linux and macOS the paths use `/` instead of `\`; everything else looks the
 same.
 
@@ -77,7 +77,7 @@ volt --version
 **You should see:**
 
 ```text,output
-volt 0.1.4 (8ee23c6)
+volt 0.1.5 (5c083eb)
 ```
 
 The part in parentheses names the commit the binary was built from, so
@@ -307,7 +307,7 @@ volt doctor
 **You should see (Docker Desktop not running):**
 
 ```text,output
-volt 0.1.4 (windows-x86_64)
+volt 0.1.5 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✗ test, run — Verilator, C++ compiler, make not found
@@ -361,12 +361,11 @@ volt doctor
 **You should see (Docker Desktop running):**
 
 ```text,output
-volt 0.1.4 (windows-x86_64)
+volt 0.1.5 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✓ test, run — via Docker (verilator/verilator:v5.054: Verilator 5.054, g++ 13.3)
 ✓ verify — via Docker (hdlc/formal:all: Yosys 0.66, SBY 0.69, boolector 3.2.4, yices 2.7.0, z3 4.15.0)
-    image not downloaded yet: ~404 MB on first use
 - timing (optional) — OpenSTA not found; checks generated .sdc files
 - driver checks (optional) — C compiler not found (found: rustc 1.95.0); compiles drivers from --emit=c,rust
 ✓ docker — 29.8.1, daemon running

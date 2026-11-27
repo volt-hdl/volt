@@ -5,7 +5,7 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
-## [Yayımlanmadı]
+## [0.1.5] - 2026-11-27
 
 ### Behavior changes
 

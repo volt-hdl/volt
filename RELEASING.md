@@ -13,8 +13,9 @@ the text of a diagnostic may do in a patch release is ADR-0125 §7.
 `.github/workflows/README.md` describes what `release.yml` does.
 
 Agents and contributors may prepare the release pull request (step 1).
-They do not merge it and do not run steps 3 to 6: the merge, the tag and
-the GitHub Release are the maintainer's work (AGENTS.md).
+They do not merge it and do not run steps 4 to 7: the merge, the tag and
+the GitHub Release are the maintainer's work (AGENTS.md). They may run
+the dry run of the branch (1f).
 
 Commands are for PowerShell on Windows unless a step says "Git Bash".
 `gh` commands are the same in every shell.
@@ -323,9 +324,35 @@ gh pr create --title "chore(release): Volt 0.1.3" --body-file (Join-Path $env:TE
 gh pr checks --watch
 ```
 
-A dry run of the branch (`gh workflow run release.yml --ref
-chore/release-0.1.3`) finds a version that does not agree before the
-merge. The maintainer merges the pull request when CI is green.
+The maintainer merges the pull request when CI is green.
+
+### 1f. A dry run of the branch
+
+A dry run of the branch finds a version that does not agree, an archive
+that does not start or an install script that fails, before the merge.
+It publishes nothing, so agents may run it. It runs on the pushed
+commit; the selection by commit below fails instead of watching another
+run:
+
+```powershell
+$branch = 'chore/release-0.1.3'
+$head = git rev-parse HEAD
+gh workflow run release.yml --ref $branch
+$run = $null
+foreach ($i in 1..12) {
+    Start-Sleep 5   # the new run takes a few seconds to appear
+    $run = gh run list --workflow release.yml --branch $branch --event workflow_dispatch --commit $head --limit 1 --json databaseId --jq '.[].databaseId'
+    if ($run) { break }
+}
+if (-not $run) { throw "no dry run of $head on $branch" }
+gh run watch $run --exit-status
+gh run view $run --log | Select-String 'Smoke test [a-z0-9_-]+: volt|notice\]Dry run of Volt'
+```
+
+Four `Smoke test <target>: volt 0.1.3 (<commit>)` lines, one per
+platform, where `<commit>` is the short hash of `$head`, and the run's
+summary page says "Skipped: the publish job". Report the run ID in the
+pull request.
 
 ## 2. A dry run of the merged commit
 
@@ -345,9 +372,45 @@ Four `Smoke test <target>: volt 0.1.3 (<commit>)` lines, one per
 platform, and the two commit hashes are the same. The run's summary page
 says "Skipped: the publish job".
 
-## 3. Tag and push
+## 3. The nightly runs
 
-The tag goes on the commit the dry run tested:
+Before the tag, the latest nightly runs of the differential test, the
+metamorphic test and the fuzzer are green on a `main` that holds the
+commit the tag goes on. If one of them is red, no tag is set until the
+cause of the failure is understood (maintainer's decision, 2026-11-27).
+The pull request's own checks do not replace them: the nightly runs are
+the large ones (the differential test's large run, the metamorphic test
+with the nightly seed, the fuzzer on the nightly corpus).
+
+```powershell
+git fetch origin
+$release = git rev-parse origin/main
+$problems = 0
+foreach ($w in 'difftest.yml', 'metamorphic-nightly.yml', 'fuzz-nightly.yml') {
+    $line = gh run list --workflow $w --branch main --event schedule --limit 1 --json databaseId,headSha,status,conclusion --jq '.[] | [.databaseId, .headSha, .status, .conclusion] | @tsv'
+    if (-not $line) { Write-Host "${w}: no scheduled run on main"; $problems++; continue }
+    $id, $sha, $status, $conclusion = $line -split "`t"
+    git merge-base --is-ancestor $release $sha
+    $holds = ($LASTEXITCODE -eq 0)
+    Write-Host "${w}: run $id on $sha, $status $conclusion, holds $($release.Substring(0, 8)): $holds"
+    if ($status -ne 'completed' -or $conclusion -ne 'success' -or -not $holds) { $problems++ }
+}
+"$problems nightly problem(s)"
+```
+
+Expected: three lines that end in `completed success` and `True`, then
+`0 nightly problem(s)`. `True` means that the run tested the commit of
+the tag or a later `main` commit that contains it. A scheduled run starts
+some hours after its time in the workflow file, so a release merged in
+the evening is tested by the next night's runs. `False` on a green run
+means that the run predates the release commit: wait for the next night,
+or start the three workflows on `main` by hand
+(`gh workflow run <file> --ref main`) and check their runs with
+`--event workflow_dispatch` in place of `--event schedule`.
+
+## 4. Tag and push
+
+The tag goes on the commit the dry run and the nightly runs tested:
 
 ```powershell
 git fetch origin
@@ -360,15 +423,15 @@ The tag is exactly `v0.1.3`, no suffix (ADR-0100). The push starts
 v0.1.3).
 
 The book's root moves at this push, not when the GitHub Release is
-published in step 6: `book.yml` puts the book of the latest release tag
+published in step 7: `book.yml` puts the book of the latest release tag
 at https://volthdl.org/, whether that tag has a published Release or
-not (observed with v0.1.3). From the push until step 6, the root
+not (observed with v0.1.3). From the push until step 7, the root
 describes 0.1.3 while the install scripts, which take
-`releases/latest`, still install 0.1.2. Go through steps 4 to 6 without
+`releases/latest`, still install 0.1.2. Go through steps 5 to 7 without
 a break; if the release run fails, delete the tag ([Undo](#undo-a-wrong-tag-before-publishing)),
 which also moves the root back.
 
-## 4. Watch the release run
+## 5. Watch the release run
 
 ```powershell
 $run = gh run list --workflow release.yml --event push --limit 1 --json databaseId --jq '.[0].databaseId'
@@ -384,7 +447,7 @@ Expected: `Volt 0.1.3`, `true` (a draft), and eight files:
 If the run fails before `publish`, nothing was published: fix it on
 `main`, delete the tag (step "Undo" below) and start again from step 2.
 
-## 5. Check the draft's files
+## 6. Check the draft's files
 
 Download them into an empty folder:
 
@@ -430,7 +493,7 @@ foreach ($f in Get-ChildItem -File -Name | Where-Object { $_ -ne 'SHA256SUMS' })
 Expected: `0 attestation problem(s)`. Files from a dry run have no
 attestation, so the same command reports a problem for each of them.
 
-## 6. Publish
+## 7. Publish
 
 Read the draft's notes on the Releases page, then:
 
@@ -441,7 +504,7 @@ gh release edit v0.1.3 --draft=false --latest
 Do not mark it as a pre-release: the install scripts and the book's links
 use `releases/latest`, which ignores drafts and pre-releases (ADR-0096).
 
-## 7. After publishing
+## 8. After publishing
 
 ```powershell
 gh workflow run install.yml
@@ -449,7 +512,7 @@ gh run list --workflow book.yml --limit 2
 ```
 
 The `One-line install` jobs of `install.yml` now install 0.1.3 instead of
-0.1.2. The book run that the tag push started in step 3 has already put
+0.1.2. The book run that the tag push started in step 4 has already put
 the v0.1.3 book at https://volthdl.org/; publishing does not rebuild it.
 The `book.yml` list shows that run and the run on `main` it started.
 
