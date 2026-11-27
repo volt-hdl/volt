@@ -7,7 +7,13 @@
 //! dönüşüm), ADR-0041 (check kipinde aynı işaretli genişleme ve itme),
 //! ADR-0106 (karşılaştırma genişliği, bileşik değerden seçim),
 //! `docs/spec/const-eval.md` §1, §4 (literal aritmetiği: `i128` tam değer,
-//! taşma E2022, sıfıra bölme E2023; sığma E2010, #144).
+//! taşma E2022, sıfıra bölme E2023; sığma E2010, #144). `Trit` (#458):
+//! type-inference.md §3.3 (`Trit * Trit → Trit`, `Trit ± Trit → i3`,
+//! `Trit * iN → iN`), §3.4 (`-t` Trit), §3.6 (`Trit as iN`, N >= 2; her
+//! tipten Trit'e E2009), §4 (Trit literali {-1, 0, +1}, dışı E2011),
+//! ADR-0003, ADR-0062 Karar 1–2 (kod +1 = `01`, 0 = `00`, -1 = `11`; geniş
+//! hedefte çarpım hedef genişliğinde), ADR-0142 (`~`, `& | ^`, `<< >>`,
+//! bit seçme Trit'te E2003).
 //!
 //! Derleyicinin hiçbir parçası kullanılmaz (sabit katlayıcı, tip
 //! denetleyicisi, emitter): bu crate'in bağımlılığı yoktur.
@@ -39,6 +45,9 @@ pub enum Ty {
         hi: u32,
     },
     Bits(u32),
+    /// Dengeli üçlü {-1, 0, +1} (ADR-0003). Değer örüntüsü ADR-0062'nin
+    /// işaretli iki bitlik kodudur.
+    Trit,
     /// Soneksiz literal, değeriyle (§3.1, §4).
     Lit(i128),
 }
@@ -58,6 +67,7 @@ impl Ty {
             Ty::Bool => Some(PortTy::Bool),
             Ty::Int { signed, hi, .. } => Some(PortTy::int(signed, hi)),
             Ty::Bits(w) => Some(PortTy::Bits(w)),
+            Ty::Trit => Some(PortTy::Trit),
             Ty::Lit(_) => None,
         }
     }
@@ -68,6 +78,7 @@ impl Ty {
             Ty::Bool => 1,
             Ty::Int { hi, .. } => hi,
             Ty::Bits(w) => w,
+            Ty::Trit => 2,
             Ty::Lit(_) => 128,
         }
     }
@@ -78,8 +89,14 @@ impl Ty {
             PortTy::UInt(w) => Ty::int(false, w),
             PortTy::SInt(w) => Ty::int(true, w),
             PortTy::Bits(w) => Ty::Bits(w),
+            PortTy::Trit => Ty::Trit,
         }
     }
+}
+
+/// Trit'in değer kümesi (ADR-0003).
+pub fn is_trit_value(v: i128) -> bool {
+    (-1..=1).contains(&v)
 }
 
 /// Modelin bir ifade için kararı (geçerli değilse).
@@ -99,7 +116,8 @@ pub const MAX_INT: u32 = 64;
 pub const MAX_BITS: u32 = 70;
 
 /// Varsayım etiketleri: spesifikasyonun açık bıraktığı yerde modelin
-/// seçtiği okuma. Kimlikler ADR-0108'deki tabloyla aynıdır.
+/// seçtiği okuma. Kimlikler ADR-0108'deki tabloyla (A15–A16: ADR-0144)
+/// aynıdır.
 pub mod tag {
     /// A1: aralıklı (esnek) işlenen sonucun doğal genişliğine dönüştürülür;
     /// sonucun işlem genişliğine (kesişimin üst ucu) kesilmez.
@@ -145,6 +163,16 @@ pub mod tag {
     /// sığıyorsa literalin değerini taşır (§3.6 literalin dönüşümünü
     /// saymaz; derleyici kabul eder, #207). Sığmayan literal üretilmez.
     pub const LIT_TO_BITS: u32 = 1 << 14;
+    /// A15 (#458): `t * x` (`t : Trit`, `x : iN`) iN'dir (§3.3); t = -1,
+    /// x = iN::MIN'de çarpım (2^(N-1)) iN'e sığmaz ve şartname değeri
+    /// söylemez. Model çarpımın yapıldığı genişlikte (doğal N; check
+    /// kipinde en üstteki çarpım hedef genişlikte, ADR-0062 Karar 2)
+    /// ikiye tümleyenle sarar: iN::MIN. Etiket her `Trit * iN`'dedir.
+    pub const TRIT_MUL_WRAP: u32 = 1 << 15;
+    /// A16 (#458): iki Trit'in sıralama karşılaştırması (`<`, `<=`, `>`,
+    /// `>=`) değerleri karşılaştırır, -1 < 0 < +1. §3.3 karşılaştırmada
+    /// yalnız "aynı tip" ister; Trit'te sıralamanın anlamını söylemez.
+    pub const TRIT_ORDER: u32 = 1 << 16;
 }
 
 /// `(etiket, kimlik, açıklama)` — rapor ve ADR için.
@@ -219,6 +247,16 @@ pub const ASSUMPTIONS: &[(u32, &str, &str)] = &[
         "A14",
         "an untyped literal cast to bits<N> keeps its value when it fits in N bits",
     ),
+    (
+        tag::TRIT_MUL_WRAP,
+        "A15",
+        "t * x (t : Trit, x : iN) wraps at the width it is computed in: -1 * iN::MIN is iN::MIN",
+    ),
+    (
+        tag::TRIT_ORDER,
+        "A16",
+        "an ordering comparison of two Trits compares their values, -1 < 0 < +1",
+    ),
 ];
 
 pub fn tag_ids(tags: u32) -> String {
@@ -282,6 +320,10 @@ impl Model<'_> {
             }
             Expr::Index(b, i) => {
                 let tb = self.synth(b)?;
+                // ADR-0142 §4: bit seçme Trit'te E2003.
+                if tb.ty == Ty::Trit {
+                    return Err(Reject::Invalid("E2003"));
+                }
                 let w = Self::select_width(tb.ty)?;
                 let ti = self.synth(i)?;
                 match ti.ty {
@@ -291,6 +333,8 @@ impl Model<'_> {
                     }
                     Ty::Int { signed: true, .. } => Err(Reject::Unspecified("signed index")),
                     Ty::Bits(_) => Err(Reject::Unspecified("bits<N> index")),
+                    // §3.5 indeksin tipini söylemez; derleyici `x[t]`'yi kabul eder.
+                    Ty::Trit => Err(Reject::Unspecified("Trit index")),
                     Ty::Bool => Err(Reject::Invalid("?")),
                 }
             }
@@ -328,6 +372,7 @@ impl Model<'_> {
                         return Err(Reject::Unspecified("signed part-select start"))
                     }
                     Ty::Bits(_) => return Err(Reject::Unspecified("bits<N> part-select start")),
+                    Ty::Trit => return Err(Reject::Unspecified("Trit part-select start")),
                     Ty::Bool => return Err(Reject::Invalid("?")),
                 }
                 Ok(Typed::new(Ty::Bits(*pw), tb.tags | ts.tags))
@@ -360,7 +405,10 @@ impl Model<'_> {
         match t {
             Ty::Int { hi, .. } => Ok(hi),
             Ty::Bits(w) => Ok(w),
-            Ty::Bool => Err(Reject::Invalid("?")),
+            // Aralık ve parça seçimi Trit'te: §3.5 `width_of` Trit'in
+            // genişliğini söylemez (kodlama bilgisi, ADR-0139); hata, kodu
+            // adlandırılmamış. Bit seçme ayrı: E2003 (`Expr::Index`).
+            Ty::Bool | Ty::Trit => Err(Reject::Invalid("?")),
             Ty::Lit(_) => Err(Reject::Unspecified("select of an untyped literal")),
         }
     }
@@ -375,6 +423,8 @@ impl Model<'_> {
                 Ok((t, if lo != hi { tag::NOT_FLEX } else { 0 }))
             }
             (UnOp::BitNot, Ty::Bits(_)) => Ok((t, 0)),
+            // ADR-0142 §1: `~` Trit'te tanımlı değil.
+            (UnOp::BitNot, Ty::Trit) => Err(Reject::Invalid("E2003")),
             (UnOp::BitNot, Ty::Lit(_)) => Err(Reject::Unspecified("~ of an untyped literal")),
             // §3.4: `-x` işaretli olmalı, 1 bit genişler; ADR-0025 eki: somut i(N+1).
             (
@@ -394,6 +444,8 @@ impl Model<'_> {
                 ))
             }
             (UnOp::Neg, Ty::Int { signed: false, .. }) => Err(Reject::Invalid("E2002")),
+            // §3.4: `-Trit → Trit`; -(+1) = -1, -0 = 0, -(-1) = +1 (ADR-0142).
+            (UnOp::Neg, Ty::Trit) => Ok((Ty::Trit, 0)),
             (UnOp::Neg, Ty::Lit(v)) => Ok((Ty::Lit(-v), 0)),
             (UnOp::Neg, _) => Err(Reject::Invalid("?")),
         }
@@ -412,11 +464,54 @@ impl Model<'_> {
                     Ok((ty, tags | lt))
                 }
                 (Ty::Int { .. }, Ty::Int { .. }) => Self::int_arith(op, a, b),
+                // §3.3: literal Trit'e uyarlanır (`(IntLit, _) =>
+                // arith_result(rt, rt)`); değeri {-1, 0, +1} olmalı
+                // (ADR-0003, E2011).
+                (Ty::Trit, Ty::Trit) | (Ty::Trit, Ty::Lit(_)) | (Ty::Lit(_), Ty::Trit) => {
+                    if let (Ty::Lit(v), _) | (_, Ty::Lit(v)) = (a, b) {
+                        if !is_trit_value(v) {
+                            return Err(Reject::Invalid("E2011"));
+                        }
+                    }
+                    match op {
+                        BinOp::Mul => Ok((Ty::Trit, 0)),
+                        BinOp::Add | BinOp::Sub => Ok((Ty::int(true, 3), 0)),
+                        // `error_bad_op`: kodu adlandırılmamış.
+                        _ => Err(Reject::Invalid("?")),
+                    }
+                }
+                // §3.3: `Trit × iN → iN` (ternary MAC), her iki sırada.
+                (
+                    Ty::Trit,
+                    Ty::Int {
+                        signed: true,
+                        lo,
+                        hi,
+                    },
+                )
+                | (
+                    Ty::Int {
+                        signed: true,
+                        lo,
+                        hi,
+                    },
+                    Ty::Trit,
+                ) if op == BinOp::Mul => {
+                    if lo != hi {
+                        // ADR-0025'in esnek aralığı Trit çarpımında tanımlı değil.
+                        return Err(Reject::Unspecified("Trit times a flex-width operand"));
+                    }
+                    Ok((Ty::int(true, hi), tag::TRIT_MUL_WRAP))
+                }
                 (Ty::Bits(_), _) | (_, Ty::Bits(_)) => Err(Reject::Invalid("E2004")),
                 _ => Err(Reject::Invalid("?")),
             };
         }
         if op.is_bitwise() {
+            // ADR-0142 §4: `& | ^` Trit'te E2003.
+            if a == Ty::Trit || b == Ty::Trit {
+                return Err(Reject::Invalid("E2003"));
+            }
             // §3.3 "Bit Düzeyi: Genişlemez"; ADR-0025: kesişim aralığı korunur.
             return match (a, b) {
                 (Ty::Bool, Ty::Bool) => Ok((Ty::Bool, 0)),
@@ -463,6 +558,8 @@ impl Model<'_> {
                 }
                 Ty::Bits(w) => w,
                 Ty::Lit(_) => return Err(Reject::Unspecified("shift of an untyped literal")),
+                // ADR-0142 §4: kaydırma Trit'te E2003.
+                Ty::Trit => return Err(Reject::Invalid("E2003")),
                 Ty::Bool => return Err(Reject::Invalid("?")),
             };
             let max_amount: u128 = match b {
@@ -475,6 +572,9 @@ impl Model<'_> {
                     return Err(Reject::Unspecified("signed shift amount"))
                 }
                 Ty::Bits(_) => return Err(Reject::Unspecified("bits<N> shift amount")),
+                // §3.3 "miktar sayısal olmalı": Trit'in sayısal olup olmadığını
+                // söylemez.
+                Ty::Trit => return Err(Reject::Unspecified("Trit shift amount")),
                 Ty::Bool => return Err(Reject::Invalid("?")),
             };
             if op == BinOp::Shr
@@ -494,6 +594,16 @@ impl Model<'_> {
             (Ty::Bool, Ty::Bool) => Ok((Ty::Bool, 0)),
             (Ty::Bits(x), Ty::Bits(y)) if x == y => Ok((Ty::Bool, 0)),
             (Ty::Bits(_), Ty::Bits(_)) => Err(Reject::Invalid("?")),
+            // §3.3 "aynı tip olmalı"; literal Trit'e uyarlanır (E2011 dışı).
+            // Sıralama: A16.
+            (Ty::Trit, Ty::Trit) | (Ty::Trit, Ty::Lit(_)) | (Ty::Lit(_), Ty::Trit) => {
+                if let (Ty::Lit(v), _) | (_, Ty::Lit(v)) = (a, b) {
+                    if !is_trit_value(v) {
+                        return Err(Reject::Invalid("E2011"));
+                    }
+                }
+                Ok((Ty::Bool, if ordering { tag::TRIT_ORDER } else { 0 }))
+            }
             (
                 Ty::Int {
                     signed: s1,
@@ -650,6 +760,15 @@ impl Model<'_> {
     fn cast(src: Ty, t: PortTy) -> R<(Ty, u32)> {
         let e2009 = Err(Reject::Invalid("E2009"));
         match (src, t) {
+            // §3.6: `(Trit, SInt { width }) if width >= 2`; sayısaldan (ve
+            // literalden) Trit'e `(_, Trit) => false`. `t as Trit`'i de o
+            // kol reddeder, ama §3.6'da `bits<N>` ve `bool` için de özdeşlik
+            // kolu yoktur ve derleyici üçünü de kabul eder: belirsiz (#458).
+            (Ty::Trit, PortTy::SInt(b)) if b >= 2 => Ok((Ty::int(true, b), 0)),
+            (Ty::Trit, PortTy::Trit) => Err(Reject::Unspecified(
+                "Trit as Trit (no identity arm in §3.6)",
+            )),
+            (Ty::Trit, _) | (_, PortTy::Trit) => e2009,
             (Ty::Int { signed, hi, .. }, PortTy::UInt(b) | PortTy::SInt(b)) => {
                 let ts = t.signed();
                 let mut tags = 0;
@@ -707,6 +826,9 @@ impl Model<'_> {
                         Some((n.wrapping_neg() as u128) & mask(hi + 1))
                     }
                     (UnOp::Neg, Ty::Lit(n)) => Some(n.wrapping_neg() as u128),
+                    (UnOp::Neg, Ty::Trit) => {
+                        Some((to_i128(v, 2, true).wrapping_neg() as u128) & mask(2))
+                    }
                     _ => None,
                 }
             }
@@ -751,6 +873,8 @@ impl Model<'_> {
                 let src = self.synth(x).ok()?.ty;
                 let v = self.eval(x, inp)?;
                 match (src, t) {
+                    // §3.6 "Trit → sayısal (genişleme)": işaretle genişler.
+                    (Ty::Trit, PortTy::SInt(b)) => Some(conv(v, 2, true, *b)),
                     (Ty::Int { signed, hi, .. }, PortTy::UInt(b) | PortTy::SInt(b)) => {
                         Some(conv(v, hi, signed, *b))
                     }
@@ -758,7 +882,8 @@ impl Model<'_> {
                     (Ty::Int { .. }, PortTy::Bool) => Some(v & 1),
                     (Ty::Bits(w), _) => Some(v & mask(w)),
                     (Ty::Bool, _) => Some(v & 1),
-                    (Ty::Lit(_), _) => None,
+                    // Trit'e dönüşüm geçersiz (§3.6, E2009); Trit'ten yalnız iN.
+                    (_, PortTy::Trit) | (Ty::Lit(_) | Ty::Trit, _) => None,
                 }
             }
             Expr::Concat(_) => None,
@@ -783,6 +908,8 @@ impl Model<'_> {
             Ty::Lit(_) => v & mask(n),
             Ty::Int { signed, hi, .. } => conv(v, hi, signed, n),
             Ty::Bits(w) => conv(v, w, false, n),
+            // Trit sayısal değeriyle, işaretle genişler (ADR-0062 Karar 3).
+            Ty::Trit => conv(v, 2, true, n),
             Ty::Bool => v & 1,
         })
     }
@@ -831,6 +958,7 @@ impl Model<'_> {
             match t {
                 Ty::Lit(n) => n,
                 Ty::Int { signed, hi, .. } => to_i128(v, hi, signed),
+                Ty::Trit => to_i128(v, 2, true),
                 _ => v as i128,
             }
         };
@@ -862,11 +990,13 @@ impl Model<'_> {
         }
         let mut tags = 0;
         let mut lits = Vec::new();
+        let mut trits = 0;
         for side in [x, y] {
             let t = self.synth(side)?;
             tags |= t.tags;
             match t.ty {
                 Ty::Lit(v) => lits.push(v),
+                Ty::Trit => trits += 1,
                 Ty::Int { signed: s, hi, .. } if s == signed && hi <= w => {
                     if let Expr::Bin(inner, ..) = &**side {
                         if inner.is_arith() && hi < w {
@@ -881,6 +1011,17 @@ impl Model<'_> {
         // yolunda tam değerle katlanır; yaprakların hedefe sığması gerekmez.
         if lits.len() == 2 {
             return Ok(None);
+        }
+        // `Trit * iN` iN'dir (§3.3); geniş hedefte çarpım hedef genişliğinde
+        // yapılır (ADR-0062 Karar 2: x ve sıfır "çarpımın etkin bağlamında,
+        // ADR-0041: max(kendi, hedef)"). Trit'in öteki işlemleri (`Trit *
+        // Trit`, `Trit ± Trit` → i3) itilmez: Trit tipi tam sayı hedefe
+        // atanmaz, i3 toplamı taşmaz.
+        if trits > 0 {
+            if *op != BinOp::Mul || trits != 1 || !lits.is_empty() || !signed {
+                return Ok(None);
+            }
+            return Ok(Some(tags | tag::TRIT_MUL_WRAP));
         }
         if lits.iter().any(|&v| !fits(v, w, signed)) {
             return Err(Reject::Invalid("E2010"));
@@ -898,6 +1039,17 @@ impl Model<'_> {
     /// etiketleri.
     pub fn check(&self, e: &Expr, target: PortTy) -> R<u32> {
         match target {
+            // §4: literal Trit'e uyarlanır, {-1, 0, +1} dışı E2011; §5
+            // `(IntLit, ... | Trit)`.
+            PortTy::Trit => match self.synth(e)? {
+                Typed { ty: Ty::Trit, tags } => Ok(tags),
+                Typed {
+                    ty: Ty::Lit(v),
+                    tags,
+                } if is_trit_value(v) => Ok(tags),
+                Typed { ty: Ty::Lit(_), .. } => Err(Reject::Invalid("E2011")),
+                _ => Err(Reject::Invalid("E2003")),
+            },
             PortTy::Bool => match self.synth(e)? {
                 Typed { ty: Ty::Bool, tags } => Ok(tags),
                 _ => Err(Reject::Invalid("E2003")),
@@ -933,7 +1085,7 @@ impl Model<'_> {
     /// `target`'e atanmış `e`'nin değeri (`check` geçerli dediyse).
     pub fn eval_check(&self, e: &Expr, target: PortTy, inp: &[u128]) -> Option<u128> {
         match target {
-            PortTy::Bool | PortTy::Bits(_) => self.eval(e, inp),
+            PortTy::Bool | PortTy::Bits(_) | PortTy::Trit => self.eval(e, inp),
             PortTy::UInt(w) | PortTy::SInt(w) => {
                 let signed = target.signed();
                 if let Ok(Some(_)) = self.push(e, signed, w) {

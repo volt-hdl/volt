@@ -8,6 +8,9 @@ pub enum PortTy {
     UInt(u32),
     SInt(u32),
     Bits(u32),
+    /// Dengeli üçlü {-1, 0, +1} (ADR-0003); SV'de işaretli 2 bit, +1 =
+    /// `01`, 0 = `00`, -1 = `11` (ADR-0062 Karar 1).
+    Trit,
 }
 
 impl PortTy {
@@ -15,24 +18,27 @@ impl PortTy {
         match self {
             PortTy::Bool => 1,
             PortTy::UInt(w) | PortTy::SInt(w) | PortTy::Bits(w) => w,
+            PortTy::Trit => 2,
         }
     }
 
+    /// Örüntünün işaretli okunup okunmadığı (`Trit` işaretli, §3.10).
     pub fn signed(self) -> bool {
-        matches!(self, PortTy::SInt(_))
+        matches!(self, PortTy::SInt(_) | PortTy::Trit)
     }
 
     pub fn is_int(self) -> bool {
         matches!(self, PortTy::UInt(_) | PortTy::SInt(_))
     }
 
-    /// Volt yazımı: `u8`, `i5`, `bits<70>`, `bool`.
+    /// Volt yazımı: `u8`, `i5`, `bits<70>`, `bool`, `Trit`.
     pub fn volt(self) -> String {
         match self {
             PortTy::Bool => "bool".into(),
             PortTy::UInt(w) => format!("u{w}"),
             PortTy::SInt(w) => format!("i{w}"),
             PortTy::Bits(w) => format!("bits<{w}>"),
+            PortTy::Trit => "Trit".into(),
         }
     }
 
@@ -41,6 +47,7 @@ impl PortTy {
         match self {
             PortTy::Bool => "logic".into(),
             PortTy::SInt(w) => format!("logic signed [{}:0]", w - 1),
+            PortTy::Trit => "logic signed [1:0]".into(),
             PortTy::UInt(w) | PortTy::Bits(w) => format!("logic [{}:0]", w - 1),
         }
     }

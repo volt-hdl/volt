@@ -11,6 +11,26 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı değiştirir.
 
+### Geliştirici notu — Fark testi kapsamını sayar, Trit üretir, tanımsız işlemlerin reddini bekler (#458, ADR-0144, 2026-11-27)
+
+- Fark testinin raporu üretilen tipleri, işlemleri, literal yazımlarını
+  ve biçimleri sayar; dilin ifade düzeyindeki listesi
+  (`crates/volt-difftest/src/coverage.rs`, `LANGUAGE`) hiç üretilmeyenleri
+  gösterir. `coverage_tests` CI tohumuyla Verilator'suz koşar ve bir tür
+  sıfıra düşünce kırmızıdır.
+- Üreteç ve referans model `Trit`'i taşır: Trit portları ve literalleri,
+  `-t`, `t * u`, `t ± u` (i3), `t * x` (iN), `t as iN` ve karşılaştırma,
+  bütün biçimlerde. Yeni varsayım etiketleri A15 (Trit çarpımının taşması)
+  ve A16 (Trit sıralaması).
+- Beklenen ret ölçütü (`crates/volt-difftest/src/reject.rs`): her tipin
+  tanımsız işlemleri tek tablodan üretilir ve tam beklenen kodla
+  reddedilmelidir; `difftest_reject_tests` her işte koşar. Eski bir
+  ikiliyle: `cargo run -p volt-difftest --example volt-difftest-reject --
+  --volt <yol>` (v0.1.3 `~t`'yi kabul eder, #434).
+- Trit çarpımının literalle karşılaştırması derleyicide E2005 veriyor
+  (önceden var olan hata); üreteç o biçimi yalnız
+  `VOLT_DIFFTEST_TRIT_LIT_CMP=1` ile üretir.
+
 ### Geliştirici notu — Fuzz başarısızlıkta kapalı kalır; gece derlemi küçülür, PR tohumlardan fuzz eder (#305, ADR-0143, 2026-11-26)
 
 - libFuzzer'ın `-max_total_time`'ı derlemin yeniden oynatmasını da sayar.

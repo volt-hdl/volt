@@ -209,6 +209,8 @@ pub struct Report {
     pub div_cut: (usize, usize, usize),
     pub findings: Vec<Finding>,
     pub minimized: Vec<String>,
+    /// Rastgele toplu koşuların kapsamı (#458; regresyon ve küçültme hariç).
+    pub coverage: crate::coverage::Coverage,
 }
 
 impl Report {
@@ -435,13 +437,54 @@ fn verilator_msgs(text: &str) -> Vec<(String, String, String, usize, String)> {
     out
 }
 
-struct Batch {
-    cases: Vec<Case>,
-    ports: Vec<PortTy>,
-    vecs: Vec<Vec<u128>>,
+/// Bir toplu koşunun ifadeleri, giriş portları ve vektörleri.
+pub struct Batch {
+    pub cases: Vec<Case>,
+    pub ports: Vec<PortTy>,
+    pub vecs: Vec<Vec<u128>>,
     /// Elle hesaplanmış değerler: (ifade kimliği, vektör, beklenen bit
     /// örüntüsü). Yalnız regresyon toplu koşusunda.
-    pins: Vec<(usize, usize, u128)>,
+    pub pins: Vec<(usize, usize, u128)>,
+}
+
+/// Rastgele toplu koşu: `size` ifade (%5 geçersiz, %0,5 `concat`, gerisi
+/// geçerli olması amaçlanan), modelle sınıflandırılmış, `nvec` vektörle.
+/// Koşucunun ve kapsam testinin (`tests/coverage_tests.rs`, Verilator'suz)
+/// ortak yolu: aynı tohum aynı ifadeleri verir.
+pub fn generate_batch(rng: &mut Rng, size: usize, nvec: usize) -> Batch {
+    let mut pool = Pool::default();
+    let mut exprs = Vec::new();
+    for _ in 0..size {
+        let mut g = Gen {
+            rng: &mut *rng,
+            pool: &mut pool,
+        };
+        let roll = g.rng.below(1000);
+        let e = if roll < 50 {
+            g.invalid()
+        } else if roll < 55 {
+            g.concat()
+        } else {
+            g.expr()
+        };
+        exprs.push(e);
+    }
+    let cases = exprs
+        .into_iter()
+        .enumerate()
+        .map(|(i, e)| Case::new(i, e, &pool.ports, rng))
+        .collect();
+    let vecs = vectors(&pool.ports, nvec, rng);
+    let mut cases: Vec<Case> = cases;
+    for c in &mut cases {
+        c.drop_x_contract(&pool.ports, &vecs);
+    }
+    Batch {
+        cases,
+        ports: pool.ports,
+        vecs,
+        pins: Vec::new(),
+    }
 }
 
 /// Bir toplu koşunun sonucu (rapora eklenir).
@@ -539,7 +582,8 @@ impl<'a> Runner<'a> {
         let mut rng = Rng::new(self.cfg.seed);
         let max_generated = self.cfg.count * 3 + 1000;
         while self.report.accepted < self.cfg.count && self.report.generated < max_generated {
-            let batch = self.generate(&mut rng);
+            let batch = generate_batch(&mut rng, self.cfg.batch, self.cfg.vectors);
+            self.report.coverage.add_cases(&batch.cases, &batch.ports);
             self.report.generated += batch.cases.len();
             self.report.batches += 1;
             let out = self.run_batch(&batch, true);
@@ -620,42 +664,6 @@ impl<'a> Runner<'a> {
             self.report.findings.push(f);
         }
         self.report.regressions = (regs.len(), failed.len());
-    }
-
-    fn generate(&self, rng: &mut Rng) -> Batch {
-        let mut pool = Pool::default();
-        let mut exprs = Vec::new();
-        for _ in 0..self.cfg.batch {
-            let mut g = Gen {
-                rng: &mut *rng,
-                pool: &mut pool,
-            };
-            let roll = g.rng.below(1000);
-            let e = if roll < 50 {
-                g.invalid()
-            } else if roll < 55 {
-                g.concat()
-            } else {
-                g.expr()
-            };
-            exprs.push(e);
-        }
-        let cases = exprs
-            .into_iter()
-            .enumerate()
-            .map(|(i, e)| Case::new(i, e, &pool.ports, rng))
-            .collect();
-        let vecs = vectors(&pool.ports, self.cfg.vectors, rng);
-        let mut cases: Vec<Case> = cases;
-        for c in &mut cases {
-            c.drop_x_contract(&pool.ports, &vecs);
-        }
-        Batch {
-            cases,
-            ports: pool.ports,
-            vecs,
-            pins: Vec::new(),
-        }
     }
 
     /// `account`: rapordaki sayaçlar güncellenir mi (küçültmede hayır).
