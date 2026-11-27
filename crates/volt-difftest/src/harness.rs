@@ -217,6 +217,10 @@ impl Case {
                 }
             }
         }
+        // Trit: literal Trit'in değer kümesinden (ADR-0003); sıralama A16.
+        if nat == PortTy::Trit {
+            case.cmp_lit = Some((rng.pick(&BinOp::CMP), rng.pick(&[-1, 0, 1])));
+        }
         // Gövde `let`'i varsayılan açık; `VOLT_DIFFTEST_FN_LET=0` kapatır (`hygiene`).
         let body_let = crate::hygiene::body_let_enabled()
             .then_some(case.extracted.as_ref())
@@ -303,6 +307,11 @@ impl Case {
         };
         let base = model.synth(&self.expr).map_or(0, |t| t.tags);
         let check = match v {
+            // Literalle karşılaştırmanın kendi etiketi (Trit sıralaması, A16).
+            Variant::K => self.cmp_lit.map_or(0, |(op, k)| {
+                let e = Expr::bin(op, self.expr.clone(), Expr::Lit(k, LitFmt::Dec));
+                model.synth(&e).map_or(0, |t| t.tags)
+            }),
             Variant::W => self
                 .wide
                 .map_or(0, |t| model.check(&self.expr, t).unwrap_or(0)),
@@ -680,7 +689,9 @@ pub fn testbench(b: &Built, ports: &[PortTy], nvec: usize) -> String {
 
 /// Giriş vektörleri: `[vektör][port]`. İlk vektörler kenar değerleri
 /// (sıfır, hepsi bir, yalnız en üst bit, en üst bit dışında hepsi, bir),
-/// sonrası rastgele (bir kısmı küçük).
+/// sonrası rastgele (bir kısmı küçük). Trit portu yalnız değer kümesinin
+/// kodlarını alır (ADR-0062 Karar 1: 0 = `00`, -1 = `11`, +1 = `01`):
+/// `10` (-2) Volt kaynağından üretilemez, Trit'in anlamı onu tanımlamaz.
 pub fn vectors(ports: &[PortTy], nvec: usize, rng: &mut Rng) -> Vec<Vec<u128>> {
     (0..nvec)
         .map(|i| {
@@ -688,6 +699,14 @@ pub fn vectors(ports: &[PortTy], nvec: usize, rng: &mut Rng) -> Vec<Vec<u128>> {
                 .iter()
                 .map(|p| {
                     let w = p.width();
+                    if *p == PortTy::Trit {
+                        return match i {
+                            0 => 0b00,
+                            1 => 0b11,
+                            2..=4 => 0b01,
+                            _ => rng.pick(&[0b00, 0b01, 0b11]),
+                        };
+                    }
                     match i {
                         0 => 0,
                         1 => mask(w),

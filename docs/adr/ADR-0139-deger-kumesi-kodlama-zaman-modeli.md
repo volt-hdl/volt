@@ -1,7 +1,7 @@
 # ADR-0139: Değer Kümesi, Kodlama ve Zaman Modeli Ayrı Bilgilerdir — İkili Varsayımların Envanteri, Kodlamanın Tek Yeri, Ara Temsile Gereksinim
 
 > Statü: Uygulandı — 2026-11-25; Aşama 0, envanter
-> İlgili: ADR-0003 (Trit tipi: değer kümesi {-1, 0, +1}; Aşama 1'in turnusolu), ADR-0028 (`Spike`, `PTrit`, `spike` rezerve: bu ADR mekanizma eklemez), ADR-0062 (Trit'in SV eşlemesi: bugünkü tek ikili olmayan değer kümesinin kodlaması), ADR-0136 (§3'ün ara temsil kararına bir gereksinim koyar, kararı vermez), ADR-0137 (kodlama bilgisi anlamsal bilgidir ve tek kaynaktan okunur), ADR-0142 (envanterin "Açık bulgular" 1'i kapanır; `~` Trit'te tanımlı değil, ilkenin ilk uygulaması); tasarım notu: `docs/design/ikili-uclu-melez-tasarim.md` (ikili–üçlü melez sınır kuralları ve aşamaların koşulları; bağlayıcı değil)
+> İlgili: ADR-0003 (Trit tipi: değer kümesi {-1, 0, +1}; Aşama 1'in turnusolu), ADR-0028 (`Spike`, `PTrit`, `spike` rezerve: bu ADR mekanizma eklemez), ADR-0062 (Trit'in SV eşlemesi: bugünkü tek ikili olmayan değer kümesinin kodlaması), ADR-0136 (§3'ün ara temsil kararına bir gereksinim koyar, kararı vermez), ADR-0137 (kodlama bilgisi anlamsal bilgidir ve tek kaynaktan okunur), ADR-0142 (envanterin "Açık bulgular" 1'i kapanır; `~` Trit'te tanımlı değil, ilkenin ilk uygulaması); tasarım notu: `docs/design/ikili-uclu-melez-tasarim.md` (ikili–üçlü melez sınır kuralları ve aşamaların koşulları; bağlayıcı değil), ADR-0144 (fark testi Trit'i değer kümesiyle modeller; ret ölçütünün Trit satırları §1'in ayrımını sınar)
 > Tarih: 2026-11-25
 > Etkilenen: `docs/design/ikili-varsayimlar-envanteri.md` (YENİ, Aşama 0). Kod ve davranış değişmez.
 

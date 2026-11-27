@@ -4,6 +4,12 @@
 //! olabilir — ADR-0025'in esnek aralığı ve #106 sınıfı tam orada yaşar.
 //! Her düğüm modelle doğrulanır; geçersiz çıkan aday yeniden üretilir.
 //! Geçersiz ifadeler (`invalid`) ayrı ve bilerek üretilir.
+//!
+//! `Trit` (#458): Trit ifadesi (`trit`: port, `-t`, `t * u`, Trit
+//! literaliyle çarpım), Trit'ten tam sayıya (`t ± u` → i3, `t * x` → iN,
+//! `t as iN`) ve bool'a (`==`, `!=`, sıralama) giden düğümler; geçersiz
+//! akışta Trit'e ve Trit'ten tanımsız dönüşümler, `~`/bit işlemi/kaydırma/
+//! bit seçme ve tip karışımları.
 
 use crate::ast::{BinOp, Expr, LitFmt, PortTy, UnOp};
 use crate::model::{Model, Ty, MAX_BITS, MAX_INT};
@@ -39,6 +45,19 @@ impl Pool {
 /// dönüşümü, literal, literal aritmetiği. Issue kapanınca varsayılan açılır.
 pub fn div_operands_enabled() -> bool {
     std::env::var("VOLT_DIFFTEST_DIV_OPERANDS").is_ok_and(|v| v == "1")
+}
+
+/// Trit'in olumsuzlaması (`-t`) ve Trit çarpımı (`t * u`, `t * x`)
+/// yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile üretilir. SV üreticisinin doğal
+/// genişlik aralığı (`int_range`, `volt-sv-emit` `let_width.rs`) bu iki
+/// işleme yanlış aralık veriyor (`-t` i3, `Trit * iN` hiç, `Trit * Trit`
+/// [2, 4]); sonuçları #458'in CI koşusunda görüldü: literalle
+/// karşılaştırmada E2005, tipsiz `let`'in teli kısa (değer kesilir),
+/// `-(t * x)` genişlemiyor, `let s = -t` 3 bit (WIDTH uyarısı). Varsayılanda
+/// Trit portları, literalleri, `t ± u`, `t as iN` ve karşılaştırmalar
+/// üretilir. Hata #463; o issue kapanınca varsayılan açılır.
+pub fn trit_arith_enabled() -> bool {
+    std::env::var("VOLT_DIFFTEST_TRIT_ARITH").is_ok_and(|v| v == "1")
 }
 
 fn floor_log2(n: u32) -> u32 {
@@ -286,7 +305,7 @@ impl Gen<'_> {
     }
 
     fn int_node(&mut self, s: bool, w: u32, d: u32) -> Expr {
-        match self.rng.weighted(&[30, 14, 6, 6, 12, 14, 18]) {
+        match self.rng.weighted(&[30, 14, 6, 6, 12, 14, 18, 7]) {
             0 => {
                 let ops: &[BinOp] = if 2 * w <= MAX_INT {
                     &[BinOp::Add, BinOp::Sub, BinOp::Mul, BinOp::Div, BinOp::Rem]
@@ -328,9 +347,106 @@ impl Gen<'_> {
                     _ => Expr::cast(self.int(!s, w, d - 1), t),
                 }
             }
-            _ => {
+            6 => {
                 let b = self.bits_select(w, d);
                 Expr::cast(b, PortTy::int(s, w))
+            }
+            _ if s && w >= 2 => self.int_of_trit(w, d),
+            _ => Expr::un(UnOp::BitNot, self.int(s, w, d - 1)),
+        }
+    }
+
+    /// Somut (esnek olmayan) tam `iw`/`uw` ifadesi: esnek aralıklıysa `as`.
+    fn int_concrete(&mut self, s: bool, w: u32, d: u32) -> Expr {
+        let e = self.int(s, w, d);
+        match self.ty_of(&e) {
+            Some(Ty::Int { lo, hi, .. }) if lo == hi && hi == w => e,
+            _ => Expr::cast(e, PortTy::int(s, w)),
+        }
+    }
+
+    /// Trit'ten `iw` (w >= 2): `t * x` (x : iw, her iki sırada; §3.3;
+    /// `trit_arith_enabled`), `t ± u` (i3; w > 3'te `as iw` ile
+    /// genişletilmiş) ya da `t as iw` (§3.6).
+    fn int_of_trit(&mut self, w: u32, d: u32) -> Expr {
+        match self.rng.weighted(&[50, 25, 25]) {
+            0 if trit_arith_enabled() => {
+                let t = self.trit(d - 1);
+                let sd = self.sub_depth(d);
+                let x = self.int_concrete(true, w, sd);
+                if self.rng.chance(35) {
+                    Expr::bin(BinOp::Mul, x, t)
+                } else {
+                    Expr::bin(BinOp::Mul, t, x)
+                }
+            }
+            1 if w >= 3 => {
+                let sum = self.trit_sum(d);
+                if w == 3 {
+                    sum
+                } else {
+                    Expr::cast(sum, PortTy::SInt(w))
+                }
+            }
+            _ => Expr::cast(self.trit(d - 1), PortTy::SInt(w)),
+        }
+    }
+
+    /// `t ± u` → i3 (§3.3: +1 + +1 = +2 taşar, i3'e genişler).
+    fn trit_sum(&mut self, d: u32) -> Expr {
+        let op = self.rng.pick(&[BinOp::Add, BinOp::Sub]);
+        let x = self.trit(d.saturating_sub(1));
+        let sd = self.sub_depth(d.max(1));
+        let y = self.trit_operand(sd);
+        Expr::bin(op, x, y)
+    }
+
+    /// Trit literali: -1, 0 ya da +1 (ADR-0003).
+    fn trit_lit(&mut self) -> Expr {
+        Expr::Lit(self.rng.pick(&[-1, 0, 1]), LitFmt::Dec)
+    }
+
+    /// Trit ifadesinin ikinci işleneni: çoğu zaman Trit ifadesi, bazen
+    /// Trit literali.
+    fn trit_operand(&mut self, d: u32) -> Expr {
+        if self.rng.chance(25) {
+            self.trit_lit()
+        } else {
+            self.trit(d)
+        }
+    }
+
+    /// Üretecin `Trit` ifadesi: `trit_arith_enabled` ise [`Gen::trit_any`],
+    /// değilse Trit portu.
+    pub fn trit(&mut self, d: u32) -> Expr {
+        let d = if trit_arith_enabled() { d } else { 0 };
+        self.trit_any(d)
+    }
+
+    /// `Trit` ifadesi, iç içelik en çok `d`: port, `-t` (§3.4), `t * u`
+    /// (§3.3, kapalı), Trit literaliyle çarpım (her iki sırada). Beklenen
+    /// ret ölçütü işlenenlerini bundan alır (yalnız `volt check`; üreticinin
+    /// hatası orada görünmez).
+    pub fn trit_any(&mut self, d: u32) -> Expr {
+        if d == 0 {
+            return self.leaf(PortTy::Trit);
+        }
+        match self.rng.weighted(&[30, 45, 25]) {
+            0 => Expr::un(UnOp::Neg, self.trit_any(d - 1)),
+            1 => {
+                let x = self.trit_any(d - 1);
+                let sd = self.sub_depth(d);
+                let y = self.trit_any(sd);
+                Expr::bin(BinOp::Mul, x, y)
+            }
+            _ => {
+                let x = self.trit_any(d - 1);
+                let k = self.trit_lit();
+                if self.rng.chance(30) {
+                    Expr::bin(BinOp::Mul, k, x)
+                } else {
+                    Expr::bin(BinOp::Mul, x, k)
+                }
             }
         }
     }
@@ -446,7 +562,7 @@ impl Gen<'_> {
     }
 
     fn bool_node(&mut self, d: u32) -> Expr {
-        match self.rng.weighted(&[42, 8, 16, 14, 8, 3, 4, 5]) {
+        match self.rng.weighted(&[42, 8, 16, 14, 8, 3, 4, 5, 10]) {
             0 => {
                 let s = self.rng.chance(40);
                 let w = self.width();
@@ -503,12 +619,37 @@ impl Gen<'_> {
             4 => Expr::un(UnOp::Not, self.boolean(d - 1)),
             5 => Expr::un(UnOp::BitNot, self.boolean(d - 1)),
             6 => Expr::cast(self.int_exact(false, 1, d - 1), PortTy::Bool),
-            _ => {
+            7 => {
                 let op = self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
                 let x = self.boolean(d - 1);
                 let sd = self.sub_depth(d);
                 let y = self.boolean(sd);
                 Expr::bin(op, x, y)
+            }
+            // İki Trit'in karşılaştırması: `==`/`!=` çoğu zaman, sıralama
+            // (A16) bazen; karşı yan Trit ifadesi ya da Trit literali.
+            // Bazen iki `t ± u` (i3) toplamı.
+            _ if self.rng.chance(25) => {
+                let op = self.rng.pick(&BinOp::CMP);
+                let x = self.trit_sum(d);
+                let sd = self.sub_depth(d);
+                let y = self.trit_sum(sd);
+                Expr::bin(op, x, y)
+            }
+            _ => {
+                let op = if self.rng.chance(65) {
+                    self.rng.pick(&[BinOp::Eq, BinOp::Ne])
+                } else {
+                    self.rng.pick(&[BinOp::Lt, BinOp::Le, BinOp::Gt, BinOp::Ge])
+                };
+                let x = self.trit(d - 1);
+                let sd = self.sub_depth(d);
+                let y = self.trit_operand(sd);
+                if self.rng.chance(20) {
+                    Expr::bin(op, y, x)
+                } else {
+                    Expr::bin(op, x, y)
+                }
             }
         }
     }
@@ -516,7 +657,7 @@ impl Gen<'_> {
     /// Geçerli olması amaçlanan üst düzey ifade: iç içelik 1–5.
     pub fn expr(&mut self) -> Expr {
         let d = self.rng.range(1, 5);
-        match self.rng.weighted(&[55, 15, 30, 6]) {
+        match self.rng.weighted(&[55, 15, 30, 6, 7]) {
             0 => {
                 let s = self.rng.chance(40);
                 let w = self.width();
@@ -527,7 +668,8 @@ impl Gen<'_> {
                 self.bits(w, d)
             }
             2 => self.boolean(d),
-            _ => self.wide_root(d),
+            3 => self.wide_root(d),
+            _ => self.trit(d),
         }
     }
 
@@ -611,7 +753,7 @@ impl Gen<'_> {
         let s = self.rng.chance(40);
         match self
             .rng
-            .weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10, 8, 5, 6])
+            .weighted(&[14, 14, 10, 14, 10, 8, 10, 10, 10, 8, 5, 6, 6, 6, 5])
         {
             0 => {
                 let op = self
@@ -704,10 +846,75 @@ impl Gen<'_> {
                 let k = Expr::Lit(self.lit_magnitude(), LitFmt::Dec);
                 Expr::bin(BinOp::Add, x, Expr::bin(op, k, zero))
             }
-            _ => {
+            8 => {
                 let x = self.int_exact(false, w, d);
                 let v = 1i128 << w;
                 Expr::bin(BinOp::Eq, x, Expr::Lit(v, LitFmt::Dec))
+            }
+            // #458: Trit'e ve Trit'ten tanımsız dönüşüm (§3.6, E2009).
+            12 => {
+                if self.rng.chance(50) {
+                    let t = self.rng.pick(&[
+                        PortTy::UInt(2),
+                        PortTy::UInt(w),
+                        PortTy::SInt(1),
+                        PortTy::Bits(2),
+                        PortTy::Bool,
+                    ]);
+                    Expr::cast(self.trit(d), t)
+                } else {
+                    let x = match self.rng.weighted(&[40, 25, 20, 15]) {
+                        0 => self.int_exact(s, w, d),
+                        1 => self.bits(2, d),
+                        2 => self.boolean(d),
+                        _ => Expr::Lit(i128::from(self.rng.range(0, 1)), LitFmt::Dec),
+                    };
+                    Expr::cast(x, PortTy::Trit)
+                }
+            }
+            // #458, ADR-0142: `~`, bit işlemi, kaydırma ve bit seçme Trit'te
+            // E2003.
+            13 => {
+                let t = self.trit(d);
+                match self.rng.weighted(&[30, 30, 20, 20]) {
+                    0 => Expr::un(UnOp::BitNot, t),
+                    1 => {
+                        let op = self.rng.pick(&[BinOp::And, BinOp::Or, BinOp::Xor]);
+                        Expr::bin(op, t, self.trit(d))
+                    }
+                    2 => {
+                        let op = self.rng.pick(&[BinOp::Shl, BinOp::Shr]);
+                        Expr::bin(
+                            op,
+                            t,
+                            Expr::Lit(i128::from(self.rng.range(0, 2)), LitFmt::Dec),
+                        )
+                    }
+                    _ => Expr::Index(
+                        Box::new(t),
+                        Box::new(Expr::Lit(i128::from(self.rng.range(0, 1)), LitFmt::Dec)),
+                    ),
+                }
+            }
+            // #458: Trit'in tip karışımları (§3.3 `error_incompatible`, kod
+            // adlandırılmamış) ve Trit bağlamında {-1, 0, +1} dışı literal
+            // (ADR-0003, E2011).
+            _ => {
+                let t = self.trit(d);
+                match self.rng.weighted(&[30, 25, 25, 20]) {
+                    0 => Expr::bin(
+                        self.rng.pick(&[BinOp::Add, BinOp::Sub]),
+                        t,
+                        self.int_concrete(true, w, d),
+                    ),
+                    1 => Expr::bin(BinOp::Mul, t, self.int_concrete(false, w, d)),
+                    2 => Expr::bin(BinOp::Eq, t, self.int_concrete(s, w, d)),
+                    _ => {
+                        let k = if self.rng.chance(50) { 2 } else { -2 };
+                        let op = self.rng.pick(&[BinOp::Mul, BinOp::Eq, BinOp::Add]);
+                        Expr::bin(op, t, Expr::Lit(k, LitFmt::Dec))
+                    }
+                }
             }
         }
     }
@@ -814,6 +1021,30 @@ mod tests {
                 collect_lits(b, out);
             }
             _ => {}
+        }
+    }
+
+    /// #458: Trit ifadesi modelce Trit tiplidir; Trit'ten tam sayıya ve
+    /// bool'a giden düğümler geçerlidir.
+    #[test]
+    fn trit_expressions_are_valid_and_typed_by_the_model() {
+        let mut rng = Rng::new(458);
+        let mut pool = Pool::default();
+        for i in 0..300 {
+            let mut g = Gen {
+                rng: &mut rng,
+                pool: &mut pool,
+            };
+            let d = 1 + (i % 4) as u32;
+            let t = g.trit_any(d);
+            let w = 2 + (i % 20) as u32;
+            let x = g.int_of_trit(w, d);
+            let b = g.boolean(d);
+            let m = Model { ports: &pool.ports };
+            assert_eq!(m.synth(&t).map(|t| t.ty), Ok(Ty::Trit), "{t:?}");
+            let tx = m.synth(&x).map(|t| t.ty);
+            assert_eq!(tx, Ok(Ty::int(true, w)), "{x:?}");
+            assert_eq!(m.synth(&b).map(|t| t.ty), Ok(Ty::Bool), "{b:?}");
         }
     }
 

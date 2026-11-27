@@ -11,7 +11,7 @@
 //! derleyici aynı yanlışı yapsa bile elle hesaplanan değer onu yakalar;
 //! `pins_agree_with_the_model` modelin de aynı değeri verdiğini sınar.
 //! Elle hesap yalnız spesifikasyonun ya da bir ADR'nin değeri belirlediği
-//! örneklerdedir: değeri bir varsayım etiketine (A1–A14, ADR-0108) bağlı
+//! örneklerdedir: değeri bir varsayım etiketine (A1–A16; ADR-0108, ADR-0144) bağlı
 //! örnek (işaretsiz çıkarmanın sarması, esnek toplamın kaydırması) elle
 //! sabitlenmez. A12'nin okuması (işaretli `>>` genişlik kadar ya da fazla
 //! kaydırınca işaretle dolar) ADR-0120'de kural olarak yazıldı; #302'nin
