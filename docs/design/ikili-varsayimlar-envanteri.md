@@ -208,7 +208,7 @@ kuvveti olması kodlama ekseninde (b.F) sayılır.
 | `volt-sv-emit/src/expr.rs:1293` `select_from_value`; `:1315` `is_selectable_base`; `:1352` `scalar_select`; `:1375` `index_width_mismatch`; `:1395` `sized_index`; `:1411` `is_scalar_base`; `:1467` `cut_value` | SV | Seçim = kaydırma + boyut dönüşümü. | arka uç | tek |
 | `volt-sv-emit/src/expr.rs:1579` `emit_cast` | SV | `{{n{x[msb]}}, x}`, `{{n{1'b0}}, x}`, `x[w-1:0]`. | arka uç | tek |
 | `volt-sv-emit/src/expr.rs:291` `own_width` | SV | Karşılaştırma ve bit seçimi 1 bit. | arka uç | dağınık |
-| `volt-sv-emit/src/let_width.rs:183` `int_range`; `:254` `binary_range`; `:304` `operand_meet` | SV | +1 / ×2 kuralının kopyası. | arka uç | dağınık |
+| `volt-sv-emit/src/let_width.rs:190` `int_range`; `:264` `binary_range`; `:400` `operand_meet` | SV | +1 / ×2 kuralının kopyası. | arka uç | dağınık |
 | `volt-sv-emit/src/builtin_prim.rs:865` `emit_round_robin_arbiter`; `:320` `emit_async_fifo` | SV | `x & (~x + 1)`; Gray kod `(b>>1)^b`. | arka uç | tek |
 | `volt-sv-emit/src/lib.rs:1687` `emit_bidir_drivers`; `instance.rs:319` `bidir_binding` | SV | `1'bz`: dört değerli SV'nin Z'si. | arka uç | tek |
 
@@ -267,7 +267,7 @@ DEPTH iki kuvveti, `taps = LEN × genişlik(T)`), ADR-0044 (MMIO alanı en
 | `volt-sv-emit/src/lib.rs:2442` `port_sig` | SV | Ham reset `Sig::BIT`. | arka uç | dağınık |
 | `volt-sv-emit/src/instance.rs:147` `emit_user_instance` | SV | Saat bağlaması sabit 1 bit. | arka uç | dağınık |
 | `volt-sv-emit/src/lib.rs:2303` `emit_if`; `sva.rs:140` `ONE_BIT` (sabit) | SV | Koşul ve kontrat 1 bit. | arka uç | dağınık |
-| `volt-sv-emit/src/let_width.rs:254` `binary_range` | SV | Karşılaştırma `Sig::BIT`; Trit için `trit_sum_sig`. | arka uç | dağınık |
+| `volt-sv-emit/src/let_width.rs:264` `binary_range` | SV | Karşılaştırma `Sig::BIT`. Trit kolu (`trit_sum_sig`) #463'te kalktı: Trit aritmetiğinin genişliği tip denetiminin tablosundan (`checked_trit_range`, ADR-0145). | arka uç | dağınık |
 | `volt-sv-emit/src/sim.rs:63` `collect_sim_ports` | SIM | Port bitleri `type_ref_bits`'ten; otomatik `rst` `Some(1)` sabit. | arka uç | dağınık |
 | `volt-hir/src/timing.rs:736` `stage_register_help` (`:897` `register_cost`) | TD | E5010 önerisinin kendi genişlik tablosu: Bool 1, sayısal N; Trit, enum, struct, dizi `None` (bedel yazılmaz). `bit_width`'i okumaz. Bedelin birimi flop. | belirsiz | dağınık |
 | `volt-syntax/src/parser/mmio.rs:106` `FieldTy::width` | SYN, SW | `Bool => 1` sabit. | dil | dağınık |
@@ -333,7 +333,7 @@ Demet tipinin bit düzeni tanımlı değildir: `bit_width` ve `type_ref_bits`
 |---|---|---|---|---|
 | `volt-sv-emit/src/trit.rs:17`–`:18` `TRIT_POS`, `TRIT_NEG` (sabit) | SV | `2'sb01`, `2'sb11`. ADR-0077 K3 kodu struct dönüşümünde gözlenebilir kılar. | dil | dağınık |
 | `volt-sv-emit/src/trit.rs:113` `try_emit_trit_mul` | SV | Çarpansız seçici; `10` `else` dalında 0'a gider (ADR-0062 K2). | arka uç | dağınık |
-| `volt-sv-emit/src/trit.rs:102` `trit_sum_sig` | SV | Trit ± Trit = 3 bit işaretli; TD `trit_arith_result`'ın kopyası. | dil | dağınık |
+| `volt-sv-emit/src/trit.rs:102` `trit_sum_sig` | SV | Trit ± Trit = 3 bit işaretli; TD `trit_arith_result`'ın kopyası. #463'ten beri yalnız `width_of` okur; `let_width.rs` tablodan (ADR-0145). | dil | dağınık |
 | `volt-sv-emit/src/trit.rs:22` `is_trit_typeref`; `:41` `note_trit`; `:50` `is_trit`; `lib.rs:858` `Emitter` (`:873` `trits` alanı); `lib.rs:1426` `emit_body` | SV | Trit-lik AST'den yeniden çıkarılır (ADR-0062 K4); tanınmayan biçimde jenerik `*`, yalnız i2 ikiye tümleyende doğru. | arka uç | dağınık |
 | `volt-sv-emit/src/expr.rs:802` `emit_prec` | SV | `try_emit_trit_mul`'u çağırır. | arka uç | tek |
 | `volt-sv-emit/src/waves.rs:172` `trit_table`; `:164` `invalid_label` | SV | `width: 2`, `00`/`01`/`11`; `10` "invalid −2"; kodları `TRIT_POS`/`TRIT_NEG`'den okumaz. | arka uç | dağınık |

@@ -9,9 +9,16 @@
 //! yeniden hesaplanır: operandların ortak aralığı kesişimle bulunur,
 //! toplama/çıkarma 1 bit, çarpma iki kat genişler; bölme, mod, bit düzeyi
 //! işlemler ve kaydırma genişlemez.
+//!
+//! Trit aritmetiği (`-t`, Trit'li çarpım, iki Trit'in toplamı ve farkı)
+//! burada hesaplanmaz: genişliği ve işareti tip denetiminin tablosundan
+//! okunur (#463, ADR-0145; tablo ADR-0141). Tablo cevap vermezse E2005;
+//! üretici kendi hesabına dönmez.
 
+use volt_ast::checked::CheckedValue;
 use volt_ast::const_eval::MAX_WIDTH;
 use volt_ast::{BinOp, Expr, ExprKind, Idx, UnOp};
+use volt_diagnostics::{lstr, ErrorCode};
 
 use crate::expr::{value_arms, Sig};
 use crate::scope::Res;
@@ -181,6 +188,9 @@ impl Emitter<'_> {
     }
 
     fn int_range(&mut self, idx: Idx<Expr>) -> Option<Range> {
+        if self.is_trit_arith(idx) {
+            return self.checked_trit_range(idx);
+        }
         let ast = self.ast;
         match &ast.exprs[idx].kind {
             ExprKind::Binary { op, lhs, rhs } => self.binary_range(*op, *lhs, *rhs),
@@ -189,7 +199,7 @@ impl Emitter<'_> {
                 operand,
             } => {
                 // `-x` somut `i(N+1)`dir (esnek değil); işaretsiz operand
-                // tip denetiminde E2002.
+                // tip denetiminde E2002. `-t` (t : Trit) yukarıda, tablodan.
                 let r = self.int_range(*operand)?;
                 let width = (r.hi + 1).min(MAX_WIDTH);
                 r.signed.then_some(Range {
@@ -254,10 +264,8 @@ impl Emitter<'_> {
     fn binary_range(&mut self, op: BinOp, lhs: Idx<Expr>, rhs: Idx<Expr>) -> Option<Range> {
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-                // Trit toplamı/çarpımı kendi kuralını taşır (ADR-0062).
-                if let Some(sig) = self.trit_sum_sig(op, lhs, rhs) {
-                    return Some(Range::exact(sig));
-                }
+                // Trit toplamı, farkı ve çarpımı buraya gelmez (`int_range`,
+                // tablodan).
                 let common = self.operand_meet(lhs, rhs)?;
                 let natural = match op {
                     BinOp::Add | BinOp::Sub => common.hi + 1,
@@ -297,6 +305,84 @@ impl Emitter<'_> {
             | BinOp::Or
             | BinOp::Imp => Some(Range::exact(Sig::BIT)),
         }
+    }
+
+    /// Trit aritmetiği mi (type-inference.md §3.3, §3.4): Trit'in eksisi
+    /// (`-t`) ya da en az bir yanı Trit olan çarpım, toplam ve fark (`t * u`,
+    /// `t * x`, `x * t`, `t ± u`). Trit ile Trit olmayan bir değişkenin
+    /// toplamı tip denetiminde hatadır; literal Trit'in tipini alır
+    /// (`t + 1`, §4). Trit'i tanıyan, çarpımın seçici olarak basılıp
+    /// basılmayacağına da karar veren `is_trit`'tir (trit.rs).
+    fn is_trit_arith(&self, idx: Idx<Expr>) -> bool {
+        match &self.ast.exprs[idx].kind {
+            ExprKind::Unary {
+                op: UnOp::Neg,
+                operand,
+            } => self.is_trit(*operand),
+            ExprKind::Binary {
+                op: BinOp::Add | BinOp::Sub | BinOp::Mul,
+                lhs,
+                rhs,
+            } => self.is_trit(*lhs) || self.is_trit(*rhs),
+            ExprKind::Unary { .. }
+            | ExprKind::Binary { .. }
+            | ExprKind::IntLit { .. }
+            | ExprKind::BoolLit(_)
+            | ExprKind::StringLit(_)
+            | ExprKind::Path(_)
+            | ExprKind::Index { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::PartSelect { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Cast { .. }
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::StructLit { .. }
+            | ExprKind::ArrayLit(_)
+            | ExprKind::TupleLit(_)
+            | ExprKind::Concat(_)
+            | ExprKind::Todo { .. }
+            | ExprKind::Error => false,
+        }
+    }
+
+    /// Trit aritmetiğinin aralığı: tip denetiminin ifadeye verdiği
+    /// genişlik ve işaret (#463, ADR-0145). Somut tipte aralık tek
+    /// genişliktir; esnek işlenenli çarpımda (`t * (a + b)`) tablo doğal
+    /// genişliği taşır, alt uç da odur (ADR-0144 §2: aralığı Trit'te
+    /// tanımlı değil). Cevap yoksa E2005 ve `None`.
+    fn checked_trit_range(&mut self, idx: Idx<Expr>) -> Option<Range> {
+        match self.checked_value(idx) {
+            Some(CheckedValue::Bits { width, signed }) => Some(Range::exact(Sig { width, signed })),
+            Some(CheckedValue::Struct(_) | CheckedValue::NoWidth) | None => {
+                self.error(
+                    ErrorCode::E2005,
+                    lstr!(
+                        en: "cannot determine the width of this Trit operation";
+                        tr: "bu Trit işleminin genişliği belirlenemiyor"
+                    ),
+                    self.ast.exprs[idx].span,
+                    &lstr!(
+                        en: "give the operands a type with a width, for example x as i8";
+                        tr: "işlenenlere genişliği olan bir tip verin, örneğin x as i8"
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// Tip denetiminin ifadeye verdiği değer (ADR-0141). fn açılımının
+    /// kopyası (ADR-0081) gövdedeki özgün düğümün değerini okur: fn generic
+    /// değildir, gövde parametrelerin bildirilen tipleriyle bir kez denetlenir.
+    pub(crate) fn checked_value(&self, idx: Idx<Expr>) -> Option<CheckedValue> {
+        let table = self.checked?;
+        let span = self.ast.exprs[idx].span;
+        table.expr(idx, span).or_else(|| {
+            let origin = *self.inline_notes.origins.get(&idx)?;
+            table.expr(origin, span)
+        })
     }
 
     /// Operandların ortak aralığı; soneksiz literal (genişliği yok)

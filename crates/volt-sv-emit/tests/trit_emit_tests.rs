@@ -3,9 +3,14 @@
 //! Kodlama ikiye tümleyen i2: +1 = 2'sb01, 0 = 2'sb00, -1 = 2'sb11.
 //! `Trit * x` çarpan üretmez: +1 → x, -1 → -x, 0 → 0 seçicisi.
 
-use volt_span::FileId;
-use volt_sv_emit::{emit, EmitResult};
+mod typed;
 
+use volt_span::FileId;
+use volt_sv_emit::{EmitResult, SvaMode};
+
+/// Sürücünün yolu (`tests/typed`): Trit aritmetiğinin genişliği tip
+/// denetiminin tablosundan okunur (#463, ADR-0145); tablosuz `emit` onda
+/// E2005 verir.
 fn compile(src: &str) -> EmitResult {
     let parsed = volt_syntax::parser::parse(FileId(0), src);
     assert!(
@@ -13,7 +18,11 @@ fn compile(src: &str) -> EmitResult {
         "parse hatasız olmalı: {:?}",
         parsed.error_codes()
     );
-    emit(&parsed.ast, "test.volt")
+    let out = typed::emit_full(&parsed.ast, "test.volt", src, SvaMode::None);
+    EmitResult {
+        sv: out.sv,
+        diagnostics: out.diagnostics,
+    }
 }
 
 fn sv(src: &str) -> String {
@@ -164,4 +173,35 @@ fn local_name_shadowing_trit_const_is_not_trit() {
 fn trit_const_is_a_mux() {
     let out = sv("const K : Trit = -1\nmodule M { in x : i8 out y : i8 y = K * x }");
     assert!(!out.contains(" * "), "çıktı:\n{out}");
+}
+
+/// Tablosuz giriş noktası (`emit`): Trit aritmetiğinin genişliği tip
+/// denetiminden gelir (#463, ADR-0145), üretici onu tahmin etmez; çarpım
+/// E2005 alır, yeri çarpımın kendisidir.
+#[test]
+fn without_the_table_a_trit_product_is_e2005() {
+    let parsed = volt_syntax::parser::parse(FileId(0), MAC);
+    let out = volt_sv_emit::emit(&parsed.ast, "test.volt");
+    let e: Vec<_> = out
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_str() == "E2005")
+        .collect();
+    assert_eq!(e.len(), 1, "{:?}", out.diagnostics);
+    assert_eq!(
+        e[0].message,
+        "cannot determine the width of this Trit operation"
+    );
+    let span = e[0].primary_span().expect("konum").span;
+    assert_eq!(&MAC[span.start as usize..span.end as usize], "w * x");
+}
+
+/// Karşılaştırma ve Trit'in kendisi Trit aritmetiği değildir: tablosuz da
+/// üretilir (bool ve Trit'in bildirilen tipi).
+#[test]
+fn without_the_table_a_trit_comparison_still_emits() {
+    let src = "module M { in a : Trit in b : Trit out y : bool out z : Trit y = a == b z = a }";
+    let parsed = volt_syntax::parser::parse(FileId(0), src);
+    let out = volt_sv_emit::emit(&parsed.ast, "test.volt");
+    assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
 }

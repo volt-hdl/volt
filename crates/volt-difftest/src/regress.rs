@@ -699,6 +699,42 @@ pub fn all() -> Vec<Regression> {
         // 0x35, 0x80 ^ 0x35 = 0xB5 = -75. p0 = 53, p1 = 0: 53.
         .pin(&[-128, 127], -75)
         .pin(&[53, 0], 53),
+        // ── Trit çarpımının ve `-t`'nin genişliği (#463) ──
+        // SV üreticisinin doğal genişlik aralığı Trit'i iki bitlik tamsayı
+        // sayıyordu: tipsiz `let`'in teli kısa kalıyor, `-(t * x)`
+        // genişlemiyordu. Genişlik artık tip denetiminden (ADR-0145).
+        r(
+            "#463",
+            "Trit product of i14 kept in an untyped let",
+            vec![Trit, SInt(14), Trit],
+            bin(BinOp::Mul, bin(BinOp::Mul, p(0), p(1)), p(2)),
+        )
+        // `p0 * p1 * p2`, p0, p2 : Trit, p1 : i14. type-inference §3.3:
+        // `Trit * iN` iN'dir (ternary MAC: +1 → x, -1 → -x, 0 → 0), sonra
+        // `iN * Trit` yine i14; tipsiz `let` i14 tutar. p0 = p2 = +1, p1 =
+        // -8192 (örüntü 0x2000; real-bug dosyasının 8192'si, çıkış portu
+        // örüntüyü okur): değer -8192. Düzeltmeden önce tel 4 bitti, alt
+        // dört bit 0. p0 = -1, p1 = 4096: -4096 (örüntü 0x3000, alt dört
+        // bit yine 0). p0 = 0: 0.
+        .pin(&[1, -8192, 1], -8192)
+        .pin(&[-1, 4096, 1], -4096)
+        .pin(&[0, -8192, 1], 0),
+        r(
+            "#463",
+            "minus of a Trit product of i17, bits 17..1",
+            vec![Trit, SInt(17)],
+            range(Expr::un(UnOp::Neg, bin(BinOp::Mul, p(0), p(1))), 17, 1),
+        )
+        // `(-(p0 * p1))[17:1]`, p0 : Trit, p1 : i17. §3.3: `p0 * p1` i17;
+        // §3.4: `-z` (z : i17) i18; §3.5: `[17:1]` i18 değerinin 17..1
+        // bitleri, bits<17>. p0 = +1, p1 = 1: -1 i18'de 0x3FFFF, bitleri
+        // 17..1 0x1FFFF = 131071. Düzeltmeden önce eksi 17 bitte alınıyordu:
+        // 0x1FFFF'in 17..1 bitleri 0x0FFFF = 65535. p0 = +1, p1 = -65536
+        // (i17'nin en küçüğü): -(-65536) = 65536 = 2^16 i18'e sığar,
+        // bitleri 17..1 2^15 = 32768. p0 = 0: 0.
+        .pin(&[1, 1], 131_071)
+        .pin(&[1, -65_536], 32_768)
+        .pin(&[0, 1], 0),
     ]
 }
 

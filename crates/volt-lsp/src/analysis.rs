@@ -213,7 +213,17 @@ fn run_unit(path: &Path, text: &str, validate_emit: bool) -> Option<UnitRun> {
                 let names = unit.source_names();
                 let sources = volt_sv_emit::unit_source_texts(&names, &unit.map);
                 let main_name = names.last().map_or("", |(_, n)| n.as_str());
-                diags.extend(volt_sv_emit::validate_unit(ast, main_name, &sources));
+                // `volt check` ile aynı tablo (ADR-0141): Trit aritmetiğinin
+                // genişliği tip denetiminden (#463, ADR-0145). Hatasız
+                // aşamalarda tip denetimi koşmuştur.
+                let checked = run
+                    .typeck
+                    .as_ref()
+                    .map(|t| t.checked_types(ast))
+                    .unwrap_or_default();
+                diags.extend(volt_sv_emit::validate_unit(
+                    ast, main_name, &sources, &checked,
+                ));
             }
             stages = Some(run);
         }

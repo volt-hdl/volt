@@ -208,6 +208,9 @@ impl<'a> Expander<'a> {
         if self.notes.self_sized.contains(&repl) {
             self.notes.self_sized.insert(e);
         }
+        if let Some(&o) = self.notes.origins.get(&repl) {
+            self.notes.origins.insert(e, o);
+        }
     }
 
     // ═══ Çağrının açılması ════════════════════════════════════════
@@ -541,10 +544,13 @@ impl<'a> Expander<'a> {
             | ExprKind::Todo { .. }
             | ExprKind::Error) => {
                 let kind = map_children(kind, |c| self.inst(info, c, env, mode));
-                self.alloc(Expr {
+                let n = self.alloc(Expr {
                     span: node.span,
                     kind,
-                })
+                });
+                // Trit aritmetiğinin değeri gövdedeki düğümden okunur (#463).
+                self.notes.origins.insert(n, fe);
+                n
             }
         }
     }
@@ -582,6 +588,11 @@ impl<'a> Expander<'a> {
         if self.notes.self_sized.contains(&e) {
             self.notes.self_sized.insert(n);
         }
+        // Kopyanın kökeni şablonunkidir; şablon kök AST'nin düğümüyse
+        // kendisi (tablo konumu da denetler: yerine başka düğüm yazılmış
+        // kök indeksi cevap vermez).
+        let origin = self.notes.origins.get(&e).copied().unwrap_or(e);
+        self.notes.origins.insert(n, origin);
         n
     }
 
