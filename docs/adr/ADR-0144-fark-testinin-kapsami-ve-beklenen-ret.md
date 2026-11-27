@@ -1,8 +1,8 @@
 # ADR-0144: Fark Testinin Kapsamı Ölçülür, Trit Üretilir, Tanımsız İşlemler Beklenen Retle Sınanır
 
-> Statü: Önerildi
-> İlgili: ADR-0108 (fark testi: üretecin kapsamı bir raporla ölçülür, model ve üreteç `Trit`'i taşır, varsayım tablosu A15–A16 ile sürer, tanımsız işlemler için beklenen ret ölçütü eklenir)
-> Issue: #458 (aşama 0 ve 1a; #434 ölçütün sınaması)
+> Statü: Uygulandı — 2026-11-27
+> İlgili: ADR-0108 (fark testi: üretecin kapsamı bir raporla ölçülür, model ve üreteç `Trit`'i taşır, varsayım tablosu A15–A16 ile sürer, tanımsız işlemler için beklenen ret ölçütü eklenir), ADR-0139 (model Trit'in değer kümesiyle hesaplar, örüntüyü yalnız kodlamadan alır; ret tablosunun Trit satırları "işlem değer kümesine aittir" ayrımının sınaması), ADR-0142 (ret tablosunun Trit satırları: `~`, `& | ^`, `<< >>`, bit seçme E2003), ADR-0062 (modelin Trit örüntüsü Karar 1'in kodu; geniş hedefte çarpım Karar 2'nin bağlamında)
+> Issue: #458 (aşama 0 ve 1a; #434 ölçütün sınaması; bulunan hata #463; kararlar #464, #465, #122)
 > Tarih: 2026-11-27
 > Etkilenen: `crates/volt-difftest/src/coverage.rs` (YENİ), `crates/volt-difftest/src/reject.rs` (YENİ), `crates/volt-difftest/src/{ast,model,gen,harness,run,lib}.rs`, `crates/volt-difftest/examples/volt-difftest-reject.rs` (YENİ), `crates/volt-difftest/tests/{coverage_tests,reject_tests,trit_model_tests}.rs` (YENİ), `crates/volt-driver/tests/difftest_reject_tests.rs` (YENİ), `CHANGELOG.md`
 
@@ -129,6 +129,19 @@ derleyicinin hatasıdır ve bu ADR'nin değişikliğinde düzeltilmez. Üreteç
 (#150'nin `VOLT_DIFFTEST_DIV_OPERANDS`'ı gibi). Hatanın issue'su kapanınca
 varsayılan açılır; o zaman A15 de koşuda görünür olur.
 
+Hata #463'tür. Sessiz yanlış olan iki sonucun (kısa `let` teli ve
+genişlemeyen `-(t * x)`) yeniden üretimleri, elle hesaplanmış değerli
+`test` bloklarıyla, genişlik gölgesinin girdisine (`tests/real_bugs/`)
+eklendiğinde gölge onları yakalar: bu ADR'nin PR'ında denendi,
+`width_shadow_tests` iki ayrışmayla kırmızıydı (`s`: üretici 4 bit, tip
+denetimi i14; `-(t * y)`: üretici 17 bit, tip denetimi i18). Gölge
+istisna kabul etmez (ADR-0136 §2) ve bilinen başarısızlık listesi
+(`known_failures.json`) onu kapsamaz. Bu yüzden yeniden üretim dosyası
+bu ADR'nin PR'ına değil, #463'ü düzelten PR'a girer. O PR dosyayı
+`tests/real_bugs/`'a ekler; genişlik gölgesinin ve real-bug testinin
+yeşile dönmesi düzeltmenin kabul ölçütüdür; `VOLT_DIFFTEST_TRIT_ARITH`'in
+varsayılanı orada açılır.
+
 ## ADR-0108 ve ADR-0139 ile ilişkisi
 
 - **ADR-0108.** §1'in ilkesi aynı: `volt-difftest` hiçbir `volt-*`
@@ -194,14 +207,16 @@ varsayılan açılır; o zaman A15 de koşuda görünür olur.
 - **`t as Trit`:** §3.6'nın `(_, Trit) => false` kolu onu E2009 yapar;
   §3.6'da `bits<N> as bits<N>` ve `bool as bool` için de özdeşlik kolu
   yoktur ve derleyici üçünü de kabul eder. Spesifikasyonun bir boşluğudur;
-  model karşılaştırmaz, üreteç üretmez, karar bakımcınındır.
+  model karşılaştırmaz, üreteç üretmez. Karar: #464.
 - **Trit ile indeksleme (`x[t]`):** derleyici kabul eder, Trit kaydırma
   miktarını (`x >> t`) E2003 ile reddeder; §3.3 ve §3.5 Trit'in sayısal
-  olup olmadığını söylemez. Model karşılaştırmaz, üreteç üretmez.
+  olup olmadığını söylemez. Model karşılaştırmaz, üreteç üretmez. Karar:
+  #465.
 - **Aralık ve parça seçimi Trit'te** (`t[1:0]`, `t[0 +: 1]`): derleyici
   E2003 verir; ADR-0142 §4 yalnız bit seçmeyi adlandırır, §3.5'in
   `width_of`'u Trit'in genişliğini söylemez. Model hata der, kodu
-  adlandırmaz; ret tablosunda değil.
+  adlandırmaz; ret tablosunda değil. Karar: #465.
+- **A15 ve A16** (§3) okumalardır; kararları #122'de.
 - Trit dizisi (`[Trit; N]`) ve Trit içeren struct aşama 1b ve 1c'nin
   işidir; register ve `prev` aşama 2'nin (#458).
 

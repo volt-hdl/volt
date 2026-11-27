@@ -137,3 +137,21 @@ fn a_wide_literal_operand_counts_as_a_literal() {
     assert_eq!(cov.op_types.get("a as T on ill-typed operand"), None);
     assert_eq!(cov.count("hexadecimal (0x)"), 1);
 }
+
+/// Kapsam her koşunun raporunda, en sonda (#458).
+#[test]
+fn the_run_report_ends_with_the_coverage() {
+    let report = volt_difftest::Report {
+        coverage: ci_seed_coverage(),
+        ..volt_difftest::Report::default()
+    };
+    let text = report.render();
+    let cov = report.coverage.render();
+    assert!(text.ends_with(&cov), "{text}");
+    assert!(
+        text.contains("\ndifftest: coverage: expressions=2000 "),
+        "{text}"
+    );
+    // Özet satırı ayrıştırıcısının (`difftest_summary.py`) satırı önde.
+    assert!(text.starts_with("difftest: seed="), "{text}");
+}

@@ -341,6 +341,9 @@ impl Report {
         for m in &self.minimized {
             let _ = writeln!(s, "difftest: minimized:\n{m}");
         }
+        // Kapsam (#458) en sonda: gecelik issue'nun gövdesi raporu
+        // `REPORT_LIMIT`'te keser, farklar ve küçültmeler önce gelir.
+        s.push_str(&self.coverage.render());
         s
     }
 }

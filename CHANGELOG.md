@@ -11,7 +11,7 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 - Yok: bu bölümdeki değişiklikler yalnız CI'ı değiştirir.
 
-### Geliştirici notu — Fark testi kapsamını sayar, Trit üretir, tanımsız işlemlerin reddini bekler (#458, ADR-0144, 2026-11-27)
+### Geliştirici notu — Fark testi kapsamını sayar, Trit üretir, tanımsız işlemlerin reddini bekler (#458, #463, ADR-0144, 2026-11-27)
 
 - Fark testinin raporu üretilen tipleri, işlemleri, literal yazımlarını
   ve biçimleri sayar; dilin ifade düzeyindeki listesi
@@ -28,10 +28,16 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   reddedilmelidir; `difftest_reject_tests` her işte koşar. Eski bir
   ikiliyle: `cargo run -p volt-difftest --example volt-difftest-reject --
   --volt <yol>` (v0.1.3 `~t`'yi kabul eder, #434).
-- SV üreticisi `-t`'ye ve Trit çarpımına yanlış genişlik aralığı veriyor
-  (önceden var olan hata, v0.1.3'te de): literalle karşılaştırmada E2005,
-  tipsiz `let`'te ve `-(t * x)`'te kesilen değer, WIDTH uyarıları. Fark
-  testi bu iki işlemi hata düzelene kadar bayrakla üretir.
+- Fark testi #463'ü buldu: SV üreticisi `-t`'ye ve Trit çarpımına yanlış
+  genişlik aralığı veriyor (önceden var olan hata, v0.1.3'te de):
+  literalle karşılaştırmada E2005, tipsiz `let`'te ve `-(t * x)`'te kesilen
+  değer (sessiz yanlış), WIDTH uyarıları. Fark testi `-t`'yi ve Trit
+  çarpımını #463 kapanana kadar yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile
+  üretir. İki sessiz yanlışın yeniden üretimi genişlik gölgesinin
+  girdisine eklendiğinde gölge onları yakalıyor (bu PR'da denendi,
+  `width_shadow_tests` kırmızı); dosya bu yüzden #463'ü düzelten PR'a
+  girer, gölgenin ve real-bug testinin yeşile dönmesi o düzeltmenin kabul
+  ölçütüdür ve bayrağın varsayılanı orada açılır.
 
 ### Geliştirici notu — Fuzz başarısızlıkta kapalı kalır; gece derlemi küçülür, PR tohumlardan fuzz eder (#305, ADR-0143, 2026-11-26)
 

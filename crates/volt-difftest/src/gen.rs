@@ -55,7 +55,7 @@ pub fn div_operands_enabled() -> bool {
 /// karşılaştırmada E2005, tipsiz `let`'in teli kısa (değer kesilir),
 /// `-(t * x)` genişlemiyor, `let s = -t` 3 bit (WIDTH uyarısı). Varsayılanda
 /// Trit portları, literalleri, `t ± u`, `t as iN` ve karşılaştırmalar
-/// üretilir. Hatanın issue'su kapanınca varsayılan açılır.
+/// üretilir. Hata #463; o issue kapanınca varsayılan açılır.
 pub fn trit_arith_enabled() -> bool {
     std::env::var("VOLT_DIFFTEST_TRIT_ARITH").is_ok_and(|v| v == "1")
 }
