@@ -245,6 +245,33 @@ fn arith_result(&mut self, op: BinOp, lt: TypeId, rt: TypeId,
 }
 ```
 
+**Trit × iN'nin değeri (ADR-0145 Karar 8).** `t * x` (`t : Trit`,
+`x : iN`; `x * t` ve etkin Trit'i `-t` olan çarpım dahil) iN'dir: t = +1
+→ x, t = -1 → -x, t = 0 → 0. t = -1, x = iN::MIN'de -x = +2^(N-1) iN'e
+sığmaz. Çarpım bir işlemin işleneniyken (`as`, `+` ve `-` işleneni, bit
+işlemi, karşılaştırma, seçim) iN içinde ikiye tümleyenle sarar: sonuç
+iN::MIN'dir. En üstte geniş bir hedefe yazılan çarpım öteki aritmetik
+gibi hedefe itilir (§5, ADR-0041) ve hedef genişliğinde hesaplanır
+(ADR-0062 Karar 2): sarmaz.
+
+```
+// x : i8 = -128, t = -1
+let y : i12 = t * x            // +128: en üstte, hedefe itilir
+let z : i12 = (t * x) as i12   // -128: as'ın işleneni, i8'de sarar
+
+// v : i13 = -4096 (i13::MIN), t = -1
+let s : i14 = t * v + v        // -8192: + itilir, işleneni t * v i13'te sarar
+```
+
+Matematiksel sonucu isteyen tasarım iN yanını önce genişletir:
+`t * (x as i(N+1))`. `(t * x) as i(N+1)` sarmış değeri verir.
+
+```
+// x : i8 = -128, t = -1
+let m : i9 = t * (x as i9)     // +128: çarpım i9'dadır
+let w : i9 = (t * x) as i9     // -128: çarpım i8'de sarar
+```
+
 #### Bit Düzeyi: Genişlemez
 
 ```rust
@@ -763,6 +790,12 @@ işleminin literal olmayan operandları int tipli, beklenenle aynı işaretli
 ve doğal genişliği beklenene sığıyorsa işlem beklenen tipte yapılır;
 aksi halde synth yolu ve eski tanılar geçerlidir. SV üretimi genişlemeyi
 boyut dönüşümüyle (`32'(t)`) açık basar (sv-mapping.md §16).
+
+Trit × iN de itilir: Trit işlenen int tipli sayılmaz, ama en üstteki
+`t * x` (x : iN, iN beklenene sığıyor) beklenen genişlikte hesaplanır
+(ADR-0062 Karar 2, ADR-0145 Karar 8); tipi yine iN'dir. İtme iç içe
+aritmetiğe inmez: itilen işlemin işleneni olan `t * x` kendi tipinde
+(iN) hesaplanır ve sarar (§3.3).
 ```
 
 ---
@@ -915,6 +948,8 @@ a as u16 (a: u8)            u16              açık genişletme
 t * t   (t: Trit)           Trit             kapalı
 t + t   (t: Trit)           i3               taşma
 t * x   (t:Trit, x:i8)      i8               ternary MAC
+(t * x) as i12              i12              t=-1, x=-128 → -128 (sarar)
+t * (x as i9)  (t:Trit, x:i8)  i9
 ────────────────────────────────────────────────────────
 a + b   (a:u8, b:u16)       HATA E2001
 a + b   (a:u8, b:i8)        HATA E2002
