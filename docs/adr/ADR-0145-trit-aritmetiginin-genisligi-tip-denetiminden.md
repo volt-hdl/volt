@@ -4,7 +4,7 @@
 > İlgili: ADR-0141 (tablo ve E2005 yolu; "üretici yalnız `prev()`'i okur" sınırı Trit aritmetiğine genişler), ADR-0136 (Aşama 2'nin bir adımı: üretici bir bilgiyi tip denetiminden okur), ADR-0137 (§1'in kuralı Trit aritmetiğinin genişliğine uygulanır), ADR-0139 (Trit'in genişliği kodlama bilgisidir; üretici onu yeniden yazmaz, tablodan okur), ADR-0062 (çarpansız seçici değişmez; Karar 4'ün "üretici HIR tiplerini görmez" gerekçesi Trit aritmetiği için de kalkar), ADR-0144 (§5'in hatası; `VOLT_DIFFTEST_TRIT_ARITH` kapısı kalkar)
 > Issue: #463
 > Tarih: 2026-11-27
-> Etkilenen: `crates/volt-sv-emit/src/let_width.rs` (`int_range`, `is_trit_arith`, `checked_trit_range`, `checked_value`; `binary_range`'in Trit kolu kaldırıldı), `crates/volt-sv-emit/src/inline/{mod,expand}.rs` (`InlineNotes::origins`), `crates/volt-sv-emit/src/lib.rs` (`validate_unit` ve fn doğrulaması tabloyu alır), `crates/volt-lsp/src/analysis.rs`, `crates/volt-difftest/src/{gen,regress}.rs`, `crates/volt-difftest/tests/coverage_tests.rs`, `crates/volt-sv-emit/tests/{trit_emit_tests,wave_emit_tests,emit_tests}.rs` (sürücünün yolu, `tests/typed`), `crates/volt-driver/tests/trit_width_sim_tests.rs` (YENİ), `crates/volt-lsp/tests/lsp.rs`, `tests/real_bugs/463_trit_product_width.volt` (YENİ), `docs/design/tek-yerde-bilgi-envanteri.md`, `docs/design/ikili-varsayimlar-envanteri.md`, `CHANGELOG.md`
+> Etkilenen: `crates/volt-sv-emit/src/let_width.rs` (`int_range`, `is_trit_arith`, `checked_trit_range`, `checked_value`; `binary_range`'in Trit kolu kaldırıldı), `crates/volt-sv-emit/src/trit.rs` (`is_trit`: literal çarpanı, süreç yereli), `crates/volt-sv-emit/src/match_expr.rs` (`ProcLocal::trit`), `crates/volt-sv-emit/src/inline/{mod,expand}.rs` (`InlineNotes::origins`), `crates/volt-sv-emit/src/lib.rs` (`validate_unit` ve fn doğrulaması tabloyu alır), `crates/volt-lsp/src/analysis.rs`, `crates/volt-difftest/src/{gen,regress}.rs`, `crates/volt-difftest/tests/coverage_tests.rs`, `crates/volt-sv-emit/tests/{trit_emit_tests,wave_emit_tests,emit_tests}.rs` (sürücünün yolu, `tests/typed`), `crates/volt-driver/tests/trit_width_sim_tests.rs` (YENİ), `crates/volt-lsp/tests/lsp.rs`, `tests/real_bugs/463_trit_product_width.volt` (YENİ), `docs/design/tek-yerde-bilgi-envanteri.md`, `docs/design/ikili-varsayimlar-envanteri.md`, `CHANGELOG.md`
 
 ## Sorun
 
@@ -74,7 +74,16 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
    denetlenir, cevap her çağrıda aynıdır. Struct indirgemesi (ADR-0077)
    kök ifadeleri aynı indekste tutar; Trit çarpımının düğümü kopyada da
    kendi değerini okur.
-6. **Fark testinin kapısı kalkar.** `VOLT_DIFFTEST_TRIT_ARITH` silinir:
+6. **Trit'in tanınması tip kuralına yaklaşır.** Okumanın kapısı
+   `is_trit` olduğundan, onun tanımadığı Trit değeri eski hesaba
+   düşüyordu. Tek tanıyıcı iki yerde genişler: soneksiz literal çarpanı
+   Trit'in tipini alır (§4; `t * 1`, `(-1) * t` Trit'tir, önce
+   `-(t * 1 * u) * -(1 * v * w) == 1` E2005 alıyordu) ve süreç yereli
+   (`comb`/`on` bloğunun `let`'i) modül `let`'iyle aynı kuralla Trit
+   sayılır (`let t : Trit` ya da Trit değerli tipsiz yerel; önce
+   `comb { let t : Trit = ...  let s = -(t * x) }` 8 bitte kalıyordu).
+   İkisi de bu PR'ın ilk CI koşusundaki fark testinde görüldü.
+7. **Fark testinin kapısı kalkar.** `VOLT_DIFFTEST_TRIT_ARITH` silinir:
    üreteç `-t`'yi ve Trit çarpımını her koşuda üretir (ADR-0144 §5'in
    "issue kapanınca varsayılan açılır" adımı). Kapatma bayrağı
    bırakılmaz: hatası düzeltilmiş bir biçimi gizlemenin yolu olurdu.
@@ -127,8 +136,25 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
   `-(t * y)` 18 bitte). Trit çarpımı içeren öteki yedi birim (`examples/
   hybrid_accel/` dört dosya, `ui/pass` 16, 82, 166) bayt bayt aynı;
   Trit'siz tasarımlarda fark yok.
-- Fark testi: kapı kalktıktan sonra CI'ın küçük koşusu ve dalda elle
-  tetiklenen büyük koşu (PR açıklaması).
+- Fark testi: kapı kalktıktan sonra PR'ın ilk CI koşusunda küçük koşu
+  (tohum 20261104, 2000 ifade) `diffs=39` verdi: 13 ifade literalle
+  karşılaştırmada E2005 aldı (hepsinde Trit bir literalle çarpılıyordu)
+  ve #463'ün `(-(t * y))[17:1]` örneği R biçiminde (argüman çağıranın
+  `comb` yerelinden geçer) 0xffff verdi; kalan 25'i Verilator `-Wall`
+  uyarısıydı (soft). Karar 6 ikisini kapatır: on üç ifadenin ve R
+  örneğinin kopyaları dalda tanısız derlenir, R örneği ve bir literal
+  karşılaştırması Verilator'da elle hesaplanan değeri verir (main'de
+  65535 ve E2005). Dalda ilk commit'le elle tetiklenen büyük koşu
+  (45976548997, tohum 2026112600 + k, parça başına 12 500; #462'nin
+  45942236536 koşusuyla aynı) `diffs=217, 224, 200, 241` verdi (#462'de
+  933, 945, 987, 987): 114 değer farkı, 6 sözleşme düşmesi, 300 E2005,
+  463 WIDTH. WIDTH'lerin hepsi R biçimindeydi (Trit çağıranın `comb`
+  yerelinden geçer), E2005'lerin hepsinde Trit bir literalle çarpılıyordu;
+  ikisi Karar 6'nın yollarıdır. Kalan değer farklarının altı ifadesi
+  yalnız A15'in köşesindedir (t = -1 ya da -t = -1, x = iN::MIN; çarpım
+  geniş bir bağlamda sarmadan hesaplanır, model doğal genişlikte sarar):
+  ADR-0144 §3'ün okumasıdır, karar #122'de. Karar 6'dan sonra büyük koşu
+  yeniden tetiklenmedi; sonraki küçük koşu PR açıklamasında.
 
 ## Sınırlar
 
@@ -142,11 +168,8 @@ yanlışı yakaladı: `s` üreticide 4 bit, tip denetiminde i14; `-(t * y)`
   üreteç onu üretmez.
 - Trit'i tanıyan `is_trit` sözdizimseldir (ad kümesi, ADR-0062); tablonun
   değeri Trit ile i2'yi ayırmaz. Tanınmayan bir Trit ifadesinde çarpım
-  SV `*` olarak basılır ve aralık eski kuralla hesaplanır. Bu PR'da
-  bulunan örnek: süreç yereli Trit (`comb { let t : Trit = ... }`) Trit
-  sayılmaz; `let s = -(t * x)` (x : i8) 8 bit bildirilir, t = +1, x =
-  -128'de değer 128 yerine -128'dir (main'de de aynı; ayrı bir sessiz
-  yanlış, issue'su önerildi). Tanıma tip denetimine taşındığında (ara
+  SV `*` olarak basılır ve aralık eski kuralla hesaplanır (Karar 6'dan
+  sonra bilinen bir örnek yok). Tanıma tip denetimine taşındığında (ara
   temsil, ADR-0136 §3) bu sınır kalkar.
 - IR kararı verilmez; `CheckedTypes` ADR-0141'deki dar kanal olarak
   kalır.

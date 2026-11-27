@@ -61,18 +61,25 @@ impl Emitter<'_> {
                         .module_path(base)
                         .is_some_and(|n| self.trits.contains(n)),
                     Res::Const { ty, .. } => self.is_trit_typeref(ty),
-                    Res::Local(_) | Res::Loop(_) | Res::Unbound => false,
+                    // Süreç yereli (`comb`/`on` bloğunun `let`'i, #463).
+                    Res::Local(i) => self.proc.locals[i].trit,
+                    Res::Loop(_) | Res::Unbound => false,
                 }
             }
             ExprKind::Unary {
                 op: UnOp::Neg,
                 operand,
             } => self.is_trit(*operand),
+            // Trit çarpımı kapalıdır; soneksiz literal karşı yanın tipini
+            // alır (type-inference.md §3.3, §4): `t * u`, `t * 1`, `(-1) * t`.
             ExprKind::Binary {
                 op: BinOp::Mul,
                 lhs,
                 rhs,
-            } => self.is_trit(*lhs) && self.is_trit(*rhs),
+            } => {
+                let (l, r) = (self.is_trit(*lhs), self.is_trit(*rhs));
+                (l && (r || self.is_unsized_literal(*rhs))) || (r && self.is_unsized_literal(*lhs))
+            }
             // Kolları Trit olan `if` ve match ifadesi (`value_arms`; kol
             // listesi boş olmaz).
             kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => crate::expr::value_arms(kind)

@@ -55,6 +55,9 @@ pub(crate) struct ProcLocal {
     /// taşma biti hiç okunmazsa bildirim UNUSEDSIGNAL'dan susturulur.
     pub(crate) read: u32,
     pub(crate) enum_name: Option<String>,
+    /// Yerel Trit tutar: `let t : Trit` ya da Trit değerli tipsiz `let`
+    /// (modül `let`'iyle aynı kural; `is_trit`, #463).
+    pub(crate) trit: bool,
 }
 
 /// Açık sürecin yerel durumu: bildirimler ve kapsam yığını.
@@ -519,6 +522,10 @@ impl<'a> Emitter<'a> {
             Some(t) => self.enum_of_type(t).map(|d| d.name.text.clone()),
             None => self.enum_of_expr(decl.value).map(|d| d.name.text.clone()),
         };
+        let trit = match decl.ty {
+            Some(t) => self.is_trit_typeref(t),
+            None => self.is_trit(decl.value),
+        };
         let key = (span, decl.name.text.clone());
         let index = match self.proc.locals.iter().position(|l| l.key == key) {
             Some(i) => i,
@@ -531,6 +538,7 @@ impl<'a> Emitter<'a> {
                     lo,
                     read: 0,
                     enum_name,
+                    trit,
                 });
                 self.proc.locals.len() - 1
             }

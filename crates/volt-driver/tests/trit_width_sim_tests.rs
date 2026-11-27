@@ -8,6 +8,10 @@
 //! - `let n = -t`: Trit (2 bit); önce 3 bitlik teldi, `n * t`'nin seçicisi
 //!   Verilator'da WIDTH uyarısı verdi, `volt test` durdu;
 //! - `comb` yereli `let s = -(t * x)`: i9; önce 8 bitte alınıyordu;
+//! - `comb` yereli Trit (`let tl : Trit`): `is_trit` onu tanır, `-(tl * x)`
+//!   i9; önce yerel Trit sayılmıyordu, değer 8 bitte kalıyordu;
+//! - literal çarpanlı Trit çarpımı (`t * 1`, §4: literal Trit'in tipini
+//!   alır) Trit'tir: `(t * 1) * (1 * t) == 1` derlenir; önce E2005;
 //! - fn açılımı (ADR-0081): tel kipinde gövdenin `let`'i (`scale`), ikame
 //!   kipinde gövdenin `let` şablonunun kopyası (`negscale`), argümanı Trit
 //!   çarpımı olan çağrı (`neg(t * x)`) ve modül `let`'inin bütün sağ tarafı
@@ -89,6 +93,8 @@ module TritWidths {
     out f  : i9
     out g  : i2
     out h  : Trit
+    out f2 : i9
+    out e2 : bool
 
     let t : Trit = if tp { 1 } else if tn { -1 } else { 0 }
     let n = -t
@@ -99,11 +105,15 @@ module TritWidths {
     e = t * x == 1
     g = n as i2
     h = n * t
+    e2 = (t * 1) * (1 * t) == 1
     comb {
         let s = -(t * x)
         f = s
         b = negscale(t, x)
         c = neg(t * x)
+        let tl : Trit = if tp { 1 } else if tn { -1 } else { 0 }
+        let s2 = -(tl * x)
+        f2 = s2
     }
 }
 
@@ -121,9 +131,12 @@ test \"plus one and the smallest i8\" {
     assert_eq(dut.d, 128);
     assert_eq(dut.e, false);
     assert_eq(dut.f, 128);
+    assert_eq(dut.f2, 128);
     // n = -t = -1: i2 and Trit pattern 3; n * t = -1 * +1 = -1.
     assert_eq(dut.g, 3);
     assert_eq(dut.h, 3);
+    // (t * 1) * (1 * t) = t * t = +1.
+    assert_eq(dut.e2, true);
 }
 
 test \"minus one and five\" {
@@ -139,9 +152,12 @@ test \"minus one and five\" {
     assert_eq(dut.d, 251);
     assert_eq(dut.e, false);
     assert_eq(dut.f, 5);
+    assert_eq(dut.f2, 5);
     // n = -(-1) = +1; n * t = +1 * -1 = -1.
     assert_eq(dut.g, 1);
     assert_eq(dut.h, 3);
+    // t * t = (-1) * (-1) = +1.
+    assert_eq(dut.e2, true);
 }
 
 test \"plus one times one equals the literal\" {
@@ -153,6 +169,7 @@ test \"plus one times one equals the literal\" {
     // t * x = 1 == 1; -(t * x) = -1 in i9: pattern 511.
     assert_eq(dut.e, true);
     assert_eq(dut.f, 511);
+    assert_eq(dut.f2, 511);
 }
 
 test \"zero\" {
@@ -170,6 +187,8 @@ test \"zero\" {
     assert_eq(dut.f, 0);
     assert_eq(dut.g, 0);
     assert_eq(dut.h, 0);
+    assert_eq(dut.f2, 0);
+    assert_eq(dut.e2, false);
 }
 ";
 

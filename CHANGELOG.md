@@ -25,12 +25,17 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `iN`) bir bit genişler, `i(N+1)`'dir (#463; sessiz yanlış düzeltmesi,
   ADR-0145). Önce `N` bitte alınıyordu: `(-(t * y))[17:1]` (y : i17)
   t = +1, y = 1 için 0x1FFFF yerine 0x0FFFF veriyordu; tipsiz `let`'te ve
-  bit ya da aralık seçiminde değer değişir. Kimi etkiler: Trit çarpımının
-  eksisini alan tasarımlar. Ne yapmalı: yükseltin.
+  bit ya da aralık seçiminde değer değişir. `on`/`comb` bloğunun yereli
+  olan bir Trit (`let t : Trit = ...` ya da Trit değerli tipsiz yerel)
+  artık Trit sayılır: onunla yapılan çarpım seçici olarak üretilir ve
+  aynı genişlik kuralını alır (önce `let s = -(t * x)` 8 bitte kalıyordu).
+  Kimi etkiler: Trit çarpımının eksisini alan tasarımlar. Ne yapmalı:
+  yükseltin.
 - **Davranış değişikliği.** Trit çarpımının ya da `-t`'nin literalle
-  karşılaştırması (`t * x == 1`, `-t * u < 0`) artık derlenir; önce
-  geçerli tasarım `error[E2005]: cannot determine the width of the
-  literal` alıyordu (#463, ADR-0145). Literal karşı yanın tipinde
+  karşılaştırması (`t * x == 1`, `-t * u < 0`, literal çarpanlı
+  `-(t * 1 * u) * -(1 * v * w) == 1`) artık derlenir; önce geçerli tasarım
+  `error[E2005]: cannot determine the width of the literal` alıyordu
+  (#463, ADR-0145). Literal çarpanı Trit'in tipini alır: `t * 1` Trit'tir. Literal karşı yanın tipinde
   boyutlanır. Tip denetimi bir Trit işlemine genişlik vermezse üretici
   tahmin etmez, E2005 verir ("cannot determine the width of this Trit
   operation"); sürücünün yolunda bu olmaz.

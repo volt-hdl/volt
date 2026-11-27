@@ -86,7 +86,7 @@ impl Emitter<'_> {
     /// Tip denetiminin `IntLit` sonucu veren ifadesi: soneksiz literal,
     /// onun `-`/`~`'i, iki literalin aritmetik, bit ya da kaydırma işlemi,
     /// iki dalı literal olan `if` (#80; W2012 bunu `i32` sayar).
-    fn is_unsized_literal(&self, idx: Idx<Expr>) -> bool {
+    pub(crate) fn is_unsized_literal(&self, idx: Idx<Expr>) -> bool {
         match &self.ast.exprs[idx].kind {
             ExprKind::IntLit { suffix: None, .. } => true,
             ExprKind::Unary {
