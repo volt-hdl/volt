@@ -57,7 +57,6 @@ workaround of each.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 - [#382](https://github.com/volt-hdl/volt/issues/382): a `$finish` in the SystemVerilog body of an `extern` module does not end a `volt test` run, so a test can pass after the check in it failed.
 - [#468](https://github.com/volt-hdl/volt/issues/468): a product with a generic `const S : Trit` parameter (`S * x`, `-S * x`) follows the rule of an integer product, not of a `Trit` product: an untyped `let` gets a wider type, and as the operand of another operation the product does not wrap in `iN` (`(-S * x) as i12` gives +2 where `(t * x) as i12` gives -2).
-- [#465](https://github.com/volt-hdl/volt/issues/465): an index that is a `Trit` (`x[t]`) is accepted, and for t = -1 it reads bit 3 of `x`, the two-bit code of -1 read as unsigned; the specification does not define an index of -1.
 - [#467](https://github.com/volt-hdl/volt/issues/467) (suspected): the SystemVerilog generator recognizes a `Trit` by the form of the expression; a `Trit` product or `-t` in a form it does not recognize would get the width of a two-bit integer in an untyped `let`. No such form is known.
 
 **Errors, false warnings and failures.** These open bugs of Volt 0.1.5
@@ -151,15 +150,6 @@ the same expression with a `Trit` signal t = -1, `(t * x) as i12`, gives
 and multiply with that: with `let s : Trit = -S`, `(s * x) as i12` gives
 -2, as for a `Trit` signal. Tracked in
 [issue #468](https://github.com/volt-hdl/volt/issues/468).
-
-**An index that is a `Trit` reads the bit of its code.** `x[t]` with
-`t : Trit` is accepted, and the specification does not say what an index
-of -1 means. The generated SystemVerilog shifts `x` right by `t` read as
-unsigned, so for t = -1 (code `11`) `x[t]` reads bit 3 of `x`, without a
-diagnostic (measured with `volt test`). Turn the `Trit` into the unsigned
-index you mean before you index: `x[(t as i3 + 1) as u3]` reads bit 0, 1
-and 2 for t = -1, 0 and +1. Tracked in
-[issue #465](https://github.com/volt-hdl/volt/issues/465).
 
 **A `Trit` in a form the generator does not recognize (suspected).** The
 SystemVerilog generator decides whether a value is a `Trit` from the form

@@ -69,8 +69,13 @@ pub enum Target {
 pub enum Op {
     Un(UnOp),
     Bin(BinOp),
-    /// Bit seçme `a[i]`.
+    /// Bit seçme `a[i]`: işlenen tabandır.
     Index,
+    /// İndeks `x[a]`: işlenen indekstir, taban `uN` ya da `bits<N>` (#465).
+    IndexBy,
+    /// Parça seçiminin başlangıcı `x[a +: W]` (`true`) ya da `x[a -: W]`:
+    /// işlenen başlangıçtır (#465).
+    PartBy(bool),
     Cast(Target),
     /// Tipli `let`: literal `K` Trit bağlamında (`let r : Trit = K`).
     LetTrit,
@@ -82,6 +87,9 @@ impl Op {
             Op::Un(op) => format!("{}a", op.sym()),
             Op::Bin(op) => format!("a {} b", op.sym()),
             Op::Index => "a[i]".into(),
+            Op::IndexBy => "x[a]".into(),
+            Op::PartBy(true) => "x[a +: W]".into(),
+            Op::PartBy(false) => "x[a -: W]".into(),
             Op::Cast(Target::Trit) => "a as Trit".into(),
             Op::Cast(Target::UInt) => "a as uN".into(),
             Op::Cast(Target::SInt1) => "a as i1".into(),
@@ -118,6 +126,7 @@ const fn row(on: Operand, op: Op, code: &'static str, source: &'static str) -> U
 
 const A142_1: &str = "ADR-0142 §1, type-inference.md §3.4";
 const A142_4: &str = "ADR-0142 §4";
+const A146: &str = "ADR-0146, type-inference.md §3.5";
 const CAST: &str = "type-inference.md §3.6";
 
 /// Her tipin tanımsız işlemleri.
@@ -129,6 +138,9 @@ pub const UNDEFINED: &[Undefined] = &[
     row(Operand::Trit, Op::Bin(BinOp::Shl), "E2003", A142_4),
     row(Operand::Trit, Op::Bin(BinOp::Shr), "E2003", A142_4),
     row(Operand::Trit, Op::Index, "E2003", A142_4),
+    row(Operand::Trit, Op::IndexBy, "E2003", A146),
+    row(Operand::Trit, Op::PartBy(true), "E2003", A146),
+    row(Operand::Trit, Op::PartBy(false), "E2003", A146),
     row(Operand::Trit, Op::Cast(Target::UInt), "E2009", CAST),
     row(Operand::Trit, Op::Cast(Target::SInt1), "E2009", CAST),
     row(Operand::Trit, Op::Cast(Target::Bool), "E2009", CAST),
@@ -238,6 +250,16 @@ fn operand(g: &mut Gen, on: Operand, w: u32, d: u32) -> Expr {
     }
 }
 
+/// İndekslenen taban: `w` bitlik `uN` ya da `bits<w>` portu.
+fn selectable(g: &mut Gen, w: u32) -> Expr {
+    let t = if g.rng.chance(50) {
+        PortTy::UInt(w)
+    } else {
+        PortTy::Bits(w)
+    };
+    g.pool.leaf(g.rng, t)
+}
+
 /// Satırın bir örneği; işlenenler üretecten, iç içelik 0–2.
 fn instance(g: &mut Gen, u: &Undefined) -> (Expr, Option<PortTy>) {
     let d = g.rng.range(0, 2);
@@ -266,6 +288,15 @@ fn instance(g: &mut Gen, u: &Undefined) -> (Expr, Option<PortTy>) {
                 g.pool.leaf(g.rng, PortTy::UInt(1))
             };
             (Expr::Index(Box::new(a), Box::new(i)), None)
+        }
+        Op::IndexBy => {
+            let x = selectable(g, w);
+            (Expr::Index(Box::new(x), Box::new(a)), None)
+        }
+        Op::PartBy(up) => {
+            let x = selectable(g, w);
+            let pw = g.rng.range(1, w);
+            (Expr::Part(Box::new(x), Box::new(a), pw, up), None)
         }
         Op::Cast(t) => {
             let n = if g.rng.chance(50) { 2 } else { w };

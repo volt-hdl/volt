@@ -25,7 +25,8 @@ fn every_row_generates_cases_the_model_rejects_with_the_rows_code() {
 }
 
 /// #458'in istediği en az satırlar: Trit'te `~`, `&`, `|`, `^`, `<<`, `>>`
-/// ve bit seçme, E2003 (ADR-0142).
+/// ve bit seçme, E2003 (ADR-0142); Trit indeks ve parça seçiminin Trit
+/// başlangıcı, E2003 (ADR-0146, #465).
 #[test]
 fn the_table_has_the_trit_rows_of_adr_0142_with_e2003() {
     let want = [
@@ -36,6 +37,9 @@ fn the_table_has_the_trit_rows_of_adr_0142_with_e2003() {
         Op::Bin(BinOp::Shl),
         Op::Bin(BinOp::Shr),
         Op::Index,
+        Op::IndexBy,
+        Op::PartBy(true),
+        Op::PartBy(false),
     ];
     for op in want {
         let row = UNDEFINED
@@ -55,6 +59,9 @@ fn every_row_has_its_own_text() {
     for t in [
         "Trit: a << b",
         "Trit: a[i]",
+        "Trit: x[a]",
+        "Trit: x[a +: W]",
+        "Trit: x[a -: W]",
         "Trit: a as i1",
         "Trit: a as bits<N>",
         "uN: a as Trit",

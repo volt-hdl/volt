@@ -318,6 +318,32 @@ fn ui_fail_318_trit_bit_not_e2003() {
 }
 
 #[test]
+fn ui_fail_319_331_trit_index_e2003() {
+    // #465 (ADR-0146): bir Trit indeks olamaz; önceden indeks Trit'in
+    // iki bitlik kodunu işaretsiz okuyordu ve t = -1 için 3. konumu
+    // seçiyordu. Her indeks yolu: bit seçimi, const/register dizisi,
+    // dizi portu, parça seçimi (+:, -:), sol taraf (dizi, bit, comb),
+    // fn gövdesi, kontrat, aralık sınırı ve Trit tipli ifade.
+    for f in [
+        "fail/319_trit_index_bit_select.volt",
+        "fail/320_trit_index_const_array.volt",
+        "fail/321_trit_index_reg_array.volt",
+        "fail/322_trit_index_array_port.volt",
+        "fail/323_trit_index_part_select_up.volt",
+        "fail/324_trit_index_part_select_down.volt",
+        "fail/325_trit_index_lvalue_array.volt",
+        "fail/326_trit_index_lvalue_bit.volt",
+        "fail/327_trit_index_lvalue_comb.volt",
+        "fail/328_trit_index_function_body.volt",
+        "fail/329_trit_index_contract.volt",
+        "fail/330_trit_index_range_bound.volt",
+        "fail/331_trit_index_trit_expression.volt",
+    ] {
+        assert_ui_fail(f);
+    }
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");

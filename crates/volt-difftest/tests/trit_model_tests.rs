@@ -216,8 +216,8 @@ fn comparisons_of_trit() {
 }
 
 /// Şartnamenin söylemediği biçimler karşılaştırılmaz: esnek işlenenle
-/// Trit çarpımı, Trit ile indeksleme, `t as Trit` (§3.6'da özdeşlik kolu
-/// yok; derleyici kabul eder).
+/// Trit çarpımı, `t as Trit` (§3.6'da özdeşlik kolu yok; derleyici kabul
+/// eder).
 #[test]
 fn what_the_spec_does_not_say_is_not_compared() {
     let flex = Expr::bin(BinOp::Mul, p(2), p(2)); // i8 * i8: [8, 16]
@@ -226,11 +226,31 @@ fn what_the_spec_does_not_say_is_not_compared() {
         Err(Reject::Unspecified(_))
     ));
     assert!(matches!(
-        ty(&Expr::Index(Box::new(p(3)), Box::new(p(0)))),
-        Err(Reject::Unspecified(_))
-    ));
-    assert!(matches!(
         ty(&Expr::cast(p(0), PortTy::Trit)),
         Err(Reject::Unspecified(_))
     ));
+}
+
+/// ADR-0146 (#465): indeks ve parça seçiminin başlangıcı Trit olamaz,
+/// E2003; `-t` ve Trit çarpımı da Trit tiplidir. Parça genişliği tabanı
+/// aşsa da kod E2003'tür: derleyici başlangıcı genişlikten önce denetler.
+#[test]
+fn a_trit_index_is_e2003() {
+    let neg = Expr::un(UnOp::Neg, p(0));
+    let prod = Expr::bin(BinOp::Mul, p(0), p(1));
+    for i in [p(0), neg, prod] {
+        assert_eq!(
+            ty(&Expr::Index(Box::new(p(3)), Box::new(i.clone()))),
+            Err(Reject::Invalid("E2003"))
+        );
+        for up in [true, false] {
+            for w in [1, 2, 64] {
+                assert_eq!(
+                    ty(&Expr::Part(Box::new(p(3)), Box::new(i.clone()), w, up)),
+                    Err(Reject::Invalid("E2003")),
+                    "{w} {up}"
+                );
+            }
+        }
+    }
 }

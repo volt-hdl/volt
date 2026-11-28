@@ -336,8 +336,8 @@ impl Model<'_> {
                     }
                     Ty::Int { signed: true, .. } => Err(Reject::Unspecified("signed index")),
                     Ty::Bits(_) => Err(Reject::Unspecified("bits<N> index")),
-                    // §3.5 indeksin tipini söylemez; derleyici `x[t]`'yi kabul eder.
-                    Ty::Trit => Err(Reject::Unspecified("Trit index")),
+                    // ADR-0146: indeks Trit olamaz, E2003 (#465).
+                    Ty::Trit => Err(Reject::Invalid("E2003")),
                     Ty::Bool => Err(Reject::Invalid("?")),
                 }
             }
@@ -355,10 +355,15 @@ impl Model<'_> {
             Expr::Part(b, s, pw, up) => {
                 let tb = self.synth(b)?;
                 let w = Self::select_width(tb.ty)?;
+                let ts = self.synth(s)?;
+                // ADR-0146: başlangıç Trit olamaz, E2003 (#465); derleyici
+                // bunu genişlikten önce denetler.
+                if ts.ty == Ty::Trit {
+                    return Err(Reject::Invalid("E2003"));
+                }
                 if *pw == 0 || *pw > w {
                     return Err(Reject::Invalid("E2006"));
                 }
-                let ts = self.synth(s)?;
                 match ts.ty {
                     Ty::Lit(v) => {
                         let (lo, hi) = if *up {
@@ -375,7 +380,7 @@ impl Model<'_> {
                         return Err(Reject::Unspecified("signed part-select start"))
                     }
                     Ty::Bits(_) => return Err(Reject::Unspecified("bits<N> part-select start")),
-                    Ty::Trit => return Err(Reject::Unspecified("Trit part-select start")),
+                    Ty::Trit => unreachable!("Trit start is rejected above"),
                     Ty::Bool => return Err(Reject::Invalid("?")),
                 }
                 Ok(Typed::new(Ty::Bits(*pw), tb.tags | ts.tags))

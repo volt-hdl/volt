@@ -5,6 +5,54 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- **Davranış değişikliği.** Bir `Trit` indeks olamaz: tipi `Trit` tutan
+  bir indeks artık `error[E2003]: an index must not be a Trit, found
+  'Trit'` verir, yardımı Trit'i açıkça işaretsiz bir indekse çevirmeyi
+  gösterir (#465; sessiz yanlış düzeltmesi, ADR-0100; ADR-0003,
+  ADR-0142, ADR-0146). 0.1.5 `x[t]`'yi (t : `Trit`) tanısız derliyordu ve
+  indeks Trit'in iki bitlik kodunu (-1 = `11`) işaretsiz okuyordu: t = -1
+  için `x[t]` `x[3]`'ü, const dizide `TABLE[t]` `TABLE[3]`'ü okuyor,
+  `x[t +: 2]` `x[4:3]`'ü seçiyor, `wa[t] <= d` `wa[3]`'e yazıyordu
+  (main'de `volt test` ile Verilator'da ölçüldü). Aynı ret her indeks
+  yolunda geçerlidir: bit seçimi, dizi elemanı (port, const, register),
+  aralık seçiminin sınırı (`const K : Trit`), parça seçiminin başlangıcı
+  (`x[t +: W]`, `x[t -: W]`), atamanın sol tarafı (`on` ve `comb`), fn
+  gövdesi, kontrat; indeks `-t`, Trit çarpımı, dalları Trit olan `if`,
+  Trit dizisinin elemanı ya da Trit dizisinin kendisi
+  (`found '[Trit; 2]'`) olduğunda da. Kural değere değil tipe bakar.
+  Kimi etkiler: indeksi `Trit` olan tasarımlar. Ne yapmalı: Trit'i
+  istediğiniz işaretsiz indekse açıkça çevirin, örneğin
+  `x[(t as i3 + 1) as u3]` t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi
+  okur; indeksi tabanın adres genişliğinde yazın (`[u8; 4]` için
+  `as u2`). Öteki indeks tipleri (uN, iN, `bits<N>`, `bool`, enum, literal)
+  değişmez. Generic `const S : Trit` parametresiyle indeks (`x[S]`)
+  kabul edilmeye devam eder: ayrıştırıcı onu literale çevirir ve değeri
+  doğrudur (#468). Ölçüm: main (4608a47d) ile bu dalın ikilileri
+  gölgenin girdisinde (`examples/` dahil 500 dosya) ve `tests/ui/fail`'de
+  `volt build --single-file --emit=sva,sdc` ve `volt check` ile
+  çalıştırıldı: 819 dosyanın 805'inde çıkış kodları, üretilen dosyalar
+  ve tanı kodları aynıdır, 14 fark yeni dosyaların yeni E2003'leridir;
+  kitabın 31 `volt` bloğu derlenir.
+
+### Geliştirici notu — Trit indeksi tip denetiminde tek yerde reddedilir (#465, ADR-0146, 2026-11-28)
+
+- Kural `crates/volt-hir/src/typeck/select.rs` `reject_trit_index`'te;
+  `index_result`, `range_result` ve `part_select_result` onu çağırır, küme
+  `synth.rs` `holds_trit`'ten (ADR-0142 ile ortak). Aralık sınırları
+  artık ifadede ve sol tarafta sentezlenir.
+- Fark testi: ret tablosu (`reject::UNDEFINED`) `Trit: x[a]`,
+  `Trit: x[a +: W]` ve `Trit: x[a -: W]` satırlarını alır (E2003); model
+  Trit indeksini ve parça başlangıcını E2003 sayar. Ret kipi main'in
+  ikilisiyle 24 örneği kabul eder, bu dalınkiyle `diffs=0`.
+- Testler: `crates/volt-hir/tests/trit_index_tests.rs`,
+  `tests/ui/fail/319`–`331`, `tests/real_bugs/465_trit_index.volt`;
+  `crates/volt-driver/tests/trit_index_sim_tests.rs` yardımın kodunu
+  `volt check` çıktısından alır ve Verilator'da sınar.
+
 ## [0.1.5] - 2026-11-27
 
 ### Behavior changes
@@ -102,15 +150,15 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   ikiliyle: `cargo run -p volt-difftest --example volt-difftest-reject --
   --volt <yol>` (v0.1.3 `~t`'yi kabul eder, #434).
 - Fark testi #463'ü buldu: SV üreticisi `-t`'ye ve Trit çarpımına yanlış
-  genişlik aralığı veriyor (önceden var olan hata, v0.1.3'te de):
+  genişlik aralığı veriyordu (önceden var olan hata, v0.1.3'te de):
   literalle karşılaştırmada E2005, tipsiz `let`'te ve `-(t * x)`'te kesilen
   değer (sessiz yanlış), WIDTH uyarıları. Fark testi `-t`'yi ve Trit
   çarpımını #463 kapanana kadar yalnız `VOLT_DIFFTEST_TRIT_ARITH=1` ile
-  üretir. İki sessiz yanlışın yeniden üretimi genişlik gölgesinin
-  girdisine eklendiğinde gölge onları yakalıyor (bu PR'da denendi,
-  `width_shadow_tests` kırmızı); dosya bu yüzden #463'ü düzelten PR'a
-  girer, gölgenin ve real-bug testinin yeşile dönmesi o düzeltmenin kabul
-  ölçütüdür ve bayrağın varsayılanı orada açılır.
+  üretiyordu; kapı ADR-0145'le kalktı, ikisi her koşuda üretilir (#463'ün
+  notu). İki sessiz yanlışın yeniden üretimi
+  (`tests/real_bugs/463_trit_product_width.volt`) #463'ü düzelten PR'da
+  genişlik gölgesinin girdisine girdi: gölge ve real-bug testi main'de
+  kırmızıydı, düzeltmeyle yeşile döndü.
 
 ### Geliştirici notu — Fuzz başarısızlıkta kapalı kalır; gece derlemi küçülür, PR tohumlardan fuzz eder (#305, ADR-0143, 2026-11-26)
 
