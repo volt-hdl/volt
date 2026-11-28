@@ -348,7 +348,9 @@ A reset is the one value that is checked by its form as well as its type. Volt s
 
 An operator is defined for some types only. '~' inverts the bits of bool, uN, iN, bits<N> and arrays of them, and is E2003 on a Trit: a Trit is -1, 0 or +1, '~' acts on the bits that encode it, not on its value, and inverting the bits that encode +1 gives a pattern that is none of the three values. Negate a Trit with '-': 'y = ~t' is E2003, 'y = -t' maps +1 to -1, 0 to 0 and -1 to +1. For an array of Trit, negate each element: for 'a : [Trit; 2]', 'for i in 0..2 { y[i] = -a[i] }'.
 
-An index must not be a Trit, like a shift amount: -1 is no bit or element position, and an index reads the bits that encode the Trit as an unsigned number. 'x[t]', 'arr[t]', 'x[t +: 2]' and 'wa[t] <= d' are E2003, and so is an index whose type is an array of Trit. Convert the Trit explicitly: 'x[(t as i3 + 1) as u3]' reads x[0], x[1] and x[2] for t = -1, 0 and +1.",
+An index must not be a Trit, like a shift amount: -1 is no bit or element position, and an index reads the bits that encode the Trit as an unsigned number. 'x[t]', 'arr[t]', 'x[t +: 2]' and 'wa[t] <= d' are E2003, and so is an index whose type is an array of Trit. Convert the Trit explicitly: 'x[(t as i3 + 1) as u3]' reads x[0], x[1] and x[2] for t = -1, 0 and +1.
+
+An index must be unsigned. SystemVerilog reads an index as an unsigned number, so a signed index with a negative value would select a high bit or element: for 'i : i3' = -1, 'x[i]' would read x[7]. 'x[i]', 'arr[i]', 'x[i +: 2]', 'wa[i] <= d' and a range bound 'x[K : 0]' with 'const K : i8' are E2003 for every signed integer type, also when the value is never negative: the rule looks at the type. Convert the index explicitly to an unsigned number of the address width of the base: 'x[i as u3]' for 'x : u8', 'arr[i as u2]' for 'arr : [u8; 4]'; a negative value then becomes a large index, -1 as u3 is 7.",
         ),
         E2004 => Explanation::new(
             "Arithmetic on a bits<N> type",

@@ -57,7 +57,6 @@ workaround of each.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 - [#382](https://github.com/volt-hdl/volt/issues/382): a `$finish` in the SystemVerilog body of an `extern` module does not end a `volt test` run, so a test can pass after the check in it failed.
 - [#468](https://github.com/volt-hdl/volt/issues/468): a product with a generic `const S : Trit` parameter (`S * x`, `-S * x`) follows the rule of an integer product, not of a `Trit` product: an untyped `let` gets a wider type, and as the operand of another operation the product does not wrap in `iN` (`(-S * x) as i12` gives +2 where `(t * x) as i12` gives -2).
-- [#475](https://github.com/volt-hdl/volt/issues/475): an index of a signed type is read as an unsigned number: with `i : i3 = -1`, `x[i]` reads `x[7]` and `TABLE[i]` reads `TABLE[7]` (measured with `volt test`). The type of an index is not checked, so a `bool`, an enum or an array is accepted as an index too.
 - [#467](https://github.com/volt-hdl/volt/issues/467) (suspected): the SystemVerilog generator recognizes a `Trit` by the form of the expression; a `Trit` product or `-t` in a form it does not recognize would get the width of a two-bit integer in an untyped `let`. No such form is known.
 
 **Errors, false warnings and failures.** These open bugs of Volt 0.1.6
@@ -166,19 +165,6 @@ parameter is the case above. This was found by reading the code. To rule
 it out, give a `let` that holds a `Trit` product or `-t` its type:
 `let s : i8 = t * x`. Tracked in
 [issue #467](https://github.com/volt-hdl/volt/issues/467).
-
-**A signed index is read as unsigned.** An index of type `iN` with a
-negative value reads a position the source does not name: with
-`x : u8` and `i : i3 = -1`, `x[i]` reads bit 7 of `x`, and on an
-8-element array `TABLE[i]` and `arr[i]` read element 7, the three bits
-of -1 (`111`) read as an unsigned number, without a diagnostic (measured
-with `volt test`). A negative literal index (`x[-1]`) gets `E2006`; a signal
-or a `let` with a negative value does not. The type of an index is not checked at all, so a `bool`, an enum
-(its encoding) or an array is accepted as an index too. Index with an
-unsigned type (`uN`). Where the index is computed as an `iN`, write the
-conversion you mean: `x[i as u3]` reads `x[7]` for i = -1, as now, but
-the source says so. Tracked in
-[issue #475](https://github.com/volt-hdl/volt/issues/475).
 
 **A `const` that does not fit its type is accepted.** With
 `const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a

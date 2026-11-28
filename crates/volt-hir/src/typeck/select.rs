@@ -1,7 +1,8 @@
 //! Bit, aralık, parça ve alan seçimi (type-inference.md §3.5;
 //! ADR-0035 indexed part-select). Hem ifade (`synth`) hem atama hedefi
 //! (`lvalue_type`) aynı sonuç kurallarını kullanır; indeksin tipi
-//! kuralı (`reject_trit_index`, #465) her seçim yolunun ortak yeridir.
+//! kuralı (`reject_index_type`; Trit #465, işaretli tamsayı #475) her
+//! seçim yolunun ortak yeridir.
 
 use volt_ast::{Expr, Idx, ItemKind, Name};
 use volt_diagnostics::{
@@ -13,24 +14,114 @@ use super::TypeChecker;
 use crate::resolve::DefId;
 use crate::ty::{StructId, Ty, TypeId};
 
+/// İndeks tipi kuralını çağıran seçim biçimi: adres genişliği ve yardımın
+/// kodu ona bağlıdır.
+#[derive(Clone, Copy)]
+enum IndexForm {
+    /// Bit ya da dizi indeksi `x[i]`, `arr[i]`.
+    Index,
+    /// Aralık seçiminin üst (`true`) ya da alt sınırı `x[h : l]`.
+    Range(bool),
+    /// Parça seçiminin başlangıcı `x[i +: W]` (`true`) ya da `x[i -: W]`.
+    Part(bool),
+}
+
 impl TypeChecker<'_, '_> {
-    /// §3.5 — indeksin tipi; kuralın tek yeri (#465, ADR-0146). Tipi Trit
-    /// tutan (Trit ya da Trit tutan dizi, ADR-0142'nin `holds_trit`'i) bir
-    /// ifade indeks olamaz: E2003. Trit'in değer kümesi {-1, 0, +1}'dir
-    /// (ADR-0003) ve -1 bir konum değildir; indeks ise Trit'i kodlayan
-    /// bitleri işaretsiz bir sayı olarak okurdu. Öteki indeks tipleri (uN,
-    /// iN, esnek, literal, bits<N>, bool, enum, `[u1; N]`) değişmez.
-    /// Kural değere değil tipe bakar. Çağıranlar: bit/dizi indeksi, aralık
-    /// sınırları ve parça seçiminin başlangıcı, ifadede ve atama hedefinde
-    /// (`synth_select`, `lvalue_type`); indeksin tipini onlar sentezler.
-    /// İndeks reddedildiyse `true`.
-    fn reject_trit_index(&mut self, index: Idx<Expr>) -> bool {
+    /// §3.5 — indeksin tipi; kuralın tek yeri (ADR-0137). Bit/dizi
+    /// indeksi, aralık sınırları ve parça seçiminin başlangıcı, ifadede ve
+    /// atama hedefinde (`synth_select`, `lvalue_type`); indeksin tipini
+    /// çağıranlar sentezler. İki ret, ikisi de E2003 ve tipe bakar, değere
+    /// değil:
+    /// - tipi Trit tutan indeks (Trit ya da Trit tutan dizi, ADR-0142'nin
+    ///   `holds_trit`'i; #465, ADR-0146);
+    /// - tipi işaretli tamsayı olan indeks (`iN` ve esnek `iN`; #475,
+    ///   ADR-0147). SV indeksi işaretsiz okur: i : i3 = -1 için `x[i]`
+    ///   `x[7]`'dir. Yardımın genişliği tabanın adresidir; adresi olmayan
+    ///   tabanda (hata ya da seçilemeyen tip) ret yoktur, o tabanın kendi
+    ///   tanısı çıkar.
+    ///
+    /// Öteki indeks tipleri (uN, literal, bits<N>, bool, enum, Trit
+    /// tutmayan dizi) değişmez. İndeks reddedildiyse `true`.
+    fn reject_index_type(&mut self, base_ty: TypeId, index: Idx<Expr>, form: IndexForm) -> bool {
         let Some(&ty) = self.expr_types.get(&index) else {
             return false;
         };
-        if !self.holds_trit(ty) {
+        if self.holds_trit(ty) {
+            self.trit_index_error(ty, index);
+            return true;
+        }
+        if !self.types.is_signed(ty) {
             return false;
         }
+        let Some(width) = self.address_width(base_ty, form) else {
+            return false;
+        };
+        self.signed_index_error(ty, base_ty, index, form, width);
+        true
+    }
+
+    /// Tabanın adres genişliği: konum sayısını (dizide eleman, vektörde
+    /// bit) işaretsiz tutan en dar genişlik, en az 1 (`u8` → 3, `[u8; 4]`
+    /// → 2, `u5` → 3, `u1` → 1). Dizi yalnız bit/dizi indeksinde
+    /// seçilebilir; aralık ve parça seçimi vektör ister.
+    fn address_width(&self, base_ty: TypeId, form: IndexForm) -> Option<u32> {
+        let positions = match (self.types.ty(base_ty), form) {
+            (Ty::Array { len, .. }, IndexForm::Index) => u64::from(*len),
+            _ => u64::from(self.types.width_of(base_ty)?),
+        };
+        Some((u64::BITS - positions.saturating_sub(1).leading_zeros()).max(1))
+    }
+
+    /// İşaretli indeksin E2003'ü (#475, ADR-0147). Yardım indeksi tabanın
+    /// adres genişliğinde işaretsize çevirir; daha geniş bir dönüşüm
+    /// Verilator'da WIDTHTRUNC'a düşerdi (#474).
+    fn signed_index_error(
+        &mut self,
+        ty: TypeId,
+        base_ty: TypeId,
+        index: Idx<Expr>,
+        form: IndexForm,
+        width: u32,
+    ) {
+        let shown = self.show(ty);
+        let base = self.show(base_ty);
+        let name = if matches!(self.types.ty(base_ty), Ty::Array { .. }) {
+            "arr"
+        } else {
+            "x"
+        };
+        let conv = format!("as u{width}");
+        let code = match form {
+            IndexForm::Index => format!("{name}[i {conv}]"),
+            IndexForm::Range(true) => format!("{name}[h {conv} : l]"),
+            IndexForm::Range(false) => format!("{name}[h : l {conv}]"),
+            IndexForm::Part(true) => format!("{name}[i {conv} +: W]"),
+            IndexForm::Part(false) => format!("{name}[i {conv} -: W]"),
+        };
+        let max = (1u64 << width) - 1;
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2003,
+                lstr!(en: "an index must be unsigned, found '{shown}'"; tr: "indeks işaretsiz olmalı, bulunan '{shown}'"),
+                LabeledSpan::primary(
+                    self.ast.exprs[index].span,
+                    lstr!(en: "a negative value of this index would select a high bit or element"; tr: "bu indeksin negatif bir değeri yüksek bir biti ya da elemanı seçerdi"),
+                ),
+                lstr!(en: "convert the index explicitly to an unsigned number of the address width: {code} for {name} : {base}; a negative value then becomes a large index, -1 {conv} is {max}";
+                      tr: "indeksi açıkça adres genişliğinde işaretsiz bir sayıya çevirin: {name} : {base} için {code}; negatif bir değer o zaman büyük bir indeks olur, -1 {conv} = {max}"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "SystemVerilog reads an index as an unsigned number, so a negative value selects a high bit or element without a diagnostic";
+                      tr: "SystemVerilog indeksi işaretsiz bir sayı olarak okur; bu yüzden negatif bir değer tanısız olarak yüksek bir biti ya da elemanı seçer"),
+            ),
+        );
+    }
+
+    /// Trit tutan indeksin E2003'ü (#465, ADR-0146). Trit'in değer kümesi
+    /// {-1, 0, +1}'dir (ADR-0003) ve -1 bir konum değildir; indeks ise
+    /// Trit'i kodlayan bitleri işaretsiz bir sayı olarak okurdu.
+    fn trit_index_error(&mut self, ty: TypeId, index: Idx<Expr>) {
         let shown = self.show(ty);
         self.diagnostics.push(
             Diagnostic::error(
@@ -49,12 +140,11 @@ impl TypeChecker<'_, '_> {
                       tr: "Trit -1, 0 ya da +1'dir ve -1 bir bit ya da eleman konumu değildir; indeks Trit'i kodlayan bitleri işaretsiz bir sayı olarak okur"),
             ),
         );
-        true
     }
 
     /// §3.5 — bit/dizi indeksi. Sabit indekste sınır denetimi yapılır.
     pub(super) fn index_result(&mut self, base_ty: TypeId, index: Idx<Expr>, span: Span) -> TypeId {
-        if self.reject_trit_index(index) {
+        if self.reject_index_type(base_ty, index, IndexForm::Index) {
             return self.types.error();
         }
         match *self.types.ty(base_ty) {
@@ -109,9 +199,9 @@ impl TypeChecker<'_, '_> {
         lo: Idx<Expr>,
         span: Span,
     ) -> TypeId {
-        let trit_hi = self.reject_trit_index(hi);
-        let trit_lo = self.reject_trit_index(lo);
-        if trit_hi || trit_lo || self.types.is_error(base_ty) {
+        let bad_hi = self.reject_index_type(base_ty, hi, IndexForm::Range(true));
+        let bad_lo = self.reject_index_type(base_ty, lo, IndexForm::Range(false));
+        if bad_hi || bad_lo || self.types.is_error(base_ty) {
             return self.types.error();
         }
         let Some(width) = self.types.width_of(base_ty) else {
@@ -190,7 +280,9 @@ impl TypeChecker<'_, '_> {
         ascending: bool,
         span: Span,
     ) -> TypeId {
-        if self.reject_trit_index(start) || self.types.is_error(base_ty) {
+        if self.reject_index_type(base_ty, start, IndexForm::Part(ascending))
+            || self.types.is_error(base_ty)
+        {
             return self.types.error();
         }
         let Some(base_width) = self.types.width_of(base_ty) else {

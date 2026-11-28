@@ -334,7 +334,8 @@ impl Model<'_> {
                     Ty::Lit(_) | Ty::Int { signed: false, .. } => {
                         Ok(Typed::new(Ty::Bool, tb.tags | ti.tags))
                     }
-                    Ty::Int { signed: true, .. } => Err(Reject::Unspecified("signed index")),
+                    // ADR-0147: indeks işaretsiz olmalı, E2003 (#475).
+                    Ty::Int { signed: true, .. } => Err(Reject::Invalid("E2003")),
                     Ty::Bits(_) => Err(Reject::Unspecified("bits<N> index")),
                     // ADR-0146: indeks Trit olamaz, E2003 (#465).
                     Ty::Trit => Err(Reject::Invalid("E2003")),
@@ -356,9 +357,10 @@ impl Model<'_> {
                 let tb = self.synth(b)?;
                 let w = Self::select_width(tb.ty)?;
                 let ts = self.synth(s)?;
-                // ADR-0146: başlangıç Trit olamaz, E2003 (#465); derleyici
-                // bunu genişlikten önce denetler.
-                if ts.ty == Ty::Trit {
+                // ADR-0146: başlangıç Trit olamaz, E2003 (#465); ADR-0147:
+                // işaretli olamaz, E2003 (#475). Derleyici bunu genişlikten
+                // önce denetler.
+                if matches!(ts.ty, Ty::Trit | Ty::Int { signed: true, .. }) {
                     return Err(Reject::Invalid("E2003"));
                 }
                 if *pw == 0 || *pw > w {
@@ -376,11 +378,10 @@ impl Model<'_> {
                         }
                     }
                     Ty::Int { signed: false, .. } => {}
-                    Ty::Int { signed: true, .. } => {
-                        return Err(Reject::Unspecified("signed part-select start"))
-                    }
                     Ty::Bits(_) => return Err(Reject::Unspecified("bits<N> part-select start")),
-                    Ty::Trit => unreachable!("Trit start is rejected above"),
+                    Ty::Trit | Ty::Int { signed: true, .. } => {
+                        unreachable!("Trit and signed starts are rejected above")
+                    }
                     Ty::Bool => return Err(Reject::Invalid("?")),
                 }
                 Ok(Typed::new(Ty::Bits(*pw), tb.tags | ts.tags))
