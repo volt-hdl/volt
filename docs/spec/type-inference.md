@@ -379,6 +379,7 @@ E2003'tür. Kural değere değil tipe bakar: `~0` da reddedilir. Bağlamdan
 ```rust
 // x[3] → bool
 ExprKind::Index { base, index } => {
+    // ADR-0146: indeksin tipi Trit tutmamalı (E2003; bölümün sonu).
     let bt = self.synth(*base);
     let width = self.width_of(bt)?;
     // Sabit indeks ise sınır kontrolü
@@ -441,6 +442,23 @@ ExprKind::PartSelect { base, start, width, ascending } => {
     self.mk_ty(Ty::Bits { width: w as u16 })
 }
 ```
+
+**İndeksin tipi (ADR-0146, #465).** Bit ya da dizi indeksi (`x[i]`,
+`arr[i]`), aralık seçiminin sınırları (`x[h:l]`) ve parça seçiminin
+başlangıcı (`x[i +: W]`, `x[i -: W]`), ifadede de atamanın sol tarafında
+da, Trit tutan bir tipte olamaz: tipi `Trit` ya da elemanı Trit tutan bir
+dizi (`[Trit; N]`, iç içe dahil) olan indeks E2003'tür (`an index must not
+be a Trit, found 'Trit'`). Trit'in değer kümesi {-1, 0, +1}'dir (ADR-0003)
+ve -1 bir bit ya da eleman konumu değildir; kaydırma miktarı da aynı
+nedenle Trit olamaz (§3.3). Kural değere değil tipe bakar: `-t` (§3.4),
+Trit çarpımı (§3.3) ve dalları Trit olan `if` (§3.7) Trit'tir. Yardımın
+yolu Trit'i açıkça işaretsiz bir indekse çevirmektir:
+`x[(t as i3 + 1) as u3]`, t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi okur.
+
+Öteki indeks tipleri bugünkü gibi kabul edilir: uN, iN, esnek genişlikli
+tamsayı, soneksiz literal, `bits<N>`, `bool`, enum ve Trit tutmayan dizi
+(`[u1; N]`). Bu tiplerin indeks kuralı ayrı bir karar konusudur (open
+decision); bu bölüm onu belirlemez.
 
 ### 3.6 Tip Dönüşümü (`as`)
 
