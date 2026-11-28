@@ -951,6 +951,58 @@ pub fn all() -> Vec<Regression> {
         .pin(&[-2, -1], -2)
         .pin_wide(SInt(12), &[-2, -1], -2)
         .pin_wide(SInt(12), &[1, -1], -1),
+        // ── Generic `const S : Trit` (#468, #471) ──
+        // Ayrıştırıcı parametreyi literale çevirir (ADR-0041); tip denetimi
+        // S'nin Trit olduğunu görmüyordu ve `S * x` tamsayı çarpımı
+        // kuralıyla tipleniyordu: A15 köşesinde değer spec'ten ayrılıyordu.
+        // Bakımcının kararı (#468): S aynı yerdeki bir Trit sinyalinin
+        // tipini ve değerini alır. Bu örneklerde p0'ı t biçimi `S` yapar
+        // (`T<id>t<const S : Trit>`, M<1>, M<0>, M<-1>; #471 ile `-1`
+        // yazılabilir); pinler a–e ve t biçimlerinde sınanır.
+        r(
+            "#468",
+            "minus a generic Trit times i8, cast to i12",
+            vec![Trit, SInt(8)],
+            cast(bin(BinOp::Mul, Expr::un(UnOp::Neg, p(0)), p(1)), SInt(12)),
+        )
+        // `(-p0 * p1) as i12` (t biçiminde `(-S * p1) as i12`). §3.4: `-S`
+        // Trit; §3.3: Trit × i8 i8; ADR-0145 Karar 8: `as`'ın işleneni olan
+        // çarpım i8'de sarar. p0 = +1 (M<1>), p1 = -128: -S = -1, -(-128) =
+        // +128 i8'e sığmaz, -128; i12'de -128. Tamsayı kuralı +128 veriyordu
+        // (#468'in ölçümü). p0 = -1 (M<-1>): -S = +1, -128. p1 = 5: -5 ve 5.
+        .pin(&[1, -128], -128)
+        .pin(&[-1, -128], -128)
+        .pin(&[1, 5], -5)
+        .pin(&[-1, 5], 5),
+        r(
+            "#468",
+            "a generic Trit times i2, cast to i12",
+            vec![Trit, SInt(2)],
+            cast(bin(BinOp::Mul, p(0), p(1)), SInt(12)),
+        )
+        // `(p0 * p1) as i12`, p1 : i2. p0 = -1 (M<-1>), p1 = -2: +2 i2'ye
+        // sığmaz, -2; i12'de -2. Tamsayı kuralı +2 veriyordu. p0 = +1
+        // (M<1>): -2. p0 = -1, p1 = 1: -1.
+        .pin(&[-1, -2], -2)
+        .pin(&[1, -2], -2)
+        .pin(&[-1, 1], -1),
+        r(
+            "#468",
+            "minus a generic Trit times i8, operand of +",
+            vec![Trit, SInt(8), SInt(8)],
+            bin(
+                BinOp::Add,
+                bin(BinOp::Mul, Expr::un(UnOp::Neg, p(0)), p(1)),
+                p(2),
+            ),
+        )
+        // `-p0 * p1 + p2`, i9: `+`'nın işleneni olan çarpım i8'de sarar.
+        // p0 = +1 (M<1>), p1 = -128, p2 = -128: -128 + (-128) = -256
+        // (tamsayı kuralıyla 128 - 128 = 0). p0 = -1 (M<-1>), p2 = 0: -128.
+        // p0 = 0 (M<0>): p2, 7.
+        .pin(&[1, -128, -128], -256)
+        .pin(&[-1, -128, 0], -128)
+        .pin(&[0, -128, 7], 7),
     ]
 }
 

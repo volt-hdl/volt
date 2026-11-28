@@ -291,7 +291,9 @@ impl<'a> Emitter<'a> {
     fn own_width(&mut self, idx: Idx<Expr>) -> Option<Sig> {
         let ast = self.ast;
         match &ast.exprs[idx].kind {
-            ExprKind::IntLit { suffix, .. } => suffix.map(suffix_sig),
+            ExprKind::IntLit { suffix, .. } => suffix
+                .map(suffix_sig)
+                .or_else(|| self.checked_trit_sig(idx)),
             ExprKind::BoolLit(_) => Some(Sig {
                 width: 1,
                 signed: false,
@@ -824,7 +826,9 @@ impl<'a> Emitter<'a> {
         let (text, my_prec) = match &ast.exprs[idx].kind {
             _ if folded.is_some() => {
                 let value = folded.expect("koşul katlanmış değeri denetledi");
-                let text = self.fmt_int(value, NumBase::Dec, ctx, span);
+                // Generic Trit literaliyle katlanan ağaç (`S * 1`) Trit'tir (#468).
+                let sig = widen_sig(self.checked_trit_sig(idx), ctx);
+                let text = self.fmt_int(value, NumBase::Dec, sig, span);
                 let prec = lit_prec(&text);
                 (text, prec)
             }
@@ -833,7 +837,10 @@ impl<'a> Emitter<'a> {
                 suffix,
                 base,
             } => {
-                let sig = widen_sig(suffix.map(suffix_sig), ctx);
+                let own = suffix
+                    .map(suffix_sig)
+                    .or_else(|| self.checked_trit_sig(idx));
+                let sig = widen_sig(own, ctx);
                 let text = self.fmt_int(LitValue::pos(*value), *base, sig, span);
                 let prec = lit_prec(&text);
                 (text, prec)
@@ -891,7 +898,9 @@ impl<'a> Emitter<'a> {
                 let ExprKind::IntLit { value, base, .. } = ast.exprs[*operand].kind else {
                     unreachable!()
                 };
-                let text = self.fmt_int(LitValue::neg(value), base, ctx, span);
+                // `-S` (S : Trit generic, #468) Trit genişliğindedir.
+                let sig = widen_sig(self.checked_trit_sig(*operand), ctx);
+                let text = self.fmt_int(LitValue::neg(value), base, sig, span);
                 // Tekli `-` önceliği (eski `-8'sd3` yazımıyla aynı parantezler).
                 let prec = if text.starts_with('-') {
                     PREC_UNARY

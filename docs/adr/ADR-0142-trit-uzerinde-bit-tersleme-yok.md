@@ -1,7 +1,7 @@
 # ADR-0142: `~` Trit Üzerinde Tanımlı Değildir — İşlem Değer Kümesine Aittir, Trit'in Tersi `-t`
 
 > Statü: Uygulandı — 2026-11-26
-> İlgili: ADR-0003 (Trit'in değer kümesi {-1, 0, +1}; `-Trit` Trit'tir), ADR-0062 (Trit'in iki bitlik kodu; `~` önce bu kod üzerinde çalışıyordu), ADR-0139 (envanterin "Açık bulgular" 1'i kapanır; "işlem değer kümesine aittir" ilkesinin ilk uygulaması), ADR-0144 (beklenen ret ölçütü bu ADR'nin Trit satırlarını her işte sınar; v0.1.3'te #434'ü bulur)
+> İlgili: ADR-0003 (Trit'in değer kümesi {-1, 0, +1}; `-Trit` Trit'tir), ADR-0062 (Trit'in iki bitlik kodu; `~` önce bu kod üzerinde çalışıyordu), ADR-0139 (envanterin "Açık bulgular" 1'i kapanır; "işlem değer kümesine aittir" ilkesinin ilk uygulaması), ADR-0144 (beklenen ret ölçütü bu ADR'nin Trit satırlarını her işte sınar; v0.1.3'te #434'ü bulur), ADR-0148 (generic `const S : Trit` tip denetiminde Trit: `~S`'nin E2003'ü işlenenin tipinden)
 > Issue: #434
 > Tarih: 2026-11-26
 > Etkilenen: `crates/volt-hir/src/typeck/synth.rs` (`bit_not_result`, `holds_trit`, `check_literal_bit_not`, `literal_bit_not`), `crates/volt-hir/src/typeck/check.rs`, `crates/volt-diagnostics/src/explain/{en,tr}.rs` (E2003 notu), `docs/design/ikili-varsayimlar-envanteri.md`, `book/src/limitations.md`, `CHANGELOG.md`; spec type-inference.md §3.4 için yama bakımcıda

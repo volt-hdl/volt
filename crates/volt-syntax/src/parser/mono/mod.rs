@@ -12,9 +12,13 @@
 //!   (şablon, argüman değerleri) ile anahtarlıdır: iki FARKLI şablon aynı
 //!   adı kurarsa (`M<1, 8>` ve `M_1<8>` → `M_1_8`, #205) E1003 — Volt
 //!   üretilen adı kendiliğinden değiştirmez (ADR-0090).
-//! * Yalnız const generic parametre; argüman tam sayı LİTERALİ olmalı
-//!   (yerleşik primitiflerle aynı kural, E2008). Tip parametresine
-//!   argüman E0003 (henüz yok).
+//! * Yalnız const generic parametre; argüman bir derleme zamanı sabiti
+//!   olmalı (E2008): literal, negatif literal, sabit aritmetik ya da kök
+//!   const'un adı (`M<-1>`, `M<(-1)>`, `M<0 - 1>`, `M<NEG>`; #471).
+//!   Değer ayrıştırıcı katmanının sabit değerlendirmesiyle bulunur
+//!   ([`unroll::eval_const_scoped`]); örneğin bulunduğu modülde aynı adlı
+//!   bir bildirim kök const'u gölgeler. Negatif değer adda `n` ile yazılır
+//!   (`M<-1>` → `M_n1`). Tip parametresine argüman E0003 (henüz yok).
 //! * ≥1 kez örneklenen şablon `items` listesinden çıkar (arena'da
 //!   kalır); hiç örneklenmemiş generic modül dokunulmadan kalır.
 //! * İç içe generic örneklemeler (`A<8>` gövdesinde `B<TAPS>`) ikame
@@ -28,6 +32,8 @@ pub(crate) mod unroll;
 
 use std::collections::HashMap;
 
+use scope::{ArgValue, Scopes};
+use unroll::{collect_consts, decl_name, eval_const, eval_const_scoped, visible_const_in, Consts};
 use volt_ast::builtin::BuiltinPrim;
 use volt_ast::{
     ExprKind, GenericArg, GenericParamKind, Idx, InstanceDecl, Item, ItemKind, Name, SourceFile,
@@ -48,6 +54,7 @@ const MAX_ROUNDS: usize = 64;
 pub fn monomorphize(ast: &mut SourceFile) -> Vec<Diagnostic> {
     let mut mono = Mono {
         modules: collect_modules(ast),
+        consts: collect_consts(ast),
         produced: HashMap::new(),
         names: HashMap::new(),
         expansions: HashMap::new(),
@@ -113,13 +120,16 @@ impl RangeSpec {
     }
 
     /// Önceki argümanlarla (ad, değer) çözülmüş aralık; genişlik bilinmiyorsa
-    /// `None`.
-    fn resolve(&self, earlier: &[(&str, u128)]) -> Option<ParamRange> {
+    /// (negatif ya da `u32`'ye sığmayan değer dahil) `None`.
+    fn resolve(&self, earlier: &[(&str, ArgValue)]) -> Option<ParamRange> {
         let width = match &self.width {
             WidthSpec::Lit(w) => *w,
             WidthSpec::Param(name) => {
                 let &(_, v) = earlier.iter().find(|(n, _)| n == name)?;
-                u32::try_from(v).ok()?
+                if v.neg {
+                    return None;
+                }
+                u32::try_from(v.mag).ok()?
             }
         };
         Some(ParamRange {
@@ -137,7 +147,7 @@ struct ParamRange {
 }
 
 impl ParamRange {
-    /// Argüman (negatif olmayan literal) aralığa sığıyor mu; en büyük değer.
+    /// En büyük değer.
     fn max(self) -> u128 {
         let bits = if self.signed {
             self.width.saturating_sub(1)
@@ -148,6 +158,28 @@ impl ParamRange {
             u128::MAX
         } else {
             (1u128 << bits) - 1
+        }
+    }
+
+    /// En küçük değerin büyüklüğü: işaretsizde 0, iN'de 2^(N-1).
+    fn min_mag(self) -> u128 {
+        if !self.signed {
+            return 0;
+        }
+        let bits = self.width.saturating_sub(1);
+        if bits >= 128 {
+            u128::MAX
+        } else {
+            1u128 << bits
+        }
+    }
+
+    /// Argüman aralıkta mı.
+    fn contains(self, v: ArgValue) -> bool {
+        if v.neg {
+            v.mag <= self.min_mag()
+        } else {
+            v.mag <= self.max()
         }
     }
 }
@@ -207,7 +239,8 @@ struct NameOwner {
 }
 
 enum ArgInfo {
-    Lit(u128),
+    /// Derleme zamanı sabiti: değeri.
+    Lit(ArgValue),
     Other(Span),
 }
 
@@ -225,8 +258,10 @@ struct ModuleEntry {
 struct Mono<'a> {
     ast: &'a mut SourceFile,
     modules: HashMap<String, ModuleInfo>,
+    /// Birimin kök const'ları: adıyla verilen argümanın değeri (#471).
+    consts: Consts,
     /// (şablon, argüman değerleri) → monomorf öğesi.
-    produced: HashMap<(Idx<Item>, Vec<u128>), Idx<Item>>,
+    produced: HashMap<(Idx<Item>, Vec<ArgValue>), Idx<Item>>,
     /// Üretilmiş monomorf adı → onu ilk kuran örnekleme (#205).
     names: HashMap<String, NameOwner>,
     /// Şablon öğesi → monomorfları (üretim sırasıyla).
@@ -304,16 +339,25 @@ impl Mono<'_> {
         let ItemKind::Module(m) = &self.ast.items_arena[item].kind else {
             return Vec::new();
         };
+        // Adıyla verilen argüman ancak modül kapsamında gölgelenmeyen bir
+        // kök const'a bağlanır (name-resolution.md §4): port, generic
+        // parametre ve gövdenin modül düzeyi bildirimleri onu örter.
+        let mut chain = Scopes::module(self.ast, item);
+        for &stmt in &m.body {
+            if let Some(name) = decl_name(&self.ast.stmts[stmt].kind) {
+                chain.declare_outer(name);
+            }
+        }
         m.body
             .iter()
             .filter_map(|&stmt| match &self.ast.stmts[stmt].kind {
-                StmtKind::Instance(inst) => self.request_of(stmt, inst),
+                StmtKind::Instance(inst) => self.request_of(stmt, inst, &chain),
                 _ => None,
             })
             .collect()
     }
 
-    fn request_of(&self, stmt: Idx<Stmt>, inst: &InstanceDecl) -> Option<Request> {
+    fn request_of(&self, stmt: Idx<Stmt>, inst: &InstanceDecl, chain: &Scopes) -> Option<Request> {
         if inst.module_path.segments.len() != 1 {
             return None;
         }
@@ -328,7 +372,11 @@ impl Mono<'_> {
         if inst.generic_args.is_empty() && !self.is_generic_name(&head.text) {
             return None;
         }
-        let args = inst.generic_args.iter().map(|a| self.arg_info(a)).collect();
+        let args = inst
+            .generic_args
+            .iter()
+            .map(|a| self.arg_info(a, chain))
+            .collect();
         Some(Request {
             stmt,
             target: head.text.clone(),
@@ -337,14 +385,42 @@ impl Mono<'_> {
         })
     }
 
-    fn arg_info(&self, arg: &GenericArg) -> ArgInfo {
+    /// Argümanın değeri (#471): çıplak literal 2^128 - 1'e kadar (#207);
+    /// negatif literal, sabit aritmetik ve kök const'un adı ayrıştırıcının
+    /// sabit değerlendirmesiyle (`i128`). Ayrıştırıcı çıplak bir adı tip
+    /// sayar (`M<NEG>` → `GenericArg::Type`); ad bir kök const'unsa değeri
+    /// onunkidir.
+    fn arg_info(&self, arg: &GenericArg, chain: &Scopes) -> ArgInfo {
+        let root_const = |name: &str| !chain.bound_above_root(name);
         match arg {
             GenericArg::Const(e) => match &self.ast.exprs[*e].kind {
-                ExprKind::IntLit { value, .. } => ArgInfo::Lit(*value),
-                _ => ArgInfo::Other(self.ast.exprs[*e].span),
+                ExprKind::IntLit { value, .. } => ArgInfo::Lit(ArgValue::new(false, *value)),
+                _ => match eval_const_scoped(self.ast, &self.consts, *e, 0, &root_const) {
+                    Some(v) => ArgInfo::Lit(ArgValue::of_i128(v)),
+                    None => ArgInfo::Other(self.ast.exprs[*e].span),
+                },
             },
-            GenericArg::Type(t) => ArgInfo::Other(self.ast.types[*t].span),
+            GenericArg::Type(t) => match self.named_const(*t, &root_const) {
+                Some(v) => ArgInfo::Lit(ArgValue::of_i128(v)),
+                None => ArgInfo::Other(self.ast.types[*t].span),
+            },
         }
+    }
+
+    /// Tip konumundaki çıplak ad (`M<NEG>`) görünen bir kök const'sa değeri.
+    fn named_const(&self, t: Idx<TypeRef>, root_const: &dyn Fn(&str) -> bool) -> Option<i128> {
+        let ty = &self.ast.types[t];
+        let TypeRefKind::Path { path, args } = &ty.kind else {
+            return None;
+        };
+        let [seg] = path.segments.as_slice() else {
+            return None;
+        };
+        if !args.is_empty() || !root_const(&seg.text) {
+            return None;
+        }
+        let value = visible_const_in(self.ast, &self.consts, ty.span.file, &seg.text)?;
+        eval_const(self.ast, &self.consts, value, 1)
     }
 
     /// İsteği doğrular, gerekirse klonlar, deyimi yeniden yazar.
@@ -404,7 +480,7 @@ impl Mono<'_> {
         req: &Request,
         params: &[(String, bool)],
         ranges: &[Option<RangeSpec>],
-    ) -> Option<Vec<u128>> {
+    ) -> Option<Vec<ArgValue>> {
         if params.is_empty() {
             self.err_not_generic(req);
             return None;
@@ -419,13 +495,13 @@ impl Mono<'_> {
                 (ArgInfo::Lit(v), true) => {
                     // #262: argüman parametrenin tipine sığmalı; genişlik
                     // önceki bir parametreyse onun argümanı.
-                    let earlier: Vec<(&str, u128)> = params
+                    let earlier: Vec<(&str, ArgValue)> = params
                         .iter()
                         .map(|(n, _)| n.as_str())
                         .zip(values.iter().copied())
                         .collect();
                     let resolved = range.as_ref().and_then(|r| r.resolve(&earlier));
-                    if let Some(range) = resolved.filter(|r| *v > r.max()) {
+                    if let Some(range) = resolved.filter(|r| !r.contains(*v)) {
                         self.err_arg_out_of_range(req, pname, *v, range);
                         return None;
                     }
@@ -448,7 +524,7 @@ impl Mono<'_> {
     fn clone_template(
         &mut self,
         template: Idx<Item>,
-        values: Vec<u128>,
+        values: Vec<ArgValue>,
         mangled: String,
     ) -> Idx<Item> {
         let (span, doc, visibility) = {
@@ -466,20 +542,22 @@ impl Mono<'_> {
             // Kapsam zinciri: modül kapsamının ilk bildirimleri const generic
             // parametreler (name-resolution.md §5); gövdede onlara bağlanan
             // yol literal olur, iç kapsamda yeniden bildirilen ad olmaz (#130).
-            let params: Vec<(Name, u128)> = template_decl
+            // Literal parametrenin bildirilen tipini taşır (#468).
+            let params: Vec<(Name, ArgValue, Idx<TypeRef>)> = template_decl
                 .generics
                 .iter()
                 .filter_map(|g| match &g.kind {
-                    GenericParamKind::Const { name, .. } => Some(name.clone()),
+                    GenericParamKind::Const { name, ty } => Some((name.clone(), *ty)),
                     GenericParamKind::Type { .. } => None,
                 })
                 .zip(values)
+                .map(|((name, ty), value)| (name, value, ty))
                 .collect();
             let mut cloner = Cloner::new(self.ast, &mut self.budget, ctx).with_generics(&params);
             let module = cloner.clone_module(&template_decl, mangled);
             let attrs = cloner.clone_attrs(&attrs_src);
             // Çözücü parametreleri bu tablodan bildirir (gölgeleme, E1003).
-            let names = params.iter().map(|(n, _)| cloner.tag_name(n)).collect();
+            let names = params.iter().map(|(n, _, _)| cloner.tag_name(n)).collect();
             cloner
                 .ast
                 .write(|ast| ast.generate.mono_generics.insert(module.name.span, names));
@@ -783,25 +861,31 @@ impl Mono<'_> {
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2008,
-                lstr!(en: "{name} {param} must be a compile-time integer literal";
-                      tr: "{name} {param} derleme zamanı tam sayı literali olmalı"),
+                lstr!(en: "{name} {param} must be a compile-time constant";
+                      tr: "{name} {param} derleme zamanı sabiti olmalı"),
                 LabeledSpan::primary(
                     span,
-                    lstr!(en: "not an integer literal"; tr: "tam sayı literali değil"),
+                    lstr!(en: "not a compile-time constant"; tr: "derleme zamanı sabiti değil"),
                 ),
-                lstr!(en: "write the value directly, e.g. {name}<8> {{ ... }}";
-                      tr: "değeri doğrudan yazın, ör. {name}<8> {{ ... }}"),
+                lstr!(en: "write a literal or the name of a const item, e.g. {name}<8> {{ ... }}";
+                      tr: "bir literal ya da bir const öğesinin adını yazın, ör. {name}<8> {{ ... }}"),
             )
             .with_note(
                 NoteKind::Reason,
-                lstr!(en: "the monomorphised module name is built from the literal values";
-                      tr: "monomorf modül adı literal değerlerden kurulur"),
+                lstr!(en: "the monomorphised module name is built from the argument values";
+                      tr: "monomorf modül adı argüman değerlerinden kurulur"),
             ),
         );
     }
 
     /// E2010 (#262): generic argüman parametrenin tipine sığmıyor.
-    fn err_arg_out_of_range(&mut self, req: &Request, param: &str, value: u128, range: ParamRange) {
+    fn err_arg_out_of_range(
+        &mut self,
+        req: &Request,
+        param: &str,
+        value: ArgValue,
+        range: ParamRange,
+    ) {
         let name = &req.target;
         let ty = if range.signed {
             format!("i{}", range.width)
@@ -809,18 +893,40 @@ impl Mono<'_> {
             format!("u{}", range.width)
         };
         let max = range.max();
+        let min = ArgValue::new(true, range.min_mag());
+        // Negatif argüman alt sınırın altındadır (#471); iletisi o sınırı,
+        // yardımı aralığı söyler. İşaretsiz parametreye negatif değer ancak
+        // işaretli bir tiple sığar.
+        let (message, help) = match (value.neg, range.signed) {
+            (false, _) => (
+                lstr!(en: "generic argument {value} does not fit in the parameter {param} : {ty} of {name} (maximum {max})";
+                      tr: "{value} generic argümanı {name} modülünün {param} : {ty} parametresine sığmıyor (en çok {max})"),
+                lstr!(en: "use a value up to {max}, or declare {param} with a wider type";
+                      tr: "en çok {max} olan bir değer kullanın ya da {param}'yi daha geniş bir tiple bildirin"),
+            ),
+            (true, true) => (
+                lstr!(en: "generic argument {value} does not fit in the parameter {param} : {ty} of {name} (minimum {min})";
+                      tr: "{value} generic argümanı {name} modülünün {param} : {ty} parametresine sığmıyor (en az {min})"),
+                lstr!(en: "use a value from {min} to {max}, or declare {param} with a wider type";
+                      tr: "{min} ile {max} arasında bir değer kullanın ya da {param}'yi daha geniş bir tiple bildirin"),
+            ),
+            (true, false) => (
+                lstr!(en: "generic argument {value} does not fit in the parameter {param} : {ty} of {name} (minimum 0)";
+                      tr: "{value} generic argümanı {name} modülünün {param} : {ty} parametresine sığmıyor (en az 0)"),
+                lstr!(en: "use a value from 0 to {max}, or declare {param} with a signed type";
+                      tr: "0 ile {max} arasında bir değer kullanın ya da {param}'yi işaretli bir tiple bildirin"),
+            ),
+        };
         self.diagnostics.push(
             Diagnostic::error(
                 ErrorCode::E2010,
-                lstr!(en: "generic argument {value} does not fit in the parameter {param} : {ty} of {name} (maximum {max})";
-                      tr: "{value} generic argümanı {name} modülünün {param} : {ty} parametresine sığmıyor (en çok {max})"),
+                message,
                 LabeledSpan::primary(
                     req.target_span,
                     lstr!(en: "{param} = {value} is outside the parameter's type";
                           tr: "{param} = {value} parametrenin tipinin dışında"),
                 ),
-                lstr!(en: "use a value up to {max}, or declare {param} with a wider type";
-                      tr: "en çok {max} olan bir değer kullanın ya da {param}'yi daha geniş bir tiple bildirin"),
+                help,
             )
             .with_note(
                 NoteKind::Reason,
@@ -897,18 +1003,18 @@ fn adr_note() -> String {
 }
 
 /// `FirFilter<8, 16>` → `FirFilter_8_16`.
-fn mangle(name: &str, values: &[u128]) -> String {
+fn mangle(name: &str, values: &[ArgValue]) -> String {
     let mut out = name.to_string();
     for v in values {
         out.push('_');
-        out.push_str(&v.to_string());
+        out.push_str(&v.mangled());
     }
     out
 }
 
 /// `M<1, 8>`: örneklemenin kaynaktaki yazılışı (değerler ondalık).
-fn written(name: &str, values: &[u128]) -> String {
-    let args: Vec<String> = values.iter().map(u128::to_string).collect();
+fn written(name: &str, values: &[ArgValue]) -> String {
+    let args: Vec<String> = values.iter().map(ArgValue::to_string).collect();
     format!("{name}<{}>", args.join(", "))
 }
 

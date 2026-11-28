@@ -27,11 +27,13 @@ impl TypeChecker<'_, '_> {
         // sığmalı (E2010). Tip kaydı aşağıdaki olağan yoldan geçer.
         self.check_literal_expr(expr, expected);
         match &ast.exprs[expr].kind {
+            // Generic Trit literali (#468) bağlamın tipini almaz: Trit'tir,
+            // atanabilirliği aşağıdaki sentez yolu denetler.
             ExprKind::IntLit {
                 value,
                 suffix: None,
                 ..
-            } => {
+            } if !self.is_generic_trit(expr) => {
                 self.check_int_lit(*value, expected, span);
                 self.expr_types.insert(expr, expected);
             }
@@ -233,7 +235,7 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Soneksiz literali beklenen tipe uyarla (§4).
-    fn check_int_lit(&mut self, value: u128, expected: TypeId, span: Span) {
+    pub(super) fn check_int_lit(&mut self, value: u128, expected: TypeId, span: Span) {
         match *self.types.ty(expected) {
             Ty::UInt { width } | Ty::UIntFlex { hi: width, .. } => {
                 if !uint_fits(value, width) {

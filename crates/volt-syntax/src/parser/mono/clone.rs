@@ -19,7 +19,7 @@ use volt_diagnostics::Diagnostic;
 use volt_span::Span;
 
 use super::budget::{AstWriter, ExpansionBudget};
-use super::scope::{loop_var_pattern_error, shadowing_warning, Binding, Entry, Scopes};
+use super::scope::{loop_var_pattern_error, shadowing_warning, ArgValue, Binding, Entry, Scopes};
 use volt_ast::{
     ArrayLitKind, AttrArg, Attribute, Block, BlockStmt, BundleOrigin, Contract, ElseBranch, Expr,
     ExprKind, FieldInit, ForStmt, GenericArg, Idx, IfStmt, InstanceDecl, LValue, LValueSuffix,
@@ -52,6 +52,9 @@ enum Use {
     /// Literal: (negatif mi, büyüklük). Generic argüman 2^128 - 1'e kadar
     /// çıkar, `i128`'e sığmayabilir (#207).
     Literal(bool, u128),
+    /// Const generic parametre: değeri ve bildirilen tipi (#468: literal
+    /// tipini yan tabloda taşır, `GenerateInfo::generic_literals`).
+    Generic(ArgValue, Idx<TypeRef>),
     Rename(String),
     Keep,
 }
@@ -65,6 +68,10 @@ pub(super) struct Cloner<'a> {
     /// Klonlanan yerin kapsam zinciri: generic parametreler, açılan döngü
     /// değişkeni, gövdenin `let`'leri ve klonlanırken bildirilen her ad.
     scopes: Scopes,
+    /// Const generic parametrelerin bildirilen tipleri (ad → şablondaki tip
+    /// referansı). Generic bağ yalnız en dış kapsamdadır
+    /// ([`Cloner::with_generics`]), ad ile aranır.
+    generic_types: HashMap<String, Idx<TypeRef>>,
     /// Döngü açılımı (ADR-0056): gövdede bildirilen isim → yineleme
     /// sonekli adı (`pe` → `pe_0`). Yalnız yineleme gövdesinin
     /// ([`BlockRole::Iteration`]) bildirimlerine ve onlara bağlanan
@@ -73,6 +80,10 @@ pub(super) struct Cloner<'a> {
     /// Her iki operandı literale inen aritmetik katlanır (`0*4+1` → `1`);
     /// yalnız döngü açılımında açık — SV çıktısı okunur kalsın.
     fold: bool,
+    /// Az önce kurulan tür pozitif değerli bir generic parametrenin
+    /// literaliyse onun bildirilen tipi: `clone_expr` düğümü ayırınca yan
+    /// tabloya yazar ([`Cloner::subst_generic`]).
+    pending_generic: Option<Idx<TypeRef>>,
     /// Hata kurtarma düğümü (`Error` türü) klonlandı: şablon zaten
     /// tanılanmış, açıcı onu yeniden çoğaltmaz (ADR-0068 §6).
     saw_recovery: bool,
@@ -90,6 +101,8 @@ impl<'a> Cloner<'a> {
             ast: AstWriter::new(ast, budget),
             ctx,
             scopes: Scopes::default(),
+            generic_types: HashMap::new(),
+            pending_generic: None,
             rename: HashMap::new(),
             fold: false,
             saw_recovery: false,
@@ -100,9 +113,9 @@ impl<'a> Cloner<'a> {
 
     /// Monomorfizasyon (ADR-0041): modül kapsamının ilk bildirimleri const
     /// generic parametrelerdir (name-resolution.md §5).
-    pub(super) fn with_generics(mut self, params: &[(Name, u128)]) -> Self {
+    pub(super) fn with_generics(mut self, params: &[(Name, ArgValue, Idx<TypeRef>)]) -> Self {
         self.scopes.push();
-        for (name, value) in params {
+        for (name, value, ty) in params {
             let span = self.tag(name.span);
             self.scopes.declare(
                 &name.text,
@@ -112,6 +125,7 @@ impl<'a> Cloner<'a> {
                     resolver_sees: true,
                 },
             );
+            self.generic_types.insert(name.text.clone(), *ty);
         }
         self
     }
@@ -228,7 +242,8 @@ impl<'a> Cloner<'a> {
     /// Tek parçalı bir kullanımın ikamesi (kapsam zincirinde çözülür).
     fn use_of(&self, name: &str) -> Use {
         match self.scopes.resolve(name).map(|e| &e.binding) {
-            Some(Binding::Generic(v)) => Use::Literal(false, *v),
+            // Generic bağı yalnız `with_generics` kurar; tipi orada yazılır.
+            Some(Binding::Generic(v)) => Use::Generic(*v, self.generic_types[name]),
             Some(Binding::LoopVar(v)) => Use::Literal(*v < 0, v.unsigned_abs()),
             Some(Binding::Renamed(new)) => Use::Rename(new.clone()),
             Some(Binding::Inner { .. } | Binding::Outer) | None => Use::Keep,
@@ -296,6 +311,30 @@ impl<'a> Cloner<'a> {
             };
         }
         let operand = self.int_lit(mag, span);
+        ExprKind::Unary {
+            op: volt_ast::UnOp::Neg,
+            operand,
+        }
+    }
+
+    /// Const generic parametrenin ikamesi: `subst_expr_kind` gibi literal
+    /// (negatifse `-literal`); literal düğümü parametrenin bildirilen tipini
+    /// yan tabloya yazar (#468). Negatif değerde `-`'nin işleneni yazılır:
+    /// `-` tip denetiminde işleneninin tipini korur (§3.4). Pozitif değerde
+    /// literal, döndürülen türle kurulacak düğümdür; çağıran
+    /// (`clone_expr`) onu ayırınca yazar ([`Cloner::pending_generic`]).
+    fn subst_generic(&mut self, v: ArgValue, ty: Idx<TypeRef>, span: Span) -> ExprKind {
+        if !v.neg {
+            self.pending_generic = Some(ty);
+            return ExprKind::IntLit {
+                value: v.mag,
+                suffix: None,
+                base: NumBase::Dec,
+            };
+        }
+        let operand = self.int_lit(v.mag, span);
+        self.ast
+            .write(|ast| ast.generate.generic_literals.insert(operand, ty));
         ExprKind::Unary {
             op: volt_ast::UnOp::Neg,
             operand,
@@ -521,8 +560,10 @@ impl<'a> Cloner<'a> {
         if !args.is_empty() || path.segments.len() != 1 {
             return None;
         }
-        let Use::Literal(neg, mag) = self.use_of(&path.segments[0].text) else {
-            return None;
+        let (neg, mag) = match self.use_of(&path.segments[0].text) {
+            Use::Literal(neg, mag) => (neg, mag),
+            Use::Generic(v, _) => (v.neg, v.mag),
+            Use::Rename(_) | Use::Keep => return None,
         };
         let kind = self.subst_expr_kind(neg, mag, span);
         Some(self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind })))
@@ -547,6 +588,10 @@ impl<'a> Cloner<'a> {
         let span = self.tag(self.ast.exprs[e].span);
         let kind = self.clone_expr_kind(e);
         let new = self.ast.write(|ast| ast.exprs.alloc(Expr { span, kind }));
+        if let Some(ty) = self.pending_generic.take() {
+            self.ast
+                .write(|ast| ast.generate.generic_literals.insert(new, ty));
+        }
         // Blok içi generic örnekleme argümanları (ADR-0056).
         if let Some(args) = self.ast.generate.block_generic_args.get(&e) {
             let args = self.copy_generic_args(args);
@@ -599,6 +644,7 @@ impl<'a> Cloner<'a> {
                     // gövdesinin `let`'i → sonekli ad (`pe.out` → `pe_0.out`).
                     match self.use_of(&p.segments[0].text) {
                         Use::Literal(neg, mag) => return self.subst_expr_kind(neg, mag, p.span),
+                        Use::Generic(v, ty) => return self.subst_generic(v, ty, p.span),
                         Use::Rename(new) => {
                             self.ast.charge_text(new.len());
                             p.segments[0].text = new;

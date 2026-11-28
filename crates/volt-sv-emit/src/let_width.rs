@@ -380,6 +380,37 @@ impl Emitter<'_> {
         }
     }
 
+    /// Tip denetiminin tablosunda ifadenin tipi Trit mi (#468); fn
+    /// açılımının kopyası gövdedeki özgün düğümünkini okur
+    /// ([`Emitter::checked_value`] gibi).
+    pub(crate) fn checked_trit(&self, idx: Idx<Expr>) -> bool {
+        let Some(table) = self.checked else {
+            return false;
+        };
+        let span = self.ast.exprs[idx].span;
+        table.is_trit(idx, span)
+            || self
+                .inline_notes
+                .origins
+                .get(&idx)
+                .is_some_and(|&origin| table.is_trit(origin, self.ast.exprs[origin].span))
+    }
+
+    /// Tipi Trit olan ifadenin tablodaki genişliği ve işareti (#468): generic
+    /// `const S : Trit` parametresinin literali ve onunla katlanan literal
+    /// ağacı (`S * 1`, `-S`) bağlamı olmayan yerde (seçicinin `S == ...`'i,
+    /// karşılaştırma) bu genişlikte yazılır. Trit'in genişliğini üretici
+    /// yazmaz, okur (ADR-0139). Tipi Trit olmayan ifade `None`.
+    pub(crate) fn checked_trit_sig(&self, idx: Idx<Expr>) -> Option<Sig> {
+        if !self.checked_trit(idx) {
+            return None;
+        }
+        match self.checked_value(idx)? {
+            CheckedValue::Bits { width, signed } => Some(Sig { width, signed }),
+            CheckedValue::Struct(_) | CheckedValue::NoWidth => None,
+        }
+    }
+
     /// Tip denetiminin ifadeye verdiği değer (ADR-0141). fn açılımının
     /// kopyası (ADR-0081) gövdedeki özgün düğümün değerini okur: fn generic
     /// değildir, gövde parametrelerin bildirilen tipleriyle bir kez denetlenir.

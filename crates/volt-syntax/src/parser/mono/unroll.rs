@@ -175,7 +175,17 @@ pub(crate) fn visible_const(
     at: Idx<volt_ast::Expr>,
     name: &str,
 ) -> Option<Idx<volt_ast::Expr>> {
-    let file = ast.exprs[at].span.file;
+    visible_const_in(ast, consts, ast.exprs[at].span.file, name)
+}
+
+/// [`visible_const`]; ad `file` dosyasında yazılmıştır (tip konumundaki
+/// generic argüman, #471).
+pub(crate) fn visible_const_in(
+    ast: &SourceFile,
+    consts: &Consts,
+    file: FileId,
+    name: &str,
+) -> Option<Idx<volt_ast::Expr>> {
     let filter = RootFilter::new(ast.file_scopes.as_ref());
     filter.pick(file, name, consts.get(filter.root_name(file, name))?)
 }

@@ -4,7 +4,8 @@
 //! modülündedir.
 
 use volt_ast::{
-    ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, ItemKind, MatchArm, UnOp,
+    ArrayLitKind, BinOp, Expr, ExprKind, FieldInit, Idx, IntSuffix, ItemKind, MatchArm,
+    TypeRefKind, UnOp,
 };
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
@@ -58,6 +59,11 @@ impl TypeChecker<'_, '_> {
         let ast = self.ast;
         let span = ast.exprs[expr].span;
         match &ast.exprs[expr].kind {
+            ExprKind::IntLit { value, .. } if self.is_generic_trit(expr) => {
+                let trit = self.types.intern(Ty::Trit);
+                self.check_int_lit(*value, trit, span);
+                trit
+            }
             ExprKind::IntLit { value, suffix, .. } => self.synth_int_lit(*value, *suffix, span),
             ExprKind::BoolLit(_) => self.types.bool_ty(),
             ExprKind::Path(_) => match self.res.resolutions.get(&expr) {
@@ -107,6 +113,22 @@ impl TypeChecker<'_, '_> {
             }
             None => self.types.int_lit(),
         }
+    }
+
+    /// Generic `const S : Trit` parametresinin yerine geçen literal mi
+    /// (#468). Ayrıştırıcı parametreyi örnekte literale çevirir (ADR-0041)
+    /// ve literalin bildirilen tipini yan tabloya yazar
+    /// (`GenerateInfo::generic_literals`); tipi Trit ise literal Trit'tir:
+    /// S'nin geçtiği her ifade aynı yerdeki bir Trit sinyalinin tipini alır
+    /// (`-S` Trit, `S * x` iN, `x[S]` E2003). Trit dışındaki tiplerin
+    /// literali literal kalır. Takma ad (`type W = Trit`) görülmez:
+    /// şablonun tip yolları çözülmez, literal kalır.
+    pub(super) fn is_generic_trit(&self, expr: Idx<Expr>) -> bool {
+        self.ast
+            .generate
+            .generic_literals
+            .get(&expr)
+            .is_some_and(|&ty| matches!(self.ast.types[ty].kind, TypeRefKind::Trit))
     }
 
     /// §3.5 — indeks/aralık/parça seçimi: taban ve alt ifadeler
