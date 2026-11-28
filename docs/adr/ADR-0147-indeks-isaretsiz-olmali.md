@@ -1,6 +1,6 @@
 # ADR-0147: İndeks İşaretsiz Olmalı — İşaretli Tamsayı Tipli İndeks E2003, Yardım Tabanın Adres Genişliğinde
 
-> Statü: Önerildi
+> Statü: Uygulandı — 2026-11-28
 > İlgili: ADR-0146 (aynı kural yeri; Karar 2'nin açık bıraktığı `iN` indeks kuralını bu ADR verir, Trit kuralı değişmez), ADR-0100 (sessiz yanlış düzeltmesi önce kabul edileni reddedebilir; yamada yeni kod yok), ADR-0125 (tanının üç parçası, help'teki kod sınanır), ADR-0137 (kural tek yerde), ADR-0144 (ret tablosuna üç satır), ADR-0120 (kaydırma miktarının genişlik kuralı; Sınırlar), ADR-0035 (parça seçimi), ADR-0117 (gerçek hata derlemi), ADR-0099 (kullanıcı metninde ADR ve spec yolu yok)
 > Issue: #475
 > Tarih: 2026-11-28

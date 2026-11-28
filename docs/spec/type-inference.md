@@ -379,7 +379,8 @@ E2003'tür. Kural değere değil tipe bakar: `~0` da reddedilir. Bağlamdan
 ```rust
 // x[3] → bool
 ExprKind::Index { base, index } => {
-    // ADR-0146: indeksin tipi Trit tutmamalı (E2003; bölümün sonu).
+    // ADR-0146, ADR-0147: indeksin tipi Trit tutmamalı ve işaretli
+    // tamsayı olmamalı (E2003; bölümün sonu).
     let bt = self.synth(*base);
     let width = self.width_of(bt)?;
     // Sabit indeks ise sınır kontrolü
@@ -455,10 +456,27 @@ Trit çarpımı (§3.3) ve dalları Trit olan `if` (§3.7) Trit'tir. Yardımın
 yolu Trit'i açıkça işaretsiz bir indekse çevirmektir:
 `x[(t as i3 + 1) as u3]`, t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi okur.
 
-Öteki indeks tipleri bugünkü gibi kabul edilir: uN, iN, esnek genişlikli
-tamsayı, soneksiz literal, `bits<N>`, `bool`, enum ve Trit tutmayan dizi
-(`[u1; N]`). Bu tiplerin indeks kuralı ayrı bir karar konusudur (open
-decision); bu bölüm onu belirlemez.
+**İndeks işaretsiz olmalı (ADR-0147, #475).** Aynı indeks yerlerinde,
+ifadede de atamanın sol tarafında da, indeksin tipi işaretli tamsayı
+olamaz: tipi `iN` ya da esnek `iN` olan indeks E2003'tür (`an index must
+be unsigned, found 'i3'`). SystemVerilog indeksi işaretsiz bir sayı
+olarak okur; işaretli bir indeksin negatif değeri yüksek bir biti ya da
+elemanı seçerdi (`i : i3` = -1 için `x[i]` x[7]'yi). Kural değere değil
+tipe bakar: işaretli ifadeler (`a + b`, `-a`, `t as i3`, `t * a`; §3.3,
+§3.4, §3.6), sonekli literal (`3i8`) ve işaretli bir `const` sınır ya da
+indeks (`const K : i8 = 1`, `x[K : 0]`) da reddedilir; negatif değerli
+işaretli sabit E2006 yerine E2003 alır. Yardımın yolu indeksi tabanın
+adres genişliğinde işaretsize açıkça çevirmektir: `x : u8` için
+`x[i as u3]`, `arr : [u8; 4]` için `arr[i as u2]`; negatif bir değer o
+zaman büyük bir indeks olur (`-1 as u3` = 7, §3.6). Adres genişliği
+tabanın konum sayısını (vektörde bit, dizide eleman) işaretsiz tutan en
+dar genişliktir, en az 1 (`u5` → 3, `[u8; 5]` → 3, `u1` → 1). Adresi
+olmayan bir tabanda (seçilemeyen tip) tabanın kendi tanısı çıkar.
+
+Öteki indeks tipleri bugünkü gibi kabul edilir: uN, esnek uN, soneksiz
+literal, `bits<N>`, `bool`, enum ve Trit tutmayan dizi (`[u1; N]`). Bu
+tiplerin indeks kuralı ayrı bir karar konusudur (open decision); bu
+bölüm onu belirlemez.
 
 ### 3.6 Tip Dönüşümü (`as`)
 
