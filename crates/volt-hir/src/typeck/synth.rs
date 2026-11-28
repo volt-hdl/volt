@@ -122,6 +122,8 @@ impl TypeChecker<'_, '_> {
             }
             ExprKind::Range { base, hi, lo } => {
                 let base_ty = self.synth(*base);
+                self.synth(*hi);
+                self.synth(*lo);
                 self.range_result(base_ty, *hi, *lo, span)
             }
             ExprKind::PartSelect {
@@ -407,8 +409,9 @@ impl TypeChecker<'_, '_> {
         code
     }
 
-    /// Tip bir Trit ya da (iç içe) Trit dizisi mi.
-    fn holds_trit(&self, ty: TypeId) -> bool {
+    /// Tip bir Trit ya da (iç içe) Trit dizisi mi. `~` (ADR-0142) ve
+    /// indeks (`reject_trit_index`, ADR-0146) aynı kümeyi kullanır.
+    pub(super) fn holds_trit(&self, ty: TypeId) -> bool {
         if let Ty::Array { elem, .. } = *self.types.ty(ty) {
             return self.holds_trit(elem);
         }

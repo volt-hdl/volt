@@ -198,8 +198,8 @@ kuvveti olması kodlama ekseninde (b.F) sayılır.
 | `volt-hir/src/typeck/binop.rs:53` `arith_of`; `:150` `arith_result` | TD | `bits<N>` aritmetiği E2004; `+ -` +1 bit, `*` ×2 (ADR-0025). | dil | dağınık |
 | `volt-hir/src/typeck/binop.rs:187` `trit_arith_result` | TD | Trit ± Trit → i3, Trit × iN → iN. | dil | dağınık |
 | `volt-hir/src/typeck/synth.rs:260` `synth_unary`; `:358` `bit_not_result`; `:394` `negate_each_trit`; `:411` `holds_trit`; `:423` `check_literal_bit_not`, `:435` `literal_bit_not` (çağıran `check.rs:104`) | TD | `~` işlenenin tipini korur; Trit'te ve Trit dizisinde tanımlı değil, E2003 (#434, ADR-0142; spec type-inference.md §3.4 `UnOp::BitNot => ot` yaması bakımcıda). Bağlamdan Trit tipini alan literal ağacındaki `~` (`~1`, `-(~1)`, generic `~S`) aynı kurala gider. Kural değer kümesine bakar, kodlamayı yazmaz; `-iN` → i(N+1). | dil | tek |
-| `volt-hir/src/typeck/select.rs:15` `index_result`; `:61` `range_result`; `:94` `const_range_result`; `:139` `part_select_result`; `:177` `part_select_width`; `:203` `const_select_in_bounds` | TD | Bit seçiminin sonucu Bool; aralık `bits<h-l+1>`; E2006, E2007. | dil | tek |
-| `volt-hir/src/typeck/stmt.rs:379` `suffix_bits` | TD | Sol değerde indeks tek bit seçer. | dil | tek |
+| `volt-hir/src/typeck/select.rs:56` `index_result`; `:105` `range_result`; `:140` `const_range_result`; `:185` `part_select_result`; `:223` `part_select_width`; `:249` `const_select_in_bounds` | TD | Bit seçiminin sonucu Bool; aralık `bits<h-l+1>`; E2006, E2007. | dil | tek |
+| `volt-hir/src/typeck/stmt.rs:383` `suffix_bits` | TD | Sol değerde indeks tek bit seçer. | dil | tek |
 | `volt-hir/src/typeck/synth.rs:163` `synth_call`; `resolve/prelude.rs:10` `BUILTINS` (sabit) | TD | `zext/sext/trunc/concat/replicate/popcount` adları prelude'da, tipleri hata tipi, SV karşılığı yok. | dil | tek |
 | `volt-sv-emit/src/expr.rs:111` `sv_prec`; `:128` `is_bitwise`; `:1171` `emit_binary` | SV | İşaretli `>>` → `>>>`. | arka uç | tek |
 | `volt-sv-emit/src/expr.rs:1255` `clamped_signed_shift` | SV | Miktar ≥ w ise w−1 yazılır (Verilator). | arka uç | tek |
@@ -341,7 +341,7 @@ Demet tipinin bit düzeni tanımlı değildir: `bit_width` ve `type_ref_bits`
 | `volt-hir/src/typeck/binop.rs:187` `trit_arith_result` | TD | `*` kapalı, `±` i3, `Trit * iN` iN (ADR-0003). | dil | tek |
 | `volt-hir/src/typeck/cast.rs:83` `check_cast_legal` | TD | `Trit → iN` yalnız `width >= 2` (satır 119); sayısal → Trit E2009; `Bool ↔ u1`; 2 ve 1 sabit, `Scalar` okunmaz. | dil | dağınık |
 | `volt-hir/src/typeck/check.rs:233` `check_int_lit`; `literal_fold.rs:387` `literal_out_of_range`; `width.rs:86` `is_literal_adaptable` | TD | E2011; değer kümesi {−1, 0, 1} iki yerde yazılı (kodlama değil, değer kümesi). | dil | dağınık |
-| `volt-hir/src/typeck/select.rs:15` `index_result` | TD | Trit bit seçilemez; kod dışarı açılmaz. | dil | tek |
+| `volt-hir/src/typeck/select.rs:56` `index_result`; `:27` `reject_trit_index` | TD | Trit bit seçilemez; kod dışarı açılmaz. Trit indeks de olamaz (#465, ADR-0146): bit/dizi indeksi, aralık sınırı ve parça başlangıcı Trit tutan tipte E2003; önce indeks Trit'in kodunu işaretsiz okuyordu (-1 → 3). Küme `synth.rs:414` `holds_trit`'ten (ADR-0142 ile ortak). | dil | tek |
 | `volt-syntax/src/token.rs:171`–`:172` `Spike`, `PTrit` (`:192` `Reserved`) | SYN | Yalnız rezerve (ADR-0028); temsil yok. | dil | tek |
 | `volt-driver/src/sim_struct.rs:39` `LeafLabel::render` | SIM | Struct içindeki Trit'i 2 bit ikiye tümleyen çözer (`11` → −1, `10` → −2). | arka uç | dağınık |
 

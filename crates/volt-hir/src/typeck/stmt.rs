@@ -358,7 +358,11 @@ impl TypeChecker<'_, '_> {
                     self.synth(*e);
                     self.index_result(ty, *e, lv.span)
                 }
-                LValueSuffix::Range { hi, lo } => self.range_result(ty, *hi, *lo, lv.span),
+                LValueSuffix::Range { hi, lo } => {
+                    self.synth(*hi);
+                    self.synth(*lo);
+                    self.range_result(ty, *hi, *lo, lv.span)
+                }
                 LValueSuffix::PartSelect {
                     start,
                     width,

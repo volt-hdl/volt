@@ -1,9 +1,12 @@
 //! Bit, aralık, parça ve alan seçimi (type-inference.md §3.5;
 //! ADR-0035 indexed part-select). Hem ifade (`synth`) hem atama hedefi
-//! (`lvalue_type`) aynı sonuç kurallarını kullanır.
+//! (`lvalue_type`) aynı sonuç kurallarını kullanır; indeksin tipi
+//! kuralı (`reject_trit_index`, #465) her seçim yolunun ortak yeridir.
 
 use volt_ast::{Expr, Idx, ItemKind, Name};
-use volt_diagnostics::{lstr, Applicability, ErrorCode, Suggestion};
+use volt_diagnostics::{
+    lstr, Applicability, Diagnostic, ErrorCode, LabeledSpan, NoteKind, Suggestion,
+};
 use volt_span::Span;
 
 use super::TypeChecker;
@@ -11,8 +14,49 @@ use crate::resolve::DefId;
 use crate::ty::{StructId, Ty, TypeId};
 
 impl TypeChecker<'_, '_> {
+    /// §3.5 — indeksin tipi; kuralın tek yeri (#465, ADR-0146). Tipi Trit
+    /// tutan (Trit ya da Trit tutan dizi, ADR-0142'nin `holds_trit`'i) bir
+    /// ifade indeks olamaz: E2003. Trit'in değer kümesi {-1, 0, +1}'dir
+    /// (ADR-0003) ve -1 bir konum değildir; indeks ise Trit'i kodlayan
+    /// bitleri işaretsiz bir sayı olarak okurdu. Öteki indeks tipleri (uN,
+    /// iN, esnek, literal, bits<N>, bool, enum, `[u1; N]`) değişmez.
+    /// Kural değere değil tipe bakar. Çağıranlar: bit/dizi indeksi, aralık
+    /// sınırları ve parça seçiminin başlangıcı, ifadede ve atama hedefinde
+    /// (`synth_select`, `lvalue_type`); indeksin tipini onlar sentezler.
+    /// İndeks reddedildiyse `true`.
+    fn reject_trit_index(&mut self, index: Idx<Expr>) -> bool {
+        let Some(&ty) = self.expr_types.get(&index) else {
+            return false;
+        };
+        if !self.holds_trit(ty) {
+            return false;
+        }
+        let shown = self.show(ty);
+        self.diagnostics.push(
+            Diagnostic::error(
+                ErrorCode::E2003,
+                lstr!(en: "an index must not be a Trit, found '{shown}'"; tr: "indeks Trit olamaz, bulunan '{shown}'"),
+                LabeledSpan::primary(
+                    self.ast.exprs[index].span,
+                    lstr!(en: "the index would read the bits that encode the Trit, not its value"; tr: "indeks Trit'in değerini değil onu kodlayan bitleri okurdu"),
+                ),
+                lstr!(en: "convert the Trit to an unsigned index explicitly: x[(t as i3 + 1) as u3] reads x[0], x[1] and x[2] for t = -1, 0 and +1";
+                      tr: "Trit'i açıkça işaretsiz bir indekse çevirin: x[(t as i3 + 1) as u3], t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi okur"),
+            )
+            .with_note(
+                NoteKind::Reason,
+                lstr!(en: "a Trit is -1, 0 or +1 and -1 is no bit or element position; an index reads the bits that encode the Trit as an unsigned number";
+                      tr: "Trit -1, 0 ya da +1'dir ve -1 bir bit ya da eleman konumu değildir; indeks Trit'i kodlayan bitleri işaretsiz bir sayı olarak okur"),
+            ),
+        );
+        true
+    }
+
     /// §3.5 — bit/dizi indeksi. Sabit indekste sınır denetimi yapılır.
     pub(super) fn index_result(&mut self, base_ty: TypeId, index: Idx<Expr>, span: Span) -> TypeId {
+        if self.reject_trit_index(index) {
+            return self.types.error();
+        }
         match *self.types.ty(base_ty) {
             Ty::Error => self.types.error(),
             Ty::Array { elem, len } => {
@@ -65,7 +109,9 @@ impl TypeChecker<'_, '_> {
         lo: Idx<Expr>,
         span: Span,
     ) -> TypeId {
-        if self.types.is_error(base_ty) {
+        let trit_hi = self.reject_trit_index(hi);
+        let trit_lo = self.reject_trit_index(lo);
+        if trit_hi || trit_lo || self.types.is_error(base_ty) {
             return self.types.error();
         }
         let Some(width) = self.types.width_of(base_ty) else {
@@ -144,7 +190,7 @@ impl TypeChecker<'_, '_> {
         ascending: bool,
         span: Span,
     ) -> TypeId {
-        if self.types.is_error(base_ty) {
+        if self.reject_trit_index(start) || self.types.is_error(base_ty) {
             return self.types.error();
         }
         let Some(base_width) = self.types.width_of(base_ty) else {
