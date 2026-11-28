@@ -1,6 +1,6 @@
 # ADR-0146: İndeks Trit Olamaz — Trit Tutan İndeks E2003, Öteki İndeks Tipleri Değişmez
 
-> Statü: Önerildi — 2026-11-28
+> Statü: Uygulandı — 2026-11-28
 > İlgili: ADR-0003 (Trit'in değer kümesi {-1, 0, +1}), ADR-0062 (Trit'in iki bitlik kodu; indeks önce bu kodu okuyordu), ADR-0142 ("işlem değer kümesine aittir"; `holds_trit` kümesi bu ADR'de de kullanılır), ADR-0100 (sessiz yanlış düzeltmesi önce kabul edileni reddedebilir; yamada kural değişikliği yok), ADR-0125 (tanının üç parçası, help'teki kod sınanır), ADR-0137 (kural tek yerde), ADR-0139 (değer kümesi ile kodlama ayrımı), ADR-0144 (Sınırlar'daki "Trit ile indeksleme" maddesi kapanır; ret tablosuna üç satır), ADR-0035 (parça seçimi), ADR-0117 (gerçek hata derlemi)
 > Issue: #465
 > Tarih: 2026-11-28
