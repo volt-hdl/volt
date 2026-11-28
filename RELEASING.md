@@ -240,7 +240,11 @@ python scripts/release/notes.py --build 0.1.3 (Join-Path $env:TEMP 'volt-0.1.3-n
 
 The check prints `0 failure(s)`. The second command writes the body of
 the GitHub Release as `release.yml` builds it, to read before the pull
-request.
+request. Remove the file once it is read:
+
+```powershell
+Remove-Item (Join-Path $env:TEMP 'volt-0.1.3-notes.md')
+```
 
 ### 1d. README and the book
 
@@ -255,7 +259,7 @@ These pages show the version and output of `volt`:
 | `book/src/setup.md` | both `volt --version` outputs, "This book describes Volt 0.1.3.", both `volt doctor` outputs |
 | `book/src/tour/install.md` | "recorded with Volt 0.1.3", the `volt --version` output, both `volt doctor` outputs |
 | `book/src/tour/new-check-build.md` | "recorded with Volt 0.1.3", the `// Version:` line of the generated SV |
-| `book/src/limitations.md` | "Known bugs": the entries of the bugs 0.1.3 fixes leave; every open bug a user of 0.1.3 can hit has an entry, with its issue and a workaround |
+| `book/src/limitations.md` | "Known bugs": the entries of the bugs 0.1.3 fixes leave; every open bug a user of 0.1.3 can hit has an entry, with its issue and a workaround; the two list headings say "These open bugs of Volt 0.1.3" |
 
 Output in the book comes from a real run on the system the page names,
 never typed by hand (AGENTS.md, "Book writing rules"). Build `volt` from

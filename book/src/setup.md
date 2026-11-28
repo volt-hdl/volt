@@ -64,7 +64,7 @@ button: you compare them with your terminal, you do not type them. Small
 differences, such as times like `0.01s`, do not matter.
 
 ```text,output
-volt 0.1.5 (5c083eb)
+volt 0.1.6 (4744af0)
 ```
 
 **Create this file:** `name.volt`, followed by the file's contents. The
@@ -270,10 +270,10 @@ volt --version
 **You should see:**
 
 ```text,output
-volt 0.1.5 (5c083eb)
+volt 0.1.6 (4744af0)
 ```
 
-This book describes Volt 0.1.5. The book at
+This book describes Volt 0.1.6. The book at
 <https://volthdl.org/> follows the latest release, and the
 book at <https://volthdl.org/dev/> follows the development
 version. If `volt --version` prints another version, some output on these
@@ -318,7 +318,7 @@ Your own user folder appears where this output says `C:\Users\you`.
 **You should see (Windows 11, Docker Desktop running):**
 
 ```text,output
-volt 0.1.5 (windows-x86_64)
+volt 0.1.6 (windows-x86_64)
 
 ✓ build, check, explain — no external tools needed
 ✓ test, run — via Docker (verilator/verilator:v5.054: Verilator 5.054, g++ 13.3)

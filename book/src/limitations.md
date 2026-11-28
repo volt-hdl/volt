@@ -31,7 +31,7 @@ the cut operand of `+`, `-` and `*`
 ([#266](https://github.com/volt-hdl/volt/issues/266)) are under
 [Language](#language) below.
 
-**Wrong results without a diagnostic.** These open bugs of Volt 0.1.5
+**Wrong results without a diagnostic.** These open bugs of Volt 0.1.6
 compile without an error and give a result other than the one the source
 says. "Suspected" marks a bug that was found by reading the code and has
 not been reproduced by running it yet. The paragraphs below give the
@@ -57,9 +57,10 @@ workaround of each.
 - [#222](https://github.com/volt-hdl/volt/issues/222): a malformed `Volt.toml` is ignored, and `volt build` exits with 0.
 - [#382](https://github.com/volt-hdl/volt/issues/382): a `$finish` in the SystemVerilog body of an `extern` module does not end a `volt test` run, so a test can pass after the check in it failed.
 - [#468](https://github.com/volt-hdl/volt/issues/468): a product with a generic `const S : Trit` parameter (`S * x`, `-S * x`) follows the rule of an integer product, not of a `Trit` product: an untyped `let` gets a wider type, and as the operand of another operation the product does not wrap in `iN` (`(-S * x) as i12` gives +2 where `(t * x) as i12` gives -2).
+- [#475](https://github.com/volt-hdl/volt/issues/475): an index of a signed type is read as an unsigned number: with `i : i3 = -1`, `x[i]` reads `x[7]` and `TABLE[i]` reads `TABLE[7]` (measured with `volt test`). The type of an index is not checked, so a `bool`, an enum or an array is accepted as an index too.
 - [#467](https://github.com/volt-hdl/volt/issues/467) (suspected): the SystemVerilog generator recognizes a `Trit` by the form of the expression; a `Trit` product or `-t` in a form it does not recognize would get the width of a two-bit integer in an untyped `let`. No such form is known.
 
-**Errors, false warnings and failures.** These open bugs of Volt 0.1.5
+**Errors, false warnings and failures.** These open bugs of Volt 0.1.6
 do not give a wrong result: Volt stops with an error or warns where
 nothing is wrong, or a step fails. The paragraphs below describe more
 bugs of this kind, each with its workaround.
@@ -78,6 +79,9 @@ bugs of this kind, each with its workaround.
 - [#448](https://github.com/volt-hdl/volt/issues/448): when a name used in a module-level `for` with thousands of iterations is undefined, `volt check`, `volt build` and the editor take seconds to report the `E1001`, even on a file of a few lines; the delay goes away once the name is declared, so fix the `E1001` it reports (or lower the loop bound while you do).
 - [#141](https://github.com/volt-hdl/volt/issues/141): a struct of your own named `Counter` is taken for the built-in counter, and `Counter { a: x, b: true }` gets `E0003` ("'Counter' without its generic arguments"); give the struct another name.
 - [#415](https://github.com/volt-hdl/volt/issues/415): a type alias for a clock (`type Clk = clock`) declared below the `pipeline` that uses it is not seen there, and `volt check` reports `E5011` ("a pipeline needs exactly one clock port (found 0)"); declare the alias above the pipeline.
+- [#445](https://github.com/volt-hdl/volt/issues/445): `prev()` of a literal (`invariant: prev(5) == a`) passes `volt check`, but `volt test` and `volt verify` stop with `E2005` ("cannot determine the width of the prev() argument"); give the literal its width: `prev(5 as u8)`.
+- [#471](https://github.com/volt-hdl/volt/issues/471): a generic `const S : Trit` parameter cannot be given -1: `Scaled<-1>`, `Scaled<(-1)>` and `Scaled<0 - 1>` get `E0010` ("comparison operators cannot be chained"), and a named constant (`Scaled<NEG>`) gets `E2008`; pass the weight through a `Trit` input port tied to the value instead, `Scaled { s: -1, x: x }` with `in s : Trit`.
+- [#474](https://github.com/volt-hdl/volt/issues/474): a variable index narrower or wider than the address of its base (`r[i] <= true` with `r : u8` and `i : u2`; `TABLE[i]` with `TABLE : [u8; 4]` and `i : u3`) passes `volt check`, and `volt test` stops with Verilator's `WIDTHEXPAND` or `WIDTHTRUNC`; declare the index at the address width of the base (`i : u3` for a `u8`, `i : u2` for a 4-element array) or convert it, `r[i as u3]` and `TABLE[i as u2]` (the `W2010` of `as u2` says that the upper bit is cut). The help of `E2003` for a `Trit` index writes `as u3`, the address width of a `u8`: on a 4-element array write `TABLE[(t as i3 + 1) as u2]`.
 
 **A struct `let` whose flattened field name equals another name.** A
 struct `let` in a block becomes one signal per field in the generated
@@ -155,13 +159,26 @@ and multiply with that: with `let s : Trit = -S`, `(s * x) as i12` gives
 SystemVerilog generator decides whether a value is a `Trit` from the form
 of the expression, not from its type. A `Trit` product or `-t` in a form
 it does not recognize would get the width of a two-bit integer in an
-untyped `let`, the bug that 0.1.5 fixes. No such form is known: a `Trit`
+untyped `let`, the bug that 0.1.5 fixed. No such form is known: a `Trit`
 port, signal, struct field, array element, function parameter and a
 `let` in a `comb` or `on` block are recognized; a generic `Trit`
 parameter is the case above. This was found by reading the code. To rule
 it out, give a `let` that holds a `Trit` product or `-t` its type:
 `let s : i8 = t * x`. Tracked in
 [issue #467](https://github.com/volt-hdl/volt/issues/467).
+
+**A signed index is read as unsigned.** An index of type `iN` with a
+negative value reads a position the source does not name: with
+`x : u8` and `i : i3 = -1`, `x[i]` reads bit 7 of `x`, and on an
+8-element array `TABLE[i]` and `arr[i]` read element 7, the three bits
+of -1 (`111`) read as an unsigned number, without a diagnostic (measured
+with `volt test`). A negative literal index (`x[-1]`) gets `E2006`; a signal
+or a `let` with a negative value does not. The type of an index is not checked at all, so a `bool`, an enum
+(its encoding) or an array is accepted as an index too. Index with an
+unsigned type (`uN`). Where the index is computed as an `iN`, write the
+conversion you mean: `x[i as u3]` reads `x[7]` for i = -1, as now, but
+the source says so. Tracked in
+[issue #475](https://github.com/volt-hdl/volt/issues/475).
 
 **A `const` that does not fit its type is accepted.** With
 `const A : u8 = 255` and `const B : u8 = A + 1`, compile time sees 256 (a
@@ -278,7 +295,10 @@ plain ports. Tracked in
 With `const K : u4 = 2`, `a[K]` on a `u8` is written as `a[4'd2]`, and
 Verilator stops with `WIDTHTRUNC`. Give the constant the width of the
 address (`const K : u3 = 2` for an 8-bit value). Tracked in
-[issue #134](https://github.com/volt-hdl/volt/issues/134).
+[issue #134](https://github.com/volt-hdl/volt/issues/134). A variable
+index narrower or wider than the address stops `volt test` the same way;
+the list above gives its workaround
+([issue #474](https://github.com/volt-hdl/volt/issues/474)).
 
 **Two `@mmio` modules in one design do not compile, and some `@mmio`
 arguments are not checked.** The second `@mmio` module gets `E1001` for
