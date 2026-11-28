@@ -17,7 +17,8 @@
 //! (volt-sv-emit `fold_literal_arith`).
 //!
 //! Generic parametreler ve modül düzeyi `for` değişkenleri ayrıştırıcıda
-//! literale dönüşür (ADR-0041, ADR-0056); burada literaldirler. Blok içi
+//! literale dönüşür (ADR-0041, ADR-0056); burada literaldirler (bildirilen
+//! tipi Trit olan generic parametrenin literali hariç: Trit'tir, #468). Blok içi
 //! `for` değişkeninin değeri sınırlarından gelir (`loop_bounds`,
 //! const-eval.md §8): ifade her yinelemenin değeriyle denetlenir.
 
@@ -60,8 +61,9 @@ impl TypeChecker<'_, '_> {
 
     fn collect_literal_vars(&self, expr: Idx<Expr>, vars: &mut Vec<LoopVar>) -> bool {
         let kind = &self.ast.exprs[expr].kind;
+        // Generic Trit literali (#468) literal ifadesi değildir: Trit'tir.
         if let ExprKind::IntLit { suffix, .. } = kind {
-            return suffix.is_none();
+            return suffix.is_none() && !self.is_generic_trit(expr);
         }
         if let ExprKind::Unary {
             op: UnOp::Neg,
@@ -110,7 +112,8 @@ impl TypeChecker<'_, '_> {
                 ..
             } = self.ast.exprs[e].kind
             {
-                Some(value)
+                // Generic Trit literali (#468) literal ifadesi değildir.
+                (!self.is_generic_trit(e)).then_some(value)
             } else {
                 None
             }

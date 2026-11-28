@@ -541,8 +541,12 @@ module M {
 /// böyleydi. Genişlik (`uint<K>`), sade dizi uzunluğu, değer konumu,
 /// sayaç kontratının sınırı ve öğe türleri (fn, enum, struct, modül,
 /// generic modül, tip takma adı); alan için E3002 (domain-inference.md).
-/// Generic argüman literal olmalıdır (ADR-0041, E2008): const orada
-/// görünürlükten bağımsız reddedilir.
+/// Generic argüman bir derleme zamanı sabitidir (#471, ADR-0148): görünen
+/// bir const (`G<X>`) kabul edilir, sıradaki tanı içe aktarılan özel
+/// şablonun E1004'üdür (önce argüman E2008 alıyordu ve o tanıyı
+/// gizliyordu). Görünmeyen bir const (başka dosyanın getirilmemiş `K`'si)
+/// orada sabit değildir: E2008; ayrıştırıcının sabit değerlendirmesi
+/// çözücünün görünürlük kuralını izler (#139).
 #[test]
 fn names_the_resolver_sees_keep_their_diagnostics() {
     let other = "pub const X : u32 = 1
@@ -608,7 +612,12 @@ type Word = u8
         (
             "generic-arg",
             "use other::G;\nmodule M {\n    in a : u8\n    out y : u8\n    let s = G<X> { a: a }\n    y = s.y\n}\n",
-            &["main.volt:5:15: E2008"],
+            &["main.volt:1:13: E1004"],
+        ),
+        (
+            "generic-arg-invisible-const",
+            "module L<const W: u32> {\n    in a : u8\n    out y : u8\n    y = a ^ W\n}\nmodule M {\n    in a : u8\n    out y : u8\n    let s = L<K> { a: a }\n    y = s.y\n}\n",
+            &["main.volt:10:15: E2008"],
         ),
     ];
     for (tag, body, expected) in cases {

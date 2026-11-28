@@ -39,10 +39,17 @@ pub enum Variant {
     /// const'larda; çağrı aynı adlı döngü değişkeninin içinde, gövdenin ve
     /// çağıranın `let`'leri bir const'la aynı adda (`hygiene`).
     R,
+    /// Generic Trit sabiti (#468, #471): ifadenin okuduğu ilk Trit portu
+    /// bir `const S : Trit` parametresi olur (`T<id>t<const S : Trit>`);
+    /// S = +1, 0 ve -1 örneklerinden portun değerine göre biri seçilir.
+    /// Bakımcının kararı (#468): S'nin geçtiği her ifade aynı yerdeki bir
+    /// Trit sinyalinin tipini ve değerini alır; beklenen değer a
+    /// biçimininkidir.
+    T,
 }
 
 impl Variant {
-    pub const ALL: [Variant; 10] = [
+    pub const ALL: [Variant; 11] = [
         Variant::A,
         Variant::B,
         Variant::C,
@@ -53,6 +60,7 @@ impl Variant {
         Variant::W,
         Variant::G,
         Variant::R,
+        Variant::T,
     ];
 
     pub fn letter(self) -> char {
@@ -67,6 +75,7 @@ impl Variant {
             Variant::W => 'w',
             Variant::G => 'g',
             Variant::R => 'r',
+            Variant::T => 't',
         }
     }
 
@@ -86,6 +95,7 @@ impl Variant {
             Variant::W => "assigned to a wider target",
             Variant::G => "contract (ensures)",
             Variant::R => "in a function, names colliding with the caller's loop variable and lets",
+            Variant::T => "a Trit port as a generic const S : Trit",
         }
     }
 }
@@ -115,6 +125,8 @@ pub struct Case {
     pub wide: Option<PortTy>,
     /// R biçimi: fn gövdesi ve çakışan adlar.
     pub hygiene: Option<Hygiene>,
+    /// T biçimi: generic sabite dönen Trit portu.
+    pub generic_trit: Option<usize>,
     /// Modüle giren biçimler (modelin geçerli dediği).
     pub variants: Vec<Variant>,
 }
@@ -166,6 +178,7 @@ impl Case {
             cmp_lit: None,
             wide: None,
             hygiene: None,
+            generic_trit: None,
             variants: vec![],
         };
         let Kind::Valid(nat) = case.kind else {
@@ -226,6 +239,9 @@ impl Case {
             .then_some(case.extracted.as_ref())
             .flatten();
         case.hygiene = Hygiene::new(id, &case.expr, body_let, &sub_name(id));
+        let mut read = Vec::new();
+        case.expr.ports(&mut read);
+        case.generic_trit = read.into_iter().find(|&k| ports[k] == PortTy::Trit);
         case.variants = Variant::ALL
             .into_iter()
             .filter(|v| match v {
@@ -233,6 +249,7 @@ impl Case {
                 Variant::K => case.cmp_lit.is_some(),
                 Variant::W => case.wide.is_some(),
                 Variant::R => case.hygiene.is_some(),
+                Variant::T => case.generic_trit.is_some(),
                 _ => true,
             })
             .collect();
@@ -282,7 +299,8 @@ impl Case {
             return None;
         };
         match v {
-            Variant::A | Variant::D => model.eval_check(&self.expr, nat, inp),
+            // T: S portun yerindedir, portun değerindeki örnek seçilir.
+            Variant::A | Variant::D | Variant::T => model.eval_check(&self.expr, nat, inp),
             Variant::B => {
                 let named = Expr::Name(let_name(self.id), Box::new(self.expr.clone()));
                 model.eval_check(&named, nat, inp)
@@ -455,8 +473,115 @@ impl Case {
                 lines.extend(h.module_lines(id, &out_name(id, v)));
                 lines.join("\n")
             }
+            Variant::T => {
+                let k = self.generic_trit.expect("T biçimi");
+                let ret = self.out_ty(v).expect("T biçiminin çıkışı");
+                let mut lines = vec![format!(
+                    "module {}<const S : Trit> {{ out o : {}  o = {} }}",
+                    generic_module_name(id),
+                    ret.volt(),
+                    self.generic_body()
+                )];
+                lines.extend(self.generic_lines(k, &out_name(id, v)));
+                lines.join("\n")
+            }
         }
     }
+
+    /// T biçiminin gövdesi: ifade, Trit portu `S` ile.
+    fn generic_body(&self) -> String {
+        let k = self.generic_trit.expect("T biçimi");
+        with_name(&print(&self.expr, Style::Min), &port_name(k), "S")
+    }
+
+    /// T biçiminin modül içi satırları: üç örnek ve portun değerine göre
+    /// seçim.
+    fn generic_lines(&self, k: usize, out: &str) -> Vec<String> {
+        let id = self.id;
+        let mut ps = Vec::new();
+        self.expr.ports(&mut ps);
+        ps.sort_unstable();
+        ps.dedup();
+        let binds: Vec<String> = ps
+            .iter()
+            .filter(|&&p| p != k)
+            .map(|p| format!("{0}: {0}", port_name(*p)))
+            .collect();
+        let binds = binds.join(", ");
+        let name = generic_module_name(id);
+        let mut lines: Vec<String> = GENERIC_TRIT_VALUES
+            .iter()
+            .map(|(arg, inst)| format!("    let u{id}{inst} = {name}<{arg}> {{ {binds} }}"))
+            .collect();
+        let p = port_name(k);
+        lines.push(format!(
+            "    {out} = if {p} == 1 {{ u{id}tp.o }} else if {p} == -1 {{ u{id}tn.o }} else {{ u{id}tz.o }}"
+        ));
+        lines
+    }
+
+    /// T biçiminin modülü (öğe düzeyi): portlar ifadenin Trit portu dışında
+    /// okuduklarıdır.
+    pub fn generic_item_lines(&self, ports: &[PortTy], ret: PortTy) -> Vec<String> {
+        let k = self.generic_trit.expect("T biçimi");
+        let mut ps = Vec::new();
+        self.expr.ports(&mut ps);
+        ps.sort_unstable();
+        ps.dedup();
+        let mut lines = vec![format!(
+            "module {}<const S : Trit> {{",
+            generic_module_name(self.id)
+        )];
+        for p in ps.iter().filter(|&&p| p != k) {
+            lines.push(format!("    in {} : {}", port_name(*p), ports[*p].volt()));
+        }
+        lines.push(format!("    out o : {}", ret.volt()));
+        lines.push(format!("    o = {}", self.generic_body()));
+        lines.push("}".into());
+        lines
+    }
+}
+
+/// T biçiminin örnekleri: argüman ve örnek adının soneki (`u12tp`).
+const GENERIC_TRIT_VALUES: [(&str, &str); 3] = [("1", "tp"), ("0", "tz"), ("-1", "tn")];
+
+/// T biçiminin generic modülünün adı.
+pub fn generic_module_name(id: usize) -> String {
+    format!("T{id}t")
+}
+
+/// T biçiminin monomorf SV dosyasının (`T12t_1.sv`, `T12t_n1.sv`) ait
+/// olduğu ifadenin kimliği.
+pub fn case_of_generic_file(name: &str) -> Option<usize> {
+    let rest = name.strip_prefix('T')?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let tail = &rest[digits.len()..];
+    if digits.is_empty() || !tail.starts_with("t_") || !tail.ends_with(".sv") {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// `text`'teki `name` adının (tam ad olarak) yerine `with` yazar.
+fn with_name(text: &str, name: &str, with: &str) -> String {
+    let bytes = text.as_bytes();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut out = String::new();
+    let mut i = 0;
+    while i < text.len() {
+        let starts = text[i..].starts_with(name)
+            && (i == 0 || !is_ident(bytes[i - 1]))
+            && bytes.get(i + name.len()).is_none_or(|&b| !is_ident(b));
+        if starts {
+            out.push_str(with);
+            i += name.len();
+        } else {
+            let c = text[i..].chars().next().expect("sınırda karakter");
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
 }
 
 fn lit_operand(k: i128) -> String {
@@ -567,6 +692,13 @@ pub fn build(cases: &[Case], ports: &[PortTy]) -> Built {
                     format!("{} = {}", out_name(id, *v), print(ex, Style::Min))
                 }
                 Variant::G => continue,
+                Variant::T => {
+                    let k = c.generic_trit.expect("T biçimi");
+                    for l in c.generic_lines(k, &out_name(id, *v)) {
+                        lines.push((l, Some((id, Variant::T))));
+                    }
+                    continue;
+                }
                 Variant::R => {
                     let h = c.hygiene.as_ref().expect("R biçimi");
                     for l in h.module_lines(id, &out_name(id, *v)) {
@@ -588,6 +720,15 @@ pub fn build(cases: &[Case], ports: &[PortTy]) -> Built {
         };
         for l in h.item_lines(c.id, ports, ret) {
             lines.push((l, Some((c.id, Variant::R))));
+        }
+    }
+    // T biçiminin generic modülleri de modülden sonra.
+    for c in cases.iter().filter(|c| c.variants.contains(&Variant::T)) {
+        let Some(ret) = c.out_ty(Variant::T) else {
+            continue;
+        };
+        for l in c.generic_item_lines(ports, ret) {
+            lines.push((l, Some((c.id, Variant::T))));
         }
     }
     let mut text = String::new();

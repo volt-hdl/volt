@@ -422,12 +422,15 @@ fn a_trit_base_is_not_this_rule() {
     assert_ne!(d.message, TRIT_MESSAGE);
 }
 
-/// Generic `const S : Trit` parametresi ayrıştırıcıda literale dönüşür
-/// (ADR-0041, #468): `x[S]` örnekte `x[1]`'dir, tip denetimi S'nin Trit
-/// olduğunu görmez. Değer doğrudur; ADR-0146'nın Sınırlar bölümü. Bu test
-/// bugünkü davranışı sabitler.
+/// Generic `const S : Trit` parametresi tip denetiminde Trit'tir (#468,
+/// bakımcı kararı): ayrıştırıcı onu literale çevirse de (ADR-0041) literal
+/// parametrenin bildirilen tipini taşır, kural kendiliğinden uygulanır
+/// (ADR-0146 Sınırlar). `x[S]` ve `x[S +: 2]` Trit indeks, `x[S + 1 : S]`'in
+/// üst sınırı `S + 1` i3 (işaretli, ADR-0147), alt sınırı Trit: dört E2003.
+/// Bu test önce bugünkü kabulü sabitliyordu
+/// (`a_const_generic_trit_index_is_a_literal_and_is_accepted`).
 #[test]
-fn a_const_generic_trit_index_is_a_literal_and_is_accepted() {
+fn a_const_generic_trit_index_is_e2003() {
     let src = "module P<const S: Trit> {
     in  x : u8
     out a : bool
@@ -449,5 +452,5 @@ module M {
     c = p.c
 }
 ";
-    assert!(codes(src).is_empty(), "{:?}", codes(src));
+    assert_eq!(codes(src), ["E2003"; 4], "{:?}", codes(src));
 }

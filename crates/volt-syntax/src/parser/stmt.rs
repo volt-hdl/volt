@@ -318,7 +318,9 @@ impl Parser<'_> {
     }
 
     /// Sınırlı ileri bakış: mevcut konum `Ident (:: Ident)* <` ile
-    /// başlayıp `<`/`>` yuvası kapandığında `{` geliyorsa true. AST
+    /// başlayıp `<`/`>` yuvası kapandığında `{` geliyorsa true (parantez
+    /// içindeki `>` yuvayı kapatır sayılır; sabit ifadede karşılaştırma
+    /// yoktur). AST
     /// kurulmaz, geri izleme yoktur; yalnız ham token'lara bakılır.
     /// `>>` iki kapanış sayılır (Fifo<Entry<8>> deseni). Tarama ~32
     /// token ile sınırlıdır — `let a = b < c` gibi karşılaştırmalar
@@ -363,11 +365,16 @@ impl Parser<'_> {
                     }
                 }
                 // Generic argüman gövdesinde beklenen token'lar: isimler,
-                // sabitler, virgül, yol ayırıcı ve yerleşik tip anahtar
-                // kelimeleri. Başka bir şey görülürse ifade yoluna düşülür.
+                // sabitler, virgül, yol ayırıcı, yerleşik tip anahtar
+                // kelimeleri ve sabit ifadenin aritmetiği ile parantezleri
+                // (`M<-1>`, `M<(-1)>`, `M<0 - 1>`, #471). Başka bir şey
+                // görülürse ifade yoluna düşülür. Yuva `>` ile kapanıp
+                // ardından `{` gelmiyorsa (`a < -1 > b`) bu bir
+                // karşılaştırma zinciridir ve E0010 ifade yolunda kalır.
                 Some(
                     Ident | IntLit | Comma | ColonColon | KwBool | KwClock | KwReset | UIntType
-                    | SIntType | KwTrit | KwBits,
+                    | SIntType | KwTrit | KwBits | Minus | Plus | Star | Slash | Percent | LParen
+                    | RParen,
                 ) => {}
                 _ => return false,
             }

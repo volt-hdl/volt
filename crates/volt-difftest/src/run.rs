@@ -447,7 +447,7 @@ pub struct Batch {
     pub vecs: Vec<Vec<u128>>,
     /// Elle hesaplanmış değerler: (ifade kimliği, vektör, beklenen bit
     /// örüntüsü, geniş hedef mi). Geniş hedefteki değer w biçiminin
-    /// çıkışında, öteki değer a–e biçimlerinin çıkışında (doğal tipte)
+    /// çıkışında, öteki değer a–e ve t biçimlerinin çıkışında (doğal tipte)
     /// karşılaştırılır. Yalnız regresyon toplu koşusunda.
     pub pins: Vec<(usize, usize, u128, bool)>,
 }
@@ -1068,11 +1068,14 @@ impl<'a> Runner<'a> {
                 return Some((o, sv.lines().nth(line - 1).unwrap_or("").trim().to_string()));
             }
             let name = file.rsplit('/').next()?;
-            let id = crate::hygiene::case_of_module_file(name)?;
+            let (id, variant) = match crate::hygiene::case_of_module_file(name) {
+                Some(id) => (id, Variant::R),
+                None => (crate::harness::case_of_generic_file(name)?, Variant::T),
+            };
             let text = std::fs::read_to_string(dir.join("build").join("rtl").join(name))
                 .unwrap_or_default();
             let sv_line = text.lines().nth(line.checked_sub(1)?).unwrap_or("").trim();
-            Some(((id, Variant::R), sv_line.to_string()))
+            Some(((id, variant), sv_line.to_string()))
         };
         let mut findings = Vec::new();
         if !ok {
@@ -1232,7 +1235,7 @@ impl<'a> Runner<'a> {
             }
         }
         // Elle hesaplanmış değerler (regresyon kümesi): modelden bağımsız,
-        // değer biçimlerinin (a–e, doğal tipte çıkış) her biri; geniş
+        // değer biçimlerinin (a–e ve t, doğal tipte çıkış) her biri; geniş
         // hedefteki değer w biçiminde.
         for &(id, vi, want, wide) in &b.pins {
             let Some(i) = by_id(id) else {
@@ -1246,7 +1249,7 @@ impl<'a> Runner<'a> {
                 } else {
                     matches!(
                         o.variant,
-                        Variant::A | Variant::B | Variant::C | Variant::D | Variant::E
+                        Variant::A | Variant::B | Variant::C | Variant::D | Variant::E | Variant::T
                     )
                 };
                 if o.case != id || !compared {

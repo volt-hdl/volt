@@ -2,7 +2,8 @@
 //! §2, ADR-0141): `volt_ast::checked::CheckedTypes`'ı dolduran tek yer.
 //!
 //! Genişlik `TypeArena::bit_width`'ten, işaret `TypeArena::is_signed`'dan
-//! gelir; burada başka bir kural yoktur. Struct tipli ifade alanlarıyla
+//! gelir; burada başka bir kural yoktur. Tipi `Ty::Trit` olan ifade ayrıca
+//! işaretlenir (genişlik ve işaret onu i2'den ayırmaz; #468). Struct tipli ifade alanlarıyla
 //! birlikte yazılır, böylece üretici struct indirgemesinin (ADR-0077)
 //! yeni yaprak düğümlerinin tipini kök ifadenin tipinden okuyabilir.
 
@@ -20,8 +21,12 @@ impl TypeckResult {
         let mut out = CheckedTypes::default();
         let mut memo: HashMap<TypeId, CheckedValue> = HashMap::new();
         for (&expr, &ty) in &self.expr_types {
+            let span = ast.exprs[expr].span;
             let value = checked_value(&self.types, ty, &mut out, &mut memo);
-            out.insert_expr(expr, ast.exprs[expr].span, value);
+            out.insert_expr(expr, span, value);
+            if matches!(self.types.ty(ty), Ty::Trit) {
+                out.insert_trit(expr, span);
+            }
         }
         out
     }

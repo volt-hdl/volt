@@ -234,7 +234,7 @@ module M {
 }
 
 /// Generic `const S : Trit` parametresi ayrıştırıcıda literale dönüşür
-/// (ADR-0041): `~S` örnekte `~1`'dir.
+/// (ADR-0041) ve tip denetiminde Trit'tir (#468): `~S`'nin işleneni Trit.
 #[test]
 fn bit_not_of_a_const_generic_trit_parameter_is_e2003() {
     let src = "module P<const S: Trit> {

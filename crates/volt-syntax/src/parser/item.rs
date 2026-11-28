@@ -504,6 +504,27 @@ impl Parser<'_> {
         false
     }
 
+    /// Generic argüman `(` ya da bir adla başlıyorsa ifade mi (#471): baştaki
+    /// parantezlerden sonra literal ya da `-` gelirse; addan hemen sonra bir
+    /// aritmetik işleç ya da `)` gelirse (`N - 1`, `(NEG)`). Tip olamayan bu
+    /// biçimler önce tip sanılıyordu (`(-1)` demet tipi). Çıplak ad (`NEG`,
+    /// `T`) tip yolu kalır; ardından `,` ya da `>` gelir.
+    fn generic_arg_is_expr(&self) -> bool {
+        let kind_at = |i: usize| self.tokens.get(i).map(|t| t.kind);
+        let mut i = self.pos;
+        while kind_at(i) == Some(LParen) {
+            i += 1;
+        }
+        match kind_at(i) {
+            Some(IntLit | Minus) => true,
+            Some(Ident) => matches!(
+                kind_at(i + 1),
+                Some(Plus | Minus | Star | Slash | Percent | RParen)
+            ),
+            _ => false,
+        }
+    }
+
     /// `<Tip, İfade, ...>` — GenericArg = Type | Expr (grammar §6).
     pub(crate) fn parse_generic_args(&mut self) -> Vec<GenericArg> {
         let open = self.bump(); // '<'
@@ -516,6 +537,12 @@ impl Parser<'_> {
             }
             let before = self.pos;
             match self.current() {
+                // Parantezli sabit ifade (`(-1)`) ve aritmetiği başlayan ad
+                // (`N - 1`) tip değil ifadedir (#471); `(u8, u8)` demet
+                // tipidir.
+                Some(LParen | Ident) if self.generic_arg_is_expr() => {
+                    args.push(GenericArg::Const(self.parse_expr_bp(ABOVE_SHIFT_BP)));
+                }
                 Some(
                     KwBool | KwClock | KwReset | UIntType | SIntType | KwTrit | KwBits | LBracket
                     | LParen | Ident,

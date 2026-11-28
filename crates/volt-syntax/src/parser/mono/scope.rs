@@ -41,13 +41,54 @@ use volt_ast::{Idx, Item, ItemKind, Name, SourceFile};
 use volt_diagnostics::{lstr, Diagnostic, ErrorCode, LabeledSpan, NoteKind};
 use volt_span::Span;
 
+/// Const generic argümanın değeri: işaret ve büyüklük. Büyüklük 2^128 -
+/// 1'e kadar çıkar (#207), değer negatif olabilir (#471: `M<-1>`). Sıfırın
+/// işareti yoktur: `-0` ile `0` aynı değerdir, aynı monomorfu adlandırır.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ArgValue {
+    pub neg: bool,
+    pub mag: u128,
+}
+
+impl ArgValue {
+    pub(crate) fn new(neg: bool, mag: u128) -> ArgValue {
+        ArgValue {
+            neg: neg && mag != 0,
+            mag,
+        }
+    }
+
+    pub(crate) fn of_i128(v: i128) -> ArgValue {
+        ArgValue::new(v < 0, v.unsigned_abs())
+    }
+
+    /// Monomorf adındaki parçası (sv-mapping.md): ondalık büyüklük,
+    /// negatifse önünde `n` (`-1` → `n1`); `-` bir SV adında olamaz.
+    pub(crate) fn mangled(self) -> String {
+        if self.neg {
+            format!("n{}", self.mag)
+        } else {
+            self.mag.to_string()
+        }
+    }
+}
+
+impl std::fmt::Display for ArgValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.neg {
+            write!(f, "-{}", self.mag)
+        } else {
+            write!(f, "{}", self.mag)
+        }
+    }
+}
+
 /// Tek parçalı bir adın ayrıştırıcı katmanındaki bağı.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Binding {
-    /// Const generic parametre (ADR-0041): yolu literal olur. Desende
-    /// değer desenidir (§5.1). Değer argüman literalidir, 2^128 - 1'e
-    /// kadar (#207).
-    Generic(u128),
+    /// Const generic parametre (ADR-0041): yolu literal olur (negatif
+    /// değerde `-literal`). Desende değer desenidir (§5.1).
+    Generic(ArgValue),
     /// Açılan modül düzeyi `for`'un değişkeni (ADR-0056): yolu literal
     /// olur. Desende E1015 (§5.1, döngü değişkeni sabit değildir).
     LoopVar(i128),
@@ -426,14 +467,17 @@ mod tests {
     fn the_innermost_visible_declaration_wins() {
         let mut s = Scopes::default();
         s.push();
-        s.declare("n", entry(Binding::Generic(3)));
+        s.declare("n", entry(Binding::Generic(ArgValue::new(false, 3))));
         s.push();
         assert_eq!(
             s.resolve("n").map(|e| &e.binding),
-            Some(&Binding::Generic(3))
+            Some(&Binding::Generic(ArgValue::new(false, 3)))
         );
         let shadowed = s.declare("n", entry(Binding::Inner { loop_var: false }));
-        assert_eq!(shadowed.map(|e| e.binding), Some(Binding::Generic(3)));
+        assert_eq!(
+            shadowed.map(|e| e.binding),
+            Some(Binding::Generic(ArgValue::new(false, 3)))
+        );
         assert_eq!(
             s.resolve("n").map(|e| &e.binding),
             Some(&Binding::Inner { loop_var: false })
@@ -441,7 +485,7 @@ mod tests {
         s.pop();
         assert_eq!(
             s.resolve("n").map(|e| &e.binding),
-            Some(&Binding::Generic(3))
+            Some(&Binding::Generic(ArgValue::new(false, 3)))
         );
     }
 
@@ -449,11 +493,13 @@ mod tests {
     fn a_second_declaration_in_the_same_scope_keeps_the_first() {
         let mut s = Scopes::default();
         s.push();
-        assert!(s.declare("n", entry(Binding::Generic(3))).is_none());
+        assert!(s
+            .declare("n", entry(Binding::Generic(ArgValue::new(false, 3))))
+            .is_none());
         assert!(s.declare("n", entry(Binding::Outer)).is_none());
         assert_eq!(
             s.resolve("n").map(|e| &e.binding),
-            Some(&Binding::Generic(3))
+            Some(&Binding::Generic(ArgValue::new(false, 3)))
         );
     }
 

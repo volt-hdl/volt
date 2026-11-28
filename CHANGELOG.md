@@ -9,6 +9,40 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 
 ### Behavior changes
 
+- **Davranış değişikliği.** Generic `const S : Trit` parametresi tip
+  denetiminde bir Trit'tir: S'nin geçtiği her ifade, aynı yerde bir `Trit`
+  sinyali olsaydı alacağı tipi ve değeri alır (#468; sessiz yanlış
+  düzeltmesi, ADR-0100; ADR-0148). 0.1.6 S'yi bir tamsayı literali sayıyordu:
+  `S * x` (x : `i8`) tamsayı çarpımı kuralıyla `i16`'ydı ve bir işlemin
+  işleneniyken `i8`'de sarmıyordu; `M<1>` içinde x = -128 için `(-S * x) as
+  i12` +128 veriyordu, aynı ifade `Trit` sinyaliyle (t = -1) -128 verir
+  (type-inference.md §3.3, ADR-0145 Karar 8; `volt test` ile Verilator'da
+  ölçüldü, #468). Şimdi `S * x` `i8`'dir ve A15 köşesinde sarar; tipsiz bir
+  `let`'in teli daralır (`let p = S * x` 16 bitten 8 bite, `let s = S` 32
+  bitten 2 bite); `-S`, `S * S` ve `if c { S } else { -S }` `Trit`, `S + 1`
+  `i3`'tür. Önce kabul edilen şu girdiler artık reddedilir, bir `Trit`
+  sinyaliyle olduğu gibi: indeks olarak S (`x[S]`, `x[S +: 2]`, `x[S + 1 :
+  S]`: `E2003`, ADR-0146, ADR-0147), bir tamsayıya atama (`w = S`, w :
+  `i8`: `E2003`), `S * u` (u : `u8`) ve `S << 1` (`E2003`), `S * 2` ve
+  {-1, 0, +1} dışındaki argüman (`M<2>`: `E2011`). Önce `E2005` alan `S ==
+  1` ve `match S` derlenir. Kimi etkiler: generic `const S : Trit`
+  parametresi kullanan tasarımlar; `examples/` ve kitabın blokları böyle bir
+  parametre kullanmıyor. Ne yapmalı: S'yi bir `Trit` sinyali gibi
+  kullanın; indeks için `x[(S as i3 + 1) as u3]`, tamsayı için `S as i8`.
+  Trit dışındaki generic const tiplerinin (`const W : u32`, `const K : i8`)
+  tiplemesi değişmez.
+- **Davranış değişikliği.** Generic argüman bir derleme zamanı sabitidir:
+  `Scaled<-1>`, `Scaled<(-1)>`, `Scaled<0 - 1>` ve adlı bir sabit
+  (`Scaled<NEG>`, `const NEG : Trit = -1`) kabul edilir ve aynı modülü
+  adlandırır (#471; ADR-0148). 0.1.6 ilk üç biçime `E0010` ("comparison
+  operators cannot be chained") ve `E0001`, adlı sabite `E2008` veriyordu;
+  bir `Trit` parametresine -1 verilemiyordu. İşaretli parametre de negatif
+  değer alır (`P<-1>`, `const K : i8`); değer parametrenin tipine sığmalıdır
+  (`P<-129>` ve işaretsiz parametreye negatif değer `E2010`, ileti alt
+  sınırı söyler). Negatif değerli örneğin modül adı `n` ile yazılır:
+  `Scaled<-1>` → `Scaled_n1` (`rtl/Scaled_n1.sv`). `E2008`'in iletisi artık
+  `must be a compile-time constant` der. Gerçek bir karşılaştırma zinciri
+  (`a < b > c`, `a < -1 > b`) `E0010` almaya devam eder.
 - **Davranış değişikliği.** Bir indeks işaretsiz olmalı: tipi işaretli
   tamsayı (`iN`) olan bir indeks artık `error[E2003]: an index must be
   unsigned, found 'i3'` verir; yardımı indeksi tabanın adres genişliğinde
@@ -38,6 +72,42 @@ hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
   `volt check` ile çalıştırıldı: 833 dosyanın 819'unda çıkış kodları,
   üretilen dosyalar ve tanı kodları aynıdır, 14 fark yeni dosyaların yeni
   E2003'leridir; kitabın 31 `volt` bloğu iki ikiliyle aynı sonucu verir.
+
+### Geliştirici notu — generic Trit sabitinin tipi tip denetiminden (#468, #471, ADR-0148, 2026-11-28)
+
+- Monomorfizasyon parametrenin yerine geçen literali, parametrenin
+  bildirilen tip referansıyla `GenerateInfo::generic_literals`'a yazar;
+  ayrıştırıcı tipi yorumlamaz. Tip denetimi (`synth.rs` `is_generic_trit`)
+  bildirilen tipi `Trit` olan parametrenin literalini Trit tipler; check
+  kipinin literal kolu ve literal katlaması (`literal_fold.rs`) ona
+  uygulanmaz.
+- `CheckedTypes` tipi Trit olan ifadeleri ayrıca işaretler (`insert_trit`,
+  `is_trit`). Üretici literalin Trit olduğunu ve genişliğini oradan okur
+  (`trit.rs` `is_trit`'in literal kolu, `let_width.rs` `checked_trit`,
+  `checked_trit_sig`); `is_trit`'in sözdizimsel tanıması büyümez (#467).
+- Generic argüman ayrıştırıcının sabit değerlendirmesiyle hesaplanır
+  (`mono/mod.rs` `arg_info`, `named_const`; değer `ArgValue`: işaret ve
+  büyüklük). İleri bakış (`stmt.rs` `instance_generics_ahead`) sabit
+  ifadenin aritmetiğini ve parantezlerini kabul eder; `parse_generic_args`
+  parantezli sabit ifadeyi tip değil ifade olarak ayrıştırır.
+- Fark testi: yeni t biçimi (`Variant::T`) ifadenin okuduğu ilk Trit portunu
+  bir generic modülün `const S : Trit` parametresi yapar ve S = +1, 0, -1
+  örneklerinden portun değerine göre birini seçer; beklenen değer a
+  biçimininkidir. Elle hesaplanmış değerler t biçiminde de karşılaştırılır;
+  `regress.rs` #468'in üç örneğini sabitler.
+- Testler: `crates/volt-hir/tests/generic_trit_const_tests.rs`,
+  `crates/volt-syntax/tests/generic_arg_tests.rs`,
+  `crates/volt-driver/tests/generic_trit_sim_tests.rs` (Verilator'da S'li ve
+  t'li biçimlerin eşitliği), `crates/volt-difftest/tests/generic_trit_form_tests.rs`,
+  `tests/real_bugs/468_generic_trit_const.volt`,
+  `tests/real_bugs/471_generic_trit_minus_one.volt`. Gölgenin girdisi
+  `tests/ui/pass/167_trit_recognition_shapes.volt` `Scaled<-1>`'i ve S'li
+  biçimleri alır. `trit_index_tests`'in
+  `a_const_generic_trit_index_is_a_literal_and_is_accepted` testi
+  `a_const_generic_trit_index_is_e2003` oldu (karar: `x[S]` E2003);
+  `cross_file_visibility_tests`'in generic argüman durumu adlı sabiti kabul
+  eder (sıradaki tanı özel şablonun `E1004`'ü), görünmeyen sabit için
+  `E2008` durumu eklendi.
 
 ### Geliştirici notu — indeksin tipi tek fonksiyonda denetlenir (#475, ADR-0147, 2026-11-28)
 

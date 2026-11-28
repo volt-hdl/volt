@@ -12,6 +12,11 @@
 //! çalışır; kopya kök ifadeleri aynı indekste ve aynı konumda tutar, yeni
 //! düğümleri sona ekler. Bu yüzden arama konumu da ister: kopyada aynı
 //! indeksli ama başka konumlu düğüm kök ifade değildir.
+//!
+//! Genişlik ve işaret Trit'i i2'den ayırmaz; tipi Trit olan ifadeler ayrıca
+//! işaretlenir ([`CheckedTypes::is_trit`]). Üretici Trit'i sözdiziminden
+//! tanır (ADR-0062); literal ise tipini yalnız tip denetiminden alır: generic
+//! `const S : Trit` parametresinin yerine geçen literal Trit'tir (#468).
 
 use std::collections::HashMap;
 
@@ -40,12 +45,25 @@ pub struct StructKey(pub u32);
 pub struct CheckedTypes {
     exprs: HashMap<Idx<Expr>, (Span, CheckedValue)>,
     structs: HashMap<StructKey, Vec<(String, CheckedValue)>>,
+    /// Tipi Trit olan ifadeler ve konumları.
+    trits: HashMap<Idx<Expr>, Span>,
 }
 
 impl CheckedTypes {
     /// Kök AST ifadesinin değeri.
     pub fn insert_expr(&mut self, expr: Idx<Expr>, span: Span, value: CheckedValue) {
         self.exprs.insert(expr, (span, value));
+    }
+
+    /// Kök AST ifadesinin tipi Trit'tir.
+    pub fn insert_trit(&mut self, expr: Idx<Expr>, span: Span) {
+        self.trits.insert(expr, span);
+    }
+
+    /// İfadenin tipi Trit mi: indeksi ve konumu kök AST'deki Trit tipli bir
+    /// ifadeninkiyse.
+    pub fn is_trit(&self, expr: Idx<Expr>, span: Span) -> bool {
+        self.trits.get(&expr) == Some(&span)
     }
 
     /// Struct tipinin alanları, bildirim sırasıyla.
@@ -112,6 +130,16 @@ mod tests {
         assert_eq!(t.expr(x, a[x].span), Some(v));
         assert_eq!(t.expr(x, a[y].span), None, "kopyada başka konumlu düğüm");
         assert_eq!(t.expr(y, a[y].span), None, "kayıtsız ifade");
+    }
+
+    #[test]
+    fn a_trit_is_found_only_at_its_own_span() {
+        let (a, x, y) = exprs();
+        let mut t = CheckedTypes::default();
+        t.insert_trit(x, a[x].span);
+        assert!(t.is_trit(x, a[x].span));
+        assert!(!t.is_trit(x, a[y].span), "kopyada başka konumlu düğüm");
+        assert!(!t.is_trit(y, a[y].span), "kayıtsız ifade");
     }
 
     #[test]

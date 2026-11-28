@@ -80,14 +80,17 @@ impl Emitter<'_> {
                 let (l, r) = (self.is_trit(*lhs), self.is_trit(*rhs));
                 (l && (r || self.is_unsized_literal(*rhs))) || (r && self.is_unsized_literal(*lhs))
             }
+            // Literalin tipini yalnız tip denetimi bilir: generic `const S
+            // : Trit` parametresinin yerine geçen literal Trit'tir (#468).
+            // Üretici onu sözdiziminden tanımaz; tablodan okur.
+            ExprKind::IntLit { .. } => self.checked_trit(idx),
             // Kolları Trit olan `if` ve match ifadesi (`value_arms`; kol
             // listesi boş olmaz).
             kind @ (ExprKind::If { .. } | ExprKind::Match { .. }) => crate::expr::value_arms(kind)
                 .unwrap_or_default()
                 .into_iter()
                 .all(|e| self.is_trit(e)),
-            ExprKind::IntLit { .. }
-            | ExprKind::BoolLit(_)
+            ExprKind::BoolLit(_)
             | ExprKind::StringLit(_)
             | ExprKind::Binary { .. }
             | ExprKind::Unary { .. }

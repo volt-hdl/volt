@@ -115,6 +115,13 @@ pub struct GenerateInfo {
     /// (W1002), aynı kapsamdaki port ya da sinyal E1003 verir, parametre
     /// bir kök öğeyi gölgelerse W1002 (#122, #130).
     pub mono_generics: HashMap<Span, Vec<Name>>,
+    /// Monomorf klonun gövdesinde bir const generic parametrenin yerine
+    /// geçen literal (negatif değerde `-`'nin işleneni) → parametrenin
+    /// bildirilen tipi (şablondaki tip referansı). Ayrıştırıcı tipi
+    /// yorumlamaz; tip denetimi okur: bildirilen tipi `Trit` olan
+    /// parametrenin literali Trit tiplidir (#468), öteki tiplerin literali
+    /// literal kalır.
+    pub generic_literals: HashMap<Idx<Expr>, Idx<TypeRef>>,
 }
 
 /// Açılmış bir `for` yinelemesi.
