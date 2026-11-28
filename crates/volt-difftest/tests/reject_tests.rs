@@ -50,6 +50,20 @@ fn the_table_has_the_trit_rows_of_adr_0142_with_e2003() {
     }
 }
 
+/// İşaretli indeks ve parça seçiminin işaretli başlangıcı, E2003
+/// (ADR-0147, #475): SV indeksi işaretsiz okur.
+#[test]
+fn the_table_has_the_signed_index_rows_of_adr_0147_with_e2003() {
+    for op in [Op::IndexBy, Op::PartBy(true), Op::PartBy(false)] {
+        let row = UNDEFINED
+            .iter()
+            .find(|u| u.on == Operand::SInt && u.op == op)
+            .unwrap_or_else(|| panic!("iN {} yok", op.text()));
+        assert_eq!(row.code, "E2003", "{}", row.text());
+        assert!(row.source.starts_with("ADR-0147"), "{}", row.source);
+    }
+}
+
 /// Satırların metni: tip ve işlem; her satır ayrı.
 #[test]
 fn every_row_has_its_own_text() {
@@ -62,6 +76,9 @@ fn every_row_has_its_own_text() {
         "Trit: x[a]",
         "Trit: x[a +: W]",
         "Trit: x[a -: W]",
+        "iN: x[a]",
+        "iN: x[a +: W]",
+        "iN: x[a -: W]",
         "Trit: a as i1",
         "Trit: a as bits<N>",
         "uN: a as Trit",

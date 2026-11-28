@@ -341,7 +341,7 @@ Demet tipinin bit düzeni tanımlı değildir: `bit_width` ve `type_ref_bits`
 | `volt-hir/src/typeck/binop.rs:187` `trit_arith_result` | TD | `*` kapalı, `±` i3, `Trit * iN` iN (ADR-0003). | dil | tek |
 | `volt-hir/src/typeck/cast.rs:83` `check_cast_legal` | TD | `Trit → iN` yalnız `width >= 2` (satır 119); sayısal → Trit E2009; `Bool ↔ u1`; 2 ve 1 sabit, `Scalar` okunmaz. | dil | dağınık |
 | `volt-hir/src/typeck/check.rs:233` `check_int_lit`; `literal_fold.rs:387` `literal_out_of_range`; `width.rs:86` `is_literal_adaptable` | TD | E2011; değer kümesi {−1, 0, 1} iki yerde yazılı (kodlama değil, değer kümesi). | dil | dağınık |
-| `volt-hir/src/typeck/select.rs:56` `index_result`; `:27` `reject_trit_index` | TD | Trit bit seçilemez; kod dışarı açılmaz. Trit indeks de olamaz (#465, ADR-0146): bit/dizi indeksi, aralık sınırı ve parça başlangıcı Trit tutan tipte E2003; önce indeks Trit'in kodunu işaretsiz okuyordu (-1 → 3). Küme `synth.rs:414` `holds_trit`'ten (ADR-0142 ile ortak). | dil | tek |
+| `volt-hir/src/typeck/select.rs:146` `index_result`; `:45` `reject_index_type` (Trit dalı `:124` `trit_index_error`) | TD | Trit bit seçilemez; kod dışarı açılmaz. Trit indeks de olamaz (#465, ADR-0146): bit/dizi indeksi, aralık sınırı ve parça başlangıcı Trit tutan tipte E2003; önce indeks Trit'in kodunu işaretsiz okuyordu (-1 → 3). Küme `synth.rs:414` `holds_trit`'ten (ADR-0142 ile ortak). | dil | tek |
 | `volt-syntax/src/token.rs:171`–`:172` `Spike`, `PTrit` (`:192` `Reserved`) | SYN | Yalnız rezerve (ADR-0028); temsil yok. | dil | tek |
 | `volt-driver/src/sim_struct.rs:39` `LeafLabel::render` | SIM | Struct içindeki Trit'i 2 bit ikiye tümleyen çözer (`11` → −1, `10` → −2). | arka uç | dağınık |
 

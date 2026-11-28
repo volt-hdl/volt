@@ -8,8 +8,14 @@
 //! seçimde 127 bit bir sınırdır (`sig.width < 127`). uN/iN 64 bitte biter
 //! (E0003) ve iki operand aynı genişlikte olmalıdır (E2001): başlangıç 64
 //! bitin üstüne yalnız bileşik ifadeyle çıkar. `s * t` (u63) 126, `s * t +
-//! 1` 127, `u * v` (u64) 128, `u * v + 1` 129 bittir; işaretlide `si * ti +
+//! 1` 127, `u * v` (u64) 128, `u * v + 1` 129 bittir; işaretli `si * ti +
 //! (-1)` (i63) 127, `x * y` (i64) 128 bittir.
+//!
+//! İşaretli bir başlangıç artık E2003'tür (#475, ADR-0147: indeks
+//! işaretsiz olmalı). İşaretli çarpımların 127 ve 128 bitlik başlangıcı
+//! aynı genişlikte `bits<N>` seçimiyle kalır: `(si * ti + (-1))[126 : 0]`
+//! ve `(x * y)[127 : 0]` çarpımın bütün bitleridir (§3.5), `bits<N>`
+//! başlangıç kabul edilir; değerler pozitif, bitleri aynı.
 //!
 //! Şartname: ADR-0035, `x[i -: W]` i..i-W+1 bitlerini okur; bileşik değerin
 //! seçimi değerin doğal genişliğinde hesaplanır (#112, `part_select_value_tests`).
@@ -52,6 +58,23 @@ module WideStart {
     w127 = (a * b)[(s * t + 1) -: 8]
     w128 = (a * b)[(u * v) -: 8]
     w129 = (a * b)[(u * v + 1) -: 8]
+    n127 = (a * b)[(si * ti + (-1))[126 : 0] -: 8]
+    n128 = (a * b)[(x * y)[127 : 0] -: 8]
+}
+";
+
+/// İşaretli başlangıçla aynı tasarım: #475'ten önce kabul ediliyordu,
+/// şimdi her başlangıç E2003 (ADR-0147).
+const SIGNED_DESIGN: &str = "module SignedStart {
+    in  a    : u64
+    in  b    : u64
+    in  si   : i63
+    in  ti   : i63
+    in  x    : i64
+    in  y    : i64
+    out n127 : bits<8>
+    out n128 : bits<8>
+
     n127 = (a * b)[(si * ti + (-1)) -: 8]
     n128 = (a * b)[(x * y) -: 8]
 }
@@ -168,6 +191,28 @@ fn issue_282_wide_starts_check_and_build_without_diagnostics() {
             "{args:?}\n{text}"
         );
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// İşaretli başlangıç (127 ve 128 bit) E2003'tür: indeks işaretsiz
+/// olmalı (#475, ADR-0147). Araç gerektirmez.
+#[test]
+fn a_signed_wide_start_is_e2003() {
+    let dir = temp_dir("signed");
+    std::fs::write(dir.join("signed_start.volt"), SIGNED_DESIGN).expect("yaz");
+    let (out, text) = volt(&dir, &["check", "signed_start.volt"]);
+    assert!(!out.status.success(), "{text}");
+    for ty in ["i127", "i128"] {
+        assert_eq!(
+            text.matches(&format!(
+                "error[E2003]: an index must be unsigned, found '{ty}'"
+            ))
+            .count(),
+            1,
+            "{text}"
+        );
+    }
+    assert!(text.contains("Result 2 error(s), 0 warning(s)"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

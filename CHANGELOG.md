@@ -5,6 +5,63 @@ sürümleme [SemVer](https://semver.org/lang/tr/) izler; 1.0 öncesinde orta
 hane yeni özellik ve olası bozucu değişiklik, son hane düzeltme demektir
 (ADR-0100). Her sürüm bölümü `### Behavior changes` ile başlar.
 
+## [Yayımlanmadı]
+
+### Behavior changes
+
+- **Davranış değişikliği.** Bir indeks işaretsiz olmalı: tipi işaretli
+  tamsayı (`iN`) olan bir indeks artık `error[E2003]: an index must be
+  unsigned, found 'i3'` verir; yardımı indeksi tabanın adres genişliğinde
+  işaretsize açıkça çevirmeyi gösterir (#475; sessiz yanlış düzeltmesi,
+  ADR-0100; ADR-0146, ADR-0147). 0.1.6 `x[i]`'yi (i : `i3`) tanısız
+  derliyordu ve SystemVerilog indeksi işaretsiz okuduğu için i = -1 iken
+  `x[i]` `x[7]`'yi, `TABLE[i]` ve `arr[i]` 7. elemanı okuyordu (v0.1.6
+  hazırlığında `volt test` ile Verilator'da ölçüldü, #475). Aynı ret her
+  indeks yolunda geçerlidir: bit seçimi, dizi elemanı (port, const,
+  register), aralık seçiminin sınırı (`const K : i8`), parça seçiminin
+  başlangıcı (`x[i +: W]`, `x[i -: W]`), atamanın sol tarafı (`on` ve
+  `comb`), fn gövdesi, kontrat; indeks işaretli bir ifade olduğunda da
+  (`a + b`, `a - b`, `a + 1`, `-a`, `t as i3`, `t * a`, `3i8`). Kural
+  değere değil tipe bakar: değeri hiç negatif olmayan bir `iN` indeks de
+  (`const K : i8 = 3` ile `x[K]`) reddedilir; negatif değerli sabit
+  (`const K : i8 = -1`) E2006 yerine E2003 alır. Kimi etkiler: indeksi
+  `iN` ya da işaretli bir ifade olan tasarımlar; `examples/`,
+  `tests/ui/pass` ve kitabın blokları böyle bir indeks kullanmıyor. Ne
+  yapmalı: indeksi açıkça
+  tabanın adres genişliğinde işaretsize çevirin: `x : u8` için
+  `x[i as u3]`, `[u8; 4]` için `arr[i as u2]`; i = -1 için bu yine
+  `x[7]`'yi okur, ama kaynak bunu söyler. Ya da indeksi baştan `uN`
+  tanımlayın. Öteki indeks tipleri (uN, literal, `bits<N>`, `bool`, enum,
+  Trit tutmayan dizi) değişmez. Ölçüm: main (b237311a) ile bu dalın
+  ikilileri gölgenin girdisinde (`examples/` dahil 500 dosya) ve
+  `tests/ui/fail`'de `volt build --single-file --emit=sva,sdc` ve
+  `volt check` ile çalıştırıldı: 833 dosyanın 819'unda çıkış kodları,
+  üretilen dosyalar ve tanı kodları aynıdır, 14 fark yeni dosyaların yeni
+  E2003'leridir; kitabın 31 `volt` bloğu iki ikiliyle aynı sonucu verir.
+
+### Geliştirici notu — indeksin tipi tek fonksiyonda denetlenir (#475, ADR-0147, 2026-11-28)
+
+- `crates/volt-hir/src/typeck/select.rs` `reject_trit_index`'in adı
+  `reject_index_type` oldu ve işaretli tamsayıyı da reddeder; Trit kuralı
+  (ADR-0146) ve iletisi değişmez. Yardımın genişliği `address_width`'ten:
+  tabanın konum sayısını işaretsiz tutan en dar genişlik, en az 1. Adresi
+  olmayan tabanda (hata ya da seçilemeyen tip) ret yoktur, tabanın kendi
+  tanısı çıkar.
+- Fark testi: ret tablosu (`reject::UNDEFINED`) `iN: x[a]`,
+  `iN: x[a +: W]` ve `iN: x[a -: W]` satırlarını alır (E2003); modelin
+  `Unspecified("signed index")` ve `Unspecified("signed part-select
+  start")` okuması E2003 olur. Ret kipi (tohum 458, satır başına 8)
+  main'in ikilisiyle 24 işaretli indeks örneğini kabul eder (`diffs=24`),
+  bu dalınkiyle `diffs=0`.
+- Testler: `crates/volt-hir/tests/signed_index_tests.rs`,
+  `tests/ui/fail/332`–`344`, `tests/real_bugs/475_signed_index.volt`,
+  `crates/volt-driver/tests/signed_index_sim_tests.rs` (yardımın kodu
+  Verilator'da). `trit_index_tests`'in `other_index_types_are_unchanged`
+  testinden `i3` satırı çıktı: `iN` indeks artık bu kuralla E2003'tür.
+  `part_select_wide_start_tests`'in (#282) işaretli 127 ve 128 bitlik
+  başlangıçları aynı genişlikte `bits<N>` seçimine döndü (değerler
+  aynı); işaretli biçimin E2003'ü `a_signed_wide_start_is_e2003`'te.
+
 ## [0.1.6] - 2026-11-28
 
 ### Behavior changes

@@ -71,10 +71,11 @@ pub enum Op {
     Bin(BinOp),
     /// Bit seçme `a[i]`: işlenen tabandır.
     Index,
-    /// İndeks `x[a]`: işlenen indekstir, taban `uN` ya da `bits<N>` (#465).
+    /// İndeks `x[a]`: işlenen indekstir, taban `uN` ya da `bits<N>` (#465,
+    /// #475).
     IndexBy,
     /// Parça seçiminin başlangıcı `x[a +: W]` (`true`) ya da `x[a -: W]`:
-    /// işlenen başlangıçtır (#465).
+    /// işlenen başlangıçtır (#465, #475).
     PartBy(bool),
     Cast(Target),
     /// Tipli `let`: literal `K` Trit bağlamında (`let r : Trit = K`).
@@ -127,6 +128,7 @@ const fn row(on: Operand, op: Op, code: &'static str, source: &'static str) -> U
 const A142_1: &str = "ADR-0142 §1, type-inference.md §3.4";
 const A142_4: &str = "ADR-0142 §4";
 const A146: &str = "ADR-0146, type-inference.md §3.5";
+const A147: &str = "ADR-0147, type-inference.md §3.5";
 const CAST: &str = "type-inference.md §3.6";
 
 /// Her tipin tanımsız işlemleri.
@@ -141,6 +143,9 @@ pub const UNDEFINED: &[Undefined] = &[
     row(Operand::Trit, Op::IndexBy, "E2003", A146),
     row(Operand::Trit, Op::PartBy(true), "E2003", A146),
     row(Operand::Trit, Op::PartBy(false), "E2003", A146),
+    row(Operand::SInt, Op::IndexBy, "E2003", A147),
+    row(Operand::SInt, Op::PartBy(true), "E2003", A147),
+    row(Operand::SInt, Op::PartBy(false), "E2003", A147),
     row(Operand::Trit, Op::Cast(Target::UInt), "E2009", CAST),
     row(Operand::Trit, Op::Cast(Target::SInt1), "E2009", CAST),
     row(Operand::Trit, Op::Cast(Target::Bool), "E2009", CAST),

@@ -352,14 +352,15 @@ fn the_help_code_compiles_clean() {
     }
 }
 
-/// Öteki indeks tipleri değişmez (bakımcının kararı (c)): uN, iN, esnek,
+/// Öteki indeks tipleri değişmez (bakımcının kararı (c)): uN, esnek,
 /// literal, bits<N>, bool, enum ve `[u1; N]` bugünkü gibi kabul edilir.
+/// `iN` artık bu listede değildir: işaretli indeks E2003'tür (#475,
+/// ADR-0147; `signed_index_tests`).
 #[test]
 fn other_index_types_are_unchanged() {
     for (ty, index) in [
         ("u3", "i"),
         ("u8", "i"),
-        ("i3", "i"),
         ("bits<3>", "i"),
         ("bool", "i"),
         ("[u1; 2]", "i"),

@@ -344,6 +344,32 @@ fn ui_fail_319_331_trit_index_e2003() {
 }
 
 #[test]
+fn ui_fail_332_344_signed_index_e2003() {
+    // #475 (ADR-0147): bir indeks işaretsiz olmalı; önceden SV indeksi
+    // işaretsiz okuyordu ve i : i3 = -1 için 7. konumu seçiyordu. Her
+    // indeks yolu: bit seçimi, const/register dizisi, dizi portu, parça
+    // seçimi (+:, -:), sol taraf (dizi, bit, comb), fn gövdesi, kontrat,
+    // aralık sınırı ve işaretli tipte ifade.
+    for f in [
+        "fail/332_signed_index_bit_select.volt",
+        "fail/333_signed_index_const_array.volt",
+        "fail/334_signed_index_reg_array.volt",
+        "fail/335_signed_index_array_port.volt",
+        "fail/336_signed_index_part_select_up.volt",
+        "fail/337_signed_index_part_select_down.volt",
+        "fail/338_signed_index_lvalue_array.volt",
+        "fail/339_signed_index_lvalue_bit.volt",
+        "fail/340_signed_index_lvalue_comb.volt",
+        "fail/341_signed_index_function_body.volt",
+        "fail/342_signed_index_contract.volt",
+        "fail/343_signed_index_range_bound.volt",
+        "fail/344_signed_index_signed_expression.volt",
+    ] {
+        assert_ui_fail(f);
+    }
+}
+
+#[test]
 fn ui_fail_205_edgeless_domain_register_e3016() {
     // ADR-0098 eki: `clock = none` alanında `on` bloğu posedge flop oluyordu.
     assert_ui_fail("fail/205_edgeless_domain_register.volt");

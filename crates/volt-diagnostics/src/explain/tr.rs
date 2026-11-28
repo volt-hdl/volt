@@ -348,7 +348,9 @@ Reset, tipinin yanında biçimi de denetlenen tek değerdir. Volt bir reset'i mo
 
 Bir operatör yalnız bazı tiplerde tanımlıdır. '~' bool, uN, iN, bits<N> ve bunların dizilerinin bitlerini tersler; Trit'te E2003'tür: Trit -1, 0 ya da +1'dir, '~' değerini değil onu kodlayan bitleri tersler ve +1'i kodlayan bitleri terslemek bu üç değerden hiçbiri olmayan bir desen verir. Trit'i '-' ile çevirin: 'y = ~t' E2003'tür, 'y = -t' +1'i -1'e, 0'ı 0'a, -1'i +1'e çevirir. Trit dizisinde her elemanı çevirin: 'a : [Trit; 2]' için 'for i in 0..2 { y[i] = -a[i] }'.
 
-Kaydırma miktarı gibi indeks de Trit olamaz: -1 bir bit ya da eleman konumu değildir ve indeks Trit'i kodlayan bitleri işaretsiz bir sayı olarak okur. 'x[t]', 'arr[t]', 'x[t +: 2]' ve 'wa[t] <= d' E2003'tür; tipi Trit dizisi olan indeks de öyle. Trit'i açıkça çevirin: 'x[(t as i3 + 1) as u3]', t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi okur.",
+Kaydırma miktarı gibi indeks de Trit olamaz: -1 bir bit ya da eleman konumu değildir ve indeks Trit'i kodlayan bitleri işaretsiz bir sayı olarak okur. 'x[t]', 'arr[t]', 'x[t +: 2]' ve 'wa[t] <= d' E2003'tür; tipi Trit dizisi olan indeks de öyle. Trit'i açıkça çevirin: 'x[(t as i3 + 1) as u3]', t = -1, 0 ve +1 için x[0], x[1] ve x[2]'yi okur.
+
+İndeks işaretsiz olmalıdır. SystemVerilog indeksi işaretsiz bir sayı olarak okur; bu yüzden negatif değerli işaretli bir indeks yüksek bir biti ya da elemanı seçerdi: 'i : i3' = -1 için 'x[i]' x[7]'yi okurdu. 'x[i]', 'arr[i]', 'x[i +: 2]', 'wa[i] <= d' ve 'const K : i8' ile 'x[K : 0]' aralık sınırı her işaretli tamsayı tipinde E2003'tür, değer hiç negatif olmasa da: kural tipe bakar. İndeksi açıkça tabanın adres genişliğinde işaretsiz bir sayıya çevirin: 'x : u8' için 'x[i as u3]', 'arr : [u8; 4]' için 'arr[i as u2]'; negatif bir değer o zaman büyük bir indeks olur, -1 as u3 = 7.",
         ),
         E2004 => Explanation::new(
             "bits<N> tipinde aritmetik",

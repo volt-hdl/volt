@@ -410,7 +410,7 @@ impl TypeChecker<'_, '_> {
     }
 
     /// Tip bir Trit ya da (iç içe) Trit dizisi mi. `~` (ADR-0142) ve
-    /// indeks (`reject_trit_index`, ADR-0146) aynı kümeyi kullanır.
+    /// indeks (`reject_index_type`, ADR-0146) aynı kümeyi kullanır.
     pub(super) fn holds_trit(&self, ty: TypeId) -> bool {
         if let Ty::Array { elem, .. } = *self.types.ty(ty) {
             return self.holds_trit(elem);
